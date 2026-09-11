@@ -51,6 +51,9 @@ class MdEditController {
     ; Below zero for one continuous column, which is what a viewer scrolls.
     def viewWidth:double 900.0
     def sheetGap:double (0.0 - 1.0)
+    ; …and whether those sheets are SLIDES, which is the same pagination with
+    ; the break rules a deck wants. See `MdLayout.layoutSlides`.
+    def slideMode:boolean false
 
     ; anchor is where the selection was started, focus where the caret is.
     def anchor:int 0
@@ -123,7 +126,12 @@ class MdEditController {
         ; so a keystroke re-measures one block and copies the rest.
         layout.setDocSource(source)
         if (sheetGap >= 0.0) {
-            layout.layoutPaged(doc)
+            if slideMode {
+                layout.applySlideMeta(doc)
+                layout.layoutSlides(doc)
+            } {
+                layout.layoutPaged(doc)
+            }
         } {
             layout.armCache(doc)
             layout.layoutContinuous(doc viewWidth)
@@ -497,6 +505,24 @@ class MdEditController {
         def a:int (this.selStart())
         def b:int (this.selEnd())
         def wasSelection:boolean (a != b)
+        ; A space typed at the inside edge of `**bold**` closes nothing, and
+        ; the four asterisks appear in the document the reader is reading.
+        ; `MdSemanticEdit` decides where that space really goes; the pre-check
+        ; on the text keeps every other keystroke off the parse.
+        if (! wasSelection) {
+            def lead:int (MdSemanticEdit.leadSpace(s))
+            def tail:int (MdSemanticEdit.tailSpace(s))
+            if ((lead + tail) > 0) {
+                this.ensureLayout()
+                def guard:[MdEditOp]
+                if ((MdSemanticEdit.guardWhitespace(guard source doc a s)) > 0) {
+                    ; Moving a delimiter run is not the continuation of a word.
+                    canMerge = false
+                    this.apply((itemAt guard 0))
+                    return
+                }
+            }
+        }
         def op:MdEditOp (MdEdit.patch(source a b s))
         if wasSelection {
             ; Replacing a selection is never the continuation of a word.

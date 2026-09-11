@@ -20,7 +20,7 @@
 Import "../src/MdBlock.rgr"
 Import "../src/MdLayout.rgr"
 Import "../src/MdToEvg.rgr"
-Import "../src/MdMermaid.rgr"
+Import "../src/MdDiagram.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 
@@ -44,7 +44,7 @@ class MdEmbedProbe {
         def doc:MdNode (MdBlock.parseText(text))
         def l:MdLayout (new MdLayout())
         def inner:double (width - (l.style.margin * 2.0))
-        MdMermaid.prepare(doc l.embeds inner "default")
+        MdDiagram.prepare(doc l.embeds inner "default")
         l.layoutContinuous(doc width)
         def root:EVGElement (MdToEvg.buildPage(l width))
 

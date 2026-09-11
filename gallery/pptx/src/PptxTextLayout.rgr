@@ -375,7 +375,89 @@ class PptxTextLayout {
         return para.align
     }
 
+    ; ------------------------------------------------------------------------
+    ; Text columns
+    ; ------------------------------------------------------------------------
+    ;
+    ; `a:bodyPr@numCol` — a text body that fills the first column to the
+    ; bottom of the box and carries on in the next. PowerPoint does it; a
+    ; reader that ignores it draws every column's worth of text down the first
+    ; one and out through the bottom of the box, over whatever is under it.
+    ;
+    ; The lines are laid out at ONE column's width and then dealt into the
+    ; columns, which is the same shape as the markdown layout's own column
+    ; flow and for the same reason: laying each column out separately
+    ; re-measures and re-wraps, and the second pass would not agree with the
+    ; first about where a line ends.
+    ;
+    ; A line keeps its y RELATIVE to the top of its column rather than being
+    ; re-stacked by height, so the space a paragraph asked for before and
+    ; after it survives the deal.
     sfn layout:[PptxTextLine] (body:PptxTextBody m:OfficeTextMeasure scale:double x:double y:double w:double h:double) {
+        if (body.columns <= 1) {
+            return (PptxTextLayout.layoutFlow(body m scale x y w h))
+        }
+        def n:int body.columns
+        def gap:double (body.columnGapPt * scale)
+        def colW:double ((w - (gap * (to_double (n - 1)))) / (to_double n))
+        if (colW < 16.0) {
+            return (PptxTextLayout.layoutFlow(body m scale x y w h))
+        }
+        def lines:[PptxTextLine] (PptxTextLayout.layoutFlow(body m scale x y colW h))
+        def count:int (array_length lines)
+        if (count == 0) { return lines }
+        def contentH:double ((h - (body.insetT * scale)) - (body.insetB * scale))
+        if (contentH < 8.0) { return lines }
+        ; Dealt by PARAGRAPH, not by line. A paragraph's bullet is on its
+        ; first line and its wrapped remainder on the rest, so a deal that
+        ; cuts between them puts the bullet in one column and the words in
+        ; the next — which is what the first attempt at this did.
+        def firstLine:PptxTextLine (itemAt lines 0)
+        def top:double firstLine.y
+        def colStart:double firstLine.y
+        def col:int 0
+        def i:int 0
+        while (i < count) {
+            def ln:PptxTextLine (itemAt lines i)
+            if ln.first {
+                ; How tall this whole paragraph is, before deciding where it
+                ; goes: the distance from its first line to the end of its
+                ; last.
+                def para:int ln.para
+                def bottom:double (ln.y + ln.h)
+                def k:int i
+                while (k < count) {
+                    def peek:PptxTextLine (itemAt lines k)
+                    if (peek.para != para) { break }
+                    def pb:double (peek.y + peek.h)
+                    if (pb > bottom) { bottom = pb }
+                    k = (k + 1)
+                }
+                def need:double (bottom - ln.y)
+                def used:double (ln.y - colStart)
+                ; The first paragraph is in the first column whatever its
+                ; height: a box shorter than one line would otherwise push
+                ; everything one column along and leave the first empty.
+                if (i > 0) {
+                    if ((used + need) > contentH) {
+                        if (col < (n - 1)) {
+                            col = (col + 1)
+                            colStart = ln.y
+                        }
+                    }
+                }
+            }
+            def rel:double (ln.y - colStart)
+            def dx:double ((to_double col) * (colW + gap))
+            ln.x = (ln.x + dx)
+            ln.bulletX = (ln.bulletX + dx)
+            ln.y = (top + rel)
+            i = (i + 1)
+        }
+        return lines
+    }
+
+    sfn layoutFlow:[PptxTextLine] (body:PptxTextBody m:OfficeTextMeasure scale:double x:double y:double w:double h:double) {
         def out:[PptxTextLine]
         def padL:double (body.insetL * scale)
         def padT:double (body.insetT * scale)

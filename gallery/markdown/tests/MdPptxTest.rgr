@@ -1,0 +1,836 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdPptxTest.rgr — the deck goes out, and comes back the same deck.
+; ============================================================================
+;
+;   npm run markdown:pptx:test
+;
+; `PLAN_SLIDES.md` Stage E, and its "done when" exactly: a deck exported from
+; the sample is written to a real `.pptx`, opened again with the same reader
+; `pptx:test` drives, and comes back with the same heading text, the same
+; bullet count and the same slide count.
+;
+; **Through the file, not through the model.** Checking the model the exporter
+; built would pass on a deck the writer cannot spell and the parser cannot
+; read — which is most of the ways this can be wrong. `save()` and `open()`
+; are the round trip, and what survives them is what a reader gets.
+;
+; **The counts are of the NOUNS the failure is about.** A deck of the right
+; number of slides, each one a picture of a slide, is the exact failure §2 of
+; the plan exists to avoid — so what is counted is TITLE PLACEHOLDERS, BULLET
+; PARAGRAPHS and TABLE CELLS, none of which a display-list export produces at
+; all.
+; ============================================================================
+
+Import "../src/MdToPptx.rgr"
+Import "../src/MdBlock.rgr"
+Import "../src/MdCss.rgr"
+Import "../src/MdDiagram.rgr"
+Import "../src/MdThemes.rgr"
+
+class DeckCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print (("    got  " + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+}
+
+class MdPptxTest {
+    def maker:MdToPptx (new MdToPptx())
+
+    sfn main:void () {
+        def t:MdPptxTest (new MdPptxTest())
+        t.run()
+    }
+
+    ; The whole road, from markdown to a deck: parse, resolve the template,
+    ; draw the diagrams, lay out as slides, export.
+    fn build:PptxDeck (src:string css:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        def c:MdCss (new MdCss())
+        c.addStyleSheet(css)
+        c.applyTo(l.style)
+        l.setStyleSheet(css)
+        l.applyMeta(doc)
+        l.applySlideMeta(doc)
+        def cw:double (l.style.pageWidth - (l.style.margin * 2.0))
+        MdDiagram.prepare(doc l.embeds cw "default")
+        l.setDocSource(src)
+        l.layoutSlides(doc)
+        maker = (new MdToPptx())
+        return (maker.deck(doc l))
+    }
+
+    ; …and back through the file, which is the only trip that proves anything.
+    fn reopened:PptxDeck (d:PptxDeck) {
+        return (PptxApi.open((d.save())))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Counting the nouns
+    ; ----------------------------------------------------------------------
+    sfn titles:int (d:PptxDeck) {
+        def c:int 0
+        def s:int 0
+        while (s < (d.slideCount())) {
+            def sl:PptxSlideRef (d.slideAt(s))
+            def k:int 0
+            while (k < (sl.shapeCount())) {
+                def sh:PptxShapeRef (sl.shapeAt(k))
+                def m:PptxShape (sh.model())
+                if (m.phType == "title") { c = (c + 1) }
+                k = (k + 1)
+            }
+            s = (s + 1)
+        }
+        return c
+    }
+
+    sfn bullets:int (d:PptxDeck) {
+        def c:int 0
+        def s:int 0
+        while (s < (d.slideCount())) {
+            def sl:PptxSlideRef (d.slideAt(s))
+            def k:int 0
+            while (k < (sl.shapeCount())) {
+                def sh:PptxShapeRef (sl.shapeAt(k))
+                def m:PptxShape (sh.model())
+                def p:int 0
+                while (p < (array_length m.text.paragraphs)) {
+                    def par:PptxParagraph (itemAt m.text.paragraphs p)
+                    if par.hasBullet { c = (c + 1) }
+                    p = (p + 1)
+                }
+                k = (k + 1)
+            }
+            s = (s + 1)
+        }
+        return c
+    }
+
+    sfn tableCells:string (d:PptxDeck) {
+        def out:string ""
+        def s:int 0
+        while (s < (d.slideCount())) {
+            def sl:PptxSlideRef (d.slideAt(s))
+            def k:int 0
+            while (k < (sl.shapeCount())) {
+                def sh:PptxShapeRef (sl.shapeAt(k))
+                def m:PptxShape (sh.model())
+                if (m.kind == 4) {
+                    def i:int 0
+                    while (i < (array_length m.tableCells)) {
+                        def cell:PptxTableCell (itemAt m.tableCells i)
+                        out = ((out + cell.text) + "|")
+                        i = (i + 1)
+                    }
+                }
+                k = (k + 1)
+            }
+            s = (s + 1)
+        }
+        return out
+    }
+
+    sfn titleText:string (d:PptxDeck) {
+        def out:string ""
+        def s:int 0
+        while (s < (d.slideCount())) {
+            def sl:PptxSlideRef (d.slideAt(s))
+            def k:int 0
+            while (k < (sl.shapeCount())) {
+                def sh:PptxShapeRef (sl.shapeAt(k))
+                def m:PptxShape (sh.model())
+                if (m.phType == "title") {
+                    out = ((out + (PptxApi.textOf(m))) + "|")
+                }
+                k = (k + 1)
+            }
+            s = (s + 1)
+        }
+        return out
+    }
+
+    ; How many shapes are GROUPS, which is what a drawing comes out as. The
+    ; whole point of Stage E is that this is the exception rather than every
+    ; shape on every slide.
+    sfn groups:int (d:PptxDeck) {
+        def c:int 0
+        def s:int 0
+        while (s < (d.slideCount())) {
+            def sl:PptxSlideRef (d.slideAt(s))
+            def k:int 0
+            while (k < (sl.shapeCount())) {
+                def sh:PptxShapeRef (sl.shapeAt(k))
+                def m:PptxShape (sh.model())
+                if (m.kind == 2) { c = (c + 1) }
+                k = (k + 1)
+            }
+            s = (s + 1)
+        }
+        return c
+    }
+
+    sfn deckText:string (d:PptxDeck) {
+        def out:string ""
+        def s:int 0
+        while (s < (d.slideCount())) {
+            def sl:PptxSlideRef (d.slideAt(s))
+            out = ((out + (sl.text())) + "\n--\n")
+            s = (s + 1)
+        }
+        return out
+    }
+
+    ; ----------------------------------------------------------------------
+    fn roundTrip:void (c:DeckCheck) {
+        print "-- out through the writer, back through the reader --"
+        def src:string (?? (read_file "." "gallery/markdown/fixtures/deck.md") "")
+        def css:string (?? (read_file "." "gallery/markdown/fixtures/themes/corporate.css") "")
+        c.ok("the sample is readable" ((strlen src) > 100))
+        c.ok("…and the template" ((strlen css) > 100))
+
+        def made:PptxDeck (this.build(src css))
+        def back:PptxDeck (this.reopened(made))
+
+        c.eqInt("the same slides came back" (back.slideCount()) (made.slideCount()))
+        c.eqInt("…one per slide the layout made" (made.slideCount()) 5)
+        c.eqInt("the same titles" (MdPptxTest.titles(back)) (MdPptxTest.titles(made)))
+        c.eqInt("…one on each slide" (MdPptxTest.titles(back)) 5)
+        c.eqStr("with the same words in them" (MdPptxTest.titleText(back)) (MdPptxTest.titleText(made)))
+        c.eqStr("…which are the document's headings" (MdPptxTest.titleText(back)) "Q3 Strategy|Mistä liikevaihto tuli|Tilausten kulku|Luvut|Mitä seuraavaksi|")
+
+        c.eqInt("the same bullets" (MdPptxTest.bullets(back)) (MdPptxTest.bullets(made)))
+        c.eqInt("…three and three, from the two lists" (MdPptxTest.bullets(back)) 6)
+
+        c.eqStr("the same table, cell for cell" (MdPptxTest.tableCells(back)) (MdPptxTest.tableCells(made)))
+        c.eqStr("…which is the document's table" (MdPptxTest.tableCells(back)) "Kanava|Q2|Q3|Verkkokauppa|4.1|4.8|Jälleenmyynti|2.2|2.2|Lisenssit|1.3|1.25|")
+
+        c.eqStr("and every word on every slide" (MdPptxTest.deckText(back)) (MdPptxTest.deckText(made)))
+
+        ; The claim of §2, as a number. A display-list export makes every
+        ; shape a group or a one-line text box; this one has ONE group, for
+        ; the one thing on the deck that is a drawing.
+        c.eqInt("one drawing, drawn" (MdPptxTest.groups(made)) 1)
+        c.eqInt("…and it survived the file too" (MdPptxTest.groups(back)) 1)
+        c.eqInt("the exporter counted it" maker.result.drawn 1)
+        c.eqInt("…and dropped nothing" maker.result.dropped 0)
+        c.ok("…and said what it did" ((maker.result.noteCount()) > 0))
+    }
+
+    ; The part a reader can actually change: a paragraph is ONE text box with
+    ; ONE run, not one box per drawn line. That is the whole difference
+    ; between this road and the display-list road, and it is invisible to a
+    ; check that only counts slides.
+    fn editable:void (c:DeckCheck) {
+        print "-- a paragraph is one text box, not five --"
+        ; Long enough that the layout wraps it across several lines.
+        def src:string "# Title\n\nA paragraph long enough that the layout will break it across four or five lines at this width, which is the case the whole of Stage E is about, and one more clause so that it certainly does.\n"
+        def css:string "page { width: 720pt; height: 405pt; padding: 36pt } document { font-size: 20pt }"
+        def d:PptxDeck (this.build(src css))
+        def back:PptxDeck (this.reopened(d))
+        def sl:PptxSlideRef (back.slideAt(0))
+        c.eqInt("a title and a body, and nothing else" (sl.shapeCount()) 2)
+        def body:PptxShapeRef (sl.shapeAt(1))
+        c.eqInt("the paragraph is one paragraph" (body.paragraphCount()) 1)
+        c.eqInt("…of one run" (body.runCount(0)) 1)
+        def r:PptxRunRef (body.runAt(0 0))
+        c.ok("…holding the whole sentence" ((strlen (r.text())) > 150))
+
+        ; And it is placed where the layout put it, so the deck looks like
+        ; the preview even though PowerPoint does the wrapping.
+        def m:PptxShape (body.model())
+        c.ok("placed inside the slide" ((m.x >= 0.0) && ((m.x + m.width) <= 721.0)))
+        c.ok("…and below the title" (m.y > 36.0))
+    }
+
+    ; Nested lists become LEVELS, which is how PowerPoint spells a sub-bullet
+    ; — not a second shape, which would not be the same list.
+    fn levels:void (c:DeckCheck) {
+        print "-- a nested list is a level, not a second box --"
+        def src:string "# Title\n\n- one\n  - under one\n  - also under one\n- two\n"
+        def css:string "page { width: 720pt; height: 405pt; padding: 36pt }"
+        def d:PptxDeck (this.build(src css))
+        def back:PptxDeck (this.reopened(d))
+        def sl:PptxSlideRef (back.slideAt(0))
+        c.eqInt("one box for the whole list" (sl.shapeCount()) 2)
+        def body:PptxShapeRef (sl.shapeAt(1))
+        def m:PptxShape (body.model())
+        def spelled:string ""
+        def p:int 0
+        while (p < (array_length m.text.paragraphs)) {
+            def par:PptxParagraph (itemAt m.text.paragraphs p)
+            spelled = ((spelled + (to_string par.level)) + ":")
+            def rr:int 0
+            while (rr < (array_length par.runs)) {
+                def run:PptxTextRun (itemAt par.runs rr)
+                spelled = (spelled + run.text)
+                rr = (rr + 1)
+            }
+            spelled = (spelled + "|")
+            p = (p + 1)
+        }
+        c.eqStr("four bullets, two of them one level in" spelled "0:one|1:under one|1:also under one|0:two|")
+    }
+
+    ; An ordered list is numbered by PowerPoint, not by us — so the numbers
+    ; renumber when somebody inserts one.
+    fn numbering:void (c:DeckCheck) {
+        print "-- an ordered list is numbered by PowerPoint --"
+        def src:string "# Title\n\n1. first\n2. second\n3. third\n"
+        def css:string "page { width: 720pt; height: 405pt; padding: 36pt }"
+        def d:PptxDeck (this.build(src css))
+        def back:PptxDeck (this.reopened(d))
+        def sl:PptxSlideRef (back.slideAt(0))
+        def body:PptxShapeRef (sl.shapeAt(1))
+        def m:PptxShape (body.model())
+        def auto:int 0
+        def texts:string ""
+        def p:int 0
+        while (p < (array_length m.text.paragraphs)) {
+            def par:PptxParagraph (itemAt m.text.paragraphs p)
+            if par.bulletAutoNum { auto = (auto + 1) }
+            def rr:int 0
+            while (rr < (array_length par.runs)) {
+                def run:PptxTextRun (itemAt par.runs rr)
+                texts = ((texts + run.text) + "|")
+                rr = (rr + 1)
+            }
+            p = (p + 1)
+        }
+        c.eqInt("three auto-numbered paragraphs" auto 3)
+        c.eqStr("…and the numbers are not in the text" texts "first|second|third|")
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The three things that were right in the file and wrong on the screen
+    ; ----------------------------------------------------------------------
+    ;
+    ; Each of these round-tripped perfectly and drew as nothing, or as a pile
+    ; in the corner. A check that only reads the model back cannot see any of
+    ; them, so each one counts what the RENDERER reads.
+    fn drawable:void (c:DeckCheck) {
+        print "-- and it draws, not just parses --"
+        def src:string (?? (read_file "." "gallery/markdown/fixtures/deck.md") "")
+        def css:string (?? (read_file "." "gallery/markdown/fixtures/themes/corporate.css") "")
+        def back:PptxDeck (this.reopened((this.build(src css))))
+
+        ; 1. A TABLE CELL IS A TEXT BODY. `cell.text` beside it is the
+        ; shorthand the writer falls back to; nothing that DRAWS a deck reads
+        ; it. A table built with only the shorthand is a grid of empty boxes
+        ; on screen and a table of words in the file.
+        def withText:int 0
+        def withBody:int 0
+        def s:int 0
+        while (s < (back.slideCount())) {
+            def sl:PptxSlideRef (back.slideAt(s))
+            def k:int 0
+            while (k < (sl.shapeCount())) {
+                def sh:PptxShapeRef (sl.shapeAt(k))
+                def m:PptxShape (sh.model())
+                if (m.kind == 4) {
+                    def i:int 0
+                    while (i < (array_length m.tableCells)) {
+                        def cell:PptxTableCell (itemAt m.tableCells i)
+                        if ((strlen cell.text) > 0) { withText = (withText + 1) }
+                        if ((array_length cell.body.paragraphs) > 0) { withBody = (withBody + 1) }
+                        i = (i + 1)
+                    }
+                }
+                k = (k + 1)
+            }
+            s = (s + 1)
+        }
+        c.eqInt("every cell has words" withText 12)
+        c.eqInt("…and every one of them is a text body" withBody withText)
+
+        ; 2. THE GRID IS THE LAYOUT'S. Equal division is what a table looks
+        ; like when nobody asked how wide the columns are, and it writes a
+        ; label across the cell beside it.
+        def grid:string ""
+        def s2:int 0
+        while (s2 < (back.slideCount())) {
+            def sl2:PptxSlideRef (back.slideAt(s2))
+            def k2:int 0
+            while (k2 < (sl2.shapeCount())) {
+                def sh2:PptxShapeRef (sl2.shapeAt(k2))
+                def m2:PptxShape (sh2.model())
+                if (m2.kind == 4) {
+                    def w0:double (itemAt m2.tableColW 0)
+                    def w1:double (itemAt m2.tableColW 1)
+                    if ((fabs (w0 - w1)) > 1.0) { grid = "uneven" } { grid = "equal" }
+                }
+                k2 = (k2 + 1)
+            }
+            s2 = (s2 + 1)
+        }
+        c.eqStr("the columns are as wide as their words need" grid "uneven")
+
+        ; 3. A DIAGRAM IS PLACED. Its paths carry an `svgPath` and a `viewBox`
+        ; and are put where their container's box is — built straight off the
+        ; tree, with nothing laid out, the edges come out absolute and every
+        ; node's label lands in the corner. So: the group's children must be
+        ; spread across it, not piled at its origin.
+        def spread:double 0.0
+        def kids:int 0
+        def s3:int 0
+        while (s3 < (back.slideCount())) {
+            def sl3:PptxSlideRef (back.slideAt(s3))
+            def k3:int 0
+            while (k3 < (sl3.shapeCount())) {
+                def sh3:PptxShapeRef (sl3.shapeAt(k3))
+                def m3:PptxShape (sh3.model())
+                if (m3.kind == 2) {
+                    kids = (array_length m3.children)
+                    def i3:int 0
+                    while (i3 < kids) {
+                        def kid:PptxShape (itemAt m3.children i3)
+                        def dx:double (kid.x - m3.x)
+                        if (dx > spread) { spread = dx }
+                        i3 = (i3 + 1)
+                    }
+                }
+                k3 = (k3 + 1)
+            }
+            s3 = (s3 + 1)
+        }
+        c.ok("the drawing has parts" (kids > 4))
+        c.ok("…and they are spread across it, not piled at its corner" (spread > 100.0))
+    }
+
+    ; A list the sheet gave columns to is ONE SHAPE PER COLUMN, at the
+    ; rectangle the layout put that column's items in.
+    ;
+    ; The first answer was one shape with `a:bodyPr@numCol`, which keeps it
+    ; one list and is what PresentationML says. It is not a safe answer: the
+    ; rectangle a columned block gets is wide and SHORT — as tall as one
+    ; column — so a reader that does not honour `numCol` stacks every item in
+    ; it and draws the block below on top of the overflow. That was reported
+    ; from a real reader, so the geometry carries it instead.
+    ;
+    ; The check is therefore not "what does the file say" but "could anything
+    ; land on anything": no two shapes on a slide may overlap.
+    fn columns:void (c:DeckCheck) {
+        print "-- a list in columns is one shape per column --"
+        def src:string "# Title
+
+- one
+- two
+- three
+- four
+- five
+- six
+{.c3}
+"
+        def css:string "page { width: 720pt; height: 405pt; padding: 36pt } .c3 { column-count: 3; column-gap: 20pt }"
+        def back:PptxDeck (this.reopened((this.build(src css))))
+        def sl:PptxSlideRef (back.slideAt(0))
+        c.eqInt("a title and three columns" (sl.shapeCount()) 4)
+        c.eqInt("…holding all six bullets between them" (MdPptxTest.bullets(back)) 6)
+        c.eqStr("…in document order, down each column" (MdPptxTest.columnOrder(sl)) "one,two|three,four|five,six")
+        c.eqInt("and nothing is drawn on top of anything" (MdPptxTest.overlaps(sl)) 0)
+
+        ; The columns are side by side and level with each other, which is
+        ; what makes them columns rather than three boxes.
+        def sa:PptxShapeRef (sl.shapeAt(1))
+        def sb:PptxShapeRef (sl.shapeAt(2))
+        def a:PptxShape (sa.model())
+        def b:PptxShape (sb.model())
+        c.ok("the second column is right of the first" (b.x > (a.x + a.width)))
+        c.ok("…and level with it" ((fabs (a.y - b.y)) < 1.0))
+
+        ; A list nobody styled is still one shape, so a deck that never asked
+        ; for columns is the deck it always was.
+        def plainSrc:string "# Title
+
+- one
+- two
+"
+        def plain:PptxDeck (this.reopened((this.build(plainSrc "page { width: 720pt; height: 405pt; padding: 36pt }"))))
+        def ps:PptxSlideRef (plain.slideAt(0))
+        c.eqInt("one column stays one shape" (ps.shapeCount()) 2)
+        c.eqInt("…and nothing overlaps there either" (MdPptxTest.overlaps(ps)) 0)
+
+        ; …and the whole sample, which is where the overlap was seen.
+        def deckSrc:string (?? (read_file "." "gallery/markdown/fixtures/deck.md") "")
+        def deckCss:string (?? (read_file "." "gallery/markdown/fixtures/themes/corporate.css") "")
+        def full:PptxDeck (this.reopened((this.build(deckSrc deckCss))))
+        def bad:int 0
+        def s:int 0
+        while (s < (full.slideCount())) {
+            def one:PptxSlideRef (full.slideAt(s))
+            bad = (bad + (MdPptxTest.overlaps(one)))
+            s = (s + 1)
+        }
+        c.eqInt("and no slide of the sample has two shapes on each other" bad 0)
+    }
+
+    ; The words of each shape on a slide, shapes separated by `|` and the
+    ; bullets inside one by `,` — which says both WHICH column each item
+    ; landed in and in what ORDER. A deal that went across the rows instead
+    ; of down the columns gets the second half of this wrong.
+    sfn columnOrder:string (sl:PptxSlideRef) {
+        def out:string ""
+        def k:int 1
+        while (k < (sl.shapeCount())) {
+            def sh:PptxShapeRef (sl.shapeAt(k))
+            def m:PptxShape (sh.model())
+            if (k > 1) { out = (out + "|") }
+            def p:int 0
+            while (p < (array_length m.text.paragraphs)) {
+                def par:PptxParagraph (itemAt m.text.paragraphs p)
+                if (p > 0) { out = (out + ",") }
+                def r:int 0
+                while (r < (array_length par.runs)) {
+                    def run:PptxTextRun (itemAt par.runs r)
+                    out = (out + run.text)
+                    r = (r + 1)
+                }
+                p = (p + 1)
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; How many pairs of shapes on this slide overlap — the noun the reader
+    ; reported, which is text on text.
+    sfn overlaps:int (sl:PptxSlideRef) {
+        def hits:int 0
+        def i:int 0
+        while (i < (sl.shapeCount())) {
+            def sa2:PptxShapeRef (sl.shapeAt(i))
+            def a:PptxShape (sa2.model())
+            def j:int (i + 1)
+            while (j < (sl.shapeCount())) {
+                def sb2:PptxShapeRef (sl.shapeAt(j))
+                def b:PptxShape (sb2.model())
+                def over:boolean true
+                if ((a.x + a.width) <= (b.x + 0.5)) { over = false }
+                if ((b.x + b.width) <= (a.x + 0.5)) { over = false }
+                if ((a.y + a.height) <= (b.y + 0.5)) { over = false }
+                if ((b.y + b.height) <= (a.y + 0.5)) { over = false }
+                if over { hits = (hits + 1) }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return hits
+    }
+
+    ; ----------------------------------------------------------------------
+    ; One document, two companies
+    ; ----------------------------------------------------------------------
+    ;
+    ; `PLAN_SLIDES.md` Stage F, and its "done when" exactly: one markdown file
+    ; and two stylesheets give two decks that differ in EVERY measurement and
+    ; not in A WORD of content.
+    ;
+    ; Both halves are the check. A template that changed nothing would pass a
+    ; word-for-word comparison; one that changed the words would pass a
+    ; measurement comparison. The claim is that the sheet is the only thing
+    ; that moved.
+    fn twoCompanies:void (c:DeckCheck) {
+        print "-- one document, two companies --"
+        def src:string (?? (read_file "." "gallery/markdown/fixtures/deck.md") "")
+        def one:string (?? (read_file "." "gallery/markdown/fixtures/themes/corporate.css") "")
+        def two:string (?? (read_file "." "gallery/markdown/fixtures/themes/editorial.css") "")
+        c.ok("both templates are readable" (((strlen one) > 100) && ((strlen two) > 100)))
+
+        def a:PptxDeck (this.reopened((this.build(src one))))
+        def b:PptxDeck (this.reopened((this.build(src two))))
+
+        ; Not a word of content.
+        c.eqStr("the same words, template for template" (MdPptxTest.words(b)) (MdPptxTest.words(a)))
+
+        ; …and every measurement differs, EXCEPT the one the document itself
+        ; states. `deck.md` says `page: a4 landscape` in its front matter, and
+        ; the document beats the template — which is the precedence the page
+        ; size has had since before there were templates, and worth one check.
+        def sa:PptxSlideRef (a.slideAt(0))
+        def sb:PptxSlideRef (b.slideAt(0))
+        c.ok("the sheet the DOCUMENT asked for, under both" ((fabs ((a.width()) - (b.width()))) < 1.0))
+        def ta:PptxShape ((sa.shapeAt(0)).model())
+        def tb:PptxShape ((sb.shapeAt(0)).model())
+        c.ok("a different title size" ((fabs ((MdPptxTest.firstSize(ta)) - (MdPptxTest.firstSize(tb)))) > 1.0))
+        c.ok("a different title face" ((MdPptxTest.firstFace(ta)) != (MdPptxTest.firstFace(tb))))
+        c.ok("…and it starts in a different place" ((fabs (ta.x - tb.x)) > 1.0))
+        def ba:PptxShape ((sa.shapeAt(1)).model())
+        def bb:PptxShape ((sb.shapeAt(1)).model())
+        c.ok("a different body size" ((fabs ((MdPptxTest.firstSize(ba)) - (MdPptxTest.firstSize(bb)))) > 0.5))
+        c.ok("and a different colour somewhere" ((MdPptxTest.inks(a)) != (MdPptxTest.inks(b))))
+
+        ; The one measurement a deck is judged by first: how many slides it
+        ; took. `corporate` splits at level two and `editorial` at level one,
+        ; so the same document is a different deck.
+        c.ok("…and a different number of slides" ((a.slideCount()) != (b.slideCount())))
+    }
+
+    ; Every word of the deck, in document order, with no mark for where one
+    ; SHAPE ends and the next begins — because that is exactly what a template
+    ; is allowed to change. `corporate` puts a list in three boxes and
+    ; `editorial` puts it in one; the words and their order are the same
+    ; either way, and that is the claim being checked.
+    sfn words:string (d:PptxDeck) {
+        def out:string ""
+        def s:int 0
+        while (s < (d.slideCount())) {
+            def sl:PptxSlideRef (d.slideAt(s))
+            def k:int 0
+            while (k < (sl.shapeCount())) {
+                def sh:PptxShapeRef (sl.shapeAt(k))
+                def m:PptxShape (sh.model())
+                def p:int 0
+                while (p < (array_length m.text.paragraphs)) {
+                    def par:PptxParagraph (itemAt m.text.paragraphs p)
+                    def r:int 0
+                    while (r < (array_length par.runs)) {
+                        def run:PptxTextRun (itemAt par.runs r)
+                        if ((strlen (trim run.text)) > 0) {
+                            out = ((out + (trim run.text)) + "\n")
+                        }
+                        r = (r + 1)
+                    }
+                    p = (p + 1)
+                }
+                if (m.kind == 4) {
+                    def i:int 0
+                    while (i < (array_length m.tableCells)) {
+                        def cell:PptxTableCell (itemAt m.tableCells i)
+                        out = ((out + cell.text) + "\n")
+                        i = (i + 1)
+                    }
+                }
+                k = (k + 1)
+            }
+            s = (s + 1)
+        }
+        return out
+    }
+
+    sfn firstSize:double (m:PptxShape) {
+        if ((array_length m.text.paragraphs) == 0) { return 0.0 }
+        def p:PptxParagraph (itemAt m.text.paragraphs 0)
+        if ((array_length p.runs) == 0) { return 0.0 }
+        def r:PptxTextRun (itemAt p.runs 0)
+        return r.fontSizePt
+    }
+
+    sfn firstFace:string (m:PptxShape) {
+        if ((array_length m.text.paragraphs) == 0) { return "" }
+        def p:PptxParagraph (itemAt m.text.paragraphs 0)
+        if ((array_length p.runs) == 0) { return "" }
+        def r:PptxTextRun (itemAt p.runs 0)
+        return r.fontFamily
+    }
+
+    sfn inks:string (d:PptxDeck) {
+        def out:string ""
+        def s:int 0
+        while (s < (d.slideCount())) {
+            def sl:PptxSlideRef (d.slideAt(s))
+            def k:int 0
+            while (k < (sl.shapeCount())) {
+                def sh:PptxShapeRef (sl.shapeAt(k))
+                def m:PptxShape (sh.model())
+                def p:int 0
+                while (p < (array_length m.text.paragraphs)) {
+                    def par:PptxParagraph (itemAt m.text.paragraphs p)
+                    def r:int 0
+                    while (r < (array_length par.runs)) {
+                        def run:PptxTextRun (itemAt par.runs r)
+                        out = ((out + run.color.srgb) + ",")
+                        r = (r + 1)
+                    }
+                    p = (p + 1)
+                }
+                k = (k + 1)
+            }
+            s = (s + 1)
+        }
+        return out
+    }
+
+    ; …and the name that picks between them, which is what makes it a THEME
+    ; rather than a stylesheet somebody has to remember to attach.
+    fn named:void (c:DeckCheck) {
+        print "-- and the name that picks between them --"
+        def reg:MdThemes (new MdThemes())
+        reg.addTheme("corporate" "h1 { font-size: 40pt }")
+        reg.addTheme("editorial" "h1 { font-size: 21pt }")
+        c.eqInt("two templates, by name" (reg.count()) 2)
+
+        def doc:MdNode (MdBlock.parseText("---
+theme: Corporate
+---
+
+# One
+"))
+        c.eqStr("the document says which" (MdThemes.nameIn(doc)) "Corporate")
+        c.eqStr("…and the name is not case-sensitive" (reg.cssFor(doc)) "h1 { font-size: 40pt }")
+
+        def other:MdNode (MdBlock.parseText("---
+theme: editorial
+---
+
+# One
+"))
+        c.eqStr("another document, another template" (reg.cssFor(other)) "h1 { font-size: 21pt }")
+
+        def none:MdNode (MdBlock.parseText("# One
+"))
+        c.eqStr("a document that asks for none gets none" (reg.cssFor(none)) "")
+        c.eqInt("…and that is not a complaint" (reg.missingCount()) 0)
+
+        ; A name nobody registered is named, not swallowed. A page that laid
+        ; the document out plain and said nothing would leave a reader to
+        ; wonder whether the template or the document was wrong.
+        def missing:MdNode (MdBlock.parseText("---
+theme: nobodys
+---
+
+# One
+"))
+        c.eqStr("a template nobody has gives nothing" (reg.cssFor(missing)) "")
+        c.eqInt("…and is counted" (reg.missingCount()) 1)
+        c.eqStr("…by name" (reg.missingAt(0)) "nobodys")
+
+        ; Registering the same name twice replaces it, which is what a page
+        ; that re-fetches a template means by it.
+        reg.addTheme("corporate" "h1 { font-size: 44pt }")
+        c.eqInt("re-registering does not add a second" (reg.count()) 2)
+        c.eqStr("…it replaces the first" (reg.sheetFor("corporate")) "h1 { font-size: 44pt }")
+    }
+
+    ; ----------------------------------------------------------------------
+    ; …and what the export costs
+    ; ----------------------------------------------------------------------
+    ;
+    ; `PLAN_SLIDES.md` Stage G. Three things do not survive the trip whole,
+    ; and the contract is that none of them is silent: a caller must never be
+    ; able to mistake a deck of alt text for a deck of pictures.
+    fn cost:void (c:DeckCheck) {
+        print "-- and what it costs --"
+        def css:string "page { width: 720pt; height: 405pt; padding: 36pt }"
+
+        ; A picture. `MdLayout` has no bytes for one — it draws the ALT TEXT,
+        ; which is the most honest thing to draw when nobody read the file —
+        ; so the deck carries the alt text too. Nothing is lost BETWEEN the
+        ; preview and the deck; both are missing the same picture, and that is
+        ; the sentence the accounting has to make available.
+        def src:string "# Title
+
+Before it.
+
+![a chart of the quarter](chart.png)
+
+After it.
+"
+        def d:PptxDeck (this.build(src css))
+        c.eqInt("the picture is counted" maker.result.images 1)
+        c.ok("…and said out loud" (MdPptxTest.noted(maker "alt text")))
+        c.ok("…in the summary too" (MdPptxTest.hasSub((maker.result.describe()) "picture(s) named but not carried")))
+
+        ; …and it is IN the deck, as its alt text, so the words are not lost.
+        def back:PptxDeck (this.reopened(d))
+        c.ok("the alt text is on the slide" (MdPptxTest.hasSub((MdPptxTest.words(back)) "a chart of the quarter")))
+
+        ; A document with no picture says nothing about pictures, which is
+        ; what makes the count worth reading when it is not zero.
+        def plain:string "# Title
+
+Just prose.
+"
+        this.build(plain css)
+        c.eqInt("no picture, no count" maker.result.images 0)
+        c.ok("…and nothing in the summary" (! (MdPptxTest.hasSub((maker.result.describe()) "picture"))))
+
+        ; A diagram is drawn rather than written, and says so — the one thing
+        ; on a deck from here that a reader cannot edit.
+        def withDiagram:string "# Title
+
+```dot
+digraph { a -> b; }
+```
+"
+        this.build(withDiagram css)
+        c.eqInt("the diagram took the other road" maker.result.drawn 1)
+        c.ok("…and says it cannot be edited" (MdPptxTest.noted(maker "cannot be edited")))
+        c.eqInt("and nothing was dropped" maker.result.dropped 0)
+    }
+
+    sfn noted:boolean (m:MdToPptx maker:string) {
+        def i:int 0
+        while (i < (m.result.noteCount())) {
+            if (MdPptxTest.hasSub((m.result.noteAt(i)) maker)) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn hasSub:boolean (v:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen v)
+        def i:int 0
+        while (i <= (m - n)) {
+            if ((substring v i (i + n)) == needle) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn run:void () {
+        def c:DeckCheck (new DeckCheck())
+        print "== MdPptxTest =="
+        this.roundTrip(c)
+        this.editable(c)
+        this.levels(c)
+        this.numbering(c)
+        this.drawable(c)
+        this.columns(c)
+        this.twoCompanies(c)
+        this.named(c)
+        this.cost(c)
+        print ""
+        print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

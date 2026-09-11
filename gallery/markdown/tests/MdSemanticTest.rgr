@@ -326,6 +326,90 @@ class MdSemanticTest {
         c.ok("in three presses, one per intent" (n == 3))
     }
 
+    ; ----------------------------------------------------------------------
+    ; A keystroke may not un-write the markup
+    ; ----------------------------------------------------------------------
+    ;
+    ; The one way ordinary typing takes valid markdown apart: a delimiter run
+    ; closes emphasis only when the character before it is not whitespace, so
+    ; one space at the inside edge of a bold word turns `**travels**` into
+    ; four literal asterisks. A reader of the WYSIWYG editor sees markers they
+    ; never typed appear in the document.
+    ;
+    ; The noun each check counts is the STRONG NODE. Counting asterisks would
+    ; pass on `** travels **`, which has as many as it started with and is not
+    ; bold at all.
+    fn typing:void (c:SemCheck) {
+        print "-- a space at a delimiter's inside edge --"
+        def src:string "how a **diagram travels** through\n"
+
+        ; The closing edge: the caret sits just before the `**`.
+        def e:MdEditController (MdSemanticTest.on(src))
+        def close:int ((MdSemanticTest.offsetOf(src "travels")) + 7)
+        e.setCaret(close)
+        e.insertText(" ")
+        c.eqStr("the space lands outside the run" (e.text()) "how a **diagram travels**  through\n")
+        e.ensureLayout()
+        c.ok("and it is still bold" ((MdSemanticTest.hasKind(e.doc "strong")) == 1))
+        c.ok("one undo takes it" (e.canUndo()))
+        e.undo()
+        c.eqStr("…back to every byte" (e.text()) src)
+
+        ; The opening edge, which breaks the same way.
+        def e2:MdEditController (MdSemanticTest.on(src))
+        def open:int ((MdSemanticTest.offsetOf(src "**diagram")) + 2)
+        e2.setCaret(open)
+        e2.insertText(" ")
+        c.eqStr("…and at the other end too" (e2.text()) "how a  **diagram travels** through\n")
+        e2.ensureLayout()
+        c.ok("still bold there as well" ((MdSemanticTest.hasKind(e2.doc "strong")) == 1))
+
+        ; Typed text that ENDS in a space breaks it just as a lone space does,
+        ; and the word half of it belongs inside the run.
+        def e3:MdEditController (MdSemanticTest.on(src))
+        e3.setCaret(close)
+        e3.insertText("x ")
+        c.eqStr("a word and a space split around the run" (e3.text()) "how a **diagram travelsx**  through\n")
+
+        ; Nothing else moves. A space in the middle of a bold word is an
+        ; ordinary space, and a guard that fired there would be worse than the
+        ; bug: it would refuse to let anyone type inside bold at all.
+        def e4:MdEditController (MdSemanticTest.on(src))
+        e4.setCaret((MdSemanticTest.offsetOf(src "travels")))
+        e4.insertText(" ")
+        c.eqStr("a space inside the word is just a space" (e4.text()) "how a **diagram  travels** through\n")
+        def e5:MdEditController (MdSemanticTest.on(src))
+        e5.setCaret(close)
+        e5.insertText("y")
+        c.eqStr("and a letter at the edge is just a letter" (e5.text()) "how a **diagram travelsy** through\n")
+
+        ; Inline code is not guarded: a space inside backticks is content.
+        def code:string "a `x` b\n"
+        def e6:MdEditController (MdSemanticTest.on(code))
+        e6.setCaret(4)
+        e6.insertText(" ")
+        c.eqStr("a code span keeps its spaces" (e6.text()) "a `x ` b\n")
+
+        ; `__bold__` is the same node with another spelling, so the guard
+        ; reads the run out of the source rather than assuming two asterisks.
+        def und:string "how a __diagram travels__ through\n"
+        def e7:MdEditController (MdSemanticTest.on(und))
+        e7.setCaret(((MdSemanticTest.offsetOf(und "travels")) + 7))
+        e7.insertText(" ")
+        c.eqStr("underscores are guarded too" (e7.text()) "how a __diagram travels__  through\n")
+    }
+
+    sfn offsetOf:int (hay:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen hay)
+        def i:int 0
+        while (i <= (m - n)) {
+            if ((substring hay i (i + n)) == needle) { return i }
+            i = (i + 1)
+        }
+        return -1
+    }
+
     fn run:void () {
         def c:SemCheck (new SemCheck())
         print "== MdSemanticTest =="
@@ -336,6 +420,7 @@ class MdSemanticTest {
         this.links(c)
         this.tables(c)
         this.undoable(c)
+        this.typing(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {

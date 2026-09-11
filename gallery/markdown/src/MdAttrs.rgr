@@ -1,0 +1,225 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdAttrs.rgr — `{.class #id key=value}`, which is how Hugo says it.
+; ============================================================================
+;
+; ````markdown
+; A list of items:
+;
+; - Item 1
+; - Item 2
+; - Item 3
+; {.c .c3}
+;
+; ## Revenue {.section-title}
+; ````
+;
+; This is the syntax Goldmark reads and therefore the syntax a Hugo site is
+; already written in — and `PLAN_SLIDES.md` §3 is the argument for taking it
+; rather than MDX: MDX brings JSX, expressions, imports and component
+; resolution, and what is needed here is a class name on a list.
+;
+;   {.c .c3}      ──► classes  ["c", "c3"]
+;   {#totals}     ──► id       "totals"
+;   {cols=3}      ──► cols     "3"
+;   {a="two words"} ──► a      "two words"
+;
+; What the classes MEAN is nobody's business here; `MdCss` decides that, the
+; way `PptxCss` decides what a CSS property means to DrawingML. This file
+; reads characters.
+;
+; **The grammar is strict on purpose**, and §8.3 of the plan is why: to
+; CommonMark an attribute line is an ordinary paragraph, and the 651/652
+; ratchet is the gate this must pass through without moving it. So `{not an
+; attribute}` is a paragraph, `{}` is a paragraph, `{.a b}` is a paragraph —
+; EVERY token must be a class, an id or a key=value pair, and there must be at
+; least one. A line that is nearly an attribute block is text.
+; ============================================================================
+
+Import "MdNode.rgr"
+
+class MdAttrs {
+    sfn isSpaceCode:boolean (c:int) {
+        if (c == 32) { return true }
+        if (c == 9) { return true }
+        return false
+    }
+
+    ; What a class, an id and a key may be spelled with: letters, digits,
+    ; `-`, `_`, `:` and `.` — CSS's own identifier set, minus the escapes
+    ; nobody writing a deck will type.
+    sfn isNameCode:boolean (c:int) {
+        if ((c >= 97) && (c <= 122)) { return true }
+        if ((c >= 65) && (c <= 90)) { return true }
+        if ((c >= 48) && (c <= 57)) { return true }
+        if (c == 45) { return true }
+        if (c == 95) { return true }
+        if (c == 58) { return true }
+        if (c == 46) { return true }
+        return false
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Reading one
+    ; ----------------------------------------------------------------------
+    ;
+    ; `read` is the whole parser and everything else asks it. It returns how
+    ; many tokens it accepted, or -1 when the text is not an attribute block —
+    ; and when `n` is a real node it writes them onto it as it goes. Nothing
+    ; is written when the answer is -1: a half-applied attribute block is
+    ; worse than none, because the caller has already decided it is text.
+
+    sfn tokenCount:int (text:string) {
+        def none:MdNode (new MdNode())
+        return (MdAttrs.read(none text false))
+    }
+
+    ; Is the whole of `text` one attribute block?
+    sfn isBlock:boolean (text:string) {
+        return ((MdAttrs.tokenCount(text)) > 0)
+    }
+
+    sfn applyTo:boolean (n:MdNode text:string) {
+        return ((MdAttrs.read(n text true)) > 0)
+    }
+
+    sfn read:int (n:MdNode text:string write:boolean) {
+        def len:int (strlen text)
+        def a:int 0
+        def b:int len
+        while (a < b) {
+            if (! (MdAttrs.isSpaceCode((charAt text a)))) { break }
+            a = (a + 1)
+        }
+        while (b > a) {
+            if (! (MdAttrs.isSpaceCode((charAt text (b - 1))))) { break }
+            b = (b - 1)
+        }
+        if ((b - a) < 3) { return -1 }
+        if ((charAt text a) != 123) { return -1 }
+        if ((charAt text (b - 1)) != 125) { return -1 }
+        ; A second `}` inside would mean this is not one block but two things
+        ; with text between them, which is a paragraph.
+        def scan:int (a + 1)
+        while (scan < (b - 1)) {
+            def sc:int (charAt text scan)
+            if (sc == 125) { return -1 }
+            if (sc == 123) { return -1 }
+            scan = (scan + 1)
+        }
+
+        def i:int (a + 1)
+        def stop:int (b - 1)
+        def found:int 0
+        while (i < stop) {
+            if (MdAttrs.isSpaceCode((charAt text i))) {
+                i = (i + 1)
+            } {
+                def taken:int (MdAttrs.token(n text i stop write))
+                if (taken < 0) { return -1 }
+                i = taken
+                found = (found + 1)
+            }
+        }
+        if (found == 0) { return -1 }
+        return found
+    }
+
+    ; One token, from `i`. Returns where it ended, or -1 when it is not one.
+    sfn token:int (n:MdNode text:string i:int stop:int write:boolean) {
+        def c:int (charAt text i)
+        if (c == 46) {
+            def e:int (MdAttrs.name(text (i + 1) stop))
+            if (e < 0) { return -1 }
+            if write {
+                n.addClass((substring text (i + 1) e))
+            }
+            return e
+        }
+        if (c == 35) {
+            def e2:int (MdAttrs.name(text (i + 1) stop))
+            if (e2 < 0) { return -1 }
+            if write {
+                n.nodeId = (substring text (i + 1) e2)
+            }
+            return e2
+        }
+        ; key=value, quoted or bare
+        def k:int (MdAttrs.name(text i stop))
+        if (k < 0) { return -1 }
+        if (k >= stop) { return -1 }
+        if ((charAt text k) != 61) { return -1 }
+        def key:string (substring text i k)
+        def v:int (k + 1)
+        if (v >= stop) { return -1 }
+        def q:int (charAt text v)
+        if ((q == 34) || (q == 39)) {
+            def e3:int (v + 1)
+            while (e3 < stop) {
+                if ((charAt text e3) == q) {
+                    if write {
+                        n.setAttr(key (substring text (v + 1) e3))
+                    }
+                    return (e3 + 1)
+                }
+                e3 = (e3 + 1)
+            }
+            return -1
+        }
+        def e4:int v
+        while (e4 < stop) {
+            def vc:int (charAt text e4)
+            if (MdAttrs.isSpaceCode(vc)) { break }
+            if (! (MdAttrs.isNameCode(vc))) { return -1 }
+            e4 = (e4 + 1)
+        }
+        if (e4 == v) { return -1 }
+        if write {
+            n.setAttr(key (substring text v e4))
+        }
+        return e4
+    }
+
+    ; The end of a name starting at `i`, or -1 when there is not one there.
+    sfn name:int (text:string i:int stop:int) {
+        def e:int i
+        while (e < stop) {
+            if (! (MdAttrs.isNameCode((charAt text e)))) { break }
+            e = (e + 1)
+        }
+        if (e == i) { return -1 }
+        return e
+    }
+
+    ; ----------------------------------------------------------------------
+    ; …and the one on the end of a heading
+    ; ----------------------------------------------------------------------
+    ;
+    ; `## Revenue {.section-title}` — the block is the tail of the line, with
+    ; whitespace before it. Returns where it starts, or -1. The caller trims
+    ; `literal` there, so the heading's own text is what is drawn.
+    sfn trailingAt:int (text:string) {
+        def n:int (strlen text)
+        if (n < 4) { return -1 }
+        if ((charAt text (n - 1)) != 125) { return -1 }
+        def i:int (n - 1)
+        while (i > 0) {
+            if ((charAt text i) == 123) { break }
+            i = (i - 1)
+        }
+        if (i <= 0) { return -1 }
+        if (! (MdAttrs.isSpaceCode((charAt text (i - 1))))) { return -1 }
+        if (! (MdAttrs.isBlock((substring text i n)))) { return -1 }
+        ; The text before it has to be something. `# {.a}` is a heading whose
+        ; whole content is an attribute block, and CommonMark says that is a
+        ; heading with that text in it.
+        def head:int (i - 1)
+        while (head > 0) {
+            if (! (MdAttrs.isSpaceCode((charAt text (head - 1))))) { break }
+            head = (head - 1)
+        }
+        if (head == 0) { return -1 }
+        return i
+    }
+}

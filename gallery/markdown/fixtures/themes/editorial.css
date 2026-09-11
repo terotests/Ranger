@@ -1,0 +1,32 @@
+/* ---------------------------------------------------------------------------
+   editorial.css — the same document, read rather than presented.
+
+   A4 portrait, one narrow column, quiet colour. Beside `corporate.css` it is
+   the argument for the whole binding: not a word of the markdown changes.
+   --------------------------------------------------------------------------- */
+
+page      { width: 595.28pt; height: 841.89pt; padding: 64pt }
+deck      { split-level: 1; overflow: split }
+
+document  { font-family: Noto Sans; font-size: 10.5pt; line-height: 1.6; color: #22252a }
+
+heading   { font-family: Noto Sans; margin-top: 20pt; margin-bottom: 6pt }
+h1        { font-size: 21pt }
+h2        { font-size: 16pt }
+h3        { font-size: 13pt }
+
+p         { margin-bottom: 11pt }
+a         { color: #7a4a2b }
+hr        { color: #ddd6cc }
+
+list      { padding-left: 18pt; margin-left: 7pt }
+li        { margin-bottom: 2pt }
+
+blockquote { color: #6b6257; border-color: #ddd6cc; border-width: 2pt; padding-left: 14pt; padding-top: 5pt }
+
+code      { font-family: Noto Sans; font-size: 9pt; line-height: 1.45; padding: 8pt;
+            background-color: #faf7f2; border-color: #e6ded2 }
+
+table     { border-color: #ddd6cc; background-color: #faf7f2; padding-left: 6pt; padding-top: 4pt }
+
+.lead     { font-size: 13pt }

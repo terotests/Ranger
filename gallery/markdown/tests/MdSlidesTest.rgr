@@ -1,0 +1,375 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdSlidesTest.rgr — columns, and where a slide breaks.
+; ============================================================================
+;
+;   npm run markdown:slides:test
+;
+; `PLAN_SLIDES.md` stages C and D, and each stage's own "done when".
+;
+; **Columns (C).** In document order DOWN each column, the columns differing
+; by at most one item, and the same answer on the page as on the canvas. The
+; check is the ORDER and the COLUMN INDEX of each item, not the number of
+; boxes: a flow that put items across the rows instead of down the columns
+; produces exactly as many boxes in exactly as many columns and is unreadable.
+;
+; **Slides (D).** The four rules of §4, in order, on a fixture written to
+; exercise them — a heading that must break, one that must not, one kept with
+; its first paragraph, and a slide that overflows. Each is checked by WHICH
+; SLIDE a block landed on, because a rule that fires on the wrong block still
+; produces the right number of slides.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdLayout.rgr"
+Import "../src/MdCss.rgr"
+
+class SlideCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print (("    got  " + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+}
+
+class MdSlidesTest {
+    sfn main:void () {
+        def t:MdSlidesTest (new MdSlidesTest())
+        t.run()
+    }
+
+    sfn laidOut:MdLayout (src:string css:string width:double) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        def c:MdCss (new MdCss())
+        c.addStyleSheet(css)
+        c.applyTo(l.style)
+        l.setStyleSheet(css)
+        l.applyMeta(doc)
+        l.setDocSource(src)
+        l.layoutContinuous(doc width)
+        return l
+    }
+
+    sfn asSlides:MdLayout (src:string css:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        def c:MdCss (new MdCss())
+        c.addStyleSheet(css)
+        c.applyTo(l.style)
+        l.setStyleSheet(css)
+        l.applyMeta(doc)
+        l.applySlideMeta(doc)
+        l.setDocSource(src)
+        l.layoutSlides(doc)
+        return l
+    }
+
+    ; Which column a given piece of text was drawn in, counting from the left
+    ; edge of the content. -1 when it is not on the page at all.
+    sfn columnOf:int (l:MdLayout want:string x0:double colW:double gap:double) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 0) {
+                if (b.text == want) {
+                    def d:double (b.x - x0)
+                    return (to_int ((d / (colW + gap)) + 0.5))
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn yOf:double (l:MdLayout want:string) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 0) {
+                if (b.text == want) { return b.y }
+            }
+            i = (i + 1)
+        }
+        return (0.0 - 1.0)
+    }
+
+    sfn slideOf:int (l:MdLayout want:string) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 0) {
+                if (b.text == want) { return b.page }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; ----------------------------------------------------------------------
+    fn columns:void (c:SlideCheck) {
+        print "-- three columns, down each one --"
+        def src:string "Before.\n\n- one\n- two\n- three\n- four\n- five\n- six\n- seven\n{.c3}\n\nAfter.\n"
+        def css:string ".c3 { column-count: 3; column-gap: 24pt }"
+        def l:MdLayout (MdSlidesTest.laidOut(src css 600.0))
+        def x0:double l.contentX
+        def colW:double (((600.0 - (l.style.margin * 2.0)) - 48.0) / 3.0)
+
+        ; Seven items over three columns: 3, 2, 2 — and at most one item
+        ; between the longest and the shortest.
+        def cols:string ""
+        cols = (cols + (to_string (MdSlidesTest.columnOf(l "one" x0 colW 24.0))))
+        cols = (cols + (to_string (MdSlidesTest.columnOf(l "two" x0 colW 24.0))))
+        cols = (cols + (to_string (MdSlidesTest.columnOf(l "three" x0 colW 24.0))))
+        cols = (cols + (to_string (MdSlidesTest.columnOf(l "four" x0 colW 24.0))))
+        cols = (cols + (to_string (MdSlidesTest.columnOf(l "five" x0 colW 24.0))))
+        cols = (cols + (to_string (MdSlidesTest.columnOf(l "six" x0 colW 24.0))))
+        cols = (cols + (to_string (MdSlidesTest.columnOf(l "seven" x0 colW 24.0))))
+        c.eqStr("document order, down each column" cols "0001122")
+
+        ; …and DOWN, which is the half a row-major flow would get wrong while
+        ; producing the same three columns.
+        c.ok("the second item is below the first" ((MdSlidesTest.yOf(l "two")) > (MdSlidesTest.yOf(l "one"))))
+        c.ok("and the fourth is level with the first" ((fabs ((MdSlidesTest.yOf(l "four")) - (MdSlidesTest.yOf(l "one")))) < 0.5))
+        c.ok("…as is the sixth" ((fabs ((MdSlidesTest.yOf(l "six")) - (MdSlidesTest.yOf(l "one")))) < 0.5))
+
+        ; The bullets travel with their text. They are emitted by the LIST and
+        ; carry its source offset, not the item's, so a flow that grouped by
+        ; offset alone left every bullet in the first column.
+        def bullets:int 0
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 0) {
+                if (b.text == "•") {
+                    if (b.x > (x0 + 1.0)) { bullets = (bullets + 1) }
+                }
+            }
+            i = (i + 1)
+        }
+        c.eqInt("four bullets moved out of the first column" bullets 4)
+
+        ; What follows starts below the tallest column, not below the whole
+        ; list as it was laid out before it was cut.
+        def after:double (MdSlidesTest.yOf(l "After."))
+        c.ok("the next block clears the columns" (after > (MdSlidesTest.yOf(l "three"))))
+        def firstY:double (MdSlidesTest.yOf(l "one"))
+        c.ok("…and does not clear the whole list" (after < (firstY + 300.0)))
+
+        ; Without a sheet, nothing is in columns — the attribute alone means
+        ; nothing, which is the whole point of the split.
+        def plain:MdLayout (MdSlidesTest.laidOut(src "" 600.0))
+        c.eqInt("with no sheet there are no columns" (MdSlidesTest.columnOf(plain "seven" x0 colW 24.0)) 0)
+
+        ; A paragraph is not cut into columns: that would be a line flow and
+        ; is a different feature. Saying so beats thirding a sentence.
+        def para:MdNode (MdBlock.parseText("Some prose.\n{.c3}\n"))
+        def pl:MdLayout (new MdLayout())
+        pl.style = (new MdStyle())
+        pl.setStyleSheet(css)
+        pl.setDocSource("Some prose.\n{.c3}\n")
+        pl.layoutContinuous(para 600.0)
+        c.eqInt("a paragraph stays one column" (MdSlidesTest.columnOf(pl "Some prose." pl.contentX colW 24.0)) 0)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The four rules, each on the block it is about
+    fn breaks:void (c:SlideCheck) {
+        print "-- where a slide breaks --"
+        def css:string "deck { split-level: 2 } page { width: 720pt; height: 405pt; padding: 36pt }"
+        def src:string "# Title\n\nOpening line.\n\n## First\n\nOne.\n\n## Second\n\nTwo.\n\n### Under second\n\nThree.\n"
+        def l:MdLayout (MdSlidesTest.asSlides(src css))
+        c.eqInt("the level comes from the sheet" l.splitLevel 2)
+        c.eqInt("a heading at the level starts a slide" (MdSlidesTest.slideOf(l "First")) 1)
+        c.eqInt("…and the next one the slide after" (MdSlidesTest.slideOf(l "Second")) 2)
+        c.eqInt("the title keeps its own" (MdSlidesTest.slideOf(l "Title")) 0)
+        c.eqInt("…with the paragraph under it" (MdSlidesTest.slideOf(l "Opening line.")) 0)
+        ; 3. PREFERRED: a deeper heading on a slide barely started is a
+        ; subheading of what is there and stays with it.
+        c.eqInt("a deeper heading near the top stays" (MdSlidesTest.slideOf(l "Under second")) 2)
+
+        ; 1. MANDATORY by attribute, on a block that is not a heading at all.
+        def marked:string "# Title\n\nOne.\n\nTwo.\n{.slide}\n\nThree.\n"
+        def m:MdLayout (MdSlidesTest.asSlides(marked css))
+        c.eqInt("{.slide} starts one" (MdSlidesTest.slideOf(m "Two.")) 1)
+        c.eqInt("…and what follows stays with it" (MdSlidesTest.slideOf(m "Three.")) 1)
+
+        ; 2. FORBIDDEN beats 1. MANDATORY: an author who wrote `{.no-break}`
+        ; on a heading meant it, and a flag that does nothing when it would
+        ; matter is worse than no flag.
+        def held:string "# Title\n\nOne.\n\n## Second {.no-break}\n\nTwo.\n"
+        def h:MdLayout (MdSlidesTest.asSlides(held css))
+        c.eqInt("{.no-break} holds a heading that would have broken" (MdSlidesTest.slideOf(h "Second")) 0)
+
+        ; …and the document beats the template, because it is closer to the
+        ; deck than the company is.
+        def fm:string "---\nslide-split-level: 1\n---\n\n# Title\n\nOne.\n\n## Second\n\nTwo.\n"
+        def f:MdLayout (MdSlidesTest.asSlides(fm css))
+        c.eqInt("front matter beats the sheet" f.splitLevel 1)
+        c.eqInt("…so a level-two heading no longer breaks" (MdSlidesTest.slideOf(f "Second")) 0)
+    }
+
+    ; KEEP-WITH-NEXT, which is the thing that makes an automatic deck look
+    ; hand-made: a heading is never the last thing on a slide.
+    fn keepWithNext:void (c:SlideCheck) {
+        print "-- a heading is never the last thing on a slide --"
+        ; A short page, and enough prose to fill it to just under the bottom.
+        def css:string "deck { split-level: 1 } page { width: 720pt; height: 200pt; padding: 20pt }"
+        def src:string "# Title\n\nFiller one.\n\nFiller two.\n\nFiller three.\n\nFiller four.\n\n### Low heading\n\nUnder it.\n"
+        def l:MdLayout (MdSlidesTest.asSlides(src css))
+        def hs:int (MdSlidesTest.slideOf(l "Low heading"))
+        def ps:int (MdSlidesTest.slideOf(l "Under it."))
+        c.ok("the heading was reached" (hs >= 0))
+        c.eqInt("and what is under it is on the same slide" ps hs)
+
+        ; The noun the failure is about: a slide whose LAST box is a heading.
+        c.eqInt("no slide ends on a heading" (MdSlidesTest.slidesEndingOnAHeading(l)) 0)
+    }
+
+    ; How many slides have a heading as the lowest thing on them.
+    sfn slidesEndingOnAHeading:int (l:MdLayout) {
+        def bad:int 0
+        def p:int 0
+        while (p < l.pageCount) {
+            def lowest:double (0.0 - 1.0)
+            def lowestBold:boolean false
+            def i:int 0
+            while (i < (array_length l.boxes)) {
+                def b:MdBox (itemAt l.boxes i)
+                if (b.page == p) {
+                    if (b.kind == 0) {
+                        if (b.y > lowest) {
+                            lowest = b.y
+                            lowestBold = (b.size > (l.style.bodySize + 0.5))
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+            if lowestBold { bad = (bad + 1) }
+            p = (p + 1)
+        }
+        return bad
+    }
+
+    ; A block too tall for one slide is cut, the count is printed, and the
+    ; continuation carries the title — so a reader of the second half knows
+    ; what it is the second half of.
+    fn overflow:void (c:SlideCheck) {
+        print "-- and a slide too full --"
+        def css:string "deck { split-level: 1 } page { width: 720pt; height: 160pt; padding: 20pt }"
+        def body:string "# Long\n\n"
+        def i:int 0
+        while (i < 40) {
+            body = ((body + "- item ") + (to_string i)) + "\n"
+            i = (i + 1)
+        }
+        def l:MdLayout (MdSlidesTest.asSlides(body css))
+        c.ok("it took more than one slide" (l.pageCount > 1))
+        c.ok("and said how many blocks it cut" (l.slideOverflows > 0))
+        c.eqStr("with the policy it was told" l.slideOverflow "split")
+        c.ok("the continuation carries the title" ((MdSlidesTest.slideOf(l "Long (jatkuu)")) > 0))
+
+        ; A policy this layout does not honour is carried and named rather
+        ; than silently treated as the default.
+        def shrink:MdLayout (MdSlidesTest.asSlides(body "deck { split-level: 1; overflow: shrink }"))
+        c.eqStr("another policy is carried" shrink.slideOverflow "shrink")
+    }
+
+    ; The same document, three ways: the claim `PLAN_SLIDES.md` opens with is
+    ; that the deck is a LAYOUT POLICY and not a conversion. One tree, three
+    ; calls, and the text is the same text in all three.
+    fn oneDocument:void (c:SlideCheck) {
+        print "-- one document, three layouts --"
+        def css:string "deck { split-level: 2 } page { width: 720pt; height: 405pt; padding: 36pt }"
+        def src:string "# Title\n\nOne.\n\n## Second\n\nTwo.\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def sheet:MdCss (new MdCss())
+        sheet.addStyleSheet(css)
+
+        def flow:MdLayout (new MdLayout())
+        flow.style = (new MdStyle())
+        sheet.applyTo(flow.style)
+        flow.setStyleSheet(css)
+        flow.setDocSource(src)
+        flow.layoutContinuous(doc 720.0)
+
+        def paged:MdLayout (new MdLayout())
+        paged.style = (new MdStyle())
+        sheet.applyTo(paged.style)
+        paged.setStyleSheet(css)
+        paged.setDocSource(src)
+        paged.layoutPaged(doc)
+
+        def deck:MdLayout (MdSlidesTest.asSlides(src css))
+
+        c.eqStr("the words are the same, flowing and paged" (MdSlidesTest.words(flow)) (MdSlidesTest.words(paged)))
+        c.eqStr("…and as a deck" (MdSlidesTest.words(flow)) (MdSlidesTest.words(deck)))
+        c.eqInt("one column of scroll" flow.pageCount 1)
+        c.eqInt("one sheet of print" paged.pageCount 1)
+        c.eqInt("and two slides" deck.pageCount 2)
+    }
+
+    sfn words:string (l:MdLayout) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 0) {
+                if ((strlen b.text) > 0) { out = ((out + b.text) + "|") }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn run:void () {
+        def c:SlideCheck (new SlideCheck())
+        print "== MdSlidesTest =="
+        this.columns(c)
+        this.breaks(c)
+        this.keepWithNext(c)
+        this.overflow(c)
+        this.oneDocument(c)
+        print ""
+        print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

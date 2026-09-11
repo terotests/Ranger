@@ -444,10 +444,20 @@ jobs:
           test -s "$GITHUB_WORKSPACE/_site/markdown/fonts/OpenSans-Regular.ttf"
           test -s "$GITHUB_WORKSPACE/_site/markdown/fonts/OpenSans-Bold.ttf"
           test -s "$GITHUB_WORKSPACE/_site/markdown/samples/mermaid.md"
+          test -s "$GITHUB_WORKSPACE/_site/markdown/samples/diagrams.md"
+          test -s "$GITHUB_WORKSPACE/_site/markdown/samples/deck.md"
+          test -s "$GITHUB_WORKSPACE/_site/markdown/themes/corporate.css"
+          test -s "$GITHUB_WORKSPACE/_site/markdown/themes/editorial.css"
           grep -q "MarkdownWeb" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
-          # Without the Mermaid reader in the bundle every fence on the sample
+          # Without a reader in the bundle every fence in that notation
           # renders as a code block, which no screenshot would flag.
           grep -q "MermaidRender" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
+          grep -q "PlantUmlRender" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
+          grep -q "DotRender" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
+          # …and the deck export, which is a different module again: without
+          # it the PPTX button is a button that throws.
+          grep -q "MdToPptx" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
+          grep -q "MdThemes" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
 
       # ---- RangerFlow at /rangerflow/ --------------------------------------
       # The graph editor with no host process: the schema is parsed in the tab,

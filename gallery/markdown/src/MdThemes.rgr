@@ -1,0 +1,123 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdThemes.rgr — `theme: corporate`, and where that stylesheet comes from.
+; ============================================================================
+;
+; ```yaml
+; ---
+; title: Q3 Strategy
+; theme: corporate
+; ---
+; ```
+;
+; `PLAN_SLIDES.md` Stage F. A document names the template it is written for,
+; the way it already names its page size, and the template is a file.
+;
+; **This does not read files, and that is the point of it.** `md_demo.rgr` is
+; the only file in the module that touches a disk, and a browser has no disk
+; at all — it fetches. So a theme arrives here as TEXT, from whoever could get
+; it, and this is the table that remembers which name it arrived under. The
+; page fetches `themes/corporate.css`; the CLI reads it; a test writes one
+; inline. All three then ask the same question.
+;
+;   host ──► addTheme("corporate", css)
+;   doc  ──► theme: corporate
+;   here ──► cssFor(doc) ──► that css, or "" when nobody registered it
+;
+; **A name nobody registered is not an error and not a silence**: `missing`
+; says which, so a page can tell a reader that the document asked for a
+; template it has never heard of, rather than laying it out plain and leaving
+; them to wonder.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdFrontMatter.rgr"
+
+class MdThemes {
+    def names:[string]
+    def sheets:[string]
+    ; Theme names asked for that nobody had, each once.
+    def missing:[string]
+
+    Constructor () {
+    }
+
+    fn addTheme:void (name:string css:string) {
+        def key:string (MdChar.lower((trim name)))
+        if ((strlen key) == 0) { return }
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == key) {
+                set_at sheets i css
+                return
+            }
+            i = (i + 1)
+        }
+        push names key
+        push sheets css
+    }
+
+    fn count:int () {
+        return (array_length names)
+    }
+
+    fn nameAt:string (i:int) {
+        return (itemAt names i)
+    }
+
+    fn has:boolean (name:string) {
+        return ((this.indexOf(name)) >= 0)
+    }
+
+    fn indexOf:int (name:string) {
+        def key:string (MdChar.lower((trim name)))
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == key) { return i }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn sheetFor:string (name:string) {
+        def i:int (this.indexOf(name))
+        if (i < 0) {
+            this.note(name)
+            return ""
+        }
+        return (itemAt sheets i)
+    }
+
+    ; The name this document asked for, or "" when it asked for none.
+    sfn nameIn:string (doc:MdNode) {
+        def meta:MdMeta (MdFrontMatter.of(doc))
+        return (trim (meta.get("theme" "")))
+    }
+
+    ; …and the sheet that goes with it.
+    fn cssFor:string (doc:MdNode) {
+        def want:string (MdThemes.nameIn(doc))
+        if ((strlen want) == 0) { return "" }
+        return (this.sheetFor(want))
+    }
+
+    fn note:void (name:string) {
+        def key:string (trim name)
+        if ((strlen key) == 0) { return }
+        def i:int 0
+        while (i < (array_length missing)) {
+            if ((itemAt missing i) == key) { return }
+            i = (i + 1)
+        }
+        push missing key
+    }
+
+    fn missingCount:int () {
+        return (array_length missing)
+    }
+
+    fn missingAt:string (i:int) {
+        return (itemAt missing i)
+    }
+}

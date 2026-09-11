@@ -38,7 +38,10 @@ Import "../src/MdEditController.rgr"
 Import "../src/MdLayout.rgr"
 Import "../src/MdToEvg.rgr"
 Import "../src/MdToHtml.rgr"
-Import "../src/MdMermaid.rgr"
+Import "../src/MdDiagram.rgr"
+Import "../src/MdCss.rgr"
+Import "../src/MdThemes.rgr"
+Import "../src/MdToPptx.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
@@ -53,14 +56,101 @@ class MarkdownEdit {
     Extends(MdEditController)
 
     def styleName:string "default"
-    def embedWidth:double 820.0
     def diagrams:int 0
     ; The sheet the PAGE asked for, which beats the document's front matter:
     ; it is the reader asking rather than the author. Empty means the document
     ; decides, which is what `applyMeta` already did.
     def pageSize:string ""
+    ; The company template, as a stylesheet. Empty is a plain document, which
+    ; is what a README is.
+    def styleCss:string ""
+    def sheet:MdCss (new MdCss())
+    def sheetErrors:int 0
+    def sheetUnsupported:int 0
+    ; …and the templates a document may name for itself. The reader's choice
+    ; beats the document's, the way the page size already does — but a
+    ; document that says `theme: corporate` and is opened by somebody who has
+    ; not chosen anything gets the template it was written for.
+    def themes:MdThemes (new MdThemes())
+    ; Which sheet the last layout actually used, and where it came from.
+    def themeUsed:string ""
+    def themeSource:string ""
 
     Constructor () {
+    }
+
+    ; The sheet is parsed once, here, rather than on every rebuild: a
+    ; keystroke must not re-read a stylesheet.
+    fn setStyleSheet:void (css:string) {
+        styleCss = css
+        this.useSheet(css "the reader")
+        stale = true
+    }
+
+    fn addTheme:void (name:string css:string) {
+        themes.addTheme(name css)
+        stale = true
+    }
+
+    fn useSheet:void (css:string from:string) {
+        sheet = (new MdCss())
+        sheet.addStyleSheet(css)
+        sheetErrors = (sheet.errorCount())
+        themeSource = from
+    }
+
+    ; Which template this document is being laid out with, and why.
+    ;
+    ; Three answers and they are in order of who is closest to the reading:
+    ; what the READER picked in the page, then what the DOCUMENT asked for by
+    ; name, then nothing at all. A document that names a template nobody
+    ; registered is told so rather than quietly laid out plain.
+    fn chooseSheet:void (doc:MdNode) {
+        if ((strlen styleCss) > 0) {
+            themeUsed = ""
+            themeSource = "the reader"
+            return
+        }
+        def want:string (MdThemes.nameIn(doc))
+        if ((strlen want) == 0) {
+            if ((strlen themeUsed) > 0) {
+                themeUsed = ""
+                this.useSheet("" "no template")
+            }
+            return
+        }
+        if (want == themeUsed) { return }
+        def css:string (themes.sheetFor(want))
+        themeUsed = want
+        if ((strlen css) == 0) {
+            this.useSheet("" (("no template called " + want)))
+            return
+        }
+        this.useSheet(css (("the document, which asked for " + want)))
+    }
+
+    ; What the template said that this layout cannot do, as one line. A
+    ; silent property is a template that looks broken to whoever wrote it.
+    fn sheetReport:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (sheet.unsupportedCount())) {
+            if (i > 0) { out = (out + ", ") }
+            out = (out + (sheet.unsupportedAt(i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The column a diagram lands in: the page's text width when the sheets
+    ; are being drawn, the window's otherwise. A function of the layout's own
+    ; style, so it is read from the style rather than remembered.
+    fn contentWidth:double () {
+        def m:double layout.style.margin
+        if (sheetGap >= 0.0) {
+            return (layout.style.pageWidth - (m * 2.0))
+        }
+        return (viewWidth - (m * 2.0))
     }
 
     fn ensureLayout:void () {
@@ -68,6 +158,25 @@ class MarkdownEdit {
             return
         }
         doc = (MdBlock.parseText(source))
+        this.chooseSheet(doc)
+        ; Fresh every time, and in this order: the DEFAULTS, then the company
+        ; TEMPLATE, then the document's own FRONT MATTER, then what the reader
+        ; picked in the page. Each beats the one before it, which is the order
+        ; of who is closest to the document being read.
+        ;
+        ; Fresh matters as much as the order. The style used to be carried
+        ; from the previous rebuild, so opening a document with no front
+        ; matter after one that had some kept the old one's page size and
+        ; title — `applyMeta` returns early when there is no metadata, and
+        ; what it returns early from is overwriting.
+        layout.style = (new MdStyle())
+        sheet.applyTo(layout.style)
+        sheetUnsupported = (sheet.unsupportedCount())
+        ; …and the same sheet to the LAYOUT, which asks it a different
+        ; question: not how the document is set, but what it says about each
+        ; block's own `{.classes}` — which is what columns are.
+        def sheetText:string (sheet.text())
+        layout.setStyleSheet(sheetText)
         layout.applyMeta(doc)
         if ((strlen pageSize) > 0) {
             def pw:double layout.style.pageWidth
@@ -75,11 +184,27 @@ class MarkdownEdit {
             layout.style.pageWidth = (MdFrontMatter.pageW(pageSize pw ph))
             layout.style.pageHeight = (MdFrontMatter.pageH(pageSize ph pw))
         }
-        MdMermaid.prepare(doc layout.embeds embedWidth styleName)
+        ; The width is derived HERE, after the metadata and the reader's page
+        ; size have been applied — not handed in by the host.
+        ;
+        ; It used to be handed in, and the host computed it from the layout's
+        ; style as it stood BEFORE this method updated it. So the first
+        ; rebuild after switching to paged, or after picking another page
+        ; shape, prepared every diagram at the width the previous layout had
+        ; used and then asked the cache at the new one. Nothing matched, and
+        ; every diagram in the document came back as a labelled empty slot —
+        ; "mermaid — no handler prepared this one" — until some later rebuild
+        ; happened to run with the style already correct and it fixed itself.
+        MdDiagram.prepare(doc layout.embeds (this.contentWidth()) styleName)
         diagrams = (layout.embeds.count())
         layout.setDocSource(source)
         if (sheetGap >= 0.0) {
-            layout.layoutPaged(doc)
+            if slideMode {
+                layout.applySlideMeta(doc)
+                layout.layoutSlides(doc)
+            } {
+                layout.layoutPaged(doc)
+            }
         } {
             layout.armCache(doc)
             layout.layoutContinuous(doc viewWidth)
@@ -95,6 +220,10 @@ class MarkdownWeb {
     ; is the reader asking rather than the author. Empty means the document
     ; decides.
     def wantPageSize:string ""
+    ; "continuous" | "paged" | "slides".
+    def mode:string "continuous"
+    def pptxSummary:string ""
+    def pptxNotes:string ""
     def docList:EVGDisplayList (new EVGDisplayList())
     ; Where `docList` currently sits. The list is moved to the scroll position
     ; rather than copied there: `appendFrom` shares its commands, so a copy
@@ -184,8 +313,79 @@ class MarkdownWeb {
     }
 
     fn setPaged:void (v:boolean) {
-        paged = v
+        if v {
+            this.setMode("paged")
+        } {
+            this.setMode("continuous")
+        }
+    }
+
+    ; The three ways the same document is laid out: scrolled, printed, or
+    ; presented. `PLAN_SLIDES.md`'s claim is that the last of those is a
+    ; LAYOUT POLICY and not a conversion, and this is where that shows: one
+    ; document, one tree, three calls into the same layout.
+    fn setMode:void (name:string) {
+        mode = name
+        paged = ((name == "paged") || (name == "slides"))
+        edit.slideMode = (name == "slides")
         this.rebuild()
+    }
+
+    fn currentMode:string () {
+        return mode
+    }
+
+    ; How many blocks a slide had to be cut in half for, and what the deck
+    ; said should happen when one is. Nothing else prints this, and a deck
+    ; that silently loses the third bullet is worse than one that says so.
+    fn slideReport:string () {
+        if (! edit.slideMode) { return "" }
+        def n:int edit.layout.slideOverflows
+        def out:string ((("split-level " + (to_string edit.layout.splitLevel)) + ", overflow ") + edit.layout.slideOverflow)
+        if (n > 0) {
+            out = ((out + " — ") + (to_string n)) + " blocks cut across slides"
+        }
+        return out
+    }
+
+    ; The company template. One string, because that is what survives the JS
+    ; bridge without a wrapper on either side, and because a stylesheet IS one
+    ; string — the page fetches the file and hands it over.
+    fn setStyleSheet:void (css:string) {
+        edit.setStyleSheet(css)
+        this.rebuild()
+    }
+
+    ; …and the same thing under a NAME, so a document can ask for it itself
+    ; with `theme: corporate` in its front matter. The page registers every
+    ; template it has once, at startup; which one is used is then the
+    ; document's business until the reader says otherwise.
+    fn addTheme:void (name:string css:string) {
+        edit.addTheme(name css)
+        this.rebuild()
+    }
+
+    ; Which template the last layout used and where it came from — the reader,
+    ; the document, or nowhere. A document that names a template this page has
+    ; never heard of says so here rather than being laid out plain in silence.
+    fn themeReport:string () {
+        return edit.themeSource
+    }
+
+    fn themeInUse:string () {
+        if ((strlen edit.styleCss) > 0) { return "" }
+        return edit.themeUsed
+    }
+
+    ; What the template said that this layout cannot honour, as one line —
+    ; §8.4: a silent property is a template that looks broken to whoever
+    ; wrote it, so the page can show this beside the document.
+    fn styleSheetReport:string () {
+        return (edit.sheetReport())
+    }
+
+    fn styleSheetErrors:int () {
+        return edit.sheetErrors
     }
 
     ; `a4`, `a4 landscape`, `letter`, `210x297mm` — whatever `MdFrontMatter`
@@ -252,18 +452,9 @@ class MarkdownWeb {
         }
     }
 
-    fn contentWidth:double () {
-        def m:double edit.layout.style.margin
-        if paged {
-            return (edit.layout.style.pageWidth - (m * 2.0))
-        }
-        return (viewW - (m * 2.0))
-    }
-
     fn rebuild:void () {
         edit.styleName = styleName
         edit.viewWidth = viewW
-        edit.embedWidth = (this.contentWidth())
         if paged {
             edit.sheetGap = (MdToEvg.sheetGap())
         } {
@@ -696,6 +887,60 @@ class MarkdownWeb {
         return ((edit.history.depth()) + (edit.history.redoDepth()))
     }
 
+    ; The deck, as a `.pptx` a reader can open and change the number in.
+    ;
+    ; Built from a layout of its own, the way the PDF is, and from the same
+    ; three things in the same order — the template, the document's metadata,
+    ; the reader's page size — because a deck that is not the slides the
+    ; reader was looking at is not an export of anything.
+    ;
+    ; `MdToPptx` picks the road per BLOCK: a heading, a paragraph, a list or a
+    ; table go out as text PowerPoint can reflow; a diagram goes out as
+    ; shapes. What did not go out as text is counted, and `pptxReport` says
+    ; so — see `PLAN_SLIDES.md` §2 for why that is the whole design.
+    fn pptx:buffer () {
+        def deck:MdLayout (new MdLayout())
+        if (!null? measurer) {
+            deck.setMeasurer((unwrap measurer))
+        }
+        deck.style = (new MdStyle())
+        edit.sheet.applyTo(deck.style)
+        deck.setStyleSheet(edit.styleCss)
+        deck.applyMeta(edit.doc)
+        if ((strlen wantPageSize) > 0) {
+            def pw:double deck.style.pageWidth
+            def ph:double deck.style.pageHeight
+            deck.style.pageWidth = (MdFrontMatter.pageW(wantPageSize pw ph))
+            deck.style.pageHeight = (MdFrontMatter.pageH(wantPageSize ph pw))
+        }
+        def cw:double (deck.style.pageWidth - (deck.style.margin * 2.0))
+        MdDiagram.prepare(edit.doc deck.embeds cw styleName)
+        deck.applySlideMeta(edit.doc)
+        deck.layoutSlides(edit.doc)
+        def x (new MdToPptx())
+        def d:PptxDeck (x.deck(edit.doc deck))
+        pptxSummary = (x.result.describe())
+        pptxNotes = ""
+        def i:int 0
+        while (i < (x.result.noteCount())) {
+            if (i > 0) { pptxNotes = (pptxNotes + "\n") }
+            pptxNotes = (pptxNotes + (x.result.noteAt(i)))
+            i = (i + 1)
+        }
+        return (d.save())
+    }
+
+    fn pptxReport:string () {
+        return pptxSummary
+    }
+
+    ; …and per slide, what did not go out as text. A deck that claims a slide
+    ; went out whole when it did not is worse than one that cannot carry
+    ; something.
+    fn pptxNotesText:string () {
+        return pptxNotes
+    }
+
     ; ----------------------------------------------------------------------
     ; Out of the tab
     ; ----------------------------------------------------------------------
@@ -711,10 +956,29 @@ class MarkdownWeb {
         if (!null? measurer) {
             print.setMeasurer((unwrap measurer))
         }
+        ; The same three things in the same order the canvas does them, and
+        ; for the same reason: a PDF that is not the page the reader was
+        ; looking at is not a preview of anything. `PLAN_SLIDES.md` Stage C
+        ; asks for exactly this — the same document prints the same columns
+        ; as the canvas draws.
+        print.style = (new MdStyle())
+        edit.sheet.applyTo(print.style)
+        print.setStyleSheet(edit.styleCss)
         print.applyMeta(edit.doc)
+        if ((strlen wantPageSize) > 0) {
+            def pw:double print.style.pageWidth
+            def ph:double print.style.pageHeight
+            print.style.pageWidth = (MdFrontMatter.pageW(wantPageSize pw ph))
+            print.style.pageHeight = (MdFrontMatter.pageH(wantPageSize ph pw))
+        }
         def cw:double (print.style.pageWidth - (print.style.margin * 2.0))
-        MdMermaid.prepare(edit.doc print.embeds cw styleName)
-        print.layoutPaged(edit.doc)
+        MdDiagram.prepare(edit.doc print.embeds cw styleName)
+        if edit.slideMode {
+            print.applySlideMeta(edit.doc)
+            print.layoutSlides(edit.doc)
+        } {
+            print.layoutPaged(edit.doc)
+        }
         def root:EVGElement (MdToEvg.buildPrint(print))
         def renderer (new EVGPDFRenderer())
         renderer.init(renderer)

@@ -493,6 +493,17 @@ class PptxParser {
             if (wrap == "none") {
                 body.wrap = false
             }
+            def numCol:string (bp.attr("numCol"))
+            if ((strlen numCol) > 0) {
+                def nc@(optional):int (str2int numCol)
+                def n:int (?? nc 1)
+                if (n > 1) { body.columns = n }
+            }
+            def spcCol:string (bp.attr("spcCol"))
+            if ((strlen spcCol) > 0) {
+                def sc@(optional):double (str2double spcCol)
+                body.columnGapPt = (PptxUnits.emuToPt((?? sc 0.0)))
+            }
             ; `a:normAutofit` — PowerPoint already worked out how much the text
             ; had to shrink to fit this box and wrote the answer down. Drawing
             ; it at full size in a box sized for the shrunken version is the

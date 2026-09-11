@@ -302,6 +302,14 @@ the awkward ones: an attribute line that is really a paragraph (`{not an
 attribute}`), one after a fenced block, one inside a list item, and one at the
 end of a document.
 
+> **Done.** `MdAttrs.rgr` reads the grammar, `MdNode` carries
+> `classes` / `nodeId` / `attrKeys` / `attrVals`, and `MdBlock.startAttributes`
+> is a block start that INTERRUPTS a paragraph — which is what makes `{.c .c3}`
+> under a list attach to the list rather than become the last words of the last
+> item. `foldAttributes` moves it onto the block above and grows that block's
+> span to cover the line, so the layout cache notices when a class is edited.
+> 55 assertions; both ratchets unmoved.
+
 ### Stage B — `MdCss`, and `MdStyle` resolved from a sheet
 
 The binding described in §5. `MdStyle`'s fields stop being assigned from front
@@ -312,6 +320,28 @@ today's numbers — so a document with no stylesheet lays out byte-identically.
 list as before, with the default sheet doing the work the constants did. That
 is the check: a refactor that changes a number is not a refactor.
 
+> **Done, with one deliberate difference.** `MdStyle`'s field initialisers are
+> still the defaults — there is no default sheet — and `MdCss` only ever
+> overwrites what a sheet NAMES. The identity claim is then structural rather
+> than measured, and `MdCssTest` asks it the same way regardless: a styled
+> `MdStyle` fingerprinted against a fresh one, whole strings, not three fields
+> somebody remembered.
+>
+> Two spellings differ from the sketch above and both are recorded in
+> `MdCss.rgr`'s header. `page { }` and `deck { }` are element selectors, not
+> `@page` / `@deck`: `CssCore` deliberately refuses at-rules — it records them
+> as "not read here" so a consumer cannot silently apply what is inside one —
+> and teaching it otherwise would change what `PptxCss` and EVG see. And
+> `heading { }` carries the family and margins the six levels share, because
+> there is one `headingSpaceBefore` and a per-level `margin-top` is a property
+> this layout cannot honour.
+>
+> It found a bug rather than causing one: the layout's per-block cache keyed a
+> block's boxes under its source alone, so switching the template replayed
+> boxes measured under the previous one. `MdStyle.fingerprint` is now the
+> other half of that key, and the same string is what `MdCssTest` compares.
+> 50 assertions.
+
 ### Stage C — columns
 
 `column-count` / `column-gap` over a block's boxes. A list of nine items in
@@ -321,6 +351,31 @@ three columns, which is the example this plan started from.
 heights differ by at most one item, and the same document prints the same
 columns to PDF as the canvas draws. A column flow that only works on screen is
 a column flow that will be wrong in the deck.
+
+> **Done.** The block is laid out ONCE at one column's width and the boxes are
+> then cut into columns and moved — laying each column out separately would
+> re-measure a list's marker width per column and change the balance it was
+> being balanced by. The unit is the ITEM: a bullet split across two columns
+> is a bullet nobody can follow.
+>
+> Two things that are not obvious and are written down where they are done.
+> Which boxes belong to which item is read off the boxes' own source offsets,
+> and a list's BULLET carries the list's offset rather than the item's — and a
+> list starts where its first item does, so asking the spans alone put every
+> marker in the first item's group and left the bullets behind in column one.
+> The groups are emitted in order, so the rule is that a box may never belong
+> to an earlier group than the box before it. And a columned block in a
+> paginated layout is cut as a whole: it cannot be asked to fit before it has
+> been laid out, so it is laid out, and laid out again from the top of the
+> next sheet when it does not.
+>
+> Columns are for a block whose children are blocks — a list or a quote.
+> `{.c3}` on a paragraph is a line flow, which is a different feature; it
+> stays one column rather than thirding a sentence.
+>
+> `MarkdownWeb.pdf` builds its own layout, so it is now given the same sheet,
+> the same page size and the same mode. That was the half of this stage's
+> "done when" that could silently be false.
 
 ### Stage D — `layoutSlides`, and the tab
 
@@ -338,6 +393,28 @@ to exercise them — a heading that must break, one that must not, one kept with
 its first paragraph, and a slide that overflows — and `markdown:web:test`
 switches the tab in a browser and sees the command count change.
 
+> **Done.** `layoutSlides` is `layoutPaged` with `slideBreakBefore` asked
+> between blocks, and the rules are in §4's order — FORBIDDEN beats MANDATORY,
+> because an author who wrote `{.no-break}` on a heading meant it and a flag
+> that does nothing whenever it would matter is worse than no flag.
+>
+> KEEP-WITH-NEXT is asked for the PAIR: a heading's own height plus one line
+> of whatever follows. The check counts the noun — slides whose lowest box is
+> a heading — because a rule that fires on the wrong block still produces the
+> right number of slides.
+>
+> Overflow is `split` and the count is printed, per the plan; `shrink` and
+> `clip` are carried and named rather than silently treated as the default. A
+> continuation slide repeats its title, which needed `plainText` rather than
+> `literal` — a heading's literal is gone by the time the inline parser has
+> finished with it.
+>
+> `setPaged(boolean)` became `setMode("continuous" | "paged" | "slides")`, the
+> page has the third option, and the live page's own selftest switches it and
+> checks that the words are the same words and only the sheet count changed —
+> which is the claim this whole plan opens with. 33 assertions in
+> `markdown:slides:test`, five in the browser.
+
 ### Stage E — `MdToPptx`, the native road
 
 §2. Heading → title placeholder; paragraph → body text box; list → a text body
@@ -349,6 +426,69 @@ and comes back with the same heading text, the same bullet count and the same
 slide count — and `MdToPptx` reports, per slide, what went the display-list
 road, the way `book_slides` does.
 
+> **Done.** `MdToPptx` picks the road per block. A heading at or above the
+> split level is the slide's TITLE PLACEHOLDER — `isPlaceholder` as well as
+> the type, or the writer emits a bare `<p:nvPr/>` and a title that is not a
+> placeholder is an ordinary text box, out of the outline view. A paragraph is
+> one text box with one run. A list is ONE text body with one paragraph per
+> item, `level` for the nesting and `buAutoNum` for an ordered one, so
+> pressing return at the end of a bullet makes another and inserting one
+> renumbers the rest. A table is a real `a:tbl`. A diagram is the display-list
+> road, and it is counted and named.
+>
+> The geometry is the layout's and the wrapping is PowerPoint's, per §2.
+>
+> **Three things were right in the file and wrong on the screen**, which is
+> why `markdown:pptx:test` counts what the RENDERER reads and not only what
+> comes back through the parser:
+>
+>   * A table cell is a TEXT BODY. `cell.text` beside it is the shorthand the
+>     writer falls back to and nothing that draws a deck reads it — the table
+>     came back perfect from the file and drew as a grid of empty boxes.
+>   * The grid is the layout's. `MdLayout.tableWidths` was split out of
+>     `table` so the deck asks the same function; a width divided by a count
+>     writes "Verkkokauppa" across the cell beside it.
+>   * A diagram's scene has to be PLACED and LAID OUT before its display list
+>     is built: its paths carry an `svgPath` and a `viewBox` and are put where
+>     their container's box is. Built straight off the tree the edges came out
+>     and every node's label landed in the corner.
+>
+> **And columns took two tries.** A list the sheet gives `column-count` to is
+> given a wide, SHORT rectangle by the layout — as tall as one column — so one
+> column of items in it overflows onto whatever is under it.
+>
+> The first answer was PresentationML's own: `a:bodyPr@numCol` / `@spcCol`, a
+> text body that flows down the first column and into the next, which keeps
+> the list ONE list. `PptxTextBody` gained `columns` and `columnGapPt`, the
+> writer writes them, the parser reads them, and `PptxTextLayout` flows the
+> lines into columns by PARAGRAPH so a bullet is never cut from its own words.
+>
+> It is the better answer and it was not a safe one. A reader that does not
+> honour `numCol` stacks every item in the short rectangle and draws the block
+> below on top of the overflow — which is what a real one did, from the file
+> as shipped. **A deck that is only correct in some readers is not correct**,
+> so the GEOMETRY carries it now: one shape per column, each at the rectangle
+> the layout put that column's items in, and nothing has to be honoured.
+>
+> The cost is stated rather than hidden, in the exporter's notes and in its
+> header: a bullet added to the end of column one is a fourth bullet in column
+> one, not the first of column two. PowerPoint's own two-content layouts are
+> two placeholders for the same reason. `numCol` stays in the model, the
+> writer, the parser and the renderer — it is a thing PresentationML says and
+> this repository could not read before — it is just not what the deck depends
+> on.
+>
+> Which boxes belong to which item needed the rule `MdLayout`'s own column
+> flow already needed, for the same reason: a list's BULLET carries the LIST's
+> offset and a list starts where its first item does, so asking the source
+> spans alone puts every marker in the first item and the first item then
+> spans the whole list. The boxes are emitted in order, so a box may never
+> belong to an earlier child than the box before it — and only boxes inside
+> the block's own span are considered at all, or the heading above the list
+> ends up part of its first item and the first column covers the slide.
+>
+> 38 assertions, through `save()` and `open()` rather than over the model.
+
 ### Stage F — themes as files, and the company deck
 
 `theme: company-2026` resolves to a stylesheet; two example themes; the
@@ -357,12 +497,49 @@ fixture deck from §5 rendered as both.
 *Done when:* one markdown file and two stylesheets give two decks that differ
 in every measurement and not in a word of content.
 
+> **Done.** `MdThemes` is the table from a NAME to a stylesheet, and it does
+> not read files — `md_demo.rgr` is the only file in the module that touches a
+> disk and a browser has no disk at all. A theme arrives as TEXT from whoever
+> could fetch it, and the document picks one by name.
+>
+> Three answers, in order of who is closest to the reading: what the READER
+> picked in the page, then what the DOCUMENT asked for in its front matter,
+> then nothing. A name nobody registered is NAMED — "no template called
+> nobodys" — rather than laid out plain in silence.
+>
+> The check is both halves at once, because either alone passes on a template
+> that did nothing: the same words run for run across the whole deck, and a
+> different size, face, position, colour and slide count. The words are
+> compared with no mark for where one SHAPE ends, because that is exactly what
+> a template is allowed to change — `corporate` puts a list in three boxes and
+> `editorial` puts it in one. And the sheet SIZE is checked to be the same
+> under both, because `deck.md` states `page: a4 landscape` itself and the
+> document beats the template.
+
 ### Stage G — export, and what it costs
 
 The `.pptx` written from the tab, plus the honest accounting: images need the
 byte registry `gallery/PLAN_EDITOR_KERNEL.md` Stage B0 already lists as open
 (`PptxFromEvg` counts pictures it cannot place and says why), and clips are
 dropped.
+
+> **Done.** The file is written from the ⬇ PPTX button beside ⬇ PDF, and the
+> accounting is complete: pictures named but not carried, clips ignored,
+> blocks drawn rather than written, blocks dropped — counted, and each one
+> named per slide.
+>
+> **Pictures do not go, and the reason is upstream of this stage.** A markdown
+> layout has no bytes for an image: `MdLayout` draws `![alt](src)` as its ALT
+> TEXT in the muted colour, which is the most honest thing to draw when
+> nobody read the file. So the deck carries the alt text too, and nothing is
+> lost BETWEEN the preview and the deck — both are missing the same picture.
+> That is the sentence the accounting makes available, so that a deck of alt
+> text cannot be mistaken for a deck of pictures. Fixing it is the byte
+> registry, where the layout is rather than in the exporter.
+>
+> Clips come from the drawings: `PptxFromEvg` counts the ones it cannot
+> express and this passes the count on per slide, because a drawing that
+> relied on a clip to hide something comes out showing it.
 
 ---
 

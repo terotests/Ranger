@@ -1,0 +1,105 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DotRender.rgr — one door: Graphviz DOT in, something drawable out.
+; ============================================================================
+;
+; The same door `MermaidRender` and `PlantUmlRender` are, for DOT. There is
+; less to dispatch here — DOT has one grammar and no header to sniff — but
+; the reason for the door is the same: until this file the only way to get a
+; drawn graph out of DOT text was through the web page's own facade, which a
+; markdown document cannot call.
+;
+;   text ──► draw     ──► FlowGraph
+;        ──► sceneOf  ──► FlowScene, fitted to a width
+;
+; **A file Graphviz would refuse is refused here too.** `DotReader` says `ok`
+; false and names the line; `draw` carries that through rather than drawing
+; something anyway, because `docs/GRAPHVIZ_PARITY.md` is the promise that it
+; does not guess.
+;
+; **Never scaled up**: a diagram wider than the space it is given is fitted
+; onto it, and a narrower one is left alone.
+; ============================================================================
+
+Import "DotReader.rgr"
+Import "DotFlow.rgr"
+Import "../../core/FlowView.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+; What came back. `error` is Graphviz's own complaint, with the line it went
+; wrong on, and is set only when the text failed to read.
+class DotDrawing {
+    def ok:boolean false
+    def kind:string ""
+    def notation:string "plain"
+    def title:string ""
+    def error:string ""
+    def errorLine:int 0
+    def graph:FlowGraph (new FlowGraph)
+
+    Constructor () {
+    }
+}
+
+class DotRender {
+    ; "graph", "digraph", or "" when the text does not read as DOT at all.
+    sfn kindOf:string (text:string) {
+        def d:DotGraph (DotReader.parse(text))
+        if (! d.ok) { return "" }
+        if ((d.nodeCount()) == 0) { return "" }
+        if (d.directed) { return "digraph" }
+        return "graph"
+    }
+
+    sfn draw:DotDrawing (text:string style:FlowStyle) {
+        def out:DotDrawing (new DotDrawing())
+        def d:DotGraph (DotReader.parse(text))
+        if (! d.ok) {
+            out.error = d.error
+            out.errorLine = d.errorLine
+            return out
+        }
+        def n:int (d.nodeCount())
+        if (n == 0) { return out }
+        if (d.directed) {
+            out.kind = "digraph"
+        } {
+            out.kind = "graph"
+        }
+        out.title = (?? (get d.attrs "label") "")
+        out.graph = (DotFlow.build(d style))
+        out.ok = true
+        return out
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A scene, fitted
+    ; ----------------------------------------------------------------------
+    sfn sceneOf:FlowScene (text:string styleName:string maxWidth:double padding:double) {
+        def style:FlowStyle (FlowStyle.named(styleName))
+        return (DotRender.sceneStyled(text style maxWidth padding))
+    }
+
+    sfn sceneStyled:FlowScene (text:string style:FlowStyle maxWidth:double padding:double) {
+        def drawing:DotDrawing (DotRender.draw(text style))
+        if (! drawing.ok) {
+            return (new FlowScene)
+        }
+        def v:FlowView (FlowView.of(drawing.graph))
+        v.notation = drawing.notation
+        style.applyToTheme(v.theme)
+        v.showBackground = false
+        v.theme.background = "#ffffff"
+        def natural:FlowScene (v.buildForExport(padding))
+        if (maxWidth <= 0.0) {
+            return natural
+        }
+        if (natural.worldW <= maxWidth) {
+            return natural
+        }
+        def scale:double (maxWidth / natural.worldW)
+        def h:double (natural.worldH * scale)
+        return (v.buildForPage(maxWidth h 0.0))
+    }
+}

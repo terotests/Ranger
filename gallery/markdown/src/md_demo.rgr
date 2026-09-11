@@ -22,7 +22,7 @@
 Import "MdBlock.rgr"
 Import "MdLayout.rgr"
 Import "MdToEvg.rgr"
-Import "MdMermaid.rgr"
+Import "MdDiagram.rgr"
 Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
 Import "../../pdf_writer/src/core/EVGHTMLRenderer.rgr"
 Import "../../pdf_writer/src/fonts/FontManager.rgr"
@@ -90,7 +90,7 @@ class MdDemo {
         ; screen — which is the whole reason to keep it as geometry.
         paged.applyMeta(doc)
         def printWidth:double (paged.style.pageWidth - (paged.style.margin * 2.0))
-        MdMermaid.prepare(doc paged.embeds printWidth "default")
+        MdDiagram.prepare(doc paged.embeds printWidth "default")
         def diagrams:int (paged.embeds.count())
         paged.layoutPaged(doc)
         def printRoot:EVGElement (MdToEvg.buildPrint(paged))
@@ -112,7 +112,7 @@ class MdDemo {
         }
         flowing.applyMeta(doc)
         def screenWidth:double (820.0 - (flowing.style.margin * 2.0))
-        MdMermaid.prepare(doc flowing.embeds screenWidth "default")
+        MdDiagram.prepare(doc flowing.embeds screenWidth "default")
         flowing.layoutContinuous(doc 820.0)
         def pageRoot:EVGElement (MdToEvg.buildPage(flowing 820.0))
         def html (new EVGHTMLRenderer())

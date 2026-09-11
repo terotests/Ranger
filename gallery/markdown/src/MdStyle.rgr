@@ -1,0 +1,203 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdStyle.rgr — the values a stylesheet sets, in one place.
+; ============================================================================
+;
+; Every number the layout uses lives here and nowhere else, so that the layout
+; never has one written into it. That was true when this was a class at the
+; top of `MdLayout.rgr`; it is a file of its own now for one reason:
+; `MdCss` resolves a stylesheet ONTO it, and the layout asks `MdCss` what a
+; block's `{.classes}` mean. Both directions through one file would be a
+; cycle; the style in the middle is what breaks it.
+;
+;   MdStyle.rgr   ── the fields
+;        ↑
+;   MdCss.rgr     ── what a sheet's properties mean, over gallery/css
+;        ↑
+;   MdLayout.rgr  ── asks the sheet about a block, lays it out
+;
+; Nothing moved. This is the same class, in its own file.
+; ============================================================================
+
+class MdStyle {
+    def bodyFamily:string "Open Sans"
+    ; There is no monospace face in `gallery/pdf_writer/assets/fonts`, so
+    ; code is set in the sans face that is there. It is measured and painted
+    ; with the same one, which is what keeps the geometry honest; it is not
+    ; monospaced, which is a missing asset and not a layout decision.
+    def monoFamily:string "Noto Sans"
+    def headingFamily:string "Open Sans"
+
+    def bodySize:double 11.0
+    def lineHeight:double 1.45
+    def paraSpacing:double 9.0
+
+    def h1Size:double 24.0
+    def h2Size:double 19.0
+    def h3Size:double 15.5
+    def h4Size:double 13.0
+    def h5Size:double 11.5
+    def h6Size:double 11.0
+    def headingSpaceBefore:double 16.0
+    def headingSpaceAfter:double 7.0
+
+    def codeSize:double 9.5
+    def codeLineHeight:double 1.42
+    def codePadding:double 9.0
+    def codeBackground:string "#f6f8fa"
+    def codeBorder:string "#e2e6ea"
+    ; The five colours a listing is read with. Not a theme yet — the values a
+    ; stylesheet will set, in one place.
+    def codeKeyword:string "#cf222e"
+    def codeString:string "#0a3069"
+    def codeComment:string "#6e7781"
+    def codeNumber:string "#0550ae"
+    def codePlain:string "#1f2328"
+    def highlightCode:boolean true
+
+    def textColor:string "#1f2328"
+    def mutedColor:string "#57606a"
+    def linkColor:string "#0969da"
+    def ruleColor:string "#d8dee4"
+
+    def quoteBarColor:string "#d0d7de"
+    def quoteBarWidth:double 3.0
+    def quoteIndent:double 16.0
+    ; The space inside the bar, above the first line and below the last.
+    ;
+    ; Without it the bar began exactly at the top of the first line's box and
+    ; ended exactly where the next block started — flush against the text at
+    ; one end and dangling past it at the other, because what it was measuring
+    ; at the bottom was the last paragraph's trailing space rather than the
+    ; paragraph. A quote is a block with an inside; this is the inside.
+    def quotePadY:double 6.0
+    ; Quoted text is set in the muted colour, which is what every markdown
+    ; style does and what says "this is somebody else's sentence" without a
+    ; box around it. A link, a code span or a heading inside the quote keeps
+    ; its own colour: this is the colour of ordinary text in there, not a wash
+    ; over everything.
+    def quoteColor:string "#57606a"
+
+    def listIndent:double 22.0
+    def markerGap:double 8.0
+    ; What separates two items of a TIGHT list — one with no blank line
+    ; between its items.
+    ;
+    ; CommonMark's whole definition of tightness is that such an item's text
+    ; is not a paragraph, and a paragraph's spacing is what was being charged:
+    ; a five-item shopping list was set with the same air between the items as
+    ; between two paragraphs of prose, which is what a LOOSE list is for. The
+    ; distinction is in the parser, was on the node, and only the two extra
+    ; points a loose list adds were ever read.
+    def listTightSpacing:double 3.0
+
+    def tableBorder:string "#d0d7de"
+    def tableHeadBackground:string "#f6f8fa"
+    def cellPadX:double 7.0
+    def cellPadY:double 5.0
+
+    def pageWidth:double 595.28
+    def pageHeight:double 841.89
+    def margin:double 56.0
+
+    ; Page furniture. All off by default: a document that said nothing about
+    ; itself gets a plain page, which is what a README wants.
+    def title:string ""
+    ; "" | "title" | "h1"
+    def runningHead:string ""
+    ; "" | "bottom-center" | "bottom-right" | "bottom-outer"
+    def pageNumbers:string ""
+    def wantToc:boolean false
+    def breakOnH1:boolean false
+    def furnitureSize:double 8.5
+
+    ; An embedded diagram that is wider than the column is scaled down to it,
+    ; never up: a three-node flowchart should not become a poster.
+    def embedSpacing:double 12.0
+
+    Constructor () {
+    }
+
+    ; Every field of this style, as one string.
+    ;
+    ; Two uses, and they are the same question asked twice. The LAYOUT CACHE
+    ; keys a block's boxes under the source that made them — and under this,
+    ; because the same source set 4pt larger is different boxes. Without it,
+    ; switching the company template redrew a paragraph at the new size on
+    ; the positions measured at the old one, and the second half of a wrapped
+    ; line sat on top of the first. `MdCssTest` reads it too, to ask whether
+    ; a sheet changed anything it should not have.
+    ;
+    ; Colours are in it as well as sizes. They do not move a box, but they
+    ; are ON one — a template that changes only the link colour must not
+    ; replay the last one's.
+    ;
+    ; **A field added above and not added here is a field the cache cannot
+    ; see.** That is the cost of the list, and it is why the test compares
+    ; whole fingerprints rather than the three fields somebody remembered.
+    fn fingerprint:string () {
+        def out:string ""
+        out = ((((out + "body ") + bodyFamily) + "/") + (to_string bodySize))
+        out = ((((out + "/") + (to_string lineHeight)) + "/") + (to_string paraSpacing))
+        out = ((((out + " head ") + headingFamily) + "/") + (to_string h1Size))
+        out = ((((out + "/") + (to_string h2Size)) + "/") + (to_string h3Size))
+        out = ((((out + "/") + (to_string h4Size)) + "/") + (to_string h5Size))
+        out = ((((out + "/") + (to_string h6Size)) + "/") + (to_string headingSpaceBefore))
+        out = ((out + "/") + (to_string headingSpaceAfter))
+        out = ((((out + " code ") + monoFamily) + "/") + (to_string codeSize))
+        out = ((((out + "/") + (to_string codeLineHeight)) + "/") + (to_string codePadding))
+        out = ((((out + "/") + codeBackground) + "/") + codeBorder)
+        out = ((((out + "/") + codeKeyword) + "/") + codeString)
+        out = ((((out + "/") + codeComment) + "/") + codeNumber)
+        out = ((out + "/") + codePlain)
+        if highlightCode { out = (out + "/hi") }
+        out = ((((out + " ink ") + textColor) + "/") + mutedColor)
+        out = ((((out + "/") + linkColor) + "/") + ruleColor)
+        out = ((((out + " quote ") + quoteColor) + "/") + quoteBarColor)
+        out = ((((out + "/") + (to_string quoteBarWidth)) + "/") + (to_string quoteIndent))
+        out = ((out + "/") + (to_string quotePadY))
+        out = ((((out + " list ") + (to_string listIndent)) + "/") + (to_string markerGap))
+        out = ((out + "/") + (to_string listTightSpacing))
+        out = ((((out + " table ") + tableBorder) + "/") + tableHeadBackground)
+        out = ((((out + "/") + (to_string cellPadX)) + "/") + (to_string cellPadY))
+        out = ((((out + " page ") + (to_string pageWidth)) + "/") + (to_string pageHeight))
+        out = ((out + "/") + (to_string margin))
+        out = ((((out + " furniture ") + title) + "/") + runningHead)
+        out = ((out + "/") + pageNumbers)
+        if wantToc { out = (out + "/toc") }
+        if breakOnH1 { out = (out + "/h1") }
+        out = ((out + "/") + (to_string furnitureSize))
+        out = ((out + " embed ") + (to_string embedSpacing))
+        return out
+    }
+
+    ; The colour a token of that kind is set in.
+    fn codeColor:string (kind:int) {
+        if (kind == 1) { return codeKeyword }
+        if (kind == 2) { return codeString }
+        if (kind == 3) { return codeComment }
+        if (kind == 4) { return codeNumber }
+        return codePlain
+    }
+
+    fn headingSize:double (level:int) {
+        if (level == 1) { return h1Size }
+        if (level == 2) { return h2Size }
+        if (level == 3) { return h3Size }
+        if (level == 4) { return h4Size }
+        if (level == 5) { return h5Size }
+        return h6Size
+    }
+
+    ; The face, by the convention the font manager and the measurer share:
+    ; the weight is a `-Bold` suffix and the slant is part of the family name.
+    fn faceFor:string (family:string bold:boolean italic:boolean) {
+        if (bold && italic) { return (family + "-BoldItalic") }
+        if italic { return (family + "-Italic") }
+        if bold { return (family + "-Bold") }
+        return family
+    }
+}
+
+; One piece of inline text with one look.

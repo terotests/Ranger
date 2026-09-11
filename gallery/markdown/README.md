@@ -46,12 +46,123 @@ Where the answer is not defined it says so rather than guessing: bolding a
 selection that begins inside `**` and ends outside it is refused, with a
 sentence saying why.
 
+**And a keystroke may not un-write the markup.** A delimiter run closes
+emphasis only when the character before it is not whitespace, so one space at
+the inside edge of a bold word turns `**travels**` into four literal
+asterisks — the one way ordinary typing takes valid markdown apart, and the
+one thing a reader of a WYSIWYG editor should never see. The space goes on
+the outside of the run instead, in the same op, so it is still one undo:
+
+```
+  **travels|**  + " "   →   **travels**|
+  **|travels**  + " "   →    |**travels**
+```
+
+Inline code is left alone: a space inside backticks is content.
+
 Typing into this repository's 63 KB README costs **10 ms**, because the
 layout remembers per block — the design and the numbers are in
 [`PLAN_WYSIWYG.md`](PLAN_WYSIWYG.md) §6.
 
-And the same document as a deck — Goldmark block attributes, a stylesheet per
-company, a `.pptx` tab — is planned in [`PLAN_SLIDES.md`](PLAN_SLIDES.md).
+## A template is a stylesheet
+
+`{.class #id key=value}` — Goldmark's block attributes, which is the syntax a
+Hugo site is already written in — parse into the AST, and a stylesheet decides
+what they mean:
+
+```md
+- Verkkokauppa kasvoi 18 %
+- Jälleenmyynti pysyi ennallaan
+- Lisenssit laskivat 4 %
+{.c3}
+```
+
+```css
+page      { width: 13.333in; height: 7.5in; padding: 0.7in }
+document  { font-family: Open Sans; font-size: 15pt; line-height: 1.4 }
+h1        { font-size: 40pt }
+heading   { font-family: Open Sans; margin-top: 26pt }
+.c3       { column-count: 3; column-gap: 28pt }
+```
+
+Two companies are two files, and the same markdown previews as either without
+being touched — `fixtures/themes/corporate.css` and `editorial.css` are the
+two. A document can ask for one by name:
+
+```yaml
+---
+title: Q3 Strategy
+theme: corporate
+---
+```
+
+Three answers, in order of who is closest to the reading: what the **reader**
+picked in the page's dropdown, then what the **document** asked for, then
+nothing. A name nobody registered is named — "no template called nobodys" —
+rather than laid out plain in silence. `MdThemes` holds the table and reads no
+files: a theme arrives as text from whoever could fetch it.
+
+`MdCss` is the third binding of [`gallery/css`](../css/CssCore.rgr)'s cascade,
+after `PptxCss` and EVG's own — not a third engine. `CssCore` matches the
+selectors and ranks them; `MdCss` says which element names markdown has, where
+each property lands in `MdStyle`, and **which ones this layout cannot honour**,
+which are named and counted rather than dropped in a silence that reads as
+"applied".
+
+`{.c3}` on a list is columns, and they are columns on the canvas and in the
+PDF both — the block is laid out once at one column's width and the boxes are
+then cut into columns, in document order DOWN each one, so a bullet is never
+split across two.
+
+And the third layout mode: **slides**. A deck is a layout policy here, not a
+conversion — one document, one tree, three calls into the same layout:
+
+```
+  continuous   scrolled, one column as tall as it needs
+  paged        sheets of a stated size, what the PDF prints
+  slides       the same sheets, with the breaks a deck wants
+```
+
+Where a slide breaks, in this order: an explicit `{.slide}` or a heading at or
+above `split-level`; never on a `{.no-break}`; otherwise any heading once the
+slide is more than half full; and overflow last, which is what pagination
+already did. Plus the one constraint that makes an automatic deck look
+hand-made — **a heading is never the last thing on a slide.** A block too tall
+for one slide is cut, the continuation repeats the title, and the count is
+printed rather than hidden.
+
+And the deck comes out as a **`.pptx` somebody can edit**, not as a picture of
+the slides. `MdToPptx` picks the road per block:
+
+```
+  heading      → the slide's title placeholder
+  paragraph    → one text box, one run — PowerPoint breaks the lines
+  list         → one text body, one paragraph per item, levels and numbering
+  table        → a real a:tbl, with the grid the layout measured
+  a {.c3} list → one text box per column, where the layout put them
+  a diagram    → the display-list road, and it says so
+```
+
+The geometry is the layout's and the wrapping is PowerPoint's, so the deck
+differs from the preview by a line break here and there. That is the trade,
+and the alternative — the display-list road for everything, which is what
+`BookToPptx` does for a book page — is a deck nobody can edit: a paragraph
+that wraps across five lines arrives as five text boxes, and deleting a word
+leaves a hole.
+
+What could not go out as text is counted and named, per slide.
+
+What the export costs is counted and named, per slide: pictures named but not
+carried, clips ignored, blocks drawn rather than written. **Pictures do not
+go**, and the reason is upstream — a markdown layout has no bytes for an
+image, so `![alt](src)` is drawn as its alt text and the deck carries the alt
+text too. Nothing is lost between the preview and the deck; both are missing
+the same picture. Fixing that is a byte registry where the layout is, which
+[`gallery/PLAN_EDITOR_KERNEL.md`](../PLAN_EDITOR_KERNEL.md) Stage B0 already
+lists as open.
+
+All seven stages of [`PLAN_SLIDES.md`](PLAN_SLIDES.md) are done.
+
 
 **651 of 652** CommonMark 0.31.2 examples, compared as exact strings against
 the HTML the specification prints for each one —
@@ -80,7 +191,7 @@ never builds a string of tags.
 | blocks | ATX and setext headings, paragraphs, thematic breaks, fenced and indented code, block quotes, bullet and ordered lists with tight/loose flow, HTML blocks (all seven start conditions), link reference definitions |
 | inlines | emphasis and strong (the full delimiter stack, including the rule of three), code spans, links and images in all four forms, autolinks, raw HTML, HTML5 named and numeric entities, backslash escapes, hard breaks |
 | GFM | tables with column alignment, task lists, strikethrough |
-| beyond both | YAML front matter, and ```mermaid fences drawn as diagrams |
+| beyond both | YAML front matter, and ```mermaid, ```plantuml and ```dot fences drawn as diagrams |
 
 Every block carries `srcStart` / `srcEnd` — byte offsets into the text it came
 from — so a viewer can put a caret back where a reader clicked.
@@ -123,13 +234,19 @@ src/
   MdEmbed.rgr       the slot a fenced diagram fills, keyed by source and width
   MdCodeHighlight.rgr  a small lexer, fourteen languages, five colours
   MdFrontMatter.rgr    the YAML subset a metadata block actually uses
-  MdMermaid.rgr     the ```mermaid handler — the only file that knows RangerFlow
+  MdAttrs.rgr       `{.class #id key=value}` — Goldmark's block attributes
+  MdStyle.rgr       the values a stylesheet sets, in one place
+  MdCss.rgr         a stylesheet over the document, through gallery/css
+  MdThemes.rgr      `theme: corporate` — a name to a stylesheet, no files
+  MdToPptx.rgr      the deck, as text PowerPoint can reflow
+  MdEmbedKinds.rgr  which fence words name a drawing — no imports, read by both
+  MdDiagram.rgr     the diagram handler — the only file that knows RangerFlow
   md_demo.rgr       the only file that touches a disk
 web/
   markdown_web.rgr  the host seam: the only file a browser talks to
   standalone/       build.sh, index.html, standalone.mjs, smoke.mjs
 tests/
-  MarkdownTest.rgr  139 assertions, run on three targets
+  MarkdownTest.rgr  153 assertions, run on three targets
   MdSpecDump.rgr    renders the specification's examples for the harness
   MdEmbedProbe.rgr  what landed inside each diagram's box, off the display list
 harness/
@@ -145,15 +262,15 @@ tools/
 
 ## Diagrams
 
-A ```mermaid fence is not code and not an image: it is a drawing that has to
-be **measured** before the page can be laid out around it and **drawn**
-afterwards.
+A ```mermaid, ```plantuml or ```dot fence is not code and not an image: it is
+a drawing that has to be **measured** before the page can be laid out around
+it and **drawn** afterwards.
 
 ```
-fence text ──► MermaidRender.sceneOf ──► FlowScene ──► toEvgTree()
-                                                           │
-                                          the same elements the rest of the
-                                          document is made of
+fence text ──► <notation>Render.sceneOf ──► FlowScene ──► toEvgTree()
+                                                              │
+                                             the same elements the rest of
+                                             the document is made of
 ```
 
 Nothing is rasterised on either path. In the PDF the diagram is vector
@@ -163,10 +280,26 @@ width of the column it lands in — a printed diagram is laid out at the
 printed width rather than scaled up from a screen, which is the whole reason
 to keep it as geometry.
 
-`MermaidRender` is new, and lives in
-[`gallery/rangerflow/domains/mermaid/`](../rangerflow/domains/mermaid/MermaidRender.rgr):
-Mermaid text in, a `FlowScene` out, no editor. All twenty-six dialects
-RangerFlow reads go through it.
+**Three notations, one branch.** Each has exactly one door on the RangerFlow
+side — text and a width in, a `FlowScene` out, no editor — and the dispatch
+between a notation's own dialects happens behind that door:
+
+| fence | door | behind it |
+| --- | --- | --- |
+| ```mermaid | [`MermaidRender`](../rangerflow/domains/mermaid/MermaidRender.rgr) | twenty-six dialects |
+| ```plantuml, ```puml | [`PlantUmlRender`](../rangerflow/domains/plantuml/PlantUmlRender.rgr) | class, sequence, activity, component |
+| ```dot, ```graphviz | [`DotRender`](../rangerflow/domains/graphviz/DotRender.rgr) | one grammar, `docs/GRAPHVIZ_PARITY.md` |
+
+`MdDiagram` branches on the notation rather than the fence word, so `plantuml`
+and `puml` are one path. The table saying which word is which lives in
+`MdEmbedKinds`, which has **no imports**: the parser reads it to decide that a
+fence is a slot and not code, and the renderer reads it to pick a door. A
+parser that says "code" while the renderer says "diagram" leaves a hole
+nobody fills, so there is one table and both read it.
+
+`d2` is deliberately absent — RangerFlow has no D2 reader, and a fence listed
+as drawable that nothing draws is worse than one left as code: it turns a
+highlighted block into an empty box with an apology in it.
 
 **How it is checked.** Not by looking at the preview — the HTML exporter
 cannot draw a scene's paths (see below). `npm run markdown:embed` builds the
@@ -196,8 +329,16 @@ of their own.
 **The cache is keyed by width.** Typing a sentence three paragraphs below a
 diagram must not re-run a graph layout; re-flowing the document *narrower*
 must. `MdEmbedCache` holds only `EVGElement` and two doubles, so `MdLayout`
-and `MdToEvg` never learn that a graph editor exists — `MdMermaid` is the
+and `MdToEvg` never learn that a graph editor exists — `MdDiagram` is the
 only file in the module that imports one.
+
+**And it is swept.** The key is the fence's *text*, so typing INSIDE a
+diagram changes it on every keystroke: a store meant to hold one diagram held
+one per character typed, each with an element tree hanging off it, and the
+status line — which counts this store — said a one-diagram document had sixty
+in it. A render is now a pass: every entry the document still wants is
+touched during it, and what was not touched is dropped at the end. A pass in
+which nothing changed touches everything and drops nothing.
 
 ## The page
 

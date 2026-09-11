@@ -628,41 +628,46 @@ class ReadableRouter {
     fn collectGrid:void (ax:double ay:double bx:double by:double) {
         clear xs
         clear ys
-        OrthoRouter.addCoord(xs ax)
-        OrthoRouter.addCoord(xs bx)
-        OrthoRouter.addCoord(ys ay)
-        OrthoRouter.addCoord(ys by)
+        xs = (OrthoRouter.addCoord(xs ax))
+        xs = (OrthoRouter.addCoord(xs bx))
+        ys = (OrthoRouter.addCoord(ys ay))
+        ys = (OrthoRouter.addCoord(ys by))
         def i:int 0
         while (i < (array_length ox)) {
-            OrthoRouter.addCoord(xs (itemAt ox i))
-            OrthoRouter.addCoord(xs ((itemAt ox i) + (itemAt ow i)))
-            OrthoRouter.addCoord(ys (itemAt oy i))
-            OrthoRouter.addCoord(ys ((itemAt oy i) + (itemAt oh i)))
+            xs = (OrthoRouter.addCoord(xs (itemAt ox i)))
+            xs = (OrthoRouter.addCoord(xs ((itemAt ox i) + (itemAt ow i))))
+            ys = (OrthoRouter.addCoord(ys (itemAt oy i)))
+            ys = (OrthoRouter.addCoord(ys ((itemAt oy i) + (itemAt oh i))))
             i = (i + 1)
         }
         OrthoRouter.sortDoubles(xs)
         OrthoRouter.sortDoubles(ys)
-        this.addMargins(xs)
-        this.addMargins(ys)
-        this.fillGaps(xs)
-        this.fillGaps(ys)
+        ; Each of these grows the list, so each hands it back — see the note
+        ; on `OrthoRouter.addCoord`. Filling a list through a parameter fills
+        ; a copy on Go, and this grid coming back empty is a router that
+        ; crashes rather than one that routes badly.
+        xs = (this.addMargins(xs))
+        ys = (this.addMargins(ys))
+        xs = (this.fillGaps(xs))
+        ys = (this.fillGaps(ys))
     }
 
-    fn addMargins:void (arr:[double]) {
+    fn addMargins:[double] (arr:[double]) {
         def n:int (array_length arr)
         if (n == 0) {
-            return
+            return arr
         }
         def lo:double (itemAt arr 0)
         def hi:double (itemAt arr (n - 1))
-        OrthoRouter.addCoord(arr (lo - fanOutStep))
-        OrthoRouter.addCoord(arr (lo - (fanOutStep * 2.0)))
-        OrthoRouter.addCoord(arr (hi + fanOutStep))
-        OrthoRouter.addCoord(arr (hi + (fanOutStep * 2.0)))
+        arr = (OrthoRouter.addCoord(arr (lo - fanOutStep)))
+        arr = (OrthoRouter.addCoord(arr (lo - (fanOutStep * 2.0))))
+        arr = (OrthoRouter.addCoord(arr (hi + fanOutStep)))
+        arr = (OrthoRouter.addCoord(arr (hi + (fanOutStep * 2.0))))
         OrthoRouter.sortDoubles(arr)
+        return arr
     }
 
-    fn fillGaps:void (arr:[double]) {
+    fn fillGaps:[double] (arr:[double]) {
         def added:[double]
         def i:int 0
         while (i < ((array_length arr) - 1)) {
@@ -682,10 +687,11 @@ class ReadableRouter {
         }
         def k:int 0
         while (k < (array_length added)) {
-            OrthoRouter.addCoord(arr (itemAt added k))
+            arr = (OrthoRouter.addCoord(arr (itemAt added k)))
             k = (k + 1)
         }
         OrthoRouter.sortDoubles(arr)
+        return arr
     }
 
     fn markPassable:void () {
@@ -754,6 +760,14 @@ class ReadableRouter {
     ; plus whatever it costs to turn HERE, on or beside somebody's line.
     fn search:[int] (nx:int ny:int i0:int j0:int i1:int j1:int startDir:int awayDir:int) {
         def stateCount:int ((nx * ny) * 4)
+        ; No grid, no route. A caller with a degenerate grid used to reach the
+        ; first write into the distance table and walk off the end of an empty
+        ; array; an empty answer is what every other refusal in here returns,
+        ; and `tryRoute` already falls back on one.
+        def empty:[int]
+        if (stateCount <= 0) {
+            return empty
+        }
         def dist:[double]
         def prev:[int]
         def seen:[boolean]

@@ -9,7 +9,7 @@
 ; afterwards. Those are two different moments, so what sits between them is
 ; this: a small store, keyed by the fence's own text.
 ;
-;   MdMermaid.prepare   ──► fills the store (this is the only file in the
+;   MdDiagram.prepare   ──► fills the store (this is the only file in the
 ;                           module that knows RangerFlow exists)
 ;   MdLayout            ──► asks it how tall the slot is
 ;   MdToEvg             ──► asks it for the elements to put in the slot
@@ -36,6 +36,8 @@ class MdEmbedEntry {
     ; "a gantt diagram — recognised, and nothing draws one here yet" than by
     ; an empty rectangle.
     def note:string ""
+    ; Which pass last wanted this entry. See `MdEmbedCache.endPass`.
+    def gen:int 0
     def root@(optional):EVGElement
 
     Constructor () {
@@ -44,8 +46,50 @@ class MdEmbedEntry {
 
 class MdEmbedCache {
     def entries:[MdEmbedEntry]
+    ; The number of the pass now running. An entry that is not wanted during a
+    ; pass is not wanted at all — see `endPass`.
+    def pass:int 0
 
     Constructor () {
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Keeping the store the size of the document
+    ; ----------------------------------------------------------------------
+    ;
+    ; The cache outlives an edit on purpose: typing a sentence three
+    ; paragraphs below a diagram must not re-run a graph layout. But typing
+    ; INSIDE a fence changes the key on every keystroke, and without this a
+    ; store that was meant to hold one diagram held one per character typed —
+    ; each with a full element tree hanging off it — and the status line,
+    ; which counts what is in here, said the document had sixty diagrams in
+    ; it when it had one.
+    ;
+    ; So a render is a PASS: every entry the document still wants is touched
+    ; during it, and what was not touched is dropped at the end. A pass in
+    ; which nothing changed touches everything and drops nothing, which is
+    ; the case that has to stay free.
+    fn beginPass:void () {
+        pass = (pass + 1)
+    }
+
+    fn touch:void (i:int) {
+        def e:MdEmbedEntry (itemAt entries i)
+        e.gen = pass
+    }
+
+    fn endPass:void () {
+        def kept:[MdEmbedEntry]
+        def i:int 0
+        def n:int (array_length entries)
+        while (i < n) {
+            def e:MdEmbedEntry (itemAt entries i)
+            if (e.gen == pass) {
+                push kept e
+            }
+            i = (i + 1)
+        }
+        entries = kept
     }
 
     fn find:int (kind:string source:string width:double) {
@@ -68,6 +112,7 @@ class MdEmbedCache {
     }
 
     fn add:void (e:MdEmbedEntry) {
+        e.gen = pass
         push entries e
     }
 
