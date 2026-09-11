@@ -29,6 +29,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layer is placed against the first entry with the same tail, and the third
   cell's text lands in the third cell.
 
+- **Two fingers pinch the canvas, and the gestures are one module.** Drag to
+  pan, wheel to zoom, a press that does not travel is a click — every
+  standalone had written its own, and none of them had a pinch.
+  `gallery/evg/gl/evg-gestures.js` is that handling once, for any EVG canvas:
+  it reads the view the host keeps and hands back another, so the host goes on
+  deciding when to paint. The anchor holds the point under the cursor, or
+  under the midpoint of two fingers, where it is; a trackpad pinch (a wheel
+  with `ctrl` held, a fraction of a notch at a time) gets a rate of its own or
+  it crawls where the wheel flies; Safari's `gesture*` events are read; and a
+  finger lifted out of a pinch leaves the other one panning. `npm run
+  evg:gestures:check` drives all of it against a canvas that is not one.
+
 - **`fig_cli fields <file> <node-id>`** prints one node's raw kiwi fields and
   lists its children, which is how a layer that draws wrong is read against
   what the file says about it, and how a variant set's variants are found.

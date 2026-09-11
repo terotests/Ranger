@@ -72,6 +72,7 @@ mkdir -p "$OUT/fixtures"
 cp gallery/figma/fixtures/*.fig "$OUT/fixtures/"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 cp gallery/evg/gl/evg-binary.js "$OUT/gl/evg-binary.js"
+cp gallery/evg/gl/evg-gestures.js "$OUT/gl/evg-gestures.js"
 # The module half of the head this build writes, shared with every other
 # gallery page: it picks up the responses the head started.
 mkdir -p "$OUT/evg"
@@ -83,7 +84,7 @@ done
 STAMP=$(node -e "
   const fs = require('fs'), crypto = require('crypto');
   const h = crypto.createHash('sha1');
-  for (const f of ['$OUT/fig_web.js', '$OUT/standalone.mjs', '$OUT/gl/evg-webgl.js', '$OUT/gl/evg-binary.js']) h.update(fs.readFileSync(f));
+  for (const f of ['$OUT/fig_web.js', '$OUT/standalone.mjs', '$OUT/gl/evg-webgl.js', '$OUT/gl/evg-binary.js', '$OUT/gl/evg-gestures.js']) h.update(fs.readFileSync(f));
   process.stdout.write(h.digest('hex').slice(0, 10));
 ")
 node -e "
@@ -100,7 +101,7 @@ node gallery/evg/web/tools/inline-assets.mjs \
   --html "$OUT/index.html" \
   --start "fixtures/health.fig" \
   --preload-stamped "standalone.mjs" \
-  --preload "gl/evg-webgl.js,gl/evg-binary.js,evg/assets-client.mjs" \
+  --preload "gl/evg-webgl.js,gl/evg-binary.js,gl/evg-gestures.js,evg/assets-client.mjs" \
   --stamp "$STAMP" || exit 1
 
 if grep -q "__BUILD__" "$OUT/index.html"; then

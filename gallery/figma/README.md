@@ -243,10 +243,16 @@ the file gives it.
 
 ## Moving around
 
-Drag with any button to pan, scroll to zoom, or use the `−` / `+` buttons;
-the readout between them shows the zoom and is the button that returns to
-100%. Zoom is anchored on the pointer, so the point under the cursor stays
-where it is instead of the page sliding toward the origin.
+Drag with any button to pan, scroll to zoom, pinch with two fingers, or use
+the `−` / `+` buttons; the readout between them shows the zoom and is the
+button that returns to 100%. Zoom is anchored on the pointer — or on the
+midpoint of the two fingers — so the point under it stays where it is
+instead of the page sliding toward the origin. A trackpad pinch arrives as
+a wheel with `ctrl` held and gets a rate of its own, or it would crawl where
+the wheel flies; a finger lifted out of a pinch leaves the other one
+panning. The gestures are `gallery/evg/gl/evg-gestures.js`, which any EVG
+canvas can attach — it reads the view this page keeps and hands back
+another, and the page still decides when to paint one.
 
 Input is applied once per animation frame, not once per event. Both
 `setView` and `draw` are expensive — the first rebuilds the display list

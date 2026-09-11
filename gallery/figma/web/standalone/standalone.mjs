@@ -5,6 +5,7 @@
 import { renderDisplayList, loadImages } from "./gl/evg-webgl.js";
 // The frame crosses as typed arrays, not as text — see `draw`.
 import { cmdsOfBinary } from "./gl/evg-binary.js";
+import { attachViewGestures } from "./gl/evg-gestures.js";
 // The file this page's head started fetching before the body was parsed.
 import { responseFor } from "./evg/assets-client.mjs";
 import { figmaClipboard, figmaClipboardName, readFigmaClipboard, FIG_FILE_RE } from "./clipboard.mjs";
@@ -887,57 +888,18 @@ function selectAt(clientX, clientY) {
   draw();
 }
 
-// Dragging the canvas pans it, with any button. A page bigger than the
-// window is the normal case — the fit button is not a substitute for
-// moving around — and a modifier nobody is told about is the same as no
-// panning at all. A press that does not travel is still a selection, so
-// the two share the gesture: the drag decides which it was on release.
-const DRAG_SLOP = 4;
-let drag = null;
-canvas.addEventListener("pointerdown", (ev) => {
-  drag = {
-    id: ev.pointerId,
-    x: ev.clientX,
-    y: ev.clientY,
-    ox: web.viewX(),
-    oy: web.viewY(),
-    moved: false,
-  };
-  canvas.setPointerCapture(ev.pointerId);
+// Drag to pan with any button, two fingers to pinch, wheel or trackpad to
+// zoom, and a press that does not travel is a selection. All of it is
+// `gallery/evg/gl/evg-gestures.js`, which reads the view this page keeps
+// and hands back another — the page still decides when to paint one.
+attachViewGestures(canvas, {
+  view: viewNow,
+  setView: setViewSoon,
+  minZoom: MIN_ZOOM,
+  maxZoom: MAX_ZOOM,
+  onTap: (clientX, clientY) => selectAt(clientX, clientY),
+  onCursor: (name) => { canvas.style.cursor = name; },
 });
-canvas.addEventListener("pointermove", (ev) => {
-  if (!drag || ev.pointerId !== drag.id) return;
-  const dx = ev.clientX - drag.x;
-  const dy = ev.clientY - drag.y;
-  if (!drag.moved && Math.abs(dx) + Math.abs(dy) < DRAG_SLOP) return;
-  drag.moved = true;
-  canvas.style.cursor = "grabbing";
-  // setViewport is given the canvas's CSS size, so the scene is laid out
-  // in CSS pixels and the pan is too: the pointer's travel goes in as it
-  // comes. Scaling it by the device pixel ratio, as this did, made the
-  // page slide at twice the cursor's speed on a HiDPI screen.
-  setViewSoon(drag.ox + dx, drag.oy + dy, viewNow().sc);
-});
-function endDrag(ev) {
-  if (!drag || ev.pointerId !== drag.id) return;
-  const wasDrag = drag.moved;
-  drag = null;
-  canvas.style.cursor = "grab";
-  if (canvas.hasPointerCapture(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId);
-  if (!wasDrag && ev.button === 0) selectAt(ev.clientX, ev.clientY);
-}
-canvas.addEventListener("pointerup", endDrag);
-canvas.addEventListener("pointercancel", endDrag);
-canvas.addEventListener("wheel", (ev) => {
-  ev.preventDefault();
-  // Firefox reports wheel deltas in lines and Chrome in pixels: one notch
-  // of the same wheel arrives as 3 there and as 100 here. Counting a line
-  // as 33 pixels makes a notch a notch in both, which is the point — a
-  // line's real height would make Firefox scroll at half speed.
-  const perUnit = ev.deltaMode === 1 ? 33 : ev.deltaMode === 2 ? 400 : 1;
-  const dy = Math.max(-240, Math.min(240, ev.deltaY * perUnit));
-  zoomAbout(Math.exp(-dy * 0.0015), ev.clientX, ev.clientY);
-}, { passive: false });
 
 ["dragenter", "dragover"].forEach((t) => {
   window.addEventListener(t, (e) => { e.preventDefault(); mainEl.classList.add("drop"); });
