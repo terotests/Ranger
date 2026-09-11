@@ -32,6 +32,96 @@ class FigToScene {
     Constructor () {
     }
 
+    ; A masking layer, turned into the clip around what it masks.
+    ;
+    ; In Figma a layer with `mask` set does not draw: it cuts the layers
+    ; ABOVE it in the same parent down to its own shape, until the next
+    ; masking layer takes over. A reader that ignores it draws the mask as
+    ; a shape of its own AND lets the layers it was holding back run past
+    ; the edge — an avatar's photo spilling out of its circle, an icon
+    ; drawn over its neighbour.
+    ;
+    ; WHAT THIS DOES NOT DO. The clip is the mask's box, not its outline,
+    ; because that is what the renderer has: an EVG clip is a rectangle.
+    ; For the rectangles and frames that most masks are — an icon's 24x24
+    ; frame, a photo's crop — the box IS the shape and the result is
+    ; exact. For a circle or a vector it cuts at the bounding box, which
+    ; removes less than Figma removes and never more, so the picture moves
+    ; towards the right one rather than past it. A rounded clip would need
+    ; a radius on the EVG clip command, and an exact one a stencil.
+    ;
+    ; A rotated mask is left alone: its box in the parent's axes is not
+    ; the region it covers, and a wrong clip is worse than none.
+    fn applyMasks:void (sn:SceneNode) {
+        def n:int (array_length sn.children)
+        def any:boolean false
+        def i:int 0
+        while (i < n) {
+            if ((itemAt sn.children i).isMask) {
+                any = true
+            }
+            i = (i + 1)
+        }
+        if (any == false) {
+            return
+        }
+        def out:[SceneNode]
+        def j:int 0
+        while (j < n) {
+            def ch:SceneNode (itemAt sn.children j)
+            if (ch.isMask == false) {
+                push out ch
+                j = (j + 1)
+            } {
+                ch.isMask = false
+                def usable:boolean (((ch.w > 0.0) && (ch.h > 0.0)) && (ch.hasXf == false))
+                if (usable == false) {
+                    ; Not a region this renderer can cut to. Draw it as it
+                    ; was drawn before, rather than dropping ink for a clip
+                    ; that would be wrong.
+                    push out ch
+                    j = (j + 1)
+                } {
+                    def g (new SceneNode())
+                    g.id = (ch.id + "#mask")
+                    g.name = (ch.name + " (mask)")
+                    g.kind = "container"
+                    g.sourceType = "MASK"
+                    g.x = ch.x
+                    g.y = ch.y
+                    g.w = ch.w
+                    g.h = ch.h
+                    g.clip = true
+                    j = (j + 1)
+                    ; Stop at the next masking layer and leave `j` on it,
+                    ; so the loop opens that one's clip rather than
+                    ; running off the end with it swallowed.
+                    def stop:boolean false
+                    while ((j < n) && (stop == false)) {
+                        def under:SceneNode (itemAt sn.children j)
+                        if under.isMask {
+                            stop = true
+                        } {
+                            under.x = (under.x - g.x)
+                            under.y = (under.y - g.y)
+                            push g.children under
+                            j = (j + 1)
+                        }
+                    }
+                    ; The mask itself is not drawn — but a mask with
+                    ; nothing above it masks nothing, and dropping it too
+                    ; would lose a shape Figma does draw in that case.
+                    if ((array_length g.children) > 0) {
+                        push out g
+                    } {
+                        push out ch
+                    }
+                }
+            }
+        }
+        sn.children = out
+    }
+
     fn indexNodes:void () {
         if indexed {
             return
@@ -104,6 +194,7 @@ class FigToScene {
         }
         def t:string nd.typeName
         def sn (new SceneNode())
+        sn.isMask = (nd.raw.childBool("mask" false))
         sn.id = nd.id
         sn.name = nd.name
         sn.kind = (FigToScene.kindOf(t))
@@ -149,7 +240,12 @@ class FigToScene {
             sn.pathData = ("M0 0L" + (to_string nd.w) + " 0")
         }
         if ((t == "ELLIPSE") && ((strlen sn.pathData) == 0)) {
-            sn.pathData = (FigToScene.ellipsePath(nd.w nd.h))
+            def arc:KiwiValue (nd.raw.child("arcData"))
+            if (arc.isObject()) {
+                sn.pathData = (FigToScene.arcPath(nd.w nd.h arc))
+            } {
+                sn.pathData = (FigToScene.ellipsePath(nd.w nd.h))
+            }
         }
         if ((t == "BOOLEAN_OPERATION") || (t == "BOOLEAN_GROUP")) {
             if ((strlen sn.pathData) == 0) {
@@ -167,6 +263,7 @@ class FigToScene {
             }
             i = (i + 1)
         }
+        this.applyMasks(sn)
         ; An instance's content is not in its own subtree. The node names a
         ; component by guid and Figma draws that component's children under
         ; the instance's transform, so a reader that stops here draws an
@@ -469,6 +566,7 @@ class FigToScene {
         }
         instanceDepth = (instanceDepth - 1)
         pathPrefix = keptPrefix
+        this.applyMasks(sn)
     }
 
     ; --- FigJam immutable frames -----------------------------------------
@@ -1252,6 +1350,107 @@ class FigToScene {
             }
         }
         sn.evenOdd = nd.evenOdd
+    }
+
+    ; An ELLIPSE with `arcData` is a wedge, a ring or a ring's slice — the
+    ; "arc tool" in Figma, and a donut chart in every deck made with it.
+    ; Drawn as its whole ellipse it is not a small error: a 20-degree slice
+    ; comes out as a filled circle, eighteen times the ink.
+    ;
+    ; The field holds `startingAngle` and `endingAngle` in radians from
+    ; three o'clock, growing clockwise because y points down, and
+    ; `innerRadius` as a fraction of the radius. SVG's own arc takes the
+    ; two endpoints and a direction rather than two angles, so the angles
+    ; become points here; `1` for the sweep flag is that same clockwise.
+    ;
+    ; An arc of a full turn has no endpoints to give — the two coincide and
+    ; SVG draws nothing — so a whole ellipse and a whole ring are each cut
+    ; into two halves, and a ring's inner edge runs backwards so the hole
+    ; is a hole under either fill rule.
+    sfn arcPath:string (w:double h:double arc:KiwiValue) {
+        def rx:double (w / 2.0)
+        def ry:double (h / 2.0)
+        def a0:double (arc.childDouble("startingAngle" 0.0))
+        def a1:double (arc.childDouble("endingAngle" 6.283185307179586))
+        def inner:double (arc.childDouble("innerRadius" 0.0))
+        if (inner < 0.0) {
+            inner = 0.0
+        }
+        if (inner > 1.0) {
+            inner = 1.0
+        }
+        def sweep:double (a1 - a0)
+        if (sweep < 0.0) {
+            sweep = (0.0 - sweep)
+            def t:double a0
+            a0 = a1
+            a1 = t
+        }
+        if (sweep > 6.2831853) {
+            sweep = 6.283185307179586
+            a1 = (a0 + sweep)
+        }
+        ; Nothing swept is nothing drawn, and a whole turn with no hole is
+        ; the plain ellipse the reader already had.
+        if (sweep < 0.0001) {
+            return ""
+        }
+        def whole:boolean (sweep > 6.2831)
+        if (whole && (inner < 0.0001)) {
+            return (FigToScene.ellipsePath(w h))
+        }
+        def irx:double (rx * inner)
+        def iry:double (ry * inner)
+        if whole {
+            def half:double (a0 + 3.141592653589793)
+            def d:string (FigToScene.arcMove(rx ry rx ry a0))
+            d = (d + (FigToScene.arcTo(rx ry rx ry half 0 1)))
+            d = (d + (FigToScene.arcTo(rx ry rx ry a0 0 1)) + "Z")
+            ; The hole runs the other way, which empties it under the
+            ; nonzero rule as well as the even-odd one.
+            d = (d + (FigToScene.arcMove(rx ry irx iry a0)))
+            d = (d + (FigToScene.arcTo(rx ry irx iry half 0 0)))
+            d = (d + (FigToScene.arcTo(rx ry irx iry a0 0 0)) + "Z")
+            return d
+        }
+        def big:int 0
+        if (sweep > 3.141592653589793) {
+            big = 1
+        }
+        def out:string (FigToScene.arcMove(rx ry rx ry a0))
+        out = (out + (FigToScene.arcTo(rx ry rx ry a1 big 1)))
+        if (inner < 0.0001) {
+            ; A wedge closes through the middle.
+            out = ((out + "L" + (to_string rx) + " " + (to_string ry)) + "Z")
+            return out
+        }
+        out = (out + (FigToScene.arcLine(rx ry irx iry a1)))
+        out = (out + (FigToScene.arcTo(rx ry irx iry a0 big 0)) + "Z")
+        return (out + "")
+    }
+
+    sfn arcX:double (cx:double rr:double angle:double) {
+        return (cx + (rr * (cos angle)))
+    }
+
+    sfn arcMove:string (cx:double cy:double rx:double ry:double a:double) {
+        def x:double (FigToScene.arcX(cx rx a))
+        def y:double (cy + (ry * (sin a)))
+        return ("M" + (to_string x) + " " + (to_string y))
+    }
+
+    sfn arcLine:string (cx:double cy:double rx:double ry:double a:double) {
+        def x:double (FigToScene.arcX(cx rx a))
+        def y:double (cy + (ry * (sin a)))
+        return ("L" + (to_string x) + " " + (to_string y))
+    }
+
+    sfn arcTo:string (cx:double cy:double rx:double ry:double a:double big:int dir:int) {
+        def x:double (FigToScene.arcX(cx rx a))
+        def y:double (cy + (ry * (sin a)))
+        def d:string ("A" + (to_string rx) + " " + (to_string ry) + " 0 ")
+        d = (d + (to_string big) + " " + (to_string dir) + " ")
+        return (d + (to_string x) + " " + (to_string y))
     }
 
     sfn ellipsePath:string (w:double h:double) {

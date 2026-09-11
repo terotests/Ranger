@@ -113,6 +113,8 @@ class FigFieldReport {
         push k "overriddenSymbolID"
         push k "derivedSymbolData"
         push k "windingRule"
+        push k "arcData"
+        push k "mask"
         return k
     }
 
@@ -123,7 +125,7 @@ class FigFieldReport {
             return "this layer masks the ones beside it — the reader draws them all"
         }
         if (field == "maskType") {
-            return "an alpha or luminance mask, not applied"
+            return "an alpha or luminance mask; the layer's box is cut to, its alpha is not"
         }
         if (field == "maskIsOutline") {
             return "an outline mask, not applied"

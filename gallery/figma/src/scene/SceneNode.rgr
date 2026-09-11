@@ -229,6 +229,10 @@ class SceneNode {
     def opacity:double 1.0
     def visible:boolean true
     def clip:boolean false
+    ; Set while converting, gone by the time the scene is drawn: a layer
+    ; that masks the ones above it is turned into the clip around them and
+    ; is not a node of its own. See `FigToScene.applyMasks`.
+    def isMask:boolean false
     def fills:[SceneFill]
     def strokes:[SceneStroke]
     def radius:SceneRadius (new SceneRadius())

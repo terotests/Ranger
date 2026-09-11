@@ -73,6 +73,10 @@ class FigSample {
         s.addField(path "windingRule" "string" 2 false)
         def td:KiwiDef (s.addMessage("TextData"))
         s.addField(td "characters" "string" 1 false)
+        def arcd:KiwiDef (s.addMessage("ArcData"))
+        s.addField(arcd "startingAngle" "float" 1 false)
+        s.addField(arcd "endingAngle" "float" 2 false)
+        s.addField(arcd "innerRadius" "float" 3 false)
         def pidx:KiwiDef (s.addMessage("ParentIndex"))
         s.addField(pidx "guid" "GUID" 1 false)
         s.addField(pidx "position" "string" 2 false)
@@ -145,6 +149,8 @@ class FigSample {
         s.addField(node "overriddenSymbolID" "GUID" 44 false)
         s.addField(node "derivedImmutableFrameData" "ImmutableFrame" 42 false)
         s.addField(node "nodeGenerationData" "ImmutableFrame" 43 false)
+        s.addField(node "mask" "bool" 45 false)
+        s.addField(node "arcData" "ArcData" 46 false)
         def blob:KiwiDef (s.addMessage("Blob"))
         s.addField(blob "bytes" "byte" 1 true)
         def msg:KiwiDef (s.addMessage("Message"))
@@ -742,6 +748,33 @@ class FigSample {
         swapInst.put("symbolData" swapSym)
         swapInst.put("overriddenSymbolID" (FigSample.guid(3 67)))
         nodes.pushItem(swapInst)
+
+        ; A masking layer: the rectangle cuts the layers ABOVE it in the
+        ; same parent down to its own shape. The wide bar below is twice
+        ; the mask's width, so a reader that ignores the flag draws it
+        ; running out of the group — and draws the mask itself, which
+        ; Figma never does.
+        def maskGroup:KiwiValue (FigSample.node(3 70 "FRAME" "MaskedGroup" 0 3 "k" 200.0 100.0 4360.0 800.0))
+        nodes.pushItem(maskGroup)
+        def maskRect:KiwiValue (FigSample.node(3 71 "RECTANGLE" "MaskShape" 3 70 "!" 80.0 80.0 10.0 10.0))
+        maskRect.put("fillPaints" (FigSample.paints(0.0 0.0 0.0)))
+        maskRect.put("mask" (KiwiValue.fromBool(true)))
+        nodes.pushItem(maskRect)
+        def maskedBar:KiwiValue (FigSample.node(3 72 "RECTANGLE" "MaskedBar" 3 70 "#" 160.0 40.0 10.0 30.0))
+        maskedBar.put("fillPaints" (FigSample.paints(0.2 0.6 0.9)))
+        nodes.pushItem(maskedBar)
+
+        ; The arc tool: a three-quarter ring. Drawn as its whole ellipse
+        ; — which is what a reader that skips `arcData` does — this is a
+        ; filled circle with no hole and no missing quarter.
+        def arc:KiwiValue (FigSample.node(3 73 "ELLIPSE" "ArcRing" 0 3 "l" 100.0 100.0 4600.0 800.0))
+        arc.put("fillPaints" (FigSample.paints(0.95 0.45 0.1)))
+        def arcData:KiwiValue (KiwiValue.fromObject())
+        arcData.put("startingAngle" (KiwiValue.fromDouble(0.0)))
+        arcData.put("endingAngle" (KiwiValue.fromDouble(4.71238898038469)))
+        arcData.put("innerRadius" (KiwiValue.fromDouble(0.5)))
+        arc.put("arcData" arcData)
+        nodes.pushItem(arc)
 
         ; --- FigJam ---------------------------------------------------
         ;
