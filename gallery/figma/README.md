@@ -269,6 +269,38 @@ thousand pixels off-screen and was skipped whole: 193 draw commands for
 in (`EVGDisplayList.cullThroughTransform`), so the same board draws 1,704
 of them and still skips what is really off-screen.
 
+## Selecting and editing
+
+Click a layer on the canvas or in the tree and it is ringed on the page and
+opened in the right-hand pane. The ring is drawn around the layer's box on
+the page, which has to be walked to: `x`/`y` on a node is an offset from
+its parent, so a title twenty pixels into a card three thousand pixels
+across the board is not at 20,16 — where the ring used to be drawn, in the
+corner of the page and nowhere near what it was pointing at.
+
+The pane is not a list of facts about the layer. The numbers on it ARE the
+layer: type one and the page is painted again. Figma answers this with a
+grid of boxes; here only what you can change looks like a field and
+everything else is text, and a field's label is a scrub handle — drag it
+sideways and the number follows. Position and size, opacity, corner radius,
+fill and stroke colour, and the text itself are editable; Auto Layout, the
+effects and what the reader could not draw are shown and not.
+
+Retyping a text layer drops the glyph outlines the editor shaped with it —
+those outlines are the old string, drawn — and what replaces them is the
+text laid out here, in whatever font this machine has. That is the honest
+result, and it says plainly which half of the pipeline drew what you are
+looking at.
+
+Nothing is written back to the file. **Revert edits** re-reads the document
+the scene was converted from.
+
+The **Frame** control picks a frame by its index, which is what the viewer
+takes and reads back. It used to list the frames' ids: no option ever
+matched the index put into it, so the control showed blank on every file,
+and picking one asked for frame 13,709 — out of range, which quietly showed
+the whole page again.
+
 ## When the page looks wrong and nothing is reported
 
 A warning can only name a case someone thought of, so when a page comes

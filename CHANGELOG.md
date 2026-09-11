@@ -29,8 +29,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layer is placed against the first entry with the same tail, and the third
   cell's text lands in the third cell.
 
-- **`fig_cli fields <file> <node-id>`** prints one node's raw kiwi fields, which
-  is how a layer that draws wrong is read against what the file says about it.
+- **`fig_cli fields <file> <node-id>`** prints one node's raw kiwi fields and
+  lists its children, which is how a layer that draws wrong is read against
+  what the file says about it, and how a variant set's variants are found.
+
+- **An inspector for the selected layer, and it edits.** The numbers in the
+  right-hand pane are the layer, not a report about it: type one and the page
+  is painted again. Position and size, opacity, corner radius, fill and stroke
+  colour and the text itself are editable, a field's label is a scrub handle,
+  and retyping a text layer drops the glyph outlines the editor shaped with it
+  for the font this machine has — which says plainly which half of the pipeline
+  drew what you are looking at. Nothing is written back to the file; **Revert
+  edits** re-reads the document the scene was converted from.
 
 - **Mermaid event models.** Time across the page, kind down it: each `tf` is a
   time frame and lands in the lane its kind belongs to, under the three names
@@ -112,6 +122,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `symbolData.symbolOverrides` is what the designer typed. Reading only the
   first left a 2,030-pixel card spilling 4,600 pixels of placeholder down the
   board.
+
+- **The selection ring was drawn in the corner of the page.** It read `x`/`y`
+  off the node, and those are an offset from the PARENT: a title twenty pixels
+  into a card three thousand pixels across the board ringed 20,16 — nowhere
+  near the layer it was pointing at. The box is walked to now, the same walk
+  the hit test makes, and a layer with no height still gets a ring you can see.
+
+- **The Frame control was blank, and picking a frame did nothing.** Its options
+  carried the frames' ids while the code put the frame's index into the
+  control and read an index back out, so nothing ever matched and
+  `parseInt("13709:3271")` asked for frame 13,709 — out of range, which
+  quietly showed the whole page again. A section with no name now wears its id
+  rather than an empty row.
 
 - **An instance swapped for another component drew the one it was not
   swapped to.** `overriddenSymbolID` is an override of the symbol the
