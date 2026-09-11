@@ -389,6 +389,17 @@ class EdgeLanes {
                     if (count > 1) {
                         EdgeLanes.sortByKey(group keys)
                         moved = (moved + (this.placeFan(g group keys edgeIdx atSource)))
+                    } {
+                        ; One edge on this side is still a slot with a wish:
+                        ; an arrow that leaves a box's middle for a box
+                        ; standing a little to one side turns twice for
+                        ; nothing, when leaving from nearer that side would
+                        ; have made it straight. Only a box has a side to
+                        ; slide along; a diamond's or a circle's border is
+                        ; where the bounding box is only at the middle.
+                        if (this.boxSide(g group edgeIdx atSource)) {
+                            moved = (moved + (this.placeFan(g group keys edgeIdx atSource)))
+                        }
                     }
                 }
                 i = (i + 1)
@@ -397,6 +408,29 @@ class EdgeLanes {
         }
         this.slideRoutedEnds(g)
         return moved
+    }
+
+    ; Whether the side these slots are on is a box's flat side, with no
+    ; named port on it.
+    fn boxSide:boolean (g:FlowGraph group:[int] edgeIdx:[int] atSource:[boolean]) {
+        def slot:int (itemAt group 0)
+        def e:FlowEdge (g.edgeAt((itemAt edgeIdx slot)))
+        def here:boolean (itemAt atSource slot)
+        def portId:string e.targetPort
+        if here {
+            portId = e.sourcePort
+        }
+        if (g.hasPort(portId)) {
+            return false
+        }
+        def owner:FlowNode (EdgeLanes.ownerOf(g e here))
+        def side:int (g.edgeSide(e here))
+        ; A table's or a class's left and right are its rows' ports; its
+        ; top and bottom are as flat as any box's.
+        if ((owner.sectionCount()) > 0) {
+            return (EdgeLanes.alongX(side))
+        }
+        return ((EdgeLanes.sideShare(owner.shape)) >= 0.6)
     }
 
     ; How much of a top or bottom side the slots may use. A box's edge is
@@ -433,9 +467,17 @@ class EdgeLanes {
         def owner:FlowNode (EdgeLanes.ownerOf(g anyEdge (itemAt atSource firstSlot)))
         def room:double (owner.width * (EdgeLanes.sideShare(owner.shape)))
         if ((EdgeLanes.alongX(side0)) == false) {
-            room = (owner.rowHeight - 6.0)
-            if ((owner.sectionCount()) == 0) {
-                room = (owner.height * (EdgeLanes.sideShare(owner.shape)))
+            room = (owner.height * (EdgeLanes.sideShare(owner.shape)))
+            ; A named port is a row: the fan stays inside it. An edge that
+            ; joins the box itself — Mermaid's ER relationships name no
+            ; column — has the whole side, and three of them squeezed into
+            ; one row's height were three crow's feet drawn on each other.
+            def anyPort:string anyEdge.targetPort
+            if (itemAt atSource firstSlot) {
+                anyPort = anyEdge.sourcePort
+            }
+            if (g.hasPort(anyPort)) {
+                room = (owner.rowHeight - 6.0)
             }
         }
         if (room < 4.0) {
@@ -751,25 +793,110 @@ class EdgeLanes {
         def tgy:double (y2 + ((FlowPosition.normalY(s2)) * stubOffset))
         if horizA {
             ; horizontal handles → the trunk is a VERTICAL run at some x
+            def spanLo:double (EdgeLanes.lower(sgy tgy))
+            def spanHi:double (EdgeLanes.upper(sgy tgy))
+            def walls:[double] (this.clearWalls(g e true spanLo spanHi sgx tgx))
             set_at vertical idx true
-            set_at pos idx ((sgx + tgx) * 0.5)
-            set_at lo idx (EdgeLanes.lower(sgy tgy))
-            set_at hi idx (EdgeLanes.upper(sgy tgy))
-            set_at wallA idx sgx
-            set_at wallB idx tgx
+            set_at pos idx (((itemAt walls 0) + (itemAt walls 1)) * 0.5)
+            set_at lo idx spanLo
+            set_at hi idx spanHi
+            set_at wallA idx (itemAt walls 0)
+            set_at wallB idx (itemAt walls 1)
             set_at entry idx sgy
             set_at exit idx tgy
             return true
         }
+        def spanLo2:double (EdgeLanes.lower(sgx tgx))
+        def spanHi2:double (EdgeLanes.upper(sgx tgx))
+        def walls2:[double] (this.clearWalls(g e false spanLo2 spanHi2 sgy tgy))
         set_at vertical idx false
-        set_at pos idx ((sgy + tgy) * 0.5)
-        set_at lo idx (EdgeLanes.lower(sgx tgx))
-        set_at hi idx (EdgeLanes.upper(sgx tgx))
-        set_at wallA idx sgy
-        set_at wallB idx tgy
+        set_at pos idx (((itemAt walls2 0) + (itemAt walls2 1)) * 0.5)
+        set_at lo idx spanLo2
+        set_at hi idx spanHi2
+        set_at wallA idx (itemAt walls2 0)
+        set_at wallB idx (itemAt walls2 1)
         set_at entry idx sgx
         set_at exit idx tgx
         return true
+    }
+
+    ; The corridor's walls, pulled in past whatever stands in it. The walls
+    ; start at the two stubs, and between two layers of even boxes that is
+    ; the corridor. Between a 28px class and the 400px one beside it, it is
+    ; not: an edge leaving the short one's bottom has its midpoint level
+    ; with the middle of the tall one, and a track put there runs straight
+    ; through it — after which the grid router draws a route of its own,
+    ; alone, on the same line as the next edge's route of its own. So every
+    ; node the trunk would run across narrows the walls to the free band on
+    ; the midpoint's side of it, or the wider band when the node covers the
+    ; midpoint. Returned in travel order: the source's wall first.
+    fn clearWalls:[double] (g:FlowGraph e:FlowEdge verticalTrunk:boolean spanLo:double spanHi:double fromWall:double toWall:double) {
+        def low:double (EdgeLanes.lower(fromWall toWall))
+        def high:double (EdgeLanes.upper(fromWall toWall))
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def keep:boolean true
+            if (i == e.sourceIndex) { keep = false }
+            if (i == e.targetIndex) { keep = false }
+            if keep {
+                def n:FlowNode (g.nodeAt(i))
+                if ((EdgeOverlap.blocks(n)) == false) { keep = false }
+                if keep {
+                    ; Along the trunk: the node's extent across the corridor.
+                    ; Across it: the node's extent along the corridor.
+                    def a0:double n.y
+                    def a1:double (n.y + n.height)
+                    def c0:double n.x
+                    def c1:double (n.x + n.width)
+                    if verticalTrunk {
+                        a0 = n.x
+                        a1 = (n.x + n.width)
+                        c0 = n.y
+                        c1 = (n.y + n.height)
+                    }
+                    def across:boolean true
+                    if (c1 <= (spanLo - margin)) { across = false }
+                    if (c0 >= (spanHi + margin)) { across = false }
+                    if across {
+                        if (a1 > low) {
+                            if (a0 < high) {
+                                def mid:double ((low + high) * 0.5)
+                                def belowRoom:double ((a0 - margin) - low)
+                                def aboveRoom:double (high - (a1 + margin))
+                                def takeBelow:boolean (mid < a0)
+                                if (mid >= a0) {
+                                    if (mid <= a1) {
+                                        takeBelow = (belowRoom >= aboveRoom)
+                                    }
+                                }
+                                if takeBelow {
+                                    high = (a0 - margin)
+                                } {
+                                    low = (a1 + margin)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def out:[double]
+        if (high <= low) {
+            ; Nothing clear: leave the walls as the stubs had them, and let
+            ; the grid router have the edge.
+            push out fromWall
+            push out toWall
+            return out
+        }
+        if (fromWall <= toWall) {
+            push out low
+            push out high
+        } {
+            push out high
+            push out low
+        }
+        return out
     }
 
     ; Order by the middle of the span and lay the tracks out around the

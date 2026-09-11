@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 1475 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
+npm run rangerflow:test        # 1493 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -39,6 +39,7 @@ npm run rangerflow:process     # a swimlane process
 npm run rangerflow:force       # React Flow's force-layout example, in Ranger
 npm run rangerflow:bench       # layout / scene / drag timings at 500 nodes
 npm run rangerflow:drag        # drop every node everywhere, count the lines left crossing
+npm run rangerflow:quality     # every fixture measured: lines through nodes, on each other, square, beside, corners
 npm run rangerflow:demo:web    # build the page, serve it, open a browser
 npm run rangerflow:web:serve   # …the same without opening anything
 npm run rangerflow:web:test    # …or run all eleven demos in headless Chrome
@@ -1663,6 +1664,40 @@ route ends where its port is; how many corners a line turns, held at none
 for the lines that can be straight; and that a strip across the page came out
 narrower than its gaps as asked. The bounds are the pictures that looked
 wrong.
+
+### …and the same numbers on every dialect
+
+`npm run rangerflow:quality` runs `RouteQuality` over every fixture in
+`fixtures/` and prints one line per diagram. Reading that table after the
+state machine was fixed found four things that had been wrong all along, each
+now a rule and a test:
+
+- **A corridor's walls are the nearest obstacles, not the stubs.** Three
+  subclasses of a 28px `Exception` beside a 400px `SearchEngine` had their
+  midpoint level with the middle of the tall class; the tracks ran through
+  it, the grid router drew each a route of its own, and two of those routes
+  lay on one line. `EdgeLanes.clearWalls` pulls the corridor in past
+  whatever stands in it, so the tracks run under the tall class, 14px apart.
+- **One edge on a side is still a slot with a wish.** The fan only dealt
+  with sides that had two or more, so a lone arrow always left a box's
+  middle — and turned twice to reach a box a little to one side. It now
+  slides along a flat side like any other slot, and `ContextError` under its
+  parent gets one straight line.
+- **Subgraphs get bands when their frames would collide.** Mermaid's own
+  example — `three` holding the first and the last node with `one` and
+  `two` in between — drew three frames over one another. When the frames as
+  placed overlap, or a frame takes in a node that is not its own, the
+  layers are laid out again in bands: a column per group across the flow,
+  nested groups inside their parent's, and the nodes in no group in a column
+  of their own (`MermaidDiagram.bandLayers`). A node the layout set down
+  half inside a frame it does not belong to is moved clear
+  (`pushOutOfFrames`), and an arrow to a frame that stands beside its
+  source rather than below it leaves by the side that faces it.
+- **A relationship that names no column has the whole side.** Mermaid's ER
+  lines join boxes, not rows, and three out of one entity were fanned inside
+  one row's height — three crow's feet drawn on each other. And a
+  flowchart's `E --> E` is a loop off the side, not a line from the bottom
+  of the box to the top of it.
 
 ### …and where the reader says, instead
 

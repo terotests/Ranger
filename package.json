@@ -308,6 +308,7 @@
     "rangerflow:mermaid:parity": "npm run --silent rangerflow:mermaid:oracle || echo '  (no registry: Mermaid could not be installed — nothing to compare against)'; npm run --silent rangerflow:mermaid:dump && node gallery/rangerflow/tools/mermaid-parity.mjs",
     "rangerflow:org": "npm run rangerflow:build && node ./gallery/rangerflow/bin/rangerflow_demo.js --org",
     "rangerflow:process": "npm run rangerflow:build && node ./gallery/rangerflow/bin/rangerflow_demo.js --process",
+    "rangerflow:quality": "npm run rangerflow:build && node ./gallery/rangerflow/bin/rangerflow_demo.js --quality gallery/rangerflow/fixtures/*.mmd gallery/rangerflow/fixtures/mermaid/*.mmd",
     "rangerflow:bench": "npm run rangerflow:build && node ./gallery/rangerflow/bin/rangerflow_demo.js --bench",
     "rangerflow:sdl": "bash gallery/rangerflow/platform/sdl/build.sh",
     "rangerflow:sdl:run": "bash gallery/rangerflow/platform/sdl/build.sh --run gallery/rangerflow/fixtures/ecommerce.sql",
