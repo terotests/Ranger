@@ -30,6 +30,10 @@ PDF** button that builds the file in the tab.
                    → WebGL / SDL          → EVGPDFRenderer  → PDF     → PNG
 ```
 
+Editing the preview is planned separately, in
+[`PLAN_WYSIWYG.md`](PLAN_WYSIWYG.md) — including why `MdToRich` is withdrawn
+as the editing path and kept only as an export.
+
 Status: **phases 1–3 built**, and the numbers below are measured rather than
 hoped for. What exists today is in [`README.md`](README.md); this file stays
 the design, including the parts that are not written.
