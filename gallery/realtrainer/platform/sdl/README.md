@@ -147,17 +147,40 @@ drew an empty window would also not crash. A scene name, a command count, a run
 count and a stylesheet that parsed are four numbers that cannot all be right by
 accident.
 
-## What has been verified
+## What has been verified, and the one thing in the way
 
-On this container, with no SDL2 and no display:
+On this container, with SDL2 2.30 and mesa installed and no display:
 
-* Ranger → C++ compiles clean (`-l=cpp`, ~25 s, 117 757 lines of C++).
+* **Ranger → C++ compiles clean** — `-l=cpp`, ~25 s, 117 757 lines of C++.
+* The date arithmetic was **extracted from the generated C++ and run**: seven
+  dates including a leap day and a century boundary, all correct.
 
-What has **not** been verified here is the link, the window or the picture.
-This container has no `libsdl2-dev`, no GL headers, no display and no
-compositor. The GL path itself is the DataGrid's, exercised by
-`npm run datagrid:sdl`, but "RealTrainer draws correctly through it" is a claim
-this machine cannot make. Run it on a desktop and look.
+`g++` then **does not build it**, and not because of anything in this
+directory:
+
+```text
+rt_sdl.cpp:1146: error: 'VlChartExamples' was not declared in this scope
+```
+
+`VlChartExamples` is a documentation-only class of unused static examples in
+`gallery/vela/src/VlChart.rgr`. Nothing calls it, so the C++ writer emits
+neither its definition nor its forward declaration — and then names it anyway
+in the `r_union_Any` variant, which lists every class the program knows rather
+than every class it wrote. 420 classes are forward-declared; the variant has
+418 names, and exactly one of them was never declared.
+
+**It is not this host's bug.** A seven-line file that imports `RtHost.rgr`,
+constructs one and prints its scene name reproduces it exactly — no SDL, no
+painter, none of the code here. RealTrainer cannot be built for C++ today,
+by any host. The fix belongs in `compiler/ng_RangerCppClassWriter.rgr`
+(`CreateUnions` should declare what it names, which is legal for a
+`shared_ptr` of an incomplete type and harmless when repeated) and needs the
+compiler rebuilt, since `bin/output.js` is a baked bundle.
+
+So the link, the window and the picture are **unverified**, and will stay that
+way until that is fixed. The GL path itself is the DataGrid's, exercised by
+`npm run datagrid:sdl`; "RealTrainer draws correctly through it" is a claim no
+machine can make yet.
 
 ## License
 
