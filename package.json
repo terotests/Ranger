@@ -52,6 +52,7 @@
     "docs:dev": "npm run docs:generate && npm --prefix docs/site run dev",
     "docs:build": "npm run docs:generate && npm --prefix docs/site run build",
     "docs:lint": "vale --config docs/style/vale/.vale.ini docs/site/src/content/docs docs/descriptions",
+    "office:metrics:closure": "node scripts/check-office-metrics-closure.mjs",
     "office:reference": "bash gallery/office/docs/build.sh",
     "office:docs:generate": "bash gallery/office/docs/build.sh",
     "office:docs:sync-playground": "node gallery/office/docs/tools/sync-playground.mjs",

@@ -180,7 +180,7 @@ async function main() {
     process.exit(1);
   }
   console.log("");
-  console.log("the page works.");
+  console.log("ALL PASS\n\nthe page works.");
 }
 
 main();

@@ -204,3 +204,10 @@ if (regressions.length > 0) {
   console.error("Either fix it, or say why in the commit and re-bless with --bless.");
   process.exit(1);
 }
+
+// The marker `scripts/run-gallery-editor-tests.sh` greps for. It says the
+// RATCHET held, which is what this script gates on — not that every example
+// passes, which the score above states and which this line must not be read
+// as claiming.
+console.log("");
+console.log(`ALL PASS — no section below its floor (${totalPassed}/${total})`);

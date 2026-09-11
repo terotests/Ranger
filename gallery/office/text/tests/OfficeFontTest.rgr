@@ -15,6 +15,7 @@
 ; ==============================================================================
 
 Import "../OfficeFont.rgr"
+Import "../../../game_engine/ui/UITextRenderer.rgr"
 
 class FontCheck {
     def passed:int 0
@@ -98,15 +99,15 @@ class OfficeFontTest {
         def tr:UITextRenderer (new UITextRenderer)
         tr.fm = fm
         tr.fontFamily = "Open Sans"
-        def used:string (OfficeFont.apply(tr "Open Sans" true true "Open Sans"))
+        def used:string (tr.useFace("Open Sans" true true "Open Sans"))
         c.eqStr("the renderer moved to the face" used "Open Sans-Bold Italic")
         c.eqStr("and says so itself" tr.fontFamily "Open Sans-Bold Italic")
-        def again:string (OfficeFont.apply(tr "Open Sans" true true "Open Sans"))
+        def again:string (tr.useFace("Open Sans" true true "Open Sans"))
         c.eqStr("asking for the same face again is a no-op" again "Open Sans-Bold Italic")
-        OfficeFont.apply(tr "Open Sans" false false "Open Sans")
+        tr.useFace("Open Sans" false false "Open Sans")
         c.eqStr("and it comes back to the regular one" tr.fontFamily "Open Sans")
         ; A face nobody has must not move the renderer off a face it had.
-        def kept:string (OfficeFont.apply(tr "Papyrus" false false "Papyrus"))
+        def kept:string (tr.useFace("Papyrus" false false "Papyrus"))
         c.eqStr("an unavailable face leaves the renderer where it was" kept "Open Sans")
         c.eqStr("and does not change it" tr.fontFamily "Open Sans")
 
@@ -184,13 +185,13 @@ class OfficeFontTest {
         tr2.fm = fm
         tr2.fontFamily = "Open Sans"
         c.eqStr("a bold italic cell gets the bold italic face"
-            (OfficeFont.applyNamed(tr2 "Calibri" true true)) "Open Sans-Bold Italic")
+            (tr2.useNamedFace("Calibri" true true)) "Open Sans-Bold Italic")
         c.eqStr("a plain one gets the plain face"
-            (OfficeFont.applyNamed(tr2 "Calibri" false false)) "Open Sans")
+            (tr2.useNamedFace("Calibri" false false)) "Open Sans")
         ; A family we ship without the slanted faces walks back rather than
         ; naming something that is not there.
         c.eqStr("and a family with no italic keeps its weight"
-            (OfficeFont.applyNamed(tr2 "Josefin Sans" true true)) "Josefin Sans-Bold")
+            (tr2.useNamedFace("Josefin Sans" true true)) "Josefin Sans-Bold")
 
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))

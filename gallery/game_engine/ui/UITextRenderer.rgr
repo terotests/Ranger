@@ -26,6 +26,8 @@ Import "../../pdf_writer/src/fonts/FontManager.rgr"
 Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
 Import "../../evg/EVGTextMeasurer.rgr"
 Import "../../office/text/OfficeText.rgr"
+Import "../../office/text/OfficeFont.rgr"
+Import "../../office/text/OfficeMeasure.rgr"
 
 ; One cached, pre-rasterized line of text (color baked in).
 class UICachedLine {
@@ -357,20 +359,11 @@ class UITextRenderer {
     ; spreadsheet's software painter, its GL painter, and the shared toolbar.
     ; The rule is about how THIS repository's FontManager names a face, which
     ; is this layer's business and nobody else's.
+    ; How this repository's FontManager names a face. The body is
+    ; `OfficeFont.faceName` — it is a fact about the loader, not about a
+    ; rasterizer — and this stays as the name four painters already call.
     sfn faceName:string (family:string bold:boolean italic:boolean) {
-        if ((strlen family) == 0) {
-            return ""
-        }
-        if bold {
-            if italic {
-                return (family + "-Bold Italic")
-            }
-            return (family + "-Bold")
-        }
-        if italic {
-            return (family + "-Italic")
-        }
-        return family
+        return (OfficeFont.faceName(family bold italic))
     }
 
     ; Switch the active TrueType face to match `fontFamily` (supports
@@ -426,6 +419,51 @@ class UITextRenderer {
     ; Bitmap fallback font (compact 3x5). Ported from game_hud.rgr so the UI
     ; renders with no external assets.
     ; ==========================================================================
+    ; --- the face, and who is allowed to change it ----------------------------
+    ;
+    ; Point this renderer at a face, and answer which one it ended up on. This
+    ; was `OfficeFont.apply(tr …)`, which put a `UITextRenderer` parameter in
+    ; `gallery/office/text` and made every consumer of the shared metrics link
+    ; a rasterizer. The rule it encodes is about THIS class, so it lives here:
+    ;
+    ; It MUST go through `fontFamily` rather than `rt.setFont`: `applyFace()`
+    ; runs at the top of measureWidth / wrap / getCachedLine and resets the
+    ; rasterizer from `fontFamily`, so poking the rasterizer directly is undone
+    ; by the very next call — which is how bold runs came to be measured, and
+    ; drawn, in the regular face. The raster cache key already includes
+    ; `fontFamily`, so nothing has to be flushed here.
+    fn useFace:string (family:string bold:boolean italic:boolean fallback:string) {
+        def want:string (OfficeFont.resolve(fm family bold italic fallback))
+        if ((strlen want) == 0) {
+            return fontFamily
+        }
+        if (fontFamily == want) {
+            return want
+        }
+        fontFamily = want
+        this.applyFace()
+        return want
+    }
+
+    ; The alias map and the walk in one call: what a document NAMED, drawn with
+    ; the best face this renderer has for it.
+    fn useNamedFace:string (name:string bold:boolean italic:boolean) {
+        def fam:string (OfficeFont.aliasFamily(name))
+        return (this.useFace(fam bold italic "Open Sans"))
+    }
+
+    ; This renderer, as the question `OfficeTextMetrics` actually asks. See
+    ; `UIMeasure` below for why it is a subclass rather than a plain
+    ; `OfficeMeasure.over(fm measurer)`.
+    fn metrics:OfficeMeasure () {
+        def o:UIMeasure (new UIMeasure())
+        o.fm = fm
+        o.measurer = measurer
+        o.hasFont = hasFont
+        o.fallback = "Open Sans"
+        return o
+    }
+
     fn bmScaleFor:int (fontSize:double) {
         def scale 2
         if (fontSize >= 14.0) {
@@ -576,5 +614,33 @@ class UITextRenderer {
         if (ch == "#") { return "101111101111101" }
         if (ch == " ") { return "000000000000000" }
         return "000000000000000"
+    }
+}
+
+; ==============================================================================
+; UIMeasure - OfficeMeasure with this renderer's fallback, to the character.
+; ==============================================================================
+;
+; `OfficeMeasure` with no font falls back to `EVGTextMeasurer`'s measured
+; advance tables. `UITextRenderer` with no font falls back to the 3x5 bitmap
+; font's step — `bmCharStep`, which is 8 under 14pt and 12 at or above — and
+; `docx_viewer`, `datagrid` and `pptx` all have headless suites that measure
+; with no faces loaded at all. The tables are the better number and the step is
+; the number those suites were written against, so the step is what this keeps:
+; a refactor that changes an answer is not a refactor, and the place to argue
+; for the better number is a change that says so in its title.
+; ==============================================================================
+class UIMeasure {
+    Extends(OfficeMeasure)
+
+    Constructor () {
+    }
+
+    fn fallbackWidth:double (shaped:string size:double) {
+        def scale:int 2
+        if (size >= 14.0) {
+            scale = 3
+        }
+        return ((to_double (strlen shaped)) * (to_double (scale * 4)))
     }
 }

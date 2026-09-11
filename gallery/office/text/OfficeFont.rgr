@@ -42,7 +42,14 @@
 ; ==============================================================================
 
 Import "../../pdf_writer/src/fonts/FontManager.rgr"
-Import "../../game_engine/ui/UITextRenderer.rgr"
+
+; NO renderer import, and that is the point. This file answers "which face"
+; from a FontManager and nothing else, so anything that needs the answer can
+; ask without dragging a software rasterizer in behind it. `apply` and
+; `applyNamed` used to live here and took a `UITextRenderer`, which made every
+; consumer of `gallery/office/text` — including `OfficeTextMetrics`, whose
+; whole job is arithmetic — import `framebuffer.rgr`. They are now
+; `UITextRenderer.useFace` / `useNamedFace`, beside the state they change.
 
 class OfficeFont {
     ; "Regular" / "Bold" / "Italic" / "Bold Italic" — the words `FontManager`
@@ -63,13 +70,26 @@ class OfficeFont {
     ; The name a renderer is asked for. The regular face is the bare family:
     ; "Open Sans-Regular" is not what the loader registered it as.
     ;
-    ; The rule itself lives in `UITextRenderer`, one layer down, because it is
-    ; about how this repository's FontManager names a face rather than about
-    ; anything OOXML — and because the painters that need it cannot reach into
-    ; `gallery/office`. This is the same answer, spelled where the office code
-    ; already looks for it.
+    ; The rule USED to live in `UITextRenderer` and this delegated to it, which
+    ; is backwards: it is about how this repository's FontManager names a face,
+    ; and a FontManager has no rasterizer in it. It lives here now and
+    ; `UITextRenderer.faceName` delegates the other way, so the painters that
+    ; spell it by hand — `EVGToolbarView`, `SoftPainter`, `EvgGlPainter` — are
+    ; unchanged and there is still exactly one body.
     sfn faceName:string (family:string bold:boolean italic:boolean) {
-        return (UITextRenderer.faceName(family bold italic))
+        if ((strlen family) == 0) {
+            return ""
+        }
+        if bold {
+            if italic {
+                return (family + "-Bold Italic")
+            }
+            return (family + "-Bold")
+        }
+        if italic {
+            return (family + "-Italic")
+        }
+        return family
     }
 
     ; The name, but only if that exact face is loaded. `hasFont` cannot answer
@@ -199,13 +219,6 @@ class OfficeFont {
         return "Open Sans"
     }
 
-    ; The alias map and the walk in one call: what a document NAMED, drawn with
-    ; the best face this renderer has for it.
-    sfn applyNamed:string (tr:UITextRenderer name:string bold:boolean italic:boolean) {
-        def fam:string (OfficeFont.aliasFamily(name))
-        return (OfficeFont.apply(tr fam bold italic "Open Sans"))
-    }
-
     ; Did the document name a family this renderer does not have? A box the
     ; author sized to fit is a box the text spills out of when the answer is
     ; yes, so it is worth being able to ask.
@@ -245,24 +258,11 @@ class OfficeFont {
         return fallback
     }
 
-    ; Point the renderer at a face, and answer which one it ended up on.
-    ;
-    ; It MUST go through `fontFamily` rather than `rt.setFont`: `UITextRenderer`
-    ; calls `applyFace()` at the top of measureWidth / wrap / getCachedLine,
-    ; which resets the rasterizer from `fontFamily`. Poking the rasterizer
-    ; directly is undone by the very next call — which is how bold runs came to
-    ; be measured, and drawn, in the regular face. The raster cache key already
-    ; includes `fontFamily`, so nothing has to be flushed here.
-    sfn apply:string (tr:UITextRenderer family:string bold:boolean italic:boolean fallback:string) {
-        def want:string (OfficeFont.resolve(tr.fm family bold italic fallback))
-        if ((strlen want) == 0) {
-            return tr.fontFamily
-        }
-        if (tr.fontFamily == want) {
-            return want
-        }
-        tr.fontFamily = want
-        tr.applyFace()
-        return want
+    ; The alias map and the walk in one call: what a document NAMED, as the
+    ; family this renderer will actually draw it in. `useNamedFace` on the
+    ; renderer is this plus the poke.
+    sfn namedFace:string (fm:FontManager name:string bold:boolean italic:boolean) {
+        def fam:string (OfficeFont.aliasFamily(name))
+        return (OfficeFont.resolve(fm fam bold italic "Open Sans"))
     }
 }
