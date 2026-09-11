@@ -1120,6 +1120,22 @@ the 26 preprocessor commands are all read off the tool.
 
 Still open: the state reader, the preprocessor, and Creole's styled runs. The plan is [`docs/PLAN_PLANTUML.md`](docs/PLAN_PLANTUML.md).
 
+### Graphviz DOT — measured, not yet read
+
+The third format a diagram travels through a README in is Graphviz's DOT, and
+the question asked of it was whether the PlantUML shape — our own reader, the
+real tool as the oracle — works a second time. It was answered by measuring
+rather than by arguing: `npm run rangerflow:graphviz:bench` hands twenty files
+to four open-source implementations and prints what came back into
+[`docs/GRAPHVIZ_BENCH.md`](docs/GRAPHVIZ_BENCH.md). Graphviz itself, native and
+compiled to WebAssembly, agrees with itself 20/20 and answers in **0.23 ms a
+diagram** — about a hundred and fortieth of what asking PlantUML costs, with no
+JVM and no subprocess. The two pure-JavaScript DOT parsers agree 18/20 and
+17/20, which is why neither can be the oracle and neither would make a reader.
+
+Nothing is built yet. The investigation, with the corpus and the phases, is
+[`docs/PLAN_GRAPHVIZ.md`](docs/PLAN_GRAPHVIZ.md).
+
 ## …and in a window
 
 `npm run rangerflow:sdl:run` compiles the whole thing to C++ and links it

@@ -1,0 +1,7 @@
+digraph quoting {
+  "node one" [label="line one\nline two \"quoted\""];
+  "node two" [label="a b"];
+  "node one" -> "node two" [label="x \
+y"];
+  123 -> 4.5 [label=-7];
+}

@@ -1,0 +1,6 @@
+digraph endpoints {
+  subgraph cluster_a { a1; a2 }
+  subgraph cluster_b { b1; b2 }
+  a1 -> b1;
+  { a1 a2 } -> { b1 b2 } [style=dotted];
+}

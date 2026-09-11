@@ -21,6 +21,10 @@ harness/oracles/plantuml_oracle.mjs    plantuml.jar    →  out/plantuml.json
 tests/PlantUmlParityDump.rgr           RangerFlow      →  out/rangerflow_plantuml.json
                                               ↓
                       tools/plantuml-parity.mjs  →  docs/PLANTUML_PARITY.md
+
+graphviz, dotparser, @ts-graphviz/ast  →  tools/graphviz-bench.mjs
+                                              ↓
+                                       docs/GRAPHVIZ_BENCH.md
 ```
 
 **PlantUML** has no parse database to ask, the way Mermaid has. It has
@@ -47,6 +51,17 @@ needs a DOM to load at all; `jsdom` is that DOM and nothing else. Nothing is
 rendered and no geometry is read: Mermaid lays a diagram out its own way and has
 no opinion about RangerFlow's, so what is compared is the *reading*.
 
+**Graphviz** is here to be measured before anything is built against it, which
+is what `docs/PLAN_GRAPHVIZ.md` reports. `@hpcc-js/wasm-graphviz` is the real
+Graphviz compiled to WebAssembly — same program, same answers as the `dot` on
+the machine, no JVM and no subprocess — and `-Tjson0` is its parse result with
+subgraph membership and *resolved* attributes, which is a better structural
+answer than either of the other two formats gives. `dotparser` and
+`@ts-graphviz/ast` are the pure-JavaScript alternatives, installed so the claim
+that they are weaker is a measurement rather than an opinion: on the twenty
+files in `fixtures/graphviz/` they agree with Graphviz 18 and 17 times.
+Graphviz is EPL-1.0 — run here, never linked, never vendored, never shipped.
+
 `@xyflow/system` is the package React Flow itself builds on, and the functions
 compared — `getBezierPath`, `getSmoothStepPath`, `getStraightPath`,
 `getViewportForBounds`, `pointToRendererPoint`, `rendererPointToPoint` — are
@@ -59,6 +74,7 @@ the middle to be wrong about.
 npm run rangerflow:parity          # installs on first run, then measures
 npm run rangerflow:mermaid:parity  # …and the same for the Mermaid reader
 npm run rangerflow:plantuml:parity # …and for PlantUML (needs a JVM)
+npm run rangerflow:graphviz:bench  # …and what the DOT references cost
 cd gallery/rangerflow/harness && npm install    # or do it by hand
 ```
 
