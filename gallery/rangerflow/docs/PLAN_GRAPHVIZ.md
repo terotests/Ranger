@@ -1,13 +1,15 @@
 # Graphviz DOT in RangerFlow — can the PlantUML shape be done twice?
 
-Status: **phases 0, 1, 2, 3 and 7 are built** · `?scenario=graphviz` in the web
+Status: **phases 0-5 and 7 are built** · `?scenario=graphviz` in the web
 editor · `npm run rangerflow:graphviz` ·
 `npm run rangerflow:graphviz:parity` → **132/132 checks over 20 files**,
 computed by Graphviz itself · `npm run rangerflow:graphviz:bench` →
 [`GRAPHVIZ_BENCH.md`](GRAPHVIZ_BENCH.md). The grammar, the scoped attribute
-defaults, `strict`, subgraphs and clusters, ports and compass points are in,
-with 50 assertions in the test suite beside the parity harness; phases 4, 5 and
-6 are still design. Every number below was measured on 2026-09-11 against
+defaults, `strict`, subgraphs and clusters are in; so are the 666-name colour
+table read off Graphviz, both label languages — `shape=record` and HTML tables —
+and the ports and compass points an edge aims at. 94 assertions in the test
+suite beside the parity harness; phase 6, the layout attribute, is still
+design. Every number below was measured on 2026-09-11 against
 Graphviz 2.43.0 (native) and the same program compiled to WebAssembly, and is
 quoted as it came back.
 
@@ -423,15 +425,59 @@ One bug the web page's own self-test found and no amount of parity would have:
 edges the same way. An edge added in the editor then collided with one of the
 file's, and the undo took back the wrong one. They are `dot<n>` now.
 
-**Phase 4 — the attributes that draw.** Shapes (geometry measured per §2.3,
-mapping onto the 41 `FlowShapes` already draws by name, plus one parameterised
-polygon for the rest), colours (the registry read off the tool, including the Brewer
-schemes), strokes, arrowheads, fills, fonts.
+**Phase 4 — the attributes that draw.** ✅ **Done for shapes and colour.**
+Shapes map onto the 41 `FlowShapes` already draws by name, with Graphviz's own
+default — an ellipse, not a box — where the file says nothing.
 
-**Phase 5 — records and HTML-like labels.** The nested box language with named
-ports, resolving into `OrientedPorts`, and the HTML table subset. **The one
-genuinely hard phase**, and deliberately late for the same reason the PlantUML
-plan put Creole late: it is invisible until there is something to put in it.
+The colours are the part worth reading twice. There are 666 of them, and a
+table of 666 transcribed by hand is a table with mistakes in it nobody will
+ever find, so `tools/graphviz-colors.mjs` **measures** it: every candidate name
+is handed to Graphviz as a node's `fillcolor` and the RGB is read back out of
+its own xdot output, where a colour is always hex whatever the name was. It
+writes `domains/graphviz/DotColors.rgr`, which is generated and says so on its
+first line. A name Graphviz does not know is left to the theme rather than
+guessed at — and how "does not know" was established is written down too:
+native `dot` warns on stderr, and without one the silent fallback to black has
+to stand in for a verdict.
+
+Around the table, `DotPalette` answers what a name cannot: `#rrggbb` and `#rgb`,
+the alpha in `#rrggbbaa` that nothing downstream can paint, an `h s v` triplet
+(computed, the way Graphviz computes it), `/x11/name`, and a gradient or colour
+list, which is drawn in its first colour.
+
+Still open here: `style=rounded|bold|diagonals`, `penwidth`, `fontname`, and the
+Brewer schemes.
+
+**Phase 5 — records and HTML-like labels.** ✅ **Done.**
+`domains/graphviz/DotRecordLabel.rgr` reads both box languages into one tree of
+cells — `<id> id | <cust> customer` and `<TABLE><TR><TD PORT="l">` mean the same
+thing here — measures it bottom-up, and places it top-down into whatever box the
+layout gave the node. The direction alternates the way DOT says: the top level
+runs across the page under `rankdir=TB` and down it under `LR`, and every `{ }`
+flips the axis again.
+
+The cells are drawn as **children of the record node**, which is what makes a
+record that is dragged take its own cells with it — the mechanism the PlantUML
+packages got a few days earlier. A named field becomes a `FlowPort`, so
+`order:cust:e -> customer:id:w` leaves the cell it names, on the side the
+compass names, and arrives at the cell it names. Where the file gives no
+compass the side is chosen from where the other end of the edge actually is,
+which is what Graphviz does, and is why it happens after the layout rather than
+in the reader.
+
+Two things this needed from outside the domain, and both were bugs rather than
+features. `OrientedPorts.spread` staggered **every** end on a side, including
+ends attached to a named port — which moved the line off the very row or field
+the port existed to name. It leaves port-anchored ends alone now. And
+`ReadableRouter.staggerSide` ranked its departure lanes by how far an end had
+been nudged, which is zero for all of them once the nudging stops; it asks the
+graph where the end actually is instead. Nothing but this reader had used
+either path, and the ERD's row ports would have met the same thing the day they
+did.
+
+Still not read, and listed rather than hidden: `COLSPAN`/`ROWSPAN` (a cell that
+spans two is drawn as a cell that spans one), nested tables inside a cell,
+`<IMG>`, and an HTML table's per-cell colours.
 
 **Phase 6 — the layout attribute.** `layout=dot` → `LayeredLayout`,
 `neato`/`fdp` → `ForceLayout`, `twopi`/`circo` → the radial tree layouts,
@@ -468,12 +514,14 @@ other scenario, so it cannot rot behind the default.
 
 ```text
 domains/graphviz/DotReader.rgr            ✅ the grammar, the model, scoping
-                 DotFlow.rgr              ✅ → FlowGraph, shapes, clusters
-                 DotRecordLabel.rgr       records + HTML-like labels (phase 5)
+                 DotFlow.rgr              ✅ → FlowGraph, shapes, clusters, ports
+                 DotRecordLabel.rgr       ✅ records + HTML-like labels
+                 DotColors.rgr            ✅ GENERATED: 666 names, measured
 fixtures/graphviz/                        ✅ 16 accepted, 4 rejected
 fixtures/order_flow.gv                    ✅ the demo's diagram
 harness/oracles/graphviz_oracle.mjs       ✅ Graphviz → out/graphviz.json
 tests/DotParityDump.rgr                   ✅ RangerFlow → out/rangerflow_dot.json
+tools/graphviz-colors.mjs                 ✅ Graphviz → domains/graphviz/DotColors.rgr
 tools/graphviz-bench.mjs                  ✅ → docs/GRAPHVIZ_BENCH.md
 tools/graphviz-parity.mjs                 ✅ → docs/GRAPHVIZ_PARITY.md
 ```
@@ -486,6 +534,7 @@ rangerflow:graphviz:bench      ✅ the references, measured
 rangerflow:graphviz:oracle     ✅ build harness/out/graphviz.json
 rangerflow:graphviz:dump       ✅ build harness/out/rangerflow_dot.json
 rangerflow:graphviz:parity     ✅ score, and rewrite docs/GRAPHVIZ_PARITY.md
+rangerflow:graphviz:colors     ✅ re-measure the colour table
 ```
 
 ---
@@ -496,7 +545,7 @@ rangerflow:graphviz:parity     ✅ score, and rewrite docs/GRAPHVIZ_PARITY.md
 - acceptance parity at **100%** on `fixtures/graphviz/` including `bad/`
 - nodes, edges, subgraph membership and **resolved attributes** at 100%, or
   every gap named in the doc with the reason
-- the shape and colour tables **read off Graphviz**, not typed
+- the shape and colour tables **read off Graphviz**, not typed ✅ for colour
 - no Graphviz code linked, bundled or copied — the harness installs it, the app
   never sees it (§6)
 - `?scenario=graphviz` in the web demo, driven by `rangerflow:web:test`

@@ -311,6 +311,7 @@
     "rangerflow:graphviz:oracle": "cd gallery/rangerflow/harness && { [ -d node_modules ] || npm install --silent --no-audit --no-fund; } && cd ../../.. && node gallery/rangerflow/harness/oracles/graphviz_oracle.mjs",
     "rangerflow:graphviz:dump": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerflow/tests/DotParityDump.rgr -d=./gallery/rangerflow/bin -o=DotParityDump.js -nodecli && node ./gallery/rangerflow/bin/DotParityDump.js gallery/rangerflow/fixtures/graphviz/*.gv gallery/rangerflow/fixtures/graphviz/bad/*.gv",
     "rangerflow:graphviz:parity": "npm run --silent rangerflow:graphviz:oracle || echo '  (no Graphviz: the oracle could not be built — nothing to compare against)'; npm run --silent rangerflow:graphviz:dump && node gallery/rangerflow/tools/graphviz-parity.mjs",
+    "rangerflow:graphviz:colors": "cd gallery/rangerflow/harness && { [ -d node_modules ] || npm install --silent --no-audit --no-fund; } && cd ../../.. && node gallery/rangerflow/tools/graphviz-colors.mjs",
     "rangerflow:org": "npm run rangerflow:build && node ./gallery/rangerflow/bin/rangerflow_demo.js --org",
     "rangerflow:process": "npm run rangerflow:build && node ./gallery/rangerflow/bin/rangerflow_demo.js --process",
     "rangerflow:quality": "npm run rangerflow:build && node ./gallery/rangerflow/bin/rangerflow_demo.js --quality gallery/rangerflow/fixtures/*.mmd gallery/rangerflow/fixtures/mermaid/*.mmd",

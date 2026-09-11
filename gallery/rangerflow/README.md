@@ -1168,10 +1168,27 @@ a reader. Graphviz is EPL-1.0: it is installed by npm into the gitignored
 harness, run as a sandboxed WebAssembly module, never linked, never shipped,
 and no Graphviz source is read or copied.
 
-Still open: `record` and HTML-like labels read as their text rather than as the
-nested box language they are, ports are parsed but nothing aims an edge at them
-yet, and the colour table is the handful a diagram actually uses rather than
-X11's 154. The plan is [`docs/PLAN_GRAPHVIZ.md`](docs/PLAN_GRAPHVIZ.md).
+`shape=record` and an HTML `<TABLE>` label are both box languages rather than
+strings, and both are read: into one tree of cells, measured bottom-up and
+placed into whatever box the layout gave the node, with the axis alternating
+the way DOT says — across the page under `rankdir=TB`, down it under `LR`, and
+flipped again by every `{ }`. The cells are drawn as children of the record, so
+a record dragged across the page takes them with it, and a named field becomes
+a port: `order:cust:e -> customer:id:w` leaves the cell it names on the side
+the compass names. Where the file gives no compass the side is chosen from
+where the other end of the edge actually is, which is what Graphviz does.
+
+The colours are **measured, not transcribed**. `npm run
+rangerflow:graphviz:colors` hands every candidate name to Graphviz as a
+`fillcolor` and reads the RGB back out of its own xdot output, where a colour
+is always hex whatever the name was; 666 of them come back, and they are
+written into `domains/graphviz/DotColors.rgr`, which is generated and says so
+on its first line. A name Graphviz does not know is left to the theme rather
+than guessed at.
+
+Still open: `style=rounded`, `penwidth` and `fontname`; `COLSPAN` in an HTML
+table; and `layout=neato` choosing the force layout rather than the layered
+one. The plan is [`docs/PLAN_GRAPHVIZ.md`](docs/PLAN_GRAPHVIZ.md).
 
 ## …and in a window
 

@@ -43,8 +43,8 @@ Nothing disagrees.
 | geometry | `pos`, `width`, `height`, `bb`, `lp`. `-Tjson0` reports them whichever engine runs, so a position the author wrote and one the layout computed are the same field. RangerFlow lays a diagram out its own way; comparing positions would measure two layouts rather than one reader. |
 | source lines | Graphviz's model carries none. PlantUML's SVG does, and `PLANTUML_PARITY.md` scores it; writing the check here anyway would mean scoring against ourselves. |
 | subgraph attributes | Beyond the cluster's own `label`. Graphviz prints the graph's attributes again on every subgraph that inherits them, so the comparison would be about inheritance rather than about reading. |
-| `record` and HTML labels | Read as their text, not as the nested box language they are. `PLAN_GRAPHVIZ.md` phase 5. |
-| ports and compass points | Parsed into the model and dumped, but nothing aims an edge at them yet. |
+| `record` and HTML labels | The cells and their ports are read and drawn; the geometry they come out with is RangerFlow's own, and Graphviz has no opinion about it. |
+| ports and compass points | Read, dumped and aimed at — but where a port lands on the page is geometry again. |
 
 ## The corpus
 

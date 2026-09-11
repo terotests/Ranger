@@ -1724,6 +1724,7 @@ class RangerFlowWeb {
             def d:string "pipeline\tpipeline with clusters"
             d = (d + "|shapes\tthe shape gallery")
             d = (d + "|undirected\tan undirected graph")
+            d = (d + "|records\trecords, HTML tables and ports")
             d = (d + "|defaults\tscoped attribute defaults")
             return d
         }
@@ -1784,6 +1785,26 @@ class RangerFlowWeb {
             b = (b + "  Daniel -- Aino [style=dotted];\n")
             b = (b + "}\n")
             return b
+        }
+        if (name == "records") {
+            def rr:string "// A record label is a box language, an HTML label is a\n"
+            rr = (rr + "// table, and an edge can aim at a named cell of either.\n")
+            rr = (rr + "digraph tietue {\n")
+            rr = (rr + "  rankdir = LR;\n")
+            rr = (rr + "  node [shape=record, style=filled, fillcolor=white, color=steelblue];\n")
+            rr = (rr + "  tilaus  [label=\"<id> id | <asiakas> asiakas | <summa> summa\"];\n")
+            rr = (rr + "  asiakas [label=\"{<id> id | nimi | sähköposti}\"];\n")
+            rr = (rr + "  rivi    [label=\"<id> id | <til> tilaus | määrä\"];\n")
+            rr = (rr + "  lasku   [shape=plaintext, label=<\n")
+            rr = (rr + "     <TABLE BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"0\">\n")
+            rr = (rr + "       <TR><TD PORT=\"nro\">lasku</TD><TD>2026-09-11</TD></TR>\n")
+            rr = (rr + "       <TR><TD COLSPAN=\"2\"><B>maksettu</B></TD></TR>\n")
+            rr = (rr + "     </TABLE>>];\n")
+            rr = (rr + "  rivi:til -> tilaus:id;\n")
+            rr = (rr + "  tilaus:asiakas:e -> asiakas:id:w [label=\"fk\"];\n")
+            rr = (rr + "  tilaus:summa -> lasku:nro [style=dashed];\n")
+            rr = (rr + "}\n")
+            return rr
         }
         if (name == "defaults") {
             def c:string "// `node [...]` reaches forward, not back, and not into\n"

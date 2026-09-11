@@ -149,6 +149,8 @@ class RangerFlowTest {
         RangerFlowTest.testDotDefaults(c)
         RangerFlowTest.testDotRefusals(c)
         RangerFlowTest.testDotFlow(c)
+        RangerFlowTest.testDotRecords(c)
+        RangerFlowTest.testDotColors(c)
         RangerFlowTest.testMermaidGit(c)
         RangerFlowTest.testMermaidSubgraphEnds(c)
         RangerFlowTest.testMermaidKanban(c)
@@ -4130,6 +4132,115 @@ class RangerFlowTest {
             inside = false
         }
         c.ok("a node in no cluster stands outside the frame" (inside == false))
+    }
+
+    ; A record label is a box language, an HTML label is a table, and both are
+    ; trees of cells with ports an edge can aim at.
+    sfn testDotRecords:void (c:Checker) {
+        c.section("Graphviz DOT — record and HTML labels")
+
+        ; `rankdir=TB` runs the top level across the page; every brace flips it.
+        def rec:DotRecordLabel (DotRecordLabel.parse("<id> id | <cust> customer | <total> total" true))
+        c.ok("a record label reads" rec.ok)
+        c.eqInt("a field per `|`" (rec.cellCount()) 3)
+        c.eqInt("and a port per `<name>`" (array_length (rec.ported())) 3)
+        def cells:[DotCell] (rec.leaves())
+        def first:DotCell (itemAt cells 0)
+        c.eqStr("the port is the name in the angle brackets" first.port "id")
+        c.eqStr("and the text is what is left, trimmed" first.text "id")
+
+        def nested:DotRecordLabel (DotRecordLabel.parse("a | { b | c } | d" true))
+        c.eqInt("a brace is one field made of several" (nested.cellCount()) 4)
+        c.ok("the top level runs across the page" nested.root.across)
+        def middle:DotCell (itemAt nested.root.kids 1)
+        c.ok("and a brace flips the axis" (middle.across == false))
+
+        ; Measured bottom-up, placed top-down into whatever the layout gave.
+        nested.measure()
+        c.ok("a measured record has a size" (nested.root.w > 0.0))
+        nested.place(10.0 20.0 300.0 60.0)
+        def leaves:[DotCell] (nested.leaves())
+        def a:DotCell (itemAt leaves 0)
+        c.near("the first cell starts where the record does" a.x 10.0 0.001)
+        def last:DotCell (itemAt leaves 3)
+        def right:double (last.x + last.w)
+        c.near("and the last one ends where it ends" right 310.0 0.001)
+        def bc:DotCell (itemAt leaves 1)
+        def cc:DotCell (itemAt leaves 2)
+        c.ok("the cells inside a brace are stacked, not side by side" (cc.y > bc.y))
+
+        ; The escapes a record label has of its own.
+        def esc:DotRecordLabel (DotRecordLabel.parse("a \\| b | c" true))
+        c.eqInt("an escaped bar is text, not a separator" (esc.cellCount()) 2)
+
+        ; And the other language, which means the same thing.
+        def html:string "<TABLE><TR><TD PORT=\"l\">left</TD><TD>right</TD></TR><TR><TD><B>below</B></TD></TR></TABLE>"
+        c.ok("a table is recognised as one" (DotHtmlLabel.isTable(html)))
+        def tab:DotRecordLabel (DotHtmlLabel.parse(html))
+        c.eqInt("a cell per TD" (tab.cellCount()) 3)
+        c.eqInt("a port per PORT attribute" (array_length (tab.ported())) 1)
+        def tcells:[DotCell] (tab.leaves())
+        def t0:DotCell (itemAt tcells 0)
+        c.eqStr("the port is read out of the tag" t0.port "l")
+        def t2:DotCell (itemAt tcells 2)
+        c.eqStr("and the markup inside a cell is taken out of its text" t2.text "below")
+        c.ok("rows are stacked" (tab.root.across == false))
+
+        ; A label that is HTML but not a table is a label with its tags gone.
+        c.ok("markup that is not a table is not one" ((DotHtmlLabel.isTable("<B>bold</B>")) == false))
+
+        ; --- and the drawing: cells, ports, and an edge that lands on one ---
+        def src:string "digraph {\n"
+        src = (src + "  rankdir = LR;\n")
+        src = (src + "  order [shape=record, label=\"<id> id | <cust> customer\"];\n")
+        src = (src + "  customer [shape=record, label=\"<id> id | name\"];\n")
+        src = (src + "  order:cust:e -> customer:id:w;\n")
+        src = (src + "}\n")
+        def d:DotGraph (DotReader.parse(src))
+        c.ok("the graph reads" d.ok)
+        def style (new FlowStyle)
+        def g:FlowGraph (DotFlow.build(d style))
+        c.eqInt("two records are two nodes and four cells" (g.nodeCount()) 6)
+        def cell0:FlowNode (g.nodeById("order::1"))
+        c.eqStr("a cell is drawn with the field's text" cell0.label "customer")
+        c.eqStr("and belongs to the record, so a drag takes it along" cell0.parentId "order")
+        def e:FlowEdge (g.edgeAt(0))
+        c.eqStr("the edge leaves the field it named" e.sourcePort "order:cust@1")
+        c.eqStr("and arrives at the one it named" e.targetPort "customer:id@3")
+        ; `:e` is the right-hand side, `:w` the left, and the endpoint is
+        ; opposite the CELL rather than the middle of the node.
+        def sy:double (g.endpointY(e true))
+        def owner:FlowNode (g.nodeById("order"))
+        def cellNode:FlowNode (g.nodeById("order::1"))
+        def mid:double (cellNode.y + (cellNode.height * 0.5))
+        c.near("the line leaves opposite its own cell" sy mid 0.6)
+        def sx:double (g.endpointX(e true))
+        c.near("on the side the compass named" sx (owner.x + owner.width) 0.6)
+    }
+
+    ; The colour table is generated by asking Graphviz; this is the check that
+    ; the generated file is present and says what it measured.
+    sfn testDotColors:void (c:Checker) {
+        c.section("Graphviz DOT — the colours, as Graphviz reported them")
+        def p (new DotPalette)
+        c.eqStr("a name out of the X11 table" (p.resolve("cornflowerblue")) "#6495ed")
+        c.eqStr("a numbered shade" (p.resolve("red3")) "#cd0000")
+        c.eqStr("one of the hundred and one greys" (p.resolve("gray37")) "#5e5e5e")
+        c.eqStr("a name in capitals is the same name" (p.resolve("SteelBlue")) "#4682b4")
+        c.eqStr("six hex digits pass through" (p.resolve("#ffcc00")) "#ffcc00")
+        c.eqStr("three are the short form of six" (p.resolve("#fc0")) "#ffcc00")
+        c.eqStr("an alpha channel nothing can paint is dropped" (p.resolve("#ffcc0080")) "#ffcc00")
+        c.eqStr("a scheme prefix names the same colour" (p.resolve("/x11/palegreen")) "#98fb98")
+        c.eqStr("a gradient is drawn in its first colour" (p.resolve("yellow:blue")) "#ffff00")
+        c.eqStr("a weighted gradient too" (p.resolve("yellow;0.3:blue")) "#ffff00")
+        c.eqStr("a name Graphviz does not know is left to the theme" (p.resolve("notacolour")) "")
+        ; Hue, saturation and value, which Graphviz computes rather than looks
+        ; up — and so does this.
+        c.eqStr("black by hsv" (p.resolve("0 0 0")) "#000000")
+        c.eqStr("white by hsv" (p.resolve("0 0 1")) "#ffffff")
+        c.eqStr("red by hsv" (p.resolve("0 1 1")) "#ff0000")
+        c.eqStr("and a comma is a separator like a space" (p.resolve("0,1,1")) "#ff0000")
+        c.ok("the table is the measured one, not a handful" ((p.names.count()) > 600))
     }
 
     sfn testPlantUmlKinds:void (c:Checker) {
