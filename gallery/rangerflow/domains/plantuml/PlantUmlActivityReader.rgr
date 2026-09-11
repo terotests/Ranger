@@ -902,6 +902,18 @@ class PlantUmlActivityFlow {
             frame.syncFromModel()
             g.addNode(frame)
             def sent:boolean (g.sendToBack(frameId))
+            ; …and the frame adopts its steps, so dragging the partition takes
+            ; them along. See PlantUmlEntityFlow.frameOne.
+            def m:int 0
+            while (m < (array_length gr.members)) {
+                def mid:string (itemAt gr.members m)
+                m = (m + 1)
+                if ((g.hasNode(mid)) == false) {
+                    continue
+                }
+                def child:FlowNode (g.nodeById(mid))
+                child.parentId = frameId
+            }
         }
     }
 }

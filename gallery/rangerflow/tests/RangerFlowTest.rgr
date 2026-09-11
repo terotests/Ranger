@@ -3911,6 +3911,23 @@ class RangerFlowTest {
         }
         c.ok("a class in no package stands outside every frame" outside)
 
+        ; A package that slides off its own contents is a box that means
+        ; nothing, so the frame adopts what it was drawn around: the editor
+        ; drags every node whose ancestor is selected.
+        def inside:FlowNode (g.nodeById("Order"))
+        c.eqStr("a class declared in a package is parented to its frame" inside.parentId "__frame_orders")
+        c.eqStr("and one declared outside every package is parented to none" loose.parentId "")
+
+        ; `FlowEditor.beginDrag` takes every node whose ancestor is selected,
+        ; and `insideSelected` is the walk that decides it. With the package
+        ; picked up, its classes answer yes and a class outside it does not.
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(1200.0 800.0)
+        fr.selected = true
+        c.ok("with the package selected, a class in it is dragged too" (ed.insideSelected(inside)))
+        c.ok("and one outside it is left where it is" ((ed.insideSelected(loose)) == false))
+        fr.selected = false
+
         ; --- and the description family, which is the same reader ---
         def csrc:string "@startuml\n"
         csrc = (csrc + "actor Customer\n")
