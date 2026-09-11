@@ -269,6 +269,24 @@ thousand pixels off-screen and was skipped whole: 193 draw commands for
 in (`EVGDisplayList.cullThroughTransform`), so the same board draws 1,704
 of them and still skips what is really off-screen.
 
+## Layers
+
+The pane on the left is a tree rooted at ONE layer at a time, not a list of
+every layer in the file: a board is thousands of them, and all of them at
+once is a wall rather than a tree. Picking something on the canvas roots the
+pane where you picked — at the layer, or at its parent when the layer has
+nothing under it, since the siblings of a leaf are the useful thing to see
+and a pane holding one row is not. The crumbs above say where that is and
+climb back out, and `⤵` on a row roots the pane there.
+
+Rows are open by default; a fold you have to click through to see anything
+is a list with extra steps. What folds itself is what does not fit: the pane
+draws about six hundred rows, and a subtree bigger than the room left
+arrives folded with its size in the tooltip. The room left counts the rows
+still owed to everything queued behind it, so every section of a board gets
+a row even when the first one could have filled the pane on its own. A layer
+you open by hand stays open.
+
 ## Selecting and editing
 
 Click a layer on the canvas or in the tree and it is ringed on the page and

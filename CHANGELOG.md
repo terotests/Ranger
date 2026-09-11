@@ -33,6 +33,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lists its children, which is how a layer that draws wrong is read against
   what the file says about it, and how a variant set's variants are found.
 
+- **The layers pane is a tree, and it is rooted where you are looking.** It
+  used to be every layer in the file in one flat list — three and a half
+  thousand rows on a board, which is a wall and not a tree. Rows fold now, and
+  picking something on the canvas roots the pane at it (or at its parent, when
+  what you picked has nothing under it), with crumbs back out. Everything is
+  open by default; what folds itself is what does not fit, counting the rows
+  still owed to the layers queued behind it, so every section of a board gets a
+  row even when the first one could have filled the pane on its own.
+
 - **An inspector for the selected layer, and it edits.** The numbers in the
   right-hand pane are the layer, not a report about it: type one and the page
   is painted again. Position and size, opacity, corner radius, fill and stroke

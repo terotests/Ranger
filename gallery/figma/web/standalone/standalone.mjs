@@ -205,19 +205,176 @@ function fillSelect(el, items, extra) {
   }
 }
 
-function renderTree(node, into, depth) {
-  const b = document.createElement("button");
-  b.type = "button";
-  b.textContent = `${"  ".repeat(depth)}${node.type}  ${node.name || node.id}`;
-  b.dataset.id = node.id;
-  if (node.id === web.selected()) b.classList.add("on");
-  b.addEventListener("click", () => {
-    web.select(node.id);
-    refreshChrome();
-    draw();
-  });
-  into.appendChild(b);
-  for (const ch of node.children || []) renderTree(ch, into, depth + 1);
+/* ---------------------------------------------------------------------------
+ * The layers pane.
+ *
+ * A board is thousands of layers, and a flat list of all of them is not a
+ * tree — it is a wall. This is the tree: rows fold, and the pane is rooted at
+ * ONE layer at a time. Picking something on the canvas roots it there, so what
+ * you get is the handful of layers under what you just clicked rather than the
+ * whole file scrolled to somewhere near it. The crumbs above say where that is
+ * and climb back out.
+ *
+ * Everything is open by default — a fold you have to click through to see
+ * anything is a list with extra steps — and folds itself only when a root has
+ * more rows under it than anyone reads at once.
+ * ------------------------------------------------------------------------- */
+
+const ROW_BUDGET = 600;
+
+let layerTree = null;   // the page as `web.tree()` last gave it
+let scopeId = null;     // the layer the pane is rooted at; null is the page
+const folded = new Set();   // folded by hand
+const opened = new Set();   // opened by hand, and so never folded for room
+const subtreeSize = new Map();
+
+/** How many rows a layer costs, itself included. Measured once per tree so
+ *  the pane can decide what fits without laying it out to find out. */
+function sizeOf(node) {
+  const seen = subtreeSize.get(node.id);
+  if (seen != null) return seen;
+  let n = 1;
+  for (const ch of node.children || []) n += sizeOf(ch);
+  subtreeSize.set(node.id, n);
+  return n;
+}
+
+function findPath(node, id, path) {
+  if (!node) return null;
+  if (node.id === id) return [...path, node];
+  for (const ch of node.children || []) {
+    const hit = findPath(ch, id, [...path, node]);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** Where to root the pane for a layer the canvas just picked: at it when it
+ *  has anything under it, and at its parent when it does not — the siblings
+ *  of a leaf are the useful thing to see, and a pane holding one row is not. */
+function scopeFor(id) {
+  const path = findPath(layerTree, id, []);
+  if (!path) return null;
+  const node = path[path.length - 1];
+  if ((node.children || []).length) return node.id;
+  const parent = path[path.length - 2];
+  return parent ? parent.id : node.id;
+}
+
+function scopeTo(id) {
+  scopeId = id;
+  folded.clear();
+  opened.clear();
+  renderLayers();
+}
+
+function renderLayers() {
+  treeEl.textContent = "";
+  if (!layerTree) return;
+  const path = scopeId ? (findPath(layerTree, scopeId, []) || [layerTree]) : [layerTree];
+  const root = path[path.length - 1];
+
+  if (path.length > 1) {
+    const crumbs = document.createElement("div");
+    crumbs.className = "crumbs";
+    path.forEach((n, i) => {
+      if (i) crumbs.append(document.createTextNode("›"));
+      const c = document.createElement("button");
+      c.type = "button";
+      c.textContent = n.name || n.type || n.id;
+      c.title = n.id;
+      if (i === path.length - 1) c.className = "here";
+      c.addEventListener("click", () => scopeTo(i ? n.id : null));
+      crumbs.append(c);
+    });
+    treeEl.append(crumbs);
+  }
+
+  const selected = web.selected();
+  let budget = ROW_BUDGET;
+  let selectedRow = null;
+
+  // `reserve` is the rows still owed to layers queued behind this one, up
+  // the whole chain. Without it the first section on a board eats the pane
+  // and the twenty after it never appear at all — not even folded.
+  const walk = (node, depth, reserve) => {
+    if (budget <= 0) return;
+    budget -= 1;
+    const kids = node.children || [];
+    const row = document.createElement("div");
+    row.className = "row" + (node.id === selected ? " on" : "");
+    row.style.paddingLeft = 2 + depth * 11 + "px";
+
+    // Open, unless it was folded by hand or is too big to fit in what is
+    // left of the pane — and a layer opened by hand stays open however big
+    // it is.
+    const tooBig = depth > 0 && !opened.has(node.id) && sizeOf(node) - 1 > budget - reserve;
+    const open = kids.length > 0 && !folded.has(node.id) && !tooBig;
+
+    const fold = document.createElement("button");
+    fold.type = "button";
+    fold.className = "fold";
+    if (kids.length) {
+      fold.textContent = open ? "▾" : "▸";
+      fold.title = open ? "Fold this layer" : `Open this layer — ${sizeOf(node) - 1} under it`;
+      fold.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (open) { folded.add(node.id); opened.delete(node.id); }
+        else { folded.delete(node.id); opened.add(node.id); }
+        renderLayers();
+      });
+    } else {
+      fold.textContent = "";
+      fold.disabled = true;
+    }
+    row.append(fold);
+
+    const pick = document.createElement("button");
+    pick.type = "button";
+    pick.className = "pick";
+    pick.title = node.id;
+    const ty = document.createElement("span");
+    ty.className = "ty";
+    ty.textContent = node.type;
+    const nm = document.createElement("span");
+    nm.className = "nm";
+    nm.textContent = node.name || node.id;
+    pick.append(ty, nm);
+    pick.addEventListener("click", () => {
+      // Picking IN the tree selects and no more: rooting the pane at every
+      // click would take the tree away as you walked down it.
+      web.select(node.id);
+      refreshChrome();
+      draw();
+    });
+    row.append(pick);
+
+    if (kids.length && node.id !== root.id) {
+      const into = document.createElement("button");
+      into.type = "button";
+      into.className = "into";
+      into.textContent = "⤵";
+      into.title = "Show only what is under this layer";
+      into.addEventListener("click", (ev) => { ev.stopPropagation(); scopeTo(node.id); });
+      row.append(into);
+    }
+
+    treeEl.append(row);
+    if (node.id === selected) selectedRow = row;
+    if (!open) return;
+    for (let i = 0; i < kids.length; i += 1) {
+      walk(kids[i], depth + 1, reserve + (kids.length - 1 - i));
+    }
+  };
+  walk(root, 0, 0);
+
+  if (budget <= 0) {
+    const more = document.createElement("p");
+    more.className = "more";
+    more.textContent = "that is as far as the pane goes — fold a layer, or click into one";
+    treeEl.append(more);
+  }
+  if (selectedRow) selectedRow.scrollIntoView({ block: "nearest" });
 }
 
 /** Warnings from the last conversion, grouped by what was unsupported.
@@ -352,10 +509,11 @@ function refreshChrome() {
     frameEl.value = String(web.frameIndex());
   } catch { /* keep */ }
   try {
-    const tree = JSON.parse(web.tree());
-    treeEl.innerHTML = "";
-    renderTree(tree, treeEl, 0);
-  } catch { treeEl.textContent = ""; }
+    layerTree = JSON.parse(web.tree());
+    subtreeSize.clear();
+    if (scopeId && !findPath(layerTree, scopeId, [])) scopeId = null;
+    renderLayers();
+  } catch { layerTree = null; treeEl.textContent = ""; }
   refreshInspector();
   showZoom(web.viewScale());
 }
@@ -709,7 +867,12 @@ function selectAt(clientX, clientY) {
   const x = (clientX - r.left) * (sw / Math.max(1, r.width));
   const y = (clientY - r.top) * (sh / Math.max(1, r.height));
   const id = web.hit(x, y);
-  if (id) web.select(id);
+  if (id) {
+    web.select(id);
+    // What you just clicked is what the pane is about.
+    const scope = scopeFor(id);
+    if (scope) { scopeId = scope; folded.clear(); }
+  }
   refreshChrome();
   draw();
 }

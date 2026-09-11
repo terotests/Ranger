@@ -46,10 +46,33 @@
       .pane:last-child { border-right: 0; border-left: 1px solid var(--line); }
       .stage { min-width: 0; min-height: 0; background: #0d1014; display: grid; place-items: stretch; }
       canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+      /* The layers tree: one root at a time, rows that fold, and crumbs
+         back out. A row is a fold, a name and a way into it — nothing else
+         earns the width. */
       .tree { font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; }
-      .tree button { display: block; width: 100%; text-align: left; background: transparent;
-        border: 0; padding: 3px 6px; border-radius: 4px; color: var(--ink); }
-      .tree button:hover, .tree button.on { background: #243044; }
+      .tree .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 3px;
+        padding: 2px 4px 8px; color: var(--muted); font-size: 11px; }
+      .tree .crumbs button { background: transparent; border: 0; padding: 1px 3px;
+        border-radius: 4px; color: var(--muted); font: inherit; }
+      .tree .crumbs button:hover { color: var(--ink); background: #243044; }
+      .tree .crumbs button.here { color: var(--ink); }
+      .tree .row { display: flex; align-items: center; gap: 2px; border-radius: 4px; }
+      .tree .row:hover { background: #1e2836; }
+      .tree .row.on { background: #243044; }
+      .tree .fold { flex: 0 0 auto; width: 14px; padding: 0; background: transparent;
+        border: 0; color: var(--muted); font-size: 9px; line-height: 1; }
+      .tree .fold:hover:enabled { color: var(--ink); }
+      .tree .fold:disabled { opacity: 0; }
+      .tree .pick { flex: 1 1 auto; min-width: 0; display: flex; gap: 6px; align-items: baseline;
+        text-align: left; background: transparent; border: 0; padding: 3px 2px; color: var(--ink); }
+      .tree .pick .ty { flex: 0 0 auto; color: var(--muted); font-size: 10px;
+        letter-spacing: 0.02em; }
+      .tree .pick .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .tree .into { flex: 0 0 auto; background: transparent; border: 0; color: var(--muted);
+        padding: 0 4px; opacity: 0; }
+      .tree .row:hover .into { opacity: 1; }
+      .tree .into:hover { color: var(--ink); }
+      .tree .more { color: var(--muted); font-size: 11px; margin: 8px 6px 0; }
       .props { font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap;
         color: #c9d4e4; margin: 0; }
 
