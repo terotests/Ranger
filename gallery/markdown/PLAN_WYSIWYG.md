@@ -497,9 +497,18 @@ Images, tables and mermaid fences, in that order.
 - An image or diagram box gets `EVGSelectChrome` handles; a resize writes a
   width back into the source (an HTML `<img width>` for an image; an attribute
   comment for a diagram), which is the only lossless place to put it.
-- A table cell is a source range: typing in it is an ordinary patch. Column
-  re-alignment is an explicit command, never automatic — a hand-aligned table
-  is a thing someone did on purpose.
+- ~~A table cell is a source range: typing in it is an ordinary patch.~~
+  **Done.** It was not one: `maybeTable` gave each cell a `literal` and no
+  source map, so every character in the grid answered -1 and the layout fell
+  back to stamping each cell's boxes with the TABLE's start — a click anywhere
+  in a table put the caret on the opening pipe. `MdBlock.rowSpans` now says
+  where each cell's text is in the file and `stampCell` writes it onto the
+  cell, after which everything downstream is the path a paragraph already
+  took. A cell containing a `\|` escape stays unmapped on purpose: `splitRow`
+  collapses the escape, so no one-to-one map exists and one unreachable cell
+  is better than a whole table off by a character. Column re-alignment is
+  still an explicit command, never automatic — a hand-aligned table is a
+  thing someone did on purpose.
 - ~~`ClipboardTable` turns a pasted spreadsheet range into a GFM table.~~
   **Done.** It imports nothing, so this was one import and a formatter rather
   than a second tolerant HTML scanner. Columns are padded to line up and a
@@ -507,10 +516,9 @@ Images, tables and mermaid fences, in that order.
 - A click on a diagram puts the caret in its fence. Direct manipulation of
   diagram geometry is not in this plan.
 
-*Still open:* the `EVGSelectChrome` handles on an image or a diagram, and
-editing a table cell in place. Both are ordinary work on top of what is
-built — a resize is a patch like everything else — and neither is needed for
-the preview to be an editor.
+*Still open:* the `EVGSelectChrome` handles on an image or a diagram. That is
+ordinary work on top of what is built — a resize is a patch like everything
+else — and it is not needed for the preview to be an editor.
 
 ---
 

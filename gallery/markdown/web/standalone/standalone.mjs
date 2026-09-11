@@ -1219,6 +1219,38 @@ function selftest() {
   // and the measurer here has the four real faces attached; the layout-level
   // version of the same round trip runs against the estimate tables in
   // `markdown:srcmap:test`.
+  // …and a TABLE CELL is a character too.
+  //
+  // It was not. `maybeTable` gave each cell a `literal` and no source map, so
+  // every character in the grid answered -1, the inline nodes under it went
+  // unstamped, and the layout fell back to stamping each cell's boxes with
+  // the TABLE's own start. A click anywhere in a table put the caret on the
+  // opening pipe and the next keystroke landed there, in the markup. Nothing
+  // about the drawing was wrong, which is why it survived every screenshot.
+  {
+    const kept = app.sourceText();
+    const table = "| Alue | Tulos |\n| --- | --- |\n| Verkkokauppa | 18 |\n";
+    app.setSource(table);
+    app.scrollTo(0);
+    const cell = JSON.parse(app.frame()).list.cmds.find(
+      (c) => c.k === 3 && (c.text || "") === "Verkkokauppa"
+    );
+    say("the cell is drawn", !!cell);
+    if (cell) {
+      const want = table.indexOf("Verkkokauppa");
+      const at = app.sourceOffsetAt(cell.x + 1, cell.y + 2);
+      say("a click in a cell names a character in that cell", at >= want && at <= want + 2,
+          at + " wanted " + want);
+      // …and through the seam a mouse uses, not the offset helper: click,
+      // then type. The pipe this used to land on is at offset 34.
+      app.click(cell.x + cell.w - 1, cell.y + 2, false);
+      app.typeText("X");
+      const line = app.sourceText().split("\n")[2];
+      say("typing in a cell edits that cell", line === "| VerkkokauppaX | 18 |", line);
+    }
+    app.setSource(kept);
+  }
+
   app.setSource("first paragraph\n\nsecond paragraph with several words in it\n");
   app.scrollTo(0);
   const mapped = JSON.parse(app.frame()).list.cmds.filter(

@@ -2595,6 +2595,16 @@ class MdLayout {
                             tx = (((cx + style.cellPadX) + (free / 2.0)) + seg.x)
                         }
                         def b:MdBox (MdBox.text(seg.text tx ty seg.w ln.height))
+                        ; The cell's own source range, the same way a
+                        ; paragraph's segments carry theirs. Without it
+                        ; `emit` left every box in the table pointing at the
+                        ; TABLE's start, so a click anywhere in the grid put
+                        ; the caret on the first pipe and typing landed
+                        ; there — which is why a cell could not be edited in
+                        ; place. A cell is a source range like any other;
+                        ; typing in one is an ordinary patch.
+                        b.segSrc = seg.srcStart
+                        b.segLen = seg.srcLen
                         b.family = seg.family
                         b.size = seg.size
                         b.bold = seg.bold
