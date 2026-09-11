@@ -76,7 +76,12 @@ class MdDiagram {
             def word:string (MdEmbedKinds.firstWord(node.info))
             def notation:string (MdEmbedKinds.notationOf(word))
             if ((strlen notation) > 0) {
-                MdDiagram.render(node cache width styleName word notation)
+                ; `{width=360}` under the fence. The LAYOUT works the same
+                ; number out of the same attribute, and it has to be the same
+                ; number: the cache is keyed by it.
+                def want:string (node.attrValue("width"))
+                def useW:double (MdEmbedKinds.widthOf(want width))
+                MdDiagram.render(node cache useW styleName word notation)
             }
         }
         def i:int 0

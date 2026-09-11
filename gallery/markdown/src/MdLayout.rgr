@@ -37,6 +37,7 @@ Import "MdNode.rgr"
 Import "MdStyle.rgr"
 Import "MdChar.rgr"
 Import "MdEmbed.rgr"
+Import "MdEmbedKinds.rgr"
 Import "MdCodeHighlight.rgr"
 Import "MdFrontMatter.rgr"
 Import "MdCss.rgr"
@@ -1707,7 +1708,14 @@ class MdLayout {
     ; them less.
     fn embed:void (node:MdNode x:double w:double) {
         def kind:string (MdLayout.firstWord(node.info))
-        def known:double (embeds.heightFor(kind node.literal w))
+        ; `{width=360}` under the fence, clamped to the column. `MdDiagram`
+        ; works the same number out of the same attribute before layout
+        ; begins, and it has to be the same number: the cache is keyed by the
+        ; width the diagram was prepared at, so one point of disagreement is a
+        ; slot with an apology in it instead of a drawing.
+        def want:string (node.attrValue("width"))
+        def useW:double (MdEmbedKinds.widthOf(want w))
+        def known:double (embeds.heightFor(kind node.literal useW))
         def drawn:boolean (known > 0.0)
         def h:double 64.0
         if drawn { h = known }
@@ -1716,7 +1724,7 @@ class MdLayout {
         b.kind = 3
         b.x = x
         b.y = y
-        b.w = w
+        b.w = useW
         b.h = h
         b.embedKind = kind
         b.embedSource = node.literal
@@ -1724,10 +1732,10 @@ class MdLayout {
         if (! drawn) {
             b.stroke = style.codeBorder
             b.strokeWidth = 1.0
-            def note:string (embeds.noteFor(kind node.literal w))
+            def note:string (embeds.noteFor(kind node.literal useW))
             def nlen:int (strlen note)
             if (nlen == 0) { note = (kind + " — no handler prepared this one") }
-            def label:MdBox (MdBox.text(note (x + style.codePadding) (y + style.codePadding) (w - (style.codePadding * 2.0)) (style.bodySize * style.lineHeight)))
+            def label:MdBox (MdBox.text(note (x + style.codePadding) (y + style.codePadding) (useW - (style.codePadding * 2.0)) (style.bodySize * style.lineHeight)))
             label.family = style.bodyFamily
             label.size = style.bodySize
             label.italic = true

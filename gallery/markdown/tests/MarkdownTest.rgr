@@ -89,6 +89,7 @@ class MarkdownTest {
         this.evg()
         this.mermaid()
         this.notations()
+        this.diagramWidth()
         this.highlight()
         this.frontMatter()
         this.furniture()
@@ -577,6 +578,71 @@ class MarkdownTest {
             i = (i + 1)
         }
         return false
+    }
+
+
+    ; ----------------------------------------------------------------------
+    ; A diagram drawn at the width the document asked for
+    ; ----------------------------------------------------------------------
+    ;
+    ; `PLAN_WYSIWYG.md` §5 Stage H wants a resize handle on a diagram to write
+    ; a width back into the source. This is the seam under that: the SOURCE can
+    ; say how wide a diagram is, and the layout honours it. A handle is then a
+    ; patch like every other edit, rather than a second way to size a drawing.
+    ;
+    ; The failure to catch is not "the box is the wrong size" — it is the box
+    ; being right while the DRAWING is prepared at the column width, because
+    ; the cache is keyed by the width and the two sides worked it out
+    ; separately. That comes out as an apology in a correctly sized hole, so
+    ; the check counts a prepared drawing as well as a box.
+    fn diagramWidth:void () {
+        ; Long enough that its natural width is past 360pt — a diagram is
+        ; never scaled UP, so a narrow one would come back the same size at
+        ; both widths and the check below would count nothing.
+        def mer:string "flowchart LR\n  A[Kirjoita luonnos] --> B[Renderoi sivu]\n  B --> C[Tulosta paperille]\n  C --> D[Arkistoi kansioon]"
+        def plain:string (("```mermaid\n" + mer) + "\n```\n")
+        def narrow:string ((("```mermaid\n" + mer) + "\n```\n") + "{width=360}\n")
+
+        def wide:MdLayout (MarkdownTest.laidOut(plain))
+        def thin:MdLayout (MarkdownTest.laidOut(narrow))
+
+        def wb:MdBox (MarkdownTest.firstOfKind(wide 3))
+        def tb:MdBox (MarkdownTest.firstOfKind(thin 3))
+        this.ok("the plain fence is a slot" (wb.kind == 3))
+        this.ok("and so is the one with a width" (tb.kind == 3))
+        this.ok("the plain one fills its column" (wb.w > 400.0))
+        this.eqInt("…and the other is the width the document asked for" (to_int tb.w) 360)
+
+        ; Both were DRAWN, not apologised for. A width the renderer never saw
+        ; comes back as "no handler prepared this one" in a 360pt hole, which
+        ; is exactly what a second copy of this arithmetic would produce.
+        this.eqInt("one diagram prepared at the column width" (wide.embeds.count()) 1)
+        this.eqInt("…and one at the asked-for width" (thin.embeds.count()) 1)
+        def we:MdEmbedEntry (wide.embeds.entryAt(0))
+        def te:MdEmbedEntry (thin.embeds.entryAt(0))
+        this.ok("the plain one has a drawing" we.ok)
+        this.ok("the narrow one has a drawing too" te.ok)
+        this.ok("and it is the narrower of the two" (te.width < we.width))
+
+        ; A width wider than the column is a typo, not a wish: a diagram that
+        ; overflowed would draw across the margin.
+        def huge:MdLayout (MarkdownTest.laidOut(((("```mermaid\n" + mer) + "\n```\n") + "{width=2000}\n")))
+        def hb:MdBox (MarkdownTest.firstOfKind(huge 3))
+        this.eqInt("a width past the column is clamped to it" (to_int hb.w) (to_int wb.w))
+        ; …and something that is not a number changes nothing.
+        def junk:MdLayout (MarkdownTest.laidOut(((("```mermaid\n" + mer) + "\n```\n") + "{width=40em}\n")))
+        def jb:MdBox (MarkdownTest.firstOfKind(junk 3))
+        this.eqInt("a unit nobody parsed is the column width" (to_int jb.w) (to_int wb.w))
+    }
+
+    ; A document, with its diagrams prepared, laid out at 700pt.
+    sfn laidOut:MdLayout (src:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        def contentW:double (700.0 - (l.style.margin * 2.0))
+        MdDiagram.prepare(doc l.embeds contentW "default")
+        l.layoutContinuous(doc 700.0)
+        return l
     }
 
     sfn countKind:int (l:MdLayout kind:int) {

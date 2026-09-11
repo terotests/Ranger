@@ -285,6 +285,17 @@ width of the column it lands in — a printed diagram is laid out at the
 printed width rather than scaled up from a screen, which is the whole reason
 to keep it as geometry.
 
+**A diagram is drawn at the width the document asks for.** `{width=360}` under
+a fence narrows it; anything wider than the column, or anything that is not a
+plain number, is the column width, because a diagram that overflowed would
+draw across the margin. The number is worked out by `MdEmbedKinds.widthOf`
+and by nothing else: the embed cache is keyed by the width a diagram was
+prepared at, so a second copy of that arithmetic is a diagram prepared at one
+width and asked for at another — an apology in a correctly sized hole. This is
+also the seam a resize handle needs ([`PLAN_WYSIWYG.md`](PLAN_WYSIWYG.md) §5
+Stage H): with the source able to say how wide a diagram is, dragging a corner
+is a patch like any other edit rather than a second way to size a drawing.
+
 **Four notations, one branch.** Each has exactly one door on the RangerFlow
 side — text and a width in, a `FlowScene` out, no editor — and the dispatch
 between a notation's own dialects happens behind that door:

@@ -495,8 +495,13 @@ writing down because it looks like a hack and is the only way.
 Images, tables and mermaid fences, in that order.
 
 - An image or diagram box gets `EVGSelectChrome` handles; a resize writes a
-  width back into the source (an HTML `<img width>` for an image; an attribute
-  comment for a diagram), which is the only lossless place to put it.
+  width back into the source (an HTML `<img width>` for an image; a
+  `{width=360}` block attribute for a diagram), which is the only lossless
+  place to put it. **The seam is built**: the source can say how wide a
+  diagram is and the layout honours it — `MdEmbedKinds.widthOf`, read by both
+  `MdDiagram` and `MdLayout`, because the embed cache is keyed by that width
+  and two copies of the arithmetic would prepare a diagram at one width and
+  ask for it at another. What is left is the chrome and the drag.
 - ~~A table cell is a source range: typing in it is an ordinary patch.~~
   **Done.** It was not one: `maybeTable` gave each cell a `literal` and no
   source map, so every character in the grid answered -1 and the layout fell
@@ -516,9 +521,12 @@ Images, tables and mermaid fences, in that order.
 - A click on a diagram puts the caret in its fence. Direct manipulation of
   diagram geometry is not in this plan.
 
-*Still open:* the `EVGSelectChrome` handles on an image or a diagram. That is
-ordinary work on top of what is built — a resize is a patch like everything
-else — and it is not needed for the preview to be an editor.
+*Still open:* the `EVGSelectChrome` handles themselves, and the drag that
+turns one into a width. The width they would write is already honoured, so
+what is left is chrome on top of a seam that works — and none of it is needed
+for the preview to be an editor. An image handle waits on Stage B0 besides:
+until a picture has bytes, `![alt](src)` draws as its alt text and there is
+nothing to resize.
 
 ---
 
