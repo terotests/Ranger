@@ -68,6 +68,12 @@ class EVGFocus {
     def ys:[double]
     def ws:[double]
     def hs:[double]
+    ; WHICH SCROLL CONTAINER EACH ONE IS IN, as a number handed out by the
+    ; walk, and -1 for the ones in none. A number rather than an id because a
+    ; scroll container does not need an id — nothing presses it — and two
+    ; focusables are in the same list when the walk gave them the same one.
+    def owners:[int]
+    def scrollerSeq@(mutable):int 0
     ; What has the focus, or "" for nothing.
     def focusId@(mutable):string ""
     ; WHETHER TO DRAW IT. The focus moves on a click as well as on a key —
@@ -80,6 +86,26 @@ class EVGFocus {
     def trapEl@(mutable+optional):EVGElement
     def trapped@(mutable):boolean false
 
+    ; --- bringing the focus into view ------------------------------------------
+    ;
+    ; The scroll containers `reveal` moved, for a caller that has to tell its
+    ; own layout about it. `EVGElement.scrollTop` is APPLICATION state — the
+    ; comment on it says so — and an app that keeps a scrollbar, a fling or a
+    ; retained layer has bookkeeping to do when it changes. This class does
+    ; the geometry and hands back what it touched; it does not pretend to know
+    ; what the app keeps.
+    def moved:[EVGElement]
+    ; How far `reveal` has already pushed the focused element up and left in
+    ; this pass. The boxes hold where things are NOW — a layout applies a
+    ; scroll to the subtree rather than leaving the display list to subtract
+    ; it, which is what `appliedScrollTop` records — so a container scrolled
+    ; on the way out has moved the element, and the container outside it must
+    ; be told against the position the element WILL have and not the one it
+    ; had. Without this a field two containers deep is brought into the inner
+    ; one and left under the fold of the outer.
+    def shiftX@(mutable):double 0.0
+    def shiftY@(mutable):double 0.0
+
     Constructor () {
     }
 
@@ -91,6 +117,8 @@ class EVGFocus {
         clear ys
         clear ws
         clear hs
+        clear owners
+        scrollerSeq = 0
         trapped = false
         def none@(optional):EVGElement
         trapEl = none
@@ -141,11 +169,35 @@ class EVGFocus {
     }
 
     fn walk:void (el:EVGElement) {
+        this.walkIn(el (0 - 1))
+    }
+
+    ; `inside` is the scroll container this element hangs under, or -1. An
+    ; element that is ITSELF a scroll container belongs to the one outside it
+    ; — a list is not inside itself — so the number is handed to the children
+    ; and not to the element that made it.
+    fn walkIn:void (el:EVGElement inside:int) {
         if el.a11yHidden {
             return
         }
         if (el.display == "none") {
             return
+        }
+        ; PAY WHAT THE SUBTREE IS OWED FIRST. A scroll moves the rows near the
+        ; viewport for real and leaves the far ones a debt — `EVGElement`'s
+        ; note on `shiftDx` says why, and that every walk into a subtree has to
+        ; settle a node before it reads its children. The display list, the hit
+        ; test and the accessibility walk all do; this one, the fourth reader
+        ; of the same tree, did not, so every focusable more than a few
+        ; container-heights from the viewport was scanned at the coordinates it
+        ; had BEFORE the page scrolled. An arrow then measured against a box
+        ; nobody could see, and answered with a control somewhere else
+        ; entirely.
+        el.settleShift()
+        def mine@(mutable):int inside
+        if (el.clipsContent()) {
+            scrollerSeq = (scrollerSeq + 1)
+            mine = scrollerSeq
         }
         if (EVGFocus.takes(el)) {
             push ids el.id
@@ -153,11 +205,12 @@ class EVGFocus {
             push ys el.calculatedY
             push ws el.calculatedWidth
             push hs el.calculatedHeight
+            push owners inside
         }
         def i:int 0
         def n:int (el.getChildCount())
         while (i < n) {
-            this.walk((el.getChild(i)))
+            this.walkIn((el.getChild(i)) mine)
             i = (i + 1)
         }
     }
@@ -248,13 +301,54 @@ class EVGFocus {
             ; Nowhere yet: an arrow enters at the first, like Tab.
             return (this.idAt(0))
         }
+        ; THE LIST YOU ARE IN COMES FIRST, and only then everything else.
+        ;
+        ; Distance is measured on the screen, and a scroll container puts the
+        ; rest of its own list OFF the screen — so the next card in the stack
+        ; is hundreds of pixels away while a fixed bottom bar is a few. Down
+        ; from a card then lands on the bar, and down from the bar comes back
+        ; to the stack: the ring ping-pongs instead of walking the list.
+        ;
+        ; Whatever parks a card against the bottom edge of its container makes
+        ; that certain rather than likely — `reveal` does it every time — but
+        ; the arrangement is what is wrong, and a finger that stops a list in
+        ; the same place finds the same thing.
+        ;
+        ; So a candidate in the same container wins over one outside it, at any
+        ; distance, and the wider search runs only when that container has
+        ; nothing left in the direction asked for. Down from the LAST card
+        ; still reaches the bar, which is what a person expects; down from the
+        ; first card reaches the second, which is what they expect more.
+        def mine@(mutable):int (0 - 1)
+        if (at < (array_length owners)) {
+            mine = (itemAt owners at)
+        }
+        if (mine >= 0) {
+            def near:string (this.bestToward(dx dy at mine))
+            if ((strlen near) > 0) {
+                return near
+            }
+        }
+        return (this.bestToward(dx dy at (0 - 2)))
+    }
+
+    ; The scoring itself. `only` is a container number to stay inside, or -2
+    ; for "anywhere".
+    fn bestToward:string (dx:double dy:double at:int only:int) {
+        def n:int (array_length ids)
         def cx:double ((itemAt xs at) + ((itemAt ws at) / 2.0))
         def cy:double ((itemAt ys at) + ((itemAt hs at) / 2.0))
         def best@(mutable):string ""
         def bestCost@(mutable):double 0.0
         def i:int 0
         while (i < n) {
-            if (i != at) {
+            def skip@(mutable):boolean (i == at)
+            if (only != (0 - 2)) {
+                if ((itemAt owners i) != only) {
+                    skip = true
+                }
+            }
+            if (skip == false) {
                 def ox:double ((itemAt xs i) + ((itemAt ws i) / 2.0))
                 def oy:double ((itemAt ys i) + ((itemAt hs i) / 2.0))
                 def along:double (((ox - cx) * dx) + ((oy - cy) * dy))
@@ -396,5 +490,145 @@ class EVGFocus {
             focusId = ""
             ringVisible = false
         }
+    }
+
+    ; --- reveal ----------------------------------------------------------------
+
+    ; SCROLL THE FOCUS INTO VIEW, the thing `element.focus()` does in a browser
+    ; and nothing here did: Tab down a settings page and the ring walked off the
+    ; bottom of the screen, because moving the focus and moving the page were
+    ; never connected. Every box needed to notice was already here — `scan`
+    ; records the rect of each focusable and `EVGElement` answers
+    ; `clipsContent`, `clientHeight` and `maxScrollTop` — and nobody ever
+    ; compared them.
+    ;
+    ; A KEY, NOT A CLICK. `key` calls this and `pointAt` does not, which is what
+    ; a browser does and the reason it is not folded into `place`: someone who
+    ; just clicked a control can see it, and a page that jumps under a click has
+    ; moved what they were aiming at.
+    ;
+    ; Runs on the scan that is already there, so the tree handed in must be the
+    ; tree that was scanned. Answers whether anything moved.
+    fn reveal:boolean (root:EVGElement) {
+        clear moved
+        shiftX = 0.0
+        shiftY = 0.0
+        if ((strlen focusId) == 0) {
+            return false
+        }
+        def at:int (this.indexOfId(focusId))
+        if (at < 0) {
+            return false
+        }
+        this.revealWalk(root focusId (itemAt xs at) (itemAt ys at) (itemAt ws at) (itemAt hs at))
+        return ((array_length moved) > 0)
+    }
+
+    ; Post-order, because the answer is on the way OUT: the walk down finds the
+    ; element and every `clipsContent` ancestor is then met innermost first,
+    ; which is the order they have to be scrolled in for `shiftY` to mean
+    ; anything.
+    ;
+    ; It walks rather than following parent links because there are none —
+    ; `EVGElement.addChild` deliberately keeps no back-reference, since
+    ; assigning `this` to a shared_ptr field forces `enable_shared_from_this`
+    ; and broke the native build.
+    fn revealWalk:boolean (el:EVGElement id:string x:double y:double w:double h:double) {
+        if (el.id == id) {
+            return true
+        }
+        if (el.a11yHidden) {
+            return false
+        }
+        if (el.display == "none") {
+            return false
+        }
+        ; The same debt as `walkIn` pays, for the same reason: `bring` reads a
+        ; container's own box, and a container far from the viewport is owed a
+        ; scroll too.
+        el.settleShift()
+        def i:int 0
+        def n:int (el.getChildCount())
+        while (i < n) {
+            if (this.revealWalk((el.getChild(i)) id x y w h)) {
+                if (el.clipsContent()) {
+                    this.bring(el x y w h)
+                }
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; One container, one rectangle. `nearest` in the DOM's language: a box
+    ; already inside the band is left alone, one above it is brought to the top
+    ; edge and one below to the bottom, and a box TALLER than the band is
+    ; aligned to its top — the first test wins, so the second cannot undo it.
+    ; Aligning a too-tall box to the bottom would show its end and hide the
+    ; label that says what it is.
+    fn bring:void (c:EVGElement x:double y:double w:double h:double) {
+        def b:double c.box.borderWidthPx
+
+        def top:double (c.calculatedY + b)
+        def bottom:double (top + (c.clientHeight()))
+        def ey:double (y - shiftY)
+        def needY@(mutable):double 0.0
+        if (ey < top) {
+            needY = (ey - top)
+        } {
+            if ((ey + h) > bottom) {
+                needY = ((ey + h) - bottom)
+            }
+        }
+        if (needY != 0.0) {
+            def wantY:double (EVGFocus.clamp((c.scrollTop + needY) (c.maxScrollTop())))
+            if (wantY != c.scrollTop) {
+                shiftY = (shiftY + (wantY - c.scrollTop))
+                c.scrollTop = wantY
+                this.noteMoved(c)
+            }
+        }
+
+        def left:double (c.calculatedX + b)
+        def right:double (left + (c.clientWidth()))
+        def ex:double (x - shiftX)
+        def needX@(mutable):double 0.0
+        if (ex < left) {
+            needX = (ex - left)
+        } {
+            if ((ex + w) > right) {
+                needX = ((ex + w) - right)
+            }
+        }
+        if (needX != 0.0) {
+            def wantX:double (EVGFocus.clamp((c.scrollLeft + needX) (c.maxScrollLeft())))
+            if (wantX != c.scrollLeft) {
+                shiftX = (shiftX + (wantX - c.scrollLeft))
+                c.scrollLeft = wantX
+                this.noteMoved(c)
+            }
+        }
+    }
+
+    sfn clamp:double (v:double max:double) {
+        if (v < 0.0) {
+            return 0.0
+        }
+        if (v > max) {
+            return max
+        }
+        return v
+    }
+
+    ; A container that moved on both axes is one container, and a caller that
+    ; was told twice would do its bookkeeping twice.
+    fn noteMoved:void (c:EVGElement) {
+        for moved e:EVGElement i {
+            if (e == c) {
+                return
+            }
+        }
+        push moved c
     }
 }

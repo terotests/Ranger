@@ -116,10 +116,70 @@ console.log("--- an arrow is a direction ---");
 
   // OFF THE EDGE IS NOWHERE, not a wrap: the eye does not jump to the far
   // side of the screen, so neither does the ring.
-  key(app, "Home");
-  const first = app.focusRingId();
-  ok("up from the top is refused", key(app, "ArrowUp") === false);
-  ok("and the ring did not move", app.focusRingId() === first);
+  //
+  // ON A PAGE NOBODY HAS SCROLLED, which is the whole of why this opens its
+  // own. `Home` is "the first focusable in tree order", and on this screen
+  // that is `rt-credits`, which sits ABOVE the scrolling panel rather than
+  // inside it — so Home moves the ring and leaves the panel where it was.
+  // The arrows walked down the panel just above, and the rows they scrolled
+  // past are then genuinely above the ring on the screen. Up finds one, which
+  // is right: something is there. What this check is about is the other
+  // thing — that an arrow with nothing in its direction answers "nowhere"
+  // rather than wrapping round — and a page that has not been scrolled is
+  // where that can be asked without the two questions being mixed up.
+  const top = open("rt-nav-settings");
+  key(top, "Home");
+  const first = top.focusRingId();
+  ok("up from the top is refused", key(top, "ArrowUp") === false);
+  ok("and the ring did not move", top.focusRingId() === first);
+}
+
+console.log("");
+console.log("--- the ring is brought into view ---");
+{
+  // THE BUG THIS EXISTS FOR: Tab down a long page and the ring walked off the
+  // bottom of the screen. `EVGFocus` moved the focus and nothing moved the
+  // page — the one thing `element.focus()` does in a browser that this never
+  // did — so a person navigating by keyboard lost the ring on the third or
+  // fourth stop and had no way to find it again.
+  //
+  // A drawn ring is a rectangle in the display list, so "can it be seen" is a
+  // question about numbers rather than about pixels: every stop of a walk down
+  // the settings page must draw its ring inside the page.
+  const app = open("rt-nav-settings");
+  const page = { w: 390, h: 844 };
+  let drawn = 0;
+  const off = [];
+  for (let i = 0; i < 60; i += 1) {
+    key(app, "Tab");
+    app.display();
+    const r = rings(app);
+    // A ring the list culled away is the same failure as one drawn past the
+    // edge: either way there is nothing on the screen to look at.
+    if (r.length === 0) { off.push(`${app.focusRingId()} (not drawn)`); continue; }
+    drawn += 1;
+    const b = r[0];
+    // A pixel of slack, because the ring is a BORDER around the box: a control
+    // flush against the edge of the page — the bottom bar's four — has half a
+    // stroke outside it, and that is the ring being drawn correctly rather
+    // than the page having failed to scroll.
+    const slack = 2;
+    if (b.y < -slack || b.y + b.h > page.h + slack || b.x < -slack || b.x + b.w > page.w + slack) {
+      off.push(`${app.focusRingId()} at ${Math.round(b.x)},${Math.round(b.y)} ${Math.round(b.w)}x${Math.round(b.h)}`);
+    }
+  }
+  ok("sixty stops all drew a ring", drawn === 60, `${drawn} of 60`);
+  ok("and every one of them was on the screen", off.length === 0, off.slice(0, 4).join(" | "));
+
+  // And it does not scroll when it does not have to: the first stop is already
+  // in view, so the page must not jump under someone who pressed Tab once.
+  const still = open("rt-nav-settings");
+  const before = JSON.parse(still.displayListJson()).cmds.length;
+  key(still, "Tab");
+  still.display();
+  const after = JSON.parse(still.displayListJson()).cmds.length;
+  ok("one Tab onto something already in view", still.focusRingId() !== "");
+  ok("and the page did not move under it", Math.abs(after - before) <= 1, `${before} -> ${after} commands`);
 }
 
 console.log("");

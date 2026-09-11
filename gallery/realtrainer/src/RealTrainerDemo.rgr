@@ -828,6 +828,8 @@ class RealTrainerDemo extends EvgApp {
     ; How far the document screen is scrolled. The value the app keeps is the
     ; one the LAYOUT clamped: it knows the content height and this does not.
     def docScroll:double 0.0
+    ; The ring has moved and the frame owes it a scroll — see `revealFocus`.
+    def revealPending:boolean false
     ; The document, its rows and the text they came from. An edit patches the
     ; one line it touched — see CompactDocument — so a family this model cannot
     ; express cannot be damaged by saving.
@@ -8896,6 +8898,12 @@ class RealTrainerDemo extends EvgApp {
             ; …and the next stop may be a field as well, in which case the
             ; keyboard goes straight on into it.
             this.keyboardTo(to)
+            ; AND THE THIRD PATH ASKS FOR IT TOO. Tab out of a field is
+            ; answered here rather than in `navKey`, and a reveal wired into
+            ; the other two left exactly the stops that follow a text field
+            ; under the fold — three of sixty, with the rest right, which is
+            ; how a half-wired fix hides.
+            this.revealFocus()
             return true
         }
         ; ESCAPE IS THE WAY OUT OF A FIELD TOO. Nothing answered it here, so
@@ -9021,7 +9029,51 @@ class RealTrainerDemo extends EvgApp {
         ; which does rebuild, because the field now has the keyboard.
         listDirty = true
         this.keyboardTo(to)
+        this.revealFocus()
         return true
+    }
+
+    ; BRING THE RING INTO VIEW. Tab down the settings page and the control the
+    ; keys reached was under the fold: `EVGFocus` moved the focus and nothing
+    ; moved the page, which is the one thing `element.focus()` does in a
+    ; browser that this never did.
+    ;
+    ; ASKED FOR HERE AND DONE BY THE FRAME, which is the part that took three
+    ; tries. A key that moves the focus can also change the SHAPE of the page —
+    ; leaving a text field closes what the field had opened — and the tree is
+    ; not in its final shape until the frame is built. Scrolling against the
+    ; boxes as they stand mid-key parks the ring against a fold that is about
+    ; to move: on a sixty-stop walk down the settings page it put three stops
+    ; off the screen and left the other fifty-seven exactly right, which is the
+    ; worst kind of wrong, because it looks like it works.
+    fn revealFocus:void () {
+        revealPending = true
+    }
+
+    ; …and this is the frame paying it, with a layout that is final.
+    ;
+    ; Each container `reveal` moved goes through `scrolled`, which is the path
+    ; a wheel and a finger already take — it clamps the container and marks its
+    ; layer — and through `rememberScroll`, without which the next rebuild puts
+    ; the page straight back where it was.
+    fn payReveal:void () {
+        if (revealPending == false) {
+            return
+        }
+        revealPending = false
+        if ((strlen keys.focusId) == 0) {
+            return
+        }
+        def r:EVGElement (unwrap root)
+        keys.settle(r)
+        if (keys.reveal(r)) {
+            for keys.moved mv:EVGElement mi {
+                this.scrolled(mv)
+                this.rememberScroll(mv)
+            }
+            listDirty = true
+            this.laidOut()
+        }
     }
 
     ; Where the ring is, for a host and for a check.
@@ -9044,6 +9096,11 @@ class RealTrainerDemo extends EvgApp {
             return false
         }
         listDirty = true
+        ; A focus nobody can see is the same problem however it was moved. This
+        ; is the reader's cursor and a screen opening on something already
+        ; chosen — not a click, which `pointOn` handles and which must never
+        ; move the page under the person who aimed at it.
+        this.revealFocus()
         return true
     }
 
@@ -9308,7 +9365,7 @@ class RealTrainerDemo extends EvgApp {
                 def beforeW:double wb.scrollTop
                 wb.scrollTop = (wb.scrollTop + delta)
                 this.scrolled(wb)
-                wizScroll = wb.scrollTop
+                this.rememberScroll(wb)
                 return (wb.scrollTop != beforeW)
             }
             return false
@@ -9324,7 +9381,7 @@ class RealTrainerDemo extends EvgApp {
                     def beforeC:double cm.scrollTop
                     cm.scrollTop = (cm.scrollTop + delta)
                     this.scrolled(cm)
-                    calMenuScroll = cm.scrollTop
+                    this.rememberScroll(cm)
                     return (cm.scrollTop != beforeC)
                 }
                 return false
@@ -9338,7 +9395,7 @@ class RealTrainerDemo extends EvgApp {
                     def beforeM:double mb.scrollTop
                     mb.scrollTop = (mb.scrollTop + delta)
                     this.scrolled(mb)
-                    modalScroll = mb.scrollTop
+                    this.rememberScroll(mb)
                     return (mb.scrollTop != beforeM)
                 }
                 return false
@@ -9349,7 +9406,7 @@ class RealTrainerDemo extends EvgApp {
                 def before0:double body.scrollTop
                 body.scrollTop = (body.scrollTop + delta)
                 this.scrolled(body)
-                docScroll = body.scrollTop
+                this.rememberScroll(body)
                 return (body.scrollTop != before0)
             }
             return false
@@ -9655,6 +9712,12 @@ class RealTrainerDemo extends EvgApp {
         }
         if (el.id == "rt-plan-body") {
             modalScroll = el.scrollTop
+        }
+        ; The calendar menu was missing from this list while `scrollDocument`
+        ; wrote it back by hand, which is how a list of four containers in two
+        ; places goes wrong. Both callers read this one now.
+        if (el.id == "rt-calmenu") {
+            calMenuScroll = el.scrollTop
         }
     }
 
@@ -10650,6 +10713,12 @@ class RealTrainerDemo extends EvgApp {
     }
 
     fn display:EVGDisplayList () {
+        ; Laid out, THEN the scroll the ring is owed, then laid out again —
+        ; see `payReveal`. The second call is the kept path and costs nothing
+        ; when the first one settled it, which is every frame but the one
+        ; after a key moved the focus.
+        this.laidOut()
+        this.payReveal()
         def lay:EVGLayout (this.laidOut())
         def r:EVGElement (unwrap root)
         ; The kept list, moved, while a scroll is all that happened and the

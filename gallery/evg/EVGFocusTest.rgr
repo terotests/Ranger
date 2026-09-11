@@ -376,6 +376,110 @@ class EVGFocusTest {
         c.eqStr("clearing takes both" ((f.ringId()) + f.focusId) "")
     }
 
+    ; A scroll container with a tall column in it: five 100-pixel rows inside
+    ; a 200-pixel box, so rows `r0` and `r1` are in view and `r2` down are not.
+    ; The boxes are where the layout would have put them with `scrollTop` at
+    ; zero, which is where this starts.
+    sfn column:EVGElement () {
+        def root (new EVGElement())
+        root.id = "page"
+        root.calculatedX = 0.0
+        root.calculatedY = 0.0
+        root.calculatedWidth = 300.0
+        root.calculatedHeight = 200.0
+        def panel (new EVGElement())
+        panel.id = "panel"
+        panel.overflow = "auto"
+        panel.calculatedX = 0.0
+        panel.calculatedY = 0.0
+        panel.calculatedWidth = 300.0
+        panel.calculatedHeight = 200.0
+        panel.scrollHeight = 500.0
+        def i:int 0
+        while (i < 5) {
+            def y:double ((int2double i) * 100.0)
+            panel.addChild((EVGFocusTest.box(("r" + (to_string i)) 0.0 y 300.0 100.0)))
+            i = (i + 1)
+        }
+        root.addChild(panel)
+        return root
+    }
+
+    sfn panelOf:EVGElement (root:EVGElement) {
+        return (root.getChild(0))
+    }
+
+    sfn testRevealScrolls:void (c:FocusCheck) {
+        print "--- the focus is brought into view ---"
+        def root:EVGElement (EVGFocusTest.column())
+        def panel:EVGElement (EVGFocusTest.panelOf(root))
+        def f (new EVGFocus())
+
+        ; Two rows are in view and three are not. Tab through the visible ones
+        ; and nothing should move — a page that jumps when it did not have to
+        ; is as wrong as one that never jumps.
+        c.eqStr("Tab reaches the first row" (f.key(root "Tab" false)) "r0")
+        c.ok("and nothing moved" ((f.reveal(root)) == false))
+        c.eqStr("the second is in view too" (f.key(root "Tab" false)) "r1")
+        c.ok("still nothing to do" ((f.reveal(root)) == false))
+
+        ; The third row is 200..300 in a band that ends at 200. Bringing its
+        ; bottom to the bottom edge is 100 of scroll, not 200: `nearest`, the
+        ; least that works, so the row above stays on the screen.
+        c.eqStr("Tab goes below the fold" (f.key(root "Tab" false)) "r2")
+        c.ok("and the panel moved" (f.reveal(root)))
+        c.eqInt("by the least that works" (to_int panel.scrollTop) 100)
+        c.eqInt("one container, once" (array_length f.moved) 1)
+
+        ; Backwards. The boxes have not been laid out again, so `r1` is still
+        ; at 100 while the band is now 100..300 — it is in view, and going back
+        ; to it must not scroll back to the top.
+        c.eqStr("Shift+Tab goes back" (f.key(root "Tab" true)) "r1")
+        c.ok("and it was already in view" ((f.reveal(root)) == false))
+        c.eqInt("so the panel stayed" (to_int panel.scrollTop) 100)
+
+        ; End is the last row, 400..500, against a band ending at 300: another
+        ; 200, and `maxScrollTop` is 500 - 200 = 300, so it lands exactly on
+        ; the end rather than past it.
+        c.eqStr("End is the last row" (f.key(root "End" false)) "r4")
+        c.ok("the panel moved again" (f.reveal(root)))
+        c.eqInt("to the bottom, clamped" (to_int panel.scrollTop) 300)
+
+        ; A CLICK MUST NOT MOVE THE PAGE. `pointAt` is the pointer's and does
+        ; not reveal; the caller decides, and RealTrainerDemo's `pointOn` does
+        ; not ask for it.
+        def fresh:EVGElement (EVGFocusTest.column())
+        def p2:EVGElement (EVGFocusTest.panelOf(fresh))
+        def g (new EVGFocus())
+        c.ok("a click lands below the fold" (g.pointAt(fresh "r4")))
+        c.eqInt("and the page did not jump" (to_int p2.scrollTop) 0)
+    }
+
+    ; A box that does not scroll is not a box to scroll: `visible` overflow
+    ; lets its content out, so there is nothing to bring into view and the
+    ; walk must carry on past it rather than stop there.
+    sfn testRevealSkipsWhatDoesNotScroll:void (c:FocusCheck) {
+        print "--- and only where there is something to scroll ---"
+        def root:EVGElement (EVGFocusTest.column())
+        def panel:EVGElement (EVGFocusTest.panelOf(root))
+        panel.overflow = "visible"
+        def f (new EVGFocus())
+        c.eqStr("the focus still moves" (f.key(root "End" false)) "r4")
+        c.ok("but nothing scrolls" ((f.reveal(root)) == false))
+        c.eqInt("and the box is untouched" (to_int panel.scrollTop) 0)
+
+        ; A clipped box whose content fits has nowhere to go either —
+        ; `maxScrollTop` is zero and the clamp says so.
+        def short:EVGElement (EVGFocusTest.column())
+        def sp:EVGElement (EVGFocusTest.panelOf(short))
+        sp.calculatedHeight = 600.0
+        sp.scrollHeight = 500.0
+        def g (new EVGFocus())
+        c.eqStr("the last row, in a box that fits" (g.key(short "End" false)) "r4")
+        c.ok("nothing to scroll" ((g.reveal(short)) == false))
+        c.eqInt("and it stayed at zero" (to_int sp.scrollTop) 0)
+    }
+
     sfn main:void () {
         def c (new FocusCheck())
         print "=== EVG: the keyboard ==="
@@ -388,6 +492,8 @@ class EVGFocusTest {
         EVGFocusTest.testSurvivesARebuild(c)
         EVGFocusTest.testNothingToFocus(c)
         EVGFocusTest.testPointerAndKeyboardShareIt(c)
+        EVGFocusTest.testRevealScrolls(c)
+        EVGFocusTest.testRevealSkipsWhatDoesNotScroll(c)
         print ""
         print (("passed=" + (to_string c.passed)) + " failed=" + (to_string c.failed))
         if (c.failed > 0) {
