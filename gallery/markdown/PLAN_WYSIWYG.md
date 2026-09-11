@@ -6,6 +6,10 @@ the canvas scrolls the textarea. `docx_viewer` and `pptx` have the thing that
 is missing — a caret in the picture, a selection you can bold, handles on a
 picture, and an undo stack with rules.
 
+**Stages A, B and C are built.** What each of them turned out to cost, and the
+two things the building changed about the plan, are recorded in place below
+rather than quietly.
+
 This document is the plan for taking those and making the markdown preview
 editable. It follows [`../PLAN_EDITOR_KERNEL.md`](../PLAN_EDITOR_KERNEL.md),
 which is this gallery's answer to the only question that matters when code is
@@ -229,30 +233,95 @@ the character under the pointer instead of the paragraph's first byte.
 Each names what makes it finished. Stages A–C are refactors with existing
 tests behind them; D is where the feature starts to exist.
 
-### Stage A — the floor, no code moves
+### Stage A — the floor, no code moves — ✅ done
 
-1. Add to `scripts/run-gallery-editor-tests.sh`: `markdown:test`,
-   `markdown:spec`, `markdown:web:test`.
-2. `gallery/office/README.md` and `../PLAN_EDITOR_KERNEL.md` name markdown as
-   a fifth editor.
+1. ~~Add to `scripts/run-gallery-editor-tests.sh`~~ — `markdown:test`,
+   `markdown:spec`, `markdown:srcmap:test`, `markdown:srcmap:spec` and
+   `markdown:web:test` are in the list.
+2. ~~`gallery/office/README.md` and `../PLAN_EDITOR_KERNEL.md` name markdown~~
+   — both do.
+
+*It cost one thing the plan did not mention.* The runner fails a suite that
+prints no pass marker, and two of these printed none. `markdown:spec`'s marker
+had to be written carefully: it says the RATCHET held, not that every example
+passes, because 651/652 is the score and a line claiming otherwise would be
+the kind of check §6 of the kernel plan warns about.
 
 *Done when:* a red markdown suite blocks a merge, before markdown imports a
-single thing from `gallery/office`.
+single thing from `gallery/office`. **It does.**
 
-### Stage B — `OfficeTextMetrics` measures through `EVGTextMeasurer`
+### Stage B — `OfficeTextMetrics` measures through `EVGTextMeasurer` — ✅ done
 
-§3's cut. `UITextRenderer` keeps working; `docx_viewer` and `pptx` are
-unchanged at their call sites.
+§3's cut, as `OfficeMeasure`: a `FontManager` and an `EVGTextMeasurer`, and
+nothing else. The closure of `OfficeTextMetrics` is **thirteen files** with no
+painter in it.
+
+*Three things fell out that the plan had not seen, each in the direction of
+the fact rather than the renderer:*
+
+- `OfficeFont.apply` / `applyNamed` took a `UITextRenderer`, which is what put
+  a renderer in `gallery/office/text` in the first place. They are
+  `UITextRenderer.useFace` / `useNamedFace` now, beside the state they change.
+- `OfficeFont.faceName` delegated **down** to `UITextRenderer.faceName`, for a
+  rule about how `FontManager` names a face. The body moved up and the
+  renderer's static delegates to it, so the four painters that spell it by
+  hand are unchanged and there is still one body.
+- `UIMeasure` keeps the bitmap fallback exactly — 8 units under 14pt, 12 at or
+  above — because `docx_viewer`, `datagrid` and `pptx` all have suites that
+  measure with no faces loaded. The estimate tables are the better number and
+  the step is the number those suites were written against; a refactor that
+  changes an answer is not a refactor.
 
 *Done when:* `office:metrics:test`, `docx_viewer:test` and `pptx:text:test` are
 green, and a markdown build that imports `OfficeTextMetrics` does not pull in
-`framebuffer.rgr`.
+`framebuffer.rgr`. **All four hold**, and the last one is a gate —
+`office:metrics:closure` — because nothing else would notice the renderer
+coming back: re-adding the import compiles and passes every suite.
 
-### Stage C — the source map
+### Stage C — the source map — ✅ done
 
-§4, and the `markdown:srcmap:test` ratchet.
+§4, and the ratchet.
+
+| | |
+| --- | --- |
+| inside the document | **1790/1790** |
+| in document order | **1790/1790** |
+| verbatim runs read back as themselves | **1337/1337** |
+| examples with a problem | **0 / 652** |
+
+Blessed at those numbers in `harness/srcmap-floor.json`, so none of the three
+can go down.
+
+The first run scored 100.0% / 99.8% / 99.0% with fourteen examples failing,
+and all fourteen were **one** bug: an autolink builds its label as a child
+rather than appending it to the flat node list, so the blanket stamp never
+reached it and it kept the default span of 0..0. That is the case for the
+corpus rather than a fixture file, stated as a number: a fixture holds the
+cases the person who wrote the stamping thought of.
+
+*Two things the building changed:*
+
+- **The block half needed no threading.** Every transformation between the raw
+  lines and `literal` is a prefix drop or a trim, so the map is built once in
+  `addLine` — the only place that still knows both strings — and shifted once
+  at finalize. That covers the paragraph, both kinds of heading, the html
+  block and both kinds of code block with one function, and it survives
+  `stripReferences` rewriting the line array underneath it.
+- **A sentinel was needed, and the failure it fixes is the interesting one.**
+  The blanket stamp at the end of a parse step was overwriting the link node
+  with the span of its own closing bracket. Valid, ordered, and wrong — which
+  is precisely why ORDERED is a separate property from VALID, and why it was
+  the check that caught it.
+
+`MdSrcMapScan` lives in `src/`, not beside the test: Stage G's incremental
+reparse needs exactly this to run both ways and compare.
 
 ### Stage D — the shared caret primitives (kernel plan Stage E, for real)
+
+*Next.* Stage B left `OfficeTextMetrics` callable from markdown, and Stage C
+left every placed segment carrying a source span; what is missing is the line
+navigation over them, and `MdLayout.srcAtPoint` is currently markdown's own
+answer to a question `DocxEditController.hitTest` answers separately.
 
 Two new files in `gallery/office/text`, both pure functions over data:
 
