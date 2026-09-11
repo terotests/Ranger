@@ -1,0 +1,5 @@
+digraph lists {
+  a [color=red] [shape=diamond];
+  b [ label = "b" , style = bold ; fontsize = 9 ];
+  a -> b [weight=4][minlen=2];
+}

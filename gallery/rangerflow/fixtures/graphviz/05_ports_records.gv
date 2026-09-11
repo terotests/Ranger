@@ -1,0 +1,6 @@
+digraph records {
+  node [shape=record];
+  order [label="<id> id | <cust> customer | <total> total"];
+  customer [label="{<id> id | name | email}"];
+  order:cust:e -> customer:id:w [label="fk"];
+}

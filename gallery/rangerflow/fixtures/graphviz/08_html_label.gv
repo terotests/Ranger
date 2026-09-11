@@ -1,0 +1,9 @@
+digraph html {
+  t [shape=none, label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+      <TR><TD>left</TD><TD PORT="r">right</TD></TR>
+      <TR><TD COLSPAN="2"><B>bold</B> and <I>italic</I></TD></TR>
+    </TABLE>>];
+  u [label=<<B>plain</B>>];
+  t:r -> u;
+}

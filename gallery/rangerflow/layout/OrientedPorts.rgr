@@ -98,16 +98,24 @@ class OrientedPorts {
             def e:FlowEdge (g.edgeAt(k))
             if (e.sourceIndex == nodeIdx) {
                 if ((g.edgeSide(e true)) == side) {
-                    push ends k
-                    push atSrc true
-                    push keys (OrientedPorts.otherKey(g e true side))
+                    ; An end that names a PORT is already somewhere: the third
+                    ; row of a table, the `<cust>` field of a record. Spreading
+                    ; it along the side would move the line off the thing it
+                    ; names, which is the whole reason the port was written.
+                    if ((g.hasPort(e.sourcePort)) == false) {
+                        push ends k
+                        push atSrc true
+                        push keys (OrientedPorts.otherKey(g e true side))
+                    }
                 }
             }
             if (e.targetIndex == nodeIdx) {
                 if ((g.edgeSide(e false)) == side) {
-                    push ends k
-                    push atSrc false
-                    push keys (OrientedPorts.otherKey(g e false side))
+                    if ((g.hasPort(e.targetPort)) == false) {
+                        push ends k
+                        push atSrc false
+                        push keys (OrientedPorts.otherKey(g e false side))
+                    }
                 }
             }
             k = (k + 1)

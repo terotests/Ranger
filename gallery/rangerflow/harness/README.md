@@ -21,6 +21,15 @@ harness/oracles/plantuml_oracle.mjs    plantuml.jar    →  out/plantuml.json
 tests/PlantUmlParityDump.rgr           RangerFlow      →  out/rangerflow_plantuml.json
                                               ↓
                       tools/plantuml-parity.mjs  →  docs/PLANTUML_PARITY.md
+
+harness/oracles/graphviz_oracle.mjs    graphviz (wasm) →  out/graphviz.json
+tests/DotParityDump.rgr                RangerFlow      →  out/rangerflow_dot.json
+                                              ↓
+                      tools/graphviz-parity.mjs  →  docs/GRAPHVIZ_PARITY.md
+
+graphviz, dotparser, @ts-graphviz/ast  →  tools/graphviz-bench.mjs
+                                              ↓
+                                       docs/GRAPHVIZ_BENCH.md
 ```
 
 **PlantUML** has no parse database to ask, the way Mermaid has. It has
@@ -47,6 +56,22 @@ needs a DOM to load at all; `jsdom` is that DOM and nothing else. Nothing is
 rendered and no geometry is read: Mermaid lays a diagram out its own way and has
 no opinion about RangerFlow's, so what is compared is the *reading*.
 
+**Graphviz** needs no persuading to describe itself: `-Tjson0` **is** its parse
+result, with subgraph membership and every attribute after default resolution —
+which is the part a reader gets wrong. `@hpcc-js/wasm-graphviz` is the real
+Graphviz compiled to WebAssembly, so the oracle runs in process: no JVM, no
+subprocess, 0.3 ms an answer. Where the machine has a native `dot` its verdicts
+are read too, and a disagreement between the two builds is reported rather than
+averaged.
+
+Which reference to trust was itself measured before the reader was written:
+`tools/graphviz-bench.mjs` asks four open-source implementations the same
+question. `dotparser` and `@ts-graphviz/ast` are the pure-JavaScript
+alternatives, and on the twenty files in `fixtures/graphviz/` they agree with
+Graphviz 18 and 17 times — which is why neither is the oracle.
+
+Graphviz is EPL-1.0 — run here, never linked, never vendored, never shipped.
+
 `@xyflow/system` is the package React Flow itself builds on, and the functions
 compared — `getBezierPath`, `getSmoothStepPath`, `getStraightPath`,
 `getViewportForBounds`, `pointToRendererPoint`, `rendererPointToPoint` — are
@@ -59,6 +84,8 @@ the middle to be wrong about.
 npm run rangerflow:parity          # installs on first run, then measures
 npm run rangerflow:mermaid:parity  # …and the same for the Mermaid reader
 npm run rangerflow:plantuml:parity # …and for PlantUML (needs a JVM)
+npm run rangerflow:graphviz:parity # …and for the DOT reader
+npm run rangerflow:graphviz:bench  # …and what the DOT references cost
 cd gallery/rangerflow/harness && npm install    # or do it by hand
 ```
 

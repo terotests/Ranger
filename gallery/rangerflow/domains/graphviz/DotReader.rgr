@@ -1,0 +1,1250 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DotReader.rgr — Graphviz's DOT language, read into a model.
+; ============================================================================
+;
+; DOT is the smallest of the three formats RangerFlow reads, and the only one
+; whose whole grammar fits on a page:
+;
+;   graph     : [strict] (graph | digraph) [ID] '{' stmt_list '}'
+;   stmt      : node_stmt | edge_stmt | attr_stmt | ID '=' ID | subgraph
+;   attr_stmt : (graph | node | edge) attr_list
+;   attr_list : '[' [a_list] ']' [attr_list]
+;   a_list    : ID '=' ID [(';' | ',')] [a_list]
+;   edge_stmt : (node_id | subgraph) edgeRHS [attr_list]
+;   edgeRHS   : edgeop (node_id | subgraph) [edgeRHS]
+;   node_stmt : node_id [attr_list]
+;   node_id   : ID [port]
+;   port      : ':' ID [':' compass_pt] | ':' compass_pt
+;   subgraph  : [subgraph [ID]] '{' stmt_list '}'
+;
+; There is no preprocessor, no `!include`, and no header to sniff: `graph` and
+; `digraph` differ only in which edge operator is legal. What makes DOT hard is
+; not the sentences, it is the attributes, and this reader is written around
+; the three things a careless one gets wrong:
+;
+; **Defaults are scoped and ordered.** `node [shape=box]` applies to the nodes
+; declared AFTER it, in this subgraph and the ones inside it, and not to a
+; sibling. A node keeps the defaults that were in force when it was first
+; mentioned; a later `node [...]` does not reach back for it. That is why the
+; scope stack below copies rather than shares.
+;
+; **Some attributes are the graph, not its decoration.** `rank=same`,
+; `constraint`, `weight`, `lhead`/`ltail`, `pos`. They are kept in the model
+; even where nothing draws them yet, because dropping them silently draws a
+; different graph.
+;
+; **`strict` deduplicates.** `strict digraph { a->b; a->b }` is one edge, and
+; the second statement's attributes land on the first edge rather than on a new
+; one.
+;
+; What Graphviz knows about DOT was learned here from the published grammar
+; (<https://graphviz.org/doc/info/lang.html>) and from Graphviz's own answers
+; to the corpus in `fixtures/graphviz/` — never from its source, which is
+; EPL-1.0 and stays at arm's length. See `docs/PLAN_GRAPHVIZ.md` §6.
+;
+; The scorecard is `docs/GRAPHVIZ_PARITY.md`, computed by Graphviz itself.
+; ============================================================================
+
+; ---------------------------------------------------------------------------
+; The characters
+; ---------------------------------------------------------------------------
+class DotChars {
+    sfn isSpace:boolean (c:int) {
+        if (c == 32) { return true }
+        if (c == 9)  { return true }
+        if (c == 13) { return true }
+        if (c == 10) { return true }
+        return false
+    }
+
+    sfn isDigit:boolean (c:int) {
+        if (c < 48) { return false }
+        if (c > 57) { return false }
+        return true
+    }
+
+    ; What the grammar calls "any string of alphabetic characters, underscores
+    ; or digits, not beginning with a digit" — with the `\200`-and-up range
+    ; that lets a diagram be written in a language other than English.
+    sfn isNameChar:boolean (c:int) {
+        if (DotChars.isDigit(c)) { return true }
+        if (c == 95) { return true }
+        if (c >= 128) { return true }
+        if (c >= 65) {
+            if (c <= 90) { return true }
+        }
+        if (c >= 97) {
+            if (c <= 122) { return true }
+        }
+        return false
+    }
+
+    sfn lower:string (t:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if (c >= 65) {
+                if (c <= 90) {
+                    c = (c + 32)
+                }
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A compass point, which is the one place DOT's grammar is ambiguous:
+    ; `a:e` is a node with a compass point, `a:e:w` is a node with a port
+    ; called `e`.
+    sfn isCompass:boolean (t:string) {
+        def w:string (DotChars.lower(t))
+        if (w == "n")  { return true }
+        if (w == "ne") { return true }
+        if (w == "e")  { return true }
+        if (w == "se") { return true }
+        if (w == "s")  { return true }
+        if (w == "sw") { return true }
+        if (w == "w")  { return true }
+        if (w == "nw") { return true }
+        if (w == "c")  { return true }
+        if (w == "_")  { return true }
+        return false
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The tokens
+; ---------------------------------------------------------------------------
+; `kind` is "id" for every flavour of ID the grammar has — a name, a numeral, a
+; quoted string, an HTML string — and "op" for punctuation. `quoting` keeps
+; which flavour it was, because `graph` written as a bare word opens a graph
+; and `"graph"` is a node called graph.
+class DotToken {
+    def kind:string "eof"
+    def text:string ""
+    def quoting:string "name"
+    def line:int 1
+
+    Constructor () {
+    }
+
+    sfn create:DotToken (k:string body:string q:string at:int) {
+        def t (new DotToken)
+        t.kind = k
+        t.text = body
+        t.quoting = q
+        t.line = at
+        return t
+    }
+}
+
+class DotLexer {
+    def src:string ""
+    def pos:int 0
+    def line:int 1
+    def out:[DotToken]
+    def error:string ""
+    def errorLine:int 0
+
+    Constructor () {
+    }
+
+    sfn scan:DotLexer (src:string) {
+        def lx (new DotLexer)
+        lx.src = src
+        lx.run()
+        return lx
+    }
+
+    fn fail:void (why:string) {
+        if ((strlen error) == 0) {
+            error = why
+            errorLine = line
+        }
+    }
+
+    fn run:void () {
+        while (pos < (strlen src)) {
+            def c:int (charAt src pos)
+            if (DotChars.isSpace(c)) {
+                if (c == 10) {
+                    line = (line + 1)
+                }
+                pos = (pos + 1)
+                continue
+            }
+            ; `#` in the first column is a C-preprocessor line marker, and
+            ; Graphviz throws the line away. It is not a comment anywhere else.
+            if (c == 35) {
+                if (this.atLineStart()) {
+                    this.skipLine()
+                    continue
+                }
+            }
+            if (c == 47) {
+                def next:int (this.peek(1))
+                if (next == 47) {
+                    this.skipLine()
+                    continue
+                }
+                if (next == 42) {
+                    this.skipBlockComment()
+                    continue
+                }
+            }
+            if (c == 34) {
+                this.quoted()
+                continue
+            }
+            if (c == 60) {
+                this.html()
+                continue
+            }
+            if (c == 45) {
+                def after:int (this.peek(1))
+                if (after == 62) {
+                    this.op("->" 2)
+                    continue
+                }
+                if (after == 45) {
+                    this.op("--" 2)
+                    continue
+                }
+                this.numeral()
+                continue
+            }
+            if (c == 46) {
+                this.numeral()
+                continue
+            }
+            if (DotChars.isDigit(c)) {
+                this.numeral()
+                continue
+            }
+            if (DotChars.isNameChar(c)) {
+                this.name()
+                continue
+            }
+            if (this.isPunct(c)) {
+                this.op((strfromcode c) 1)
+                continue
+            }
+            this.fail(("unexpected character '" + (strfromcode c) + "'"))
+            pos = (pos + 1)
+        }
+        push out (DotToken.create("eof" "" "name" line))
+    }
+
+    fn isPunct:boolean (c:int) {
+        if (c == 123) { return true }
+        if (c == 125) { return true }
+        if (c == 91)  { return true }
+        if (c == 93)  { return true }
+        if (c == 59)  { return true }
+        if (c == 44)  { return true }
+        if (c == 58)  { return true }
+        if (c == 61)  { return true }
+        if (c == 43)  { return true }
+        return false
+    }
+
+    fn peek:int (ahead:int) {
+        def at:int (pos + ahead)
+        if (at >= (strlen src)) {
+            return -1
+        }
+        return (charAt src at)
+    }
+
+    fn atLineStart:boolean () {
+        def back:int (pos - 1)
+        while (back >= 0) {
+            def c:int (charAt src back)
+            if (c == 10) {
+                return true
+            }
+            if (DotChars.isSpace(c) == false) {
+                return false
+            }
+            back = (back - 1)
+        }
+        return true
+    }
+
+    fn skipLine:void () {
+        while (pos < (strlen src)) {
+            def c:int (charAt src pos)
+            if (c == 10) {
+                return
+            }
+            ; A line comment, like a quoted string, can be continued.
+            if (c == 92) {
+                if ((this.peek(1)) == 10) {
+                    pos = (pos + 1)
+                    line = (line + 1)
+                }
+            }
+            pos = (pos + 1)
+        }
+    }
+
+    fn skipBlockComment:void () {
+        pos = (pos + 2)
+        while (pos < (strlen src)) {
+            def c:int (charAt src pos)
+            if (c == 10) {
+                line = (line + 1)
+            }
+            if (c == 42) {
+                if ((this.peek(1)) == 47) {
+                    pos = (pos + 2)
+                    return
+                }
+            }
+            pos = (pos + 1)
+        }
+        this.fail("unterminated /* comment")
+    }
+
+    fn op:void (text:string width:int) {
+        push out (DotToken.create("op" text "op" line))
+        pos = (pos + width)
+    }
+
+    fn name:void () {
+        def start:int pos
+        while (pos < (strlen src)) {
+            def c:int (charAt src pos)
+            if (DotChars.isNameChar(c) == false) {
+                break
+            }
+            pos = (pos + 1)
+        }
+        push out (DotToken.create("id" (substring src start pos) "name" line))
+    }
+
+    ; `-1`, `.5`, `-.5`, `3.14`. Graphviz's numerals are IDs like any other,
+    ; and a node may be called `42`.
+    fn numeral:void () {
+        def start:int pos
+        if ((charAt src pos) == 45) {
+            pos = (pos + 1)
+        }
+        def seenDot:boolean false
+        while (pos < (strlen src)) {
+            def c:int (charAt src pos)
+            if (c == 46) {
+                if seenDot {
+                    break
+                }
+                seenDot = true
+                pos = (pos + 1)
+                continue
+            }
+            if (DotChars.isDigit(c) == false) {
+                break
+            }
+            pos = (pos + 1)
+        }
+        push out (DotToken.create("id" (substring src start pos) "numeral" line))
+    }
+
+    ; A quoted string keeps its escapes — `\l`, `\N`, `\n` mean something to
+    ; the renderer, not to the parser — except `\"`, which is how a quote gets
+    ; in, and a backslash before a newline, which is how a long label is
+    ; written over two lines.
+    fn quoted:void () {
+        def startLine:int line
+        pos = (pos + 1)
+        def text:string ""
+        def closed:boolean false
+        while (pos < (strlen src)) {
+            def c:int (charAt src pos)
+            if (c == 92) {
+                def n:int (this.peek(1))
+                if (n == 34) {
+                    text = (text + "\"")
+                    pos = (pos + 2)
+                    continue
+                }
+                if (n == 10) {
+                    line = (line + 1)
+                    pos = (pos + 2)
+                    continue
+                }
+                text = (text + "\\")
+                pos = (pos + 1)
+                continue
+            }
+            if (c == 34) {
+                pos = (pos + 1)
+                closed = true
+                break
+            }
+            if (c == 10) {
+                line = (line + 1)
+            }
+            text = (text + (strfromcode c))
+            pos = (pos + 1)
+        }
+        if (closed == false) {
+            this.fail("unterminated string")
+        }
+        push out (DotToken.create("id" text "quoted" startLine))
+    }
+
+    ; `label=<<B>b</B>>` — an HTML string runs to the angle bracket that
+    ; balances the one that opened it, and quotes inside it are not special.
+    fn html:void () {
+        def startLine:int line
+        def depth:int 0
+        def text:string ""
+        while (pos < (strlen src)) {
+            def c:int (charAt src pos)
+            if (c == 10) {
+                line = (line + 1)
+            }
+            if (c == 60) {
+                depth = (depth + 1)
+                if (depth == 1) {
+                    pos = (pos + 1)
+                    continue
+                }
+            }
+            if (c == 62) {
+                depth = (depth - 1)
+                if (depth == 0) {
+                    pos = (pos + 1)
+                    push out (DotToken.create("id" text "html" startLine))
+                    return
+                }
+            }
+            text = (text + (strfromcode c))
+            pos = (pos + 1)
+        }
+        this.fail("unterminated < > string")
+        push out (DotToken.create("id" text "html" startLine))
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The model
+; ---------------------------------------------------------------------------
+class DotNode {
+    def id:string ""
+    def attrs:[string:string]
+    ; The order the file declared it in, which is the order Graphviz reports
+    ; its own nodes in and therefore the order parity is scored in.
+    def order:int 0
+
+    Constructor () {
+    }
+
+    fn attr:string (key:string) {
+        return (?? (get attrs key) "")
+    }
+
+    fn has:boolean (key:string) {
+        return (has attrs key)
+    }
+}
+
+class DotEdge {
+    def tail:string ""
+    def head:string ""
+    def tailPort:string ""
+    def tailCompass:string ""
+    def headPort:string ""
+    def headCompass:string ""
+    def attrs:[string:string]
+    def order:int 0
+
+    Constructor () {
+    }
+
+    fn attr:string (key:string) {
+        return (?? (get attrs key) "")
+    }
+}
+
+; Every `{ ... }` is a subgraph; the ones whose name begins with `cluster` are
+; the ones Graphviz draws a box around. Both are kept, because `{ rank=same; b;
+; c }` is a subgraph that changes the drawing without being one.
+class DotSubgraph {
+    def id:string ""
+    def isCluster:boolean false
+    def depth:int 0
+    def parent:int -1
+    def members:[string]
+    def edges:[int]
+    def attrs:[string:string]
+
+    Constructor () {
+    }
+
+    fn memberCount:int () {
+        return (array_length members)
+    }
+}
+
+; The attribute defaults in force at one level of nesting. A subgraph starts
+; from a COPY of its parent's, so a `node [...]` inside it cannot reach out.
+class DotScope {
+    def nodeDefaults:[string:string]
+    def edgeDefaults:[string:string]
+    def subgraph:int -1
+
+    Constructor () {
+    }
+}
+
+class DotGraph {
+    def name:string ""
+    def strict:boolean false
+    def directed:boolean true
+    def nodes:[DotNode]
+    def edges:[DotEdge]
+    def subgraphs:[DotSubgraph]
+    def attrs:[string:string]
+    ; Graphviz's verdict on the same file is what this is scored against, so a
+    ; refusal has to be as much of an answer as a reading is.
+    def ok:boolean true
+    def error:string ""
+    def errorLine:int 0
+
+    Constructor () {
+    }
+
+    fn nodeCount:int () {
+        return (array_length nodes)
+    }
+
+    fn edgeCount:int () {
+        return (array_length edges)
+    }
+
+    fn subgraphCount:int () {
+        return (array_length subgraphs)
+    }
+
+    fn clusterCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length subgraphs)) {
+            def s:DotSubgraph (itemAt subgraphs i)
+            if s.isCluster {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn indexOfNode:int (id:string) {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:DotNode (itemAt nodes i)
+            if (n.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn nodeById:DotNode (id:string) {
+        def at:int (this.indexOfNode(id))
+        if (at < 0) {
+            return (new DotNode)
+        }
+        return (itemAt nodes at)
+    }
+
+    fn hasNode:boolean (id:string) {
+        return ((this.indexOfNode(id)) >= 0)
+    }
+
+    ; `rankdir` as the layered layout spells it. Graphviz's default is TB, and
+    ; BT and RL are the same axis read backwards — the layout has no notion of
+    ; them, so they land on the axis they belong to rather than on nothing.
+    fn direction:string () {
+        def rd:string (?? (get attrs "rankdir") "")
+        def w:string (DotChars.lower(rd))
+        if (w == "lr") { return "LR" }
+        if (w == "rl") { return "LR" }
+        return "TB"
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The parser
+; ---------------------------------------------------------------------------
+class DotReader {
+    def toks:[DotToken]
+    def pos:int 0
+    def g:DotGraph (new DotGraph)
+    def scopes:[DotScope]
+    ; The port read by the last `nodeEndpoint`. It lives beside the name
+    ; because an endpoint is a name AND where on it to land, and a function
+    ; returns one value.
+    def lastPort:string ""
+    def lastCompass:string ""
+
+    Constructor () {
+    }
+
+    sfn parse:DotGraph (src:string) {
+        def r (new DotReader)
+        return (r.read(src))
+    }
+
+    fn read:DotGraph (src:string) {
+        def lx:DotLexer (DotLexer.scan(src))
+        toks = lx.out
+        if ((strlen lx.error) > 0) {
+            this.fail(lx.error lx.errorLine)
+            return g
+        }
+        this.pushScope(-1)
+        this.header()
+        if (g.ok) {
+            this.body()
+        }
+        return g
+    }
+
+    fn fail:void (why:string line:int) {
+        if (g.ok == false) {
+            return
+        }
+        g.ok = false
+        g.error = why
+        g.errorLine = line
+    }
+
+    ; ------------------------------------------------------------ tokens ----
+    fn cur:DotToken () {
+        if (pos >= (array_length toks)) {
+            return (new DotToken)
+        }
+        return (itemAt toks pos)
+    }
+
+    fn curKind:string () {
+        def t:DotToken (this.cur())
+        return t.kind
+    }
+
+    fn curText:string () {
+        def t:DotToken (this.cur())
+        return t.text
+    }
+
+    fn curLine:int () {
+        def t:DotToken (this.cur())
+        return t.line
+    }
+
+    fn atOp:boolean (text:string) {
+        def t:DotToken (this.cur())
+        if (t.kind != "op") {
+            return false
+        }
+        return (t.text == text)
+    }
+
+    fn atId:boolean () {
+        def t:DotToken (this.cur())
+        return (t.kind == "id")
+    }
+
+    ; A keyword is a bare word: `graph` opens one, `"graph"` is a node.
+    fn atWord:boolean (word:string) {
+        def t:DotToken (this.cur())
+        if (t.kind != "id") {
+            return false
+        }
+        if (t.quoting != "name") {
+            return false
+        }
+        return ((DotChars.lower(t.text)) == word)
+    }
+
+    fn take:DotToken () {
+        def t:DotToken (this.cur())
+        pos = (pos + 1)
+        return t
+    }
+
+    fn eatOp:boolean (text:string) {
+        if ((this.atOp(text)) == false) {
+            return false
+        }
+        pos = (pos + 1)
+        return true
+    }
+
+    ; An ID, with the `"a" + "b"` concatenation the grammar allows.
+    fn takeId:string () {
+        def t:DotToken (this.take())
+        def text:string t.text
+        while (this.atOp("+")) {
+            def save:int pos
+            pos = (pos + 1)
+            if (this.atId()) {
+                def more:DotToken (this.take())
+                text = (text + more.text)
+                continue
+            }
+            pos = save
+            break
+        }
+        return text
+    }
+
+    ; ------------------------------------------------------------ header ----
+    fn header:void () {
+        if (this.atWord("strict")) {
+            pos = (pos + 1)
+            g.strict = true
+        }
+        if (this.atWord("digraph")) {
+            pos = (pos + 1)
+            g.directed = true
+        } {
+            if (this.atWord("graph")) {
+                pos = (pos + 1)
+                g.directed = false
+            } {
+                this.fail("expected `graph` or `digraph`" (this.curLine()))
+                return
+            }
+        }
+        if (this.atId()) {
+            g.name = (this.takeId())
+        }
+        if ((this.eatOp("{")) == false) {
+            this.fail("expected `{`" (this.curLine()))
+        }
+    }
+
+    fn body:void () {
+        this.stmtList()
+        if (g.ok == false) {
+            return
+        }
+        if ((this.eatOp("}")) == false) {
+            this.fail("expected `}`" (this.curLine()))
+            return
+        }
+        ; Graphviz reads one graph per file and stops; anything after the
+        ; closing brace of the first is not this graph's business, and a file
+        ; that trails garbage is one we would otherwise read as clean.
+        if ((this.curKind()) != "eof") {
+            this.fail("trailing text after the graph" (this.curLine()))
+        }
+    }
+
+    fn stmtList:void () {
+        while (g.ok) {
+            if ((this.curKind()) == "eof") {
+                return
+            }
+            if (this.atOp("}")) {
+                return
+            }
+            this.statement()
+            def sep:boolean (this.eatOp(";"))
+            if (sep == false) {
+                def comma:boolean (this.eatOp(","))
+            }
+        }
+    }
+
+    ; ------------------------------------------------------- the scopes -----
+    fn pushScope:void (subgraph:int) {
+        def s (new DotScope)
+        s.subgraph = subgraph
+        if ((array_length scopes) > 0) {
+            def parent:DotScope (last scopes)
+            s.nodeDefaults = (DotReader.copyAttrs(parent.nodeDefaults))
+            s.edgeDefaults = (DotReader.copyAttrs(parent.edgeDefaults))
+        }
+        push scopes s
+    }
+
+    fn popScope:void () {
+        removeLast scopes
+    }
+
+    fn scope:DotScope () {
+        if ((array_length scopes) == 0) {
+            return (new DotScope)
+        }
+        return (last scopes)
+    }
+
+    sfn copyAttrs:[string:string] (from:[string:string]) {
+        def out:[string:string]
+        def ks:[string] (keys from)
+        def i:int 0
+        while (i < (array_length ks)) {
+            def k:string (itemAt ks i)
+            set out k (?? (get from k) "")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn mergeAttrs:void (into:[string:string] from:[string:string]) {
+        def ks:[string] (keys from)
+        def i:int 0
+        while (i < (array_length ks)) {
+            def k:string (itemAt ks i)
+            set into k (?? (get from k) "")
+            i = (i + 1)
+        }
+    }
+
+    ; --------------------------------------------------------- statements ---
+    fn statement:void () {
+        if (this.atOp("{")) {
+            def ids:[string] (this.subgraph(""))
+            def more:boolean (this.edgeTail(ids))
+            return
+        }
+        if (this.atWord("subgraph")) {
+            def named:[string] (this.subgraphKeyword())
+            def chained:boolean (this.edgeTail(named))
+            return
+        }
+        if (this.atWord("node")) {
+            if (this.nextIsBracket()) {
+                pos = (pos + 1)
+                def nd:DotScope (this.scope())
+                def na:[string:string] (this.attrList())
+                DotReader.mergeAttrs(nd.nodeDefaults na)
+                return
+            }
+        }
+        if (this.atWord("edge")) {
+            if (this.nextIsBracket()) {
+                pos = (pos + 1)
+                def ed:DotScope (this.scope())
+                def ea:[string:string] (this.attrList())
+                DotReader.mergeAttrs(ed.edgeDefaults ea)
+                return
+            }
+        }
+        if (this.atWord("graph")) {
+            if (this.nextIsBracket()) {
+                pos = (pos + 1)
+                def ga:[string:string] (this.attrList())
+                this.graphAttrs(ga)
+                return
+            }
+        }
+        if ((this.atId()) == false) {
+            this.fail("expected a statement" (this.curLine()))
+            return
+        }
+        ; ID '=' ID — a graph attribute written without the keyword.
+        if (this.nextIsEquals()) {
+            def key:string (this.takeId())
+            def ate:boolean (this.eatOp("="))
+            if ((this.atId()) == false) {
+                this.fail("expected a value after `=`" (this.curLine()))
+                return
+            }
+            def value:string (this.takeId())
+            def one:[string:string]
+            set one key value
+            this.graphAttrs(one)
+            return
+        }
+        this.nodeOrEdge()
+    }
+
+    fn nextIsBracket:boolean () {
+        def at:int (pos + 1)
+        if (at >= (array_length toks)) {
+            return false
+        }
+        def t:DotToken (itemAt toks at)
+        if (t.kind != "op") {
+            return false
+        }
+        return (t.text == "[")
+    }
+
+    fn nextIsEquals:boolean () {
+        def at:int (pos + 1)
+        if (at >= (array_length toks)) {
+            return false
+        }
+        def t:DotToken (itemAt toks at)
+        if (t.kind != "op") {
+            return false
+        }
+        return (t.text == "=")
+    }
+
+    ; A graph attribute belongs to the subgraph it was written in, and to the
+    ; graph itself only at the top level. `rankdir` set inside a cluster is not
+    ; the diagram's direction.
+    fn graphAttrs:void (from:[string:string]) {
+        def s:DotScope (this.scope())
+        if (s.subgraph < 0) {
+            DotReader.mergeAttrs(g.attrs from)
+            return
+        }
+        def sub:DotSubgraph (itemAt g.subgraphs s.subgraph)
+        DotReader.mergeAttrs(sub.attrs from)
+    }
+
+    ; `[a=1, b=2][c=3]` — one list, or several in a row.
+    fn attrList:[string:string] () {
+        def out:[string:string]
+        while (this.atOp("[")) {
+            pos = (pos + 1)
+            while (true) {
+                if (this.atOp("]")) {
+                    pos = (pos + 1)
+                    break
+                }
+                if ((this.curKind()) == "eof") {
+                    this.fail("unterminated `[`" (this.curLine()))
+                    return out
+                }
+                if (this.eatOp(";")) {
+                    continue
+                }
+                if (this.eatOp(",")) {
+                    continue
+                }
+                if ((this.atId()) == false) {
+                    this.fail("expected an attribute name" (this.curLine()))
+                    return out
+                }
+                def key:string (this.takeId())
+                if (this.eatOp("=")) {
+                    if ((this.atId()) == false) {
+                        this.fail("expected an attribute value" (this.curLine()))
+                        return out
+                    }
+                    def value:string (this.takeId())
+                    set out key value
+                    continue
+                }
+                ; `[a_list]` allows a bare name; Graphviz reads it as "".
+                set out key ""
+            }
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------ node and edge ---
+    fn nodeOrEdge:void () {
+        def head:[string] (this.nodeEndpoint())
+        if (g.ok == false) {
+            return
+        }
+        if (this.atEdgeOp()) {
+            def chained:boolean (this.edgeTail(head))
+            return
+        }
+        ; A node statement, then: the attributes land on the one node named.
+        def a:[string:string] (this.attrList())
+        if ((array_length head) == 1) {
+            def id:string (itemAt head 0)
+            def n:DotNode (this.ensureNode(id))
+            DotReader.mergeAttrs(n.attrs a)
+        }
+    }
+
+    fn atEdgeOp:boolean () {
+        if (this.atOp("->")) { return true }
+        if (this.atOp("--")) { return true }
+        return false
+    }
+
+    ; `a -> b -> c [attrs]`, where either side may be a subgraph and then every
+    ; node in it takes part.
+    fn edgeTail:boolean (from:[string]) {
+        if ((this.atEdgeOp()) == false) {
+            return false
+        }
+        def left:[string] from
+        def leftPort:string lastPort
+        def leftCompass:string lastCompass
+        def pairs:[int]
+        while (this.atEdgeOp()) {
+            def opTok:DotToken (this.cur())
+            if (g.directed) {
+                if (opTok.text == "--") {
+                    this.fail("`--` is an undirected edge, and this is a digraph" opTok.line)
+                    return true
+                }
+            } {
+                if (opTok.text == "->") {
+                    this.fail("`->` is a directed edge, and this is a graph" opTok.line)
+                    return true
+                }
+            }
+            pos = (pos + 1)
+            lastPort = ""
+            lastCompass = ""
+            def right:[string]
+            if (this.atOp("{")) {
+                right = (this.subgraph(""))
+            } {
+                if (this.atWord("subgraph")) {
+                    right = (this.subgraphKeyword())
+                } {
+                    right = (this.nodeEndpoint())
+                }
+            }
+            if (g.ok == false) {
+                return true
+            }
+            if ((array_length right) == 0) {
+                this.fail("expected the other end of an edge" (this.curLine()))
+                return true
+            }
+            def rightPort:string lastPort
+            def rightCompass:string lastCompass
+            def li:int 0
+            while (li < (array_length left)) {
+                def a:string (itemAt left li)
+                li = (li + 1)
+                def ri:int 0
+                while (ri < (array_length right)) {
+                    def b:string (itemAt right ri)
+                    ri = (ri + 1)
+                    def made:int (this.connect(a b))
+                    if (made >= 0) {
+                        def e0:DotEdge (itemAt g.edges made)
+                        e0.tailPort = leftPort
+                        e0.tailCompass = leftCompass
+                        e0.headPort = rightPort
+                        e0.headCompass = rightCompass
+                        push pairs made
+                    }
+                }
+            }
+            left = right
+            leftPort = rightPort
+            leftCompass = rightCompass
+        }
+        ; `[...]` at the end of a chain applies to every edge in the chain.
+        def a2:[string:string] (this.attrList())
+        def k:int 0
+        while (k < (array_length pairs)) {
+            def at:int (itemAt pairs k)
+            k = (k + 1)
+            def e:DotEdge (itemAt g.edges at)
+            DotReader.mergeAttrs(e.attrs a2)
+        }
+        return true
+    }
+
+    ; One `node_id [port]`, as a one-element list so an endpoint is always a
+    ; list whether it is a node or a subgraph.
+    fn nodeEndpoint:[string] () {
+        def out:[string]
+        if ((this.atId()) == false) {
+            this.fail("expected a node" (this.curLine()))
+            return out
+        }
+        def id:string (this.takeId())
+        def portName:string ""
+        def compass:string ""
+        if (this.atOp(":")) {
+            pos = (pos + 1)
+            if ((this.atId()) == false) {
+                this.fail("expected a port after `:`" (this.curLine()))
+                return out
+            }
+            def first:string (this.takeId())
+            if (this.atOp(":")) {
+                pos = (pos + 1)
+                if ((this.atId()) == false) {
+                    this.fail("expected a compass point after `:`" (this.curLine()))
+                    return out
+                }
+                portName = first
+                compass = (this.takeId())
+            } {
+                ; One field: a compass point if it reads as one, a port if not.
+                if (DotChars.isCompass(first)) {
+                    compass = first
+                } {
+                    portName = first
+                }
+            }
+        }
+        def n:DotNode (this.ensureNode(id))
+        lastPort = portName
+        lastCompass = compass
+        push out id
+        return out
+    }
+
+    ; `subgraph name { ... }` and `subgraph { ... }`.
+    fn subgraphKeyword:[string] () {
+        pos = (pos + 1)
+        def name:string ""
+        if (this.atId()) {
+            name = (this.takeId())
+        }
+        if ((this.atOp("{")) == false) {
+            ; The published grammar has no bare `subgraph name` — a subgraph is
+            ; its braces — and Graphviz rejects it. Two of the four DOT parsers
+            ; measured in `PLAN_GRAPHVIZ.md` §4 accept it, and that is exactly
+            ; the kind of invented syntax the corpus exists to catch.
+            this.fail("expected `{` after `subgraph`" (this.curLine()))
+            def empty:[string]
+            return empty
+        }
+        return (this.subgraph(name))
+    }
+
+    ; The body of a subgraph, from its `{`. Returns the nodes inside it, which
+    ; is what an edge written against it connects.
+    fn subgraph:[string] (name:string) {
+        def idx:int (array_length g.subgraphs)
+        def sub (new DotSubgraph)
+        sub.id = name
+        if ((strlen name) == 0) {
+            sub.id = ("%" + (to_string idx))
+        }
+        sub.isCluster = (DotReader.isClusterName(sub.id))
+        def s:DotScope (this.scope())
+        sub.parent = s.subgraph
+        sub.depth = 0
+        if (s.subgraph >= 0) {
+            def parent:DotSubgraph (itemAt g.subgraphs s.subgraph)
+            sub.depth = (parent.depth + 1)
+        }
+        push g.subgraphs sub
+        def opened:boolean (this.eatOp("{"))
+        this.pushScope(idx)
+        this.stmtList()
+        if (g.ok) {
+            if ((this.eatOp("}")) == false) {
+                this.fail("expected `}` to close the subgraph" (this.curLine()))
+            }
+        }
+        this.popScope()
+        def out:[string]
+        def i:int 0
+        while (i < (array_length sub.members)) {
+            push out (itemAt sub.members i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn isClusterName:boolean (id:string) {
+        if ((strlen id) < 7) {
+            return false
+        }
+        return ((DotChars.lower((substring id 0 7))) == "cluster")
+    }
+
+    ; ----------------------------------------------------------- building ---
+    ; A node is created the first time it is named, and takes the defaults that
+    ; are in force AT THAT MOMENT. A `node [...]` written later does not reach
+    ; back for it — which is the behaviour §1 of the plan measured.
+    fn ensureNode:DotNode (id:string) {
+        def at:int (g.indexOfNode(id))
+        if (at >= 0) {
+            def existing:DotNode (itemAt g.nodes at)
+            this.enrol(id)
+            return existing
+        }
+        def s:DotScope (this.scope())
+        def n (new DotNode)
+        n.id = id
+        n.order = (array_length g.nodes)
+        n.attrs = (DotReader.copyAttrs(s.nodeDefaults))
+        push g.nodes n
+        this.enrol(id)
+        return n
+    }
+
+    ; Which subgraphs a node belongs to: the one it was written in, and its
+    ; ancestors. Graphviz reports the same membership in `-Tjson0`.
+    fn enrol:void (id:string) {
+        def s:DotScope (this.scope())
+        def at:int s.subgraph
+        while (at >= 0) {
+            def sub:DotSubgraph (itemAt g.subgraphs at)
+            if ((DotReader.listHas(sub.members id)) == false) {
+                push sub.members id
+            }
+            at = sub.parent
+        }
+    }
+
+    sfn listHas:boolean (list:[string] want:string) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; One edge. Under `strict` a pair that is already connected keeps the edge
+    ; it has, and the new statement's attributes land on it.
+    fn connect:int (tail:string head:string) {
+        if g.strict {
+            def found:int (this.findEdge(tail head))
+            if (found >= 0) {
+                return found
+            }
+        }
+        def s:DotScope (this.scope())
+        def e (new DotEdge)
+        e.tail = tail
+        e.head = head
+        e.order = (array_length g.edges)
+        e.attrs = (DotReader.copyAttrs(s.edgeDefaults))
+        def at:int (array_length g.edges)
+        push g.edges e
+        if (s.subgraph >= 0) {
+            def sub:DotSubgraph (itemAt g.subgraphs s.subgraph)
+            push sub.edges at
+        }
+        return at
+    }
+
+    fn findEdge:int (tail:string head:string) {
+        def i:int 0
+        while (i < (array_length g.edges)) {
+            def e:DotEdge (itemAt g.edges i)
+            if (e.tail == tail) {
+                if (e.head == head) {
+                    return i
+                }
+            }
+            ; An undirected edge has no ends to tell apart.
+            if (g.directed == false) {
+                if (e.tail == head) {
+                    if (e.head == tail) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}

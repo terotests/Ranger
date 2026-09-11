@@ -1,0 +1,6 @@
+digraph loose {
+  rankdir = TB
+  a -> b
+  b -> c
+  c [shape = doublecircle]
+}

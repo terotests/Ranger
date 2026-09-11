@@ -1,0 +1,7 @@
+graph pinned {
+  layout=neato;
+  a [pos="0,0!"];
+  b [pos="2,1!"];
+  c [pos="1,2!"];
+  a -- b -- c -- a;
+}

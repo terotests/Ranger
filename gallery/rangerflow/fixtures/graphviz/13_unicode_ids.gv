@@ -1,0 +1,5 @@
+digraph unicode {
+  "käyttäjä" -> "tilaus" [label="tekee"];
+  "tilaus" -> "maksu";
+  日本 -> 語;
+}

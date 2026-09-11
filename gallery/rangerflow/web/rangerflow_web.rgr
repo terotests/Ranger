@@ -37,6 +37,7 @@ Import "../domains/mermaid/MermaidSequenceReader.rgr"
 Import "../domains/plantuml/PlantUmlSequenceReader.rgr"
 Import "../domains/plantuml/PlantUmlEntityReader.rgr"
 Import "../domains/plantuml/PlantUmlActivityReader.rgr"
+Import "../domains/graphviz/DotFlow.rgr"
 Import "../domains/mermaid/MermaidGitReader.rgr"
 Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
@@ -349,6 +350,11 @@ class RangerFlowWeb {
             sourceFormat = "plantuml"
             def puml:string (RangerFlowWeb.samplePlantUml())
             return (this.loadPlantUmlStyled(puml sourceStyle))
+        }
+        if (name == "graphviz") {
+            sourceFormat = "graphviz"
+            def dot:string (RangerFlowWeb.sampleDot())
+            return (this.loadDotStyled(dot sourceStyle))
         }
         if (name == "org") {
             return (this.loadOrgChart())
@@ -669,7 +675,53 @@ class RangerFlowWeb {
         if (sourceFormat == "plantuml") {
             return (this.loadPlantUmlStyled(text styleName))
         }
+        if (sourceFormat == "graphviz") {
+            return (this.loadDotStyled(text styleName))
+        }
         return (this.loadMermaidStyled(text styleName))
+    }
+
+    ; ------------------------------------------------------------ Graphviz --
+    ; DOT has one grammar and no header to sniff, so there is one entry point
+    ; rather than a family of them. A file Graphviz would refuse is refused
+    ; here too, with the line it went wrong on: drawing something anyway would
+    ; be guessing, and `docs/GRAPHVIZ_PARITY.md` is the promise that it is not.
+    fn loadDotStyled:boolean (text:string styleName:string) {
+        def d:DotGraph (DotReader.parse(text))
+        if (d.ok == false) {
+            status = (d.error + " — line " + (to_string d.errorLine))
+            return false
+        }
+        if ((d.nodeCount()) == 0) {
+            status = "nothing declared in that graph"
+            return false
+        }
+        def want:string styleName
+        if ((strlen want) == 0) {
+            want = "default"
+        }
+        sourceText = text
+        sourceStyle = styleName
+        sourceFormat = "graphviz"
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (DotFlow.build(d style))
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "layered"
+        simRunning = false
+        editor.pinWhileDragging = false
+        style.applyToTheme(editor.view.theme)
+        if (want == "dark") {
+            editor.view.theme.name = "dark"
+        } {
+            editor.view.theme.name = "light"
+        }
+        def what:string (?? (get d.attrs "label") "")
+        if ((strlen what) == 0) {
+            what = "Graphviz DOT"
+        }
+        status = ((to_string (d.nodeCount())) + " nodes, " + (to_string (d.edgeCount())) + " edges, " + (to_string (d.clusterCount())) + " clusters — " + what + ", " + want)
+        return true
     }
 
     fn setSourceFormat:void (name:string) {
@@ -1668,6 +1720,14 @@ class RangerFlowWeb {
             p = (p + "|object\tobject diagram")
             return p
         }
+        if (format == "graphviz") {
+            def d:string "pipeline\tpipeline with clusters"
+            d = (d + "|shapes\tthe shape gallery")
+            d = (d + "|undirected\tneato: an undirected graph")
+            d = (d + "|records\trecords, HTML tables and ports")
+            d = (d + "|defaults\tscoped attribute defaults")
+            return d
+        }
         def m:string "flowchart\tflowchart"
         m = (m + "|sequence\tsequence diagram")
         m = (m + "|class\tclass diagram")
@@ -1683,7 +1743,129 @@ class RangerFlowWeb {
         if (format == "plantuml") {
             return (RangerFlowWeb.plantUmlSample(name))
         }
+        if (format == "graphviz") {
+            return (RangerFlowWeb.dotSample(name))
+        }
         return (RangerFlowWeb.mermaidSample(name))
+    }
+
+    ; ---------------------------------------------------------- DOT samples --
+    ; Four files, each one a thing a DOT reader can be wrong about: clusters
+    ; and the band they are drawn as, the shape vocabulary, the undirected
+    ; grammar with its own edge operator, and the scoped defaults that are the
+    ; subtlest part of the language.
+    sfn dotSample:string (name:string) {
+        if (name == "shapes") {
+            def a:string "digraph shapes {\n"
+            a = (a + "  rankdir = LR;\n")
+            a = (a + "  node [style=filled, fillcolor=white, color=steelblue];\n")
+            a = (a + "  alku   [shape=circle,        label=\"alku\"];\n")
+            a = (a + "  syote  [shape=parallelogram, label=\"syöte\"];\n")
+            a = (a + "  tyo    [shape=box,           label=\"työvaihe\"];\n")
+            a = (a + "  ehto   [shape=diamond,       label=\"ehto?\"];\n")
+            a = (a + "  levy   [shape=cylinder,      label=\"tietokanta\"];\n")
+            a = (a + "  huom   [shape=note,          label=\"muistio\"];\n")
+            a = (a + "  loppu  [shape=doublecircle,  label=\"loppu\"];\n")
+            a = (a + "  alku -> syote -> tyo -> ehto;\n")
+            a = (a + "  ehto -> levy [label=\"kyllä\"];\n")
+            a = (a + "  ehto -> huom [label=\"ei\", style=dashed];\n")
+            a = (a + "  levy -> loppu;\n")
+            a = (a + "  huom -> loppu;\n")
+            a = (a + "}\n")
+            return a
+        }
+        if (name == "undirected") {
+            def b:string "graph tiimi {\n"
+            b = (b + "  layout = neato;\n")
+            b = (b + "  node [shape=ellipse, style=filled, fillcolor=lightyellow];\n")
+            b = (b + "  Aino -- Bertta;\n")
+            b = (b + "  Aino -- Cecil;\n")
+            b = (b + "  Bertta -- Cecil [label=\"pari\"];\n")
+            b = (b + "  Cecil -- Daniel;\n")
+            b = (b + "  Daniel -- Aino [style=dotted];\n")
+            b = (b + "}\n")
+            return b
+        }
+        if (name == "records") {
+            def rr:string "// A record label is a box language, an HTML label is a\n"
+            rr = (rr + "// table, and an edge can aim at a named cell of either.\n")
+            rr = (rr + "digraph tietue {\n")
+            rr = (rr + "  rankdir = LR;\n")
+            rr = (rr + "  node [shape=record, style=filled, fillcolor=white, color=steelblue];\n")
+            rr = (rr + "  tilaus  [label=\"<id> id | <asiakas> asiakas | <summa> summa\"];\n")
+            rr = (rr + "  asiakas [label=\"{<id> id | nimi | sähköposti}\"];\n")
+            rr = (rr + "  rivi    [label=\"<id> id | <til> tilaus | määrä\"];\n")
+            rr = (rr + "  lasku   [shape=plaintext, label=<\n")
+            rr = (rr + "     <TABLE BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"0\">\n")
+            rr = (rr + "       <TR><TD PORT=\"nro\">lasku</TD><TD>2026-09-11</TD></TR>\n")
+            rr = (rr + "       <TR><TD COLSPAN=\"2\"><B>maksettu</B></TD></TR>\n")
+            rr = (rr + "     </TABLE>>];\n")
+            rr = (rr + "  rivi:til -> tilaus:id;\n")
+            rr = (rr + "  tilaus:asiakas:e -> asiakas:id:w [label=\"fk\"];\n")
+            rr = (rr + "  tilaus:summa -> lasku:nro [style=dashed];\n")
+            rr = (rr + "}\n")
+            return rr
+        }
+        if (name == "defaults") {
+            def c:string "// `node [...]` reaches forward, not back, and not into\n"
+            c = (c + "// a sibling subgraph. Graphviz resolves it exactly so, and\n")
+            c = (c + "// GRAPHVIZ_PARITY.md is where the two answers are compared.\n")
+            c = (c + "digraph oletukset {\n")
+            c = (c + "  node [shape=box, style=filled, fillcolor=white];\n")
+            c = (c + "  eka;\n")
+            c = (c + "  node [shape=ellipse];\n")
+            c = (c + "  toka;\n")
+            c = (c + "  subgraph cluster_sisa {\n")
+            c = (c + "    label = \"oma väri\";\n")
+            c = (c + "    node [fillcolor=lightblue];\n")
+            c = (c + "    kolmas;\n")
+            c = (c + "    neljas;\n")
+            c = (c + "  }\n")
+            c = (c + "  viides;\n")
+            c = (c + "  eka -> toka -> kolmas -> neljas -> viides;\n")
+            c = (c + "}\n")
+            return c
+        }
+        return (RangerFlowWeb.sampleDot())
+    }
+
+    ; What `?scenario=graphviz` opens with.
+    sfn sampleDot:string () {
+        def t:string "digraph tilaus {\n"
+        t = (t + "  label = \"Tilauksen käsittely\";\n")
+        t = (t + "  rankdir = TB;\n")
+        t = (t + "  node [shape=box, style=filled, fillcolor=white, color=steelblue];\n")
+        t = (t + "  edge [color=steelblue];\n")
+        t = (t + "\n")
+        t = (t + "  alku      [shape=circle, label=\"alku\"];\n")
+        t = (t + "  tilaus    [shape=parallelogram, label=\"lue tilaus\"];\n")
+        t = (t + "  tarkista  [label=\"tarkista\\nluottotiedot\"];\n")
+        t = (t + "  rekisteri [shape=cylinder, label=\"asiakasrekisteri\", fillcolor=lightyellow];\n")
+        t = (t + "  luotto    [shape=diamond, label=\"luotto\\nkunnossa?\"];\n")
+        t = (t + "  hylkaa    [label=\"ilmoita hylkäys\", fillcolor=salmon, color=tomato];\n")
+        t = (t + "\n")
+        t = (t + "  subgraph cluster_laskutus {\n")
+        t = (t + "    label = \"Laskutus\";\n")
+        t = (t + "    color = seagreen;\n")
+        t = (t + "    varasto [label=\"varaa tuotteet\"];\n")
+        t = (t + "    saldo   [shape=diamond, label=\"riittääkö\\nsaldo?\"];\n")
+        t = (t + "    jalki   [label=\"merkitse\\njälkitoimitukseen\"];\n")
+        t = (t + "    laskuta [shape=note, label=\"muodosta lasku\"];\n")
+        t = (t + "    varasto -> saldo;\n")
+        t = (t + "    saldo -> laskuta [label=\"kyllä\"];\n")
+        t = (t + "    saldo -> jalki [label=\"ei\"];\n")
+        t = (t + "    jalki -> laskuta;\n")
+        t = (t + "  }\n")
+        t = (t + "\n")
+        t = (t + "  loppu [shape=doublecircle, label=\"loppu\", fillcolor=lightblue];\n")
+        t = (t + "  alku -> tilaus -> tarkista -> luotto;\n")
+        t = (t + "  rekisteri -> tarkista [style=dashed, dir=none];\n")
+        t = (t + "  luotto -> varasto [label=\"kyllä\"];\n")
+        t = (t + "  luotto -> hylkaa [label=\"ei\"];\n")
+        t = (t + "  laskuta -> loppu;\n")
+        t = (t + "  hylkaa -> loppu;\n")
+        t = (t + "}\n")
+        return t
     }
 
     sfn mermaidSample:string (name:string) {
