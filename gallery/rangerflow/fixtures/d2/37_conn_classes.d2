@@ -1,0 +1,14 @@
+# A class applied to a CONNECTION, which is the same keyword doing a
+# different job, and a class that carries a label.
+classes: {
+  thick: { style: { stroke-width: 4; stroke: "#c00" } }
+  dashed: { style: { stroke-dash: 5 } }
+  named: { label: from the class }
+  hex: { shape: hexagon }
+}
+a: { class: hex }
+b
+c
+a -> b: { class: thick }
+b -> c: { class: [thick; dashed] }
+a -> c: { class: named }

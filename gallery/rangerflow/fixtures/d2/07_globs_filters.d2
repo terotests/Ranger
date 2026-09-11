@@ -1,0 +1,9 @@
+# Globs, recursive globs, and an `&` filter that selects by a value.
+a
+b
+c: { shape: circle }
+group: { x; y: { shape: circle } }
+*.style.stroke-width: 2
+**.style.opacity: 0.9
+*: { &shape: circle; style.fill: "#fce" }
+a -> b -> c

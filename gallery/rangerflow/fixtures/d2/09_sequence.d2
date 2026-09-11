@@ -1,0 +1,15 @@
+# A sequence diagram: the one shape value that is really a layout.
+sd: {
+  shape: sequence_diagram
+  user: User
+  api: API
+  db: { shape: cylinder }
+  user -> api: POST /order
+  api -> db: insert
+  db -> api: ok
+  api -> user: 201
+  api.t1 -> db.t2: nested span
+  loop: {
+    api -> db: retry
+  }
+}

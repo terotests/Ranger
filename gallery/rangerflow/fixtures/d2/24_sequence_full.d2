@@ -1,0 +1,18 @@
+# A sequence diagram with the parts D2 draws: spans, groups, notes, a self
+# edge and a participant with a shape of its own.
+sd: {
+  shape: sequence_diagram
+  customer: Customer { shape: person }
+  api: API
+  queue: { shape: queue }
+  worker: Worker
+
+  customer -> api: place order
+  api -> api: validate
+  api.t1 -> queue.t2: enqueue
+  retry: {
+    api -> queue: retry
+    queue -> worker: deliver
+  }
+  worker -> customer: confirmation
+}

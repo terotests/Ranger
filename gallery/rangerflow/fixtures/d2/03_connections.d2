@@ -1,0 +1,10 @@
+# Chains, both directions, undirected, a self loop, and an indexed connection.
+a -> b -> c -> d
+e <- f
+g -- h: undirected
+i <-> j: both ways
+k -> k: self loop
+m -> n: first
+m -> n: second
+(m -> n)[0].style.stroke: "#c00"
+(m -> n)[1].style.stroke-dash: 3

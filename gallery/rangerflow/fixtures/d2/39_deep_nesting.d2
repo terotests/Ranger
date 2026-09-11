@@ -1,0 +1,19 @@
+# Six levels, a connection between two of them, and a recursive glob that
+# has to reach all the way down.
+one: {
+  two: {
+    three: {
+      four: {
+        five: {
+          six: { shape: circle }
+        }
+      }
+    }
+  }
+}
+other: {
+  leaf
+}
+one.two.three.four.five.six -> other.leaf: across and down
+one.**.style.stroke-width: 2
+one.two.three.four.five.six.style.fill: "#eef"

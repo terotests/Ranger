@@ -1,0 +1,7 @@
+# An import, and a spread import that merges a map in.
+store: @17_imported.shared
+app: {
+  ...@17_imported.shared
+  label: app store
+}
+app -> store

@@ -1,0 +1,15 @@
+# A direction per container, which is the thing a nested layout gets right
+# and a flat one cannot.
+direction: right
+left to right: {
+  a -> b -> c
+}
+top down: {
+  direction: down
+  d -> e -> f
+}
+right to left: {
+  direction: left
+  g -> h
+}
+left to right -> top down -> right to left

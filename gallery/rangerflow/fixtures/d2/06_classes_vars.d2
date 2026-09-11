@@ -1,0 +1,14 @@
+# `vars` with substitution, `classes`, and a class applied to several shapes.
+vars: {
+  service-name: payments
+  accent: "#4a6"
+}
+classes: {
+  svc: { shape: hexagon; style: { fill: ${accent}; stroke-width: 2 } }
+  store: { shape: cylinder; style.fill: "#eee" }
+}
+api: ${service-name} API { class: svc }
+worker: { class: svc }
+db: { class: store }
+api -> db
+worker -> db

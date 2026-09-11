@@ -30,6 +30,11 @@ tests/DotParityDump.rgr                RangerFlow      →  out/rangerflow_dot.j
 graphviz, dotparser, @ts-graphviz/ast  →  tools/graphviz-bench.mjs
                                               ↓
                                        docs/GRAPHVIZ_BENCH.md
+
+harness/oracles/d2_oracle.{go,mjs}     d2 v0.7.1       →  out/d2.json
+tests/D2ParityDump.rgr                 RangerFlow      →  out/rangerflow_d2.json
+                                              ↓
+                            tools/d2-parity.mjs  →  docs/D2_PARITY.md
 ```
 
 **PlantUML** has no parse database to ask, the way Mermaid has. It has
@@ -72,6 +77,20 @@ Graphviz 18 and 17 times — which is why neither is the oracle.
 
 Graphviz is EPL-1.0 — run here, never linked, never vendored, never shipped.
 
+**D2** gives more than either and asks less. `d2lib.Compile` returns a
+`d2target.Diagram`, which is the whole answer as JSON: every shape with its
+position, size, type, level and label, every connection with its arrowheads,
+label and route, `sql_table` columns with their constraints, `class` members
+with their visibility, and the boards `layers` / `scenarios` / `steps` created —
+for both bundled layout engines, dagre and ELK. So the oracle was built *before*
+any reader, and `fixtures/d2/` exists to be read against it.
+
+D2 is MPL-2.0. The Go toolchain fetches it at the pinned version when
+`d2_oracle.go` is built into `harness/vendor/` (gitignored), it is run as a
+subprocess, and no D2 source is copied into this repository. Without a Go
+toolchain the oracle reports `available: false` with the reason, like the
+PlantUML one without a JVM.
+
 `@xyflow/system` is the package React Flow itself builds on, and the functions
 compared — `getBezierPath`, `getSmoothStepPath`, `getStraightPath`,
 `getViewportForBounds`, `pointToRendererPoint`, `rendererPointToPoint` — are
@@ -86,6 +105,8 @@ npm run rangerflow:mermaid:parity  # …and the same for the Mermaid reader
 npm run rangerflow:plantuml:parity # …and for PlantUML (needs a JVM)
 npm run rangerflow:graphviz:parity # …and for the DOT reader
 npm run rangerflow:graphviz:bench  # …and what the DOT references cost
+
+npm run rangerflow:d2:parity       # …and for D2 (needs a Go toolchain)
 cd gallery/rangerflow/harness && npm install    # or do it by hand
 ```
 

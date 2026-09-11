@@ -1,0 +1,955 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; D2Flow.rgr — the D2 model, drawn.
+; ============================================================================
+;
+; `D2Parser` says what is written and `D2Model` says what it means. Neither of
+; them knows that a `cylinder` is round. This file is where that starts: the
+; board becomes a `FlowGraph`, and from there it is the same layered layout,
+; the same lane router and the same four backends — SVG, PDF, HTML and the GPU
+; scene — that the ERD, the flowchart, Mermaid and PlantUML already use.
+;
+;   direction: right
+;   client: Client { shape: person }          ╭────────╮      ┌──── Core ────┐
+;   core: Core {                              │ Client │─────▶│  ┌───────┐   │
+;     api: API                                ╰────────╯      │  │  API  │   │
+;   }                                                         │  └───────┘   │
+;   client -> core.api: GET                                   └──────────────┘
+;
+; **Containers are frames, and frames are made after the layout.** A D2
+; container is not a box with children inside it as far as a layered layout is
+; concerned — it is the box the children turn out to need once they have been
+; placed. So the leaves are laid out first and every container is then drawn
+; around its own subtree, deepest first, exactly as `MermaidReader` frames a
+; subgraph. A connection that named the container is moved onto the frame
+; afterwards, because it was laid out against a member so the ranks would come
+; out right.
+;
+; **What is drawn today.** Objects with their labels, shapes and styles;
+; containers as frames; connections with the arrowheads D2 says they have,
+; including the crow's feet; `sql_table` rows and `class` members as
+; compartment nodes; `width`/`height` and `top`/`left` where a file gave them;
+; and the four `direction` values, two of which are the other two mirrored.
+;
+; **What is not, and is honest about it.** Nine of D2's outlines do not exist
+; in `FlowShapes` yet (`D2Shapes.outlineFor` says what each is drawn as
+; instead, and none of the stand-ins is silent about it); a grid container is
+; laid out as an ordinary one; a `sequence_diagram` is drawn as a container of
+; participants rather than by `SeqDiagram`; and only the root board is drawn.
+; Every one of those is a row in `docs/D2_FEATURES.md` and a phase in
+; `docs/PLAN_D2.md`.
+; ============================================================================
+
+Import "./D2Model.rgr"
+Import "../../layout/LayeredLayout.rgr"
+Import "../../layout/EdgeLanes.rgr"
+Import "../../layout/OrthoRouter.rgr"
+
+; ---------------------------------------------------------------------------
+; D2's twenty-five shapes, against the forty-odd outlines this library draws.
+; ---------------------------------------------------------------------------
+class D2Shapes {
+    ; The outline to draw. Where D2 has a shape this library does not, the
+    ; nearest honest stand-in is used and `isStandIn` says so, so the gap shows
+    ; up in a list rather than in a drawing nobody checks.
+    sfn outlineFor:string (shape:string) {
+        if (shape == "")              { return "rect" }
+        if (shape == "rectangle")     { return "rect" }
+        if (shape == "square")        { return "rect" }
+        if (shape == "parallelogram") { return "parallelogram" }
+        if (shape == "document")      { return "document" }
+        if (shape == "cylinder")      { return "cylinder" }
+        if (shape == "diamond")       { return "diamond" }
+        if (shape == "oval")          { return "ellipse" }
+        if (shape == "circle")        { return "circle" }
+        if (shape == "hexagon")       { return "hexagon" }
+        if (shape == "text")          { return "rect" }
+        if (shape == "code")          { return "rect" }
+        if (shape == "class")         { return "rect" }
+        if (shape == "sql_table")     { return "rect" }
+        if (shape == "image")         { return "rect" }
+        if (shape == "hierarchy")     { return "rect" }
+        ; The nine the shape library learned for D2 — `core/FlowShapes.rgr`,
+        ; where the only spelling difference is that its names have no
+        ; punctuation in them.
+        if (shape == "page")          { return "page" }
+        if (shape == "queue")         { return "queue" }
+        if (shape == "package")       { return "package" }
+        if (shape == "step")          { return "step" }
+        if (shape == "callout")       { return "callout" }
+        if (shape == "stored_data")   { return "storeddata" }
+        if (shape == "person")        { return "person" }
+        if (shape == "c4-person")     { return "c4person" }
+        if (shape == "cloud")         { return "cloud" }
+        if (shape == "sequence_diagram") { return "rect" }
+        return "rect"
+    }
+
+    ; Whether the outline above is D2's shape or a stand-in for it. Three are
+    ; left: a `code` block is drawn as a box of text with no monospace font of
+    ; its own, an `image` as an empty box because the scene has no image
+    ; primitive, and a `hierarchy` as a box because it is a layout rather than
+    ; an outline.
+    sfn isStandIn:boolean (shape:string) {
+        if (shape == "code")      { return true }
+        if (shape == "image")     { return true }
+        if (shape == "hierarchy") { return true }
+        return false
+    }
+
+    ; The two figures, which need room above the label for a head.
+    sfn isFigure:boolean (shape:string) {
+        if (shape == "person")    { return true }
+        if (shape == "c4-person") { return true }
+        return false
+    }
+
+    ; `square` and `circle` are the two D2 draws with the aspect forced.
+    sfn isSquare:boolean (shape:string) {
+        if (shape == "square") { return true }
+        if (shape == "circle") { return true }
+        return false
+    }
+
+    ; The arrowhead this library draws for D2's. `filled` is already folded
+    ; into the name by `D2Conn.srcHead` / `dstHead`.
+    sfn markerFor:string (head:string) {
+        if (head == "none")              { return "" }
+        if (head == "triangle")          { return "arrowclosed" }
+        if (head == "unfilled-triangle") { return "triangle" }
+        if (head == "arrow")             { return "arrow" }
+        if (head == "diamond")           { return "diamond" }
+        if (head == "filled-diamond")    { return "diamond-filled" }
+        if (head == "circle")            { return "circle" }
+        if (head == "filled-circle")     { return "circle" }
+        if (head == "cross")             { return "cross" }
+        ; `box` has no decoration of its own yet; a hollow diamond is the
+        ; nearest four-sided one, and this is the row that says so.
+        if (head == "box")               { return "diamond" }
+        if (head == "filled-box")        { return "diamond-filled" }
+        return ""
+    }
+
+    ; The crow's-foot ends are cardinalities here, not markers: the ERD
+    ; notation already draws all four, and `FlowView` picks the ornament from
+    ; the cardinality when there is one.
+    sfn cardinalityFor:string (head:string) {
+        if (head == "cf-one")           { return "0..1" }
+        if (head == "cf-one-required")  { return "1" }
+        if (head == "cf-many")          { return "0..*" }
+        if (head == "cf-many-required") { return "1..*" }
+        return ""
+    }
+
+    sfn isCrowsFoot:boolean (head:string) {
+        return ((strlen (D2Shapes.cardinalityFor(head))) > 0)
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The board, drawn.
+; ---------------------------------------------------------------------------
+class D2Flow {
+    ; Sizing. A label is measured the way `Flowchart` measures one — by
+    ; character, generously — because a node sized from a shorter estimate
+    ; than the renderer uses is a node its own text runs out of.
+    def fontSize:double 13.0
+    def minWidth:double 96.0
+    def maxWidth:double 260.0
+    def rowHeight:double 20.0
+    def headerHeight:double 26.0
+
+    Constructor () {
+    }
+
+    ; ------------------------------------------------------------- entries --
+    sfn render:FlowGraph (src:string) {
+        def b:D2Board (D2Model.read(src))
+        return (D2Flow.laid(b))
+    }
+
+    ; There is no `renderFrom(src dir)` here on purpose: reading a file is
+    ; `D2Imports`' job, and a call to it from this file would make every
+    ; method that can reach it asynchronous on the web target — including the
+    ; editor's own self test. A caller with a filesystem does
+    ; `D2Imports.readFrom(src dir)` and then `D2Flow.laid(board)`.
+
+    ; The graph, laid out and routed: what a viewer wants.
+    sfn laid:FlowGraph (b:D2Board) {
+        def f (new D2Flow)
+        def g:FlowGraph (f.nest(b "" (D2Flow.directionOf(b))))
+        f.connect(b g)
+        f.finish(b g)
+        return g
+    }
+
+    ; What the FILE said about colour, put back on top of a stylesheet.
+    ;
+    ; A caller that paints the graph with a `FlowStyle` — the web editor's
+    ; `look` dropdown, the demo's `--style` — paints over the fills and strokes
+    ; the D2 file chose, because the sheet knows nothing about them. Mermaid
+    ; has the same problem and solves it the same way: the sheet goes on
+    ; first, and the diagram's own colours go back on afterwards.
+    sfn restyle:void (b:D2Board g:FlowGraph) {
+        def f (new D2Flow)
+        def objects:[D2Object] (b.live())
+        def i:int 0
+        while (i < (array_length objects)) {
+            def o:D2Object (itemAt objects i)
+            i = (i + 1)
+            if ((g.hasNode(o.id)) == false) {
+                continue
+            }
+            def n:FlowNode (g.nodeById(o.id))
+            f.applyStyle(n o)
+            n.syncFromModel()
+        }
+        def conns:[D2Conn] (b.liveConns())
+        def k:int 0
+        while (k < (array_length conns)) {
+            def c:D2Conn (itemAt conns k)
+            k = (k + 1)
+            if (k > (g.edgeCount())) {
+                continue
+            }
+            def e:FlowEdge (g.edgeAt(k - 1))
+            f.styleEdge(e c)
+        }
+    }
+
+    ; The graph as the model describes it, with nothing placed. What a caller
+    ; with a layout of its own wants.
+    sfn graphOf:FlowGraph (b:D2Board) {
+        def f (new D2Flow)
+        return (f.build(b))
+    }
+
+    ; --------------------------------------------------------- the graph ----
+    fn build:FlowGraph (b:D2Board) {
+        def g (new FlowGraph)
+        def objects:[D2Object] (b.live())
+        ; Leaves and compartments become nodes now. Containers become frames
+        ; after the layout, because a frame is the box its children turn out
+        ; to need.
+        def i:int 0
+        while (i < (array_length objects)) {
+            def o:D2Object (itemAt objects i)
+            i = (i + 1)
+            if (D2Flow.hasChildren(b o)) {
+                continue
+            }
+            g.addNode((this.nodeFor(o)))
+        }
+        g.reindex()
+        def conns:[D2Conn] (b.liveConns())
+        def k:int 0
+        while (k < (array_length conns)) {
+            def c:D2Conn (itemAt conns k)
+            k = (k + 1)
+            def src:string (D2Flow.endNode(b g c.src))
+            def dst:string (D2Flow.endNode(b g c.dst))
+            if ((strlen src) == 0) {
+                continue
+            }
+            if ((strlen dst) == 0) {
+                continue
+            }
+            def e:FlowEdge (FlowEdge.create("" src dst))
+            this.dressEdge(e c)
+            g.addEdge(e)
+        }
+        g.reindex()
+        return g
+    }
+
+    ; Whether anything on the board is inside this object.
+    sfn hasChildren:boolean (b:D2Board o:D2Object) {
+        def objects:[D2Object] (b.live())
+        def i:int 0
+        while (i < (array_length objects)) {
+            def other:D2Object (itemAt objects i)
+            i = (i + 1)
+            if (other.parent == o.id) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; A connection can name a container, which is not a node yet. It is laid
+    ; out against the first leaf inside it so the ranks come out right, and
+    ; moved onto the frame once there is one — the same two-step
+    ; `MermaidReader` does for an arrow that names a subgraph.
+    sfn endNode:string (b:D2Board g:FlowGraph id:string) {
+        if (g.hasNode(id)) {
+            return id
+        }
+        def objects:[D2Object] (b.live())
+        def i:int 0
+        while (i < (array_length objects)) {
+            def o:D2Object (itemAt objects i)
+            i = (i + 1)
+            if (D2Model.isUnder(o.id id)) {
+                if (g.hasNode(o.id)) {
+                    return o.id
+                }
+            }
+        }
+        return ""
+    }
+
+    ; ---------------------------------------------------------- one node ----
+    fn nodeFor:FlowNode (o:D2Object) {
+        if (o.isCompartment()) {
+            return (this.compartmentNode(o))
+        }
+        def n:FlowNode (FlowNode.create(o.id o.label 0.0 0.0))
+        n.nodeType = "step"
+        n.shape = (D2Shapes.outlineFor(o.shape))
+        def cls:string (D2Flow.classOf(o.shape))
+        n.cssClass = ("d2 " + cls)
+        def want:double ((this.textWidth(o.label)) + 34.0)
+        def w:double want
+        if (w < minWidth) {
+            w = minWidth
+        }
+        if (w > maxWidth) {
+            w = maxWidth
+        }
+        def lines:int (D2Flow.lineCount(o.label))
+        if (want > maxWidth) {
+            lines = (lines + 1)
+        }
+        def h:double (44.0 + ((to_double (lines - 1)) * 18.0))
+        ; A diamond only has room in the middle of itself.
+        if (o.shape == "diamond") {
+            w = (w * 1.4)
+            h = (h + 28.0)
+        }
+        ; A figure is mostly head: the label goes in the shoulders, so the box
+        ; has to be tall enough to have shoulders. D2 sizes its own `person`
+        ; the same way — the shape is much bigger than the text in it.
+        if (D2Shapes.isFigure(o.shape)) {
+            h = (h * 2.3)
+            if (h < 104.0) {
+                h = 104.0
+            }
+            if (w < 120.0) {
+                w = 120.0
+            }
+        }
+        if (D2Shapes.isSquare(o.shape)) {
+            if (h > w) {
+                w = h
+            }
+            h = w
+        }
+        if (o.width > 0.0) {
+            w = o.width
+        }
+        if (o.height > 0.0) {
+            h = o.height
+        }
+        n.width = w
+        n.height = h
+        this.applyStyle(n o)
+        n.syncFromModel()
+        return n
+    }
+
+    ; A `sql_table` or a `class`: one node with rows, which is the compartment
+    ; node the ERD and the UML diagrams already use.
+    fn compartmentNode:FlowNode (o:D2Object) {
+        def n:FlowNode (FlowNode.create(o.id o.label 0.0 0.0))
+        n.nodeType = "table"
+        if (o.shape == "class") {
+            n.nodeType = "umlclass"
+        }
+        n.shape = "rect"
+        n.cssClass = ("d2 " + o.shape)
+        n.headerHeight = headerHeight
+        n.rowHeight = rowHeight
+        n.resizable = true
+        def widest:double (this.textWidth(o.label))
+        def sec:FlowSection (n.addSection(""))
+        def i:int 0
+        while (i < (o.fieldCount())) {
+            def f:D2Field (o.fieldAt(i))
+            i = (i + 1)
+            def row:FlowRow (this.fieldRow(o f))
+            sec.addRow(row)
+            def w:double (this.rowWidth(f))
+            if (w > widest) {
+                widest = w
+            }
+        }
+        def total:double (widest + 48.0)
+        if (total < minWidth) {
+            total = minWidth
+        }
+        if (total > maxWidth) {
+            total = maxWidth
+        }
+        n.width = total
+        if (o.width > 0.0) {
+            n.width = o.width
+        }
+        this.applyStyle(n o)
+        n.layoutCompartments()
+        return n
+    }
+
+    ; A row carries its badge, its name, its type and whatever trails it — the
+    ; four the compartment node draws. A key column gets the `PK`/`FK` badge
+    ; the ERD already draws, and a class member its visibility marker.
+    fn fieldRow:FlowRow (o:D2Object f:D2Field) {
+        def badge:string ""
+        def trailing:string ""
+        if (o.shape == "class") {
+            badge = f.visibility
+        } {
+            def c:int 0
+            while (c < (array_length f.constraints)) {
+                def con:string (itemAt f.constraints c)
+                c = (c + 1)
+                if (con == "primary_key") {
+                    badge = "pk"
+                }
+                if (con == "foreign_key") {
+                    if ((strlen badge) == 0) {
+                        badge = "fk"
+                    }
+                }
+                if (con == "unique") {
+                    trailing = "unique"
+                }
+            }
+        }
+        def detail:string ""
+        if ((strlen f.type) > 0) {
+            detail = (": " + f.type)
+        }
+        def row:FlowRow (FlowRow.create(badge f.name detail trailing))
+        row.portId = (o.id + "." + f.name)
+        return row
+    }
+
+    fn rowWidth:double (f:D2Field) {
+        def text:string f.name
+        if ((strlen f.type) > 0) {
+            text = (text + ": " + f.type)
+        }
+        return (this.textWidth(text))
+    }
+
+    ; D2's styles, as far as a node can carry them. What it cannot — the fill
+    ; patterns, the double border, the 3d box — stays on the model and is
+    ; listed in `docs/D2_FEATURES.md` rather than quietly dropped.
+    fn applyStyle:void (n:FlowNode o:D2Object) {
+        def fill:string (o.style("fill"))
+        if ((strlen fill) > 0) {
+            n.bgColor = fill
+        }
+        def stroke:string (o.style("stroke"))
+        if ((strlen stroke) > 0) {
+            n.borderColor = stroke
+        }
+        def sw:string (o.style("stroke-width"))
+        if ((strlen sw) > 0) {
+            n.borderWidth = (D2Model.toNum(sw))
+        }
+        def br:string (o.style("border-radius"))
+        if ((strlen br) > 0) {
+            n.borderRadius = (D2Model.toNum(br))
+        }
+        def fc:string (o.style("font-color"))
+        if ((strlen fc) > 0) {
+            n.textColor = fc
+        }
+        def fs:string (o.style("font-size"))
+        if ((strlen fs) > 0) {
+            def size:double (D2Model.toNum(fs))
+            if (size > 0.0) {
+                n.fontScale = (size / fontSize)
+            }
+        }
+        if ((strlen o.tooltip) > 0) {
+            n.tooltip = o.tooltip
+        }
+        ; A `text` shape is a label, not a box: D2 draws no outline round it.
+        if (o.shape == "text") {
+            n.borderWidth = 0.0
+        }
+    }
+
+    ; ---------------------------------------------------------- one edge ----
+    fn dressEdge:void (e:FlowEdge c:D2Conn) {
+        e.edgeType = "smoothstep"
+        e.label = c.label
+        def src:string (c.srcHead())
+        def dst:string (c.dstHead())
+        if (D2Shapes.isCrowsFoot(src)) {
+            e.sourceCardinality = (D2Shapes.cardinalityFor(src))
+            e.optionalSource = (D2Flow.isOptional(src))
+        } {
+            e.markerStart = (D2Shapes.markerFor(src))
+        }
+        if (D2Shapes.isCrowsFoot(dst)) {
+            e.targetCardinality = (D2Shapes.cardinalityFor(dst))
+            e.optionalTarget = (D2Flow.isOptional(dst))
+        } {
+            e.markerEnd = (D2Shapes.markerFor(dst))
+        }
+        ; An arrowhead's own label is the cardinality slot the ERD uses.
+        if ((strlen c.srcArrowLabel) > 0) {
+            e.sourceCardinality = c.srcArrowLabel
+        }
+        if ((strlen c.dstArrowLabel) > 0) {
+            e.targetCardinality = c.dstArrowLabel
+        }
+        this.styleEdge(e c)
+        ; A connection between two rows was written between two rows: the
+        ; compartment node has a port for each, and the router will use it.
+        if ((strlen c.srcField) > 0) {
+            e.sourcePort = (c.src + "." + c.srcField)
+        }
+        if ((strlen c.dstField) > 0) {
+            e.targetPort = (c.dst + "." + c.dstField)
+        }
+    }
+
+    fn styleEdge:void (e:FlowEdge c:D2Conn) {
+        def stroke:string (c.style("stroke"))
+        if ((strlen stroke) > 0) {
+            e.strokeColor = stroke
+        }
+        def sw:string (c.style("stroke-width"))
+        if ((strlen sw) > 0) {
+            e.strokeWidth = (D2Model.toNum(sw))
+        }
+        def dash:string (c.style("stroke-dash"))
+        if ((strlen dash) > 0) {
+            e.dash = (D2Model.toNum(dash))
+        }
+        if ((c.style("animated")) == "true") {
+            e.animated = true
+        }
+    }
+
+    sfn isOptional:boolean (head:string) {
+        if (head == "cf-one")  { return true }
+        if (head == "cf-many") { return true }
+        return false
+    }
+
+    ; ------------------------------------------------------- the layout -----
+    ; A container is laid out as a diagram of its own, and then placed in its
+    ; parent as one box the size of what came out.
+    ;
+    ; This is the part a flat layered layout cannot do. It ranks and orders to
+    ; cut crossings and has no idea that six of these nodes belong inside one
+    ; frame, so it interleaves them with the members of the next container —
+    ; and the two frames drawn afterwards overlap, which is a drawing that
+    ; lies about what contains what. D2 does not have that problem because it
+    ; lays each container out separately and then places the result; so does
+    ; this.
+    ;
+    ;   layer:      0        1        2         3                  ┌─ Core ──┐
+    ;   flat:    Client → [Edge.cdn] → [Core.api] → [Data.primary]  │ …       │
+    ;            frames overlap wherever two containers share one   └─────────┘
+    ;   nested:  Client → ┌─ Edge ─┐ → ┌─ Core ─┐ → ┌─ Data ─┐     one box each,
+    ;                     └────────┘   └────────┘   └────────┘     sized by its
+    ;                                                              own layout
+    ;
+    ; `direction` is honoured per container, because each one is its own
+    ; layout: a `direction: right` inside a box turns that box's contents and
+    ; nothing else, which is what D2 does.
+    fn nest:FlowGraph (b:D2Board scope:string dir:string) {
+        def pad:double 22.0
+        def head:double 26.0
+        def children:[D2Object] (D2Flow.childrenOf(b scope))
+        ; One node per direct child: a leaf as itself, a container as a box
+        ; the size of its own finished layout.
+        def level (new FlowGraph)
+        def subs:[FlowGraph]
+        def subIds:[string]
+        def i:int 0
+        while (i < (array_length children)) {
+            def o:D2Object (itemAt children i)
+            i = (i + 1)
+            if (D2Flow.hasChildren(b o)) {
+                def childDir:string dir
+                if ((strlen o.direction) > 0) {
+                    childDir = o.direction
+                }
+                def sub:FlowGraph (this.nest(b o.id childDir))
+                def r:FlowRect (sub.bounds())
+                def box:FlowNode (FlowNode.create(o.id o.label 0.0 0.0))
+                box.nodeType = "group"
+                box.width = (r.w + (pad * 2.0))
+                box.height = ((r.h + (pad * 2.0)) + head)
+                level.addNode(box)
+                push subs sub
+                push subIds o.id
+            } {
+                level.addNode((this.nodeFor(o)))
+            }
+        }
+        level.reindex()
+        ; The connections between those children, for ranking only. An arrow
+        ; that starts deep inside one container and ends deep inside another
+        ; ranks the two containers, which is what decides where they go.
+        def conns:[D2Conn] (b.liveConns())
+        def k:int 0
+        while (k < (array_length conns)) {
+            def c:D2Conn (itemAt conns k)
+            k = (k + 1)
+            def a:string (D2Flow.childUnder(scope c.src))
+            def z:string (D2Flow.childUnder(scope c.dst))
+            if ((strlen a) == 0) {
+                continue
+            }
+            if ((strlen z) == 0) {
+                continue
+            }
+            if (a == z) {
+                continue
+            }
+            if ((level.hasNode(a)) == false) {
+                continue
+            }
+            if ((level.hasNode(z)) == false) {
+                continue
+            }
+            level.connect(a z)
+        }
+        level.reindex()
+        this.runLayered(level dir)
+        ; Now put the sub-layouts inside the boxes the layout placed.
+        def out (new FlowGraph)
+        def n:int (level.nodeCount())
+        def m:int 0
+        while (m < n) {
+            def node:FlowNode (level.nodeAt(m))
+            m = (m + 1)
+            def at:int (D2Flow.indexOfId(subIds node.id))
+            if (at < 0) {
+                out.addNode(node)
+                continue
+            }
+            def sub2:FlowGraph (itemAt subs at)
+            def r2:FlowRect (sub2.bounds())
+            def dx:double ((node.x + pad) - r2.x)
+            def dy:double (((node.y + pad) + head) - r2.y)
+            D2Flow.translate(sub2 dx dy)
+            def frame:FlowNode (this.frameFor(b node.id node))
+            out.addNode(frame)
+            def s2:int 0
+            while (s2 < (sub2.nodeCount())) {
+                def inner:FlowNode (sub2.nodeAt(s2))
+                s2 = (s2 + 1)
+                if ((strlen inner.parentId) == 0) {
+                    inner.parentId = node.id
+                }
+                out.addNode(inner)
+            }
+        }
+        out.reindex()
+        return out
+    }
+
+    fn runLayered:void (g:FlowGraph dir:string) {
+        if ((g.nodeCount()) == 0) {
+            return
+        }
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = "TB"
+        if (D2Flow.isHorizontal(dir)) {
+            lay.direction = "LR"
+        }
+        lay.layerGap = 96.0
+        lay.nodeGap = 44.0
+        lay.squareUp = true
+        lay.minLayerGap = 64.0
+        if (D2Flow.isHorizontal(dir)) {
+            lay.layerGap = 130.0
+            lay.nodeGap = 36.0
+        }
+        lay.run()
+        ; `up` and `left` are the other two, drawn and then turned over.
+        if (dir == "up") {
+            D2Flow.mirror(g false)
+        }
+        if (dir == "left") {
+            D2Flow.mirror(g true)
+        }
+    }
+
+    ; The frame itself, once the layout has said where the box goes.
+    fn frameFor:FlowNode (b:D2Board id:string box:FlowNode) {
+        def o:D2Object (b.object(id))
+        def frame:FlowNode (FlowNode.create(id o.label box.x box.y))
+        frame.nodeType = "group"
+        frame.width = box.width
+        frame.height = box.height
+        frame.connectable = false
+        def fcls:string (D2Flow.classOf(o.shape))
+        frame.cssClass = ("d2 container " + fcls)
+        frame.addSideHandles()
+        def fill:string (o.style("fill"))
+        if ((strlen fill) > 0) {
+            frame.bgColor = fill
+        }
+        def stroke:string (o.style("stroke"))
+        if ((strlen stroke) > 0) {
+            frame.borderColor = stroke
+        }
+        frame.syncFromModel()
+        return frame
+    }
+
+    ; The connections, added to the placed graph with their real ends: an
+    ; arrow between two containers is drawn between the two frames, and one
+    ; that named a box inside a container is drawn to the box.
+    fn connect:void (b:D2Board g:FlowGraph) {
+        def conns:[D2Conn] (b.liveConns())
+        def i:int 0
+        while (i < (array_length conns)) {
+            def c:D2Conn (itemAt conns i)
+            i = (i + 1)
+            if ((g.hasNode(c.src)) == false) {
+                continue
+            }
+            if ((g.hasNode(c.dst)) == false) {
+                continue
+            }
+            def e:FlowEdge (FlowEdge.create("" c.src c.dst))
+            this.dressEdge(e c)
+            g.addEdge(e)
+        }
+        g.reindex()
+        ; A frame is drawn behind what it holds. `sendToBack` puts a node at
+        ; the very back, so the innermost frame is sent first and the outermost
+        ; last — the other way round and every nested frame ends up hidden
+        ; under the box that contains it.
+        def objects:[D2Object] (b.live())
+        def deepest:int (D2Flow.deepestLevel(objects))
+        def level:int deepest
+        while (level >= 1) {
+            def k:int 0
+            while (k < (array_length objects)) {
+                def o:D2Object (itemAt objects k)
+                k = (k + 1)
+                if (o.level != level) {
+                    continue
+                }
+                if (D2Flow.hasChildren(b o)) {
+                    g.sendToBack(o.id)
+                }
+            }
+            level = (level - 1)
+        }
+    }
+
+    ; The routing, and the two things a file can say about where a box goes.
+    fn finish:void (b:D2Board g:FlowGraph) {
+        def moved:int (EdgeLanes.assign(g))
+        def repaired:int (OrthoRouter.repairAll(g))
+        def parted:int (EdgeLanes.staggerLabels(g))
+        D2Flow.pinPlaced(b g)
+    }
+
+    sfn deepestLevel:int (objects:[D2Object]) {
+        def deepest:int 1
+        def i:int 0
+        while (i < (array_length objects)) {
+            def o:D2Object (itemAt objects i)
+            i = (i + 1)
+            if (o.level > deepest) {
+                deepest = o.level
+            }
+        }
+        return deepest
+    }
+
+    ; The objects directly inside a scope, in the order the file declared them.
+    sfn childrenOf:[D2Object] (b:D2Board scope:string) {
+        def out:[D2Object]
+        def objects:[D2Object] (b.live())
+        def i:int 0
+        while (i < (array_length objects)) {
+            def o:D2Object (itemAt objects i)
+            i = (i + 1)
+            if (o.parent == scope) {
+                push out o
+            }
+        }
+        return out
+    }
+
+    ; Which direct child of `scope` an id is in — itself when it is one, and
+    ; "" when it is somewhere else entirely.
+    sfn childUnder:string (scope:string id:string) {
+        if ((strlen scope) > 0) {
+            if ((D2Model.isUnder(id scope)) == false) {
+                return ""
+            }
+            id = (substring id ((strlen scope) + 1) (strlen id))
+        }
+        ; The first segment — and a quoted one keeps its own dots, so
+        ; `"a.b".c` is `"a.b"` and not `"a`.
+        def segs:[string] (D2Model.segments(id))
+        if ((array_length segs) == 0) {
+            return ""
+        }
+        def head:string (itemAt segs 0)
+        if ((strlen scope) == 0) {
+            return head
+        }
+        return (scope + "." + head)
+    }
+
+    sfn indexOfId:int (ids:[string] id:string) {
+        def i:int 0
+        while (i < (array_length ids)) {
+            if ((itemAt ids i) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn translate:void (g:FlowGraph dx:double dy:double) {
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            i = (i + 1)
+            n.x = (n.x + dx)
+            n.y = (n.y + dy)
+            n.syncFromModel()
+        }
+    }
+
+    sfn directionOf:string (b:D2Board) {
+        if ((strlen b.direction) > 0) {
+            return b.direction
+        }
+        return "down"
+    }
+
+    sfn isHorizontal:boolean (dir:string) {
+        if (dir == "right") { return true }
+        if (dir == "left")  { return true }
+        return false
+    }
+
+    ; Turn the finished layout over, which is what `up` and `left` are.
+    sfn mirror:void (g:FlowGraph horizontal:boolean) {
+        def n:int (g.nodeCount())
+        if (n == 0) {
+            return
+        }
+        def lo:double 0.0
+        def hi:double 0.0
+        def first:boolean true
+        def i:int 0
+        while (i < n) {
+            def node:FlowNode (g.nodeAt(i))
+            i = (i + 1)
+            def a:double node.y
+            def b:double (node.y + node.height)
+            if horizontal {
+                a = node.x
+                b = (node.x + node.width)
+            }
+            if first {
+                lo = a
+                hi = b
+                first = false
+            } {
+                if (a < lo) {
+                    lo = a
+                }
+                if (b > hi) {
+                    hi = b
+                }
+            }
+        }
+        def k:int 0
+        while (k < n) {
+            def node2:FlowNode (g.nodeAt(k))
+            k = (k + 1)
+            if horizontal {
+                node2.x = ((lo + hi) - (node2.x + node2.width))
+            } {
+                node2.y = ((lo + hi) - (node2.y + node2.height))
+            }
+            node2.syncFromModel()
+        }
+    }
+
+    ; `top` and `left` are absolute, and they are applied last so the layout
+    ; cannot argue with them.
+    sfn pinPlaced:void (b:D2Board g:FlowGraph) {
+        def objects:[D2Object] (b.live())
+        def i:int 0
+        while (i < (array_length objects)) {
+            def o:D2Object (itemAt objects i)
+            i = (i + 1)
+            if (o.hasPosition == false) {
+                continue
+            }
+            if ((g.hasNode(o.id)) == false) {
+                continue
+            }
+            def n:FlowNode (g.nodeById(o.id))
+            n.x = o.left
+            n.y = o.top
+            n.syncFromModel()
+        }
+    }
+
+    ; ------------------------------------------------------------- text -----
+    sfn classOf:string (shape:string) {
+        if ((strlen shape) == 0) {
+            return "rectangle"
+        }
+        return shape
+    }
+
+    sfn lineCount:int (t:string) {
+        def n:int 1
+        def i:int 0
+        while (i < (strlen t)) {
+            if ((charAt t i) == 10) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn textWidth:double (t:string) {
+        def widest:int 0
+        def run:int 0
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if (c == 10) {
+                if (run > widest) {
+                    widest = run
+                }
+                run = 0
+            } {
+                run = (run + 1)
+            }
+            i = (i + 1)
+        }
+        if (run > widest) {
+            widest = run
+        }
+        return ((to_double widest) * (fontSize * 0.58))
+    }
+}
