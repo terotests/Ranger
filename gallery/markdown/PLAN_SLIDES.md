@@ -453,14 +453,39 @@ road, the way `book_slides` does.
 >     their container's box is. Built straight off the tree the edges came out
 >     and every node's label landed in the corner.
 >
-> **And one thing needed a spelling the repository did not have.** A list the
-> sheet gives `column-count` to is given a wide, short rectangle by the
-> layout; one column of items in that rectangle overflows onto whatever is
-> under it. PresentationML has the answer — `a:bodyPr@numCol` / `@spcCol` —
-> so `PptxTextBody` gained `columns` and `columnGapPt`, the writer writes
-> them, the parser reads them, and `PptxTextLayout` flows the lines into
-> columns by PARAGRAPH, so a bullet is never cut from its own words. A deck
-> that never asked for columns writes exactly the bytes it wrote before.
+> **And columns took two tries.** A list the sheet gives `column-count` to is
+> given a wide, SHORT rectangle by the layout — as tall as one column — so one
+> column of items in it overflows onto whatever is under it.
+>
+> The first answer was PresentationML's own: `a:bodyPr@numCol` / `@spcCol`, a
+> text body that flows down the first column and into the next, which keeps
+> the list ONE list. `PptxTextBody` gained `columns` and `columnGapPt`, the
+> writer writes them, the parser reads them, and `PptxTextLayout` flows the
+> lines into columns by PARAGRAPH so a bullet is never cut from its own words.
+>
+> It is the better answer and it was not a safe one. A reader that does not
+> honour `numCol` stacks every item in the short rectangle and draws the block
+> below on top of the overflow — which is what a real one did, from the file
+> as shipped. **A deck that is only correct in some readers is not correct**,
+> so the GEOMETRY carries it now: one shape per column, each at the rectangle
+> the layout put that column's items in, and nothing has to be honoured.
+>
+> The cost is stated rather than hidden, in the exporter's notes and in its
+> header: a bullet added to the end of column one is a fourth bullet in column
+> one, not the first of column two. PowerPoint's own two-content layouts are
+> two placeholders for the same reason. `numCol` stays in the model, the
+> writer, the parser and the renderer — it is a thing PresentationML says and
+> this repository could not read before — it is just not what the deck depends
+> on.
+>
+> Which boxes belong to which item needed the rule `MdLayout`'s own column
+> flow already needed, for the same reason: a list's BULLET carries the LIST's
+> offset and a list starts where its first item does, so asking the source
+> spans alone puts every marker in the first item and the first item then
+> spans the whole list. The boxes are emitted in order, so a box may never
+> belong to an earlier child than the box before it — and only boxes inside
+> the block's own span are considered at all, or the heading above the list
+> ends up part of its first item and the first column covers the slide.
 >
 > 38 assertions, through `save()` and `open()` rather than over the model.
 

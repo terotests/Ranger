@@ -431,12 +431,20 @@ class MdPptxTest {
         c.ok("…and they are spread across it, not piled at its corner" (spread > 100.0))
     }
 
-    ; A list the sheet gave columns to goes out in columns: PresentationML
-    ; spells it `a:bodyPr@numCol`, and the rectangle the layout gave the block
-    ; is a wide short one that only holds the items when they are dealt across
-    ; it. One column in that rectangle overflows onto whatever is under it.
+    ; A list the sheet gave columns to is ONE SHAPE PER COLUMN, at the
+    ; rectangle the layout put that column's items in.
+    ;
+    ; The first answer was one shape with `a:bodyPr@numCol`, which keeps it
+    ; one list and is what PresentationML says. It is not a safe answer: the
+    ; rectangle a columned block gets is wide and SHORT — as tall as one
+    ; column — so a reader that does not honour `numCol` stacks every item in
+    ; it and draws the block below on top of the overflow. That was reported
+    ; from a real reader, so the geometry carries it instead.
+    ;
+    ; The check is therefore not "what does the file say" but "could anything
+    ; land on anything": no two shapes on a slide may overlap.
     fn columns:void (c:DeckCheck) {
-        print "-- a list in columns is a text body in columns --"
+        print "-- a list in columns is one shape per column --"
         def src:string "# Title
 
 - one
@@ -450,24 +458,97 @@ class MdPptxTest {
         def css:string "page { width: 720pt; height: 405pt; padding: 36pt } .c3 { column-count: 3; column-gap: 20pt }"
         def back:PptxDeck (this.reopened((this.build(src css))))
         def sl:PptxSlideRef (back.slideAt(0))
-        def body:PptxShapeRef (sl.shapeAt(1))
-        def m:PptxShape (body.model())
-        c.eqInt("three columns, through the file" m.text.columns 3)
-        c.eqInt("…and the gap with them" (to_int (m.text.columnGapPt + 0.5)) 20)
-        c.eqInt("one shape, not three" (sl.shapeCount()) 2)
-        c.eqInt("…holding all six bullets" (MdPptxTest.bullets(back)) 6)
+        c.eqInt("a title and three columns" (sl.shapeCount()) 4)
+        c.eqInt("…holding all six bullets between them" (MdPptxTest.bullets(back)) 6)
+        c.eqStr("…in document order, down each column" (MdPptxTest.columnOrder(sl)) "one,two|three,four|five,six")
+        c.eqInt("and nothing is drawn on top of anything" (MdPptxTest.overlaps(sl)) 0)
 
-        ; …and a list with no columns says nothing, so a deck that never asked
-        ; for them is the file it always was.
-        def plain:PptxDeck (this.reopened((this.build("# Title
+        ; The columns are side by side and level with each other, which is
+        ; what makes them columns rather than three boxes.
+        def sa:PptxShapeRef (sl.shapeAt(1))
+        def sb:PptxShapeRef (sl.shapeAt(2))
+        def a:PptxShape (sa.model())
+        def b:PptxShape (sb.model())
+        c.ok("the second column is right of the first" (b.x > (a.x + a.width)))
+        c.ok("…and level with it" ((fabs (a.y - b.y)) < 1.0))
+
+        ; A list nobody styled is still one shape, so a deck that never asked
+        ; for columns is the deck it always was.
+        def plainSrc:string "# Title
 
 - one
 - two
-" "page { width: 720pt; height: 405pt; padding: 36pt }"))))
+"
+        def plain:PptxDeck (this.reopened((this.build(plainSrc "page { width: 720pt; height: 405pt; padding: 36pt }"))))
         def ps:PptxSlideRef (plain.slideAt(0))
-        def pb:PptxShapeRef (ps.shapeAt(1))
-        def pm:PptxShape (pb.model())
-        c.eqInt("one column stays one" pm.text.columns 1)
+        c.eqInt("one column stays one shape" (ps.shapeCount()) 2)
+        c.eqInt("…and nothing overlaps there either" (MdPptxTest.overlaps(ps)) 0)
+
+        ; …and the whole sample, which is where the overlap was seen.
+        def deckSrc:string (?? (read_file "." "gallery/markdown/fixtures/deck.md") "")
+        def deckCss:string (?? (read_file "." "gallery/markdown/fixtures/themes/corporate.css") "")
+        def full:PptxDeck (this.reopened((this.build(deckSrc deckCss))))
+        def bad:int 0
+        def s:int 0
+        while (s < (full.slideCount())) {
+            def one:PptxSlideRef (full.slideAt(s))
+            bad = (bad + (MdPptxTest.overlaps(one)))
+            s = (s + 1)
+        }
+        c.eqInt("and no slide of the sample has two shapes on each other" bad 0)
+    }
+
+    ; The words of each shape on a slide, shapes separated by `|` and the
+    ; bullets inside one by `,` — which says both WHICH column each item
+    ; landed in and in what ORDER. A deal that went across the rows instead
+    ; of down the columns gets the second half of this wrong.
+    sfn columnOrder:string (sl:PptxSlideRef) {
+        def out:string ""
+        def k:int 1
+        while (k < (sl.shapeCount())) {
+            def sh:PptxShapeRef (sl.shapeAt(k))
+            def m:PptxShape (sh.model())
+            if (k > 1) { out = (out + "|") }
+            def p:int 0
+            while (p < (array_length m.text.paragraphs)) {
+                def par:PptxParagraph (itemAt m.text.paragraphs p)
+                if (p > 0) { out = (out + ",") }
+                def r:int 0
+                while (r < (array_length par.runs)) {
+                    def run:PptxTextRun (itemAt par.runs r)
+                    out = (out + run.text)
+                    r = (r + 1)
+                }
+                p = (p + 1)
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; How many pairs of shapes on this slide overlap — the noun the reader
+    ; reported, which is text on text.
+    sfn overlaps:int (sl:PptxSlideRef) {
+        def hits:int 0
+        def i:int 0
+        while (i < (sl.shapeCount())) {
+            def sa2:PptxShapeRef (sl.shapeAt(i))
+            def a:PptxShape (sa2.model())
+            def j:int (i + 1)
+            while (j < (sl.shapeCount())) {
+                def sb2:PptxShapeRef (sl.shapeAt(j))
+                def b:PptxShape (sb2.model())
+                def over:boolean true
+                if ((a.x + a.width) <= (b.x + 0.5)) { over = false }
+                if ((b.x + b.width) <= (a.x + 0.5)) { over = false }
+                if ((a.y + a.height) <= (b.y + 0.5)) { over = false }
+                if ((b.y + b.height) <= (a.y + 0.5)) { over = false }
+                if over { hits = (hits + 1) }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return hits
     }
 
     fn run:void () {

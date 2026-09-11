@@ -126,6 +126,7 @@ the slides. `MdToPptx` picks the road per block:
   paragraph    → one text box, one run — PowerPoint breaks the lines
   list         → one text body, one paragraph per item, levels and numbering
   table        → a real a:tbl, with the grid the layout measured
+  a {.c3} list → one text box per column, where the layout put them
   a diagram    → the display-list road, and it says so
 ```
 

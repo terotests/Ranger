@@ -92,6 +92,33 @@ class MdDeckResult {
     }
 }
 
+; Where each of a block's own children ended up, one entry per child.
+;
+; Needed because "which boxes belong to this item" cannot be answered by the
+; source span alone: a list's BULLET carries the LIST's offset, and a list
+; starts where its first item does — so asking the spans puts every marker in
+; the first item and the first item then spans the whole list. `MdLayout`'s
+; own column flow hit this and answered it the same way: the boxes are
+; emitted in order, so a box may never belong to an earlier child than the
+; box before it.
+class MdItemRects {
+    def left:[double]
+    def top:[double]
+    def right:[double]
+    def bottom:[double]
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length left)
+    }
+
+    fn has:boolean (i:int) {
+        return ((itemAt left i) >= 0.0)
+    }
+}
+
 class MdToPptx {
     def layout:MdLayout (new MdLayout())
     def result:MdDeckResult (new MdDeckResult())
@@ -298,44 +325,166 @@ class MdToPptx {
     ; place them exactly and would not be a list: pressing return at the end
     ; of one would not make another.
     fn list:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {
+        def page:int (this.pageOf(node))
+        def rects:MdItemRects (this.itemRects(node page))
+        def lefts:[double] (this.columnLefts(rects))
+        if ((array_length lefts) > 1) {
+            this.listColumns(slide node page rects lefts)
+            return
+        }
         def box:PptxShapeRef (slide.addTextBox(x y w h ""))
         MdToPptx.tight(box)
         def m:PptxShape (box.model())
         clear m.text.paragraphs
-        def before:int result.bullets
-        this.items(m node 0)
-        ; A list the sheet put in columns goes out in ONE. A PowerPoint text
-        ; body has no columns; three of them would be three shapes and not a
-        ; list, and pressing return at the end of the first would not make a
-        ; fourth bullet. Said rather than silently flattened.
-        ; A list the sheet put in columns goes out in columns: PresentationML
-        ; has the spelling — `a:bodyPr@numCol` — and a text body that flows
-        ; down the first column and into the next IS a multi-column list. One
-        ; shape per column would place them exactly and would not be a list.
-        ;
-        ; It matters more than it looks. The layout gave this block a WIDE,
-        ; SHORT rectangle because it cut the items into columns; putting the
-        ; same items in one column inside that rectangle overflows it, and
-        ; the next block on the slide is drawn on top.
-        def cols:int (layout.columnCount(node))
-        if (cols > 1) {
-            m.text.columns = cols
-            m.text.columnGapPt = (layout.columnGap(node))
-        }
-        if ((array_length m.text.paragraphs) == 0) {
-            result.bullets = before
-            return
-        }
+        this.items(m node 0 (0.0 - 1.0) rects)
     }
 
-    fn items:void (m:PptxShape node:MdNode level:int) {
+    fn listColumns:void (slide:PptxSlideRef node:MdNode page:int rects:MdItemRects lefts:[double]) {
+        def cols:int (array_length lefts)
+        def c:int 0
+        while (c < cols) {
+            def left:double (itemAt lefts c)
+            def top:double (0.0 - 1.0)
+            def right:double left
+            def bottom:double 0.0
+            def i:int 0
+            while (i < (rects.count())) {
+                if (MdToPptx.sameColumn(rects i left)) {
+                    def t:double (itemAt rects.top i)
+                    if ((top < 0.0) || (t < top)) { top = t }
+                    def r:double (itemAt rects.right i)
+                    if (r > right) { right = r }
+                    def b:double (itemAt rects.bottom i)
+                    if (b > bottom) { bottom = b }
+                }
+                i = (i + 1)
+            }
+            if (top < 0.0) { top = layout.style.margin }
+            def box:PptxShapeRef (slide.addTextBox(left top (right - left) (bottom - top) ""))
+            MdToPptx.tight(box)
+            def m:PptxShape (box.model())
+            clear m.text.paragraphs
+            this.items(m node 0 left rects)
+            c = (c + 1)
+        }
+        result.note((("slide " + (to_string (page + 1))) + ": a list in ") + (to_string cols) + " columns is " + (to_string cols) + " text boxes — a bullet added to one does not flow into the next")
+    }
+
+    sfn sameColumn:boolean (rects:MdItemRects i:int left:double) {
+        if (! (rects.has(i))) { return false }
+        if (left < 0.0) { return true }
+        return ((fabs ((itemAt rects.left i) - left)) < 1.0)
+    }
+
+    ; The rectangle each direct child of `node` was drawn in, on `page`.
+    fn itemRects:MdItemRects (node:MdNode page:int) {
+        def out (new MdItemRects())
+        def kids:int (node.childCount())
+        def k:int 0
+        while (k < kids) {
+            push out.left (0.0 - 1.0)
+            push out.top (0.0 - 1.0)
+            push out.right (0.0 - 1.0)
+            push out.bottom (0.0 - 1.0)
+            k = (k + 1)
+        }
+        def last:int 0
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            ; Only this block's own boxes. Without the span test the
+            ; monotonic rule below sweeps up everything drawn BEFORE the
+            ; block as well — the heading above a list came out as part of
+            ; its first item, and the first column's box then covered the
+            ; whole slide.
+            def ours:boolean (MdToPptx.inSpan(node b.srcStart))
+            if ((b.page == page) && ours) {
+                def g:int (MdToPptx.childOf(node kids b.srcStart))
+                if (g < last) { g = last }
+                if ((g >= 0) && (g < kids)) {
+                    last = g
+                    if ((itemAt out.left g) < 0.0) {
+                        set_at out.left g b.x
+                        set_at out.top g b.y
+                        set_at out.right g (b.x + b.w)
+                        set_at out.bottom g (b.y + b.h)
+                    } {
+                        if (b.x < (itemAt out.left g)) { set_at out.left g b.x }
+                        if (b.y < (itemAt out.top g)) { set_at out.top g b.y }
+                        if ((b.x + b.w) > (itemAt out.right g)) { set_at out.right g (b.x + b.w) }
+                        if ((b.y + b.h) > (itemAt out.bottom g)) { set_at out.bottom g (b.y + b.h) }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn childOf:int (node:MdNode kids:int off:int) {
+        if (off < 0) { return -1 }
+        def i:int 0
+        while (i < kids) {
+            def k:MdNode (node.childAt(i))
+            if (k.srcStart >= 0) {
+                if ((k.srcStart <= off) && (off < k.srcEnd)) { return i }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The distinct left edges of this list's own items, in order. One means
+    ; one column, which is every list nobody styled.
+    fn columnLefts:[double] (rects:MdItemRects) {
+        def out:[double]
+        def i:int 0
+        while (i < (rects.count())) {
+            if (rects.has(i)) {
+                def left:double (itemAt rects.left i)
+                def seen:boolean false
+                def k:int 0
+                while (k < (array_length out)) {
+                    if ((fabs ((itemAt out k) - left)) < 1.0) { seen = true }
+                    k = (k + 1)
+                }
+                if (! seen) { push out left }
+            }
+            i = (i + 1)
+        }
+        ; In reading order, which for columns is left to right.
+        def n:int (array_length out)
+        def a:int 0
+        while (a < n) {
+            def b:int (a + 1)
+            while (b < n) {
+                if ((itemAt out b) < (itemAt out a)) {
+                    def t:double (itemAt out a)
+                    set_at out a (itemAt out b)
+                    set_at out b t
+                }
+                b = (b + 1)
+            }
+            a = (a + 1)
+        }
+        return out
+    }
+
+    ; `onlyLeft` below zero means every item; otherwise only the ones the
+    ; layout put in that column.
+    fn items:void (m:PptxShape node:MdNode level:int onlyLeft:double rects:MdItemRects) {
         def ordered:boolean node.listOrdered
         def number:int node.listStart
         def i:int 0
         def n:int (node.childCount())
         while (i < n) {
             def item:MdNode (node.childAt(i))
-            def text:string (trim (MdToPptx.itemText(item)))
+            def mine:boolean true
+            if (level == 0) {
+                mine = (MdToPptx.sameColumn(rects i onlyLeft))
+            }
+            def text:string ""
+            if mine { text = (trim (MdToPptx.itemText(item))) }
             if ((strlen text) > 0) {
                 def p (new PptxParagraph)
                 p.level = level
@@ -381,7 +530,9 @@ class MdToPptx {
             while (k < (item.childCount())) {
                 def sub:MdNode (item.childAt(k))
                 if (sub.kind == "list") {
-                    this.items(m sub (level + 1))
+                    if mine {
+                        this.items(m sub (level + 1) (0.0 - 1.0) rects)
+                    }
                 }
                 k = (k + 1)
             }
