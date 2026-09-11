@@ -43,6 +43,12 @@ class MdEditOp {
     ; multi-line paste is somewhere the reader never was.
     def caretBefore:int 0
     def caretAfter:int 0
+    ; What should be SELECTED afterwards, when the op has an opinion. Making a
+    ; word bold and having the selection collapse behind the closing `**` is
+    ; the difference between an editor and a text box; -1 means "collapse to
+    ; the end of what was inserted", which is what a keystroke wants.
+    def selAfterA:int -1
+    def selAfterB:int -1
 
     Constructor () {
     }
@@ -60,6 +66,8 @@ class MdEditOp {
         def o:MdEditOp (MdEditOp.of(start end removed inserted))
         o.caretBefore = caretBefore
         o.caretAfter = caretAfter
+        o.selAfterA = selAfterA
+        o.selAfterB = selAfterB
         return o
     }
 

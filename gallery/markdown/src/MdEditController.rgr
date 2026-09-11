@@ -35,6 +35,7 @@
 Import "MdBlock.rgr"
 Import "MdLayout.rgr"
 Import "MdEdit.rgr"
+Import "MdSemanticEdit.rgr"
 Import "../../office/text/OfficeCaretMotion.rgr"
 Import "../../office/text/OfficeLineNav.rgr"
 Import "../../office/editor/OfficeHistory.rgr"
@@ -62,6 +63,9 @@ class MdEditController {
     def suppressUndo:boolean false
     ; Whether the last recorded op may still grow — see `MdEdit.mergeable`.
     def canMerge:boolean false
+    ; Why the last semantic intent did nothing, or "". A refusal and a no-op
+    ; look identical to the document and completely different to a reader.
+    def lastRefusal:string ""
 
     ; The lines, as `OfficeLineNav` wants them. Rebuilt with the layout.
     def lines:OfficeLineTable (new OfficeLineTable())
@@ -448,8 +452,13 @@ class MdEditController {
         if (! suppressUndo) {
             this.record(op)
         }
-        anchor = op.caretAfter
-        focus = op.caretAfter
+        if (op.selAfterA >= 0) {
+            anchor = op.selAfterA
+            focus = op.selAfterB
+        } {
+            anchor = op.caretAfter
+            focus = op.caretAfter
+        }
         column.forget()
     }
 
@@ -523,6 +532,92 @@ class MdEditController {
         this.beginAction()
         this.insertText(s)
         this.endAction()
+    }
+
+    ; ----------------------------------------------------------------------
+    ; What the toolbar asks for
+    ; ----------------------------------------------------------------------
+    ;
+    ; Every one of these is `MdSemanticEdit` deciding a patch and this
+    ; applying it. They are transactions because a reader pressing Ctrl+B is
+    ; doing ONE thing however many characters the patch moves.
+    ;
+    ; `false` means nothing was done, and `refusal()` says whether that was
+    ; because there was nothing to do or because the answer was not defined.
+
+    fn refusal:string () {
+        return lastRefusal
+    }
+
+    fn intent:boolean (op:MdEditOp) {
+        if (op.isEmpty()) {
+            return false
+        }
+        this.beginAction()
+        this.apply(op)
+        this.endAction()
+        return true
+    }
+
+    ; "bold" | "italic" | "strike" | "code"
+    fn toggleWrap:boolean (what:string) {
+        this.ensureLayout()
+        def a:int (this.selStart())
+        def b:int (this.selEnd())
+        lastRefusal = (MdSemanticEdit.refusalFor(source doc what a b))
+        if ((strlen lastRefusal) > 0) { return false }
+        return (this.intent((MdSemanticEdit.toggleWrap(source doc what a b))))
+    }
+
+    fn toggleBold:boolean () {
+        return (this.toggleWrap("bold"))
+    }
+
+    fn toggleItalic:boolean () {
+        return (this.toggleWrap("italic"))
+    }
+
+    fn toggleCode:boolean () {
+        return (this.toggleWrap("code"))
+    }
+
+    fn toggleStrike:boolean () {
+        return (this.toggleWrap("strike"))
+    }
+
+    fn toggleLink:boolean (url:string) {
+        this.ensureLayout()
+        lastRefusal = ""
+        def op:MdEditOp (MdSemanticEdit.toggleLink(source doc (this.selStart()) (this.selEnd()) url))
+        if (op.isEmpty()) {
+            lastRefusal = "select the words the link should cover"
+            return false
+        }
+        return (this.intent(op))
+    }
+
+    ; 0 turns a heading back into a paragraph.
+    fn setHeading:boolean (level:int) {
+        this.ensureLayout()
+        lastRefusal = ""
+        def op:MdEditOp (MdSemanticEdit.setHeading(source doc focus level))
+        if (op.isEmpty()) {
+            lastRefusal = "put the caret in a paragraph or an ATX heading"
+            return false
+        }
+        return (this.intent(op))
+    }
+
+    ; "bullet" | "ordered" | "quote", over every line the selection touches.
+    fn toggleLinePrefix:boolean (what:string) {
+        this.ensureLayout()
+        lastRefusal = ""
+        def op:MdEditOp (MdSemanticEdit.toggleLinePrefix(source what (this.selStart()) (this.selEnd())))
+        if (op.isEmpty()) {
+            lastRefusal = "put the caret on a line with something on it"
+            return false
+        }
+        return (this.intent(op))
     }
 
     ; ----------------------------------------------------------------------

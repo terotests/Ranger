@@ -1,0 +1,286 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdSemanticTest.rgr — every toggle is its own inverse, and the refusals.
+; ============================================================================
+;
+;   npm run markdown:semantic:test
+;
+; One claim, checked over the cases that are hard rather than the ones that
+; are easy: **applying a toggle twice gives back bytes identical to the
+; input.** Not "looks the same", not "parses the same" — the same bytes. A
+; markdown editor that cannot promise that is one a reader stops trusting the
+; first time they bold a word and find the list markers changed.
+;
+; And its other half, which is the part most editors skip: **where the answer
+; is not defined, refuse.** A selection that begins inside `**` and ends
+; outside it has no correct patch. Guessing produces markdown nobody typed.
+; ============================================================================
+
+Import "../src/MdEditController.rgr"
+
+class SemCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+}
+
+class MdSemanticTest {
+    sfn main:void () {
+        def t:MdSemanticTest (new MdSemanticTest())
+        t.run()
+    }
+
+    sfn on:MdEditController (text:string) {
+        def e:MdEditController (new MdEditController())
+        e.open(text)
+        e.setViewWidth(900.0)
+        return e
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The invariant, as a helper: select [a,b), toggle, toggle again, compare.
+    ; ----------------------------------------------------------------------
+    fn twice:void (c:SemCheck label:string src:string what:string a:int b:int) {
+        def e:MdEditController (MdSemanticTest.on(src))
+        e.setRange(a b)
+        def first:boolean (e.toggleWrap(what))
+        c.ok((label + ": the first press did something") first)
+        def mid:string (e.text())
+        c.ok((label + ": …and changed the file") (mid != src))
+        ; The selection the first press left is what the second press acts on
+        ; — which is the whole reason an op carries one.
+        def second:boolean (e.toggleWrap(what))
+        c.ok((label + ": the second press did something too") second)
+        c.eqStr((label + ": and gave back every byte") (e.text()) src)
+    }
+
+    fn twiceLines:void (c:SemCheck label:string src:string what:string a:int b:int) {
+        def e:MdEditController (MdSemanticTest.on(src))
+        e.setRange(a b)
+        c.ok((label + ": on") (e.toggleLinePrefix(what)))
+        c.ok((label + ": …changed the file") ((e.text()) != src))
+        c.ok((label + ": off") (e.toggleLinePrefix(what)))
+        c.eqStr((label + ": and gave back every byte") (e.text()) src)
+    }
+
+    ; ----------------------------------------------------------------------
+    fn wrapping:void (c:SemCheck) {
+        print "-- bold, italic, code, strike: on then off is the original --"
+        ; "plain words here\n" — bold "words"
+        def a:string "plain words here\n"
+        def e:MdEditController (MdSemanticTest.on(a))
+        e.setRange(6 11)
+        c.ok("bold applied" (e.toggleBold()))
+        c.eqStr("the markers went round the selection" (e.text()) "plain **words** here\n")
+        c.eqStr("and the selection is still the word" (e.selectedText()) "words")
+        c.ok("bold removed" (e.toggleBold()))
+        c.eqStr("and the file is what it was" (e.text()) a)
+
+        this.twice(c "bold" "plain words here\n" "bold" 6 11)
+        this.twice(c "italic" "plain words here\n" "italic" 6 11)
+        this.twice(c "code" "plain words here\n" "code" 6 11)
+        this.twice(c "strike" "plain words here\n" "strike" 6 11)
+        ; A whole line, and a word at the very start and the very end.
+        this.twice(c "whole line" "plain words here\n" "bold" 0 16)
+        this.twice(c "first word" "plain words here\n" "bold" 0 5)
+        this.twice(c "last word" "plain words here\n" "bold" 12 16)
+        ; …in a list item and in a quote, where the block markers are not the
+        ; text and an offset computed from the literal would be two out.
+        this.twice(c "in a bullet" "- one two three\n" "bold" 6 9)
+        this.twice(c "in a quote" "> one two three\n" "italic" 6 9)
+        ; …and in the second paragraph, so the block offset is not zero.
+        this.twice(c "second block" "# Head\n\nplain words here\n" "bold" 14 19)
+
+        print "-- turning it off from inside, not from the exact selection --"
+        def b:string "a **bold** b\n"
+        def e2:MdEditController (MdSemanticTest.on(b))
+        e2.setCaret(5)
+        c.ok("a caret inside the bold turns it off" (e2.toggleBold()))
+        c.eqStr("the markers are gone" (e2.text()) "a bold b\n")
+
+        print "-- the innermost of two --"
+        ; `***x***` is a strong inside an emph; bold takes the strong.
+        def d:string "***x***\n"
+        def e3:MdEditController (MdSemanticTest.on(d))
+        e3.setCaret(3)
+        c.ok("bold off inside a doubled run" (e3.toggleBold()))
+        c.eqStr("takes the strong and leaves the emph" (e3.text()) "*x*\n")
+    }
+
+    ; ----------------------------------------------------------------------
+    fn refusals:void (c:SemCheck) {
+        print "-- where the answer is not defined, it says so --"
+        ; "a **bold** b" — a selection from inside the bold to outside it.
+        def src:string "a **bold** b\n"
+        def e:MdEditController (MdSemanticTest.on(src))
+        e.setRange(6 12)
+        c.ok("half in and half out is refused" ((e.toggleBold()) == false))
+        c.ok("and it says why" ((strlen (e.refusal())) > 0))
+        c.eqStr("and nothing was written" (e.text()) src)
+
+        ; A selection that crosses the edge of a code span has no bold either:
+        ; the markers would land inside the code and be drawn as characters.
+        def src2:string "say `x + 1` please\n"
+        def e2:MdEditController (MdSemanticTest.on(src2))
+        e2.setRange(7 14)
+        c.ok("crossing the edge of a code span is refused"
+            ((e2.toggleBold()) == false))
+        c.eqStr("and nothing was written there either" (e2.text()) src2)
+
+        ; …but a selection that CONTAINS the whole code span is fine.
+        def e3:MdEditController (MdSemanticTest.on(src2))
+        e3.setRange(4 11)
+        c.ok("containing it whole is allowed" (e3.toggleBold()))
+        c.eqStr("and wraps the lot" (e3.text()) "say **`x + 1`** please\n")
+    }
+
+    ; ----------------------------------------------------------------------
+    fn headings:void (c:SemCheck) {
+        print "-- headings --"
+        def src:string "a paragraph\n"
+        def e:MdEditController (MdSemanticTest.on(src))
+        e.setCaret(3)
+        c.ok("a paragraph becomes a heading" (e.setHeading(2)))
+        c.eqStr("with the hashes in front" (e.text()) "## a paragraph\n")
+        c.ok("and the level changes" (e.setHeading(4)))
+        c.eqStr("without stacking them up" (e.text()) "#### a paragraph\n")
+        c.ok("and back to a paragraph" (e.setHeading(0)))
+        c.eqStr("gives back every byte" (e.text()) src)
+
+        ; In a list item, the hashes go after the marker rather than before it.
+        def src2:string "- an item\n"
+        def e2:MdEditController (MdSemanticTest.on(src2))
+        e2.setCaret(4)
+        c.ok("a heading inside an item" (e2.setHeading(3)))
+        c.eqStr("goes after the bullet" (e2.text()) "- ### an item\n")
+        c.ok("and comes off again" (e2.setHeading(0)))
+        c.eqStr("byte for byte" (e2.text()) src2)
+
+        ; A setext heading has its marker on the line below, so a prefix
+        ; rewrite would leave `====` under a paragraph. Refused.
+        def src3:string "Title\n=====\n"
+        def e3:MdEditController (MdSemanticTest.on(src3))
+        e3.setCaret(2)
+        c.ok("a setext heading is refused rather than half-converted"
+            ((e3.setHeading(3)) == false))
+        c.eqStr("and left alone" (e3.text()) src3)
+    }
+
+    ; ----------------------------------------------------------------------
+    fn lists:void (c:SemCheck) {
+        print "-- lists and quotes --"
+        def src:string "one\ntwo\nthree\n"
+        def e:MdEditController (MdSemanticTest.on(src))
+        e.setRange(0 13)
+        c.ok("three lines become bullets" (e.toggleLinePrefix("bullet")))
+        c.eqStr("each with a marker" (e.text()) "- one\n- two\n- three\n")
+        c.ok("and back" (e.toggleLinePrefix("bullet")))
+        c.eqStr("byte for byte" (e.text()) src)
+
+        this.twiceLines(c "bullets" "one\ntwo\nthree\n" "bullet" 0 13)
+        this.twiceLines(c "quote" "one\ntwo\nthree\n" "quote" 0 13)
+        this.twiceLines(c "one line" "one\ntwo\nthree\n" "bullet" 0 3)
+        ; An indented block keeps its indent on both passes.
+        this.twiceLines(c "indented" "    one\n    two\n" "quote" 0 15)
+
+        print "-- ordered lists are numbered --"
+        def e2:MdEditController (MdSemanticTest.on("one\ntwo\nthree\n"))
+        e2.setRange(0 13)
+        c.ok("numbered on" (e2.toggleLinePrefix("ordered")))
+        c.eqStr("one, two, three" (e2.text()) "1. one\n2. two\n3. three\n")
+        c.ok("numbered off" (e2.toggleLinePrefix("ordered")))
+        c.eqStr("and back to plain" (e2.text()) "one\ntwo\nthree\n")
+
+        print "-- a mixed selection turns them all ON --"
+        ; Two of three already bulleted: the press a reader can see they meant
+        ; is "make them all bullets", not "take two away".
+        def src3:string "- one\ntwo\n- three\n"
+        def e3:MdEditController (MdSemanticTest.on(src3))
+        e3.setRange(0 17)
+        c.ok("mixed goes on" (e3.toggleLinePrefix("bullet")))
+        c.eqStr("every line has one now" (e3.text()) "- one\n- two\n- three\n")
+
+        print "-- a blank line is left alone --"
+        def src4:string "one\n\ntwo\n"
+        def e4:MdEditController (MdSemanticTest.on(src4))
+        e4.setRange(0 8)
+        c.ok("bullets on" (e4.toggleLinePrefix("bullet")))
+        c.eqStr("and the blank line stayed blank" (e4.text()) "- one\n\n- two\n")
+    }
+
+    ; ----------------------------------------------------------------------
+    fn links:void (c:SemCheck) {
+        print "-- links --"
+        def src:string "see the docs now\n"
+        def e:MdEditController (MdSemanticTest.on(src))
+        e.setRange(4 12)
+        c.ok("a link is made" (e.toggleLink("http://x/")))
+        c.eqStr("round the selection" (e.text()) "see [the docs](http://x/) now\n")
+        c.eqStr("and the label is selected" (e.selectedText()) "the docs")
+        c.ok("and unmade" (e.toggleLink("")))
+        c.eqStr("back to the words" (e.text()) src)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Every intent is one undo, and undo gives back the bytes — the Stage E
+    ; promise, asked of the Stage F operations.
+    fn undoable:void (c:SemCheck) {
+        print "-- and every intent is one undo --"
+        def src:string "plain words here\n"
+        def e:MdEditController (MdSemanticTest.on(src))
+        e.setRange(6 11)
+        e.toggleBold()
+        e.setHeading(2)
+        e.setRange(0 20)
+        e.toggleLinePrefix("quote")
+        c.ok("the file changed" ((e.text()) != src))
+        def n:int 0
+        while ((e.canUndo()) && (n < 20)) {
+            e.undo()
+            n = (n + 1)
+        }
+        c.eqStr("and undoing gives back every byte" (e.text()) src)
+        c.ok("in three presses, one per intent" (n == 3))
+    }
+
+    fn run:void () {
+        def c:SemCheck (new SemCheck())
+        print "== MdSemanticTest =="
+        this.wrapping(c)
+        this.refusals(c)
+        this.headings(c)
+        this.lists(c)
+        this.links(c)
+        this.undoable(c)
+        print ""
+        print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

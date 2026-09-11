@@ -42,6 +42,23 @@
   #status { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
   #build { color: var(--muted); opacity: 0.7; }
 
+  /* The commands. One row, one `data-cmd` each, and no rules in the page
+     about what any of them mean — that is the module's table. */
+  #toolbar {
+    display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
+    padding: 5px 12px; background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  #toolbar button {
+    min-width: 30px; padding: 4px 8px; border-radius: 5px;
+    border: 1px solid transparent; background: transparent;
+  }
+  #toolbar button:hover:not(:disabled) { background: #eef1f5; border-color: var(--line); }
+  #toolbar .sep { width: 1px; height: 18px; background: var(--line); margin: 0 6px; }
+  #toolbar .b { font-weight: 700; }
+  #toolbar .i { font-style: italic; }
+  #toolbar .m { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+
   main { display: flex; flex: 1; min-height: 0; }
   #sourcePane {
     width: 38%; min-width: 240px; display: flex; flex-direction: column;
@@ -54,6 +71,16 @@
     tab-size: 4;
   }
   #viewPane { flex: 1; min-width: 0; position: relative; background: var(--bg); }
+
+  /* A canvas cannot receive typed text, an IME composition or a paste. This
+     field can, and is what the drawing pane actually focuses. It must stay in
+     the layout and stay focusable — `display:none` or `hidden` would take it
+     out of both — so it is one transparent pixel under the drawing. */
+  #keys {
+    position: absolute; top: 0; left: 0; width: 1px; height: 1px;
+    padding: 0; border: 0; outline: none; opacity: 0; resize: none;
+    overflow: hidden; white-space: pre; z-index: 1;
+  }
   #screen { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   #screen:focus { outline: none; }
 
@@ -66,6 +93,7 @@
   @media (max-width: 720px) {
     main { flex-direction: column; }
     #sourcePane { width: 100%; height: 40%; border-right: 0; border-bottom: 1px solid var(--line); }
+    #toolbar { padding: 4px 8px; }
     #viewPane { flex: 1; }
     header h1 { width: 100%; }
   }
@@ -90,12 +118,33 @@
     <span id="status">starting…</span>
     <span id="build">build __BUILD__</span>
   </header>
+  <div id="toolbar" role="toolbar" aria-label="Formatting">
+    <button type="button" class="b" data-cmd="format.bold" title="Bold (Ctrl+B)">B</button>
+    <button type="button" class="i" data-cmd="format.italic" title="Italic (Ctrl+I)">I</button>
+    <button type="button" class="m" data-cmd="format.code" title="Code (Ctrl+E)">&lt;/&gt;</button>
+    <button type="button" data-cmd="format.strike" title="Strikethrough"><s>S</s></button>
+    <button type="button" data-cmd="format.link" title="Link">🔗</button>
+    <span class="sep"></span>
+    <button type="button" data-cmd="block.heading" data-arg="1" title="Heading 1">H1</button>
+    <button type="button" data-cmd="block.heading" data-arg="2" title="Heading 2">H2</button>
+    <button type="button" data-cmd="block.heading" data-arg="3" title="Heading 3">H3</button>
+    <button type="button" data-cmd="block.heading" data-arg="0" title="Plain paragraph">¶</button>
+    <span class="sep"></span>
+    <button type="button" data-cmd="block.bullet" title="Bullet list">• list</button>
+    <button type="button" data-cmd="block.ordered" title="Numbered list">1. list</button>
+    <button type="button" data-cmd="block.quote" title="Block quote">❝</button>
+    <span class="sep"></span>
+    <button type="button" data-cmd="edit.undo" title="Undo (Ctrl+Z)">↶</button>
+    <button type="button" data-cmd="edit.redo" title="Redo (Ctrl+Y)">↷</button>
+  </div>
   <main>
     <div id="sourcePane">
       <textarea id="source" spellcheck="false" aria-label="Markdown source"></textarea>
     </div>
     <div id="viewPane">
-      <canvas id="screen" tabindex="0" aria-label="The document, drawn"></canvas>
+      <canvas id="screen" aria-label="The document, drawn"></canvas>
+      <textarea id="keys" spellcheck="false" autocapitalize="off" autocomplete="off"
+                aria-label="The document — type here to edit it"></textarea>
       <div id="hint">loading the engine…</div>
     </div>
   </main>

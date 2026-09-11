@@ -1,9 +1,16 @@
 /**
  * Markdown in a tab.
  *
- *   TYPE    textarea → MarkdownWeb.setSource → parse, lay out, display list
+ *   TYPE    canvas  → MarkdownWeb.key / typeText → one patch on the source
+ *           textarea→ MarkdownWeb.applyPatch      → …the same source
  *   PAINT   MarkdownWeb.frame() → evg-webgl.js                        (here)
  *   PRINT   MarkdownWeb.pdf()   → Blob → the browser saves it         (here)
+ *
+ * **Both panes edit, and there is one document.** `MdEditController` owns the
+ * source; the textarea and the canvas are two views of it, and each submits a
+ * patch and then re-reads. Neither writes to the other, so there is no loop —
+ * which is the way a two-pane editor usually breaks, and the reason the
+ * module owns the text rather than the page.
  *
  * No host process and no server: a keystroke is a function call. The only
  * things fetched are what a browser cannot make for itself — the four font
@@ -35,6 +42,8 @@ const pdfBtn = document.getElementById("pdf");
 const htmlBtn = document.getElementById("html");
 const openBtn = document.getElementById("openFile");
 const filePick = document.getElementById("filepick");
+const keyCatcher = document.getElementById("keys");
+const toolbarEl = document.getElementById("toolbar");
 
 const gl = canvas.getContext("webgl2", {
   antialias: true,
@@ -136,37 +145,120 @@ function showStatus(extra) {
   statusEl.textContent = extra ? base + " — " + extra : base;
 }
 
-// ---- the source pane ------------------------------------------------------
-// Every keystroke re-parses and re-lays out the whole document. That is the
-// honest v1: it is fast enough at the sizes this page opens with, and it is
-// measured rather than assumed — the status line says how long it took.
-let typingTimer = 0;
-function onTyped() {
-  clearTimeout(typingTimer);
-  typingTimer = setTimeout(() => {
-    const t0 = performance.now();
-    app.setSource(sourceEl.value);
-    const ms = Math.round(performance.now() - t0);
-    needsPaint = true;
-    showStatus(ms + " ms");
-  }, 90);
-}
-sourceEl.addEventListener("input", onTyped);
+// What a downloaded PDF or HTML file is called. It follows whatever was
+// opened, so a saved file is named after the document rather than after the
+// page. (It lived beside the old source-pane code and went out with it; the
+// page then threw on load and silently fell back to its built-in document,
+// which every check downstream read as "the layout is broken".)
+let docName = "markdown";
 
-// The caret in the source scrolls the drawing to the block it is in. The two
-// panes share nothing but the character offsets the parser recorded.
+// ---- the source pane ------------------------------------------------------
+//
+// The textarea is a VIEW. What it does arrives as a patch, computed by
+// comparing what it now holds against what the module holds — a common prefix
+// and a common suffix, which is all a textarea can report in one event. That
+// keeps its keystrokes on the same undo stack as the canvas's, and stops a
+// word typed on the left from throwing away the history built on the right.
+function commonPatch(was, now) {
+  let a = 0;
+  const min = Math.min(was.length, now.length);
+  while (a < min && was.charCodeAt(a) === now.charCodeAt(a)) a++;
+  let z = 0;
+  while (z < min - a && was.charCodeAt(was.length - 1 - z) === now.charCodeAt(now.length - 1 - z)) z++;
+  return { start: a, end: was.length - z, text: now.slice(a, now.length - z) };
+}
+
+// Writing the source back into the textarea without moving the caret the
+// reader is holding. Assigning `.value` resets the selection, so it is put
+// back — and skipped entirely when nothing changed, because doing it on every
+// frame is what makes a text field feel like it is fighting you.
+let suppressSourceEvent = false;
+function showSource(caretTo) {
+  const text = app.sourceText();
+  if (sourceEl.value !== text) {
+    const at = sourceEl.selectionStart;
+    const end = sourceEl.selectionEnd;
+    suppressSourceEvent = true;
+    sourceEl.value = text;
+    suppressSourceEvent = false;
+    if (caretTo === undefined) sourceEl.setSelectionRange(at, end);
+  }
+  if (caretTo !== undefined) sourceEl.setSelectionRange(caretTo, caretTo);
+}
+
+function afterEdit(ms) {
+  needsPaint = true;
+  showSource();
+  refreshToolbar();
+  const why = app.refusal();
+  showStatus(why ? why : ms !== undefined ? ms + " ms" : "");
+}
+
+sourceEl.addEventListener("input", () => {
+  if (suppressSourceEvent) return;
+  const t0 = performance.now();
+  const p = commonPatch(app.sourceText(), sourceEl.value);
+  app.applyPatch(p.start, p.end, p.text);
+  const ms = Math.round(performance.now() - t0);
+  needsPaint = true;
+  refreshToolbar();
+  showStatus(ms + " ms");
+});
+
+// The caret in the source scrolls the drawing to the LINE it is in, and puts
+// the module's caret there too — so switching panes mid-word does not lose
+// the place.
 function syncFromCaret() {
   if (!app.ready()) return;
-  const y = app.offsetToY(sourceEl.selectionStart | 0);
+  const a = sourceEl.selectionStart | 0;
+  const b = sourceEl.selectionEnd | 0;
+  app.setSelection(a, b);
+  const y = app.offsetToY(a);
   app.scrollTo(y - 24);
   needsPaint = true;
+  refreshToolbar();
 }
 sourceEl.addEventListener("click", syncFromCaret);
 sourceEl.addEventListener("keyup", (ev) => {
   if (ev.key.startsWith("Arrow") || ev.key === "PageUp" || ev.key === "PageDown") syncFromCaret();
 });
 
-// ---- the drawing pane -----------------------------------------------------
+// ---- the drawing pane, which is the editor --------------------------------
+//
+// A canvas cannot receive typed text. Every browser editor that draws its own
+// glyphs solves this the same way: a real focusable field, off-screen but not
+// `display:none`, takes the keystrokes and the IME composition and the
+// clipboard, and its content is thrown away after each one. `keys` in the
+// HTML is that field.
+app.setEditMode(true);
+
+function viewPoint(ev) {
+  const r = canvas.getBoundingClientRect();
+  return [ev.clientX - r.left, ev.clientY - r.top];
+}
+
+// The blink. Owned by the page, not the module: a caret that blinked inside
+// the engine would redraw a document nobody is looking at.
+let caretOn = true;
+let blinkTimer = 0;
+function restartBlink() {
+  caretOn = true;
+  app.setCaretOn(true);
+  needsPaint = true;
+  clearInterval(blinkTimer);
+  blinkTimer = setInterval(() => {
+    if (document.activeElement !== keyCatcher) return;
+    caretOn = !caretOn;
+    app.setCaretOn(caretOn);
+    needsPaint = true;
+  }, 530);
+}
+
+function focusCanvas() {
+  keyCatcher.focus({ preventScroll: true });
+  restartBlink();
+}
+
 canvas.addEventListener(
   "wheel",
   (ev) => {
@@ -178,66 +270,132 @@ canvas.addEventListener(
   { passive: false }
 );
 
-// Dragging the page, and a phone's flick.
-let dragging = null;
+// A press places the caret; a drag extends the selection. Scrolling by
+// dragging the page is gone — a document you can type into is one where a
+// drag has to mean "select", the way it does everywhere else.
+let selecting = false;
 canvas.addEventListener("pointerdown", (ev) => {
+  ev.preventDefault();
   canvas.setPointerCapture(ev.pointerId);
-  dragging = { y: ev.clientY, at: app.scrollPosition() };
+  focusCanvas();
+  const [x, y] = viewPoint(ev);
+  if (ev.detail >= 2) {
+    app.selectWordAt(x, y);
+  } else {
+    app.click(x, y, ev.shiftKey);
+    selecting = true;
+  }
+  afterEdit();
 });
 canvas.addEventListener("pointermove", (ev) => {
-  if (!dragging) return;
-  app.scrollTo(dragging.at - (ev.clientY - dragging.y));
+  if (!selecting) return;
+  const [x, y] = viewPoint(ev);
+  app.dragTo(x, y);
   needsPaint = true;
 });
-function endDrag(ev) {
-  if (!dragging) return;
-  dragging = null;
-  // A click that did not drag is a click: put the caret in the source.
-  const r = canvas.getBoundingClientRect();
-  const offset = app.sourceOffsetAt(ev.clientX - r.left, ev.clientY - r.top);
-  if (offset >= 0) {
-    sourceEl.focus({ preventScroll: true });
-    sourceEl.setSelectionRange(offset, offset);
-  }
+function endSelect() {
+  selecting = false;
+  refreshToolbar();
 }
-canvas.addEventListener("pointerup", endDrag);
-canvas.addEventListener("pointercancel", () => { dragging = null; });
+canvas.addEventListener("pointerup", endSelect);
+canvas.addEventListener("pointercancel", endSelect);
 
-canvas.addEventListener("keydown", (ev) => {
-  const [, h] = viewSize();
-  const step = { ArrowDown: 60, ArrowUp: -60, PageDown: h - 40, PageUp: -(h - 40) }[ev.key];
-  if (step !== undefined) {
+// The key names the module takes are `docx_web`'s, so one table serves both.
+const KEYS = {
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  ArrowUp: "up",
+  ArrowDown: "down",
+  Home: "home",
+  End: "end",
+  PageUp: "pageUp",
+  PageDown: "pageDown",
+  Backspace: "backspace",
+  Delete: "delete",
+  Enter: "enter",
+};
+
+keyCatcher.addEventListener("keydown", (ev) => {
+  const mod = ev.ctrlKey || ev.metaKey;
+  let name = KEYS[ev.key];
+  if (!name && mod && ev.key.length === 1) name = ev.key.toLowerCase();
+  if (!name) return;
+  const t0 = performance.now();
+  if (app.key(name, ev.shiftKey, mod)) {
     ev.preventDefault();
-    app.scrollBy(step);
-    needsPaint = true;
-  } else if (ev.key === "Home") {
-    ev.preventDefault();
-    app.scrollTo(0);
-    needsPaint = true;
-  } else if (ev.key === "End") {
-    ev.preventDefault();
-    app.scrollTo(1e9);
-    needsPaint = true;
+    restartBlink();
+    // Scroll the caret into view, which is the one thing the module cannot
+    // do for itself: it does not know how tall the window is until asked.
+    const c = JSON.parse(app.caretJson());
+    if (c.h > 0) {
+      if (c.y < 0) app.scrollBy(c.y - 8);
+      else if (c.y + c.h > canvas.clientHeight) app.scrollBy(c.y + c.h - canvas.clientHeight + 8);
+    }
+    afterEdit(Math.round(performance.now() - t0));
   }
 });
 
-// ---- out of the tab -------------------------------------------------------
-function deliver(bytes, name, mime) {
-  const view = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
-  if (!view || !view.length) return "empty";
-  const blob = new Blob([view], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
-  return "downloaded";
+// Typed text, including an IME composition, arrives as `input` on the hidden
+// field. The field is emptied after each one: it is a funnel, not a buffer.
+keyCatcher.addEventListener("input", () => {
+  const v = keyCatcher.value;
+  keyCatcher.value = "";
+  if (!v) return;
+  const t0 = performance.now();
+  app.typeText(v);
+  restartBlink();
+  afterEdit(Math.round(performance.now() - t0));
+});
+
+keyCatcher.addEventListener("copy", (ev) => {
+  ev.clipboardData.setData("text/plain", app.copySelection());
+  ev.preventDefault();
+});
+keyCatcher.addEventListener("cut", (ev) => {
+  ev.clipboardData.setData("text/plain", app.cutSelection());
+  ev.preventDefault();
+  afterEdit();
+});
+keyCatcher.addEventListener("paste", (ev) => {
+  const v = ev.clipboardData.getData("text/plain");
+  ev.preventDefault();
+  if (!v) return;
+  app.paste(v);
+  afterEdit();
+});
+keyCatcher.addEventListener("focus", restartBlink);
+keyCatcher.addEventListener("blur", () => {
+  clearInterval(blinkTimer);
+  app.setCaretOn(false);
+  needsPaint = true;
+});
+
+// ---- the toolbar ----------------------------------------------------------
+//
+// Every button is one `run(id, arg)` into the module. The page holds no rules
+// about what bold means to markdown — adding a command is a row in the
+// module's table, not a branch here.
+function refreshToolbar() {
+  const u = toolbarEl.querySelector('[data-cmd="edit.undo"]');
+  const r = toolbarEl.querySelector('[data-cmd="edit.redo"]');
+  if (u) u.disabled = !app.canUndo();
+  if (r) r.disabled = !app.canRedo();
 }
 
-let docName = "document";
+toolbarEl.addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-cmd]");
+  if (!btn) return;
+  const id = btn.dataset.cmd;
+  let arg = btn.dataset.arg || "";
+  if (id === "format.link") {
+    arg = prompt("Link to:", "https://") || "";
+    if (!arg) return;
+  }
+  const t0 = performance.now();
+  app.run(id, arg);
+  focusCanvas();
+  afterEdit(Math.round(performance.now() - t0));
+});
 
 pdfBtn.addEventListener("click", () => {
   // Built HERE, from the same layout the canvas is showing. A canvas has one
@@ -283,12 +441,13 @@ modeEl.addEventListener("change", () => {
 });
 
 async function load(text) {
-  sourceEl.value = text;
   const t0 = performance.now();
   app.setSource(text);
   const ms = Math.round(performance.now() - t0);
+  showSource(0);
   app.scrollTo(0);
   needsPaint = true;
+  refreshToolbar();
   showStatus(ms + " ms");
 }
 
@@ -340,6 +499,7 @@ async function start() {
     docName = "mermaid";
     await load(await res.text());
   } catch (e) {
+    console.warn("sample not loaded:", e);
     await load("# Markdown, drawn by EVG\n\nType on the left.\n");
   }
 
@@ -500,6 +660,85 @@ function selftest() {
     say("the offset maps back to its own line", Math.abs(y - run.y) <= 2,
         y.toFixed(1) + " vs " + run.y.toFixed(1));
   }
+
+  // ---- the canvas is an editor ---------------------------------------------
+  //
+  // Everything above this line is about a document being DRAWN. These are
+  // about it being edited, and they are the checks a screenshot cannot make:
+  // a caret drawn in the wrong place, a keystroke that changes the picture
+  // but not the file, an undo that goes back too far — all three look fine in
+  // a picture and are the whole feature.
+  //
+  // Driven through the module's own seam rather than through synthetic DOM
+  // events, for the same reason `docx_web` is: the seam is what a keystroke
+  // reaches, and a test that fakes a `KeyboardEvent` is testing the browser.
+  app.setSource("one two three\n");
+  app.setEditMode(true);
+  app.setCaretOn(true);
+
+  const chromeCount = () => JSON.parse(app.frame()).list.cmds.length;
+  app.setSelection(0, 0);
+  const bare = chromeCount();
+  app.setSelection(0, 7);
+  say("a selection is drawn", chromeCount() > bare, bare + " → " + chromeCount());
+  app.setCaretOn(false);
+  const noCaret = chromeCount();
+  app.setSelection(0, 0);
+  app.setCaretOn(true);
+  say("and so is the caret", chromeCount() > noCaret - 1);
+
+  // Typing changes the FILE, not just the picture.
+  app.setSelection(3, 3);
+  app.typeText("X");
+  say("typing lands in the source", app.sourceText() === "oneX two three\n", app.sourceText().trim());
+  app.undo();
+  say("and undo takes it out again", app.sourceText() === "one two three\n");
+
+  // A command from the toolbar, and the bytes it wrote.
+  app.setSelection(4, 7);
+  say("bold ran", app.run("format.bold", ""));
+  say("…and wrote the markers", app.sourceText() === "one **two** three\n", app.sourceText().trim());
+  say("bold again ran", app.run("format.bold", ""));
+  say("…and took them off, byte for byte", app.sourceText() === "one two three\n");
+
+  // A heading, a list, and one undo each.
+  app.setSelection(1, 1);
+  app.run("block.heading", "2");
+  say("a heading was made", app.sourceText() === "## one two three\n", app.sourceText().trim());
+  app.undo();
+  say("and undone", app.sourceText() === "one two three\n");
+  app.run("block.bullet", "");
+  say("a bullet was made", app.sourceText() === "- one two three\n", app.sourceText().trim());
+  app.undo();
+  say("and undone too", app.sourceText() === "one two three\n");
+
+  // A refusal says why rather than writing markdown nobody typed.
+  app.setSource("a **bold** b\n");
+  app.setSelection(6, 12);
+  say("half in and half out is refused", app.run("format.bold", "") === false);
+  say("…and says why", app.refusal().length > 0, app.refusal());
+  say("…and wrote nothing", app.sourceText() === "a **bold** b\n");
+
+  // A click on the drawing moves the caret, and the caret has a place on it.
+  app.setSource("alpha beta gamma\n");
+  const run2 = JSON.parse(app.frame()).list.cmds.find((c) => c.k === 3 && c.text && c.text.indexOf("alpha") === 0);
+  if (run2) {
+    app.click(run2.x + run2.w - 1, run2.y, false);
+    const c2 = JSON.parse(app.caretJson());
+    say("a click puts the caret near the end", c2.offset > 10, "offset " + c2.offset);
+    say("and the caret has an x on the page", c2.x > 0, c2.x.toFixed(1));
+    app.typeText("!");
+    say("and typing lands there", app.sourceText().indexOf("!") > 10, app.sourceText().trim());
+  } else {
+    say("the line is on the page", false);
+  }
+
+  // The other pane's edit arrives as a patch on the same stack.
+  app.setSource("hello\n");
+  app.applyPatch(5, 5, " world");
+  say("a patch from the source pane lands", app.sourceText() === "hello world\n", app.sourceText().trim());
+  app.undo();
+  say("and is one undo like any other", app.sourceText() === "hello\n");
 
   const el = document.createElement("div");
   el.id = "selftest-result";

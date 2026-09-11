@@ -17,6 +17,13 @@
 ; so the same parse, the same layout and the same PDF run in the page as run
 ; on the command line. A keystroke is a function call; there is no server.
 ;
+; **The document is edited HERE, not in the textarea.** `MdEditController` owns
+; the source and every pane is a reader of it: the textarea submits an offset
+; and a string, the canvas submits a point and a keystroke, and both re-read
+; afterwards. There is no second copy to keep in step, and therefore no loop
+; to break — which is the failure mode a two-pane editor has and the reason
+; `PLAN_WYSIWYG.md` §5 names it as a risk rather than a detail.
+;
 ; **The fonts are the page's job.** Nothing here reads a file — the page
 ; fetches the four faces and hands the bytes to `attachFont`, and after that
 ; the layout, the canvas and the PDF all measure through the same
@@ -27,6 +34,7 @@
 ; ============================================================================
 
 Import "../src/MdBlock.rgr"
+Import "../src/MdEditController.rgr"
 Import "../src/MdLayout.rgr"
 Import "../src/MdToEvg.rgr"
 Import "../src/MdToHtml.rgr"
@@ -36,10 +44,41 @@ Import "../../evg/EVGDisplayList.rgr"
 Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
 Import "../../pdf_writer/src/fonts/FontManager.rgr"
 
+; The controller, with the module's own idea of what "lay this out" means:
+; the document's page size and margins first, then the diagrams at the width
+; of the column they will land in, then the boxes. `MdEditController` cannot
+; do any of that itself without importing the Mermaid reader, which every
+; caller that has no diagrams would then link.
+class MarkdownEdit {
+    Extends(MdEditController)
+
+    def styleName:string "default"
+    def embedWidth:double 820.0
+    def diagrams:int 0
+
+    Constructor () {
+    }
+
+    fn ensureLayout:void () {
+        if (! stale) {
+            return
+        }
+        doc = (MdBlock.parseText(source))
+        layout.applyMeta(doc)
+        MdMermaid.prepare(doc layout.embeds embedWidth styleName)
+        diagrams = (layout.embeds.count())
+        if (sheetGap >= 0.0) {
+            layout.layoutPaged(doc)
+        } {
+            layout.layoutContinuous(doc viewWidth)
+        }
+        this.buildLines()
+        stale = false
+    }
+}
+
 class MarkdownWeb {
-    def source:string ""
-    def doc:MdNode (MdNode.create("document"))
-    def layout:MdLayout (new MdLayout())
+    def edit:MarkdownEdit (new MarkdownEdit())
     def docList:EVGDisplayList (new EVGDisplayList())
     ; Where `docList` currently sits. The list is moved to the scroll position
     ; rather than copied there: `appendFrom` shares its commands, so a copy
@@ -57,6 +96,12 @@ class MarkdownWeb {
     ; false: one column as tall as the document. true: sheets, with the page
     ; breaks the PDF will have.
     def paged:boolean false
+
+    ; Is the canvas an editor, and is the caret in its ON blink? The page
+    ; drives both: a caret that blinks on a timer inside the module would
+    ; redraw a document nobody is looking at.
+    def editing:boolean false
+    def caretOn:boolean true
 
     def statusText:string "ready"
     def blocks:int 0
@@ -87,7 +132,7 @@ class MarkdownWeb {
             faceCount = (faceCount + 1)
             def m:TTFTextMeasurer (new TTFTextMeasurer(fontManager))
             measurer = m
-            layout.setMeasurer(m)
+            edit.setMeasurer(m)
         }
         return ok
     }
@@ -99,13 +144,20 @@ class MarkdownWeb {
     ; ----------------------------------------------------------------------
     ; The document
     ; ----------------------------------------------------------------------
+    ; Opening a file. Not an edit: an undo across an open would put back text
+    ; from a document the reader had closed.
     fn setSource:void (text:string) {
-        source = text
+        edit.open(text)
         this.rebuild()
+    }
+
+    fn source:string () {
+        return edit.source
     }
 
     fn setStyle:void (name:string) {
         styleName = name
+        edit.styleName = name
         this.rebuild()
     }
 
@@ -124,40 +176,38 @@ class MarkdownWeb {
     }
 
     fn contentWidth:double () {
-        def m:double layout.style.margin
+        def m:double edit.layout.style.margin
         if paged {
-            return (layout.style.pageWidth - (m * 2.0))
+            return (edit.layout.style.pageWidth - (m * 2.0))
         }
         return (viewW - (m * 2.0))
     }
 
     fn rebuild:void () {
-        doc = (MdBlock.parseText(source))
-        blocks = (doc.childCount())
-        def fresh:MdLayout (new MdLayout())
-        if (!null? measurer) {
-            fresh.setMeasurer((unwrap measurer))
-        }
-        layout = fresh
-        ; The document's own page size and margins, before anything is
-        ; measured against them.
-        layout.applyMeta(doc)
-        ; The diagrams first, at the width of the column they will land in: a
-        ; page cannot be broken around a drawing whose height nobody has asked
-        ; for, and a drawing prepared at another width is one the layout will
-        ; not find.
-        def cw:double (this.contentWidth())
-        MdMermaid.prepare(doc layout.embeds cw styleName)
-        diagrams = (layout.embeds.count())
+        edit.styleName = styleName
+        edit.viewWidth = viewW
+        edit.embedWidth = (this.contentWidth())
         if paged {
-            layout.layoutPaged(doc)
+            edit.sheetGap = (MdToEvg.sheetGap())
         } {
-            layout.layoutContinuous(doc viewW)
+            edit.sheetGap = (0.0 - 1.0)
         }
-        pages = layout.pageCount
+        edit.stale = true
+        edit.ensureLayout()
+        blocks = (edit.doc.childCount())
+        diagrams = edit.diagrams
+        pages = edit.layout.pageCount
         this.buildList()
         built = true
         this.setStatus()
+    }
+
+    ; Everything that reads geometry goes through here first, so a keystroke
+    ; that has not been laid out yet cannot be drawn from a stale box list.
+    fn sync:void () {
+        if edit.stale {
+            this.rebuild()
+        }
     }
 
     ; The whole document as one display list, in document coordinates.
@@ -173,9 +223,9 @@ class MarkdownWeb {
         ; marks, command by command.
         def out:EVGDisplayList (new EVGDisplayList())
         if paged {
-            out = (MdToEvg.sheetsToDisplayList(layout (MdToEvg.sheetGap())))
+            out = (MdToEvg.sheetsToDisplayList(edit.layout (MdToEvg.sheetGap())))
         } {
-            out = (MdToEvg.toDisplayList(layout viewW))
+            out = (MdToEvg.toDisplayList(edit.layout viewW))
         }
         docList = out
     }
@@ -198,10 +248,10 @@ class MarkdownWeb {
     fn documentHeight:double () {
         if paged {
             def gap:double (MdToEvg.sheetGap())
-            def n:double (to_double layout.pageCount)
-            return ((n * (layout.style.pageHeight + gap)) - gap)
+            def n:double (to_double edit.layout.pageCount)
+            return ((n * (edit.layout.style.pageHeight + gap)) - gap)
         }
-        return layout.documentHeight
+        return edit.layout.documentHeight
     }
 
     fn maxScroll:double () {
@@ -230,16 +280,81 @@ class MarkdownWeb {
     ; — handing it the bare list is a page that draws nothing and says
     ; "cannot read properties of undefined".
     fn frame:string () {
+        this.sync()
         def want:double (0.0 - scrollY)
         def delta:double (want - listOffset)
         if (delta != 0.0) {
             docList.offsetBy(0.0 delta)
             listOffset = want
         }
-        def body:string (docList.toJson())
+        ; The document, then the caret and the selection on top of it. The
+        ; chrome is built fresh every frame and the document is not: a caret
+        ; blinks and moves without a character changing, and relaying out a
+        ; document to draw a two-point rectangle is the difference between an
+        ; editor that types and one that stutters.
+        def out:EVGDisplayList (new EVGDisplayList())
+        out.appendFrom(docList)
+        this.paintChrome(out)
+        def body:string (out.toJson())
         def w:string (EVGDisplayList.num(viewW))
         def h:string (EVGDisplayList.num(viewH))
         return ((((("{\"width\":" + w) + ",\"height\":") + h) + ",\"list\":") + body) + "}"
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The caret, and the band behind a selection
+    ; ----------------------------------------------------------------------
+    ;
+    ; Drawn as ordinary rectangles into the same display list as the document,
+    ; so every painter that can draw the document can draw the caret and none
+    ; of them learns what a caret is. That is the data seam
+    ; `gallery/PLAN_EDITOR_KERNEL.md` §2 prefers, and here it means the SDL
+    ; host and the WebGL one get an editor without being told.
+    fn paintChrome:void (out:EVGDisplayList) {
+        if (! editing) { return }
+        def sel:EVGColor (EVGColor.rgba(9 105 218 0.22))
+        def ink:EVGColor (EVGColor.rgba(31 35 40 1.0))
+        def a:int (edit.selStart())
+        def b:int (edit.selEnd())
+        def n:int (edit.lines.count())
+        def i:int 0
+        while (i < n) {
+            def top:double ((edit.lines.topAt(i)) - scrollY)
+            def h:double (edit.lines.heightAt(i))
+            ; Only what is on screen. A hundred-page document has a hundred
+            ; pages of lines and one of them is being looked at.
+            if (((top + h) > 0.0) && (top < viewH)) {
+                if (b > a) {
+                    def ls:int (edit.lines.startAt(i))
+                    def le:int (edit.lines.endAt(i))
+                    def from:int a
+                    def to:int b
+                    if (from < ls) { from = ls }
+                    if (to > le) { to = le }
+                    if (to > from) {
+                        def x0:double (edit.xOnLine(i from))
+                        def x1:double (edit.xOnLine(i to))
+                        if ((x0 >= 0.0) && (x1 > x0)) {
+                            out.addRect(x0 top (x1 - x0) h sel)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (caretOn) {
+            def cx:double (edit.caretX())
+            if (cx >= 0.0) {
+                def li:int (OfficeLineNav.indexOfOffset(edit.lines (edit.caret())))
+                if (li >= 0) {
+                    def ct:double ((edit.lines.topAt(li)) - scrollY)
+                    def ch:double (edit.lines.heightAt(li))
+                    if (((ct + ch) > 0.0) && (ct < viewH)) {
+                        out.addRect(cx (ct + 1.0) 1.6 (ch - 2.0) ink)
+                    }
+                }
+            }
+        }
     }
 
     fn commandCount:int () {
@@ -270,6 +385,205 @@ class MarkdownWeb {
     }
 
     ; ----------------------------------------------------------------------
+    ; The editor, as the page reaches it
+    ; ----------------------------------------------------------------------
+    ;
+    ; **These are `docx_web.rgr`'s names.** `click`, `typeText`, `key`,
+    ; `paste`, `copySelection`, `cutSelection`, `undo`, `redo`, `caretJson`,
+    ; `run`. Not because a base class is coming — `gallery/PLAN_EDITOR_KERNEL.md`
+    ; §7 explains why there should not be — but because the two hosts then
+    ; differ only where the documents do, and a page written against one is
+    ; readable by anyone who has read the other.
+    ;
+    ; Every one of them is a call into `MdEditController`. There is no state
+    ; here: the source, the caret, the selection and the undo stack are all
+    ; the controller's, and the textarea in the page is a second VIEW of them
+    ; rather than a second copy.
+
+    fn setEditMode:void (on:boolean) {
+        editing = on
+    }
+
+    fn editMode:boolean () {
+        return editing
+    }
+
+    ; The page owns the blink, so a document nobody is looking at is not
+    ; redrawn twice a second.
+    fn setCaretOn:void (on:boolean) {
+        caretOn = on
+    }
+
+    fn click:void (x:double y:double extend:boolean) {
+        this.sync()
+        edit.clickAt(x (y + scrollY) extend)
+    }
+
+    ; A drag, and a double-click. Separate from `click` because a page can
+    ; tell them apart and the module cannot.
+    fn dragTo:void (x:double y:double) {
+        this.sync()
+        edit.clickAt(x (y + scrollY) true)
+    }
+
+    fn selectWordAt:void (x:double y:double) {
+        this.sync()
+        edit.clickAt(x (y + scrollY) false)
+        edit.selectWord()
+    }
+
+    fn typeText:void (v:string) {
+        edit.insertText(v)
+    }
+
+    ; The keys that are not characters. `name` is the page's own spelling —
+    ; the same set `docx_web` takes.
+    fn key:boolean (name:string shift:boolean ctrl:boolean) {
+        this.sync()
+        if ctrl {
+            if (name == "b") { return (this.run("format.bold" "")) }
+            if (name == "i") { return (this.run("format.italic" "")) }
+            if (name == "e") { return (this.run("format.code" "")) }
+            if (name == "z") { edit.undo() return true }
+            if (name == "y") { edit.redo() return true }
+            if (name == "a") { edit.selectAll() return true }
+            if (name == "left")  { edit.moveWordLeft(shift)  return true }
+            if (name == "right") { edit.moveWordRight(shift) return true }
+            if (name == "home")  { edit.moveDocEdge(false shift) return true }
+            if (name == "end")   { edit.moveDocEdge(true shift)  return true }
+        }
+        if (name == "left")      { edit.moveLeft(shift)  return true }
+        if (name == "right")     { edit.moveRight(shift) return true }
+        if (name == "up")        { edit.moveUp(shift)    return true }
+        if (name == "down")      { edit.moveDown(shift)  return true }
+        if (name == "home")      { edit.moveLineEdge(false shift) return true }
+        if (name == "end")       { edit.moveLineEdge(true shift)  return true }
+        if (name == "pageUp")    { edit.movePage(false viewH shift) return true }
+        if (name == "pageDown")  { edit.movePage(true viewH shift)  return true }
+        if (name == "backspace") { edit.backspace()   return true }
+        if (name == "delete")    { edit.deleteForward() return true }
+        if (name == "enter")     { edit.splitAtCaret() return true }
+        return false
+    }
+
+    ; The toolbar. One door for every intent, so the page holds no rules and a
+    ; new command is a row here rather than a branch in JavaScript.
+    fn run:boolean (id:string arg:string) {
+        this.sync()
+        if (id == "format.bold")   { return (edit.toggleBold()) }
+        if (id == "format.italic") { return (edit.toggleItalic()) }
+        if (id == "format.code")   { return (edit.toggleCode()) }
+        if (id == "format.strike") { return (edit.toggleStrike()) }
+        if (id == "format.link")   { return (edit.toggleLink(arg)) }
+        if (id == "block.heading") { return (edit.setHeading((?? (str2int arg) 0))) }
+        if (id == "block.bullet")  { return (edit.toggleLinePrefix("bullet")) }
+        if (id == "block.ordered") { return (edit.toggleLinePrefix("ordered")) }
+        if (id == "block.quote")   { return (edit.toggleLinePrefix("quote")) }
+        if (id == "edit.undo")     { edit.undo() return true }
+        if (id == "edit.redo")     { edit.redo() return true }
+        if (id == "edit.selectAll") { edit.selectAll() return true }
+        return false
+    }
+
+    ; Why the last command did nothing, or "". A refusal and a no-op look the
+    ; same to a document and completely different to a reader.
+    fn refusal:string () {
+        return (edit.refusal())
+    }
+
+    fn copySelection:string () {
+        return (edit.selectedText())
+    }
+
+    fn cutSelection:string () {
+        def v:string (edit.selectedText())
+        if ((strlen v) > 0) {
+            edit.deleteSelection()
+        }
+        return v
+    }
+
+    fn paste:void (v:string) {
+        edit.paste(v)
+    }
+
+    fn undo:void () {
+        edit.undo()
+    }
+
+    fn redo:void () {
+        edit.redo()
+    }
+
+    fn canUndo:boolean () {
+        return (edit.canUndo())
+    }
+
+    fn canRedo:boolean () {
+        return (edit.canRedo())
+    }
+
+    ; Where the caret is, for the page to put its own in the same place. The
+    ; textarea is a second view of one source, and this is how it follows.
+    fn caretJson:string () {
+        this.sync()
+        def cx:double (edit.caretX())
+        def li:int (OfficeLineNav.indexOfOffset(edit.lines (edit.caret())))
+        def cy:double 0.0
+        def ch:double 0.0
+        if (li >= 0) {
+            cy = ((edit.lines.topAt(li)) - scrollY)
+            ch = (edit.lines.heightAt(li))
+        }
+        def out:string "{\"offset\":"
+        out = (out + (to_string (edit.caret())))
+        out = (out + ",\"anchor\":")
+        out = (out + (to_string (edit.selStart())))
+        out = (out + ",\"focus\":")
+        out = (out + (to_string (edit.selEnd())))
+        out = (out + ",\"x\":")
+        out = (out + (EVGDisplayList.num(cx)))
+        out = (out + ",\"y\":")
+        out = (out + (EVGDisplayList.num(cy)))
+        out = (out + ",\"h\":")
+        out = (out + (EVGDisplayList.num(ch)))
+        out = (out + "}")
+        return out
+    }
+
+    ; The OTHER pane's edit. The textarea is a second view of one source, so
+    ; what it does has to arrive as a patch like everything else — replacing
+    ; the whole text would make every keystroke in it one undo of the entire
+    ; document, and would throw away the history the canvas built.
+    ;
+    ; The page computes the range by comparing what it has with `sourceText()`,
+    ; which is a common prefix and a common suffix and is fifteen lines of
+    ; JavaScript. It is not a diff algorithm and does not need to be: a
+    ; textarea reports one contiguous change at a time.
+    fn applyPatch:void (start:int end:int text:string) {
+        this.sync()
+        edit.setRange(start end)
+        edit.insertText(text)
+    }
+
+    ; The page's caret, moved into the module: the textarea is the other view
+    ; and this is how IT leads.
+    fn setSelection:void (a:int b:int) {
+        this.sync()
+        edit.setRange(a b)
+    }
+
+    ; The source, after whatever the canvas did to it. The page writes this
+    ; back into the textarea — it does not keep its own copy.
+    fn sourceText:string () {
+        return edit.source
+    }
+
+    fn sourceVersion:int () {
+        return ((edit.history.depth()) + (edit.history.redoDepth()))
+    }
+
+    ; ----------------------------------------------------------------------
     ; Out of the tab
     ; ----------------------------------------------------------------------
     ;
@@ -284,10 +598,10 @@ class MarkdownWeb {
         if (!null? measurer) {
             print.setMeasurer((unwrap measurer))
         }
-        print.applyMeta(doc)
+        print.applyMeta(edit.doc)
         def cw:double (print.style.pageWidth - (print.style.margin * 2.0))
-        MdMermaid.prepare(doc print.embeds cw styleName)
-        print.layoutPaged(doc)
+        MdMermaid.prepare(edit.doc print.embeds cw styleName)
+        print.layoutPaged(edit.doc)
         def root:EVGElement (MdToEvg.buildPrint(print))
         def renderer (new EVGPDFRenderer())
         renderer.init(renderer)
@@ -306,7 +620,7 @@ class MarkdownWeb {
     }
 
     fn html:string () {
-        return (MdToHtml.render(doc))
+        return (MdToHtml.render(edit.doc))
     }
 
     ; ----------------------------------------------------------------------
@@ -323,7 +637,7 @@ class MarkdownWeb {
         ; to answer with the block's first byte and nothing finer, because
         ; that was all a box carried — a click in the middle of the fourth
         ; paragraph put the source caret at the start of it.
-        def exact:int (layout.srcAtPoint(x docY (this.sheetGap())))
+        def exact:int (edit.layout.srcAtPoint(x docY (this.sheetGap())))
         if (exact >= 0) { return exact }
         ; Nothing that carries a source was drawn at that point — the margin,
         ; the gap between sheets, a rule, a diagram. Fall back to the block
@@ -331,9 +645,9 @@ class MarkdownWeb {
         def best:int -1
         def bestY:double (0.0 - 1000000.0)
         def i:int 0
-        def n:int (doc.childCount())
+        def n:int (edit.doc.childCount())
         while (i < n) {
-            def b:MdNode (doc.childAt(i))
+            def b:MdNode (edit.doc.childAt(i))
             def top:double (this.topOf(b))
             if (top <= docY) {
                 if (top > bestY) {
@@ -366,14 +680,14 @@ class MarkdownWeb {
         def bestSrc:int -1
         def gap:double (this.sheetGap())
         def bi:int 0
-        def bn:int (array_length layout.boxes)
+        def bn:int (array_length edit.layout.boxes)
         while (bi < bn) {
-            def bx:MdBox (itemAt layout.boxes bi)
+            def bx:MdBox (itemAt edit.layout.boxes bi)
             if ((bx.kind == 0) && (bx.segSrc >= 0)) {
                 if (bx.segSrc <= offset) {
                     if (bx.segSrc >= bestSrc) {
                         bestSrc = bx.segSrc
-                        bestBox = (layout.boxTop(bx gap))
+                        bestBox = (edit.layout.boxTop(bx gap))
                     }
                 }
             }
@@ -382,9 +696,9 @@ class MarkdownWeb {
         if (bestBox >= 0.0) { return bestBox }
         def best:double 0.0
         def i:int 0
-        def n:int (doc.childCount())
+        def n:int (edit.doc.childCount())
         while (i < n) {
-            def b:MdNode (doc.childAt(i))
+            def b:MdNode (edit.doc.childAt(i))
             if (b.srcStart <= offset) {
                 best = (this.topOf(b))
             }
@@ -396,12 +710,12 @@ class MarkdownWeb {
     ; The top of a block on the drawing: the first box it produced, which
     ; every box now remembers. No map on the side to keep in step.
     fn topOf:double (block:MdNode) {
-        def i:int (layout.firstBoxOf(block.srcStart))
+        def i:int (edit.layout.firstBoxOf(block.srcStart))
         if (i < 0) { return 0.0 }
-        def b:MdBox (itemAt layout.boxes i)
+        def b:MdBox (itemAt edit.layout.boxes i)
         if paged {
             def gap:double (MdToEvg.sheetGap())
-            def sheet:double (layout.style.pageHeight + gap)
+            def sheet:double (edit.layout.style.pageHeight + gap)
             return (b.y + ((to_double b.page) * sheet))
         }
         return b.y
