@@ -28869,6 +28869,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     wr.out("};", true);
                   }
                   wr.addImport("<variant>");
+                  if ( wr.hasTag("c++ClassDefs") ) {
+                    const defs = wr.getTag("c++ClassDefs");
+                    const ptrOpen = this.cppPtrOpen();
+                    await operatorsOf.forEach_12(item.is_union_of, ((item, index) => { 
+                      if ( ctx.isDefinedClass(item) ) {
+                        const dcl = ctx.findClass(item);
+                        if ( dcl.isNormalClass() ) {
+                          const ts = this.getObjectTypeString(item, ctx);
+                          if ( ts.indexOf(ptrOpen) == 0 ) {
+                            defs.out(("class " + item) + ";", true);
+                          }
+                        }
+                      }
+                    }));
+                  }
                   wr.out("typedef std::variant<", false);
                   wr.indent(1);
                   let cnt = 0;

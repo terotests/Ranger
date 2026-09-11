@@ -2033,6 +2033,54 @@ class RangerCppClassWriter {
         ; same sizeof. This is a build-robustness change, not a speed one.
         wr.addImport("<variant>")
 
+        ; EVERY NAME IN THE VARIANT HAS TO BE DECLARED, and the forward
+        ; declarations are written by `writeClass` — which runs only for the
+        ; classes the program actually emits. A class nobody calls is
+        ; eliminated, keeps its place in this list, and leaves the C++
+        ; compiler reading a name it has never seen:
+        ;
+        ;   error: 'VlChartExamples' was not declared in this scope
+        ;
+        ; pointing at a typedef several thousand characters long. `Any` is
+        ; where it bites, because `Any` names every class in the program:
+        ; `gallery/realtrainer` could not be built for C++ at all, stopped by
+        ; a documentation-only class of unused static examples over in
+        ; `gallery/vela`. Nothing about either is wrong; the list of names and
+        ; the list of declarations simply came from two different places.
+        ;
+        ; So the union declares what it names. A repeated forward declaration
+        ; is legal, so this does not have to know which ones `writeClass` has
+        ; already written — and it cannot know, since that runs afterwards.
+        ; Nearly every name is therefore declared twice: measured on
+        ; `gallery/realtrainer`'s SDL host, 860 declaration lines for 421
+        ; classes, 8.9 KB on a 4.0 MB file. Tracking what was emitted to save
+        ; that would be a second list to keep correct, in the writer whose two
+        ; lists disagreeing is the bug being fixed.
+        ;
+        ; Only the POINTER forms are declared. `shared_ptr<T>` of an
+        ; incomplete T is legal; a value case (PLAN_SHAPES.md S5) lives INSIDE
+        ; the variant and needs its full definition, which a forward
+        ; declaration would not give it. That is not a gap: a value case is a
+        ; case of a closed family, so the family's own code keeps it alive and
+        ; it is never the one that was eliminated. Asking
+        ; `getObjectTypeString` which form it chose, rather than deciding
+        ; again here, is what keeps the two answers from drifting apart.
+        if (wr.hasTag("c++ClassDefs")) {
+          def defs:CodeWriter (wr.getTag("c++ClassDefs"))
+          def ptrOpen:string (this.cppPtrOpen())
+          item.is_union_of.forEach({
+            if (ctx.isDefinedClass(item)) {
+              def dcl (ctx.findClass(item))
+              if (dcl.isNormalClass()) {
+                def ts:string (this.getObjectTypeString( item ctx ))
+                if ((indexOf ts ptrOpen) == 0) {
+                  defs.out(("class " + item) + ";" , true)
+                }
+              }
+            }
+          })
+        }
+
         ; TODO: implement system class unions too...
         wr.out("typedef std::variant<" false)
         wr.indent(1)

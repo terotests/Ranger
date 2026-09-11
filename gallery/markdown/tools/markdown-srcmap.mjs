@@ -75,7 +75,7 @@ for (const line of out.split("\n")) {
   if (b) bad.push({ number: Number(b[1]), why: b[2] });
 }
 
-for (const key of ["nodes", "valid", "ordered", "unmapped", "exactChecked", "exactOk", "badExamples", "examples"]) {
+for (const key of ["nodes", "valid", "ordered", "unmapped", "exactChecked", "exactOk", "emptyBlocks", "badExamples", "examples"]) {
   if (nums[key] === undefined) {
     console.error("the probe printed no " + key + " — its output was:");
     console.error(out.slice(0, 2000));
@@ -98,6 +98,13 @@ console.log(
 console.log(
   `  ${"examples with a problem".padEnd(34)} ${`${nums.badExamples}/${nums.examples}`.padStart(15)}`
 );
+// A block whose span is empty does not identify itself, and the layout cache
+// keys on it. Six of the corpus's own examples had one — one-line HTML blocks
+// — and the inline scan above could not see it, because it only ever looked
+// at what the INLINE pass stamped.
+console.log(
+  `  ${"blocks with an empty span".padEnd(34)} ${String(nums.emptyBlocks).padStart(15)}`
+);
 console.log("");
 
 if (wantList && bad.length > 0) {
@@ -115,6 +122,7 @@ const current = {
   exactOk: nums.exactOk,
   exactChecked: nums.exactChecked,
   maxBadExamples: nums.badExamples,
+  maxEmptyBlocks: nums.emptyBlocks,
 };
 
 if (bless) {
@@ -139,6 +147,11 @@ for (const key of ["valid", "ordered", "exactOk", "exactChecked"]) {
 if (current.maxBadExamples > (floor.maxBadExamples ?? 0)) {
   regressions.push(
     `examples with a problem: ${current.maxBadExamples}, was ${floor.maxBadExamples}`
+  );
+}
+if (current.maxEmptyBlocks > (floor.maxEmptyBlocks ?? 0)) {
+  regressions.push(
+    `blocks with an empty span: ${current.maxEmptyBlocks}, was ${floor.maxEmptyBlocks}`
   );
 }
 

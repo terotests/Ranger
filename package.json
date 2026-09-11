@@ -985,7 +985,11 @@
     "rt:android:assets": "bash gallery/realtrainer/android/scripts/prepare-assets.sh",
     "rt:android:verify": "bash gallery/realtrainer/android/scripts/verify.sh",
     "rt:android:desktop": "bash gallery/realtrainer/android/scripts/verify-desktop.sh",
-    "rt:android:typecheck": "bash gallery/realtrainer/android/scripts/typecheck-host.sh"
+    "rt:android:typecheck": "bash gallery/realtrainer/android/scripts/typecheck-host.sh",
+    "rt:sdl": "bash gallery/realtrainer/platform/sdl/build.sh",
+    "rt:sdl:ranger": "bash gallery/realtrainer/platform/sdl/build.sh --ranger",
+    "rt:sdl:run": "bash gallery/realtrainer/platform/sdl/build.sh --run",
+    "rt:sdl:smoke": "bash gallery/realtrainer/platform/sdl/build.sh && SDL_VIDEODRIVER=dummy ./tmp/rt-sdl/rt_sdl --frames 30 --today 2026-02-09"
   },
   "repository": {
     "type": "git",

@@ -42,6 +42,7 @@ class MdSrcMapProbe {
         def totalExactChecked:int 0
         def totalExactOk:int 0
         def badExamples:int 0
+        def emptyBlocks:int 0
 
         def i:int 1
         while (i <= count) {
@@ -49,6 +50,23 @@ class MdSrcMapProbe {
             def inPath:string ((casesDir + "/") + (name + ".md"))
             def text:string (?? (read_file "." inPath) "")
             def doc:MdNode (MdBlock.parseText(text))
+            ; A BLOCK whose span is empty is a block nothing downstream can
+            ; tell from another one — the layout cache keyed on it and two
+            ; HTML comments in one document drew each other's boxes. The
+            ; inline scan below never looked at block spans, which is why it
+            ; passed while that was true.
+            def bi:int 0
+            while (bi < (doc.childCount())) {
+                def blk:MdNode (doc.childAt(bi))
+                if (blk.srcEnd <= blk.srcStart) {
+                    emptyBlocks = (emptyBlocks + 1)
+                    if (emptyBlocks < 6) {
+                        print ((((("BAD " + (to_string i)) + " ") + blk.kind) + " span ")
+                            + ((to_string blk.srcStart) + (".." + (to_string blk.srcEnd))))
+                    }
+                }
+                bi = (bi + 1)
+            }
             def scan:MdSrcMapScan (new MdSrcMapScan())
             scan.scan(text doc)
             totalNodes = (totalNodes + scan.nodes)
@@ -74,6 +92,7 @@ class MdSrcMapProbe {
         print (("unmapped " + (to_string totalUnmapped)))
         print (("exactChecked " + (to_string totalExactChecked)))
         print (("exactOk " + (to_string totalExactOk)))
+        print (("emptyBlocks " + (to_string emptyBlocks)))
         print (("badExamples " + (to_string badExamples)))
         print (("examples " + (to_string count)))
     }

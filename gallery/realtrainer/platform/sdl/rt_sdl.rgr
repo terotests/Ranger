@@ -1,0 +1,646 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; rt_sdl — RealTrainer in a desktop window, SDL2 + OpenGL
+; ==============================================================================
+;
+;   SDL event  → RtHost → RealTrainerDemo              (this process)
+;   RtHost     → EVGDisplayList → EvgGlPainter → OpenGL
+;
+; The fourth host of the same application. `RtHost` (`../../src/RtHost.rgr`)
+; already holds the window, the safe area, the point conversion, the press a
+; drag cancels, the fling's clock and the keyboard — it is what the iOS and
+; the Android ports are, one line each. This file is the same one line plus
+; the part a window has that a `UIView` and a browser page do not: an event
+; loop, five texts read off the disk, and a clock.
+;
+; The window, the input and the GL present path are the DataGrid's `dgfx_*`
+; layer — generic SDL2 plumbing that happens to live over there, which the
+; book editor and the schema editor borrow the same way. A second copy would
+; be a second thing to keep correct.
+;
+; WHAT IS DIFFERENT FROM `book_sdl`, and it is the whole of the difference:
+; the book editor drives `BookApp` through `UIInput`, which is the game
+; engine's immediate-mode input. RealTrainer is an `EvgApp`, so its input is
+; `EvgHost`'s — `pressAt`, `panAt`, `releasePress`, `hoverAt`, `typeText`,
+; `key` — and the host calls those directly. Nothing in between.
+;
+; Usage (after build.sh):
+;   ./tmp/rt-sdl/rt_sdl                                   # a window
+;   ./tmp/rt-sdl/rt_sdl --size 390x844                    # the phone shell
+;   ./tmp/rt-sdl/rt_sdl --route /calendar/cal-plan
+;   SDL_VIDEODRIVER=dummy ./tmp/rt-sdl/rt_sdl --frames 30 # headless  (CI)
+;
+; Escape closes what is open — a dialog, a menu — and closes the WINDOW when
+; there is nothing left to close, which is what a window's Escape means.
+; Every other key belongs to the app: this is an application with text fields
+; in it, not a demo with letter shortcuts, so `q` types a q.
+; ==============================================================================
+
+Import "../../src/RtHost.rgr"
+Import "../../../evg/EVGTextMeasurer.rgr"
+Import "../../../datagrid/platform/sdl/gfx_datagrid_sdl.rgr"
+Import "../../../datagrid/platform/sdl/EvgGlPainter.rgr"
+
+class RtSdl {
+    ; The app, behind the facade every native port of it uses.
+    def host:RtHost (new RtHost)
+    def painter:EvgGlPainter (new EvgGlPainter)
+    ; Handed in by `main` — see `openFaces`, which says why it cannot be made
+    ; here.
+    def tr:UITextRenderer (new UITextRenderer)
+    ; The painter reads pictures out of this. RealTrainer draws none, so it
+    ; stays empty; it is a parameter of `EvgGlPainter.draw` because that
+    ; painter was written for a spreadsheet full of photographs.
+    def images:GridImages (new GridImages)
+
+    def root:string "gallery/realtrainer"
+    def family:string "Arial"
+    def route:string ""
+    def today:string ""
+
+    ; The desktop demo's size — `?page=980x760` is what the browser checks
+    ; measure. `--size 390x844` is the phone the stylesheet folds for.
+    def pw:int 980
+    def ph:int 760
+
+    def frames:int 0
+    def maxFrames:int 0
+    def hasWindow:boolean false
+    def wantQuit:boolean false
+    def prevDown:boolean false
+    def prevX:int 0
+    def prevY:int 0
+    def lastMs:double 0.0
+    def lastCommands:int 0
+    def lastText:int 0
+
+    Constructor () {
+    }
+
+    ; ------------------------------------------------------------- the app --
+    ;
+    ; The five texts the browser page embeds and the Android port ships as
+    ; assets: the stylesheet, the session's COMPACT, the two state machines
+    ; and the reference seed. `check_rt_android.rgr` reads exactly these five
+    ; off the disk to drive the port on Node; a window reads the same five for
+    ; the same reason, and `RtHost.start` leaves a missing machine or seed
+    ; unloaded rather than failing on it.
+    fn startApp:boolean () {
+        def cssText@(optional):string (read_file (root + "/web") "realtrainer.css")
+        def compactText@(optional):string (read_file (root + "/fixtures") "session.compact")
+        def planText@(optional):string (read_file (root + "/fixtures/machines") "planDialog.machine.json")
+        def chatText@(optional):string (read_file (root + "/fixtures/machines") "chat.machine.json")
+        def seedText@(optional):string (read_file (root + "/fixtures/reference") "seed.json")
+        if (null? cssText) {
+            print ("  missing " + root + "/web/realtrainer.css")
+            return false
+        }
+        if (null? compactText) {
+            print ("  missing " + root + "/fixtures/session.compact")
+            return false
+        }
+        def plan:string ""
+        def chat:string ""
+        def seed:string ""
+        if (!null? planText) {
+            plan = (unwrap planText)
+        }
+        if (!null? chatText) {
+            chat = (unwrap chatText)
+        }
+        if (!null? seedText) {
+            seed = (unwrap seedText)
+        }
+        ; BEFORE `start`: the seed's entries are anchored to today, and the
+        ; app takes the day as a value because a clock inside a reducer is
+        ; what makes a state machine untestable.
+        host.setToday(today)
+        host.start((to_double pw) (to_double ph) (unwrap cssText) (unwrap compactText) plan chat seed)
+        if ((strlen route) > 0) {
+            host.openRoute(route)
+        }
+        return true
+    }
+
+    ; ------------------------------------------------------------- window --
+    fn openWindow:void () {
+        def ok:int (dgfx_open "RealTrainer" pw ph)
+        if (ok == 1) {
+            hasWindow = true
+        } {
+            print "  dgfx_open failed (no display?) - running headless"
+        }
+    }
+
+    ; The window size is ASKED FOR every frame rather than remembered from
+    ; `dgfx_open`: the size a window is created with is a request and the
+    ; corner can be dragged afterwards. The page is the window — there is no
+    ; fit and no letterbox, as there is none in the browser at `?page=fit` —
+    ; so a resize is a re-layout, and the stylesheet folds the rail into a
+    ; bottom bar under 768 points on its own.
+    fn syncWindowSize:void () {
+        def ww:int (dgfx_window_width)
+        def wh:int (dgfx_window_height)
+        if (ww < 240) {
+            return
+        }
+        if (wh < 240) {
+            return
+        }
+        if (ww == pw) {
+            if (wh == ph) {
+                return
+            }
+        }
+        pw = ww
+        ph = wh
+        host.resize((to_double pw) (to_double ph))
+    }
+
+    ; -------------------------------------------------------------- input --
+    ;
+    ; SDL reports the pointer in WINDOW POINTS, which is the space `EvgHost`
+    ; converts from, so there is nothing to convert here. The drawable is
+    ; twice that on a HiDPI screen and is used for exactly two things, both
+    ; inside the painter: the GL viewport and the scale the text atlas is
+    ; rasterized at. Mixing the two is the bug the DataGrid's README is
+    ; mostly about.
+    fn pumpInput:void () {
+        dgfx_poll
+        this.syncWindowSize()
+        def mx:int (dgfx_mouse_x)
+        def my:int (dgfx_mouse_y)
+        def btn:int (dgfx_mouse_buttons)
+        def down:boolean false
+        if ((bit_and btn 1) != 0) {
+            down = true
+        }
+
+        if down {
+            if (prevDown == false) {
+                host.pressAt((to_double mx) (to_double my))
+            } {
+                ; A drag scrolls the page and, past a few points of travel,
+                ; takes the press off whatever was marked — the same rule a
+                ; finger gets in the browser. The host times it against its
+                ; own clock, which `tick` advances, so the interval handed in
+                ; here is the frame's.
+                def dx:int (mx - prevX)
+                def dy:int (my - prevY)
+                if ((dx != 0) || (dy != 0)) {
+                    host.panAt((to_double dx) (to_double dy) 0.0)
+                }
+            }
+        } {
+            if prevDown {
+                host.releasePress()
+            } {
+                ; Only when it actually moved. `hoverAt` is a hit test, and a
+                ; hit test per frame under a pointer that is sitting still is
+                ; the whole tree walked for an answer that cannot have
+                ; changed.
+                if ((mx != prevX) || (my != prevY)) {
+                    host.hoverAt((to_double mx) (to_double my))
+                }
+            }
+        }
+        prevX = mx
+        prevY = my
+        prevDown = down
+
+        ; A wheel notch is a drag of one line, fed through the same path a
+        ; finger uses: the app has one scroller and one fling, and a second
+        ; way into it would be a second set of rules about what a scroll does
+        ; to a press.
+        def wy:int (dgfx_wheel)
+        if (wy != 0) {
+            host.panAt(0.0 ((to_double wy) * 40.0) 0.0)
+        }
+
+        def text:string (dgfx_take_text)
+        if ((strlen text) > 0) {
+            ; Dropped when no field has the focus — `EvgHost.typeText` says
+            ; so — which is why there are no letter shortcuts in this host.
+            host.typeText(text)
+        }
+        def k:int (dgfx_pop_key)
+        while (k != 0) {
+            this.handleKey(k)
+            k = (dgfx_pop_key)
+        }
+    }
+
+    ; The dgfx key codes, under the names the browser gives them — which is
+    ; what the app's key table is written against, and what the Android port
+    ; translates a `KeyEvent` into.
+    fn handleKey:void (k:int) {
+        def name:string (RtSdl.keyName(k))
+        if ((strlen name) == 0) {
+            return
+        }
+        def shift:boolean (dgfx_shift_down)
+        def ctrl:boolean (dgfx_ctrl_down)
+        def handled:boolean (host.key(name shift ctrl))
+        ; Escape closes what is open, and closes the window when the app says
+        ; it had nothing to close.
+        if (name == "Escape") {
+            if (handled == false) {
+                wantQuit = true
+            }
+        }
+    }
+
+    sfn keyName:string (k:int) {
+        if (k == 1) {
+            return "Backspace"
+        }
+        if (k == 2) {
+            return "Enter"
+        }
+        if (k == 3) {
+            return "Tab"
+        }
+        if (k == 4) {
+            return "Escape"
+        }
+        if (k == 5) {
+            return "ArrowLeft"
+        }
+        if (k == 6) {
+            return "ArrowRight"
+        }
+        if (k == 7) {
+            return "ArrowUp"
+        }
+        if (k == 8) {
+            return "ArrowDown"
+        }
+        if (k == 9) {
+            return "Delete"
+        }
+        if (k == 10) {
+            return "Home"
+        }
+        if (k == 11) {
+            return "End"
+        }
+        if (k == 12) {
+            return "PageUp"
+        }
+        if (k == 13) {
+            return "PageDown"
+        }
+        return ""
+    }
+
+    ; -------------------------------------------------------------- frame --
+    ;
+    ; The REAL milliseconds since the last frame, which is what makes a
+    ; dropped frame shorten an animation rather than stretch it. A long gap —
+    ; the window was behind another one, or the machine went to sleep — is
+    ; clamped rather than handed in, because a fling given half a second of
+    ; travel in one step lands somewhere nobody flung it.
+    fn frameDt:double () {
+        def now:double (wall_clock_ms)
+        if (lastMs <= 0.0) {
+            lastMs = now
+            return 16.0
+        }
+        def dt:double (now - lastMs)
+        lastMs = now
+        if (dt < 0.0) {
+            return 0.0
+        }
+        if (dt > 100.0) {
+            return 100.0
+        }
+        return dt
+    }
+
+    fn drawFrame:void () {
+        def dt:double (this.frameDt())
+        host.tick(dt)
+        def dl:EVGDisplayList (host.frame())
+        if hasWindow {
+            painter.draw(dl pw ph tr images)
+        }
+        lastCommands = (dl.count())
+        lastText = (RtSdl.countKind(dl 3))
+        frames = (frames + 1)
+    }
+
+    sfn countKind:int (dl:EVGDisplayList kind:int) {
+        def n:int 0
+        def i:int 0
+        def total:int (dl.count())
+        while (i < total) {
+            def c:EVGDrawCmd (dl.at(i))
+            if (c.kind == kind) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; What the last frame held, printed when the run ends.
+    ;
+    ; This is the whole of the headless check, and it is deliberately not "it
+    ; did not crash": a host that loaded nothing and drew an empty window
+    ; would also not crash. A scene name, a command count, a run count and a
+    ; stylesheet that parsed are four numbers that cannot all be right by
+    ; accident.
+    fn report:void () {
+        print "-- last frame --"
+        print ("scene      " + (host.sceneName()))
+        print ("section    " + (host.sectionName()))
+        print ("commands   " + (to_string lastCommands))
+        print ("text runs  " + (to_string lastText))
+        print ("page       " + (to_string pw) + " x " + (to_string ph))
+        def errs:int (host.styleErrorCount())
+        print ("stylesheet " + (to_string errs) + " error(s)")
+        def i:int 0
+        while (i < errs) {
+            print ("           " + (host.styleErrorAt(i)))
+            i = (i + 1)
+        }
+        ; Whether the type on screen is the type that was measured. Printed
+        ; every run because the failure is silent and looks like a style
+        ; choice rather than a bug.
+        if tr.hasFont {
+            print ("face       " + tr.fontFamily + " bound to the rasterizer")
+        } {
+            print "face       NONE bound - drawn in the built-in bitmap font"
+        }
+    }
+
+    fn run:int () {
+        print ("root       " + root)
+        print ("today      " + today)
+        if ((this.startApp()) == false) {
+            return 1
+        }
+        painter.fontFamily = family
+        print ("scene      " + (host.sceneName()))
+
+        this.openWindow()
+        def running:boolean true
+        while running {
+            this.pumpInput()
+            this.drawFrame()
+            if (dgfx_should_close) {
+                running = false
+            }
+            if wantQuit {
+                running = false
+            }
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) {
+                    running = false
+                }
+            }
+        }
+        if hasWindow {
+            dgfx_close
+        }
+        this.report()
+        return 0
+    }
+
+    ; --------------------------------------------------------- the faces --
+    ;
+    ; ORDER MATTERS, and this is the only reason this is a static function
+    ; called before the host exists rather than a method on it.
+    ; `EVGDefaultMeasurer` is read by `EVGLayout` and `EVGTextEngine` in their
+    ; CONSTRUCTORS, and `RealTrainerDemo` builds one of each as a field — so a
+    ; measurer installed after `new RtSdl` would arrive after the engine that
+    ; was supposed to use it. Faces first, install, then the app.
+    ;
+    ; THE FACE IS RENAMED, on purpose. The stylesheet asks for `Arial`, which
+    ; is what a browser resolves through its own font stack and what CoreText
+    ; and Android substitute for. A window has no font stack: `FontManager`
+    ; walks a chain of looser matches and finally hands back whatever loaded
+    ; first, which would resolve `Arial` and `Arial-Bold` to the SAME face and
+    ; draw every heading at the regular cut's widths. Relabelling the two
+    ; loaded faces as that family — with their styles kept — makes
+    ; `Arial-Bold` an exact hit, so a bold run is measured bold and drawn
+    ; bold. It is a substitution either way; this is the honest form of it,
+    ; and `--family` names a different one.
+    sfn openFaces:UITextRenderer (fontDir:string dir:string regular:string bold:string family:string) {
+        def tr (new UITextRenderer)
+        tr.addFontDir(fontDir)
+        def reg:buffer (buffer_read_file (fontDir + "/" + dir) regular)
+        if ((buffer_length reg) == 0) {
+            print ("  missing face: " + fontDir + "/" + dir + "/" + regular)
+            print "           text will be measured with a bitmap step and will not wrap"
+            return tr
+        }
+        ; `loadFontBytes` is what binds a face to the rasterizer, installs the
+        ; TrueType measurer and sets `hasFont`. Loading into the manager alone
+        ; leaves every glyph drawn in the built-in bitmap font while returning
+        ; true, which is why counting loads does not catch it.
+        tr.loadFontBytes(family reg)
+        RtSdl.relabel(tr family "Regular")
+        def bld:buffer (buffer_read_file (fontDir + "/" + dir) bold)
+        if ((buffer_length bld) > 0) {
+            tr.addFaceBytes(bld)
+            RtSdl.relabel(tr family "Bold")
+        }
+        tr.fontFamily = family
+        tr.applyFace()
+        ; The same measurer the painter rasterizes with, handed to every
+        ; layout the app is about to build. One face, measured and drawn.
+        EVGDefaultMeasurer.install(tr.measurer)
+        return tr
+    }
+
+    ; The face loaded last, under the family the stylesheet names.
+    sfn relabel:void (tr:UITextRenderer family:string style:string) {
+        def n:int (array_length tr.fm.fonts)
+        if (n == 0) {
+            return
+        }
+        def f:TrueTypeFont (itemAt tr.fm.fonts (n - 1))
+        f.fontFamily = family
+        f.fontStyle = style
+    }
+
+    ; ---------------------------------------------------------- the clock --
+    ;
+    ; The day, from the wall clock, as `YYYY-MM-DD` in UTC. Ranger has no date
+    ; type and the app takes today as a value, so the conversion is here: days
+    ; since the epoch into a civil date, by the shift-the-year-to-March
+    ; algorithm, which is integer arithmetic with no table and no leap-year
+    ; special case in it. `--today` overrides it, which is what makes a
+    ; screenshot reproducible.
+    sfn isoToday:string (ms:double) {
+        def days:int (to_int (ms / 86400000.0))
+        def z:int (days + 719468)
+        def era:int (idiv z 146097)
+        if (z < 0) {
+            def zz:int (z - 146096)
+            era = (idiv zz 146097)
+        }
+        def doe:int (z - (era * 146097))
+        def leaps:int ((idiv doe 1460) - ((idiv doe 36524) - (idiv doe 146096)))
+        def yoe:int (idiv (doe - leaps) 365)
+        def y:int (yoe + (era * 400))
+        def doy:int (doe - (((365 * yoe) + (idiv yoe 4)) - (idiv yoe 100)))
+        def mp:int (idiv ((5 * doy) + 2) 153)
+        def d:int ((doy - (idiv ((153 * mp) + 2) 5)) + 1)
+        def m:int (mp + 3)
+        if (mp >= 10) {
+            m = (mp - 9)
+        }
+        if (m <= 2) {
+            y = (y + 1)
+        }
+        return ((to_string y) + "-" + (RtSdl.pad2(m)) + "-" + (RtSdl.pad2(d)))
+    }
+
+    sfn pad2:string (n:int) {
+        if (n < 10) {
+            return ("0" + (to_string n))
+        }
+        return (to_string n)
+    }
+
+    ; --------------------------------------------------------------------
+
+    sfn isNumber:boolean (a:string) {
+        if ((strlen a) == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < (strlen a)) {
+            def ch:int (charAt a i)
+            if (ch < 48) {
+                return false
+            }
+            if (ch > 57) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; "980x760" into two numbers. A window's size is one argument because it
+    ; is one decision.
+    sfn beforeX:int (text:string fallback:int) {
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            if ((substring text i (i + 1)) == "x") {
+                def a:string (substring text 0 i)
+                if (RtSdl.isNumber(a)) {
+                    return (?? (str2int a) fallback)
+                }
+                return fallback
+            }
+            i = (i + 1)
+        }
+        return fallback
+    }
+
+    sfn afterX:int (text:string fallback:int) {
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            if ((substring text i (i + 1)) == "x") {
+                def a:string (substring text (i + 1) n)
+                if (RtSdl.isNumber(a)) {
+                    return (?? (str2int a) fallback)
+                }
+                return fallback
+            }
+            i = (i + 1)
+        }
+        return fallback
+    }
+
+    sfn main:void () {
+        print "== RealTrainer - SDL2 / OpenGL =="
+        def root:string "gallery/realtrainer"
+        def fontDir:string "gallery/pdf_writer/assets/fonts"
+        def faceDir:string "Open_Sans"
+        def regular:string "OpenSans-Regular.ttf"
+        def bold:string "OpenSans-Bold.ttf"
+        def family:string "Arial"
+        def route:string ""
+        def today:string ""
+        def maxFrames:int 0
+        def w:int 980
+        def h:int 760
+
+        def i:int 0
+        def n:int (shell_arg_cnt)
+        while (i < n) {
+            def a:string (shell_arg i)
+            if (a == "--frames") {
+                i = (i + 1)
+                def fa:string (shell_arg i)
+                maxFrames = (?? (str2int fa) 0)
+            } {
+                if (a == "--size") {
+                    i = (i + 1)
+                    def s:string (shell_arg i)
+                    w = (RtSdl.beforeX(s w))
+                    h = (RtSdl.afterX(s h))
+                } {
+                    if (a == "--route") {
+                        i = (i + 1)
+                        route = (shell_arg i)
+                    } {
+                        if (a == "--today") {
+                            i = (i + 1)
+                            today = (shell_arg i)
+                        } {
+                            if (a == "--root") {
+                                i = (i + 1)
+                                root = (shell_arg i)
+                            } {
+                                if (a == "--fonts") {
+                                    i = (i + 1)
+                                    fontDir = (shell_arg i)
+                                } {
+                                    if (a == "--family") {
+                                        i = (i + 1)
+                                        family = (shell_arg i)
+                                    } {
+                                        if (RtSdl.isNumber(a)) {
+                                            maxFrames = (?? (str2int a) 0)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen today) == 0) {
+            def nowMs:double (wall_clock_ms)
+            today = (RtSdl.isoToday(nowMs))
+        }
+
+        ; The faces and the measurer BEFORE the app — `openFaces` says why.
+        def tr:UITextRenderer (RtSdl.openFaces(fontDir faceDir regular bold family))
+        def host (new RtSdl)
+        host.tr = tr
+        host.root = root
+        host.family = family
+        host.route = route
+        host.today = today
+        host.pw = w
+        host.ph = h
+        host.maxFrames = maxFrames
+        def code:int (host.run())
+        print ("rt-sdl done: frames=" + (to_string host.frames))
+        if (code != 0) {
+            exit 1
+        }
+    }
+}

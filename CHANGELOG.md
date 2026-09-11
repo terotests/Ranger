@@ -164,6 +164,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   text went in unescaped, so a board whose first sticky ran to two lines made
   the whole pane unparseable.
 
+- **The C++ backend named classes it had not declared.** `CreateUnions` wrote
+  every class the program knows into the `r_union_Any` variant; the forward
+  declarations came from `writeClass`, which runs only for the classes the
+  program actually emits. A class nobody calls is eliminated, keeps its place
+  in the variant, and leaves the C++ compiler reading a name it has never
+  seen — `error: 'X' was not declared in this scope`, pointing at a typedef
+  several thousand characters long. Two lists of the same classes, built in
+  two different places, and nothing made them agree.
+
+  `Any` is where it bit, because `Any` names every class in the program.
+  `gallery/realtrainer` could not be built for C++ **at all** — a seven-line
+  file that imports `RtHost.rgr`, constructs one and prints its scene name
+  reproduced it — stopped by `VlChartExamples`, a documentation-only class of
+  unused static examples over in `gallery/vela`. Nothing about either was
+  wrong.
+
+  The union now declares what it names. Only the pointer forms:
+  `shared_ptr<T>` of an incomplete `T` is legal, while a value case
+  (`PLAN_SHAPES.md` S5) lives inside the variant and needs its definition —
+  and a value case belongs to a live family, so it is never the one that was
+  eliminated. Which form a member takes is asked of `getObjectTypeString`
+  rather than decided a second time here. Nearly every name is now declared
+  twice, which is legal and costs 8.9 KB on a 4.0 MB file; tracking what was
+  already emitted to save that would be a third list to keep correct, in the
+  writer whose two lists disagreeing is the defect. The compiler still
+  reproduces itself byte for byte, still compiles itself to C++ that `g++`
+  accepts, and `gallery/vela`'s native goldens are unchanged.
+
 - **The diagram-type matrix was measured against a list that could not be
   complete.** It discovered Mermaid's types by listing
   `dist/chunks/mermaid.core/*.mjs` and reading the name out of each filename —

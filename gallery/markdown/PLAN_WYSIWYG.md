@@ -11,6 +11,12 @@ select with a drag, press Ctrl+B, and undo back to the bytes that were there. Wh
 two things the building changed about the plan, are recorded in place below
 rather than quietly.
 
+> **A second plan builds on this one.** [`PLAN_SLIDES.md`](PLAN_SLIDES.md)
+> makes the same document render as a deck — Goldmark block attributes, a
+> stylesheet per company, and a `.pptx` tab beside this editor. It inherits
+> §1's decision unchanged: the file is the document, and slides are a layout
+> policy rather than a conversion.
+
 This document is the plan for taking those and making the markdown preview
 editable. It follows [`../PLAN_EDITOR_KERNEL.md`](../PLAN_EDITOR_KERNEL.md),
 which is this gallery's answer to the only question that matters when code is
