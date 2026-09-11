@@ -50,6 +50,9 @@ Typing into this repository's 63 KB README costs **10 ms**, because the
 layout remembers per block — the design and the numbers are in
 [`PLAN_WYSIWYG.md`](PLAN_WYSIWYG.md) §6.
 
+And the same document as a deck — Goldmark block attributes, a stylesheet per
+company, a `.pptx` tab — is planned in [`PLAN_SLIDES.md`](PLAN_SLIDES.md).
+
 **651 of 652** CommonMark 0.31.2 examples, compared as exact strings against
 the HTML the specification prints for each one —
 [`docs/COMMONMARK_PARITY.md`](docs/COMMONMARK_PARITY.md), regenerated on every
