@@ -78,6 +78,7 @@ class FigFieldReport {
         push k "fontWeight"
         push k "fontMetaData"
         push k "letterSpacing"
+        push k "paragraphSpacing"
         push k "lineHeight"
         push k "textAlignHorizontal"
         push k "textAlignVertical"
@@ -116,6 +117,7 @@ class FigFieldReport {
         push k "arcData"
         push k "mask"
         push k "letterSpacing"
+        push k "paragraphSpacing"
         push k "borderTopWeight"
         push k "borderRightWeight"
         push k "borderBottomWeight"
@@ -253,6 +255,37 @@ class FigFieldReport {
     ; Count once per node, then filter the distinct names. Filtering as we
     ; go would compare every field of every node against the whole known
     ; list, which on a large file is tens of millions of string compares.
+    ; A field carrying the value that means "nothing to do" is not a field
+    ; the reader lost. `blendMode` is on fourteen nodes in one board and
+    ; NORMAL on thirteen of them; counting those thirteen said the picture
+    ; was missing something it was not, which is the one thing a report
+    ; that exists to find what nobody warned about must not do.
+    ;
+    ; Named fields only, and only where the default is unambiguous. A
+    ; field this does not know about is counted as it always was.
+    sfn isDefault:boolean (name:string v:KiwiValue) {
+        if (name == "blendMode") {
+            def m:string (v.asString(""))
+            return ((m == "NORMAL") || (m == "PASS_THROUGH"))
+        }
+        if (name == "strokeCap") {
+            return ((v.asString("")) == "NONE")
+        }
+        if (name == "strokeJoin") {
+            return ((v.asString("")) == "MITER")
+        }
+        if (name == "dashPattern") {
+            if (v.isArray()) {
+                return ((v.itemCount()) == 0)
+            }
+            return false
+        }
+        if (name == "maskType") {
+            return ((v.asString("")) == "ALPHA")
+        }
+        return false
+    }
+
     fn scan:void (doc:FigDoc) {
         def i:int 0
         while (i < (array_length doc.nodes)) {
@@ -261,6 +294,9 @@ class FigFieldReport {
             def f:int 0
             while (f < (array_length raw.fieldNames)) {
                 def fname:string (itemAt raw.fieldNames f)
+                if (FigFieldReport.isDefault(fname (itemAt raw.fieldVals f))) {
+                    f = (f + 1)
+                } {
                 def u:FigFieldUse (this.find(fname))
                 u.count = (u.count + 1)
                 if ((strlen u.exampleId) == 0) {
@@ -268,6 +304,7 @@ class FigFieldReport {
                     u.exampleName = nd.name
                 }
                 f = (f + 1)
+                }
             }
             i = (i + 1)
         }

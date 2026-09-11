@@ -438,6 +438,9 @@ class SceneToEVG {
         if (n.text.lineHeight > 0.0) {
             el.setAttribute("line-height" (to_string n.text.lineHeight))
         }
+        if (n.text.paragraphSpacing != 0.0) {
+            el.setAttribute("paragraph-spacing" ((to_string n.text.paragraphSpacing) + "px"))
+        }
         if (n.text.letterSpacing != 0.0) {
             el.setAttribute("letter-spacing" ((to_string n.text.letterSpacing) + "px"))
         }

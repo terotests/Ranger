@@ -525,6 +525,12 @@ class EVGElement {
     ; takes the same path it always did, so nothing that does not set this
     ; can be moved by it.
     def letterSpacing:double 0.0
+    ; Extra leading above every paragraph after the first, in pixels. CSS
+    ; has no such property — it puts paragraphs in elements and gives them
+    ; margins — but a text element here holds the whole block, newlines
+    ; included, so the gap has to be a property of the block. ZERO is the
+    ; single-spaced block every caller had before.
+    def paragraphSpacing:double 0.0
     ; ZERO means `normal`, which is the FACE's own line box and is asked of
     ; the text engine. It used to default to 1.2 — a number people type, not
     ; one a browser computes: measured, the sans fallback's normal is 1.15em
@@ -2654,6 +2660,7 @@ class EVGElement {
         fontFamily = other.fontFamily
         fontWeight = other.fontWeight
         letterSpacing = other.letterSpacing
+        paragraphSpacing = other.paragraphSpacing
         lineHeight = other.lineHeight
         lineHeightUnit = other.lineHeightUnit
         textAlign = other.textAlign
@@ -3399,6 +3406,13 @@ class EVGElement {
             def lsu:EVGUnit (EVGUnit.parse(value))
             if lsu.isSet {
                 letterSpacing = lsu.pixels
+            }
+            return
+        }
+        if ((name == "paragraph-spacing") || (name == "paragraphSpacing")) {
+            def psu:EVGUnit (EVGUnit.parse(value))
+            if psu.isSet {
+                paragraphSpacing = psu.pixels
             }
             return
         }

@@ -602,6 +602,10 @@ class EVGLayout {
                 def lineCount:int (textEngine.lineCountSpaced(textContent (element.effectiveFontFamily()) fontSize availableWidth element.letterSpacing))
 
                 contentHeight = (lineSpacing * (to_double lineCount))
+                ; And the gaps between paragraphs, which are not line boxes:
+                ; reserving them here is what keeps the painter's last line
+                ; inside the box it was sized for.
+                contentHeight = (contentHeight + (textEngine.paragraphLeading(textContent (element.effectiveFontFamily()) fontSize availableWidth element.letterSpacing element.paragraphSpacing)))
 
                 ; Baseline of the FIRST line, measured from this element's top
                 ; border edge, for align-items: baseline. The glyphs sit inside

@@ -1209,6 +1209,7 @@ class FigToScene {
         } {
             sn.text.letterSpacing = (raw.childDouble("letterSpacing" 0.0))
         }
+        sn.text.paragraphSpacing = (raw.childDouble("paragraphSpacing" 0.0))
         sn.text.outline = (this.glyphOutline(nd))
     }
 

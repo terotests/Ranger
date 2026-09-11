@@ -2535,7 +2535,16 @@ class EVGDisplayList {
             ; `EVGElement.wrapWidth`, which is zero for a `white-space` that
             ; does not wrap. `avail` itself is still the box, because that is
             ; what `text-align` centres inside.
-            def lines:[string] (textEngine.breakToStringsSpaced(el.textContent face fs (el.wrapWidth(avail)) el.letterSpacing))
+            ; The line objects, not just their strings: a paragraph gap is
+            ; a property of WHICH line this is, and the strings cannot say.
+            def broken:[EVGTextLine] (textEngine.breakLinesSpaced(el.textContent face fs (el.wrapWidth(avail)) el.letterSpacing))
+            def lines:[string]
+            def bi:int 0
+            while (bi < (array_length broken)) {
+                def bl:EVGTextLine (itemAt broken bi)
+                push lines bl.text
+                bi = (bi + 1)
+            }
             def tr:int 0
             def tg:int 0
             def tb:int 0
@@ -2548,7 +2557,13 @@ class EVGDisplayList {
                 ta = (tc.alpha())
             }
             def li:int 0
+            ; What the paragraph gaps above this line add to its place.
+            def paraShift:double 0.0
             while (li < (array_length lines)) {
+                def lnObj:EVGTextLine (itemAt broken li)
+                if lnObj.startsParagraph {
+                    paraShift = (paraShift + el.paragraphSpacing)
+                }
                 def c4 (new EVGDrawCmd())
                 c4.kind = 3
                 ; `text-align`, which until now was parsed by EVGElement and
@@ -2583,7 +2598,7 @@ class EVGDisplayList {
                 ; look right on their own.
                 def bw:double el.box.borderWidthPx
                 c4.x = (((x + bw) + el.box.paddingLeftPx) + indent)
-                c4.y = ((((y + bw) + el.box.paddingTopPx) + el.textShiftY) + ((to_double li) * lineBox))
+                c4.y = (((((y + bw) + el.box.paddingTopPx) + el.textShiftY) + ((to_double li) * lineBox)) + paraShift)
                 c4.w = avail
                 c4.h = lineBox
                 c4.text = (itemAt lines li)
