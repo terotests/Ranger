@@ -113,6 +113,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   first left a 2,030-pixel card spilling 4,600 pixels of placeholder down the
   board.
 
+- **An instance swapped for another component drew the one it was not
+  swapped to.** `overriddenSymbolID` is an override of the symbol the
+  instance names and was read after it, so it never won: a template card
+  that swaps its thumbnail for the "you are here" variant of a set drew the
+  placeholder artwork the set happens to list first.
+
 - **An instance now clips the way its component does.** The flag is on the
   component and the instance carries only `frameMaskDisabled`, so the
   screenshot inside a tip card ran out of the side of the card.

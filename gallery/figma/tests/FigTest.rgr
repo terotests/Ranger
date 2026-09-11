@@ -340,6 +340,15 @@ class FigTest {
             def keyedPlaceholder:SceneNode (itemAt keyedMaster.children 0)
             this.eqStr("the component keeps its placeholder" keyedPlaceholder.text.characters "Keyed placeholder")
         }
+        ; An instance swapped for another component draws the one it was
+        ; swapped to. Read after the name instead of over it, the swap
+        ; never won and a card drew the variant the set lists first.
+        def swapped:SceneNode (shapes.childNamed("SwappedInstance"))
+        this.eqInt("the swapped instance drew a component" (array_length swapped.children) 1)
+        if ((array_length swapped.children) > 0) {
+            def swappedText:SceneNode (itemAt swapped.children 0)
+            this.eqStr("and it is the one it was swapped to" swappedText.text.characters "You are here")
+        }
         def unread:string (app.unreadJson())
         this.check("unread leaves out fillPaints" ((FigTest.hasSub(unread "\"field\":\"fillPaints\"")) == false))
         this.check("unread leaves out transform" ((FigTest.hasSub(unread "\"field\":\"transform\"")) == false))

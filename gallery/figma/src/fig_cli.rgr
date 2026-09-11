@@ -74,6 +74,12 @@ class FigCli {
                 return
             }
             print (nd.typeName + "  " + nd.name + "  " + nd.id)
+            def c:int 0
+            while (c < (array_length nd.children)) {
+                def ch:FigNode (itemAt nd.children c)
+                print ("  child  " + ch.typeName + "  " + ch.name + "  " + ch.id)
+                c = (c + 1)
+            }
             print (nd.raw.toJson())
             return
         }

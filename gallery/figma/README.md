@@ -142,12 +142,16 @@ spellings being read is what made a real export come out empty:
 
 | | |
 | --- | --- |
+| `overriddenSymbolID` | an instance swapped for a different component |
 | `symbolData.symbolID` | what a Figma export writes — nested, not on the node |
 | `symbolID` on the node | the REST API, and this repository's sample |
-| `overriddenSymbolID` | an instance swapped for a different component |
 
-All three are read, in that order. Expansion stops at fifteen levels, so
-a cycle is a warning and not a hang.
+All three are read, in that order, and the order matters: a swap is an
+override of the symbol the instance names, not another spelling of it.
+Read last it never won, and a card that swaps its thumbnail for the "you
+are here" variant of a set drew the placeholder artwork the set lists
+first. Expansion stops at fifteen levels, so a cycle is a warning and not
+a hang.
 
 ### Overrides
 

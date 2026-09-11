@@ -140,6 +140,9 @@ class FigSample {
         ; the other.
         def imf:KiwiDef (s.addMessage("ImmutableFrame"))
         s.addField(imf "overrides" "Node" 1 true)
+        ; An instance swapped for another component: one variant of a set
+        ; picked instead of the one the set lists first.
+        s.addField(node "overriddenSymbolID" "GUID" 44 false)
         s.addField(node "derivedImmutableFrameData" "ImmutableFrame" 42 false)
         s.addField(node "nodeGenerationData" "ImmutableFrame" 43 false)
         def blob:KiwiDef (s.addMessage("Blob"))
@@ -717,6 +720,29 @@ class FigSample {
         symBlock.put("symbolID" (FigSample.guid(3 36)))
         fInst3.put("symbolData" symBlock)
         nodes.pushItem(fInst3)
+        ; A variant set: two components, and an instance that names the
+        ; first and is swapped to the second. `overriddenSymbolID` is an
+        ; override of the symbol the instance names, so it has to beat the
+        ; name rather than fill in for a missing one.
+        def varA:KiwiValue (FigSample.node(3 65 "COMPONENT" "VariantA" 0 3 "h" 200.0 40.0 3640.0 800.0))
+        varA.put("fillPaints" (FigSample.paints(0.9 0.9 0.95)))
+        nodes.pushItem(varA)
+        def varAText:KiwiValue (FigSample.node(3 66 "TEXT" "VariantLabel" 3 65 "!" 180.0 24.0 10.0 8.0))
+        varAText.put("textData" (FigSample.chars("Placeholder artwork")))
+        nodes.pushItem(varAText)
+        def varB:KiwiValue (FigSample.node(3 67 "COMPONENT" "VariantB" 0 3 "i" 200.0 40.0 3880.0 800.0))
+        varB.put("fillPaints" (FigSample.paints(0.9 0.95 0.9)))
+        nodes.pushItem(varB)
+        def varBText:KiwiValue (FigSample.node(3 68 "TEXT" "VariantLabel" 3 67 "!" 180.0 24.0 10.0 8.0))
+        varBText.put("textData" (FigSample.chars("You are here")))
+        nodes.pushItem(varBText)
+        def swapInst:KiwiValue (FigSample.node(3 69 "INSTANCE" "SwappedInstance" 0 3 "j" 200.0 40.0 4120.0 800.0))
+        def swapSym:KiwiValue (KiwiValue.fromObject())
+        swapSym.put("symbolID" (FigSample.guid(3 65)))
+        swapInst.put("symbolData" swapSym)
+        swapInst.put("overriddenSymbolID" (FigSample.guid(3 67)))
+        nodes.pushItem(swapInst)
+
         ; --- FigJam ---------------------------------------------------
         ;
         ; A sticky has no children. Its look is two lists that pair by
