@@ -815,6 +815,9 @@ function selftest() {
     return mctx.measureText(verbatim(text)).width;
   };
   const faceSpec = (c) => `${c.size}px "${c.font}", sans-serif`;
+  // What the painter will lay down for a run. The deck-sample check below
+  // walks every run of the document with it.
+  const drawnWidth = (c) => widthWith(fontSpec(c, 1), c.text);
   const wide = (c) => c.k === 3 && c.text && c.text.length > 8;
   const runs = cmds.filter((c) => wide(c) && c.font && loadedFaces.includes(c.font));
   say("wide runs to check", runs.length > 2, runs.length + " runs of " + loadedFaces.length + " faces");
