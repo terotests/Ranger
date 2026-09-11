@@ -32,6 +32,23 @@ const EXPECTED_SKIPS = {
   children: "structure — EVGReconcile decides the child list",
   transitions: "the in-flight animations, which are the reason the element is kept",
   paintStamp: "this element's own count of paint changes — adopting is one, so it is moved on, not copied",
+  // The flattened path, kept so a pan does not re-parse every `d` on the
+  // page. It is DERIVED and self-checking: the box, the steps, the path and
+  // the viewBox it was computed for are stored beside it and compared before
+  // it is used, so a kept element may keep a cache the fresh one has not got
+  // round to filling. Copying the fresh element's empty cache over a warm one
+  // would be correct and would throw the cache away on every reconcile, which
+  // is the whole thing it exists to avoid.
+  ringsCache: "derived — the flattened path, kept warm across a reconcile",
+  ringsHave: "derived — whether the cache above holds anything",
+  ringsPath: "derived — the `d` the cache was flattened from, which validates it",
+  ringsX: "derived — the box the cache was flattened for",
+  ringsY: "derived — the box the cache was flattened for",
+  ringsW: "derived — the box the cache was flattened for",
+  ringsH: "derived — the box the cache was flattened for",
+  ringsSteps: "derived — the step ceiling the cache was flattened at",
+  ringsScale: "derived — the scale the cache was flattened at",
+  ringsViewBox: "derived — the viewBox the cache was flattened under",
 };
 
 const src = fs.readFileSync(FILE, "utf8").split("\n");
