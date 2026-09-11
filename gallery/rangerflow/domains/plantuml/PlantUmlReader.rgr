@@ -1,0 +1,704 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PlantUmlReader.rgr — the door PlantUML comes in through.
+; ============================================================================
+;
+; Mermaid tells you what it is in its first word. PlantUML tells you almost
+; nothing: `@startuml` opens a sequence diagram, a class diagram, a component
+; diagram, a state machine and an activity diagram, and which one it is
+; depends on what the lines underneath turn out to parse as. PlantUML resolves
+; that by trying its parsers in order; this file resolves it by reading the
+; whole body first and asking what the evidence says.
+;
+;   @startuml                    @startuml
+;   User -> API: Request         class Order {
+;   API -> Database: Query         +id: int
+;   @enduml                      }
+;                                Customer *-- Order
+;        → sequence              @enduml
+;                                     → class
+;
+; Getting that wrong is not a cosmetic failure. A class diagram read as a
+; sequence diagram is four participants that do not exist and no classes at
+; all — the same failure a Wardley map read as a flowchart would be, which is
+; the one a reader of somebody else's file may not have. So the sniff is
+; written down, tested, and scored against PlantUML's own answer.
+;
+; **What this file does.** Finds the diagram in a file (`@startuml` … `@enduml`
+; and the fourteen other `@start` words), removes the comments — `'` to the end
+; of a line, `/' … '/` across as many as it likes — pulls out the title, and
+; decides which reader the body belongs to.
+;
+; **What it does not do yet.** The preprocessor: `!include`, `!define`, `!if`,
+; `!procedure` and the rest are recognised, counted and dropped, not expanded.
+; A file that depends on them reads as the diagram it is *without* them, which
+; is honest, and `directiveCount` says how much was left on the floor rather
+; than pretending there was nothing there. Expanding them means reading files,
+; and that is a security boundary that deserves its own work rather than a
+; corner of this one.
+; ============================================================================
+
+Import "../../core/GraphModel.rgr"
+
+; ---------------------------------------------------------------------------
+; The string work, kept in one place so no reader below has to repeat it.
+; ---------------------------------------------------------------------------
+class PlantUmlText {
+    sfn isSpaceCode:boolean (c:int) {
+        if (c == 32) { return true }
+        if (c == 9)  { return true }
+        if (c == 13) { return true }
+        if (c == 10) { return true }
+        return false
+    }
+
+    sfn lower:string (t:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if (c >= 65) {
+                if (c <= 90) {
+                    c = (c + 32)
+                }
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The first whitespace-delimited word, as written.
+    sfn firstWord:string (t:string) {
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if (PlantUmlText.isSpaceCode(c)) {
+                return (substring t 0 i)
+            }
+            i = (i + 1)
+        }
+        return t
+    }
+
+    ; Everything after the first word, trimmed.
+    sfn restWords:string (t:string) {
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if (PlantUmlText.isSpaceCode(c)) {
+                def tail:string (substring t i (strlen t))
+                return (trim tail)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn beginsWith:boolean (text:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen text) < n) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            if ((charAt text i) != (charAt prefix i)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; Case-insensitive `beginsWith`, for the keywords PlantUML lets you shout.
+    sfn opensWith:boolean (text:string prefix:string) {
+        def lt:string (PlantUmlText.lower(text))
+        return (PlantUmlText.beginsWith(lt prefix))
+    }
+
+    sfn hasSub:boolean (text:string needle:string) {
+        def at:int (PlantUmlText.indexOfSub(text needle 0))
+        return (at >= 0)
+    }
+
+    sfn indexOfSub:int (text:string needle:string from:int) {
+        def n:int (strlen needle)
+        if (n == 0) {
+            return -1
+        }
+        def limit:int ((strlen text) - n)
+        def i:int from
+        while (i <= limit) {
+            if (PlantUmlText.matchAt(text i needle)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn matchAt:boolean (text:string pos:int needle:string) {
+        def n:int (strlen needle)
+        if ((pos + n) > (strlen text)) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            if ((charAt text (pos + i)) != (charAt needle i)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    sfn indexOfCode:int (text:string code:int) {
+        def i:int 0
+        while (i < (strlen text)) {
+            if ((charAt text i) == code) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; `"Order service"` → `Order service`. PlantUML quotes a name whenever it
+    ; has a space in it, and the quotes are never part of the name.
+    sfn unquote:string (raw:string) {
+        def t:string (trim raw)
+        def n:int (strlen t)
+        if (n < 2) {
+            return t
+        }
+        def a:int (charAt t 0)
+        def b:int (charAt t (n - 1))
+        if (a == 34) {
+            if (b == 34) {
+                def inner:string (substring t 1 (n - 1))
+                return inner
+            }
+        }
+        return t
+    }
+
+    ; A label as it should be drawn.
+    ;
+    ; PlantUML writes labels in Creole, and the parts of it a box can honour
+    ; without a rich-text layout are the line breaks. `**bold**`, `//italic//`
+    ; and `""monospace""` are read and their markers removed rather than drawn
+    ; as literal asterisks, which is what a reader that ignored them would do.
+    ; The styled runs themselves are the next piece of work; printing `**` in
+    ; the middle of a word is not a step towards it.
+    sfn label:string (raw:string) {
+        def t:string (trim raw)
+        def out:string ""
+        def i:int 0
+        def n:int (strlen t)
+        while (i < n) {
+            def c:int (charAt t i)
+            ; `\n` — a break the author asked for.
+            if (c == 92) {
+                if ((i + 1) < n) {
+                    def nx:int (charAt t (i + 1))
+                    if (nx == 110) {
+                        out = (out + "\n")
+                        i = (i + 2)
+                        continue
+                    }
+                    if (nx == 114) {
+                        i = (i + 2)
+                        continue
+                    }
+                    if (nx == 116) {
+                        out = (out + " ")
+                        i = (i + 2)
+                        continue
+                    }
+                }
+            }
+            ; `**`, `//`, `""`, `__`, `--` used as Creole markers.
+            if ((i + 1) < n) {
+                def nx2:int (charAt t (i + 1))
+                if (c == nx2) {
+                    if (PlantUmlText.isMarkerCode(c)) {
+                        i = (i + 2)
+                        continue
+                    }
+                }
+            }
+            ; `<b>`, `<i>`, `<color:red>` — Creole's HTML half.
+            if (c == 60) {
+                def close:int (PlantUmlText.tagEnd(t i))
+                if (close > i) {
+                    i = (close + 1)
+                    continue
+                }
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return (trim out)
+    }
+
+    sfn isMarkerCode:boolean (c:int) {
+        if (c == 42) { return true }
+        if (c == 47) { return true }
+        if (c == 34) { return true }
+        if (c == 95) { return true }
+        return false
+    }
+
+    ; The `>` closing a short `<…>` tag, or -1 when this `<` opens no tag.
+    sfn tagEnd:int (t:string from:int) {
+        def n:int (strlen t)
+        def i:int (from + 1)
+        while (i < n) {
+            def c:int (charAt t i)
+            if (c == 62) {
+                return i
+            }
+            if (PlantUmlText.isSpaceCode(c)) {
+                return -1
+            }
+            if ((i - from) > 24) {
+                return -1
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}
+
+; ---------------------------------------------------------------------------
+; One diagram, taken out of a file and stripped down to statements.
+; ---------------------------------------------------------------------------
+class PlantUmlSource {
+    ; The `@start…` word that opened it, lowercased, "" when the text was
+    ; handed over bare. A text box has no file around it, so a body with no
+    ; wrapper is read rather than refused.
+    def opener:string ""
+    ; RangerFlow's name for the diagram: "sequence", "class", "description",
+    ; "state", "activity", "mindmap", … or "" when nothing recognised it.
+    def kind:string ""
+    def title:string ""
+    ; The statements, comments removed, blanks removed.
+    def lines:[string]
+    ; The `!` lines that were recognised and dropped — see the note at the top
+    ; about the preprocessor.
+    def directives:[string]
+
+    Constructor () {
+    }
+
+    fn lineCount:int () {
+        return (array_length lines)
+    }
+
+    fn directiveCount:int () {
+        return (array_length directives)
+    }
+
+    fn body:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length lines)) {
+            out = (out + (itemAt lines i) + "\n")
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+class PlantUmlReader {
+    Constructor () {
+    }
+
+    ; ------------------------------------------------------------- reading --
+    ; The first diagram in a file. PlantUML allows several `@startuml` blocks
+    ; in one file and numbers the images it makes from them; a reader with one
+    ; canvas draws the first, and says so here rather than silently.
+    sfn read:PlantUmlSource (src:string) {
+        def doc (new PlantUmlSource)
+        def all:[string] (strsplit src "\n")
+        def inside:boolean false
+        def sawStart:boolean false
+        def inBlock:boolean false
+        def i:int 0
+        while (i < (array_length all)) {
+            def raw:string (trim (itemAt all i))
+            i = (i + 1)
+            def line:string raw
+            ; A `/' … '/` comment can open and close anywhere, including on a
+            ; line that also carries a statement.
+            if inBlock {
+                def close:int (PlantUmlText.indexOfSub(line "'/" 0))
+                if (close < 0) {
+                    continue
+                }
+                line = (trim (substring line (close + 2) (strlen line)))
+                inBlock = false
+            }
+            def open:int (PlantUmlText.indexOfSub(line "/'" 0))
+            while (open >= 0) {
+                def close2:int (PlantUmlText.indexOfSub(line "'/" (open + 2)))
+                if (close2 < 0) {
+                    line = (trim (substring line 0 open))
+                    inBlock = true
+                    open = -1
+                    continue
+                }
+                def head:string (substring line 0 open)
+                def tail:string (substring line (close2 + 2) (strlen line))
+                line = (trim (head + " " + tail))
+                open = (PlantUmlText.indexOfSub(line "/'" 0))
+            }
+            if ((strlen line) == 0) {
+                continue
+            }
+            ; `'` comments the rest of the line, but only where a statement
+            ; could start: an apostrophe inside a label is a character.
+            if ((charAt line 0) == 39) {
+                continue
+            }
+            def word:string (PlantUmlText.lower((PlantUmlText.firstWord(line))))
+            if (PlantUmlText.beginsWith(word "@start")) {
+                if sawStart {
+                    ; A second diagram in the same file. The first one is the
+                    ; one we are reading, so this is where it ends.
+                    break
+                }
+                sawStart = true
+                inside = true
+                doc.opener = word
+                doc.kind = (PlantUmlReader.openerKind(word))
+                continue
+            }
+            if (PlantUmlText.beginsWith(word "@end")) {
+                if inside {
+                    break
+                }
+                continue
+            }
+            if ((charAt line 0) == 33) {
+                push doc.directives line
+                continue
+            }
+            if (word == "title") {
+                def rest:string (PlantUmlText.restWords(line))
+                doc.title = (PlantUmlText.label(rest))
+                continue
+            }
+            push doc.lines line
+        }
+        if (doc.kind == "") {
+            doc.kind = (PlantUmlReader.sniff(doc.lines))
+        }
+        return doc
+    }
+
+    sfn kindOf:string (src:string) {
+        def doc:PlantUmlSource (PlantUmlReader.read(src))
+        return doc.kind
+    }
+
+    ; --------------------------------------------------------- the openers --
+    ; What a `@start…` word commits the file to. `@startuml` commits it to
+    ; nothing — that is what `sniff` is for — so it answers "".
+    sfn openerKind:string (word:string) {
+        if (word == "@startuml")        { return "" }
+        if (word == "@startmindmap")    { return "mindmap" }
+        if (word == "@startwbs")        { return "wbs" }
+        if (word == "@startgantt")      { return "gantt" }
+        if (word == "@startjson")       { return "json" }
+        if (word == "@startyaml")       { return "yaml" }
+        if (word == "@starthcl")        { return "hcl" }
+        if (word == "@startsalt")       { return "salt" }
+        if (word == "@startwire")       { return "salt" }
+        if (word == "@startebnf")       { return "ebnf" }
+        if (word == "@startregex")      { return "regex" }
+        if (word == "@startchen")       { return "chen" }
+        if (word == "@startboard")      { return "board" }
+        if (word == "@startfiles")      { return "files" }
+        if (word == "@startchronology") { return "chronology" }
+        ; Recognised, and deliberately not ours: a different program lives
+        ; behind each of these. Naming them is what stops them falling through
+        ; to the entity parser and coming out as invented boxes.
+        if (word == "@startditaa")      { return "ditaa" }
+        if (word == "@startdot")        { return "dot" }
+        if (word == "@startmath")       { return "math" }
+        if (word == "@startlatex")      { return "math" }
+        if (word == "@startcreole")     { return "creole" }
+        return ""
+    }
+
+    ; Whether this implementation draws that kind, or only knows the name.
+    sfn draws:boolean (kind:string) {
+        if (kind == "sequence")    { return true }
+        if (kind == "class")       { return true }
+        if (kind == "description") { return true }
+        return false
+    }
+
+    ; ----------------------------------------------------------- the sniff --
+    ; Which diagram an `@startuml` body is.
+    ;
+    ; Evidence, not order of appearance: a class diagram that opens with a
+    ; comment about a message and a sequence diagram whose first line is a
+    ; `skinparam` both have to come out right. Each line votes through tokens
+    ; only one kind has, and the majority wins.
+    ;
+    ; The rules were not invented here — they were **asked of PlantUML**, one
+    ; two-line file at a time, and they are what it answered:
+    ;
+    ;   A --> B          → sequence    (a bare arrow is a message)
+    ;   A -- B           → class       (a line with no head is an association)
+    ;   [A] --> [B]      → description (the bracket is a component)
+    ;   actor U          → description (…with `(Buy)` in it; `actor` alone is
+    ;                                   a word both dialects have)
+    ;   A -> B: x        → class       (…when a `class` line is also present)
+    ;
+    ; …and the last of those is why the fallback is `sequence` rather than
+    ; `description`: PlantUML runs its sequence parser first, so a body that
+    ; nothing else claims is a sequence diagram.
+    sfn sniff:string (lines:[string]) {
+        def seq:int 0
+        def cls:int 0
+        def state:int 0
+        def act:int 0
+        def timing:int 0
+        def desc:int 0
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            i = (i + 1)
+            def lt:string (PlantUmlText.lower(line))
+            def w:string (PlantUmlText.firstWord(lt))
+
+            ; --- the words only one kind has ---
+            if (w == "participant")  { seq = (seq + 3) }
+            if (w == "autonumber")   { seq = (seq + 3) }
+            if (w == "activate")     { seq = (seq + 3) }
+            if (w == "deactivate")   { seq = (seq + 3) }
+            if (w == "boundary")     { seq = (seq + 2) }
+            if (w == "control")      { seq = (seq + 2) }
+            if (w == "collections")  { seq = (seq + 2) }
+            if (w == "return")       { seq = (seq + 2) }
+
+            if (w == "class")        { cls = (cls + 3) }
+            if (w == "interface")    { cls = (cls + 3) }
+            if (w == "enum")         { cls = (cls + 3) }
+            if (w == "abstract")     { cls = (cls + 3) }
+            if (w == "annotation")   { cls = (cls + 3) }
+            if (w == "object")       { cls = (cls + 3) }
+            if (w == "namespace")    { cls = (cls + 2) }
+
+            if (w == "state")        { state = (state + 3) }
+
+            if (w == "start")        { act = (act + 3) }
+            if (w == "stop")         { act = (act + 3) }
+            if (w == "repeat")       { act = (act + 2) }
+            if (w == "fork")         { act = (act + 2) }
+            if (w == "partition")    { act = (act + 2) }
+            if (w == "backward")     { act = (act + 2) }
+            if (w == "detach")       { act = (act + 2) }
+
+            if (w == "robust")       { timing = (timing + 3) }
+            if (w == "concise")      { timing = (timing + 3) }
+            if (w == "clock")        { timing = (timing + 3) }
+            if (w == "binary")       { timing = (timing + 3) }
+
+            if (w == "component")    { desc = (desc + 3) }
+            if (w == "usecase")      { desc = (desc + 3) }
+            if (w == "node")         { desc = (desc + 3) }
+            if (w == "folder")       { desc = (desc + 3) }
+            if (w == "rectangle")    { desc = (desc + 3) }
+            if (w == "cloud")        { desc = (desc + 3) }
+            if (w == "archimate")    { desc = (desc + 3) }
+            if (w == "artifact")     { desc = (desc + 2) }
+            if (w == "storage")      { desc = (desc + 2) }
+            if (w == "frame")        { desc = (desc + 2) }
+            if (w == "queue")        { desc = (desc + 1) }
+            if (w == "database")     { desc = (desc + 1) }
+
+            ; --- the shapes only one kind has ---
+            ; A UML ornament: `<|--`, `*--`, `o--`, `..>`, `--|>`.
+            if (PlantUmlText.hasSub(line "<|"))  { cls = (cls + 3) }
+            if (PlantUmlText.hasSub(line "|>"))  { cls = (cls + 3) }
+            if (PlantUmlText.hasSub(line "*--")) { cls = (cls + 3) }
+            if (PlantUmlText.hasSub(line "--*")) { cls = (cls + 3) }
+            if (PlantUmlText.hasSub(line "o--")) { cls = (cls + 2) }
+            if (PlantUmlText.hasSub(line "--o")) { cls = (cls + 2) }
+            if (PlantUmlText.hasSub(line "..>")) { cls = (cls + 2) }
+            ; A link with no arrowhead at either end. PlantUML calls that an
+            ; association and puts it in a class diagram.
+            if (PlantUmlReader.headlessLink(line)) { cls = (cls + 2) }
+
+            ; The state machine's two ends, which nothing else writes.
+            if (PlantUmlText.hasSub(line "[*]")) { state = (state + 3) }
+
+            ; `[Component]` and `(Use case)` — the bracket notations that put a
+            ; body in a description diagram whatever its keywords say.
+            if (PlantUmlReader.bracketEntity(line)) { desc = (desc + 3) }
+
+            ; An activity action is a line that opens with `:` and closes with
+            ; `;`, and a swimlane is a line between two pipes.
+            if ((strlen line) > 1) {
+                if ((charAt line 0) == 58) {
+                    def last:int (charAt line ((strlen line) - 1))
+                    if (last == 59) {
+                        act = (act + 3)
+                    }
+                    if (last == 124) {
+                        act = (act + 2)
+                    }
+                }
+                if ((charAt line 0) == 124) {
+                    act = (act + 2)
+                }
+            }
+
+            ; A sequence message: an arrow, and a `:` label after it. A class
+            ; relation can carry a label too, so this alone is worth less than
+            ; a keyword — it is the tie-breaker, not the verdict.
+            if (PlantUmlReader.looksLikeMessage(line)) { seq = (seq + 1) }
+
+            ; `nwdiag {` is its own program inside `@startuml`.
+            if (PlantUmlText.opensWith(line "nwdiag")) { return "nwdiag" }
+        }
+        def best:string ""
+        def score:int 0
+        if (cls > score) {
+            best = "class"
+            score = cls
+        }
+        if (desc > score) {
+            best = "description"
+            score = desc
+        }
+        if (state > score) {
+            best = "state"
+            score = state
+        }
+        if (act > score) {
+            best = "activity"
+            score = act
+        }
+        if (timing > score) {
+            best = "timing"
+            score = timing
+        }
+        if (seq > score) {
+            best = "sequence"
+            score = seq
+        }
+        if (score == 0) {
+            ; Nothing claimed it, so PlantUML's own first parser gets it.
+            return "sequence"
+        }
+        return best
+    }
+
+    ; `A -> B : text`, in any of the arrow spellings a sequence diagram has,
+    ; and not `A --> B` on its own, which four other dialects also write.
+    sfn looksLikeMessage:boolean (line:string) {
+        def colon:int (PlantUmlText.indexOfCode(line 58))
+        if (colon < 1) {
+            return false
+        }
+        def head:string (substring line 0 colon)
+        if (PlantUmlText.hasSub(head "->>")) { return true }
+        if (PlantUmlText.hasSub(head "<<-")) { return true }
+        if (PlantUmlText.hasSub(head "->x")) { return true }
+        if (PlantUmlText.hasSub(head "->o")) { return true }
+        if (PlantUmlText.hasSub(head "\\-")) { return true }
+        if (PlantUmlText.hasSub(head "-\\")) { return true }
+        if (PlantUmlText.hasSub(head "//-")) { return true }
+        if (PlantUmlText.hasSub(head "-//")) { return true }
+        ; A single-dash arrow is a sequence message and nothing else: every
+        ; other dialect draws its links with two.
+        def at:int (PlantUmlText.indexOfSub(head "->" 0))
+        if (at > 0) {
+            if ((charAt head (at - 1)) != 45) {
+                return true
+            }
+        }
+        def back:int (PlantUmlText.indexOfSub(head "<-" 0))
+        if (back >= 0) {
+            def after:int (back + 2)
+            if (after >= (strlen head)) {
+                return true
+            }
+            if ((charAt head after) != 45) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; `A -- B`, `A .. B`: a link with no head at either end. PlantUML reads
+    ; that as a class association, and a `:` label does not change it.
+    sfn headlessLink:boolean (line:string) {
+        if (PlantUmlText.hasSub(line ">")) { return false }
+        if (PlantUmlText.hasSub(line "<")) { return false }
+        def colon:int (PlantUmlText.indexOfCode(line 58))
+        def head:string line
+        if (colon > 0) {
+            head = (substring line 0 colon)
+        }
+        if (PlantUmlText.hasSub(head "--")) { return true }
+        if (PlantUmlText.hasSub(head "..")) { return true }
+        return false
+    }
+
+    ; `[Component] --> [Other]` and `(Use case)`: the two bracket notations
+    ; that make a body a description diagram whatever else is in it.
+    sfn bracketEntity:boolean (line:string) {
+        def n:int (strlen line)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt line i)
+            ; `[` immediately followed by a letter, and a `]` after it — not
+            ; `[*]`, which belongs to the state machine.
+            if (c == 91) {
+                if ((i + 1) < n) {
+                    def nx:int (charAt line (i + 1))
+                    if (PlantUmlReader.isLetterCode(nx)) {
+                        def close:int (PlantUmlText.indexOfSub(line "]" (i + 1)))
+                        if (close > 0) {
+                            return true
+                        }
+                    }
+                }
+            }
+            if (c == 40) {
+                if ((i + 1) < n) {
+                    def nx2:int (charAt line (i + 1))
+                    if (PlantUmlReader.isLetterCode(nx2)) {
+                        def close2:int (PlantUmlText.indexOfSub(line ")" (i + 1)))
+                        if (close2 > 0) {
+                            return true
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn isLetterCode:boolean (c:int) {
+        if (c >= 65) {
+            if (c <= 90) {
+                return true
+            }
+        }
+        if (c >= 97) {
+            if (c <= 122) {
+                return true
+            }
+        }
+        return false
+    }
+}

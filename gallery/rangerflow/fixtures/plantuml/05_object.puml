@@ -1,0 +1,12 @@
+@startuml
+object order1 {
+  id = 4711
+  total = 89.90
+}
+object customer1 {
+  name = "Aino"
+}
+object line1
+customer1 --> order1 : placed
+order1 *-- line1
+@enduml

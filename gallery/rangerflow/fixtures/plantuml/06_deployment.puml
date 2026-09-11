@@ -1,0 +1,15 @@
+@startuml
+node "app server" {
+  artifact "shop.war" as WAR
+  component [Runtime] as RT
+}
+node "db server" {
+  database "orders" as ODB
+}
+folder "backups" {
+  file "nightly.dump" as DUMP
+}
+WAR --> RT
+RT --> ODB
+ODB ..> DUMP : dumped to
+@enduml

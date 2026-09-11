@@ -41,6 +41,8 @@ Import "../domains/mermaid/MermaidTimelineReader.rgr"
 Import "../domains/mermaid/MermaidJourneyReader.rgr"
 Import "../domains/mermaid/MermaidGanttReader.rgr"
 Import "../domains/mermaid/MermaidSequenceReader.rgr"
+Import "../domains/plantuml/PlantUmlSequenceReader.rgr"
+Import "../domains/plantuml/PlantUmlEntityReader.rgr"
 Import "../domains/mermaid/MermaidGitReader.rgr"
 Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
@@ -80,6 +82,7 @@ class RangerFlowDemo {
         def mode:string "erd"
         def benchSize:int 0
         def mermaidPath:string "gallery/rangerflow/fixtures/order_flow.mmd"
+        def plantumlPath:string "gallery/rangerflow/fixtures/order_flow.puml"
         def styleName:string ""
         def restyle:boolean false
         def argCount:int (shell_arg_cnt)
@@ -97,6 +100,16 @@ class RangerFlowDemo {
                     def given:string (shell_arg (i + 1))
                     if ((charAt given 0) != 45) {
                         mermaidPath = given
+                    }
+                }
+            }
+            if (a == "--plantuml") {
+                mode = "plantuml"
+                plantumlPath = "gallery/rangerflow/fixtures/order_flow.puml"
+                if ((i + 1) < argCount) {
+                    def givenP:string (shell_arg (i + 1))
+                    if ((charAt givenP 0) != 45) {
+                        plantumlPath = givenP
                     }
                 }
             }
@@ -122,6 +135,7 @@ class RangerFlowDemo {
         if (mode == "drag")  { d.runDrag() }
         if (mode == "flowchart") { d.runFlowchart() }
         if (mode == "mermaid")   { d.runMermaid(mermaidPath styleName restyle) }
+        if (mode == "plantuml")  { d.runPlantUml(plantumlPath styleName) }
         if (mode == "org")       { d.runOrg() }
         if (mode == "process")   { d.runProcess() }
     }
@@ -847,13 +861,13 @@ class RangerFlowDemo {
 
     ; A sequence diagram: the participants across the page, time down it.
     fn runMermaidSequence:void (src:string styleName:string) {
-        def sd:MermaidSequence (MermaidSequenceReader.parse(src))
+        def sd:SeqDiagram (MermaidSequenceReader.parse(src))
         if ((sd.actorCount()) == 0) {
             print "  no participants in that sequence diagram"
             return
         }
         def style:FlowStyle (this.styleByName(styleName))
-        def g:FlowGraph (MermaidSequenceFlow.build(sd style))
+        def g:FlowGraph (SeqDiagramFlow.build(sd style))
         print ("  model  " + (to_string (sd.actorCount())) + " participants, " + (to_string (sd.messageCount())) + " messages, " + (to_string (sd.blockCount())) + " blocks")
         print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
         def v:FlowView (FlowView.of(g))
@@ -864,6 +878,91 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid sequence diagram"
         }
         this.writeAll(v g "rangerflow-mermaid-sequence" title)
+    }
+
+    ; ---------------------------------------------------------- PlantUML ----
+    ; PlantUML in, the same drawing out.
+    ;
+    ; `@startuml` says nothing about which diagram this is, so the reader looks
+    ; at the body and decides. What it decides is printed: a reader that guesses
+    ; wrong should be visibly wrong rather than quietly drawing four
+    ; participants that were meant to be classes.
+    fn runPlantUml:void (path:string styleName:string) {
+        print "== RangerFlow: PlantUML =="
+        def srcOpt:string (?? (read_file "." path) "")
+        if ((strlen srcOpt) == 0) {
+            print ("  could not read " + path)
+            return
+        }
+        def doc:PlantUmlSource (PlantUmlReader.read(srcOpt))
+        def opener:string doc.opener
+        if ((strlen opener) == 0) {
+            opener = "(no @start)"
+        }
+        print ("  read   " + path + " — " + opener + ", " + (to_string (doc.lineCount())) + " statements")
+        def drops:int (doc.directiveCount())
+        if (drops > 0) {
+            print ("  note   " + (to_string drops) + " preprocessor directives read and dropped")
+        }
+        print ("  kind   " + doc.kind)
+        if (doc.kind == "sequence") {
+            this.runPlantUmlSequence(srcOpt styleName)
+            return
+        }
+        if (doc.kind == "class") {
+            this.runPlantUmlEntity(srcOpt styleName "rangerflow-plantuml-class" "RangerFlow — PlantUML class diagram")
+            return
+        }
+        if (doc.kind == "description") {
+            this.runPlantUmlEntity(srcOpt styleName "rangerflow-plantuml-description" "RangerFlow — PlantUML component diagram")
+            return
+        }
+        print ("  RangerFlow reads a PlantUML " + doc.kind + " diagram but does not draw one yet")
+    }
+
+    ; A sequence diagram: who across the page, when down it. The placement is
+    ; `SeqDiagramFlow` in `core/` — the same one the Mermaid reader feeds.
+    fn runPlantUmlSequence:void (src:string styleName:string) {
+        def sd:SeqDiagram (PlantUmlSequenceReader.parse(src))
+        if ((sd.actorCount()) == 0) {
+            print "  no participants in that sequence diagram"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (SeqDiagramFlow.build(sd style))
+        print ("  model  " + (to_string (sd.actorCount())) + " participants, " + (to_string (sd.messageCount())) + " messages, " + (to_string (sd.noteCount())) + " notes, " + (to_string (sd.blockCount())) + " blocks")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string sd.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — PlantUML sequence diagram"
+        }
+        this.writeAll(v g "rangerflow-plantuml-sequence" title)
+    }
+
+    ; The entity family: class, object, component, deployment, use case and
+    ; ArchiMate, which are one grammar with a different shape drawn for each
+    ; keyword. One reader, one layout, six diagram types.
+    fn runPlantUmlEntity:void (src:string styleName:string stem:string title:string) {
+        def d:PlantUmlEntityModel (PlantUmlEntityReader.parse(src))
+        if ((d.entityCount()) == 0) {
+            print "  nothing declared in that diagram"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (PlantUmlEntityFlow.build(d style))
+        print ("  model  " + (to_string (d.entityCount())) + " entities, " + (to_string (d.linkCount())) + " links, " + (to_string (d.groupCount())) + " packages, " + (to_string (d.memberCount())) + " members")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges, laid out " + d.direction)
+        def v:FlowView (FlowView.of(g))
+        v.notation = "uml"
+        style.applyToTheme(v.theme)
+        def what:string d.title
+        if ((strlen what) == 0) {
+            what = title
+        }
+        this.writeAll(v g stem what)
     }
 
     ; A git graph: the commits in the order they happened, one row per branch.

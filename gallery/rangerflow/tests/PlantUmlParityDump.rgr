@@ -1,0 +1,254 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PlantUmlParityDump.rgr — what RangerFlow's reader made of PlantUML's files.
+; ============================================================================
+;
+;   npm run rangerflow:plantuml:parity
+;   → gallery/rangerflow/harness/out/rangerflow_plantuml.json
+;
+; The corpus is `fixtures/plantuml/`, and the files are handed in as arguments
+; rather than discovered here: Ranger has no directory listing, and a list
+; written into this file is a list that goes stale the day somebody adds an
+; example.
+;
+; Nothing is laid out and nothing is drawn. What is dumped is what the READER
+; understood — the diagram's kind, its entities, its clusters, its links, its
+; participants and its messages — because that is the half PlantUML can
+; disagree with. Where the diagram goes on the page is RangerFlow's own
+; business and PlantUML has no opinion about it.
+; ============================================================================
+
+Import "../domains/plantuml/PlantUmlSequenceReader.rgr"
+Import "../domains/plantuml/PlantUmlEntityReader.rgr"
+
+class PlantUmlParityDump {
+    sfn main:void () {
+        def out:string "{\n \"diagrams\": [\n"
+        def count:int (shell_arg_cnt)
+        def written:int 0
+        def i:int 0
+        while (i < count) {
+            def path:string (shell_arg i)
+            if ((PlantUmlParityDump.isDiagram(path))) {
+                if (written > 0) {
+                    out = (out + ",\n")
+                }
+                out = (out + (PlantUmlParityDump.dumpOne(path)))
+                written = (written + 1)
+            }
+            i = (i + 1)
+        }
+        out = (out + "\n ],\n")
+        ; What this reader makes of every `@start` word PlantUML has. The names
+        ; are handed in by the meter, which reads them out of the installed
+        ; PlantUML, so a diagram type added upstream shows up here as one this
+        ; reader has never heard of.
+        out = (out + " \"openers\": [\n")
+        def listed:int 0
+        def k:int 0
+        while (k < count) {
+            def arg:string (shell_arg k)
+            if ((PlantUmlParityDump.isOpener(arg))) {
+                def name:string (substring arg 9 (strlen arg))
+                if (listed > 0) {
+                    out = (out + ",\n")
+                }
+                out = (out + (PlantUmlParityDump.dumpOpener(name)))
+                listed = (listed + 1)
+            }
+            k = (k + 1)
+        }
+        out = (out + "\n ]\n}\n")
+        write_file "." "gallery/rangerflow/harness/out/rangerflow_plantuml.json" out
+        print ("  rangerflow reader: " + (to_string written) + " diagrams → gallery/rangerflow/harness/out/rangerflow_plantuml.json")
+    }
+
+    sfn isOpener:boolean (arg:string) {
+        if ((strlen arg) <= 9) {
+            return false
+        }
+        return ((substring arg 0 9) == "--opener=")
+    }
+
+    sfn dumpOpener:string (name:string) {
+        def kind:string (PlantUmlReader.openerKind(name))
+        def out:string "  {"
+        out = (out + "\"opener\": \"" + (PlantUmlParityDump.esc(name)) + "\"")
+        out = (out + ", \"kind\": \"" + kind + "\"")
+        out = (out + ", \"draws\": " + (to_string (PlantUmlReader.draws(kind))) + "}")
+        return out
+    }
+
+    sfn isDiagram:boolean (path:string) {
+        def n:int (strlen path)
+        if (n < 6) {
+            return false
+        }
+        return ((substring path (n - 5) n) == ".puml")
+    }
+
+    sfn dumpOne:string (path:string) {
+        def src:string (?? (read_file "." path) "")
+        def doc:PlantUmlSource (PlantUmlReader.read(src))
+        def out:string "  {\n"
+        out = ((out + "   \"file\": \"") + (PlantUmlParityDump.baseName(path)) + "\",\n")
+        out = ((out + "   \"kind\": \"") + doc.kind + "\",\n")
+        out = ((out + "   \"opener\": \"") + doc.opener + "\",\n")
+        out = ((out + "   \"draws\": ") + (to_string (PlantUmlReader.draws(doc.kind))) + ",\n")
+        out = ((out + "   \"directives\": ") + (to_string (doc.directiveCount())) + ",\n")
+        if (doc.kind == "sequence") {
+            out = (out + (PlantUmlParityDump.dumpSequence(src)))
+        }
+        def entityish:boolean false
+        if (doc.kind == "class") {
+            entityish = true
+        }
+        if (doc.kind == "description") {
+            entityish = true
+        }
+        if entityish {
+            out = (out + (PlantUmlParityDump.dumpEntities(src)))
+        }
+        if (entityish == false) {
+            if (doc.kind != "sequence") {
+                out = (out + "   \"entities\": [], \"clusters\": [], \"links\": [], \"notes\": 0, \"participants\": [], \"messages\": []\n")
+            }
+        }
+        out = (out + "  }")
+        return out
+    }
+
+    sfn dumpSequence:string (src:string) {
+        def d:SeqDiagram (PlantUmlSequenceReader.parse(src))
+        def out:string "   \"entities\": [], \"clusters\": [], \"links\": [], \"notes\": 0,\n"
+        out = (out + "   \"participants\": [")
+        def i:int 0
+        while (i < (array_length d.actors)) {
+            def a:SeqActor (itemAt d.actors i)
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            out = (out + "\"" + (PlantUmlParityDump.esc(a.id)) + "\"")
+            i = (i + 1)
+        }
+        out = (out + "],\n")
+        out = (out + "   \"messages\": [")
+        def written:int 0
+        def k:int 0
+        while (k < (array_length d.steps)) {
+            def st:SeqStep (itemAt d.steps k)
+            k = (k + 1)
+            if (st.kind != "message") {
+                continue
+            }
+            if (written > 0) {
+                out = (out + ", ")
+            }
+            out = (out + "{\"source\": \"" + (PlantUmlParityDump.esc(st.source)) + "\"")
+            out = (out + ", \"target\": \"" + (PlantUmlParityDump.esc(st.target)) + "\"")
+            out = (out + ", \"text\": \"" + (PlantUmlParityDump.esc(st.text)) + "\"")
+            out = (out + ", \"stroke\": \"" + st.stroke + "\"")
+            out = (out + ", \"head\": \"" + st.head + "\"}")
+            written = (written + 1)
+        }
+        out = (out + "]\n")
+        return out
+    }
+
+    sfn dumpEntities:string (src:string) {
+        def d:PlantUmlEntityModel (PlantUmlEntityReader.parse(src))
+        def out:string "   \"entities\": ["
+        def i:int 0
+        while (i < (array_length d.entities)) {
+            def e:PlantUmlEntity (itemAt d.entities i)
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            out = (out + "{\"id\": \"" + (PlantUmlParityDump.esc(e.id)) + "\"")
+            out = (out + ", \"name\": \"" + (PlantUmlParityDump.esc(e.name)) + "\"")
+            out = (out + ", \"keyword\": \"" + e.keyword + "\"")
+            out = (out + ", \"parent\": \"" + (PlantUmlParityDump.esc(e.parent)) + "\"")
+            out = (out + ", \"members\": " + (to_string (e.memberCount())) + "}")
+            i = (i + 1)
+        }
+        out = (out + "],\n")
+        out = (out + "   \"clusters\": [")
+        def c:int 0
+        while (c < (array_length d.groups)) {
+            def gr:PlantUmlGroup (itemAt d.groups c)
+            if (c > 0) {
+                out = (out + ", ")
+            }
+            out = (out + "\"" + (PlantUmlParityDump.esc(gr.id)) + "\"")
+            c = (c + 1)
+        }
+        out = (out + "],\n")
+        out = (out + "   \"links\": [")
+        def k:int 0
+        while (k < (array_length d.links)) {
+            def l:PlantUmlLink (itemAt d.links k)
+            if (k > 0) {
+                out = (out + ", ")
+            }
+            out = (out + "{\"source\": \"" + (PlantUmlParityDump.esc(l.source)) + "\"")
+            out = (out + ", \"target\": \"" + (PlantUmlParityDump.esc(l.target)) + "\"")
+            out = (out + ", \"kind\": \"" + l.kind + "\"")
+            out = (out + ", \"label\": \"" + (PlantUmlParityDump.esc(l.label)) + "\"}")
+            k = (k + 1)
+        }
+        out = (out + "],\n")
+        out = (out + "   \"notes\": " + (to_string (d.noteCount())) + ",\n")
+        out = (out + "   \"participants\": [], \"messages\": []\n")
+        return out
+    }
+
+    sfn baseName:string (path:string) {
+        def cut:int -1
+        def i:int 0
+        while (i < (strlen path)) {
+            def c:int (charAt path i)
+            if (c == 47) {
+                cut = i
+            }
+            if (c == 92) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return path
+        }
+        return (substring path (cut + 1) (strlen path))
+    }
+
+    sfn esc:string (t:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            i = (i + 1)
+            if (c == 34) {
+                out = (out + "\\\"")
+                continue
+            }
+            if (c == 92) {
+                out = (out + "\\\\")
+                continue
+            }
+            if (c == 10) {
+                out = (out + "\\n")
+                continue
+            }
+            if (c == 13) {
+                continue
+            }
+            if (c == 9) {
+                out = (out + " ")
+                continue
+            }
+            out = (out + (strfromcode c))
+        }
+        return out
+    }
+}

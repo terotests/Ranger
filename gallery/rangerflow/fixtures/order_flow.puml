@@ -1,0 +1,39 @@
+@startuml
+title Order checkout
+
+actor "Customer" as C
+participant "Storefront" as SF
+participant "Order API" as API
+database "Postgres" as DB
+participant "Payment gateway" as PG
+
+autonumber
+
+C -> SF: Place order
+activate SF
+SF -> API: POST /orders
+activate API
+API -> DB: INSERT order
+DB --> API: order id
+
+alt credit approved
+    API -> PG: authorise
+    activate PG
+    PG --> API: approved
+    deactivate PG
+    API -> DB: UPDATE status = paid
+else declined
+    API -> PG: authorise
+    PG --> API: declined
+    note right of API
+        The order is kept,
+        the reservation is not.
+    end note
+end
+
+API --> SF: 201 Created
+deactivate API
+SF --> C: Confirmation
+deactivate SF
+
+@enduml

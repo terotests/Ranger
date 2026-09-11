@@ -34,6 +34,8 @@ Import "../domains/mermaid/MermaidTimelineReader.rgr"
 Import "../domains/mermaid/MermaidJourneyReader.rgr"
 Import "../domains/mermaid/MermaidGanttReader.rgr"
 Import "../domains/mermaid/MermaidSequenceReader.rgr"
+Import "../domains/plantuml/PlantUmlSequenceReader.rgr"
+Import "../domains/plantuml/PlantUmlEntityReader.rgr"
 Import "../domains/mermaid/MermaidGitReader.rgr"
 Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
@@ -78,8 +80,12 @@ class RangerFlowWeb {
     def fixtureSql:string ""
     ; The last Mermaid source rendered, and the look it was rendered in. Kept
     ; so changing the look is a re-render rather than a re-type.
-    def mermaidText:string ""
-    def mermaidStyle:string "default"
+    def sourceText:string ""
+    def sourceStyle:string "default"
+    ; Which reader the source panel's text belongs to: "mermaid" or "plantuml".
+    ; The panel is one textarea and the two formats share it, so a re-render —
+    ; a style change, say — has to know which reader wrote what is on screen.
+    def sourceFormat:string "mermaid"
     ; Whether the viewer has taken the wheel. Until then a running simulation
     ; is allowed to reframe itself; after that it must not move under them.
     def userMoved:boolean false
@@ -334,8 +340,14 @@ class RangerFlowWeb {
             return (this.loadAtkChart())
         }
         if (name == "mermaid") {
+            sourceFormat = "mermaid"
             def sample:string (RangerFlowWeb.sampleMermaid())
-            return (this.loadMermaidStyled(sample mermaidStyle))
+            return (this.loadMermaidStyled(sample sourceStyle))
+        }
+        if (name == "plantuml") {
+            sourceFormat = "plantuml"
+            def puml:string (RangerFlowWeb.samplePlantUml())
+            return (this.loadPlantUmlStyled(puml sourceStyle))
         }
         if (name == "org") {
             return (this.loadOrgChart())
@@ -633,19 +645,111 @@ class RangerFlowWeb {
     ; pipeline does the layout, and the editor does not know where the graph
     ; came from.
     fn loadMermaid:boolean (text:string) {
-        return (this.loadMermaidStyled(text mermaidStyle))
+        return (this.loadMermaidStyled(text sourceStyle))
     }
 
     ; The same source in another look. A stylesheet cannot change what the
     ; diagram says, so this re-reads and re-lays-out rather than trying to
     ; repaint in place — at these sizes it is a few milliseconds, and the
     ; alternative is a second code path that can disagree with the first.
-    fn setMermaidStyle:boolean (name:string) {
-        mermaidStyle = name
-        if ((strlen mermaidText) == 0) {
+    fn setSourceStyle:boolean (name:string) {
+        sourceStyle = name
+        if ((strlen sourceText) == 0) {
             return false
         }
-        return (this.loadMermaidStyled(mermaidText name))
+        return (this.loadDiagram(sourceText name))
+    }
+
+    ; The panel's render button. One textarea, two formats, and the format is
+    ; whatever the scenario dropdown last chose — not sniffed from the text,
+    ; because a reader guessing at the format on every keystroke would turn a
+    ; half-typed `@startuml` into a Mermaid flowchart.
+    fn loadDiagram:boolean (text:string styleName:string) {
+        if (sourceFormat == "plantuml") {
+            return (this.loadPlantUmlStyled(text styleName))
+        }
+        return (this.loadMermaidStyled(text styleName))
+    }
+
+    fn setSourceFormat:void (name:string) {
+        sourceFormat = name
+    }
+
+    ; ------------------------------------------------------------- PlantUML --
+    ; `@startuml` says nothing about which diagram this is, so the reader looks
+    ; at the body and decides. Three of the families it can name are drawn; the
+    ; rest are named in the status line rather than drawn wrong.
+    fn loadPlantUmlStyled:boolean (text:string styleName:string) {
+        def doc:PlantUmlSource (PlantUmlReader.read(text))
+        def want:string styleName
+        if ((strlen want) == 0) {
+            want = "default"
+        }
+        if (doc.kind == "sequence") {
+            return (this.loadPlantUmlSequence(text styleName want))
+        }
+        if (doc.kind == "class") {
+            return (this.loadPlantUmlEntity(text styleName want "class diagram"))
+        }
+        if (doc.kind == "description") {
+            return (this.loadPlantUmlEntity(text styleName want "component diagram"))
+        }
+        status = ("RangerFlow reads a PlantUML " + doc.kind + " diagram but does not draw one yet")
+        return false
+    }
+
+    ; A sequence diagram: who across the page, when down it. Placed rather than
+    ; laid out — the same `SeqDiagramFlow` the Mermaid reader feeds.
+    fn loadPlantUmlSequence:boolean (text:string styleName:string want:string) {
+        def sd:SeqDiagram (PlantUmlSequenceReader.parse(text))
+        if ((sd.actorCount()) == 0) {
+            status = "no participants in that sequence diagram"
+            return false
+        }
+        sourceText = text
+        sourceStyle = styleName
+        sourceFormat = "plantuml"
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (SeqDiagramFlow.build(sd style))
+        this.adoptPlaced(g style want)
+        def what:string sd.title
+        if ((strlen what) == 0) {
+            what = "PlantUML sequence diagram"
+        }
+        status = ((to_string (sd.actorCount())) + " participants, " + (to_string (sd.messageCount())) + " messages — " + what + ", " + want)
+        return true
+    }
+
+    ; The entity family — class, object, component, deployment, use case and
+    ; ArchiMate — which are one grammar with a different shape per keyword.
+    fn loadPlantUmlEntity:boolean (text:string styleName:string want:string kindName:string) {
+        def d:PlantUmlEntityModel (PlantUmlEntityReader.parse(text))
+        if ((d.entityCount()) == 0) {
+            status = "nothing declared in that diagram"
+            return false
+        }
+        sourceText = text
+        sourceStyle = styleName
+        sourceFormat = "plantuml"
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (PlantUmlEntityFlow.build(d style))
+        this.adopt(g)
+        editor.view.notation = "uml"
+        layoutName = "layered"
+        simRunning = false
+        editor.pinWhileDragging = false
+        style.applyToTheme(editor.view.theme)
+        if (want == "dark") {
+            editor.view.theme.name = "dark"
+        } {
+            editor.view.theme.name = "light"
+        }
+        def what:string d.title
+        if ((strlen what) == 0) {
+            what = ("PlantUML " + kindName)
+        }
+        status = ((to_string (d.entityCount())) + " entities, " + (to_string (d.linkCount())) + " links, " + (to_string (d.groupCount())) + " packages — " + what + ", " + want)
+        return true
     }
 
     fn loadMermaidStyled:boolean (text:string styleName:string) {
@@ -762,8 +866,8 @@ class RangerFlowWeb {
             }
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidFlow.styled(d style))
         this.adopt(g)
@@ -796,8 +900,8 @@ class RangerFlowWeb {
             status = "no classes in that class diagram"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidClassFlow.build(cd style))
         this.adopt(g)
@@ -828,8 +932,8 @@ class RangerFlowWeb {
             status = "no entities in that ER diagram"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidErFlow.build(ed style))
         this.adopt(g)
@@ -859,8 +963,8 @@ class RangerFlowWeb {
             status = "no states in that state diagram"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidStateFlow.build(sd style))
         this.adopt(g)
@@ -890,8 +994,8 @@ class RangerFlowWeb {
             status = "no nodes in that mind map"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidMindMapFlow.build(md style))
         this.adopt(g)
@@ -923,8 +1027,8 @@ class RangerFlowWeb {
             status = "no requirements in that diagram"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidRequirementFlow.build(rd style))
         this.adopt(g)
@@ -954,8 +1058,8 @@ class RangerFlowWeb {
             status = "no elements in that C4 diagram"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidC4Flow.build(cd style))
         this.adopt(g)
@@ -986,8 +1090,8 @@ class RangerFlowWeb {
             status = "no periods in that timeline"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidTimelineFlow.build(td style))
         this.adoptPlaced(g style want)
@@ -1005,8 +1109,8 @@ class RangerFlowWeb {
             status = "no tasks in that journey"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidJourneyFlow.build(jd style))
         this.adoptPlaced(g style want)
@@ -1026,8 +1130,8 @@ class RangerFlowWeb {
             status = "no tasks in that Gantt chart"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidGanttFlow.build(gd style))
         this.adoptPlaced(g style want)
@@ -1043,15 +1147,15 @@ class RangerFlowWeb {
     ; A sequence diagram: who across the page, when down it. Both axes carry
     ; meaning, so there is nothing for a layout to improve.
     fn loadMermaidSequence:boolean (text:string styleName:string want:string) {
-        def sd:MermaidSequence (MermaidSequenceReader.parse(text))
+        def sd:SeqDiagram (MermaidSequenceReader.parse(text))
         if ((sd.actorCount()) == 0) {
             status = "no participants in that sequence diagram"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
-        def g:FlowGraph (MermaidSequenceFlow.build(sd style))
+        def g:FlowGraph (SeqDiagramFlow.build(sd style))
         this.adoptPlaced(g style want)
         def what:string sd.title
         if ((strlen what) == 0) {
@@ -1069,8 +1173,8 @@ class RangerFlowWeb {
             status = "no commits in that git graph"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidGitFlow.build(gd style))
         this.adoptPlaced(g style want)
@@ -1089,8 +1193,8 @@ class RangerFlowWeb {
             status = "no columns in that board"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidKanbanFlow.build(kd style))
         this.adoptPlaced(g style want)
@@ -1109,8 +1213,8 @@ class RangerFlowWeb {
             status = "no points in that quadrant chart"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidQuadrantFlow.build(qd style))
         this.adoptPlaced(g style want)
@@ -1129,8 +1233,8 @@ class RangerFlowWeb {
             status = "no slices in that pie chart"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidPieFlow.build(pd style))
         this.adoptPlaced(g style want)
@@ -1149,8 +1253,8 @@ class RangerFlowWeb {
             status = "no series in that chart"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidXyFlow.build(xd style))
         this.adoptPlaced(g style want)
@@ -1169,8 +1273,8 @@ class RangerFlowWeb {
             status = "no time frames in that event model"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidEventModelFlow.build(em style))
         this.adoptPlaced(g style want)
@@ -1185,8 +1289,8 @@ class RangerFlowWeb {
             status = "nothing in that tree"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidTreeViewFlow.build(tv style))
         this.adoptPlaced(g style want)
@@ -1205,8 +1309,8 @@ class RangerFlowWeb {
             status = "nothing in that treemap"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidTreemapFlow.build(tm style))
         this.adoptPlaced(g style want)
@@ -1225,8 +1329,8 @@ class RangerFlowWeb {
             status = "no axes in that radar chart"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidRadarFlow.build(rd style))
         this.adoptPlaced(g style want)
@@ -1245,8 +1349,8 @@ class RangerFlowWeb {
             status = "no fields in that packet diagram"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidPacketFlow.build(pk style))
         this.adoptPlaced(g style want)
@@ -1267,8 +1371,8 @@ class RangerFlowWeb {
             status = "no flows in that Sankey diagram"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidSankeyFlow.build(sd style))
         this.adoptPlaced(g style want)
@@ -1287,8 +1391,8 @@ class RangerFlowWeb {
             status = "no blocks in that diagram"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidBlockFlow.build(bd style))
         this.adoptPlaced(g style want)
@@ -1308,8 +1412,8 @@ class RangerFlowWeb {
             status = "no services in that architecture diagram"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidArchFlow.build(ad style))
         this.adoptPlaced(g style want)
@@ -1329,8 +1433,8 @@ class RangerFlowWeb {
             status = "no steps in that swimlane diagram"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidSwimlaneFlow.build(sd style))
         this.adoptPlaced(g style want)
@@ -1350,8 +1454,8 @@ class RangerFlowWeb {
             status = "nothing placed in that Cynefin framework"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidCynefinFlow.build(cd style))
         this.adoptPlaced(g style want)
@@ -1370,8 +1474,8 @@ class RangerFlowWeb {
             status = "no causes in that fishbone"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidIshikawaFlow.build(fd style))
         this.adoptPlaced(g style want)
@@ -1386,8 +1490,8 @@ class RangerFlowWeb {
             status = "no sets in that Venn diagram"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidVennFlow.build(vd style))
         this.adoptPlaced(g style want)
@@ -1406,8 +1510,8 @@ class RangerFlowWeb {
             status = "nothing on that map"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidWardleyFlow.build(wd style))
         this.adoptPlaced(g style want)
@@ -1426,8 +1530,8 @@ class RangerFlowWeb {
             status = "no rules in that grammar"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidRailroadFlow.build(rd style))
         this.adoptPlaced(g style want)
@@ -1449,8 +1553,8 @@ class RangerFlowWeb {
             status = "that is not an info diagram"
             return false
         }
-        mermaidText = text
-        mermaidStyle = styleName
+        sourceText = text
+        sourceStyle = styleName
         this.adoptPlaced(g style want)
         status = (id.text + ", " + want)
         return true
@@ -1470,6 +1574,277 @@ class RangerFlowWeb {
         } {
             editor.view.theme.name = "light"
         }
+    }
+
+    ; ------------------------------------------------------------ examples --
+    ; The example dropdown, for whichever format the scenario chose.
+    ;
+    ; One string rather than a list, because this is read across the JS bridge
+    ; and a string survives it without a wrapper on either side: entries are
+    ; separated by `|`, and an entry's id from its label by a tab.
+    sfn sampleList:string (format:string) {
+        if (format == "plantuml") {
+            ; The class diagram opens the panel rather than the sequence one:
+            ; a sequence diagram is PLACED — who across, when down — so its
+            ; parts are not draggable, and a demo whose first move is to drag
+            ; something should open on something that moves.
+            def p:string "class\tclass diagram"
+            p = (p + "|sequence\tsequence diagram")
+            p = (p + "|component\tcomponent diagram")
+            p = (p + "|usecase\tuse case diagram")
+            p = (p + "|deployment\tdeployment diagram")
+            p = (p + "|object\tobject diagram")
+            return p
+        }
+        def m:string "flowchart\tflowchart"
+        m = (m + "|sequence\tsequence diagram")
+        m = (m + "|class\tclass diagram")
+        m = (m + "|state\tstate diagram")
+        m = (m + "|er\tER diagram")
+        m = (m + "|mindmap\tmind map")
+        m = (m + "|gantt\tGantt chart")
+        m = (m + "|pie\tpie chart")
+        return m
+    }
+
+    sfn sampleText:string (format:string name:string) {
+        if (format == "plantuml") {
+            return (RangerFlowWeb.plantUmlSample(name))
+        }
+        return (RangerFlowWeb.mermaidSample(name))
+    }
+
+    sfn mermaidSample:string (name:string) {
+        if (name == "sequence") {
+            def t:string "sequenceDiagram\n"
+            t = (t + "    autonumber\n")
+            t = (t + "    actor Asiakas\n")
+            t = (t + "    participant Kauppa\n")
+            t = (t + "    participant Pankki\n")
+            t = (t + "    Asiakas->>Kauppa: tee tilaus\n")
+            t = (t + "    Kauppa->>+Pankki: varmenna maksu\n")
+            t = (t + "    Pankki-->>-Kauppa: hyväksytty\n")
+            t = (t + "    Note over Kauppa,Pankki: mitään ei ole vielä veloitettu\n")
+            t = (t + "    Kauppa->>Asiakas: vahvistus\n")
+            return t
+        }
+        if (name == "class") {
+            def t2:string "classDiagram\n"
+            t2 = (t2 + "    class Tilaus {\n")
+            t2 = (t2 + "        +int id\n")
+            t2 = (t2 + "        +Date luotu\n")
+            t2 = (t2 + "        +summa() float\n")
+            t2 = (t2 + "    }\n")
+            t2 = (t2 + "    class Rivi {\n")
+            t2 = (t2 + "        +string tuote\n")
+            t2 = (t2 + "        +int kpl\n")
+            t2 = (t2 + "    }\n")
+            t2 = (t2 + "    class Asiakas\n")
+            t2 = (t2 + "    Asiakas \"1\" --> \"*\" Tilaus : tekee\n")
+            t2 = (t2 + "    Tilaus *-- Rivi\n")
+            return t2
+        }
+        if (name == "state") {
+            def t3:string "stateDiagram-v2\n"
+            t3 = (t3 + "    [*] --> Vapaa\n")
+            t3 = (t3 + "    Vapaa --> Varattu : varaa\n")
+            t3 = (t3 + "    Varattu --> Maksettu : maksa\n")
+            t3 = (t3 + "    Varattu --> Vapaa : peruuta\n")
+            t3 = (t3 + "    Maksettu --> [*]\n")
+            return t3
+        }
+        if (name == "er") {
+            def t4:string "erDiagram\n"
+            t4 = (t4 + "    ASIAKAS ||--o{ TILAUS : tekee\n")
+            t4 = (t4 + "    TILAUS ||--|{ RIVI : sisaltaa\n")
+            t4 = (t4 + "    TUOTE ||--o{ RIVI : esiintyy\n")
+            t4 = (t4 + "    ASIAKAS {\n")
+            t4 = (t4 + "        int id\n")
+            t4 = (t4 + "        string nimi\n")
+            t4 = (t4 + "    }\n")
+            return t4
+        }
+        if (name == "mindmap") {
+            def t5:string "mindmap\n"
+            t5 = (t5 + "  root((RangerFlow))\n")
+            t5 = (t5 + "    lukijat\n")
+            t5 = (t5 + "      Mermaid\n")
+            t5 = (t5 + "      PlantUML\n")
+            t5 = (t5 + "    piirto\n")
+            t5 = (t5 + "      WebGL\n")
+            t5 = (t5 + "      SVG\n")
+            t5 = (t5 + "      PDF\n")
+            return t5
+        }
+        if (name == "gantt") {
+            def t6:string "gantt\n"
+            t6 = (t6 + "    title Julkaisu\n")
+            t6 = (t6 + "    dateFormat YYYY-MM-DD\n")
+            t6 = (t6 + "    section Suunnittelu\n")
+            t6 = (t6 + "    Luonnos      :a1, 2026-01-05, 5d\n")
+            t6 = (t6 + "    Katselmointi :a2, after a1, 3d\n")
+            t6 = (t6 + "    section Toteutus\n")
+            t6 = (t6 + "    Lukija       :b1, after a2, 10d\n")
+            t6 = (t6 + "    Testit       :b2, after b1, 4d\n")
+            return t6
+        }
+        if (name == "pie") {
+            def t7:string "pie showData\n"
+            t7 = (t7 + "    title Mihin aika menee\n")
+            t7 = (t7 + "    \"Lukija\" : 45\n")
+            t7 = (t7 + "    \"Asettelu\" : 30\n")
+            t7 = (t7 + "    \"Piirto\" : 15\n")
+            t7 = (t7 + "    \"Muu\" : 10\n")
+            return t7
+        }
+        return (RangerFlowWeb.sampleMermaid())
+    }
+
+    sfn plantUmlSample:string (name:string) {
+        if (name == "class") {
+            def t:string "@startuml\n"
+            t = (t + "package \"tilaukset\" {\n")
+            t = (t + "  abstract class Tilaus {\n")
+            t = (t + "    +id: int\n")
+            t = (t + "    #luotu: Date\n")
+            t = (t + "    {abstract} +summa(): Raha\n")
+            t = (t + "  }\n")
+            t = (t + "  class Verkkotilaus\n")
+            t = (t + "  class Rivi {\n")
+            t = (t + "    +tuote: string\n")
+            t = (t + "    +kpl: int\n")
+            t = (t + "  }\n")
+            t = (t + "}\n")
+            t = (t + "package \"laskutus\" {\n")
+            t = (t + "  interface Maksettava {\n")
+            t = (t + "    +veloita(summa: Raha): Kuitti\n")
+            t = (t + "  }\n")
+            t = (t + "}\n")
+            t = (t + "class Asiakas\n")
+            t = (t + "Tilaus <|-- Verkkotilaus\n")
+            t = (t + "Tilaus *-- \"1..*\" Rivi : sisältää\n")
+            t = (t + "Asiakas \"1\" o-- \"monta\" Tilaus : tekee\n")
+            t = (t + "Tilaus ..|> Maksettava\n")
+            return t
+        }
+        if (name == "component") {
+            def t2:string "@startuml\n"
+            t2 = (t2 + "actor Asiakas\n")
+            t2 = (t2 + "package \"reuna\" {\n")
+            t2 = (t2 + "  [Verkkokauppa] as SF\n")
+            t2 = (t2 + "  [Ylläpito] as AC\n")
+            t2 = (t2 + "}\n")
+            t2 = (t2 + "node \"klusteri\" {\n")
+            t2 = (t2 + "  [Tilaus-API] as API\n")
+            t2 = (t2 + "  [Toimitus] as FUL\n")
+            t2 = (t2 + "  queue \"tapahtumat\" as Q\n")
+            t2 = (t2 + "}\n")
+            t2 = (t2 + "database \"Postgres\" as DB\n")
+            t2 = (t2 + "cloud \"Maksunvälittäjä\" as PG\n")
+            t2 = (t2 + "Asiakas --> SF\n")
+            t2 = (t2 + "SF --> API\n")
+            t2 = (t2 + "AC --> API\n")
+            t2 = (t2 + "API --> DB\n")
+            t2 = (t2 + "API --> Q\n")
+            t2 = (t2 + "Q --> FUL\n")
+            t2 = (t2 + "API --> PG : varmenna\n")
+            return t2
+        }
+        if (name == "usecase") {
+            def t3:string "@startuml\n"
+            t3 = (t3 + "left to right direction\n")
+            t3 = (t3 + "actor Ostaja\n")
+            t3 = (t3 + "actor \"Varasto\" as WH\n")
+            t3 = (t3 + "rectangle \"Verkkokauppa\" {\n")
+            t3 = (t3 + "  (Selaa tuotteita) as UC1\n")
+            t3 = (t3 + "  (Tee tilaus) as UC2\n")
+            t3 = (t3 + "  (Seuraa toimitusta) as UC3\n")
+            t3 = (t3 + "  (Kerää ja pakkaa) as UC4\n")
+            t3 = (t3 + "}\n")
+            t3 = (t3 + "Ostaja --> UC1\n")
+            t3 = (t3 + "Ostaja --> UC2\n")
+            t3 = (t3 + "Ostaja --> UC3\n")
+            t3 = (t3 + "WH --> UC4\n")
+            t3 = (t3 + "UC2 ..> UC1 : laajentaa\n")
+            return t3
+        }
+        if (name == "deployment") {
+            def t4:string "@startuml\n"
+            t4 = (t4 + "node \"sovelluspalvelin\" {\n")
+            t4 = (t4 + "  artifact \"kauppa.war\" as WAR\n")
+            t4 = (t4 + "  component [Ajoympäristö] as RT\n")
+            t4 = (t4 + "}\n")
+            t4 = (t4 + "node \"tietokantapalvelin\" {\n")
+            t4 = (t4 + "  database \"tilaukset\" as ODB\n")
+            t4 = (t4 + "}\n")
+            t4 = (t4 + "folder \"varmuuskopiot\" {\n")
+            t4 = (t4 + "  file \"yo.dump\" as DUMP\n")
+            t4 = (t4 + "}\n")
+            t4 = (t4 + "WAR --> RT\n")
+            t4 = (t4 + "RT --> ODB\n")
+            t4 = (t4 + "ODB ..> DUMP : vedostetaan\n")
+            return t4
+        }
+        if (name == "sequence") {
+            return (RangerFlowWeb.plantUmlSequenceSample())
+        }
+        if (name == "object") {
+            def t5:string "@startuml\n"
+            t5 = (t5 + "object tilaus1 {\n")
+            t5 = (t5 + "  id = 4711\n")
+            t5 = (t5 + "  summa = 89.90\n")
+            t5 = (t5 + "}\n")
+            t5 = (t5 + "object asiakas1 {\n")
+            t5 = (t5 + "  nimi = \"Aino\"\n")
+            t5 = (t5 + "}\n")
+            t5 = (t5 + "object rivi1\n")
+            t5 = (t5 + "asiakas1 --> tilaus1 : teki\n")
+            t5 = (t5 + "tilaus1 *-- rivi1\n")
+            return t5
+        }
+        return (RangerFlowWeb.samplePlantUml())
+    }
+
+    ; What `?scenario=plantuml` opens with — the first entry of the gallery, so
+    ; the textarea and the drawing agree before anybody touches anything.
+    sfn samplePlantUml:string () {
+        return (RangerFlowWeb.plantUmlSample("class"))
+    }
+
+    ; The diagram the request that started this work was written in.
+    sfn plantUmlSequenceSample:string () {
+        def t:string "@startuml\n"
+        t = (t + "title Tilauksen kulku\n")
+        t = (t + "autonumber\n")
+        t = (t + "actor \"Asiakas\" as C\n")
+        t = (t + "participant \"Verkkokauppa\" as SF\n")
+        t = (t + "participant \"Tilaus-API\" as API\n")
+        t = (t + "database \"Postgres\" as DB\n")
+        t = (t + "participant \"Maksunvälittäjä\" as PG\n")
+        t = (t + "C -> SF: tee tilaus\n")
+        t = (t + "activate SF\n")
+        t = (t + "SF -> API: POST /orders\n")
+        t = (t + "activate API\n")
+        t = (t + "API -> DB: INSERT tilaus\n")
+        t = (t + "DB --> API: tilauksen id\n")
+        t = (t + "alt luotto kunnossa\n")
+        t = (t + "    API -> PG: varmenna\n")
+        t = (t + "    PG --> API: hyväksytty\n")
+        t = (t + "    API -> DB: UPDATE tila = maksettu\n")
+        t = (t + "else hylätty\n")
+        t = (t + "    API -> PG: varmenna\n")
+        t = (t + "    PG --> API: hylätty\n")
+        t = (t + "    note right of API\n")
+        t = (t + "        Tilaus jää,\n")
+        t = (t + "        varaus ei.\n")
+        t = (t + "    end note\n")
+        t = (t + "end\n")
+        t = (t + "API --> SF: 201 Created\n")
+        t = (t + "deactivate API\n")
+        t = (t + "SF --> C: vahvistus\n")
+        t = (t + "deactivate SF\n")
+        t = (t + "@enduml\n")
+        return t
     }
 
     ; The sample the dropdown shows, and the text the editing panel opens with.

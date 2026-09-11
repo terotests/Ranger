@@ -242,10 +242,33 @@ window.addEventListener("keydown", (ev) => {
 });
 
 const bind = (id, fn) => document.getElementById(id).addEventListener("change", fn);
+
+/**
+ * Fit once the canvas has actually changed size.
+ *
+ * Showing or hiding the source panel takes a column off the canvas, and a
+ * `ResizeObserver` delivers AFTER the animation-frame callbacks of the frame it
+ * belongs to. Fitting in the same turn measures the width the canvas is about
+ * to stop having, and the drawing ends up hanging off the right-hand edge. Two
+ * frames is what it takes for the observer to have run and the new size to be
+ * in.
+ */
+function fitSoon() {
+  requestAnimationFrame(() => requestAnimationFrame(() => app.fitView()));
+}
 bind("scenario", (e) => {
-  app.loadScenario(e.target.value);
-  showMermaidBox(e.target.value === "mermaid");
+  showSourceBox(e.target.value);
+  // For the two source formats the textarea is the diagram, so it is what
+  // gets drawn — otherwise the panel would show one example and the canvas
+  // another.
+  if (FORMATS.includes(e.target.value)) {
+    renderSource();
+  } else {
+    app.loadScenario(e.target.value);
+  }
   app.fitView();
+  // …and again once the panel has finished taking or giving back its column.
+  fitSoon();
   // Each scenario picks the layout and notation that suit it; the controls
   // have to say what the app actually did, or the next change reads as a
   // no-op because the dropdown already showed the value.
@@ -261,40 +284,78 @@ bind("rulers", (e) => app.setRulers(e.target.checked));
 bind("bridges", (e) => app.setBridges(e.target.checked));
 document.getElementById("fit").addEventListener("click", () => app.fitView());
 
-// ---- Mermaid ---------------------------------------------------------------
-// The panel is the whole of the browser's share of this: the reader, the
-// layout and the router are all in the engine bundle.
-const mermaidBox = document.getElementById("mermaidbox");
-const mermaidSrc = document.getElementById("mermaidsrc");
+// ---- the source panel ------------------------------------------------------
+// One textarea, two formats. The panel is the whole of the browser's share of
+// this: both readers, the layout and the router are in the engine bundle, and
+// which reader gets the text is whatever the demo dropdown chose — not sniffed
+// from the text, because a half-typed `@startuml` is not a Mermaid flowchart.
+const srcBox = document.getElementById("srcbox");
+const srcArea = document.getElementById("srcarea");
+const exampleSel = document.getElementById("example");
+const srcHint = document.getElementById("srchint");
 
-function showMermaidBox(on) {
-  mermaidBox.hidden = !on;
-  if (on && !mermaidSrc.value) mermaidSrc.value = engineClass().sampleMermaid();
+const FORMATS = ["mermaid", "plantuml"];
+let srcFormat = "mermaid";
+
+const HINT = {
+  mermaid: "Mermaid: flowcharts, sequence, class, state, ER, mind maps and more. Ctrl/\u2318+Enter renders.",
+  plantuml: "PlantUML: sequence, class, object, component, deployment, use case. Ctrl/\u2318+Enter renders.",
+};
+
+/** The example dropdown, filled from whatever the engine offers this format. */
+function fillExamples(format) {
+  const list = engineClass().sampleList(format);
+  exampleSel.replaceChildren();
+  for (const entry of list.split("|")) {
+    const [value, label] = entry.split("\t");
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label ?? value;
+    exampleSel.append(opt);
+  }
 }
 
-function renderMermaid() {
-  app.loadMermaidStyled(mermaidSrc.value, document.getElementById("mermaidstyle").value);
+function showSourceBox(scenario) {
+  const on = FORMATS.includes(scenario);
+  srcBox.hidden = !on;
+  if (!on) return;
+  // Switching format is a different gallery and a different sample; coming
+  // back to the same one keeps whatever was being edited.
+  if (scenario !== srcFormat || !srcArea.value) {
+    srcFormat = scenario;
+    fillExamples(srcFormat);
+    srcArea.value = engineClass().sampleText(srcFormat, exampleSel.value);
+  }
+  app.setSourceFormat(srcFormat);
+  srcHint.textContent = HINT[srcFormat] ?? "";
+}
+
+function renderSource() {
+  app.setSourceFormat(srcFormat);
+  app.loadDiagram(srcArea.value, document.getElementById("srcstyle").value);
   app.fitView();
   syncControls();
 }
 
-document.getElementById("mermaidrender").addEventListener("click", renderMermaid);
+document.getElementById("srcrender").addEventListener("click", renderSource);
+// Picking an example replaces the text and draws it: the dropdown is the
+// gallery, and a gallery you have to press a second button to see is a list.
+bind("example", (e) => {
+  srcArea.value = engineClass().sampleText(srcFormat, e.target.value);
+  renderSource();
+});
 // The look is a stylesheet, and switching it re-renders the same text: the
 // sheet decides the fills, the paper and the edge colour in one move.
-bind("mermaidstyle", (e) => {
-  if (!app.setMermaidStyle(e.target.value)) renderMermaid();
+bind("srcstyle", (e) => {
+  if (!app.setSourceStyle(e.target.value)) renderSource();
   app.fitView();
   syncControls();
 });
-document.getElementById("mermaidsample").addEventListener("click", () => {
-  mermaidSrc.value = engineClass().sampleMermaid();
-  renderMermaid();
-});
-// Ctrl/⌘+Enter renders without reaching for the button.
-mermaidSrc.addEventListener("keydown", (ev) => {
+// Ctrl/\u2318+Enter renders without reaching for the button.
+srcArea.addEventListener("keydown", (ev) => {
   if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) {
     ev.preventDefault();
-    renderMermaid();
+    renderSource();
   }
 });
 
@@ -459,17 +520,30 @@ async function boot() {
   const params = new URLSearchParams(location.search);
   const wanted = params.get("scenario") || "erd";
   document.getElementById("scenario").value = wanted;
-  showMermaidBox(wanted === "mermaid");
-  // `?look=dark` picks the Mermaid stylesheet on load, so a screenshot of a
-  // look is a URL rather than a click.
+  showSourceBox(wanted);
+  // `?example=class` opens the gallery on one of them, so a screenshot of a
+  // sample is a URL rather than two clicks.
+  const example = params.get("example");
+  if (example && FORMATS.includes(wanted)) {
+    exampleSel.value = example;
+    if (exampleSel.value === example) {
+      srcArea.value = engineClass().sampleText(wanted, example);
+    }
+  }
+  // `?look=dark` picks the stylesheet on load, for the same reason.
   const look = params.get("look");
   if (look) {
-    document.getElementById("mermaidstyle").value = look;
-    app.mermaidStyle = look;
+    document.getElementById("srcstyle").value = look;
+    app.sourceStyle = look;
   }
-  app.loadScenario(wanted);
+  if (FORMATS.includes(wanted)) {
+    renderSource();
+  } else {
+    app.loadScenario(wanted);
+  }
   syncControls();
   app.fitView();
+  fitSoon();
 
   if (new URLSearchParams(location.search).has("selftest")) {
     // No browser-driver library here, so the page tests itself and writes the
@@ -480,9 +554,9 @@ async function boot() {
     // needs, that the scene left GL draw calls behind, and that no fill was
     // skipped for want of one.
     // One frame first: the ResizeObserver runs after the layout that opened
-    // the Mermaid panel, so measuring before it would report a drift the
+    // the source panel, so measuring before it would report a drift the
     // reader never sees.
-    // The layout has to settle first. `showMermaidBox` above shortened the
+    // The layout has to settle first. `showSourceBox` above narrowed the
     // canvas, and a `ResizeObserver` delivers AFTER the animation-frame
     // callbacks of the frame it belongs to — so one awaited frame is not
     // enough and two are. Only when it is actually needed: every awaited

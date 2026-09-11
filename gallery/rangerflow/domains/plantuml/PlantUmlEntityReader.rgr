@@ -1,0 +1,2313 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PlantUmlEntityReader.rgr — eight diagram types, one grammar.
+; ============================================================================
+;
+; PlantUML's class diagram, object diagram, component diagram, deployment
+; diagram, use-case diagram and ArchiMate diagram are not six languages. They
+; are one: an **entity**, a **link** and a **cluster**, with a different word in
+; front of the entity and a different shape drawn for it.
+;
+;   class Order { +id: int }        component [Web]        actor User
+;   Customer *-- Order              [Web] --> [API]        User --> (Buy)
+;        → CLASS                       → DESCRIPTION       → DESCRIPTION
+;
+; PlantUML's own renderer says the same thing without being asked: all six emit
+; `<g class="entity">`, `<g class="link">` and `<g class="cluster">` into their
+; SVG, with the same attributes. So this is one reader, and the shape table is
+; the only place the six part company.
+;
+; **What it reads.** Every one of the 43 declaration keywords PlantUML lists
+; when you ask it (`java -jar plantuml.jar -language`) — the list is not typed
+; here from a web page, it was read off the tool. Aliases in both directions,
+; quoted names, stereotypes, the bracket notations `[Component]` and
+; `(Use case)`, member blocks with visibility, `{static}` and `{abstract}`,
+; one-line members (`Order : +id`), `package`/`namespace`/`together` and every
+; container keyword that opens a `{ }`, notes, `hide`/`show`, and
+; `left to right direction`.
+;
+; **The links.** `--` `..` `-->` `<--` `<|--` `--|>` `<|..` `..|>` `*--` `--*`
+; `o--` `--o` `..>` `<..` `#--` `x--` `}--` `+--`, the direction hints
+; (`-up->`, `-left-`), the `[hidden]` and `[#colour]` decorations, lengths
+; (`--->`), cardinalities (`A "1" *-- "many" B`) and labels.
+;
+; **What it drops.** `skinparam`, colours, sprites, `!` directives — style, and
+; a diagram that renders in PlantUML renders here without them.
+; ============================================================================
+
+Import "PlantUmlReader.rgr"
+Import "../../core/GraphModel.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+Import "../../layout/LayeredLayout.rgr"
+Import "../../layout/EdgeLanes.rgr"
+Import "../../layout/OrthoRouter.rgr"
+Import "../flowchart/Flowchart.rgr"
+Import "../uml/UMLModel.rgr"
+
+; ---------------------------------------------------------------------------
+; The model
+; ---------------------------------------------------------------------------
+class PlantUmlMember {
+    ; "+" | "-" | "#" | "~" | ""
+    def visibility:string ""
+    def text:string ""
+    def detail:string ""
+    def isOperation:boolean false
+    def isStatic:boolean false
+    def isAbstract:boolean false
+
+    Constructor () {
+    }
+}
+
+class PlantUmlEntity {
+    def id:string ""
+    def name:string ""
+    ; The word PlantUML was given: `class`, `component`, `usecase`, `database`…
+    def keyword:string "class"
+    def stereotype:string ""
+    ; The package or node it was declared inside, "" for none.
+    def parent:string ""
+    def members:[PlantUmlMember]
+
+    Constructor () {
+    }
+
+    fn memberCount:int () {
+        return (array_length members)
+    }
+
+    ; Whether this entity is drawn as a compartment box rather than a shape.
+    ; A class always is; anything else is once somebody gives it a member.
+    fn compartmented:boolean () {
+        if ((array_length members) > 0) {
+            return true
+        }
+        return (PlantUmlEntityReader.isClassWord(keyword))
+    }
+}
+
+class PlantUmlLink {
+    def source:string ""
+    def target:string ""
+    ; "association" | "inheritance" | "implementation" | "composition"
+    ; | "aggregation" | "dependency"
+    def kind:string "association"
+    def label:string ""
+    def sourceCard:string ""
+    def targetCard:string ""
+    def dashed:boolean false
+    ; Which end carries the ornament. `A <|-- B` puts the triangle on A.
+    def markAtSource:boolean false
+    ; An arrowhead at the far end, as `-->` asks for.
+    def arrowAtTarget:boolean false
+    def arrowAtSource:boolean false
+    ; `-[hidden]-`: a link that ranks two entities without being drawn.
+    def hidden:boolean false
+
+    Constructor () {
+    }
+}
+
+; A note. PlantUML counts one as an entity of its own and gives it a generated
+; id; here it keeps whatever id the author wrote (`note "x" as N1`) or one of
+; ours, because a note is not a thing anybody refers to twice.
+class PlantUmlNote {
+    def id:string ""
+    def text:string ""
+    ; The entity it is pinned to, "" while it is still floating.
+    def target:string ""
+    ; "left" | "right" | "top" | "bottom"
+    def placement:string "right"
+
+    Constructor () {
+    }
+}
+
+; A `package`, `namespace`, `node { }` or `together { }` — anything that opens
+; a brace and holds entities rather than members.
+class PlantUmlGroup {
+    def id:string ""
+    def name:string ""
+    def keyword:string "package"
+    def parent:string ""
+    def depth:int 0
+    def members:[string]
+
+    Constructor () {
+    }
+
+    fn memberCount:int () {
+        return (array_length members)
+    }
+}
+
+class PlantUmlEntityModel {
+    def title:string ""
+    ; What the sniff decided: "class" or "description".
+    def kind:string "class"
+    ; "TB" unless the source asked for `left to right direction`.
+    def direction:string "TB"
+    def entities:[PlantUmlEntity]
+    def links:[PlantUmlLink]
+    def groups:[PlantUmlGroup]
+    def notes:[PlantUmlNote]
+
+    Constructor () {
+    }
+
+    fn noteCount:int () {
+        return (array_length notes)
+    }
+
+    fn indexOfNote:int (id:string) {
+        def i:int 0
+        while (i < (array_length notes)) {
+            def n:PlantUmlNote (itemAt notes i)
+            if (n.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn entityCount:int () {
+        return (array_length entities)
+    }
+
+    fn linkCount:int () {
+        return (array_length links)
+    }
+
+    fn groupCount:int () {
+        return (array_length groups)
+    }
+
+    fn memberCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length entities)) {
+            def e:PlantUmlEntity (itemAt entities i)
+            n = (n + (e.memberCount()))
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn indexOfEntity:int (id:string) {
+        def i:int 0
+        while (i < (array_length entities)) {
+            def e:PlantUmlEntity (itemAt entities i)
+            if (e.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn indexOfGroup:int (id:string) {
+        def i:int 0
+        while (i < (array_length groups)) {
+            def gr:PlantUmlGroup (itemAt groups i)
+            if (gr.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn entityById:PlantUmlEntity (id:string) {
+        def at:int (this.indexOfEntity(id))
+        if (at >= 0) {
+            return (itemAt entities at)
+        }
+        return (new PlantUmlEntity)
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The reader
+; ---------------------------------------------------------------------------
+class PlantUmlEntityReader {
+    def doc:PlantUmlEntityModel (new PlantUmlEntityModel)
+    ; The `{ }` we are inside. Each entry is either a group id, or the id of
+    ; an entity whose member block is open, and `openKinds` says which.
+    def openIds:[string]
+    def openKinds:[string]
+    def groupSeq:int 0
+    ; A `note … end note` that has not closed yet, and what it will become.
+    def noteOpen:boolean false
+    def noteText:string ""
+    def notePlacement:string "right"
+    def noteTarget:string ""
+    def noteId:string ""
+    def noteSeq:int 0
+
+    Constructor () {
+    }
+
+    sfn parse:PlantUmlEntityModel (src:string) {
+        def r (new PlantUmlEntityReader)
+        return (r.read(src))
+    }
+
+    sfn render:FlowGraph (src:string) {
+        def d:PlantUmlEntityModel (PlantUmlEntityReader.parse(src))
+        def bare (new FlowStyle)
+        return (PlantUmlEntityFlow.build(d bare))
+    }
+
+    fn read:PlantUmlEntityModel (src:string) {
+        def source:PlantUmlSource (PlantUmlReader.read(src))
+        doc.title = source.title
+        doc.kind = source.kind
+        def i:int 0
+        while (i < (array_length source.lines)) {
+            def line:string (itemAt source.lines i)
+            i = (i + 1)
+            this.statement(line)
+        }
+        return doc
+    }
+
+    ; ------------------------------------------------------------ keywords --
+    ; PlantUML's own list of declaration keywords, as `-language` prints it.
+    ; Read off the tool rather than typed from a manual: a keyword the next
+    ; release adds shows up as one this reader does not know, instead of
+    ; hiding.
+    sfn isTypeWord:boolean (w:string) {
+        if (PlantUmlEntityReader.isClassWord(w)) {
+            return true
+        }
+        if (PlantUmlEntityReader.isShapeWord(w)) {
+            return true
+        }
+        return false
+    }
+
+    ; The ones drawn as a compartment box, because they can carry members.
+    sfn isClassWord:boolean (w:string) {
+        if (w == "class")      { return true }
+        if (w == "interface")  { return true }
+        if (w == "enum")       { return true }
+        if (w == "abstract")   { return true }
+        if (w == "annotation") { return true }
+        if (w == "object")     { return true }
+        if (w == "entity")     { return true }
+        if (w == "struct")     { return true }
+        if (w == "exception")  { return true }
+        if (w == "metaclass")  { return true }
+        if (w == "protocol")   { return true }
+        if (w == "map")        { return true }
+        if (w == "json")       { return true }
+        return false
+    }
+
+    ; …and the ones drawn as an outline.
+    sfn isShapeWord:boolean (w:string) {
+        if (w == "actor")       { return true }
+        if (w == "action")      { return true }
+        if (w == "agent")       { return true }
+        if (w == "archimate")   { return true }
+        if (w == "artifact")    { return true }
+        if (w == "boundary")    { return true }
+        if (w == "card")        { return true }
+        if (w == "circle")      { return true }
+        if (w == "cloud")       { return true }
+        if (w == "collections") { return true }
+        if (w == "component")   { return true }
+        if (w == "control")     { return true }
+        if (w == "database")    { return true }
+        if (w == "diamond")     { return true }
+        if (w == "file")        { return true }
+        if (w == "folder")      { return true }
+        if (w == "frame")       { return true }
+        if (w == "hexagon")     { return true }
+        if (w == "label")       { return true }
+        if (w == "node")        { return true }
+        if (w == "person")      { return true }
+        if (w == "process")     { return true }
+        if (w == "queue")       { return true }
+        if (w == "rectangle")   { return true }
+        if (w == "stack")       { return true }
+        if (w == "storage")     { return true }
+        if (w == "usecase")     { return true }
+        return false
+    }
+
+    ; A keyword that opens a cluster when a `{` follows it. `class Order {`
+    ; opens a member block; `node srv {` opens a box with entities in it, and
+    ; the two are told apart by the keyword, not the brace.
+    sfn isGroupWord:boolean (w:string) {
+        if (w == "package")   { return true }
+        if (w == "namespace") { return true }
+        if (w == "together")  { return true }
+        if (w == "node")      { return true }
+        if (w == "folder")    { return true }
+        if (w == "frame")     { return true }
+        if (w == "cloud")     { return true }
+        if (w == "rectangle") { return true }
+        if (w == "card")      { return true }
+        if (w == "database")  { return true }
+        if (w == "artifact")  { return true }
+        if (w == "storage")   { return true }
+        if (w == "component") { return true }
+        if (w == "agent")     { return true }
+        if (w == "file")      { return true }
+        if (w == "stack")     { return true }
+        return false
+    }
+
+    ; The outline each keyword is drawn with. Where RangerFlow has the shape
+    ; UML asks for it is used; where it does not, the nearest outline that says
+    ; the same thing is, and never a rectangle standing in silently.
+    sfn shapeFor:string (w:string) {
+        if (w == "actor")       { return "stadium" }
+        if (w == "person")      { return "stadium" }
+        if (w == "usecase")     { return "ellipse" }
+        if (w == "database")    { return "cylinder" }
+        if (w == "queue")       { return "cylinder" }
+        if (w == "component")   { return "predefined" }
+        if (w == "interface")   { return "circle" }
+        if (w == "control")     { return "circle" }
+        if (w == "circle")      { return "circle" }
+        if (w == "boundary")    { return "internalstorage" }
+        if (w == "artifact")    { return "document" }
+        if (w == "file")        { return "document" }
+        if (w == "collections") { return "multidocument" }
+        if (w == "stack")       { return "multidocument" }
+        if (w == "storage")     { return "stadium" }
+        if (w == "cloud")       { return "ellipse" }
+        if (w == "diamond")     { return "diamond" }
+        if (w == "hexagon")     { return "hexagon" }
+        if (w == "action")      { return "rect" }
+        if (w == "process")     { return "rect" }
+        return "rect"
+    }
+
+    ; ---------------------------------------------------------- statements --
+    fn statement:void (st:string) {
+        if ((strlen st) == 0) {
+            return
+        }
+        if noteOpen {
+            def lw0:string (PlantUmlText.lower(st))
+            if (lw0 == "end note") {
+                this.closeNote()
+                return
+            }
+            if (lw0 == "endnote") {
+                this.closeNote()
+                return
+            }
+            if ((strlen noteText) > 0) {
+                noteText = (noteText + "\n")
+            }
+            noteText = (noteText + (PlantUmlText.label(st)))
+            return
+        }
+        ; A closing brace ends whatever the last opening one started.
+        if (st == "}") {
+            this.closeBrace()
+            return
+        }
+        def kw:string (PlantUmlText.lower((PlantUmlText.firstWord(st))))
+        def rest:string (PlantUmlText.restWords(st))
+
+        ; Inside a member block, everything is a member until the brace closes.
+        if (this.inMembers()) {
+            def owner:string (this.currentOwner())
+            this.member(owner st)
+            return
+        }
+
+        ; --- the words that are only ever style ---
+        if (kw == "skinparam") { return }
+        if (kw == "hide")      { return }
+        if (kw == "show")      { return }
+        if (kw == "header")    { return }
+        if (kw == "footer")    { return }
+        if (kw == "caption")   { return }
+        if (kw == "scale")     { return }
+        if (kw == "legend")    { return }
+        if (kw == "endlegend") { return }
+        if (kw == "remove")    { return }
+        if (kw == "restore")   { return }
+
+        ; `left to right direction` turns the whole page on its side.
+        def lw:string (PlantUmlText.lower(st))
+        if (lw == "left to right direction") {
+            doc.direction = "LR"
+            return
+        }
+        if (lw == "top to bottom direction") {
+            doc.direction = "TB"
+            return
+        }
+
+        ; --- notes, which are prose about the program rather than part of it --
+        if (kw == "note") {
+            this.note(st)
+            return
+        }
+        if (kw == "rnote") {
+            this.note(st)
+            return
+        }
+        if (kw == "hnote") {
+            this.note(st)
+            return
+        }
+
+        ; --- a link, before a declaration: `[Web] --> [API]` opens with a
+        ;     bracket and declares two entities on the way past ---
+        if (this.link(st)) {
+            return
+        }
+
+        ; --- `together {` and the containers ---
+        def opensBrace:boolean (PlantUmlEntityReader.endsWithBrace(st))
+        if (kw == "together") {
+            if opensBrace {
+                this.openGroup("together" "")
+                return
+            }
+        }
+        if (PlantUmlEntityReader.isTypeWord(kw)) {
+            this.declare(kw rest opensBrace)
+            return
+        }
+        if (kw == "package") {
+            this.declare("package" rest opensBrace)
+            return
+        }
+        if (kw == "namespace") {
+            this.declare("namespace" rest opensBrace)
+            return
+        }
+
+        ; --- `[Storefront] as SF`, `(Place order) as UC2` — a declaration with
+        ;     no keyword in front of it, because the bracket IS the keyword ---
+        if (PlantUmlEntityReader.opensBracket(st)) {
+            def bk2:string (PlantUmlEntityReader.bracketKeyword(st))
+            this.declare(bk2 st opensBrace)
+            return
+        }
+
+        ; --- `Order : +id: int` — a member written outside the braces ---
+        def colon:int (PlantUmlEntityReader.topLevel(st 58))
+        if (colon > 0) {
+            def who:string (trim (substring st 0 colon))
+            def body:string (trim (substring st (colon + 1) (strlen st)))
+            def id:string (this.ensure((PlantUmlText.unquote(who)) "class"))
+            if ((strlen id) > 0) {
+                this.member(id body)
+                return
+            }
+        }
+
+        ; --- a bare `[Component]` or `(Use case)` on its own line ---
+        def bare:string (PlantUmlEntityReader.bracketName(st))
+        if ((strlen bare) > 0) {
+            def bk:string (PlantUmlEntityReader.bracketKeyword(st))
+            def made:string (this.ensure(bare bk))
+            return
+        }
+    }
+
+    sfn opensBracket:boolean (st:string) {
+        def t:string (trim st)
+        if ((strlen t) == 0) {
+            return false
+        }
+        def c:int (charAt t 0)
+        if (c == 91) { return true }
+        if (c == 40) { return true }
+        return false
+    }
+
+    sfn endsWithBrace:boolean (st:string) {
+        def n:int (strlen st)
+        if (n == 0) {
+            return false
+        }
+        return ((charAt st (n - 1)) == 123)
+    }
+
+    ; The first `code` outside a quoted run.
+    sfn topLevel:int (text:string code:int) {
+        def inQuote:boolean false
+        def i:int 0
+        while (i < (strlen text)) {
+            def c:int (charAt text i)
+            if (c == 34) {
+                def flip:boolean (inQuote == false)
+                inQuote = flip
+            }
+            if (inQuote == false) {
+                if (c == code) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; ------------------------------------------------------------- braces ---
+    fn inMembers:boolean () {
+        def n:int (array_length openKinds)
+        if (n == 0) {
+            return false
+        }
+        return ((itemAt openKinds (n - 1)) == "members")
+    }
+
+    fn currentOwner:string () {
+        def n:int (array_length openIds)
+        if (n == 0) {
+            return ""
+        }
+        return (itemAt openIds (n - 1))
+    }
+
+    ; The innermost group, for an entity declared inside one.
+    fn currentGroup:string () {
+        def i:int ((array_length openKinds) - 1)
+        while (i >= 0) {
+            if ((itemAt openKinds i) == "group") {
+                return (itemAt openIds i)
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+
+    fn groupDepth:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length openKinds)) {
+            if ((itemAt openKinds i) == "group") {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn pushBrace:void (id:string kind:string) {
+        push openIds id
+        push openKinds kind
+    }
+
+    fn closeBrace:void () {
+        def n:int (array_length openIds)
+        if (n == 0) {
+            return
+        }
+        def keptIds:[string]
+        def keptKinds:[string]
+        def i:int 0
+        while (i < (n - 1)) {
+            push keptIds (itemAt openIds i)
+            push keptKinds (itemAt openKinds i)
+            i = (i + 1)
+        }
+        openIds = keptIds
+        openKinds = keptKinds
+    }
+
+    fn openGroup:void (keyword:string name:string) {
+        def id:string name
+        if ((strlen id) == 0) {
+            groupSeq = (groupSeq + 1)
+            id = ("__group" + (to_string groupSeq))
+        }
+        def gr (new PlantUmlGroup)
+        gr.id = id
+        gr.name = name
+        gr.keyword = keyword
+        gr.parent = (this.currentGroup())
+        gr.depth = (this.groupDepth())
+        push doc.groups gr
+        this.pushBrace(id "group")
+    }
+
+    ; -------------------------------------------------------- declarations --
+    ; `class Order`, `class "Order service" as OS <<svc>> #red {`,
+    ; `component [Web] as W`, `package "core" {`.
+    fn declare:void (keyword:string rest:string opensBrace:boolean) {
+        def body:string rest
+        if opensBrace {
+            def n:int (strlen body)
+            body = (trim (substring body 0 (n - 1)))
+        }
+        ; `abstract class Order` — the first word was a modifier, not the type.
+        def w2:string (PlantUmlText.lower((PlantUmlText.firstWord(body))))
+        if (keyword == "abstract") {
+            if (PlantUmlEntityReader.isClassWord(w2)) {
+                body = (PlantUmlText.restWords(body))
+            }
+        }
+        ; The stereotype and the colour are style, and the name is what stands
+        ; before them.
+        def ster:string (PlantUmlEntityReader.stereotypeOf(body))
+        def clean:string (PlantUmlEntityReader.beforeDecoration(body))
+        if ((strlen clean) == 0) {
+            return
+        }
+        ; `package "core" {` is a cluster, not an entity.
+        if (PlantUmlEntityReader.alwaysGroup(keyword)) {
+            def gname:string (PlantUmlEntityReader.nameOf(clean))
+            this.openGroup(keyword gname)
+            return
+        }
+        if opensBrace {
+            if (PlantUmlEntityReader.isGroupWord(keyword)) {
+                def gname2:string (PlantUmlEntityReader.nameOf(clean))
+                this.openGroup(keyword gname2)
+                return
+            }
+        }
+        def id:string (PlantUmlEntityReader.idOf(clean))
+        def name:string (PlantUmlEntityReader.nameOf(clean))
+        if ((strlen id) == 0) {
+            return
+        }
+        def at:int (doc.indexOfEntity(id))
+        if (at < 0) {
+            def e (new PlantUmlEntity)
+            e.id = id
+            e.name = name
+            e.keyword = keyword
+            e.stereotype = ster
+            e.parent = (this.currentGroup())
+            push doc.entities e
+            at = ((array_length doc.entities) - 1)
+            this.noteMembership(id)
+        }
+        def known:PlantUmlEntity (itemAt doc.entities at)
+        ; A declaration always wins over the entity a link invented.
+        known.keyword = keyword
+        if ((strlen name) > 0) {
+            known.name = name
+        }
+        if ((strlen ster) > 0) {
+            known.stereotype = ster
+        }
+        if opensBrace {
+            this.pushBrace(id "members")
+        }
+    }
+
+    sfn alwaysGroup:boolean (keyword:string) {
+        if (keyword == "package")   { return true }
+        if (keyword == "namespace") { return true }
+        if (keyword == "together")  { return true }
+        return false
+    }
+
+    ; `<<service>>` — read, kept, and drawn in guillemets above the name.
+    sfn stereotypeOf:string (body:string) {
+        def open:int (PlantUmlText.indexOfSub(body "<<" 0))
+        if (open < 0) {
+            return ""
+        }
+        def close:int (PlantUmlText.indexOfSub(body ">>" (open + 2)))
+        if (close < 0) {
+            return ""
+        }
+        def inner:string (substring body (open + 2) close)
+        return (trim inner)
+    }
+
+    ; Everything before the stereotype, the colour and the sprite.
+    sfn beforeDecoration:string (body:string) {
+        def cut:int (strlen body)
+        def ster:int (PlantUmlText.indexOfSub(body "<<" 0))
+        if (ster >= 0) {
+            if (ster < cut) {
+                cut = ster
+            }
+        }
+        def hash:int (PlantUmlEntityReader.topLevel(body 35))
+        if (hash >= 0) {
+            if (hash < cut) {
+                cut = hash
+            }
+        }
+        def head:string (substring body 0 cut)
+        return (trim head)
+    }
+
+    ; `"Order service" as OS` → id `OS`. `OS as "Order service"` → id `OS`.
+    ; `[Web]` → id `Web`.
+    sfn idOf:string (clean:string) {
+        def at:int (PlantUmlEntityReader.asWordAt(clean))
+        if (at >= 0) {
+            def left:string (trim (substring clean 0 at))
+            def right:string (trim (substring clean (at + 4) (strlen clean)))
+            if (PlantUmlEntityReader.isDisplayName(left)) {
+                return (PlantUmlEntityReader.plainName(right))
+            }
+            return (PlantUmlEntityReader.plainName(left))
+        }
+        return (PlantUmlEntityReader.plainName(clean))
+    }
+
+    sfn nameOf:string (clean:string) {
+        def at:int (PlantUmlEntityReader.asWordAt(clean))
+        if (at >= 0) {
+            def left:string (trim (substring clean 0 at))
+            def right:string (trim (substring clean (at + 4) (strlen clean)))
+            if (PlantUmlEntityReader.isDisplayName(left)) {
+                return (PlantUmlText.label((PlantUmlEntityReader.plainName(left))))
+            }
+            if (PlantUmlEntityReader.isDisplayName(right)) {
+                return (PlantUmlText.label((PlantUmlEntityReader.plainName(right))))
+            }
+            return (PlantUmlText.label((PlantUmlEntityReader.plainName(left))))
+        }
+        return (PlantUmlText.label((PlantUmlEntityReader.plainName(clean))))
+    }
+
+    ; A half of `X as Y` that is written to be READ rather than referred to:
+    ; `"Order service"` and `[Storefront]` both are, and the other half is then
+    ; the id. PlantUML puts the alias on whichever side is not decorated.
+    sfn isDisplayName:boolean (t:string) {
+        if (PlantUmlEntityReader.isQuoted(t)) {
+            return true
+        }
+        def b:string (PlantUmlEntityReader.bracketName(t))
+        return ((strlen b) > 0)
+    }
+
+    ; A name with its quotes or its brackets taken off.
+    sfn plainName:string (raw:string) {
+        def t:string (trim raw)
+        def bracket:string (PlantUmlEntityReader.bracketName(t))
+        if ((strlen bracket) > 0) {
+            return bracket
+        }
+        return (PlantUmlText.unquote(t))
+    }
+
+    sfn isQuoted:boolean (t:string) {
+        if ((strlen t) < 2) {
+            return false
+        }
+        return ((charAt t 0) == 34)
+    }
+
+    sfn asWordAt:int (t:string) {
+        def inQuote:boolean false
+        def i:int 0
+        def n:int (strlen t)
+        def lt:string (PlantUmlText.lower(t))
+        while (i < n) {
+            def c:int (charAt t i)
+            if (c == 34) {
+                def flip:boolean (inQuote == false)
+                inQuote = flip
+            }
+            if (inQuote == false) {
+                if (c == 32) {
+                    if (PlantUmlText.matchAt(lt i " as ")) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; `[Web]` → `Web`, `(Buy a book)` → `Buy a book`, anything else → "".
+    sfn bracketName:string (raw:string) {
+        def t:string (trim raw)
+        def n:int (strlen t)
+        if (n < 3) {
+            return ""
+        }
+        def a:int (charAt t 0)
+        def b:int (charAt t (n - 1))
+        if (a == 91) {
+            if (b == 93) {
+                def inner:string (substring t 1 (n - 1))
+                return (trim inner)
+            }
+        }
+        if (a == 40) {
+            if (b == 41) {
+                def inner2:string (substring t 1 (n - 1))
+                return (trim inner2)
+            }
+        }
+        return ""
+    }
+
+    ; Which keyword a bracket notation means: `[x]` is a component, `(x)` is a
+    ; use case. PlantUML draws them that way with no keyword written at all.
+    sfn bracketKeyword:string (raw:string) {
+        def t:string (trim raw)
+        if ((strlen t) == 0) {
+            return "rectangle"
+        }
+        if ((charAt t 0) == 91) {
+            return "component"
+        }
+        if ((charAt t 0) == 40) {
+            return "usecase"
+        }
+        return "rectangle"
+    }
+
+    ; A name that appeared on a link and nowhere else exists from that moment,
+    ; which is what PlantUML does too.
+    fn ensure:string (raw:string keyword:string) {
+        def id:string (PlantUmlEntityReader.plainName(raw))
+        if ((strlen id) == 0) {
+            return ""
+        }
+        def at:int (doc.indexOfEntity(id))
+        if (at >= 0) {
+            return id
+        }
+        def e (new PlantUmlEntity)
+        e.id = id
+        e.name = id
+        e.keyword = keyword
+        e.parent = (this.currentGroup())
+        push doc.entities e
+        this.noteMembership(id)
+        return id
+    }
+
+    fn noteMembership:void (id:string) {
+        def gid:string (this.currentGroup())
+        if ((strlen gid) == 0) {
+            return
+        }
+        def at:int (doc.indexOfGroup(gid))
+        if (at < 0) {
+            return
+        }
+        def gr:PlantUmlGroup (itemAt doc.groups at)
+        push gr.members id
+    }
+
+    ; ------------------------------------------------------------ members ---
+    ; `+id: int`, `-secret`, `{static} count: int`, `{abstract} render()`,
+    ; `+total(): float`, and `--` which is a separator rather than a member.
+    fn member:void (owner:string raw:string) {
+        def t:string (trim raw)
+        if ((strlen t) == 0) {
+            return
+        }
+        ; A compartment separator: `--`, `..`, `==`, `__`, and the named forms.
+        if (PlantUmlEntityReader.isSeparator(t)) {
+            return
+        }
+        def at:int (doc.indexOfEntity(owner))
+        if (at < 0) {
+            return
+        }
+        def e:PlantUmlEntity (itemAt doc.entities at)
+        def m (new PlantUmlMember)
+        def body:string t
+        ; The `{static}` and `{abstract}` modifiers, in either order.
+        def guard:int 0
+        while (guard < 2) {
+            guard = (guard + 1)
+            def lw:string (PlantUmlText.lower(body))
+            if (PlantUmlText.beginsWith(lw "{static}")) {
+                m.isStatic = true
+                body = (trim (substring body 8 (strlen body)))
+                continue
+            }
+            if (PlantUmlText.beginsWith(lw "{abstract}")) {
+                m.isAbstract = true
+                body = (trim (substring body 10 (strlen body)))
+                continue
+            }
+            if (PlantUmlText.beginsWith(lw "{field}")) {
+                body = (trim (substring body 7 (strlen body)))
+                continue
+            }
+            if (PlantUmlText.beginsWith(lw "{method}")) {
+                m.isOperation = true
+                body = (trim (substring body 8 (strlen body)))
+                continue
+            }
+            break
+        }
+        if ((strlen body) == 0) {
+            return
+        }
+        def first:int (charAt body 0)
+        if (PlantUmlEntityReader.isVisibilityCode(first)) {
+            m.visibility = (strfromcode first)
+            body = (trim (substring body 1 (strlen body)))
+        }
+        ; An operation is one with parentheses in it.
+        if (PlantUmlText.hasSub(body "(")) {
+            m.isOperation = true
+        }
+        ; `name : type` and `name: type` both put the type in the detail
+        ; column, which is where the compartment renderer draws it.
+        def colon:int (PlantUmlEntityReader.lastTopLevel(body 58))
+        if (colon > 0) {
+            m.text = (trim (substring body 0 colon))
+            m.detail = (trim (substring body (colon + 1) (strlen body)))
+        }
+        if (colon <= 0) {
+            m.text = body
+        }
+        if ((strlen m.text) == 0) {
+            return
+        }
+        push e.members m
+    }
+
+    sfn isSeparator:boolean (t:string) {
+        if ((strlen t) < 2) {
+            return false
+        }
+        def a:int (charAt t 0)
+        def b:int (charAt t 1)
+        if (a != b) {
+            return false
+        }
+        if (a == 45) { return true }
+        if (a == 46) { return true }
+        if (a == 61) { return true }
+        if (a == 95) { return true }
+        return false
+    }
+
+    sfn isVisibilityCode:boolean (c:int) {
+        if (c == 43) { return true }
+        if (c == 45) { return true }
+        if (c == 35) { return true }
+        if (c == 126) { return true }
+        return false
+    }
+
+    sfn lastTopLevel:int (text:string code:int) {
+        def inQuote:boolean false
+        def found:int -1
+        def depth:int 0
+        def i:int 0
+        while (i < (strlen text)) {
+            def c:int (charAt text i)
+            if (c == 34) {
+                def flip:boolean (inQuote == false)
+                inQuote = flip
+            }
+            if (inQuote == false) {
+                if (c == 40) {
+                    depth = (depth + 1)
+                }
+                if (c == 41) {
+                    depth = (depth - 1)
+                }
+                if (depth == 0) {
+                    if (c == code) {
+                        found = i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    ; -------------------------------------------------------------- notes ---
+    ; `note left of Order : one line`, the same thing over several lines until
+    ; `end note`, and the floating `note "text" as N1` that a later `N1 .. X`
+    ; pins to something.
+    ;
+    ; PlantUML counts a note as an entity of its own and gives it a generated
+    ; id. It is kept apart from the entities here, because a note is prose
+    ; about the program rather than part of it — and because a note handed to
+    ; the layout pushes the classes apart to make room for a sentence, and the
+    ; sentence ends up in the middle of the inheritance it was commenting on.
+    fn note:void (st:string) {
+        def rest:string (PlantUmlText.restWords(st))
+        def lw:string (PlantUmlText.lower(rest))
+        def placement:string "right"
+        def after:int 0
+        if (PlantUmlText.beginsWith(lw "left of")) {
+            placement = "left"
+            after = 7
+        }
+        if (PlantUmlText.beginsWith(lw "right of")) {
+            placement = "right"
+            after = 8
+        }
+        if (PlantUmlText.beginsWith(lw "top of")) {
+            placement = "top"
+            after = 6
+        }
+        if (PlantUmlText.beginsWith(lw "bottom of")) {
+            placement = "bottom"
+            after = 9
+        }
+        ; `note "text" as N1` — a note with no home yet.
+        if (after == 0) {
+            this.floatingNote(rest)
+            return
+        }
+        def tail:string (trim (substring rest after (strlen rest)))
+        def colon:int (PlantUmlEntityReader.topLevel(tail 58))
+        def who:string tail
+        def text:string ""
+        def inline:boolean false
+        if (colon >= 0) {
+            who = (trim (substring tail 0 colon))
+            text = (trim (substring tail (colon + 1) (strlen tail)))
+            inline = true
+        }
+        def target:string (PlantUmlEntityReader.plainName(who))
+        noteSeq = (noteSeq + 1)
+        def id:string ("__note" + (to_string noteSeq))
+        if inline {
+            def n (new PlantUmlNote)
+            n.id = id
+            n.text = (PlantUmlText.label(text))
+            n.target = target
+            n.placement = placement
+            push doc.notes n
+            return
+        }
+        noteOpen = true
+        noteText = ""
+        notePlacement = placement
+        noteTarget = target
+        noteId = id
+    }
+
+    ; `note "One store per backend." as N1`, and the multi-line form of it.
+    fn floatingNote:void (rest:string) {
+        def at:int (PlantUmlEntityReader.asWordAt(rest))
+        noteSeq = (noteSeq + 1)
+        def id:string ("__note" + (to_string noteSeq))
+        def body:string rest
+        if (at >= 0) {
+            def left:string (trim (substring rest 0 at))
+            def right:string (trim (substring rest (at + 4) (strlen rest)))
+            body = left
+            id = (PlantUmlText.unquote(right))
+        }
+        def quoted:string (PlantUmlText.unquote(body))
+        if (quoted != body) {
+            def n (new PlantUmlNote)
+            n.id = id
+            n.text = (PlantUmlText.label(quoted))
+            n.target = ""
+            n.placement = "right"
+            push doc.notes n
+            return
+        }
+        ; No quoted text, so the words run on until `end note`.
+        noteOpen = true
+        noteText = ""
+        notePlacement = "right"
+        noteTarget = ""
+        noteId = id
+    }
+
+    fn closeNote:void () {
+        noteOpen = false
+        def n (new PlantUmlNote)
+        n.id = noteId
+        n.text = noteText
+        n.target = noteTarget
+        n.placement = notePlacement
+        push doc.notes n
+        noteText = ""
+        noteTarget = ""
+    }
+
+    ; -------------------------------------------------------------- links ---
+    ; `Customer "1" *-- "many" Order : places`
+    ;
+    ; A PlantUML link is a head, a body and a head: `<|` `*` `o` `#` `x` `}`
+    ; `+` `<` `>` around a run of `-` (solid) or `.` (dotted), with a length
+    ; (`--->`), a direction hint (`-up->`) and a decoration (`-[hidden]-`)
+    ; allowed inside the body. What each combination MEANS is UML's, not
+    ; PlantUML's: the hollow triangle points at the supertype, the filled
+    ; diamond sits on the whole.
+    fn link:boolean (st:string) {
+        def colon:int (PlantUmlEntityReader.topLevel(st 58))
+        def head:string st
+        def label:string ""
+        if (colon >= 0) {
+            head = (substring st 0 colon)
+            label = (trim (substring st (colon + 1) (strlen st)))
+        }
+        def at:int (PlantUmlEntityReader.linkAt(head))
+        if (at < 0) {
+            return false
+        }
+        def tok:string (PlantUmlEntityReader.linkToken(head at))
+        if ((strlen tok) == 0) {
+            return false
+        }
+        def left:string (trim (substring head 0 at))
+        def right:string (trim (substring head (at + (strlen tok)) (strlen head)))
+        if ((strlen left) == 0) {
+            return false
+        }
+        if ((strlen right) == 0) {
+            return false
+        }
+        ; The cardinalities are quoted and sit against the arrow.
+        def leftCard:string (PlantUmlEntityReader.trailingQuote(left))
+        def rightCard:string (PlantUmlEntityReader.leadingQuote(right))
+        def leftName:string (PlantUmlEntityReader.dropTrailingQuote(left))
+        def rightName:string (PlantUmlEntityReader.dropLeadingQuote(right))
+        ; `N1 .. Order` does not make a link: it gives the floating note a home.
+        if (this.pinNote(leftName rightName)) {
+            return true
+        }
+        if (this.pinNote(rightName leftName)) {
+            return true
+        }
+        def leftKw:string (PlantUmlEntityReader.bracketKeyword(leftName))
+        def rightKw:string (PlantUmlEntityReader.bracketKeyword(rightName))
+        def source:string (this.ensure(leftName leftKw))
+        def target:string (this.ensure(rightName rightKw))
+        if ((strlen source) == 0) {
+            return false
+        }
+        if ((strlen target) == 0) {
+            return false
+        }
+        def l (new PlantUmlLink)
+        l.source = source
+        l.target = target
+        l.label = (PlantUmlText.label(label))
+        l.sourceCard = leftCard
+        l.targetCard = rightCard
+        l.dashed = (PlantUmlEntityReader.isDotted(tok))
+        l.hidden = (PlantUmlText.hasSub(tok "hidden"))
+        l.kind = (PlantUmlEntityReader.kindOf(tok))
+        l.markAtSource = (PlantUmlEntityReader.ornamentAtLeft(tok))
+        l.arrowAtTarget = (PlantUmlEntityReader.plainArrowRight(tok))
+        l.arrowAtSource = (PlantUmlEntityReader.plainArrowLeft(tok))
+        push doc.links l
+        return true
+    }
+
+    fn pinNote:boolean (noteName:string otherName:string) {
+        def id:string (PlantUmlEntityReader.plainName(noteName))
+        def at:int (doc.indexOfNote(id))
+        if (at < 0) {
+            return false
+        }
+        def n:PlantUmlNote (itemAt doc.notes at)
+        n.target = (PlantUmlEntityReader.plainName(otherName))
+        return true
+    }
+
+    ; Where the link token starts in the part before the label, or -1.
+    sfn linkAt:int (head:string) {
+        def n:int (strlen head)
+        def inQuote:boolean false
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt head i)
+            if (c == 34) {
+                def flip:boolean (inQuote == false)
+                inQuote = flip
+            }
+            if (inQuote == false) {
+                if (PlantUmlEntityReader.isBodyCode(c)) {
+                    def start:int (PlantUmlEntityReader.headStart(head i))
+                    def tok:string (PlantUmlEntityReader.linkToken(head start))
+                    if ((strlen tok) >= 2) {
+                        return start
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Walk back over the ornament in front of the body: `<|`, `*`, `o`, `#`,
+    ; `x`, `}`, `+`, `<`. An `o` or an `x` only counts where a name cannot be
+    ; ending — `Foo--` must not be read as `Fo` with an aggregation diamond.
+    sfn headStart:int (head:string i:int) {
+        def s:int i
+        while (s > 0) {
+            def c:int (charAt head (s - 1))
+            if (PlantUmlEntityReader.isOrnamentCode(c) == false) {
+                break
+            }
+            if (PlantUmlEntityReader.isLooseOrnament(c)) {
+                ; only when it stands alone: preceded by a space or the start
+                if (s == 1) {
+                    s = (s - 1)
+                    continue
+                }
+                def before:int (charAt head (s - 2))
+                if (PlantUmlText.isSpaceCode(before) == false) {
+                    break
+                }
+            }
+            s = (s - 1)
+        }
+        return s
+    }
+
+    ; The whole token: ornament, body, ornament.
+    sfn linkToken:string (head:string start:int) {
+        def n:int (strlen head)
+        def i:int start
+        ; the left ornament
+        while (i < n) {
+            def c:int (charAt head i)
+            if (PlantUmlEntityReader.isOrnamentCode(c) == false) {
+                break
+            }
+            i = (i + 1)
+        }
+        def bodyStart:int i
+        def sawBody:boolean false
+        while (i < n) {
+            def c2:int (charAt head i)
+            if (PlantUmlEntityReader.isBodyCode(c2)) {
+                sawBody = true
+                i = (i + 1)
+                continue
+            }
+            ; `-[hidden]-`, `-[#red,dashed]->`
+            if (c2 == 91) {
+                def close:int (PlantUmlText.indexOfSub(head "]" i))
+                if (close < 0) {
+                    break
+                }
+                i = (close + 1)
+                continue
+            }
+            ; `-up->`, `-left-`, `-r->`
+            def dir:int (PlantUmlEntityReader.directionAt(head i))
+            if (dir > 0) {
+                i = (i + dir)
+                continue
+            }
+            break
+        }
+        if (sawBody == false) {
+            return ""
+        }
+        ; the right ornament
+        while (i < n) {
+            def c3:int (charAt head i)
+            if (PlantUmlEntityReader.isOrnamentCode(c3) == false) {
+                break
+            }
+            if (PlantUmlEntityReader.isLooseOrnament(c3)) {
+                ; `--o Foo` is an aggregation; `--order` is not.
+                if ((i + 1) < n) {
+                    def after:int (charAt head (i + 1))
+                    if (PlantUmlText.isSpaceCode(after) == false) {
+                        break
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def tok:string (substring head start i)
+        if ((strlen tok) < 2) {
+            return ""
+        }
+        ; A body on its own is only a link when it is at least two long: a
+        ; single `-` inside `order-service` is a hyphen.
+        def bodyLen:int (i - bodyStart)
+        def ornaments:int ((strlen tok) - bodyLen)
+        if (ornaments == 0) {
+            if (bodyLen < 2) {
+                return ""
+            }
+        }
+        return tok
+    }
+
+    ; How many characters of direction hint start at `i`, or 0. `A -up-> B`
+    ; asks PlantUML to put B above A; RangerFlow lays the whole diagram out one
+    ; way, so the hint is read to get past it rather than obeyed.
+    sfn directionAt:int (head:string i:int) {
+        def lt:string (PlantUmlText.lower(head))
+        def n:int (PlantUmlEntityReader.directionWordAt(lt i))
+        if (n == 0) {
+            return 0
+        }
+        ; It is only a hint when the body carries on after it.
+        def after:int (i + n)
+        if (after >= (strlen head)) {
+            return 0
+        }
+        if (PlantUmlEntityReader.isBodyCode((charAt head after))) {
+            return n
+        }
+        return 0
+    }
+
+    sfn directionWordAt:int (lt:string i:int) {
+        if (PlantUmlText.matchAt(lt i "down"))  { return 4 }
+        if (PlantUmlText.matchAt(lt i "right")) { return 5 }
+        if (PlantUmlText.matchAt(lt i "left"))  { return 4 }
+        if (PlantUmlText.matchAt(lt i "up"))    { return 2 }
+        if (PlantUmlText.matchAt(lt i "d"))     { return 1 }
+        if (PlantUmlText.matchAt(lt i "r"))     { return 1 }
+        if (PlantUmlText.matchAt(lt i "l"))     { return 1 }
+        if (PlantUmlText.matchAt(lt i "u"))     { return 1 }
+        return 0
+    }
+
+    sfn isBodyCode:boolean (c:int) {
+        if (c == 45) { return true }
+        if (c == 46) { return true }
+        return false
+    }
+
+    sfn isOrnamentCode:boolean (c:int) {
+        if (c == 60)  { return true }
+        if (c == 62)  { return true }
+        if (c == 124) { return true }
+        if (c == 42)  { return true }
+        if (c == 111) { return true }
+        if (c == 35)  { return true }
+        if (c == 120) { return true }
+        if (c == 125) { return true }
+        if (c == 123) { return true }
+        if (c == 43)  { return true }
+        if (c == 94)  { return true }
+        return false
+    }
+
+    ; The ornaments that are also letters, and so need a space around them.
+    sfn isLooseOrnament:boolean (c:int) {
+        if (c == 111) { return true }
+        if (c == 120) { return true }
+        return false
+    }
+
+    sfn isDotted:boolean (tok:string) {
+        return (PlantUmlText.hasSub(tok "."))
+    }
+
+    ; What the ornament means. UML's vocabulary, not PlantUML's spelling.
+    sfn kindOf:string (tok:string) {
+        def dotted:boolean (PlantUmlEntityReader.isDotted(tok))
+        if (PlantUmlText.hasSub(tok "<|")) {
+            if dotted {
+                return "implementation"
+            }
+            return "inheritance"
+        }
+        if (PlantUmlText.hasSub(tok "|>")) {
+            if dotted {
+                return "implementation"
+            }
+            return "inheritance"
+        }
+        if (PlantUmlText.hasSub(tok "*")) {
+            return "composition"
+        }
+        if (PlantUmlEntityReader.hasAggregation(tok)) {
+            return "aggregation"
+        }
+        if dotted {
+            return "dependency"
+        }
+        return "association"
+    }
+
+    sfn hasAggregation:boolean (tok:string) {
+        def n:int (strlen tok)
+        if (n == 0) {
+            return false
+        }
+        if ((charAt tok 0) == 111) {
+            return true
+        }
+        if ((charAt tok (n - 1)) == 111) {
+            return true
+        }
+        return false
+    }
+
+    ; `A <|-- B` puts the triangle on A, which is the source.
+    sfn ornamentAtLeft:boolean (tok:string) {
+        def n:int (strlen tok)
+        if (n == 0) {
+            return false
+        }
+        def first:int (charAt tok 0)
+        if (first == 60) {
+            ; `<|` is the ornament; a bare `<` is an arrowhead, and an
+            ; arrowhead is not the ornament that decides an end.
+            if (n > 1) {
+                if ((charAt tok 1) == 124) {
+                    return true
+                }
+            }
+            return false
+        }
+        if (first == 42) { return true }
+        if (first == 111) { return true }
+        return false
+    }
+
+    ; A plain `-->`: an arrowhead, and no UML ornament to replace it.
+    sfn plainArrowRight:boolean (tok:string) {
+        def n:int (strlen tok)
+        if (n == 0) {
+            return false
+        }
+        if ((charAt tok (n - 1)) != 62) {
+            return false
+        }
+        if (PlantUmlText.hasSub(tok "|>")) {
+            return false
+        }
+        return true
+    }
+
+    sfn plainArrowLeft:boolean (tok:string) {
+        def n:int (strlen tok)
+        if (n == 0) {
+            return false
+        }
+        if ((charAt tok 0) != 60) {
+            return false
+        }
+        if (PlantUmlText.hasSub(tok "<|")) {
+            return false
+        }
+        return true
+    }
+
+    ; `Customer "1"` → `"1"`, and the name without it.
+    sfn trailingQuote:string (left:string) {
+        def t:string (trim left)
+        def n:int (strlen t)
+        if (n < 2) {
+            return ""
+        }
+        if ((charAt t (n - 1)) != 34) {
+            return ""
+        }
+        def open:int (PlantUmlEntityReader.matchQuoteBack(t (n - 1)))
+        if (open < 0) {
+            return ""
+        }
+        ; A wholly quoted name is a name, not a cardinality.
+        if (open == 0) {
+            return ""
+        }
+        def inner:string (substring t (open + 1) (n - 1))
+        return (trim inner)
+    }
+
+    sfn dropTrailingQuote:string (left:string) {
+        def t:string (trim left)
+        def card:string (PlantUmlEntityReader.trailingQuote(t))
+        if ((strlen card) == 0) {
+            return t
+        }
+        def n:int (strlen t)
+        def open:int (PlantUmlEntityReader.matchQuoteBack(t (n - 1)))
+        def head:string (substring t 0 open)
+        return (trim head)
+    }
+
+    sfn leadingQuote:string (right:string) {
+        def t:string (trim right)
+        def n:int (strlen t)
+        if (n < 2) {
+            return ""
+        }
+        if ((charAt t 0) != 34) {
+            return ""
+        }
+        def close:int (PlantUmlText.indexOfSub(t "\"" 1))
+        if (close < 0) {
+            return ""
+        }
+        ; The whole of the right-hand side quoted is a name.
+        if (close == (n - 1)) {
+            return ""
+        }
+        def inner:string (substring t 1 close)
+        return (trim inner)
+    }
+
+    sfn dropLeadingQuote:string (right:string) {
+        def t:string (trim right)
+        def card:string (PlantUmlEntityReader.leadingQuote(t))
+        if ((strlen card) == 0) {
+            return t
+        }
+        def close:int (PlantUmlText.indexOfSub(t "\"" 1))
+        def tail:string (substring t (close + 1) (strlen t))
+        return (trim tail)
+    }
+
+    sfn matchQuoteBack:int (t:string from:int) {
+        def i:int (from - 1)
+        while (i >= 0) {
+            if ((charAt t i) == 34) {
+                return i
+            }
+            i = (i - 1)
+        }
+        return -1
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The pipeline
+; ---------------------------------------------------------------------------
+;
+; Two kinds of node come out of one model, because PlantUML's own diagrams do:
+; an entity that can carry members is drawn as a compartment box, and one that
+; cannot is drawn as an outline. Everything after that — the layered layout,
+; the lane router, the frames around the packages — is the machinery the ERD
+; and the Mermaid class diagram already run on.
+; ---------------------------------------------------------------------------
+class PlantUmlEntityFlow {
+    def g:FlowGraph (new FlowGraph)
+    def doc:PlantUmlEntityModel (new PlantUmlEntityModel)
+    def style:FlowStyle (new FlowStyle)
+    def measurer:UMLToGraph (new UMLToGraph)
+    def chart:Flowchart (new Flowchart)
+
+    Constructor () {
+    }
+
+    sfn build:FlowGraph (d:PlantUmlEntityModel style:FlowStyle) {
+        def f (new PlantUmlEntityFlow)
+        f.doc = d
+        f.style = style
+        return (f.run())
+    }
+
+    fn run:FlowGraph () {
+        this.nodes()
+        g.reindex()
+        this.edges()
+        g.reindex()
+        def wrote:int (style.applyTo(g))
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = doc.direction
+        lay.layerGap = 110.0
+        lay.nodeGap = 44.0
+        if (doc.direction == "LR") {
+            lay.layerGap = 150.0
+        }
+        lay.run()
+        ; A frame is a box around where its members ended up, so the members
+        ; have to end up together. Without this the layout is free to put a
+        ; class that belongs to no package between two that belong to one, and
+        ; the frame drawn afterwards swallows it — a package that claims a
+        ; class it never declared.
+        def banded:int (this.bandLayout(lay))
+        def moved:int (EdgeLanes.assign(g))
+        def routed:int (lay.routeLongEdges())
+        EdgeLanes.resetLanes(g)
+        def refanned:int (EdgeLanes.assign(g))
+        def repaired:int (OrthoRouter.repairAll(g))
+        this.frames()
+        this.notes()
+        g.reindex()
+        return g
+    }
+
+    ; ------------------------------------------------------------- nodes ----
+    fn nodes:void () {
+        def i:int 0
+        while (i < (array_length doc.entities)) {
+            def e:PlantUmlEntity (itemAt doc.entities i)
+            i = (i + 1)
+            def n:FlowNode (this.nodeFor(e))
+            g.addNode(n)
+        }
+    }
+
+    fn nodeFor:FlowNode (e:PlantUmlEntity) {
+        def compart:boolean (e.compartmented())
+        if compart {
+            return (this.compartmentNode(e))
+        }
+        return (this.shapeNode(e))
+    }
+
+    ; A class box: a header, and a row per member. The measuring is
+    ; `UMLToGraph`'s, so a PlantUML class and a Mermaid one are the same size
+    ; for the same words.
+    fn compartmentNode:FlowNode (e:PlantUmlEntity) {
+        def c:UMLClass (UMLClass.create(e.id))
+        c.stereotype = e.stereotype
+        ; `interface` and `enum` are stereotypes in UML even when PlantUML
+        ; gives them a keyword of their own.
+        if ((strlen c.stereotype) == 0) {
+            if (e.keyword == "interface") {
+                c.stereotype = "interface"
+            }
+            if (e.keyword == "enum") {
+                c.stereotype = "enumeration"
+            }
+            if (e.keyword == "abstract") {
+                c.stereotype = "abstract"
+            }
+            if (e.keyword == "annotation") {
+                c.stereotype = "annotation"
+            }
+        }
+        def k:int 0
+        while (k < (array_length e.members)) {
+            def m:PlantUmlMember (itemAt e.members k)
+            k = (k + 1)
+            def um (new UMLMember)
+            um.visibility = m.visibility
+            um.name = m.text
+            um.memberType = m.detail
+            um.isStatic = m.isStatic
+            um.isAbstract = m.isAbstract
+            if m.isOperation {
+                push c.operations um
+            }
+            if (m.isOperation == false) {
+                push c.attributes um
+            }
+        }
+        def n:FlowNode (measurer.classNode(c))
+        ; `classNode` names the box after the class; the label is the name the
+        ; author gave it, which an alias can make a different string.
+        n.label = (PlantUmlEntityFlow.headerLabel(e c.stereotype))
+        n.cssClass = ("plantuml umlclass " + e.keyword)
+        return n
+    }
+
+    sfn headerLabel:string (e:PlantUmlEntity stereotype:string) {
+        def name:string e.name
+        if ((strlen name) == 0) {
+            name = e.id
+        }
+        if ((strlen stereotype) > 0) {
+            return ("«" + stereotype + "» " + name)
+        }
+        return name
+    }
+
+    ; An outline: a component, an actor, a use case, a database.
+    fn shapeNode:FlowNode (e:PlantUmlEntity) {
+        def label:string e.name
+        if ((strlen label) == 0) {
+            label = e.id
+        }
+        if ((strlen e.stereotype) > 0) {
+            label = ("«" + e.stereotype + "»\n" + label)
+        }
+        def s:FlowStep (chart.step(e.id label "process"))
+        def n:FlowNode (chart.stepNode(s))
+        n.shape = (PlantUmlEntityReader.shapeFor(e.keyword))
+        ; A use case is an ellipse and needs the room a rectangle does not.
+        if (n.shape == "ellipse") {
+            n.width = (n.width + 26.0)
+            n.height = (n.height + 10.0)
+        }
+        if (n.shape == "circle") {
+            PlantUmlEntityFlow.squareOff(n)
+        }
+        n.nodeType = "step"
+        n.cssClass = ("plantuml " + e.keyword + " shape-" + n.shape)
+        n.syncFromModel()
+        return n
+    }
+
+    sfn squareOff:void (n:FlowNode) {
+        def side:double n.width
+        if (side < n.height) {
+            side = n.height
+        }
+        if (side < 64.0) {
+            side = 64.0
+        }
+        n.width = side
+        n.height = side
+    }
+
+    ; ------------------------------------------------------------- edges ----
+    fn edges:void () {
+        def i:int 0
+        while (i < (array_length doc.links)) {
+            def l:PlantUmlLink (itemAt doc.links i)
+            def idx:int i
+            i = (i + 1)
+            if ((g.hasNode(l.source)) == false) {
+                continue
+            }
+            if ((g.hasNode(l.target)) == false) {
+                continue
+            }
+            def e:FlowEdge (FlowEdge.create(("l" + (to_string idx)) l.source l.target))
+            e.edgeType = "smoothstep"
+            e.label = l.label
+            ; The multiplicities are TEXT beside the ends, not the crow's-foot
+            ; channel: setting `sourceCardinality` makes the notation layer
+            ; choose the marker, and a `"1"` would quietly replace the
+            ; aggregation diamond with an arrowhead.
+            if ((strlen l.sourceCard) > 0) {
+                def sa:FlowAnnotation (FlowAnnotation.create(l.sourceCard 0.12 0.5))
+                sa.away = -9.0
+                sa.fontSize = 10.0
+                push e.annotations sa
+            }
+            if ((strlen l.targetCard) > 0) {
+                def ta:FlowAnnotation (FlowAnnotation.create(l.targetCard 0.88 0.5))
+                ta.away = -9.0
+                ta.fontSize = 10.0
+                push e.annotations ta
+            }
+            e.cssClass = ("plantuml link " + l.kind)
+            if l.dashed {
+                e.dash = 6.0
+            }
+            if l.hidden {
+                e.hidden = true
+            }
+            def mark:string (PlantUmlEntityFlow.markerFor(l.kind))
+            e.markerStart = ""
+            e.markerEnd = ""
+            if ((strlen mark) > 0) {
+                if l.markAtSource {
+                    e.markerStart = mark
+                }
+                if (l.markAtSource == false) {
+                    e.markerEnd = mark
+                }
+            }
+            ; A plain arrowhead, where no ornament has taken the end.
+            if l.arrowAtTarget {
+                if ((strlen e.markerEnd) == 0) {
+                    e.markerEnd = "arrowclosed"
+                }
+            }
+            if l.arrowAtSource {
+                if ((strlen e.markerStart) == 0) {
+                    e.markerStart = "arrowclosed"
+                }
+            }
+            g.addEdge(e)
+        }
+    }
+
+    sfn markerFor:string (kind:string) {
+        if (kind == "inheritance")    { return "triangle" }
+        if (kind == "implementation") { return "triangle" }
+        if (kind == "composition")    { return "diamond-filled" }
+        if (kind == "aggregation")    { return "diamond" }
+        if (kind == "dependency")     { return "arrow" }
+        return ""
+    }
+
+    ; ----------------------------------------------------------- packing ----
+    ; Every package gets a stripe of its own, and keeps it in every layer.
+    ;
+    ; A layered layout has no idea that six of its nodes belong together, so it
+    ; is free to put a class that belongs to no package between two that do.
+    ; Draw a frame round the members afterwards and the frame swallows the
+    ; stranger: a package that claims a class it never declared. Ordering each
+    ; layer separately does not fix it either, because a package whose members
+    ; sit in layers one and four still spans everything in between.
+    ;
+    ; So the packages are laid out as BANDS. Each root package — and the
+    ; ungrouped nodes, which are a band too — is given a column wide enough for
+    ; its widest layer, and every layer places its nodes inside their own band.
+    ; A frame then cannot reach outside its column, two frames cannot overlap,
+    ; and a stranger cannot be inside one.
+    ;
+    ; It is not what Graphviz does (it ranks inside a cluster as well), and a
+    ; diagram with many packages comes out wide. It is, though, the whole of
+    ; the correctness problem, and a wide diagram is not a false one.
+    fn bandLayout:int (lay:LayeredLayout) {
+        if ((array_length doc.groups) == 0) {
+            return 0
+        }
+        def bands:[string] (this.bandOrder())
+        if ((array_length bands) < 2) {
+            return 0
+        }
+        def horiz:boolean (doc.direction == "LR")
+        def maxLayer:int -1
+        def i:int 0
+        while (i < (array_length lay.layerOf)) {
+            def lv:int (itemAt lay.layerOf i)
+            if (lv > maxLayer) {
+                maxLayer = lv
+            }
+            i = (i + 1)
+        }
+        def gap:double 26.0
+        def bandGap:double 64.0
+        ; How wide each band has to be: its widest layer.
+        def widths:[double]
+        def b:int 0
+        while (b < (array_length bands)) {
+            def key:string (itemAt bands b)
+            b = (b + 1)
+            def widest:double 0.0
+            def layer:int 0
+            while (layer <= maxLayer) {
+                def run:double 0.0
+                def count:int 0
+                def k:int 0
+                while (k < (g.nodeCount())) {
+                    def n:FlowNode (g.nodeAt(k))
+                    def idx:int k
+                    k = (k + 1)
+                    if (idx >= (array_length lay.layerOf)) {
+                        continue
+                    }
+                    if ((itemAt lay.layerOf idx) != layer) {
+                        continue
+                    }
+                    def mine:string (this.rootGroupOf(n.id))
+                    if (mine != key) {
+                        continue
+                    }
+                    def size:double n.width
+                    if horiz {
+                        size = n.height
+                    }
+                    run = (run + size)
+                    count = (count + 1)
+                }
+                if (count > 1) {
+                    def extra:double (to_double (count - 1))
+                    run = (run + (extra * gap))
+                }
+                if (run > widest) {
+                    widest = run
+                }
+                layer = (layer + 1)
+            }
+            push widths widest
+        }
+        ; Place them, band by band, layer by layer.
+        def cursor:double 0.0
+        def bi:int 0
+        while (bi < (array_length bands)) {
+            def key2:string (itemAt bands bi)
+            def bw:double (itemAt widths bi)
+            def start:double cursor
+            cursor = ((cursor + bw) + bandGap)
+            bi = (bi + 1)
+            if (bw <= 0.0) {
+                continue
+            }
+            def layer2:int 0
+            while (layer2 <= maxLayer) {
+                def idxs:[int]
+                def k2:int 0
+                while (k2 < (g.nodeCount())) {
+                    def n2:FlowNode (g.nodeAt(k2))
+                    def idx2:int k2
+                    k2 = (k2 + 1)
+                    if (idx2 >= (array_length lay.layerOf)) {
+                        continue
+                    }
+                    if ((itemAt lay.layerOf idx2) != layer2) {
+                        continue
+                    }
+                    def mine2:string (this.rootGroupOf(n2.id))
+                    if (mine2 == key2) {
+                        push idxs idx2
+                    }
+                }
+                layer2 = (layer2 + 1)
+                if ((array_length idxs) == 0) {
+                    continue
+                }
+                def sorted:[int] (this.sortByCross(idxs horiz))
+                ; Centre this layer's run inside the band it belongs to.
+                def run2:double 0.0
+                def q:int 0
+                while (q < (array_length sorted)) {
+                    def n3:FlowNode (g.nodeAt((itemAt sorted q)))
+                    def sz:double n3.width
+                    if horiz {
+                        sz = n3.height
+                    }
+                    run2 = (run2 + sz)
+                    q = (q + 1)
+                }
+                def many:int (array_length sorted)
+                if (many > 1) {
+                    def extra2:double (to_double (many - 1))
+                    run2 = (run2 + (extra2 * gap))
+                }
+                def slack:double (bw - run2)
+                def at:double (start + (slack * 0.5))
+                def r:int 0
+                while (r < (array_length sorted)) {
+                    def n4:FlowNode (g.nodeAt((itemAt sorted r)))
+                    r = (r + 1)
+                    if horiz {
+                        n4.y = at
+                        at = ((at + n4.height) + gap)
+                    } {
+                        n4.x = at
+                        at = ((at + n4.width) + gap)
+                    }
+                    n4.syncFromModel()
+                }
+            }
+        }
+        return (array_length bands)
+    }
+
+    ; The bands, left to right: the packages in the order they were declared,
+    ; and the nodes that belong to none of them last.
+    fn bandOrder:[string] () {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length doc.groups)) {
+            def gr:PlantUmlGroup (itemAt doc.groups i)
+            i = (i + 1)
+            if (gr.depth != 0) {
+                continue
+            }
+            def seen:boolean false
+            def k:int 0
+            while (k < (array_length out)) {
+                if ((itemAt out k) == gr.id) {
+                    seen = true
+                }
+                k = (k + 1)
+            }
+            if (seen == false) {
+                push out gr.id
+            }
+        }
+        ; Only bands that something actually stands in.
+        def used:[string]
+        def b:int 0
+        while (b < (array_length out)) {
+            def key:string (itemAt out b)
+            b = (b + 1)
+            def any:boolean false
+            def n:int 0
+            while (n < (g.nodeCount())) {
+                def node:FlowNode (g.nodeAt(n))
+                n = (n + 1)
+                if ((this.rootGroupOf(node.id)) == key) {
+                    any = true
+                }
+            }
+            if any {
+                push used key
+            }
+        }
+        def loose:boolean false
+        def m:int 0
+        while (m < (g.nodeCount())) {
+            def nd:FlowNode (g.nodeAt(m))
+            m = (m + 1)
+            if ((doc.indexOfEntity(nd.id)) < 0) {
+                continue
+            }
+            if ((this.rootGroupOf(nd.id)) == "") {
+                loose = true
+            }
+        }
+        if loose {
+            push used ""
+        }
+        return used
+    }
+
+    ; Insertion sort on the cross axis: the layers are short and the order has
+    ; to be stable, which rules out the clever ones.
+    fn sortByCross:[int] (idx:[int] horiz:boolean) {
+        def out:[int]
+        def i:int 0
+        while (i < (array_length idx)) {
+            def cand:int (itemAt idx i)
+            def cn:FlowNode (g.nodeAt(cand))
+            def key:double cn.x
+            if horiz {
+                key = cn.y
+            }
+            def at:int (array_length out)
+            def j:int 0
+            while (j < (array_length out)) {
+                def on:FlowNode (g.nodeAt((itemAt out j)))
+                def okey:double on.x
+                if horiz {
+                    okey = on.y
+                }
+                if (key < okey) {
+                    at = j
+                    break
+                }
+                j = (j + 1)
+            }
+            def rebuilt:[int]
+            def k2:int 0
+            while (k2 < (array_length out)) {
+                if (k2 == at) {
+                    push rebuilt cand
+                }
+                push rebuilt (itemAt out k2)
+                k2 = (k2 + 1)
+            }
+            if (at >= (array_length out)) {
+                push rebuilt cand
+            }
+            out = rebuilt
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The outermost package an entity belongs to, "" for one that belongs to
+    ; none. Nested packages ride in their parent's band, because the outer
+    ; frame has to be able to hold the inner one.
+    fn rootGroupOf:string (id:string) {
+        def at:int (doc.indexOfEntity(id))
+        if (at < 0) {
+            return ""
+        }
+        def e:PlantUmlEntity (itemAt doc.entities at)
+        def gid:string e.parent
+        def guard:int 0
+        while (guard < 16) {
+            guard = (guard + 1)
+            if ((strlen gid) == 0) {
+                return ""
+            }
+            def gat:int (doc.indexOfGroup(gid))
+            if (gat < 0) {
+                return gid
+            }
+            def gr:PlantUmlGroup (itemAt doc.groups gat)
+            if ((strlen gr.parent) == 0) {
+                return gid
+            }
+            gid = gr.parent
+        }
+        return gid
+    }
+
+    ; ------------------------------------------------------------- notes ----
+    ; Placed after everything else, and never handed to the layout: a ranked
+    ; note pushes the classes apart to make room for a sentence, and the
+    ; sentence ends up in the middle of the inheritance it was commenting on.
+    ; It goes beside its entity instead, with the dashed leader UML has always
+    ; drawn; a note pinned to nothing goes above the diagram.
+    fn notes:void () {
+        if ((array_length doc.notes) == 0) {
+            return
+        }
+        def bounds:FlowRect (g.bounds())
+        def loose:double bounds.x
+        def i:int 0
+        while (i < (array_length doc.notes)) {
+            def nt:PlantUmlNote (itemAt doc.notes i)
+            i = (i + 1)
+            def w:double (PlantUmlEntityFlow.noteWidth(nt.text))
+            def h:double (PlantUmlEntityFlow.noteHeight(nt.text))
+            def n:FlowNode (FlowNode.create(nt.id nt.text 0.0 0.0))
+            n.nodeType = "note"
+            n.shape = "note"
+            n.width = w
+            n.height = h
+            n.connectable = false
+            n.cssClass = "plantuml note"
+            if ((g.hasNode(nt.target)) == false) {
+                n.x = loose
+                n.y = ((bounds.y - h) - 40.0)
+                loose = ((loose + w) + 20.0)
+                n.syncFromModel()
+                g.addNode(n)
+                continue
+            }
+            def owner:FlowNode (g.nodeById(nt.target))
+            def gap:double 44.0
+            n.x = ((owner.x + owner.width) + gap)
+            n.y = owner.y
+            if (nt.placement == "left") {
+                n.x = ((owner.x - w) - gap)
+            }
+            if (nt.placement == "top") {
+                n.x = owner.x
+                n.y = ((owner.y - h) - gap)
+            }
+            if (nt.placement == "bottom") {
+                n.x = owner.x
+                n.y = ((owner.y + owner.height) + gap)
+            }
+            n.syncFromModel()
+            g.addNode(n)
+            g.reindex()
+            def e:FlowEdge (FlowEdge.create(("note-" + nt.id) nt.target nt.id))
+            e.edgeType = "straight"
+            e.markerEnd = ""
+            e.dash = 4.0
+            e.cssClass = "plantuml note-leader"
+            g.addEdge(e)
+        }
+    }
+
+    sfn noteWidth:double (text:string) {
+        def longest:int (PlantUmlEntityFlow.longestLine(text))
+        def w:double ((to_double longest) * 6.4)
+        w = (w + 24.0)
+        if (w < 110.0) {
+            w = 110.0
+        }
+        if (w > 280.0) {
+            w = 280.0
+        }
+        return w
+    }
+
+    sfn noteHeight:double (text:string) {
+        def lines:int (PlantUmlEntityFlow.lineCount(text))
+        def h:double ((to_double lines) * 16.0)
+        h = (h + 22.0)
+        if (h < 42.0) {
+            h = 42.0
+        }
+        return h
+    }
+
+    sfn longestLine:int (text:string) {
+        def best:int 0
+        def run:int 0
+        def i:int 0
+        while (i < (strlen text)) {
+            def c:int (charAt text i)
+            i = (i + 1)
+            if (c == 10) {
+                if (run > best) { best = run }
+                run = 0
+                continue
+            }
+            run = (run + 1)
+        }
+        if (run > best) { best = run }
+        return best
+    }
+
+    sfn lineCount:int (text:string) {
+        def n:int 1
+        def i:int 0
+        while (i < (strlen text)) {
+            if ((charAt text i) == 10) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; ------------------------------------------------------------ frames ----
+    ; A package is drawn around its members once they have been placed, from
+    ; the inside out so a nested one is inside the box it belongs to.
+    fn frames:void () {
+        def deepest:int 0
+        def i:int 0
+        while (i < (array_length doc.groups)) {
+            def gr:PlantUmlGroup (itemAt doc.groups i)
+            if (gr.depth > deepest) {
+                deepest = gr.depth
+            }
+            i = (i + 1)
+        }
+        def level:int deepest
+        while (level >= 0) {
+            def k:int 0
+            while (k < (array_length doc.groups)) {
+                def gr2:PlantUmlGroup (itemAt doc.groups k)
+                if (gr2.depth == level) {
+                    def made:boolean (this.frameOne(gr2))
+                }
+                k = (k + 1)
+            }
+            level = (level - 1)
+        }
+    }
+
+    fn frameOne:boolean (gr:PlantUmlGroup) {
+        def pad:double 20.0
+        def head:double 24.0
+        def r (new FlowRect)
+        def i:int 0
+        while (i < (array_length gr.members)) {
+            def mid:string (itemAt gr.members i)
+            i = (i + 1)
+            if ((g.hasNode(mid)) == false) {
+                continue
+            }
+            def n:FlowNode (g.nodeById(mid))
+            def right:double (n.x + n.width)
+            def bottom:double (n.y + n.height)
+            if (r.valid == false) {
+                r.x = n.x
+                r.y = n.y
+                r.w = n.width
+                r.h = n.height
+                r.valid = true
+                continue
+            }
+            if (n.x < r.x) {
+                def dw:double (r.x - n.x)
+                r.x = n.x
+                r.w = (r.w + dw)
+            }
+            if (n.y < r.y) {
+                def dh:double (r.y - n.y)
+                r.y = n.y
+                r.h = (r.h + dh)
+            }
+            def rr:double (r.x + r.w)
+            if (right > rr) {
+                r.w = (right - r.x)
+            }
+            def rb:double (r.y + r.h)
+            if (bottom > rb) {
+                r.h = (bottom - r.y)
+            }
+        }
+        if (r.valid == false) {
+            return false
+        }
+        def frameId:string ("__frame_" + gr.id)
+        def title:string gr.name
+        if ((strlen title) == 0) {
+            title = ""
+        }
+        def frame:FlowNode (FlowNode.create(frameId title (r.x - pad) ((r.y - pad) - head)))
+        frame.nodeType = "group"
+        frame.width = (r.w + (pad * 2.0))
+        frame.height = ((r.h + (pad * 2.0)) + head)
+        frame.connectable = false
+        frame.cssClass = ("plantuml frame " + gr.keyword)
+        frame.syncFromModel()
+        g.addNode(frame)
+        def sent:boolean (g.sendToBack(frameId))
+        return true
+    }
+}

@@ -14,3 +14,8 @@ out/
 # you have to trust, so neither is committed.
 harness/node_modules/
 harness/out/
+
+# PlantUML, fetched on demand so the oracle can be asked what its own examples
+# mean. It is GPL, it is run as a subprocess and never linked, and 22 MB of jar
+# is not this repository's to carry.
+harness/vendor/
