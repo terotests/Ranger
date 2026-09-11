@@ -6,7 +6,7 @@ the canvas scrolls the textarea. `docx_viewer` and `pptx` have the thing that
 is missing — a caret in the picture, a selection you can bold, handles on a
 picture, and an undo stack with rules.
 
-**Stages A, B and C are built.** What each of them turned out to cost, and the
+**Stages A, B, C, D and E are built.** What each of them turned out to cost, and the
 two things the building changed about the plan, are recorded in place below
 rather than quietly.
 
@@ -316,12 +316,52 @@ cases the person who wrote the stamping thought of.
 `MdSrcMapScan` lives in `src/`, not beside the test: Stage G's incremental
 reparse needs exactly this to run both ways and compare.
 
-### Stage D — the shared caret primitives (kernel plan Stage E, for real)
+### Stage D — the shared caret primitives (kernel plan Stage E, for real) — ✅ done
 
-*Next.* Stage B left `OfficeTextMetrics` callable from markdown, and Stage C
-left every placed segment carrying a source span; what is missing is the line
-navigation over them, and `MdLayout.srcAtPoint` is currently markdown's own
-answer to a question `DocxEditController.hitTest` answers separately.
+**A correction first, and it makes this document's own point.** Stage B
+introduced `OfficeMeasure` without noticing that `OfficeTextMeasure` already
+answered "how wide is this text" for `pptx` and `odp` — two answers to one
+question, written months apart, in the directory that exists to prevent
+exactly that. They are one body now: `OfficeTextMeasure` keeps its `UIContext`
+door and its 0.52em fallback, and every face it resolves and every width it
+takes goes through `OfficeMeasure`. What that removed, beside the duplication,
+is the dance where `widthOfIn` poked `ctx.tr.fontFamily` and put it back;
+`OfficeMeasure` takes the face as an argument, so there is no state to forget
+to restore.
+
+`OfficeCaretMotion` — left, right, word left, word right, and the word under
+the caret, over a string. It was written **four times**, and one of the four
+was missing:
+
+| | |
+| --- | --- |
+| `PptxTextEdit` | had the surrogate rule and the word rule |
+| `EditorBuffer` | had the surrogate rule, inline |
+| `DocxEditController` | stepped by `off - 1`, and had no word motion at all |
+| `gallery/markdown` | had no caret |
+
+`off - 1` lands between the halves of a surrogate pair, and the next edit
+splits an emoji into two units that are not characters. Three copies and one
+hole is §2's pattern seam met in the wild. docx also gained Ctrl+Left/Right
+and double-click word selection on the way, which it did not have.
+
+`OfficeLineNav` is the across-lines half — the line table as ids and indices
+so each editor keeps its own arrays, the clamp, the edge rule, a screen's
+worth of lines — and `OfficeCaretColumn` is the x an Up or Down aims at. docx
+recomputed that from the caret on every vertical move, so Down through a
+two-character line and back Up landed at column two rather than where the
+reader started. Nothing about that looks like a bug from outside, which is why
+it survived.
+
+*Done when:* a wiring test drives the real call site in each.
+**`office:caret:editors:test` does** — pptx, docx, text_editor and markdown,
+with an emoji and a double space as the witnesses. Mutation-checked: putting
+docx's `off - 1` back turns it red.
+
+*Not done, and it should be said:* `DocxEditController.hitTest` is still its
+own, and so is `MdLayout.srcAtPoint`. The *within-a-line* half of that is
+already shared — `OfficeTextMetrics.offsetAtX`, which docx calls and markdown
+does not yet — and moving markdown onto it is the obvious next cut.
 
 Two new files in `gallery/office/text`, both pure functions over data:
 
@@ -343,7 +383,7 @@ their own, and `office:caret:editors:test` — a wiring test in the shape of
 `OfficeRtlEditorsTest` — drives the real call site in **docx, pptx and
 markdown** and looks at what came out.
 
-### Stage E — the edit model and undo
+### Stage E — the edit model and undo — ✅ done
 
 - `MdEdit.rgr` — `MdEditOp`, `apply`, `invert`, and the coalescing rule for
   typing (one word is one undo, a paste is one undo).
@@ -360,9 +400,29 @@ that one action is one undo in each" — now across five.
 
 *Done when:* `markdown:edit:test` types, deletes, pastes and undoes back to a
 byte-identical source, and `office:history:editors:test` asserts one action is
-one undo in all five.
+one undo in all five. **Both hold** — 61 assertions and 22.
+
+Two things the building changed:
+
+- **The coalescing rule was wrong first.** A space as its own undo step left
+  `one` after two undos, which is a state the reader was never in: nobody
+  stops between a word and the space after it. The space joins the word in
+  front of it; a newline does not, because Enter is structural.
+- **`office:history:editors:test` asserts behaviour, not stack depth**, and
+  that was forced by what it found: the five do not store the same thing.
+  `docx`, `datagrid` and `markdown` record operations; `pptx` and `book`
+  record snapshots. Counting entries would be asserting an implementation,
+  differently for each, and would pass while the thing a reader cares about
+  was broken. On its first run it caught
+  `DocxEditController.pasteLines` — public, un-transactional, one undo per
+  line for anything reaching it directly, which is the exact failure
+  `OfficeHistory`'s own header describes.
 
 ### Stage F — the semantic edits, which is the WYSIWYG part
+
+*Next.* `MdSemanticEdit` is the one thing between the caret that exists and a
+preview a reader can make bold. Everything it needs is built: the source map
+says which node a selection is in, and `MdEditOp` is what it has to produce.
 
 `MdSemanticEdit.rgr`: a table from an intent plus a selection to **one**
 `MdEditOp`, decided against the AST rather than by a regular expression.
