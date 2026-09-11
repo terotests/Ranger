@@ -355,7 +355,7 @@ class EVGLayout {
                     if (fontSize <= 0.0) {
                         fontSize = 14.0
                     }
-                    def contentW:double (textEngine.maxLineWidth(textContent (element.effectiveFontFamily()) fontSize))
+                    def contentW:double (textEngine.maxLineWidthSpaced(textContent (element.effectiveFontFamily()) fontSize element.letterSpacing))
                     def measuredW:double (contentW + element.box.paddingLeftPx + element.box.paddingRightPx + (element.box.borderWidthPx * 2.0))
                     if (measuredW < parentWidth) {
                         width = measuredW
@@ -599,9 +599,13 @@ class EVGLayout {
                 ; drew a different one, which is a box the last line falls out
                 ; of.
                 def availableWidth:double (element.wrapWidth((element.box.getInnerWidth(width))))
-                def lineCount:int (textEngine.lineCount(textContent (element.effectiveFontFamily()) fontSize availableWidth))
+                def lineCount:int (textEngine.lineCountSpaced(textContent (element.effectiveFontFamily()) fontSize availableWidth element.letterSpacing))
 
                 contentHeight = (lineSpacing * (to_double lineCount))
+                ; And the gaps between paragraphs, which are not line boxes:
+                ; reserving them here is what keeps the painter's last line
+                ; inside the box it was sized for.
+                contentHeight = (contentHeight + (textEngine.paragraphLeading(textContent (element.effectiveFontFamily()) fontSize availableWidth element.letterSpacing element.paragraphSpacing)))
 
                 ; Baseline of the FIRST line, measured from this element's top
                 ; border edge, for align-items: baseline. The glyphs sit inside
@@ -614,7 +618,7 @@ class EVGLayout {
                 ; Measured: at line-height 1 the browser puts the baseline at
                 ; 0.846em, which is exactly -0.0585 + 0.905. The clamp made that
                 ; 0.905 and moved every tightly-led line down by the difference.
-                def metrics:EVGTextMetrics (textEngine.measureRun(textContent (element.effectiveFontFamily()) fontSize))
+                def metrics:EVGTextMetrics (textEngine.measureRunSpaced(textContent (element.effectiveFontFamily()) fontSize element.letterSpacing))
                 def leading:double ((lineSpacing - (metrics.ascent + metrics.descent)) / 2.0)
                 ; `textShiftY` is written below, once the height is final —
                 ; it is a share of the slack and there is no slack until then
@@ -2584,9 +2588,9 @@ class EVGLayout {
                     }
                     def contentW:double 0.0
                     if wantMin {
-                        contentW = (textEngine.minLineWidth(textContent (el.effectiveFontFamily()) fs))
+                        contentW = (textEngine.minLineWidthSpaced(textContent (el.effectiveFontFamily()) fs el.letterSpacing))
                     } {
-                        contentW = (textEngine.maxLineWidth(textContent (el.effectiveFontFamily()) fs))
+                        contentW = (textEngine.maxLineWidthSpaced(textContent (el.effectiveFontFamily()) fs el.letterSpacing))
                     }
                     outer = (contentW + (el.box.getHorizontalChrome()))
                 }
@@ -3359,7 +3363,7 @@ class EVGLayout {
                 if (fontSize <= 0.0) {
                     fontSize = 14.0
                 }
-                def contentW:double (textEngine.maxLineWidth(textContent (child.effectiveFontFamily()) fontSize))
+                def contentW:double (textEngine.maxLineWidthSpaced(textContent (child.effectiveFontFamily()) fontSize child.letterSpacing))
                 def measuredW:double (contentW + child.box.paddingLeftPx + child.box.paddingRightPx + (child.box.borderWidthPx * 2.0))
                 if (measuredW < maxInnerWidth) {
                     return measuredW

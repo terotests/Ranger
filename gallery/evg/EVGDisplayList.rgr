@@ -85,6 +85,21 @@ class EVGDrawCmd {
     ; When set, `w` is the text-box content width used to measure & place the run.
     def textAlign:string ""
     def fontWeight:string ""
+    ; CSS `letter-spacing` in pixels, zero for the font's own. It rides on
+    ; the command rather than being folded into `x` because a run is drawn
+    ; as one string: the painter has to space it, nobody else can.
+    def letterSpacing:double 0.0
+    ; STROKE (kind 7): 0 butt / 1 round / 2 square, and 0 miter / 1 round /
+    ; 2 bevel. Zero on both is the chain of butt-jointed bars the painter
+    ; drew before, so a backend that ignores them is not wrong, only plain.
+    def strokeCap:int 0
+    def strokeJoin:int 0
+    ; `stroke-dasharray`, verbatim: "6 4", "2 2 6 2". A string because the
+    ; record that crosses a thread is fixed-width and the pattern is not,
+    ; and the string pool already carries the text and the font name. An
+    ; empty one is a solid line, which is every stroke drawn before this.
+    def strokeDash:string ""
+    def strokeDashOffset:double 0.0
     def maxWidth:double 0.0
     ; Optional 2-stop gradient for RECT (kind 0)
     def hasGrad:boolean false
@@ -974,10 +989,18 @@ class EVGDisplayList {
     ; Subdivision chosen from the size it is drawn at, as every other target
     ; does: a large shape must not show facets, a small one must not pay for
     ; detail no pixel can show.
+    ;
+    ; DRAWN at, not laid out at. A transform is the difference between the
+    ; two, and on a canvas that zooms it is a large one: a Figma board at
+    ; 10% was flattening every glyph in it into the 48 segments a curve
+    ; 640 layout pixels wide deserves, to draw it five pixels long. The
+    ; scale of the transforms this subtree is under is carried down in
+    ; `drawScale` — see `walk` — so the count follows the pixels.
     fn flattenSteps:int (w:double h:double) {
-        def span:double w
-        if (h > span) {
-            span = h
+        def span:double (w * drawScale)
+        def tall:double (h * drawScale)
+        if (tall > span) {
+            span = tall
         }
         def steps:int (to_int (span / 6.0))
         if (steps < 4) {
@@ -999,16 +1022,31 @@ class EVGDisplayList {
         if ((strlen pathData) == 0) {
             return
         }
-        def parser (new SVGPathParser())
-        parser.parse(pathData)
-
-        def b:PathBounds (parser.getBounds())
-        def vb:ViewBoxRect (VectorViewBox.effectiveViewBox(el.viewBox b.minX b.minY b.width b.height))
-        def m:Matrix2D (VectorViewBox.resolve(vb w h "xMidYMid meet"))
-
         def steps:int (this.flattenSteps(w h))
-
-        def rings:[PathRing] (parser.flattenRings(steps m.a m.b m.c m.d (m.e + x) (m.f + y)))
+        def rings:[PathRing] (el.ringsCache)
+        def sameBox:boolean ((((el.ringsX == x) && (el.ringsY == y)) && (el.ringsW == w)) && (el.ringsH == h))
+        def sameGeom:boolean (((el.ringsSteps == steps) && (el.ringsPath == pathData)) && (el.ringsViewBox == el.viewBox))
+        def fresh:boolean ((el.ringsHave && sameBox) && sameGeom)
+        if (fresh) {
+        } {
+            def parser (new SVGPathParser())
+            parser.parse(pathData)
+            def b:PathBounds (parser.getBounds())
+            def vb:ViewBoxRect (VectorViewBox.effectiveViewBox(el.viewBox b.minX b.minY b.width b.height))
+            def m:Matrix2D (VectorViewBox.resolve(vb w h "xMidYMid meet"))
+            rings = (parser.flattenRings(steps m.a m.b m.c m.d (m.e + x) (m.f + y)))
+            ; Kept for the next walk — see the note on `EVGElement.ringsCache`.
+            el.ringsCache = rings
+            el.ringsHave = true
+            el.ringsPath = pathData
+            el.ringsX = x
+            el.ringsY = y
+            el.ringsW = w
+            el.ringsH = h
+            el.ringsSteps = steps
+            el.ringsScale = m.a
+            el.ringsViewBox = el.viewBox
+        }
         if ((array_length rings) == 0) {
             return
         }
@@ -1043,7 +1081,7 @@ class EVGDisplayList {
                 cs.w = w
                 cs.h = h
                 ; stroke-width is in user units, so it scales with the geometry.
-                def scale:double m.a
+                def scale:double el.ringsScale
                 if (scale < 0.0) {
                     scale = (0.0 - scale)
                 }
@@ -1051,6 +1089,10 @@ class EVGDisplayList {
                     scale = 1.0
                 }
                 cs.thickness = (el.strokeWidth * scale)
+                cs.strokeCap = (EVGDisplayList.capCode(el.strokeLineCap))
+                cs.strokeJoin = (EVGDisplayList.joinCode(el.strokeLineJoin))
+                cs.strokeDash = el.strokeDashArray
+                cs.strokeDashOffset = el.strokeDashOffset
                 cs.r = (sc.red())
                 cs.g = (sc.green())
                 cs.b = (sc.blue())
@@ -1833,6 +1875,9 @@ class EVGDisplayList {
     ; The clip in force, and whether there is one. Not a stack: the rectangle
     ; is intersected on the way down and restored on the way back up, which is
     ; the stack, held in the recursion.
+    ; How much bigger or smaller than its layout box this subtree will be
+    ; drawn, from the transforms above it. One on a page that does not zoom.
+    def drawScale:double 1.0
     def cullOn:boolean false
     def cullLeft:double 0.0
     def cullTop:double 0.0
@@ -1897,6 +1942,7 @@ class EVGDisplayList {
         fragHits = 0
         fragMisses = 0
         cullOn = false
+        drawScale = 1.0
         effectKind = ""
         def noX:[double]
         def noY:[double]
@@ -2199,17 +2245,84 @@ class EVGDisplayList {
             curNode = el.inspectSlot
         }
         def hadCull:boolean cullOn
+        def hadCullL:double cullLeft
+        def hadCullT:double cullTop
+        def hadCullR:double cullRight
+        def hadCullB:double cullBottom
         if keeping {
             cullOn = false
         }
+        def hadScale:double drawScale
+        if (el.hasTransform()) {
+            def sc:double el.scale
+            if (sc < 0.0) {
+                sc = (0.0 - sc)
+            }
+            if (sc > 0.0) {
+                drawScale = (drawScale * sc)
+            }
+            if cullOn {
+                this.cullThroughTransform(el)
+            }
+        }
         this.walkOpaque(el)
+        drawScale = hadScale
         cullOn = hadCull
+        cullLeft = hadCullL
+        cullTop = hadCullT
+        cullRight = hadCullR
+        cullBottom = hadCullB
         curNode = prevNode
         this.fadeFrom(emitStart el.opacity)
         this.transformFrom(emitStart el)
         if keeping {
             this.recordFragment(el emitStart)
         }
+    }
+
+    ; The clip in force, carried into the space this element's children are
+    ; laid out in. A transform moves the pixels after the boxes are placed,
+    ; so a clip outside it is a rectangle in a different space from the
+    ; boxes below it — and testing one against the other is what made a
+    ; panned canvas draw nothing: a Figma board lays its frames out at
+    ; x = -13264 and a `translate` puts them on the screen, so every frame
+    ; measured as ten thousand pixels off and was skipped whole.
+    ;
+    ; `paintUnbounded` already spares the element that carries the
+    ; transform. Its children are not spared by it — they carry no
+    ; transform of their own — which is why the rectangle has to travel
+    ; rather than the flag. A rotation, which no rectangle here can follow,
+    ; turns culling off for the subtree instead of guessing at one.
+    fn cullThroughTransform:void (el:EVGElement) {
+        if (el.rotate != 0.0) {
+            cullOn = false
+            return
+        }
+        def sc:double el.scale
+        if ((fabs sc) < 0.000001) {
+            cullOn = false
+            return
+        }
+        def ox:double (el.calculatedX + (EVGElement.resolveOrigin(el.transformOriginX el.calculatedWidth)))
+        def oy:double (el.calculatedY + (EVGElement.resolveOrigin(el.transformOriginY el.calculatedHeight)))
+        def l:double (ox + (((cullLeft - el.translateX) - ox) / sc))
+        def r:double (ox + (((cullRight - el.translateX) - ox) / sc))
+        def t:double (oy + (((cullTop - el.translateY) - oy) / sc))
+        def b:double (oy + (((cullBottom - el.translateY) - oy) / sc))
+        if (l > r) {
+            def sw:double l
+            l = r
+            r = sw
+        }
+        if (t > b) {
+            def sw2:double t
+            t = b
+            b = sw2
+        }
+        cullLeft = l
+        cullTop = t
+        cullRight = r
+        cullBottom = b
     }
 
     fn walkOpaque:void (el:EVGElement) {
@@ -2437,7 +2550,16 @@ class EVGDisplayList {
             ; `EVGElement.wrapWidth`, which is zero for a `white-space` that
             ; does not wrap. `avail` itself is still the box, because that is
             ; what `text-align` centres inside.
-            def lines:[string] (textEngine.breakToStrings(el.textContent face fs (el.wrapWidth(avail))))
+            ; The line objects, not just their strings: a paragraph gap is
+            ; a property of WHICH line this is, and the strings cannot say.
+            def broken:[EVGTextLine] (textEngine.breakLinesSpaced(el.textContent face fs (el.wrapWidth(avail)) el.letterSpacing))
+            def lines:[string]
+            def bi:int 0
+            while (bi < (array_length broken)) {
+                def bl:EVGTextLine (itemAt broken bi)
+                push lines bl.text
+                bi = (bi + 1)
+            }
             def tr:int 0
             def tg:int 0
             def tb:int 0
@@ -2450,7 +2572,13 @@ class EVGDisplayList {
                 ta = (tc.alpha())
             }
             def li:int 0
+            ; What the paragraph gaps above this line add to its place.
+            def paraShift:double 0.0
             while (li < (array_length lines)) {
+                def lnObj:EVGTextLine (itemAt broken li)
+                if lnObj.startsParagraph {
+                    paraShift = (paraShift + el.paragraphSpacing)
+                }
                 def c4 (new EVGDrawCmd())
                 c4.kind = 3
                 ; `text-align`, which until now was parsed by EVGElement and
@@ -2464,7 +2592,7 @@ class EVGDisplayList {
                 ; came out and moving the start by the slack.
                 def indent:double 0.0
                 if ((el.textAlign == "center") || (el.textAlign == "right")) {
-                    def m:EVGTextMetrics (textEngine.measureRun((itemAt lines li) face fs))
+                    def m:EVGTextMetrics (textEngine.measureRunSpaced((itemAt lines li) face fs el.letterSpacing))
                     def slack:double (avail - m.width)
                     if (slack > 0.0) {
                         if (el.textAlign == "center") {
@@ -2485,7 +2613,7 @@ class EVGDisplayList {
                 ; look right on their own.
                 def bw:double el.box.borderWidthPx
                 c4.x = (((x + bw) + el.box.paddingLeftPx) + indent)
-                c4.y = ((((y + bw) + el.box.paddingTopPx) + el.textShiftY) + ((to_double li) * lineBox))
+                c4.y = (((((y + bw) + el.box.paddingTopPx) + el.textShiftY) + ((to_double li) * lineBox)) + paraShift)
                 c4.w = avail
                 c4.h = lineBox
                 c4.text = (itemAt lines li)
@@ -2499,6 +2627,7 @@ class EVGDisplayList {
                         c4.fontWeight = el.fontWeight
                     }
                 }
+                c4.letterSpacing = el.letterSpacing
                 c4.r = tr
                 c4.g = tg
                 c4.b = tb
@@ -2661,8 +2790,28 @@ class EVGDisplayList {
     ; buffer is allocated as count * stride here, and it is checked against the
     ; JSON path for every fixture by `pptx/web/host/scene-binary-check.mjs`.
     ; Growing this number is safe; a reader that wants the new fields opts in.
+    sfn capCode:int (name:string) {
+        if (name == "round") {
+            return 1
+        }
+        if (name == "square") {
+            return 2
+        }
+        return 0
+    }
+
+    sfn joinCode:int (name:string) {
+        if (name == "round") {
+            return 1
+        }
+        if (name == "bevel") {
+            return 2
+        }
+        return 0
+    }
+
     sfn stride:int () {
-        return 36
+        return 41
     }
 
     ; A value in hundredths, which is the precision `num` writes and therefore
@@ -2788,6 +2937,23 @@ class EVGDisplayList {
             int_buffer_set recs (base + 33) (EVGDisplayList.fixed(c2.shadowBlur))
             int_buffer_set recs (base + 34) (EVGDisplayList.packRgb(c2.shadowR c2.shadowG c2.shadowB))
             int_buffer_set recs (base + 35) (EVGDisplayList.fixed(c2.shadowA))
+            ; 36: `letter-spacing`. The record is read by its width and not
+            ; by a version — a reader that wants 36 fields reads a 37-wide
+            ; buffer and ignores this, which is how the shadow slots were
+            ; added and why the pptx decoder that reads 23 is still right.
+            int_buffer_set recs (base + 36) (EVGDisplayList.fixed(c2.letterSpacing))
+            ; 37, 38: a stroke's cap and join, on the same terms.
+            int_buffer_set recs (base + 37) c2.strokeCap
+            int_buffer_set recs (base + 38) c2.strokeJoin
+            ; 39, 40: the dash pattern — its text in the pool, like the
+            ; font name, because the record is fixed-width and a pattern
+            ; is not — and how far into it the line starts.
+            def dashIdx:int (0 - 1)
+            if ((strlen c2.strokeDash) > 0) {
+                dashIdx = (EVGDisplayList.intern(pool poolIndex c2.strokeDash))
+            }
+            int_buffer_set recs (base + 39) dashIdx
+            int_buffer_set recs (base + 40) (EVGDisplayList.fixed(c2.strokeDashOffset))
             ; A command with no text names none of the three text strings, and
             ; `toJson` writes none of them either — so the reader must be able
             ; to tell "no text" from "empty text", which -1 says and 0 would
@@ -2984,6 +3150,18 @@ class EVGDisplayList {
             }
             if (c.thickness > 0.0) {
                 out = out + ",\"t\":" + (EVGDisplayList.num(c.thickness))
+                if (c.strokeCap != 0) {
+                    out = out + ",\"cap\":" + (to_string c.strokeCap)
+                }
+                if (c.strokeJoin != 0) {
+                    out = out + ",\"join\":" + (to_string c.strokeJoin)
+                }
+                if ((strlen c.strokeDash) > 0) {
+                    out = out + ",\"dash\":" + (EVGDisplayList.jsonString(c.strokeDash))
+                    if (c.strokeDashOffset != 0.0) {
+                        out = out + ",\"dashoff\":" + (EVGDisplayList.num(c.strokeDashOffset))
+                    }
+                }
             }
             out = out + ",\"c\":[" + (to_string c.r) + "," + (to_string c.g)
             out = out + "," + (to_string c.b) + "," + (EVGDisplayList.num(c.a)) + "]"
@@ -3002,6 +3180,9 @@ class EVGDisplayList {
                 out = out + ",\"size\":" + (EVGDisplayList.num(c.fontSize))
                 ; Weight / slant so a canvas backend paints the same face the
                 ; SoftCanvas rasterizer picked.
+                if (c.letterSpacing != 0.0) {
+                    out = out + ",\"ls\":" + (EVGDisplayList.num(c.letterSpacing))
+                }
                 if ((strlen c.fontWeight) > 0) {
                     out = out + ",\"weight\":" + (EVGDisplayList.jsonString(c.fontWeight))
                 }

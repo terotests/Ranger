@@ -1,0 +1,9 @@
+# An import of a whole file, an import of a key inside it, and a spread of a
+# nested key — with the imported file importing something itself.
+whole: @32_imported_base
+one: @32_imported_base.store
+two: {
+  ...@32_imported_base.store
+  label: my own label
+}
+whole -> one -> two

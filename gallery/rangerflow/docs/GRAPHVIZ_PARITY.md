@@ -5,7 +5,7 @@
 > asked what it understood. Nothing is transcribed, so nothing can be
 > transcribed wrong.
 
-Graphviz 16.1.0 · cross-checked against `dot - graphviz version 2.43.0 (0)` · 20 files · **132/132 checks agree (100%)**
+Graphviz 16.1.0 · 20 files · **132/132 checks agree (100%)**
 
 | example | Graphviz | accepted | header | nodes | edges | subgraphs | node attrs | edge attrs | cluster labels |
 | --- | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |

@@ -1,0 +1,14 @@
+# Every arrowhead d2target.Arrowheads accepts, plus the filled variants.
+a1 -> b1: { target-arrowhead.shape: arrow }
+a2 -> b2: { target-arrowhead.shape: triangle }
+a3 -> b3: { target-arrowhead: { shape: triangle; style.filled: false } }
+a4 -> b4: { target-arrowhead.shape: diamond }
+a5 -> b5: { target-arrowhead: { shape: diamond; style.filled: true } }
+a6 -> b6: { target-arrowhead.shape: circle }
+a7 -> b7: { target-arrowhead: { shape: circle; style.filled: true } }
+a8 -> b8: { target-arrowhead.shape: box }
+a9 -> b9: { target-arrowhead.shape: cross }
+a10 -> b10: { target-arrowhead.shape: none }
+c1 -> d1: { source-arrowhead.shape: cf-one; target-arrowhead.shape: cf-many }
+c2 -> d2: { source-arrowhead.shape: cf-one-required; target-arrowhead.shape: cf-many-required }
+e1 -> f1: { source-arrowhead.label: 1; target-arrowhead.label: "*" }

@@ -13,6 +13,7 @@ class FigCli {
         def n:int (shell_arg_cnt)
         if (n < 1) {
             print "usage: fig_cli inspect <file.fig|.deck>"
+            print "       fig_cli fields <file.fig> <node-id>"
             print "       fig_cli sample"
             print "       fig_cli write-sample <out.fig>"
             return
@@ -49,6 +50,37 @@ class FigCli {
             def p (new FigParser())
             def doc:FigDoc (p.parseBytes(bytes name))
             FigCli.dump(doc)
+            return
+        }
+        if (cmd == "fields") {
+            if (n < 3) {
+                print "usage: fig_cli fields <file.fig> <node-id>"
+                return
+            }
+            def fpath:string (shell_arg 1)
+            def fdir:string (FigCli.dirOf(fpath))
+            def fname:string (FigCli.nameOf(fpath))
+            def fbytes:buffer (buffer_read_file fdir fname)
+            def fp (new FigParser())
+            def fdoc:FigDoc (fp.parseBytes(fbytes fname))
+            if (fdoc.ok == false) {
+                print ("error: " + fdoc.err)
+                return
+            }
+            def want:string (shell_arg 2)
+            def nd:FigNode (fdoc.nodeById(want))
+            if ((strlen nd.id) == 0) {
+                print ("no node " + want)
+                return
+            }
+            print (nd.typeName + "  " + nd.name + "  " + nd.id)
+            def c:int 0
+            while (c < (array_length nd.children)) {
+                def ch:FigNode (itemAt nd.children c)
+                print ("  child  " + ch.typeName + "  " + ch.name + "  " + ch.id)
+                c = (c + 1)
+            }
+            print (nd.raw.toJson())
             return
         }
         print ("unknown command: " + cmd)

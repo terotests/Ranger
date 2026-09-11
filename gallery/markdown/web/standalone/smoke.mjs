@@ -156,11 +156,16 @@ async function main() {
   if (!result) {
     problems.push("the page ran no self test — the module did not load");
   } else {
-    for (const note of result.replace(/^SELFTEST (OK|FAILED) /, "").split(" | ")) {
-      console.log("    " + note);
-    }
+    const notes = result.replace(/^SELFTEST (OK|FAILED) /, "").split(" | ");
+    for (const note of notes) console.log("    " + note);
     if (!result.startsWith("SELFTEST OK")) {
-      problems.push("the page's own checks failed");
+      // Say WHICH check failed, here at the end. A runner that shows the
+      // tail of a failing suite showed sixty passing lines and "the page's
+      // own checks failed", with the one line that said why scrolled off
+      // the top — a failure nobody can read is a failure nobody can fix.
+      const failed = notes.filter((n) => n.startsWith("FAIL"));
+      problems.push("the page's own checks failed"
+        + (failed.length ? ":\n    " + failed.join("\n    ") : ""));
     }
   }
 

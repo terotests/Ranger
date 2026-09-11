@@ -1,0 +1,22 @@
+# A table with every constraint D2 knows, a row-to-row connection each way,
+# and a class beside them.
+users: {
+  shape: sql_table
+  id: int { constraint: primary_key }
+  email: varchar { constraint: [unique; not_null] }
+  org: int { constraint: foreign_key }
+}
+orgs: {
+  shape: sql_table
+  id: int { constraint: primary_key }
+  owner: int { constraint: foreign_key }
+}
+Repo: {
+  shape: class
+  +conn: Connection
+  \#cache: Map
+  +find(id int): Row
+}
+users.org -> orgs.id: belongs to
+orgs.owner -> users.id: owned by
+Repo -> users: reads

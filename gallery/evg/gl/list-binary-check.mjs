@@ -69,7 +69,12 @@ function compare(label, dl) {
   const a = cmdsOf(dl).map(normalise);
   const bin = dl.toBinary();
   const b = cmdsOfBinary(bin).map(normalise);
-  ok(`${label}: the record is ${FIELDS_READ} wide`, binaryStride(bin) === FIELDS_READ, `stride=${binaryStride(bin)}`);
+  // At LEAST as wide as this reader wants, not exactly: the format grows by
+  // adding slots, and a reader takes the ones it knows (ISSUES #4). Pinning
+  // it to the number turned every addition into a failure of this check
+  // rather than of anything that draws — and the point of the check is the
+  // comparison below, which is what tells a new slot from a shifted one.
+  ok(`${label}: the record is at least ${FIELDS_READ} wide`, binaryStride(bin) >= FIELDS_READ, `stride=${binaryStride(bin)}`);
   ok(`${label}: ${a.length} commands both ways`, a.length === b.length, `object=${a.length} binary=${b.length}`);
   let firstDiff = "";
   const n = Math.min(a.length, b.length);

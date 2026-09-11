@@ -1316,7 +1316,7 @@ class FlowView {
                 poly.strokeWidth = bw
                 poly.opacity = faded
                 poly.tag = tag
-                this.paintOrnaments(sc n x y w h tag border bw)
+                this.paintOrnaments(sc n x y w h tag border bw fill)
                 this.paintShapeLabel(sc n x y w h tag)
                 this.paintAnnotations(sc n x y w h)
                 return
@@ -1332,7 +1332,7 @@ class FlowView {
         body.stroke = border
         body.strokeWidth = bw
         body.tag = tag
-        this.paintOrnaments(sc n x y w h tag border bw)
+        this.paintOrnaments(sc n x y w h tag border bw fill)
         if (n.shape == "predefined") {
             ; Two bars: "this step is a whole procedure of its own".
             def inset:double (this.sl(9.0))
@@ -1477,17 +1477,22 @@ class FlowView {
     ; click on one is a click on the node, and every backend already has the
     ; primitive — which is the whole reason the shape system emits points and
     ; never asks a renderer to know what a "sort" is.
-    fn paintOrnaments:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string border:string bw:double) {
+    fn paintOrnaments:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string border:string bw:double fill:string) {
         def count:int (FlowShapes.ornamentCount(n.shape))
         def i:int 0
         while (i < count) {
             def pts:[double] (FlowShapes.ornamentAt(n.shape x y w h i))
             if ((array_length pts) >= 4) {
                 if (FlowShapes.ornamentClosed(n.shape i)) {
-                    ; Filled, because the one shape that uses a closed
-                    ; ornament is UML's final node and the bullseye in the
-                    ; middle of it is solid.
-                    def ring:SceneItem (sc.polygon(pts border))
+                    ; A closed ornament is either solid ink — UML's final node
+                    ; is a bullseye — or a shape of its own drawn in the
+                    ; node's own fill, like the head above a C4 figure, which
+                    ; would be a blob if it were painted in the border colour.
+                    def ink:string fill
+                    if (FlowShapes.ornamentSolid(n.shape i)) {
+                        ink = border
+                    }
+                    def ring:SceneItem (sc.polygon(pts ink))
                     ring.stroke = border
                     ring.strokeWidth = bw
                     ring.tag = tag

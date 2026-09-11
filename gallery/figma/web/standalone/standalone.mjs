@@ -3,6 +3,9 @@
  * OpenFig-core is loaded only for the live parse-time comparison.
  */
 import { renderDisplayList, loadImages } from "./gl/evg-webgl.js";
+// The frame crosses as typed arrays, not as text — see `draw`.
+import { cmdsOfBinary } from "./gl/evg-binary.js";
+import { attachViewGestures } from "./gl/evg-gestures.js";
 // The file this page's head started fetching before the body was parsed.
 import { responseFor } from "./evg/assets-client.mjs";
 import { figmaClipboard, figmaClipboardName, readFigmaClipboard, FIG_FILE_RE } from "./clipboard.mjs";
@@ -17,6 +20,7 @@ const msEl = document.getElementById("ms");
 const ofmsEl = document.getElementById("ofms");
 const treeEl = document.getElementById("tree");
 const propsEl = document.getElementById("props");
+const inspEl = document.getElementById("inspector");
 const pageEl = document.getElementById("page");
 const frameEl = document.getElementById("frame");
 const fileEl = document.getElementById("file");
@@ -103,9 +107,17 @@ async function draw() {
   const dpr = resize();
   let doc;
   try {
-    doc = JSON.parse(web.scene());
+    // Typed arrays, not JSON. The list is the same picture either way — to
+    // the hundredth, which `gallery/evg/gl/list-binary-check.mjs` holds the
+    // two to — but a board is thousands of commands and tens of thousands of
+    // coordinates, and writing that as text was most of what a pan cost:
+    // `toJson` and the number formatting under it 42% of a profile, and the
+    // garbage they made another 33%. `scene()` still answers in JSON for
+    // anything that wants to read a frame.
+    const bin = web.sceneBin();
+    doc = { width: bin.width, height: bin.height, list: { cmds: cmdsOfBinary(bin) } };
   } catch (e) {
-    statusEl.textContent = "scene json failed: " + e.message;
+    statusEl.textContent = "scene failed: " + e.message;
     return;
   }
   doc = rewriteImages(doc);
@@ -204,19 +216,176 @@ function fillSelect(el, items, extra) {
   }
 }
 
-function renderTree(node, into, depth) {
-  const b = document.createElement("button");
-  b.type = "button";
-  b.textContent = `${"  ".repeat(depth)}${node.type}  ${node.name || node.id}`;
-  b.dataset.id = node.id;
-  if (node.id === web.selected()) b.classList.add("on");
-  b.addEventListener("click", () => {
-    web.select(node.id);
-    refreshChrome();
-    draw();
-  });
-  into.appendChild(b);
-  for (const ch of node.children || []) renderTree(ch, into, depth + 1);
+/* ---------------------------------------------------------------------------
+ * The layers pane.
+ *
+ * A board is thousands of layers, and a flat list of all of them is not a
+ * tree — it is a wall. This is the tree: rows fold, and the pane is rooted at
+ * ONE layer at a time. Picking something on the canvas roots it there, so what
+ * you get is the handful of layers under what you just clicked rather than the
+ * whole file scrolled to somewhere near it. The crumbs above say where that is
+ * and climb back out.
+ *
+ * Everything is open by default — a fold you have to click through to see
+ * anything is a list with extra steps — and folds itself only when a root has
+ * more rows under it than anyone reads at once.
+ * ------------------------------------------------------------------------- */
+
+const ROW_BUDGET = 600;
+
+let layerTree = null;   // the page as `web.tree()` last gave it
+let scopeId = null;     // the layer the pane is rooted at; null is the page
+const folded = new Set();   // folded by hand
+const opened = new Set();   // opened by hand, and so never folded for room
+const subtreeSize = new Map();
+
+/** How many rows a layer costs, itself included. Measured once per tree so
+ *  the pane can decide what fits without laying it out to find out. */
+function sizeOf(node) {
+  const seen = subtreeSize.get(node.id);
+  if (seen != null) return seen;
+  let n = 1;
+  for (const ch of node.children || []) n += sizeOf(ch);
+  subtreeSize.set(node.id, n);
+  return n;
+}
+
+function findPath(node, id, path) {
+  if (!node) return null;
+  if (node.id === id) return [...path, node];
+  for (const ch of node.children || []) {
+    const hit = findPath(ch, id, [...path, node]);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** Where to root the pane for a layer the canvas just picked: at it when it
+ *  has anything under it, and at its parent when it does not — the siblings
+ *  of a leaf are the useful thing to see, and a pane holding one row is not. */
+function scopeFor(id) {
+  const path = findPath(layerTree, id, []);
+  if (!path) return null;
+  const node = path[path.length - 1];
+  if ((node.children || []).length) return node.id;
+  const parent = path[path.length - 2];
+  return parent ? parent.id : node.id;
+}
+
+function scopeTo(id) {
+  scopeId = id;
+  folded.clear();
+  opened.clear();
+  renderLayers();
+}
+
+function renderLayers() {
+  treeEl.textContent = "";
+  if (!layerTree) return;
+  const path = scopeId ? (findPath(layerTree, scopeId, []) || [layerTree]) : [layerTree];
+  const root = path[path.length - 1];
+
+  if (path.length > 1) {
+    const crumbs = document.createElement("div");
+    crumbs.className = "crumbs";
+    path.forEach((n, i) => {
+      if (i) crumbs.append(document.createTextNode("›"));
+      const c = document.createElement("button");
+      c.type = "button";
+      c.textContent = n.name || n.type || n.id;
+      c.title = n.id;
+      if (i === path.length - 1) c.className = "here";
+      c.addEventListener("click", () => scopeTo(i ? n.id : null));
+      crumbs.append(c);
+    });
+    treeEl.append(crumbs);
+  }
+
+  const selected = web.selected();
+  let budget = ROW_BUDGET;
+  let selectedRow = null;
+
+  // `reserve` is the rows still owed to layers queued behind this one, up
+  // the whole chain. Without it the first section on a board eats the pane
+  // and the twenty after it never appear at all — not even folded.
+  const walk = (node, depth, reserve) => {
+    if (budget <= 0) return;
+    budget -= 1;
+    const kids = node.children || [];
+    const row = document.createElement("div");
+    row.className = "row" + (node.id === selected ? " on" : "");
+    row.style.paddingLeft = 2 + depth * 11 + "px";
+
+    // Open, unless it was folded by hand or is too big to fit in what is
+    // left of the pane — and a layer opened by hand stays open however big
+    // it is.
+    const tooBig = depth > 0 && !opened.has(node.id) && sizeOf(node) - 1 > budget - reserve;
+    const open = kids.length > 0 && !folded.has(node.id) && !tooBig;
+
+    const fold = document.createElement("button");
+    fold.type = "button";
+    fold.className = "fold";
+    if (kids.length) {
+      fold.textContent = open ? "▾" : "▸";
+      fold.title = open ? "Fold this layer" : `Open this layer — ${sizeOf(node) - 1} under it`;
+      fold.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (open) { folded.add(node.id); opened.delete(node.id); }
+        else { folded.delete(node.id); opened.add(node.id); }
+        renderLayers();
+      });
+    } else {
+      fold.textContent = "";
+      fold.disabled = true;
+    }
+    row.append(fold);
+
+    const pick = document.createElement("button");
+    pick.type = "button";
+    pick.className = "pick";
+    pick.title = node.id;
+    const ty = document.createElement("span");
+    ty.className = "ty";
+    ty.textContent = node.type;
+    const nm = document.createElement("span");
+    nm.className = "nm";
+    nm.textContent = node.name || node.id;
+    pick.append(ty, nm);
+    pick.addEventListener("click", () => {
+      // Picking IN the tree selects and no more: rooting the pane at every
+      // click would take the tree away as you walked down it.
+      web.select(node.id);
+      refreshChrome();
+      draw();
+    });
+    row.append(pick);
+
+    if (kids.length && node.id !== root.id) {
+      const into = document.createElement("button");
+      into.type = "button";
+      into.className = "into";
+      into.textContent = "⤵";
+      into.title = "Show only what is under this layer";
+      into.addEventListener("click", (ev) => { ev.stopPropagation(); scopeTo(node.id); });
+      row.append(into);
+    }
+
+    treeEl.append(row);
+    if (node.id === selected) selectedRow = row;
+    if (!open) return;
+    for (let i = 0; i < kids.length; i += 1) {
+      walk(kids[i], depth + 1, reserve + (kids.length - 1 - i));
+    }
+  };
+  walk(root, 0, 0);
+
+  if (budget <= 0) {
+    const more = document.createElement("p");
+    more.className = "more";
+    more.textContent = "that is as far as the pane goes — fold a layer, or click into one";
+    treeEl.append(more);
+  }
+  if (selectedRow) selectedRow.scrollIntoView({ block: "nearest" });
 }
 
 /** Warnings from the last conversion, grouped by what was unsupported.
@@ -300,7 +469,10 @@ function diagnosticsText() {
   if (c.overridesSeen) {
     out.push(
       c.overridesSeen + " instance overrides in the file, " + c.overridesUsed + " applied"
-        + (c.overridesUnplaced ? ", " + c.overridesUnplaced + " naming no node in their component" : "")
+        + (c.overridesUnplaced
+            ? ", " + c.overridesUnplaced + " naming no node in their component"
+              + " (a variant that is not the one shown, or a layer hidden in it — Figma draws neither)"
+            : "")
         + (c.overridesUsed ? "" : " — instances are showing their component's own text")
     );
   }
@@ -339,30 +511,290 @@ function refreshChrome() {
     pageEl.value = pages[web.pageIndex()]?.id || pageEl.value;
   } catch { /* keep */ }
   try {
+    // The option's value is the frame's INDEX, which is what `setFrame`
+    // takes and what `frameIndex` reads back. Listing the ids instead left
+    // the control blank on every file — no option ever matched the index
+    // put into it — and picking one called `setFrame(13709)`, out of range,
+    // which quietly showed the whole page again. A section with no name
+    // wears its id rather than an empty row.
     const frames = JSON.parse(web.frames());
-    fillSelect(frameEl, frames, { value: "-1", label: "(whole page)" });
+    fillSelect(frameEl, frames.map((f, i) => ({ id: String(i), name: f.name || f.id })),
+      { value: "-1", label: "(whole page)" });
     frameEl.value = String(web.frameIndex());
   } catch { /* keep */ }
   try {
-    const tree = JSON.parse(web.tree());
-    treeEl.innerHTML = "";
-    renderTree(tree, treeEl, 0);
-  } catch { treeEl.textContent = ""; }
-  try {
-    const props = JSON.parse(web.props());
-    if (!Object.keys(props).length) {
-      propsEl.textContent = "click a layer or the canvas";
-    } else if ((typeof web.debug === "function" ? web.debug() : false)) {
-      propsEl.textContent = JSON.stringify({
-        figma: props.figma,
-        scene: props.scene,
-        evg: props.evg,
-      }, null, 2);
-    } else {
-      propsEl.textContent = JSON.stringify(props, null, 2);
-    }
-  } catch { propsEl.textContent = ""; }
+    layerTree = JSON.parse(web.tree());
+    subtreeSize.clear();
+    if (scopeId && !findPath(layerTree, scopeId, [])) scopeId = null;
+    renderLayers();
+  } catch { layerTree = null; treeEl.textContent = ""; }
+  refreshInspector();
   showZoom(web.viewScale());
+}
+
+/* ---------------------------------------------------------------------------
+ * The inspector.
+ *
+ * The scene graph is a graph and not a picture, so this is not a list of facts
+ * about the selected layer: the numbers on it ARE the layer, and typing one
+ * paints the page again. Figma answers this with a grid of boxes; here only
+ * what you can change looks like a field and everything else is text. A label
+ * is a scrub handle - drag it sideways and the number follows, which beats
+ * aiming at a spinner and is the one gesture worth borrowing.
+ *
+ * Nothing is written back to the file. `Revert` re-reads the document the
+ * scene was converted from.
+ * ------------------------------------------------------------------------- */
+
+let inspectedId = null;
+
+function refreshInspector() {
+  let d = null;
+  try { d = JSON.parse(web.inspect()); } catch { d = null; }
+  const debug = typeof web.debug === "function" ? web.debug() : false;
+  if (!d || !d.id) {
+    inspectedId = null;
+    inspEl.hidden = true;
+    propsEl.hidden = false;
+    if (!propsEl.textContent) propsEl.textContent = "click a layer or the canvas";
+    return;
+  }
+  propsEl.hidden = !debug;
+  if (debug) {
+    try {
+      const props = JSON.parse(web.props());
+      propsEl.textContent = JSON.stringify({ figma: props.figma, scene: props.scene }, null, 2);
+    } catch { /* keep */ }
+  }
+  inspEl.hidden = false;
+  // Rebuilt only when the selection changes: a field must not be torn out
+  // from under the caret on its own keystroke.
+  if (inspectedId !== d.id) {
+    inspectedId = d.id;
+    buildInspector(d);
+  }
+}
+
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+};
+
+const round = (v) => Math.round(v * 100) / 100;
+
+/** A number you can type or drag. The label is the handle, with pointer
+ *  capture so the drag survives leaving the 60 pixels the label occupies. */
+function numField(label, value, apply, opts = {}) {
+  const wrap = el("div", "f");
+  const lab = el("label", null, label);
+  const inp = el("input");
+  inp.value = String(round(value));
+  inp.inputMode = "decimal";
+  inp.spellcheck = false;
+  const step = opts.step ?? 1;
+  const commit = (v) => {
+    if (!Number.isFinite(v)) return;
+    if (opts.min != null && v < opts.min) v = opts.min;
+    if (opts.max != null && v > opts.max) v = opts.max;
+    inp.value = String(round(v));
+    apply(v);
+  };
+  inp.addEventListener("change", () => commit(parseFloat(inp.value)));
+  inp.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") { commit(parseFloat(inp.value)); inp.blur(); }
+    if (ev.key === "ArrowUp" || ev.key === "ArrowDown") {
+      ev.preventDefault();
+      const by = (ev.key === "ArrowUp" ? 1 : -1) * (ev.shiftKey ? 10 : step);
+      commit((parseFloat(inp.value) || 0) + by);
+    }
+  });
+  let scrub = null;
+  lab.addEventListener("pointerdown", (ev) => {
+    scrub = { x: ev.clientX, from: parseFloat(inp.value) || 0 };
+    lab.setPointerCapture(ev.pointerId);
+    ev.preventDefault();
+  });
+  lab.addEventListener("pointermove", (ev) => {
+    if (!scrub) return;
+    commit(scrub.from + (ev.clientX - scrub.x) * (ev.shiftKey ? step * 10 : step));
+  });
+  const stop = () => { scrub = null; };
+  lab.addEventListener("pointerup", stop);
+  lab.addEventListener("pointercancel", stop);
+  wrap.append(lab, inp);
+  return wrap;
+}
+
+function colorField(label, hex, apply) {
+  const wrap = el("div", "f wide");
+  const lab = el("label", null, label);
+  lab.style.cursor = "default";
+  const pick = el("input");
+  pick.type = "color";
+  pick.value = hex;
+  const text = el("input");
+  text.value = hex;
+  text.spellcheck = false;
+  const commit = (v) => {
+    if (!/^#[0-9a-fA-F]{6}$/.test(v)) return;
+    pick.value = v.toLowerCase();
+    text.value = v.toLowerCase();
+    apply(v.toLowerCase());
+  };
+  pick.addEventListener("input", () => commit(pick.value));
+  text.addEventListener("change", () => commit(text.value.trim()));
+  wrap.append(lab, pick, text);
+  return wrap;
+}
+
+function section(title) {
+  const s = el("section");
+  s.append(el("h3", null, title));
+  return s;
+}
+
+function fieldRow(...fields) {
+  const row = el("div", "fields");
+  row.append(...fields);
+  return row;
+}
+
+/** An edit repaints the page. The panel is left alone: the values it shows
+ *  are the ones just typed into it. */
+function afterEdit() {
+  draw();
+  const revert = inspEl.querySelector(".foot button");
+  if (revert) revert.disabled = false;
+}
+
+function buildInspector(d) {
+  inspEl.textContent = "";
+
+  const head = el("div", "head");
+  head.append(el("span", "nm", d.name || d.id), el("span", "chip", d.source || d.kind));
+  const eye = el("button", "eye" + (d.visible ? "" : " off"), d.visible ? "◉" : "◌");
+  eye.type = "button";
+  eye.title = "Show or hide this layer";
+  eye.addEventListener("click", () => {
+    const on = !eye.classList.contains("off");
+    web.editVisible(!on);
+    eye.classList.toggle("off", on);
+    eye.textContent = on ? "◌" : "◉";
+    afterEdit();
+  });
+  head.append(eye);
+  inspEl.append(head);
+
+  const geom = section("Position and size");
+  const rect = { x: d.x, y: d.y, w: d.w, h: d.h };
+  const push = () => { web.editRect(rect.x, rect.y, rect.w, rect.h); afterEdit(); };
+  geom.append(fieldRow(
+    numField("X", d.x, (v) => { rect.x = v; push(); }),
+    numField("Y", d.y, (v) => { rect.y = v; push(); }),
+    numField("W", d.w, (v) => { rect.w = v; push(); }, { min: 0 }),
+    numField("H", d.h, (v) => { rect.h = v; push(); }, { min: 0 }),
+  ));
+  geom.append(el("p", "note", `on the page  ${round(d.pageX)}, ${round(d.pageY)}`));
+  inspEl.append(geom);
+
+  const look = section("Appearance");
+  const opacity = el("div", "f");
+  const opLab = el("label", null, "Opacity");
+  opLab.style.cursor = "default";
+  const slider = el("input");
+  slider.type = "range";
+  slider.min = "0"; slider.max = "100"; slider.step = "1";
+  slider.value = String(Math.round(d.opacity * 100));
+  const pct = el("span", "chip", slider.value + "%");
+  slider.addEventListener("input", () => {
+    pct.textContent = slider.value + "%";
+    web.editOpacity(Number(slider.value) / 100);
+    afterEdit();
+  });
+  opacity.append(opLab, slider, pct);
+  look.append(fieldRow(opacity));
+  const row = [];
+  if (d.fill) row.push(colorField("Fill", d.fill.hex, (v) => { web.editFill(v); afterEdit(); }));
+  if (d.stroke) {
+    row.push(colorField("Stroke", d.stroke.hex, (v) => { web.editStroke(v, d.stroke.weight); afterEdit(); }));
+    row.push(numField("Weight", d.stroke.weight, (v) => { web.editStroke(d.stroke.hex, v); afterEdit(); }, { min: 0, step: 0.5 }));
+  }
+  row.push(numField("Radius", d.radius, (v) => { web.editRadius(v); afterEdit(); }, { min: 0 }));
+  look.append(fieldRow(...row));
+  if (d.fill && d.fill.kind !== "solid") {
+    look.append(el("p", "note", `the paint is a ${d.fill.kind}; a colour here makes it solid`));
+  }
+  if (d.image) look.append(el("p", "note", "image  " + d.image));
+  inspEl.append(look);
+
+  if (d.text) {
+    const t = section("Text");
+    const facts = el("div", "facts");
+    facts.append(
+      el("span", "chip", `${d.text.family} ${d.text.weight}`),
+      el("span", "chip", `${round(d.text.size)}px`),
+      el("span", "chip", d.text.align),
+    );
+    t.append(facts);
+    const area = el("textarea");
+    area.value = d.text.chars;
+    area.spellcheck = false;
+    let typing = null;
+    area.addEventListener("input", () => {
+      clearTimeout(typing);
+      typing = setTimeout(() => { web.editText(area.value); afterEdit(); }, 120);
+    });
+    t.append(area);
+    t.append(el("p", "note", d.text.outline
+      ? "drawn as the outlines the editor shaped — retyping drops them for the font this machine has"
+      : "drawn as text, in the font this machine has"));
+    inspEl.append(t);
+  }
+
+  if (d.layout) {
+    const l = section("Auto layout");
+    const facts = el("div", "facts");
+    facts.append(
+      el("span", "chip", d.layout.mode),
+      el("span", "chip", "gap " + round(d.layout.gap)),
+      el("span", "chip", "padding " + d.layout.padding.map(round).join(" ")),
+      el("span", "chip", d.layout.justify + " · " + d.layout.align),
+    );
+    l.append(facts);
+    l.append(el("p", "note", "read from the file; every layer is drawn where it was exported"));
+    inspEl.append(l);
+  }
+
+  const facts = [];
+  if (d.children) facts.push(`${d.children} ${d.children === 1 ? "child" : "children"}`);
+  if (d.hasPath) facts.push("vector path");
+  if (d.clip) facts.push("clips its content");
+  for (const fx of d.effects || []) facts.push(`${fx.kind} ${round(fx.blur)}px`);
+  if (facts.length || (d.warnings || []).length) {
+    const more = section("Also");
+    const chips = el("div", "facts");
+    for (const f of facts) chips.append(el("span", "chip", f));
+    more.append(chips);
+    for (const w of d.warnings || []) more.append(el("p", "warn", "not drawn fully: " + w));
+    inspEl.append(more);
+  }
+
+  const foot = el("div", "foot");
+  foot.append(el("code", null, d.id));
+  const revert = el("button", null, "Revert edits");
+  revert.type = "button";
+  revert.disabled = !d.edits;
+  revert.title = "Read the layers back from the file";
+  revert.addEventListener("click", () => {
+    web.revertEdits();
+    inspectedId = null;
+    refreshInspector();
+    draw();
+  });
+  foot.append(revert);
+  inspEl.append(foot);
 }
 
 async function compareOpenFig(bytes) {
@@ -449,62 +881,28 @@ function selectAt(clientX, clientY) {
   const x = (clientX - r.left) * (sw / Math.max(1, r.width));
   const y = (clientY - r.top) * (sh / Math.max(1, r.height));
   const id = web.hit(x, y);
-  if (id) web.select(id);
+  if (id) {
+    web.select(id);
+    // What you just clicked is what the pane is about.
+    const scope = scopeFor(id);
+    if (scope) { scopeId = scope; folded.clear(); }
+  }
   refreshChrome();
   draw();
 }
 
-// Dragging the canvas pans it, with any button. A page bigger than the
-// window is the normal case — the fit button is not a substitute for
-// moving around — and a modifier nobody is told about is the same as no
-// panning at all. A press that does not travel is still a selection, so
-// the two share the gesture: the drag decides which it was on release.
-const DRAG_SLOP = 4;
-let drag = null;
-canvas.addEventListener("pointerdown", (ev) => {
-  drag = {
-    id: ev.pointerId,
-    x: ev.clientX,
-    y: ev.clientY,
-    ox: web.viewX(),
-    oy: web.viewY(),
-    moved: false,
-  };
-  canvas.setPointerCapture(ev.pointerId);
+// Drag to pan with any button, two fingers to pinch, wheel or trackpad to
+// zoom, and a press that does not travel is a selection. All of it is
+// `gallery/evg/gl/evg-gestures.js`, which reads the view this page keeps
+// and hands back another — the page still decides when to paint one.
+attachViewGestures(canvas, {
+  view: viewNow,
+  setView: setViewSoon,
+  minZoom: MIN_ZOOM,
+  maxZoom: MAX_ZOOM,
+  onTap: (clientX, clientY) => selectAt(clientX, clientY),
+  onCursor: (name) => { canvas.style.cursor = name; },
 });
-canvas.addEventListener("pointermove", (ev) => {
-  if (!drag || ev.pointerId !== drag.id) return;
-  const dx = ev.clientX - drag.x;
-  const dy = ev.clientY - drag.y;
-  if (!drag.moved && Math.abs(dx) + Math.abs(dy) < DRAG_SLOP) return;
-  drag.moved = true;
-  canvas.style.cursor = "grabbing";
-  // setViewport is given the canvas's CSS size, so the scene is laid out
-  // in CSS pixels and the pan is too: the pointer's travel goes in as it
-  // comes. Scaling it by the device pixel ratio, as this did, made the
-  // page slide at twice the cursor's speed on a HiDPI screen.
-  setViewSoon(drag.ox + dx, drag.oy + dy, viewNow().sc);
-});
-function endDrag(ev) {
-  if (!drag || ev.pointerId !== drag.id) return;
-  const wasDrag = drag.moved;
-  drag = null;
-  canvas.style.cursor = "grab";
-  if (canvas.hasPointerCapture(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId);
-  if (!wasDrag && ev.button === 0) selectAt(ev.clientX, ev.clientY);
-}
-canvas.addEventListener("pointerup", endDrag);
-canvas.addEventListener("pointercancel", endDrag);
-canvas.addEventListener("wheel", (ev) => {
-  ev.preventDefault();
-  // Firefox reports wheel deltas in lines and Chrome in pixels: one notch
-  // of the same wheel arrives as 3 there and as 100 here. Counting a line
-  // as 33 pixels makes a notch a notch in both, which is the point — a
-  // line's real height would make Firefox scroll at half speed.
-  const perUnit = ev.deltaMode === 1 ? 33 : ev.deltaMode === 2 ? 400 : 1;
-  const dy = Math.max(-240, Math.min(240, ev.deltaY * perUnit));
-  zoomAbout(Math.exp(-dy * 0.0015), ev.clientX, ev.clientY);
-}, { passive: false });
 
 ["dragenter", "dragover"].forEach((t) => {
   window.addEventListener(t, (e) => { e.preventDefault(); mainEl.classList.add("drop"); });
@@ -679,6 +1077,8 @@ async function openUrl(url, page, frame) {
   }
 }
 window.__openUrl = openUrl;
+// One paint, on demand: what a bench times and what a test waits for.
+window.__draw = draw;
 
 const params = new URL(location.href).searchParams;
 const intParam = (k) => (params.has(k) ? parseInt(params.get(k), 10) : NaN);

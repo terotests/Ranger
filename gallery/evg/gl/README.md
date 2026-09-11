@@ -132,6 +132,46 @@ that way; `?engine=worker` on the RealTrainer page runs it, and `rt:frame`
 drives both hosts through one check. `npm run evg:binary:check` holds the two
 readers against each other on real frames. PLAN_NATIVE_HOSTS.md S1.
 
+## Moving the view — [`evg-gestures.js`](evg-gestures.js)
+
+> The gestures move a view; the *view* itself is still baked into the
+> coordinates of every command, so a canvas rebuilds its whole list for every
+> frame of a pan. It does not have to:
+> [`../PLAN_VIEW_TRANSFORM.md`](../PLAN_VIEW_TRANSFORM.md) designs the camera
+> as a uniform beside `uShift`, measured on the canvases in this repository.
+
+
+Every page that draws a scene bigger than its canvas needs the same four
+gestures, and every standalone had written its own: drag to pan, wheel to
+zoom, a press that does not travel is a click — and, missing from all of
+them, two fingers to pinch.
+
+```js
+attachViewGestures(canvas, {
+  view: () => ({ x, y, sc }),      // the pan and scale in force
+  setView: (x, y, sc) => { … },    // schedule this one — it does not paint
+  onTap: (clientX, clientY) => { … },
+});
+```
+
+It never touches the scene: it reads the view the host keeps and hands back
+another, so the host goes on deciding what a view is and when to paint one.
+
+The anchor is what makes a zoom feel like a zoom — the point under the
+cursor, or under the midpoint of two fingers, stays where it is. Keeping the
+scene point `(screen - pan) / scale` where it was gives
+`pan' = screen - (screen - pan) * (scale' / scale)`, which is also what moves
+the picture when the fingers travel: a pinch pans and zooms in one expression
+rather than two that fight.
+
+A trackpad pinch is not a touch — browsers report it as a wheel with `ctrl`
+held, a fraction of a notch at a time, so it gets its own rate or it crawls
+where a wheel flies; Safari's own `gesture*` events are read too. A finger
+lifted out of a pinch leaves the other one panning rather than stopping the
+picture until both are lifted. `npm run evg:gestures:check` drives all of it
+against a canvas that is not one — 19 checks, including the pinch no headless
+driver will send.
+
 ## Nobody can read it — so there is a second list
 
 A GPU frame is invisible to a screen reader: NVDA asks the platform for a tree

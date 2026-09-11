@@ -1,0 +1,16 @@
+# Globs that are not just `*`: a prefix, a suffix, and a recursive one under
+# a container — none of which may create an object.
+api one
+api two
+other
+auth-service: { shape: hexagon }
+data-service: { shape: hexagon }
+group: {
+  deep: {
+    leaf
+  }
+  shallow
+}
+api*.style.fill: "#eef"
+*-service.style.stroke: "#2a6"
+group.**.style.opacity: 0.8

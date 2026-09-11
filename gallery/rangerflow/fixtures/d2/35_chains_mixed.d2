@@ -1,0 +1,12 @@
+# Mixed arrows in one chain, containers as endpoints, and a connection that
+# reaches into a container from outside it.
+container: {
+  inner: { shape: circle }
+}
+out -> container: to the box
+container -> out2: from the box
+deep -> container.inner: straight in
+mix: {
+  a -> b <- c -- d <-> e
+  a -> a: self
+}

@@ -1,0 +1,15 @@
+# The UML class shape: fields, methods and visibility markers.
+Repo: {
+  shape: class
+  +id: int
+  -conn: Connection
+  \#cache: Map
+  +find(id int): Row
+  -reconnect(): void
+}
+Service: {
+  shape: class
+  +repo: Repo
+  +handle(req Request): Response
+}
+Service -> Repo: uses

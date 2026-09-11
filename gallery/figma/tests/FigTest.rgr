@@ -58,9 +58,15 @@ class FigTest {
         this.testSampleFig()
         this.testViewer()
         this.testSceneIr()
+        this.testInspector()
         this.testFixtures()
         this.testHealthFig()
         this.testPaste()
+        this.testArcs()
+        this.testMask()
+        this.testPerSideStroke()
+        this.testTracking()
+        this.testDashAndCaps()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -68,6 +74,167 @@ class FigTest {
         } {
             print "SOME FAILED"
         }
+    }
+
+    ; The arc tool: a wedge, a ring and a ring's slice. Drawn as its whole
+    ; ellipse — which is what the reader did before `arcData` was read — a
+    ; twenty-degree slice puts eighteen times the ink on the page, so the
+    ; shape of the path matters more here than its last decimal.
+    fn testArcs:void () {
+        print "--- arcs ---"
+        def full (new KiwiValue())
+        full.kind = 6
+        full.put("startingAngle" (KiwiValue.fromDouble(0.0)))
+        full.put("endingAngle" (KiwiValue.fromDouble(6.283185307179586)))
+        full.put("innerRadius" (KiwiValue.fromDouble(0.0)))
+        this.eqStr("a whole turn with no hole is the plain ellipse" (FigToScene.arcPath(100.0 100.0 full)) (FigToScene.ellipsePath(100.0 100.0)))
+
+        def quarter (new KiwiValue())
+        quarter.kind = 6
+        quarter.put("startingAngle" (KiwiValue.fromDouble(0.0)))
+        quarter.put("endingAngle" (KiwiValue.fromDouble(1.5707963267948966)))
+        quarter.put("innerRadius" (KiwiValue.fromDouble(0.0)))
+        def q:string (FigToScene.arcPath(100.0 100.0 quarter))
+        print ("    wedge: " + q)
+        this.check("a wedge closes through the middle" ((FigTest.countOf(q "L")) == 1))
+        this.check("and is one subpath" ((FigTest.countOf(q "M")) == 1))
+        this.check("swept a quarter, it is not the long way round" ((FigTest.countOf(q " 0 1 ")) == 1))
+
+        def ring (new KiwiValue())
+        ring.kind = 6
+        ring.put("startingAngle" (KiwiValue.fromDouble(0.0)))
+        ring.put("endingAngle" (KiwiValue.fromDouble(6.283185307179586)))
+        ring.put("innerRadius" (KiwiValue.fromDouble(0.5)))
+        def r:string (FigToScene.arcPath(100.0 100.0 ring))
+        print ("    ring: " + r)
+        this.check("a ring is two subpaths" ((FigTest.countOf(r "M")) == 2))
+        this.check("the outer edge runs one way" ((FigTest.countOf(r "A50 50 0 0 1 ")) == 2))
+        this.check("and the hole the other" ((FigTest.countOf(r "A25 25 0 0 0 ")) == 2))
+
+        def slice (new KiwiValue())
+        slice.kind = 6
+        slice.put("startingAngle" (KiwiValue.fromDouble(0.0)))
+        slice.put("endingAngle" (KiwiValue.fromDouble(4.71238898038469)))
+        slice.put("innerRadius" (KiwiValue.fromDouble(0.5)))
+        def sl:string (FigToScene.arcPath(100.0 100.0 slice))
+        print ("    slice: " + sl)
+        this.check("a ring's slice is one subpath" ((FigTest.countOf(sl "M")) == 1))
+        this.check("with an edge on each side" ((FigTest.countOf(sl "L")) == 1))
+        this.check("three quarters takes the long way" ((FigTest.countOf(sl " 1 1 ")) == 1))
+
+        ; And the same through the whole reader, from the file's own
+        ; bytes: the node is an ELLIPSE and comes out as a ring's slice.
+        def app (new FigApp())
+        this.check("open sample" (app.openSample()))
+        app.setPage(2)
+        def ring:SceneNode ((app.currentPage()).childNamed("ArcRing"))
+        this.check("cut, not a whole ellipse" ((FigTest.countOf(ring.pathData "L")) == 1))
+        this.check("and hollow" ((FigTest.countOf(ring.pathData "A25 25")) == 1))
+
+        def none (new KiwiValue())
+        none.kind = 6
+        none.put("startingAngle" (KiwiValue.fromDouble(1.0)))
+        none.put("endingAngle" (KiwiValue.fromDouble(1.0)))
+        none.put("innerRadius" (KiwiValue.fromDouble(0.0)))
+        this.eqStr("nothing swept is nothing drawn" (FigToScene.arcPath(100.0 100.0 none)) "")
+
+        def back (new KiwiValue())
+        back.kind = 6
+        back.put("startingAngle" (KiwiValue.fromDouble(1.5707963267948966)))
+        back.put("endingAngle" (KiwiValue.fromDouble(0.0)))
+        back.put("innerRadius" (KiwiValue.fromDouble(0.0)))
+        this.eqStr("a sweep given backwards is the same wedge" (FigToScene.arcPath(100.0 100.0 back)) q)
+    }
+
+    ; A masking layer becomes the clip around what it masks, and stops
+    ; being a shape of its own.
+    fn testMask:void () {
+        print "--- masks ---"
+        def app (new FigApp())
+        this.check("open sample" (app.openSample()))
+        app.setPage(2)
+        def page:SceneNode (app.currentPage())
+        def grp:SceneNode (page.childNamed("MaskedGroup"))
+        this.eqInt("the mask and its bar became one child" (array_length grp.children) 1)
+        def clip:SceneNode (itemAt grp.children 0)
+        this.eqStr("named after the mask" clip.name "MaskShape (mask)")
+        this.check("and it clips" clip.clip)
+        this.eqInt("to the mask's box" (to_int clip.w) 80)
+        this.eqInt("at the mask's corner" (to_int clip.x) 10)
+        this.eqInt("holding the layer it masked" (array_length clip.children) 1)
+        def bar:SceneNode (itemAt clip.children 0)
+        this.eqStr("which is the bar" bar.name "MaskedBar")
+        ; 10 in the parent, 10 in the mask: the bar sits at the mask's own
+        ; left edge, not ten past it a second time.
+        this.eqInt("re-based into the clip" (to_int bar.x) 0)
+        this.eqInt("and vertically too" (to_int bar.y) 20)
+        ; And it reaches the renderer as a box of that size that clips —
+        ; the draw commands carry it scaled by the view, so the element is
+        ; where the size can be read back.
+        def dump0:string (app.evgText())
+        this.check("the renderer gets the clip" (FigTest.hasSub(dump0 "id=\"3:71#mask\" position=\"absolute\" left=\"10px\" top=\"10px\" width=\"80px\" height=\"80px\"")))
+        this.check("the mask shape is not painted" ((FigTest.hasSub(dump0 "id=\"3:71\"")) == false))
+    }
+
+    ; A rule under a row, and nothing on the other three sides.
+    fn testPerSideStroke:void () {
+        print "--- per-side strokes ---"
+        def app (new FigApp())
+        this.check("open sample" (app.openSample()))
+        app.setPage(2)
+        def row:SceneNode ((app.currentPage()).childNamed("TableRow"))
+        def s:SceneStroke (row.firstStroke())
+        this.check("the four weights are the truth" s.perSide)
+        this.eqInt("and the rule is at the bottom" (to_int s.wBottom) 2)
+        this.eqInt("with nothing on top" (to_int s.wTop) 0)
+        def dump:string (app.evgText())
+        ; Inside alignment: the bar sits on the row's last two pixels.
+        this.check("drawn as a bar there" (FigTest.hasSub(dump "id=\"3:74:border-bottom\" position=\"absolute\" left=\"0px\" top=\"38px\" width=\"200px\" height=\"2px\"")))
+        this.check("and the other sides draw nothing" (FigTest.hasSub(dump "id=\"3:74:border-top\" position=\"absolute\" left=\"0px\" top=\"0px\" width=\"200px\" height=\"0px\"")))
+        this.check("no box around it" ((FigTest.hasSub(dump "id=\"3:74\" position=\"absolute\" left=\"4840px\" top=\"800px\" width=\"200px\" height=\"40px\" border-width=")) == false))
+    }
+
+    ; Tracking reaches the painter, because a run is drawn as one string
+    ; and nobody else can space it.
+    fn testTracking:void () {
+        print "--- letter-spacing ---"
+        def app (new FigApp())
+        this.check("open sample" (app.openSample()))
+        app.setPage(2)
+        def head:SceneNode ((app.currentPage()).childNamed("TrackedHeading"))
+        this.check("the tracking is read" (head.text.letterSpacing < (0.0 - 1.4)))
+        def scene:string (app.sceneJson())
+        this.check("and the draw command" (FigTest.hasSub(scene "\"ls\":-1.5")))
+    }
+
+    ; A dashed line with round ends, all the way to the draw command.
+    fn testDashAndCaps:void () {
+        print "--- dashes and caps ---"
+        def app (new FigApp())
+        this.check("open sample" (app.openSample()))
+        app.setPage(2)
+        def line:SceneNode ((app.currentPage()).childNamed("DashedLine"))
+        def s:SceneStroke (line.firstStroke())
+        this.eqStr("the pattern is read" s.dash "8 6")
+        this.eqStr("and the end is round" s.lineCap "round")
+        this.eqStr("and the corner too" s.lineJoin "round")
+        def scene:string (app.sceneJson())
+        this.check("the painter is told the pattern" (FigTest.hasSub(scene "\"dash\":\"8 6\"")))
+        this.check("and the cap" (FigTest.hasSub(scene "\"cap\":1")))
+    }
+
+    sfn countOf:int (s:string needle:string) {
+        def n:int (strlen s)
+        def m:int (strlen needle)
+        def hits:int 0
+        def i:int 0
+        while ((i + m) <= n) {
+            if ((substring s i (i + m)) == needle) {
+                hits = (hits + 1)
+            }
+            i = (i + 1)
+        }
+        return hits
     }
 
     fn testVarint:void () {
@@ -296,10 +463,102 @@ class FigTest {
         this.check("census names a type in the scene" (FigTest.hasSub(census "\"type\":\"FRAME\"")))
         this.check("census counts what draws nothing" (FigTest.hasSub(census "drawNothing")))
         this.check("census counts missing images" (FigTest.hasSub(census "imagesMissing")))
+        ; FigJam: a sticky has no children and its look is in two derived
+        ; lists. Reading neither leaves an empty box, which is what a whole
+        ; board came out as.
+        def sticky:SceneNode (shapes.childNamed("Sticky"))
+        this.eqStr("sticky is a container" sticky.kind "container")
+        this.eqInt("sticky drew its layers, and not the hidden one" (array_length sticky.children) 2)
+        if ((array_length sticky.children) > 1) {
+            def body:SceneNode (itemAt sticky.children 0)
+            this.eqStr("the sticky body is its geometry" body.kind "path")
+            this.check("and it is painted" ((array_length body.fills) > 0))
+            def note:SceneNode (itemAt sticky.children 1)
+            this.eqStr("the sticky text is text" note.kind "text")
+            this.eqStr("and it says what the file says" note.text.characters "Sticky text")
+            this.close("the text layer sits where the frame put it" note.x 20.0)
+            this.close("and at its own offset down" note.y 20.0)
+        }
+        ; The first guid names the layer and the rest name the cell, so a
+        ; cell's text is placed against the background with the same path
+        ; TAIL. Matched on the prefix instead, every cell's text lands in
+        ; the first cell.
+        def table:SceneNode (shapes.childNamed("Table"))
+        this.eqInt("the table drew a layer per cell" (array_length table.children) 3)
+        if ((array_length table.children) > 2) {
+            def cellText:SceneNode (itemAt table.children 2)
+            this.eqStr("the cell text is text" cellText.text.characters "Cell two")
+            this.close("and it is in the second cell" cellText.x 110.0)
+            this.close("at the cell's own inset" cellText.y 10.0)
+        }
+        ; A component out of a library keeps its identity in overrideKey,
+        ; and the override path names that and not the guid the copy was
+        ; given. The text is in what the designer typed; the size is in
+        ; what Figma computed — both lists have to be read.
+        def keyed:SceneNode (shapes.childNamed("KeyedInstance"))
+        this.eqInt("the keyed instance drew the component" (array_length keyed.children) 1)
+        if ((array_length keyed.children) > 0) {
+            def keyedText:SceneNode (itemAt keyed.children 0)
+            this.eqStr("an overrideKey path places the edit" keyedText.text.characters "Typed by hand")
+            this.close("and the derived entry brought its size" keyedText.h 44.0)
+        }
+        def keyedMaster:SceneNode (shapes.childNamed("KeyedCard"))
+        if ((array_length keyedMaster.children) > 0) {
+            def keyedPlaceholder:SceneNode (itemAt keyedMaster.children 0)
+            this.eqStr("the component keeps its placeholder" keyedPlaceholder.text.characters "Keyed placeholder")
+        }
+        ; An instance swapped for another component draws the one it was
+        ; swapped to. Read after the name instead of over it, the swap
+        ; never won and a card drew the variant the set lists first.
+        def swapped:SceneNode (shapes.childNamed("SwappedInstance"))
+        this.eqInt("the swapped instance drew a component" (array_length swapped.children) 1)
+        if ((array_length swapped.children) > 0) {
+            def swappedText:SceneNode (itemAt swapped.children 0)
+            this.eqStr("and it is the one it was swapped to" swappedText.text.characters "You are here")
+        }
         def unread:string (app.unreadJson())
         this.check("unread leaves out fillPaints" ((FigTest.hasSub(unread "\"field\":\"fillPaints\"")) == false))
         this.check("unread leaves out transform" ((FigTest.hasSub(unread "\"field\":\"transform\"")) == false))
         this.check("unread leaves out symbolData" ((FigTest.hasSub(unread "\"field\":\"symbolData\"")) == false))
+    }
+
+    ; The right-hand pane, and the ring on the canvas. Both read the same
+    ; box, and the box has to be walked to: a node's x/y is an offset from
+    ; its parent, so a title twenty pixels into a card is not at 20,20 on
+    ; the page.
+    fn testInspector:void () {
+        print "--- inspector ---"
+        def app (new FigApp())
+        this.check("open" (app.openSample()))
+        app.setPage(2)
+        app.select("3:47")
+        def sel:string (app.inspectJson())
+        this.check("the pane names the layer" (FigTest.hasSub(sel "\"id\":\"3:47\"")))
+        this.check("its own offset is from its parent" (FigTest.hasSub(sel "\"x\":20")))
+        ; CardWithTitle sits at 1380,800 and the title 20,20 inside it.
+        this.check("and its place on the page is walked to" (FigTest.hasSub(sel "\"pageX\":1400")))
+        this.check("in both axes" (FigTest.hasSub(sel "\"pageY\":820")))
+        this.check("the text comes with it" (FigTest.hasSub(sel "\"chars\":\"Title text\"")))
+        ; An edit is a value on the scene graph and a repaint, nothing more.
+        app.editOpacity(0.5)
+        app.editFill("#ff0000")
+        app.editText("Retyped")
+        def edited:string (app.inspectJson())
+        this.check("an edit changes the layer" (FigTest.hasSub(edited "\"opacity\":0.5")))
+        this.check("a colour is a colour" (FigTest.hasSub(edited "\"hex\":\"#ff0000\"")))
+        this.check("retyping replaces the text" (FigTest.hasSub(edited "\"chars\":\"Retyped\"")))
+        this.check("and drops the outlines it was shaped into" (FigTest.hasSub(edited "\"outline\":false")))
+        this.eqInt("the edits are counted" (app.editCount()) 3)
+        app.revertEdits()
+        app.setPage(2)
+        app.select("3:47")
+        def back:string (app.inspectJson())
+        this.check("revert reads the layer back from the file" (FigTest.hasSub(back "\"chars\":\"Title text\"")))
+        this.check("with its own colour" ((FigTest.hasSub(back "\"hex\":\"#ff0000\"")) == false))
+        this.eqInt("and no edits left" (app.editCount()) 0)
+        ; A layer nobody selected has no pane.
+        app.select("")
+        this.eqStr("nothing selected, nothing shown" (app.inspectJson()) "{}")
     }
 
     fn testFixtures:void () {

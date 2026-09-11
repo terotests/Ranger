@@ -1,0 +1,15 @@
+# Globs that create as well as select, `!&` filters, and a glob inside a
+# container — the three things a selector language can do that a key cannot.
+service a: { shape: hexagon }
+service b: { shape: hexagon }
+db: { shape: cylinder }
+group: {
+  x
+  y: { shape: circle }
+  *.style.stroke-width: 3
+}
+# every object anywhere, then only the ones that are NOT hexagons
+**.style.opacity: 0.85
+*: { !&shape: hexagon; style.fill: "#eef" }
+service a -> db
+service b -> db

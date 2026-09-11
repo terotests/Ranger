@@ -345,17 +345,27 @@ class FigModel {
             nd.parentId = (FigModel.guidOf((pidx.child("guid"))))
             nd.position = (pidx.childString("position" ""))
         }
-        ; Where a Figma export keeps it: NodeChange.symbolData.symbolID,
-        ; nested, not at the top level. `symbolID` on the node itself is
-        ; what the REST API and this repository's sample write, and
-        ; `overriddenSymbolID` is what an instance that was swapped for
-        ; another component carries.
+        ; Which component an instance draws. `overriddenSymbolID` is an
+        ; instance swapped for another — one variant of a set picked
+        ; instead of another — and it is an override of the symbol the
+        ; instance names, not another spelling of it, so it is read first:
+        ; read last it never won, and a card that swaps its thumbnail for
+        ; the "you are here" variant drew the placeholder artwork the set
+        ; happens to list first. Then `symbolData.symbolID`, nested, which
+        ; is what a Figma export writes, and then `symbolID` on the node,
+        ; which is what the REST API and this repository's sample write.
+        def swapped:KiwiValue (v.child("overriddenSymbolID"))
+        if (swapped.isObject()) {
+            nd.symbolId = (FigModel.guidOf(swapped))
+        }
         def symData:KiwiValue (v.child("symbolData"))
         if (symData.isObject()) {
             nd.hadSymbolData = true
-            def inner:KiwiValue (symData.child("symbolID"))
-            if (inner.isObject()) {
-                nd.symbolId = (FigModel.guidOf(inner))
+            if ((strlen nd.symbolId) == 0) {
+                def inner:KiwiValue (symData.child("symbolID"))
+                if (inner.isObject()) {
+                    nd.symbolId = (FigModel.guidOf(inner))
+                }
             }
         }
         if ((strlen nd.symbolId) == 0) {
@@ -368,12 +378,6 @@ class FigModel {
             def sym2:KiwiValue (v.child("symbolId"))
             if (sym2.isObject()) {
                 nd.symbolId = (FigModel.guidOf(sym2))
-            }
-        }
-        if ((strlen nd.symbolId) == 0) {
-            def sym3:KiwiValue (v.child("overriddenSymbolID"))
-            if (sym3.isObject()) {
-                nd.symbolId = (FigModel.guidOf(sym3))
             }
         }
         def derived:KiwiValue (v.child("derivedSymbolData"))

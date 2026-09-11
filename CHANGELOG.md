@@ -14,6 +14,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **FigJam boards draw.** A sticky, a shape with text, a connector and a table
+  carry no children: Figma builds their layers itself and a `.jam` ships only
+  what it built, as two lists that pair by `guidPath` —
+  `derivedImmutableFrameData` with each layer's size, transform, flattened
+  paths and shaped glyphs, and `nodeGenerationData` with its paints, its text
+  and its `visible`. Neither was read, so a real board opened as a page of
+  empty boxes: all 26 of its stickies, all 56 shapes, all 5 connectors and all
+  5 tables drew nothing whatever. Each layer is now merged the way an instance
+  override is and run through the ordinary reader, so a sticky's body is a
+  vector and its text is text with outlines, and nothing is written twice. The
+  first guid on a path names the layer and the rest name the node, which is why
+  a cell's background and its text share a path *tail* and not a prefix — a
+  layer is placed against the first entry with the same tail, and the third
+  cell's text lands in the third cell.
+
+- **A design for the camera on the GPU.**
+  `gallery/evg/PLAN_VIEW_TRANSFORM.md` asks why a canvas rebuilds its whole
+  display list for every frame of a pan, when the pan is a translate the vertex
+  shader already applies for scroll layers (`uShift`) and the scene has not
+  changed. The list would be built in scene space and carry the camera beside
+  it; a kept frame is then drawn at any pan for nothing, and at a scale within
+  a band — the glyph atlas and the flattened curves are what a zoom cannot
+  stretch, and the band is where the design is honest. Measured, not projected:
+  a pan frame of the FigJam board is 87 ms of which 18 is the draw, and drawing
+  a frame that is already built costs 18.4 ms and rebuilds nothing. It says
+  what each painter would do, who else it helps (rangerflow's 12.1 ms frame,
+  markdown's per-frame `offsetBy` and list copy, the layer shifts it would
+  generalize), where it gives nothing (anything that draws once), and what
+  would go wrong. Design only — nothing is built.
+
+- **Two fingers pinch the canvas, and the gestures are one module.** Drag to
+  pan, wheel to zoom, a press that does not travel is a click — every
+  standalone had written its own, and none of them had a pinch.
+  `gallery/evg/gl/evg-gestures.js` is that handling once, for any EVG canvas:
+  it reads the view the host keeps and hands back another, so the host goes on
+  deciding when to paint. The anchor holds the point under the cursor, or
+  under the midpoint of two fingers, where it is; a trackpad pinch (a wheel
+  with `ctrl` held, a fraction of a notch at a time) gets a rate of its own or
+  it crawls where the wheel flies; Safari's `gesture*` events are read; and a
+  finger lifted out of a pinch leaves the other one panning. `npm run
+  evg:gestures:check` drives all of it against a canvas that is not one.
+
+- **`fig_cli fields <file> <node-id>`** prints one node's raw kiwi fields and
+  lists its children, which is how a layer that draws wrong is read against
+  what the file says about it, and how a variant set's variants are found.
+
+- **The layers pane is a tree, and it is rooted where you are looking.** It
+  used to be every layer in the file in one flat list — three and a half
+  thousand rows on a board, which is a wall and not a tree. Rows fold now, and
+  picking something on the canvas roots the pane at it (or at its parent, when
+  what you picked has nothing under it), with crumbs back out. Everything is
+  open by default; what folds itself is what does not fit, counting the rows
+  still owed to the layers queued behind it, so every section of a board gets a
+  row even when the first one could have filled the pane on its own.
+
+- **An inspector for the selected layer, and it edits.** The numbers in the
+  right-hand pane are the layer, not a report about it: type one and the page
+  is painted again. Position and size, opacity, corner radius, fill and stroke
+  colour and the text itself are editable, a field's label is a scrub handle,
+  and retyping a text layer drops the glyph outlines the editor shaped with it
+  for the font this machine has — which says plainly which half of the pipeline
+  drew what you are looking at. Nothing is written back to the file; **Revert
+  edits** re-reads the document the scene was converted from.
+
 - **Mermaid event models.** Time across the page, kind down it: each `tf` is a
   time frame and lands in the lane its kind belongs to, under the three names
   Mermaid's own config gives them. The lane is not a choice — an event drawn in
@@ -72,7 +136,132 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `URG` and `ACK` widens the ruler until those words fit, because six boxes
   with an ellipsis in each say nothing at all.
 
+### Changed
+
+- **A frame crosses as typed arrays, not as text.** The Figma viewer hands
+  the page `EVGDisplayList.toBinary()` — three `Int32Array`s and a string
+  pool — where it used to hand it JSON: on a board of 3,565 nodes that is
+  5,630 ms a frame against 180, and the two bridges describe the same picture
+  to the hundredth (`gallery/evg/gl/list-binary-check.mjs` holds them to it).
+  `scene()` still answers in JSON for anything that wants to read a frame.
+
+- **A flattened outline is kept on the element it belongs to.** `d` is a
+  string and the painter wants points, so every walk parsed and flattened
+  every path — and a page of text drawn as glyph outlines is thousands of
+  them. What comes out depends on the path and on the box it is drawn in,
+  and a pan changes neither: a transform moves the pixels after the boxes are
+  placed. `EVGElement.ringsCache` keeps it and re-flattens when either
+  changes, which takes a pan of that board from 966 ms to 581.
+
+- **A curve is flattened for the size it is drawn at, not the size it was
+  laid out at.** A transform is exactly the difference between the two, and
+  on a canvas that zooms it is a large one: a Figma board at 10% was cutting
+  every glyph into the 48 segments a curve 640 layout pixels wide deserves,
+  in order to draw it five pixels long. The scale of the transforms a subtree
+  is under is carried down the walk now, so the subdivision follows the
+  pixels — 581 ms to 125 on that pan, and finer rather than coarser when you
+  zoom in.
+
+- **And a curve is cut by its own length, not by the box it lives in.**
+  `steps` is chosen from the size of the thing being drawn, and inside a path
+  that size says nothing about the curves: a heading 2,855 pixels wide cut
+  every curve of every glyph in it 47 ways in order to draw those glyphs two
+  pixels tall, and one frame of that board carried 2.5 million points because
+  of it. Each curve is now measured through the transform and cut at about a
+  point every two device pixels, never finer than the caller's ceiling — so
+  nothing draws heavier than it did, and a curve big enough to show facets
+  keeps every segment it had. 767,000 points in that frame, 125 ms to 37, and
+  `fixtures/health.fig` — three phone screens — from 27 ms a frame to 12.
+  With the cache above, every EVG page with vectors on it redraws for less.
+
+- **The viewer stopped rebuilding what a pan does not change.** The EVG tree
+  and its layout are the same from one frame of a pan to the next — only the
+  world element's transform moves — and the twelve-megabyte text dump of that
+  tree, built on every rebuild and thrown away unread, is built when the
+  debug pane asks for it.
+
 ### Fixed
+
+- **A page panned away from the origin drew almost nothing.** EVG skips a
+  subtree that cannot reach the clip it is inside, and the test was made
+  against the boxes the layout placed while a transform moves the pixels
+  afterwards. A Figma page is laid out around the origin and never noticed it;
+  a FigJam board is laid out where the designer left it — x = -13,264 on the
+  board that found this — so every frame measured as ten thousand pixels
+  off-screen and was skipped whole: 193 draw commands for 3,565 nodes. The clip
+  now travels into the space the subtree is laid out in, and a rotation, which
+  no rectangle can follow, turns culling off for that subtree rather than
+  guessing at one.
+
+- **An instance showed the component's placeholder, at the component's size.**
+  An override path is spelled in `overrideKey` — a component copied in from a
+  library is re-guided on the way in and keeps its old identity there — and
+  matching on the node's own guid placed 55 of a board's 1,323 overrides. It is
+  also two lists and not one: `derivedSymbolData` is what Figma computed, the
+  shaped glyphs and the size the instance laid the node out at, and
+  `symbolData.symbolOverrides` is what the designer typed. Reading only the
+  first left a 2,030-pixel card spilling 4,600 pixels of placeholder down the
+  board.
+
+- **The selection ring was drawn in the corner of the page.** It read `x`/`y`
+  off the node, and those are an offset from the PARENT: a title twenty pixels
+  into a card three thousand pixels across the board ringed 20,16 — nowhere
+  near the layer it was pointing at. The box is walked to now, the same walk
+  the hit test makes, and a layer with no height still gets a ring you can see.
+
+- **The Frame control was blank, and picking a frame did nothing.** Its options
+  carried the frames' ids while the code put the frame's index into the
+  control and read an index back out, so nothing ever matched and
+  `parseInt("13709:3271")` asked for frame 13,709 — out of range, which
+  quietly showed the whole page again. A section with no name now wears its id
+  rather than an empty row.
+
+- **An instance swapped for another component drew the one it was not
+  swapped to.** `overriddenSymbolID` is an override of the symbol the
+  instance names and was read after it, so it never won: a template card
+  that swaps its thumbnail for the "you are here" variant of a set drew the
+  placeholder artwork the set happens to list first.
+
+- **An instance now clips the way its component does.** The flag is on the
+  component and the instance carries only `frameMaskDisabled`, so the
+  screenshot inside a tip card ran out of the side of the card.
+
+- **A layer whose only fill was switched off was painted opaque black.**
+  `firstFill` handed back an empty paint that read as visible black when every
+  paint on the node was hidden, which put a black box over every icon on a
+  FigJam board that carried one.
+
+- **The scene-graph JSON was not JSON.** Layer names, path data and a sticky's
+  text went in unescaped, so a board whose first sticky ran to two lines made
+  the whole pane unparseable.
+
+- **The C++ backend named classes it had not declared.** `CreateUnions` wrote
+  every class the program knows into the `r_union_Any` variant; the forward
+  declarations came from `writeClass`, which runs only for the classes the
+  program actually emits. A class nobody calls is eliminated, keeps its place
+  in the variant, and leaves the C++ compiler reading a name it has never
+  seen — `error: 'X' was not declared in this scope`, pointing at a typedef
+  several thousand characters long. Two lists of the same classes, built in
+  two different places, and nothing made them agree.
+
+  `Any` is where it bit, because `Any` names every class in the program.
+  `gallery/realtrainer` could not be built for C++ **at all** — a seven-line
+  file that imports `RtHost.rgr`, constructs one and prints its scene name
+  reproduced it — stopped by `VlChartExamples`, a documentation-only class of
+  unused static examples over in `gallery/vela`. Nothing about either was
+  wrong.
+
+  The union now declares what it names. Only the pointer forms:
+  `shared_ptr<T>` of an incomplete `T` is legal, while a value case
+  (`PLAN_SHAPES.md` S5) lives inside the variant and needs its definition —
+  and a value case belongs to a live family, so it is never the one that was
+  eliminated. Which form a member takes is asked of `getObjectTypeString`
+  rather than decided a second time here. Nearly every name is now declared
+  twice, which is legal and costs 8.9 KB on a 4.0 MB file; tracking what was
+  already emitted to save that would be a third list to keep correct, in the
+  writer whose two lists disagreeing is the defect. The compiler still
+  reproduces itself byte for byte, still compiles itself to C++ that `g++`
+  accepts, and `gallery/vela`'s native goldens are unchanged.
 
 - **The diagram-type matrix was measured against a list that could not be
   complete.** It discovered Mermaid's types by listing

@@ -123,6 +123,51 @@ if (!/CompRect/.test(instWeb.tree()) || !instWeb.evgDump().includes("3:40")) {
   process.exit(1);
 }
 console.log("instances ok — a component's subtree is drawn in its instance");
+
+// The page's Frame control picks a frame by INDEX — the number `setFrame`
+// takes and `frameIndex` reads back. Listing the ids instead left the
+// control blank and picked a frame that did not exist, so the contract the
+// two share is worth holding here: nth in `frames()` is nth to `setFrame`.
+{
+  const list = JSON.parse(instWeb.frames());
+  if (list.length < 3) {
+    console.error("the sample's fixtures page should list frames, got", list.length);
+    process.exit(1);
+  }
+  instWeb.setFrame(2);
+  if (instWeb.frameIndex() !== 2) {
+    console.error("setFrame did not take the index", instWeb.frameIndex());
+    process.exit(1);
+  }
+  const only = JSON.parse(instWeb.scene()).list?.cmds || [];
+  if (only.length < 3) {
+    console.error("a frame on its own drew nothing", only.length);
+    process.exit(1);
+  }
+  // And the layer the ring is drawn around is measured on the page, not
+  // inside its parent: CardWithTitle sits at 1380,800 with its title 20,20
+  // into it.
+  instWeb.setFrame(-1);
+  instWeb.select("3:47");
+  const sel = JSON.parse(instWeb.inspect());
+  if (sel.x !== 20 || sel.pageX !== 1400 || sel.pageY !== 820) {
+    console.error("the selected layer's box is not on the page", sel.x, sel.pageX, sel.pageY);
+    process.exit(1);
+  }
+  instWeb.editOpacity(0.25);
+  if (JSON.parse(instWeb.inspect()).opacity !== 0.25) {
+    console.error("an edit did not reach the scene graph");
+    process.exit(1);
+  }
+  instWeb.revertEdits();
+  instWeb.setPage(2);
+  instWeb.select("3:47");
+  if (JSON.parse(instWeb.inspect()).opacity !== 1) {
+    console.error("revert did not read the layer back from the file");
+    process.exit(1);
+  }
+  console.log("frames and inspector ok — nth frame is nth, and an edit repaints", list.length, "frames");
+}
 console.log("health.fig ok — frames", frames.join(", "), "cmds", hc.length, "paths", paths);
 
 // A paste: the same fig-kiwi bytes wrapped the way Figma's clipboard wraps

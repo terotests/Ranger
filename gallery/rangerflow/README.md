@@ -1209,6 +1209,99 @@ Still open: `style=diagonals`, `fontname`, `ROWSPAN` in an HTML table, and the
 Brewer colour schemes. The plan is
 [`docs/PLAN_GRAPHVIZ.md`](docs/PLAN_GRAPHVIZ.md).
 
+## D2, measured before it is read
+
+[D2](https://d2lang.com) is the fourth text-to-diagram format read here, and
+the easiest of them to be honest about: it is **MPL-2.0**, it installs
+with `go install oss.terrastruct.com/d2@v0.7.1`, and `d2lib.Compile` hands back
+a whole diagram as JSON — every shape with its position, size, type and level,
+every connection with its arrowheads and its route, `sql_table` columns with
+their constraints, `class` members with their visibility, and the boards that
+`layers` / `scenarios` / `steps` created.
+
+So the oracle came first, before any reader:
+
+```
+npm run rangerflow:d2:oracle
+  d2 v0.7.1: 20/20 fixtures accepted, 139 shapes and 58 connections laid out by
+  dagre and elk, 46 keywords, 25 shapes, 11 arrowheads
+```
+
+[`docs/D2_FEATURES.md`](docs/D2_FEATURES.md) scores D2's own tables against the
+pipeline as it stands: 100 rows, **57 it already draws, 15 narrower, 28
+missing** — boards, grid diagrams, nine outlines, an image primitive and rich
+labels. The reading of that is in [`docs/PLAN_D2.md`](docs/PLAN_D2.md): a D2
+reader is mostly a parser, because D2's model is the model RangerFlow already
+has.
+
+So the parser is what was built first:
+
+```
+npm run rangerflow:d2:parity
+  d2 v0.7.1: 41/41 fixtures accepted …
+  d2 parity: 256/256 checks agree (100%) → gallery/rangerflow/docs/D2_PARITY.md
+```
+
+`domains/d2/D2Parser.rgr` reads the language — keys and dotted paths, maps,
+connections and chains, connection references, block strings with their tags,
+globs and `&` filters, imports and spreads, both kinds of comment — and
+`domains/d2/D2Model.rgr` says what it means: objects created by being
+mentioned, `vars` and `classes`, `suspend`, the rows of a `sql_table` and the
+members of a `class`, sequence-diagram scoping, and the boards `layers`,
+`scenarios` and `steps` make. Imports read files, so they are confined to the
+diagram's own directory: an absolute path, a `..` segment, a URL and a cyclic
+chain are each refused with an error rather than followed.
+
+The score is [`docs/D2_PARITY.md`](docs/D2_PARITY.md), computed by D2 over
+nine dimensions: objects, labels, shapes, levels, connections, the styles a
+file actually set, the extras a shape carries (tooltip, link, icon, size),
+table rows and class members, and the board tree. **No geometry is compared**: D2's answer carries every position and
+route, and scoring those against RangerFlow's own layered layout would measure
+two layouts rather than one reader.
+
+And then it is drawn. `domains/d2/D2Flow.rgr` turns a board into a `FlowGraph`
+and from there it is the same layered layout, the same lane router and the same
+four backends the ERD and Mermaid use:
+
+```
+npm run rangerflow:d2                                    # or any .d2 file
+npm run rangerflow:d2 -- gallery/rangerflow/fixtures/d2/02_containers.d2
+```
+
+Two things had to be built for it. **A container is laid out as a diagram of
+its own** and then placed in its parent as one box the size of what came out —
+a flat layered layout has no idea that six of these boxes belong in one frame,
+so it interleaves them with the next container's and the frames drawn
+afterwards overlap. Nesting the layouts also gives `direction` its proper
+meaning: a `direction: right` inside a container turns that container and
+nothing else. And **the nine outlines D2 has that this library did not** —
+`page`, `queue`, `package`, `step`, `callout`, `stored_data`, `person`,
+`c4-person` and `cloud` — are in `core/FlowShapes.rgr` now, held to the same
+two rules as every other outline: inside its own box, and enclosing its own
+middle.
+
+…and in the editor. `?scenario=d2` opens the same reader with a textarea in
+front of it — seven examples in the gallery (containers, shapes, a flowchart,
+`sql_table`, a class diagram, a sequence diagram, and one that shows `vars`,
+`classes` and connection globs), live redraw as you type, and the page's own
+self test walking it like every other scenario.
+
+![the D2 scenario in the web editor](artifacts/scenario_d2.png)
+
+Imports are refused in the browser rather than resolved: a page that fetched
+whatever a pasted diagram named would be a worse bug than an unread `@file`,
+and the status line says how many were left. That is also why reading a file
+lives in `domains/d2/D2Imports.rgr` and nowhere else — `read_file` is
+asynchronous on the web target and Ranger infers that up the call graph, so a
+single call under `D2Model.read` would make the editor's own self test return
+a promise instead of a verdict.
+
+What is not drawn yet: a grid container lays out as an ordinary one, a
+`sequence_diagram` is drawn as a container of participants rather than by
+`SeqDiagram`, and only the root board is drawn. Each is a row in
+[`docs/D2_FEATURES.md`](docs/D2_FEATURES.md) and a phase in
+[`docs/PLAN_D2.md`](docs/PLAN_D2.md).
+
 ## …and in a window
 
 `npm run rangerflow:sdl:run` compiles the whole thing to C++ and links it

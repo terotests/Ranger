@@ -1,0 +1,1279 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; D2Parser.rgr — .d2 text into an AST.
+; ============================================================================
+;
+; D2 is one grammar. Mermaid is thirty grammars in a trench coat and PlantUML
+; is one grammar with a preprocessor in front of it; D2 is a single language of
+; keys, maps and connections, and everything it draws — a class box, a sequence
+; diagram, a grid, a whole second board — is that one language with a reserved
+; word in it. So the reader starts here, with the language, and nothing in this
+; file knows what a shape is.
+;
+;   direction: right                     decl  direction        = right
+;   network: Network {                   decl  network          = "Network" {
+;     tower: cell tower {                  decl  tower          = "cell tower" {
+;       satellites -> transmitter: send      edge satellites -> transmitter
+;     }                                    }
+;   }                                    }
+;   user -> network.tower: make call     edge  user -> network.tower
+;
+; **What it does.** Tokens and structure: keys with dotted paths, quoted and
+; unquoted strings, block strings with their tags, maps, arrays, connections
+; and chains of them, connection references — `(a -> b)[0]` — globs and
+; filters, imports and spreads, comments of both kinds, and the `;` that stands
+; in for a newline.
+;
+; **What it does not do.** Mean anything. `shape`, `style`, `vars`, `classes`,
+; `layers` and the rest are keys like any other here; `D2Model` is where they
+; become a diagram. The split is the same one the Mermaid readers keep between
+; reading text and building a `FlowGraph`, and it is what makes the parser
+; testable against files nobody would draw.
+;
+; **Where the rules came from.** `d2 v0.7.1`, read and asked. The stop sets
+; below are D2's own: a value ends at a newline, `;`, `#`, `{`, `}`, `[` or
+; `]`; a key ends at those plus `:`, `.`, `<`, `>`, `&`, and at `-` when the
+; next character is `-`, `>` or `*` — which is what lets `cf-one`, `grid-rows`
+; and `+find(id int)` be keys while `a -> b` is a connection.
+; ============================================================================
+
+; ---------------------------------------------------------------------------
+; The AST.
+; ---------------------------------------------------------------------------
+
+; One segment of a key path. `network.tower.satellites` is three of these.
+class D2Part {
+    ; The segment with its quotes removed and its escapes resolved.
+    def name:string ""
+    ; The segment as D2 would spell it in an id — a quoted key keeps its
+    ; quotes there, which is why `raw` is kept beside `name`.
+    def raw:string ""
+    def quoted:boolean false
+    ; `*` and `**`, which select rather than name.
+    def pattern:boolean false
+    def doubleStar:boolean false
+    ; 0 none · 1 `&key: value` · 2 `!&key: value`
+    def filter:int 0
+
+    Constructor () {
+    }
+}
+
+; A dotted path, and the one thing that is not one: `(a -> b)[0]`, which names
+; a connection so that a later statement can style it.
+class D2Path {
+    def parts:[D2Part]
+    def isEdgeRef:boolean false
+    def refLeft:[D2Part]
+    def refRight:[D2Part]
+    def refArrow:string ""
+    def refIndex:int -1
+
+    Constructor () {
+    }
+
+    fn size:int () {
+        return (array_length parts)
+    }
+
+    fn partAt:D2Part (i:int) {
+        return (itemAt parts i)
+    }
+
+    fn lastName:string () {
+        def n:int (array_length parts)
+        if (n == 0) {
+            return ""
+        }
+        def p:D2Part (itemAt parts (n - 1))
+        return p.name
+    }
+
+    ; The path as written, for messages and for ids.
+    fn text:string () {
+        def out:string ""
+        if isEdgeRef {
+            out = ("(" + (D2Path.joinParts(refLeft)) + " " + refArrow + " " + (D2Path.joinParts(refRight)) + ")")
+            if (refIndex >= 0) {
+                out = (out + "[" + (to_string refIndex) + "]")
+            }
+            if ((array_length parts) > 0) {
+                out = (out + ".")
+            }
+        }
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:D2Part (itemAt parts i)
+            if (i > 0) {
+                out = (out + ".")
+            }
+            out = (out + p.raw)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn joinParts:string (ps:[D2Part]) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length ps)) {
+            def p:D2Part (itemAt ps i)
+            if (i > 0) {
+                out = (out + ".")
+            }
+            out = (out + p.raw)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn hasPattern:boolean () {
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:D2Part (itemAt parts i)
+            if p.pattern {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn filterKind:int () {
+        def n:int (array_length parts)
+        if (n == 0) {
+            return 0
+        }
+        def p:D2Part (itemAt parts 0)
+        return p.filter
+    }
+}
+
+; The right-hand side of a key. A value can be a scalar *and* a map at once —
+; `both: My Label { shape: cylinder }` is the form every D2 file uses.
+class D2Value {
+    ; "" none · "scalar" · "map" · "array" · "block" · "import" · "null" ·
+    ; "suspend" · "unsuspend" · "boolean" · "number"
+    def kind:string ""
+    def text:string ""
+    ; A block string's tag: `md`, `go`, `latex`, … `md` when it has none.
+    def tag:string ""
+    def hasMap:boolean false
+    def body:[D2Decl]
+    def items:[D2Value]
+    ; `...@file` and `...${var}` inside a map.
+    def spread:boolean false
+
+    Constructor () {
+    }
+}
+
+; One statement: a key with a value, or a connection, or a spread.
+class D2Decl {
+    def line:int 0
+    ; One path, or the ends of a chain — `a -> b -> c` is three.
+    def paths:[D2Path]
+    ; "->" "<-" "--" "<->", one fewer than `paths`.
+    def arrows:[string]
+    def isEdge:boolean false
+    ; `...@file` / `...${vars}` — the text after the dots.
+    def spread:string ""
+    def isSpread:boolean false
+    ; 0 or 1: D2 has no way to give a key two values, and a missing value is
+    ; not the same as an empty one.
+    def values:[D2Value]
+
+    Constructor () {
+    }
+
+    fn hasValue:boolean () {
+        return ((array_length values) > 0)
+    }
+
+    fn value:D2Value () {
+        if ((array_length values) > 0) {
+            return (itemAt values 0)
+        }
+        return (new D2Value)
+    }
+
+    fn path:D2Path () {
+        if ((array_length paths) > 0) {
+            return (itemAt paths 0)
+        }
+        return (new D2Path)
+    }
+
+    fn key:string () {
+        return (this.path().text())
+    }
+}
+
+; A parsed file: the declarations of its root map, and what the parser refused.
+class D2File {
+    def decls:[D2Decl]
+    def errors:[string]
+
+    Constructor () {
+    }
+
+    fn declCount:int () {
+        return (array_length decls)
+    }
+
+    fn errorCount:int () {
+        return (array_length errors)
+    }
+
+    fn declAt:D2Decl (i:int) {
+        return (itemAt decls i)
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The parser. Recursive descent over the characters, because D2's strings are
+; context-sensitive: the same run of letters is a key in one position and a
+; label in the other, and no separate lexer can tell them apart.
+; ---------------------------------------------------------------------------
+class D2Parser {
+    def src:string ""
+    def at:int 0
+    def line:int 1
+    def errors:[string]
+    ; Inside `( … )` of a connection reference, where `)` closes rather than
+    ; being a character in a name.
+    def inGroup:boolean false
+
+    Constructor () {
+    }
+
+    sfn parse:D2File (text:string) {
+        def p (new D2Parser)
+        p.src = text
+        def f (new D2File)
+        f.decls = (p.mapBody(false))
+        f.errors = p.errors
+        return f
+    }
+
+    ; ------------------------------------------------------------ scanning --
+    fn atEnd:boolean () {
+        return (at >= (strlen src))
+    }
+
+    fn peek:int () {
+        if (at >= (strlen src)) {
+            return -1
+        }
+        return (charAt src at)
+    }
+
+    fn peekAt:int (k:int) {
+        def i:int (at + k)
+        if (i >= (strlen src)) {
+            return -1
+        }
+        return (charAt src i)
+    }
+
+    fn bump:int () {
+        def c:int (this.peek())
+        if (c == 10) {
+            line = (line + 1)
+        }
+        at = (at + 1)
+        return c
+    }
+
+    sfn isInline:boolean (c:int) {
+        if (c == 32) { return true }
+        if (c == 9)  { return true }
+        if (c == 13) { return true }
+        return false
+    }
+
+    sfn isSpace:boolean (c:int) {
+        if (c == 10) { return true }
+        return (D2Parser.isInline(c))
+    }
+
+    sfn isWordCode:boolean (c:int) {
+        if (c == 95) { return true }
+        if (c >= 48) { if (c <= 57) { return true } }
+        if (c >= 65) { if (c <= 90) { return true } }
+        if (c >= 97) { if (c <= 122) { return true } }
+        return false
+    }
+
+    ; Spaces and tabs, never a newline: a newline ends a statement.
+    fn inline:void () {
+        while true {
+            def c:int (this.peek())
+            if (c < 0) {
+                return
+            }
+            if (D2Parser.isInline(c)) {
+                this.bump()
+                continue
+            }
+            ; A backslash at the end of a line continues it.
+            if (c == 92) {
+                if ((this.peekAt(1)) == 10) {
+                    this.bump()
+                    this.bump()
+                    continue
+                }
+            }
+            return
+        }
+    }
+
+    ; Everything between two statements: whitespace, `;`, and both comments.
+    fn gaps:void () {
+        while true {
+            def c:int (this.peek())
+            if (c < 0) {
+                return
+            }
+            if (D2Parser.isSpace(c)) {
+                this.bump()
+                continue
+            }
+            if (c == 59) {
+                this.bump()
+                continue
+            }
+            if (c == 34) {
+                ; `"""` opens a block comment; a lone `"` opens a string and is
+                ; somebody else's problem.
+                if ((this.peekAt(1)) == 34) {
+                    if ((this.peekAt(2)) == 34) {
+                        this.blockComment()
+                        continue
+                    }
+                }
+                return
+            }
+            if (c == 35) {
+                this.lineComment()
+                continue
+            }
+            return
+        }
+    }
+
+    fn lineComment:void () {
+        while true {
+            def c:int (this.peek())
+            if (c < 0) {
+                return
+            }
+            if (c == 10) {
+                return
+            }
+            this.bump()
+        }
+    }
+
+    fn blockComment:void () {
+        this.bump()
+        this.bump()
+        this.bump()
+        while true {
+            def c:int (this.peek())
+            if (c < 0) {
+                push errors "unterminated block comment"
+                return
+            }
+            if (c == 34) {
+                if ((this.peekAt(1)) == 34) {
+                    if ((this.peekAt(2)) == 34) {
+                        this.bump()
+                        this.bump()
+                        this.bump()
+                        return
+                    }
+                }
+            }
+            this.bump()
+        }
+    }
+
+    ; Skip what is left of a statement we could not read, so one bad line does
+    ; not eat the file.
+    fn skipLine:void () {
+        while true {
+            def c:int (this.peek())
+            if (c < 0) {
+                return
+            }
+            if (c == 10) {
+                this.bump()
+                return
+            }
+            if (c == 59) {
+                this.bump()
+                return
+            }
+            if (c == 125) {
+                return
+            }
+            this.bump()
+        }
+    }
+
+    ; --------------------------------------------------------------- maps ---
+    fn mapBody:[D2Decl] (inBrace:boolean) {
+        def out:[D2Decl]
+        while true {
+            this.gaps()
+            if (this.atEnd()) {
+                if inBrace {
+                    push errors "unterminated map"
+                }
+                break
+            }
+            def c:int (this.peek())
+            if (c == 125) {
+                this.bump()
+                if inBrace {
+                    break
+                }
+                push errors "a `}` with no map open"
+                continue
+            }
+            def before:int at
+            def d:D2Decl (this.decl())
+            if ((array_length d.paths) == 0) {
+                if (d.isSpread == false) {
+                    this.skipLine()
+                    if (at == before) {
+                        this.bump()
+                    }
+                    continue
+                }
+            }
+            push out d
+            if (at == before) {
+                ; Nothing was consumed — refuse to loop forever.
+                this.bump()
+            }
+        }
+        return out
+    }
+
+    fn braceBody:[D2Decl] () {
+        this.bump()
+        return (this.mapBody(true))
+    }
+
+    ; -------------------------------------------------------- a statement ---
+    fn decl:D2Decl () {
+        def d (new D2Decl)
+        d.line = line
+        this.inline()
+        ; `...@file` and `...${vars}`
+        if ((this.peek()) == 46) {
+            if ((this.peekAt(1)) == 46) {
+                if ((this.peekAt(2)) == 46) {
+                    this.bump()
+                    this.bump()
+                    this.bump()
+                    d.isSpread = true
+                    d.spread = (this.restOfLine())
+                    return d
+                }
+            }
+        }
+        def first:D2Path (this.path())
+        if ((first.size()) == 0) {
+            if (first.isEdgeRef == false) {
+                return d
+            }
+        }
+        push d.paths first
+        while true {
+            this.inline()
+            def a:string (this.arrow())
+            if ((strlen a) == 0) {
+                break
+            }
+            this.inline()
+            def nxt:D2Path (this.path())
+            push d.arrows a
+            push d.paths nxt
+            d.isEdge = true
+        }
+        this.inline()
+        def c:int (this.peek())
+        if (c == 58) {
+            this.bump()
+            push d.values (this.value())
+            return d
+        }
+        if (c == 123) {
+            ; `a { … }` — the colon D2 lets you leave out.
+            def v (new D2Value)
+            v.kind = "map"
+            v.hasMap = true
+            v.body = (this.braceBody())
+            push d.values v
+            return d
+        }
+        return d
+    }
+
+    fn restOfLine:string () {
+        def out:string ""
+        while true {
+            def c:int (this.peek())
+            if (c < 0) {
+                break
+            }
+            if (c == 10) {
+                break
+            }
+            if (c == 59) {
+                break
+            }
+            if (c == 125) {
+                break
+            }
+            out = (out + (strfromcode c))
+            this.bump()
+        }
+        return (trim out)
+    }
+
+    ; ------------------------------------------------------------- arrows ---
+    fn arrow:string () {
+        def c:int (this.peek())
+        if (c == 45) {
+            def n:int (this.peekAt(1))
+            if (n == 62) {
+                this.bump()
+                this.bump()
+                return "->"
+            }
+            if (n == 45) {
+                this.bump()
+                this.bump()
+                return "--"
+            }
+            return ""
+        }
+        if (c == 60) {
+            if ((this.peekAt(1)) == 45) {
+                if ((this.peekAt(2)) == 62) {
+                    this.bump()
+                    this.bump()
+                    this.bump()
+                    return "<->"
+                }
+                this.bump()
+                this.bump()
+                return "<-"
+            }
+            return ""
+        }
+        return ""
+    }
+
+    ; -------------------------------------------------------------- paths ---
+    fn path:D2Path () {
+        def p (new D2Path)
+        this.inline()
+        if ((this.peek()) == 40) {
+            this.edgeRef(p)
+            if (p.isEdgeRef) {
+                ; `(a -> b)[0].style.stroke` — the rest is an ordinary path.
+                if ((this.peek()) == 46) {
+                    this.bump()
+                    this.pathParts(p)
+                }
+                return p
+            }
+        }
+        this.pathParts(p)
+        return p
+    }
+
+    fn pathParts:void (p:D2Path) {
+        while true {
+            def part:D2Part (this.part())
+            if ((strlen part.name) == 0) {
+                if (part.pattern == false) {
+                    if (part.filter == 0) {
+                        return
+                    }
+                }
+            }
+            push p.parts part
+            if ((this.peek()) == 46) {
+                this.bump()
+                continue
+            }
+            return
+        }
+    }
+
+    ; `(a -> b)[0]`, and nothing else that starts with a parenthesis.
+    fn edgeRef:void (p:D2Path) {
+        def save:int at
+        def saveLine:int line
+        this.bump()
+        def wasGroup:boolean inGroup
+        inGroup = true
+        def left (new D2Path)
+        this.pathParts(left)
+        this.inline()
+        def a:string (this.arrow())
+        if ((strlen a) == 0) {
+            inGroup = wasGroup
+            at = save
+            line = saveLine
+            return
+        }
+        this.inline()
+        def right (new D2Path)
+        this.pathParts(right)
+        this.inline()
+        inGroup = wasGroup
+        if ((this.peek()) != 41) {
+            at = save
+            line = saveLine
+            return
+        }
+        this.bump()
+        ; `[0]` is the first connection between that pair and `[*]` is all of
+        ; them — and so is no index at all. Everything up to the `]` is read
+        ; either way, so a `*` does not leave the scanner inside the brackets.
+        def idx:int -1
+        if ((this.peek()) == 91) {
+            this.bump()
+            def num:string ""
+            def digits:boolean true
+            while true {
+                def c:int (this.peek())
+                if (c < 0) {
+                    break
+                }
+                if (c == 93) {
+                    this.bump()
+                    break
+                }
+                if (c < 48) {
+                    digits = false
+                } {
+                    if (c > 57) {
+                        digits = false
+                    }
+                }
+                num = (num + (strfromcode c))
+                this.bump()
+            }
+            if digits {
+                if ((strlen num) > 0) {
+                    idx = (?? (to_int num) -1)
+                }
+            }
+        }
+        p.isEdgeRef = true
+        p.refLeft = left.parts
+        p.refRight = right.parts
+        p.refArrow = a
+        p.refIndex = idx
+    }
+
+    ; One segment of a path.
+    fn part:D2Part () {
+        def prt (new D2Part)
+        this.inline()
+        if ((this.peek()) == 33) {
+            if ((this.peekAt(1)) == 38) {
+                this.bump()
+                this.bump()
+                prt.filter = 2
+            }
+        }
+        if ((this.peek()) == 38) {
+            this.bump()
+            if (prt.filter == 0) {
+                prt.filter = 1
+            }
+        }
+        def c:int (this.peek())
+        if (c == 34) {
+            def inner:string (this.quoted(34))
+            prt.name = inner
+            prt.raw = (D2Parser.idSpelling(inner))
+            prt.quoted = true
+            return prt
+        }
+        if (c == 39) {
+            def inner2:string (this.quoted(39))
+            prt.name = inner2
+            prt.raw = (D2Parser.idSpelling(inner2))
+            prt.quoted = true
+            return prt
+        }
+        def out:string ""
+        while true {
+            def ch:int (this.peek())
+            if (ch < 0) {
+                break
+            }
+            if (ch == 36) {
+                if ((this.peekAt(1)) == 123) {
+                    out = (out + (this.substitution()))
+                    continue
+                }
+            }
+            if (this.keyStops(ch)) {
+                break
+            }
+            if (ch == 92) {
+                this.bump()
+                def esc:int (this.peek())
+                if (esc < 0) {
+                    break
+                }
+                out = (out + (strfromcode esc))
+                this.bump()
+                continue
+            }
+            if (ch == 42) {
+                prt.pattern = true
+                if ((this.peekAt(1)) == 42) {
+                    prt.doubleStar = true
+                    out = (out + "*")
+                    this.bump()
+                }
+            }
+            out = (out + (strfromcode ch))
+            this.bump()
+        }
+        prt.name = (D2Parser.rtrim(out))
+        prt.raw = (D2Parser.idSpelling(prt.name))
+        if (prt.filter == 1) {
+            prt.raw = ("&" + prt.raw)
+        }
+        if (prt.filter == 2) {
+            prt.raw = ("!&" + prt.raw)
+        }
+        return prt
+    }
+
+    ; `${name}` is a substitution, and the `{` in it does not open a map. It is
+    ; carried through as written; `D2Model` is what knows the value.
+    fn substitution:string () {
+        def out:string "${"
+        this.bump()
+        this.bump()
+        while true {
+            def c:int (this.peek())
+            if (c < 0) {
+                push errors "unterminated substitution"
+                return out
+            }
+            this.bump()
+            if (c == 125) {
+                return (out + "}")
+            }
+            out = (out + (strfromcode c))
+        }
+        return out
+    }
+
+    ; D2's own stop set for a key.
+    fn keyStops:boolean (c:int) {
+        if (c == 10)  { return true }
+        if (c == 59)  { return true }
+        if (c == 35)  { return true }
+        if (c == 123) { return true }
+        if (c == 125) { return true }
+        if (c == 91)  { return true }
+        if (c == 93)  { return true }
+        if (c == 58)  { return true }
+        if (c == 46)  { return true }
+        if (c == 60)  { return true }
+        if (c == 62)  { return true }
+        if (c == 38)  { return true }
+        if (c == 41) {
+            if inGroup {
+                return true
+            }
+        }
+        if (c == 45) {
+            def n:int (this.peekAt(1))
+            if (n == 45) { return true }
+            if (n == 62) { return true }
+            if (n == 42) { return true }
+        }
+        return false
+    }
+
+    ; ------------------------------------------------------------- values ---
+    fn value:D2Value () {
+        def v (new D2Value)
+        this.inline()
+        def c:int (this.peek())
+        if (c == 123) {
+            v.kind = "map"
+            v.hasMap = true
+            v.body = (this.braceBody())
+            return v
+        }
+        if (c == 91) {
+            v.kind = "array"
+            this.array(v)
+            return v
+        }
+        if (c == 124) {
+            this.blockString(v)
+            return v
+        }
+        if (c == 64) {
+            v.kind = "import"
+            this.bump()
+            v.text = (this.restOfLine())
+            return v
+        }
+        if (c == 34) {
+            v.kind = "scalar"
+            v.text = (this.quoted(34))
+            this.tailMap(v)
+            return v
+        }
+        if (c == 39) {
+            v.kind = "scalar"
+            v.text = (this.quoted(39))
+            this.tailMap(v)
+            return v
+        }
+        def out:string ""
+        while true {
+            def ch:int (this.peek())
+            if (ch < 0) {
+                break
+            }
+            if (ch == 36) {
+                if ((this.peekAt(1)) == 123) {
+                    out = (out + (this.substitution()))
+                    continue
+                }
+            }
+            if (this.valueStops(ch)) {
+                break
+            }
+            if (ch == 92) {
+                this.bump()
+                def esc:int (this.peek())
+                if (esc < 0) {
+                    break
+                }
+                if (esc == 110) {
+                    out = (out + "\n")
+                    this.bump()
+                    continue
+                }
+                out = (out + (strfromcode esc))
+                this.bump()
+                continue
+            }
+            out = (out + (strfromcode ch))
+            this.bump()
+        }
+        def t:string (D2Parser.rtrim(out))
+        v.text = t
+        v.kind = (D2Parser.scalarKind(t))
+        this.tailMap(v)
+        return v
+    }
+
+    ; A label and a map on the same key: `both: My Label { shape: cylinder }`.
+    fn tailMap:void (v:D2Value) {
+        this.inline()
+        if ((this.peek()) == 123) {
+            v.hasMap = true
+            v.body = (this.braceBody())
+        }
+    }
+
+    fn valueStops:boolean (c:int) {
+        if (c == 10)  { return true }
+        if (c == 59)  { return true }
+        if (c == 35)  { return true }
+        if (c == 123) { return true }
+        if (c == 125) { return true }
+        if (c == 91)  { return true }
+        if (c == 93)  { return true }
+        return false
+    }
+
+    sfn scalarKind:string (t:string) {
+        if ((strlen t) == 0)  { return "" }
+        if (t == "true")      { return "boolean" }
+        if (t == "false")     { return "boolean" }
+        if (t == "null")      { return "null" }
+        if (t == "suspend")   { return "suspend" }
+        if (t == "unsuspend") { return "unsuspend" }
+        if (D2Parser.looksNumeric(t)) {
+            return "number"
+        }
+        return "scalar"
+    }
+
+    sfn looksNumeric:boolean (t:string) {
+        def i:int 0
+        def digits:int 0
+        def dots:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if (c == 45) {
+                if (i > 0) {
+                    return false
+                }
+            } {
+                if (c == 46) {
+                    dots = (dots + 1)
+                    if (dots > 1) {
+                        return false
+                    }
+                } {
+                    if (c < 48) {
+                        return false
+                    }
+                    if (c > 57) {
+                        return false
+                    }
+                    digits = (digits + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return (digits > 0)
+    }
+
+    ; `[a; b; c]` — D2's arrays, which `classes`, `constraint` and the
+    ; multi-value keywords use.
+    fn array:void (v:D2Value) {
+        this.bump()
+        while true {
+            this.gaps()
+            def c:int (this.peek())
+            if (c < 0) {
+                push errors "unterminated array"
+                return
+            }
+            if (c == 93) {
+                this.bump()
+                return
+            }
+            if (c == 44) {
+                this.bump()
+                continue
+            }
+            def before:int at
+            def item:D2Value (this.arrayItem())
+            if ((strlen item.kind) > 0) {
+                push v.items item
+            }
+            if (at == before) {
+                this.bump()
+            }
+        }
+    }
+
+    fn arrayItem:D2Value () {
+        def v (new D2Value)
+        this.inline()
+        def c:int (this.peek())
+        if (c == 123) {
+            v.kind = "map"
+            v.hasMap = true
+            v.body = (this.braceBody())
+            return v
+        }
+        if (c == 34) {
+            v.kind = "scalar"
+            v.text = (this.quoted(34))
+            return v
+        }
+        if (c == 39) {
+            v.kind = "scalar"
+            v.text = (this.quoted(39))
+            return v
+        }
+        def out:string ""
+        while true {
+            def ch:int (this.peek())
+            if (ch < 0) {
+                break
+            }
+            if (this.valueStops(ch)) {
+                break
+            }
+            if (ch == 44) {
+                break
+            }
+            out = (out + (strfromcode ch))
+            this.bump()
+        }
+        def t:string (D2Parser.rtrim(out))
+        v.text = t
+        v.kind = (D2Parser.scalarKind(t))
+        if ((strlen t) == 0) {
+            v.kind = ""
+        }
+        return v
+    }
+
+    ; `|md … |`, `|go … |`, and the `|`…`|` forms that let the text contain a
+    ; pipe. The tag defaults to `md`, as D2's parser does.
+    fn blockString:void (v:D2Value) {
+        this.bump()
+        def quote:string ""
+        while true {
+            def c:int (this.peek())
+            if (c < 0) {
+                push errors "unterminated block string"
+                v.kind = "block"
+                return
+            }
+            if (D2Parser.isSpace(c)) {
+                break
+            }
+            if (D2Parser.isWordCode(c)) {
+                break
+            }
+            quote = (quote + (strfromcode c))
+            this.bump()
+        }
+        def tag:string ""
+        while true {
+            def c:int (this.peek())
+            if (c < 0) {
+                break
+            }
+            if (D2Parser.isSpace(c)) {
+                break
+            }
+            tag = (tag + (strfromcode c))
+            this.bump()
+        }
+        if ((strlen tag) == 0) {
+            tag = "md"
+        }
+        ; The rest of the opening line is whitespace by construction.
+        while true {
+            def c:int (this.peek())
+            if (c < 0) {
+                break
+            }
+            if (D2Parser.isSpace(c) == false) {
+                break
+            }
+            this.bump()
+            if (c == 10) {
+                break
+            }
+        }
+        def closer:string (D2Parser.closerFor(quote))
+        def body:string ""
+        while true {
+            def c:int (this.peek())
+            if (c < 0) {
+                push errors ("unterminated block string, wanted " + closer)
+                break
+            }
+            if (this.matchesHere(closer)) {
+                def k:int 0
+                while (k < (strlen closer)) {
+                    this.bump()
+                    k = (k + 1)
+                }
+                break
+            }
+            body = (body + (strfromcode c))
+            this.bump()
+        }
+        v.kind = "block"
+        v.tag = tag
+        v.text = (D2Parser.dedent(body))
+    }
+
+    sfn closerFor:string (quote:string) {
+        if ((strlen quote) == 0) {
+            return "|"
+        }
+        return (quote + "|")
+    }
+
+    fn matchesHere:boolean (needle:string) {
+        def n:int (strlen needle)
+        def i:int 0
+        while (i < n) {
+            if ((this.peekAt(i)) != (charAt needle i)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; A quoted string, `q` being the quote character. Escapes are honoured in
+    ; the double-quoted form only, which is how D2 reads them.
+    fn quoted:string (q:int) {
+        this.bump()
+        def out:string ""
+        while true {
+            def c:int (this.peek())
+            if (c < 0) {
+                push errors "unterminated string"
+                return out
+            }
+            if (c == q) {
+                this.bump()
+                return out
+            }
+            if (q == 34) {
+                if (c == 92) {
+                    this.bump()
+                    def esc:int (this.peek())
+                    if (esc < 0) {
+                        return out
+                    }
+                    if (esc == 110) {
+                        out = (out + "\n")
+                        this.bump()
+                        continue
+                    }
+                    if (esc == 116) {
+                        out = (out + " ")
+                        this.bump()
+                        continue
+                    }
+                    out = (out + (strfromcode esc))
+                    this.bump()
+                    continue
+                }
+            }
+            out = (out + (strfromcode c))
+            this.bump()
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------- ids -----
+    ; How D2 spells one segment of an id.
+    ;
+    ; Not how the file spelled it: `'single quoted'` comes back bare and
+    ; `escaped\.key` comes back as `"escaped.key"`, because what decides the
+    ; quotes is whether the NAME would end a key if it were written plain.
+    ; Measured against D2 v0.7.1, which answers exactly that for all eight
+    ; spellings in `fixtures/d2/23_quoting.d2`.
+    sfn idSpelling:string (name:string) {
+        if (D2Parser.needsQuotes(name)) {
+            return ((strfromcode 34) + name + (strfromcode 34))
+        }
+        return name
+    }
+
+    sfn needsQuotes:boolean (name:string) {
+        def i:int 0
+        while (i < (strlen name)) {
+            def c:int (charAt name i)
+            if (c == 46)  { return true }
+            if (c == 58)  { return true }
+            if (c == 59)  { return true }
+            if (c == 35)  { return true }
+            if (c == 123) { return true }
+            if (c == 125) { return true }
+            if (c == 91)  { return true }
+            if (c == 93)  { return true }
+            if (c == 60)  { return true }
+            if (c == 62)  { return true }
+            if (c == 38)  { return true }
+            if (c == 34)  { return true }
+            if (c == 45) {
+                if ((i + 1) < (strlen name)) {
+                    def n:int (charAt name (i + 1))
+                    if (n == 45) { return true }
+                    if (n == 62) { return true }
+                    if (n == 42) { return true }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; ------------------------------------------------------------- string ---
+    sfn rtrim:string (t:string) {
+        def n:int (strlen t)
+        while (n > 0) {
+            def c:int (charAt t (n - 1))
+            if (D2Parser.isSpace(c) == false) {
+                break
+            }
+            n = (n - 1)
+        }
+        return (substring t 0 n)
+    }
+
+    ; A block string carries the indentation of the file it was written in.
+    ; D2 removes the common part; a reader that did not would draw a code block
+    ; pushed half way across the box.
+    sfn dedent:string (text:string) {
+        def lines:[string] (strsplit text "\n")
+        def n:int (array_length lines)
+        def common:int -1
+        def i:int 0
+        while (i < n) {
+            def l:string (itemAt lines i)
+            if ((strlen (trim l)) > 0) {
+                def w:int (D2Parser.indentOf(l))
+                if (common < 0) {
+                    common = w
+                } {
+                    if (w < common) {
+                        common = w
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (common <= 0) {
+            return (D2Parser.rtrim(text))
+        }
+        def out:string ""
+        def j:int 0
+        while (j < n) {
+            def l2:string (itemAt lines j)
+            if (j > 0) {
+                out = (out + "\n")
+            }
+            if ((strlen l2) > common) {
+                out = (out + (substring l2 common (strlen l2)))
+            } {
+                out = (out + (trim l2))
+            }
+            j = (j + 1)
+        }
+        return (D2Parser.rtrim(out))
+    }
+
+    sfn indentOf:int (l:string) {
+        def i:int 0
+        while (i < (strlen l)) {
+            def c:int (charAt l i)
+            if (D2Parser.isInline(c) == false) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return i
+    }
+}

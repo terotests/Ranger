@@ -46,12 +46,91 @@
       .pane:last-child { border-right: 0; border-left: 1px solid var(--line); }
       .stage { min-width: 0; min-height: 0; background: #0d1014; display: grid; place-items: stretch; }
       canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+      /* The layers tree: one root at a time, rows that fold, and crumbs
+         back out. A row is a fold, a name and a way into it — nothing else
+         earns the width. */
       .tree { font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; }
-      .tree button { display: block; width: 100%; text-align: left; background: transparent;
-        border: 0; padding: 3px 6px; border-radius: 4px; color: var(--ink); }
-      .tree button:hover, .tree button.on { background: #243044; }
+      .tree .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 3px;
+        padding: 2px 4px 8px; color: var(--muted); font-size: 11px; }
+      .tree .crumbs button { background: transparent; border: 0; padding: 1px 3px;
+        border-radius: 4px; color: var(--muted); font: inherit; }
+      .tree .crumbs button:hover { color: var(--ink); background: #243044; }
+      .tree .crumbs button.here { color: var(--ink); }
+      .tree .row { display: flex; align-items: center; gap: 2px; border-radius: 4px; }
+      .tree .row:hover { background: #1e2836; }
+      .tree .row.on { background: #243044; }
+      .tree .fold { flex: 0 0 auto; width: 14px; padding: 0; background: transparent;
+        border: 0; color: var(--muted); font-size: 9px; line-height: 1; }
+      .tree .fold:hover:enabled { color: var(--ink); }
+      .tree .fold:disabled { opacity: 0; }
+      .tree .pick { flex: 1 1 auto; min-width: 0; display: flex; gap: 6px; align-items: baseline;
+        text-align: left; background: transparent; border: 0; padding: 3px 2px; color: var(--ink); }
+      .tree .pick .ty { flex: 0 0 auto; color: var(--muted); font-size: 10px;
+        letter-spacing: 0.02em; }
+      .tree .pick .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .tree .into { flex: 0 0 auto; background: transparent; border: 0; color: var(--muted);
+        padding: 0 4px; opacity: 0; }
+      .tree .row:hover .into { opacity: 1; }
+      .tree .into:hover { color: var(--ink); }
+      .tree .more { color: var(--muted); font-size: 11px; margin: 8px 6px 0; }
       .props { font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap;
         color: #c9d4e4; margin: 0; }
+
+      /* The inspector. Figma's panel is a grid of boxes; this is a column
+         of quiet rows that only draw a box where you can type. A value you
+         cannot change is text, not a disabled field. */
+      .insp { display: flex; flex-direction: column; gap: 2px; }
+      .insp[hidden] { display: none; }
+      .insp .head { display: flex; align-items: center; gap: 8px; padding: 2px 4px 10px; }
+      .insp .head .nm { font-weight: 600; font-size: 0.95rem; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap; }
+      .insp .chip { font: 11px/1 ui-monospace, Menlo, Consolas, monospace; color: var(--muted);
+        border: 1px solid var(--line); border-radius: 999px; padding: 3px 7px; white-space: nowrap; }
+      .insp .eye { margin-left: auto; background: transparent; border: 0; color: var(--muted);
+        padding: 2px 6px; border-radius: 6px; font-size: 0.95rem; }
+      .insp .eye:hover { color: var(--ink); background: #243044; }
+      .insp .eye.off { color: #6b7585; }
+      .insp section { border-top: 1px solid var(--line); padding: 9px 4px; }
+      .insp h3 { margin: 0 0 7px; font: 500 0.68rem/1 "IBM Plex Sans", sans-serif;
+        letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+      .insp .fields { display: flex; flex-wrap: wrap; gap: 6px; }
+      .insp .f { display: flex; align-items: center; gap: 6px; background: #171b23;
+        border: 1px solid transparent; border-radius: 7px; padding: 3px 8px; flex: 1 1 40%;
+        min-width: 96px; }
+      .insp .f.wide { flex: 1 1 100%; }
+      .insp .f:focus-within { border-color: var(--accent); background: #1b2130; }
+      .insp .f label { color: var(--muted); font-size: 0.72rem; cursor: ew-resize;
+        user-select: none; letter-spacing: 0.04em; }
+      .insp .f input { flex: 1; min-width: 0; width: 100%; background: transparent; border: 0;
+        color: var(--ink); font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace;
+        font-variant-numeric: tabular-nums; padding: 0; }
+      .insp .f input:focus { outline: none; }
+      .insp .note { color: var(--muted); font-size: 0.72rem; margin: 6px 2px 0; }
+      .insp .swatch { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line);
+        border-radius: 50%; background: transparent; cursor: pointer; overflow: hidden; }
+      .insp input[type="color"] { -webkit-appearance: none; appearance: none; border: 0;
+        flex: 0 0 auto; width: 18px; height: 18px; padding: 0; background: transparent;
+        cursor: pointer; }
+      .insp input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+      .insp input[type="color"]::-webkit-color-swatch { border: 1px solid var(--line);
+        border-radius: 50%; }
+      .insp input[type="range"] { -webkit-appearance: none; appearance: none; flex: 1;
+        height: 3px; border-radius: 3px; background: #2c3340; }
+      .insp input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none;
+        width: 12px; height: 12px; border-radius: 50%; background: var(--ink); border: 0; }
+      .insp input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%;
+        background: var(--ink); border: 0; }
+      .insp textarea { width: 100%; resize: vertical; min-height: 54px; background: #171b23;
+        border: 1px solid transparent; border-radius: 7px; color: var(--ink); padding: 6px 8px;
+        font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+      .insp textarea:focus { outline: none; border-color: var(--accent); }
+      .insp .facts { display: flex; flex-wrap: wrap; gap: 6px; }
+      .insp .warn { color: #fbbf24; font-size: 0.76rem; margin: 3px 2px 0; }
+      .insp .foot { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line);
+        padding: 9px 4px 2px; }
+      .insp .foot code { color: var(--muted); font-size: 0.72rem; }
+      .insp .foot button { margin-left: auto; padding: 4px 9px; font-size: 0.78rem; }
+      .insp .foot button:disabled { opacity: 0.4; cursor: default; border-color: #3a4250; }
       .k { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em;
         margin: 8px 4px 4px; }
       footer { display: flex; flex-wrap: wrap; gap: 12px 20px; padding: 6px 14px;
@@ -96,6 +175,7 @@
       </section>
       <aside class="pane">
         <div class="k">Selected</div>
+        <div id="inspector" class="insp" hidden></div>
         <pre id="props" class="props">click a layer or the canvas · drag to pan · scroll or +/&minus; to zoom</pre>
       </aside>
     </main>

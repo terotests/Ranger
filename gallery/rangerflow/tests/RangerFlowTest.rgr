@@ -24,6 +24,8 @@ Import "../domains/erd/SqlSchemaReader.rgr"
 Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
+Import "../domains/d2/D2Flow.rgr"
+Import "../domains/d2/D2Imports.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
 Import "../domains/mermaid/MermaidRender.rgr"
 Import "../domains/mermaid/MermaidClassReader.rgr"
@@ -143,6 +145,11 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidPlaced(c)
         RangerFlowTest.testMermaidGantt(c)
         RangerFlowTest.testMermaidSequence(c)
+        RangerFlowTest.testD2Parser(c)
+        RangerFlowTest.testD2Model(c)
+        RangerFlowTest.testD2Details(c)
+        RangerFlowTest.testD2Imports(c)
+        RangerFlowTest.testD2Flow(c)
         RangerFlowTest.testPlantUmlKinds(c)
         RangerFlowTest.testPlantUmlSequence(c)
         RangerFlowTest.testPlantUmlEntities(c)
@@ -2392,6 +2399,67 @@ class RangerFlowTest {
         ed.pointerDown(inp)
         ed.pointerUp(inp)
         c.ok("clicking its middle selects it" d.selected)
+
+        ; The nine D2 brought with it, held to the same two rules as the rest:
+        ; inside its own box, and enclosing its own middle. A `person` is the
+        ; exception that proves the rule — its ring is the body, and the head
+        ; is an ornament drawn above it, so its centre is measured on the body.
+        def d2names:[string]
+        push d2names "page"
+        push d2names "queue"
+        push d2names "package"
+        push d2names "step"
+        push d2names "callout"
+        push d2names "storeddata"
+        push d2names "cloud"
+        def d2leaks:int 0
+        def d2hollow:int 0
+        def n2:int 0
+        while (n2 < (array_length d2names)) {
+            def nm:string (itemAt d2names n2)
+            n2 = (n2 + 1)
+            def pts2:[double] (FlowShapes.outline(nm 10.0 20.0 140.0 80.0))
+            if ((idiv (array_length pts2) 2) < 3) {
+                d2hollow = (d2hollow + 1)
+            }
+            if ((FlowShapes.holds(pts2 80.0 60.0)) == false) {
+                d2hollow = (d2hollow + 1)
+            }
+            def q:int 0
+            while (q < (idiv (array_length pts2) 2)) {
+                def qx:double (itemAt pts2 (q * 2))
+                def qyAt:int ((q * 2) + 1)
+                def qy:double (itemAt pts2 qyAt)
+                if (qx < 9.99)   { d2leaks = (d2leaks + 1) }
+                if (qx > 150.01) { d2leaks = (d2leaks + 1) }
+                if (qy < 19.99)  { d2leaks = (d2leaks + 1) }
+                if (qy > 100.01) { d2leaks = (d2leaks + 1) }
+                q = (q + 1)
+            }
+        }
+        c.eqInt("none of the D2 shapes leaves its box" d2leaks 0)
+        c.eqInt("and every one encloses its centre" d2hollow 0)
+        ; A person is one silhouette: the head is part of the ring, the neck
+        ; is the narrow part, and the shoulders reach the full width.
+        def body:[double] (FlowShapes.outline("person" 10.0 20.0 140.0 80.0))
+        c.ok("a person's head is inside it" (FlowShapes.holds(body 80.0 32.0)))
+        c.ok("so are its shoulders" (FlowShapes.holds(body 80.0 92.0)))
+        c.ok("the corner beside the head is not" ((FlowShapes.holds(body 14.0 26.0)) == false))
+        c.eqInt("and it needs no ornament to be a person" (FlowShapes.ornamentCount("person")) 0)
+        c.eqInt("a C4 figure does, because its head is drawn apart" (FlowShapes.ornamentCount("c4person")) 1)
+        c.ok("a filled one" (FlowShapes.ornamentClosed("c4person" 0)))
+        ; The head is a proportion of the box and not a pixel size: the body
+        ; is measured from it, so the two have to scale together.
+        def small:double (FlowShapes.headRadius(140.0 80.0))
+        def big:double (FlowShapes.headRadius(280.0 160.0))
+        c.near("twice the box is twice the head" big (small * 2.0) 0.001)
+        c.eqInt("a page has its fold" (FlowShapes.ornamentCount("page")) 1)
+        c.eqInt("and a queue its near end" (FlowShapes.ornamentCount("queue")) 1)
+        ; The label has to miss both the head and the tail.
+        def pcy:double (FlowShapes.labelCY("person" 0.0 0.0 140.0 80.0))
+        c.ok("a person's label sits on the body" (pcy > 40.0))
+        def ccy:double (FlowShapes.labelCY("callout" 0.0 0.0 140.0 80.0))
+        c.ok("a callout's sits in the bubble, above the tail" (ccy < 40.0))
     }
 
     ; ------------------------------------------------------------ flowchart --
@@ -7158,6 +7226,314 @@ class RangerFlowTest {
         def gj:string (FlowGraphJson.toJson(g))
         c.ok("graph json round trip has the node" ((indexOf gj "\"customers\"") > 0))
         c.ok("graph json has the edge" ((indexOf gj "\"edges\"") > 0))
+    }
+
+
+    ; ------------------------------------------------------------------ D2 --
+    ; The parser first, because everything else is downstream of it. What is
+    ; asserted here is structure — `D2Model` is where any of it means anything.
+    sfn testD2Parser:void (c:Checker) {
+        c.section("d2 parser")
+        def src:string "# a comment\n"
+        src = (src + "network: Network {\n")
+        src = (src + "  tower: cell tower { transmitter }\n")
+        src = (src + "  \"quoted.key\": held\n")
+        src = (src + "}\n")
+        src = (src + "a -> b -> c: chained\n")
+        src = (src + "x; y\n")
+        def f:D2File (D2Parser.parse(src))
+        c.eqInt("the comment is not a statement" (f.declCount()) 4)
+        c.eqInt("and nothing failed to parse" (f.errorCount()) 0)
+        def first:D2Decl (f.declAt(0))
+        c.eqStr("a container is one declaration" (first.key()) "network")
+        def v:D2Value (first.value())
+        c.eqStr("with a label of its own" v.text "Network")
+        c.ok("and a map under it" v.hasMap)
+        c.eqInt("holding two statements" (array_length v.body) 2)
+        def inner:D2Decl (itemAt v.body 1)
+        c.eqStr("a quoted key keeps its quotes in the id" (inner.key()) "\"quoted.key\"")
+        def qp:D2Path (inner.path())
+        def qpart:D2Part (qp.partAt(0))
+        c.eqStr("and loses them in the name" qpart.name "quoted.key")
+        def chain:D2Decl (f.declAt(1))
+        c.ok("a chain is one declaration" chain.isEdge)
+        c.eqInt("with three ends" (array_length chain.paths) 3)
+        c.eqInt("and two arrows" (array_length chain.arrows) 2)
+        c.eqStr("both pointing forward" (itemAt chain.arrows 0) "->")
+        ; `;` is a newline, and a `-` that is not an arrow is part of a name.
+        c.eqStr("a semicolon separates" ((f.declAt(2)).key()) "x")
+        c.eqStr("as a newline would" ((f.declAt(3)).key()) "y")
+        def dash:D2File (D2Parser.parse("grid-rows: 2\ncf-one -> cf-many\n"))
+        c.eqStr("a hyphen is a name character" ((dash.declAt(0)).key()) "grid-rows")
+        def dashEdge:D2Decl (dash.declAt(1))
+        c.ok("until it is an arrow" dashEdge.isEdge)
+        c.eqStr("and then the name ends before it" ((itemAt dashEdge.paths 0).text()) "cf-one")
+        ; Block strings: the tag, and the indentation the file was written in.
+        def blk:D2File (D2Parser.parse("doc: |md\n  # Title\n  body\n|\n"))
+        def bv:D2Value ((blk.declAt(0)).value())
+        c.eqStr("a block string carries its tag" bv.tag "md")
+        c.eqStr("and loses the file's indentation" bv.text "# Title\nbody")
+        ; A connection reference names a connection rather than making one.
+        def ref:D2File (D2Parser.parse("(a -> b)[1].style.stroke: red\n"))
+        def rp:D2Path ((ref.declAt(0)).path())
+        c.ok("a connection reference is not a key path" rp.isEdgeRef)
+        c.eqInt("it knows which connection" rp.refIndex 1)
+        c.eqStr("and what to say about it" (rp.text()) "(a -> b)[1].style.stroke")
+        ; A file that does not close what it opened says so.
+        def bad:D2File (D2Parser.parse("a: {\n  b\n"))
+        c.ok("an unterminated map is an error" ((bad.errorCount()) > 0))
+    }
+
+    ; What the text means: ids, labels, shapes, connections, and the four
+    ; things D2 has that no other format read here does — globs, classes,
+    ; boards and suspensions.
+    sfn testD2Model:void (c:Checker) {
+        c.section("d2 model")
+        def src:string "network: Network {\n"
+        src = (src + "  tower: cell tower {\n")
+        src = (src + "    satellites: { shape: stored_data; style.multiple: true }\n")
+        src = (src + "    transmitter\n")
+        src = (src + "    satellites -> transmitter: send\n")
+        src = (src + "  }\n")
+        src = (src + "}\n")
+        src = (src + "user: User { shape: person }\n")
+        src = (src + "user -> network.tower: make call\n")
+        def b:D2Board (D2Model.read(src))
+        c.eqInt("every object is created by being mentioned" (array_length (b.live())) 5)
+        def sat:D2Object (b.object("network.tower.satellites"))
+        c.eqStr("nesting is the id" sat.id "network.tower.satellites")
+        c.eqStr("the last segment is the label" sat.label "satellites")
+        c.eqInt("and the depth is the level" sat.level 3)
+        c.eqStr("a shape keyword is a shape" sat.shape "stored_data")
+        c.eqStr("a style keyword is kept as written" (sat.style("multiple")) "true")
+        def tower:D2Object (b.object("network.tower"))
+        c.eqStr("a label with a space needs no quotes" tower.label "cell tower")
+        c.eqInt("connections are resolved in the scope they were written in" (array_length (b.liveConns())) 2)
+        def inner:D2Conn (itemAt (b.liveConns()) 0)
+        c.eqStr("so a bare name inside a container is that container's child" inner.src "network.tower.satellites")
+        c.eqStr("and the other end too" inner.dst "network.tower.transmitter")
+        ; An arrowhead is only drawn where the arrow draws one — measured
+        ; against d2 v0.7.1, which answers `none` for the other two.
+        def arrows:D2Board (D2Model.read("a -> b: { source-arrowhead.shape: diamond }\nc -- d: { target-arrowhead.shape: box }\ne <- f\n"))
+        def a1:D2Conn (itemAt (arrows.liveConns()) 0)
+        c.eqStr("a forward arrow draws no source head" (a1.srcHead()) "none")
+        c.eqStr("and a triangle at the target" (a1.dstHead()) "triangle")
+        def a2:D2Conn (itemAt (arrows.liveConns()) 1)
+        c.eqStr("an undirected connection draws neither" (a2.dstHead()) "none")
+        def a3:D2Conn (itemAt (arrows.liveConns()) 2)
+        c.eqStr("a backwards arrow draws at the source" (a3.srcHead()) "triangle")
+        c.eqStr("and not at the target" (a3.dstHead()) "none")
+        ; vars, classes and globs.
+        def styled:string "vars: { accent: \"#4a6\" }\n"
+        styled = (styled + "classes: { svc: { shape: hexagon; style.fill: ${accent} } }\n")
+        styled = (styled + "api: Payments API { class: svc }\n")
+        styled = (styled + "db: { shape: cylinder }\n")
+        styled = (styled + "*.style.stroke-width: 2\n")
+        styled = (styled + "*: { &shape: cylinder; style.fill: \"#eee\" }\n")
+        def sb:D2Board (D2Model.read(styled))
+        def api:D2Object (sb.object("api"))
+        c.eqStr("a class hands over its shape" api.shape "hexagon")
+        c.eqStr("a substitution is resolved" (api.style("fill")) "#4a6")
+        c.eqStr("and the object's own label survives it" api.label "Payments API")
+        c.eqStr("a glob touches everything it selects" (api.style("stroke-width")) "2")
+        def db:D2Object (sb.object("db"))
+        c.eqStr("a filter narrows a glob to what matches" (db.style("fill")) "#eee")
+        c.eqStr("and leaves the rest alone" (api.style("fill")) "#4a6")
+        ; `suspend` takes an object off the board, with its connections.
+        def sus:D2Board (D2Model.read("a\nb\nc\na -> b\na -> c\nb: suspend\n"))
+        c.eqInt("a suspended object is not on the board" (array_length (sus.live())) 2)
+        c.eqInt("nor is the connection that touched it" (array_length (sus.liveConns())) 1)
+        ; A table's columns and a class's members are rows, not objects.
+        def tbl:string "users: { shape: sql_table; id: int { constraint: primary_key }; email: varchar }\n"
+        tbl = (tbl + "orgs: { shape: sql_table; id: int }\n")
+        tbl = (tbl + "users.id -> orgs.id: belongs to\n")
+        def tb:D2Board (D2Model.read(tbl))
+        c.eqInt("a table is one object" (array_length (tb.live())) 2)
+        def users:D2Object (tb.object("users"))
+        c.eqInt("with its columns on it" (users.fieldCount()) 2)
+        def col:D2Field (users.fieldAt(0))
+        c.eqStr("the column's type is its value" col.type "int")
+        c.eqInt("and its constraint is kept" (array_length col.constraints) 1)
+        def rowEdge:D2Conn (itemAt (tb.liveConns()) 0)
+        c.eqStr("a connection between rows is drawn between the tables" rowEdge.src "users")
+        c.eqStr("and remembers the row it left" rowEdge.srcField "id")
+        def cls:D2Board (D2Model.read("C: { shape: class; +field: int; -hide(): void }\n"))
+        def cobj:D2Object (cls.object("C"))
+        def m0:D2Field (cobj.fieldAt(0))
+        c.eqStr("a `+` is a public member" m0.visibility "public")
+        c.eqStr("with the marker off the name" m0.name "field")
+        def m1:D2Field (cobj.fieldAt(1))
+        c.eqStr("a `-` is a private one" m1.visibility "private")
+        c.ok("and parentheses make it a method" m1.isMethod)
+        ; Inside a sequence diagram a group is not a namespace.
+        def seq:string "sd: { shape: sequence_diagram\n"
+        seq = (seq + "  a -> b: hi\n")
+        seq = (seq + "  loop: { a -> b: again }\n")
+        seq = (seq + "}\n")
+        def sq:D2Board (D2Model.read(seq))
+        def msg:D2Conn (itemAt (sq.liveConns()) 1)
+        c.eqStr("a message inside a group is still between the participants" msg.src "sd.a")
+        c.eqStr("both of them" msg.dst "sd.b")
+        ; Boards: a layer starts empty, a scenario inherits, steps accumulate.
+        def boards:string "a -> b\n"
+        boards = (boards + "layers: { deep: { c } }\n")
+        boards = (boards + "scenarios: { fail: { b.style.fill: red } }\n")
+        boards = (boards + "steps: { one: { d }; two: { e } }\n")
+        def bb:D2Board (D2Model.read(boards))
+        c.eqInt("every board is read" (bb.boardCount()) 4)
+        def layer:D2Board (bb.boardAt(0))
+        c.eqStr("a layer is a layer" layer.kind "layer")
+        c.eqInt("and starts empty" (array_length (layer.live())) 1)
+        def scenario:D2Board (bb.boardAt(1))
+        c.eqInt("a scenario inherits the board it was declared in" (array_length (scenario.live())) 2)
+        def painted:D2Object (scenario.object("b"))
+        c.eqStr("and edits it" (painted.style("fill")) "red")
+        def step2:D2Board (bb.boardAt(3))
+        c.eqInt("steps accumulate" (array_length (step2.live())) 4)
+    }
+
+    ; The four things the corpus grew to catch, each one a disagreement with
+    ; D2 before it was a test.
+    sfn testD2Details:void (c:Checker) {
+        c.section("d2 details")
+        ; `null` takes an object off the board for good — and a later mention
+        ; makes a NEW one rather than bringing the old one back.
+        def nulled:D2Board (D2Model.read("gone: { shape: hexagon }\nkeep\ngone -> keep\ngone: null\n"))
+        c.eqInt("a nulled object is gone" (array_length (nulled.live())) 1)
+        c.eqInt("and so is the connection that touched it" (array_length (nulled.liveConns())) 0)
+        ; …but only up to the next time the file mentions it. D2 was asked:
+        ; `gone: null` then `gone -> keep` leaves a plain rectangle and a
+        ; connection, because the mention makes a new object.
+        def again:D2Board (D2Model.read("gone: { shape: hexagon }\ngone: null\nkeep\ngone -> keep\n"))
+        c.eqInt("a mention after it makes a new one" (array_length (again.live())) 2)
+        c.eqInt("with its connection" (array_length (again.liveConns())) 1)
+        def reborn:D2Object (again.object("gone"))
+        c.eqStr("and none of what the old one had" reborn.shape "")
+        def back:D2Board (D2Model.read("b: { shape: circle }\nb: null\nb\n"))
+        def fresh:D2Object (back.object("b"))
+        c.eqStr("a mention after null makes a new object" fresh.shape "")
+        ; A connection glob styles connections that already exist.
+        def globbed:D2Board (D2Model.read("a -> b: one\na -> b: two\nc -> d\n(* -> *)[*].style.stroke-width: 3\n(a -> b)[1].style.stroke-dash: 4\n"))
+        def all:[D2Conn] (globbed.liveConns())
+        c.eqInt("every connection was made" (array_length all) 3)
+        def first:D2Conn (itemAt all 0)
+        def second:D2Conn (itemAt all 1)
+        def third:D2Conn (itemAt all 2)
+        c.eqStr("a glob over connections reaches all of them" (third.style("stroke-width")) "3")
+        c.eqStr("an index picks one of a pair" (second.style("stroke-dash")) "4")
+        c.eqStr("and leaves the other alone" (first.style("stroke-dash")) "")
+        c.eqInt("and a glob creates nothing" (array_length (globbed.live())) 4)
+        ; `class` on a connection is the same keyword doing a different job.
+        def classed:D2Board (D2Model.read("classes: { thick: { style.stroke-width: 4 } }\na -> b: { class: thick }\n"))
+        def styled:D2Conn (itemAt (classed.liveConns()) 0)
+        c.eqStr("a class hands a connection its stroke" (styled.style("stroke-width")) "4")
+        ; An id is spelled the way D2 spells it, which is not how the file did.
+        def quoting:string "\"dotted.key\": one\n"
+        quoting = (quoting + "'single quoted': two\n")
+        quoting = (quoting + "escaped\\.key: three\n")
+        def ids:D2Board (D2Model.read(quoting))
+        c.ok("a dot inside a key keeps its quotes in the id" (ids.has("\"dotted.key\"")))
+        c.ok("a single-quoted key loses them" (ids.has("single quoted")))
+        c.ok("and an escaped dot gains them" (ids.has("\"escaped.key\"")))
+        def dotted:D2Object (ids.object("\"dotted.key\""))
+        c.eqInt("a quoted dot is not a level" dotted.level 1)
+        c.eqStr("nor a parent" dotted.parent "")
+    }
+
+    ; Imports read files, which is a security boundary before it is a feature.
+    sfn testD2Imports:void (c:Checker) {
+        c.section("d2 imports")
+        def dir:string "gallery/rangerflow/fixtures/d2"
+        def src:string (?? (read_file "." "gallery/rangerflow/fixtures/d2/18_import.d2") "")
+        c.ok("the fixture is there" ((strlen src) > 0))
+        def b:D2Board (D2Imports.readFrom(src dir))
+        def store:D2Object (b.object("store"))
+        c.eqStr("an imported key brings its shape" store.shape "cylinder")
+        c.eqStr("and its label" store.label "shared store")
+        def app:D2Object (b.object("app"))
+        c.eqStr("a spread merges the imported map" app.shape "cylinder")
+        c.eqStr("and what follows it wins" app.label "app store")
+        ; What a reader must refuse: a diagram is somebody else's text.
+        def out:D2Board (D2Imports.readFrom("a: @../../etc/passwd\n" dir))
+        c.eqInt("nothing was read" (array_length out.imports) 1)
+        c.ok("and the refusal is said out loud" ((array_length out.errors) > 0))
+        def absolute:D2Board (D2Imports.readFrom("a: @/etc/passwd\n" dir))
+        c.ok("an absolute path is refused too" ((array_length absolute.errors) > 0))
+        def url:D2Board (D2Imports.readFrom("a: @https://example.com/x\n" dir))
+        c.ok("and so is a URL" ((array_length url.errors) > 0))
+        def missing:D2Board (D2Imports.readFrom("a: @not_a_file\n" dir))
+        c.ok("a file that is not there is an error, not a silence" ((array_length missing.errors) > 0))
+    }
+
+
+    ; The model, drawn: nodes with shapes, containers as frames, connections
+    ; with the arrowheads D2 says they have.
+    sfn testD2Flow:void (c:Checker) {
+        c.section("d2 flow")
+        def src:string "direction: right\n"
+        src = (src + "client: Client { shape: person }\n")
+        src = (src + "core: Core {\n")
+        src = (src + "  api: API\n")
+        src = (src + "  db: { shape: cylinder }\n")
+        src = (src + "  api -> db: write\n")
+        src = (src + "}\n")
+        src = (src + "client -> core.api: GET\n")
+        def b:D2Board (D2Model.read(src))
+        def g:FlowGraph (D2Flow.laid(b))
+        c.ok("the leaves are nodes" (g.hasNode("core.api")))
+        c.ok("and the container is a frame round them" (g.hasNode("core")))
+        def frame:FlowNode (g.nodeById("core"))
+        c.eqStr("a frame is a group" frame.nodeType "group")
+        c.eqStr("with the container's label on it" frame.label "Core")
+        def api:FlowNode (g.nodeById("core.api"))
+        c.eqStr("a child knows what it is inside" api.parentId "core")
+        c.ok("and the frame is drawn around it" (frame.x < api.x))
+        c.ok("on both axes" (frame.y < api.y))
+        c.ok("with room to the right" (((frame.x + frame.width)) > ((api.x + api.width))))
+        def db:FlowNode (g.nodeById("core.db"))
+        c.eqStr("a shape keyword picks the outline" db.shape "cylinder")
+        def client:FlowNode (g.nodeById("client"))
+        c.eqStr("a person is drawn as a person" client.shape "person")
+        ; The nine D2 shapes the library learned map straight through; the
+        ; three that are still stand-ins say so rather than pretending.
+        c.eqStr("a cloud is a cloud" (D2Shapes.outlineFor("cloud")) "cloud")
+        c.eqStr("a queue is a queue" (D2Shapes.outlineFor("queue")) "queue")
+        c.eqStr("and stored data keeps its name too" (D2Shapes.outlineFor("stored_data")) "storeddata")
+        c.ok("an image is still a stand-in" (D2Shapes.isStandIn("image")))
+        c.ok("and a cloud is not" ((D2Shapes.isStandIn("cloud")) == false))
+        c.eqInt("both connections are drawn" (g.edgeCount()) 2)
+        ; The arrow that named the container is drawn to the frame's child,
+        ; because that is what it named: `core.api`.
+        def crossing:FlowEdge (g.edgeAt(1))
+        c.eqStr("an arrow into a container lands where it was aimed" crossing.target "core.api")
+        c.eqStr("and carries its label" crossing.label "GET")
+        c.eqStr("with the arrowhead D2 draws" crossing.markerEnd "arrowclosed")
+        ; `->` draws no source head, whatever a keyword says.
+        c.eqStr("and nothing at the source" crossing.markerStart "")
+        ; Crow's feet are cardinalities here: FlowView draws the ornament.
+        def erd:FlowGraph (D2Flow.render("a -> b: { source-arrowhead.shape: cf-one; target-arrowhead.shape: cf-many }\n"))
+        def link:FlowEdge (erd.edgeAt(0))
+        c.eqStr("a crow's foot is a cardinality" link.targetCardinality "0..*")
+        c.ok("and an optional one at that" link.optionalTarget)
+        ; A table is one node with rows and a port per row.
+        def tbl:string "users: { shape: sql_table; id: int { constraint: primary_key }; email: varchar }\n"
+        tbl = (tbl + "orgs: { shape: sql_table; id: int }\n")
+        tbl = (tbl + "users.id -> orgs.id\n")
+        def tg:FlowGraph (D2Flow.render(tbl))
+        c.eqInt("a table is one node" (tg.nodeCount()) 2)
+        def users:FlowNode (tg.nodeById("users"))
+        c.eqInt("with a compartment" (array_length users.sections) 1)
+        def sec:FlowSection (itemAt users.sections 0)
+        c.eqInt("holding a row per column" (array_length sec.rows) 2)
+        def row:FlowRow (itemAt sec.rows 0)
+        c.eqStr("a primary key is badged" row.badge "pk")
+        def rowEdge:FlowEdge (tg.edgeAt(0))
+        c.eqStr("and the connection leaves from that row's port" rowEdge.sourcePort "users.id")
+        ; An explicit position is applied after the layout, so it wins.
+        def pinned:FlowGraph (D2Flow.render("a\nb\na -> b\nb: { top: 400; left: 50 }\n"))
+        def moved:FlowNode (pinned.nodeById("b"))
+        c.near("a pinned box is where the file put it" moved.x 50.0 0.001)
+        c.near("on both axes" moved.y 400.0 0.001)
     }
 
     sfn headOf:string (b:buffer n:int) {

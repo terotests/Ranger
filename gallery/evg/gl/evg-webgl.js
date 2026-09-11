@@ -255,25 +255,196 @@ function ringsOf(c) {
   return out;
 }
 
-/** A stroke's quads: one per segment, butt-jointed. */
-function strokeTriangles(rings, width) {
+// A fan of triangles filling a disc, for a round join or a round cap. Eight
+// segments at a hairline and up to thirty-two at a thick stroke: the count
+// is what makes a corner look round rather than cut, and past that it is
+// vertices nobody can see.
+function disc(tris, cx, cy, r) {
+  const steps = Math.max(8, Math.min(32, Math.ceil(r * 2)));
+  const step = (Math.PI * 2) / steps;
+  for (let i = 0; i < steps; i += 1) {
+    const a = i * step, b = a + step;
+    tris.push(cx, cy, cx + Math.cos(a) * r, cy + Math.sin(a) * r, cx + Math.cos(b) * r, cy + Math.sin(b) * r);
+  }
+}
+
+/**
+ * A stroke's triangles: a quad per segment, and the corners and ends.
+ *
+ * The quads alone leave a WEDGE OF NOTHING at every corner — two rectangles
+ * meeting at an angle cover the inside of the turn twice and the outside not
+ * at all — so a thick polyline came out as a chain of separate bars. What
+ * goes in the wedge is the join:
+ *
+ *   round   a disc at the vertex, which is also what a round cap is
+ *   bevel   the triangle between the two outer corners
+ *   miter   the point where the two outer edges cross, cut back to a bevel
+ *           past the limit so a near-reversal does not grow a spike
+ *
+ * Every one of them only ADDS ink to what was drawn before, so a backend or
+ * a file that says nothing about joins keeps the picture it had and gains
+ * the corners it was missing.
+ *
+ * A cap is only put on an OPEN ring: a closed one has a join there instead,
+ * and a round cap on a closed path is a blob on the seam.
+ */
+/**
+ * The rings a dash pattern leaves of a polyline.
+ *
+ * `stroke-dasharray` is a list of lengths that alternate ON and OFF, and an
+ * ODD list runs twice: "4" is 4 on, 4 off, and "1 2 3" is a six-entry cycle.
+ * That rule is not a detail — a single-entry pattern is the commonest way a
+ * dashed line is written, and reading it as "4 on, nothing off" draws a
+ * solid line and looks like the feature is missing rather than wrong.
+ *
+ * The walk is per SEGMENT and keeps its place in the pattern across
+ * vertices, so a dash rounds a corner the way it does in a browser instead
+ * of restarting at every bend.
+ */
+export function dashRings(rings, pattern, offset) {
+  const pat = pattern.filter((v) => v >= 0);
+  const cycle = pat.reduce((a, b) => a + b, 0);
+  if (!pat.length || cycle <= 0) return rings;
+  const full = pat.length % 2 === 1 ? pat.concat(pat) : pat;
+  const period = full.reduce((a, b) => a + b, 0);
+  const out = [];
+  for (const ring of rings) {
+    // Where in the pattern this ring starts, from `stroke-dashoffset`.
+    let at = ((offset || 0) % period + period) % period;
+    let idx = 0;
+    while (at >= full[idx]) { at -= full[idx]; idx = (idx + 1) % full.length; }
+    let on = idx % 2 === 0;
+    let left = full[idx] - at;
+    let current = on ? [ring[0], ring[1]] : null;
+    for (let i = 0; i + 3 < ring.length; i += 2) {
+      let x1 = ring[i], y1 = ring[i + 1];
+      const x2 = ring[i + 2], y2 = ring[i + 3];
+      let len = Math.hypot(x2 - x1, y2 - y1);
+      if (len < 1e-9) continue;
+      const ux = (x2 - x1) / len, uy = (y2 - y1) / len;
+      while (len > left) {
+        const cx = x1 + ux * left, cy = y1 + uy * left;
+        if (on) {
+          current.push(cx, cy);
+          if (current.length >= 4) out.push(current);
+          current = null;
+        } else {
+          current = [cx, cy];
+        }
+        x1 = cx; y1 = cy;
+        len -= left;
+        on = !on;
+        idx = (idx + 1) % full.length;
+        left = full[idx];
+      }
+      left -= len;
+      if (on) current.push(x2, y2);
+    }
+    if (on && current && current.length >= 4) out.push(current);
+  }
+  return out;
+}
+
+/** "6 4" or "6,4" as numbers; anything that is not one is dropped. */
+export function parseDash(text) {
+  if (!text) return [];
+  return String(text)
+    .split(/[\s,]+/)
+    .map((t) => parseFloat(t))
+    .filter((v) => Number.isFinite(v) && v >= 0);
+}
+
+export function strokeTriangles(rings, width, cap, join) {
   const half = Math.max(width, 0.75) / 2;
+  const miterLimit = 4;
   const tris = [];
   for (const ring of rings) {
-    for (let i = 0; i + 3 < ring.length; i += 2) {
+    const n = ring.length;
+    if (n < 4) continue;
+    const closed = Math.abs(ring[0] - ring[n - 2]) < 1e-6 && Math.abs(ring[1] - ring[n - 1]) < 1e-6;
+    for (let i = 0; i + 3 < n; i += 2) {
       const x1 = ring[i], y1 = ring[i + 1], x2 = ring[i + 2], y2 = ring[i + 3];
       let dx = x2 - x1, dy = y2 - y1;
       const len = Math.hypot(dx, dy);
       if (len < 1e-6) continue;
+      const ux = dx / len, uy = dy / len;
       // The normal, scaled to half the stroke width.
-      const nx = (-dy / len) * half, ny = (dx / len) * half;
+      const nx = -uy * half, ny = ux * half;
+      // A square cap is the segment run on by half a width at the end that
+      // has no neighbour; a butt cap stops where the geometry stops.
+      let ax = x1, ay = y1, bx = x2, by = y2;
+      if (cap === 2 && !closed) {
+        if (i === 0) { ax -= ux * half; ay -= uy * half; }
+        if (i + 4 >= n) { bx += ux * half; by += uy * half; }
+      }
       tris.push(
-        x1 + nx, y1 + ny, x2 + nx, y2 + ny, x2 - nx, y2 - ny,
-        x1 + nx, y1 + ny, x2 - nx, y2 - ny, x1 - nx, y1 - ny,
+        ax + nx, ay + ny, bx + nx, by + ny, bx - nx, by - ny,
+        ax + nx, ay + ny, bx - nx, by - ny, ax - nx, ay - ny,
       );
+      // The corner between this segment and the next.
+      if (i + 5 < n) {
+        joinAt(tris, ring, i, half, join, miterLimit);
+      }
+    }
+    if (closed) {
+      // The seam is a corner like any other: the last segment meeting the
+      // first. Without this a closed path is drawn with one notch in it.
+      // A ring too short to have a seam — a point written twice — has no
+      // corner either, and must not fall through to the cap: a round cap
+      // there is two discs of ink where the file asked for nothing.
+      if (n >= 6) joinSeam(tris, ring, half, join, miterLimit);
+    } else if (cap === 1) {
+      disc(tris, ring[0], ring[1], half);
+      disc(tris, ring[n - 2], ring[n - 1], half);
     }
   }
   return tris;
+}
+
+/** The corner at vertex i+2, between segments (i,i+1) and (i+2,i+3). */
+function joinAt(tris, ring, i, half, join, miterLimit) {
+  cornerTris(tris, ring[i], ring[i + 1], ring[i + 2], ring[i + 3], ring[i + 4], ring[i + 5], half, join, miterLimit);
+}
+
+/** The corner where a closed ring's last segment meets its first. */
+function joinSeam(tris, ring, half, join, miterLimit) {
+  const n = ring.length;
+  cornerTris(tris, ring[n - 4], ring[n - 3], ring[0], ring[1], ring[2], ring[3], half, join, miterLimit);
+}
+
+function cornerTris(tris, x0, y0, cx, cy, x2, y2, half, join, miterLimit) {
+  if (join === 1) {
+    disc(tris, cx, cy, half);
+    return;
+  }
+  const d1x = cx - x0, d1y = cy - y0;
+  const d2x = x2 - cx, d2y = y2 - cy;
+  const l1 = Math.hypot(d1x, d1y), l2 = Math.hypot(d2x, d2y);
+  if (l1 < 1e-6 || l2 < 1e-6) return;
+  const u1x = d1x / l1, u1y = d1y / l1;
+  const u2x = d2x / l2, u2y = d2y / l2;
+  // Which side the turn opens on: the wedge is on the outside of it.
+  const cross = u1x * u2y - u1y * u2x;
+  if (Math.abs(cross) < 1e-9) return;
+  const sign = cross > 0 ? -1 : 1;
+  const p1x = cx + -u1y * half * sign, p1y = cy + u1x * half * sign;
+  const p2x = cx + -u2y * half * sign, p2y = cy + u2x * half * sign;
+  // The bevel: the triangle between the two outer corners and the vertex.
+  tris.push(cx, cy, p1x, p1y, p2x, p2y);
+  if (join === 2) return;
+  // Miter: where the two offset edges cross. With unit outer normals that
+  // is `c + half * (n1+n2) / (1 + n1·n2)`, which needs no angle and no
+  // trigonometry. The denominator goes to zero as the turn approaches a
+  // reversal, and the limit is what stops the point growing into a spike
+  // as long as the page — past it the bevel already pushed is the corner.
+  const n1x = (p1x - cx) / half, n1y = (p1y - cy) / half;
+  const n2x = (p2x - cx) / half, n2y = (p2y - cy) / half;
+  const denom = 1 + (n1x * n2x + n1y * n2y);
+  if (denom < 1e-6) return;
+  const mx = cx + ((n1x + n2x) / denom) * half;
+  const my = cy + ((n1y + n2y) / denom) * half;
+  if (Math.hypot(mx - cx, my - cy) > miterLimit * half) return;
+  tris.push(p1x, p1y, mx, my, p2x, p2y);
 }
 
 function boundsOf(rings) {
@@ -429,7 +600,17 @@ export function fontSpec(c, dpr) {
 }
 
 function runKey(c, dpr) {
-  return `${dpr}|${c.font || ""}|${c.size}|${c.weight || ""}|${c.italic ? 1 : 0}|${c.text}`;
+  return `${dpr}|${c.font || ""}|${c.size}|${c.weight || ""}|${c.italic ? 1 : 0}|${c.ls || 0}|${c.text}`;
+}
+
+// `letter-spacing`, set on the 2D context that measures the run and on the
+// one that rasterizes it — the same value on both, or the slot is cut to a
+// width the ink does not fit in. A canvas that does not know the property
+// ignores the assignment and draws the run at the font's own spacing, which
+// is where every run was before this and is the right thing to lose.
+function applySpacing(ctx, c, dpr) {
+  const ls = c.ls || 0;
+  ctx.letterSpacing = ls ? `${ls * dpr}px` : "0px";
 }
 
 /** The runs an atlas holds: every distinct run, or — `onlyVisible` — only
@@ -460,6 +641,7 @@ const PAD = 2;
 /** One run, measured with the face it will be drawn in. */
 function measureRun(ctx, c, dpr) {
   ctx.font = fontSpec(c, dpr);
+  applySpacing(ctx, c, dpr);
   const m = ctx.measureText(verbatim(c.text));
   // Two different ascents, and the difference between them is the whole of
   // where a run sits. `actualBoundingBox*` is the INK of these particular
@@ -529,6 +711,7 @@ function rasterRuns(c2, measured, dpr) {
   c2.fillStyle = "#fff";
   for (const m of measured) {
     c2.font = fontSpec(m.c, dpr);
+    applySpacing(c2, m.c, dpr);
     c2.fillText(verbatim(m.c.text), m.x + PAD, m.y + PAD + m.asc);
   }
 }
@@ -1532,7 +1715,12 @@ function buildFrame(gl, doc, opts = {}) {
       const col = c.c || [0, 0, 0, 1];
       const rgba = [col[0] / 255, col[1] / 255, col[2] / 255, col[3]];
       if (c.k === KIND.STROKE) {
-        const tris = strokeTriangles(rings, c.t || 1);
+        // Dashes are geometry, not a paint mode: the pattern cuts the
+        // rings and what is left is stroked exactly as a solid line is,
+        // caps and all — which is what puts a round end on each dash.
+        const pat = parseDash(c.dash);
+        const dashed = pat.length ? dashRings(rings, pat, c.dashoff || 0) : rings;
+        const tris = strokeTriangles(dashed, c.t || 1, c.cap | 0, c.join | 0);
         if (tris.length) pushPath({ kind: "tris", verts: new Float32Array(tris), color: rgba });
       } else {
         pushPath({ kind: "fill", rings: rings.map((r) => new Float32Array(r)),
