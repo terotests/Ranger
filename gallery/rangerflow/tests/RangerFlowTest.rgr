@@ -58,6 +58,8 @@ Import "../domains/mermaid/MermaidTreeViewReader.rgr"
 Import "../domains/mermaid/MermaidEventModelReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
+Import "../domains/plantuml/PlantUmlSequenceReader.rgr"
+Import "../domains/plantuml/PlantUmlEntityReader.rgr"
 
 class Checker {
     def passed:int 0
@@ -137,6 +139,9 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidPlaced(c)
         RangerFlowTest.testMermaidGantt(c)
         RangerFlowTest.testMermaidSequence(c)
+        RangerFlowTest.testPlantUmlKinds(c)
+        RangerFlowTest.testPlantUmlSequence(c)
+        RangerFlowTest.testPlantUmlEntities(c)
         RangerFlowTest.testMermaidGit(c)
         RangerFlowTest.testMermaidSubgraphEnds(c)
         RangerFlowTest.testMermaidKanban(c)
@@ -3600,6 +3605,332 @@ class RangerFlowTest {
     ; who, across, and when, down. So the assertions are about ORDER and about
     ; the two things a reader would otherwise have to take on trust — that the
     ; arrow means what the token said, and that the bar covers what was active.
+    ; The entity family: class, object, component, deployment, use case and
+    ; ArchiMate — one grammar, six diagram types.
+    ;
+    ; The expected entity ids, cluster names and link endpoints below are what
+    ; PlantUML 1.2025.4 reports for `fixtures/plantuml/02_class.puml` and
+    ; `03_component.puml`, read off the `class="entity"`, `class="cluster"` and
+    ; `class="link"` groups its own renderer writes into the SVG.
+    sfn testPlantUmlEntities:void (c:Checker) {
+        c.section("PlantUML — entities, links and packages")
+        def src:string "@startuml\n"
+        src = (src + "package \"orders\" {\n")
+        src = (src + "abstract class Order {\n")
+        src = (src + "+id: int\n")
+        src = (src + "#placedAt: Date\n")
+        src = (src + "{abstract} +total(): Money\n")
+        src = (src + "}\n")
+        src = (src + "class StandardOrder\n")
+        src = (src + "class OrderLine\n")
+        src = (src + "}\n")
+        src = (src + "package \"billing\" {\n")
+        src = (src + "interface Payable\n")
+        src = (src + "class Invoice {\n")
+        src = (src + "{static} +next(): string\n")
+        src = (src + "}\n")
+        src = (src + "}\n")
+        src = (src + "class Customer\n")
+        src = (src + "Order <|-- StandardOrder\n")
+        src = (src + "Order *-- \"1..*\" OrderLine : contains\n")
+        src = (src + "Customer \"1\" o-- \"many\" Order : places\n")
+        src = (src + "Order ..|> Payable\n")
+        src = (src + "Invoice ..> Order : bills\n")
+        src = (src + "@enduml\n")
+
+        def d:PlantUmlEntityModel (PlantUmlEntityReader.parse(src))
+        c.eqStr("the sniff reads it as a class diagram" d.kind "class")
+        c.eqInt("an entity per declaration" (d.entityCount()) 6)
+        c.eqInt("a package per `package`" (d.groupCount()) 2)
+        c.eqInt("and the members inside them" (d.memberCount()) 4)
+        c.eqInt("a link per relation" (d.linkCount()) 5)
+
+        def order:PlantUmlEntity (d.entityById("Order"))
+        c.eqStr("`abstract class X` is a class, not an entity called class" order.keyword "abstract")
+        c.eqStr("declared inside the package it was written in" order.parent "orders")
+        c.eqInt("with its three members" (order.memberCount()) 3)
+        def m0:PlantUmlMember (itemAt order.members 0)
+        c.eqStr("a leading `+` is the visibility, not the name" m0.visibility "+")
+        c.eqStr("the name is what follows it" m0.text "id")
+        c.eqStr("and the type goes in its own column" m0.detail "int")
+        def m2:PlantUmlMember (itemAt order.members 2)
+        c.ok("`{abstract}` is read off the member" m2.isAbstract)
+        c.ok("and parentheses make it an operation" m2.isOperation)
+        def inv:PlantUmlEntity (d.entityById("Invoice"))
+        def im:PlantUmlMember (itemAt inv.members 0)
+        c.ok("`{static}` likewise" im.isStatic)
+
+        def cust:PlantUmlEntity (d.entityById("Customer"))
+        c.eqStr("a class declared outside every package belongs to none" cust.parent "")
+
+        ; The ornaments. UML puts each on the end that OWNS the relationship,
+        ; and an inheritance drawn the other way round says the opposite of
+        ; what the author wrote.
+        def inh:PlantUmlLink (itemAt d.links 0)
+        c.eqStr("`<|--` is inheritance" inh.kind "inheritance")
+        c.ok("with the triangle on the supertype, which is named first" inh.markAtSource)
+        def comp:PlantUmlLink (itemAt d.links 1)
+        c.eqStr("`*--` is composition" comp.kind "composition")
+        c.eqStr("the multiplicity beside the end it was written against" comp.targetCard "1..*")
+        c.eqStr("and the label after the colon" comp.label "contains")
+        def agg:PlantUmlLink (itemAt d.links 2)
+        c.eqStr("`o--` is aggregation" agg.kind "aggregation")
+        c.eqStr("its near multiplicity read too" agg.sourceCard "1")
+        c.eqStr("and its far one" agg.targetCard "many")
+        def impl:PlantUmlLink (itemAt d.links 3)
+        c.eqStr("`..|>` is realisation, because the line is dotted" impl.kind "implementation")
+        c.ok("and it is drawn dashed" impl.dashed)
+        def dep:PlantUmlLink (itemAt d.links 4)
+        c.eqStr("a dotted line with a plain head is a dependency" dep.kind "dependency")
+
+        ; The drawing: a frame per package, and no frame around a class that
+        ; belongs to no package.
+        def g:FlowGraph (PlantUmlEntityReader.render(src))
+        c.eqInt("a node per entity, plus a frame per package" (g.nodeCount()) 8)
+        c.ok("the package is drawn as a frame" (g.hasNode("__frame_orders")))
+        c.ok("and so is the other one" (g.hasNode("__frame_billing")))
+        def fr:FlowNode (g.nodeById("__frame_orders"))
+        def loose:FlowNode (g.nodeById("Customer"))
+        def frRight:double (fr.x + fr.width)
+        def looseRight:double (loose.x + loose.width)
+        def outsideLeft:boolean (looseRight <= fr.x)
+        def outsideRight:boolean (loose.x >= frRight)
+        def outside:boolean outsideLeft
+        if outsideRight {
+            outside = true
+        }
+        c.ok("a class in no package stands outside every frame" outside)
+
+        ; --- and the description family, which is the same reader ---
+        def csrc:string "@startuml\n"
+        csrc = (csrc + "actor Customer\n")
+        csrc = (csrc + "package \"edge\" {\n")
+        csrc = (csrc + "[Storefront] as SF\n")
+        csrc = (csrc + "}\n")
+        csrc = (csrc + "node \"cluster\" {\n")
+        csrc = (csrc + "[Order API] as API\n")
+        csrc = (csrc + "queue \"events\" as Q\n")
+        csrc = (csrc + "}\n")
+        csrc = (csrc + "database \"Postgres\" as DB\n")
+        csrc = (csrc + "Customer --> SF\n")
+        csrc = (csrc + "SF --> API\n")
+        csrc = (csrc + "API --> Q\n")
+        csrc = (csrc + "API --> DB\n")
+        csrc = (csrc + "@enduml\n")
+
+        def cd:PlantUmlEntityModel (PlantUmlEntityReader.parse(csrc))
+        c.eqStr("a bracket makes it a description diagram" cd.kind "description")
+        c.eqInt("five entities, none of them invented" (cd.entityCount()) 5)
+        c.eqInt("two containers" (cd.groupCount()) 2)
+        c.eqInt("four links" (cd.linkCount()) 4)
+        def sf:PlantUmlEntity (cd.entityById("SF"))
+        c.eqStr("`[Storefront] as SF` puts the bracket half in the label" sf.name "Storefront")
+        c.eqStr("and the alias in the id" sf.id "SF")
+        c.eqStr("the bracket is the keyword when none is written" sf.keyword "component")
+        c.eqStr("declared inside the package it was written in" sf.parent "edge")
+        def q:PlantUmlEntity (cd.entityById("Q"))
+        c.eqStr("`queue \"events\" as Q` reads the same way round" q.name "events")
+        c.eqStr("a `node { }` holds entities rather than members" q.parent "cluster")
+
+        ; The shapes, which are the only place the six diagram types differ.
+        c.eqStr("a use case is an ellipse" (PlantUmlEntityReader.shapeFor("usecase")) "ellipse")
+        c.eqStr("a database is a cylinder" (PlantUmlEntityReader.shapeFor("database")) "cylinder")
+        c.eqStr("a component is a framed rectangle" (PlantUmlEntityReader.shapeFor("component")) "predefined")
+        c.eqStr("an actor is a stadium" (PlantUmlEntityReader.shapeFor("actor")) "stadium")
+
+        ; `left to right direction` turns the page on its side.
+        def lrsrc:string "@startuml\nleft to right direction\nactor U\nU --> (Buy)\n@enduml\n"
+        def lr:PlantUmlEntityModel (PlantUmlEntityReader.parse(lrsrc))
+        c.eqStr("`left to right direction` is obeyed" lr.direction "LR")
+        def uc:PlantUmlEntity (lr.entityById("Buy"))
+        c.eqStr("a parenthesised name is a use case" uc.keyword "usecase")
+
+        ; The link scanner, one token at a time.
+        c.eqStr("`<|--` is inheritance" (PlantUmlEntityReader.kindOf("<|--")) "inheritance")
+        c.eqStr("`<|..` is realisation" (PlantUmlEntityReader.kindOf("<|..")) "implementation")
+        c.eqStr("`*--` is composition" (PlantUmlEntityReader.kindOf("*--")) "composition")
+        c.eqStr("`--o` is aggregation" (PlantUmlEntityReader.kindOf("--o")) "aggregation")
+        c.eqStr("`..>` is a dependency" (PlantUmlEntityReader.kindOf("..>")) "dependency")
+        c.eqStr("`--` on its own is an association" (PlantUmlEntityReader.kindOf("--")) "association")
+        c.eqInt("a hyphen inside a name is not a link" (PlantUmlEntityReader.linkAt("order-service")) -1)
+        c.eqStr("a direction hint is read past, not tripped over" (PlantUmlEntityReader.linkToken("A -up-> B" 2)) "-up->")
+        c.eqStr("and so is a colour" (PlantUmlEntityReader.linkToken("A -[#red]-> B" 2)) "-[#red]->")
+    }
+
+    ; ------------------------------------------------------------ PlantUML --
+    ; What an `@startuml` body turns out to be.
+    ;
+    ; The expected answers are not opinions: each was asked of PlantUML
+    ; 1.2025.4 as a two-line file and read off the `data-diagram-type` its own
+    ; renderer writes into the SVG. See docs/PLAN_PLANTUML.md §3.
+    sfn testPlantUmlKinds:void (c:Checker) {
+        c.section("PlantUML — which diagram is this")
+
+        def bare:string "@startuml\nA --> B\n@enduml\n"
+        c.eqStr("a bare arrow is a message, as PlantUML reads it" (PlantUmlReader.kindOf(bare)) "sequence")
+
+        def assoc:string "@startuml\nA -- B\n@enduml\n"
+        c.eqStr("a line with no head on it is an association" (PlantUmlReader.kindOf(assoc)) "class")
+
+        def comp:string "@startuml\n[Web] --> [API]\n@enduml\n"
+        c.eqStr("a bracket is a component" (PlantUmlReader.kindOf(comp)) "description")
+
+        def uc:string "@startuml\nactor User\nUser --> (Buy)\n@enduml\n"
+        c.eqStr("`actor` alone does not make it a sequence diagram" (PlantUmlReader.kindOf(uc)) "description")
+
+        def cls:string "@startuml\nA -> B: x\nclass C\n@enduml\n"
+        c.eqStr("one `class` outweighs a message" (PlantUmlReader.kindOf(cls)) "class")
+
+        def st:string "@startuml\n[*] --> Idle\nIdle --> Busy : go\n@enduml\n"
+        c.eqStr("`[*]` belongs to nothing but a state machine" (PlantUmlReader.kindOf(st)) "state")
+
+        def act:string "@startuml\nstart\n:read order;\nstop\n@enduml\n"
+        c.eqStr("`start` and a `:action;` are an activity" (PlantUmlReader.kindOf(act)) "activity")
+
+        def seq:string "@startuml\nparticipant A\nA -> B: x\n@enduml\n"
+        c.eqStr("and a declared participant settles it" (PlantUmlReader.kindOf(seq)) "sequence")
+
+        ; The `@start` words that commit a file before a line is read.
+        c.eqStr("`@startmindmap` needs no sniffing" (PlantUmlReader.openerKind("@startmindmap")) "mindmap")
+        c.eqStr("nor does `@startgantt`" (PlantUmlReader.openerKind("@startgantt")) "gantt")
+        c.eqStr("`@startsalt` and `@startwire` are the same diagram" (PlantUmlReader.openerKind("@startwire")) "salt")
+        c.eqStr("`@startuml` commits to nothing" (PlantUmlReader.openerKind("@startuml")) "")
+        ; Recognised and refused, rather than read as entities: a ditaa block
+        ; parsed as a component diagram is a page of invented boxes.
+        c.eqStr("ditaa is named so it cannot fall through" (PlantUmlReader.openerKind("@startditaa")) "ditaa")
+        c.ok("and it is not one this reader draws" ((PlantUmlReader.draws("ditaa")) == false))
+        c.ok("the sequence diagram is" (PlantUmlReader.draws("sequence")))
+
+        ; Comments, in both spellings, and the preprocessor.
+        def cmt:string "@startuml\n' a whole line\nA -> B: x /' and a tail '/\n!include foo.puml\n@enduml\n"
+        def doc:PlantUmlSource (PlantUmlReader.read(cmt))
+        c.eqInt("a `'` line and a `/' … '/` tail leave one statement" (doc.lineCount()) 1)
+        c.eqInt("and the `!include` is counted where it was dropped" (doc.directiveCount()) 1)
+
+        def multi:string "@startuml\nA -> B: one\n@enduml\n@startuml\nC -> D: two\n@enduml\n"
+        def first:PlantUmlSource (PlantUmlReader.read(multi))
+        c.eqInt("a file with two diagrams in it gives up the first" (first.lineCount()) 1)
+
+        def titled:string "@startuml\ntitle **Order** checkout\nA -> B: x\n@enduml\n"
+        def td:PlantUmlSource (PlantUmlReader.read(titled))
+        c.eqStr("the title is taken, and its Creole markers are not drawn" td.title "Order checkout")
+    }
+
+    sfn testPlantUmlSequence:void (c:Checker) {
+        c.section("PlantUML sequence diagrams")
+        def src:string "@startuml\n"
+        src = (src + "title Checkout\n")
+        src = (src + "autonumber\n")
+        src = (src + "actor \"The Customer\" as Cust\n")
+        src = (src + "box Shop\n")
+        src = (src + "participant Web\n")
+        src = (src + "participant API as \"Order API\"\n")
+        src = (src + "end box\n")
+        src = (src + "database Bank\n")
+        src = (src + "Cust -> Web: place order\n")
+        src = (src + "Web ->> API ++ : POST /orders\n")
+        src = (src + "API -> API: validate\n")
+        src = (src + "API -->> Web -- : 201\n")
+        src = (src + "note over Web, API: nothing is paid yet\n")
+        src = (src + "loop until settled\n")
+        src = (src + "Web -[#red]> Bank: authorise\n")
+        src = (src + "alt accepted\n")
+        src = (src + "Bank --> Web: approved\n")
+        src = (src + "else declined\n")
+        src = (src + "Bank ->x Web: no\n")
+        src = (src + "end\n")
+        src = (src + "end\n")
+        src = (src + "destroy Bank\n")
+        src = (src + "Web <- Cust: receipt\n")
+        src = (src + "@enduml\n")
+
+        def d:SeqDiagram (PlantUmlSequenceReader.parse(src))
+        c.eqStr("the title comes off the `title` line" d.title "Checkout")
+        c.eqInt("a participant per declaration, in the order declared" (d.actorCount()) 4)
+        def cust:SeqActor (itemAt d.actors 0)
+        c.eqStr("`\"name\" as id` puts the quoted half in the label" cust.name "The Customer")
+        c.eqStr("and the bare half in the id" cust.id "Cust")
+        c.ok("`actor` is remembered as one" cust.isActor)
+        def api:SeqActor (itemAt d.actors 2)
+        c.eqStr("`id as \"name\"` is the same declaration written backwards" api.name "Order API")
+        c.eqStr("with the id still the bare half" api.id "API")
+        c.eqStr("a participant declared inside a box knows which" api.box "Shop")
+        def bank:SeqActor (itemAt d.actors 3)
+        c.eqStr("one declared after `end box` does not" bank.box "")
+        c.eqInt("the box is counted once" (d.boxCount()) 1)
+        c.ok("`autonumber` numbers the messages" d.autonumber)
+
+        c.eqInt("every arrow is a message" (d.messageCount()) 8)
+        c.eqInt("and the note is not one" (d.noteCount()) 1)
+        c.eqInt("`loop` and `alt` are the two blocks" (d.blockCount()) 2)
+
+        def first:SeqStep (itemAt d.steps 0)
+        c.eqStr("the sender is what stands before the arrow" first.source "Cust")
+        c.eqStr("the receiver what stands after it" first.target "Web")
+        c.eqStr("and the text what follows the colon" first.text "place order")
+        c.eqInt("numbering starts at one" first.number 1)
+        c.eqStr("`->` carries a filled head" first.head "arrowclosed")
+        c.eqStr("and a single dash is not a reply" first.stroke "solid")
+
+        def second:SeqStep (itemAt d.steps 1)
+        c.ok("`++` after the arrow activates the receiver" second.activates)
+        c.eqStr("`->>` is the open head" second.head "arrow")
+        def selfCall:SeqStep (itemAt d.steps 2)
+        c.eqStr("a participant may send to itself" selfCall.source selfCall.target)
+        def reply:SeqStep (itemAt d.steps 3)
+        c.eqStr("two dashes make it a reply" reply.stroke "dotted")
+        c.ok("and `--` after it deactivates the sender" reply.deactivates)
+
+        def note:SeqStep (itemAt d.steps 4)
+        c.eqStr("`over A, B` spans from the first name" note.source "Web")
+        c.eqStr("to the last one named" note.target "API")
+        c.eqStr("and it is placed over rather than beside" note.placement "over")
+
+        ; A backwards arrow is the same message written the other way round,
+        ; and a diagram that drew it as it was typed would reverse the story.
+        def backwards:SeqStep (itemAt d.steps ((d.stepCount()) - 1))
+        c.eqStr("`A <- B` sends from B" backwards.source "Cust")
+        c.eqStr("to A" backwards.target "Web")
+
+        ; The tokens, one at a time, because a diagram that draws `->x` as a
+        ; plain arrow is telling the reader the message arrived.
+        c.eqStr("`->x` is a cross" (PlantUmlSequenceReader.headOf("->x")) "cross")
+        c.eqStr("`->>` is the open head" (PlantUmlSequenceReader.headOf("->>")) "arrow")
+        c.eqStr("`->` is the filled one" (PlantUmlSequenceReader.headOf("->")) "arrowclosed")
+        c.eqStr("`-->` is dotted" (PlantUmlSequenceReader.strokeOf("-->")) "dotted")
+        c.eqStr("`->` is not" (PlantUmlSequenceReader.strokeOf("->")) "solid")
+        c.eqStr("the colour comes out of the arrow" (PlantUmlSequenceReader.dropColour("A -[#red]> B")) "A -> B")
+        c.eqInt("a name with a dash in it is not an arrow" (PlantUmlSequenceReader.arrowAt("order-service is here")) -1)
+
+        ; `return` replies to whoever called, and to nobody when nobody did.
+        def rsrc:string "@startuml\nA -> B ++ : ask\nreturn answer\n@enduml\n"
+        def rd:SeqDiagram (PlantUmlSequenceReader.parse(rsrc))
+        c.eqInt("`return` is a message of its own" (rd.messageCount()) 2)
+        def ret:SeqStep (itemAt rd.steps 1)
+        c.eqStr("sent back by the one that was called" ret.source "B")
+        c.eqStr("to the one that called it" ret.target "A")
+        c.eqStr("dotted, because a reply is" ret.stroke "dotted")
+        c.ok("and it closes the activation it replies out of" ret.deactivates)
+
+        ; The multi-line note, which runs until `end note`.
+        def nsrc:string "@startuml\nA -> B: x\nnote right of B\nfirst line\nsecond line\nend note\n@enduml\n"
+        def nd:SeqDiagram (PlantUmlSequenceReader.parse(nsrc))
+        c.eqInt("a note may run over several lines" (nd.noteCount()) 1)
+        def nstep:SeqStep (itemAt nd.steps 1)
+        c.eqStr("and keeps the breaks the author typed" nstep.text "first line\nsecond line")
+        c.eqStr("beside the participant it was pinned to" nstep.source "B")
+        c.eqStr("on the side it was put" nstep.placement "right")
+
+        ; And the drawing, which is the shared one in core/.
+        def g:FlowGraph (PlantUmlSequenceReader.render(src))
+        def wl:FlowNode (g.nodeById("ll-Web"))
+        def al:FlowNode (g.nodeById("ll-API"))
+        c.ok("the columns are in declaration order, left to right" (wl.x < al.x))
+        def head:FlowNode (g.nodeById("Cust"))
+        c.eqStr("the participant box is drawn from the alias" head.label "The Customer")
+        c.eqInt("an arrow per message" (g.edgeCount()) 8)
+    }
+
     sfn testMermaidSequence:void (c:Checker) {
         c.section("Mermaid sequence diagrams")
         def src:string "sequenceDiagram\n"
@@ -3626,14 +3957,14 @@ class RangerFlowTest {
         src = (src + "    destroy Bank\n")
         src = (src + "    Web->>Cust: receipt\n")
 
-        def d:MermaidSequence (MermaidSequenceReader.parse(src))
+        def d:SeqDiagram (MermaidSequenceReader.parse(src))
         c.eqInt("a participant per declaration, in the order declared" (d.actorCount()) 4)
-        def cust:MermaidSeqActor (itemAt d.actors 0)
+        def cust:SeqActor (itemAt d.actors 0)
         c.eqStr("`as` renames without renumbering" cust.name "Customer")
         c.ok("and `actor` is remembered as one" cust.isActor)
-        def api:MermaidSeqActor (itemAt d.actors 2)
+        def api:SeqActor (itemAt d.actors 2)
         c.eqStr("a participant declared inside a box knows which" api.box "Shop")
-        def bank:MermaidSeqActor (itemAt d.actors 3)
+        def bank:SeqActor (itemAt d.actors 3)
         c.eqStr("one declared outside it does not" bank.box "")
         c.eqInt("the box is counted once" (d.boxCount()) 1)
         c.ok("`autonumber` numbers the messages" d.autonumber)
@@ -3642,7 +3973,7 @@ class RangerFlowTest {
         c.eqInt("and the note is not one" (d.noteCount()) 1)
         c.eqInt("`loop` and `alt` are the two blocks" (d.blockCount()) 2)
 
-        def first:MermaidSeqStep (itemAt d.steps 0)
+        def first:SeqStep (itemAt d.steps 0)
         c.eqStr("the sender is what stands before the arrow" first.source "Cust")
         c.eqStr("the receiver what stands after it" first.target "Web")
         c.eqStr("and the text what follows the colon" first.text "place order")
@@ -3650,15 +3981,15 @@ class RangerFlowTest {
         c.eqStr("`->>` is a line with a head on it" first.head "arrowclosed")
         c.eqStr("and a single dash is not a reply" first.stroke "solid")
 
-        def second:MermaidSeqStep (itemAt d.steps 1)
+        def second:SeqStep (itemAt d.steps 1)
         c.ok("`+` after the arrow activates the receiver" second.activates)
-        def selfCall:MermaidSeqStep (itemAt d.steps 2)
+        def selfCall:SeqStep (itemAt d.steps 2)
         c.eqStr("a participant may send to itself" selfCall.source selfCall.target)
-        def reply:MermaidSeqStep (itemAt d.steps 3)
+        def reply:SeqStep (itemAt d.steps 3)
         c.eqStr("`-->>` is the dotted one" reply.stroke "dotted")
         c.ok("and `-` after it deactivates the sender" reply.deactivates)
 
-        def note:MermaidSeqStep (itemAt d.steps 4)
+        def note:SeqStep (itemAt d.steps 4)
         c.eqStr("`over A,B` spans from the first name to the last" note.source "Web")
         c.eqStr("to the last one named" note.target "API")
         c.eqStr("and it is placed over rather than beside" note.placement "over")
@@ -3671,7 +4002,7 @@ class RangerFlowTest {
         c.eqStr("`<<-->>` is dotted" (MermaidSequenceReader.strokeOf("<<-->>")) "dotted")
         c.eqInt("a name with a dash in it is not an arrow" (MermaidSequenceReader.arrowAt("order-service is here")) -1)
 
-        def g:FlowGraph (MermaidSequenceFlow.render(src))
+        def g:FlowGraph (MermaidSequenceReader.render(src))
         def wl:FlowNode (g.nodeById("ll-Web"))
         def al:FlowNode (g.nodeById("ll-API"))
         c.ok("the columns are in declaration order, left to right" (wl.x < al.x))

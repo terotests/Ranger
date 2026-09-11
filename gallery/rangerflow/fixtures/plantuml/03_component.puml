@@ -1,0 +1,30 @@
+@startuml
+title Delivery platform
+
+actor Customer
+actor "Support agent" as Agent
+
+package "edge" {
+  [Storefront] as SF
+  [Admin console] as AC
+}
+
+node "cluster" {
+  [Order API] as API
+  [Fulfilment] as FUL
+  queue "events" as Q
+}
+
+database "Postgres" as DB
+cloud "Payment gateway" as PG
+
+Customer --> SF
+Agent --> AC
+SF --> API
+AC --> API
+API --> DB
+API --> Q
+Q --> FUL
+FUL --> DB
+API --> PG : authorise
+@enduml

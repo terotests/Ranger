@@ -1,0 +1,20 @@
+@startuml
+left to right direction
+title What a shopper can do
+
+actor Shopper
+actor "Warehouse" as WH
+
+rectangle "Web shop" {
+  (Browse catalogue) as UC1
+  (Place order) as UC2
+  (Track delivery) as UC3
+  (Pick and pack) as UC4
+}
+
+Shopper --> UC1
+Shopper --> UC2
+Shopper --> UC3
+WH --> UC4
+UC2 ..> UC1 : extends
+@enduml

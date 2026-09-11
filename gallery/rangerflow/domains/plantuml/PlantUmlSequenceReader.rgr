@@ -1,0 +1,1042 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PlantUmlSequenceReader.rgr — PlantUML's sequence diagram, into the shared one.
+; ============================================================================
+;
+;   @startuml
+;   User -> API: Request
+;   API -> Database: Query
+;   Database --> API: Result
+;   API --> User: Response
+;   @enduml
+;
+;      ┌──────┐      ┌─────┐      ┌──────────┐
+;      │ User │      │ API │      │ Database │
+;      └───┬──┘      └──┬──┘      └────┬─────┘
+;          │  Request   │              │
+;          │───────────>│    Query     │
+;          │            │─────────────>│
+;          │            │<- - - - - - -│  Result
+;          │<- - - - - -│              │
+;          │  Response  │              │
+;
+; This file is a translator and nothing else. It turns PlantUML's spelling into
+; `SeqDiagram` — the model in `core/` that Mermaid's reader also fills — and
+; from there the placement, the router, the four backends and the GPU scene are
+; the ones that already exist. Not one line of drawing code lives here.
+;
+; **What it reads.** Participants in all eight shapes PlantUML gives them
+; (`participant`, `actor`, `boundary`, `control`, `entity`, `database`,
+; `collections`, `queue`), both orders of the `as` alias, `box` groups,
+; `create` and `destroy`, `activate`/`deactivate` and the `++`/`--` shorthand
+; on an arrow, `return`, every arrow spelling — `->` `-->` `->>` `-->>` `->x`
+; `->o` `<-` `<--` `<->` and the `\` and `/` half-heads — arrow colours
+; (`-[#red]>`), notes in all five placements including the multi-line form,
+; `ref over`, `alt`/`else`, `opt`, `loop`, `par`/`and`, `critical`, `break`,
+; `group`, `== dividers ==` and `autonumber`.
+;
+; **What it drops, on purpose.** `skinparam`, `hide footbox`, `header`,
+; `footer`, `!theme` and the delay `...` — style and whitespace, and a diagram
+; that renders in PlantUML renders here without them. Also the `[` and `]`
+; gateways, which mean "from outside the diagram": there is no participant to
+; hang them on, and inventing one is worse than leaving the message out.
+; ============================================================================
+
+Import "PlantUmlReader.rgr"
+Import "../../core/SeqDiagram.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+class PlantUmlSequenceReader {
+    def doc:SeqDiagram (new SeqDiagram)
+    ; The `box` currently open, "" for none.
+    def openBox:string ""
+    ; What each `end` has to close, innermost last: "box" or "block".
+    def ends:[string]
+    ; The autonumber, and how far it steps.
+    def autoNext:int 1
+    def autoStep:int 1
+    ; `return` needs to know who called whom. Each `++` on an arrow, and each
+    ; explicit `activate`, pushes the pair it activated.
+    def callFrom:[string]
+    def callTo:[string]
+    ; A multi-line `note` that has not met its `end note` yet.
+    def noteOpen:boolean false
+    def noteText:string ""
+    def notePlacement:string "over"
+    def noteFrom:string ""
+    def noteTo:string ""
+    ; `autoactivate on` — every arrow with a head activates its target.
+    def autoActivate:boolean false
+
+    Constructor () {
+    }
+
+    sfn parse:SeqDiagram (src:string) {
+        def r (new PlantUmlSequenceReader)
+        return (r.read(src))
+    }
+
+    ; Text in, a drawing out. The drawing is `SeqDiagramFlow` in `core/`.
+    sfn render:FlowGraph (src:string) {
+        def d:SeqDiagram (PlantUmlSequenceReader.parse(src))
+        def bare (new FlowStyle)
+        return (SeqDiagramFlow.build(d bare))
+    }
+
+    fn read:SeqDiagram (src:string) {
+        def doc2:PlantUmlSource (PlantUmlReader.read(src))
+        doc.title = doc2.title
+        def i:int 0
+        while (i < (array_length doc2.lines)) {
+            def line:string (itemAt doc2.lines i)
+            i = (i + 1)
+            this.statement(line)
+        }
+        ; A note whose `end note` never arrived still has something to say.
+        if noteOpen {
+            this.closeNote()
+        }
+        return doc
+    }
+
+    ; ---------------------------------------------------------- statements --
+    fn statement:void (st:string) {
+        if ((strlen st) == 0) {
+            return
+        }
+        if noteOpen {
+            def lw:string (PlantUmlText.lower(st))
+            if (lw == "end note") {
+                this.closeNote()
+                return
+            }
+            if (lw == "endnote") {
+                this.closeNote()
+                return
+            }
+            if ((strlen noteText) > 0) {
+                noteText = (noteText + "\n")
+            }
+            noteText = (noteText + (PlantUmlText.label(st)))
+            return
+        }
+
+        def kw:string (PlantUmlText.lower((PlantUmlText.firstWord(st))))
+        def rest:string (PlantUmlText.restWords(st))
+
+        ; --- the words that are only ever style ---
+        if (kw == "skinparam")  { return }
+        if (kw == "hide")       { return }
+        if (kw == "show")       { return }
+        if (kw == "header")     { return }
+        if (kw == "footer")     { return }
+        if (kw == "caption")    { return }
+        if (kw == "scale")      { return }
+        if (kw == "legend")     { return }
+        if (kw == "endlegend")  { return }
+        if (kw == "top")        { return }
+        if (kw == "bottom")     { return }
+
+        ; --- a divider, `== like this ==` ---
+        if (PlantUmlText.beginsWith(st "==")) {
+            this.divider(st)
+            return
+        }
+        ; A delay or a spacer: whitespace with a name on it.
+        if (PlantUmlText.beginsWith(st "...")) { return }
+        if (PlantUmlText.beginsWith(st "|||")) { return }
+
+        ; --- participants ---
+        ; A line with an arrow in it is a message, whatever its first word is.
+        ; `Database --> API : Result` opens with a participant KEYWORD and is
+        ; not a declaration — PlantUML reads it as a message, and a reader that
+        ; did not would turn four messages into three and invent a participant
+        ; called `--> API`.
+        def carriesArrow:boolean (PlantUmlSequenceReader.hasArrow(st))
+        if (carriesArrow == false) {
+            if (PlantUmlSequenceReader.isParticipantWord(kw)) {
+                def idx:int (this.declare(rest (kw == "actor") -1))
+                return
+            }
+            if (kw == "create") {
+                this.createStatement(rest)
+                return
+            }
+            if (kw == "destroy") {
+                this.destroyStatement(rest)
+                return
+            }
+            if (kw == "activate") {
+                this.activation("activate" rest)
+                return
+            }
+            if (kw == "deactivate") {
+                this.activation("deactivate" rest)
+                return
+            }
+        }
+        if (kw == "autoactivate") {
+            def onoff:string (PlantUmlText.lower(rest))
+            autoActivate = (onoff != "off")
+            return
+        }
+        if (kw == "autonumber") {
+            this.autonumber(rest)
+            return
+        }
+        if (kw == "return") {
+            this.returnStatement(rest)
+            return
+        }
+
+        ; --- boxes and blocks ---
+        if (kw == "box") {
+            openBox = (PlantUmlText.unquote((PlantUmlSequenceReader.beforeColour(rest))))
+            if ((strlen openBox) == 0) {
+                openBox = "box"
+            }
+            push doc.boxes openBox
+            push ends "box"
+            return
+        }
+        if (kw == "end") {
+            def what:string (PlantUmlText.lower(rest))
+            if (what == "box") {
+                openBox = ""
+                this.popEnd("box")
+                return
+            }
+            if (what == "note") {
+                return
+            }
+            this.closeEnd()
+            return
+        }
+        if (kw == "endbox") {
+            openBox = ""
+            this.popEnd("box")
+            return
+        }
+        if (PlantUmlSequenceReader.isBlockWord(kw)) {
+            this.openBlock(kw rest)
+            return
+        }
+        if (PlantUmlSequenceReader.isDividerWord(kw)) {
+            this.blockDivider(kw rest)
+            return
+        }
+
+        ; --- notes ---
+        if (kw == "note") {
+            this.note(rest)
+            return
+        }
+        if (kw == "rnote") {
+            this.note(rest)
+            return
+        }
+        if (kw == "hnote") {
+            this.note(rest)
+            return
+        }
+        if (kw == "ref") {
+            this.refStatement(rest)
+            return
+        }
+
+        ; --- and everything else is a message, or it is nothing ---
+        this.message(st)
+    }
+
+    ; ------------------------------------------------------- participants ---
+    sfn isParticipantWord:boolean (kw:string) {
+        if (kw == "participant") { return true }
+        if (kw == "actor")       { return true }
+        if (kw == "boundary")    { return true }
+        if (kw == "control")     { return true }
+        if (kw == "entity")      { return true }
+        if (kw == "database")    { return true }
+        if (kw == "collections") { return true }
+        if (kw == "queue")       { return true }
+        return false
+    }
+
+    sfn isBlockWord:boolean (kw:string) {
+        if (kw == "alt")      { return true }
+        if (kw == "opt")      { return true }
+        if (kw == "loop")     { return true }
+        if (kw == "par")      { return true }
+        if (kw == "break")    { return true }
+        if (kw == "critical") { return true }
+        if (kw == "group")    { return true }
+        return false
+    }
+
+    sfn isDividerWord:boolean (kw:string) {
+        if (kw == "else")   { return true }
+        if (kw == "and")    { return true }
+        if (kw == "option") { return true }
+        return false
+    }
+
+    ; `participant "Order service" as OS #lightblue <<service>>` — the colour
+    ; and the stereotype are style, and the name is everything before them.
+    sfn beforeColour:string (rest:string) {
+        def cut:int (strlen rest)
+        def hash:int (PlantUmlSequenceReader.topLevel(rest 35))
+        if (hash >= 0) {
+            if (hash < cut) {
+                cut = hash
+            }
+        }
+        def ster:int (PlantUmlText.indexOfSub(rest "<<" 0))
+        if (ster >= 0) {
+            if (ster < cut) {
+                cut = ster
+            }
+        }
+        def ord:int (PlantUmlText.indexOfSub((PlantUmlText.lower(rest)) " order " 0))
+        if (ord >= 0) {
+            if (ord < cut) {
+                cut = ord
+            }
+        }
+        def head:string (substring rest 0 cut)
+        return (trim head)
+    }
+
+    ; The first `code` outside a quoted run.
+    sfn topLevel:int (text:string code:int) {
+        def inQuote:boolean false
+        def i:int 0
+        while (i < (strlen text)) {
+            def c:int (charAt text i)
+            if (c == 34) {
+                def flip:boolean (inQuote == false)
+                inQuote = flip
+            }
+            if (inQuote == false) {
+                if (c == code) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; `participant A`, `participant "A long one" as A`, `participant A as "A
+    ; long one"` — PlantUML takes the alias on either side, and which side it
+    ; is decides which of the two is the id and which is the label.
+    fn declare:int (rest:string isActor:boolean createdAt:int) {
+        def body:string (PlantUmlSequenceReader.beforeColour(rest))
+        if ((strlen body) == 0) {
+            return -1
+        }
+        def at:int (PlantUmlSequenceReader.asWordAt(body))
+        def id:string body
+        def name:string body
+        if (at >= 0) {
+            def left:string (trim (substring body 0 at))
+            def right:string (trim (substring body (at + 4) (strlen body)))
+            ; The quoted half is the label; the bare half is the id. When
+            ; neither is quoted, PlantUML reads `X as Y` as label `X`, id `Y`.
+            if (PlantUmlSequenceReader.isQuoted(left)) {
+                name = (PlantUmlText.unquote(left))
+                id = (PlantUmlText.unquote(right))
+            }
+            if (PlantUmlSequenceReader.isQuoted(left) == false) {
+                if (PlantUmlSequenceReader.isQuoted(right)) {
+                    id = (PlantUmlText.unquote(left))
+                    name = (PlantUmlText.unquote(right))
+                }
+                if (PlantUmlSequenceReader.isQuoted(right) == false) {
+                    name = left
+                    id = right
+                }
+            }
+        }
+        if (at < 0) {
+            id = (PlantUmlText.unquote(body))
+            name = id
+        }
+        if ((strlen id) == 0) {
+            return -1
+        }
+        def existing:int (doc.indexOfActor(id))
+        if (existing >= 0) {
+            def known:SeqActor (itemAt doc.actors existing)
+            if ((strlen name) > 0) {
+                known.name = (PlantUmlText.label(name))
+            }
+            if (isActor) {
+                known.isActor = true
+            }
+            return existing
+        }
+        def a (new SeqActor)
+        a.id = id
+        a.name = (PlantUmlText.label(name))
+        a.isActor = isActor
+        a.box = openBox
+        a.createdAt = createdAt
+        push doc.actors a
+        return ((array_length doc.actors) - 1)
+    }
+
+    sfn isQuoted:boolean (t:string) {
+        if ((strlen t) < 2) {
+            return false
+        }
+        if ((charAt t 0) != 34) {
+            return false
+        }
+        return true
+    }
+
+    ; The ` as ` that separates a name from its alias, outside quotes.
+    sfn asWordAt:int (t:string) {
+        def inQuote:boolean false
+        def i:int 0
+        def n:int (strlen t)
+        while (i < n) {
+            def c:int (charAt t i)
+            if (c == 34) {
+                def flip:boolean (inQuote == false)
+                inQuote = flip
+            }
+            if (inQuote == false) {
+                if (c == 32) {
+                    if (PlantUmlText.matchAt((PlantUmlText.lower(t)) i " as ")) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; A participant that is named on a message before it is declared exists
+    ; from that moment, which is what PlantUML does too.
+    fn ensure:string (raw:string) {
+        def name:string (PlantUmlText.unquote((trim raw)))
+        if ((strlen name) == 0) {
+            return ""
+        }
+        ; The gateways: a message from or to outside the diagram. There is no
+        ; participant to hang one on — see the note at the top.
+        if (name == "[") { return "" }
+        if (name == "]") { return "" }
+        def at:int (doc.indexOfActor(name))
+        if (at >= 0) {
+            return name
+        }
+        def a (new SeqActor)
+        a.id = name
+        a.name = name
+        a.box = ""
+        push doc.actors a
+        return name
+    }
+
+    fn createStatement:void (rest:string) {
+        def body:string rest
+        def kw:string (PlantUmlText.lower((PlantUmlText.firstWord(rest))))
+        if (PlantUmlSequenceReader.isParticipantWord(kw)) {
+            body = (PlantUmlText.restWords(rest))
+        }
+        def idx:int (this.declare(body (kw == "actor") (array_length doc.steps)))
+    }
+
+    fn destroyStatement:void (rest:string) {
+        def id:string (this.ensure(rest))
+        if ((strlen id) == 0) {
+            return
+        }
+        def at:int (doc.indexOfActor(id))
+        if (at >= 0) {
+            def a:SeqActor (itemAt doc.actors at)
+            a.destroyed = true
+        }
+        def s (new SeqStep)
+        s.kind = "destroy"
+        s.target = id
+        push doc.steps s
+    }
+
+    fn activation:void (kind:string rest:string) {
+        def id:string (this.ensure((PlantUmlSequenceReader.beforeColour(rest))))
+        if ((strlen id) == 0) {
+            return
+        }
+        def s (new SeqStep)
+        s.kind = kind
+        s.target = id
+        push doc.steps s
+        if (kind == "activate") {
+            push callFrom ""
+            push callTo id
+        }
+        if (kind == "deactivate") {
+            this.popCall()
+        }
+    }
+
+    fn popCall:void () {
+        def n:int (array_length callTo)
+        if (n == 0) {
+            return
+        }
+        def keptFrom:[string]
+        def keptTo:[string]
+        def i:int 0
+        while (i < (n - 1)) {
+            push keptFrom (itemAt callFrom i)
+            push keptTo (itemAt callTo i)
+            i = (i + 1)
+        }
+        callFrom = keptFrom
+        callTo = keptTo
+    }
+
+    ; `return text` — the dotted reply back to whoever called, and the end of
+    ; the activation it replies out of. With no call open there is nobody to
+    ; reply to, so it is dropped rather than guessed at.
+    fn returnStatement:void (rest:string) {
+        def n:int (array_length callTo)
+        if (n == 0) {
+            return
+        }
+        def from:string (itemAt callFrom (n - 1))
+        def to:string (itemAt callTo (n - 1))
+        this.popCall()
+        if ((strlen from) == 0) {
+            def s0 (new SeqStep)
+            s0.kind = "deactivate"
+            s0.target = to
+            push doc.steps s0
+            return
+        }
+        def s (new SeqStep)
+        s.kind = "message"
+        s.source = to
+        s.target = from
+        s.text = (PlantUmlText.label(rest))
+        s.stroke = "dotted"
+        s.head = "arrowclosed"
+        s.deactivates = true
+        if doc.autonumber {
+            s.number = autoNext
+            autoNext = (autoNext + autoStep)
+        }
+        push doc.steps s
+    }
+
+    fn autonumber:void (rest:string) {
+        def t:string (trim rest)
+        def lw:string (PlantUmlText.lower(t))
+        if (lw == "stop") {
+            doc.autonumber = false
+            return
+        }
+        if (lw == "off") {
+            doc.autonumber = false
+            return
+        }
+        doc.autonumber = true
+        if ((strlen t) == 0) {
+            return
+        }
+        def parts:[string] (strsplit t " ")
+        def got:int 0
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (trim (itemAt parts i))
+            i = (i + 1)
+            if ((strlen p) == 0) {
+                continue
+            }
+            def v@(optional):int (str2int p)
+            if (null? v) {
+                continue
+            }
+            if (got == 0) {
+                autoNext = (unwrap v)
+            }
+            if (got == 1) {
+                autoStep = (unwrap v)
+            }
+            got = (got + 1)
+        }
+    }
+
+    ; ------------------------------------------------------------- blocks ---
+    fn openBlock:void (kw:string rest:string) {
+        def s (new SeqStep)
+        s.kind = "blockstart"
+        s.blockKind = kw
+        s.text = (PlantUmlText.label(rest))
+        push doc.steps s
+        push ends "block"
+    }
+
+    fn blockDivider:void (kw:string rest:string) {
+        def s (new SeqStep)
+        s.kind = "divider"
+        s.blockKind = kw
+        s.text = (PlantUmlText.label(rest))
+        push doc.steps s
+    }
+
+    fn closeEnd:void () {
+        def n:int (array_length ends)
+        if (n == 0) {
+            return
+        }
+        def what:string (itemAt ends (n - 1))
+        this.popEnd(what)
+        if (what == "box") {
+            openBox = ""
+            return
+        }
+        def s (new SeqStep)
+        s.kind = "blockend"
+        push doc.steps s
+    }
+
+    fn popEnd:void (what:string) {
+        def n:int (array_length ends)
+        if (n == 0) {
+            return
+        }
+        def kept:[string]
+        def i:int 0
+        while (i < (n - 1)) {
+            push kept (itemAt ends i)
+            i = (i + 1)
+        }
+        ends = kept
+    }
+
+    ; `== Phase two ==`
+    fn divider:void (st:string) {
+        def t:string (trim st)
+        def n:int (strlen t)
+        def from:int 2
+        def to:int n
+        if (n > 4) {
+            if (PlantUmlText.matchAt(t (n - 2) "==")) {
+                to = (n - 2)
+            }
+        }
+        if (to < from) {
+            return
+        }
+        def text:string (trim (substring t from to))
+        def s (new SeqStep)
+        s.kind = "blockstart"
+        s.blockKind = "rect"
+        s.text = (PlantUmlText.label(text))
+        push doc.steps s
+        def e (new SeqStep)
+        e.kind = "blockend"
+        push doc.steps e
+    }
+
+    ; -------------------------------------------------------------- notes ---
+    ; `note left`, `note right of A`, `note over A, B : text`, and the
+    ; multi-line form of each, which runs until `end note`.
+    fn note:void (rest:string) {
+        def t:string (trim rest)
+        def lw:string (PlantUmlText.lower(t))
+        def placement:string "over"
+        def after:int 0
+        if (PlantUmlText.beginsWith(lw "over")) {
+            placement = "over"
+            after = 4
+        }
+        if (PlantUmlText.beginsWith(lw "left of")) {
+            placement = "left"
+            after = 7
+        }
+        if (PlantUmlText.beginsWith(lw "right of")) {
+            placement = "right"
+            after = 8
+        }
+        if (after == 0) {
+            if (PlantUmlText.beginsWith(lw "left")) {
+                placement = "left"
+                after = 4
+            }
+            if (PlantUmlText.beginsWith(lw "right")) {
+                placement = "right"
+                after = 5
+            }
+        }
+        if (after == 0) {
+            return
+        }
+        def tail:string (trim (substring t after (strlen t)))
+        def colon:int (PlantUmlSequenceReader.topLevel(tail 58))
+        def who:string tail
+        def text:string ""
+        def inline:boolean false
+        if (colon >= 0) {
+            who = (trim (substring tail 0 colon))
+            text = (trim (substring tail (colon + 1) (strlen tail)))
+            inline = true
+        }
+        def first:string ""
+        def second:string ""
+        def comma:int (PlantUmlSequenceReader.topLevel(who 44))
+        if (comma >= 0) {
+            def a:string (trim (substring who 0 comma))
+            def b:string (trim (substring who (comma + 1) (strlen who)))
+            first = (this.ensure(a))
+            second = (this.ensure(b))
+        }
+        if (comma < 0) {
+            first = (this.ensure(who))
+            second = first
+        }
+        ; `note left` with nobody named belongs to the last participant that
+        ; said anything, which is what PlantUML draws.
+        if ((strlen first) == 0) {
+            first = (this.lastSpeaker())
+            second = first
+        }
+        if ((strlen first) == 0) {
+            return
+        }
+        if inline {
+            def s (new SeqStep)
+            s.kind = "note"
+            s.placement = placement
+            s.source = first
+            s.target = second
+            s.text = (PlantUmlText.label(text))
+            push doc.steps s
+            return
+        }
+        noteOpen = true
+        noteText = ""
+        notePlacement = placement
+        noteFrom = first
+        noteTo = second
+    }
+
+    fn closeNote:void () {
+        noteOpen = false
+        if ((strlen noteFrom) == 0) {
+            return
+        }
+        def s (new SeqStep)
+        s.kind = "note"
+        s.placement = notePlacement
+        s.source = noteFrom
+        s.target = noteTo
+        s.text = noteText
+        push doc.steps s
+        noteText = ""
+    }
+
+    ; `ref over A, B : text` — a reference to another diagram, drawn as the
+    ; note it looks like rather than as a link this canvas cannot follow.
+    fn refStatement:void (rest:string) {
+        def lw:string (PlantUmlText.lower(rest))
+        if (PlantUmlText.beginsWith(lw "over") == false) {
+            return
+        }
+        this.note(rest)
+    }
+
+    fn lastSpeaker:string () {
+        def i:int ((array_length doc.steps) - 1)
+        while (i >= 0) {
+            def s:SeqStep (itemAt doc.steps i)
+            if (s.kind == "message") {
+                return s.target
+            }
+            i = (i - 1)
+        }
+        if ((array_length doc.actors) > 0) {
+            def a:SeqActor (itemAt doc.actors 0)
+            return a.id
+        }
+        return ""
+    }
+
+    ; ----------------------------------------------------------- messages ---
+    fn message:void (st:string) {
+        def colon:int (PlantUmlSequenceReader.topLevel(st 58))
+        def head:string st
+        def text:string ""
+        if (colon >= 0) {
+            head = (substring st 0 colon)
+            text = (trim (substring st (colon + 1) (strlen st)))
+        }
+        def clean:string (PlantUmlSequenceReader.dropColour(head))
+        def at:int (PlantUmlSequenceReader.arrowAt(clean))
+        if (at < 0) {
+            return
+        }
+        def tok:string (PlantUmlSequenceReader.arrowToken(clean at))
+        if ((strlen tok) == 0) {
+            return
+        }
+        def left:string (trim (substring clean 0 at))
+        def j:int (at + (strlen tok))
+        def right:string (trim (substring clean j (strlen clean)))
+        ; `++`, `--`, `**`, `!!` on the far side of the arrow.
+        def activates:boolean false
+        def deactivates:boolean false
+        def creates:boolean false
+        def destroys:boolean false
+        def cut:int (PlantUmlSequenceReader.shorthandAt(right))
+        if (cut >= 0) {
+            def marks:string (substring right cut (strlen right))
+            right = (trim (substring right 0 cut))
+            if (PlantUmlText.hasSub(marks "++")) { activates = true }
+            if (PlantUmlText.hasSub(marks "--")) { deactivates = true }
+            if (PlantUmlText.hasSub(marks "**")) { creates = true }
+            if (PlantUmlText.hasSub(marks "!!")) { destroys = true }
+        }
+        ; A backwards arrow is the same message written the other way round.
+        def reversed:boolean (PlantUmlSequenceReader.pointsLeft(tok))
+        def a:string left
+        def b:string right
+        if reversed {
+            a = right
+            b = left
+        }
+        def source:string (this.ensure(a))
+        def target:string (this.ensure(b))
+        if ((strlen source) == 0) {
+            return
+        }
+        if ((strlen target) == 0) {
+            return
+        }
+        if creates {
+            def ti:int (doc.indexOfActor(target))
+            if (ti >= 0) {
+                def ta:SeqActor (itemAt doc.actors ti)
+                ta.createdAt = (array_length doc.steps)
+            }
+        }
+        def m (new SeqStep)
+        m.kind = "message"
+        m.source = source
+        m.target = target
+        m.text = (PlantUmlText.label(text))
+        m.stroke = (PlantUmlSequenceReader.strokeOf(tok))
+        m.head = (PlantUmlSequenceReader.headOf(tok))
+        m.bidirectional = (PlantUmlSequenceReader.isBidirectional(tok))
+        m.activates = activates
+        m.deactivates = deactivates
+        if autoActivate {
+            def hasHead:int (strlen m.head)
+            if (hasHead > 0) {
+                m.activates = true
+            }
+        }
+        if doc.autonumber {
+            m.number = autoNext
+            autoNext = (autoNext + autoStep)
+        }
+        push doc.steps m
+        if m.activates {
+            push callFrom source
+            push callTo target
+        }
+        if m.deactivates {
+            this.popCall()
+        }
+        if destroys {
+            def di:int (doc.indexOfActor(target))
+            if (di >= 0) {
+                def da:SeqActor (itemAt doc.actors di)
+                da.destroyed = true
+            }
+            def d (new SeqStep)
+            d.kind = "destroy"
+            d.target = target
+            push doc.steps d
+        }
+    }
+
+    ; `-[#red]>` and `-[#0000ff,dashed]->`: the colour is style, and taking it
+    ; out here means the arrow scanner never has to know about brackets.
+    sfn dropColour:string (head:string) {
+        def open:int (PlantUmlText.indexOfSub(head "[#" 0))
+        if (open < 0) {
+            return head
+        }
+        def close:int (PlantUmlText.indexOfSub(head "]" (open + 2)))
+        if (close < 0) {
+            return head
+        }
+        def a:string (substring head 0 open)
+        def b:string (substring head (close + 1) (strlen head))
+        return (PlantUmlSequenceReader.dropColour((a + b)))
+    }
+
+    ; Whether the part of a statement before its label carries an arrow.
+    sfn hasArrow:boolean (st:string) {
+        def colon:int (PlantUmlSequenceReader.topLevel(st 58))
+        def head:string st
+        if (colon >= 0) {
+            head = (substring st 0 colon)
+        }
+        def clean:string (PlantUmlSequenceReader.dropColour(head))
+        def at:int (PlantUmlSequenceReader.arrowAt(clean))
+        return (at >= 0)
+    }
+
+    ; Where the arrow starts, or -1. Names can carry a `-` when they are
+    ; quoted, so the scan skips quoted runs; an unquoted name with a dash in
+    ; it is ambiguous in PlantUML too.
+    sfn arrowAt:int (head:string) {
+        def inQuote:boolean false
+        def i:int 0
+        def n:int (strlen head)
+        while (i < n) {
+            def c:int (charAt head i)
+            if (c == 34) {
+                def flip:boolean (inQuote == false)
+                inQuote = flip
+            }
+            if (inQuote == false) {
+                if (PlantUmlSequenceReader.isArrowCode(c)) {
+                    def tok:string (PlantUmlSequenceReader.arrowToken(head i))
+                    if ((strlen tok) >= 2) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The whole run of arrow characters starting at `i`, "" when it is not an
+    ; arrow after all — a lone `<` in a label, say.
+    sfn arrowToken:string (head:string i:int) {
+        def n:int (strlen head)
+        def j:int i
+        while (j < n) {
+            def c:int (charAt head j)
+            if (PlantUmlSequenceReader.isArrowCode(c) == false) {
+                break
+            }
+            j = (j + 1)
+        }
+        def tok:string (substring head i j)
+        if ((strlen tok) < 2) {
+            return ""
+        }
+        ; An arrow has a body of dashes and at least one end on it.
+        def hasBody:boolean (PlantUmlText.hasSub(tok "-"))
+        if (hasBody == false) {
+            return ""
+        }
+        if (PlantUmlText.hasSub(tok ">")) { return tok }
+        if (PlantUmlText.hasSub(tok "<")) { return tok }
+        if (PlantUmlText.hasSub(tok "\\")) { return tok }
+        if (PlantUmlText.hasSub(tok "/")) { return tok }
+        def last:int (charAt tok ((strlen tok) - 1))
+        if (last == 120) { return tok }
+        if (last == 111) { return tok }
+        return ""
+    }
+
+    sfn isArrowCode:boolean (c:int) {
+        if (c == 45)  { return true }
+        if (c == 60)  { return true }
+        if (c == 62)  { return true }
+        if (c == 92)  { return true }
+        if (c == 47)  { return true }
+        if (c == 120) { return true }
+        if (c == 111) { return true }
+        return false
+    }
+
+    ; `A -> B ++ : text`: the shorthand sits between the target and the colon.
+    sfn shorthandAt:int (right:string) {
+        def n:int (strlen right)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt right i)
+            if (c == 43) { return i }
+            if (c == 33) { return i }
+            if (c == 42) { return i }
+            if (c == 45) {
+                if ((i + 1) < n) {
+                    if ((charAt right (i + 1)) == 45) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; A dotted line is PlantUML's reply: two dashes rather than one.
+    sfn strokeOf:string (tok:string) {
+        if (PlantUmlText.hasSub(tok "--")) {
+            return "dotted"
+        }
+        return "solid"
+    }
+
+    ; The head RangerFlow draws for the head PlantUML wrote. `>` is the solid
+    ; one, `>>` the open one, `x` the lost message and `o` the one that ends
+    ; on a circle — which this renderer draws as the open head, because a
+    ; circle terminator is not a marker it has.
+    sfn headOf:string (tok:string) {
+        if (PlantUmlText.hasSub(tok ">>")) { return "arrow" }
+        if (PlantUmlText.hasSub(tok "<<")) { return "arrow" }
+        def last:int (charAt tok ((strlen tok) - 1))
+        def first:int (charAt tok 0)
+        if (last == 120) { return "cross" }
+        if (first == 120) { return "cross" }
+        if (last == 111) { return "arrow" }
+        if (first == 111) { return "arrow" }
+        if (last == 62)  { return "arrowclosed" }
+        if (first == 60) { return "arrowclosed" }
+        ; `\` and `/` are half an arrowhead — the top half or the bottom.
+        if (PlantUmlText.hasSub(tok "\\")) { return "arrow" }
+        if (PlantUmlText.hasSub(tok "/")) { return "arrow" }
+        return ""
+    }
+
+    ; `A <- B` is `B -> A`. `<->` is neither: it is both at once.
+    sfn pointsLeft:boolean (tok:string) {
+        if (PlantUmlSequenceReader.isBidirectional(tok)) {
+            return false
+        }
+        def first:int (charAt tok 0)
+        if (first == 60) { return true }
+        if (first == 120) { return true }
+        if (first == 111) { return true }
+        return false
+    }
+
+    sfn isBidirectional:boolean (tok:string) {
+        def n:int (strlen tok)
+        if (n < 3) {
+            return false
+        }
+        def first:int (charAt tok 0)
+        def last:int (charAt tok (n - 1))
+        if (first == 60) {
+            if (last == 62) {
+                return true
+            }
+        }
+        return false
+    }
+}

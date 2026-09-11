@@ -2545,6 +2545,10 @@ class EVGElement {
     fn adoptFrom:void (other:EVGElement) {
         id = other.id
         key = other.key
+        ; The link a subtree sits inside. A reconciled element that loses it
+        ; stops being a link on the next rebuild — and in a PDF, where the
+        ; href is an annotation rather than blue ink, there is nothing left on
+        ; the page to say it ever was one.
         href = other.href
         tagName = other.tagName
         elementType = other.elementType

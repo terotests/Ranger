@@ -19,32 +19,52 @@
   #tools button.on { background: #2563eb; border-color: #2563eb; color: #fff; }
   #tools .shape { font-size: 15px; line-height: 1.1; }
   #rename { padding: 3px 6px; border: 1px solid #ccd3dd; border-radius: 5px; }
-  #wrap { flex: 1; position: relative; min-height: 0; }
+  /* The stage is the diagram and, when a format is being edited, the source
+     beside it. Side by side rather than stacked: a textarea across the whole
+     window costs the drawing the height it needs, and the drawing is the part
+     you are looking at. */
+  #stage { flex: 1; display: flex; min-height: 0; min-width: 0; }
+  #wrap { flex: 1; position: relative; min-height: 0; min-width: 0; }
   #screen { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   #typing { position: absolute; left: -9999px; top: 0; width: 1px; height: 1px;
             opacity: 0; border: 0; padding: 0; }
   footer { display: flex; gap: 16px; padding: 6px 12px; border-top: 1px solid #d5dae2;
            background: #fff; color: #6b7280; font-variant-numeric: tabular-nums; }
-  #mermaidbox { display: flex; gap: 10px; align-items: stretch; padding: 8px 12px;
-                border-bottom: 1px solid #d5dae2; background: #fbfcfe; }
+  #srcbox { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px;
+            width: 30vw; min-width: 280px; max-width: 560px; flex: 0 0 auto;
+            border-right: 1px solid #d5dae2; background: #fbfcfe;
+            /* Draggable in the browsers that allow it, and it never eats the
+               canvas: `resize` is watched, so the drawing follows. */
+            resize: horizontal; overflow: auto; }
   /* `display: flex` above beats the browser's own [hidden] rule, and the panel
      would take the canvas's room in every scenario. */
-  #mermaidbox[hidden] { display: none; }
-  #mermaidbox textarea { flex: 1; min-height: 120px; font: 12px/1.45 ui-monospace, SFMono-Regular,
-                         Menlo, monospace; padding: 6px 8px; border: 1px solid #ccd3dd;
-                         border-radius: 5px; resize: vertical; background: #fff; color: inherit; }
-  #mermaidbox .side { display: flex; flex-direction: column; gap: 6px; width: 210px; color: #6b7280; }
-  #mermaidbox button { padding: 5px 9px; border: 1px solid #ccd3dd; border-radius: 5px;
-                       background: #fff; cursor: pointer; font: inherit; }
-  #mermaidbox button:hover { border-color: #7c93b5; }
+  #srcbox[hidden] { display: none; }
+  #srcbox textarea { flex: 1; min-height: 140px; font: 12px/1.45 ui-monospace, SFMono-Regular,
+                     Menlo, monospace; padding: 6px 8px; border: 1px solid #ccd3dd;
+                     border-radius: 5px; resize: none; background: #fff; color: inherit; }
+  #srcbox .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  #srcbox .row label { gap: 4px; }
+  #srcbox .hint { color: #6b7280; font-size: 12px; }
+  #srcbox select { max-width: 100%; }
+  #srcbox button { padding: 5px 9px; border: 1px solid #ccd3dd; border-radius: 5px;
+                   background: #fff; cursor: pointer; font: inherit; }
+  #srcbox button:hover { border-color: #7c93b5; }
+  /* On a phone there is no room for two columns, so the source goes back on
+     top — and takes a bounded slice rather than the whole screen. */
+  @media (max-width: 720px) {
+    #stage { flex-direction: column; }
+    #srcbox { width: auto; max-width: none; flex: 0 0 40%; resize: none;
+              border-right: 0; border-bottom: 1px solid #d5dae2; }
+  }
   #selftest { white-space: pre-wrap; padding: 6px 12px; color: #111; background: #ffd; }
   @media (prefers-color-scheme: dark) {
     body { background: #12151c; color: #e6e9ef; }
     header, footer { background: #1b202a; border-color: #39414f; }
     #tools { background: #171c25; border-color: #39414f; }
     #tools button, #rename { background: #222833; border-color: #39414f; color: #e6e9ef; }
-    #mermaidbox { background: #171c25; border-color: #39414f; }
-    #mermaidbox textarea, #mermaidbox button { background: #222833; border-color: #39414f; color: #e6e9ef; }
+    #srcbox { background: #171c25; border-color: #39414f; }
+    #srcbox textarea, #srcbox button { background: #222833; border-color: #39414f; color: #e6e9ef; }
+    #srcbox .hint { color: #98a2b3; }
     #tools button.on { background: #2563eb; border-color: #2563eb; }
     label, footer { color: #98a2b3; }
   }
@@ -60,6 +80,7 @@
       <option value="flow">flowchart</option>
       <option value="atk">ATK-kaavio (ISO 5807)</option>
       <option value="mermaid">Mermaid (paste your own)</option>
+      <option value="plantuml">PlantUML (paste your own)</option>
       <option value="org">organisaatiokaavio</option>
       <option value="process">uimaratakaavio</option>
       <option value="mindmap">mind map</option>
@@ -156,15 +177,22 @@
   </span>
 </div>
 
-<!-- Mermaid in, RangerFlow out. The parser is in the engine bundle, so this
-     panel is a textarea and one method call. -->
-<div id="mermaidbox" hidden>
-  <textarea id="mermaidsrc" spellcheck="false" aria-label="Mermaid source"></textarea>
-  <div class="side">
-    <button id="mermaidrender" type="button">render</button>
-    <button id="mermaidsample" type="button">sample</button>
+<div id="stage">
+
+<!-- Text in, RangerFlow out. Both parsers are in the engine bundle, so this
+     panel is a textarea and one method call; which reader gets the text is
+     whatever the demo dropdown chose. -->
+<div id="srcbox" hidden>
+  <div class="row">
+    <label id="examplelabel">example
+      <select id="example"></select>
+    </label>
+    <button id="srcrender" type="button">render</button>
+  </div>
+  <textarea id="srcarea" spellcheck="false" aria-label="diagram source"></textarea>
+  <div class="row">
     <label>look
-      <select id="mermaidstyle">
+      <select id="srcstyle">
         <option value="default">default</option>
         <option value="forest">forest</option>
         <option value="dark">dark</option>
@@ -172,9 +200,7 @@
         <option value="print">print</option>
       </select>
     </label>
-    <span>Mermaid <code>flowchart</code> / <code>graph</code>: shapes, links,
-      labels, <code>subgraph</code>, <code>classDef</code>. Drag the result,
-      edit it, export it to SVG.</span>
+    <span class="hint" id="srchint"></span>
   </div>
 </div>
 
@@ -187,6 +213,8 @@
   <input id="typing" type="text" autocomplete="off" autocorrect="off"
          autocapitalize="off" spellcheck="false" aria-label="edit label">
 </div>
+
+</div><!-- #stage -->
 
 <footer>
   <span id="status">loading…</span>

@@ -179,11 +179,14 @@ class MermaidRender {
             return out
         }
         if (kind == "sequence") {
-            def qd:MermaidSequence (MermaidSequenceReader.parse(text))
+            ; The sequence model and its placement live in `core/SeqDiagram.rgr`
+            ; — Mermaid and PlantUML disagree about the syntax and about none
+            ; of the meaning, so the reader is the only Mermaid-shaped part.
+            def qd:SeqDiagram (MermaidSequenceReader.parse(text))
             def n:int (qd.actorCount())
             if (n == 0) { return out }
             out.title = qd.title
-            out.graph = (MermaidSequenceFlow.build(qd style))
+            out.graph = (SeqDiagramFlow.build(qd style))
             out.ok = true
             return out
         }
