@@ -1,0 +1,16 @@
+# What a shape carries besides its label: a tooltip, a link, an icon, and the
+# size the file insisted on.
+server: {
+  tooltip: the one that pages you
+  link: https://example.com/runbook
+  width: 180
+  height: 70
+}
+disk: {
+  shape: cylinder
+  icon: https://icons.terrastruct.com/essentials/117-hard-drive.svg
+  width: 120
+  height: 120
+}
+pic: { shape: image; icon: https://icons.terrastruct.com/essentials/004-picture.svg }
+server -> disk: writes { tooltip: fsync every 200ms }

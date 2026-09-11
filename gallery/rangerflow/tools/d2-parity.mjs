@@ -147,6 +147,92 @@ function myMembers(o) {
   }));
 }
 
+/**
+ * Styles, compared on what the FILE said rather than on what the theme
+ * decided. D2's answer is resolved — an unset fill comes back as the theme
+ * token `B6` and an unset stroke width as 2 — so the comparison set is every
+ * style this reader recorded, plus every style D2 reports with a value that
+ * is not its default. That catches both directions: a style invented here,
+ * and one D2 applied that this reader dropped on the floor.
+ */
+const STYLE_FIELD = {
+  "fill": "fill",
+  "stroke": "stroke",
+  "stroke-width": "strokeWidth",
+  "stroke-dash": "strokeDash",
+  "border-radius": "borderRadius",
+  "opacity": "opacity",
+  "fill-pattern": "fillPattern",
+  "font-size": "fontSize",
+  "font-color": "color",
+  "bold": "bold",
+  "italic": "italic",
+  "underline": "underline",
+  "shadow": "shadow",
+  "multiple": "multiple",
+  "3d": "3d",
+  "double-border": "double-border",
+  "animated": "animated",
+};
+const SHAPE_DEFAULT = {
+  strokeWidth: 2, strokeDash: 0, borderRadius: 0, opacity: 1, bold: true,
+  italic: false, underline: false, shadow: false, multiple: false,
+  "3d": false, "double-border": false, fontSize: 16, animated: false,
+};
+const CONN_DEFAULT = {
+  strokeWidth: 2, strokeDash: 0, borderRadius: 10, opacity: 1, animated: false,
+  italic: true, bold: false, underline: false, fontSize: 16,
+};
+/** A theme token — `B6`, `N1` — is D2 saying "nothing was set here". */
+const isToken = (v) => typeof v === "string" && /^[A-Z]+\d*$/.test(v);
+
+/**
+ * Which styles may be read off D2's answer as "the file set this".
+ *
+ * Not the text ones: a container's label is 28pt and a table's header 20pt
+ * and a leaf's 16pt, and `bold` is true for a leaf and false for a container
+ * — all of that is the theme deciding, not the file. They are still compared
+ * when THIS reader recorded them, which is the direction that can be wrong.
+ */
+const ADDED_FROM_D2 = new Set([
+  "fill", "stroke", "stroke-width", "stroke-dash", "border-radius", "opacity",
+  "fill-pattern", "shadow", "multiple", "3d", "double-border", "animated",
+]);
+/** `transparent` is what a `text` or `code` shape gets, not a fill somebody chose. */
+const isDefaultish = (f, v) => (f === "fill" && v === "transparent");
+
+function styleDiff(mine, theirs, defaults) {
+  const ours = mine ?? {};
+  const bad = [];
+  for (const [k, f] of Object.entries(STYLE_FIELD)) {
+    const want = theirs?.[f];
+    const got = ours[k];
+    if (got === undefined) {
+      // Nothing recorded here. That is only wrong if D2's answer is evidence
+      // the file asked for something: a real value, not a theme token, not
+      // the default, and not one of the shape kinds D2 draws with no border.
+      if (!ADDED_FROM_D2.has(k)) continue;
+      if (want === undefined || want === null) continue;
+      if (isToken(want) || isDefaultish(f, want)) continue;
+      if (f in defaults && want === defaults[f]) continue;
+      if (f === "strokeWidth" && want === 0) continue;
+      bad.push(`${k}: ours undefined, D2 ${JSON.stringify(want)}`);
+      continue;
+    }
+    // The file said something and this reader recorded it. Compare it with
+    // what D2 resolved, whatever that turned out to be.
+    if (want === undefined || want === null || isToken(want)) {
+      bad.push(`${k}: ours ${JSON.stringify(got)}, D2 left it to the theme`);
+      continue;
+    }
+    const same = typeof want === "number" ? Math.abs(Number(got) - want) < 0.001
+      : typeof want === "boolean" ? (got === "true") === want
+      : String(got) === String(want);
+    if (!same) bad.push(`${k}: ours ${JSON.stringify(got)}, D2 ${JSON.stringify(want)}`);
+  }
+  return bad;
+}
+
 const key = (x) => JSON.stringify(x);
 const bag = (list) => list.map(key).sort();
 
@@ -222,6 +308,51 @@ for (const entry of mine.diagrams) {
       return bits.length ? `connections: ${bits.join("; ")}` : "";
     })());
 
+  // What a shape carries besides its label, where the file said so: the
+  // tooltip, the link, whether it has an icon at all, and a size the file
+  // insisted on. D2 answers all four.
+  {
+    const bad = [];
+    const theirShapes = new Map((theirs.shapes ?? []).map((x) => [x.id, x]));
+    for (const o of entry.objects ?? []) {
+      const t = theirShapes.get(o.id);
+      if (!t) continue;
+      const say = (what, got, want) => {
+        if (String(got ?? "") !== String(want ?? "")) bad.push(`${o.id} ${what}: ours ${JSON.stringify(got ?? null)}, D2 ${JSON.stringify(want ?? null)}`);
+      };
+      if (o.tooltip || t.tooltip) say("tooltip", o.tooltip, t.tooltip);
+      if (o.link || t.link) say("link", o.link, t.link);
+      const theirIcon = t.icon ? true : false;
+      if (o.icon || theirIcon) say("icon", o.icon ? true : false, theirIcon);
+      if (o.width !== undefined) say("width", o.width, t.width);
+      if (o.height !== undefined) say("height", o.height, t.height);
+    }
+    if (bad.length || (entry.objects ?? []).some((o) => o.tooltip || o.link || o.icon || o.width !== undefined)) {
+      add("extras", bad.length === 0, bad.length ? `extras: ${bad.slice(0, 4).join(" | ")}` : "");
+    }
+  }
+
+  // Styles, on the objects and on the connections.
+  {
+    const bad = [];
+    const theirShapes = new Map((theirs.shapes ?? []).map((x) => [x.id, x]));
+    for (const o of entry.objects ?? []) {
+      const d = styleDiff(o.style, theirShapes.get(o.id), SHAPE_DEFAULT);
+      if (d.length) bad.push(`${o.id} — ${d.join("; ")}`);
+    }
+    // Connections have no id in this reader's dump, so they are matched on
+    // their ends and their place among the connections between that pair.
+    const seen = new Map();
+    for (const c of entry.connections ?? []) {
+      const at = seen.get(c.src + "\u0000" + c.dst) ?? 0;
+      seen.set(c.src + "\u0000" + c.dst, at + 1);
+      const theirC = (theirs.connections ?? []).filter((t) => t.src === c.src && t.dst === c.dst)[at];
+      const d = styleDiff(c.style, theirC, CONN_DEFAULT);
+      if (d.length) bad.push(`(${c.src} -> ${c.dst})[${at}] — ${d.join("; ")}`);
+    }
+    add("styles", bad.length === 0, bad.length ? `styles: ${bad.slice(0, 4).join(" | ")}` : "");
+  }
+
   // Rows of a table, members of a class — only where the file has one.
   const compartments = (theirs.shapes ?? []).filter((s) => s.type === "sql_table" || s.type === "class");
   if (compartments.length) {
@@ -236,19 +367,36 @@ for (const entry of mine.diagrams) {
     add("members", bad.length === 0, bad.length ? `members: ${bad.slice(0, 2).join("; ")}` : "");
   }
 
-  // Boards: layers start empty, scenarios inherit, steps accumulate.
-  const theirBoards = [];
-  for (const kind of ["layers", "scenarios", "steps"]) {
-    for (const b of theirs[kind] ?? []) {
-      theirBoards.push({ kind: kind.slice(0, -1), name: b.name, objects: (b.shapes ?? []).length });
+  // Boards: layers start empty, scenarios inherit, steps accumulate — and a
+  // board can hold boards of its own, so the whole tree is compared, with
+  // the ids on each one rather than a count. A layer that dropped half its
+  // objects and gained the same number would pass a count.
+  const theirBoards = (d) => {
+    const out = [];
+    for (const kind of ["layers", "scenarios", "steps"]) {
+      for (const b of d[kind] ?? []) {
+        out.push({
+          kind: kind.slice(0, -1),
+          name: b.name,
+          objects: (b.shapes ?? []).map((s) => s.id).sort(),
+          connections: oracleConns(b).length,
+          boards: theirBoards(b),
+        });
+      }
     }
-  }
-  if (theirBoards.length || (entry.boards ?? []).length) {
-    const myBoards = (entry.boards ?? []).map((b) => ({
-      kind: b.kind, name: b.name, objects: (b.objects ?? []).length,
-    }));
-    add("boards", sameBag(theirBoards, myBoards),
-      `boards: ${JSON.stringify(myBoards)} vs ${JSON.stringify(theirBoards)}`);
+    return out.sort((a, z) => (a.kind + a.name).localeCompare(z.kind + z.name));
+  };
+  const myBoards = (e) => (e.boards ?? []).map((b) => ({
+    kind: b.kind,
+    name: b.name,
+    objects: (b.objects ?? []).map((o) => o.id).sort(),
+    connections: (b.connections ?? []).length,
+    boards: myBoards(b),
+  })).sort((a, z) => (a.kind + a.name).localeCompare(z.kind + z.name));
+  const tb = theirBoards(theirs), mb = myBoards(entry);
+  if (tb.length || mb.length) {
+    add("boards", key(tb) === key(mb),
+      `boards: ${JSON.stringify(mb)} vs ${JSON.stringify(tb)}`);
   }
 }
 
@@ -256,7 +404,7 @@ const measured = rows.filter((r) => !r.unmeasured);
 const failing = rows.filter((r) => r.checks.some((c) => !c.ok));
 const pct = checks ? Math.round((agreed / checks) * 1000) / 10 : 0;
 
-const dims = ["objects", "labels", "shapes", "levels", "connections", "members", "boards"];
+const dims = ["objects", "labels", "shapes", "levels", "connections", "styles", "extras", "members", "boards"];
 const cell = (r, nm) => {
   const c = r.checks.find((x) => x.name === nm);
   if (!c) return "—";
@@ -279,11 +427,11 @@ if (!oracle?.available) {
   lines.push("> below was computed. `npm run rangerflow:d2:oracle` needs a Go toolchain.");
   lines.push("");
 }
-lines.push("| example | objects | labels | shapes | levels | connections | members | boards |");
-lines.push("| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |");
+lines.push("| example | objects | labels | shapes | levels | connections | styles | extras | members | boards |");
+lines.push("| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |");
 for (const r of rows) {
   if (r.unmeasured) {
-    lines.push(`| \`${r.file}\` | ${r.unmeasured} | | | | | | |`);
+    lines.push(`| \`${r.file}\` | ${r.unmeasured} | | | | | | | | |`);
     continue;
   }
   lines.push(`| \`${r.file}\` | ` + dims.map((d) => cell(r, d)).join(" | ") + " |");
@@ -305,7 +453,7 @@ lines.push("  every route, and none of it is scored: RangerFlow has its own laye
 lines.push("  measured against React Flow's and d3-force's own functions in");
 lines.push("  [`PARITY.md`](PARITY.md). Comparing it to dagre would measure two layouts");
 lines.push("  rather than one reader.");
-lines.push("- **Seven dimensions, and a file is only asked the ones it has.** A file with");
+lines.push("- **Nine dimensions, and a file is only asked the ones it has.** A file with");
 lines.push("  no table is not asked about table rows, and a file with one board is not");
 lines.push("  asked about boards.");
 lines.push("- **The vocabularies meet in `tools/d2-parity.mjs`.** D2 answers with the");

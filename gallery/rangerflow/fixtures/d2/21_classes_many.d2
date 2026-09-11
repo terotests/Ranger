@@ -1,0 +1,12 @@
+# Several classes on one object, a class that sets a label, and a class
+# overridden by the object's own keys.
+classes: {
+  box: { style: { fill: "#fff"; stroke: "#345"; stroke-width: 2 } }
+  warn: { style.fill: "#fee"; style.stroke: "#c33" }
+  named: { label: from the class }
+}
+a: { class: [box; warn] }
+b: { class: named }
+c: { class: [box; named]; label: mine wins }
+d: { class: warn; style.fill: "#efe" }
+a -> b -> c -> d

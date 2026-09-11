@@ -15,7 +15,7 @@ every construct was compiled by **d2 v0.7.1** before it was written down:
 
 ```
 npm run rangerflow:d2:oracle
-  d2 v0.7.1: 20/20 fixtures accepted, 139 shapes and 58 connections laid out
+  d2 v0.7.1: 41/41 fixtures accepted, 265 shapes and 117 connections laid out
   by dagre and elk, 46 keywords, 25 shapes, 11 arrowheads
 ```
 
@@ -25,7 +25,7 @@ answers is: *when the reader hands this to the pipeline, can the pipeline
 already draw it?*
 
 **The reader exists** — `domains/d2/D2Parser.rgr` and `domains/d2/D2Model.rgr`,
-scored against D2 itself at **103/103 checks over the 20 files in
+scored against D2 itself at **256/256 checks over the 41 files in
 `fixtures/d2/`** ([`D2_PARITY.md`](D2_PARITY.md)) — and so does the drawing:
 `domains/d2/D2Flow.rgr` turns a board into a `FlowGraph`, containers and all,
 and `npm run rangerflow:d2` writes the SVG, the PDF, the HTML and the scene.

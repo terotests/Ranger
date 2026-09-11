@@ -1,0 +1,9 @@
+# Globs over CONNECTIONS: every connection at once, every connection out of
+# one object, and an indexed one among several between the same pair.
+a -> b: one
+a -> b: two
+c -> d
+e -> f
+(* -> *)[*].style.stroke-width: 3
+(a -> *)[*].style.stroke: "#c00"
+(a -> b)[1].style.stroke-dash: 4

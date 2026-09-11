@@ -143,6 +143,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidSequence(c)
         RangerFlowTest.testD2Parser(c)
         RangerFlowTest.testD2Model(c)
+        RangerFlowTest.testD2Details(c)
         RangerFlowTest.testD2Imports(c)
         RangerFlowTest.testD2Flow(c)
         RangerFlowTest.testPlantUmlKinds(c)
@@ -6924,6 +6925,54 @@ class RangerFlowTest {
         c.eqStr("and edits it" (painted.style("fill")) "red")
         def step2:D2Board (bb.boardAt(3))
         c.eqInt("steps accumulate" (array_length (step2.live())) 4)
+    }
+
+    ; The four things the corpus grew to catch, each one a disagreement with
+    ; D2 before it was a test.
+    sfn testD2Details:void (c:Checker) {
+        c.section("d2 details")
+        ; `null` takes an object off the board for good — and a later mention
+        ; makes a NEW one rather than bringing the old one back.
+        def nulled:D2Board (D2Model.read("gone: { shape: hexagon }\nkeep\ngone -> keep\ngone: null\n"))
+        c.eqInt("a nulled object is gone" (array_length (nulled.live())) 1)
+        c.eqInt("and so is the connection that touched it" (array_length (nulled.liveConns())) 0)
+        ; …but only up to the next time the file mentions it. D2 was asked:
+        ; `gone: null` then `gone -> keep` leaves a plain rectangle and a
+        ; connection, because the mention makes a new object.
+        def again:D2Board (D2Model.read("gone: { shape: hexagon }\ngone: null\nkeep\ngone -> keep\n"))
+        c.eqInt("a mention after it makes a new one" (array_length (again.live())) 2)
+        c.eqInt("with its connection" (array_length (again.liveConns())) 1)
+        def reborn:D2Object (again.object("gone"))
+        c.eqStr("and none of what the old one had" reborn.shape "")
+        def back:D2Board (D2Model.read("b: { shape: circle }\nb: null\nb\n"))
+        def fresh:D2Object (back.object("b"))
+        c.eqStr("a mention after null makes a new object" fresh.shape "")
+        ; A connection glob styles connections that already exist.
+        def globbed:D2Board (D2Model.read("a -> b: one\na -> b: two\nc -> d\n(* -> *)[*].style.stroke-width: 3\n(a -> b)[1].style.stroke-dash: 4\n"))
+        def all:[D2Conn] (globbed.liveConns())
+        c.eqInt("every connection was made" (array_length all) 3)
+        def first:D2Conn (itemAt all 0)
+        def second:D2Conn (itemAt all 1)
+        def third:D2Conn (itemAt all 2)
+        c.eqStr("a glob over connections reaches all of them" (third.style("stroke-width")) "3")
+        c.eqStr("an index picks one of a pair" (second.style("stroke-dash")) "4")
+        c.eqStr("and leaves the other alone" (first.style("stroke-dash")) "")
+        c.eqInt("and a glob creates nothing" (array_length (globbed.live())) 4)
+        ; `class` on a connection is the same keyword doing a different job.
+        def classed:D2Board (D2Model.read("classes: { thick: { style.stroke-width: 4 } }\na -> b: { class: thick }\n"))
+        def styled:D2Conn (itemAt (classed.liveConns()) 0)
+        c.eqStr("a class hands a connection its stroke" (styled.style("stroke-width")) "4")
+        ; An id is spelled the way D2 spells it, which is not how the file did.
+        def quoting:string "\"dotted.key\": one\n"
+        quoting = (quoting + "'single quoted': two\n")
+        quoting = (quoting + "escaped\\.key: three\n")
+        def ids:D2Board (D2Model.read(quoting))
+        c.ok("a dot inside a key keeps its quotes in the id" (ids.has("\"dotted.key\"")))
+        c.ok("a single-quoted key loses them" (ids.has("single quoted")))
+        c.ok("and an escaped dot gains them" (ids.has("\"escaped.key\"")))
+        def dotted:D2Object (ids.object("\"dotted.key\""))
+        c.eqInt("a quoted dot is not a level" dotted.level 1)
+        c.eqStr("nor a parent" dotted.parent "")
     }
 
     ; Imports read files, which is a security boundary before it is a feature.

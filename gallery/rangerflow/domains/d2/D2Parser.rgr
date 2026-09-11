@@ -646,26 +646,37 @@ class D2Parser {
             return
         }
         this.bump()
+        ; `[0]` is the first connection between that pair and `[*]` is all of
+        ; them — and so is no index at all. Everything up to the `]` is read
+        ; either way, so a `*` does not leave the scanner inside the brackets.
         def idx:int -1
         if ((this.peek()) == 91) {
             this.bump()
             def num:string ""
+            def digits:boolean true
             while true {
                 def c:int (this.peek())
-                if (c < 48) {
+                if (c < 0) {
                     break
                 }
-                if (c > 57) {
+                if (c == 93) {
+                    this.bump()
                     break
+                }
+                if (c < 48) {
+                    digits = false
+                } {
+                    if (c > 57) {
+                        digits = false
+                    }
                 }
                 num = (num + (strfromcode c))
                 this.bump()
             }
-            if ((this.peek()) == 93) {
-                this.bump()
-            }
-            if ((strlen num) > 0) {
-                idx = (?? (to_int num) -1)
+            if digits {
+                if ((strlen num) > 0) {
+                    idx = (?? (to_int num) -1)
+                }
             }
         }
         p.isEdgeRef = true
@@ -696,14 +707,14 @@ class D2Parser {
         if (c == 34) {
             def inner:string (this.quoted(34))
             prt.name = inner
-            prt.raw = ("\"" + inner + "\"")
+            prt.raw = (D2Parser.idSpelling(inner))
             prt.quoted = true
             return prt
         }
         if (c == 39) {
             def inner2:string (this.quoted(39))
             prt.name = inner2
-            prt.raw = ("'" + inner2 + "'")
+            prt.raw = (D2Parser.idSpelling(inner2))
             prt.quoted = true
             return prt
         }
@@ -744,7 +755,7 @@ class D2Parser {
             this.bump()
         }
         prt.name = (D2Parser.rtrim(out))
-        prt.raw = prt.name
+        prt.raw = (D2Parser.idSpelling(prt.name))
         if (prt.filter == 1) {
             prt.raw = ("&" + prt.raw)
         }
@@ -1153,6 +1164,50 @@ class D2Parser {
             this.bump()
         }
         return out
+    }
+
+    ; ------------------------------------------------------------- ids -----
+    ; How D2 spells one segment of an id.
+    ;
+    ; Not how the file spelled it: `'single quoted'` comes back bare and
+    ; `escaped\.key` comes back as `"escaped.key"`, because what decides the
+    ; quotes is whether the NAME would end a key if it were written plain.
+    ; Measured against D2 v0.7.1, which answers exactly that for all eight
+    ; spellings in `fixtures/d2/23_quoting.d2`.
+    sfn idSpelling:string (name:string) {
+        if (D2Parser.needsQuotes(name)) {
+            return ((strfromcode 34) + name + (strfromcode 34))
+        }
+        return name
+    }
+
+    sfn needsQuotes:boolean (name:string) {
+        def i:int 0
+        while (i < (strlen name)) {
+            def c:int (charAt name i)
+            if (c == 46)  { return true }
+            if (c == 58)  { return true }
+            if (c == 59)  { return true }
+            if (c == 35)  { return true }
+            if (c == 123) { return true }
+            if (c == 125) { return true }
+            if (c == 91)  { return true }
+            if (c == 93)  { return true }
+            if (c == 60)  { return true }
+            if (c == 62)  { return true }
+            if (c == 38)  { return true }
+            if (c == 34)  { return true }
+            if (c == 45) {
+                if ((i + 1) < (strlen name)) {
+                    def n:int (charAt name (i + 1))
+                    if (n == 45) { return true }
+                    if (n == 62) { return true }
+                    if (n == 42) { return true }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     ; ------------------------------------------------------------- string ---

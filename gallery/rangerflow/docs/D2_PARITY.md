@@ -4,30 +4,51 @@
 > **D2 itself**, run over the same files in `fixtures/d2/` and asked what it
 > understood. Nothing is transcribed, so nothing can be transcribed wrong.
 
-D2 v0.7.1 · 20 of 20 files measured · **103/103 checks agree (100%)**
+D2 v0.7.1 · 41 of 41 files measured · **256/256 checks agree (100%)**
 
-| example | objects | labels | shapes | levels | connections | members | boards |
-| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| `00_minimal.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `01_shapes.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `02_containers.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `03_connections.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `04_arrowheads.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `05_styles.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `06_classes_vars.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `07_globs_filters.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `08_grid.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `09_sequence.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `10_sql_table.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| `11_class_shape.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| `12_text_blocks.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `13_boards.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ |
-| `14_near_positions.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `15_icons_links.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `16_suspend.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `17_imported.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `18_import.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `19_architecture.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| example | objects | labels | shapes | levels | connections | styles | extras | members | boards |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `00_minimal.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `01_shapes.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `02_containers.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `03_connections.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `04_arrowheads.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `05_styles.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `06_classes_vars.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `07_globs_filters.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `08_grid.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `09_sequence.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `10_sql_table.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | — |
+| `11_class_shape.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | — |
+| `12_text_blocks.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `13_boards.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
+| `14_near_positions.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `15_icons_links.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `16_suspend.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `17_imported.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `18_import.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `19_architecture.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `20_globs_deep.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `21_classes_many.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `22_vars_nested.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `23_quoting.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `24_sequence_full.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `25_grid_nested.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `26_boards_nested.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
+| `27_suspend_glob.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `28_table_refs.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | — |
+| `29_labels_rich.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `30_direction_nested.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `31_imports_deep.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `32_imported_base.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `33_null_overrides.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `34_conn_globs.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `35_chains_mixed.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `36_partial_globs.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `37_conn_classes.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `38_meta.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `39_deep_nesting.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| `40_readme.d2` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | — |
 
 ## What this compares
 
@@ -36,7 +57,7 @@ D2 v0.7.1 · 20 of 20 files measured · **103/103 checks agree (100%)**
   measured against React Flow's and d3-force's own functions in
   [`PARITY.md`](PARITY.md). Comparing it to dagre would measure two layouts
   rather than one reader.
-- **Seven dimensions, and a file is only asked the ones it has.** A file with
+- **Nine dimensions, and a file is only asked the ones it has.** A file with
   no table is not asked about table rows, and a file with one board is not
   asked about boards.
 - **The vocabularies meet in `tools/d2-parity.mjs`.** D2 answers with the

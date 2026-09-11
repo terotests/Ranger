@@ -1,0 +1,22 @@
+# Block strings where they are not just a node label: on a connection, in a
+# container, and with a delimiter of their own because the text has a pipe.
+doc: |md
+  ## Heading
+  A list:
+  - one
+  - two
+|
+piped: |`
+  a | b | c
+`|
+code: |ts
+  const x: number = 1
+|
+container: {
+  note: |md
+    inside a container
+  |
+}
+doc -> code: |md
+  **bold** on a connection
+|

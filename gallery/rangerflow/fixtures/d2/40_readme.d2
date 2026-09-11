@@ -1,0 +1,30 @@
+# The kind of diagram a README actually carries: containers, a person, a
+# queue, a table, styles and a couple of long labels.
+direction: right
+vars: { accent: "#2a6" }
+classes: {
+  external: { style: { stroke-dash: 4; fill: "#f7f7fa" } }
+}
+customer: Customer { shape: person }
+shop: Shop {
+  web: Storefront
+  api: Order API
+  queue: { shape: queue; label: orders }
+  web -> api: POST /orders
+  api -> queue: enqueue
+}
+fulfilment: Fulfilment {
+  worker: Picker
+  printer: Label printer { class: external }
+  worker -> printer: print label
+}
+db: {
+  shape: sql_table
+  id: int { constraint: primary_key }
+  customer_id: int { constraint: foreign_key }
+  state: varchar
+}
+customer -> shop.web: browse
+shop.queue -> fulfilment.worker: dequeue
+shop.api -> db: write { style.stroke: ${accent} }
+fulfilment.worker -> db: update state

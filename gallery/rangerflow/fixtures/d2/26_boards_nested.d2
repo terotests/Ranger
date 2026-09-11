@@ -1,0 +1,20 @@
+# Layers inside layers, and a scenario declared inside a layer.
+web -> api
+layers: {
+  inside: {
+    api: API {
+      handler
+      router -> handler
+    }
+    layers: {
+      deeper: {
+        handler: { shape: hexagon }
+      }
+    }
+    scenarios: {
+      slow: {
+        api.router.style.fill: "#fee"
+      }
+    }
+  }
+}

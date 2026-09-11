@@ -45,7 +45,6 @@ Import "./D2Model.rgr"
 Import "../../layout/LayeredLayout.rgr"
 Import "../../layout/EdgeLanes.rgr"
 Import "../../layout/OrthoRouter.rgr"
-Import "../../layout/LayerPacking.rgr"
 
 ; ---------------------------------------------------------------------------
 ; D2's twenty-five shapes, against the forty-odd outlines this library draws.
@@ -760,19 +759,17 @@ class D2Flow {
             }
             id = (substring id ((strlen scope) + 1) (strlen id))
         }
-        def i:int 0
-        while (i < (strlen id)) {
-            if ((charAt id i) == 46) {
-                id = (substring id 0 i)
-                i = (strlen id)
-            } {
-                i = (i + 1)
-            }
+        ; The first segment — and a quoted one keeps its own dots, so
+        ; `"a.b".c` is `"a.b"` and not `"a`.
+        def segs:[string] (D2Model.segments(id))
+        if ((array_length segs) == 0) {
+            return ""
         }
+        def head:string (itemAt segs 0)
         if ((strlen scope) == 0) {
-            return id
+            return head
         }
-        return (scope + "." + id)
+        return (scope + "." + head)
     }
 
     sfn indexOfId:int (ids:[string] id:string) {

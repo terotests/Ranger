@@ -1,0 +1,9 @@
+# `suspend` on a glob, and `unsuspend` bringing one back.
+a: { shape: circle }
+b: { shape: circle }
+c
+d
+a -> c
+b -> d
+*: { &shape: circle; suspend }
+b: unsuspend

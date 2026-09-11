@@ -1,0 +1,13 @@
+# Nested vars, a var used inside another var, and substitution in a
+# connection label as well as in a shape keyword.
+vars: {
+  palette: {
+    accent: "#2a6"
+    muted: "#889"
+  }
+  service: payments
+  full: ${service} service
+}
+api: ${full} { style.fill: ${palette.accent} }
+worker: { style.stroke: ${palette.muted} }
+api -> worker: ${service} queue

@@ -3,8 +3,8 @@
 Status: **read and drawn.** `D2Parser` and `D2Model` read the language —
 objects, connections, styles, vars, classes, globs and filters, suspensions,
 table rows and class members, sequence-diagram scoping, boards and imports —
-and `npm run rangerflow:d2:parity` scores that against D2 itself: **103/103
-checks over the 20 files in `fixtures/d2/`** ([`D2_PARITY.md`](D2_PARITY.md)).
+and `npm run rangerflow:d2:parity` scores that against D2 itself: **256/256
+checks over the 41 files in `fixtures/d2/`** ([`D2_PARITY.md`](D2_PARITY.md)).
 `D2Flow` then draws it: `npm run rangerflow:d2` writes the SVG, the PDF, the
 HTML and the GPU scene, with containers as nested layouts and D2's nine
 missing outlines added to the shape library.
@@ -23,7 +23,7 @@ denominator to come from D2's own source and binary instead.
   D2Parser          keys · maps · edges · block strings · globs · imports    ✅
       ↓
   D2Model           objects · connections · styles · boards                  ✅
-      ↓                                            ← scored against D2: 103/103
+      ↓                                            ← scored against D2: 256/256
   D2Flow            → FlowGraph · containers as nested layouts               ✅
       ↓
   the pipeline that already exists: LayeredLayout · ReadableRouter · EVG
@@ -98,11 +98,14 @@ reason `mermaid-parity.mjs` scores no geometry.
 So three tiers, and only the first two are the score:
 
 - **Tier A — structure.** Object ids and their nesting, labels, shape values,
-  connections with their ends and their arrowheads, styles that survive to the
-  model. The oracle's `shapes[].id/type/label/level` and
+  connections with their ends and their arrowheads. The oracle's
+  `shapes[].id/type/label/level` and
   `connections[].src/dst/srcArrow/dstArrow/label`.
-- **Tier B — semantics.** `sql_table` columns and constraints, `class` fields
-  and visibility, sequence messages and spans, the boards a file declares.
+- **Tier B — semantics.** The styles a file actually set, on objects and on
+  connections; a shape's tooltip, link, icon and insisted-on size;
+  `sql_table` columns and constraints, `class` fields and visibility; and the
+  board tree a file declares, compared by the ids on each board rather than by
+  a count.
 - **Tier C — layout agreement, reported not required.** Same relative order:
   for each connection, does RangerFlow put the target on the far side of the
   source that dagre does; for each container, are the same children inside.
@@ -168,7 +171,7 @@ Each phase names the fixtures it must read and the matrix rows it retires.
 | 6 | Grid diagrams — the new layout | `08` | ✅ read · ⬜ laid out |
 | 7 | Boards: `layers`, `scenarios`, `steps` | `13` | ✅ read · ⬜ shown |
 | 8 | `near`, absolute position, icons, links, tooltips | `14`, `15` | ✅ read · ⬜ placed |
-| 9 | Parity harness: dump, score, generate `D2_PARITY.md` | all | ✅ 103/103 |
+| 9 | Parity harness: dump, score, generate `D2_PARITY.md` | all | ✅ 256/256 |
 | 10 | `D2Flow` — the model into a `FlowGraph`, containers as nested layouts | all | ✅ `npm run rangerflow:d2` |
 | 11 | The nine outlines D2 has and this library did not | `01` | ✅ `core/FlowShapes.rgr` |
 | 12 | `?scenario=d2` in the web editor, driven by `rangerflow:web:test` | — | ⬜ next |
@@ -250,6 +253,31 @@ then asking it directly:
 All five are asserted in `tests/RangerFlowTest.rgr`, so the next reader cannot
 lose them quietly.
 
+## 8b2. What a bigger corpus found
+
+Twenty files agreeing is twenty files' worth of evidence, so the corpus was
+grown to 41 and the meter from seven dimensions to nine — styles, and the
+extras a shape carries (tooltip, link, icon, an insisted-on size). Four
+disagreements came out of it, and each one is now a test:
+
+- **`x: null` deletes an object**, with its subtree and the connections that
+  touched it — and it is *not* `suspend`: a later mention makes a NEW object,
+  which D2 confirms by handing back a plain rectangle where a hexagon used to
+  be.
+- **Connections have globs too.** `(* -> *)[*]`, `(a -> *)[*]` and
+  `(a -> b)[1]` all select connections that already exist; the parser was
+  stopping inside the brackets on the `*`.
+- **`class` on a connection** is the same keyword doing a different job —
+  stroke, dash and label instead of a shape.
+- **An id is spelled the way D2 spells it, not the way the file did.**
+  `'single quoted'` comes back bare, `escaped\.key` comes back as
+  `"escaped.key"`, and a dot inside quotes is not a level: `"a.b"` is one
+  object at level 1. Getting that wrong made every path operation — parent,
+  level, glob, container — wrong for those objects.
+
+The last one is the one worth remembering: it was invisible while the corpus
+only had keys that needed no quoting.
+
 ## 8c. What the drawing needed that the reading did not
 
 **A container is not a node.** A layered layout ranks and orders to cut
@@ -284,8 +312,8 @@ person at the size a node is.
 
 ## 9. Done means
 
-- ~~Tier A and Tier B at **100%** on `fixtures/d2/`~~ — done: 103/103, and the
-  meter runs on every change
+- ~~Tier A and Tier B at **100%** on `fixtures/d2/`~~ — done: 256/256 over 41
+  files, and the meter runs on every change
 - every file D2 accepts, RangerFlow reads; every file D2 refuses, RangerFlow
   refuses, with a message that names the line
 - ~~imports outside the diagram root and over the network **refused**,

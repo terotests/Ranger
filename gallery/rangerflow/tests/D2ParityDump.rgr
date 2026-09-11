@@ -87,6 +87,18 @@ class D2ParityDump {
             if ((strlen o.icon) > 0) {
                 out = (out + ", \"icon\": true")
             }
+            if ((strlen o.tooltip) > 0) {
+                out = (out + ", \"tooltip\": \"" + (D2ParityDump.esc(o.tooltip)) + "\"")
+            }
+            if ((strlen o.link) > 0) {
+                out = (out + ", \"link\": \"" + (D2ParityDump.esc(o.link)) + "\"")
+            }
+            if (o.width > 0.0) {
+                out = (out + ", \"width\": " + (to_string o.width))
+            }
+            if (o.height > 0.0) {
+                out = (out + ", \"height\": " + (to_string o.height))
+            }
             if ((o.fieldCount()) > 0) {
                 out = (out + ", \"fields\": [" + (D2ParityDump.dumpFields(o)) + "]")
             }

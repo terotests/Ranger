@@ -1149,8 +1149,8 @@ So the parser is what was built first:
 
 ```
 npm run rangerflow:d2:parity
-  d2 v0.7.1: 20/20 fixtures accepted …
-  d2 parity: 103/103 checks agree (100%) → gallery/rangerflow/docs/D2_PARITY.md
+  d2 v0.7.1: 41/41 fixtures accepted …
+  d2 parity: 256/256 checks agree (100%) → gallery/rangerflow/docs/D2_PARITY.md
 ```
 
 `domains/d2/D2Parser.rgr` reads the language — keys and dotted paths, maps,
@@ -1164,8 +1164,9 @@ diagram's own directory: an absolute path, a `..` segment, a URL and a cyclic
 chain are each refused with an error rather than followed.
 
 The score is [`docs/D2_PARITY.md`](docs/D2_PARITY.md), computed by D2 over
-objects, labels, shapes, levels, connections, table rows, class members and
-boards. **No geometry is compared**: D2's answer carries every position and
+nine dimensions: objects, labels, shapes, levels, connections, the styles a
+file actually set, the extras a shape carries (tooltip, link, icon, size),
+table rows and class members, and the board tree. **No geometry is compared**: D2's answer carries every position and
 route, and scoring those against RangerFlow's own layered layout would measure
 two layouts rather than one reader.
 

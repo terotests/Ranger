@@ -598,6 +598,45 @@ class D2Board {
         return o
     }
 
+    ; `x: null` takes an object off the board for good, with everything under
+    ; it and every connection that touched it. It is not `suspend`: a later
+    ; mention makes a NEW object rather than bringing this one back, which is
+    ; what D2 does — `b: { shape: circle }`, `b: null`, `b` leaves a plain
+    ; rectangle — so the row really is deleted rather than flagged.
+    fn remove:void (id:string) {
+        def keptObjects:[D2Object]
+        def fresh:[string:int]
+        def i:int 0
+        while (i < (array_length objects)) {
+            def o:D2Object (itemAt objects i)
+            i = (i + 1)
+            if (o.id == id) {
+                continue
+            }
+            if (D2Model.isUnder(o.id id)) {
+                continue
+            }
+            set fresh o.id (array_length keptObjects)
+            push keptObjects o
+        }
+        objects = keptObjects
+        index = fresh
+        def keptConns:[D2Conn]
+        def k:int 0
+        while (k < (array_length conns)) {
+            def c:D2Conn (itemAt conns k)
+            k = (k + 1)
+            if (D2Model.touches(c.src id)) {
+                continue
+            }
+            if (D2Model.touches(c.dst id)) {
+                continue
+            }
+            push keptConns c
+        }
+        conns = keptConns
+    }
+
     ; Every object that is still on the board — `suspend` takes one off it.
     fn live:[D2Object] () {
         def out:[D2Object]
@@ -875,16 +914,41 @@ class D2Model {
         return (scope + "." + name)
     }
 
-    sfn levelOf:int (id:string) {
-        def n:int 1
+    ; An id is its segments joined by dots — and a segment may be quoted, in
+    ; which case the dots inside it are part of the name rather than
+    ; separators. `"a.b"` is one object at level 1, not two.
+    sfn segments:[string] (id:string) {
+        def out:[string]
+        def cur:string ""
+        def quoted:boolean false
         def i:int 0
         while (i < (strlen id)) {
-            if ((charAt id i) == 46) {
-                n = (n + 1)
-            }
+            def c:int (charAt id i)
             i = (i + 1)
+            if (c == 34) {
+                if quoted {
+                    quoted = false
+                } {
+                    quoted = true
+                }
+                cur = (cur + (strfromcode c))
+                continue
+            }
+            if (c == 46) {
+                if (quoted == false) {
+                    push out cur
+                    cur = ""
+                    continue
+                }
+            }
+            cur = (cur + (strfromcode c))
         }
-        return n
+        push out cur
+        return out
+    }
+
+    sfn levelOf:int (id:string) {
+        return (array_length (D2Model.segments(id)))
     }
 
     ; An object is created by being mentioned, and so is every ancestor of it.
@@ -918,18 +982,21 @@ class D2Model {
     }
 
     sfn parentOf:string (id:string) {
-        def cut:int -1
-        def i:int 0
-        while (i < (strlen id)) {
-            if ((charAt id i) == 46) {
-                cut = i
-            }
-            i = (i + 1)
-        }
-        if (cut < 0) {
+        def segs:[string] (D2Model.segments(id))
+        def n:int (array_length segs)
+        if (n < 2) {
             return ""
         }
-        return (substring id 0 cut)
+        def out:string ""
+        def i:int 0
+        while (i < (n - 1)) {
+            if (i > 0) {
+                out = (out + ".")
+            }
+            out = (out + (itemAt segs i))
+            i = (i + 1)
+        }
+        return out
     }
 
     ; ------------------------------------------------------ the main walk ---
@@ -1080,6 +1147,10 @@ class D2Model {
         }
         if (v.kind == "unsuspend") {
             this.suspend(o.id false)
+            return
+        }
+        if (v.kind == "null") {
+            board.remove(o.id)
             return
         }
         if (v.kind == "import") {
@@ -1691,7 +1762,7 @@ class D2Model {
             }
             id = (substring id ((strlen scope) + 1) (strlen id))
         }
-        def segs:[string] (strsplit id ".")
+        def segs:[string] (D2Model.segments(id))
         def n:int (path.size())
         ; `**` at the head matches any depth; every other pattern is
         ; positional, one segment per part.
@@ -1956,12 +2027,49 @@ class D2Model {
                 c.label = text
                 continue
             }
+            ; `class` is the same keyword doing a different job: on a
+            ; connection it hands over stroke, dash and label rather than a
+            ; shape, and D2 applies it the same way.
+            if (k == "class") {
+                this.connClasses(c d)
+                continue
+            }
             if (D2Keys.isStyle(k)) {
                 c.setStyle(k text)
                 continue
             }
             if (k == "tooltip") {
                 continue
+            }
+        }
+    }
+
+    fn connClasses:void (c:D2Conn d:D2Decl) {
+        if ((d.hasValue()) == false) {
+            return
+        }
+        def v:D2Value (d.value())
+        def names:[string]
+        if ((array_length v.items) > 0) {
+            def i:int 0
+            while (i < (array_length v.items)) {
+                def it:D2Value (itemAt v.items i)
+                push names it.text
+                i = (i + 1)
+            }
+        } {
+            if ((strlen v.text) > 0) {
+                push names v.text
+            }
+        }
+        def j:int 0
+        while (j < (array_length names)) {
+            def name:string (itemAt names j)
+            j = (j + 1)
+            if (this.hasClass(name)) {
+                this.connMap(c (this.classBody(name)))
+            } {
+                push board.errors ("no class named `" + name + "`")
             }
         }
     }
@@ -2059,17 +2167,18 @@ class D2Model {
         left.parts = p.refLeft
         def right (new D2Path)
         right.parts = p.refRight
-        def srcId:string (D2Model.resolve(scope left))
-        def dstId:string (D2Model.resolve(scope right))
+        ; Either end may be a glob, and so may the index: `(* -> *)[*]` is
+        ; every connection in this scope, `(a -> *)[*]` every one out of `a`,
+        ; and `(a -> b)[1]` the second of the ones between that pair.
         def hits:[D2Conn]
         def i:int 0
         while (i < (array_length board.conns)) {
             def c:D2Conn (itemAt board.conns i)
             i = (i + 1)
-            if (c.src != srcId) {
+            if ((this.endMatches(scope left c.src)) == false) {
                 continue
             }
-            if (c.dst != dstId) {
+            if ((this.endMatches(scope right c.dst)) == false) {
                 continue
             }
             if (p.refIndex >= 0) {
@@ -2107,6 +2216,15 @@ class D2Model {
                 }
             }
         }
+    }
+
+    ; One end of a connection reference against one end of a connection: a
+    ; pattern is matched, anything else is compared as the id it resolves to.
+    fn endMatches:boolean (scope:string path:D2Path id:string) {
+        if (path.hasPattern()) {
+            return (D2Model.matchesPath(id scope path))
+        }
+        return (id == (D2Model.resolve(scope path)))
     }
 
     sfn resolve:string (scope:string path:D2Path) {

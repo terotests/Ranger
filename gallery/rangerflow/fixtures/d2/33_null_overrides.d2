@@ -1,0 +1,16 @@
+# The same key written twice, and `null`, which takes an object off the board
+# for good — not the same thing as `suspend`.
+x: first
+x: second
+y: { shape: circle }
+y: { style.fill: "#eee" }
+gone: { shape: hexagon; label: not drawn }
+gone: null
+keeper: { label: drawn }
+tree: {
+  a
+  b
+}
+tree.b: null
+x -> y
+keeper -> y
