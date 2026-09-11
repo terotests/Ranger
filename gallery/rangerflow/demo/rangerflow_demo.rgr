@@ -31,6 +31,8 @@ Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
+Import "../domains/mermaid/MermaidRender.rgr"
+Import "../layout/RouteQuality.rgr"
 Import "../domains/mermaid/MermaidClassReader.rgr"
 Import "../domains/mermaid/MermaidErReader.rgr"
 Import "../domains/mermaid/MermaidStateReader.rgr"
@@ -82,6 +84,7 @@ class RangerFlowDemo {
         def mermaidPath:string "gallery/rangerflow/fixtures/order_flow.mmd"
         def styleName:string ""
         def restyle:boolean false
+        def qualityPaths:[string]
         def argCount:int (shell_arg_cnt)
         def i:int 0
         while (i < argCount) {
@@ -106,6 +109,16 @@ class RangerFlowDemo {
                 styleName = (RangerFlowDemo.optionOf(a "--style="))
             }
             if (a == "--restyle") { restyle = true }
+            if (a == "--quality") {
+                mode = "quality"
+            }
+            if (mode == "quality") {
+                if ((strlen a) > 4) {
+                    if ((substring a ((strlen a) - 4) (strlen a)) == ".mmd") {
+                        push qualityPaths a
+                    }
+                }
+            }
             if (a == "--bench") {
                 mode = "bench"
                 if ((i + 1) < argCount) {
@@ -119,6 +132,7 @@ class RangerFlowDemo {
         if (mode == "erd")   { d.runErd() }
         if (mode == "force") { d.runForce() }
         if (mode == "bench") { d.runBench(benchSize) }
+        if (mode == "quality") { d.runQuality(qualityPaths) }
         if (mode == "drag")  { d.runDrag() }
         if (mode == "flowchart") { d.runFlowchart() }
         if (mode == "mermaid")   { d.runMermaid(mermaidPath styleName restyle) }
@@ -414,6 +428,48 @@ class RangerFlowDemo {
         def v:FlowView (FlowView.of(g))
         v.notation = "plain"
         this.writeAll(v g "rangerflow-flowchart" "RangerFlow — ATK-kaavio")
+    }
+
+    ; ----------------------------------------------------------- quality ----
+    ; The numbers a reader's eye takes from a drawing, for any Mermaid files
+    ; given: lines through nodes, lines on each other, the least square end,
+    ; the closest two lines run side by side, routes that miss their port,
+    ; corners, and the size. A picture that has quietly gone bad is found
+    ; here before it is found in a README.
+    fn runQuality:void (paths:[string]) {
+        print "== RangerFlow: route quality =="
+        def style:FlowStyle (FlowStyle.named("default"))
+        def i:int 0
+        while (i < (array_length paths)) {
+            def path:string (itemAt paths i)
+            def src:string (?? (read_file "." path) "")
+            def dr:MermaidDrawing (MermaidRender.draw(src style))
+            if (dr.ok == false) {
+                print ("  " + path + "  (" + dr.kind + ": not drawn)")
+            } {
+                def g:FlowGraph dr.graph
+                def line:string ("  " + path + "  " + dr.kind)
+                line = (line + "  nodes=" + (to_string (g.nodeCount())) + " edges=" + (to_string (g.edgeCount())))
+                line = (line + "  through=" + (to_string (EdgeOverlap.nodeCrossings(g))))
+                line = (line + "  onEachOther=" + (to_string (EdgeOverlap.pairs(g 2.0))))
+                line = (line + "  square=" + (RangerFlowDemo.short((RouteQuality.leastSquare(g)))))
+                line = (line + "  beside=" + (RangerFlowDemo.short((RouteQuality.closestParallel(g)))))
+                line = (line + "  loose=" + (to_string (RouteQuality.looseEnds(g))))
+                line = (line + "  bends=" + (to_string (RouteQuality.totalBends(g))))
+                def b:FlowRect (g.bounds())
+                line = (line + "  size=" + (RangerFlowDemo.short(b.w)) + "x" + (RangerFlowDemo.short(b.h)))
+                print line
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn short:string (v:double) {
+        if (v > 99999.0) {
+            return "-"
+        }
+        def r:double ((to_double (to_int (v * 10.0))) / 10.0)
+        return (to_string r)
     }
 
     ; ----------------------------------------------------------- mermaid ----

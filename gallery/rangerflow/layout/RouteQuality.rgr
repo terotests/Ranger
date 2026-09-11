@@ -1,0 +1,262 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+Import "../core/GraphModel.rgr"
+Import "../core/EdgeRouter.rgr"
+Import "EdgeLanes.rgr"
+
+; ---------------------------------------------------------------------------
+; RouteQuality — what a drawn line is measured by.
+; ---------------------------------------------------------------------------
+; The routers are judged by pictures, and a picture is not a test. These are
+; the numbers a reader's eye takes from a diagram without knowing it does:
+; how long a line is, whether it meets its box square on, and how close it
+; runs beside its neighbours. A known diagram and a bound on each is what
+; keeps a change to one router from quietly undoing what another one got
+; right — the return arrow that went round the outside, the two arrivals
+; drawn as one line. The test suite holds known diagrams to these numbers,
+; and `npm run rangerflow:quality` prints them for every fixture, which is
+; how a dialect that has quietly gone bad is found.
+class RouteQuality {
+    sfn edgeBetween:FlowEdge (g:FlowGraph from:string to:string) {
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.source == from) {
+                if (e.target == to) {
+                    return e
+                }
+            }
+            k = (k + 1)
+        }
+        return (g.edgeAt(0))
+    }
+
+    ; The length of the line as drawn, corner to corner.
+    sfn lengthOf:double (g:FlowGraph e:FlowEdge) {
+        def c:[double] (EdgeRouter.cornersFor(g e))
+        def n:int (idiv (array_length c) 2)
+        def total:double 0.0
+        def i:int 1
+        while (i < n) {
+            def dx:double ((itemAt c (i * 2)) - (itemAt c ((i - 1) * 2)))
+            def dy:double ((itemAt c ((i * 2) + 1)) - (itemAt c (((i - 1) * 2) + 1)))
+            total = (total + (sqrt ((dx * dx) + (dy * dy))))
+            i = (i + 1)
+        }
+        return total
+    }
+
+    ; How square a line meets its box at one end: the cosine of the angle
+    ; between the leg that touches the box and the side's outward normal.
+    ; 1 is straight in, 0 is a line drawn along the side, and 0.7071 is the
+    ; 45° a reader still takes for an arrival. A curve has no corners and
+    ; is not judged.
+    sfn squareness:double (g:FlowGraph e:FlowEdge atSource:boolean) {
+        def c:[double] (EdgeRouter.cornersFor(g e))
+        def n:int (idiv (array_length c) 2)
+        if (n < 2) {
+            return 1.0
+        }
+        def lx:double ((itemAt c 2) - (itemAt c 0))
+        def ly:double ((itemAt c 3) - (itemAt c 1))
+        if (atSource == false) {
+            def lastAt:int ((n - 1) * 2)
+            lx = ((itemAt c (lastAt - 2)) - (itemAt c lastAt))
+            ly = ((itemAt c (lastAt - 1)) - (itemAt c (lastAt + 1)))
+        }
+        def len:double (sqrt ((lx * lx) + (ly * ly)))
+        if (len < 0.001) {
+            return 1.0
+        }
+        def side:int (g.edgeSide(e atSource))
+        def dot:double ((lx * (FlowPosition.normalX(side))) + (ly * (FlowPosition.normalY(side))))
+        return (dot / len)
+    }
+
+    ; The least square end on the whole diagram.
+    sfn leastSquare:double (g:FlowGraph) {
+        def least:double 1.0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.hidden == false) {
+                def a:double (RouteQuality.squareness(g e true))
+                def b:double (RouteQuality.squareness(g e false))
+                if (a < least) { least = a }
+                if (b < least) { least = b }
+            }
+            k = (k + 1)
+        }
+        return least
+    }
+
+    ; The closest two straight runs of different edges come while running
+    ; side by side — both vertical or both horizontal, and overlapping along
+    ; their length by more than a touch. Runs that only meet end to end are
+    ; not beside each other. 0 is two lines drawn as one.
+    sfn closestParallel:double (g:FlowGraph) {
+        def owner:[int]
+        def x1:[double]
+        def y1:[double]
+        def x2:[double]
+        def y2:[double]
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.hidden == false) {
+                def c:[double] (EdgeRouter.cornersFor(g e))
+                def n:int (idiv (array_length c) 2)
+                def i:int 1
+                while (i < n) {
+                    push owner k
+                    push x1 (itemAt c ((i - 1) * 2))
+                    push y1 (itemAt c (((i - 1) * 2) + 1))
+                    push x2 (itemAt c (i * 2))
+                    push y2 (itemAt c ((i * 2) + 1))
+                    i = (i + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        def closest:double 1000000.0
+        def m:int (array_length owner)
+        def a:int 0
+        while (a < m) {
+            def b:int (a + 1)
+            while (b < m) {
+                if ((itemAt owner a) != (itemAt owner b)) {
+                    def d:double (RouteQuality.besideBy(x1 y1 x2 y2 a b))
+                    if (d >= 0.0) {
+                        if (d < closest) {
+                            closest = d
+                        }
+                    }
+                }
+                b = (b + 1)
+            }
+            a = (a + 1)
+        }
+        return closest
+    }
+
+    ; The distance between two runs that lie beside each other, or -1 when
+    ; they do not.
+    sfn besideBy:double (x1:[double] y1:[double] x2:[double] y2:[double] a:int b:int) {
+        def touch:double 0.5
+        def aVert:boolean ((fabs ((itemAt x2 a) - (itemAt x1 a))) < 0.01)
+        def bVert:boolean ((fabs ((itemAt x2 b) - (itemAt x1 b))) < 0.01)
+        def aHoriz:boolean ((fabs ((itemAt y2 a) - (itemAt y1 a))) < 0.01)
+        def bHoriz:boolean ((fabs ((itemAt y2 b) - (itemAt y1 b))) < 0.01)
+        if aVert {
+            if bVert {
+                def lo:double (RouteQuality.lowOf((itemAt y1 a) (itemAt y2 a)))
+                def hi:double (RouteQuality.highOf((itemAt y1 a) (itemAt y2 a)))
+                def lo2:double (RouteQuality.lowOf((itemAt y1 b) (itemAt y2 b)))
+                def hi2:double (RouteQuality.highOf((itemAt y1 b) (itemAt y2 b)))
+                def from:double (RouteQuality.highOf(lo lo2))
+                def to:double (RouteQuality.lowOf(hi hi2))
+                if ((to - from) > touch) {
+                    return (fabs ((itemAt x1 a) - (itemAt x1 b)))
+                }
+                return -1.0
+            }
+        }
+        if aHoriz {
+            if bHoriz {
+                def lo3:double (RouteQuality.lowOf((itemAt x1 a) (itemAt x2 a)))
+                def hi3:double (RouteQuality.highOf((itemAt x1 a) (itemAt x2 a)))
+                def lo4:double (RouteQuality.lowOf((itemAt x1 b) (itemAt x2 b)))
+                def hi4:double (RouteQuality.highOf((itemAt x1 b) (itemAt x2 b)))
+                def from2:double (RouteQuality.highOf(lo3 lo4))
+                def to2:double (RouteQuality.lowOf(hi3 hi4))
+                if ((to2 - from2) > touch) {
+                    return (fabs ((itemAt y1 a) - (itemAt y1 b)))
+                }
+                return -1.0
+            }
+        }
+        return -1.0
+    }
+
+    sfn lowOf:double (a:double b:double) {
+        if (a < b) { return a }
+        return b
+    }
+
+    sfn highOf:double (a:double b:double) {
+        if (a > b) { return a }
+        return b
+    }
+
+    ; How many times the line turns. A line that could be straight and is
+    ; not has two.
+    sfn bends:int (g:FlowGraph e:FlowEdge) {
+        def c:[double] (EdgeRouter.cornersFor(g e))
+        def n:int (idiv (array_length c) 2)
+        if (n < 2) {
+            return 0
+        }
+        return (n - 2)
+    }
+
+    sfn totalBends:int (g:FlowGraph) {
+        def total:int 0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.hidden == false) {
+                total = (total + (RouteQuality.bends(g e)))
+            }
+            k = (k + 1)
+        }
+        return total
+    }
+
+    ; Where two lines properly cross each other, counted corner list against
+    ; corner list. `EdgeOverlap.pairs` forgives a crossing near either end;
+    ; this one does not.
+    sfn crossingsBetween:int (g:FlowGraph a:FlowEdge b:FlowEdge) {
+        def ca:[double] (EdgeRouter.cornersFor(g a))
+        def cb:[double] (EdgeRouter.cornersFor(g b))
+        def na:int (idiv (array_length ca) 2)
+        def nb:int (idiv (array_length cb) 2)
+        def hits:int 0
+        def i:int 1
+        while (i < na) {
+            def j:int 1
+            while (j < nb) {
+                def hit:[double] (EdgeOverlap.crossingOf((itemAt ca ((i - 1) * 2)) (itemAt ca (((i - 1) * 2) + 1)) (itemAt ca (i * 2)) (itemAt ca ((i * 2) + 1)) (itemAt cb ((j - 1) * 2)) (itemAt cb (((j - 1) * 2) + 1)) (itemAt cb (j * 2)) (itemAt cb ((j * 2) + 1))))
+                if ((array_length hit) == 2) {
+                    hits = (hits + 1)
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return hits
+    }
+
+    ; How many routed edges are drawn to somewhere other than their port:
+    ; a route whose first or last corner is not where the edge's endpoint
+    ; now is, after the fan has moved the endpoint.
+    sfn looseEnds:int (g:FlowGraph) {
+        def loose:int 0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            def n:int (array_length e.waypoints)
+            if (n >= 4) {
+                def offStart:boolean false
+                if ((fabs ((itemAt e.waypoints 0) - (g.endpointX(e true)))) > 0.01) { offStart = true }
+                if ((fabs ((itemAt e.waypoints 1) - (g.endpointY(e true)))) > 0.01) { offStart = true }
+                if ((fabs ((itemAt e.waypoints (n - 2)) - (g.endpointX(e false)))) > 0.01) { offStart = true }
+                if ((fabs ((itemAt e.waypoints (n - 1)) - (g.endpointY(e false)))) > 0.01) { offStart = true }
+                if offStart {
+                    loose = (loose + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        return loose
+    }
+}
