@@ -320,7 +320,7 @@ class SceneToEVG {
         def ink:string ""
         if ((array_length n.fills) > 0) {
             def f:SceneFill (n.firstFill())
-            if (f.kind == "solid") {
+            if (f.visible && (f.kind == "solid")) {
                 ink = (f.hexA())
             }
         }
@@ -367,7 +367,9 @@ class SceneToEVG {
         if ((strlen ref) == 0) {
             if ((array_length n.fills) > 0) {
                 def imgF:SceneFill (n.firstFill())
-                ref = imgF.imageRef
+                if imgF.visible {
+                    ref = imgF.imageRef
+                }
             }
         }
         if ((strlen ref) > 0) {

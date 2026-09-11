@@ -14,6 +14,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **FigJam boards draw.** A sticky, a shape with text, a connector and a table
+  carry no children: Figma builds their layers itself and a `.jam` ships only
+  what it built, as two lists that pair by `guidPath` —
+  `derivedImmutableFrameData` with each layer's size, transform, flattened
+  paths and shaped glyphs, and `nodeGenerationData` with its paints, its text
+  and its `visible`. Neither was read, so a real board opened as a page of
+  empty boxes: all 26 of its stickies, all 56 shapes, all 5 connectors and all
+  5 tables drew nothing whatever. Each layer is now merged the way an instance
+  override is and run through the ordinary reader, so a sticky's body is a
+  vector and its text is text with outlines, and nothing is written twice. The
+  first guid on a path names the layer and the rest name the node, which is why
+  a cell's background and its text share a path *tail* and not a prefix — a
+  layer is placed against the first entry with the same tail, and the third
+  cell's text lands in the third cell.
+
+- **`fig_cli fields <file> <node-id>`** prints one node's raw kiwi fields, which
+  is how a layer that draws wrong is read against what the file says about it.
+
 - **Mermaid event models.** Time across the page, kind down it: each `tf` is a
   time frame and lands in the lane its kind belongs to, under the three names
   Mermaid's own config gives them. The lane is not a choice — an event drawn in
@@ -73,6 +91,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with an ellipsis in each say nothing at all.
 
 ### Fixed
+
+- **A page panned away from the origin drew almost nothing.** EVG skips a
+  subtree that cannot reach the clip it is inside, and the test was made
+  against the boxes the layout placed while a transform moves the pixels
+  afterwards. A Figma page is laid out around the origin and never noticed it;
+  a FigJam board is laid out where the designer left it — x = -13,264 on the
+  board that found this — so every frame measured as ten thousand pixels
+  off-screen and was skipped whole: 193 draw commands for 3,565 nodes. The clip
+  now travels into the space the subtree is laid out in, and a rotation, which
+  no rectangle can follow, turns culling off for that subtree rather than
+  guessing at one.
+
+- **An instance showed the component's placeholder, at the component's size.**
+  An override path is spelled in `overrideKey` — a component copied in from a
+  library is re-guided on the way in and keeps its old identity there — and
+  matching on the node's own guid placed 55 of a board's 1,323 overrides. It is
+  also two lists and not one: `derivedSymbolData` is what Figma computed, the
+  shaped glyphs and the size the instance laid the node out at, and
+  `symbolData.symbolOverrides` is what the designer typed. Reading only the
+  first left a 2,030-pixel card spilling 4,600 pixels of placeholder down the
+  board.
+
+- **An instance now clips the way its component does.** The flag is on the
+  component and the instance carries only `frameMaskDisabled`, so the
+  screenshot inside a tip card ran out of the side of the card.
+
+- **A layer whose only fill was switched off was painted opaque black.**
+  `firstFill` handed back an empty paint that read as visible black when every
+  paint on the node was hidden, which put a black box over every icon on a
+  FigJam board that carried one.
+
+- **The scene-graph JSON was not JSON.** Layer names, path data and a sticky's
+  text went in unescaped, so a board whose first sticky ran to two lines made
+  the whole pane unparseable.
 
 - **The diagram-type matrix was measured against a list that could not be
   complete.** It discovered Mermaid's types by listing

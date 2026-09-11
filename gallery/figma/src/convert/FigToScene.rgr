@@ -69,12 +69,27 @@ class FigToScene {
     fn convertNode:SceneNode (source:FigNode) {
         def nd:FigNode source
         if ((strlen pathPrefix) > 0) {
-            def hit@(optional):KiwiValue (get overrides (pathPrefix + source.id))
+            def key:string (pathPrefix + (FigToScene.overrideKeyOf(source)))
+            def raw:KiwiValue source.raw
+            def found:boolean false
+            ; What the designer typed, then what Figma made of it: the
+            ; authored entry carries the string and the derived one the
+            ; shaped glyphs and the size the instance laid it out at.
+            def auth@(optional):KiwiValue (get authored key)
+            if (null? auth) {
+            } {
+                raw = (FigToScene.mergeOverride(raw (unwrap auth)))
+                found = true
+            }
+            def hit@(optional):KiwiValue (get overrides key)
             if (null? hit) {
             } {
+                raw = (FigToScene.mergeOverride(raw (unwrap hit)))
+                found = true
+            }
+            if found {
                 overridesUsed = (overridesUsed + 1)
-                def over:KiwiValue (unwrap hit)
-                def merged:FigNode (FigModel.nodeFrom((FigToScene.mergeOverride(source.raw over))))
+                def merged:FigNode (FigModel.nodeFrom(raw))
                 merged.id = source.id
                 merged.parentId = source.parentId
                 merged.position = source.position
@@ -173,6 +188,12 @@ class FigToScene {
                 }
             }
         }
+        ; FigJam draws a sticky, a shape, a connector and a table from
+        ; layers it builds itself, which the file ships as derived data
+        ; rather than as children.
+        if ((array_length sn.children) == 0) {
+            this.expandImmutableFrame(nd sn)
+        }
         this.strokeFromGeometry(nd sn)
         return sn
     }
@@ -200,9 +221,32 @@ class FigToScene {
     ; path. Matching on the last guid alone, and worse, dropping the outer
     ; instance's table on entering a nested one, placed 115 of 25,672.
     def overrides:[string:KiwiValue]
+    ; The designer's own edits — `symbolData.symbolOverrides` — keyed the
+    ; same way. They are what the derived entries were computed from, and
+    ; they carry the fields the derived ones leave out: the text itself is
+    ; here, the glyphs it was shaped into are there.
+    def authored:[string:KiwiValue]
     def pathPrefix:string ""
     def overridesSeen:int 0
     def overridesUsed:int 0
+
+    ; What an override entry calls this node. A component in this file is
+    ; a copy of one from a library, re-guided on the way in, and the paths
+    ; in `derivedSymbolData` and `symbolOverrides` still name the library's
+    ; guids — so the node carries `overrideKey`, its identity in that
+    ; namespace, and matching on the node's own guid placed 55 of 1,323.
+    ; A file whose components are its own (the bundled sample, a REST
+    ; import) has no overrideKey and is matched on the guid as before.
+    sfn overrideKeyOf:string (nd:FigNode) {
+        def key:KiwiValue (nd.raw.child("overrideKey"))
+        if (key.isObject()) {
+            def k:string (FigModel.guidOf(key))
+            if ((strlen k) > 0) {
+                return k
+            }
+        }
+        return nd.id
+    }
 
     ; "J/Y" for a node Y inside a nested instance J. An entry with no path
     ; but an overrideKey names one node directly.
@@ -317,6 +361,19 @@ class FigToScene {
             sn.warn("instance names itself")
             return
         }
+        ; An instance clips the way the component it draws does: the flag
+        ; is on the component, and the node pointing at it carries only
+        ; `frameMaskDisabled`. Without this the screenshot inside a card ran
+        ; out of the side of the card.
+        if (m.isFrameLike()) {
+            if (nd.raw.hasField("clipsContent")) {
+            } {
+                if (nd.raw.childBool("frameMaskDisabled" false)) {
+                } {
+                    sn.clip = (m.raw.childBool("clipsContent" true))
+                }
+            }
+        }
         if ((array_length m.children) == 0) {
             ; A component can legitimately be a single shape — an icon, a
             ; divider, a spacer — and an export copies its paint onto the
@@ -331,7 +388,7 @@ class FigToScene {
         ; Everything inside this instance hangs off its own key, so the
         ; entries can go in one table for the whole document and a nested
         ; expansion adds to it rather than replacing it.
-        def childPrefix:string ((pathPrefix + nd.id) + "/")
+        def childPrefix:string ((pathPrefix + (FigToScene.overrideKeyOf(nd))) + "/")
         def derived:KiwiValue (nd.raw.child("derivedSymbolData"))
         if (derived.isArray()) {
             def d:int 0
@@ -344,6 +401,18 @@ class FigToScene {
                     set overrides full change
                 }
                 d = (d + 1)
+            }
+        }
+        def edits:KiwiValue ((nd.raw.child("symbolData")).child("symbolOverrides"))
+        if (edits.isArray()) {
+            def e:int 0
+            while (e < (edits.itemCount())) {
+                def edit:KiwiValue (edits.item(e))
+                def erel:string (FigToScene.overridePath(edit))
+                if ((strlen erel) > 0) {
+                    set authored (childPrefix + erel) edit
+                }
+                e = (e + 1)
             }
         }
         def keptPrefix:string pathPrefix
@@ -362,6 +431,195 @@ class FigToScene {
         }
         instanceDepth = (instanceDepth - 1)
         pathPrefix = keptPrefix
+    }
+
+    ; --- FigJam immutable frames -----------------------------------------
+    ;
+    ; A sticky, a shape with text, a connector, a table: none of them has
+    ; children. Figma builds the layers itself and the file ships only what
+    ; it built — `derivedImmutableFrameData.overrides`, one entry per layer
+    ; with its size, transform and flattened geometry, and
+    ; `nodeGenerationData.overrides`, the paints and the text for the same
+    ; layers, paired with it by `guidPath`. Reading neither is what opens a
+    ; FigJam board as a page of empty boxes.
+    ;
+    ; The first guid on a path names the layer — 0 the background, 1 the
+    ; text — and the rest name the node inside the frame. A table cell's
+    ; text and its background therefore share a path tail rather than a
+    ; prefix, and a layer is placed against the first entry with the same
+    ; tail, which is what puts the third cell's text in the third cell.
+    fn expandImmutableFrame:void (nd:FigNode sn:SceneNode) {
+        def parts:KiwiValue ((nd.raw.child("derivedImmutableFrameData")).child("overrides"))
+        def n:int (parts.itemCount())
+        if (n == 0) {
+            return
+        }
+        def styles:KiwiValue ((nd.raw.child("nodeGenerationData")).child("overrides"))
+        def styleByKey:[string:KiwiValue]
+        def si:int 0
+        while (si < (styles.itemCount())) {
+            def st:KiwiValue (styles.item(si))
+            def skey:string (FigToScene.overridePath(st))
+            if ((strlen skey) > 0) {
+                set styleByKey skey st
+            }
+            si = (si + 1)
+        }
+        ; The layer a node path was first drawn in. Its transform is where
+        ; that node sits in the frame, and the layers after it are drawn
+        ; against it rather than against the frame.
+        def anchorOf:[string:KiwiValue]
+        def anchorKey:[string:string]
+        def i:int 0
+        while (i < n) {
+            def part:KiwiValue (parts.item(i))
+            def key:string (FigToScene.overridePath(part))
+            def tail:string (FigToScene.pathTail(key))
+            def seen@(optional):string (get anchorKey tail)
+            if (null? seen) {
+                set anchorKey tail key
+                set anchorOf tail (part.child("transform"))
+            }
+            i = (i + 1)
+        }
+        def p:int 0
+        while (p < n) {
+            def part:KiwiValue (parts.item(p))
+            def key:string (FigToScene.overridePath(part))
+            def tail:string (FigToScene.pathTail(key))
+            ; Where the node this layer belongs to sits: its own place plus
+            ; every enclosing node that carries one.
+            def ox:double 0.0
+            def oy:double 0.0
+            def walk:string tail
+            def more:boolean true
+            while more {
+                def at@(optional):KiwiValue (get anchorOf walk)
+                if (null? at) {
+                } {
+                    def atf:KiwiValue (unwrap at)
+                    ox = (ox + (atf.childDouble("m02" 0.0)))
+                    oy = (oy + (atf.childDouble("m12" 0.0)))
+                }
+                if ((strlen walk) == 0) {
+                    more = false
+                } {
+                    walk = (FigToScene.pathParent(walk))
+                }
+            }
+            def own:KiwiValue (part.child("transform"))
+            def isAnchor:boolean false
+            def owner@(optional):string (get anchorKey tail)
+            if (null? owner) {
+            } {
+                if ((unwrap owner) == key) {
+                    isAnchor = true
+                }
+            }
+            if isAnchor {
+            } {
+                ; The anchor's own place is already in ox/oy.
+                ox = (ox + (own.childDouble("m02" 0.0)))
+                oy = (oy + (own.childDouble("m12" 0.0)))
+            }
+            def style:KiwiValue (KiwiValue.nilVal())
+            def hit@(optional):KiwiValue (get styleByKey key)
+            if (null? hit) {
+                ; A connector keeps one style block for the whole thing —
+                ; the line, its caps and its label are all drawn in it.
+                if ((styles.itemCount()) == 1) {
+                    style = (styles.item(0))
+                }
+            } {
+                style = (unwrap hit)
+            }
+            def merged:KiwiValue (FigToScene.mergeOverride(style part))
+            def tf (KiwiValue.fromObject())
+            tf.put("m00" (KiwiValue.fromDouble((own.childDouble("m00" 1.0)))))
+            tf.put("m01" (KiwiValue.fromDouble((own.childDouble("m01" 0.0)))))
+            tf.put("m02" (KiwiValue.fromDouble(ox)))
+            tf.put("m10" (KiwiValue.fromDouble((own.childDouble("m10" 0.0)))))
+            tf.put("m11" (KiwiValue.fromDouble((own.childDouble("m11" 1.0)))))
+            tf.put("m12" (KiwiValue.fromDouble(oy)))
+            merged.put("transform" tf)
+            def kind:string (FigToScene.framePartType(merged))
+            merged.put("type" (KiwiValue.fromString(kind)))
+            merged.put("name" (KiwiValue.fromString(nd.name)))
+            ; A layer with neither text nor geometry is the box the others
+            ; are laid out in. Its paints belong to them — painting them
+            ; here put a dark rectangle over every sticky, in the colour of
+            ; the sticky's own text.
+            if (kind == "FRAME") {
+                merged.put("fillPaints" (KiwiValue.fromArray()))
+                merged.put("strokePaints" (KiwiValue.fromArray()))
+            }
+            ; A connector's arrow head is a filled path, and the only
+            ; colour the file gives the connector is the line's.
+            if (nd.typeName == "CONNECTOR") {
+                if (((merged.child("fillGeometry")).itemCount()) > 0) {
+                    if (((merged.child("fillPaints")).itemCount()) == 0) {
+                        merged.put("fillPaints" (merged.child("strokePaints")))
+                    }
+                }
+            }
+            def layer:FigNode (FigModel.nodeFrom(merged))
+            layer.id = ((nd.id + "#") + key)
+            layer.parentId = nd.id
+            if layer.visible {
+                def lsn:SceneNode (this.convertNode(layer))
+                push sn.children lsn
+            }
+            p = (p + 1)
+        }
+    }
+
+    ; What to read the layer as. The frame does not say, so the fields do:
+    ; laid-out text is text, flattened geometry is a vector, and a layer
+    ; with neither is a box that holds the others.
+    sfn framePartType:string (v:KiwiValue) {
+        if ((v.child("derivedTextData")).isObject()) {
+            return "TEXT"
+        }
+        if ((v.child("textData")).isObject()) {
+            return "TEXT"
+        }
+        if (((v.child("fillGeometry")).itemCount()) > 0) {
+            return "VECTOR"
+        }
+        if (((v.child("strokeGeometry")).itemCount()) > 0) {
+            return "VECTOR"
+        }
+        return "FRAME"
+    }
+
+    ; "40000000:1/601:5/601:6" → "601:5/601:6": the path with the layer
+    ; dropped, which is the node the layer belongs to.
+    sfn pathTail:string (path:string) {
+        def n:int (strlen path)
+        def i:int 0
+        while (i < n) {
+            if ((charAt path i) == 47) {
+                return (substring path (i + 1) n)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn pathParent:string (path:string) {
+        def n:int (strlen path)
+        def cut:int (0 - 1)
+        def i:int 0
+        while (i < n) {
+            if ((charAt path i) == 47) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return ""
+        }
+        return (substring path 0 cut)
     }
 
     ; The stroke as Figma drew it. A file carries `strokeGeometry`: the
