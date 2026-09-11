@@ -68,6 +68,10 @@ class MdDeckResult {
     ; Clips `PptxFromEvg` could not express, inside the drawings. A drawing
     ; that relied on one to hide something comes out showing it.
     def clipped:int 0
+    ; The faces the deck NAMES. Not a fault — every deck names fonts — but the
+    ; reader's machine may not have them, and "missing fonts" on opening a
+    ; deck is alarming when nobody said which or why.
+    def faces:[string]
     def notes:[string]
 
     Constructor () {
@@ -75,6 +79,27 @@ class MdDeckResult {
 
     fn note:void (msg:string) {
         push notes msg
+    }
+
+    fn face:void (name:string) {
+        if ((strlen name) == 0) { return }
+        def i:int 0
+        while (i < (array_length faces)) {
+            if ((itemAt faces i) == name) { return }
+            i = (i + 1)
+        }
+        push faces name
+    }
+
+    fn faceList:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length faces)) {
+            if (i > 0) { out = (out + " and ") }
+            out = (out + (itemAt faces i))
+            i = (i + 1)
+        }
+        return out
     }
 
     fn noteCount:int () {
@@ -97,6 +122,9 @@ class MdDeckResult {
         }
         if (clipped > 0) {
             out = (out + ", " + (to_string clipped) + " clip(s) ignored")
+        }
+        if ((array_length faces) > 0) {
+            out = (out + " — in " + (this.faceList()))
         }
         if (dropped > 0) {
             out = (out + ", " + (to_string dropped) + " dropped")
@@ -150,11 +178,26 @@ class MdToPptx {
         ; published entry point and the one the API test drives.
         def d:PptxDeck (PptxApi.create())
         d.setSize(l.style.pageWidth l.style.pageHeight)
+        ; The faces the deck NAMES, so a reader that has to substitute them
+        ; substitutes one pair rather than one pair plus whatever the theme
+        ; happened to say. `MdStyle` has the answer because the layout
+        ; measured with it.
+        d.pres.theme.majorFont = l.style.headingFamily
+        d.pres.theme.minorFont = l.style.bodyFamily
         def slides:int l.pageCount
         if (slides < 1) { slides = 1 }
         def s:int 0
         while (s < slides) {
-            d.addSlide()
+            def ref:PptxSlideRef (d.addSlide())
+            ; The paper, stated on the slide.
+            ;
+            ; A slide with no background of its own falls back to the master,
+            ; which falls back to the THEME — and a theme nobody wrote is a
+            ; theme whose `lt1` a reader may resolve to anything. Saying it
+            ; here costs one element per slide and makes the deck's paper a
+            ; fact about the deck rather than about the reader. A markdown
+            ; page is white; when `MdStyle` grows a page colour this reads it.
+            ref.background("#ffffff")
             s = (s + 1)
         }
         result.slides = slides
@@ -167,7 +210,27 @@ class MdToPptx {
             i = (i + 1)
         }
         this.pictures(doc)
+        this.fonts(l)
         return d
+    }
+
+    ; The faces the deck asks for, said once.
+    ;
+    ; A deck names fonts by NAME and carries none of them; a reader that does
+    ; not have one substitutes it, and PowerPoint and Keynote both say so on
+    ; opening. That is not a fault and it is not nothing: the geometry here
+    ; was measured with these faces, so a substitute reflows the text inside
+    ; the boxes — which is the same trade §2 already makes for the wrapping,
+    ; arriving by another door.
+    ;
+    ; Carrying them instead means `p:embeddedFontLst` and an `fntdata` part
+    ; per face, which this writer does not do yet. Named rather than left for
+    ; a reader to discover in a dialog.
+    fn fonts:void (l:MdLayout) {
+        result.face(l.style.bodyFamily)
+        result.face(l.style.headingFamily)
+        result.face(l.style.monoFamily)
+        result.note((("the deck asks for " + (result.faceList())) + " and carries neither: a reader without them substitutes, and the text reflows inside its boxes"))
     }
 
     ; ----------------------------------------------------------------------

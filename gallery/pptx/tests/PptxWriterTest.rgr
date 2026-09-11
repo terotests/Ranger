@@ -55,6 +55,7 @@ class PptxWriterTest {
         this.testFlipRoundTrip()
         this.testNotesRoundTrip()
         this.testNotesOverExistingDeck()
+        this.testDefaultTheme()
         this.testThemeInFile()
         this.testSaveOver()
         this.testSaveOverStructure()
@@ -846,6 +847,64 @@ class PptxWriterTest {
         def s1:PptxSlide (itemAt back.slides 0)
         this.check("and not on the other one" ((s1.notesText()) == ""))
         p2.close()
+    }
+
+    ; A deck nobody themed is white paper with black ink, which is what
+    ; "a deck nobody themed" is supposed to look like.
+    ;
+    ; It was black paper. `PptxTheme.colorOf` returned `000000` for every
+    ; scheme colour a theme did not state, and a deck built from scratch
+    ; states none — including `lt1`, which a master's colour map sends `bg1`
+    ; to and which is therefore THE SLIDE'S BACKGROUND. Every deck this
+    ; repository wrote came out black on black in any reader that paints the
+    ; theme's background, which is every reader. It was reported from Keynote,
+    ; and nothing here could see it: the shapes were all correct, and the one
+    ; thing that was wrong was the colour of the part underneath them.
+    fn testDefaultTheme:void () {
+        print "--- a deck nobody themed is white, not black ---"
+        def pres (new PptxPresentation())
+        pres.slideWidth = 960.0
+        pres.slideHeight = 540.0
+        def slide (new PptxSlide())
+        slide.width = 960.0
+        slide.height = 540.0
+        push pres.slides slide
+        def writer (new PptxWriter())
+        writer.save(pres "gallery/pptx/bin" "untitled.pptx")
+
+        def p (new PptxParser())
+        def ok:boolean (p.openParts("gallery/pptx/bin" "untitled.pptx"))
+        this.check("an untouched deck opens" ok)
+        if (ok == false) { return }
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p.parsePresentation())))
+
+        ; The one that is the background, through the colour map every master
+        ; this writer emits states: bg1 → lt1.
+        this.check("lt1 — the paper — is white" ((back.theme.colorOf("lt1")) == "FFFFFF"))
+        this.check("dk1 — the ink — is black" ((back.theme.colorOf("dk1")) == "000000"))
+        ; …and the rest are Office's own, so a `schemeClr` in somebody else's
+        ; shape resolves to a colour rather than to black.
+        this.check("an accent is an accent" ((back.theme.colorOf("accent1")) == "4472C4"))
+        this.check("a link is a link" ((back.theme.colorOf("hlink")) == "0563C1"))
+        def blacks:int 0
+        def names:[string]
+        push names "lt1"
+        push names "lt2"
+        push names "accent1"
+        push names "accent2"
+        push names "accent3"
+        push names "accent4"
+        push names "accent5"
+        push names "accent6"
+        push names "hlink"
+        push names "folHlink"
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((back.theme.colorOf((itemAt names i))) == "000000") { blacks = (blacks + 1) }
+            i = (i + 1)
+        }
+        this.check("and nothing but the ink is black" (blacks == 0))
+        p.close()
     }
 
     fn testThemeInFile:void () {

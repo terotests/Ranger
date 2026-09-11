@@ -813,6 +813,46 @@ digraph { a -> b; }
         return false
     }
 
+    ; The paper, and the faces.
+    ;
+    ; A slide with no background of its own falls back to the master, which
+    ; falls back to the THEME — and a theme nobody wrote is a theme whose
+    ; `lt1` a reader resolves to whatever it likes. It resolved to black, and
+    ; a reader opened this deck to black paper with black text on it. The
+    ; theme's own default is fixed where it belongs, in `PptxTheme`, and the
+    ; deck says its paper out loud as well: one element per slide, and the
+    ; colour of the page becomes a fact about the deck rather than about the
+    ; reader.
+    fn paper:void (c:DeckCheck) {
+        print "-- white paper, and the faces the deck asks for --"
+        def src:string "# Title
+
+prose
+"
+        def css:string "page { width: 720pt; height: 405pt; padding: 36pt } document { font-family: Open Sans } heading { font-family: Noto Sans }"
+        def back:PptxDeck (this.reopened((this.build(src css))))
+        def sl:PptxSlideRef (back.slideAt(0))
+        def m:PptxSlide (sl.model())
+        c.ok("the slide states its own paper" m.bg.isSet)
+        c.eqStr("…and it is white" (MdChar.lower(m.bg.srgb)) "ffffff")
+
+        ; …and even if it did not, the theme under it is not black.
+        c.eqStr("the theme's paper is white too" (back.pres.theme.colorOf("lt1")) "FFFFFF")
+        c.eqStr("…and its ink is black" (back.pres.theme.colorOf("dk1")) "000000")
+
+        ; The faces the deck names are the ones the layout measured with, in
+        ; the theme as well as on the runs — so a reader that has to
+        ; substitute them substitutes one pair, not two.
+        c.eqStr("the theme's body face" back.pres.theme.minorFont "Open Sans")
+        c.eqStr("…and its heading face" back.pres.theme.majorFont "Noto Sans")
+
+        ; …and the reader is told which faces the deck will ask their machine
+        ; for, because "missing fonts" on opening a deck is alarming when
+        ; nobody said which or why.
+        c.ok("the faces are named in the summary" (MdPptxTest.hasSub((maker.result.describe()) "Open Sans")))
+        c.ok("…and what a substitution costs is said" (MdPptxTest.noted(maker "reflows inside its boxes")))
+    }
+
     fn run:void () {
         def c:DeckCheck (new DeckCheck())
         print "== MdPptxTest =="
@@ -825,6 +865,7 @@ digraph { a -> b; }
         this.twoCompanies(c)
         this.named(c)
         this.cost(c)
+        this.paper(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {

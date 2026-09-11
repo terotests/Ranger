@@ -5,7 +5,7 @@
 ; ============================================================================
 ;
 ; ````markdown
-; ```mermaid      ```plantuml     ```dot
+; ```mermaid      ```plantuml     ```dot        ```d2
 ; ````
 ;
 ; Two places need this answer and they must not disagree. The PARSER needs it
@@ -23,13 +23,16 @@
 ;   mermaid                     mermaid
 ;   plantuml, puml              plantuml
 ;   dot, graphviz               graphviz
+;   d2                          d2
 ;
 ; The notation is what `MdDiagram` dispatches on, not the fence word: two
 ; spellings of the same reader should not be two branches downstream.
 ;
-; **`d2` is deliberately not here.** RangerFlow has no D2 reader, and a fence
-; listed here that nothing can draw is worse than one left as code: it turns
-; a syntax-highlighted block into an empty slot with an apology in it.
+; A word earns a row here only once something can DRAW it. A fence listed
+; here that nothing reads is worse than one left as code: it turns a
+; syntax-highlighted block into an empty slot with an apology in it. `d2` sat
+; out of this table for exactly that reason until RangerFlow grew a D2 reader
+; and `D2Render` put a door on it.
 ; ============================================================================
 
 class MdEmbedKinds {
@@ -41,6 +44,7 @@ class MdEmbedKinds {
         if (word == "puml") { return "plantuml" }
         if (word == "dot") { return "graphviz" }
         if (word == "graphviz") { return "graphviz" }
+        if (word == "d2") { return "d2" }
         return ""
     }
 

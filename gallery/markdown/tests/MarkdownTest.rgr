@@ -425,6 +425,7 @@ class MarkdownTest {
         push words "puml"
         push words "dot"
         push words "graphviz"
+        push words "d2"
         def w:int 0
         def drawable:int 0
         while (w < (array_length words)) {
@@ -434,26 +435,28 @@ class MarkdownTest {
             if (kid.kind == "embed") { drawable = (drawable + 1) }
             w = (w + 1)
         }
-        this.eqInt("every notation's fence word opens a slot" drawable 5)
+        this.eqInt("every notation's fence word opens a slot" drawable 6)
 
-        ; `d2` is a real notation and RangerFlow has no reader for it. A fence
-        ; listed as drawable that nothing draws is worse than one left as
-        ; code — it turns a highlighted block into an empty box — so it must
-        ; stay code until there is a reader.
-        def d2:MdNode (MdBlock.parseText("```d2\nx -> y\n```\n"))
-        def d2kid:MdNode (d2.childAt(0))
-        this.eq("d2 has no reader, so it stays code" d2kid.kind "code_block")
+        ; A fence listed as drawable that nothing draws is worse than one left
+        ; as code — it turns a highlighted block into an empty box. So the
+        ; other half of this check is the one below: every word in that list
+        ; has to come back with a DRAWING, not just with a slot. `d2` stayed
+        ; code until `D2Render` existed, for exactly that reason.
+        def lang:MdNode (MdBlock.parseText("```python\nx = 1\n```\n"))
+        def langkid:MdNode (lang.childAt(0))
+        this.eq("a language is still code" langkid.kind "code_block")
 
         ; --- the renderer's half: a diagram, at a size, in each notation
         def puml:string "@startuml\npackage \"tilaukset\" {\n  abstract class Tilaus {\n    +id: int\n  }\n  class Verkkotilaus\n  class Rivi\n}\ninterface Maksettava\nclass Asiakas\nTilaus <|-- Verkkotilaus\nTilaus *-- \"1..*\" Rivi : sisaltaa\nAsiakas \"1\" o-- \"monta\" Tilaus : tekee\nTilaus ..|> Maksettava\n@enduml"
         def dot:string "digraph {\n  rankdir=LR;\n  saapuu -> tarkista;\n  tarkista -> laskuta;\n}"
         def mer:string "flowchart LR\n  A --> B"
-        def src:string ((((("```plantuml\n" + puml) + "\n```\n\n```dot\n") + dot) + "\n```\n\n```mermaid\n") + mer + "\n```\n")
+        def d2s:string "direction: right\nvarasto -> keraily\nkeraily -> lahetys"
+        def src:string ((((("```plantuml\n" + puml) + "\n```\n\n```dot\n") + dot) + "\n```\n\n```mermaid\n") + mer + "\n```\n\n```d2\n" + d2s + "\n```\n")
         def doc:MdNode (MdBlock.parseText(src))
         def l:MdLayout (new MdLayout())
         def contentW:double (700.0 - (l.style.margin * 2.0))
         MdDiagram.prepare(doc l.embeds contentW "default")
-        this.eqInt("three fences, three diagrams prepared" (l.embeds.count()) 3)
+        this.eqInt("four fences, four diagrams prepared" (l.embeds.count()) 4)
 
         def drawn:int 0
         def e:int 0
@@ -466,10 +469,10 @@ class MarkdownTest {
             }
             e = (e + 1)
         }
-        this.eqInt("every one of them has a drawing with a size" drawn 3)
+        this.eqInt("every one of them has a drawing with a size" drawn 4)
 
         l.layoutContinuous(doc 700.0)
-        this.eqInt("and the layout left three slots" (MarkdownTest.countKind(l 3)) 3)
+        this.eqInt("and the layout left four slots" (MarkdownTest.countKind(l 3)) 4)
 
         ; --- and the marks land where the boxes are
         def root:EVGElement (MdToEvg.buildPage(l 700.0))
@@ -488,7 +491,7 @@ class MarkdownTest {
             }
             bi = (bi + 1)
         }
-        this.eqInt("each slot has marks inside it" boxed 3)
+        this.eqInt("each slot has marks inside it" boxed 4)
 
         ; --- the noun the PlantUML failure would be about: the classes.
         ; A class diagram read as a sequence diagram is participants that do
@@ -508,6 +511,13 @@ class MarkdownTest {
         if (MarkdownTest.drewText(dl "tarkista")) { dots = (dots + 1) }
         if (MarkdownTest.drewText(dl "laskuta")) { dots = (dots + 1) }
         this.eqInt("all three DOT nodes are on the page" dots 3)
+        ; And the D2 objects. Different words from the DOT ones on purpose —
+        ; sharing a name would let one reader's drawing answer for the other's.
+        def d2n:int 0
+        if (MarkdownTest.drewText(dl "varasto")) { d2n = (d2n + 1) }
+        if (MarkdownTest.drewText(dl "keraily")) { d2n = (d2n + 1) }
+        if (MarkdownTest.drewText(dl "lahetys")) { d2n = (d2n + 1) }
+        this.eqInt("all three D2 objects are on the page" d2n 3)
 
         ; --- the store stays the size of the document
         ;

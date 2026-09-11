@@ -6,8 +6,8 @@ document, measured once, comes out as a PDF with its fonts embedded and as a
 display list a GPU can paint.
 
 ```bash
-npm run markdown:test          # 139 assertions on the parser, the layout, the diagrams
-npm run markdown:test:go       # …the same 115 compiled to Go (and :python to Python)
+npm run markdown:test          # 153 assertions on the parser, the layout, the diagrams
+npm run markdown:test:go       # …the same, compiled to Go (and :python to Python)
 npm run markdown:spec          # score against CommonMark's own 652 examples
 npm run markdown:demo          # the samples and this repository's README → PDF + HTML
 npm run markdown:pdf -- FILE   # …any file you name
@@ -19,6 +19,10 @@ npm run markdown:edit:test     # the caret, the patches, and undo back to the by
 npm run markdown:semantic:test # …and that every toggle is its own inverse
 npm run markdown:srcmap:test   # a character in the picture names one in the file
 npm run markdown:srcmap:spec   # …scored over CommonMark's own 652 examples
+npm run markdown:attrs:test    # `{.class}` attaches to the right block, and to nothing else
+npm run markdown:css:test      # a template says it, the style holds it, nothing else moves
+npm run markdown:slides:test   # columns, and where a slide breaks
+npm run markdown:pptx:test     # the deck goes out and comes back the same deck
 ```
 
 ## Editing the drawing
@@ -150,16 +154,17 @@ and the alternative — the display-list road for everything, which is what
 that wraps across five lines arrives as five text boxes, and deleting a word
 leaves a hole.
 
-What could not go out as text is counted and named, per slide.
-
 What the export costs is counted and named, per slide: pictures named but not
-carried, clips ignored, blocks drawn rather than written. **Pictures do not
-go**, and the reason is upstream — a markdown layout has no bytes for an
-image, so `![alt](src)` is drawn as its alt text and the deck carries the alt
-text too. Nothing is lost between the preview and the deck; both are missing
-the same picture. Fixing that is a byte registry where the layout is, which
-[`gallery/PLAN_EDITOR_KERNEL.md`](../PLAN_EDITOR_KERNEL.md) Stage B0 already
-lists as open.
+carried, clips ignored, blocks drawn rather than written, and the faces the
+deck will ask the reader's machine for — a deck carries no fonts, so a reader
+without Open Sans substitutes it and the text reflows inside its boxes.
+
+**Pictures do not go**, and the reason is upstream — a markdown layout has no
+bytes for an image, so `![alt](src)` is drawn as its alt text and the deck
+carries the alt text too. Nothing is lost between the preview and the deck;
+both are missing the same picture. Fixing that is a byte registry where the
+layout is, which [`gallery/PLAN_EDITOR_KERNEL.md`](../PLAN_EDITOR_KERNEL.md)
+Stage B0 already lists as open.
 
 All seven stages of [`PLAN_SLIDES.md`](PLAN_SLIDES.md) are done.
 
@@ -262,7 +267,7 @@ tools/
 
 ## Diagrams
 
-A ```mermaid, ```plantuml or ```dot fence is not code and not an image: it is
+A ```mermaid, ```plantuml, ```dot or ```d2 fence is not code and not an image: it is
 a drawing that has to be **measured** before the page can be laid out around
 it and **drawn** afterwards.
 
@@ -280,7 +285,7 @@ width of the column it lands in — a printed diagram is laid out at the
 printed width rather than scaled up from a screen, which is the whole reason
 to keep it as geometry.
 
-**Three notations, one branch.** Each has exactly one door on the RangerFlow
+**Four notations, one branch.** Each has exactly one door on the RangerFlow
 side — text and a width in, a `FlowScene` out, no editor — and the dispatch
 between a notation's own dialects happens behind that door:
 
@@ -289,6 +294,7 @@ between a notation's own dialects happens behind that door:
 | ```mermaid | [`MermaidRender`](../rangerflow/domains/mermaid/MermaidRender.rgr) | twenty-six dialects |
 | ```plantuml, ```puml | [`PlantUmlRender`](../rangerflow/domains/plantuml/PlantUmlRender.rgr) | class, sequence, activity, component |
 | ```dot, ```graphviz | [`DotRender`](../rangerflow/domains/graphviz/DotRender.rgr) | one grammar, `docs/GRAPHVIZ_PARITY.md` |
+| ```d2 | [`D2Render`](../rangerflow/domains/d2/D2Render.rgr) | containers, boards, `docs/D2_FEATURES.md` |
 
 `MdDiagram` branches on the notation rather than the fence word, so `plantuml`
 and `puml` are one path. The table saying which word is which lives in
@@ -297,9 +303,14 @@ fence is a slot and not code, and the renderer reads it to pick a door. A
 parser that says "code" while the renderer says "diagram" leaves a hole
 nobody fills, so there is one table and both read it.
 
-`d2` is deliberately absent — RangerFlow has no D2 reader, and a fence listed
-as drawable that nothing draws is worse than one left as code: it turns a
-highlighted block into an empty box with an apology in it.
+A word earns a row in that table only once something can draw it: a fence
+listed as drawable that nothing reads is worse than one left as code, because
+it turns a highlighted block into an empty box with an apology in it. `d2`
+sat out of the table for exactly that reason until RangerFlow grew its D2
+reader and `D2Render` put a door on it. Its `@file` imports are refused here
+rather than resolved — a renderer that fetched whatever a pasted fence named
+would be a worse bug than an unread import — and the apology says how many
+were left.
 
 **How it is checked.** Not by looking at the preview — the HTML exporter
 cannot draw a scene's paths (see below). `npm run markdown:embed` builds the
