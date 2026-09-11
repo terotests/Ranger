@@ -26,11 +26,14 @@ This plan outlines the steps to:
 ### CLI Binaries
 ```json
 "bin": {
-  "ranger-compiler": "bin/output.js",
-  "rgrc": "bin/output.js",
-  "evg_server": "bin/evg_server.js"
+  "ranger-compiler": "dist/rgrc.js",
+  "rgrc": "dist/rgrc.js"
 }
 ```
+
+The `evg_server` entry this plan once listed is gone: `bin/evg_server.js` was
+not JavaScript but a Mach-O arm64 executable committed under a `.js` name, and
+it is no longer tracked.
 
 ### Current CLI Output (Plain)
 ```
