@@ -66,6 +66,7 @@ class FigTest {
         this.testMask()
         this.testPerSideStroke()
         this.testTracking()
+        this.testDashAndCaps()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -204,6 +205,22 @@ class FigTest {
         this.check("the tracking is read" (head.text.letterSpacing < (0.0 - 1.4)))
         def scene:string (app.sceneJson())
         this.check("and the draw command" (FigTest.hasSub(scene "\"ls\":-1.5")))
+    }
+
+    ; A dashed line with round ends, all the way to the draw command.
+    fn testDashAndCaps:void () {
+        print "--- dashes and caps ---"
+        def app (new FigApp())
+        this.check("open sample" (app.openSample()))
+        app.setPage(2)
+        def line:SceneNode ((app.currentPage()).childNamed("DashedLine"))
+        def s:SceneStroke (line.firstStroke())
+        this.eqStr("the pattern is read" s.dash "8 6")
+        this.eqStr("and the end is round" s.lineCap "round")
+        this.eqStr("and the corner too" s.lineJoin "round")
+        def scene:string (app.sceneJson())
+        this.check("the painter is told the pattern" (FigTest.hasSub(scene "\"dash\":\"8 6\"")))
+        this.check("and the cap" (FigTest.hasSub(scene "\"cap\":1")))
     }
 
     sfn countOf:int (s:string needle:string) {

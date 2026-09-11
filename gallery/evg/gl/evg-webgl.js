@@ -288,6 +288,72 @@ function disc(tris, cx, cy, r) {
  * A cap is only put on an OPEN ring: a closed one has a join there instead,
  * and a round cap on a closed path is a blob on the seam.
  */
+/**
+ * The rings a dash pattern leaves of a polyline.
+ *
+ * `stroke-dasharray` is a list of lengths that alternate ON and OFF, and an
+ * ODD list runs twice: "4" is 4 on, 4 off, and "1 2 3" is a six-entry cycle.
+ * That rule is not a detail — a single-entry pattern is the commonest way a
+ * dashed line is written, and reading it as "4 on, nothing off" draws a
+ * solid line and looks like the feature is missing rather than wrong.
+ *
+ * The walk is per SEGMENT and keeps its place in the pattern across
+ * vertices, so a dash rounds a corner the way it does in a browser instead
+ * of restarting at every bend.
+ */
+export function dashRings(rings, pattern, offset) {
+  const pat = pattern.filter((v) => v >= 0);
+  const cycle = pat.reduce((a, b) => a + b, 0);
+  if (!pat.length || cycle <= 0) return rings;
+  const full = pat.length % 2 === 1 ? pat.concat(pat) : pat;
+  const period = full.reduce((a, b) => a + b, 0);
+  const out = [];
+  for (const ring of rings) {
+    // Where in the pattern this ring starts, from `stroke-dashoffset`.
+    let at = ((offset || 0) % period + period) % period;
+    let idx = 0;
+    while (at >= full[idx]) { at -= full[idx]; idx = (idx + 1) % full.length; }
+    let on = idx % 2 === 0;
+    let left = full[idx] - at;
+    let current = on ? [ring[0], ring[1]] : null;
+    for (let i = 0; i + 3 < ring.length; i += 2) {
+      let x1 = ring[i], y1 = ring[i + 1];
+      const x2 = ring[i + 2], y2 = ring[i + 3];
+      let len = Math.hypot(x2 - x1, y2 - y1);
+      if (len < 1e-9) continue;
+      const ux = (x2 - x1) / len, uy = (y2 - y1) / len;
+      while (len > left) {
+        const cx = x1 + ux * left, cy = y1 + uy * left;
+        if (on) {
+          current.push(cx, cy);
+          if (current.length >= 4) out.push(current);
+          current = null;
+        } else {
+          current = [cx, cy];
+        }
+        x1 = cx; y1 = cy;
+        len -= left;
+        on = !on;
+        idx = (idx + 1) % full.length;
+        left = full[idx];
+      }
+      left -= len;
+      if (on) current.push(x2, y2);
+    }
+    if (on && current && current.length >= 4) out.push(current);
+  }
+  return out;
+}
+
+/** "6 4" or "6,4" as numbers; anything that is not one is dropped. */
+export function parseDash(text) {
+  if (!text) return [];
+  return String(text)
+    .split(/[\s,]+/)
+    .map((t) => parseFloat(t))
+    .filter((v) => Number.isFinite(v) && v >= 0);
+}
+
 export function strokeTriangles(rings, width, cap, join) {
   const half = Math.max(width, 0.75) / 2;
   const miterLimit = 4;
@@ -1649,7 +1715,12 @@ function buildFrame(gl, doc, opts = {}) {
       const col = c.c || [0, 0, 0, 1];
       const rgba = [col[0] / 255, col[1] / 255, col[2] / 255, col[3]];
       if (c.k === KIND.STROKE) {
-        const tris = strokeTriangles(rings, c.t || 1, c.cap | 0, c.join | 0);
+        // Dashes are geometry, not a paint mode: the pattern cuts the
+        // rings and what is left is stroked exactly as a solid line is,
+        // caps and all — which is what puts a round end on each dash.
+        const pat = parseDash(c.dash);
+        const dashed = pat.length ? dashRings(rings, pat, c.dashoff || 0) : rings;
+        const tris = strokeTriangles(dashed, c.t || 1, c.cap | 0, c.join | 0);
         if (tris.length) pushPath({ kind: "tris", verts: new Float32Array(tris), color: rgba });
       } else {
         pushPath({ kind: "fill", rings: rings.map((r) => new Float32Array(r)),

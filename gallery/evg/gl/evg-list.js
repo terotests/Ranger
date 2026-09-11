@@ -32,8 +32,16 @@ export function cmdsOf(dl) {
     if (c.radius > 0) o.r = c.radius;
     if (c.thickness > 0) {
       o.t = c.thickness;
-      if (c.strokeCap !== 0) o.cap = c.strokeCap;
-      if (c.strokeJoin !== 0) o.join = c.strokeJoin;
+      // Guarded, not just compared: this reads the Ranger object off a
+      // BUILT bundle, and a bundle compiled before a field existed has no
+      // such property. `undefined !== 0` is true, so an unguarded test
+      // would hand the painter `cap: undefined` rather than no cap.
+      if (c.strokeCap) o.cap = c.strokeCap;
+      if (c.strokeJoin) o.join = c.strokeJoin;
+      if (c.strokeDash) {
+        o.dash = c.strokeDash;
+        if (c.strokeDashOffset) o.dashoff = c.strokeDashOffset;
+      }
     }
     o.c = [c.r, c.g, c.b, c.a];
     if (c.hasGrad) {

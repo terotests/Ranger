@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// A stroke's corners and ends, measured rather than looked at.
+// A stroke's corners, ends and dashes, measured rather than looked at.
 //
 //   node gallery/evg/gl/stroke-check.mjs
 //
@@ -24,7 +24,7 @@
 // overlap counts twice — which is why the round numbers below are ranges
 // and the flat ones are exact.
 
-import { strokeTriangles } from "./evg-webgl.js";
+import { strokeTriangles, dashRings, parseDash } from "./evg-webgl.js";
 
 let passed = 0;
 let failed = 0;
@@ -70,7 +70,7 @@ const LINE = [0, 0, 100, 0];
 const BOX = [0, 0, 100, 0, 100, 100, 0, 100, 0, 0];
 const W = 20;
 
-console.log("=== stroke caps and joins ===");
+console.log("=== stroke caps, joins and dashes ===");
 
 // --- the corner is filled, and by the right amount ------------------------
 {
@@ -131,6 +131,32 @@ console.log("=== stroke caps and joins ===");
   ok("a ring with one point draws nothing", strokeTriangles([[5, 5]], W, 1, 1).length === 0);
   ok("a zero-length segment draws nothing", strokeTriangles([[5, 5, 5, 5]], W, 1, 1).length === 0);
   ok("and no rings at all is no triangles", strokeTriangles([], W, 1, 1).length === 0);
+}
+
+// --- dashes ---------------------------------------------------------------
+{
+  const line = [[0, 0, 100, 0]];
+  ok("a pattern of two cuts the line", dashRings(line, [4, 4], 0).length === 13);
+  // An ODD list runs twice: "10" is 10 on and 10 off, not 10 on and nothing
+  // off — which would draw a solid line and read as a missing feature.
+  const single = dashRings(line, [10], 0);
+  ok("an odd pattern runs twice", single.length === 5, JSON.stringify(single[0]) + " …");
+  ok("and its first dash is the pattern long", single[0][2] === 10);
+  ok("with a gap of the same", single[1][0] === 20);
+  const off = dashRings(line, [10], 5);
+  ok("an offset starts part-way into the pattern", off[0][2] === 5, JSON.stringify(off[0]));
+  ok("a pattern of nothing is the line as it was", dashRings(line, [], 0) === line);
+  ok("and so is a pattern of zeroes", dashRings(line, [0, 0], 0) === line);
+
+  // A dash keeps its place in the pattern around a corner rather than
+  // restarting at the bend, which is what a browser does and what makes a
+  // dashed box look regular.
+  const corner = dashRings([[0, 0, 10, 0, 10, 10]], [6, 4], 0);
+  ok("a dash carries on round a corner", corner.length === 2, JSON.stringify(corner));
+
+  ok("the text is read as numbers", JSON.stringify(parseDash("6 4")) === "[6,4]");
+  ok("commas too", JSON.stringify(parseDash("2,3")) === "[2,3]");
+  ok("and nonsense is dropped", JSON.stringify(parseDash("none")) === "[]");
 }
 
 console.log("");

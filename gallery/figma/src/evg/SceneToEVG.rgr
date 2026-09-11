@@ -263,6 +263,9 @@ class SceneToEVG {
             if (s.lineJoin != "miter") {
                 el.setAttribute("stroke-linejoin" s.lineJoin)
             }
+            if ((strlen s.dash) > 0) {
+                el.setAttribute("stroke-dasharray" s.dash)
+            }
             return
         }
         if (n.kind == "text") {

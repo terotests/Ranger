@@ -155,6 +155,10 @@ class FigSample {
         s.addField(node "borderBottomWeight" "float" 49 false)
         s.addField(node "borderLeftWeight" "float" 50 false)
         s.addField(node "letterSpacing" "float" 51 false)
+        s.addField(node "paragraphSpacing" "float" 52 false)
+        s.addField(node "strokeCap" "string" 53 false)
+        s.addField(node "strokeJoin" "string" 54 false)
+        s.addField(node "dashPattern" "float" 55 true)
         s.addField(node "arcData" "ArcData" 46 false)
         def blob:KiwiDef (s.addMessage("Blob"))
         s.addField(blob "bytes" "byte" 1 true)
@@ -804,6 +808,25 @@ class FigSample {
         tracked.put("fontSize" (KiwiValue.fromDouble(24.0)))
         tracked.put("letterSpacing" (KiwiValue.fromDouble(0.0 - 1.5)))
         nodes.pushItem(tracked)
+
+        ; A dashed connector with round ends. Drawn solid and squared off
+        ; — which is what a reader that skips `dashPattern` and
+        ; `strokeCap` does — it is a different line.
+        def dashed:KiwiValue (FigSample.node(3 76 "VECTOR" "DashedLine" 0 3 "o" 200.0 2.0 5400.0 800.0))
+        dashed.put("strokePaints" (FigSample.paints(0.2 0.2 0.25)))
+        dashed.put("strokeWeight" (KiwiValue.fromDouble(4.0)))
+        dashed.put("strokeCap" (KiwiValue.fromString("ROUND")))
+        dashed.put("strokeJoin" (KiwiValue.fromString("ROUND")))
+        def dp:KiwiValue (KiwiValue.fromArray())
+        dp.pushItem((KiwiValue.fromDouble(8.0)))
+        dp.pushItem((KiwiValue.fromDouble(6.0)))
+        dashed.put("dashPattern" dp)
+        def dgeom:KiwiValue (KiwiValue.fromArray())
+        def dg0:KiwiValue (KiwiValue.fromObject())
+        dg0.put("commandsBlob" (KiwiValue.fromInt(0)))
+        dgeom.pushItem(dg0)
+        dashed.put("fillGeometry" dgeom)
+        nodes.pushItem(dashed)
 
         ; --- FigJam ---------------------------------------------------
         ;

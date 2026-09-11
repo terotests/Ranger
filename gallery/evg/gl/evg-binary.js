@@ -19,7 +19,7 @@
 // hundredths — `EVGDisplayList.fixed` rounds to what `toJson` writes — so the
 // division below gives back exactly the JSON's numbers.
 //
-// Slots 36, 37 and 38 are `letter-spacing` and a stroke's cap and join, and
+// Slots 36 to 40 are `letter-spacing` and a stroke's cap, join and dash, and
 // they are read only when the buffer is wide
 // enough to have it. Raising FIELDS_READ instead would have refused every
 // bundle built before it existed — a hard failure for a field whose absence
@@ -70,6 +70,14 @@ export function cmdsOfBinary(bin) {
       if (stride > 38) {
         if (r[b + 37] !== 0) o.cap = r[b + 37];
         if (r[b + 38] !== 0) o.join = r[b + 38];
+      }
+      if (stride > 40) {
+        const d = r[b + 39];
+        if (d >= 0) {
+          o.dash = pool[d];
+          const off = r[b + 40] / 100;
+          if (off !== 0) o.dashoff = off;
+        }
       }
     }
     o.c = [...rgb(r[b + 7]), r[b + 8] / 100];

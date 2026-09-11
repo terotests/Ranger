@@ -94,6 +94,12 @@ class EVGDrawCmd {
     ; drew before, so a backend that ignores them is not wrong, only plain.
     def strokeCap:int 0
     def strokeJoin:int 0
+    ; `stroke-dasharray`, verbatim: "6 4", "2 2 6 2". A string because the
+    ; record that crosses a thread is fixed-width and the pattern is not,
+    ; and the string pool already carries the text and the font name. An
+    ; empty one is a solid line, which is every stroke drawn before this.
+    def strokeDash:string ""
+    def strokeDashOffset:double 0.0
     def maxWidth:double 0.0
     ; Optional 2-stop gradient for RECT (kind 0)
     def hasGrad:boolean false
@@ -1085,6 +1091,8 @@ class EVGDisplayList {
                 cs.thickness = (el.strokeWidth * scale)
                 cs.strokeCap = (EVGDisplayList.capCode(el.strokeLineCap))
                 cs.strokeJoin = (EVGDisplayList.joinCode(el.strokeLineJoin))
+                cs.strokeDash = el.strokeDashArray
+                cs.strokeDashOffset = el.strokeDashOffset
                 cs.r = (sc.red())
                 cs.g = (sc.green())
                 cs.b = (sc.blue())
@@ -2803,7 +2811,7 @@ class EVGDisplayList {
     }
 
     sfn stride:int () {
-        return 39
+        return 41
     }
 
     ; A value in hundredths, which is the precision `num` writes and therefore
@@ -2937,6 +2945,15 @@ class EVGDisplayList {
             ; 37, 38: a stroke's cap and join, on the same terms.
             int_buffer_set recs (base + 37) c2.strokeCap
             int_buffer_set recs (base + 38) c2.strokeJoin
+            ; 39, 40: the dash pattern — its text in the pool, like the
+            ; font name, because the record is fixed-width and a pattern
+            ; is not — and how far into it the line starts.
+            def dashIdx:int (0 - 1)
+            if ((strlen c2.strokeDash) > 0) {
+                dashIdx = (EVGDisplayList.intern(pool poolIndex c2.strokeDash))
+            }
+            int_buffer_set recs (base + 39) dashIdx
+            int_buffer_set recs (base + 40) (EVGDisplayList.fixed(c2.strokeDashOffset))
             ; A command with no text names none of the three text strings, and
             ; `toJson` writes none of them either — so the reader must be able
             ; to tell "no text" from "empty text", which -1 says and 0 would
@@ -3138,6 +3155,12 @@ class EVGDisplayList {
                 }
                 if (c.strokeJoin != 0) {
                     out = out + ",\"join\":" + (to_string c.strokeJoin)
+                }
+                if ((strlen c.strokeDash) > 0) {
+                    out = out + ",\"dash\":" + (EVGDisplayList.jsonString(c.strokeDash))
+                    if (c.strokeDashOffset != 0.0) {
+                        out = out + ",\"dashoff\":" + (EVGDisplayList.num(c.strokeDashOffset))
+                    }
                 }
             }
             out = out + ",\"c\":[" + (to_string c.r) + "," + (to_string c.g)

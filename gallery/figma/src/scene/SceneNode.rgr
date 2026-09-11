@@ -100,6 +100,8 @@ class SceneStroke {
     ; calls them NONE, ROUND, SQUARE and MITER, ROUND, BEVEL.
     def lineCap:string "butt"
     def lineJoin:string "miter"
+    ; `stroke-dasharray`, in SVG's spelling: "6 4". Empty is a solid line.
+    def dash:string ""
     def visible:boolean true
 
     Constructor () {

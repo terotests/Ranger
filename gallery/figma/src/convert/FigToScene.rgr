@@ -965,6 +965,7 @@ class FigToScene {
             def joinRaw:string (nd.raw.childString("strokeJoin" "MITER"))
             s.lineCap = (FigToScene.capName(capRaw))
             s.lineJoin = (FigToScene.joinName(joinRaw))
+            s.dash = (FigToScene.dashList(nd.raw))
             s.align = (nd.raw.childString("strokeAlign" "CENTER"))
             if (s.align == "INSIDE") {
                 s.align = "inside"
@@ -1507,6 +1508,29 @@ class FigToScene {
             return "bevel"
         }
         return "miter"
+    }
+
+    ; `dashPattern`, as SVG writes it. Figma's list alternates on and off
+    ; the same way, so this is a spelling change and not a conversion.
+    sfn dashList:string (raw:KiwiValue) {
+        def dp:KiwiValue (raw.child("dashPattern"))
+        if ((dp.isArray()) == false) {
+            return ""
+        }
+        def n:int (dp.itemCount())
+        if (n == 0) {
+            return ""
+        }
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            if (i > 0) {
+                out = (out + " ")
+            }
+            out = (out + (to_string ((dp.item(i)).asDouble(0.0))))
+            i = (i + 1)
+        }
+        return out
     }
 
     sfn ellipsePath:string (w:double h:double) {
