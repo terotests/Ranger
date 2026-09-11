@@ -29,6 +29,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layer is placed against the first entry with the same tail, and the third
   cell's text lands in the third cell.
 
+- **A design for the camera on the GPU.**
+  `gallery/evg/PLAN_VIEW_TRANSFORM.md` asks why a canvas rebuilds its whole
+  display list for every frame of a pan, when the pan is a translate the vertex
+  shader already applies for scroll layers (`uShift`) and the scene has not
+  changed. The list would be built in scene space and carry the camera beside
+  it; a kept frame is then drawn at any pan for nothing, and at a scale within
+  a band — the glyph atlas and the flattened curves are what a zoom cannot
+  stretch, and the band is where the design is honest. Measured, not projected:
+  a pan frame of the FigJam board is 87 ms of which 18 is the draw, and drawing
+  a frame that is already built costs 18.4 ms and rebuilds nothing. It says
+  what each painter would do, who else it helps (rangerflow's 12.1 ms frame,
+  markdown's per-frame `offsetBy` and list copy, the layer shifts it would
+  generalize), where it gives nothing (anything that draws once), and what
+  would go wrong. Design only — nothing is built.
+
+- **Two fingers pinch the canvas, and the gestures are one module.** Drag to
+  pan, wheel to zoom, a press that does not travel is a click — every
+  standalone had written its own, and none of them had a pinch.
+  `gallery/evg/gl/evg-gestures.js` is that handling once, for any EVG canvas:
+  it reads the view the host keeps and hands back another, so the host goes on
+  deciding when to paint. The anchor holds the point under the cursor, or
+  under the midpoint of two fingers, where it is; a trackpad pinch (a wheel
+  with `ctrl` held, a fraction of a notch at a time) gets a rate of its own or
+  it crawls where the wheel flies; Safari's `gesture*` events are read; and a
+  finger lifted out of a pinch leaves the other one panning. `npm run
+  evg:gestures:check` drives all of it against a canvas that is not one.
+
 - **`fig_cli fields <file> <node-id>`** prints one node's raw kiwi fields and
   lists its children, which is how a layer that draws wrong is read against
   what the file says about it, and how a variant set's variants are found.
@@ -108,6 +135,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   both ends of every box; and a header whose flags are one-bit fields called
   `URG` and `ACK` widens the ruler until those words fit, because six boxes
   with an ellipsis in each say nothing at all.
+
+### Changed
+
+- **A frame crosses as typed arrays, not as text.** The Figma viewer hands
+  the page `EVGDisplayList.toBinary()` — three `Int32Array`s and a string
+  pool — where it used to hand it JSON: on a board of 3,565 nodes that is
+  5,630 ms a frame against 180, and the two bridges describe the same picture
+  to the hundredth (`gallery/evg/gl/list-binary-check.mjs` holds them to it).
+  `scene()` still answers in JSON for anything that wants to read a frame.
+
+- **A flattened outline is kept on the element it belongs to.** `d` is a
+  string and the painter wants points, so every walk parsed and flattened
+  every path — and a page of text drawn as glyph outlines is thousands of
+  them. What comes out depends on the path and on the box it is drawn in,
+  and a pan changes neither: a transform moves the pixels after the boxes are
+  placed. `EVGElement.ringsCache` keeps it and re-flattens when either
+  changes, which takes a pan of that board from 966 ms to 581.
+
+- **A curve is flattened for the size it is drawn at, not the size it was
+  laid out at.** A transform is exactly the difference between the two, and
+  on a canvas that zooms it is a large one: a Figma board at 10% was cutting
+  every glyph into the 48 segments a curve 640 layout pixels wide deserves,
+  in order to draw it five pixels long. The scale of the transforms a subtree
+  is under is carried down the walk now, so the subdivision follows the
+  pixels — 581 ms to 125 on that pan, and finer rather than coarser when you
+  zoom in.
+
+- **And a curve is cut by its own length, not by the box it lives in.**
+  `steps` is chosen from the size of the thing being drawn, and inside a path
+  that size says nothing about the curves: a heading 2,855 pixels wide cut
+  every curve of every glyph in it 47 ways in order to draw those glyphs two
+  pixels tall, and one frame of that board carried 2.5 million points because
+  of it. Each curve is now measured through the transform and cut at about a
+  point every two device pixels, never finer than the caller's ceiling — so
+  nothing draws heavier than it did, and a curve big enough to show facets
+  keeps every segment it had. 767,000 points in that frame, 125 ms to 37, and
+  `fixtures/health.fig` — three phone screens — from 27 ms a frame to 12.
+  With the cache above, every EVG page with vectors on it redraws for less.
+
+- **The viewer stopped rebuilding what a pan does not change.** The EVG tree
+  and its layout are the same from one frame of a pan to the next — only the
+  world element's transform moves — and the twelve-megabyte text dump of that
+  tree, built on every rebuild and thrown away unread, is built when the
+  debug pane asks for it.
 
 ### Fixed
 

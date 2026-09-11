@@ -73,6 +73,11 @@ if (!gl) {
  * the plain family with a weight instead and the canvas draws a face nobody
  * measured.
  */
+// The faces the page managed to fetch, in FACES order — the fallback chain
+// the layout measured against and the painter draws against. `selftest`
+// rebuilds the layout's font shorthand from it.
+let loadedFaces = [];
+
 const FACES = [
   ["Open Sans", "OpenSans-Regular.ttf"],
   ["Open Sans-Bold", "OpenSans-Bold.ttf"],
@@ -680,6 +685,7 @@ async function start() {
   // bold, and every run after a bold one sat about 7% of its width too far
   // right — a huge space in the middle of a sentence.
   setFontFallback(loaded);
+  loadedFaces = loaded;
   if (loaded.length === 0) {
     showStatus("no fonts — measuring with a guessed table");
   }
@@ -789,31 +795,41 @@ function selftest() {
   // command, drew `Open Sans` — 7% narrower, so nothing looked bold and the
   // rest of the sentence sat a visible gap too far right. A screenshot could
   // not see it; two numbers can.
+  //
+  // The two numbers are two measurements of the SAME STRING in this browser:
+  // once with the face the layout read — the command names it, and the page
+  // registered that face under that exact name, so `"Open Sans-Bold"` is a
+  // family the browser has — and once with the shorthand the painter builds.
+  // The bug is the gap between them, and it is the gap whatever box the run
+  // ends up in.
+  //
+  // This used to hold the painter's width against the command's `w`. But `w`
+  // is the ELEMENT's inner width, and a run in a box wider than its text — a
+  // diagram's label, a table cell — is legitimately narrower than the box it
+  // sits in. Two of the nine wide runs on this page are, so the check passed
+  // or failed on which run `find` happened to reach first, and it reached a
+  // different one wherever the installed fonts differed.
   const mctx = document.createElement("canvas").getContext("2d");
-  const drawnWidth = (c) => {
-    mctx.font = fontSpec(c, 1);
-    return mctx.measureText(verbatim(c.text)).width;
+  const widthWith = (spec, text) => {
+    mctx.font = spec;
+    return mctx.measureText(verbatim(text)).width;
   };
+  const faceSpec = (c) => `${c.size}px "${c.font}", sans-serif`;
   const wide = (c) => c.k === 3 && c.text && c.text.length > 8;
-  const boldRun = cmds.find((c) => wide(c) && c.font && c.font.endsWith("-Bold"));
+  const runs = cmds.filter((c) => wide(c) && c.font && loadedFaces.includes(c.font));
+  say("wide runs to check", runs.length > 2, runs.length + " runs of " + loadedFaces.length + " faces");
+  const off = runs
+    .map((c) => ({ c, m: widthWith(faceSpec(c), c.text), d: widthWith(fontSpec(c, 1), c.text) }))
+    .filter((r) => Math.abs(r.d - r.m) > Math.max(0.5, r.m * 0.005));
+  say(
+    "every run is drawn in the face it was measured in",
+    off.length === 0,
+    off.length === 0
+      ? runs.length + " runs agree"
+      : off.map((r) => `${r.c.font}: measured ${r.m.toFixed(2)} drawn ${r.d.toFixed(2)}`).join("; ")
+  );
+  const boldRun = runs.find((c) => c.font.endsWith("-Bold"));
   say("a bold run is on the page", !!boldRun, boldRun ? boldRun.font : "none");
-  if (boldRun) {
-    const drawn = drawnWidth(boldRun);
-    say(
-      "bold is drawn at the width it was measured",
-      Math.abs(drawn - boldRun.w) <= Math.max(0.5, boldRun.w * 0.005),
-      drawn.toFixed(2) + " vs " + boldRun.w.toFixed(2)
-    );
-  }
-  const plainRun = cmds.find((c) => wide(c) && c.font && !c.font.endsWith("-Bold"));
-  if (plainRun) {
-    const drawn = drawnWidth(plainRun);
-    say(
-      "and so is the rest",
-      Math.abs(drawn - plainRun.w) <= Math.max(0.5, plainRun.w * 0.005),
-      drawn.toFixed(2) + " vs " + plainRun.w.toFixed(2)
-    );
-  }
 
   // …and a diagram must arrive as geometry, not as a labelled box.
   const paths = cmds.filter((c) => c.k === 6 || c.k === 7).length;

@@ -8,6 +8,7 @@ Import "EVGEasing.rgr"
 Import "EVGBox.rgr"
 Import "EVGGradient.rgr"
 Import "SvgParser.rgr"
+Import "SVGPathParser.rgr"
 
 ; Element type constants
 ; 0 = CONTAINER (div)
@@ -518,6 +519,23 @@ class EVGElement {
     def viewportH:double 0.0
     def fontFamily:string "Noto Sans"
     def fontWeight:string "normal"
+    ; Extra advance after every character, in pixels — CSS `letter-spacing`,
+    ; and negative is the tracking a designer tightens a heading with.
+    ; ZERO is the font's own spacing and every measurement and every painter
+    ; takes the same path it always did, so nothing that does not set this
+    ; can be moved by it.
+    def letterSpacing:double 0.0
+    ; Extra leading above every paragraph after the first, in pixels. CSS
+    ; has no such property — it puts paragraphs in elements and gives them
+    ; margins — but a text element here holds the whole block, newlines
+    ; included, so the gap has to be a property of the block. ZERO is the
+    ; single-spaced block every caller had before.
+    def paragraphSpacing:double 0.0
+    ; SVG's `stroke-linecap` and `stroke-linejoin` on a stroked path.
+    ; "butt" and "miter" are what the painter drew before either existed,
+    ; so a caller that says nothing keeps the picture it had.
+    def strokeLineCap:string "butt"
+    def strokeLineJoin:string "miter"
     ; ZERO means `normal`, which is the FACE's own line box and is asked of
     ; the text engine. It used to default to 1.2 — a number people type, not
     ; one a browser computes: measured, the sans fallback's normal is 1.15em
@@ -679,6 +697,31 @@ class EVGElement {
     
     ; SVG Path properties
     def svgPath:string ""
+    ; --- the flattened outline, kept ------------------------------------------
+    ;
+    ; `d` is a string, and the display list wants points: parsing it and
+    ; flattening its curves is the walk's largest cost on anything vector —
+    ; a page of text drawn as glyph outlines is thousands of paths, and a
+    ; Figma board panned at 60 Hz re-parsed every one of them for every
+    ; frame, 1.2 seconds a frame on a board of 3,565 nodes.
+    ;
+    ; The result depends on the path and on the box it is drawn in, and
+    ; neither changes while the view moves — a transform moves the pixels
+    ; after the boxes are placed. So it is kept here, and re-flattened when
+    ; either changes. `EVGDisplayList.copyRings` copies out of this into the
+    ; command, so what is cached is never what a painter mutates.
+    def ringsCache:[PathRing]
+    def ringsHave:boolean false
+    def ringsPath:string ""
+    def ringsX:double 0.0
+    def ringsY:double 0.0
+    def ringsW:double 0.0
+    def ringsH:double 0.0
+    def ringsSteps:int 0
+    ; The viewBox scale the outline was flattened at, which is what a stroke
+    ; width is in user units of.
+    def ringsScale:double 1.0
+    def ringsViewBox:string ""
     ; An entire imported SVG document, as markup. Where `svgPath` is one `d`
     ; string with the element's own fill and stroke, this is a drawing with its
     ; own shapes, groups, transforms and paint, which SvgParser resolves into a
@@ -2621,6 +2664,10 @@ class EVGElement {
         viewportH = other.viewportH
         fontFamily = other.fontFamily
         fontWeight = other.fontWeight
+        letterSpacing = other.letterSpacing
+        paragraphSpacing = other.paragraphSpacing
+        strokeLineCap = other.strokeLineCap
+        strokeLineJoin = other.strokeLineJoin
         lineHeight = other.lineHeight
         lineHeightUnit = other.lineHeightUnit
         textAlign = other.textAlign
@@ -3355,6 +3402,33 @@ class EVGElement {
         }
         if ((name == "line-break") || (name == "lineBreak")) {
             lineBreak = (value == "true")
+            return
+        }
+        if ((name == "letter-spacing") || (name == "letterSpacing")) {
+            ; `normal` is the font's own, which is zero extra.
+            if (value == "normal") {
+                letterSpacing = 0.0
+                return
+            }
+            def lsu:EVGUnit (EVGUnit.parse(value))
+            if lsu.isSet {
+                letterSpacing = lsu.pixels
+            }
+            return
+        }
+        if ((name == "paragraph-spacing") || (name == "paragraphSpacing")) {
+            def psu:EVGUnit (EVGUnit.parse(value))
+            if psu.isSet {
+                paragraphSpacing = psu.pixels
+            }
+            return
+        }
+        if ((name == "stroke-linecap") || (name == "strokeLinecap")) {
+            strokeLineCap = value
+            return
+        }
+        if ((name == "stroke-linejoin") || (name == "strokeLinejoin")) {
+            strokeLineJoin = value
             return
         }
         if (name == "overflow") {

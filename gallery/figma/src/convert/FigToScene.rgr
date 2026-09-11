@@ -32,6 +32,96 @@ class FigToScene {
     Constructor () {
     }
 
+    ; A masking layer, turned into the clip around what it masks.
+    ;
+    ; In Figma a layer with `mask` set does not draw: it cuts the layers
+    ; ABOVE it in the same parent down to its own shape, until the next
+    ; masking layer takes over. A reader that ignores it draws the mask as
+    ; a shape of its own AND lets the layers it was holding back run past
+    ; the edge — an avatar's photo spilling out of its circle, an icon
+    ; drawn over its neighbour.
+    ;
+    ; WHAT THIS DOES NOT DO. The clip is the mask's box, not its outline,
+    ; because that is what the renderer has: an EVG clip is a rectangle.
+    ; For the rectangles and frames that most masks are — an icon's 24x24
+    ; frame, a photo's crop — the box IS the shape and the result is
+    ; exact. For a circle or a vector it cuts at the bounding box, which
+    ; removes less than Figma removes and never more, so the picture moves
+    ; towards the right one rather than past it. A rounded clip would need
+    ; a radius on the EVG clip command, and an exact one a stencil.
+    ;
+    ; A rotated mask is left alone: its box in the parent's axes is not
+    ; the region it covers, and a wrong clip is worse than none.
+    fn applyMasks:void (sn:SceneNode) {
+        def n:int (array_length sn.children)
+        def any:boolean false
+        def i:int 0
+        while (i < n) {
+            if ((itemAt sn.children i).isMask) {
+                any = true
+            }
+            i = (i + 1)
+        }
+        if (any == false) {
+            return
+        }
+        def out:[SceneNode]
+        def j:int 0
+        while (j < n) {
+            def ch:SceneNode (itemAt sn.children j)
+            if (ch.isMask == false) {
+                push out ch
+                j = (j + 1)
+            } {
+                ch.isMask = false
+                def usable:boolean (((ch.w > 0.0) && (ch.h > 0.0)) && (ch.hasXf == false))
+                if (usable == false) {
+                    ; Not a region this renderer can cut to. Draw it as it
+                    ; was drawn before, rather than dropping ink for a clip
+                    ; that would be wrong.
+                    push out ch
+                    j = (j + 1)
+                } {
+                    def g (new SceneNode())
+                    g.id = (ch.id + "#mask")
+                    g.name = (ch.name + " (mask)")
+                    g.kind = "container"
+                    g.sourceType = "MASK"
+                    g.x = ch.x
+                    g.y = ch.y
+                    g.w = ch.w
+                    g.h = ch.h
+                    g.clip = true
+                    j = (j + 1)
+                    ; Stop at the next masking layer and leave `j` on it,
+                    ; so the loop opens that one's clip rather than
+                    ; running off the end with it swallowed.
+                    def stop:boolean false
+                    while ((j < n) && (stop == false)) {
+                        def under:SceneNode (itemAt sn.children j)
+                        if under.isMask {
+                            stop = true
+                        } {
+                            under.x = (under.x - g.x)
+                            under.y = (under.y - g.y)
+                            push g.children under
+                            j = (j + 1)
+                        }
+                    }
+                    ; The mask itself is not drawn — but a mask with
+                    ; nothing above it masks nothing, and dropping it too
+                    ; would lose a shape Figma does draw in that case.
+                    if ((array_length g.children) > 0) {
+                        push out g
+                    } {
+                        push out ch
+                    }
+                }
+            }
+        }
+        sn.children = out
+    }
+
     fn indexNodes:void () {
         if indexed {
             return
@@ -51,6 +141,10 @@ class FigToScene {
         instanceDepth = 0
         overridesSeen = 0
         overridesUsed = 0
+        ; A second file opened into the same app must count its own keys,
+        ; not carry the first one's.
+        def freshKeys:[string:boolean]
+        keyListed = freshKeys
         pathPrefix = ""
         outDoc = (new SceneDocument())
         outDoc.name = src.fileName
@@ -100,6 +194,7 @@ class FigToScene {
         }
         def t:string nd.typeName
         def sn (new SceneNode())
+        sn.isMask = (nd.raw.childBool("mask" false))
         sn.id = nd.id
         sn.name = nd.name
         sn.kind = (FigToScene.kindOf(t))
@@ -145,11 +240,25 @@ class FigToScene {
             sn.pathData = ("M0 0L" + (to_string nd.w) + " 0")
         }
         if ((t == "ELLIPSE") && ((strlen sn.pathData) == 0)) {
-            sn.pathData = (FigToScene.ellipsePath(nd.w nd.h))
+            def arc:KiwiValue (nd.raw.child("arcData"))
+            if (arc.isObject()) {
+                sn.pathData = (FigToScene.arcPath(nd.w nd.h arc))
+            } {
+                sn.pathData = (FigToScene.ellipsePath(nd.w nd.h))
+            }
         }
+        ; A union or a subtract is drawn from the outline Figma flattened
+        ; for it. Without one there is nothing to draw — but an empty box
+        ; with no children is a node Figma draws nothing for either, and
+        ; reporting those said eight shapes were lost from a file that
+        ; was missing none. Only a node with a size or something under it
+        ; is ink that did not arrive.
         if ((t == "BOOLEAN_OPERATION") || (t == "BOOLEAN_GROUP")) {
             if ((strlen sn.pathData) == 0) {
-                sn.warn("boolean operation without geometry")
+                def hasBox:boolean ((nd.w > 0.0) && (nd.h > 0.0))
+                if (hasBox || ((array_length nd.children) > 0)) {
+                    sn.warn("boolean operation without geometry")
+                }
             }
         }
         def i:int 0
@@ -163,6 +272,7 @@ class FigToScene {
             }
             i = (i + 1)
         }
+        this.applyMasks(sn)
         ; An instance's content is not in its own subtree. The node names a
         ; component by guid and Figma draws that component's children under
         ; the instance's transform, so a reader that stops here draws an
@@ -227,8 +337,31 @@ class FigToScene {
     ; here, the glyphs it was shaped into are there.
     def authored:[string:KiwiValue]
     def pathPrefix:string ""
+    ; Distinct keys stored, and how many found their node. The two lists
+    ; overlap — an edit usually has a derived entry as well — so counting
+    ; entries rather than keys made one override count twice and the
+    ; report say 1,584 stored where the roadmap file holds 1,076.
+    def keyListed:[string:boolean]
     def overridesSeen:int 0
     def overridesUsed:int 0
+
+    ; WHAT THE ONES THAT MISS ARE. On that file 860 of the 1,076 keys find
+    ; their node, and the other 216 were traced one by one:
+    ;
+    ;   146  a variant that is not the one shown. Figma keeps the edits for
+    ;        every variant of a component set so switching back restores
+    ;        them; 110 of those entries name the variant's SYMBOL itself
+    ;        and 36 are the layers inside one.
+    ;    70  a layer hidden in the component, and the 52 layers under it.
+    ;        The walk turns a hidden child away before the override is
+    ;        merged, so an entry that switched one back on could not reach
+    ;        it — but not one of these 70 carries `visible`, so merging
+    ;        first would light nothing up.
+    ;
+    ; Both are dead: an entry that misses here is one Figma does not draw
+    ; either. The count is worth reporting as a tripwire — a file where it
+    ; climbs is a file to look at — but it is not a measure of what is
+    ; missing from the picture.
 
     ; What an override entry calls this node. A component in this file is
     ; a copy of one from a library, re-guided on the way in, and the paths
@@ -237,6 +370,15 @@ class FigToScene {
     ; namespace, and matching on the node's own guid placed 55 of 1,323.
     ; A file whose components are its own (the bundled sample, a REST
     ; import) has no overrideKey and is matched on the guid as before.
+    ; One key, counted once, however many of the two lists carry it.
+    fn countKey:void (key:string) {
+        def had@(optional):boolean (get keyListed key)
+        if (null? had) {
+            set keyListed key true
+            overridesSeen = (overridesSeen + 1)
+        }
+    }
+
     sfn overrideKeyOf:string (nd:FigNode) {
         def key:KiwiValue (nd.raw.child("overrideKey"))
         if (key.isObject()) {
@@ -394,11 +536,11 @@ class FigToScene {
             def d:int 0
             while (d < (derived.itemCount())) {
                 def change:KiwiValue (derived.item(d))
-                overridesSeen = (overridesSeen + 1)
                 def rel:string (FigToScene.overridePath(change))
                 if ((strlen rel) > 0) {
                     def full:string (childPrefix + rel)
                     set overrides full change
+                    this.countKey(full)
                 }
                 d = (d + 1)
             }
@@ -410,7 +552,9 @@ class FigToScene {
                 def edit:KiwiValue (edits.item(e))
                 def erel:string (FigToScene.overridePath(edit))
                 if ((strlen erel) > 0) {
-                    set authored (childPrefix + erel) edit
+                    def efull:string (childPrefix + erel)
+                    set authored efull edit
+                    this.countKey(efull)
                 }
                 e = (e + 1)
             }
@@ -431,6 +575,7 @@ class FigToScene {
         }
         instanceDepth = (instanceDepth - 1)
         pathPrefix = keptPrefix
+        this.applyMasks(sn)
     }
 
     ; --- FigJam immutable frames -----------------------------------------
@@ -812,6 +957,15 @@ class FigToScene {
             s.opacity = p.opacity
             s.visible = p.visible
             s.weight = nd.strokeWeight
+            s.wTop = (nd.raw.childDouble("borderTopWeight" nd.strokeWeight))
+            s.wRight = (nd.raw.childDouble("borderRightWeight" nd.strokeWeight))
+            s.wBottom = (nd.raw.childDouble("borderBottomWeight" nd.strokeWeight))
+            s.wLeft = (nd.raw.childDouble("borderLeftWeight" nd.strokeWeight))
+            def capRaw:string (nd.raw.childString("strokeCap" "NONE"))
+            def joinRaw:string (nd.raw.childString("strokeJoin" "MITER"))
+            s.lineCap = (FigToScene.capName(capRaw))
+            s.lineJoin = (FigToScene.joinName(joinRaw))
+            s.dash = (FigToScene.dashList(nd.raw))
             s.align = (nd.raw.childString("strokeAlign" "CENTER"))
             if (s.align == "INSIDE") {
                 s.align = "inside"
@@ -833,10 +987,26 @@ class FigToScene {
             push sn.strokes s
             i = (i + 1)
         }
+        ; Four weights are only worth carrying when they differ and the
+        ; corners are square: a rounded box's sides are arcs, not bars,
+        ; and drawing them as bars would be a worse picture than the one
+        ; weight this used to fall back to.
         if ((array_length sn.strokes) > 0) {
             if (nd.raw.childBool("borderStrokeWeightsIndependent" false)) {
-                if ((array_length nd.strokeBlobs) == 0) {
-                    sn.warn("per-side stroke weights (drawn as one)")
+                def s0:SceneStroke (itemAt sn.strokes 0)
+                def same:boolean (((s0.wTop == s0.wRight) && (s0.wRight == s0.wBottom)) && (s0.wBottom == s0.wLeft))
+                def square:boolean ((sn.radius.any()) == false)
+                if ((same == false) && square) {
+                    def k:int 0
+                    while (k < (array_length sn.strokes)) {
+                        def one:SceneStroke (itemAt sn.strokes k)
+                        one.perSide = true
+                        k = (k + 1)
+                    }
+                } {
+                    if ((same == false) && ((array_length nd.strokeBlobs) == 0)) {
+                        sn.warn("per-side stroke weights on a rounded box (drawn as one)")
+                    }
                 }
             }
         }
@@ -1044,13 +1214,8 @@ class FigToScene {
         } {
             sn.text.letterSpacing = (raw.childDouble("letterSpacing" 0.0))
         }
+        sn.text.paragraphSpacing = (raw.childDouble("paragraphSpacing" 0.0))
         sn.text.outline = (this.glyphOutline(nd))
-        if (sn.text.hasOutline()) {
-            return
-        }
-        if (sn.text.letterSpacing != 0.0) {
-            sn.warn("letterSpacing (EVG has no letter-spacing)")
-        }
     }
 
     ; One SVG path for every glyph the editor laid out, in node pixels.
@@ -1214,6 +1379,158 @@ class FigToScene {
             }
         }
         sn.evenOdd = nd.evenOdd
+    }
+
+    ; An ELLIPSE with `arcData` is a wedge, a ring or a ring's slice — the
+    ; "arc tool" in Figma, and a donut chart in every deck made with it.
+    ; Drawn as its whole ellipse it is not a small error: a 20-degree slice
+    ; comes out as a filled circle, eighteen times the ink.
+    ;
+    ; The field holds `startingAngle` and `endingAngle` in radians from
+    ; three o'clock, growing clockwise because y points down, and
+    ; `innerRadius` as a fraction of the radius. SVG's own arc takes the
+    ; two endpoints and a direction rather than two angles, so the angles
+    ; become points here; `1` for the sweep flag is that same clockwise.
+    ;
+    ; An arc of a full turn has no endpoints to give — the two coincide and
+    ; SVG draws nothing — so a whole ellipse and a whole ring are each cut
+    ; into two halves, and a ring's inner edge runs backwards so the hole
+    ; is a hole under either fill rule.
+    sfn arcPath:string (w:double h:double arc:KiwiValue) {
+        def rx:double (w / 2.0)
+        def ry:double (h / 2.0)
+        def a0:double (arc.childDouble("startingAngle" 0.0))
+        def a1:double (arc.childDouble("endingAngle" 6.283185307179586))
+        def inner:double (arc.childDouble("innerRadius" 0.0))
+        if (inner < 0.0) {
+            inner = 0.0
+        }
+        if (inner > 1.0) {
+            inner = 1.0
+        }
+        def sweep:double (a1 - a0)
+        if (sweep < 0.0) {
+            sweep = (0.0 - sweep)
+            def t:double a0
+            a0 = a1
+            a1 = t
+        }
+        if (sweep > 6.2831853) {
+            sweep = 6.283185307179586
+            a1 = (a0 + sweep)
+        }
+        ; Nothing swept is nothing drawn, and a whole turn with no hole is
+        ; the plain ellipse the reader already had.
+        if (sweep < 0.0001) {
+            return ""
+        }
+        def whole:boolean (sweep > 6.2831)
+        if (whole && (inner < 0.0001)) {
+            return (FigToScene.ellipsePath(w h))
+        }
+        def irx:double (rx * inner)
+        def iry:double (ry * inner)
+        if whole {
+            def half:double (a0 + 3.141592653589793)
+            def d:string (FigToScene.arcMove(rx ry rx ry a0))
+            d = (d + (FigToScene.arcTo(rx ry rx ry half 0 1)))
+            d = (d + (FigToScene.arcTo(rx ry rx ry a0 0 1)) + "Z")
+            ; The hole runs the other way, which empties it under the
+            ; nonzero rule as well as the even-odd one.
+            d = (d + (FigToScene.arcMove(rx ry irx iry a0)))
+            d = (d + (FigToScene.arcTo(rx ry irx iry half 0 0)))
+            d = (d + (FigToScene.arcTo(rx ry irx iry a0 0 0)) + "Z")
+            return d
+        }
+        def big:int 0
+        if (sweep > 3.141592653589793) {
+            big = 1
+        }
+        def out:string (FigToScene.arcMove(rx ry rx ry a0))
+        out = (out + (FigToScene.arcTo(rx ry rx ry a1 big 1)))
+        if (inner < 0.0001) {
+            ; A wedge closes through the middle.
+            out = ((out + "L" + (to_string rx) + " " + (to_string ry)) + "Z")
+            return out
+        }
+        out = (out + (FigToScene.arcLine(rx ry irx iry a1)))
+        out = (out + (FigToScene.arcTo(rx ry irx iry a0 big 0)) + "Z")
+        return (out + "")
+    }
+
+    sfn arcX:double (cx:double rr:double angle:double) {
+        return (cx + (rr * (cos angle)))
+    }
+
+    sfn arcMove:string (cx:double cy:double rx:double ry:double a:double) {
+        def x:double (FigToScene.arcX(cx rx a))
+        def y:double (cy + (ry * (sin a)))
+        return ("M" + (to_string x) + " " + (to_string y))
+    }
+
+    sfn arcLine:string (cx:double cy:double rx:double ry:double a:double) {
+        def x:double (FigToScene.arcX(cx rx a))
+        def y:double (cy + (ry * (sin a)))
+        return ("L" + (to_string x) + " " + (to_string y))
+    }
+
+    sfn arcTo:string (cx:double cy:double rx:double ry:double a:double big:int dir:int) {
+        def x:double (FigToScene.arcX(cx rx a))
+        def y:double (cy + (ry * (sin a)))
+        def d:string ("A" + (to_string rx) + " " + (to_string ry) + " 0 ")
+        d = (d + (to_string big) + " " + (to_string dir) + " ")
+        return (d + (to_string x) + " " + (to_string y))
+    }
+
+    ; Figma's names for a line's ends and corners, in SVG's. The arrow
+    ; heads — ARROW_LINES, ARROW_EQUILATERAL — are a shape at the end of
+    ; the line rather than a cap, and are not one of these; drawn as a
+    ; round end they are at least the right thickness, which is nearer
+    ; than the squared-off stop they had.
+    sfn capName:string (fig:string) {
+        if (fig == "ROUND") {
+            return "round"
+        }
+        if (fig == "SQUARE") {
+            return "square"
+        }
+        if (fig == "NONE") {
+            return "butt"
+        }
+        return "round"
+    }
+
+    sfn joinName:string (fig:string) {
+        if (fig == "ROUND") {
+            return "round"
+        }
+        if (fig == "BEVEL") {
+            return "bevel"
+        }
+        return "miter"
+    }
+
+    ; `dashPattern`, as SVG writes it. Figma's list alternates on and off
+    ; the same way, so this is a spelling change and not a conversion.
+    sfn dashList:string (raw:KiwiValue) {
+        def dp:KiwiValue (raw.child("dashPattern"))
+        if ((dp.isArray()) == false) {
+            return ""
+        }
+        def n:int (dp.itemCount())
+        if (n == 0) {
+            return ""
+        }
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            if (i > 0) {
+                out = (out + " ")
+            }
+            out = (out + (to_string ((dp.item(i)).asDouble(0.0))))
+            i = (i + 1)
+        }
+        return out
     }
 
     sfn ellipsePath:string (w:double h:double) {

@@ -30,7 +30,19 @@ export function cmdsOf(dl) {
     o.h = c.h;
     if (c.perCorner) o.rc = [c.radius, c.radiusTR, c.radiusBR, c.radiusBL];
     if (c.radius > 0) o.r = c.radius;
-    if (c.thickness > 0) o.t = c.thickness;
+    if (c.thickness > 0) {
+      o.t = c.thickness;
+      // Guarded, not just compared: this reads the Ranger object off a
+      // BUILT bundle, and a bundle compiled before a field existed has no
+      // such property. `undefined !== 0` is true, so an unguarded test
+      // would hand the painter `cap: undefined` rather than no cap.
+      if (c.strokeCap) o.cap = c.strokeCap;
+      if (c.strokeJoin) o.join = c.strokeJoin;
+      if (c.strokeDash) {
+        o.dash = c.strokeDash;
+        if (c.strokeDashOffset) o.dashoff = c.strokeDashOffset;
+      }
+    }
     o.c = [c.r, c.g, c.b, c.a];
     if (c.hasGrad) {
       o.gd = c.gradDir;
@@ -41,6 +53,7 @@ export function cmdsOf(dl) {
       o.font = c.fontFamily;
       o.size = c.fontSize;
       if (c.fontWeight.length > 0) o.weight = c.fontWeight;
+      if (c.letterSpacing !== 0) o.ls = c.letterSpacing;
       if (c.textAlign === "italic") o.italic = true;
     }
     if (c.src.length > 0) o.src = c.src;

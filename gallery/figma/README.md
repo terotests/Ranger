@@ -243,10 +243,16 @@ the file gives it.
 
 ## Moving around
 
-Drag with any button to pan, scroll to zoom, or use the `−` / `+` buttons;
-the readout between them shows the zoom and is the button that returns to
-100%. Zoom is anchored on the pointer, so the point under the cursor stays
-where it is instead of the page sliding toward the origin.
+Drag with any button to pan, scroll to zoom, pinch with two fingers, or use
+the `−` / `+` buttons; the readout between them shows the zoom and is the
+button that returns to 100%. Zoom is anchored on the pointer — or on the
+midpoint of the two fingers — so the point under it stays where it is
+instead of the page sliding toward the origin. A trackpad pinch arrives as
+a wheel with `ctrl` held and gets a rate of its own, or it would crawl where
+the wheel flies; a finger lifted out of a pinch leaves the other one
+panning. The gestures are `gallery/evg/gl/evg-gestures.js`, which any EVG
+canvas can attach — it reads the view this page keeps and hands back
+another, and the page still decides when to paint one.
 
 Input is applied once per animation frame, not once per event. Both
 `setView` and `draw` are expensive — the first rebuilds the display list
@@ -318,6 +324,69 @@ takes and reads back. It used to list the frames' ids: no option ever
 matched the index put into it, so the control showed blank on every file,
 and picking one asked for frame 13,709 — out of range, which quietly showed
 the whole page again.
+
+## What a frame costs
+
+A board of 3,565 nodes, panned. Measured on this file, per frame:
+
+| | before | after |
+| --- | --- | --- |
+| build the display list | 1,702 ms | 37 ms |
+| decode it in the page | — | 9 ms |
+| paint it | 71 ms | 41 ms |
+| hand the frame over (JSON) | 5,630 ms | gone |
+
+A frame of that board carried 2.5 million points; it carries 767,000 now,
+and `fixtures/health.fig` — three phone screens, the size of file anyone
+actually opens — went from 27 ms a frame to 12.
+
+**The frame crosses as typed arrays.** `EVGDisplayList.toBinary()` — three
+`Int32Array`s and a small string pool — instead of JSON. The picture is the
+same to the hundredth, which is what `gallery/evg/gl/list-binary-check.mjs`
+holds the two bridges to, and `scene()` still answers in JSON for anything
+that wants to read a frame. Writing it as text was 42% of a profile in
+`toJson` and the number formatting under it, and another 33% in the garbage
+they made.
+
+**The EVG tree is dumped when someone asks for it.** The debug pane's text
+is twelve megabytes on this board, and it was built on every rebuild — so
+on every frame of a pan — and thrown away unread.
+
+**Pan and zoom move the pixels, not the boxes.** The transform is one
+attribute on the world element; the tree under it and its layout do not
+change, so a view change writes that attribute and walks the tree again
+rather than building a second tree and laying it out.
+
+**A flattened outline is kept.** `d` is a string and the painter wants
+points, so the walk parses and flattens every path — and a page of text
+drawn as glyph outlines is thousands of them. The result depends on the
+path and on the box it is drawn in, neither of which a pan changes, so
+`EVGElement` keeps it (`ringsCache`) and re-flattens when either changes:
+966 → 581 ms.
+
+**And a curve is flattened for the size it is DRAWN at.** The subdivision
+was chosen from the layout box, and a transform is exactly the difference
+between that box and the pixels: this board at 10% was cutting every glyph
+into the 48 segments a curve 640 layout pixels wide deserves, to draw it
+five pixels long. The scale of the transforms a subtree is under is
+carried down the walk (`drawScale`), so the count follows the pixels:
+581 → 125 ms.
+
+**A curve is also cut by its own length, not by the box it lives in.**
+Inside a path the element's size says nothing: a heading 2,855 pixels wide
+cut every curve of every glyph in it 47 ways in order to draw those glyphs
+two pixels tall. Each curve is measured through the transform and cut at
+about a point every two device pixels, never finer than the ceiling above
+— so nothing is heavier than it was, and a big curve keeps every segment
+it had. 125 → 37 ms. All three of these are the engine's own gain: any EVG
+page with vectors on it redraws for less.
+
+What is left is the frame itself: 37 ms to build the list, 9 to decode it,
+18 to build the GPU buffers and 18 to draw. The first three of those are
+work a pan does not need — the scene has not changed, only the camera has —
+and taking the camera out of the coordinates is designed in
+[`../evg/PLAN_VIEW_TRANSFORM.md`](../evg/PLAN_VIEW_TRANSFORM.md), which
+would put a pan of this board at the draw alone.
 
 ## When the page looks wrong and nothing is reported
 

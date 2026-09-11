@@ -146,12 +146,26 @@ SUITES=(
   evg:stylevar:test
   evg:timing:test
   evg:box:test
+  # Does a command survive being written down? Every picture test reads the
+  # command objects, so a field the serializer forgot was invisible: the
+  # pictures came out right and the browser drew something else. Never wired
+  # into CI until `letter-spacing` was added to the same two bridges.
+  evg:json:test
   evg:viewport:test
   evg:reconcile:test
   evg:component:test
   evg:stylecache:test
   evg:invalidate:test
   evg:adopt:check
+  # Pan, pinch and the wheel, against a canvas that is not one: the two-finger
+  # pinch is the gesture no headless driver will send, and the anchor — the
+  # point under the fingers staying put — is the whole of what it feels like.
+  evg:gestures:check
+  # A thick polyline used to come apart at every corner — two quads meeting
+  # at an angle cover the inside of the turn twice and the outside not at
+  # all. The corners and the ends are measured here by area, because that is
+  # the kind of wrong that is invisible to a test that counts commands.
+  evg:stroke:check
   # A scroll moves the painter's kept frame with a uniform rather than
   # rebuilding it, so a draw that forgets the uniform paints where the frame
   # was BUILT. Needs a GPU to see and there is no oracle for it; this reads

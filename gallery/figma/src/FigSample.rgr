@@ -73,6 +73,10 @@ class FigSample {
         s.addField(path "windingRule" "string" 2 false)
         def td:KiwiDef (s.addMessage("TextData"))
         s.addField(td "characters" "string" 1 false)
+        def arcd:KiwiDef (s.addMessage("ArcData"))
+        s.addField(arcd "startingAngle" "float" 1 false)
+        s.addField(arcd "endingAngle" "float" 2 false)
+        s.addField(arcd "innerRadius" "float" 3 false)
         def pidx:KiwiDef (s.addMessage("ParentIndex"))
         s.addField(pidx "guid" "GUID" 1 false)
         s.addField(pidx "position" "string" 2 false)
@@ -145,6 +149,17 @@ class FigSample {
         s.addField(node "overriddenSymbolID" "GUID" 44 false)
         s.addField(node "derivedImmutableFrameData" "ImmutableFrame" 42 false)
         s.addField(node "nodeGenerationData" "ImmutableFrame" 43 false)
+        s.addField(node "mask" "bool" 45 false)
+        s.addField(node "borderTopWeight" "float" 47 false)
+        s.addField(node "borderRightWeight" "float" 48 false)
+        s.addField(node "borderBottomWeight" "float" 49 false)
+        s.addField(node "borderLeftWeight" "float" 50 false)
+        s.addField(node "letterSpacing" "float" 51 false)
+        s.addField(node "paragraphSpacing" "float" 52 false)
+        s.addField(node "strokeCap" "string" 53 false)
+        s.addField(node "strokeJoin" "string" 54 false)
+        s.addField(node "dashPattern" "float" 55 true)
+        s.addField(node "arcData" "ArcData" 46 false)
         def blob:KiwiDef (s.addMessage("Blob"))
         s.addField(blob "bytes" "byte" 1 true)
         def msg:KiwiDef (s.addMessage("Message"))
@@ -742,6 +757,76 @@ class FigSample {
         swapInst.put("symbolData" swapSym)
         swapInst.put("overriddenSymbolID" (FigSample.guid(3 67)))
         nodes.pushItem(swapInst)
+
+        ; A masking layer: the rectangle cuts the layers ABOVE it in the
+        ; same parent down to its own shape. The wide bar below is twice
+        ; the mask's width, so a reader that ignores the flag draws it
+        ; running out of the group — and draws the mask itself, which
+        ; Figma never does.
+        def maskGroup:KiwiValue (FigSample.node(3 70 "FRAME" "MaskedGroup" 0 3 "k" 200.0 100.0 4360.0 800.0))
+        nodes.pushItem(maskGroup)
+        def maskRect:KiwiValue (FigSample.node(3 71 "RECTANGLE" "MaskShape" 3 70 "!" 80.0 80.0 10.0 10.0))
+        maskRect.put("fillPaints" (FigSample.paints(0.0 0.0 0.0)))
+        maskRect.put("mask" (KiwiValue.fromBool(true)))
+        nodes.pushItem(maskRect)
+        def maskedBar:KiwiValue (FigSample.node(3 72 "RECTANGLE" "MaskedBar" 3 70 "#" 160.0 40.0 10.0 30.0))
+        maskedBar.put("fillPaints" (FigSample.paints(0.2 0.6 0.9)))
+        nodes.pushItem(maskedBar)
+
+        ; The arc tool: a three-quarter ring. Drawn as its whole ellipse
+        ; — which is what a reader that skips `arcData` does — this is a
+        ; filled circle with no hole and no missing quarter.
+        def arc:KiwiValue (FigSample.node(3 73 "ELLIPSE" "ArcRing" 0 3 "l" 100.0 100.0 4600.0 800.0))
+        arc.put("fillPaints" (FigSample.paints(0.95 0.45 0.1)))
+        def arcData:KiwiValue (KiwiValue.fromObject())
+        arcData.put("startingAngle" (KiwiValue.fromDouble(0.0)))
+        arcData.put("endingAngle" (KiwiValue.fromDouble(4.71238898038469)))
+        arcData.put("innerRadius" (KiwiValue.fromDouble(0.5)))
+        arc.put("arcData" arcData)
+        nodes.pushItem(arc)
+
+        ; A table row: a rule under it and nothing on the other three
+        ; sides. Drawn at the node's single `strokeWeight` it comes out
+        ; boxed, which is a different drawing rather than a near miss.
+        def row:KiwiValue (FigSample.node(3 74 "RECTANGLE" "TableRow" 0 3 "m" 200.0 40.0 4840.0 800.0))
+        row.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        row.put("strokePaints" (FigSample.paints(0.8 0.8 0.82)))
+        row.put("strokeWeight" (KiwiValue.fromDouble(1.0)))
+        row.put("strokeAlign" (KiwiValue.fromString("INSIDE")))
+        row.put("borderStrokeWeightsIndependent" (KiwiValue.fromBool(true)))
+        row.put("borderTopWeight" (KiwiValue.fromDouble(0.0)))
+        row.put("borderRightWeight" (KiwiValue.fromDouble(0.0)))
+        row.put("borderBottomWeight" (KiwiValue.fromDouble(2.0)))
+        row.put("borderLeftWeight" (KiwiValue.fromDouble(0.0)))
+        nodes.pushItem(row)
+
+        ; Tracking: the designer tightened this heading. Drawn at the
+        ; font's own spacing it is a few per cent wider than the box the
+        ; file sized for it.
+        def tracked:KiwiValue (FigSample.node(3 75 "TEXT" "TrackedHeading" 0 3 "n" 300.0 40.0 5080.0 800.0))
+        tracked.put("textData" (FigSample.chars("TIGHT HEADING")))
+        tracked.put("fontSize" (KiwiValue.fromDouble(24.0)))
+        tracked.put("letterSpacing" (KiwiValue.fromDouble(0.0 - 1.5)))
+        nodes.pushItem(tracked)
+
+        ; A dashed connector with round ends. Drawn solid and squared off
+        ; — which is what a reader that skips `dashPattern` and
+        ; `strokeCap` does — it is a different line.
+        def dashed:KiwiValue (FigSample.node(3 76 "VECTOR" "DashedLine" 0 3 "o" 200.0 2.0 5400.0 800.0))
+        dashed.put("strokePaints" (FigSample.paints(0.2 0.2 0.25)))
+        dashed.put("strokeWeight" (KiwiValue.fromDouble(4.0)))
+        dashed.put("strokeCap" (KiwiValue.fromString("ROUND")))
+        dashed.put("strokeJoin" (KiwiValue.fromString("ROUND")))
+        def dp:KiwiValue (KiwiValue.fromArray())
+        dp.pushItem((KiwiValue.fromDouble(8.0)))
+        dp.pushItem((KiwiValue.fromDouble(6.0)))
+        dashed.put("dashPattern" dp)
+        def dgeom:KiwiValue (KiwiValue.fromArray())
+        def dg0:KiwiValue (KiwiValue.fromObject())
+        dg0.put("commandsBlob" (KiwiValue.fromInt(0)))
+        dgeom.pushItem(dg0)
+        dashed.put("fillGeometry" dgeom)
+        nodes.pushItem(dashed)
 
         ; --- FigJam ---------------------------------------------------
         ;

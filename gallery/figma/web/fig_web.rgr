@@ -40,6 +40,12 @@ class FigWeb {
         return (app.sceneJson())
     }
 
+    ; The frame as typed arrays — what the page paints from. `scene()` is
+    ; the same picture as text, kept for readers that want it that way.
+    fn sceneBin:EVGSceneBinary () {
+        return (app.sceneBinary())
+    }
+
     fn sceneGraph:string () {
         return (app.sceneGraphJson())
     }
