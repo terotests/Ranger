@@ -81,6 +81,13 @@ const FACES = [
   ["Noto Sans-Bold", "NotoSans-Bold.ttf"],
 ];
 
+// Fetched before the selftest runs, because the selftest is synchronous —
+// the smoke harness reads `window.__selftest` off the DOM and an async one
+// would have to be waited for on the other side of the bridge.
+let selftestDeck = "";
+let selftestTheme = "";
+let selftestTheme2 = "";
+
 const THEMES = {
   corporate: "./themes/corporate.css",
   editorial: "./themes/editorial.css",
@@ -676,6 +683,13 @@ async function start() {
     sampleEl.dispatchEvent(new Event("change"));
   }
   if (q.has("selftest")) {
+    try {
+      selftestDeck = await (await fetch(SAMPLES.deck)).text();
+      selftestTheme = await (await fetch(THEMES.corporate)).text();
+      selftestTheme2 = await (await fetch(THEMES.editorial)).text();
+    } catch (e) {
+      selftestDeck = "";
+    }
     window.__selftest = selftest();
   }
   // A known editing state, for a screenshot. It drives the same seam a
@@ -869,6 +883,91 @@ function selftest() {
       }
     }
     say("and nothing is drawn on top of anything", overlap === 0, overlap + " overlapping runs");
+    app.setStyleSheet("");
+    app.setSource(kept);
+  }
+
+  // …and the document that ships with the template, through the same door a
+  // reader opens it by: the sample, then the sheet. Runs on one line may not
+  // overlap, whatever order those two arrive in.
+  {
+    const kept = sourceEl.value;
+    const overlapsNow = () => {
+      const runs = JSON.parse(app.frame()).list.cmds.filter(
+        (c) => c.k === 3 && (c.text || "").length > 1
+      );
+      let n = 0;
+      for (let i = 0; i < runs.length; i++) {
+        for (let j = i + 1; j < runs.length; j++) {
+          const a = runs[i], b = runs[j];
+          if (Math.abs(a.y - b.y) > 1) continue;
+          if (a.x < b.x + b.w - 0.5 && b.x < a.x + a.w - 0.5) n++;
+        }
+      }
+      return n;
+    };
+    try {
+      const doc = selftestDeck;
+      const css = selftestTheme;
+      if (!doc || !css) throw new Error("not fetched");
+      app.setSource(doc);
+      say("the deck sample, plain, draws clear", overlapsNow() === 0, overlapsNow() + " overlapping runs");
+      app.setStyleSheet(css);
+      say("…and with the template over it", overlapsNow() === 0, overlapsNow() + " overlapping runs");
+      // The other order, which is the one the page uses on a fresh load.
+      app.setStyleSheet("");
+      app.setSource("x\n");
+      app.setStyleSheet(css);
+      app.setSource(doc);
+      say("…and template first, document second", overlapsNow() === 0, overlapsNow() + " overlapping runs");
+
+      // Typing, which is the path that leans on the block cache hardest: one
+      // block re-measures and every other block's boxes are replayed.
+      const at = app.sourceText().indexOf("kaksi yrityst");
+      let typed = 0;
+      if (at > 0) {
+        app.setSelection(at, at);
+        for (const ch of "aivan ") {
+          app.typeText(ch);
+          if (overlapsNow() !== 0) typed++;
+        }
+      }
+      say("…and after six keystrokes in it", typed === 0, typed + " keystrokes drew over themselves");
+
+      // …and the layout switches, each of which changes the column width.
+      app.setPaged(true);
+      say("…and paged with the template", overlapsNow() === 0, overlapsNow() + " overlapping runs");
+      app.setPageSize("a4 landscape");
+      say("…and landscape", overlapsNow() === 0, overlapsNow() + " overlapping runs");
+      app.setPageSize("a4");
+      app.setPaged(false);
+      say("…and back to continuous", overlapsNow() === 0, overlapsNow() + " overlapping runs");
+
+      // The other way text lands on text: a run drawn WIDER than the box it
+      // was measured into. The display list can be perfectly spaced and the
+      // page still overlap, because the painter advances by its own idea of
+      // each glyph. Two runs above were checked this way; the whole document
+      // is checked here, and the worst one is named.
+      let worst = null;
+      let worstBy = 0;
+      for (const c of JSON.parse(app.frame()).list.cmds) {
+        if (c.k !== 3 || !c.text || c.text.length < 2) continue;
+        const by = drawnWidth(c) - c.w;
+        if (by > worstBy) { worstBy = by; worst = c; }
+      }
+      say(
+        "every run is drawn at the width it was measured",
+        worstBy <= Math.max(0.5, (worst ? worst.w : 1) * 0.01),
+        worst ? worstBy.toFixed(2) + "pt over on [" + worst.text.slice(0, 24) + "] in " + worst.font : "none"
+      );
+
+      // The other template, over the same document. Two sheets is the claim;
+      // one of them being clean is half a check.
+      app.setStyleSheet(selftestTheme2);
+      say("the other template draws clear too", overlapsNow() === 0, overlapsNow() + " overlapping runs");
+    } catch (e) {
+      say("the deck sample is readable", false, String(e));
+    }
     app.setStyleSheet("");
     app.setSource(kept);
   }
