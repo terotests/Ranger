@@ -269,10 +269,18 @@ The nine outlines were the other half. `page`, `queue`, `package`, `step`,
 `callout`, `stored_data`, `person`, `c4-person` and `cloud` are D2's
 architecture vocabulary, and drawing a cloud as an ellipse is the same mistake
 as drawing a magnetic tape as a rectangle: it throws away the one thing the
-reader was going to read first. The cloud is the interesting one — five
-identical ellipses on one centre line, spaced exactly one radius apart, so the
-crossings are at a constant 60° and the outline is continuous at any size
-without solving a single intersection.
+reader was going to read first. The cloud is the interesting one, and the
+first two tries were wrong in instructive ways: bumps that only touch read as
+a crown, and bumps that overlap without solving the crossing read as petals
+with chords drawn across the shape. What a cloud is, is the *outer boundary of
+overlapping circles* — so `FlowShapes.blobInto` computes it, with the crossing
+of two circles in closed form and the outer of the two solutions picked by
+distance from the middle of the blob. The lobes are given in unit space and
+the points scaled into the box afterwards, which is why a wide short cloud is
+the same cloud as a tall one rather than a different shape with the same name.
+The person is the same lesson in miniature: D2 draws it as one head-and-
+shoulders silhouette, and a circle floating over a box does not read as a
+person at the size a node is.
 
 ## 9. Done means
 

@@ -99,6 +99,13 @@ class D2Shapes {
         return false
     }
 
+    ; The two figures, which need room above the label for a head.
+    sfn isFigure:boolean (shape:string) {
+        if (shape == "person")    { return true }
+        if (shape == "c4-person") { return true }
+        return false
+    }
+
     ; `square` and `circle` are the two D2 draws with the aspect forced.
     sfn isSquare:boolean (shape:string) {
         if (shape == "square") { return true }
@@ -286,6 +293,18 @@ class D2Flow {
         if (o.shape == "diamond") {
             w = (w * 1.4)
             h = (h + 28.0)
+        }
+        ; A figure is mostly head: the label goes in the shoulders, so the box
+        ; has to be tall enough to have shoulders. D2 sizes its own `person`
+        ; the same way — the shape is much bigger than the text in it.
+        if (D2Shapes.isFigure(o.shape)) {
+            h = (h * 2.3)
+            if (h < 104.0) {
+                h = 104.0
+            }
+            if (w < 120.0) {
+                w = 120.0
+            }
         }
         if (D2Shapes.isSquare(o.shape)) {
             if (h > w) {

@@ -2426,12 +2426,20 @@ class RangerFlowTest {
         }
         c.eqInt("none of the D2 shapes leaves its box" d2leaks 0)
         c.eqInt("and every one encloses its centre" d2hollow 0)
+        ; A person is one silhouette: the head is part of the ring, the neck
+        ; is the narrow part, and the shoulders reach the full width.
         def body:[double] (FlowShapes.outline("person" 10.0 20.0 140.0 80.0))
-        c.ok("a person's ring is the body" (FlowShapes.holds(body 80.0 85.0)))
-        def headroom:double (FlowShapes.headRadius(140.0 80.0))
-        c.ok("and the head is above it" ((FlowShapes.holds(body 80.0 (20.0 + (headroom * 0.5)))) == false))
-        c.eqInt("the head is drawn as an ornament" (FlowShapes.ornamentCount("person")) 1)
-        c.ok("a closed one, because it is a head" (FlowShapes.ornamentClosed("person" 0)))
+        c.ok("a person's head is inside it" (FlowShapes.holds(body 80.0 32.0)))
+        c.ok("so are its shoulders" (FlowShapes.holds(body 80.0 92.0)))
+        c.ok("the corner beside the head is not" ((FlowShapes.holds(body 14.0 26.0)) == false))
+        c.eqInt("and it needs no ornament to be a person" (FlowShapes.ornamentCount("person")) 0)
+        c.eqInt("a C4 figure does, because its head is drawn apart" (FlowShapes.ornamentCount("c4person")) 1)
+        c.ok("a filled one" (FlowShapes.ornamentClosed("c4person" 0)))
+        ; The head is a proportion of the box and not a pixel size: the body
+        ; is measured from it, so the two have to scale together.
+        def small:double (FlowShapes.headRadius(140.0 80.0))
+        def big:double (FlowShapes.headRadius(280.0 160.0))
+        c.near("twice the box is twice the head" big (small * 2.0) 0.001)
         c.eqInt("a page has its fold" (FlowShapes.ornamentCount("page")) 1)
         c.eqInt("and a queue its near end" (FlowShapes.ornamentCount("queue")) 1)
         ; The label has to miss both the head and the tail.

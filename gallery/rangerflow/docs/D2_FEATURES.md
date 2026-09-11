@@ -75,13 +75,13 @@ being built.
 | `step` | ✓ | the chevron |
 | `callout` | ✓ | bubble and tail |
 | `stored_data` | ✓ |  |
-| `person` | ✓ | head and shoulders; the head is an ornament, the body is the ring |
-| `c4-person` | ✓ |  |
+| `person` | ✓ | head and shoulders, as one silhouette |
+| `c4-person` | ✓ | an outlined head over a rounded body, the way C4 draws one |
 | `diamond` | ✓ | |
 | `oval` | ✓ | `ellipse` |
 | `circle` | ✓ | |
 | `hexagon` | ✓ | |
-| `cloud` | ✓ | five overlapping bumps, joined at the crossings; `MermaidArchReader` still approximates its own with an ellipse |
+| `cloud` | ✓ | five overlapping lobes, joined at the crossings; `MermaidArchReader` still approximates its own with an ellipse |
 | `text` | ✓ | label-only node |
 | `code` | ~ | the text is drawn; no monospace block, no highlighting |
 | `class` | ✓ | compartment node — `domains/uml/UMLModel.rgr` |
