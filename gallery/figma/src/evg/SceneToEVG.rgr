@@ -116,6 +116,14 @@ class SceneToEVG {
             el.addChild(kid)
             i = (i + 1)
         }
+        ; The sides go on last, over the content, which is where a border
+        ; is: a row's rule is drawn on top of the cell, not under it.
+        def bars:[EVGElement] (this.sideBars(n))
+        def bi:int 0
+        while (bi < (array_length bars)) {
+            el.addChild((itemAt bars bi))
+            bi = (bi + 1)
+        }
         return el
     }
 
@@ -254,9 +262,82 @@ class SceneToEVG {
         if (n.kind == "text") {
             return
         }
+        ; Four weights are four bars, drawn below as children — one
+        ; border-width could only be one of them.
+        if s.perSide {
+            return
+        }
         el.setAttribute("border-width" ((to_string s.weight) + "px"))
         el.setAttribute("border-color" (s.hex()))
         el.setAttribute("border-style" "solid")
+    }
+
+    ; A stroke with a weight per side, as one bar per side.
+    ;
+    ; A table row with a rule under it and nothing else, a card open on
+    ; one edge: Figma gives each side its own weight, and an EVG border
+    ; has one. Drawn at the single `strokeWeight` the node also carries,
+    ; a row with a hairline under it came out boxed on all four sides —
+    ; which is not a near miss, it is a different drawing.
+    ;
+    ; `strokeAlign` decides where the bars sit: INSIDE puts them in the
+    ; box, OUTSIDE beyond it, CENTER astride the edge. The one factor
+    ; below is that choice, so the four bars cannot disagree about it.
+    ; The corners overlap, which costs nothing — the bars are one colour.
+    ;
+    ; They are children of the element, so a clipping frame cuts an
+    ; outside bar that Figma would leave whole. The reader only takes
+    ; this path when the weights differ AND the corners are square, which
+    ; is the table and the divider, and those align inside.
+    fn sideBars:[EVGElement] (n:SceneNode) {
+        def out:[EVGElement]
+        if ((array_length n.strokes) == 0) {
+            return out
+        }
+        def s:SceneStroke (n.firstStroke())
+        if ((s.perSide && s.visible) == false) {
+            return out
+        }
+        if ((this.isPathKind(n.kind)) || (n.kind == "text")) {
+            return out
+        }
+        def f:double 0.5
+        if (s.align == "inside") {
+            f = 0.0
+        }
+        if (s.align == "outside") {
+            f = 1.0
+        }
+        def x0:double (0.0 - (s.wLeft * f))
+        def y0:double (0.0 - (s.wTop * f))
+        def bw:double ((n.w + (s.wLeft * f)) + (s.wRight * f))
+        def bh:double ((n.h + (s.wTop * f)) + (s.wBottom * f))
+        push out (this.bar(n s "top" x0 y0 bw s.wTop))
+        push out (this.bar(n s "bottom" x0 (n.h - (s.wBottom * (1.0 - f))) bw s.wBottom))
+        push out (this.bar(n s "left" x0 y0 s.wLeft bh))
+        push out (this.bar(n s "right" (n.w - (s.wRight * (1.0 - f))) y0 s.wRight bh))
+        return out
+    }
+
+    fn bar:EVGElement (n:SceneNode s:SceneStroke side:string x:double y:double w:double h:double) {
+        def el:EVGElement (EVGElement.createDiv())
+        el.id = ((n.id + ":border-") + side)
+        el.setAttribute("position" "absolute")
+        el.setAttribute("left" ((to_string x) + "px"))
+        el.setAttribute("top" ((to_string y) + "px"))
+        ; A side with no weight is a bar with no size, which draws nothing
+        ; and keeps the four in step with the four the file names.
+        el.setAttribute("width" ((to_string (SceneToEVG.atLeastZero(w))) + "px"))
+        el.setAttribute("height" ((to_string (SceneToEVG.atLeastZero(h))) + "px"))
+        el.setAttribute("background" (s.hex()))
+        return el
+    }
+
+    sfn atLeastZero:double (v:double) {
+        if (v < 0.0) {
+            return 0.0
+        }
+        return v
     }
 
     fn applyRadius:void (el:EVGElement n:SceneNode) {

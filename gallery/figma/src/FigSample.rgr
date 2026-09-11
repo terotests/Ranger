@@ -150,6 +150,10 @@ class FigSample {
         s.addField(node "derivedImmutableFrameData" "ImmutableFrame" 42 false)
         s.addField(node "nodeGenerationData" "ImmutableFrame" 43 false)
         s.addField(node "mask" "bool" 45 false)
+        s.addField(node "borderTopWeight" "float" 47 false)
+        s.addField(node "borderRightWeight" "float" 48 false)
+        s.addField(node "borderBottomWeight" "float" 49 false)
+        s.addField(node "borderLeftWeight" "float" 50 false)
         s.addField(node "arcData" "ArcData" 46 false)
         def blob:KiwiDef (s.addMessage("Blob"))
         s.addField(blob "bytes" "byte" 1 true)
@@ -775,6 +779,21 @@ class FigSample {
         arcData.put("innerRadius" (KiwiValue.fromDouble(0.5)))
         arc.put("arcData" arcData)
         nodes.pushItem(arc)
+
+        ; A table row: a rule under it and nothing on the other three
+        ; sides. Drawn at the node's single `strokeWeight` it comes out
+        ; boxed, which is a different drawing rather than a near miss.
+        def row:KiwiValue (FigSample.node(3 74 "RECTANGLE" "TableRow" 0 3 "m" 200.0 40.0 4840.0 800.0))
+        row.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        row.put("strokePaints" (FigSample.paints(0.8 0.8 0.82)))
+        row.put("strokeWeight" (KiwiValue.fromDouble(1.0)))
+        row.put("strokeAlign" (KiwiValue.fromString("INSIDE")))
+        row.put("borderStrokeWeightsIndependent" (KiwiValue.fromBool(true)))
+        row.put("borderTopWeight" (KiwiValue.fromDouble(0.0)))
+        row.put("borderRightWeight" (KiwiValue.fromDouble(0.0)))
+        row.put("borderBottomWeight" (KiwiValue.fromDouble(2.0)))
+        row.put("borderLeftWeight" (KiwiValue.fromDouble(0.0)))
+        nodes.pushItem(row)
 
         ; --- FigJam ---------------------------------------------------
         ;

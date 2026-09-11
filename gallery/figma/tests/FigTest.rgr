@@ -64,6 +64,7 @@ class FigTest {
         this.testPaste()
         this.testArcs()
         this.testMask()
+        this.testPerSideStroke()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -171,6 +172,24 @@ class FigTest {
         def dump:string (app.evgText())
         this.check("the renderer gets the clip" (FigTest.hasSub(dump "id=\"3:71#mask\" position=\"absolute\" left=\"10px\" top=\"10px\" width=\"80px\" height=\"80px\"")))
         this.check("the mask shape is not painted" ((FigTest.hasSub(dump "id=\"3:71\"")) == false))
+    }
+
+    ; A rule under a row, and nothing on the other three sides.
+    fn testPerSideStroke:void () {
+        print "--- per-side strokes ---"
+        def app (new FigApp())
+        this.check("open sample" (app.openSample()))
+        app.setPage(2)
+        def row:SceneNode ((app.currentPage()).childNamed("TableRow"))
+        def s:SceneStroke (row.firstStroke())
+        this.check("the four weights are the truth" s.perSide)
+        this.eqInt("and the rule is at the bottom" (to_int s.wBottom) 2)
+        this.eqInt("with nothing on top" (to_int s.wTop) 0)
+        def dump:string (app.evgText())
+        ; Inside alignment: the bar sits on the row's last two pixels.
+        this.check("drawn as a bar there" (FigTest.hasSub(dump "id=\"3:74:border-bottom\" position=\"absolute\" left=\"0px\" top=\"38px\" width=\"200px\" height=\"2px\"")))
+        this.check("and the other sides draw nothing" (FigTest.hasSub(dump "id=\"3:74:border-top\" position=\"absolute\" left=\"0px\" top=\"0px\" width=\"200px\" height=\"0px\"")))
+        this.check("no box around it" ((FigTest.hasSub(dump "id=\"3:74\" position=\"absolute\" left=\"4840px\" top=\"800px\" width=\"200px\" height=\"40px\" border-width=")) == false))
     }
 
     sfn countOf:int (s:string needle:string) {

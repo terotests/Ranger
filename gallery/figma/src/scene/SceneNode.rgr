@@ -87,6 +87,14 @@ class SceneStroke {
     def a:double 1.0
     def opacity:double 1.0
     def weight:double 1.0
+    ; Figma can give each side its own weight — a table row with a rule
+    ; under it and nothing else, a card open on one edge. `perSide` says
+    ; the four below are the truth and `weight` is only their fallback.
+    def perSide:boolean false
+    def wTop:double 0.0
+    def wRight:double 0.0
+    def wBottom:double 0.0
+    def wLeft:double 0.0
     def align:string "center"
     def visible:boolean true
 

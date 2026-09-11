@@ -948,6 +948,10 @@ class FigToScene {
             s.opacity = p.opacity
             s.visible = p.visible
             s.weight = nd.strokeWeight
+            s.wTop = (nd.raw.childDouble("borderTopWeight" nd.strokeWeight))
+            s.wRight = (nd.raw.childDouble("borderRightWeight" nd.strokeWeight))
+            s.wBottom = (nd.raw.childDouble("borderBottomWeight" nd.strokeWeight))
+            s.wLeft = (nd.raw.childDouble("borderLeftWeight" nd.strokeWeight))
             s.align = (nd.raw.childString("strokeAlign" "CENTER"))
             if (s.align == "INSIDE") {
                 s.align = "inside"
@@ -969,10 +973,26 @@ class FigToScene {
             push sn.strokes s
             i = (i + 1)
         }
+        ; Four weights are only worth carrying when they differ and the
+        ; corners are square: a rounded box's sides are arcs, not bars,
+        ; and drawing them as bars would be a worse picture than the one
+        ; weight this used to fall back to.
         if ((array_length sn.strokes) > 0) {
             if (nd.raw.childBool("borderStrokeWeightsIndependent" false)) {
-                if ((array_length nd.strokeBlobs) == 0) {
-                    sn.warn("per-side stroke weights (drawn as one)")
+                def s0:SceneStroke (itemAt sn.strokes 0)
+                def same:boolean (((s0.wTop == s0.wRight) && (s0.wRight == s0.wBottom)) && (s0.wBottom == s0.wLeft))
+                def square:boolean ((sn.radius.any()) == false)
+                if ((same == false) && square) {
+                    def k:int 0
+                    while (k < (array_length sn.strokes)) {
+                        def one:SceneStroke (itemAt sn.strokes k)
+                        one.perSide = true
+                        k = (k + 1)
+                    }
+                } {
+                    if ((same == false) && ((array_length nd.strokeBlobs) == 0)) {
+                        sn.warn("per-side stroke weights on a rounded box (drawn as one)")
+                    }
                 }
             }
         }
