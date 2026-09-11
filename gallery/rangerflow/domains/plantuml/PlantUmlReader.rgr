@@ -438,6 +438,7 @@ class PlantUmlReader {
         if (kind == "sequence")    { return true }
         if (kind == "class")       { return true }
         if (kind == "description") { return true }
+        if (kind == "activity")    { return true }
         return false
     }
 

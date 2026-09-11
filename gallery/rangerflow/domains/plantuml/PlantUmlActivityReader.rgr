@@ -1,0 +1,919 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PlantUmlActivityReader.rgr — the activity diagram, which is a tree that draws
+; as a graph.
+; ============================================================================
+;
+;   @startuml
+;   start
+;   :read order;
+;   if (in stock?) then (yes)
+;     :reserve;
+;   else (no)
+;     :backorder;
+;   endif
+;   stop
+;   @enduml
+;
+; Every other PlantUML diagram this repository reads is a list of things and a
+; list of lines between them, in any order. An activity diagram is not: it is
+; **nested**, and what connects to what is decided by where a statement sits
+; inside `if` … `else` … `endif` rather than by anything written on the line.
+;
+; So this reader carries two pieces of state and nothing else is needed:
+;
+;   * `tails` — the open ends the next statement has to be joined to. Usually
+;     one. After an `endif` it is every branch that reached the end, which is
+;     how the arrows converge without a merge node being written anywhere.
+;   * a stack of the structures still open, each remembering the node it
+;     branched from and the tails its finished branches left behind.
+;
+; **What it reads.** `start`, `stop`, `end`, `kill`/`detach`, actions
+; (`:like this;`, over as many lines as they like, with a `#colour:` in front
+; if they want one), `if`/`then`/`elseif`/`else`/`endif`, `while`/`endwhile`,
+; `repeat`/`repeat while`/`backward`, `fork`/`fork again`/`end fork`,
+; `split`/`split again`/`end split`, `partition … { }` and `|swimlanes|`, the
+; arrow label `-> like this;`, and notes.
+;
+; **What it draws them as.** `ActivityDiagram` in `domains/uml/` — the model
+; the ISO-shaped activity demo already uses, so the initial node, the final
+; node, the diamond, the fork bar and the action box are the ones RangerFlow
+; has always drawn. Nothing new is drawn here.
+;
+; **What it does not do yet.** A swimlane is read and recorded but not drawn as
+; a column; `partition` is drawn as a frame round its nodes, which is right
+; when the partition is one run of the flow and understates it when it is not.
+; ============================================================================
+
+Import "PlantUmlReader.rgr"
+Import "../uml/UMLActivity.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+Import "../../layout/LayeredLayout.rgr"
+Import "../../layout/EdgeLanes.rgr"
+Import "../../layout/OrthoRouter.rgr"
+
+; A `partition` or a `|swimlane|`, and the nodes that fell inside it.
+class PlantUmlActivityGroup {
+    def name:string ""
+    ; "partition" | "swimlane"
+    def kind:string "partition"
+    def members:[string]
+
+    Constructor () {
+    }
+
+    fn memberCount:int () {
+        return (array_length members)
+    }
+}
+
+class PlantUmlActivity {
+    def title:string ""
+    def act:ActivityDiagram (new ActivityDiagram)
+    def groups:[PlantUmlActivityGroup]
+    ; Statements the reader recognised and could not place — an `endif` with no
+    ; `if`, say. Counted rather than guessed at, so a diagram that comes out
+    ; short says so.
+    def unbalanced:int 0
+
+    Constructor () {
+    }
+
+    fn nodeCount:int () {
+        return (array_length act.nodes)
+    }
+
+    fn flowCount:int () {
+        return (array_length act.flows)
+    }
+
+    fn groupCount:int () {
+        return (array_length groups)
+    }
+
+    fn indexOfGroup:int (name:string) {
+        def i:int 0
+        while (i < (array_length groups)) {
+            def g:PlantUmlActivityGroup (itemAt groups i)
+            if (g.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}
+
+class PlantUmlActivityReader {
+    def doc:PlantUmlActivity (new PlantUmlActivity)
+    def seq:int 0
+    ; The open ends the next statement joins to.
+    def tails:[string]
+    ; `-> yes;` — a label waiting for the flow it belongs to.
+    def pendingLabel:string ""
+    ; The structures still open, innermost last.
+    ; kind: "if" | "fork" | "split" | "while" | "repeat" | "partition"
+    def openKind:[string]
+    ; The node the structure branched from: the diamond, the fork bar, the
+    ; loop's entry.
+    def openNode:[string]
+    ; The tails each finished branch left, "\n"-joined — Ranger has no list of
+    ; lists, and a stack of branches needs one.
+    def openTails:[string]
+    ; Whether an `if` has met its `else`. Without one the diamond itself is an
+    ; open end: the condition can be false and the flow carries on past it.
+    def openElse:[boolean]
+    ; The partition or swimlane a node declared now belongs to.
+    def groupStack:[string]
+    ; A `note … end note` still open.
+    def noteOpen:boolean false
+
+    Constructor () {
+    }
+
+    sfn parse:PlantUmlActivity (src:string) {
+        def r (new PlantUmlActivityReader)
+        return (r.read(src))
+    }
+
+    sfn render:FlowGraph (src:string) {
+        def d:PlantUmlActivity (PlantUmlActivityReader.parse(src))
+        def bare (new FlowStyle)
+        return (PlantUmlActivityFlow.build(d bare))
+    }
+
+    fn read:PlantUmlActivity (src:string) {
+        def source:PlantUmlSource (PlantUmlReader.read(src))
+        doc.title = source.title
+        doc.act.title = source.title
+        ; An action may run over several lines and ends at its `;`, so the
+        ; statements are re-joined before anything looks at them.
+        def buffer:string ""
+        def i:int 0
+        while (i < (array_length source.lines)) {
+            def line:string (itemAt source.lines i)
+            i = (i + 1)
+            if ((strlen buffer) > 0) {
+                buffer = (buffer + " " + line)
+                if (PlantUmlActivityReader.closesAction(buffer)) {
+                    this.statement(buffer)
+                    buffer = ""
+                }
+                continue
+            }
+            if (PlantUmlActivityReader.opensAction(line)) {
+                if (PlantUmlActivityReader.closesAction(line)) {
+                    this.statement(line)
+                    continue
+                }
+                buffer = line
+                continue
+            }
+            this.statement(line)
+        }
+        if ((strlen buffer) > 0) {
+            ; An action nobody closed still says something.
+            this.statement((buffer + ";"))
+        }
+        return doc
+    }
+
+    ; `:text` — an action, whatever it ends with.
+    sfn opensAction:boolean (line:string) {
+        if ((strlen line) == 0) {
+            return false
+        }
+        if ((charAt line 0) == 58) {
+            return true
+        }
+        ; `#lightblue:text;` — the colour is in front of the colon.
+        if ((charAt line 0) == 35) {
+            def at:int (PlantUmlText.indexOfCode(line 58))
+            return (at > 0)
+        }
+        return false
+    }
+
+    ; An action ends at one of the characters PlantUML gives it a shape for.
+    sfn closesAction:boolean (line:string) {
+        def n:int (strlen line)
+        if (n == 0) {
+            return false
+        }
+        def c:int (charAt line (n - 1))
+        if (c == 59)  { return true }
+        if (c == 124) { return true }
+        if (c == 60)  { return true }
+        if (c == 62)  { return true }
+        if (c == 47)  { return true }
+        if (c == 93)  { return true }
+        if (c == 125) { return true }
+        return false
+    }
+
+    ; ---------------------------------------------------------- statements --
+    fn statement:void (st:string) {
+        if ((strlen st) == 0) {
+            return
+        }
+        if noteOpen {
+            def lw0:string (PlantUmlText.lower(st))
+            if (lw0 == "end note") {
+                noteOpen = false
+            }
+            if (lw0 == "endnote") {
+                noteOpen = false
+            }
+            return
+        }
+        if (PlantUmlActivityReader.opensAction(st)) {
+            this.action(st)
+            return
+        }
+        def lw:string (PlantUmlText.lower(st))
+        def kw:string (PlantUmlText.firstWord(lw))
+        def rest:string (PlantUmlText.restWords(st))
+
+        ; --- the words that are only ever style ---
+        if (kw == "skinparam") { return }
+        if (kw == "hide")      { return }
+        if (kw == "show")      { return }
+        if (kw == "header")    { return }
+        if (kw == "footer")    { return }
+        if (kw == "caption")   { return }
+        if (kw == "scale")     { return }
+        if (kw == "legend")    { return }
+        if (kw == "endlegend") { return }
+        if (kw == "note") {
+            def colon:int (PlantUmlText.indexOfCode(st 58))
+            if (colon < 0) {
+                noteOpen = true
+            }
+            return
+        }
+        if (kw == "floating") { return }
+        if (lw == "left to right direction")  { return }
+        if (lw == "top to bottom direction")  { return }
+
+        ; --- `-> the label for the next flow;` ---
+        if (PlantUmlText.beginsWith(st "->")) {
+            def body:string (trim (substring st 2 (strlen st)))
+            pendingLabel = (PlantUmlText.label((PlantUmlActivityReader.dropTerminator(body))))
+            return
+        }
+
+        ; --- a swimlane: `|Lane|`, or `|#colour|Lane|` ---
+        if ((charAt st 0) == 124) {
+            this.swimlane(st)
+            return
+        }
+
+        ; --- the ends ---
+        if (kw == "start") {
+            def n:string (this.makeNode("" (ActivityKind.initial())))
+            this.emit(n)
+            return
+        }
+        if (kw == "stop") {
+            def f:string (this.makeNode("" (ActivityKind.final())))
+            this.emit(f)
+            clear tails
+            return
+        }
+        if (lw == "end") {
+            def f2:string (this.makeNode("" (ActivityKind.final())))
+            this.emit(f2)
+            clear tails
+            return
+        }
+        if (kw == "kill") {
+            clear tails
+            return
+        }
+        if (kw == "detach") {
+            clear tails
+            return
+        }
+
+        ; --- the structures ---
+        if (kw == "if") {
+            this.openIf(st)
+            return
+        }
+        if (kw == "elseif") {
+            this.elseIf(st)
+            return
+        }
+        if (kw == "else") {
+            this.elseBranch(st)
+            return
+        }
+        if (kw == "endif") {
+            this.closeIf()
+            return
+        }
+        if (kw == "while") {
+            this.openWhile(st)
+            return
+        }
+        if (kw == "endwhile") {
+            this.closeWhile(st)
+            return
+        }
+        if (kw == "repeat") {
+            def tail:string (PlantUmlText.lower(rest))
+            if (PlantUmlText.beginsWith(tail "while")) {
+                this.closeRepeat(st)
+                return
+            }
+            this.openRepeat()
+            return
+        }
+        if (kw == "backward") {
+            ; `backward:text;` is the action on a loop's way back.
+            return
+        }
+        if (kw == "fork") {
+            def word2:string (PlantUmlText.lower(rest))
+            if (word2 == "again") {
+                this.nextBranch()
+                return
+            }
+            this.openFork("fork")
+            return
+        }
+        if (kw == "split") {
+            def word3:string (PlantUmlText.lower(rest))
+            if (word3 == "again") {
+                this.nextBranch()
+                return
+            }
+            this.openFork("split")
+            return
+        }
+        if (kw == "endfork") {
+            this.closeFork()
+            return
+        }
+        if (kw == "endsplit") {
+            this.closeFork()
+            return
+        }
+        if (kw == "endmerge") {
+            this.closeFork()
+            return
+        }
+        if (kw == "partition") {
+            this.openPartition(rest)
+            return
+        }
+        if (kw == "group") {
+            this.openPartition(rest)
+            return
+        }
+        if (st == "}") {
+            this.closePartition()
+            return
+        }
+        if (kw == "end") {
+            def what:string (PlantUmlText.lower(rest))
+            if (what == "fork")  { this.closeFork()  return }
+            if (what == "split") { this.closeFork()  return }
+            if (what == "merge") { this.closeFork()  return }
+            if (what == "note")  { return }
+            return
+        }
+    }
+
+    ; ------------------------------------------------------------- nodes ----
+    fn makeNode:string (label:string kind:string) {
+        seq = (seq + 1)
+        def id:string ("a" + (to_string seq))
+        def n:ActivityNode (doc.act.node(id label kind))
+        def group:string (this.currentGroup())
+        if ((strlen group) > 0) {
+            def at:int (doc.indexOfGroup(group))
+            if (at >= 0) {
+                def g:PlantUmlActivityGroup (itemAt doc.groups at)
+                push g.members id
+            }
+        }
+        return id
+    }
+
+    ; Join every open end to `id`, then make `id` the only open end.
+    fn emit:void (id:string) {
+        def label:string pendingLabel
+        pendingLabel = ""
+        def i:int 0
+        while (i < (array_length tails)) {
+            def from:string (itemAt tails i)
+            i = (i + 1)
+            def f:ActivityFlow (doc.act.flow(from id))
+            if ((strlen label) > 0) {
+                f.guard = label
+            }
+        }
+        clear tails
+        push tails id
+    }
+
+    fn action:void (st:string) {
+        def body:string st
+        ; `#lightblue:text;` — the colour is style.
+        if ((charAt body 0) == 35) {
+            def at:int (PlantUmlText.indexOfCode(body 58))
+            body = (substring body at (strlen body))
+        }
+        def inner:string (substring body 1 (strlen body))
+        def text:string (PlantUmlActivityReader.dropTerminator(inner))
+        def id:string (this.makeNode((PlantUmlText.label(text)) (ActivityKind.action())))
+        this.emit(id)
+    }
+
+    ; The `;`, `|`, `<`, `>`, `/`, `]` or `}` an action or a label ends with.
+    sfn dropTerminator:string (body:string) {
+        def t:string (trim body)
+        def n:int (strlen t)
+        if (n == 0) {
+            return ""
+        }
+        def c:int (charAt t (n - 1))
+        if (PlantUmlActivityReader.isTerminator(c)) {
+            def cut:string (substring t 0 (n - 1))
+            ; `;;` — one of them is a typo, and both of them are the end.
+            return (PlantUmlActivityReader.dropTerminator(cut))
+        }
+        return t
+    }
+
+    sfn isTerminator:boolean (c:int) {
+        if (c == 59)  { return true }
+        if (c == 124) { return true }
+        if (c == 60)  { return true }
+        if (c == 62)  { return true }
+        if (c == 47)  { return true }
+        if (c == 93)  { return true }
+        if (c == 125) { return true }
+        return false
+    }
+
+    ; ------------------------------------------------------ the structures --
+    fn pushFrame:void (kind:string node:string) {
+        push openKind kind
+        push openNode node
+        push openTails ""
+        push openElse false
+    }
+
+    fn frameDepth:int () {
+        return (array_length openKind)
+    }
+
+    fn popFrame:void () {
+        def n:int (array_length openKind)
+        if (n == 0) {
+            return
+        }
+        def k:[string]
+        def nd:[string]
+        def tl:[string]
+        def el:[boolean]
+        def i:int 0
+        while (i < (n - 1)) {
+            push k (itemAt openKind i)
+            push nd (itemAt openNode i)
+            push tl (itemAt openTails i)
+            push el (itemAt openElse i)
+            i = (i + 1)
+        }
+        openKind = k
+        openNode = nd
+        openTails = tl
+        openElse = el
+    }
+
+    ; Put the current open ends away as one finished branch.
+    fn stashTails:void () {
+        def n:int (array_length openTails)
+        if (n == 0) {
+            return
+        }
+        def packed:string (itemAt openTails (n - 1))
+        def i:int 0
+        while (i < (array_length tails)) {
+            def id:string (itemAt tails i)
+            i = (i + 1)
+            if ((strlen packed) > 0) {
+                packed = (packed + "\n")
+            }
+            packed = (packed + id)
+        }
+        set_at openTails (n - 1) packed
+        clear tails
+    }
+
+    fn restoreTails:void () {
+        def n:int (array_length openTails)
+        if (n == 0) {
+            return
+        }
+        def packed:string (itemAt openTails (n - 1))
+        clear tails
+        if ((strlen packed) == 0) {
+            return
+        }
+        def parts:[string] (strsplit packed "\n")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def id:string (itemAt parts i)
+            i = (i + 1)
+            if ((strlen id) > 0) {
+                push tails id
+            }
+        }
+    }
+
+    ; `if (cond) then (label)`
+    fn openIf:void (st:string) {
+        def cond:string (PlantUmlActivityReader.bracketed(st))
+        def thenLabel:string (PlantUmlActivityReader.afterWord(st "then"))
+        def id:string (this.makeNode((PlantUmlText.label(cond)) (ActivityKind.decision())))
+        this.emit(id)
+        this.pushFrame("if" id)
+        pendingLabel = thenLabel
+    }
+
+    fn elseBranch:void (st:string) {
+        if ((this.frameDepth()) == 0) {
+            doc.unbalanced = (doc.unbalanced + 1)
+            return
+        }
+        this.stashTails()
+        def n:int (array_length openNode)
+        set_at openElse (n - 1) true
+        clear tails
+        push tails (itemAt openNode (n - 1))
+        pendingLabel = (PlantUmlActivityReader.bracketed(st))
+    }
+
+    ; `elseif (cond) then (label)` — a second diamond hanging off the first.
+    fn elseIf:void (st:string) {
+        if ((this.frameDepth()) == 0) {
+            doc.unbalanced = (doc.unbalanced + 1)
+            return
+        }
+        this.stashTails()
+        def n:int (array_length openNode)
+        def from:string (itemAt openNode (n - 1))
+        def cond:string (PlantUmlActivityReader.bracketed(st))
+        def id:string (this.makeNode((PlantUmlText.label(cond)) (ActivityKind.decision())))
+        def f:ActivityFlow (doc.act.flow(from id))
+        set_at openNode (n - 1) id
+        set_at openElse (n - 1) false
+        clear tails
+        push tails id
+        pendingLabel = (PlantUmlActivityReader.afterWord(st "then"))
+    }
+
+    fn closeIf:void () {
+        if ((this.frameDepth()) == 0) {
+            doc.unbalanced = (doc.unbalanced + 1)
+            return
+        }
+        this.stashTails()
+        def n:int (array_length openNode)
+        def sawElse:boolean (itemAt openElse (n - 1))
+        def diamond:string (itemAt openNode (n - 1))
+        this.restoreTails()
+        ; With no `else`, the condition being false walks straight past the
+        ; diamond, so the diamond is an open end too.
+        if (sawElse == false) {
+            push tails diamond
+        }
+        this.popFrame()
+    }
+
+    ; `while (cond) is (label)`
+    fn openWhile:void (st:string) {
+        def cond:string (PlantUmlActivityReader.bracketed(st))
+        def id:string (this.makeNode((PlantUmlText.label(cond)) (ActivityKind.decision())))
+        this.emit(id)
+        this.pushFrame("while" id)
+        pendingLabel = (PlantUmlActivityReader.afterWord(st "is"))
+    }
+
+    ; `endwhile (label)` — the body goes back to the condition, and the
+    ; condition is what carries on.
+    fn closeWhile:void (st:string) {
+        if ((this.frameDepth()) == 0) {
+            doc.unbalanced = (doc.unbalanced + 1)
+            return
+        }
+        def n:int (array_length openNode)
+        def head:string (itemAt openNode (n - 1))
+        def i:int 0
+        while (i < (array_length tails)) {
+            def from:string (itemAt tails i)
+            i = (i + 1)
+            def f:ActivityFlow (doc.act.flow(from head))
+        }
+        this.popFrame()
+        clear tails
+        push tails head
+        pendingLabel = (PlantUmlActivityReader.bracketed(st))
+    }
+
+    fn openRepeat:void () {
+        def id:string (this.makeNode("" (ActivityKind.merge())))
+        this.emit(id)
+        this.pushFrame("repeat" id)
+    }
+
+    ; `repeat while (cond) is (label)` — the test is at the bottom.
+    fn closeRepeat:void (st:string) {
+        if ((this.frameDepth()) == 0) {
+            doc.unbalanced = (doc.unbalanced + 1)
+            return
+        }
+        def cond:string (PlantUmlActivityReader.bracketed(st))
+        def id:string (this.makeNode((PlantUmlText.label(cond)) (ActivityKind.decision())))
+        this.emit(id)
+        def n:int (array_length openNode)
+        def head:string (itemAt openNode (n - 1))
+        def back:ActivityFlow (doc.act.flow(id head))
+        back.guard = (PlantUmlActivityReader.afterWord(st "is"))
+        this.popFrame()
+        clear tails
+        push tails id
+    }
+
+    fn openFork:void (kind:string) {
+        def id:string (this.makeNode("" (ActivityKind.fork())))
+        this.emit(id)
+        this.pushFrame(kind id)
+    }
+
+    ; `fork again` / `split again`: the branch so far is done, and the next one
+    ; starts from the bar.
+    fn nextBranch:void () {
+        if ((this.frameDepth()) == 0) {
+            doc.unbalanced = (doc.unbalanced + 1)
+            return
+        }
+        this.stashTails()
+        def n:int (array_length openNode)
+        clear tails
+        push tails (itemAt openNode (n - 1))
+    }
+
+    fn closeFork:void () {
+        if ((this.frameDepth()) == 0) {
+            doc.unbalanced = (doc.unbalanced + 1)
+            return
+        }
+        this.stashTails()
+        this.restoreTails()
+        this.popFrame()
+        def id:string (this.makeNode("" (ActivityKind.joining())))
+        this.emit(id)
+    }
+
+    ; ------------------------------------------------- partitions and lanes --
+    fn openPartition:void (rest:string) {
+        def body:string (trim rest)
+        def n:int (strlen body)
+        if (n > 0) {
+            if ((charAt body (n - 1)) == 123) {
+                body = (trim (substring body 0 (n - 1)))
+            }
+        }
+        def name:string (PlantUmlText.label((PlantUmlText.unquote(body))))
+        this.beginGroup(name "partition")
+    }
+
+    fn closePartition:void () {
+        def n:int (array_length groupStack)
+        if (n == 0) {
+            return
+        }
+        def kept:[string]
+        def i:int 0
+        while (i < (n - 1)) {
+            push kept (itemAt groupStack i)
+            i = (i + 1)
+        }
+        groupStack = kept
+    }
+
+    ; `|Lane|` and `|#colour|Lane|`. A swimlane runs until the next one, so
+    ; opening a lane closes the one before it.
+    fn swimlane:void (st:string) {
+        def t:string (trim st)
+        def parts:[string] (strsplit t "|")
+        def name:string ""
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (trim (itemAt parts i))
+            i = (i + 1)
+            if ((strlen p) == 0) {
+                continue
+            }
+            if ((charAt p 0) == 35) {
+                continue
+            }
+            name = p
+        }
+        clear groupStack
+        if ((strlen name) == 0) {
+            return
+        }
+        this.beginGroup((PlantUmlText.label(name)) "swimlane")
+    }
+
+    fn beginGroup:void (name:string kind:string) {
+        if ((strlen name) == 0) {
+            push groupStack ""
+            return
+        }
+        def at:int (doc.indexOfGroup(name))
+        if (at < 0) {
+            def g (new PlantUmlActivityGroup)
+            g.name = name
+            g.kind = kind
+            push doc.groups g
+        }
+        push groupStack name
+    }
+
+    fn currentGroup:string () {
+        def n:int (array_length groupStack)
+        if (n == 0) {
+            return ""
+        }
+        return (itemAt groupStack (n - 1))
+    }
+
+    ; ------------------------------------------------------------ parsing ---
+    ; The first `( … )` group, which is where a condition and a branch label
+    ; both live: `if (in stock?) then (yes)`.
+    sfn bracketed:string (st:string) {
+        def open:int (PlantUmlText.indexOfCode(st 40))
+        if (open < 0) {
+            return ""
+        }
+        def depth:int 0
+        def i:int open
+        def n:int (strlen st)
+        while (i < n) {
+            def c:int (charAt st i)
+            if (c == 40) {
+                depth = (depth + 1)
+            }
+            if (c == 41) {
+                depth = (depth - 1)
+                if (depth == 0) {
+                    def inner:string (substring st (open + 1) i)
+                    return (trim inner)
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; The `( … )` that follows a word: the `(yes)` of `then (yes)`.
+    sfn afterWord:string (st:string word:string) {
+        def lt:string (PlantUmlText.lower(st))
+        def at:int (PlantUmlText.indexOfSub(lt word 0))
+        if (at < 0) {
+            return ""
+        }
+        def tail:string (substring st (at + (strlen word)) (strlen st))
+        return (PlantUmlText.label((PlantUmlActivityReader.bracketed(tail))))
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The pipeline
+; ---------------------------------------------------------------------------
+;
+; `ActivityDiagram.build` draws the nodes — the initial dot, the final rings,
+; the diamond, the fork bar, the action box — and everything after it is the
+; layered layout and the lane router the activity demo already runs on. The
+; only thing added here is the frame round a partition, drawn after the layout
+; from where its nodes ended up.
+; ---------------------------------------------------------------------------
+class PlantUmlActivityFlow {
+    sfn build:FlowGraph (d:PlantUmlActivity style:FlowStyle) {
+        def g:FlowGraph (d.act.build())
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            n.cssClass = ("plantuml activity " + n.shape)
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            e.cssClass = "plantuml flow"
+            k = (k + 1)
+        }
+        def wrote:int (style.applyTo(g))
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = "TB"
+        lay.layerGap = 66.0
+        lay.nodeGap = 40.0
+        lay.run()
+        ActivityDiagram.faceEdges(g)
+        def moved:int (EdgeLanes.assign(g))
+        def routed:int (lay.routeLongEdges())
+        EdgeLanes.resetLanes(g)
+        def refanned:int (EdgeLanes.assign(g))
+        def repaired:int (OrthoRouter.repairAll(g))
+        PlantUmlActivityFlow.frames(g d)
+        g.reindex()
+        return g
+    }
+
+    ; A partition is a box round the run of the flow that belongs to it. In an
+    ; activity diagram that run really is contiguous — the statements inside
+    ; the braces are consecutive steps — so a bounding box says what it means
+    ; here, which it would not in a class diagram.
+    sfn frames:void (g:FlowGraph d:PlantUmlActivity) {
+        def i:int 0
+        while (i < (array_length d.groups)) {
+            def gr:PlantUmlActivityGroup (itemAt d.groups i)
+            i = (i + 1)
+            if ((gr.memberCount()) == 0) {
+                continue
+            }
+            def r (new FlowRect)
+            def k:int 0
+            while (k < (array_length gr.members)) {
+                def id:string (itemAt gr.members k)
+                k = (k + 1)
+                if ((g.hasNode(id)) == false) {
+                    continue
+                }
+                def n:FlowNode (g.nodeById(id))
+                def right:double (n.x + n.width)
+                def bottom:double (n.y + n.height)
+                if (r.valid == false) {
+                    r.x = n.x
+                    r.y = n.y
+                    r.w = n.width
+                    r.h = n.height
+                    r.valid = true
+                    continue
+                }
+                if (n.x < r.x) {
+                    def dw:double (r.x - n.x)
+                    r.x = n.x
+                    r.w = (r.w + dw)
+                }
+                if (n.y < r.y) {
+                    def dh:double (r.y - n.y)
+                    r.y = n.y
+                    r.h = (r.h + dh)
+                }
+                def rr:double (r.x + r.w)
+                if (right > rr) {
+                    r.w = (right - r.x)
+                }
+                def rb:double (r.y + r.h)
+                if (bottom > rb) {
+                    r.h = (bottom - r.y)
+                }
+            }
+            if (r.valid == false) {
+                continue
+            }
+            def pad:double 22.0
+            def head:double 24.0
+            def frameId:string ("__part_" + gr.name)
+            def frame:FlowNode (FlowNode.create(frameId gr.name (r.x - pad) ((r.y - pad) - head)))
+            frame.nodeType = "group"
+            frame.width = (r.w + (pad * 2.0))
+            frame.height = ((r.h + (pad * 2.0)) + head)
+            frame.connectable = false
+            frame.cssClass = ("plantuml frame " + gr.kind)
+            frame.syncFromModel()
+            g.addNode(frame)
+            def sent:boolean (g.sendToBack(frameId))
+            ; …and the frame adopts its steps, so dragging the partition takes
+            ; them along. See PlantUmlEntityFlow.frameOne.
+            def m:int 0
+            while (m < (array_length gr.members)) {
+                def mid:string (itemAt gr.members m)
+                m = (m + 1)
+                if ((g.hasNode(mid)) == false) {
+                    continue
+                }
+                def child:FlowNode (g.nodeById(mid))
+                child.parentId = frameId
+            }
+        }
+    }
+}

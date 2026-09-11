@@ -298,8 +298,8 @@ const FORMATS = ["mermaid", "plantuml"];
 let srcFormat = "mermaid";
 
 const HINT = {
-  mermaid: "Mermaid: flowcharts, sequence, class, state, ER, mind maps and more. Ctrl/\u2318+Enter renders.",
-  plantuml: "PlantUML: sequence, class, object, component, deployment, use case. Ctrl/\u2318+Enter renders.",
+  mermaid: "Mermaid: flowcharts, sequence, class, state, ER, mind maps and more. Live redraw is on; Ctrl/\u2318+Enter renders now.",
+  plantuml: "PlantUML: sequence, class, object, activity, component, deployment, use case. Live redraw is on; Ctrl/\u2318+Enter renders now.",
 };
 
 /** The example dropdown, filled from whatever the engine offers this format. */
@@ -336,6 +336,36 @@ function renderSource() {
   app.fitView();
   syncControls();
 }
+
+// ---- live ------------------------------------------------------------------
+// Redraw as the text is typed, which is the whole point of having the source
+// next to the drawing.
+//
+// Three things make it bearable rather than annoying. It is DEBOUNCED, so a
+// burst of keystrokes costs one parse rather than twenty. It does not FIT, so
+// the page does not jump out from under somebody who zoomed in — `liveRender`
+// puts the camera back where it was. And a source that parses to nothing
+// changes nothing: every reader refuses an empty diagram rather than adopting
+// one, so the last good drawing stays up with the reason in the status line.
+const liveBox = document.getElementById("srclive");
+const LIVE_DELAY = 300;
+let liveTimer = 0;
+
+function liveRender() {
+  app.setSourceFormat(srcFormat);
+  app.liveRender(srcArea.value, document.getElementById("srcstyle").value);
+  syncControls();
+}
+
+srcArea.addEventListener("input", () => {
+  clearTimeout(liveTimer);
+  if (!liveBox.checked) return;
+  liveTimer = setTimeout(liveRender, LIVE_DELAY);
+});
+// Turning it back on catches up with whatever was typed while it was off.
+liveBox.addEventListener("change", () => {
+  if (liveBox.checked) liveRender();
+});
 
 document.getElementById("srcrender").addEventListener("click", renderSource);
 // Picking an example replaces the text and draws it: the dropdown is the

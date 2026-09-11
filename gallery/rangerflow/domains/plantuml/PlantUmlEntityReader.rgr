@@ -2228,6 +2228,8 @@ class PlantUmlEntityFlow {
     ; the inside out so a nested one is inside the box it belongs to.
     fn frames:void () {
         def deepest:int 0
+        ; Innermost first, so an inner frame exists by the time the outer one
+        ; adopts it — a package inside a package moves with the one outside it.
         def i:int 0
         while (i < (array_length doc.groups)) {
             def gr:PlantUmlGroup (itemAt doc.groups i)
@@ -2308,6 +2310,20 @@ class PlantUmlEntityFlow {
         frame.syncFromModel()
         g.addNode(frame)
         def sent:boolean (g.sendToBack(frameId))
+        ; The frame adopts what it drew itself around. `FlowEditor.beginDrag`
+        ; takes every node whose ancestor is selected, so this is the whole of
+        ; what makes dragging a package bring its classes with it — a package
+        ; box that slides off its own contents is a box that means nothing.
+        def m:int 0
+        while (m < (array_length gr.members)) {
+            def mid:string (itemAt gr.members m)
+            m = (m + 1)
+            if ((g.hasNode(mid)) == false) {
+                continue
+            }
+            def child:FlowNode (g.nodeById(mid))
+            child.parentId = frameId
+        }
         return true
     }
 }

@@ -45,6 +45,7 @@ Import "../domains/mermaid/MermaidGanttReader.rgr"
 Import "../domains/mermaid/MermaidSequenceReader.rgr"
 Import "../domains/plantuml/PlantUmlSequenceReader.rgr"
 Import "../domains/plantuml/PlantUmlEntityReader.rgr"
+Import "../domains/plantuml/PlantUmlActivityReader.rgr"
 Import "../domains/mermaid/MermaidGitReader.rgr"
 Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
@@ -973,6 +974,10 @@ class RangerFlowDemo {
             this.runPlantUmlEntity(srcOpt styleName "rangerflow-plantuml-description" "RangerFlow — PlantUML component diagram")
             return
         }
+        if (doc.kind == "activity") {
+            this.runPlantUmlActivity(srcOpt styleName)
+            return
+        }
         print ("  RangerFlow reads a PlantUML " + doc.kind + " diagram but does not draw one yet")
     }
 
@@ -1019,6 +1024,30 @@ class RangerFlowDemo {
             what = title
         }
         this.writeAll(v g stem what)
+    }
+
+    ; The activity diagram: nested in the source, a graph on the page.
+    fn runPlantUmlActivity:void (src:string styleName:string) {
+        def d:PlantUmlActivity (PlantUmlActivityReader.parse(src))
+        if ((d.nodeCount()) == 0) {
+            print "  nothing happens in that activity diagram"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (PlantUmlActivityFlow.build(d style))
+        print ("  model  " + (to_string (d.nodeCount())) + " nodes, " + (to_string (d.flowCount())) + " flows, " + (to_string (d.groupCount())) + " partitions")
+        if (d.unbalanced > 0) {
+            print ("  note   " + (to_string d.unbalanced) + " statements had no structure to close")
+        }
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def what:string d.title
+        if ((strlen what) == 0) {
+            what = "RangerFlow — PlantUML activity diagram"
+        }
+        this.writeAll(v g "rangerflow-plantuml-activity" what)
     }
 
     ; A git graph: the commits in the order they happened, one row per branch.
@@ -1660,6 +1689,31 @@ class RangerFlowDemo {
         ex.pageWidth = 1190.0
         ex.pageHeight = 842.0
         ex.margin = 28.0
+        ; A page is a fixed size and a diagram is not. Squeeze a tall one onto
+        ; a landscape sheet and the type goes under the size the renderer will
+        ; draw at all — `FlowView.paintShapeLabel` gives up below five points,
+        ; which is right, because four-point type is a smudge. The result was a
+        ; page of empty boxes: every shape drawn, every word dropped.
+        ;
+        ; So the page is only a page while the words survive it. Past that the
+        ; sheet grows to the drawing instead.
+        def r:FlowRect (g.bounds())
+        def roomW:double (1190.0 - 56.0)
+        def roomH:double (842.0 - 56.0)
+        def scale:double (roomW / r.w)
+        def scaleH:double (roomH / r.h)
+        if (scaleH < scale) {
+            scale = scaleH
+        }
+        if (scale > 1.0) {
+            scale = 1.0
+        }
+        def typeAt:double (13.0 * scale)
+        if (typeAt < 6.0) {
+            ex.mode = "fit"
+            def tallBy:int (to_int r.h)
+            print ("  note   " + (to_string tallBy) + " units tall — too much for a page, so the sheet grew to the drawing")
+        }
 
         def svgPath:string (outDir + "/" + stem + ".svg")
         ex.writeSvg(v svgPath)

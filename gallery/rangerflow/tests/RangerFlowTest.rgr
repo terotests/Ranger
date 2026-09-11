@@ -60,6 +60,7 @@ Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../domains/plantuml/PlantUmlSequenceReader.rgr"
 Import "../domains/plantuml/PlantUmlEntityReader.rgr"
+Import "../domains/plantuml/PlantUmlActivityReader.rgr"
 
 class Checker {
     def passed:int 0
@@ -142,6 +143,7 @@ class RangerFlowTest {
         RangerFlowTest.testPlantUmlKinds(c)
         RangerFlowTest.testPlantUmlSequence(c)
         RangerFlowTest.testPlantUmlEntities(c)
+        RangerFlowTest.testPlantUmlActivity(c)
         RangerFlowTest.testMermaidGit(c)
         RangerFlowTest.testMermaidSubgraphEnds(c)
         RangerFlowTest.testMermaidKanban(c)
@@ -3509,6 +3511,15 @@ class RangerFlowTest {
         c.ok("the periods run along the axis in the order written" (a.x < b.x))
         def frame:FlowNode (tg.nodeAt(0))
         c.eqStr("and a section is a frame behind them" frame.nodeType "group")
+        ; A section you can pick up has to bring its periods: a frame that
+        ; slides off its own contents is a box that means nothing. The frames
+        ; are sent to the back as they are made, so which one is node 0 is the
+        ; paint order — the section is named instead.
+        c.eqStr("a period belongs to the section it was written under" a.parentId "sg-section0")
+        def ev:FlowNode (tg.nodeById("event0"))
+        c.eqStr("and so does the event under it" ev.parentId "sg-section0")
+        def late:FlowNode (tg.nodeById("period2"))
+        c.eqStr("a period in the next section belongs to that one" late.parentId "sg-section1")
 
         def jn:string "journey\n"
         jn = (jn + "    title My working day\n")
@@ -3527,6 +3538,9 @@ class RangerFlowTest {
         def low:FlowNode (jg.nodeById("task1"))
         c.ok("a five sits above a one, which is the whole point" (high.y < low.y))
         c.ok("and the day runs left to right" (high.x < low.x))
+        def jframe:FlowNode (jg.nodeById("sg-section0"))
+        c.eqStr("a journey's section is a frame too" jframe.nodeType "group")
+        c.eqStr("and its tasks move with it" high.parentId "sg-section0")
         c.ok("both are diagrams this library draws" ((MermaidReader.draws("timeline")) && (MermaidReader.draws("journey"))))
     }
 
@@ -3605,6 +3619,159 @@ class RangerFlowTest {
     ; who, across, and when, down. So the assertions are about ORDER and about
     ; the two things a reader would otherwise have to take on trust — that the
     ; arrow means what the token said, and that the bar covers what was active.
+    ; The activity diagram, which is the only PlantUML diagram whose shape is
+    ; decided by nesting rather than by anything written on a line.
+    sfn testPlantUmlActivity:void (c:Checker) {
+        c.section("PlantUML — activity diagrams")
+        def src:string "@startuml\n"
+        src = (src + "start\n")
+        src = (src + ":read order;\n")
+        src = (src + "partition reserve {\n")
+        src = (src + ":hold stock;\n")
+        src = (src + ":write ledger;\n")
+        src = (src + "}\n")
+        src = (src + "if (credit ok?) then\n")
+        src = (src + "-> yes;\n")
+        src = (src + ":charge;\n")
+        src = (src + "else\n")
+        src = (src + "-> no;\n")
+        src = (src + ":decline;\n")
+        src = (src + "endif\n")
+        src = (src + ":notify;\n")
+        src = (src + "stop\n")
+        src = (src + "@enduml\n")
+
+        def d:PlantUmlActivity (PlantUmlActivityReader.parse(src))
+        c.eqStr("the sniff reads it as an activity diagram" (PlantUmlReader.kindOf(src)) "activity")
+        ; start, six actions, the diamond, stop.
+        c.eqInt("a node per statement that draws one" (d.nodeCount()) 9)
+        c.eqInt("one partition" (d.groupCount()) 1)
+        c.eqInt("and nothing was left unclosed" d.unbalanced 0)
+
+        def part:PlantUmlActivityGroup (itemAt d.groups 0)
+        c.eqStr("the partition keeps its name" part.name "reserve")
+        c.eqInt("and the two actions written inside it" (part.memberCount()) 2)
+
+        ; The shape of the thing: both branches of the `if` have to reach the
+        ; statement after `endif`, or the diagram says the flow stops there.
+        def after:string (RangerFlowTest.flowTargetOf(d "charge"))
+        c.eqStr("the `then` branch carries on past the endif" after "notify")
+        def other:string (RangerFlowTest.flowTargetOf(d "decline"))
+        c.eqStr("and so does the `else` branch" other "notify")
+        c.eqInt("a flow per step, and two out of the diamond" (d.flowCount()) 9)
+
+        ; `-> label;` labels the flow that comes after it.
+        def yes:string (RangerFlowTest.guardBetween(d "credit ok?" "charge"))
+        c.eqStr("`-> yes;` lands on the branch it precedes" yes "yes")
+        def no:string (RangerFlowTest.guardBetween(d "credit ok?" "decline"))
+        c.eqStr("and `-> no;` on the other one" no "no")
+
+        ; An `if` with no `else` leaves the condition itself open: false walks
+        ; straight past it.
+        def bare:string "@startuml\nstart\nif (busy?) then\n:wait;\nendif\n:go;\nstop\n@enduml\n"
+        def bd:PlantUmlActivity (PlantUmlActivityReader.parse(bare))
+        def fromDiamond:int (RangerFlowTest.flowsFrom(bd "busy?"))
+        c.eqInt("an `if` with no `else` still has two ways out" fromDiamond 2)
+
+        ; An action may run over as many lines as it likes and ends at its `;`
+        ; — and a stray second `;` is a typo, not a second statement.
+        def wrapped:string "@startuml\nstart\n:one line\nand another;;\nstop\n@enduml\n"
+        def wd:PlantUmlActivity (PlantUmlActivityReader.parse(wrapped))
+        c.eqInt("a wrapped action is one action" (wd.nodeCount()) 3)
+        def act:ActivityNode (itemAt wd.act.nodes 1)
+        c.eqStr("and its lines are joined" act.label "one line and another")
+
+        ; fork/join and the loops, which are the other two shapes of nesting.
+        def forked:string "@startuml\nstart\nfork\n:a;\nfork again\n:b;\nend fork\nstop\n@enduml\n"
+        def fd:PlantUmlActivity (PlantUmlActivityReader.parse(forked))
+        c.eqInt("a fork adds the bar and the join" (fd.nodeCount()) 6)
+        def looped:string "@startuml\nstart\nwhile (more?) is (yes)\n:step;\nendwhile (no)\n:done;\nstop\n@enduml\n"
+        def ld:PlantUmlActivity (PlantUmlActivityReader.parse(looped))
+        def back:string (RangerFlowTest.flowTargetOf(ld "step"))
+        c.eqStr("a `while` body goes back to its condition" back "more?")
+        def repeated:string "@startuml\nstart\nrepeat\n:step;\nrepeat while (again?) is (yes)\n:done;\nstop\n@enduml\n"
+        def rd:PlantUmlActivity (PlantUmlActivityReader.parse(repeated))
+        def loop:string (RangerFlowTest.flowTargetOf(rd "again?"))
+        c.eqStr("a `repeat` tests at the bottom and goes back to the top" loop "")
+
+        ; And the drawing, which is the activity domain's.
+        def g:FlowGraph (PlantUmlActivityReader.render(src))
+        c.eqInt("a node per step, plus the partition's frame" (g.nodeCount()) 10)
+        c.ok("the partition is drawn as a frame" (g.hasNode("__part_reserve")))
+    }
+
+    ; The label of the node an action flows into. Ids are generated, so the
+    ; test asks by the words on the box.
+    sfn flowTargetOf:string (d:PlantUmlActivity label:string) {
+        def from:string (RangerFlowTest.activityIdOf(d label))
+        if ((strlen from) == 0) {
+            return ""
+        }
+        def i:int 0
+        while (i < (array_length d.act.flows)) {
+            def f:ActivityFlow (itemAt d.act.flows i)
+            i = (i + 1)
+            if (f.source == from) {
+                return (RangerFlowTest.activityLabelOf(d f.target))
+            }
+        }
+        return ""
+    }
+
+    sfn flowsFrom:int (d:PlantUmlActivity label:string) {
+        def from:string (RangerFlowTest.activityIdOf(d label))
+        def n:int 0
+        def i:int 0
+        while (i < (array_length d.act.flows)) {
+            def f:ActivityFlow (itemAt d.act.flows i)
+            i = (i + 1)
+            if (f.source == from) {
+                n = (n + 1)
+            }
+        }
+        return n
+    }
+
+    sfn guardBetween:string (d:PlantUmlActivity fromLabel:string toLabel:string) {
+        def from:string (RangerFlowTest.activityIdOf(d fromLabel))
+        def to:string (RangerFlowTest.activityIdOf(d toLabel))
+        def i:int 0
+        while (i < (array_length d.act.flows)) {
+            def f:ActivityFlow (itemAt d.act.flows i)
+            i = (i + 1)
+            if (f.source == from) {
+                if (f.target == to) {
+                    return f.guard
+                }
+            }
+        }
+        return ""
+    }
+
+    sfn activityIdOf:string (d:PlantUmlActivity label:string) {
+        def i:int 0
+        while (i < (array_length d.act.nodes)) {
+            def n:ActivityNode (itemAt d.act.nodes i)
+            i = (i + 1)
+            if (n.label == label) {
+                return n.id
+            }
+        }
+        return ""
+    }
+
+    sfn activityLabelOf:string (d:PlantUmlActivity id:string) {
+        def i:int 0
+        while (i < (array_length d.act.nodes)) {
+            def n:ActivityNode (itemAt d.act.nodes i)
+            i = (i + 1)
+            if (n.id == id) {
+                return n.label
+            }
+        }
+        return ""
+    }
+
     ; The entity family: class, object, component, deployment, use case and
     ; ArchiMate — one grammar, six diagram types.
     ;
@@ -3700,6 +3867,23 @@ class RangerFlowTest {
             outside = true
         }
         c.ok("a class in no package stands outside every frame" outside)
+
+        ; A package that slides off its own contents is a box that means
+        ; nothing, so the frame adopts what it was drawn around: the editor
+        ; drags every node whose ancestor is selected.
+        def inside:FlowNode (g.nodeById("Order"))
+        c.eqStr("a class declared in a package is parented to its frame" inside.parentId "__frame_orders")
+        c.eqStr("and one declared outside every package is parented to none" loose.parentId "")
+
+        ; `FlowEditor.beginDrag` takes every node whose ancestor is selected,
+        ; and `insideSelected` is the walk that decides it. With the package
+        ; picked up, its classes answer yes and a class outside it does not.
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(1200.0 800.0)
+        fr.selected = true
+        c.ok("with the package selected, a class in it is dragged too" (ed.insideSelected(inside)))
+        c.ok("and one outside it is left where it is" ((ed.insideSelected(loose)) == false))
+        fr.selected = false
 
         ; --- and the description family, which is the same reader ---
         def csrc:string "@startuml\n"

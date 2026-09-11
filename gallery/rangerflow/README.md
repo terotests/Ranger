@@ -68,7 +68,7 @@ dropdown in the page switches between them, and `?scenario=` picks one on load:
 | [`?scenario=flow`](http://localhost:8080/?scenario=flow) | a plain flowchart — the core with no domain on top of it |
 | [`?scenario=atk`](http://localhost:8080/?scenario=atk) | an ATK chart in the ISO 5807 shapes: diamond, drum, parallelogram, wavy-footed page |
 | [`?scenario=mermaid`](http://localhost:8080/?scenario=mermaid) | **paste Mermaid, press render** — the text box is the diagram, and what comes out is draggable, editable and exportable. Eight examples in the dropdown beside it |
-| [`?scenario=plantuml`](http://localhost:8080/?scenario=plantuml) | **the same box, reading PlantUML** — class, sequence, component, use case, deployment and object, six examples to start from |
+| [`?scenario=plantuml`](http://localhost:8080/?scenario=plantuml) | **the same box, reading PlantUML** — class, sequence, activity, component, use case, deployment and object, seven examples to start from |
 | [`?scenario=org`](http://localhost:8080/?scenario=org) | an organisation chart, units coloured, the matrix report dashed |
 | [`?scenario=process`](http://localhost:8080/?scenario=process) | a swimlane process — drag a lane and its steps come with it |
 | [`?scenario=mindmap`](http://localhost:8080/?scenario=mindmap) | a mind map, branches balanced either side of the root |
@@ -78,8 +78,17 @@ dropdown in the page switches between them, and `?scenario=` picks one on load:
 For those two the page splits: **the source on the left, the drawing on the
 right**, so the text you are editing and the diagram it makes are both full
 height. `example` is a gallery — picking one replaces the text and draws it —
-`render` and `Ctrl`/`⌘`+`Enter` draw what you have typed, and `?example=class`
-opens on one of them. Everything that comes out is a RangerFlow graph like any
+and **`live` redraws as you type**, which is the whole point of having the two
+side by side. `render` and `Ctrl`/`⌘`+`Enter` draw what you have typed now, and
+`?example=class` opens on one of them.
+
+Live redrawing is debounced, so a burst of keystrokes costs one parse rather
+than twenty; it does **not** re-fit, so the page does not jump out from under
+somebody who has zoomed into one corner; and a source that parses to nothing
+changes nothing — every reader refuses an empty diagram rather than adopting
+one, so the last good drawing stays up with the reason in the status line. A
+canvas that blanks between two keystrokes is worse than one a second out of
+date. Everything that comes out is a RangerFlow graph like any
 other: draggable, editable, exportable.
 
 ![PlantUML on the left, the drawing on the right](artifacts/scenario_plantuml.png)
@@ -1031,6 +1040,28 @@ only place the six part company.
 | clusters | `package`, `namespace`, `together`, and every container keyword that opens a `{ }` — `node`, `folder`, `frame`, `cloud`, `rectangle`, `card`, … |
 | the page | `left to right direction`, and `title` |
 
+### The activity diagram, which is nested
+
+Every other PlantUML diagram is a list of things and a list of lines between
+them, in any order. An activity diagram is not: it is **nested**, and what
+connects to what is decided by where a statement sits inside `if` … `else` …
+`endif` rather than by anything written on the line. So `PlantUmlActivityReader`
+carries two pieces of state — the open ends the next statement has to be joined
+to, and a stack of the structures still open — and that is the whole algorithm.
+
+![a real-world PlantUML activity diagram, read and drawn by RangerFlow](artifacts/plantuml_activity.png)
+
+`start`, `stop`, `end`, `kill`/`detach`, actions (`:like this;`, over as many
+lines as they like, with a `#colour:` in front if they want one),
+`if`/`then`/`elseif`/`else`/`endif`, `while`/`endwhile`, `repeat`/`repeat
+while`, `fork`/`fork again`/`end fork`, `split`, `partition … { }`,
+`|swimlanes|`, the arrow label `-> like this;`, and notes. It is drawn with
+`ActivityDiagram` from `domains/uml/` — the initial dot, the final rings, the
+diamond, the fork bar and the action box RangerFlow has drawn since the ISO
+5807 chart, so nothing new is drawn here either.
+
+A swimlane is read and recorded but not yet drawn as a column.
+
 ![a PlantUML component diagram in the same pipeline](artifacts/plantuml_component.png)
 
 **A package is a band, not a bounding box.** A layered layout has no idea that
@@ -1087,8 +1118,7 @@ about PlantUML it learned from PlantUML's behaviour and from its own
 `-language` dump: the 43 declaration keywords, the 164 statement keywords and
 the 26 preprocessor commands are all read off the tool.
 
-Still open: the state and activity readers, the preprocessor, and Creole's
-styled runs. The plan is [`docs/PLAN_PLANTUML.md`](docs/PLAN_PLANTUML.md).
+Still open: the state reader, the preprocessor, and Creole's styled runs. The plan is [`docs/PLAN_PLANTUML.md`](docs/PLAN_PLANTUML.md).
 
 ## …and in a window
 

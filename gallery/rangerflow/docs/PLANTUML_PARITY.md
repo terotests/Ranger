@@ -5,7 +5,7 @@
 > asked what it understood. Nothing is transcribed, so nothing can be
 > transcribed wrong.
 
-PlantUML 1.2025.4 · 16 diagrams · **65/65 checks agree (100%)**
+PlantUML 1.2025.4 · 17 diagrams · **67/67 checks agree (100%)**
 
 | example | PlantUML calls it | read as | parses | entities | packages | links | notes | participants | messages |
 | --- | --- | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -25,6 +25,7 @@ PlantUML 1.2025.4 · 16 diagrams · **65/65 checks agree (100%)**
 | `13_json.puml` | JSON | json ✓ | ✓ | — | — | — | — | — | — |
 | `14_ditaa.puml` | — | ditaa — | ✓ | — | — | — | — | — | — |
 | `15_preprocessor.puml` | CLASS | class ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `16_activity_revoke.puml` | ACTIVITY | activity ✓ | ✓ | — | — | — | — | — | — |
 
 ## Drawn, and refused
 
