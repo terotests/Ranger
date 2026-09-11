@@ -325,8 +325,14 @@ A board of 3,565 nodes, panned. Measured on this file, per frame:
 
 | | before | after |
 | --- | --- | --- |
-| build the display list | 1,702 ms | 125 ms |
-| hand the frame to the page | 5,630 ms | 180 ms |
+| build the display list | 1,702 ms | 37 ms |
+| decode it in the page | — | 9 ms |
+| paint it | 71 ms | 41 ms |
+| hand the frame over (JSON) | 5,630 ms | gone |
+
+A frame of that board carried 2.5 million points; it carries 767,000 now,
+and `fixtures/health.fig` — three phone screens, the size of file anyone
+actually opens — went from 27 ms a frame to 12.
 
 **The frame crosses as typed arrays.** `EVGDisplayList.toBinary()` — three
 `Int32Array`s and a small string pool — instead of JSON. The picture is the
@@ -357,9 +363,17 @@ was chosen from the layout box, and a transform is exactly the difference
 between that box and the pixels: this board at 10% was cutting every glyph
 into the 48 segments a curve 640 layout pixels wide deserves, to draw it
 five pixels long. The scale of the transforms a subtree is under is
-carried down the walk (`drawScale`), so the count follows the pixels —
-581 → 125 ms, and finer, not coarser, when you zoom in. Both of these are
-the engine's own gain: any EVG page with vectors redraws for less.
+carried down the walk (`drawScale`), so the count follows the pixels:
+581 → 125 ms.
+
+**A curve is also cut by its own length, not by the box it lives in.**
+Inside a path the element's size says nothing: a heading 2,855 pixels wide
+cut every curve of every glyph in it 47 ways in order to draw those glyphs
+two pixels tall. Each curve is measured through the transform and cut at
+about a point every two device pixels, never finer than the ceiling above
+— so nothing is heavier than it was, and a big curve keeps every segment
+it had. 125 → 37 ms. All three of these are the engine's own gain: any EVG
+page with vectors on it redraws for less.
 
 ## When the page looks wrong and nothing is reported
 

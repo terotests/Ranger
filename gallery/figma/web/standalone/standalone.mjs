@@ -1112,6 +1112,8 @@ async function openUrl(url, page, frame) {
   }
 }
 window.__openUrl = openUrl;
+// One paint, on demand: what a bench times and what a test waits for.
+window.__draw = draw;
 
 const params = new URL(location.href).searchParams;
 const intParam = (k) => (params.has(k) ? parseInt(params.get(k), 10) : NaN);

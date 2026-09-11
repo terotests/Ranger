@@ -133,8 +133,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in order to draw it five pixels long. The scale of the transforms a subtree
   is under is carried down the walk now, so the subdivision follows the
   pixels — 581 ms to 125 on that pan, and finer rather than coarser when you
-  zoom in. With the cache above, every EVG page with vectors on it redraws
-  for less.
+  zoom in.
+
+- **And a curve is cut by its own length, not by the box it lives in.**
+  `steps` is chosen from the size of the thing being drawn, and inside a path
+  that size says nothing about the curves: a heading 2,855 pixels wide cut
+  every curve of every glyph in it 47 ways in order to draw those glyphs two
+  pixels tall, and one frame of that board carried 2.5 million points because
+  of it. Each curve is now measured through the transform and cut at about a
+  point every two device pixels, never finer than the caller's ceiling — so
+  nothing draws heavier than it did, and a curve big enough to show facets
+  keeps every segment it had. 767,000 points in that frame, 125 ms to 37, and
+  `fixtures/health.fig` — three phone screens — from 27 ms a frame to 12.
+  With the cache above, every EVG page with vectors on it redraws for less.
 
 - **The viewer stopped rebuilding what a pan does not change.** The EVG tree
   and its layout are the same from one frame of a pan to the next — only the

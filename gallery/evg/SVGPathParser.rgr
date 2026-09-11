@@ -952,6 +952,39 @@ class SVGPathParser {
         return p
     }
 
+    ; --- how finely to cut ONE curve ------------------------------------------
+    ;
+    ; `steps` is the caller's ceiling, chosen from the size of the thing being
+    ; drawn. Inside a path that size says nothing about the curves: a heading
+    ; 2,855 pixels wide cut every curve of every glyph in it 47 ways in order
+    ; to draw those glyphs two pixels tall, and one frame of a Figma board
+    ; carried 2.5 million points because of it.
+    ;
+    ; So a curve is cut by ITS OWN length — the control polygon, measured
+    ; through the transform, at about a point every two device pixels. Never
+    ; finer than the caller asked for, so nothing gets slower or heavier than
+    ; it was; never fewer than two, so a curve is never a straight line.
+    sfn curveSteps:int (cap:int len:double) {
+        def want:int (to_int ((len / 2.0) + 0.999))
+        if (want < 2) {
+            want = 2
+        }
+        if (want > cap) {
+            want = cap
+        }
+        return want
+    }
+
+    ; The distance between two USER-space points once the transform has put
+    ; them on the device.
+    sfn devLen:double (x0:double y0:double x1:double y1:double ma:double mb:double mc:double md:double) {
+        def dx:double (x1 - x0)
+        def dy:double (y1 - y0)
+        def ax:double ((ma * dx) + (mc * dy))
+        def ay:double ((mb * dx) + (md * dy))
+        return (sqrt ((ax * ax) + (ay * ay)))
+    }
+
     fn flattenRings:[PathRing] (steps:int ma:double mb:double mc:double md:double me:double mf:double) {
         def rings:[PathRing]
         def current (new PathRing())
@@ -994,9 +1027,13 @@ class SVGPathParser {
             }
 
             if (cmd.type == "C") {
+                def d1:double (SVGPathParser.devLen(cx cy cmd.x1 cmd.y1 ma mb mc md))
+                def d2:double (SVGPathParser.devLen(cmd.x1 cmd.y1 cmd.x2 cmd.y2 ma mb mc md))
+                def d3:double (SVGPathParser.devLen(cmd.x2 cmd.y2 cmd.x cmd.y ma mb mc md))
+                def cs:int (SVGPathParser.curveSteps(steps ((d1 + d2) + d3)))
                 def s:int 1
-                while (s <= steps) {
-                    def tt:double ((to_double s) / (to_double steps))
+                while (s <= cs) {
+                    def tt:double ((to_double s) / (to_double cs))
                     def u:double (1.0 - tt)
                     def b0:double ((u * u) * u)
                     def b1:double (((3.0 * u) * u) * tt)
@@ -1013,9 +1050,12 @@ class SVGPathParser {
             }
 
             if (cmd.type == "Q") {
+                def q1:double (SVGPathParser.devLen(cx cy cmd.x1 cmd.y1 ma mb mc md))
+                def q2:double (SVGPathParser.devLen(cmd.x1 cmd.y1 cmd.x cmd.y ma mb mc md))
+                def qs:int (SVGPathParser.curveSteps(steps (q1 + q2)))
                 def s:int 1
-                while (s <= steps) {
-                    def tt:double ((to_double s) / (to_double steps))
+                while (s <= qs) {
+                    def tt:double ((to_double s) / (to_double qs))
                     def u:double (1.0 - tt)
                     def b0:double (u * u)
                     def b1:double ((2.0 * u) * tt)
