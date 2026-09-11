@@ -44,6 +44,12 @@ const openBtn = document.getElementById("openFile");
 const filePick = document.getElementById("filepick");
 const keyCatcher = document.getElementById("keys");
 const toolbarEl = document.getElementById("toolbar");
+const shapeEl = document.getElementById("pageshape");
+const pagebarEl = document.getElementById("pagebar");
+const pagenumEl = document.getElementById("pagenum");
+const pagetotalEl = document.getElementById("pagetotal");
+const pageprevEl = document.getElementById("pageprev");
+const pagenextEl = document.getElementById("pagenext");
 
 const gl = canvas.getContext("webgl2", {
   antialias: true,
@@ -212,6 +218,7 @@ function afterEdit(ms) {
   needsPaint = true;
   showSource();
   refreshToolbar();
+  refreshPagebar();
   const why = app.refusal();
   showStatus(why ? why : ms !== undefined ? ms + " ms" : "");
 }
@@ -241,6 +248,7 @@ function syncFromCaret() {
   app.scrollTo(y - 24);
   needsPaint = true;
   refreshToolbar();
+  refreshPagebar();
 }
 sourceEl.addEventListener("click", syncFromCaret);
 sourceEl.addEventListener("keyup", (ev) => {
@@ -323,6 +331,7 @@ canvas.addEventListener(
     const step = ev.deltaMode === 1 ? 18 : 1;
     app.scrollBy(ev.deltaY * step);
     needsPaint = true;
+    refreshPagebar();
   },
   { passive: false }
 );
@@ -435,6 +444,49 @@ keyCatcher.addEventListener("blur", () => {
   needsPaint = true;
 });
 
+// ---- the sheet, and which of them you are on ------------------------------
+//
+// The page number sits OVER the paper rather than beside it, follows the
+// scroll, and is also how you jump: typing a number in it goes there. All
+// three are one control because they are one question — "where am I" and
+// "take me there" are the same widget in every reader.
+function refreshPagebar() {
+  const on = modeEl.value === "paged";
+  pagebarEl.classList.toggle("on", on);
+  shapeEl.disabled = !on;
+  if (!on) return;
+  const total = app.pageCountNow();
+  const at = app.pageAt() + 1;
+  pagetotalEl.textContent = String(total);
+  if (document.activeElement !== pagenumEl) pagenumEl.value = String(at);
+  pageprevEl.disabled = at <= 1;
+  pagenextEl.disabled = at >= total;
+}
+
+function goToPage(n) {
+  app.scrollToPage(n - 1);
+  needsPaint = true;
+  refreshPagebar();
+}
+
+pageprevEl.addEventListener("click", () => goToPage(app.pageAt()));
+pagenextEl.addEventListener("click", () => goToPage(app.pageAt() + 2));
+pagenumEl.addEventListener("change", () => {
+  const n = parseInt(pagenumEl.value, 10);
+  if (Number.isFinite(n)) goToPage(n);
+  else refreshPagebar();
+});
+pagenumEl.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter") { ev.preventDefault(); pagenumEl.blur(); }
+});
+
+shapeEl.addEventListener("change", () => {
+  app.setPageSize(shapeEl.value);
+  needsPaint = true;
+  refreshPagebar();
+  showStatus();
+});
+
 // ---- the toolbar ----------------------------------------------------------
 //
 // Every button is one `run(id, arg)` into the module. The page holds no rules
@@ -499,9 +551,12 @@ sampleEl.addEventListener("change", async () => {
 });
 
 modeEl.addEventListener("change", () => {
-  app.setPaged(modeEl.value === "paged");
+  const paged = modeEl.value === "paged";
+  if (paged) app.setPageSize(shapeEl.value);
+  app.setPaged(paged);
   app.scrollTo(0);
   needsPaint = true;
+  refreshPagebar();
   showStatus();
 });
 
@@ -513,6 +568,7 @@ async function load(text) {
   app.scrollTo(0);
   needsPaint = true;
   refreshToolbar();
+  refreshPagebar();
   showStatus(ms + " ms");
 }
 
@@ -582,6 +638,15 @@ async function start() {
   // keystroke does — there is no demo-only path into the document — so a
   // picture taken this way is a picture of the editor rather than of a mock.
   if (q.has("demo")) {
+    if (q.get("demo") === "paged") {
+      modeEl.value = "paged";
+      app.setPageSize(q.get("size") || "a4");
+      app.setPaged(true);
+      app.scrollTo(0);
+      refreshPagebar();
+      needsPaint = true;
+      return;
+    }
     const at = app.sourceText().indexOf("diagram travels");
     if (at > 0) {
       app.setSelection(at, at + 15);
@@ -921,6 +986,58 @@ function selftest() {
   } catch (e) {
     say("a built file can be handed to the browser", false, String(e));
   }
+
+  // ---- the sheet, centred, turned, and counted -----------------------------
+  app.setSource("# One\n\n" + "para\n\n".repeat(400) + "# Two\n\nlast\n");
+  modeEl.value = "paged";
+  app.setPageSize("a4");
+  app.setPaged(true);
+  app.scrollTo(0);
+  const portraitPages = app.pageCountNow();
+  // Four hundred paragraphs is more than two sheets, and saying so is the
+  // check: the layout cache stayed armed into `layoutPaged`, which replays a
+  // block's boxes instead of laying it out — so `reserve` never ran, the page
+  // never broke, and the whole document came out on two sheets drawn over
+  // each other. Paged mode had been wrong since the cache landed.
+  say("paged gives as many sheets as it needs", portraitPages > 8,
+      portraitPages + " pages for " + app.blockCount() + " blocks");
+
+  // The paper sits in the MIDDLE of the window when the window is wider.
+  // The PAPER, not the grey it sits on: the backdrop is a rect too, and it is
+  // the first one, and it is the whole document tall.
+  // The PAPER, not the grey it sits on: the backdrop is a rect too, and it is
+  // the first one, and it is the whole document tall. The colour is an array
+  // under `c`, which is how the display list carries one.
+  const isWhite = (c) => c.c && c.c[0] === 255 && c.c[1] === 255 && c.c[2] === 255;
+  const sheetOf = (l) =>
+    l.list.cmds.find((cmd) => cmd.k === 0 && cmd.w > 100 && cmd.h > 100 && isWhite(cmd));
+  const sheet = sheetOf(JSON.parse(app.frame()));
+  say("the sheet is drawn", !!sheet, sheet ? sheet.w.toFixed(0) + "x" + sheet.h.toFixed(0) : "none");
+  if (sheet) {
+    const slack = canvas.clientWidth - sheet.w;
+    const centred = slack <= 0 || Math.abs(sheet.x - slack / 2) < 1.5;
+    say("…centred in the window", centred,
+        "x=" + sheet.x.toFixed(1) + " slack/2=" + (slack / 2).toFixed(1));
+    say("…and with a margin above it", sheet.y > 0, "y=" + sheet.y.toFixed(1));
+  }
+
+  // Landscape is the same sheet on its side, and it takes fewer pages.
+  app.setPageSize("a4 landscape");
+  const land = sheetOf(JSON.parse(app.frame()));
+  say("landscape is wider than it is tall", !!land && land.w > land.h,
+      land ? land.w.toFixed(0) + "x" + land.h.toFixed(0) : "none");
+  app.setPageSize("a4");
+
+  // Which page you are on follows the scroll, and jumping goes there.
+  app.scrollTo(0);
+  say("the first page is page 1", app.pageAt() === 0, String(app.pageAt()));
+  app.scrollToPage(2);
+  say("jumping to page 3 lands on it", app.pageAt() === 2, String(app.pageAt()));
+  const y3 = app.scrollPosition();
+  app.scrollBy(-40);
+  say("…and scrolling back up says so", app.pageAt() <= 2, String(app.pageAt()));
+  say("a jump actually scrolled", y3 > 0, y3.toFixed(0));
+  app.setPaged(false);
 
   const el = document.createElement("div");
   el.id = "selftest-result";

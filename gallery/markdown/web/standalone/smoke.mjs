@@ -172,7 +172,7 @@ async function main() {
       "--window-size=1280,900",
       `--force-device-scale-factor=${argVal("--shot-scale", "1")}`,
       `--screenshot=${SHOT}`,
-      `http://127.0.0.1:${PORT}/index.html?demo=1`,
+      `http://127.0.0.1:${PORT}/index.html?${argVal("--shot-mode", "demo=1")}`,
     ]);
     if (fs.existsSync(SHOT)) console.log("  shot     " + SHOT);
   }

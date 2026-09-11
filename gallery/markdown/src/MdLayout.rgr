@@ -488,8 +488,10 @@ class MdLayout {
         def page:string (meta.get("page" ""))
         def plen:int (strlen page)
         if (plen > 0) {
-            style.pageWidth = (MdFrontMatter.pageWidth(page style.pageWidth))
-            style.pageHeight = (MdFrontMatter.pageHeight(page style.pageHeight))
+            def pw:double style.pageWidth
+            def ph:double style.pageHeight
+            style.pageWidth = (MdFrontMatter.pageW(page pw ph))
+            style.pageHeight = (MdFrontMatter.pageH(page ph pw))
         }
         def margin:string (meta.get("margin" ""))
         def mlen:int (strlen margin)
@@ -529,6 +531,7 @@ class MdLayout {
 
     ; Sheets of a stated size, with the breaks decided here. What is printed.
     fn layoutPaged:void (doc:MdNode) {
+        this.disarmCache()
         clear boxes
         boxIndexReady = false
         this.resetHeadings()
@@ -846,7 +849,16 @@ class MdLayout {
     ; One top-level block, from the cache when it can be and from the layout
     ; when it cannot.
     fn blockCached:void (node:MdNode src:string x:double w:double) {
-        if (! cacheOn) {
+        ; …and never while PAGINATING. A cached block is replayed by copying
+        ; its boxes and advancing the cursor by its height — `block` is not
+        ; called, so `reserve` is not called, so the page never breaks. A
+        ; four-hundred-paragraph document came out as two pages with every
+        ; paragraph drawn on top of the last.
+        ;
+        ; `armCache` refuses a paginating layout, but it is asked BEFORE
+        ; `layoutPaged` sets `paginate` — so the flag could be left on from
+        ; the continuous layout before it. Asked here it cannot be.
+        if ((! cacheOn) || paginate) {
             this.block(node x w)
             return
         }
@@ -1622,9 +1634,15 @@ class MdLayout {
 
     ; A box's y in DOCUMENT coordinates. `sheetGap` >= 0 means the sheets are
     ; stacked with that much between them; below zero means one column.
+    ; A box's y in DOCUMENT coordinates. `sheetGap` >= 0 means the sheets are
+    ; stacked with that much between them; below zero means one column.
+    ;
+    ; The gap runs BEFORE the first sheet too. A document whose first page
+    ; starts at y=0 sits against the top of the window with nothing above it,
+    ; which reads as a page that has been cut rather than one that starts.
     fn boxTop:double (b:MdBox sheetGap:double) {
         if (sheetGap >= 0.0) {
-            return (b.y + ((to_double b.page) * (style.pageHeight + sheetGap)))
+            return ((b.y + sheetGap) + ((to_double b.page) * (style.pageHeight + sheetGap)))
         }
         return b.y
     }

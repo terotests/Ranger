@@ -75,6 +75,33 @@
      document; only one is being typed into. */
   #source.readonly { background: #fafbfc; color: var(--muted); }
 
+  /* Which page a reader is on, over the paper rather than beside it: the
+     window is the document and the number belongs on it, the way a reader's
+     thumb marks a place. It follows the scroll, and it is also how you jump. */
+  #pagebar {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    display: none; align-items: center; gap: 2px; z-index: 2;
+    padding: 3px 4px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92); border: 1px solid var(--line);
+    box-shadow: 0 1px 6px rgba(16, 22, 26, 0.12);
+    backdrop-filter: blur(6px);
+  }
+  #pagebar.on { display: flex; }
+  #pagebar button {
+    border: 0; background: transparent; padding: 2px 7px; border-radius: 999px;
+    color: var(--muted); line-height: 1;
+  }
+  #pagebar button:hover:not(:disabled) { background: #eef1f5; color: var(--ink); }
+  #pageno {
+    font-variant-numeric: tabular-nums; padding: 0 6px; color: var(--ink);
+  }
+  #pageno input {
+    width: 2.4em; text-align: right; font: inherit; padding: 1px 2px;
+    border: 1px solid transparent; border-radius: 4px; background: transparent;
+    color: inherit;
+  }
+  #pageno input:focus { border-color: var(--line); background: #fff; outline: none; }
+
   /* A canvas cannot receive typed text, an IME composition or a paste. This
      field can, and is what the drawing pane actually focuses. It must stay in
      the layout and stay focusable — `display:none` or `hidden` would take it
@@ -114,7 +141,17 @@
     <button id="openFile" type="button">open .md…</button>
     <select id="mode" title="How the document is laid out">
       <option value="scroll">continuous</option>
-      <option value="paged">paged (A4)</option>
+      <option value="paged">paged</option>
+    </select>
+    <select id="pageshape" title="The sheet" disabled>
+      <option value="a4">A4 portrait</option>
+      <option value="a4 landscape">A4 landscape</option>
+      <option value="letter">Letter portrait</option>
+      <option value="letter landscape">Letter landscape</option>
+      <option value="a5">A5 portrait</option>
+      <option value="a5 landscape">A5 landscape</option>
+      <option value="a3">A3 portrait</option>
+      <option value="a3 landscape">A3 landscape</option>
     </select>
     <button id="pdf" type="button">⬇ PDF</button>
     <button id="html" type="button">⬇ HTML</button>
@@ -148,6 +185,12 @@
       <canvas id="screen" aria-label="The document, drawn"></canvas>
       <textarea id="keys" spellcheck="false" autocapitalize="off" autocomplete="off"
                 aria-label="The document — type here to edit it"></textarea>
+      <div id="pagebar" role="group" aria-label="Page">
+        <button id="pageprev" type="button" title="Previous page">‹</button>
+        <span id="pageno"><input id="pagenum" type="text" inputmode="numeric"
+                                 aria-label="Page number" value="1" /> / <span id="pagetotal">1</span></span>
+        <button id="pagenext" type="button" title="Next page">›</button>
+      </div>
       <div id="hint">loading the engine…</div>
     </div>
   </main>
