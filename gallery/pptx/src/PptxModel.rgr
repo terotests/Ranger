@@ -1113,11 +1113,39 @@ class PptxTheme {
         set colors name hex
     }
 
+    ; A scheme colour this theme did not state.
+    ;
+    ; It used to be black, for all twelve of them — including `lt1`, which a
+    ; master's colour map sends `bg1` to and which is therefore THE SLIDE'S
+    ; BACKGROUND. A deck built from scratch states none of them, so every
+    ; deck this repository wrote came out black on black in any reader that
+    ; paints the theme's background, which is every reader. It was reported
+    ; from Keynote.
+    ;
+    ; The fallbacks below are Office's own default scheme, which is what a
+    ; deck nobody themed is supposed to look like. A theme READ from a file
+    ; fills `colors` and none of this applies to it.
     fn colorOf:string (name:string) {
         def v@(optional):string (get colors name)
         if (!null? v) {
             return (unwrap v)
         }
+        return (PptxTheme.defaultColor(name))
+    }
+
+    sfn defaultColor:string (name:string) {
+        if (name == "dk1") { return "000000" }
+        if (name == "lt1") { return "FFFFFF" }
+        if (name == "dk2") { return "44546A" }
+        if (name == "lt2") { return "E7E6E6" }
+        if (name == "accent1") { return "4472C4" }
+        if (name == "accent2") { return "ED7D31" }
+        if (name == "accent3") { return "A5A5A5" }
+        if (name == "accent4") { return "FFC000" }
+        if (name == "accent5") { return "5B9BD5" }
+        if (name == "accent6") { return "70AD47" }
+        if (name == "hlink") { return "0563C1" }
+        if (name == "folHlink") { return "954F72" }
         return "000000"
     }
 }
