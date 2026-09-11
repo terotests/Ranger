@@ -1186,9 +1186,16 @@ written into `domains/graphviz/DotColors.rgr`, which is generated and says so
 on its first line. A name Graphviz does not know is left to the theme rather
 than guessed at.
 
-Still open: `style=rounded`, `penwidth` and `fontname`; `COLSPAN` in an HTML
-table; and `layout=neato` choosing the force layout rather than the layered
-one. The plan is [`docs/PLAN_GRAPHVIZ.md`](docs/PLAN_GRAPHVIZ.md).
+`layout=` picks the drawing: `dot` ranks, `neato`/`fdp`/`sfdp` push,
+`twopi`/`circo` ring — and the two that are not ranked draw straight edges,
+because an orthogonal line between two nodes that are merely near each other is
+three turns saying nothing. `pos="x,y!"` pins a node where the author put it,
+remembering that DOT names a node's centre and counts upwards where a screen
+counts down.
+
+Still open: `style=diagonals`, `fontname`, `ROWSPAN` in an HTML table, and the
+Brewer colour schemes. The plan is
+[`docs/PLAN_GRAPHVIZ.md`](docs/PLAN_GRAPHVIZ.md).
 
 ## …and in a window
 

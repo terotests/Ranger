@@ -1093,7 +1093,8 @@ class RangerFlowDemo {
         print ("  model  " + (to_string (d.nodeCount())) + " nodes, " + (to_string (d.edgeCount())) + " edges, " + (to_string (d.clusterCount())) + " clusters, " + (to_string ((d.subgraphCount()) - (d.clusterCount()))) + " plain subgraphs")
         def style:FlowStyle (this.styleByName(styleName))
         def g:FlowGraph (DotFlow.build(d style))
-        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges, laid out " + (d.direction()))
+        def how:string (?? (get d.attrs "layout") "dot")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges, laid out by " + how + " (" + (d.direction()) + ")")
         ; What the lines came out like. A picture is not a test, and these are
         ; the numbers a reader's eye takes from a drawing without knowing it:
         ; see `layout/RouteQuality.rgr`.

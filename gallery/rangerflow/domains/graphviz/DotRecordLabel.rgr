@@ -22,10 +22,12 @@
 ; the axis again. That is the whole of the layout rule, and it is why the tree
 ; carries `across` rather than the reader deciding per level.
 ;
-; **What is not read**, and is listed rather than hidden: `COLSPAN`/`ROWSPAN`
-; (a cell that spans two is drawn as a cell that spans one), nested tables
-; inside a cell, `<IMG>`, and the per-cell colours of an HTML table. The text
-; and the ports — which is what an edge and a reader need — are read.
+; **What is not read**, and is listed rather than hidden: `ROWSPAN` (a cell that
+; spans two rows is drawn in one), nested tables inside a cell, `<IMG>`, and the
+; per-cell colours of an HTML table. `COLSPAN` is spent as a share of the row's
+; width rather than by merging cells, which is the same picture wherever the
+; row has nothing else in that column. The text and the ports — which is what
+; an edge and a reader need — are read.
 ; ============================================================================
 
 Import "DotReader.rgr"
@@ -42,6 +44,9 @@ class DotCell {
     def kids:[DotCell]
     ; How this cell's children are laid out: across the page, or down it.
     def across:boolean true
+    ; `COLSPAN` from an HTML table: how many columns wide this cell asks to be.
+    ; One for everything a record label ever says.
+    def span:int 1
     ; Measured size, then placed position — both in flow-space pixels.
     def w:double 0.0
     def h:double 0.0
@@ -234,6 +239,12 @@ class DotRecordLabel {
             c.h = ((lineH * (to_double lines)) + (padY * 2.0))
             if (c.h < minH) {
                 c.h = minH
+            }
+            ; A cell that spans two columns is asking for two columns' worth of
+            ; the room its row has. The room is shared out in proportion to
+            ; what was measured, so this is where the span is spent.
+            if (c.span > 1) {
+                c.w = (c.w * (to_double c.span))
             }
             return
         }
@@ -448,6 +459,7 @@ class DotHtmlLabel {
             if (name == "td") {
                 def cell (new DotCell)
                 cell.port = (DotHtmlLabel.attr(tag "port"))
+                cell.span = (DotHtmlLabel.spanOf(tag))
                 def bodyEnd:int (DotHtmlLabel.bodyEnd(raw (close + 1)))
                 cell.text = (DotHtmlLabel.textOf((substring raw (close + 1) bodyEnd)))
                 if (open == false) {
@@ -505,6 +517,22 @@ class DotHtmlLabel {
             i = (i + 1)
         }
         return (strlen raw)
+    }
+
+    ; `COLSPAN="2"`, and one for a tag that does not say.
+    sfn spanOf:int (tag:string) {
+        def raw:string (DotHtmlLabel.attr(tag "colspan"))
+        if ((strlen raw) == 0) {
+            return 1
+        }
+        def n:int (?? (str2int (trim raw)) 1)
+        if (n < 1) {
+            return 1
+        }
+        if (n > 32) {
+            return 32
+        }
+        return n
     }
 
     sfn tagName:string (tag:string) {

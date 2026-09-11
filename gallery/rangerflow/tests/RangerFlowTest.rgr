@@ -151,6 +151,7 @@ class RangerFlowTest {
         RangerFlowTest.testDotFlow(c)
         RangerFlowTest.testDotRecords(c)
         RangerFlowTest.testDotColors(c)
+        RangerFlowTest.testDotEngines(c)
         RangerFlowTest.testMermaidGit(c)
         RangerFlowTest.testMermaidSubgraphEnds(c)
         RangerFlowTest.testMermaidKanban(c)
@@ -4241,6 +4242,102 @@ class RangerFlowTest {
         c.eqStr("red by hsv" (p.resolve("0 1 1")) "#ff0000")
         c.eqStr("and a comma is a separator like a space" (p.resolve("0,1,1")) "#ff0000")
         c.ok("the table is the measured one, not a handful" ((p.names.count()) > 600))
+    }
+
+    ; `layout=` is not decoration: it says which kind of drawing this is. And
+    ; `pos="x,y!"` says where a node goes, in a coordinate system whose y axis
+    ; points the other way from a screen's.
+    sfn testDotEngines:void (c:Checker) {
+        c.section("Graphviz DOT — the layout attribute")
+
+        ; A force drawing: no ranks, so no two nodes share an x or a y the way
+        ; a layered one puts a whole row on the same line.
+        def fsrc:string "graph {\n"
+        fsrc = (fsrc + "  layout = neato;\n")
+        fsrc = (fsrc + "  a -- b; b -- c; c -- a; c -- d; d -- a;\n")
+        fsrc = (fsrc + "}\n")
+        def fd:DotGraph (DotReader.parse(fsrc))
+        def style (new FlowStyle)
+        def fg:FlowGraph (DotFlow.build(fd style))
+        c.eqInt("every node is placed" (fg.nodeCount()) 4)
+        def spread:FlowRect (fg.bounds())
+        c.ok("a force layout spreads in both directions" (spread.w > 0.0))
+        c.ok("…both of them" (spread.h > 0.0))
+        def anyEdge:FlowEdge (fg.edgeAt(0))
+        c.eqStr("and its lines are straight, not orthogonal" anyEdge.edgeType "straight")
+
+        ; `pos="x,y!"` pins. DOT's y axis points up, a screen's points down, so
+        ; a node the file put higher has the smaller y here.
+        def psrc:string "graph {\n"
+        psrc = (psrc + "  layout = neato;\n")
+        psrc = (psrc + "  a [pos=\"0,0!\"];\n")
+        psrc = (psrc + "  b [pos=\"200,100!\"];\n")
+        psrc = (psrc + "  a -- b;\n")
+        psrc = (psrc + "}\n")
+        def pd:DotGraph (DotReader.parse(psrc))
+        def pg:FlowGraph (DotFlow.build(pd style))
+        def pa:FlowNode (pg.nodeById("a"))
+        def pb:FlowNode (pg.nodeById("b"))
+        ; `pos` names the node's centre, which is not the corner the renderer
+        ; places it by.
+        c.near("a pinned node stays where the file put it" (pa.centerX()) 0.0 0.001)
+        c.near("…in x" (pb.centerX()) 200.0 0.001)
+        c.near("and y is flipped, because DOT counts upwards" (pb.centerY()) -100.0 0.001)
+        c.ok("a pinned node is pinned for the simulation too" pa.hasFx)
+
+        ; `twopi` is a root with rings around it.
+        def rsrc:string "digraph {\n"
+        rsrc = (rsrc + "  layout = twopi;\n")
+        rsrc = (rsrc + "  root = keskus;\n")
+        rsrc = (rsrc + "  keskus -> a; keskus -> b; keskus -> c;\n")
+        rsrc = (rsrc + "  a -> a1; b -> b1;\n")
+        rsrc = (rsrc + "}\n")
+        def rd:DotGraph (DotReader.parse(rsrc))
+        def rg:FlowGraph (DotFlow.build(rd style))
+        c.eqInt("a node per node" (rg.nodeCount()) 6)
+        def centre:FlowNode (rg.nodeById("keskus"))
+        def leaf:FlowNode (rg.nodeById("a1"))
+        def dc:double ((fabs centre.x) + (fabs centre.y))
+        def dl:double ((fabs (leaf.x - centre.x)) + (fabs (leaf.y - centre.y)))
+        c.ok("and the leaves are further out than the root" (dl > 0.0))
+
+        ; An engine RangerFlow has nothing for is the layered one rather than
+        ; nothing at all.
+        def osrc:DotGraph (DotReader.parse("digraph { layout = osage; a -> b }"))
+        def og:FlowGraph (DotFlow.build(osrc style))
+        c.eqInt("an engine with no counterpart still draws" (og.nodeCount()) 2)
+
+        ; `nodesep` and `ranksep` are inches — seventy-two points to one.
+        def gsrc:DotGraph (DotReader.parse("digraph { ranksep=2.0; a -> b }"))
+        def gg:FlowGraph (DotFlow.build(gsrc style))
+        def ga:FlowNode (gg.nodeById("a"))
+        def gb:FlowNode (gg.nodeById("b"))
+        c.ok("a ranksep in inches is points on the page" ((gb.y - ga.y) > 140.0))
+
+        ; --- and the rest of what a style attribute says ---
+        def ssrc:string "digraph {\n"
+        ssrc = (ssrc + "  a [style=\"filled,rounded\", penwidth=3, fontsize=21];\n")
+        ssrc = (ssrc + "  b [style=bold];\n")
+        ssrc = (ssrc + "  a -> b [penwidth=4];\n")
+        ssrc = (ssrc + "}\n")
+        def sd:DotGraph (DotReader.parse(ssrc))
+        def sg:FlowGraph (DotFlow.build(sd style))
+        def sa:FlowNode (sg.nodeById("a"))
+        def sb:FlowNode (sg.nodeById("b"))
+        c.near("`penwidth` is the border weight" sa.borderWidth 3.0 0.001)
+        c.near("`style=bold` is a border weight too" sb.borderWidth 2.0 0.001)
+        c.near("`fontsize` is a ratio against the theme's own" sa.fontScale 1.5 0.001)
+        c.ok("`rounded` rounds the corners" (sa.borderRadius > 0.0))
+        c.near("and a node that did not ask for it gets Graphviz's square ones" sb.borderRadius 0.0 0.001)
+        def se:FlowEdge (sg.edgeAt(0))
+        c.near("an edge has a pen too" se.strokeWidth 4.0 0.001)
+
+        ; `COLSPAN` is spent as a share of the row rather than by merging.
+        def span:DotRecordLabel (DotHtmlLabel.parse("<TABLE><TR><TD>a</TD><TD>b</TD></TR><TR><TD COLSPAN=\"2\">wide</TD></TR></TABLE>"))
+        def wide:DotCell (itemAt (span.leaves()) 2)
+        c.eqInt("the span is read off the tag" wide.span 2)
+        span.measure()
+        c.ok("and a spanning cell asks for more of the row" (wide.w > 60.0))
     }
 
     sfn testPlantUmlKinds:void (c:Checker) {

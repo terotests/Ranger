@@ -40,6 +40,8 @@ Import "../../layout/LayeredLayout.rgr"
 Import "../../layout/EdgeLanes.rgr"
 Import "../../layout/OrthoRouter.rgr"
 Import "../../layout/ReadableRouter.rgr"
+Import "../../layout/ForceLayout.rgr"
+Import "../../layout/TreeLayouts.rgr"
 Import "../flowchart/Flowchart.rgr"
 
 ; ---------------------------------------------------------------------------
@@ -447,6 +449,10 @@ class DotFlow {
     ; both are laid out once the layout has said how big the node really is.
     def records:[DotRecordLabel]
     def recordOf:[string]
+    ; The layered layout, kept as a field because the routing's fallback needs
+    ; the layers it built — and only has them when it was the engine that ran.
+    def lay:LayeredLayout (new LayeredLayout)
+    def layered:boolean true
 
     Constructor () {
     }
@@ -480,15 +486,7 @@ class DotFlow {
             def first:int (style.applyTo(g))
             this.paint()
         }
-        def lay:LayeredLayout (LayeredLayout.of(g))
-        lay.direction = (doc.direction())
-        lay.layerGap = 110.0
-        lay.nodeGap = 40.0
-        if ((doc.direction()) == "LR") {
-            lay.layerGap = 150.0
-        }
-        lay.run()
-        def banded:int (this.bandLayout(lay))
+        this.place()
         ; A record's cells are placed into the box the layout gave the node,
         ; and the ports go on before anything is routed — a router that cannot
         ; see a port cannot aim at it.
@@ -520,7 +518,9 @@ class DotFlow {
         if (rr.unrouted > 0) {
             EdgeLanes.reset(g)
             def moved:int (EdgeLanes.assign(g))
-            def routed:int (lay.routeLongEdges())
+            if layered {
+                def routed:int (lay.routeLongEdges())
+            }
             EdgeLanes.resetLanes(g)
             def refanned:int (EdgeLanes.assign(g))
             def repaired:int (OrthoRouter.repairAll(g))
@@ -528,6 +528,158 @@ class DotFlow {
         this.frames()
         g.reindex()
         return g
+    }
+
+    ; ---------------------------------------------------------- the engine ---
+    ; `layout=neato` is not decoration either: it is the author saying which
+    ; kind of drawing this is. Graphviz ships eight engines; RangerFlow has a
+    ; layout for the three kinds they fall into, and an engine it has nothing
+    ; for falls back to the layered one rather than to nothing.
+    ;
+    ;   dot, nop, osage, patchwork   → LayeredLayout   (ranks, the default)
+    ;   neato, fdp, sfdp             → FlowSimulation  (forces)
+    ;   twopi, circo                 → RadialLayout    (rings round a root)
+    fn engine:string () {
+        def named:string (DotChars.lower((?? (get doc.attrs "layout") "")))
+        if (named == "neato") { return "force" }
+        if (named == "fdp")   { return "force" }
+        if (named == "sfdp")  { return "force" }
+        if (named == "twopi") { return "radial" }
+        if (named == "circo") { return "radial" }
+        return "layered"
+    }
+
+    fn place:void () {
+        def pinned:int (this.pinNodes())
+        def which:string (this.engine())
+        layered = false
+        if (which == "force") {
+            ; A force drawing has no ranks and therefore no corridors: an
+            ; orthogonal line between two nodes that are simply near each other
+            ; is three turns saying nothing. Straight is what `neato` draws and
+            ; what this looks right as.
+            this.straightEdges()
+            this.forcePlace()
+            return
+        }
+        if (which == "radial") {
+            this.straightEdges()
+            this.radialPlace()
+            return
+        }
+        layered = true
+        lay = (LayeredLayout.of(g))
+        lay.direction = (doc.direction())
+        lay.layerGap = (this.gap("ranksep" 110.0))
+        lay.nodeGap = (this.gap("nodesep" 40.0))
+        if ((doc.direction()) == "LR") {
+            if ((this.has("ranksep")) == false) {
+                lay.layerGap = 150.0
+            }
+        }
+        lay.run()
+        def banded:int (this.bandLayout(lay))
+    }
+
+    fn straightEdges:void () {
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            e.edgeType = "straight"
+            k = (k + 1)
+        }
+    }
+
+    fn has:boolean (key:string) {
+        return ((strlen (?? (get doc.attrs key) "")) > 0)
+    }
+
+    ; `nodesep` and `ranksep` are inches, as everything in DOT that is a length
+    ; is. Seventy-two points to the inch, and a diagram that says nothing keeps
+    ; the spacing RangerFlow chose for itself.
+    fn gap:double (key:string fallback:double) {
+        def raw:string (?? (get doc.attrs key) "")
+        if ((strlen raw) == 0) {
+            return fallback
+        }
+        def inches:double (?? (str2double (trim raw)) 0.0)
+        if (inches <= 0.0) {
+            return fallback
+        }
+        def px:double (inches * 72.0)
+        if (px < 16.0) {
+            return 16.0
+        }
+        return px
+    }
+
+    ; `pos="1,2!"` pins a node where the author put it. The exclamation mark is
+    ; the difference between "start here" and "stay here", and DOT's y axis
+    ; points up where a screen's points down.
+    fn pinNodes:int () {
+        def count:int 0
+        def i:int 0
+        while (i < (array_length doc.nodes)) {
+            def dn:DotNode (itemAt doc.nodes i)
+            i = (i + 1)
+            def raw:string (dn.attr("pos"))
+            if ((strlen raw) == 0) {
+                continue
+            }
+            if ((g.hasNode(dn.id)) == false) {
+                continue
+            }
+            def sticky:boolean false
+            def body:string (trim raw)
+            if ((charAt body ((strlen body) - 1)) == 33) {
+                sticky = true
+                body = (substring body 0 ((strlen body) - 1))
+            }
+            def parts:[string] (strsplit body ",")
+            if ((array_length parts) < 2) {
+                continue
+            }
+            def px:double (?? (str2double (trim (itemAt parts 0))) 0.0)
+            def py:double (?? (str2double (trim (itemAt parts 1))) 0.0)
+            ; `pos` is the CENTRE of the node, the way the simulation counts
+            ; and the opposite of the top-left corner the renderer wants.
+            def n:FlowNode (g.nodeById(dn.id))
+            def cx:double px
+            def cy:double (0.0 - py)
+            n.x = (cx - (n.width * 0.5))
+            n.y = (cy - (n.height * 0.5))
+            if sticky {
+                n.fx = cx
+                n.hasFx = true
+                n.fy = cy
+                n.hasFy = true
+            }
+            n.syncFromModel()
+            count = (count + 1)
+        }
+        return count
+    }
+
+    ; The force engines. The numbers are the ones the React Flow example uses,
+    ; which is the parity this simulation was written against; a pinned node
+    ; stays where `pos` put it because the simulation honours `fx`/`fy` the way
+    ; d3 does.
+    fn forcePlace:void () {
+        def sim:FlowSimulation (FlowSimulation.reactFlowExample(g -1400.0 170.0))
+        sim.collideEnabled = true
+        def ticks:int (sim.run(600))
+        g.reindex()
+    }
+
+    ; `twopi` puts a root in the middle and everything else on rings around it;
+    ; `circo` is not that, but a ring is a better lie about a circular drawing
+    ; than a rank is. The root is the one the file names, or the busiest node.
+    fn radialPlace:void () {
+        def r:RadialLayout (RadialLayout.of(g))
+        r.rootId = (?? (get doc.attrs "root") "")
+        r.ringGap = (this.gap("ranksep" 110.0))
+        def placed:int (r.run())
+        RadialLayout.faceEdges(g r.centreX r.centreY)
     }
 
     ; ------------------------------------------------------------- nodes ----
@@ -611,6 +763,29 @@ class DotFlow {
             if ((strlen fontColor) > 0) {
                 n.textColor = fontColor
             }
+            ; Graphviz draws square corners unless the file asks for round
+            ; ones, and RangerFlow's theme rounds everything. The file wins:
+            ; `style=rounded` is a thing somebody wrote down.
+            n.borderRadius = 0.0
+            if (DotStyle.styleHas((dn.attr("style")) "rounded")) {
+                n.borderRadius = 6.0
+            }
+            def pen:double (DotFlow.points((dn.attr("penwidth"))))
+            if (pen > 0.0) {
+                n.borderWidth = pen
+            }
+            if (DotStyle.styleHas((dn.attr("style")) "bold")) {
+                if (pen <= 0.0) {
+                    n.borderWidth = 2.0
+                }
+            }
+            ; `fontsize` is in points and the theme's own is fourteen of them,
+            ; so what a node asks for is a ratio against that rather than a
+            ; size the stylesheet can no longer scale.
+            def fs:double (DotFlow.points((dn.attr("fontsize"))))
+            if (fs > 0.0) {
+                n.fontScale = (fs / 14.0)
+            }
             n.syncFromModel()
         }
         ; The graph's edges carry the model's index in their id — `dot7` is
@@ -632,7 +807,29 @@ class DotFlow {
             if ((strlen stroke) > 0) {
                 e.strokeColor = stroke
             }
+            def pen:double (DotFlow.points((de.attr("penwidth"))))
+            if (pen > 0.0) {
+                e.strokeWidth = pen
+            }
+            if (DotStyle.styleHas((de.attr("style")) "bold")) {
+                if (pen <= 0.0) {
+                    e.strokeWidth = 2.0
+                }
+            }
         }
+    }
+
+    ; A length in points, or zero for an attribute that is not one.
+    sfn points:double (raw:string) {
+        def t:string (trim raw)
+        if ((strlen t) == 0) {
+            return 0.0
+        }
+        def v:double (?? (str2double t) 0.0)
+        if (v < 0.0) {
+            return 0.0
+        }
+        return v
     }
 
     sfn indexOfEdgeId:int (id:string) {

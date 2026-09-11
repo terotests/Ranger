@@ -1,15 +1,16 @@
 # Graphviz DOT in RangerFlow — can the PlantUML shape be done twice?
 
-Status: **phases 0-5 and 7 are built** · `?scenario=graphviz` in the web
+Status: **every phase is built, and what is still missing inside them is
+listed** · `?scenario=graphviz` in the web
 editor · `npm run rangerflow:graphviz` ·
 `npm run rangerflow:graphviz:parity` → **132/132 checks over 20 files**,
 computed by Graphviz itself · `npm run rangerflow:graphviz:bench` →
 [`GRAPHVIZ_BENCH.md`](GRAPHVIZ_BENCH.md). The grammar, the scoped attribute
 defaults, `strict`, subgraphs and clusters are in; so are the 666-name colour
 table read off Graphviz, both label languages — `shape=record` and HTML tables —
-and the ports and compass points an edge aims at. 94 assertions in the test
-suite beside the parity harness; phase 6, the layout attribute, is still
-design. Every number below was measured on 2026-09-11 against
+the ports and compass points an edge aims at, and the `layout` attribute
+choosing between the ranked, force and radial layouts. 116 assertions in the
+test suite beside the parity harness. Every number below was measured on 2026-09-11 against
 Graphviz 2.43.0 (native) and the same program compiled to WebAssembly, and is
 quoted as it came back.
 
@@ -327,12 +328,20 @@ The vocabularies meet in `tools/graphviz-parity.mjs` and nowhere else.
 
 ## 8. Scope inside a diagram
 
-**Honoured**: `label`, `xlabel`, `shape` (the polygon family, geometry measured
-per §2.3), `style`, `color`/`fillcolor`/`fontcolor`/`bgcolor`, `penwidth`,
-`fontsize`/`fontname`, `arrowhead`/`arrowtail`/`dir`, `rankdir` (→
-`LayeredLayout`'s `TB`/`LR`, which it already has), `rank`, `constraint`,
-`weight`, `peripheries`, `nodesep`/`ranksep`, `layout` (→ the layout RangerFlow
-already has for it, §9 phase 6), `pos="x,y!"` pinning.
+**Honoured** — read and drawn: `label` (with `\N`, `\n`/`\l`/`\r`, and both
+box languages), `shape`, `style` (`filled`, `rounded`, `bold`, `dashed`,
+`dotted`, `invis`), `color`/`fillcolor`/`fontcolor`/`bgcolor` (the 666 names
+measured off Graphviz, plus `#rrggbb`, `#rgb`, `h s v`, `/scheme/name` and a
+gradient's first stop), `penwidth`, `fontsize`, `dir` and `arrowhead=none`,
+`rankdir`, `nodesep`/`ranksep`, `layout`, `pos="x,y!"`, a port and compass
+point on either end of an edge, and a cluster's `label`, `color` and `bgcolor`.
+
+**Read and kept, not yet drawn**: `rank`, `constraint`, `weight`,
+`lhead`/`ltail`, `peripheries`, `xlabel`, `fontname`, `arrowtail`, and
+`style=diagonals`. They are in the model — the parity harness compares them,
+and §1 is why dropping them silently would be worse than saying so — but
+nothing downstream reads them yet. The first four of them change the *graph*
+rather than its decoration, so they are the ones worth doing next.
 
 **Read and dropped, on purpose**: `image`/`imagepath` (a diagram that fetches
 files is a different security question), `URL`/`href`/`target` (the `click`
@@ -445,8 +454,10 @@ the alpha in `#rrggbbaa` that nothing downstream can paint, an `h s v` triplet
 (computed, the way Graphviz computes it), `/x11/name`, and a gradient or colour
 list, which is drawn in its first colour.
 
-Still open here: `style=rounded|bold|diagonals`, `penwidth`, `fontname`, and the
-Brewer schemes.
+`style=rounded` and `style=bold`, `penwidth` and `fontsize` came with it —
+Graphviz draws square corners unless a file asks for round ones, and the file
+wins over the theme. Still open: `style=diagonals`, `fontname`, and the Brewer
+colour schemes.
 
 **Phase 5 — records and HTML-like labels.** ✅ **Done.**
 `domains/graphviz/DotRecordLabel.rgr` reads both box languages into one tree of
@@ -479,11 +490,23 @@ Still not read, and listed rather than hidden: `COLSPAN`/`ROWSPAN` (a cell that
 spans two is drawn as a cell that spans one), nested tables inside a cell,
 `<IMG>`, and an HTML table's per-cell colours.
 
-**Phase 6 — the layout attribute.** `layout=dot` → `LayeredLayout`,
-`neato`/`fdp` → `ForceLayout`, `twopi`/`circo` → the radial tree layouts,
-`pos="x,y!"` → pinned nodes. Mostly wiring: these layouts exist, and this is
-the phase where the §3 framing gets tested — does our layered layout produce a
-drawing a Graphviz user recognises.
+**Phase 6 — the layout attribute.** ✅ **Done.** `layout=` is not decoration
+either: it is the author saying which kind of drawing this is. Graphviz ships
+eight engines and RangerFlow has a layout for the three kinds they fall into —
+`dot`, `nop`, `osage` and `patchwork` rank (`LayeredLayout`), `neato`, `fdp`
+and `sfdp` push (`FlowSimulation`), `twopi` and `circo` ring (`RadialLayout`,
+rooted at the node `root=` names). An engine with no counterpart draws as the
+layered one rather than as nothing.
+
+Two things fell out of it. A force or radial drawing has no ranks and therefore
+no corridors, so an orthogonal line between two nodes that are merely near each
+other is three turns saying nothing: those two engines draw straight edges. And
+`pos="x,y!"` pins a node where the author put it — through `fx`/`fy`, which the
+simulation already honoured the way d3 does — remembering that `pos` names the
+node's **centre** and DOT's y axis points up where a screen's points down.
+
+`nodesep` and `ranksep` come with it, in the inches every DOT length is written
+in, at seventy-two points to one.
 
 **Phase 7 — the way in.** ✅ **Done.** `?scenario=graphviz` in the web demo,
 sharing the source panel with Mermaid and PlantUML — the dropdown decides which
