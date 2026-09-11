@@ -1,0 +1,223 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeLineNav.rgr — up, down, and the column a caret remembers.
+; ==============================================================================
+;
+; Moving a caret ACROSS lines is four rules, and every editor that has a caret
+; has written all four:
+;
+;   1. flatten the visual lines into a numbered list of places a caret stops
+;   2. find which one the caret is on
+;   3. step by ±1 (or ±a screen) and clamp
+;   4. when the clamp did nothing — already the first or last line — snap to
+;      the start or the end of the document rather than sitting still
+;
+; …and one more that is not a rule so much as a memory, and is the one that
+; gets left out:
+;
+;   5. the caret keeps its COLUMN. Down through a short line and back up must
+;      return to the x it started from, not to the end of the short line.
+;
+; `DocxEditController.moveVertical` has 1–4 and recomputes the x from the caret
+; on every call, so it does not have 5: Down, Down through a two-character line,
+; and the caret has lost the column it started in. Nothing else in the gallery
+; has 1–4 at all.
+;
+; WHAT THIS HOLDS AND WHAT IT DOES NOT. The rules, over indices. Not the lines:
+; a `.docx` visual line is a `LaidLine` with a paragraph reference and a page,
+; a markdown one is a row of placed segments, and a slide's is a wrapped run
+; inside a shape. The app fills a table of four numbers per line and keeps its
+; own array — `gallery/PLAN_EDITOR_KERNEL.md` §7's first idiom, rules over ids
+; and indices — and the two app-owned columns are there so it can find its own
+; line again without a map on the side.
+;
+; It measures nothing, which is why it can be the same file for all of them:
+; turning an x into an offset is `OfficeTextMetrics`, and that needs the face.
+; ==============================================================================
+
+class OfficeLineTable {
+    ; One row per place a caret can stop, in document order.
+    def y:[double]
+    def h:[double]
+    ; The offsets this line covers, in whatever unit the app counts in.
+    def startOff:[int]
+    def endOff:[int]
+    ; The app's own name for this line. Two, because the editors that have
+    ; pages need (page, line) and the ones that do not need only the first.
+    def keyA:[int]
+    def keyB:[int]
+
+    Constructor () {
+    }
+
+    fn reset:void () {
+        clear y
+        clear h
+        clear startOff
+        clear endOff
+        clear keyA
+        clear keyB
+    }
+
+    fn add:void (top:double height:double from:int to:int a:int b:int) {
+        push y top
+        push h height
+        push startOff from
+        push endOff to
+        push keyA a
+        push keyB b
+    }
+
+    fn count:int () {
+        return (array_length y)
+    }
+
+    fn topAt:double (i:int) {
+        return (itemAt y i)
+    }
+
+    fn heightAt:double (i:int) {
+        return (itemAt h i)
+    }
+
+    fn startAt:int (i:int) {
+        return (itemAt startOff i)
+    }
+
+    fn endAt:int (i:int) {
+        return (itemAt endOff i)
+    }
+
+    fn keyAAt:int (i:int) {
+        return (itemAt keyA i)
+    }
+
+    fn keyBAt:int (i:int) {
+        return (itemAt keyB i)
+    }
+}
+
+class OfficeLineNav {
+    ; Which line holds `off`. A caret at the very end of a line and a caret at
+    ; the start of the next are the same POSITION and two different places to
+    ; draw, and this answers with the first line that covers it — which is
+    ; where the reader last typed. -1 when nothing covers it.
+    sfn indexOfOffset:int (t:OfficeLineTable off:int) {
+        def n:int (t.count())
+        def i:int 0
+        while (i < n) {
+            if ((off >= (t.startAt(i))) && (off <= (t.endAt(i)))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        ; Past the end of everything: the last line, which is where a caret at
+        ; the end of a document belongs.
+        if (n > 0) {
+            def last:int (n - 1)
+            if (off > (t.endAt(last))) {
+                return last
+            }
+        }
+        return -1
+    }
+
+    ; Which line a y falls on, or the nearest above it. -1 for a table with no
+    ; lines; never a guess for a point above the first line, which is the first.
+    sfn indexAtY:int (t:OfficeLineTable y:double) {
+        def n:int (t.count())
+        if (n == 0) { return -1 }
+        def i:int 0
+        while (i < n) {
+            def top:double (t.topAt(i))
+            if ((y >= top) && (y < (top + (t.heightAt(i))))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        ; Between lines, or past the end: the last line that starts above it.
+        def best:int 0
+        def j:int 0
+        while (j < n) {
+            if ((t.topAt(j)) <= y) { best = j }
+            j = (j + 1)
+        }
+        return best
+    }
+
+    ; The line `delta` steps from `at`, clamped to the table.
+    sfn verticalTarget:int (count:int at:int delta:int) {
+        def target:int (at + delta)
+        if (target < 0) { target = 0 }
+        if (target >= count) { target = (count - 1) }
+        return target
+    }
+
+    ; How many lines a screen of `height` holds at `at` — what PageUp and
+    ; PageDown step by. At least one, because a page that moves nothing is a
+    ; key that does nothing.
+    sfn linesPerScreen:int (t:OfficeLineTable at:int height:double) {
+        def n:int (t.count())
+        if (n == 0) { return 1 }
+        def i:int at
+        if (i < 0) { i = 0 }
+        if (i >= n) { i = (n - 1) }
+        def used:double 0.0
+        def count:int 0
+        while (i < n) {
+            def lh:double (t.heightAt(i))
+            if (lh <= 0.0) { lh = 1.0 }
+            if ((used + lh) > height) {
+                i = n
+            } {
+                used = (used + lh)
+                count = (count + 1)
+                i = (i + 1)
+            }
+        }
+        if (count < 1) { count = 1 }
+        return count
+    }
+}
+
+; ==============================================================================
+; OfficeCaretColumn — the x a caret goes back to.
+; ==============================================================================
+;
+; Rule 5 above, and it is a memory rather than a calculation: the x is taken
+; ONCE, when a vertical move starts, and kept for as long as the caret keeps
+; moving vertically. Anything else the caret does forgets it.
+;
+; Getting this wrong does not look like a bug. It looks like the editor being
+; slightly wrong about where you were, which readers put down to themselves.
+; ==============================================================================
+class OfficeCaretColumn {
+    def wanted:double 0.0
+    def known:boolean false
+
+    Constructor () {
+    }
+
+    ; About to move vertically: the column to aim at. `currentX` is where the
+    ; caret is now, and is used only when there is nothing remembered.
+    fn want:double (currentX:double) {
+        if (known) {
+            return wanted
+        }
+        wanted = currentX
+        known = true
+        return wanted
+    }
+
+    ; The caret moved horizontally, or was placed, or the document changed
+    ; under it. Whatever column it was aiming at is no longer the one it is in.
+    fn forget:void () {
+        known = false
+        wanted = 0.0
+    }
+
+    fn isKnown:boolean () {
+        return known
+    }
+}

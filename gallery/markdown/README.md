@@ -13,9 +13,42 @@ npm run markdown:demo          # the samples and this repository's README → PD
 npm run markdown:pdf -- FILE   # …any file you name
 npm run markdown:embed         # where every diagram's marks actually landed
 npm run markdown:bench         # how long each stage takes, per document
-npm run markdown:web:serve     # the viewer, in a browser, with no server behind it
+npm run markdown:web:serve     # the EDITOR, in a browser, with no server behind it
 npm run markdown:web:test      # …and drive it in headless Chrome
+npm run markdown:edit:test     # the caret, the patches, and undo back to the bytes
+npm run markdown:semantic:test # …and that every toggle is its own inverse
+npm run markdown:srcmap:test   # a character in the picture names one in the file
+npm run markdown:srcmap:spec   # …scored over CommonMark's own 652 examples
 ```
+
+## Editing the drawing
+
+The preview is not a preview any more. Click it and a caret lands on the
+character under the pointer; type and the FILE changes; drag to select, press
+Ctrl+B and `**` appears in the source pane beside it. The toolbar does
+headings, lists, quotes, links and inline code, and every one of them is one
+patch on the text and one press of undo.
+
+```
+  a keystroke          → MdEditController → one MdEditOp on the source
+  a click              → MdLayout.srcAtPoint → a character offset
+  Ctrl+B               → MdSemanticEdit → one MdEditOp, decided against the AST
+  Ctrl+Z               → OfficeHistory@(MdEditOp), shared with four editors
+```
+
+**The file is the document.** There is no rich model behind the drawing, so
+nothing renormalises a hand-aligned table, a setext heading or `*` bullets
+sitting beside `-` ones. Whatever an edit does, undoing it gives back the
+bytes that were there — which is the one promise a markdown editor has to
+make and the one a model round trip cannot.
+
+Where the answer is not defined it says so rather than guessing: bolding a
+selection that begins inside `**` and ends outside it is refused, with a
+sentence saying why.
+
+Typing into this repository's 63 KB README costs **10 ms**, because the
+layout remembers per block — the design and the numbers are in
+[`PLAN_WYSIWYG.md`](PLAN_WYSIWYG.md) §6.
 
 **651 of 652** CommonMark 0.31.2 examples, compared as exact strings against
 the HTML the specification prints for each one —

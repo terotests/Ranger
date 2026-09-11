@@ -185,10 +185,23 @@ class MdRun {
     def link:string ""
     ; a forced break — two spaces at the end of a line, or a backslash
     def hardBreak:boolean false
+    ; Where this run's text came from, in the document — the span of the
+    ; inline node it was made from. -1 when the node had none to give.
+    ;
+    ; It is carried rather than looked up because the run is where the text
+    ; and the source stop being the same length: `&amp;` is one character of
+    ; run text and five of source, so an offset INSIDE a run is exact only
+    ; where the run is verbatim, and `srcEnd` is what stops an inexact one
+    ; running off the end of the node it belongs to.
+    def srcStart:int -1
+    def srcEnd:int -1
 
     Constructor () {
     }
 
+    ; The source span is NOT copied: a style is inherited by a child run and
+    ; a position is not. Copying it is how `*a* b` would have had both runs
+    ; claiming the same character.
     fn copyStyle:MdRun () {
         def r:MdRun (new MdRun())
         r.family = family
@@ -214,6 +227,11 @@ class MdSeg {
     def link:string ""
     def x:double 0.0
     def w:double 0.0
+    ; Where this placed piece of text starts in the document, and how much of
+    ; the document it covers. This is the finest thing the layout knows, and
+    ; it is what a click turns into a caret.
+    def srcStart:int -1
+    def srcLen:int 0
 
     Constructor () {
     }
@@ -257,8 +275,41 @@ class MdBox {
     ; the layout, not by the author: it is what lets a click on a drawing find
     ; a caret in the text a reader typed.
     def srcStart:int -1
+    ; …and the character THIS BOX begins at, which is a different question.
+    ; `srcStart` names the block, so every box of a paragraph carries the same
+    ; one and a click could name the paragraph and nothing smaller. `segSrc`
+    ; is the placed run's own start, so a click inside the box can be turned
+    ; into an offset by measuring across it.
+    def segSrc:int -1
+    def segLen:int 0
 
     Constructor () {
+    }
+
+    fn copy:MdBox () {
+        def b:MdBox (new MdBox())
+        b.kind = kind
+        b.x = x
+        b.y = y
+        b.w = w
+        b.h = h
+        b.text = text
+        b.family = family
+        b.size = size
+        b.bold = bold
+        b.italic = italic
+        b.color = color
+        b.fill = fill
+        b.stroke = stroke
+        b.strokeWidth = strokeWidth
+        b.link = link
+        b.embedKind = embedKind
+        b.embedSource = embedSource
+        b.page = page
+        b.srcStart = srcStart
+        b.segSrc = segSrc
+        b.segLen = segLen
+        return b
     }
 
     sfn text:MdBox (t:string x:double y:double w:double h:double) {
@@ -298,6 +349,68 @@ class MdBox {
 
 class MdLayout {
     def style:MdStyle (new MdStyle())
+    ; Built once per layout by `buildBoxIndex`: the first box of each block,
+    ; by that block's source offset.
+    def boxIndexAt:[string:int]
+    def boxIndexReady:boolean false
+
+    ; --- the per-block layout cache -------------------------------------------
+    ;
+    ; A keystroke changes ONE block and the other four hundred are laid out
+    ; again for nothing. `markdown:bench` puts this repository's README at
+    ; 22.7 ms to parse and 117.5 ms to lay out, so the parse is not the
+    ; problem: measuring text is. The parse stays whole — it is cheap, and an
+    ; incremental block parser is a second parser to keep in step with the
+    ; first — and the LAYOUT is what remembers.
+    ;
+    ; A block's boxes are kept under the exact source text that produced them.
+    ; An edit changes that text for one block and no other, so every other
+    ; block hits, and a hit is an array copy with two numbers added to it: the
+    ; y it now sits at, and how far its source moved.
+    ;
+    ; WHAT IT DOES NOT DO, stated rather than discovered:
+    ;   * paged layout. A block's boxes there depend on where the page break
+    ;     falls, which is not a property of the block. `armCache` refuses.
+    ;   * documents with a table of contents. That is a two-pass layout whose
+    ;     first pass exists to move the second, and a cache would serve the
+    ;     first pass's answers to the second.
+    ;   * anything below a top-level block. A list is one entry, not one per
+    ;     item: the win is in the hundreds of blocks a long document has, and
+    ;     the bookkeeping for nesting buys nothing on top of that.
+    def cacheOn:boolean false
+    def cacheKey:[string]
+    ; …and the same keys as a map. A scan over the keys is O(blocks) per
+    ; block, which is O(blocks²) per layout: fine for the thirteen a fixture
+    ; has and 1.1 million string compares for the thousand in ISSUES.md,
+    ; where it cost more than the layout it was saving.
+    def cacheAt:[string:int]
+    def cacheSrc:[int]
+    def cacheTop:[double]
+    def cacheHeight:[double]
+    def cacheFrom:[int]
+    def cacheCount:[int]
+    def cacheBoxes:[MdBox]
+    def cacheHits:int 0
+    def cacheMisses:int 0
+    ; Lay every block out BOTH ways and compare. A cache that disagrees with
+    ; the layout it is caching shows a stale picture, which is the worst thing
+    ; this feature can do and the one failure a screenshot cannot catch — so
+    ; there is a mode that checks rather than trusts, and the edit suite runs
+    ; with it on.
+    def cacheAudit:boolean false
+    def cacheFaults:int 0
+    ; How many blocks the audit actually compared. Without it a suite that
+    ; never reached the cache at all reports a clean audit, which is the
+    ; §6 trap: a check that counts the wrong noun says the failure is fine.
+    def cacheAudited:int 0
+    def cacheFirstFault:string ""
+    ; The text the tree was parsed from. The cache keys off each block's slice
+    ; of it, so the layout has to be told: a tree does not carry the string it
+    ; came from, only the offsets into it.
+    def docSource:string ""
+    ; The width every cached entry was measured at. A different one makes all
+    ; of them wrong, and the cheap total answer is to throw the lot away.
+    def cacheWidth:double (0.0 - 1.0)
     def engine:EVGTextEngine (new EVGTextEngine())
     def boxes:[MdBox]
 
@@ -359,6 +472,8 @@ class MdLayout {
 
     fn setMeasurer:void (m:EVGTextMeasurer) {
         engine.setMeasurer(m)
+        ; Everything cached was measured through the old one.
+        this.dropCache()
     }
 
     ; ----------------------------------------------------------------------
@@ -393,7 +508,12 @@ class MdLayout {
 
     ; One page, as tall as it needs to be. What the canvas scrolls.
     fn layoutContinuous:void (doc:MdNode width:double) {
+        if ((fabs (width - cacheWidth)) > 0.01) {
+            this.dropCache()
+            cacheWidth = width
+        }
         clear boxes
+        boxIndexReady = false
         this.resetHeadings()
         paginate = false
         page = 0
@@ -410,6 +530,7 @@ class MdLayout {
     ; Sheets of a stated size, with the breaks decided here. What is printed.
     fn layoutPaged:void (doc:MdNode) {
         clear boxes
+        boxIndexReady = false
         this.resetHeadings()
         paginate = true
         page = 0
@@ -589,6 +710,7 @@ class MdLayout {
             i = (i + 1)
         }
         clear boxes
+        boxIndexReady = false
         this.resetHeadings()
         page = 0
         pageCount = 1
@@ -597,13 +719,206 @@ class MdLayout {
     }
 
     ; `mode`: 0 no contents, 1 reserve the space, 2 fill it in.
+    ; ----------------------------------------------------------------------
+    ; The per-block layout cache
+    ; ----------------------------------------------------------------------
+
+    ; Turn it on for this document, if this document is one it can serve.
+    ; Answers whether it did, so a caller can say so rather than assume.
+    fn setDocSource:void (text:string) {
+        docSource = text
+    }
+
+    fn armCache:boolean (doc:MdNode) {
+        cacheOn = false
+        if paginate { return false }
+        if style.wantToc { return false }
+        if ((strlen docSource) == 0) { return false }
+        cacheOn = true
+        return true
+    }
+
+    fn disarmCache:void () {
+        cacheOn = false
+    }
+
+    ; Everything measured is measured at a width and through a measurer, so a
+    ; change to either makes every entry wrong. The cheap and total answer is
+    ; to throw the lot away: it costs one document's layout, once.
+    fn dropCache:void () {
+        map_clear cacheAt
+        clear cacheKey
+        clear cacheSrc
+        clear cacheTop
+        clear cacheHeight
+        clear cacheFrom
+        clear cacheCount
+        clear cacheBoxes
+        cacheHits = 0
+        cacheMisses = 0
+    }
+
+    ; The text that produced this block, which is the only thing its boxes
+    ; depend on — plus the width it was measured at, because the same
+    ; paragraph breaks in different places in a different column.
+    fn cacheKeyOf:string (node:MdNode src:string w:double) {
+        def a:int node.srcStart
+        def b:int node.srcEnd
+        def n:int (strlen src)
+        if (a < 0) { a = 0 }
+        if (b > n) { b = n }
+        if (b < a) { b = a }
+        return (((to_string (to_int (w * 16.0))) + "\u0001") + (substring src a b))
+    }
+
+    fn cacheFind:int (key:string) {
+        if (has cacheAt key) {
+            return (?? (get cacheAt key) -1)
+        }
+        return -1
+    }
+
+    ; A hit: the boxes again, moved to where this block now sits and stamped
+    ; with where its source now is.
+    fn cacheReplay:void (slot:int node:MdNode) {
+        def dy:double (cursorY - (itemAt cacheTop slot))
+        def ds:int (node.srcStart - (itemAt cacheSrc slot))
+        def from:int (itemAt cacheFrom slot)
+        def cnt:int (itemAt cacheCount slot)
+        def i:int 0
+        while (i < cnt) {
+            def src:MdBox (itemAt cacheBoxes (from + i))
+            def b:MdBox (src.copy())
+            b.y = (b.y + dy)
+            if (b.srcStart >= 0) { b.srcStart = (b.srcStart + ds) }
+            if (b.segSrc >= 0) { b.segSrc = (b.segSrc + ds) }
+            push boxes b
+            i = (i + 1)
+        }
+        cursorY = (cursorY + (itemAt cacheHeight slot))
+        cacheHits = (cacheHits + 1)
+    }
+
+    fn cacheStore:void (key:string node:MdNode from:int top:double) {
+        def n:int (array_length boxes)
+        def at:int (array_length cacheBoxes)
+        def i:int from
+        while (i < n) {
+            def b:MdBox (itemAt boxes i)
+            def keep:MdBox (b.copy())
+            keep.y = (keep.y - top)
+            if (keep.srcStart >= 0) { keep.srcStart = (keep.srcStart - node.srcStart) }
+            if (keep.segSrc >= 0) { keep.segSrc = (keep.segSrc - node.srcStart) }
+            push cacheBoxes keep
+            i = (i + 1)
+        }
+        def slot:int (array_length cacheKey)
+        push cacheKey key
+        if (! (has cacheAt key)) {
+            set cacheAt key slot
+        }
+        push cacheSrc node.srcStart
+        push cacheTop 0.0
+        push cacheHeight (cursorY - top)
+        push cacheFrom at
+        push cacheCount (n - from)
+        cacheMisses = (cacheMisses + 1)
+    }
+
+    ; One top-level block, from the cache when it can be and from the layout
+    ; when it cannot.
+    fn blockCached:void (node:MdNode src:string x:double w:double) {
+        if (! cacheOn) {
+            this.block(node x w)
+            return
+        }
+        if (node.srcStart < 0) {
+            this.block(node x w)
+            return
+        }
+        def key:string (this.cacheKeyOf(node src w))
+        def slot:int (this.cacheFind(key))
+        if (slot >= 0) {
+            if cacheAudit {
+                this.auditBlock(slot node x w)
+                return
+            }
+            this.cacheReplay(slot node)
+            return
+        }
+        def from:int (array_length boxes)
+        def top:double cursorY
+        this.block(node x w)
+        this.cacheStore(key node from top)
+    }
+
+    ; Lay the block out for real, then check the cache would have said the
+    ; same thing. Slower than either on its own, which is the point: it is a
+    ; gate, not a mode anyone ships with.
+    fn auditBlock:void (slot:int node:MdNode x:double w:double) {
+        cacheAudited = (cacheAudited + 1)
+        def from:int (array_length boxes)
+        def top:double cursorY
+        this.block(node x w)
+        def realCount:int ((array_length boxes) - from)
+        def realHeight:double (cursorY - top)
+        def cnt:int (itemAt cacheCount slot)
+        if (realCount != cnt) {
+            this.cacheFault((((("box count " + (to_string realCount)) + " vs cached ")
+                + (to_string cnt)) + (" for " + node.kind)))
+            return
+        }
+        if ((fabs (realHeight - (itemAt cacheHeight slot))) > 0.01) {
+            this.cacheFault(("height " + (to_string realHeight)))
+            return
+        }
+        def cfrom:int (itemAt cacheFrom slot)
+        def ds:int (node.srcStart - (itemAt cacheSrc slot))
+        def i:int 0
+        while (i < cnt) {
+            def got:MdBox (itemAt boxes (from + i))
+            def want:MdBox (itemAt cacheBoxes (cfrom + i))
+            if (got.text != want.text) {
+                this.cacheFault((("text [" + got.text) + ("] vs [" + (want.text + "]"))))
+                i = cnt
+            } {
+                if ((fabs (got.y - (want.y + top))) > 0.01) {
+                    this.cacheFault(("y " + (to_string got.y)))
+                    i = cnt
+                } {
+                    if ((fabs (got.x - want.x)) > 0.01) {
+                        this.cacheFault(("x " + (to_string got.x)))
+                        i = cnt
+                    } {
+                        if (got.segSrc >= 0) {
+                            def wantSrc:int ((want.segSrc + (itemAt cacheSrc slot)) + ds)
+                            if (got.segSrc != wantSrc) {
+                                this.cacheFault((("segSrc " + (to_string got.segSrc))
+                                    + (" vs " + (to_string wantSrc))))
+                                i = cnt
+                            }
+                        }
+                        i = (i + 1)
+                    }
+                }
+            }
+        }
+    }
+
+    fn cacheFault:void (what:string) {
+        cacheFaults = (cacheFaults + 1)
+        if ((strlen cacheFirstFault) == 0) {
+            cacheFirstFault = what
+        }
+    }
+
     fn bodyPass:void (doc:MdNode mode:int) {
         def placed:boolean (mode == 0)
         def i:int 0
         def n:int (doc.childCount())
         while (i < n) {
             def child:MdNode (doc.childAt(i))
-            this.block(child contentX contentW)
+            this.blockCached(child docSource contentX contentW)
             if (! placed) {
                 ; After the title, which is where a reader looks for it; at
                 ; the very top when the document has no heading at all.
@@ -665,13 +980,36 @@ class MdLayout {
 
     ; The first box a block produced, or -1. The two panes of the viewer are
     ; kept in step through this and nothing else.
-    fn firstBoxOf:int (srcStart:int) {
+    ;
+    ; It was a scan of every box in the document, once per call, and the
+    ; viewer calls it once per BLOCK — so putting the source caret back after
+    ; a click was quadratic in the document. Nobody noticed at a click a
+    ; second; a caret that moves on every keystroke would have. The index is
+    ; built once per layout, at the end, keyed by the block's own srcStart.
+    fn buildBoxIndex:void () {
+        map_clear boxIndexAt
         def i:int 0
         def n:int (array_length boxes)
         while (i < n) {
             def b:MdBox (itemAt boxes i)
-            if (b.srcStart == srcStart) { return i }
+            if (b.srcStart >= 0) {
+                def k:string (to_string b.srcStart)
+                if (! (has boxIndexAt k)) {
+                    set boxIndexAt k i
+                }
+            }
             i = (i + 1)
+        }
+        boxIndexReady = true
+    }
+
+    fn firstBoxOf:int (srcStart:int) {
+        if (! boxIndexReady) {
+            this.buildBoxIndex()
+        }
+        def k:string (to_string srcStart)
+        if (has boxIndexAt k) {
+            return (?? (get boxIndexAt k) -1)
         }
         return -1
     }
@@ -1098,16 +1436,22 @@ class MdLayout {
             if (kind == "text") {
                 def r:MdRun (base.copyStyle())
                 r.text = c.literal
+                r.srcStart = c.srcStart
+                r.srcEnd = c.srcEnd
                 push out r
             }
             if (kind == "softbreak") {
                 def sb:MdRun (base.copyStyle())
                 sb.text = " "
+                sb.srcStart = c.srcStart
+                sb.srcEnd = c.srcEnd
                 push out sb
             }
             if (kind == "linebreak") {
                 def lb:MdRun (base.copyStyle())
                 lb.hardBreak = true
+                lb.srcStart = c.srcStart
+                lb.srcEnd = c.srcEnd
                 push out lb
             }
             if (kind == "code") {
@@ -1118,6 +1462,8 @@ class MdLayout {
                 cr.bold = false
                 cr.italic = false
                 cr.text = c.literal
+                cr.srcStart = c.srcStart
+                cr.srcEnd = c.srcEnd
                 push out cr
             }
             if (kind == "html_inline") {
@@ -1126,6 +1472,8 @@ class MdLayout {
                 hr.size = (base.size * 0.92)
                 hr.color = style.mutedColor
                 hr.text = c.literal
+                hr.srcStart = c.srcStart
+                hr.srcEnd = c.srcEnd
                 push out hr
             }
             if (kind == "emph") {
@@ -1180,6 +1528,8 @@ class MdLayout {
                 ir.color = style.mutedColor
                 def alt:string (c.plainText())
                 ir.text = (("[" + alt) + "]")
+                ir.srcStart = c.srcStart
+                ir.srcEnd = c.srcEnd
                 push out ir
             }
             i = (i + 1)
@@ -1208,6 +1558,8 @@ class MdLayout {
                     this.emit(bg)
                 }
                 def b:MdBox (MdBox.text(seg.text (x + seg.x) y seg.w ln.height))
+                b.segSrc = seg.srcStart
+                b.segLen = seg.srcLen
                 b.family = seg.family
                 b.size = seg.size
                 b.bold = seg.bold
@@ -1220,6 +1572,113 @@ class MdLayout {
             cursorY = (y + ln.height)
             i = (i + 1)
         }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; From a point on the page back to a character in the file
+    ; ----------------------------------------------------------------------
+    ;
+    ; This is the question a caret is, and until the segments carried their
+    ; own offsets it could not be asked: every box of a paragraph held that
+    ; PARAGRAPH's start, so the finest answer available was "the block you
+    ; clicked". The viewer's `sourceOffsetAt` returned exactly that.
+    ;
+    ; It lives here rather than in the web facade because it is layout, not
+    ; chrome: it has to measure with the measurer the layout measured with, or
+    ; the caret lands beside the glyphs rather than between them. `PptxEdit`
+    ; and `DocxEditController` each learned that separately.
+
+    ; A box's y in DOCUMENT coordinates. `sheetGap` >= 0 means the sheets are
+    ; stacked with that much between them; below zero means one column.
+    fn boxTop:double (b:MdBox sheetGap:double) {
+        if (sheetGap >= 0.0) {
+            return (b.y + ((to_double b.page) * (style.pageHeight + sheetGap)))
+        }
+        return b.y
+    }
+
+    fn measureStyled:double (text:string family:string size:double bold:boolean italic:boolean) {
+        def len:int (strlen text)
+        if (len == 0) { return 0.0 }
+        def face:string (style.faceFor(family bold italic))
+        def m:EVGTextMetrics (engine.measureRun(text face size))
+        return m.width
+    }
+
+    ; Which character of a placed run the pointer at `x` is over, as a source
+    ; offset. Splits on glyph midpoints, so a click lands on the nearer side
+    ; of a character rather than always its left — the same rule
+    ; `OfficeTextMetrics.offsetAtX` follows for the .docx caret.
+    ;
+    ; The walk is over the box's TEXT and the answer is in the FILE, and those
+    ; are the same length only where the run holds no escape and no entity. So
+    ; the result is clamped into the box's own span: an approximate offset
+    ; inside a run is a caret one character out, while an unclamped one is a
+    ; caret in the next paragraph.
+    fn offsetInBox:int (b:MdBox x:double) {
+        if (b.segSrc < 0) { return -1 }
+        def len:int (strlen b.text)
+        if (len == 0) { return b.segSrc }
+        def want:double (x - b.x)
+        if (want <= 0.0) { return b.segSrc }
+        def k:int 0
+        def hit:int len
+        while (k < len) {
+            def w0:double (this.measureStyled((substring b.text 0 k) b.family b.size b.bold b.italic))
+            def w1:double (this.measureStyled((substring b.text 0 (k + 1)) b.family b.size b.bold b.italic))
+            if (want < ((w0 + w1) * 0.5)) {
+                hit = k
+                k = len
+            } {
+                k = (k + 1)
+            }
+        }
+        def at:int (b.segSrc + hit)
+        def stop:int (b.segSrc + b.segLen)
+        if (at > stop) { at = stop }
+        return at
+    }
+
+    ; The text box at a point in document coordinates, or -1. A click to the
+    ; right of the last word on a line belongs to that line rather than to
+    ; nothing, so the nearest box on the line the pointer is ON wins — which
+    ; is what puts a caret at the end of a line when a reader clicks past it.
+    fn boxAtPoint:int (x:double y:double sheetGap:double) {
+        def best:int -1
+        def bestDx:double 0.0
+        def i:int 0
+        def n:int (array_length boxes)
+        while (i < n) {
+            def b:MdBox (itemAt boxes i)
+            if ((b.kind == 0) && (b.segSrc >= 0)) {
+                def top:double (this.boxTop(b sheetGap))
+                if ((y >= top) && (y < (top + b.h))) {
+                    def dx:double 0.0
+                    if (x < b.x) { dx = (b.x - x) }
+                    if (x > (b.x + b.w)) { dx = (x - (b.x + b.w)) }
+                    if (best < 0) {
+                        best = i
+                        bestDx = dx
+                    } {
+                        if (dx < bestDx) {
+                            best = i
+                            bestDx = dx
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; The whole question in one call: a point on the page, a character in the
+    ; file, or -1 when nothing that carries a source was drawn there.
+    fn srcAtPoint:int (x:double y:double sheetGap:double) {
+        def i:int (this.boxAtPoint(x y sheetGap))
+        if (i < 0) { return -1 }
+        def b:MdBox (itemAt boxes i)
+        return (this.offsetInBox(b x))
     }
 
     fn measureRun:double (text:string r:MdRun) {
@@ -1247,6 +1706,11 @@ class MdLayout {
         def aRun:[int]
         def aSpace:[boolean]
         def aBreak:[boolean]
+        ; Where each atom starts inside its run's text. The atoms are what a
+        ; segment is assembled from, so this is the only place the offset is
+        ; still known — by the time `flushOpen` sees `openText` it is a string
+        ; with no memory of where it was cut from.
+        def aOff:[int]
         def ri:int 0
         def rn:int (array_length runs)
         while (ri < rn) {
@@ -1256,6 +1720,7 @@ class MdLayout {
                 push aRun ri
                 push aSpace false
                 push aBreak true
+                push aOff 0
             } {
                 def t:string r.text
                 def tn:int (strlen t)
@@ -1277,6 +1742,7 @@ class MdLayout {
                     push aRun ri
                     push aSpace isSpace
                     push aBreak false
+                    push aOff start
                 }
             }
             ri = (ri + 1)
@@ -1287,6 +1753,7 @@ class MdLayout {
         def usedWidth:double 0.0
         def openRun:int -1
         def openText:string ""
+        def openOff:int 0
         ; What `openText` measures, carried forward instead of measured again.
         ; `prevAtom` is the last atom that went in, and `prevAtomW` what it
         ; measures alone — the pair that lets the next atom be charged its
@@ -1306,9 +1773,10 @@ class MdLayout {
                 def segCount:int (array_length cur.segs)
                 def lineEmpty:boolean ((segCount == 0) && ((strlen openText) == 0))
                 if hard {
-                    usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
+                    usedWidth = (this.flushOpen(cur runs openRun openText openOff usedWidth))
                     openRun = -1
                     openText = ""
+                    openOff = 0
                     openW = 0.0
                     prevAtom = ""
                     prevAtomW = 0.0
@@ -1380,9 +1848,10 @@ class MdLayout {
                             ; followed by ` for details` lost the space
                             ; between them in the preview while the PDF kept
                             ; it: one layout, two pictures.
-                            usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
+                            usedWidth = (this.flushOpen(cur runs openRun openText openOff usedWidth))
                             openRun = -1
                             openText = ""
+                            openOff = 0
                             openW = 0.0
                             prevAtom = ""
                             prevAtomW = 0.0
@@ -1391,9 +1860,10 @@ class MdLayout {
                         } {
                         def overflows:boolean ((candidate > maxWidth) && (! lineEmpty) && (! isSpace))
                         if overflows {
-                            usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
+                            usedWidth = (this.flushOpen(cur runs openRun openText openOff usedWidth))
                             openRun = -1
                             openText = ""
+                            openOff = 0
                             openW = 0.0
                             prevAtom = ""
                             prevAtomW = 0.0
@@ -1405,9 +1875,10 @@ class MdLayout {
                             if (r == openRun) {
                                 openText = (openText + t)
                             } {
-                                usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
+                                usedWidth = (this.flushOpen(cur runs openRun openText openOff usedWidth))
                                 openRun = r
                                 openText = t
+                                openOff = (itemAt aOff ai)
                             }
                             openW = grown
                             prevAtom = t
@@ -1419,7 +1890,7 @@ class MdLayout {
                 }
             }
         }
-        usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
+        usedWidth = (this.flushOpen(cur runs openRun openText openOff usedWidth))
         def leftover:int (array_length cur.segs)
         def any:int (array_length lines)
         if ((leftover > 0) || (any == 0)) {
@@ -1430,13 +1901,33 @@ class MdLayout {
     }
 
     ; The open segment, measured and placed. Returns the new used width.
-    fn flushOpen:double (cur:MdLine runs:[MdRun] openRun:int openText:string usedWidth:double) {
+    fn flushOpen:double (cur:MdLine runs:[MdRun] openRun:int openText:string openOff:int usedWidth:double) {
         if (openRun < 0) { return usedWidth }
         def len:int (strlen openText)
         if (len == 0) { return usedWidth }
         def run:MdRun (itemAt runs openRun)
         def seg:MdSeg (new MdSeg())
         seg.text = openText
+        ; Where this piece sits in the document. `openOff` is how far into the
+        ; run's TEXT it started, and text and source are the same length only
+        ; where the run holds no escape and no entity — so the answer is
+        ; clamped to the run's own span rather than allowed to run past the
+        ; node it belongs to. `MdSrcMapScan` is what says how often the two
+        ; are the same string: on CommonMark's own corpus, every time it can
+        ; be checked at all.
+        if (run.srcStart >= 0) {
+            def at:int (run.srcStart + openOff)
+            if (run.srcEnd >= run.srcStart) {
+                if (at > run.srcEnd) { at = run.srcEnd }
+            }
+            seg.srcStart = at
+            def upto:int (at + len)
+            if (run.srcEnd >= run.srcStart) {
+                if (upto > run.srcEnd) { upto = run.srcEnd }
+            }
+            seg.srcLen = (upto - at)
+            if (seg.srcLen < 0) { seg.srcLen = 0 }
+        }
         seg.family = run.family
         seg.size = run.size
         seg.bold = run.bold
@@ -1465,6 +1956,14 @@ class MdLayout {
             def olen:int (strlen last.text)
             if (tlen != olen) {
                 last.text = trimmed
+                ; …and the source it covers shrinks with it, or a caret
+                ; dragged to the end of a wrapped line lands on a space the
+                ; line no longer draws.
+                if (last.srcLen > (olen - tlen)) {
+                    last.srcLen = (last.srcLen - (olen - tlen))
+                } {
+                    last.srcLen = 0
+                }
                 def r:MdRun (new MdRun())
                 r.family = last.family
                 r.size = last.size

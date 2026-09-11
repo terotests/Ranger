@@ -22,6 +22,13 @@
 ; carries doubles all the way, so rounding per run there would be the error
 ; instead. `roundPerRun` is that difference, stated rather than averaged away.
 ;
+; WHAT IT MEASURES THROUGH. An `OfficeMeasure` — a FontManager and an
+; `EVGTextMeasurer`, and nothing else. It took a `UITextRenderer` until
+; `gallery/markdown` wanted the same arithmetic and would have had to link a
+; software rasterizer to get it; `OfficeMeasure`'s header has the whole story,
+; including why the bitmap fallback the old path had is kept rather than
+; improved. Nothing about the walk below changed.
+;
 ; PER-RUN SIZE. A slide's runs each carry their own point size; a Word line is
 ; laid out at one size because `tr.wrap` broke it at one size, and measuring
 ; the pieces at another would put the line ends somewhere the breaks are not.
@@ -31,6 +38,7 @@
 
 Import "OfficeFont.rgr"
 Import "OfficeTextRun.rgr"
+Import "OfficeMeasure.rgr"
 
 class OfficeTextMetrics {
     ; The run covering `off`, or the last one before it. An offset past the end
@@ -60,24 +68,38 @@ class OfficeTextMetrics {
         return none
     }
 
-    ; Put the renderer on the face for the run covering `off`, and answer the
-    ; size to measure at.
-    sfn applyAt:double (tr:UITextRenderer runs:[OfficeTextRun] off:int defFamily:string defSize:double) {
+    ; The size the run covering `off` is measured at.
+    sfn sizeAt:double (runs:[OfficeTextRun] off:int defSize:double) {
         def hit@(optional):OfficeTextRun (OfficeTextMetrics.runAt(runs off))
         if (null? hit) {
-            OfficeFont.apply(tr defFamily false false defFamily)
             return defSize
+        }
+        def r:OfficeTextRun (unwrap hit)
+        if (r.sizePt > 0.0) {
+            return r.sizePt
+        }
+        return defSize
+    }
+
+    ; The width of one stretch that is entirely in one face: the face comes
+    ; from the run covering `off`, which is what `sameFace` guaranteed does
+    ; not change inside the stretch.
+    sfn pieceWidth:double (m:OfficeMeasure piece:string runs:[OfficeTextRun] off:int
+                           defFamily:string defSize:double) {
+        def hit@(optional):OfficeTextRun (OfficeTextMetrics.runAt(runs off))
+        if (null? hit) {
+            return (m.width(piece defFamily false false defSize defFamily))
         }
         def r:OfficeTextRun (unwrap hit)
         def fam:string defFamily
         if ((strlen r.family) > 0) {
             fam = r.family
         }
-        OfficeFont.apply(tr fam r.bold r.italic defFamily)
+        def size:double defSize
         if (r.sizePt > 0.0) {
-            return r.sizePt
+            size = r.sizePt
         }
-        return defSize
+        return (m.width(piece fam r.bold r.italic size defFamily))
     }
 
     ; Does the face change between two offsets? Compared by what actually
@@ -114,7 +136,7 @@ class OfficeTextMetrics {
     }
 
     ; The width of text[from,to), each stretch measured with its own face.
-    sfn measureRange:double (tr:UITextRenderer text:string runs:[OfficeTextRun]
+    sfn measureRange:double (m:OfficeMeasure text:string runs:[OfficeTextRun]
                              from:int to:int defFamily:string defSize:double roundPerRun:boolean) {
         def len:int (strlen text)
         def a:int from
@@ -138,8 +160,8 @@ class OfficeTextMetrics {
                 changed = ((OfficeTextMetrics.sameFace(runs runStart i)) == false)
             }
             if (atEnd || changed) {
-                def size:double (OfficeTextMetrics.applyAt(tr runs runStart defFamily defSize))
-                def w:double (tr.measureWidth((substring text runStart i) size))
+                def w:double (OfficeTextMetrics.pieceWidth(m (substring text runStart i)
+                                                           runs runStart defFamily defSize))
                 if roundPerRun {
                     total = (total + (to_double (to_int w)))
                 } {
@@ -156,7 +178,7 @@ class OfficeTextMetrics {
     ; `targetX`, measured from the start of `from`. Splits on glyph midpoints,
     ; so a click lands on the closer side of a character rather than always the
     ; left of it.
-    sfn offsetAtX:int (tr:UITextRenderer text:string runs:[OfficeTextRun]
+    sfn offsetAtX:int (m:OfficeMeasure text:string runs:[OfficeTextRun]
                        from:int to:int targetX:double defFamily:string defSize:double roundPerRun:boolean) {
         def len:int (strlen text)
         def a:int from
@@ -183,8 +205,8 @@ class OfficeTextMetrics {
                 changed = ((OfficeTextMetrics.sameFace(runs runStart i)) == false)
             }
             if (atEnd || changed) {
-                def size:double (OfficeTextMetrics.applyAt(tr runs runStart defFamily defSize))
-                def runW:double (tr.measureWidth((substring text runStart i) size))
+                def runW:double (OfficeTextMetrics.pieceWidth(m (substring text runStart i)
+                                                              runs runStart defFamily defSize))
                 if roundPerRun {
                     runW = (to_double (to_int runW))
                 }
@@ -193,8 +215,10 @@ class OfficeTextMetrics {
                     ; in, one character at a time.
                     def k:int runStart
                     while (k < i) {
-                        def w0:double (tr.measureWidth((substring text runStart k) size))
-                        def w1:double (tr.measureWidth((substring text runStart (k + 1)) size))
+                        def w0:double (OfficeTextMetrics.pieceWidth(m (substring text runStart k)
+                                                                    runs runStart defFamily defSize))
+                        def w1:double (OfficeTextMetrics.pieceWidth(m (substring text runStart (k + 1))
+                                                                    runs runStart defFamily defSize))
                         if roundPerRun {
                             w0 = (to_double (to_int w0))
                             w1 = (to_double (to_int w1))

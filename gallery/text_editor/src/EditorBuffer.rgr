@@ -13,6 +13,7 @@
 ; ==============================================================================
 
 Import "../../evg/EVGCodepoint.rgr"
+Import "../../office/text/OfficeCaretMotion.rgr"
 Import "EditorStyle.rgr"
 
 class EditorPos {
@@ -446,17 +447,11 @@ class EditorBuffer {
         this.clampPos(p)
         if (dir < 0) {
             if (p.col > 0) {
-                ; step back over a possible surrogate pair
-                def s:string (this.lineAt(p.line))
-                def prev:int (p.col - 1)
-                if (prev > 0) {
-                    if (EVGCodepoint.isLowSurrogate((charAt s prev))) {
-                        if (EVGCodepoint.isHighSurrogate((charAt s (prev - 1)))) {
-                            prev = (prev - 1)
-                        }
-                    }
-                }
-                p.col = prev
+                ; The step back is `OfficeCaretMotion`'s, shared with the
+                ; slide, document and markdown editors. It was a third copy of
+                ; the surrogate rule; the .docx editor was the one that did not
+                ; have it at all.
+                p.col = (OfficeCaretMotion.stepBack((this.lineAt(p.line)) p.col))
                 return p
             }
             if (p.line > 0) {
@@ -468,7 +463,7 @@ class EditorBuffer {
         def s2:string (this.lineAt(p.line))
         def len:int (strlen s2)
         if (p.col < len) {
-            p.col = (p.col + (EVGCodepoint.unitsAt(s2 p.col)))
+            p.col = (OfficeCaretMotion.stepForward(s2 p.col))
             return p
         }
         if (p.line < ((array_length lines) - 1)) {

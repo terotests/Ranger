@@ -11,6 +11,15 @@ A fourth editor uses this machinery and is not an OOXML application at all:
 something in this directory is infrastructure or a PowerPoint detail wearing a
 general name.
 
+A fifth is arriving and it is a harder test than the book was:
+[`markdown`](../markdown/README.md) has no document model to share, because a
+markdown file **is** the document. It can therefore only take what is genuinely
+data — measurement, caret motion, the rules of an undo stack — and anything it
+cannot take is a sign the thing was never infrastructure. The plan is
+[`markdown/PLAN_WYSIWYG.md`](../markdown/PLAN_WYSIWYG.md); the first thing it
+asked for was `OfficeTextMetrics` measuring through an `EVGTextMeasurer`
+instead of through a software rasterizer, which is done.
+
 What they share is the machinery underneath. It goes here.
 
 > **The line this directory draws.** Don't merge Word, Excel and PowerPoint into

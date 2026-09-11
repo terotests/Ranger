@@ -1,0 +1,430 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdEditTest.rgr — a caret in a markdown file, and undo back to the bytes.
+; ============================================================================
+;
+;   npm run markdown:edit:test
+;
+; The claim this file exists to hold is one sentence: **whatever is done to the
+; document, undoing it gives back the file that was there, byte for byte.**
+; That is a stronger claim than "undo works", and it is the one a markdown
+; editor has to make — because the alternative design, a rich model serialized
+; back to markdown, cannot make it at all. A round trip through an object graph
+; renormalises list markers, setext headings and hand-aligned tables, and the
+; reader who edited one word finds the whole file changed. `PLAN_WYSIWYG.md`
+; §1 is the argument; this is the check.
+;
+; Everything else here is a consequence of that: one op kind, so there is no
+; per-kind restore path to get wrong, and every assertion below compares
+; strings rather than trees.
+; ============================================================================
+
+Import "../src/MdEditController.rgr"
+Import "../../office/text/OfficeCaretMotion.rgr"
+
+class EditCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ((("  FAIL " + name) + ("  got " + (to_string got))) + ("  want " + (to_string want)))
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+}
+
+class MdEditTest {
+    sfn main:void () {
+        def t:MdEditTest (new MdEditTest())
+        t.run()
+    }
+
+    sfn fresh:MdEditController (text:string) {
+        def c:MdEditController (new MdEditController())
+        c.open(text)
+        return c
+    }
+
+    fn run:void () {
+        def c:EditCheck (new EditCheck())
+        print "== MdEditTest =="
+
+        this.patches(c)
+        this.typing(c)
+        this.deleting(c)
+        this.undoing(c)
+        this.motion(c)
+        this.vertical(c)
+        this.roundTrip(c)
+        this.cacheHolds(c)
+
+        print ""
+        print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    fn patches:void (c:EditCheck) {
+        print "-- the patch, and its inverse --"
+        def src:string "hello world"
+        def op:MdEditOp (MdEdit.patch(src 6 11 "there"))
+        c.eqStr("a patch replaces its range" (MdEdit.applyTo(src op)) "hello there")
+        c.eqStr("and remembers what it took out" op.removed "world")
+        def back:MdEditOp (MdEdit.invert(op))
+        c.eqStr("its inverse puts the bytes back"
+            (MdEdit.applyTo((MdEdit.applyTo(src op)) back)) src)
+        ; The inverse of the inverse is the op again, which is what lets redo
+        ; be the same machinery as undo rather than a second path.
+        def again:MdEditOp (MdEdit.invert(back))
+        c.eqStr("and inverting twice is where it started"
+            (MdEdit.applyTo(src again)) "hello there")
+
+        print "-- an offset, moved across an edit --"
+        c.eqInt("before the change, untouched" (MdEdit.shift(3 op)) 3)
+        c.eqInt("at the start, untouched" (MdEdit.shift(6 op)) 6)
+        c.eqInt("inside the change, at its end" (MdEdit.shift(8 op)) 11)
+        ; "world" (5) became "there" (5), so nothing after it moved.
+        c.eqInt("after the change, shifted by the difference" (MdEdit.shift(11 op)) 11)
+        def grow:MdEditOp (MdEdit.patch(src 6 11 "everyone"))
+        c.eqInt("…and by more when the text grew" (MdEdit.shift(11 grow)) 14)
+    }
+
+    ; ----------------------------------------------------------------------
+    fn typing:void (c:EditCheck) {
+        print "-- typing --"
+        def e:MdEditController (MdEditTest.fresh("ab\n"))
+        e.setCaret(1)
+        e.insertText("X")
+        c.eqStr("a character lands where the caret was" (e.text()) "aXb\n")
+        c.eqInt("and the caret is after it" (e.caret()) 2)
+
+        ; Typing over a selection replaces it.
+        def e2:MdEditController (MdEditTest.fresh("hello world\n"))
+        e2.setRange(6 11)
+        c.eqStr("the selection is what was dragged" (e2.selectedText()) "world")
+        e2.insertText("there")
+        c.eqStr("typing replaces it" (e2.text()) "hello there\n")
+
+        ; A backwards selection is the same selection.
+        def e3:MdEditController (MdEditTest.fresh("hello world\n"))
+        e3.setRange(11 6)
+        c.eqStr("dragged backwards is the same text" (e3.selectedText()) "world")
+        c.eqInt("and starts where it starts" (e3.selStart()) 6)
+    }
+
+    ; ----------------------------------------------------------------------
+    fn deleting:void (c:EditCheck) {
+        print "-- deleting --"
+        def e:MdEditController (MdEditTest.fresh("abc\n"))
+        e.setCaret(2)
+        e.backspace()
+        c.eqStr("backspace takes the character before the caret" (e.text()) "ac\n")
+        c.eqInt("and the caret moves back with it" (e.caret()) 1)
+        e.deleteForward()
+        c.eqStr("delete takes the one after it" (e.text()) "a\n")
+
+        ; At the ends, nothing happens rather than something wrong.
+        def e2:MdEditController (MdEditTest.fresh("a"))
+        e2.setCaret(0)
+        e2.backspace()
+        c.eqStr("backspace at the start does nothing" (e2.text()) "a")
+        e2.setCaret(1)
+        e2.deleteForward()
+        c.eqStr("delete at the end does nothing" (e2.text()) "a")
+
+        ; A surrogate pair is ONE character. This is the whole reason
+        ; `OfficeCaretMotion` exists, and the .docx editor was getting it
+        ; wrong until it did.
+        def pair:string (MdChar.fromCode(128512))
+        def e3:MdEditController (MdEditTest.fresh(("x" + pair) + "y"))
+        c.eqInt("the emoji is two UTF-16 units" (strlen (e3.text())) 4)
+        e3.setCaret(3)
+        e3.backspace()
+        c.eqStr("backspace takes the whole emoji, not half of it" (e3.text()) "xy")
+    }
+
+    ; ----------------------------------------------------------------------
+    fn undoing:void (c:EditCheck) {
+        print "-- undo --"
+        def start:string "# Title\n\nSome prose here.\n"
+        def e:MdEditController (MdEditTest.fresh(start))
+        e.setCaret(20)
+        e.insertText("X")
+        c.ok("the document changed" ((e.text()) != start))
+        e.undo()
+        c.eqStr("undo gives back the bytes" (e.text()) start)
+        c.eqInt("and puts the caret back where it was" (e.caret()) 20)
+        e.redo()
+        c.ok("redo does it again" ((e.text()) != start))
+        e.undo()
+        c.eqStr("and undo again is the original" (e.text()) start)
+
+        print "-- a word is one undo, not six --"
+        def e2:MdEditController (MdEditTest.fresh("x\n"))
+        e2.setCaret(1)
+        e2.insertText("h")
+        e2.insertText("e")
+        e2.insertText("l")
+        e2.insertText("l")
+        e2.insertText("o")
+        c.eqStr("five keystrokes" (e2.text()) "xhello\n")
+        c.eqInt("are one entry on the stack" (e2.history.depth()) 1)
+        e2.undo()
+        c.eqStr("and one undo" (e2.text()) "x\n")
+
+        print "-- …and a space ends the word --"
+        def e3:MdEditController (MdEditTest.fresh(""))
+        e3.setCaret(0)
+        e3.insertText("o")
+        e3.insertText("n")
+        e3.insertText("e")
+        e3.insertText(" ")
+        e3.insertText("t")
+        e3.insertText("w")
+        e3.insertText("o")
+        c.eqStr("two words typed" (e3.text()) "one two")
+        e3.undo()
+        ; The space JOINED the word in front of it, so what is left is a place
+        ; the reader actually stopped at — not "one", which they never saw.
+        c.eqStr("undo leaves the first word and the space" (e3.text()) "one ")
+        c.eqInt("two words are two entries, not three" (e3.history.depth()) 1)
+        e3.undo()
+        c.eqStr("and the next undo leaves nothing" (e3.text()) "")
+
+        print "-- a paste is one undo however many lines --"
+        def e4:MdEditController (MdEditTest.fresh("a\n"))
+        e4.setCaret(2)
+        e4.paste("one\ntwo\nthree\n")
+        c.eqStr("the lines landed" (e4.text()) "a\none\ntwo\nthree\n")
+        e4.undo()
+        c.eqStr("and one undo took all of them" (e4.text()) "a\n")
+
+        print "-- undo after a replacement --"
+        def e5:MdEditController (MdEditTest.fresh("hello world\n"))
+        e5.setRange(6 11)
+        e5.insertText("there")
+        e5.undo()
+        c.eqStr("the selection comes back too" (e5.text()) "hello world\n")
+    }
+
+    ; ----------------------------------------------------------------------
+    fn motion:void (c:EditCheck) {
+        print "-- moving by character and by word --"
+        def e:MdEditController (MdEditTest.fresh("one two three"))
+        e.setCaret(0)
+        e.moveWordRight(false)
+        c.eqInt("word right takes the word and the space after it" (e.caret()) 4)
+        e.moveWordRight(false)
+        c.eqInt("and again" (e.caret()) 8)
+        e.moveWordLeft(false)
+        c.eqInt("word left comes back" (e.caret()) 4)
+
+        e.setCaret(5)
+        e.selectWord()
+        c.eqStr("a double-click takes the word under it" (e.selectedText()) "two")
+
+        ; Left with a selection collapses to its start, as every editor does.
+        e.setRange(4 7)
+        e.moveLeft(false)
+        c.eqInt("left with a selection goes to its start" (e.caret()) 4)
+        e.setRange(4 7)
+        e.moveRight(false)
+        c.eqInt("and right to its end" (e.caret()) 7)
+
+        ; Shift+arrow extends rather than moving.
+        e.setCaret(0)
+        e.moveRight(true)
+        c.eqInt("shift+right extends" (e.selEnd()) 1)
+        c.ok("and keeps the anchor" ((e.selStart()) == 0))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Up and Down, and the column a caret remembers. This is the part that
+    ; needed the layout, and the part `OfficeCaretColumn` is for.
+    fn vertical:void (c:EditCheck) {
+        print "-- up, down, and the remembered column --"
+        ; Three source lines, the middle one short. A caret in a long line,
+        ; down through the short one and back up, must return to where it
+        ; started — which is what the .docx editor could not do.
+        def e:MdEditController (MdEditTest.fresh("aaaaaaaaaaaaaaa\n\nbb\n\ncccccccccccccc\n"))
+        e.setViewWidth(900.0)
+        c.eqInt("three paragraphs, three drawn lines" (e.lineCount()) 3)
+
+        e.setCaret(10)
+        def x0:double (e.caretX())
+        c.ok("the caret has an x on the page" (x0 > 0.0))
+        e.moveDown(false)
+        def shortLine:int (e.caret())
+        c.ok("down lands on the short line" ((shortLine >= 17) && (shortLine <= 19)))
+        e.moveDown(false)
+        def thirdLine:int (e.caret())
+        c.ok("down again lands on the third" (thirdLine >= 21))
+        e.moveUp(false)
+        e.moveUp(false)
+        c.eqInt("and two ups return to the column it started in" (e.caret()) 10)
+
+        print "-- home, end, and the edges --"
+        e.setCaret(5)
+        e.moveLineEdge(true false)
+        c.eqInt("end goes to the end of the drawn line" (e.caret()) 15)
+        e.moveLineEdge(false false)
+        c.eqInt("home goes to its start" (e.caret()) 0)
+        e.moveUp(false)
+        c.eqInt("up from the first line is the start of the document" (e.caret()) 0)
+        e.moveDocEdge(true false)
+        c.eqInt("ctrl+end is the end of the file" (e.caret()) (strlen (e.text())))
+
+        print "-- a click names a character --"
+        e.setCaret(0)
+        def midY:double ((MdEditTest.lineTop(e 0)) + 4.0)
+        e.clickAt(2000.0 midY false)
+        c.ok("a click past the end of a line lands on that line" ((e.caret()) <= 15))
+        c.ok("…and not at its start" ((e.caret()) > 0))
+    }
+
+    ; The top of a drawn line, for the click above.
+    sfn lineTop:double (e:MdEditController i:int) {
+        e.ensureLayout()
+        return (e.lines.topAt(i))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The layout cache says what the layout says
+    ; ----------------------------------------------------------------------
+    ;
+    ; A keystroke re-measures one block and copies the rest, which is what
+    ; makes typing into a 63 KB document cost 10 ms instead of 119. It is also
+    ; the worst thing this feature can get wrong: a cache that disagrees with
+    ; the layout it is caching draws a STALE PICTURE, and a stale picture is
+    ; indistinguishable from a correct one until a reader notices their own
+    ; words are not where they typed them.
+    ;
+    ; So `MdLayout.cacheAudit` lays every cached block out for real and
+    ; compares — box count, height, and each box's text, x, y and source
+    ; offset — and this drives it over a document with one of everything in
+    ; it, editing in each of the ways that move a block: inside one, across
+    ; two, at the very start, and a paste that makes new ones.
+    fn cacheHolds:void (c:EditCheck) {
+        print "-- the layout cache agrees with the layout --"
+        def src:string "# Title\n\nSome **prose** with `code` and [a link](x).\n\n- one\n- two\n\n> quoted\n\n```\nfenced\n```\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\nlast\n"
+        def e:MdEditController (MdEditTest.fresh(src))
+        e.setViewWidth(820.0)
+        e.ensureLayout()
+        e.layout.cacheAudit = true
+
+        ; Inside one block.
+        e.setCaret(20)
+        e.insertText("X")
+        e.ensureLayout()
+        ; At the very start, which moves every block after it.
+        e.setCaret(0)
+        e.insertText("Z")
+        e.ensureLayout()
+        ; A paste that makes new blocks.
+        e.setCaret(12)
+        e.paste("\n\nnew paragraph\n\n")
+        e.ensureLayout()
+        ; Across two blocks.
+        e.setRange(5 40)
+        e.insertText("merged")
+        e.ensureLayout()
+        ; …and all the way back.
+        def guard:int 0
+        while ((e.canUndo()) && (guard < 40)) {
+            e.undo()
+            e.ensureLayout()
+            guard = (guard + 1)
+        }
+        c.eqStr("the document is back where it started" (e.text()) src)
+        c.eqInt("and the cache never disagreed with the layout"
+            e.layout.cacheFaults 0)
+        if ((strlen e.layout.cacheFirstFault) > 0) {
+            print ("    first disagreement — " + e.layout.cacheFirstFault)
+        }
+        ; …and that the audit reached the cache at all. A suite that never
+        ; hit an entry would report a clean audit, which is the check that
+        ; counts the wrong noun.
+        c.ok("…over blocks it actually had cached" ((e.layout.cacheAudited) > 20))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The claim in the header, over documents that hold everything markdown
+    ; has an opinion about — hand-aligned tables, setext headings, `*` bullets
+    ; beside `-` ones, an HTML comment nothing renders. A rich-model round trip
+    ; changes every one of these; a patch changes none of them.
+    fn roundTrip:void (c:EditCheck) {
+        print "-- whatever is done, undo gives back the file --"
+        def src:string "Setext heading\n==============\n\n*  a bullet with two spaces\n-  a different marker\n\n| left | right |\n|:-----|------:|\n| a    | b     |\n\n<!-- a comment nothing draws -->\n\nlast line, no newline"
+        def e:MdEditController (MdEditTest.fresh(src))
+        e.setViewWidth(900.0)
+
+        e.setCaret(20)
+        e.insertText("hello")
+        e.setCaret(0)
+        e.insertText("# top\n\n")
+        e.setRange(40 50)
+        e.insertText("")
+        e.setCaret(5)
+        e.paste("one\ntwo\n")
+        e.moveDocEdge(true false)
+        e.insertText(" and more")
+        e.backspace()
+        e.backspace()
+
+        c.ok("the document is not what it was" ((e.text()) != src))
+        def guard:int 0
+        while ((e.canUndo()) && (guard < 100)) {
+            e.undo()
+            guard = (guard + 1)
+        }
+        c.eqStr("and undoing everything gives back every byte" (e.text()) src)
+        c.ok("which took a handful of undos, not one per keystroke" (guard < 12))
+
+        ; …and redoing it all gets back to where the editing stopped.
+        def after:string ""
+        def g2:int 0
+        while ((e.canRedo()) && (g2 < 100)) {
+            e.redo()
+            g2 = (g2 + 1)
+        }
+        after = (e.text())
+        c.ok("redo walks back to the edited document" (after != src))
+        def g3:int 0
+        while ((e.canUndo()) && (g3 < 100)) {
+            e.undo()
+            g3 = (g3 + 1)
+        }
+        c.eqStr("and undo once more is the original again" (e.text()) src)
+    }
+}

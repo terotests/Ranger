@@ -34,6 +34,9 @@ function argVal(name, dflt) {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : dflt;
 }
 const PORT = parseInt(argVal("--port", "8908"), 10);
+// `--shot FILE` photographs the page in a known EDITING state: `?demo=1`
+// drives the same seam a keystroke does, so the picture shows a real caret
+// and a real selection rather than a document sitting still.
 const SHOT = argVal("--shot", "");
 
 const MIME = {
@@ -167,8 +170,9 @@ async function main() {
       "--virtual-time-budget=40000",
       "--hide-scrollbars",
       "--window-size=1280,900",
+      `--force-device-scale-factor=${argVal("--shot-scale", "1")}`,
       `--screenshot=${SHOT}`,
-      `http://127.0.0.1:${PORT}/index.html`,
+      `http://127.0.0.1:${PORT}/index.html?demo=1`,
     ]);
     if (fs.existsSync(SHOT)) console.log("  shot     " + SHOT);
   }
@@ -180,7 +184,7 @@ async function main() {
     process.exit(1);
   }
   console.log("");
-  console.log("the page works.");
+  console.log("ALL PASS\n\nthe page works.");
 }
 
 main();

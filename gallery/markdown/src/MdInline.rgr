@@ -71,6 +71,23 @@ class MdBracket {
 class MdInline {
     def subject:string ""
     def pos:int 0
+
+    ; --- where a node came from ----------------------------------------------
+    ;
+    ; `subject` is the block's `literal` with its ends trimmed, and `literal`
+    ; is already several strips away from the file — `MdNode`'s header has the
+    ; list. So a position in `subject` reaches the document in two steps:
+    ; `+ subjBase` gets to the block's literal, and `owner.srcOfLiteral` gets
+    ; from there to the character a reader typed.
+    ;
+    ; Stamping is done in `parseInline`, once, around the dispatch: whatever
+    ; nodes a step appended, it appended for the characters that step consumed.
+    ; The two constructs that span more than their own step — a link, which
+    ; began at a `[` several steps ago, and an emphasis, which is decided
+    ; walking the delimiter stack backwards after the line has been read —
+    ; overwrite it where they are built.
+    def owner:MdNode (new MdNode())
+    def subjBase:int 0
     def refs:[string:MdLinkRef]
     def entities:MdEntities (new MdEntities())
 
@@ -158,7 +175,17 @@ class MdInline {
     ; Entry point
     ; ----------------------------------------------------------------------
     fn parse:void (block:MdNode raw:string map:[string:MdLinkRef]) {
+        this.parseFrom(block raw map 0)
+    }
+
+    ; `base` is where `raw` starts inside `block.literal`. It is not always
+    ; zero: a task item's `[x] ` is taken off the front before the inline pass
+    ; so that the checkbox is not three text nodes, and everything after it is
+    ; that much further along.
+    fn parseFrom:void (block:MdNode raw:string map:[string:MdLinkRef] base:int) {
+        owner = block
         subject = (trim raw)
+        subjBase = (base + (MdInline.leadTrim(raw)))
         pos = 0
         refs = map
         clear nodes
@@ -183,6 +210,51 @@ class MdInline {
             def n:MdNode (itemAt nodes i)
             block.add(n)
             i = (itemAt nx i)
+        }
+    }
+
+    ; The same count `MdBlock.leadTrim` makes, spelled here so the inline
+    ; parser does not import the block parser to ask.
+    sfn leadTrim:int (s:string) {
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c != 32) && (c != 9) && (c != 10) && (c != 13)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; A subject position, in the document.
+    fn srcAt:int (p:int) {
+        return (owner.srcOfLiteral(subjBase + p))
+    }
+
+    ; One node, from subject[from,to). For the constructs that build a child
+    ; directly instead of putting it on the flat list.
+    fn stampNode:void (nd:MdNode from:int to:int) {
+        nd.srcStart = (this.srcAt(from))
+        nd.srcEnd = (this.srcAt(to))
+        nd.srcKnown = true
+    }
+
+    ; Every node appended since `mark` came from subject[from,to).
+    fn stampFrom:void (mark:int from:int to:int) {
+        def n:int (array_length nodes)
+        def a:int (this.srcAt(from))
+        def b:int (this.srcAt(to))
+        def i:int mark
+        while (i < n) {
+            def nd:MdNode (itemAt nodes i)
+            if (! nd.srcKnown) {
+                nd.srcStart = a
+                nd.srcEnd = b
+                nd.srcKnown = true
+            }
+            i = (i + 1)
         }
     }
 
@@ -213,6 +285,8 @@ class MdInline {
         if (c < 0) {
             return false
         }
+        def stampMark:int (array_length nodes)
+        def stampStart:int pos
         def handled:boolean false
         if (c == 10) { handled = (this.parseNewline()) }
         if (c == 92) { handled = (this.parseBackslash()) }
@@ -236,6 +310,7 @@ class MdInline {
             def one:string (MdChar.fromCode(c))
             this.addText(one)
         }
+        this.stampFrom(stampMark stampStart pos)
         return true
     }
 
@@ -296,6 +371,12 @@ class MdInline {
                 if (cut > 0) {
                     def keep:int ((strlen lit) - cut)
                     ln.literal = (substring lit 0 keep)
+                    ; The trailing spaces are the BREAK now, not the run, and
+                    ; the run's span has to give them up or a caret placed at
+                    ; the end of the line lands two characters past the text.
+                    if (ln.srcEnd >= cut) {
+                        ln.srcEnd = (ln.srcEnd - cut)
+                    }
                 }
             }
         }
@@ -607,9 +688,28 @@ class MdInline {
                         def cl:int (strlen closerNode.literal)
                         closerNode.literal = (substring closerNode.literal 0 (cl - useDelims))
 
+                        ; The delimiters that paired are the LAST `useDelims`
+                        ; of the opener run and the FIRST of the closer run,
+                        ; so the construct runs between those two edges and
+                        ; the two runs keep what is left of themselves. This
+                        ; is decided here rather than in `parseInline` because
+                        ; nothing knew, at the time the `*` was read, which
+                        ; `*` it would pair with — or whether it would.
+                        def wrapStart:int (openerNode.srcEnd - useDelims)
+                        def wrapEnd:int (closerNode.srcStart + useDelims)
+                        if (openerNode.srcEnd >= 0) {
+                            openerNode.srcEnd = wrapStart
+                        }
+                        if (closerNode.srcStart >= 0) {
+                            closerNode.srcStart = wrapEnd
+                        }
+
                         def kind:string (? (useDelims == 1) "emph" "strong")
                         if strike { kind = "strike" }
                         def wrap:MdNode (MdNode.create(kind))
+                        wrap.srcStart = wrapStart
+                        wrap.srcEnd = wrapEnd
+                        wrap.srcKnown = true
                         def tmp:int (itemAt nx od.node)
                         def scanning:boolean true
                         while scanning {
@@ -817,6 +917,17 @@ class MdInline {
             def node:MdNode (MdNode.create(kind))
             node.destination = dest
             node.title = title
+            ; Its own step only consumed the `]` and what followed it. The
+            ; construct began at the `[` — or at the `!` for an image — which
+            ; `opener.index` remembered several steps ago.
+            def openIndex:int opener.index
+            if isImage {
+                openIndex = (openIndex - 1)
+                if (openIndex < 0) { openIndex = 0 }
+            }
+            node.srcStart = (this.srcAt(openIndex))
+            node.srcEnd = (this.srcAt(pos))
+            node.srcKnown = true
             ; Emphasis inside the link is resolved FIRST, while its nodes are
             ; still on the flat list. The reference implementation does this
             ; after moving them, because there the list IS the tree and a
@@ -1244,10 +1355,17 @@ class MdInline {
         def body:string (substring subject (pos + 1) close)
         def blen:int (strlen body)
         if (blen == 0) { return false }
+        ; The label is built as a CHILD rather than appended to the flat node
+        ; list, so the blanket stamp at the end of the step never reaches it —
+        ; it kept the default span of 0..0, which read as a node that had gone
+        ; backwards and showed up on fourteen of the specification's examples.
+        ; Its span is the text between the angle brackets.
+        def bodyStart:int (pos + 1)
         if (MdInline.isUriAutolink(body)) {
             def node:MdNode (MdNode.create("link"))
             node.destination = body
             def label:MdNode (MdNode.text(body))
+            this.stampNode(label bodyStart close)
             node.add(label)
             this.appendNode(node)
             pos = (close + 1)
@@ -1257,6 +1375,7 @@ class MdInline {
             def node2:MdNode (MdNode.create("link"))
             node2.destination = ("mailto:" + body)
             def label2:MdNode (MdNode.text(body))
+            this.stampNode(label2 bodyStart close)
             node2.add(label2)
             this.appendNode(node2)
             pos = (close + 1)

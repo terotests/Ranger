@@ -18,6 +18,8 @@ Import "DocxLayout.rgr"
 Import "../../text_editor/src/TextEditCore.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
 Import "../../office/editor/OfficeHistory.rgr"
+Import "../../office/text/OfficeCaretMotion.rgr"
+Import "../../office/text/OfficeLineNav.rgr"
 
 class DocxEditController {
     def adapter:RichDocumentEdit (new RichDocumentEdit)
@@ -40,6 +42,11 @@ class DocxEditController {
     def typingSize:double 11.0
     def typingColor:string "000000"
     def caretBlink:boolean true
+    ; The x an Up or Down aims at. Shared rule, shared with the markdown
+    ; editor: it used to be recomputed from the caret on every vertical move,
+    ; so Down through a two-character line and back Up landed at column two
+    ; rather than where the reader started.
+    def column:OfficeCaretColumn (new OfficeCaretColumn())
     def suppressUndo:boolean false
 
     Constructor () {
@@ -739,7 +746,20 @@ class DocxEditController {
         return ok
     }
 
+    ; One action, however many lines. `pasteText` already opened a transaction
+    ; before calling this, and `OfficeHistory.begin` nests — "so a paste that
+    ; is an insert and a split and another insert is still one undo" — so this
+    ; pair costs nothing there and is the difference between one undo and five
+    ; for anything that reaches the primitive directly. It is public; something
+    ; will.
     fn pasteLines:boolean (text:string) {
+        this.beginAction()
+        def ok:boolean (this.pasteLinesInner(text))
+        this.endAction()
+        return ok
+    }
+
+    fn pasteLinesInner:boolean (text:string) {
         def lines:[string] (strsplit text "\n")
         def i:int 0
         def n:int (array_length lines)
@@ -1055,6 +1075,11 @@ class DocxEditController {
     ; `extend` grows the selection from the anchor (Shift+key); otherwise the
     ; selection collapses to the new caret.
     fn placeCaret:void (pid:int off:int extend:boolean) {
+        ; Any placement that is not part of a vertical run — a click, an arrow
+        ; sideways, a word jump, an edit — ends the run. `moveVertical` puts
+        ; the column back immediately afterwards, which is why it is safe to
+        ; forget it here and nowhere else.
+        column.forget()
         if (pid <= 0) {
             return
         }
@@ -1088,7 +1113,14 @@ class DocxEditController {
         def pid:int sel.focus.paragraphId
         def off:int sel.focus.textOffset
         if (off > 0) {
-            this.placeCaret(pid (off - 1) extend)
+            ; ONE CHARACTER, not one UTF-16 unit. This was `off - 1`, which
+            ; puts the caret between the halves of a surrogate pair; the next
+            ; insert or delete then splits an emoji into two units that are
+            ; not characters at all. `PptxTextEdit` had had the right answer
+            ; the whole time and nothing connected the two — which is the
+            ; pattern seam `gallery/PLAN_EDITOR_KERNEL.md` §2 says never to
+            ; rely on, met in the wild.
+            this.placeCaret(pid (OfficeCaretMotion.stepBack((adapter.getText(pid)) off)) extend)
             return
         }
         def order:int (adapter.bodyOrderOf(pid))
@@ -1113,7 +1145,7 @@ class DocxEditController {
         def pid:int sel.focus.paragraphId
         def off:int sel.focus.textOffset
         if (off < (adapter.textLength(pid))) {
-            this.placeCaret(pid (off + 1) extend)
+            this.placeCaret(pid (OfficeCaretMotion.stepForward((adapter.getText(pid)) off)) extend)
             return
         }
         def order:int (adapter.bodyOrderOf(pid))
@@ -1136,6 +1168,63 @@ class DocxEditController {
     ; paragraph may sit past the last laid line. Falling back to that
     ; paragraph's first / last line keeps the caret findable — without it,
     ; Ctrl+End reported "no line" and the view stayed on the wrong page.
+    ; --- one word ------------------------------------------------------------
+    ;
+    ; Ctrl+Left / Ctrl+Right, which this editor did not have. The rule is
+    ; `OfficeCaretMotion`'s, shared with the slide editor and the markdown
+    ; one, so a change to what counts as a word reaches all three.
+    ;
+    ; Off the end of a paragraph it does what the arrow keys do — the previous
+    ; paragraph's end, the next paragraph's start — because that part is not
+    ; shared and cannot be: a slide's neighbour is in the same shape and this
+    ; one's may be in another table cell on another page.
+    fn moveWordLeft:void (extend:boolean) {
+        if ((this.isActive()) == false) {
+            return
+        }
+        def pid:int sel.focus.paragraphId
+        def off:int sel.focus.textOffset
+        if (off > 0) {
+            def at:int (OfficeCaretMotion.wordLeft((adapter.getText(pid)) off))
+            if (at < off) {
+                this.placeCaret(pid at extend)
+                return
+            }
+        }
+        this.moveLeft(extend)
+    }
+
+    fn moveWordRight:void (extend:boolean) {
+        if ((this.isActive()) == false) {
+            return
+        }
+        def pid:int sel.focus.paragraphId
+        def off:int sel.focus.textOffset
+        def len:int (adapter.textLength(pid))
+        if (off < len) {
+            def at:int (OfficeCaretMotion.wordRight((adapter.getText(pid)) off))
+            if (at > off) {
+                this.placeCaret(pid at extend)
+                return
+            }
+        }
+        this.moveRight(extend)
+    }
+
+    ; The word under the caret, selected — what a double-click takes.
+    fn selectWord:void () {
+        if ((this.isActive()) == false) {
+            return
+        }
+        def pid:int sel.focus.paragraphId
+        def ends:[int]
+        OfficeCaretMotion.wordAt((adapter.getText(pid)) sel.focus.textOffset ends)
+        if ((array_length ends) < 2) {
+            return
+        }
+        this.setRange(pid (itemAt ends 0) (itemAt ends 1))
+    }
+
     fn findLineFor:void (layout:DocxLayout pid:int off:int out:[int]) {
         clear out
         push out -1
@@ -1300,6 +1389,11 @@ class DocxEditController {
 
     ; Vertical movement by `delta` visual lines, keeping the caret's X. Crossing
     ; a page boundary is just another step in the flattened line list.
+    ;
+    ; The clamp and the step are `OfficeLineNav`'s; the column the caret aims
+    ; at is `OfficeCaretColumn`'s. What is left here is the part that is not
+    ; shareable: which of this document's laid lines a caret may stop on, and
+    ; how to turn an x into an offset in a Word paragraph.
     fn moveVertical:void (layout:DocxLayout delta:int extend:boolean) {
         if ((this.isActive()) == false) {
             return
@@ -1315,19 +1409,17 @@ class DocxEditController {
         if (at < 0) {
             return
         }
-        def wantX:int (this.caretPixelX(layout (itemAt pages at)))
-        if (wantX < 0) {
+        def nowX:int (this.caretPixelX(layout (itemAt pages at)))
+        if (nowX < 0) {
             def curPage:LaidPage (layout.pageAt((itemAt pages at)))
             def curLine:LaidLine (itemAt curPage.lines (itemAt lines at))
-            wantX = curLine.x
+            nowX = curLine.x
         }
-        def target:int (at + delta)
-        if (target < 0) {
-            target = 0
-        }
-        if (target >= total) {
-            target = (total - 1)
-        }
+        ; The column is remembered across a RUN of vertical moves and dropped
+        ; by anything else (see `placeCaret`), so Down through a short line and
+        ; back Up returns to where the reader was.
+        def wantX:int (to_int (column.want((to_double nowX))))
+        def target:int (OfficeLineNav.verticalTarget(total at delta))
         if (target == at) {
             ; Already at the edge: snap to the start / end of the document.
             def edgePage:LaidPage (layout.pageAt((itemAt pages at)))
@@ -1338,11 +1430,18 @@ class DocxEditController {
             } {
                 this.placeCaret(p0.id edgeLine.docEnd extend)
             }
+            ; Hitting the top or the bottom does not end the run: press Down
+            ; twice at the last line and then Up, and the column is still the
+            ; one you left.
+            column.wanted = (to_double wantX)
+            column.known = true
             return
         }
         def tPage:LaidPage (layout.pageAt((itemAt pages target)))
         def tLine:LaidLine (itemAt tPage.lines (itemAt lines target))
         this.caretToLineAtX(layout tLine wantX extend)
+        column.wanted = (to_double wantX)
+        column.known = true
     }
 
     fn moveUp:void (layout:DocxLayout extend:boolean) {

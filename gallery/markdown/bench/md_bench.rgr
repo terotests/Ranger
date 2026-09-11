@@ -23,6 +23,7 @@ Import "../src/MdBlock.rgr"
 Import "../src/MdLayout.rgr"
 Import "../src/MdToEvg.rgr"
 Import "../src/MdMermaid.rgr"
+Import "../src/MdEditController.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 Import "../../pdf_writer/src/fonts/FontManager.rgr"
@@ -56,6 +57,72 @@ class MdBench {
             b.run("CHANGELOG.md")
         }
         print ""
+        b.keystrokes()
+        print ""
+    }
+
+    ; --- what a KEYSTROKE costs -----------------------------------------------
+    ;
+    ; The table above is what opening a document costs, and it was the only
+    ; number this file had. It is the wrong one for an editor: a reader opens
+    ; a document once and types into it for an hour, and the claim on the page
+    ; is that a keystroke is a function call.
+    ;
+    ; So: type a character into the middle of each document, and time the
+    ; reparse and the relayout that follow. The budget is one frame — 16 ms —
+    ; and what makes it reachable is that the layout remembers per block, so
+    ; the character changes one block and the other four hundred are copied.
+    fn keystrokes:void () {
+        print "  a keystroke, into the middle of the document"
+        print "  file                 bytes   blocks    cold     warm   hit%"
+        print "  ───────────────────────────────────────────────────────────"
+        this.keystroke("gallery/markdown/fixtures/sample.md")
+        this.keystroke("README.md")
+        this.keystroke("ISSUES.md")
+        this.keystroke("CHANGELOG.md")
+    }
+
+    fn keystroke:void (path:string) {
+        def text:string (?? (read_file "." path) "")
+        if ((strlen text) == 0) { return }
+        def measurer:TTFTextMeasurer (new TTFTextMeasurer(fontManager))
+        def e:MdEditController (new MdEditController())
+        if fontsLoaded {
+            e.setMeasurer(measurer)
+        }
+        e.setViewWidth(820.0)
+        e.open(text)
+
+        ; The first layout, with nothing cached: what opening costs.
+        def c0:double (wall_clock_ms)
+        e.ensureLayout()
+        def c1:double (wall_clock_ms)
+
+        ; …and then a character, typed into the middle. The counters are
+        ; reset first, so the percentage is the WARM pass rather than both
+        ; passes averaged — the cold one is all misses by definition.
+        e.layout.cacheHits = 0
+        e.layout.cacheMisses = 0
+        def mid:int (idiv (strlen text) 2)
+        e.setCaret(mid)
+        def w0:double (wall_clock_ms)
+        e.insertText("x")
+        e.ensureLayout()
+        def w1:double (wall_clock_ms)
+
+        def hits:int e.layout.cacheHits
+        def misses:int e.layout.cacheMisses
+        def pct:int 0
+        if ((hits + misses) > 0) {
+            pct = (idiv (hits * 100) (hits + misses))
+        }
+        def line:string ("  " + (MdBench.pad(path 20)))
+        line = (line + (MdBench.padLeft((to_string (strlen text)) 8)))
+        line = (line + (MdBench.padLeft((to_string (e.doc.childCount())) 9)))
+        line = (line + (MdBench.padLeft((MdBench.ms(c1 - c0)) 8)))
+        line = (line + (MdBench.padLeft((MdBench.ms(w1 - w0)) 9)))
+        line = (line + (MdBench.padLeft(((to_string pct) + "%") 7)))
+        print line
     }
 
     fn loadFonts:void () {

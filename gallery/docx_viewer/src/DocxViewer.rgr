@@ -481,6 +481,24 @@ class DocxViewer {
         this.followCaret()
     }
 
+    ; Ctrl+Left / Ctrl+Right. The word rule is `OfficeCaretMotion`'s, shared
+    ; with the slide editor, so a document and a deck jump the same gaps.
+    fn keyWordLeft:void (extend:boolean) {
+        if ((edit.isEnabled()) == false) {
+            return
+        }
+        edit.moveWordLeft(extend)
+        this.followCaret()
+    }
+
+    fn keyWordRight:void (extend:boolean) {
+        if ((edit.isEnabled()) == false) {
+            return
+        }
+        edit.moveWordRight(extend)
+        this.followCaret()
+    }
+
     fn keyRight:void (extend:boolean) {
         if ((edit.isEnabled()) == false) {
             this.turnPage(1)

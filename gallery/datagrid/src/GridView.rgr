@@ -287,7 +287,7 @@ class GridView {
     ; fell back. Every bold italic cell in every workbook drew upright and
     ; light, and the code was sure it had drawn what was asked for.
     fn applyFaceNamed:void (name:string bold:boolean italic:boolean) {
-        OfficeFont.applyNamed(ctx.tr name bold italic)
+        ctx.tr.useNamedFace(name bold italic)
     }
 
     ; Text with per-cell face / weight / slant. `fontName` is the workbook

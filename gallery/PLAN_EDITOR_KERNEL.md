@@ -15,6 +15,12 @@ allowed to mean here:
 Sharing that cannot answer that is not sharing. It is a fifth copy that happens
 to live in a folder called `office/`.
 
+> **A fifth editor is being proposed.**
+> [`markdown/PLAN_WYSIWYG.md`](markdown/PLAN_WYSIWYG.md) plans an editable
+> markdown preview, and it is the first candidate whose document is *text*
+> rather than an object model. It takes Stage C's open wiring test and Stage
+> E's caret primitives as prerequisites rather than as later work.
+
 ---
 
 ## 1. What is already shared, and what that has proved

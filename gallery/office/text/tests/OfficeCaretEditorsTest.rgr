@@ -1,0 +1,288 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeCaretEditorsTest — that the editors actually call the shared caret
+; ==============================================================================
+;
+; `OfficeCaretMotion` and `OfficeLineNav` are checked on their own elsewhere,
+; and those checks would pass just as happily if nothing in the gallery ever
+; called them. This is the test that would not. It follows
+; `OfficeRtlEditorsTest`, which says the idea better than a restatement:
+;
+;   > It drives the exact function in each of the editors … and looks at what
+;   > came out the other end.
+;
+; Four editors, four real call sites, one witness per rule.
+;
+; THE WITNESS FOR CHARACTER MOTION is an emoji — U+1F600, which is two UTF-16
+; units and one character. A caret that steps by a unit lands between the
+; halves, and the next edit splits it into two units that are not characters
+; at all. This is not hypothetical: `PptxTextEdit` had the surrogate rule,
+; `EditorBuffer` had it inline, and `DocxEditController` stepped by `off - 1`
+; and did not. Three copies and one hole, which is exactly the "pattern seam"
+; `gallery/PLAN_EDITOR_KERNEL.md` §2 says never to rely on.
+;
+; THE WITNESS FOR WORD MOTION is "one  two" with two spaces: a word jump must
+; cross the whole gap rather than stopping inside it, and an editor that wrote
+; its own loop usually stops between the spaces.
+;
+; THE WITNESS FOR THE COLUMN is a short line between two long ones. Down
+; through it and back up has to return to the column it started in. An editor
+; that recomputes the x from the caret on every vertical move — which is what
+; the .docx editor did — comes back at the end of the short line instead, and
+; nothing about that looks like a bug from the outside.
+;
+;   npm run office:caret:editors:test
+; ==============================================================================
+
+Import "../OfficeCaretMotion.rgr"
+Import "../OfficeLineNav.rgr"
+Import "../../../pptx/src/PptxTextEdit.rgr"
+Import "../../../docx_viewer/src/DocxEditController.rgr"
+Import "../../../text_editor/src/EditorBuffer.rgr"
+Import "../../../markdown/src/MdEditController.rgr"
+
+class CaretCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ((("  FAIL " + name) + ("  got " + (to_string got))) + ("  want " + (to_string want)))
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+}
+
+class OfficeCaretEditorsTest {
+    sfn main:void () {
+        def t:OfficeCaretEditorsTest (new OfficeCaretEditorsTest())
+        t.run()
+    }
+
+    sfn emoji:string () {
+        return (MdChar.fromCode(128512))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The shared rules, on their own, so a failure below can be read as
+    ; "the editor did not call it" rather than "the rule is wrong".
+    ; ----------------------------------------------------------------------
+    fn theRuleItself:void (c:CaretCheck) {
+        print "-- the rule, before asking who calls it --"
+        def s:string (("x" + (OfficeCaretEditorsTest.emoji())) + "y")
+        c.eqInt("the witness is four units long" (strlen s) 4)
+        c.eqInt("back from after the emoji skips both halves"
+            (OfficeCaretMotion.stepBack(s 3)) 1)
+        c.eqInt("and forward from before it does too"
+            (OfficeCaretMotion.stepForward(s 1)) 3)
+        c.eqInt("a word jump crosses a double space"
+            (OfficeCaretMotion.wordRight("one  two" 0)) 5)
+        c.eqInt("and comes back to the word's start"
+            (OfficeCaretMotion.wordLeft("one  two" 5)) 0)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; pptx — PptxTextEdit.moveLeft / wordRight, over a shape's text.
+    ; ----------------------------------------------------------------------
+    fn slides:void (c:CaretCheck) {
+        print "-- the slide editor --"
+        def body:PptxTextBody (new PptxTextBody())
+        def para:PptxParagraph (new PptxParagraph())
+        def run:PptxTextRun (new PptxTextRun())
+        run.text = (("x" + (OfficeCaretEditorsTest.emoji())) + "y")
+        push para.runs run
+        push body.paragraphs para
+
+        def at:PptxTextPos (PptxTextPos.of(0 3))
+        def back:PptxTextPos (PptxTextEdit.moveLeft(body at))
+        c.eqInt("a slide caret steps over the whole emoji" back.col 1)
+
+        def body2:PptxTextBody (new PptxTextBody())
+        def p2:PptxParagraph (new PptxParagraph())
+        def r2:PptxTextRun (new PptxTextRun())
+        r2.text = "one  two"
+        push p2.runs r2
+        push body2.paragraphs p2
+        def w:PptxTextPos (PptxTextEdit.wordRight(body2 (PptxTextPos.of(0 0))))
+        c.eqInt("and its word jump crosses the double space" w.col 5)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; docx — DocxEditController.moveLeft / moveWordRight, over a RichDocument.
+    ; This is the editor the shared module was extracted FOR.
+    ; ----------------------------------------------------------------------
+    fn documents:void (c:CaretCheck) {
+        print "-- the document editor --"
+        def doc:RichDocument (new RichDocument)
+        def p:Paragraph (doc.addParagraph())
+        p.text = (("x" + (OfficeCaretEditorsTest.emoji())) + "y")
+        push p.spans (TextSpan.create(0 (strlen p.text)))
+
+        def ed:DocxEditController (new DocxEditController)
+        ed.bindDocument(doc)
+        ed.setEnabled(true)
+        ed.setCaret(p.id 3)
+        ed.moveLeft(false)
+        def at:DocumentPosition (ed.caret())
+        c.eqInt("a document caret steps over the whole emoji" at.textOffset 1)
+
+        def doc2:RichDocument (new RichDocument)
+        def p2:Paragraph (doc2.addParagraph())
+        p2.text = "one  two"
+        push p2.spans (TextSpan.create(0 8))
+        def ed2:DocxEditController (new DocxEditController)
+        ed2.bindDocument(doc2)
+        ed2.setEnabled(true)
+        ed2.setCaret(p2.id 0)
+        ed2.moveWordRight(false)
+        def w1:DocumentPosition (ed2.caret())
+        c.eqInt("and its word jump crosses the double space" w1.textOffset 5)
+        ed2.moveWordLeft(false)
+        def w2:DocumentPosition (ed2.caret())
+        c.eqInt("and comes back to where the word starts" w2.textOffset 0)
+        ed2.setCaret(p2.id 5)
+        ed2.selectWord()
+        c.eqStr("and a double-click takes the word under it" (ed2.selectedText()) "two")
+    }
+
+    ; ----------------------------------------------------------------------
+    ; text_editor — EditorBuffer.moveCodepoint, over a line of a buffer.
+    ; ----------------------------------------------------------------------
+    fn plainText:void (c:CaretCheck) {
+        print "-- the text editor --"
+        def buf:EditorBuffer (new EditorBuffer)
+        buf.setText((("x" + (OfficeCaretEditorsTest.emoji())) + "y"))
+        def p:EditorPos (buf.moveCodepoint(0 3 -1))
+        c.eqInt("a buffer caret steps over the whole emoji" p.col 1)
+        def q:EditorPos (buf.moveCodepoint(0 1 1))
+        c.eqInt("and forward over it too" q.col 3)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; markdown — MdEditController, over the file itself.
+    ; ----------------------------------------------------------------------
+    fn markdown:void (c:CaretCheck) {
+        print "-- the markdown editor --"
+        def e:MdEditController (new MdEditController())
+        e.open((("x" + (OfficeCaretEditorsTest.emoji())) + "y"))
+        e.setCaret(3)
+        e.moveLeft(false)
+        c.eqInt("a markdown caret steps over the whole emoji" (e.caret()) 1)
+
+        def e2:MdEditController (new MdEditController())
+        e2.open("one  two")
+        e2.setCaret(0)
+        e2.moveWordRight(false)
+        c.eqInt("and its word jump crosses the double space" (e2.caret()) 5)
+        e2.setCaret(5)
+        e2.selectWord()
+        c.eqStr("and a double-click takes the word under it" (e2.selectedText()) "two")
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The column, in the two editors that navigate by drawn line.
+    ; ----------------------------------------------------------------------
+    fn theColumn:void (c:CaretCheck) {
+        print "-- the column a caret remembers --"
+        ; The rule on its own first.
+        def col:OfficeCaretColumn (new OfficeCaretColumn())
+        c.ok("a fresh column remembers nothing" ((col.isKnown()) == false))
+        c.ok("the first ask takes what it is given" ((col.want(120.0)) == 120.0))
+        c.ok("and the second keeps it" ((col.want(8.0)) == 120.0))
+        col.forget()
+        c.ok("until something else moves the caret" ((col.want(8.0)) == 8.0))
+
+        ; …and the editor that has to obey it. Three paragraphs, the middle
+        ; one two characters wide.
+        def e:MdEditController (new MdEditController())
+        e.open("aaaaaaaaaaaaaaa\n\nbb\n\ncccccccccccccc\n")
+        e.setViewWidth(900.0)
+        e.setCaret(10)
+        e.moveDown(false)
+        e.moveDown(false)
+        e.moveUp(false)
+        e.moveUp(false)
+        c.eqInt("down past a short line and back returns to the column"
+            (e.caret()) 10)
+
+        ; And it is FORGOTTEN by anything that is not a vertical move: after a
+        ; sideways step the column is the new one, not the old.
+        e.setCaret(10)
+        e.moveDown(false)
+        e.moveRight(false)
+        e.moveUp(false)
+        c.ok("a sideways step ends the run" ((e.caret()) != 10))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The line table, which is the other half of OfficeLineNav.
+    ; ----------------------------------------------------------------------
+    fn theTable:void (c:CaretCheck) {
+        print "-- the line table --"
+        def t:OfficeLineTable (new OfficeLineTable())
+        t.add(0.0 10.0 0 15 0 0)
+        t.add(10.0 10.0 17 19 1 0)
+        t.add(20.0 10.0 21 35 2 0)
+        c.eqInt("three lines" (t.count()) 3)
+        c.eqInt("an offset finds its line" (OfficeLineNav.indexOfOffset(t 18)) 1)
+        c.eqInt("an offset past everything is the last line"
+            (OfficeLineNav.indexOfOffset(t 900)) 2)
+        c.eqInt("a y finds its line" (OfficeLineNav.indexAtY(t 15.0)) 1)
+        c.eqInt("a y between lines takes the one above"
+            (OfficeLineNav.indexAtY(t 9.5)) 0)
+        c.eqInt("a step down is the next line" (OfficeLineNav.verticalTarget(3 1 1)) 2)
+        c.eqInt("and a step past the end clamps"
+            (OfficeLineNav.verticalTarget(3 2 1)) 2)
+        c.eqInt("a screen holds as many lines as it has room for"
+            (OfficeLineNav.linesPerScreen(t 0 25.0)) 2)
+        c.eqInt("and never fewer than one"
+            (OfficeLineNav.linesPerScreen(t 0 1.0)) 1)
+    }
+
+    fn run:void () {
+        def c:CaretCheck (new CaretCheck())
+        print "== OfficeCaretEditorsTest =="
+        this.theRuleItself(c)
+        this.slides(c)
+        this.documents(c)
+        this.plainText(c)
+        this.markdown(c)
+        this.theColumn(c)
+        this.theTable(c)
+        print ""
+        print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+            print ""
+            print "one caret rule, reached from four editors"
+        } {
+            print "FAILURES"
+        }
+    }
+}

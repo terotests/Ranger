@@ -1,0 +1,188 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdEdit.rgr — every edit a markdown document can have, in four fields.
+; ============================================================================
+;
+;   MdEditOp { start, end, removed, inserted }
+;
+; That is the whole model, and it is the payoff of the decision in
+; `PLAN_WYSIWYG.md` §1: a markdown file IS the document rather than a
+; serialization of one, so the preview cannot own an object graph — it owns a
+; patch.
+;
+; The comparison is worth making, because it is the difference between this
+; and every other editor in the gallery. `DocEditOp` in the .docx editor has
+; **seven kinds** — text, splitParagraph, mergeParagraph, bold, pasteTable,
+; deleteSpan, tableRow — each with its own undo path, and its own header
+; records what that cost: the kinds were numbers, `pasteChart` recorded a 5
+; because 5 was one more than the table paste's 4, and undoing a chart paste
+; ran the delete's restore path. That is not a mistake anyone made carelessly.
+; It is what happens when the thing being undone is a graph.
+;
+; Here there is one kind and there can only ever be one. Making a selection
+; bold is a patch. Turning a paragraph into a heading is a patch. Pasting a
+; table is a patch. The inverse of a patch is a patch, computed rather than
+; dispatched, and no future feature can add an eighth kind to get wrong.
+;
+; The cost, stated: a patch does not know what it MEANT. An undo puts the
+; bytes back and the document is reparsed; there is no cheap way to say "and
+; the caret was in the third cell of the table". The caret offsets ride along
+; on the op for exactly that reason.
+; ============================================================================
+
+class MdEditOp {
+    ; The range of the source this replaces, and what it replaces it with.
+    def start:int 0
+    def end:int 0
+    def removed:string ""
+    def inserted:string ""
+    ; Where the caret was before this ran, and where it should be after. Undo
+    ; needs the first and redo the second; without them an undo leaves the
+    ; caret wherever the last keystroke happened to put it, which for a
+    ; multi-line paste is somewhere the reader never was.
+    def caretBefore:int 0
+    def caretAfter:int 0
+    ; What should be SELECTED afterwards, when the op has an opinion. Making a
+    ; word bold and having the selection collapse behind the closing `**` is
+    ; the difference between an editor and a text box; -1 means "collapse to
+    ; the end of what was inserted", which is what a keystroke wants.
+    def selAfterA:int -1
+    def selAfterB:int -1
+
+    Constructor () {
+    }
+
+    sfn of:MdEditOp (start:int end:int removed:string inserted:string) {
+        def o:MdEditOp (new MdEditOp())
+        o.start = start
+        o.end = end
+        o.removed = removed
+        o.inserted = inserted
+        return o
+    }
+
+    fn copy:MdEditOp () {
+        def o:MdEditOp (MdEditOp.of(start end removed inserted))
+        o.caretBefore = caretBefore
+        o.caretAfter = caretAfter
+        o.selAfterA = selAfterA
+        o.selAfterB = selAfterB
+        return o
+    }
+
+    ; Does this op change anything? A keystroke that replaces a character with
+    ; itself is not an undo step, and a delete at the end of the document is
+    ; not one either.
+    fn isEmpty:boolean () {
+        if ((strlen removed) > 0) { return false }
+        if ((strlen inserted) > 0) { return false }
+        return true
+    }
+
+    ; Where the op leaves the document's text after it.
+    fn endAfter:int () {
+        return (start + (strlen inserted))
+    }
+}
+
+class MdEdit {
+    ; The op that replaces src[start,end) with `inserted`, with `removed`
+    ; filled in from the source so the op can be inverted without it.
+    ; Not `replace`: that name collides with a built-in on this compiler and
+    ; the call resolved to nothing with a message about the class not having
+    ; the method.
+    sfn patch:MdEditOp (src:string start:int end:int inserted:string) {
+        def n:int (strlen src)
+        def a:int start
+        def b:int end
+        if (a < 0) { a = 0 }
+        if (b > n) { b = n }
+        if (a > n) { a = n }
+        if (b < a) { b = a }
+        def removed:string ""
+        if (b > a) {
+            removed = (substring src a b)
+        }
+        return (MdEditOp.of(a b removed inserted))
+    }
+
+    sfn applyTo:string (src:string op:MdEditOp) {
+        def n:int (strlen src)
+        def a:int op.start
+        def b:int op.end
+        if (a < 0) { a = 0 }
+        if (a > n) { a = n }
+        if (b < a) { b = a }
+        if (b > n) { b = n }
+        def head:string ""
+        if (a > 0) { head = (substring src 0 a) }
+        def tail:string ""
+        if (b < n) { tail = (substring src b n) }
+        return ((head + op.inserted) + tail)
+    }
+
+    ; The op that undoes this one. It is the same shape, which is the point:
+    ; there is no "restore path" per kind to get wrong, because there are no
+    ; kinds.
+    sfn invert:MdEditOp (op:MdEditOp) {
+        def back:MdEditOp (MdEditOp.of(op.start (op.endAfter()) op.inserted op.removed))
+        back.caretBefore = op.caretAfter
+        back.caretAfter = op.caretBefore
+        return back
+    }
+
+    ; --- what counts as one undo ---------------------------------------------
+    ;
+    ; A word is one undo, not six. The rule: a single character typed exactly
+    ; where the previous insert ended, with nothing deleted by either,
+    ; continues that op instead of starting a new one — and a run that has
+    ; already ENDED in a space is closed, so the next letter starts fresh.
+    ;
+    ; The space JOINS the word in front of it rather than being its own step.
+    ; Typing "one two" and pressing undo leaves "one ", and the next undo
+    ; leaves nothing. The other way round — the space as a step of its own —
+    ; is what this did first, and the second undo left "one": a state the
+    ; reader was never in, because they never stopped between the word and the
+    ; space after it.
+    ;
+    ; A newline is not a word character and not a space either: pressing Enter
+    ; is a structural edit and gets its own entry, so undoing a split does not
+    ; also undo the sentence before it.
+    sfn mergeable:boolean (prev:MdEditOp next:MdEditOp) {
+        if ((strlen prev.removed) > 0) { return false }
+        if ((strlen next.removed) > 0) { return false }
+        def ins:string next.inserted
+        if ((strlen ins) != 1) { return false }
+        if (next.start != (prev.endAfter())) { return false }
+        if ((charAt ins 0) == 10) { return false }
+        def pl:int (strlen prev.inserted)
+        if (pl > 0) {
+            def last:int (charAt prev.inserted (pl - 1))
+            if ((last == 32) || ((last == 10) || (last == 9))) { return false }
+        }
+        return true
+    }
+
+    ; `prev` with `next` folded into it.
+    sfn merged:MdEditOp (prev:MdEditOp next:MdEditOp) {
+        def o:MdEditOp (MdEditOp.of(prev.start prev.end prev.removed (prev.inserted + next.inserted)))
+        o.caretBefore = prev.caretBefore
+        o.caretAfter = next.caretAfter
+        return o
+    }
+
+    ; --- moving an offset across an edit --------------------------------------
+    ;
+    ; Where a position ends up after an op ran. Anything before the change is
+    ; untouched, anything after it shifts, and a position INSIDE the replaced
+    ; range has nowhere of its own to be — it goes to the end of what replaced
+    ; it, which is where a caret in deleted text belongs.
+    sfn shift:int (off:int op:MdEditOp) {
+        if (off <= op.start) { return off }
+        if (off >= op.end) {
+            return ((off + (strlen op.inserted)) - (op.end - op.start))
+        }
+        return (op.endAfter())
+    }
+}

@@ -1,0 +1,167 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeMeasure.rgr — "how wide is this text in this face", and nothing else.
+; ==============================================================================
+;
+; `OfficeTextMetrics` asks one question of the outside world: the width of a
+; piece of text drawn in a named face at a size. It used to ask it of a
+; `UITextRenderer` — 580 lines of software rasterizer over `framebuffer.rgr`,
+; `RasterText` and `SoftCanvas`, carrying a glyph cache and a bitmap fallback
+; font. Every consumer of `gallery/office/text` therefore linked a rasterizer
+; in order to do arithmetic, which is why `gallery/markdown` — whose whole
+; output is a display list and a PDF — could not use the shared metrics at all
+; and would have had to write its own.
+;
+; This is that question, on its own. It holds:
+;
+;   fm        which faces exist, and what a family resolves to
+;   measurer  an EVGTextMeasurer — the interface EVG already lays out through
+;
+; `UITextRenderer` already owns both. So does `gallery/markdown`, through
+; `FontManager` + `TTFTextMeasurer`, and so does anything else that draws EVG.
+; The seam is the one the gallery already has rather than a new one.
+;
+; **The bitmap fallback is kept, exactly.** With no TTF loaded, `UITextRenderer`
+; measures a character as `bmCharStep` — 8 units under 14pt, 12 at or above —
+; and three editors' headless tests measure with no fonts at all. Answering
+; those with `EVGTextMeasurer`'s estimate tables instead would be a better
+; number and a changed one, and a refactor that changes numbers is not a
+; refactor. `UIMeasure` in `UITextRenderer.rgr` is the subclass that keeps it;
+; this class is what a caller with real faces uses.
+;
+; **Shaping happens here, once.** `OfficeText.forMetrics` reorders nothing and
+; does nothing at all to text with no Arabic in it, but it must run on the
+; same side as the measurement or a line measured from source and painted from
+; the display string disagree about where it ends.
+;
+; **`OfficeTextMeasure` is the other half of this**, and it was here first.
+; It answers the same question for `pptx` and `odp`, holds the alias map walk
+; a deck needs (a .pptx says "Calibri"; Calibri is not here), and falls back to
+; a 0.52em guess with no renderer attached. It was missed when this class was
+; written, which is the exact defect this directory exists to prevent — two
+; answers to one question — and is recorded here rather than quietly fixed.
+;
+; They are one body now: `OfficeTextMeasure` keeps its `UIContext` door and its
+; em-factor fallback, and every face it resolves and every width it takes comes
+; through here. What is left on that side is what genuinely differs — which
+; host attached it, and what to answer when no font was ever loaded.
+;
+; **It reports its own wiring**, which is `gallery/PLAN_EDITOR_KERNEL.md` §6:
+; `isAccurate()` is false until a measurer that opened a font says otherwise,
+; so a caret computed from guessed advances can REFUSE rather than sit half a
+; word away from the glyphs it belongs between.
+; ==============================================================================
+
+Import "OfficeFont.rgr"
+Import "OfficeText.rgr"
+Import "../../evg/EVGTextMeasurer.rgr"
+Import "../../pdf_writer/src/fonts/FontManager.rgr"
+
+class OfficeMeasure {
+    def fm:FontManager (new FontManager)
+    def measurer:EVGTextMeasurer (new EVGTextMeasurer)
+    ; Are there real faces behind `measurer`? DERIVED rather than stored: a
+    ; caller can hold one of these across a font load — `OfficeTextMeasure`
+    ; does, for the whole life of a deck — and a snapshot taken at attach time
+    ; would answer "no fonts" for a document whose faces arrived afterwards.
+    ; That is the `FontManager.loadFont` failure from the other side.
+    ; The family used when a run names none, or names one nothing resolves to.
+    def fallback:string "Open Sans"
+
+    Constructor () {
+    }
+
+    ; The ordinary way to build one: a FontManager with faces in it, and the
+    ; measurer that reads them.
+    sfn over:OfficeMeasure (fm:FontManager m:EVGTextMeasurer) {
+        def o:OfficeMeasure (new OfficeMeasure())
+        o.fm = fm
+        o.measurer = m
+        return o
+    }
+
+    fn hasFont:boolean () {
+        return ((fm.getFontCount()) > 0)
+    }
+
+    ; Does this answer come from the face that will be painted? See the header:
+    ; a caller placing a caret should ask, and should decline when the answer
+    ; is no rather than draw one in the wrong place.
+    fn isAccurate:boolean () {
+        if ((this.hasFont()) == false) {
+            return false
+        }
+        return (measurer.isFontAccurate())
+    }
+
+    ; Which face a family-plus-style ends up drawn in. Exposed because a
+    ; caller that PAINTS has to name the same one it measured with.
+    fn faceFor:string (family:string bold:boolean italic:boolean fallbackFamily:string) {
+        return (OfficeFont.resolve(fm family bold italic fallbackFamily))
+    }
+
+    ; The width of `text` drawn in that face at that size.
+    fn width:double (text:string family:string bold:boolean italic:boolean size:double fallbackFamily:string) {
+        def shaped:string (OfficeText.forMetrics(text))
+        if ((this.hasFont()) == false) {
+            return (this.fallbackWidth(shaped size))
+        }
+        def face:string (this.faceFor(family bold italic fallbackFamily))
+        if ((strlen face) == 0) {
+            return (measurer.measureTextWidth(shaped fallbackFamily size))
+        }
+        return (measurer.measureTextWidth(shaped face size))
+    }
+
+    ; What a width is with no font loaded. Overridden by `UIMeasure` to the
+    ; bitmap step three editors' tests are written against; the default here is
+    ; the measurer's own estimate, which is what a caller with no renderer
+    ; behind it should get.
+    fn fallbackWidth:double (shaped:string size:double) {
+        return (measurer.measureTextWidth(shaped fallback size))
+    }
+
+    ; --- the family a DOCUMENT named, as opposed to one we already have ------
+    ;
+    ; A .pptx says "Calibri" and a .docx says "Cambria", and neither is in this
+    ; repository. `OfficeFont.aliasFamily` decides what to draw instead, and
+    ; the pair below is why it has to be asked here rather than at the call
+    ; site: `drawnFamily` is what the display list carries and `widthNamed` is
+    ; what every width comes from, so a backend that obeys the family it is
+    ; handed draws what was measured. Name one family and measure another and
+    ; the caret drifts by the difference between two faces.
+    fn drawnFamily:string (named:string bold:boolean italic:boolean fallbackFamily:string) {
+        if ((strlen (trim named)) == 0) {
+            return fallbackFamily
+        }
+        if ((this.hasFont()) == false) {
+            return (OfficeFont.aliasFamily(named))
+        }
+        return (OfficeFont.drawnFamily(fm named bold italic fallbackFamily))
+    }
+
+    fn widthNamed:double (text:string named:string bold:boolean italic:boolean size:double fallbackFamily:string) {
+        def fam:string (this.drawnFamily(named bold italic fallbackFamily))
+        return (this.width(text fam bold italic size fallbackFamily))
+    }
+
+    ; Is the family a document NAMED one we can actually draw with? A box the
+    ; author sized to fit is a box the text spills out of when the answer is no.
+    fn hasFamily:boolean (named:string) {
+        if ((strlen named) == 0) { return true }
+        if ((this.hasFont()) == false) { return true }
+        return ((OfficeFont.substituted(fm named)) == false)
+    }
+
+    fn lineHeight:double (family:string bold:boolean italic:boolean size:double) {
+        if ((this.hasFont()) == false) {
+            return (measurer.getLineHeight(fallback size))
+        }
+        def face:string (this.faceFor(family bold italic fallback))
+        if ((strlen face) == 0) {
+            return (measurer.getLineHeight(fallback size))
+        }
+        return (measurer.getLineHeight(face size))
+    }
+}

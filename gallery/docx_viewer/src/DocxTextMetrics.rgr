@@ -54,7 +54,7 @@ class DocxTextMetrics {
 
     sfn applyStyle:void (tr:UITextRenderer bold:boolean italic:boolean) {
         def fam:string (DocxTextMetrics.family())
-        OfficeFont.apply(tr fam bold italic fam)
+        tr.useFace(fam bold italic fam)
     }
 
     sfn safeSize:double (px:double) {
@@ -185,7 +185,7 @@ class DocxTextMetrics {
         if (a >= b) {
             return 0
         }
-        return (to_int (OfficeTextMetrics.measureRange(tr p.text (DocxTextMetrics.runsOf(p))
+        return (to_int (OfficeTextMetrics.measureRange((tr.metrics()) p.text (DocxTextMetrics.runsOf(p))
             a b (DocxTextMetrics.family()) size true)))
     }
 
@@ -198,7 +198,7 @@ class DocxTextMetrics {
     ; how they stop being.
     sfn offsetAtX:int (tr:UITextRenderer p:Paragraph linePx:double from:int to:int targetX:int) {
         def size:double (DocxTextMetrics.safeSize(linePx))
-        return (OfficeTextMetrics.offsetAtX(tr p.text (DocxTextMetrics.runsOf(p))
+        return (OfficeTextMetrics.offsetAtX((tr.metrics()) p.text (DocxTextMetrics.runsOf(p))
             from to (to_double targetX) (DocxTextMetrics.family()) size true))
     }
 

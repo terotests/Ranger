@@ -1,0 +1,703 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdEditController.rgr — a caret in a markdown file, and what it does to it.
+; ============================================================================
+;
+; A caret is an `int`. A selection is two. Every edit is an `MdEditOp`, and the
+; document is reparsed from the text afterwards. That is the whole design, and
+; `PLAN_WYSIWYG.md` §1 is why: a markdown file is the document.
+;
+; **The method names are `DocxEditController`'s on purpose.** `setCaret`,
+; `setRange`, `extendTo`, `insertText`, `backspace`, `deleteForward`,
+; `splitAtCaret`, `selectAll`, `moveLeft`, `moveRight`, `moveWordLeft`,
+; `moveWordRight`, `moveUp`, `moveDown`, `moveLineEdge`, `moveDocEdge`,
+; `undo`, `redo`, `beginAction`, `endAction`. Not because a base class is
+; coming — there is none, and §7 of the kernel plan explains why there should
+; not be — but because ONE wiring test can then drive the same sequence
+; through both editors and compare what came out. A shared module nobody
+; calls passes its own unit test; that is the failure `office:caret:editors:test`
+; exists to catch, and identical names are what make it cheap enough to write.
+;
+; What is genuinely shared, and where it lives:
+;
+;   OfficeCaretMotion   left, right, word left, word right, the word under the
+;                       caret — over a string, surrogate pairs included
+;   OfficeLineNav       up, down, the clamp at the edges, a screen's worth
+;   OfficeCaretColumn   the x an Up or Down aims at, remembered across a run
+;   OfficeHistory@(Op)  every rule about the undo stack
+;
+; What is NOT shared, and could not be: which string, and what "the previous
+; line" means. Here it is the previous line of one file. In the .docx editor it
+; may be in another table cell on another page.
+; ============================================================================
+
+Import "MdBlock.rgr"
+Import "MdLayout.rgr"
+Import "MdEdit.rgr"
+Import "MdSemanticEdit.rgr"
+Import "../../office/text/OfficeCaretMotion.rgr"
+Import "../../office/text/OfficeLineNav.rgr"
+Import "../../office/editor/OfficeHistory.rgr"
+
+class MdEditController {
+    ; The document, and the only copy of it.
+    def source:string ""
+    def doc:MdNode (MdNode.create("document"))
+    def layout:MdLayout (new MdLayout())
+    ; Has the text changed since the tree and the boxes were built?
+    def stale:boolean true
+    ; Width the document is laid out at, and how the sheets are stacked.
+    ; Below zero for one continuous column, which is what a viewer scrolls.
+    def viewWidth:double 900.0
+    def sheetGap:double (0.0 - 1.0)
+
+    ; anchor is where the selection was started, focus where the caret is.
+    def anchor:int 0
+    def focus:int 0
+
+    def history:OfficeHistory@(MdEditOp) (new OfficeHistory@(MdEditOp) ())
+    def column:OfficeCaretColumn (new OfficeCaretColumn())
+    ; Undo and redo replay through the same primitives; their ops must not land
+    ; back on the stack. The .docx editor learned this the same way.
+    def suppressUndo:boolean false
+    ; Whether the last recorded op may still grow — see `MdEdit.mergeable`.
+    def canMerge:boolean false
+    ; Why the last semantic intent did nothing, or "". A refusal and a no-op
+    ; look identical to the document and completely different to a reader.
+    def lastRefusal:string ""
+
+    ; The lines, as `OfficeLineNav` wants them. Rebuilt with the layout.
+    def lines:OfficeLineTable (new OfficeLineTable())
+
+    Constructor () {
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The document
+    ; ----------------------------------------------------------------------
+
+    fn setMeasurer:void (m:EVGTextMeasurer) {
+        layout.setMeasurer(m)
+        stale = true
+    }
+
+    fn setViewWidth:void (w:double) {
+        viewWidth = w
+        stale = true
+    }
+
+    ; A fresh document, with no history behind it: this is opening a file, not
+    ; editing one, and an undo across an open would put back text from a
+    ; document the reader had closed.
+    fn open:void (text:string) {
+        source = text
+        anchor = 0
+        focus = 0
+        history.reset()
+        column.forget()
+        canMerge = false
+        stale = true
+    }
+
+    fn text:string () {
+        return source
+    }
+
+    fn length:int () {
+        return (strlen source)
+    }
+
+    ; The tree and the boxes, built if the text has moved since they were.
+    ; Every query that needs geometry goes through here, so nothing can read a
+    ; layout of text that is no longer in the document.
+    fn ensureLayout:void () {
+        if (! stale) {
+            return
+        }
+        doc = (MdBlock.parseText(source))
+        ; The parse stays whole — it is 22.7 ms of a 140 ms README and an
+        ; incremental one would be a second parser to keep in step with the
+        ; first. The LAYOUT is what remembers: `MdLayout`'s per-block cache
+        ; keys each block's boxes under the exact source that produced them,
+        ; so a keystroke re-measures one block and copies the rest.
+        layout.setDocSource(source)
+        if (sheetGap >= 0.0) {
+            layout.layoutPaged(doc)
+        } {
+            layout.armCache(doc)
+            layout.layoutContinuous(doc viewWidth)
+        }
+        this.buildLines()
+        stale = false
+    }
+
+    ; The line table `OfficeLineNav` navigates. One row per drawn row of text,
+    ; in document order, carrying the source range it covers and the index of
+    ; its first box so the caller can find it again.
+    ;
+    ; Boxes on the same line share a y, so a row is a run of boxes with the
+    ; same top — which is also what makes the table shorter than the box list.
+    fn buildLines:void () {
+        lines.reset()
+        def n:int (array_length layout.boxes)
+        def i:int 0
+        def curTop:double (0.0 - 1000000.0)
+        def curH:double 0.0
+        def curFrom:int 0
+        def curTo:int 0
+        def curFirst:int -1
+        def open:boolean false
+        while (i < n) {
+            def b:MdBox (itemAt layout.boxes i)
+            if ((b.kind == 0) && (b.segSrc >= 0)) {
+                def top:double (layout.boxTop(b sheetGap))
+                if (open && ((fabs (top - curTop)) < 0.5)) {
+                    if (b.segSrc < curFrom) { curFrom = b.segSrc }
+                    if ((b.segSrc + b.segLen) > curTo) { curTo = (b.segSrc + b.segLen) }
+                    if (b.h > curH) { curH = b.h }
+                } {
+                    if open {
+                        lines.add(curTop curH curFrom curTo curFirst 0)
+                    }
+                    curTop = top
+                    curH = b.h
+                    curFrom = b.segSrc
+                    curTo = (b.segSrc + b.segLen)
+                    curFirst = i
+                    open = true
+                }
+            }
+            i = (i + 1)
+        }
+        if open {
+            lines.add(curTop curH curFrom curTo curFirst 0)
+        }
+    }
+
+    fn lineCount:int () {
+        this.ensureLayout()
+        return (lines.count())
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The caret
+    ; ----------------------------------------------------------------------
+
+    fn caret:int () {
+        return focus
+    }
+
+    fn selStart:int () {
+        if (anchor <= focus) { return anchor }
+        return focus
+    }
+
+    fn selEnd:int () {
+        if (anchor >= focus) { return anchor }
+        return focus
+    }
+
+    fn hasSelection:boolean () {
+        return (anchor != focus)
+    }
+
+    fn selectedText:string () {
+        def a:int (this.selStart())
+        def b:int (this.selEnd())
+        if (a >= b) { return "" }
+        return (substring source a b)
+    }
+
+    fn clamp:int (off:int) {
+        def n:int (strlen source)
+        if (off < 0) { return 0 }
+        if (off > n) { return n }
+        return off
+    }
+
+    ; Any placement that is not part of a vertical run ends the run — the same
+    ; rule the .docx editor follows, and the reason both hold an
+    ; `OfficeCaretColumn` rather than recomputing the x each time.
+    fn setCaret:void (off:int) {
+        def at:int (this.clamp(off))
+        anchor = at
+        focus = at
+        column.forget()
+        canMerge = false
+    }
+
+    fn setRange:void (a:int b:int) {
+        anchor = (this.clamp(a))
+        focus = (this.clamp(b))
+        column.forget()
+        canMerge = false
+    }
+
+    fn extendTo:void (off:int) {
+        focus = (this.clamp(off))
+        column.forget()
+        canMerge = false
+    }
+
+    fn selectAll:void () {
+        this.setRange(0 (strlen source))
+    }
+
+    fn placeCaret:void (off:int extend:boolean) {
+        if extend {
+            this.extendTo(off)
+        } {
+            this.setCaret(off)
+        }
+    }
+
+    ; The word under the caret, as a double-click takes it. The rule is
+    ; `OfficeCaretMotion`'s, shared with the slide and document editors.
+    fn selectWord:void () {
+        def ends:[int]
+        OfficeCaretMotion.wordAt(source focus ends)
+        if ((array_length ends) < 2) { return }
+        this.setRange((itemAt ends 0) (itemAt ends 1))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Moving it
+    ; ----------------------------------------------------------------------
+
+    fn moveLeft:void (extend:boolean) {
+        if ((! extend) && (this.hasSelection())) {
+            def a0:int (this.selStart())
+            this.setCaret(a0)
+            return
+        }
+        this.placeCaret((OfficeCaretMotion.stepBack(source focus)) extend)
+    }
+
+    fn moveRight:void (extend:boolean) {
+        if ((! extend) && (this.hasSelection())) {
+            def b0:int (this.selEnd())
+            this.setCaret(b0)
+            return
+        }
+        this.placeCaret((OfficeCaretMotion.stepForward(source focus)) extend)
+    }
+
+    fn moveWordLeft:void (extend:boolean) {
+        this.placeCaret((OfficeCaretMotion.wordLeft(source focus)) extend)
+    }
+
+    fn moveWordRight:void (extend:boolean) {
+        this.placeCaret((OfficeCaretMotion.wordRight(source focus)) extend)
+    }
+
+    ; The x of the caret on the drawing, or below zero when it is not on a line
+    ; that was drawn — inside a stripped marker, or in a document with nothing
+    ; in it.
+    fn caretX:double () {
+        this.ensureLayout()
+        def li:int (OfficeLineNav.indexOfOffset(lines focus))
+        if (li < 0) { return (0.0 - 1.0) }
+        return (this.xOnLine(li focus))
+    }
+
+    ; Where an offset sits horizontally on a given line.
+    fn xOnLine:double (li:int off:int) {
+        def first:int (lines.keyAAt(li))
+        def n:int (array_length layout.boxes)
+        def bestX:double (0.0 - 1.0)
+        def i:int first
+        def top:double (lines.topAt(li))
+        def going:boolean true
+        while (going) {
+            if (i >= n) {
+                going = false
+            } {
+                def b:MdBox (itemAt layout.boxes i)
+                if ((b.kind == 0) && (b.segSrc >= 0)) {
+                    if ((fabs ((layout.boxTop(b sheetGap)) - top)) > 0.5) {
+                        going = false
+                    } {
+                        if ((off >= b.segSrc) && (off <= (b.segSrc + b.segLen))) {
+                            def within:int (off - b.segSrc)
+                            def lead:string ""
+                            if (within > 0) {
+                                def tl:int (strlen b.text)
+                                def take:int within
+                                if (take > tl) { take = tl }
+                                lead = (substring b.text 0 take)
+                            }
+                            bestX = (b.x + (layout.measureStyled(lead b.family b.size b.bold b.italic)))
+                            going = false
+                        } {
+                            bestX = (b.x + b.w)
+                        }
+                    }
+                }
+                if going { i = (i + 1) }
+            }
+        }
+        return bestX
+    }
+
+    ; The offset on `li` nearest to an x — the inverse of `xOnLine`, and it has
+    ; to BE the inverse or Up and Down drift a character per line.
+    fn offsetOnLineAtX:int (li:int x:double) {
+        def top:double (lines.topAt(li))
+        def mid:double (top + ((lines.heightAt(li)) * 0.5))
+        def hit:int (layout.srcAtPoint(x mid sheetGap))
+        if (hit >= 0) { return hit }
+        if (x <= 0.0) { return (lines.startAt(li)) }
+        return (lines.endAt(li))
+    }
+
+    fn moveVertical:void (delta:int extend:boolean) {
+        this.ensureLayout()
+        def total:int (lines.count())
+        if (total == 0) { return }
+        def at:int (OfficeLineNav.indexOfOffset(lines focus))
+        if (at < 0) { at = 0 }
+        def nowX:double (this.xOnLine(at focus))
+        if (nowX < 0.0) { nowX = 0.0 }
+        ; The column is taken ONCE and kept for the run of vertical moves —
+        ; `OfficeCaretColumn`, shared with the .docx editor, which did not have
+        ; it: Down through a two-character line and back Up used to land at
+        ; column two rather than where the reader started.
+        def wantX:double (column.want(nowX))
+        def target:int (OfficeLineNav.verticalTarget(total at delta))
+        def to:int 0
+        if (target == at) {
+            ; Already at the edge: to the start or the end of the document,
+            ; which is what every editor does and none of them writes down.
+            if (delta < 0) {
+                to = (lines.startAt(at))
+            } {
+                to = (lines.endAt(at))
+            }
+        } {
+            to = (this.offsetOnLineAtX(target wantX))
+        }
+        this.placeCaret(to extend)
+        ; …and put the column back, because `placeCaret` just forgot it.
+        column.wanted = wantX
+        column.known = true
+    }
+
+    fn moveUp:void (extend:boolean) {
+        this.moveVertical(-1 extend)
+    }
+
+    fn moveDown:void (extend:boolean) {
+        this.moveVertical(1 extend)
+    }
+
+    fn movePage:void (down:boolean height:double extend:boolean) {
+        this.ensureLayout()
+        def at:int (OfficeLineNav.indexOfOffset(lines focus))
+        if (at < 0) { at = 0 }
+        def step:int (OfficeLineNav.linesPerScreen(lines at height))
+        if down {
+            this.moveVertical(step extend)
+        } {
+            this.moveVertical((0 - step) extend)
+        }
+    }
+
+    ; Home and End: the drawn line's ends, not the source line's. A soft-
+    ; wrapped paragraph is several drawn lines and one source line, and Home
+    ; going to the start of the paragraph is the behaviour nobody wants.
+    fn moveLineEdge:void (toEnd:boolean extend:boolean) {
+        this.ensureLayout()
+        def li:int (OfficeLineNav.indexOfOffset(lines focus))
+        if (li < 0) { return }
+        if toEnd {
+            this.placeCaret((lines.endAt(li)) extend)
+        } {
+            this.placeCaret((lines.startAt(li)) extend)
+        }
+    }
+
+    fn moveDocEdge:void (toEnd:boolean extend:boolean) {
+        if toEnd {
+            this.placeCaret((strlen source) extend)
+        } {
+            this.placeCaret(0 extend)
+        }
+    }
+
+    ; A click, in document coordinates.
+    fn clickAt:void (x:double y:double extend:boolean) {
+        this.ensureLayout()
+        def hit:int (layout.srcAtPoint(x y sheetGap))
+        if (hit < 0) { return }
+        this.placeCaret(hit extend)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Changing it
+    ; ----------------------------------------------------------------------
+
+    fn beginAction:void () {
+        history.begin()
+        canMerge = false
+    }
+
+    fn endAction:void () {
+        history.end()
+        canMerge = false
+    }
+
+    ; The one way the document changes. Everything below is a call to this.
+    fn apply:void (op:MdEditOp) {
+        if (op.isEmpty()) {
+            return
+        }
+        op.caretBefore = focus
+        source = (MdEdit.applyTo(source op))
+        op.caretAfter = (op.endAfter())
+        stale = true
+        if (! suppressUndo) {
+            this.record(op)
+        }
+        if (op.selAfterA >= 0) {
+            anchor = op.selAfterA
+            focus = op.selAfterB
+        } {
+            anchor = op.caretAfter
+            focus = op.caretAfter
+        }
+        column.forget()
+    }
+
+    ; …and the one place the undo stack learns about it. The rules — the
+    ; transaction stamp, the cap, dropping the redo stack — are
+    ; `OfficeHistory`'s and are not written here. What IS written here is the
+    ; one rule that is markdown's own: when a word may continue.
+    fn record:void (op:MdEditOp) {
+        if (canMerge && ((history.canUndo()) && ((history.inTransaction()) == false))) {
+            def prev:MdEditOp (history.peekUndo())
+            if (MdEdit.mergeable(prev op)) {
+                history.replaceTop((MdEdit.merged(prev op)))
+                return
+            }
+        }
+        history.record(op)
+        canMerge = ((strlen op.removed) == 0)
+    }
+
+    fn deleteSelection:void () {
+        if (! (this.hasSelection())) { return }
+        def a:int (this.selStart())
+        def b:int (this.selEnd())
+        this.apply((MdEdit.patch(source a b "")))
+    }
+
+    fn insertText:void (s:string) {
+        if ((strlen s) == 0) { return }
+        def a:int (this.selStart())
+        def b:int (this.selEnd())
+        def wasSelection:boolean (a != b)
+        def op:MdEditOp (MdEdit.patch(source a b s))
+        if wasSelection {
+            ; Replacing a selection is never the continuation of a word.
+            canMerge = false
+        }
+        this.apply(op)
+    }
+
+    fn backspace:void () {
+        if (this.hasSelection()) {
+            this.deleteSelection()
+            return
+        }
+        if (focus <= 0) { return }
+        ; One CHARACTER, not one UTF-16 unit — the whole reason
+        ; `OfficeCaretMotion` exists.
+        def from:int (OfficeCaretMotion.stepBack(source focus))
+        this.apply((MdEdit.patch(source from focus "")))
+    }
+
+    fn deleteForward:void () {
+        if (this.hasSelection()) {
+            this.deleteSelection()
+            return
+        }
+        def n:int (strlen source)
+        if (focus >= n) { return }
+        def to:int (OfficeCaretMotion.stepForward(source focus))
+        this.apply((MdEdit.patch(source focus to "")))
+    }
+
+    fn splitAtCaret:void () {
+        this.insertText("\n")
+    }
+
+    ; A paste is one undo however many lines it is, which is what
+    ; `OfficeHistory`'s transactions are for.
+    fn paste:void (s:string) {
+        if ((strlen s) == 0) { return }
+        this.beginAction()
+        this.insertText(s)
+        this.endAction()
+    }
+
+    ; A paste with both clipboard flavours. The HTML one is tried first: a
+    ; spreadsheet range copied in the Ranger DataGrid or in Excel carries a
+    ; real `<table>` there and tab-separated text in the other, and only one
+    ; of the two is a table when it lands. Falls back to the text when the
+    ; HTML held no table, which is most pastes.
+    ;
+    ; A pasted table needs blank lines around it or it joins the paragraph it
+    ; landed in, which is a table drawn as prose with pipes in it.
+    fn pasteRich:boolean (html:string text:string) {
+        def made:string ""
+        if ((strlen html) > 0) {
+            made = (MdSemanticEdit.tableFromHtml(html))
+        }
+        if ((strlen made) == 0) {
+            this.paste(text)
+            return false
+        }
+        def before:string "\n\n"
+        if (focus <= 0) { before = "" }
+        this.paste(((before + made) + "\n"))
+        return true
+    }
+
+    ; ----------------------------------------------------------------------
+    ; What the toolbar asks for
+    ; ----------------------------------------------------------------------
+    ;
+    ; Every one of these is `MdSemanticEdit` deciding a patch and this
+    ; applying it. They are transactions because a reader pressing Ctrl+B is
+    ; doing ONE thing however many characters the patch moves.
+    ;
+    ; `false` means nothing was done, and `refusal()` says whether that was
+    ; because there was nothing to do or because the answer was not defined.
+
+    fn refusal:string () {
+        return lastRefusal
+    }
+
+    fn intent:boolean (op:MdEditOp) {
+        if (op.isEmpty()) {
+            return false
+        }
+        this.beginAction()
+        this.apply(op)
+        this.endAction()
+        return true
+    }
+
+    ; "bold" | "italic" | "strike" | "code"
+    fn toggleWrap:boolean (what:string) {
+        this.ensureLayout()
+        def a:int (this.selStart())
+        def b:int (this.selEnd())
+        lastRefusal = (MdSemanticEdit.refusalFor(source doc what a b))
+        if ((strlen lastRefusal) > 0) { return false }
+        return (this.intent((MdSemanticEdit.toggleWrap(source doc what a b))))
+    }
+
+    fn toggleBold:boolean () {
+        return (this.toggleWrap("bold"))
+    }
+
+    fn toggleItalic:boolean () {
+        return (this.toggleWrap("italic"))
+    }
+
+    fn toggleCode:boolean () {
+        return (this.toggleWrap("code"))
+    }
+
+    fn toggleStrike:boolean () {
+        return (this.toggleWrap("strike"))
+    }
+
+    fn toggleLink:boolean (url:string) {
+        this.ensureLayout()
+        lastRefusal = ""
+        def op:MdEditOp (MdSemanticEdit.toggleLink(source doc (this.selStart()) (this.selEnd()) url))
+        if (op.isEmpty()) {
+            lastRefusal = "select the words the link should cover"
+            return false
+        }
+        return (this.intent(op))
+    }
+
+    ; 0 turns a heading back into a paragraph.
+    fn setHeading:boolean (level:int) {
+        this.ensureLayout()
+        lastRefusal = ""
+        def op:MdEditOp (MdSemanticEdit.setHeading(source doc focus level))
+        if (op.isEmpty()) {
+            lastRefusal = "put the caret in a paragraph or an ATX heading"
+            return false
+        }
+        return (this.intent(op))
+    }
+
+    ; "bullet" | "ordered" | "quote", over every line the selection touches.
+    fn toggleLinePrefix:boolean (what:string) {
+        this.ensureLayout()
+        lastRefusal = ""
+        def op:MdEditOp (MdSemanticEdit.toggleLinePrefix(source what (this.selStart()) (this.selEnd())))
+        if (op.isEmpty()) {
+            lastRefusal = "put the caret on a line with something on it"
+            return false
+        }
+        return (this.intent(op))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Undo
+    ; ----------------------------------------------------------------------
+
+    fn canUndo:boolean () {
+        return (history.canUndo())
+    }
+
+    fn canRedo:boolean () {
+        return (history.canRedo())
+    }
+
+    fn undo:void () {
+        if (! (history.canUndo())) { return }
+        def span:int (history.undoSpan())
+        suppressUndo = true
+        def k:int 0
+        def caretTo:int focus
+        while (k < span) {
+            def op:MdEditOp (history.peekUndo())
+            def back:MdEditOp (MdEdit.invert(op))
+            source = (MdEdit.applyTo(source back))
+            caretTo = op.caretBefore
+            history.moveUndoToRedo()
+            k = (k + 1)
+        }
+        suppressUndo = false
+        stale = true
+        canMerge = false
+        this.setCaret(caretTo)
+    }
+
+    fn redo:void () {
+        if (! (history.canRedo())) { return }
+        def span:int (history.redoSpan())
+        suppressUndo = true
+        def k:int 0
+        def caretTo:int focus
+        while (k < span) {
+            def op:MdEditOp (history.peekRedo())
+            source = (MdEdit.applyTo(source op))
+            caretTo = op.caretAfter
+            history.moveRedoToUndo()
+            k = (k + 1)
+        }
+        suppressUndo = false
+        stale = true
+        canMerge = false
+        this.setCaret(caretTo)
+    }
+}

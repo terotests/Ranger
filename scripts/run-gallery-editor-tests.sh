@@ -70,11 +70,41 @@ SUITES=(
   pptx:editor:host:test
   docx_viewer:test
   docx_viewer:app:test
+  # Markdown, which is about to stop being only a viewer. It appeared NOWHERE
+  # in this file or in ci.yml, so a change in gallery/office or gallery/evg
+  # could break it and nothing would say so — and it is about to start
+  # importing from both. Wired in BEFORE the first such import rather than
+  # after, which is the whole point of gallery/PLAN_EDITOR_KERNEL.md §5.
+  #
+  # `markdown:spec` is a ratchet rather than a suite: it scores the parser
+  # against CommonMark's own 652 examples and fails when a SECTION drops below
+  # what it passed last. Its pass marker says the floor held, not that every
+  # example passes — 651/652 is the score and the file it writes states it.
+  markdown:test
+  markdown:spec
+  markdown:srcmap:test
+  markdown:edit:test
+  markdown:semantic:test
+  # …and the same three properties over the specification's own 652 examples,
+  # ratcheted. A fixture file holds the cases the person who wrote the
+  # stamping thought of; the corpus holds one of everything that moves an
+  # offset.
+  markdown:srcmap:spec
+  markdown:web:test
   datagrid:test
   datagrid:edit:test
   office:history:test
+  # …and that the five editors actually reach those rules. Four instantiations
+  # prove the type-checker is happy; they do not prove one action is one undo
+  # in each, which is the item PLAN_EDITOR_KERNEL Stage C left open. It caught
+  # `pasteLines` on its first run.
+  office:history:editors:test
   office:text:test
   office:metrics:test
+  # …and that the shared metrics are still only arithmetic. Adding a renderer
+  # import back into gallery/office/text compiles and passes every suite
+  # above; this is the only thing that would notice.
+  office:metrics:closure
   office:font:test
   office:style:test
   office:bidi:test
@@ -84,6 +114,10 @@ SUITES=(
   office:color:test
   office:asset:test
   office:rtl:editors:test
+  # The caret, on the same terms: one grapheme rule and one word rule, driven
+  # through the real call site in four editors. The .docx one stepped by a
+  # UTF-16 unit and landed inside surrogate pairs until this existed.
+  office:caret:editors:test
   ui:test
   evg:trace:test
   # The toolbar's model, its metrics, and every outline in the icon catalogue.
