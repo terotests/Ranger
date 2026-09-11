@@ -130,57 +130,50 @@ the last one held:
 
 ```text
 -- last frame --
-scene      <the scene the shell is on>
-section    <home | calendar | dashboard | chat>
-commands   <how many draw commands the frame held>
-text runs  <how many of them were text>
+scene      app
+section    home
+commands   116
+text runs  20
 page       980 x 760
 stylesheet 0 error(s)
 face       Arial bound to the rasterizer
 ```
 
-Those are the fields, not a recorded run — no machine with SDL2 on it has run
-this yet, and printing numbers nobody measured is how a README starts lying.
-
-The shape is deliberately not "it did not crash": a host that loaded nothing and
+That is deliberately not "it did not crash": a host that loaded nothing and
 drew an empty window would also not crash. A scene name, a command count, a run
 count and a stylesheet that parsed are four numbers that cannot all be right by
 accident.
 
-## What has been verified, and the one thing in the way
+## What has been verified
 
-On this container, with SDL2 2.30 and mesa installed and no display:
+On this container, with SDL2 2.30 and mesa, and no display:
 
-* **Ranger → C++ compiles clean** — `-l=cpp`, ~25 s, 117 757 lines of C++.
+* **Ranger → C++**, clean — `-l=cpp`, ~26 s, 118 199 lines of C++.
+* **g++ → a 6.9 MB binary**, linked against SDL2 and libGL.
+* **It runs, and the numbers move with what it was asked to draw.** Thirty
+  frames under `SDL_VIDEODRIVER=dummy`, the report above. The desktop shell at
+  980×760 is 116 commands and 20 text runs; `--size 390x844` is 91 and 25,
+  which is the stylesheet folding the rail into a bottom bar; `--route
+  /calendar/cal-plan` is 144 and 34 with `section` reading `calendar`. Three
+  different pictures out of one binary, and the stylesheet parsed with no
+  errors in all three.
 * The date arithmetic was **extracted from the generated C++ and run**: seven
   dates including a leap day and a century boundary, all correct.
 
-`g++` then **does not build it**, and not because of anything in this
-directory:
+This needed a compiler fix to get to, and that fix is in this branch.
+`CreateUnions` in `compiler/ng_RangerCppClassWriter.rgr` named every class the
+program knows in the `r_union_Any` variant while the forward declarations came
+from `writeClass`, which runs only for classes the program emits — so one
+documentation-only class in `gallery/vela` that nothing calls was eliminated
+out of the declarations, left in the variant, and stopped RealTrainer from
+building for C++ **by any route**. A seven-line file importing `RtHost.rgr`
+reproduced it with no SDL in it. The union now declares what it names.
 
-```text
-rt_sdl.cpp:1146: error: 'VlChartExamples' was not declared in this scope
-```
-
-`VlChartExamples` is a documentation-only class of unused static examples in
-`gallery/vela/src/VlChart.rgr`. Nothing calls it, so the C++ writer emits
-neither its definition nor its forward declaration — and then names it anyway
-in the `r_union_Any` variant, which lists every class the program knows rather
-than every class it wrote. 420 classes are forward-declared; the variant has
-418 names, and exactly one of them was never declared.
-
-**It is not this host's bug.** A seven-line file that imports `RtHost.rgr`,
-constructs one and prints its scene name reproduces it exactly — no SDL, no
-painter, none of the code here. RealTrainer cannot be built for C++ today,
-by any host. The fix belongs in `compiler/ng_RangerCppClassWriter.rgr`
-(`CreateUnions` should declare what it names, which is legal for a
-`shared_ptr` of an incomplete type and harmless when repeated) and needs the
-compiler rebuilt, since `bin/output.js` is a baked bundle.
-
-So the link, the window and the picture are **unverified**, and will stay that
-way until that is fixed. The GL path itself is the DataGrid's, exercised by
-`npm run datagrid:sdl`; "RealTrainer draws correctly through it" is a claim no
-machine can make yet.
+What has **not** been verified is the picture. This container has no display
+and no compositor, so `dgfx_open` falls back and no window was ever painted;
+the GL path is the DataGrid's, exercised by `npm run datagrid:sdl`, but
+"RealTrainer draws correctly through it" is a claim this machine cannot make.
+Run it on a desktop and look.
 
 ## License
 
