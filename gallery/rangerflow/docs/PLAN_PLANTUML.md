@@ -1,7 +1,7 @@
 # PlantUML in RangerFlow — the plan
 
-Status: **phases 1, 2, 3 and 8 are built** · `?scenario=plantuml` in the web
-editor · `npm run rangerflow:plantuml` ·
+Status: **phases 1, 2, 3, half of 4, and 8 are built** · `?scenario=plantuml`
+in the web editor, redrawing as you type · `npm run rangerflow:plantuml` ·
 `npm run rangerflow:plantuml:parity` → **65/65 checks over 16 examples**,
 computed by PlantUML 1.2025.4 · the type sniff, the sequence grammar, the
 entity core (class, object, component, deployment, use case, ArchiMate) and the
@@ -363,11 +363,29 @@ shapes, `activate`/`deactivate`/`destroy`, `alt`/`else`/`opt`/`loop`/`par`/
 `-[#red]>` colours. On `fixtures/plantuml/` it agrees with PlantUML's own
 renderer participant for participant and message for message.
 
-**Phase 4 — state, activity, timing.** State reuses Phase 2's link grammar plus
-composite states, history `[H]`, forks, concurrent regions `--`. Activity is the
-beta grammar (`start`, `:action;`, `if/then/else/elseif`, `repeat`, `while`,
-`fork/fork again/end fork`, `split`, `partition`, `swimlane |Lane|`, `detach`)
-and maps onto the ISO 5807 shapes RangerFlow already draws.
+**Phase 4 — state, activity, timing.** **Activity is done**, and it went before
+state because somebody pasted a real one from `real-world-plantuml.com` into the
+editor and got told RangerFlow does not draw those yet. The beta grammar —
+`start`, `:action;` over as many lines as it likes, `if/then/elseif/else/endif`,
+`while/endwhile`, `repeat`/`repeat while`, `fork`/`fork again`/`end fork`,
+`split`, `partition { }`, `|swimlanes|`, `-> label;`, `detach` — read into
+`ActivityDiagram`, which already had every shape it needs.
+
+The reader carries two pieces of state and needs no more: the open ends the next
+statement joins to, and a stack of the structures still open. That is what makes
+an `endif` with two live branches converge on the next statement without a merge
+node being written anywhere, and what makes an `if` with no `else` leave the
+diamond itself open.
+
+One thing the real file taught: **a page is a fixed size and a diagram is not.**
+Squeezed onto a landscape sheet, a 2254-unit-tall activity diagram scaled to
+0.35, 13-point type became 4.5, and `FlowView.paintShapeLabel` — which gives up
+below five points, rightly, because four-point type is a smudge — dropped every
+label. The export was a page of empty boxes. `writeAll` now measures first and
+grows the sheet to the drawing when the words would not survive the page.
+
+Still open here: state, timing, and swimlanes as columns rather than as a
+recorded name.
 
 **Phase 5 — the preprocessor and Creole.** Variables, `!define`/`!definelong`,
 `!if`/`!ifdef`/`!else`/`!endif`, `!while`, `!procedure`/`!function`/`!return`,

@@ -36,6 +36,7 @@ Import "../domains/mermaid/MermaidGanttReader.rgr"
 Import "../domains/mermaid/MermaidSequenceReader.rgr"
 Import "../domains/plantuml/PlantUmlSequenceReader.rgr"
 Import "../domains/plantuml/PlantUmlEntityReader.rgr"
+Import "../domains/plantuml/PlantUmlActivityReader.rgr"
 Import "../domains/mermaid/MermaidGitReader.rgr"
 Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
@@ -675,6 +676,42 @@ class RangerFlowWeb {
         sourceFormat = name
     }
 
+    ; A re-render while the reader is still typing.
+    ;
+    ; Two things make this different from pressing `render`, and both of them
+    ; are about not punishing somebody for being mid-word.
+    ;
+    ; **The camera stays.** `adopt` builds a new editor, so every render starts
+    ; the viewport at the origin. Fitting on each keystroke would yank the page
+    ; out from under a reader who had zoomed into one corner; putting the pan
+    ; and zoom back afterwards means the diagram changes under a still camera.
+    ; The exception is the first drawing, which has nowhere to stay: with
+    ; nothing on screen yet there is no view to preserve, so that one fits.
+    ;
+    ; **A source that parses to nothing changes nothing.** Half of `A --> B` is
+    ; not a diagram, and every reader already refuses one rather than adopting
+    ; an empty graph — so the last good drawing stays up and the status line
+    ; says why it did not move. A canvas that blanks between two keystrokes is
+    ; worse than one that is a second out of date.
+    fn liveRender:boolean (text:string styleName:string) {
+        def hadNodes:boolean ((graph.nodeCount()) > 0)
+        def keepX:double editor.view.viewport.x
+        def keepY:double editor.view.viewport.y
+        def keepZoom:double editor.view.viewport.zoom
+        def ok:boolean (this.loadDiagram(text styleName))
+        if (ok == false) {
+            return false
+        }
+        if (hadNodes == false) {
+            this.fitView()
+            return true
+        }
+        editor.view.viewport.x = keepX
+        editor.view.viewport.y = keepY
+        editor.view.viewport.zoom = keepZoom
+        return true
+    }
+
     ; ------------------------------------------------------------- PlantUML --
     ; `@startuml` says nothing about which diagram this is, so the reader looks
     ; at the body and decides. Three of the families it can name are drawn; the
@@ -694,8 +731,42 @@ class RangerFlowWeb {
         if (doc.kind == "description") {
             return (this.loadPlantUmlEntity(text styleName want "component diagram"))
         }
+        if (doc.kind == "activity") {
+            return (this.loadPlantUmlActivity(text styleName want))
+        }
         status = ("RangerFlow reads a PlantUML " + doc.kind + " diagram but does not draw one yet")
         return false
+    }
+
+    ; The activity diagram: nested in the source, a graph on the page.
+    fn loadPlantUmlActivity:boolean (text:string styleName:string want:string) {
+        def d:PlantUmlActivity (PlantUmlActivityReader.parse(text))
+        if ((d.nodeCount()) == 0) {
+            status = "nothing happens in that activity diagram"
+            return false
+        }
+        sourceText = text
+        sourceStyle = styleName
+        sourceFormat = "plantuml"
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (PlantUmlActivityFlow.build(d style))
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "layered"
+        simRunning = false
+        editor.pinWhileDragging = false
+        style.applyToTheme(editor.view.theme)
+        if (want == "dark") {
+            editor.view.theme.name = "dark"
+        } {
+            editor.view.theme.name = "light"
+        }
+        def what:string d.title
+        if ((strlen what) == 0) {
+            what = "PlantUML activity diagram"
+        }
+        status = ((to_string (d.nodeCount())) + " nodes, " + (to_string (d.flowCount())) + " flows, " + (to_string (d.groupCount())) + " partitions — " + what + ", " + want)
+        return true
     }
 
     ; A sequence diagram: who across the page, when down it. Placed rather than
@@ -1590,6 +1661,7 @@ class RangerFlowWeb {
             ; something should open on something that moves.
             def p:string "class\tclass diagram"
             p = (p + "|sequence\tsequence diagram")
+            p = (p + "|activity\tactivity diagram")
             p = (p + "|component\tcomponent diagram")
             p = (p + "|usecase\tuse case diagram")
             p = (p + "|deployment\tdeployment diagram")
@@ -1788,6 +1860,9 @@ class RangerFlowWeb {
         if (name == "sequence") {
             return (RangerFlowWeb.plantUmlSequenceSample())
         }
+        if (name == "activity") {
+            return (RangerFlowWeb.plantUmlActivitySample())
+        }
         if (name == "object") {
             def t5:string "@startuml\n"
             t5 = (t5 + "object tilaus1 {\n")
@@ -1809,6 +1884,41 @@ class RangerFlowWeb {
     ; the textarea and the drawing agree before anybody touches anything.
     sfn samplePlantUml:string () {
         return (RangerFlowWeb.plantUmlSample("class"))
+    }
+
+    ; An activity diagram with everything nested in it: a partition, a
+    ; condition with a label on each way out, and actions that run over two
+    ; lines because somebody wrote them that way.
+    sfn plantUmlActivitySample:string () {
+        def t:string "@startuml\n"
+        t = (t + "start\n")
+        t = (t + ":Vastaanota tilaus;\n")
+        t = (t + ":Lue tilausrivit\n")
+        t = (t + "ja tarkista saldot;\n")
+        t = (t + "partition varaus {\n")
+        t = (t + ":Varaa tuotteet;\n")
+        t = (t + ":Päivitä saldot;\n")
+        t = (t + "}\n")
+        t = (t + "if (luotto kunnossa?) then\n")
+        t = (t + "-> kyllä;\n")
+        t = (t + ":Veloita maksu;\n")
+        t = (t + ":Muodosta lasku;\n")
+        t = (t + "else\n")
+        t = (t + "-> ei;\n")
+        t = (t + ":Ilmoita hylkäys;\n")
+        t = (t + "endif\n")
+        t = (t + "while (rivejä jäljellä?) is (kyllä)\n")
+        t = (t + ":Kerää rivi;\n")
+        t = (t + "endwhile (ei)\n")
+        t = (t + "fork\n")
+        t = (t + ":Lähetä vahvistus;\n")
+        t = (t + "fork again\n")
+        t = (t + ":Kirjaa tapahtuma;\n")
+        t = (t + "end fork\n")
+        t = (t + ":Toimita tilaus;\n")
+        t = (t + "stop\n")
+        t = (t + "@enduml\n")
+        return t
     }
 
     ; The diagram the request that started this work was written in.
@@ -2325,6 +2435,46 @@ class RangerFlowWeb {
         }
         report = (report + "select-all ok; ")
         graph.clearSelection()
+
+        ; Live rendering, on the two scenarios that have a source to type in.
+        ; `sourceText` is empty for every other one, which is what decides it —
+        ; the test does not need to be told which scenario it is running in.
+        if ((strlen sourceText) > 0) {
+            def keepSrc:string sourceText
+            def keepLook:string sourceStyle
+            def before:int (graph.nodeCount())
+            def zoomWas:double editor.view.viewport.zoom
+            def panWas:double editor.view.viewport.x
+            ; Half-typed is not a diagram. Every reader refuses an empty one
+            ; rather than adopting it, so the drawing on screen has to survive.
+            def blanked:boolean (this.liveRender("" keepLook))
+            if blanked {
+                simRunning = wasRunning
+                return "FAIL an empty source rendered as a diagram"
+            }
+            if ((graph.nodeCount()) != before) {
+                simRunning = wasRunning
+                return "FAIL an unreadable source threw the drawing away"
+            }
+            ; And a good one redraws without moving the camera.
+            def again:boolean (this.liveRender(keepSrc keepLook))
+            if (again == false) {
+                simRunning = wasRunning
+                return "FAIL the source that just drew would not draw again"
+            }
+            def zoomDrift:double (fabs (editor.view.viewport.zoom - zoomWas))
+            def panDrift:double (fabs (editor.view.viewport.x - panWas))
+            if (zoomDrift > 0.0001) {
+                simRunning = wasRunning
+                return "FAIL a live render moved the zoom"
+            }
+            if (panDrift > 0.0001) {
+                simRunning = wasRunning
+                return "FAIL a live render moved the view"
+            }
+            report = (report + "live ok; ")
+            graph.clearSelection()
+        }
 
         ; The toolbar, driven the way the buttons drive it. A palette that
         ; adds a node nobody can find, or a connect mode that makes no edge, is
