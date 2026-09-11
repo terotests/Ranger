@@ -121,6 +121,10 @@ class MarkdownEdit {
         layout.style = (new MdStyle())
         sheet.applyTo(layout.style)
         sheetUnsupported = (sheet.unsupportedCount())
+        ; …and the same sheet to the LAYOUT, which asks it a different
+        ; question: not how the document is set, but what it says about each
+        ; block's own `{.classes}` — which is what columns are.
+        layout.setStyleSheet(styleCss)
         layout.applyMeta(doc)
         if ((strlen pageSize) > 0) {
             def pw:double layout.style.pageWidth
@@ -143,7 +147,12 @@ class MarkdownEdit {
         diagrams = (layout.embeds.count())
         layout.setDocSource(source)
         if (sheetGap >= 0.0) {
-            layout.layoutPaged(doc)
+            if slideMode {
+                layout.applySlideMeta(doc)
+                layout.layoutSlides(doc)
+            } {
+                layout.layoutPaged(doc)
+            }
         } {
             layout.armCache(doc)
             layout.layoutContinuous(doc viewWidth)
@@ -159,6 +168,8 @@ class MarkdownWeb {
     ; is the reader asking rather than the author. Empty means the document
     ; decides.
     def wantPageSize:string ""
+    ; "continuous" | "paged" | "slides".
+    def mode:string "continuous"
     def docList:EVGDisplayList (new EVGDisplayList())
     ; Where `docList` currently sits. The list is moved to the scroll position
     ; rather than copied there: `appendFrom` shares its commands, so a copy
@@ -248,8 +259,39 @@ class MarkdownWeb {
     }
 
     fn setPaged:void (v:boolean) {
-        paged = v
+        if v {
+            this.setMode("paged")
+        } {
+            this.setMode("continuous")
+        }
+    }
+
+    ; The three ways the same document is laid out: scrolled, printed, or
+    ; presented. `PLAN_SLIDES.md`'s claim is that the last of those is a
+    ; LAYOUT POLICY and not a conversion, and this is where that shows: one
+    ; document, one tree, three calls into the same layout.
+    fn setMode:void (name:string) {
+        mode = name
+        paged = ((name == "paged") || (name == "slides"))
+        edit.slideMode = (name == "slides")
         this.rebuild()
+    }
+
+    fn currentMode:string () {
+        return mode
+    }
+
+    ; How many blocks a slide had to be cut in half for, and what the deck
+    ; said should happen when one is. Nothing else prints this, and a deck
+    ; that silently loses the third bullet is worse than one that says so.
+    fn slideReport:string () {
+        if (! edit.slideMode) { return "" }
+        def n:int edit.layout.slideOverflows
+        def out:string ((("split-level " + (to_string edit.layout.splitLevel)) + ", overflow ") + edit.layout.slideOverflow)
+        if (n > 0) {
+            out = ((out + " — ") + (to_string n)) + " blocks cut across slides"
+        }
+        return out
     }
 
     ; The company template. One string, because that is what survives the JS
@@ -785,10 +827,29 @@ class MarkdownWeb {
         if (!null? measurer) {
             print.setMeasurer((unwrap measurer))
         }
+        ; The same three things in the same order the canvas does them, and
+        ; for the same reason: a PDF that is not the page the reader was
+        ; looking at is not a preview of anything. `PLAN_SLIDES.md` Stage C
+        ; asks for exactly this — the same document prints the same columns
+        ; as the canvas draws.
+        print.style = (new MdStyle())
+        edit.sheet.applyTo(print.style)
+        print.setStyleSheet(edit.styleCss)
         print.applyMeta(edit.doc)
+        if ((strlen wantPageSize) > 0) {
+            def pw:double print.style.pageWidth
+            def ph:double print.style.pageHeight
+            print.style.pageWidth = (MdFrontMatter.pageW(wantPageSize pw ph))
+            print.style.pageHeight = (MdFrontMatter.pageH(wantPageSize ph pw))
+        }
         def cw:double (print.style.pageWidth - (print.style.margin * 2.0))
         MdDiagram.prepare(edit.doc print.embeds cw styleName)
-        print.layoutPaged(edit.doc)
+        if edit.slideMode {
+            print.applySlideMeta(edit.doc)
+            print.layoutSlides(edit.doc)
+        } {
+            print.layoutPaged(edit.doc)
+        }
         def root:EVGElement (MdToEvg.buildPrint(print))
         def renderer (new EVGPDFRenderer())
         renderer.init(renderer)

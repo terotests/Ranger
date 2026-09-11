@@ -96,10 +96,32 @@ each property lands in `MdStyle`, and **which ones this layout cannot honour**,
 which are named and counted rather than dropped in a silence that reads as
 "applied".
 
-Where it stops today: the document-level style is resolved, and a block's own
-`{.lead}` is parsed, carried and resolvable but not yet drawn — that is Stage C
-of [`PLAN_SLIDES.md`](PLAN_SLIDES.md), along with columns, the slides tab and
-the `.pptx` itself.
+`{.c3}` on a list is columns, and they are columns on the canvas and in the
+PDF both — the block is laid out once at one column's width and the boxes are
+then cut into columns, in document order DOWN each one, so a bullet is never
+split across two.
+
+And the third layout mode: **slides**. A deck is a layout policy here, not a
+conversion — one document, one tree, three calls into the same layout:
+
+```
+  continuous   scrolled, one column as tall as it needs
+  paged        sheets of a stated size, what the PDF prints
+  slides       the same sheets, with the breaks a deck wants
+```
+
+Where a slide breaks, in this order: an explicit `{.slide}` or a heading at or
+above `split-level`; never on a `{.no-break}`; otherwise any heading once the
+slide is more than half full; and overflow last, which is what pagination
+already did. Plus the one constraint that makes an automatic deck look
+hand-made — **a heading is never the last thing on a slide.** A block too tall
+for one slide is cut, the continuation repeats the title, and the count is
+printed rather than hidden.
+
+Where it stops today: the `.pptx` file itself. The slides tab shows the deck
+so the split rules can be tuned by watching it reflow; `MdToPptx` — heading to
+title placeholder, list to a text body PowerPoint can reflow, table to a real
+table — is Stage E of [`PLAN_SLIDES.md`](PLAN_SLIDES.md).
 
 
 **651 of 652** CommonMark 0.31.2 examples, compared as exact strings against
@@ -173,6 +195,7 @@ src/
   MdCodeHighlight.rgr  a small lexer, fourteen languages, five colours
   MdFrontMatter.rgr    the YAML subset a metadata block actually uses
   MdAttrs.rgr       `{.class #id key=value}` — Goldmark's block attributes
+  MdStyle.rgr       the values a stylesheet sets, in one place
   MdCss.rgr         a stylesheet over the document, through gallery/css
   MdEmbedKinds.rgr  which fence words name a drawing — no imports, read by both
   MdDiagram.rgr     the diagram handler — the only file that knows RangerFlow

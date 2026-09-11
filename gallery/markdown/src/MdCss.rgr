@@ -56,7 +56,7 @@
 ; ============================================================================
 
 Import "MdNode.rgr"
-Import "MdLayout.rgr"
+Import "MdStyle.rgr"
 Import "../../css/CssCore.rgr"
 
 class MdCss {
@@ -78,6 +78,14 @@ class MdCss {
 
     fn addStyleSheet:void (css:string) {
         sheet.parse(css)
+        ; The deck rules are read here rather than in `applyTo`, because they
+        ; are not about how a page LOOKS and a caller that only wants the
+        ; slide rules should not have to resolve a style to get them.
+        this.readDeck()
+    }
+
+    fn readDeck:void () {
+        this.deck((this.forTag("deck")))
     }
 
     fn errorCount:int () {

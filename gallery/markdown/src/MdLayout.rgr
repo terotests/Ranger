@@ -34,197 +34,18 @@
 ; ============================================================================
 
 Import "MdNode.rgr"
+Import "MdStyle.rgr"
 Import "MdChar.rgr"
 Import "MdEmbed.rgr"
 Import "MdCodeHighlight.rgr"
 Import "MdFrontMatter.rgr"
+Import "MdCss.rgr"
 Import "../../evg/EVGTextEngine.rgr"
 
 ; ----------------------------------------------------------------------------
 ; What the document looks like. Not a stylesheet yet — the values a stylesheet
 ; will set, in one place, so the layout never has a number written into it.
 ; ----------------------------------------------------------------------------
-class MdStyle {
-    def bodyFamily:string "Open Sans"
-    ; There is no monospace face in `gallery/pdf_writer/assets/fonts`, so
-    ; code is set in the sans face that is there. It is measured and painted
-    ; with the same one, which is what keeps the geometry honest; it is not
-    ; monospaced, which is a missing asset and not a layout decision.
-    def monoFamily:string "Noto Sans"
-    def headingFamily:string "Open Sans"
-
-    def bodySize:double 11.0
-    def lineHeight:double 1.45
-    def paraSpacing:double 9.0
-
-    def h1Size:double 24.0
-    def h2Size:double 19.0
-    def h3Size:double 15.5
-    def h4Size:double 13.0
-    def h5Size:double 11.5
-    def h6Size:double 11.0
-    def headingSpaceBefore:double 16.0
-    def headingSpaceAfter:double 7.0
-
-    def codeSize:double 9.5
-    def codeLineHeight:double 1.42
-    def codePadding:double 9.0
-    def codeBackground:string "#f6f8fa"
-    def codeBorder:string "#e2e6ea"
-    ; The five colours a listing is read with. Not a theme yet — the values a
-    ; stylesheet will set, in one place.
-    def codeKeyword:string "#cf222e"
-    def codeString:string "#0a3069"
-    def codeComment:string "#6e7781"
-    def codeNumber:string "#0550ae"
-    def codePlain:string "#1f2328"
-    def highlightCode:boolean true
-
-    def textColor:string "#1f2328"
-    def mutedColor:string "#57606a"
-    def linkColor:string "#0969da"
-    def ruleColor:string "#d8dee4"
-
-    def quoteBarColor:string "#d0d7de"
-    def quoteBarWidth:double 3.0
-    def quoteIndent:double 16.0
-    ; The space inside the bar, above the first line and below the last.
-    ;
-    ; Without it the bar began exactly at the top of the first line's box and
-    ; ended exactly where the next block started — flush against the text at
-    ; one end and dangling past it at the other, because what it was measuring
-    ; at the bottom was the last paragraph's trailing space rather than the
-    ; paragraph. A quote is a block with an inside; this is the inside.
-    def quotePadY:double 6.0
-    ; Quoted text is set in the muted colour, which is what every markdown
-    ; style does and what says "this is somebody else's sentence" without a
-    ; box around it. A link, a code span or a heading inside the quote keeps
-    ; its own colour: this is the colour of ordinary text in there, not a wash
-    ; over everything.
-    def quoteColor:string "#57606a"
-
-    def listIndent:double 22.0
-    def markerGap:double 8.0
-    ; What separates two items of a TIGHT list — one with no blank line
-    ; between its items.
-    ;
-    ; CommonMark's whole definition of tightness is that such an item's text
-    ; is not a paragraph, and a paragraph's spacing is what was being charged:
-    ; a five-item shopping list was set with the same air between the items as
-    ; between two paragraphs of prose, which is what a LOOSE list is for. The
-    ; distinction is in the parser, was on the node, and only the two extra
-    ; points a loose list adds were ever read.
-    def listTightSpacing:double 3.0
-
-    def tableBorder:string "#d0d7de"
-    def tableHeadBackground:string "#f6f8fa"
-    def cellPadX:double 7.0
-    def cellPadY:double 5.0
-
-    def pageWidth:double 595.28
-    def pageHeight:double 841.89
-    def margin:double 56.0
-
-    ; Page furniture. All off by default: a document that said nothing about
-    ; itself gets a plain page, which is what a README wants.
-    def title:string ""
-    ; "" | "title" | "h1"
-    def runningHead:string ""
-    ; "" | "bottom-center" | "bottom-right" | "bottom-outer"
-    def pageNumbers:string ""
-    def wantToc:boolean false
-    def breakOnH1:boolean false
-    def furnitureSize:double 8.5
-
-    ; An embedded diagram that is wider than the column is scaled down to it,
-    ; never up: a three-node flowchart should not become a poster.
-    def embedSpacing:double 12.0
-
-    Constructor () {
-    }
-
-    ; Every field of this style, as one string.
-    ;
-    ; Two uses, and they are the same question asked twice. The LAYOUT CACHE
-    ; keys a block's boxes under the source that made them — and under this,
-    ; because the same source set 4pt larger is different boxes. Without it,
-    ; switching the company template redrew a paragraph at the new size on
-    ; the positions measured at the old one, and the second half of a wrapped
-    ; line sat on top of the first. `MdCssTest` reads it too, to ask whether
-    ; a sheet changed anything it should not have.
-    ;
-    ; Colours are in it as well as sizes. They do not move a box, but they
-    ; are ON one — a template that changes only the link colour must not
-    ; replay the last one's.
-    ;
-    ; **A field added above and not added here is a field the cache cannot
-    ; see.** That is the cost of the list, and it is why the test compares
-    ; whole fingerprints rather than the three fields somebody remembered.
-    fn fingerprint:string () {
-        def out:string ""
-        out = ((((out + "body ") + bodyFamily) + "/") + (to_string bodySize))
-        out = ((((out + "/") + (to_string lineHeight)) + "/") + (to_string paraSpacing))
-        out = ((((out + " head ") + headingFamily) + "/") + (to_string h1Size))
-        out = ((((out + "/") + (to_string h2Size)) + "/") + (to_string h3Size))
-        out = ((((out + "/") + (to_string h4Size)) + "/") + (to_string h5Size))
-        out = ((((out + "/") + (to_string h6Size)) + "/") + (to_string headingSpaceBefore))
-        out = ((out + "/") + (to_string headingSpaceAfter))
-        out = ((((out + " code ") + monoFamily) + "/") + (to_string codeSize))
-        out = ((((out + "/") + (to_string codeLineHeight)) + "/") + (to_string codePadding))
-        out = ((((out + "/") + codeBackground) + "/") + codeBorder)
-        out = ((((out + "/") + codeKeyword) + "/") + codeString)
-        out = ((((out + "/") + codeComment) + "/") + codeNumber)
-        out = ((out + "/") + codePlain)
-        if highlightCode { out = (out + "/hi") }
-        out = ((((out + " ink ") + textColor) + "/") + mutedColor)
-        out = ((((out + "/") + linkColor) + "/") + ruleColor)
-        out = ((((out + " quote ") + quoteColor) + "/") + quoteBarColor)
-        out = ((((out + "/") + (to_string quoteBarWidth)) + "/") + (to_string quoteIndent))
-        out = ((out + "/") + (to_string quotePadY))
-        out = ((((out + " list ") + (to_string listIndent)) + "/") + (to_string markerGap))
-        out = ((out + "/") + (to_string listTightSpacing))
-        out = ((((out + " table ") + tableBorder) + "/") + tableHeadBackground)
-        out = ((((out + "/") + (to_string cellPadX)) + "/") + (to_string cellPadY))
-        out = ((((out + " page ") + (to_string pageWidth)) + "/") + (to_string pageHeight))
-        out = ((out + "/") + (to_string margin))
-        out = ((((out + " furniture ") + title) + "/") + runningHead)
-        out = ((out + "/") + pageNumbers)
-        if wantToc { out = (out + "/toc") }
-        if breakOnH1 { out = (out + "/h1") }
-        out = ((out + "/") + (to_string furnitureSize))
-        out = ((out + " embed ") + (to_string embedSpacing))
-        return out
-    }
-
-    ; The colour a token of that kind is set in.
-    fn codeColor:string (kind:int) {
-        if (kind == 1) { return codeKeyword }
-        if (kind == 2) { return codeString }
-        if (kind == 3) { return codeComment }
-        if (kind == 4) { return codeNumber }
-        return codePlain
-    }
-
-    fn headingSize:double (level:int) {
-        if (level == 1) { return h1Size }
-        if (level == 2) { return h2Size }
-        if (level == 3) { return h3Size }
-        if (level == 4) { return h4Size }
-        if (level == 5) { return h5Size }
-        return h6Size
-    }
-
-    ; The face, by the convention the font manager and the measurer share:
-    ; the weight is a `-Bold` suffix and the slant is part of the family name.
-    fn faceFor:string (family:string bold:boolean italic:boolean) {
-        if (bold && italic) { return (family + "-BoldItalic") }
-        if italic { return (family + "-Italic") }
-        if bold { return (family + "-Bold") }
-        return family
-    }
-}
-
-; One piece of inline text with one look.
 class MdRun {
     def text:string ""
     def family:string ""
@@ -469,6 +290,53 @@ class MdLayout {
     ; in the key — so switching the company template replayed boxes measured
     ; at the previous font size and drew the new one on top of them.
     def cacheStyleKey:string ""
+
+    ; ----------------------------------------------------------------------
+    ; The company template
+    ; ----------------------------------------------------------------------
+    ;
+    ; Two questions, and they are different. `MdCss.applyTo(style)` answered
+    ; the first one — how is the DOCUMENT set — before this layout began, and
+    ; the answer is in `style` above. This is the second: what does the sheet
+    ; say about THIS BLOCK, given its `{.classes}` and its `{#id}`.
+    ;
+    ; Only the layout can ask it, because only the layout is walking the
+    ; blocks. It is asked once per block and the answer is thrown away, which
+    ; is why the sheet is held here rather than resolved into the tree: the
+    ; AST says what the document IS and must not learn what it looks like.
+    def sheet:MdCss (new MdCss())
+    def sheetText:string ""
+
+    ; ----------------------------------------------------------------------
+    ; Slides
+    ; ----------------------------------------------------------------------
+    ;
+    ; A slide is a page with rules about where it breaks. `PLAN_SLIDES.md` §4,
+    ; in this order, and the order is the whole design:
+    ;
+    ;   1  MANDATORY   `{.slide}`, or a heading at or above `splitLevel`
+    ;   2  FORBIDDEN   `{.no-break}`
+    ;   3  PREFERRED   any other heading, if the slide is more than half full
+    ;   4  FALLBACK    overflow — which is what pagination already does
+    ;
+    ; …and one constraint that is not a break rule and is the thing that makes
+    ; an automatic deck look hand-made: KEEP-WITH-NEXT, a heading is never the
+    ; last thing on a slide.
+    def slides:boolean false
+    ; `#` only, at 1. `2` means `#` and `##` each start a slide.
+    def splitLevel:int 1
+    ; "split" | "shrink" | "clip" — what a slide too full of one block does.
+    ; Only `split` is honoured; the other two are carried and reported, which
+    ; is the rule the rest of the template binding is written to.
+    def slideOverflow:string "split"
+    ; How many times a BLOCK had to be cut across two slides. Printed rather
+    ; than hidden: `book_slides.rgr` set that precedent, and a deck that
+    ; silently drops the third bullet is worse than one that says it did.
+    def slideOverflows:int 0
+    ; The title of the slide being laid out, repeated at the top of a
+    ; continuation slide so a reader knows what they are still looking at.
+    def slideTitle:string ""
+    def slideTitleLevel:int 0
     def engine:EVGTextEngine (new EVGTextEngine())
     def boxes:[MdBox]
 
@@ -567,9 +435,28 @@ class MdLayout {
     }
 
     ; One page, as tall as it needs to be. What the canvas scrolls.
-    ; Boxes measured with another style are boxes of another document.
+    ; The template, as text. Parsed once here rather than on every layout.
+    ; The DOCUMENT-level properties are applied by the caller, before this —
+    ; see `MarkdownEdit.ensureLayout` for the order and why it is that order.
+    fn setStyleSheet:void (css:string) {
+        sheetText = css
+        sheet = (new MdCss())
+        sheet.addStyleSheet(css)
+        this.dropCache()
+    }
+
+    ; What the sheet says about one block. Empty when there is no sheet,
+    ; which is the common case and costs one selector match.
+    fn styleOf:CssComputed (node:MdNode) {
+        return (sheet.resolve(node))
+    }
+
+    ; Boxes measured with another style are boxes of another document — and
+    ; the sheet is part of the style, because a `{.c3}` a sheet gives three
+    ; columns to is different boxes from the same list under a sheet that
+    ; does not.
     fn checkStyle:void () {
-        def key:string (style.fingerprint())
+        def key:string ((style.fingerprint()) + sheetText)
         if (key != cacheStyleKey) {
             this.dropCache()
             cacheStyleKey = key
@@ -595,6 +482,34 @@ class MdLayout {
         cursorY = contentTop
         this.layoutBody(doc)
         documentHeight = (cursorY + style.margin)
+    }
+
+    ; The same sheets, with the breaks a DECK wants rather than the ones a
+    ; document wants. Everything below `bodyPass` is `layoutPaged`'s; what is
+    ; different is `slideBreakBefore`, which is asked between blocks.
+    fn layoutSlides:void (doc:MdNode) {
+        slides = true
+        slideOverflows = 0
+        slideTitle = ""
+        slideTitleLevel = 0
+        this.layoutPaged(doc)
+        slides = false
+    }
+
+    ; What the document and the template said about where a slide starts. The
+    ; document wins, because it is closer to the deck than the company is.
+    fn applySlideMeta:void (doc:MdNode) {
+        if ((sheet.splitLevel) > 0) { splitLevel = sheet.splitLevel }
+        if ((strlen sheet.overflow) > 0) { slideOverflow = sheet.overflow }
+        def meta:MdMeta (MdFrontMatter.of(doc))
+        if (meta.has("slide-split-level")) {
+            def n@(optional):int (str2int (trim (meta.get("slide-split-level" "1"))))
+            def lvl:int (?? n 1)
+            if (lvl > 0) { splitLevel = lvl }
+        }
+        if (meta.has("slide-overflow")) {
+            slideOverflow = (MdChar.lower((trim (meta.get("slide-overflow" "split")))))
+        }
     }
 
     ; Sheets of a stated size, with the breaks decided here. What is printed.
@@ -1031,6 +946,22 @@ class MdLayout {
         def n:int (doc.childCount())
         while (i < n) {
             def child:MdNode (doc.childAt(i))
+            if slides {
+                if (this.slideBreakBefore(child i)) {
+                    this.nextSlide()
+                }
+                this.keepWithNext(child i n doc)
+                if (child.kind == "heading") {
+                    if (child.level <= splitLevel) {
+                        ; `plainText`, not `literal`: a heading's literal is
+                        ; gone by the time the inline parser has finished with
+                        ; it — it became the text nodes underneath — so the
+                        ; continuation slide carried an empty title.
+                        slideTitle = (child.plainText())
+                        slideTitleLevel = child.level
+                    }
+                }
+            }
             this.blockCached(child docSource contentX contentW)
             if (! placed) {
                 ; After the title, which is where a reader looks for it; at
@@ -1050,6 +981,70 @@ class MdLayout {
             }
             i = (i + 1)
         }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; …and the four rules, in order
+    ; ----------------------------------------------------------------------
+    fn slideBreakBefore:boolean (child:MdNode i:int) {
+        ; Never before the first block, and never on a slide with nothing on
+        ; it yet — a rule that fires twice in a row leaves a blank slide.
+        if (i == 0) { return false }
+        if ((cursorY - contentTop) < 0.5) { return false }
+        ; 2. FORBIDDEN beats 1. MANDATORY. An author who wrote `{.no-break}`
+        ; on a heading meant it, and the alternative is a flag that does
+        ; nothing whenever it would matter.
+        if (child.hasClass("no-break")) { return false }
+        ; 1. MANDATORY
+        if (child.hasClass("slide")) { return true }
+        if (child.kind == "heading") {
+            if (child.level <= splitLevel) { return true }
+            ; 3. PREFERRED — any other heading, once the slide is more than
+            ; half full. Below half, a second heading is a subheading of what
+            ; is already there and belongs with it.
+            def used:double (cursorY - contentTop)
+            def room:double (contentBottom - contentTop)
+            if (used > (room * 0.5)) { return true }
+        }
+        return false
+    }
+
+    ; KEEP-WITH-NEXT. A heading with nothing under it is the one thing that
+    ; makes an automatic deck look automatic, so the heading moves rather than
+    ; the paragraph. It is asked for the PAIR: the heading's own height plus
+    ; one line of whatever follows.
+    fn keepWithNext:void (child:MdNode i:int n:int doc:MdNode) {
+        if (child.kind != "heading") { return }
+        if ((i + 1) >= n) { return }
+        def size:double (style.headingSize(child.level))
+        def need:double (((style.headingSpaceBefore + (size * style.lineHeight)) + style.headingSpaceAfter) + (style.bodySize * style.lineHeight))
+        if ((cursorY + need) > contentBottom) {
+            if ((cursorY - contentTop) > 0.5) {
+                this.nextSlide()
+            }
+        }
+    }
+
+    fn nextSlide:void () {
+        page = (page + 1)
+        pageCount = (page + 1)
+        cursorY = contentTop
+    }
+
+    ; The title again, at the top of a slide a block spilled onto. Emitted
+    ; here rather than through `blockInner`, because there is no node for it:
+    ; it is the same heading, said twice.
+    fn emitSlideTitle:void () {
+        if ((strlen slideTitle) == 0) { return }
+        def size:double (style.headingSize(slideTitleLevel))
+        def h:double (size * style.lineHeight)
+        def b:MdBox (MdBox.text((slideTitle + " (jatkuu)") contentX cursorY contentW h))
+        b.family = style.headingFamily
+        b.size = size
+        b.bold = true
+        b.color = style.mutedColor
+        this.emit(b)
+        cursorY = ((cursorY + h) + style.headingSpaceAfter)
     }
 
     sfn countHeadings:int (doc:MdNode) {
@@ -1080,6 +1075,14 @@ class MdLayout {
                 page = (page + 1)
                 pageCount = (page + 1)
                 cursorY = contentTop
+                ; A block that did not fit is a block cut in half, and on a
+                ; deck that is worth saying out loud — and worth repeating the
+                ; title for, so a reader of the second half knows what it is
+                ; the second half of.
+                if slides {
+                    slideOverflows = (slideOverflows + 1)
+                    this.emitSlideTitle()
+                }
             }
         }
         return cursorY
@@ -1147,7 +1150,241 @@ class MdLayout {
         currentSrc = outerSrc
     }
 
+    ; ----------------------------------------------------------------------
+    ; Columns
+    ; ----------------------------------------------------------------------
+    ;
+    ; ```md
+    ; - Verkkokauppa kasvoi 18 %
+    ; - Jälleenmyynti pysyi ennallaan
+    ; - Lisenssit laskivat 4 %
+    ; {.c3}
+    ; ```
+    ;
+    ; A block the sheet gives `column-count` to is laid out ONCE at the width
+    ; of one column, and the boxes that came out are then cut into columns and
+    ; moved. Laying each column out separately would be the obvious thing and
+    ; it is wrong twice over: a list's marker width is measured across the
+    ; whole list, and an item that wrapped differently in a narrower pass
+    ; would change the balance it was being balanced by.
+    ;
+    ; **The unit is the ITEM, not the line.** `PLAN_SLIDES.md` Stage C: in
+    ; document order DOWN each column, and the columns differ by at most one
+    ; item. A line-level flow reads better in a newspaper and is unreadable in
+    ; a deck, where a bullet split across two columns is a bullet nobody can
+    ; follow.
+    ;
+    ; Which boxes belong to which item is read off the boxes themselves: each
+    ; carries the source offset of the block it came from. A box whose offset
+    ; is inside no item — a list's own bullet marker is emitted by the list,
+    ; not by the item — joins the group before it, which is where it was
+    ; drawn.
+    fn columnCount:int (node:MdNode) {
+        if ((strlen sheetText) == 0) { return 1 }
+        if (! (MdLayout.canColumn(node.kind))) { return 1 }
+        def got:CssComputed (this.styleOf(node))
+        if (! (got.has("column-count"))) { return 1 }
+        def n@(optional):int (str2int (CssSheet.tidy((got.get("column-count")))))
+        def cols:int (?? n 1)
+        if (cols < 2) { return 1 }
+        if (cols > 8) { return 8 }
+        return cols
+    }
+
+    ; Only a block whose children are themselves blocks. A paragraph in three
+    ; columns would be a line flow and is a different feature; saying so is
+    ; better than cutting a sentence into thirds by accident.
+    sfn canColumn:boolean (kind:string) {
+        if (kind == "list") { return true }
+        if (kind == "block_quote") { return true }
+        return false
+    }
+
+    fn columnGap:double (node:MdNode) {
+        def got:CssComputed (this.styleOf(node))
+        if (! (got.has("column-gap"))) { return 18.0 }
+        return (CssValue.fontPoints((got.get("column-gap")) 18.0))
+    }
+
+    fn columnFlow:void (node:MdNode x:double w:double cols:int gap:double) {
+        def colW:double ((w - (gap * (int2double (cols - 1)))) / (int2double cols))
+        if (colW < 24.0) {
+            this.blockPlain(node x w)
+            return
+        }
+        def from:int (array_length boxes)
+        def top:double cursorY
+        def h:double (this.columnPass(node x colW cols gap top from))
+        ; In a paginated layout a block cut into columns is cut as a whole, so
+        ; it either fits where it is or starts a sheet of its own. It cannot
+        ; be asked to fit before it has been laid out, so it is laid out, and
+        ; laid out again from the top of the next sheet when it does not.
+        if paginate {
+            if ((top + h) > contentBottom) {
+                if ((contentTop + h) <= contentBottom) {
+                    this.truncate(from)
+                    page = (page + 1)
+                    pageCount = (page + 1)
+                    top = contentTop
+                    h = (this.columnPass(node x colW cols gap top from))
+                }
+            }
+        }
+        cursorY = (top + h)
+    }
+
+    fn truncate:void (n:int) {
+        while ((array_length boxes) > n) {
+            removeLast boxes
+        }
+    }
+
+    ; Lay the block out at one column's width from `top`, then move the groups
+    ; into columns. Returns the height the columns take.
+    fn columnPass:double (node:MdNode x:double colW:double cols:int gap:double top:double from:int) {
+        def wasPaginate:boolean paginate
+        paginate = false
+        cursorY = top
+        this.blockPlain(node x colW)
+        paginate = wasPaginate
+        def to:int (array_length boxes)
+        if (to <= from) { return 0.0 }
+
+        ; Which item each box belongs to.
+        def owner:[int]
+        def kids:int (node.childCount())
+        def i:int from
+        def last:int 0
+        while (i < to) {
+            def b:MdBox (itemAt boxes i)
+            ; A list's own bullet carries the LIST's source offset, and a
+            ; list starts where its first item does — so asking the spans
+            ; alone puts every marker in the first item's group and leaves
+            ; the bullets behind in column one while their text moves. The
+            ; groups are emitted in order, so a box may never belong to an
+            ; earlier one than the box before it.
+            def g:int (MdLayout.itemOf(node kids b.srcStart))
+            if (g < last) { g = last }
+            push owner g
+            last = g
+            i = (i + 1)
+        }
+        ; …and where each group sits.
+        def gTop:[double]
+        def gBot:[double]
+        def gSeen:[boolean]
+        def k:int 0
+        while (k < kids) {
+            push gTop 0.0
+            push gBot 0.0
+            push gSeen false
+            k = (k + 1)
+        }
+        i = from
+        while (i < to) {
+            def b2:MdBox (itemAt boxes i)
+            def g2:int (itemAt owner (i - from))
+            if (g2 < kids) {
+                if (itemAt gSeen g2) {
+                    if (b2.y < (itemAt gTop g2)) { set_at gTop g2 b2.y }
+                    if ((b2.y + b2.h) > (itemAt gBot g2)) { set_at gBot g2 (b2.y + b2.h) }
+                } {
+                    set_at gSeen g2 true
+                    set_at gTop g2 b2.y
+                    set_at gBot g2 (b2.y + b2.h)
+                }
+            }
+            i = (i + 1)
+        }
+
+        ; The split: document order down each column, and at most one item
+        ; between the longest column and the shortest.
+        def base:int (idiv kids cols)
+        def extra:int (kids - (base * cols))
+        def colOf:[int]
+        def firstOf:[int]
+        def c:int 0
+        def at:int 0
+        while (c < cols) {
+            def take:int base
+            if (c < extra) { take = (take + 1) }
+            push firstOf at
+            def t:int 0
+            while (t < take) {
+                push colOf c
+                at = (at + 1)
+                t = (t + 1)
+            }
+            c = (c + 1)
+        }
+        while ((array_length colOf) < kids) {
+            push colOf (cols - 1)
+        }
+
+        ; Move them.
+        def dy:[double]
+        c = 0
+        while (c < cols) {
+            def firstIdx:int (itemAt firstOf c)
+            def shift:double 0.0
+            if (firstIdx < kids) {
+                if (itemAt gSeen firstIdx) {
+                    shift = (top - (itemAt gTop firstIdx))
+                }
+            }
+            push dy shift
+            c = (c + 1)
+        }
+        i = from
+        while (i < to) {
+            def b3:MdBox (itemAt boxes i)
+            def g3:int (itemAt owner (i - from))
+            if (g3 >= kids) { g3 = (kids - 1) }
+            if (g3 < 0) { g3 = 0 }
+            def col:int (itemAt colOf g3)
+            b3.x = (b3.x + ((int2double col) * (colW + gap)))
+            b3.y = (b3.y + (itemAt dy col))
+            i = (i + 1)
+        }
+
+        ; The tallest column is the block's height.
+        def h:double 0.0
+        def g4:int 0
+        while (g4 < kids) {
+            if (itemAt gSeen g4) {
+                def col2:int (itemAt colOf g4)
+                def bot:double (((itemAt gBot g4) + (itemAt dy col2)) - top)
+                if (bot > h) { h = bot }
+            }
+            g4 = (g4 + 1)
+        }
+        return h
+    }
+
+    ; The direct child whose source span holds `off`, or -1.
+    sfn itemOf:int (node:MdNode kids:int off:int) {
+        if (off < 0) { return -1 }
+        def i:int 0
+        while (i < kids) {
+            def k:MdNode (node.childAt(i))
+            if (k.srcStart >= 0) {
+                if ((k.srcStart <= off) && (off < k.srcEnd)) { return i }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
     fn blockInner:void (node:MdNode x:double w:double) {
+        def cols:int (this.columnCount(node))
+        if (cols > 1) {
+            this.columnFlow(node x w cols (this.columnGap(node)))
+            return
+        }
+        this.blockPlain(node x w)
+    }
+
+    fn blockPlain:void (node:MdNode x:double w:double) {
         def kind:string node.kind
         if (kind == "paragraph") {
             def runs:[MdRun] (this.inlineRuns(node (this.baseRun())))

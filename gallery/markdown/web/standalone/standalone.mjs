@@ -466,7 +466,7 @@ keyCatcher.addEventListener("blur", () => {
 // three are one control because they are one question — "where am I" and
 // "take me there" are the same widget in every reader.
 function refreshPagebar() {
-  const on = modeEl.value === "paged";
+  const on = modeEl.value === "paged" || modeEl.value === "slides";
   pagebarEl.classList.toggle("on", on);
   shapeEl.disabled = !on;
   if (!on) return;
@@ -589,13 +589,17 @@ async function useTheme(key) {
 themeEl.addEventListener("change", () => useTheme(themeEl.value));
 
 modeEl.addEventListener("change", () => {
-  const paged = modeEl.value === "paged";
-  if (paged) app.setPageSize(shapeEl.value);
-  app.setPaged(paged);
+  // Three modes, one document. `slides` is `paged` with the break rules a
+  // deck wants — same tree, same layout, a different policy — so the sheet
+  // controls stay live for it.
+  const name = modeEl.value === "scroll" ? "continuous" : modeEl.value;
+  if (name !== "continuous") app.setPageSize(shapeEl.value);
+  app.setMode(name);
   app.scrollTo(0);
   needsPaint = true;
   refreshPagebar();
-  showStatus();
+  const note = app.slideReport();
+  showStatus(note || undefined);
 });
 
 async function load(text) {
@@ -696,10 +700,10 @@ async function start() {
   // keystroke does — there is no demo-only path into the document — so a
   // picture taken this way is a picture of the editor rather than of a mock.
   if (q.has("demo")) {
-    if (q.get("demo") === "paged") {
-      modeEl.value = "paged";
+    if (q.get("demo") === "paged" || q.get("demo") === "slides") {
+      modeEl.value = q.get("demo");
       app.setPageSize(q.get("size") || "a4");
-      app.setPaged(true);
+      app.setMode(q.get("demo") === "slides" ? "slides" : "paged");
       app.scrollTo(0);
       refreshPagebar();
       needsPaint = true;
@@ -995,6 +999,49 @@ function selftest() {
   const paged = JSON.parse(app.frame()).list.cmds.length;
   say("paged redraws", paged > 0, paged + " commands");
   app.setPaged(false);
+
+  // …and slides, which is the third call into the same layout: one document,
+  // one tree, a different break policy. The claim of `PLAN_SLIDES.md` is that
+  // a deck is a layout POLICY and not a conversion, so what is checked is
+  // that the words are the same words and only the sheet count changed.
+  {
+    // The document as the APP has it, not as the source pane shows it: by
+    // this point the test has typed a link into it, and restoring the pane's
+    // text would throw that away — which it did, and the PDF's link
+    // annotations went to zero three checks later.
+    const kept = app.sourceText();
+    const words = () =>
+      JSON.parse(app.frame()).list.cmds.filter((c) => c.k === 3).map((c) => c.text).join("|");
+    app.setSource(selftestDeck || "# One\n\na\n\n## Two\n\nb\n\n## Three\n\nc\n");
+    app.setStyleSheet(selftestTheme || "deck { split-level: 2 }");
+    app.setMode("paged");
+    const pagedSheets = app.pdfPageCount();
+    const pagedWords = words();
+    app.setMode("slides");
+    say("the tab switches", app.currentMode() === "slides", app.currentMode());
+    say("and a deck has more sheets than a document", app.pdfPageCount() > pagedSheets,
+        pagedSheets + " pages → " + app.pdfPageCount() + " slides");
+    say("…of the same words", words().split("|").sort().join("|") === pagedWords.split("|").sort().join("|"));
+    say("…and it says how it split them", app.slideReport().length > 0, app.slideReport());
+
+    // The PDF is built from a second layout, in the tab, so "the same
+    // document prints the same columns as the canvas draws" is a claim that
+    // can be false — and was, until the print layout was given the same
+    // sheet and the same mode. The sheet count is what says so cheaply.
+    try {
+      const buf = app.pdf();
+      const bytes = new Uint8Array(buf instanceof ArrayBuffer ? buf : buf.buffer || buf);
+      const text = new TextDecoder("latin1").decode(bytes);
+      const pages = (text.match(/\/Type\s*\/Page[^s]/g) || []).length;
+      say("the PDF has the slides the canvas has", pages === app.pdfPageCount(),
+          pages + " in the file, " + app.pdfPageCount() + " on the canvas");
+    } catch (e) {
+      say("a deck can be printed", false, String(e));
+    }
+    app.setMode("continuous");
+    app.setStyleSheet("");
+    app.setSource(kept);
+  }
 
   // A PDF, built in the tab, with the faces embedded and the right page count.
   try {

@@ -344,12 +344,6 @@ is the check: a refactor that changes a number is not a refactor.
 
 ### Stage C — columns
 
-> **Not started.** `MdCss.resolve(node)` already answers "what does the sheet
-> say about THIS block" — the question `{.lead}` and `{.c3}` ask — and
-> `markdown:css:test` holds it. What is missing is the layout CONSUMING that
-> answer, which is this stage: a document with `{.lead}` on a paragraph parses
-> it, carries it and resolves it today, and draws it at the body size.
-
 `column-count` / `column-gap` over a block's boxes. A list of nine items in
 three columns, which is the example this plan started from.
 
@@ -357,6 +351,31 @@ three columns, which is the example this plan started from.
 heights differ by at most one item, and the same document prints the same
 columns to PDF as the canvas draws. A column flow that only works on screen is
 a column flow that will be wrong in the deck.
+
+> **Done.** The block is laid out ONCE at one column's width and the boxes are
+> then cut into columns and moved — laying each column out separately would
+> re-measure a list's marker width per column and change the balance it was
+> being balanced by. The unit is the ITEM: a bullet split across two columns
+> is a bullet nobody can follow.
+>
+> Two things that are not obvious and are written down where they are done.
+> Which boxes belong to which item is read off the boxes' own source offsets,
+> and a list's BULLET carries the list's offset rather than the item's — and a
+> list starts where its first item does, so asking the spans alone put every
+> marker in the first item's group and left the bullets behind in column one.
+> The groups are emitted in order, so the rule is that a box may never belong
+> to an earlier group than the box before it. And a columned block in a
+> paginated layout is cut as a whole: it cannot be asked to fit before it has
+> been laid out, so it is laid out, and laid out again from the top of the
+> next sheet when it does not.
+>
+> Columns are for a block whose children are blocks — a list or a quote.
+> `{.c3}` on a paragraph is a line flow, which is a different feature; it
+> stays one column rather than thirding a sentence.
+>
+> `MarkdownWeb.pdf` builds its own layout, so it is now given the same sheet,
+> the same page size and the same mode. That was the half of this stage's
+> "done when" that could silently be false.
 
 ### Stage D — `layoutSlides`, and the tab
 
@@ -373,6 +392,28 @@ serialization is Stage E.
 to exercise them — a heading that must break, one that must not, one kept with
 its first paragraph, and a slide that overflows — and `markdown:web:test`
 switches the tab in a browser and sees the command count change.
+
+> **Done.** `layoutSlides` is `layoutPaged` with `slideBreakBefore` asked
+> between blocks, and the rules are in §4's order — FORBIDDEN beats MANDATORY,
+> because an author who wrote `{.no-break}` on a heading meant it and a flag
+> that does nothing whenever it would matter is worse than no flag.
+>
+> KEEP-WITH-NEXT is asked for the PAIR: a heading's own height plus one line
+> of whatever follows. The check counts the noun — slides whose lowest box is
+> a heading — because a rule that fires on the wrong block still produces the
+> right number of slides.
+>
+> Overflow is `split` and the count is printed, per the plan; `shrink` and
+> `clip` are carried and named rather than silently treated as the default. A
+> continuation slide repeats its title, which needed `plainText` rather than
+> `literal` — a heading's literal is gone by the time the inline parser has
+> finished with it.
+>
+> `setPaged(boolean)` became `setMode("continuous" | "paged" | "slides")`, the
+> page has the third option, and the live page's own selftest switches it and
+> checks that the words are the same words and only the sheet count changed —
+> which is the claim this whole plan opens with. 33 assertions in
+> `markdown:slides:test`, five in the browser.
 
 ### Stage E — `MdToPptx`, the native road
 

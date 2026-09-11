@@ -26,6 +26,7 @@
 
 Import "../src/MdCss.rgr"
 Import "../src/MdBlock.rgr"
+Import "../src/MdLayout.rgr"
 
 class CssCheck {
     def passed:int 0

@@ -51,6 +51,9 @@ class MdEditController {
     ; Below zero for one continuous column, which is what a viewer scrolls.
     def viewWidth:double 900.0
     def sheetGap:double (0.0 - 1.0)
+    ; …and whether those sheets are SLIDES, which is the same pagination with
+    ; the break rules a deck wants. See `MdLayout.layoutSlides`.
+    def slideMode:boolean false
 
     ; anchor is where the selection was started, focus where the caret is.
     def anchor:int 0
@@ -123,7 +126,12 @@ class MdEditController {
         ; so a keystroke re-measures one block and copies the rest.
         layout.setDocSource(source)
         if (sheetGap >= 0.0) {
-            layout.layoutPaged(doc)
+            if slideMode {
+                layout.applySlideMeta(doc)
+                layout.layoutSlides(doc)
+            } {
+                layout.layoutPaged(doc)
+            }
         } {
             layout.armCache(doc)
             layout.layoutContinuous(doc viewWidth)

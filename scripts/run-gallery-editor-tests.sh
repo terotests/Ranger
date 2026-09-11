@@ -85,6 +85,7 @@ SUITES=(
   markdown:srcmap:test
   markdown:attrs:test
   markdown:css:test
+  markdown:slides:test
   markdown:edit:test
   markdown:semantic:test
   # …and the same three properties over the specification's own 652 examples,
