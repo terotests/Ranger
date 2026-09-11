@@ -325,7 +325,7 @@ A board of 3,565 nodes, panned. Measured on this file, per frame:
 
 | | before | after |
 | --- | --- | --- |
-| build the display list | 1,702 ms | 581 ms |
+| build the display list | 1,702 ms | 125 ms |
 | hand the frame to the page | 5,630 ms | 180 ms |
 
 **The frame crosses as typed arrays.** `EVGDisplayList.toBinary()` — three
@@ -349,9 +349,17 @@ rather than building a second tree and laying it out.
 points, so the walk parses and flattens every path — and a page of text
 drawn as glyph outlines is thousands of them. The result depends on the
 path and on the box it is drawn in, neither of which a pan changes, so
-`EVGElement` keeps it (`ringsCache`) and re-flattens when either changes.
-That is the 966 → 581 ms above, and it is the engine's own gain: any EVG
-page with vectors redraws for less.
+`EVGElement` keeps it (`ringsCache`) and re-flattens when either changes:
+966 → 581 ms.
+
+**And a curve is flattened for the size it is DRAWN at.** The subdivision
+was chosen from the layout box, and a transform is exactly the difference
+between that box and the pixels: this board at 10% was cutting every glyph
+into the 48 segments a curve 640 layout pixels wide deserves, to draw it
+five pixels long. The scale of the transforms a subtree is under is
+carried down the walk (`drawScale`), so the count follows the pixels —
+581 → 125 ms, and finer, not coarser, when you zoom in. Both of these are
+the engine's own gain: any EVG page with vectors redraws for less.
 
 ## When the page looks wrong and nothing is reported
 

@@ -124,8 +124,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   them. What comes out depends on the path and on the box it is drawn in,
   and a pan changes neither: a transform moves the pixels after the boxes are
   placed. `EVGElement.ringsCache` keeps it and re-flattens when either
-  changes, which takes a pan of that board from 966 ms to 581. Every EVG page
-  with vectors on it redraws for less.
+  changes, which takes a pan of that board from 966 ms to 581.
+
+- **A curve is flattened for the size it is drawn at, not the size it was
+  laid out at.** A transform is exactly the difference between the two, and
+  on a canvas that zooms it is a large one: a Figma board at 10% was cutting
+  every glyph into the 48 segments a curve 640 layout pixels wide deserves,
+  in order to draw it five pixels long. The scale of the transforms a subtree
+  is under is carried down the walk now, so the subdivision follows the
+  pixels — 581 ms to 125 on that pan, and finer rather than coarser when you
+  zoom in. With the cache above, every EVG page with vectors on it redraws
+  for less.
 
 - **The viewer stopped rebuilding what a pan does not change.** The EVG tree
   and its layout are the same from one frame of a pan to the next — only the

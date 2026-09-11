@@ -974,10 +974,18 @@ class EVGDisplayList {
     ; Subdivision chosen from the size it is drawn at, as every other target
     ; does: a large shape must not show facets, a small one must not pay for
     ; detail no pixel can show.
+    ;
+    ; DRAWN at, not laid out at. A transform is the difference between the
+    ; two, and on a canvas that zooms it is a large one: a Figma board at
+    ; 10% was flattening every glyph in it into the 48 segments a curve
+    ; 640 layout pixels wide deserves, to draw it five pixels long. The
+    ; scale of the transforms this subtree is under is carried down in
+    ; `drawScale` — see `walk` — so the count follows the pixels.
     fn flattenSteps:int (w:double h:double) {
-        def span:double w
-        if (h > span) {
-            span = h
+        def span:double (w * drawScale)
+        def tall:double (h * drawScale)
+        if (tall > span) {
+            span = tall
         }
         def steps:int (to_int (span / 6.0))
         if (steps < 4) {
@@ -1848,6 +1856,9 @@ class EVGDisplayList {
     ; The clip in force, and whether there is one. Not a stack: the rectangle
     ; is intersected on the way down and restored on the way back up, which is
     ; the stack, held in the recursion.
+    ; How much bigger or smaller than its layout box this subtree will be
+    ; drawn, from the transforms above it. One on a page that does not zoom.
+    def drawScale:double 1.0
     def cullOn:boolean false
     def cullLeft:double 0.0
     def cullTop:double 0.0
@@ -1912,6 +1923,7 @@ class EVGDisplayList {
         fragHits = 0
         fragMisses = 0
         cullOn = false
+        drawScale = 1.0
         effectKind = ""
         def noX:[double]
         def noY:[double]
@@ -2221,12 +2233,21 @@ class EVGDisplayList {
         if keeping {
             cullOn = false
         }
-        if cullOn {
-            if (el.hasTransform()) {
+        def hadScale:double drawScale
+        if (el.hasTransform()) {
+            def sc:double el.scale
+            if (sc < 0.0) {
+                sc = (0.0 - sc)
+            }
+            if (sc > 0.0) {
+                drawScale = (drawScale * sc)
+            }
+            if cullOn {
                 this.cullThroughTransform(el)
             }
         }
         this.walkOpaque(el)
+        drawScale = hadScale
         cullOn = hadCull
         cullLeft = hadCullL
         cullTop = hadCullT
