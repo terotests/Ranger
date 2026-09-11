@@ -302,6 +302,14 @@ the awkward ones: an attribute line that is really a paragraph (`{not an
 attribute}`), one after a fenced block, one inside a list item, and one at the
 end of a document.
 
+> **Done.** `MdAttrs.rgr` reads the grammar, `MdNode` carries
+> `classes` / `nodeId` / `attrKeys` / `attrVals`, and `MdBlock.startAttributes`
+> is a block start that INTERRUPTS a paragraph — which is what makes `{.c .c3}`
+> under a list attach to the list rather than become the last words of the last
+> item. `foldAttributes` moves it onto the block above and grows that block's
+> span to cover the line, so the layout cache notices when a class is edited.
+> 55 assertions; both ratchets unmoved.
+
 ### Stage B — `MdCss`, and `MdStyle` resolved from a sheet
 
 The binding described in §5. `MdStyle`'s fields stop being assigned from front
@@ -312,7 +320,35 @@ today's numbers — so a document with no stylesheet lays out byte-identically.
 list as before, with the default sheet doing the work the constants did. That
 is the check: a refactor that changes a number is not a refactor.
 
+> **Done, with one deliberate difference.** `MdStyle`'s field initialisers are
+> still the defaults — there is no default sheet — and `MdCss` only ever
+> overwrites what a sheet NAMES. The identity claim is then structural rather
+> than measured, and `MdCssTest` asks it the same way regardless: a styled
+> `MdStyle` fingerprinted against a fresh one, whole strings, not three fields
+> somebody remembered.
+>
+> Two spellings differ from the sketch above and both are recorded in
+> `MdCss.rgr`'s header. `page { }` and `deck { }` are element selectors, not
+> `@page` / `@deck`: `CssCore` deliberately refuses at-rules — it records them
+> as "not read here" so a consumer cannot silently apply what is inside one —
+> and teaching it otherwise would change what `PptxCss` and EVG see. And
+> `heading { }` carries the family and margins the six levels share, because
+> there is one `headingSpaceBefore` and a per-level `margin-top` is a property
+> this layout cannot honour.
+>
+> It found a bug rather than causing one: the layout's per-block cache keyed a
+> block's boxes under its source alone, so switching the template replayed
+> boxes measured under the previous one. `MdStyle.fingerprint` is now the
+> other half of that key, and the same string is what `MdCssTest` compares.
+> 50 assertions.
+
 ### Stage C — columns
+
+> **Not started.** `MdCss.resolve(node)` already answers "what does the sheet
+> say about THIS block" — the question `{.lead}` and `{.c3}` ask — and
+> `markdown:css:test` holds it. What is missing is the layout CONSUMING that
+> answer, which is this stage: a document with `{.lead}` on a paragraph parses
+> it, carries it and resolves it today, and draws it at the body size.
 
 `column-count` / `column-gap` over a block's boxes. A list of nine items in
 three columns, which is the example this plan started from.

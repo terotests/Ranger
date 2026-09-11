@@ -105,6 +105,10 @@ done
 # and fences containing fences.
 cp gallery/markdown/fixtures/mermaid.md "$OUT/samples/mermaid.md"
 cp gallery/markdown/fixtures/diagrams.md "$OUT/samples/diagrams.md"
+cp gallery/markdown/fixtures/deck.md "$OUT/samples/deck.md"
+mkdir -p "$OUT/themes"
+cp gallery/markdown/fixtures/themes/corporate.css "$OUT/themes/corporate.css"
+cp gallery/markdown/fixtures/themes/editorial.css "$OUT/themes/editorial.css"
 cp gallery/markdown/fixtures/sample.md "$OUT/samples/sample.md"
 cp README.md "$OUT/samples/README.md"
 

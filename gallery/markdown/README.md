@@ -64,8 +64,43 @@ Typing into this repository's 63 KB README costs **10 ms**, because the
 layout remembers per block — the design and the numbers are in
 [`PLAN_WYSIWYG.md`](PLAN_WYSIWYG.md) §6.
 
-And the same document as a deck — Goldmark block attributes, a stylesheet per
-company, a `.pptx` tab — is planned in [`PLAN_SLIDES.md`](PLAN_SLIDES.md).
+## A template is a stylesheet
+
+`{.class #id key=value}` — Goldmark's block attributes, which is the syntax a
+Hugo site is already written in — parse into the AST, and a stylesheet decides
+what they mean:
+
+```md
+- Verkkokauppa kasvoi 18 %
+- Jälleenmyynti pysyi ennallaan
+- Lisenssit laskivat 4 %
+{.c3}
+```
+
+```css
+page      { width: 13.333in; height: 7.5in; padding: 0.7in }
+document  { font-family: Open Sans; font-size: 15pt; line-height: 1.4 }
+h1        { font-size: 40pt }
+heading   { font-family: Open Sans; margin-top: 26pt }
+.c3       { column-count: 3; column-gap: 28pt }
+```
+
+Two companies are two files, and the same markdown previews as either without
+being touched — `fixtures/themes/corporate.css` and `editorial.css` are the
+two, and the page's template dropdown switches between them.
+
+`MdCss` is the third binding of [`gallery/css`](../css/CssCore.rgr)'s cascade,
+after `PptxCss` and EVG's own — not a third engine. `CssCore` matches the
+selectors and ranks them; `MdCss` says which element names markdown has, where
+each property lands in `MdStyle`, and **which ones this layout cannot honour**,
+which are named and counted rather than dropped in a silence that reads as
+"applied".
+
+Where it stops today: the document-level style is resolved, and a block's own
+`{.lead}` is parsed, carried and resolvable but not yet drawn — that is Stage C
+of [`PLAN_SLIDES.md`](PLAN_SLIDES.md), along with columns, the slides tab and
+the `.pptx` itself.
+
 
 **651 of 652** CommonMark 0.31.2 examples, compared as exact strings against
 the HTML the specification prints for each one —
@@ -137,6 +172,8 @@ src/
   MdEmbed.rgr       the slot a fenced diagram fills, keyed by source and width
   MdCodeHighlight.rgr  a small lexer, fourteen languages, five colours
   MdFrontMatter.rgr    the YAML subset a metadata block actually uses
+  MdAttrs.rgr       `{.class #id key=value}` — Goldmark's block attributes
+  MdCss.rgr         a stylesheet over the document, through gallery/css
   MdEmbedKinds.rgr  which fence words name a drawing — no imports, read by both
   MdDiagram.rgr     the diagram handler — the only file that knows RangerFlow
   md_demo.rgr       the only file that touches a disk

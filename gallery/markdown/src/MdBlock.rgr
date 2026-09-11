@@ -35,6 +35,7 @@ Import "MdNode.rgr"
 Import "MdChar.rgr"
 Import "MdInline.rgr"
 Import "MdEmbedKinds.rgr"
+Import "MdAttrs.rgr"
 
 class MdBlock {
     def doc:MdNode (MdNode.create("document"))
@@ -123,6 +124,7 @@ class MdBlock {
             guard = (guard + 1)
             if (guard > 100000) { depth = 0 }
         }
+        MdBlock.foldAttributes(doc)
         this.processInlines(doc doc 0)
         return doc
     }
@@ -560,6 +562,11 @@ class MdBlock {
     ; The first character of anything that can start a block. Purely a
     ; shortcut: a line of ordinary prose never gets as far as the starts.
     sfn maybeSpecial:boolean (c:int) {
+        ; `{` opens a Goldmark attribute block. It is the only character here
+        ; that CommonMark has no block meaning for at all, and that is the
+        ; whole risk: `startAttributes` refuses everything that is not exactly
+        ; one, so a paragraph beginning with a brace stays a paragraph.
+        if (c == 123) { return true }
         if (c == 35) { return true }
         if (c == 96) { return true }
         if (c == 126) { return true }
@@ -609,6 +616,7 @@ class MdBlock {
         if (kind == "list") { return 0 }
         if (kind == "document") { return 0 }
         if (kind == "heading") { return 1 }
+        if (kind == "attrs") { return 1 }
         if (kind == "thematic_break") { return 1 }
         if (kind == "table") { return 1 }
         if (kind == "front_matter") { return 1 }
@@ -676,7 +684,9 @@ class MdBlock {
     ; New blocks.  0 nothing, 1 a container opened, 2 a leaf opened
     ; ----------------------------------------------------------------------
     fn tryStarts:int () {
-        def r:int (this.startBlockQuote())
+        def r:int (this.startAttributes())
+        if (r != 0) { return r }
+        r = (this.startBlockQuote())
         if (r != 0) { return r }
         r = (this.startAtxHeading())
         if (r != 0) { return r }
@@ -693,6 +703,39 @@ class MdBlock {
         r = (this.startIndentedCode())
         if (r != 0) { return r }
         return 0
+    }
+
+    ; A line that is nothing but `{.c .c3}`.
+    ;
+    ; It is tried FIRST and it interrupts a paragraph, which is what makes
+    ;
+    ;     - Item 3
+    ;     {.c .c3}
+    ;
+    ; attach to the LIST rather than become the last word of the last item.
+    ; Goldmark's attribute parser can interrupt a paragraph for exactly this
+    ; reason, and a block start is tried before a lazy continuation here, so
+    ; the same line behaves the same way.
+    ;
+    ; The node it makes is folded into the block above it — see
+    ; `foldAttributes` — and only ever survives as a paragraph, which is what
+    ; an attribute block with nothing above it is.
+    fn startAttributes:int () {
+        if indented { return 0 }
+        def c:int (this.charAtOffset(nextNonspace))
+        if (c != 123) { return 0 }
+        def n:int (strlen line)
+        def rest:string (substring line nextNonspace n)
+        if (! (MdAttrs.isBlock(rest))) { return 0 }
+        this.closeUnmatchedBlocks()
+        def a:MdNode (this.addChild("attrs" nextNonspace))
+        a.literal = rest
+        a.clearMap()
+        a.addMapPiece(0 (lineStart + nextNonspace) (strlen rest))
+        a.rawLen = (strlen rest)
+        MdAttrs.applyTo(a rest)
+        this.advanceOffset((n - offset) false)
+        return 2
     }
 
     fn startBlockQuote:int () {
@@ -1320,6 +1363,73 @@ class MdBlock {
             node.srcEnd = mapEnd
         }
         removeLast stack
+    }
+
+    ; ----------------------------------------------------------------------
+    ; …and where an attribute block ends up
+    ; ----------------------------------------------------------------------
+    ;
+    ; `{.c .c3}` describes the block ABOVE it, so the node the parser made for
+    ; the line is emptied into that block and removed. Two things follow from
+    ; the fold rather than from the parse, and both matter:
+    ;
+    ;   * The attributed block's span grows to cover the attribute line. It is
+    ;     part of that block's source now, which is what makes the layout's
+    ;     per-block cache notice when somebody edits the classes — the cache
+    ;     is keyed by the exact source a block was built from.
+    ;
+    ;   * An attribute block with nothing above it becomes a PARAGRAPH. The
+    ;     text was in the file and a reader should see it; §8.2 of the plan is
+    ;     the rule — anything not supported is left as literal text rather
+    ;     than guessed at or quietly dropped.
+    ;
+    ; A heading carries its own on the same line, which is the other spelling
+    ; Goldmark accepts, and that is trimmed off `literal` here for the same
+    ; reason: the drawn heading is the heading's text.
+    sfn foldAttributes:void (n:MdNode) {
+        if (n.kind == "heading") {
+            MdBlock.stripHeadingAttrs(n)
+        }
+        def kept:[MdNode]
+        def i:int 0
+        def cnt:int (n.childCount())
+        while (i < cnt) {
+            def k:MdNode (n.childAt(i))
+            def taken:boolean false
+            if (k.kind == "attrs") {
+                def have:int (array_length kept)
+                if (have > 0) {
+                    def prev:MdNode (itemAt kept (have - 1))
+                    prev.takeAttrsFrom(k)
+                    if (k.srcEnd > prev.srcEnd) { prev.srcEnd = k.srcEnd }
+                    taken = true
+                } {
+                    k.kind = "paragraph"
+                }
+            }
+            if (! taken) { push kept k }
+            i = (i + 1)
+        }
+        n.children = kept
+        def j:int 0
+        while (j < (array_length kept)) {
+            MdBlock.foldAttributes((itemAt kept j))
+            j = (j + 1)
+        }
+    }
+
+    sfn stripHeadingAttrs:void (n:MdNode) {
+        def at:int (MdAttrs.trailingAt(n.literal))
+        if (at < 0) { return }
+        def tail:string (substring n.literal at (strlen n.literal))
+        if (! (MdAttrs.applyTo(n tail))) { return }
+        def cut:int at
+        while (cut > 0) {
+            if (! (MdAttrs.isSpaceCode((charAt n.literal (cut - 1))))) { break }
+            cut = (cut - 1)
+        }
+        n.literal = (substring n.literal 0 cut)
+        n.shiftMap(0 cut)
     }
 
     ; The info strings that name a drawing rather than a language. The list

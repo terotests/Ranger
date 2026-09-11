@@ -1,0 +1,37 @@
+/* ---------------------------------------------------------------------------
+   corporate.css — one company's markdown, on paper and on a slide.
+
+   Everything a template can say lives here, so the same document set beside
+   `editorial.css` differs in every measurement and not in a word of content.
+   The selectors are markdown's own element names; see `MdCss.rgr` for the
+   list and for which properties this layout can honour.
+   --------------------------------------------------------------------------- */
+
+page      { width: 13.333in; height: 7.5in; padding: 0.7in }
+deck      { split-level: 2; overflow: split; aspect-ratio: 16 / 9 }
+
+document  { font-family: Open Sans; font-size: 15pt; line-height: 1.4; color: #16202c }
+
+heading   { font-family: Open Sans; margin-top: 26pt; margin-bottom: 12pt }
+h1        { font-size: 40pt }
+h2        { font-size: 27pt }
+h3        { font-size: 19pt }
+
+p         { margin-bottom: 13pt }
+a         { color: #0b5ed7 }
+hr        { color: #c9d4e0 }
+
+list      { padding-left: 28pt; margin-left: 10pt }
+li        { margin-bottom: 6pt }
+
+blockquote { color: #4a5b6d; border-color: #0b5ed7; border-width: 4pt; padding-left: 22pt; padding-top: 8pt }
+
+code      { font-family: Noto Sans; font-size: 12pt; line-height: 1.4; padding: 12pt;
+            background-color: #eef3f9; border-color: #c9d4e0 }
+
+table     { border-color: #c9d4e0; background-color: #eef3f9; padding-left: 10pt; padding-top: 7pt }
+
+/* The classes a document written for this template may use. */
+.lead     { font-size: 21pt }
+.c2       { column-count: 2; column-gap: 36pt }
+.c3       { column-count: 3; column-gap: 28pt }

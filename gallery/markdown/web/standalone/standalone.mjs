@@ -38,6 +38,7 @@ const statusEl = document.getElementById("status");
 const hintEl = document.getElementById("hint");
 const modeEl = document.getElementById("mode");
 const sampleEl = document.getElementById("sample");
+const themeEl = document.getElementById("theme");
 const pdfBtn = document.getElementById("pdf");
 const htmlBtn = document.getElementById("html");
 const openBtn = document.getElementById("openFile");
@@ -80,9 +81,15 @@ const FACES = [
   ["Noto Sans-Bold", "NotoSans-Bold.ttf"],
 ];
 
+const THEMES = {
+  corporate: "./themes/corporate.css",
+  editorial: "./themes/editorial.css",
+};
+
 const SAMPLES = {
   mermaid: "./samples/mermaid.md",
   diagrams: "./samples/diagrams.md",
+  deck: "./samples/deck.md",
   sample: "./samples/sample.md",
   readme: "./samples/README.md",
 };
@@ -551,6 +558,29 @@ sampleEl.addEventListener("change", async () => {
   }
 });
 
+// The company template. One fetch, one string, and the layout is resolved
+// from it — the markdown is not touched, which is the whole claim.
+async function useTheme(key) {
+  if (!key) {
+    app.setStyleSheet("");
+    showStatus("no template");
+    needsPaint = true;
+    return;
+  }
+  try {
+    const res = await fetch(THEMES[key]);
+    app.setStyleSheet(await res.text());
+    const left = app.styleSheetReport();
+    showStatus(left ? key + ".css — not honoured: " + left : key + ".css");
+  } catch (e) {
+    showStatus("could not read that template");
+  }
+  refreshPagebar();
+  needsPaint = true;
+}
+
+themeEl.addEventListener("change", () => useTheme(themeEl.value));
+
 modeEl.addEventListener("change", () => {
   const paged = modeEl.value === "paged";
   if (paged) app.setPageSize(shapeEl.value);
@@ -635,6 +665,11 @@ async function start() {
   // `?sample=diagrams` opens one of the dropdown's documents, so a screenshot
   // of any of them can be taken without clicking. It goes through the same
   // handler the dropdown does rather than a second loader.
+  const wantedTheme = q.get("theme");
+  if (wantedTheme && THEMES[wantedTheme]) {
+    themeEl.value = wantedTheme;
+    await useTheme(wantedTheme);
+  }
   const wanted = q.get("sample");
   if (wanted && SAMPLES[wanted]) {
     sampleEl.value = wanted;
@@ -801,6 +836,40 @@ function selftest() {
       app.sourceText().includes("how  **a diagram travels**"),
       JSON.stringify(app.sourceText().trim())
     );
+    app.setSource(kept);
+  }
+
+  // A company template, resolved over the same document.
+  //
+  // The check that bites is the first one: the layout keys a block's boxes
+  // under its SOURCE, a style is the other half of what made them and was
+  // not in the key, so switching the template replayed the boxes measured
+  // under the previous one and nothing moved at all. On the page that showed
+  // up as a paragraph redrawn at the new size on the old size's positions,
+  // with the second half of a wrapped line over the first — so the overlap
+  // is checked too, as the thing a reader actually saw.
+  {
+    const kept = sourceEl.value;
+    app.setSource("A paragraph long enough that it has to wrap at this width, with\na soft break in it and several more words after that one.\n");
+    const runs = () =>
+      JSON.parse(app.frame()).list.cmds.filter((c) => c.k === 3 && (c.text || "").length > 2);
+    const before = runs();
+    app.setStyleSheet("document { font-size: 21pt; color: #aa0000 }");
+    const after = runs();
+    say("a template reaches the layout", after.length !== before.length || after[0].w !== before[0].w,
+        before.length + " runs → " + after.length);
+    // Two runs on one line may not overlap. This is the bug, stated as the
+    // thing a reader saw: text on top of text.
+    let overlap = 0;
+    for (let i = 0; i < after.length; i++) {
+      for (let j = i + 1; j < after.length; j++) {
+        const a = after[i], b = after[j];
+        if (Math.abs(a.y - b.y) > 1) continue;
+        if (a.x < b.x + b.w - 0.5 && b.x < a.x + a.w - 0.5) overlap++;
+      }
+    }
+    say("and nothing is drawn on top of anything", overlap === 0, overlap + " overlapping runs");
+    app.setStyleSheet("");
     app.setSource(kept);
   }
 

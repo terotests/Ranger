@@ -39,6 +39,7 @@ Import "../src/MdLayout.rgr"
 Import "../src/MdToEvg.rgr"
 Import "../src/MdToHtml.rgr"
 Import "../src/MdDiagram.rgr"
+Import "../src/MdCss.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
@@ -58,8 +59,37 @@ class MarkdownEdit {
     ; it is the reader asking rather than the author. Empty means the document
     ; decides, which is what `applyMeta` already did.
     def pageSize:string ""
+    ; The company template, as a stylesheet. Empty is a plain document, which
+    ; is what a README is.
+    def styleCss:string ""
+    def sheet:MdCss (new MdCss())
+    def sheetErrors:int 0
+    def sheetUnsupported:int 0
 
     Constructor () {
+    }
+
+    ; The sheet is parsed once, here, rather than on every rebuild: a
+    ; keystroke must not re-read a stylesheet.
+    fn setStyleSheet:void (css:string) {
+        styleCss = css
+        sheet = (new MdCss())
+        sheet.addStyleSheet(css)
+        sheetErrors = (sheet.errorCount())
+        stale = true
+    }
+
+    ; What the template said that this layout cannot do, as one line. A
+    ; silent property is a template that looks broken to whoever wrote it.
+    fn sheetReport:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (sheet.unsupportedCount())) {
+            if (i > 0) { out = (out + ", ") }
+            out = (out + (sheet.unsupportedAt(i)))
+            i = (i + 1)
+        }
+        return out
     }
 
     ; The column a diagram lands in: the page's text width when the sheets
@@ -78,6 +108,19 @@ class MarkdownEdit {
             return
         }
         doc = (MdBlock.parseText(source))
+        ; Fresh every time, and in this order: the DEFAULTS, then the company
+        ; TEMPLATE, then the document's own FRONT MATTER, then what the reader
+        ; picked in the page. Each beats the one before it, which is the order
+        ; of who is closest to the document being read.
+        ;
+        ; Fresh matters as much as the order. The style used to be carried
+        ; from the previous rebuild, so opening a document with no front
+        ; matter after one that had some kept the old one's page size and
+        ; title — `applyMeta` returns early when there is no metadata, and
+        ; what it returns early from is overwriting.
+        layout.style = (new MdStyle())
+        sheet.applyTo(layout.style)
+        sheetUnsupported = (sheet.unsupportedCount())
         layout.applyMeta(doc)
         if ((strlen pageSize) > 0) {
             def pw:double layout.style.pageWidth
@@ -207,6 +250,25 @@ class MarkdownWeb {
     fn setPaged:void (v:boolean) {
         paged = v
         this.rebuild()
+    }
+
+    ; The company template. One string, because that is what survives the JS
+    ; bridge without a wrapper on either side, and because a stylesheet IS one
+    ; string — the page fetches the file and hands it over.
+    fn setStyleSheet:void (css:string) {
+        edit.setStyleSheet(css)
+        this.rebuild()
+    }
+
+    ; What the template said that this layout cannot honour, as one line —
+    ; §8.4: a silent property is a template that looks broken to whoever
+    ; wrote it, so the page can show this beside the document.
+    fn styleSheetReport:string () {
+        return (edit.sheetReport())
+    }
+
+    fn styleSheetErrors:int () {
+        return edit.sheetErrors
     }
 
     ; `a4`, `a4 landscape`, `letter`, `210x297mm` — whatever `MdFrontMatter`

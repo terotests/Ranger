@@ -143,6 +143,59 @@ class MdStyle {
     Constructor () {
     }
 
+    ; Every field of this style, as one string.
+    ;
+    ; Two uses, and they are the same question asked twice. The LAYOUT CACHE
+    ; keys a block's boxes under the source that made them — and under this,
+    ; because the same source set 4pt larger is different boxes. Without it,
+    ; switching the company template redrew a paragraph at the new size on
+    ; the positions measured at the old one, and the second half of a wrapped
+    ; line sat on top of the first. `MdCssTest` reads it too, to ask whether
+    ; a sheet changed anything it should not have.
+    ;
+    ; Colours are in it as well as sizes. They do not move a box, but they
+    ; are ON one — a template that changes only the link colour must not
+    ; replay the last one's.
+    ;
+    ; **A field added above and not added here is a field the cache cannot
+    ; see.** That is the cost of the list, and it is why the test compares
+    ; whole fingerprints rather than the three fields somebody remembered.
+    fn fingerprint:string () {
+        def out:string ""
+        out = ((((out + "body ") + bodyFamily) + "/") + (to_string bodySize))
+        out = ((((out + "/") + (to_string lineHeight)) + "/") + (to_string paraSpacing))
+        out = ((((out + " head ") + headingFamily) + "/") + (to_string h1Size))
+        out = ((((out + "/") + (to_string h2Size)) + "/") + (to_string h3Size))
+        out = ((((out + "/") + (to_string h4Size)) + "/") + (to_string h5Size))
+        out = ((((out + "/") + (to_string h6Size)) + "/") + (to_string headingSpaceBefore))
+        out = ((out + "/") + (to_string headingSpaceAfter))
+        out = ((((out + " code ") + monoFamily) + "/") + (to_string codeSize))
+        out = ((((out + "/") + (to_string codeLineHeight)) + "/") + (to_string codePadding))
+        out = ((((out + "/") + codeBackground) + "/") + codeBorder)
+        out = ((((out + "/") + codeKeyword) + "/") + codeString)
+        out = ((((out + "/") + codeComment) + "/") + codeNumber)
+        out = ((out + "/") + codePlain)
+        if highlightCode { out = (out + "/hi") }
+        out = ((((out + " ink ") + textColor) + "/") + mutedColor)
+        out = ((((out + "/") + linkColor) + "/") + ruleColor)
+        out = ((((out + " quote ") + quoteColor) + "/") + quoteBarColor)
+        out = ((((out + "/") + (to_string quoteBarWidth)) + "/") + (to_string quoteIndent))
+        out = ((out + "/") + (to_string quotePadY))
+        out = ((((out + " list ") + (to_string listIndent)) + "/") + (to_string markerGap))
+        out = ((out + "/") + (to_string listTightSpacing))
+        out = ((((out + " table ") + tableBorder) + "/") + tableHeadBackground)
+        out = ((((out + "/") + (to_string cellPadX)) + "/") + (to_string cellPadY))
+        out = ((((out + " page ") + (to_string pageWidth)) + "/") + (to_string pageHeight))
+        out = ((out + "/") + (to_string margin))
+        out = ((((out + " furniture ") + title) + "/") + runningHead)
+        out = ((out + "/") + pageNumbers)
+        if wantToc { out = (out + "/toc") }
+        if breakOnH1 { out = (out + "/h1") }
+        out = ((out + "/") + (to_string furnitureSize))
+        out = ((out + " embed ") + (to_string embedSpacing))
+        return out
+    }
+
     ; The colour a token of that kind is set in.
     fn codeColor:string (kind:int) {
         if (kind == 1) { return codeKeyword }
@@ -411,6 +464,11 @@ class MdLayout {
     ; The width every cached entry was measured at. A different one makes all
     ; of them wrong, and the cheap total answer is to throw the lot away.
     def cacheWidth:double (0.0 - 1.0)
+    ; …and the style the cached boxes were measured with. A block's boxes are
+    ; a function of its source AND of the style, and only the first was ever
+    ; in the key — so switching the company template replayed boxes measured
+    ; at the previous font size and drew the new one on top of them.
+    def cacheStyleKey:string ""
     def engine:EVGTextEngine (new EVGTextEngine())
     def boxes:[MdBox]
 
@@ -509,11 +567,21 @@ class MdLayout {
     }
 
     ; One page, as tall as it needs to be. What the canvas scrolls.
+    ; Boxes measured with another style are boxes of another document.
+    fn checkStyle:void () {
+        def key:string (style.fingerprint())
+        if (key != cacheStyleKey) {
+            this.dropCache()
+            cacheStyleKey = key
+        }
+    }
+
     fn layoutContinuous:void (doc:MdNode width:double) {
         if ((fabs (width - cacheWidth)) > 0.01) {
             this.dropCache()
             cacheWidth = width
         }
+        this.checkStyle()
         clear boxes
         boxIndexReady = false
         this.resetHeadings()
@@ -531,6 +599,7 @@ class MdLayout {
 
     ; Sheets of a stated size, with the breaks decided here. What is printed.
     fn layoutPaged:void (doc:MdNode) {
+        this.checkStyle()
         this.disarmCache()
         clear boxes
         boxIndexReady = false

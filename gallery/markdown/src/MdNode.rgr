@@ -98,6 +98,20 @@ class MdNode {
     def srcKnown:boolean false
 
     ; ------------------------------------------------------------------
+    ; What the document said this block IS — `{.lead #totals cols=3}`
+    ; ------------------------------------------------------------------
+    ;
+    ; Goldmark's block attributes, which is the syntax a Hugo site is already
+    ; written in. They are carried and not interpreted: `MdAttrs` reads the
+    ; characters, `MdCss` decides what a class MEANS, and the layout asks the
+    ; resolved style rather than the class — the same split `CssCore` and
+    ; `PptxCss` already keep.
+    def classes:[string]
+    def nodeId:string ""
+    def attrKeys:[string]
+    def attrVals:[string]
+
+    ; ------------------------------------------------------------------
     ; Parser state. It lives on the node rather than in a table beside it
     ; for the reason cmark's own reference implementation puts it there:
     ; the block algorithm walks a stack of half-built nodes and asks each
@@ -130,6 +144,87 @@ class MdNode {
     def listBulletChar:int 0
 
     Constructor () {
+    }
+
+    fn addClass:void (c:string) {
+        if ((strlen c) == 0) { return }
+        if (this.hasClass(c)) { return }
+        push classes c
+    }
+
+    fn classCount:int () {
+        return (array_length classes)
+    }
+
+    fn classAt:string (i:int) {
+        return (itemAt classes i)
+    }
+
+    fn hasClass:boolean (c:string) {
+        def i:int 0
+        def n:int (array_length classes)
+        while (i < n) {
+            if ((itemAt classes i) == c) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Last one wins, which is what a cascade of two attribute blocks on the
+    ; same node would mean and what every other reader of this syntax does.
+    fn setAttr:void (k:string v:string) {
+        def i:int 0
+        def n:int (array_length attrKeys)
+        while (i < n) {
+            if ((itemAt attrKeys i) == k) {
+                set_at attrVals i v
+                return
+            }
+            i = (i + 1)
+        }
+        push attrKeys k
+        push attrVals v
+    }
+
+    fn hasAttr:boolean (k:string) {
+        def i:int 0
+        def n:int (array_length attrKeys)
+        while (i < n) {
+            if ((itemAt attrKeys i) == k) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn attrValue:string (k:string) {
+        def i:int 0
+        def n:int (array_length attrKeys)
+        while (i < n) {
+            if ((itemAt attrKeys i) == k) { return (itemAt attrVals i) }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn attrCount:int () {
+        return (array_length attrKeys)
+    }
+
+    ; Everything an attribute block said, moved from one node to another. The
+    ; block parser builds the `{…}` line as a node of its own and then folds
+    ; it into the block above; this is that fold.
+    fn takeAttrsFrom:void (o:MdNode) {
+        def i:int 0
+        while (i < (array_length o.classes)) {
+            this.addClass((itemAt o.classes i))
+            i = (i + 1)
+        }
+        if ((strlen o.nodeId) > 0) { nodeId = o.nodeId }
+        def j:int 0
+        while (j < (array_length o.attrKeys)) {
+            this.setAttr((itemAt o.attrKeys j) (itemAt o.attrVals j))
+            j = (j + 1)
+        }
     }
 
     sfn create:MdNode (kind:string) {

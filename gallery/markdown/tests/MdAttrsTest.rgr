@@ -1,0 +1,304 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdAttrsTest.rgr — `{.class}` attaches to the right block, and to nothing else.
+; ============================================================================
+;
+;   npm run markdown:attrs:test
+;
+; `PLAN_SLIDES.md` Stage A, and its two halves are checked separately because
+; they fail separately.
+;
+; **It attaches to the right block.** The case the plan is written around is
+;
+;     - Item 1
+;     - Item 2
+;     - Item 3
+;     {.c .c3}
+;
+; where the attribute belongs to the LIST. Without a block start that can
+; interrupt a paragraph it is the last words of the last item instead —
+; parsed, silent, and wrong, which is the failure mode a test that only
+; counted classes would sail past. So the checks below name the KIND of the
+; node the classes landed on.
+;
+; **And it attaches to nothing else.** To CommonMark an attribute line is an
+; ordinary paragraph, and the 651/652 ratchet is a gate this must pass
+; through without moving. `{not an attribute}` is a paragraph. So is `{}`,
+; `{.a b}`, and a line with text after the brace. The grammar is strict and
+; these are the proof of it.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdToHtml.rgr"
+
+class AttrCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print (("    got  " + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+}
+
+class MdAttrsTest {
+    sfn main:void () {
+        def t:MdAttrsTest (new MdAttrsTest())
+        t.run()
+    }
+
+    ; The node classes landed on, described as "kind .a .b", so one string
+    ; says both which block was attributed and with what. A check that only
+    ; counted classes would pass with them on the wrong node.
+    sfn attributed:string (n:MdNode) {
+        def out:string ""
+        if ((n.classCount()) > 0) {
+            out = n.kind
+            def i:int 0
+            while (i < (n.classCount())) {
+                out = ((out + " .") + (n.classAt(i)))
+                i = (i + 1)
+            }
+        }
+        def j:int 0
+        while (j < (n.childCount())) {
+            def kid:MdNode (n.childAt(j))
+            def deeper:string (MdAttrsTest.attributed(kid))
+            if ((strlen deeper) > 0) {
+                if ((strlen out) > 0) { out = (out + " | ") }
+                out = (out + deeper)
+            }
+            j = (j + 1)
+        }
+        return out
+    }
+
+    ; The drawn text of a block. `literal` is gone by the time the inline
+    ; parser has finished with a paragraph — it becomes the text nodes under
+    ; it — so the question "did the attribute characters stay in the text" is
+    ; asked of those.
+    sfn textOf:string (n:MdNode) {
+        if (n.kind == "text") { return n.literal }
+        def out:string ""
+        def i:int 0
+        while (i < (n.childCount())) {
+            def k:MdNode (n.childAt(i))
+            out = (out + (MdAttrsTest.textOf(k)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn kinds:string (n:MdNode) {
+        def out:string ""
+        def i:int 0
+        while (i < (n.childCount())) {
+            def k:MdNode (n.childAt(i))
+            if (i > 0) { out = (out + ",") }
+            out = (out + k.kind)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn nodeOf:MdNode (src:string) {
+        return (MdBlock.parseText(src))
+    }
+
+    ; ----------------------------------------------------------------------
+    fn attaching:void (c:AttrCheck) {
+        print "-- which block it attaches to --"
+
+        ; The case the plan is written around.
+        def list:MdNode (MdAttrsTest.nodeOf("- Item 1\n- Item 2\n- Item 3\n{.c .c3}\n"))
+        c.eqStr("a list, with no blank line before the attributes" (MdAttrsTest.attributed(list)) "list .c .c3")
+        c.eqStr("and the attribute line is not a block of its own" (MdAttrsTest.kinds(list)) "list")
+
+        ; A blank line between is the same answer — both spellings occur.
+        def spaced:MdNode (MdAttrsTest.nodeOf("- Item 1\n- Item 2\n\n{.c}\n"))
+        c.eqStr("…and with one" (MdAttrsTest.attributed(spaced)) "list .c")
+
+        ; A paragraph, which is the one the line would otherwise be swallowed
+        ; by: `{.lead}` under a paragraph with no blank line is a lazy
+        ; continuation unless the start can interrupt one.
+        def para:MdNode (MdAttrsTest.nodeOf("Some prose here.\n{.lead}\n"))
+        c.eqStr("a paragraph" (MdAttrsTest.attributed(para)) "paragraph .lead")
+        def p0:MdNode (para.childAt(0))
+        c.eqStr("…and the attributes are not in its text" (MdAttrsTest.textOf(p0)) "Some prose here.")
+
+        ; A fenced block, and a table, which are leaves of other shapes.
+        def code:MdNode (MdAttrsTest.nodeOf("```js\nconst x = 1;\n```\n{.wide}\n"))
+        c.eqStr("a fenced code block" (MdAttrsTest.attributed(code)) "code_block .wide")
+        def tbl:MdNode (MdAttrsTest.nodeOf("| a | b |\n| --- | --- |\n| 1 | 2 |\n{.figures}\n"))
+        c.eqStr("a table" (MdAttrsTest.attributed(tbl)) "table .figures")
+
+        ; Inside a list item it attaches inside the item, not to the list.
+        def inner:MdNode (MdAttrsTest.nodeOf("- first\n\n  second\n  {.note}\n"))
+        c.eqStr("a paragraph inside an item" (MdAttrsTest.attributed(inner)) "paragraph .note")
+
+        ; At the very end of a document, with no trailing newline.
+        def last:MdNode (MdAttrsTest.nodeOf("Text.\n\n{.tail}"))
+        c.eqStr("the last line of the file" (MdAttrsTest.attributed(last)) "paragraph .tail")
+
+        ; With nothing above it there is nothing to attach to, and the text
+        ; was in the file — so it is a paragraph, not a silent deletion.
+        def alone:MdNode (MdAttrsTest.nodeOf("{.lonely}\n\nprose\n"))
+        c.eqStr("with nothing above it, it is text" (MdAttrsTest.kinds(alone)) "paragraph,paragraph")
+        def a0:MdNode (alone.childAt(0))
+        c.eqStr("…and it kept its characters" (MdAttrsTest.textOf(a0)) "{.lonely}")
+    }
+
+    ; ----------------------------------------------------------------------
+    fn spellings:void (c:AttrCheck) {
+        print "-- ids, values, and headings --"
+
+        def ided:MdNode (MdAttrsTest.nodeOf("Text.\n{#totals .wide cols=3}\n"))
+        def p:MdNode (ided.childAt(0))
+        c.eqStr("an id" p.nodeId "totals")
+        c.eqStr("a class beside it" (MdAttrsTest.attributed(ided)) "paragraph .wide")
+        c.eqStr("a key and a value" (p.attrValue("cols")) "3")
+        c.ok("…and the key is known" (p.hasAttr("cols")))
+        c.ok("…while another is not" (! (p.hasAttr("rows"))))
+
+        def quoted:MdNode (MdAttrsTest.nodeOf("Text.\n{title=\"two words\" lang='fi'}\n"))
+        def q:MdNode (quoted.childAt(0))
+        c.eqStr("a double-quoted value" (q.attrValue("title")) "two words")
+        c.eqStr("a single-quoted one" (q.attrValue("lang")) "fi")
+
+        ; The other spelling Goldmark accepts: on the heading's own line.
+        def head:MdNode (MdAttrsTest.nodeOf("## Revenue {.section-title}\n"))
+        def h:MdNode (head.childAt(0))
+        c.eqStr("a heading carries its own" (MdAttrsTest.attributed(head)) "heading .section-title")
+        c.eqStr("…and the drawn text is the heading" (MdAttrsTest.textOf(h)) "Revenue")
+        c.eqInt("…at the level it was written" h.level 2)
+        def html:string (MdToHtml.render(head))
+        c.ok("…and the attributes are not in the output" (! (MdAttrsTest.hasSub(html "section-title"))))
+
+        ; A heading whose whole content is a brace block is a heading with
+        ; that text in it — CommonMark says so, and trimming it would leave
+        ; an empty heading nobody wrote.
+        def bare:MdNode (MdAttrsTest.nodeOf("# {.x}\n"))
+        def b:MdNode (bare.childAt(0))
+        c.eqStr("a heading that is only a brace block keeps it" (MdAttrsTest.textOf(b)) "{.x}")
+        c.eqInt("…and gains no classes" (b.classCount()) 0)
+
+        ; Two blocks on one node: the later wins for a value, and classes add.
+        def twice:MdNode (MdAttrsTest.nodeOf("Text.\n{.a cols=2}\n{.b cols=3}\n"))
+        def t:MdNode (twice.childAt(0))
+        c.eqStr("two attribute lines both land" (MdAttrsTest.attributed(twice)) "paragraph .a .b")
+        c.eqStr("…and the last value wins" (t.attrValue("cols")) "3")
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The half that keeps the CommonMark ratchet where it is: everything that
+    ; is NOT an attribute block has to stay a paragraph, byte for byte.
+    fn refusals:void (c:AttrCheck) {
+        print "-- and everything that is not one --"
+
+        this.stays(c "words in braces" "{not an attribute}")
+        this.stays(c "an empty one" "{}")
+        this.stays(c "a class and a bare word" "{.a b}")
+        this.stays(c "a key with no value" "{a=}")
+        this.stays(c "a dot with no name" "{.}")
+        this.stays(c "a hash with no name" "{#}")
+        this.stays(c "text after the brace" "{.a} and more")
+        this.stays(c "text before it" "see {.a}")
+        this.stays(c "two blocks on one line" "{.a} {.b}")
+        this.stays(c "a brace that never closes" "{.a")
+        this.stays(c "an unbalanced pair" "{.a {.b}")
+        this.stays(c "a value with a space in it, unquoted" "{a=two words}")
+
+        ; Indented four spaces it is code, which is what CommonMark says a
+        ; line indented four spaces is whatever it spells.
+        def code:MdNode (MdAttrsTest.nodeOf("prose\n\n    {.a}\n"))
+        c.eqStr("indented four spaces it is code" (MdAttrsTest.kinds(code)) "paragraph,code_block")
+
+        ; Inside a fence it is content, not an attribute.
+        def fenced:MdNode (MdAttrsTest.nodeOf("```\n{.a}\n```\n"))
+        c.eqStr("inside a fence it is content" (MdAttrsTest.kinds(fenced)) "code_block")
+        c.eqInt("…and attributes nothing" (strlen (MdAttrsTest.attributed(fenced))) 0)
+    }
+
+    ; A line that is not an attribute block is a paragraph, and its text is
+    ; the line — the second half being the one that catches a grammar that
+    ; refuses correctly but has already eaten the characters.
+    fn stays:void (c:AttrCheck label:string text:string) {
+        def doc:MdNode (MdAttrsTest.nodeOf(("above\n\n" + text) + "\n"))
+        def got:string (MdAttrsTest.kinds(doc))
+        c.eqStr((label + ": stays a paragraph") got "paragraph,paragraph")
+        if (got == "paragraph,paragraph") {
+            def p:MdNode (doc.childAt(1))
+            c.eqStr((label + ": …with its characters") (MdAttrsTest.textOf(p)) text)
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The span of an attributed block covers its attribute line, because the
+    ; layout's per-block cache is keyed by the exact source a block was built
+    ; from — and a class the reader edits that does not change that key is a
+    ; class the drawing never notices.
+    fn spans:void (c:AttrCheck) {
+        print "-- the span of an attributed block --"
+        def src:string "Text.\n{.lead}\n"
+        def doc:MdNode (MdAttrsTest.nodeOf(src))
+        def p:MdNode (doc.childAt(0))
+        c.eqInt("it starts where the block did" p.srcStart 0)
+        c.ok("and ends after the attribute line" (p.srcEnd >= (strlen src)))
+    }
+
+    sfn hasSub:boolean (v:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen v)
+        def i:int 0
+        while (i <= (m - n)) {
+            if ((substring v i (i + n)) == needle) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn run:void () {
+        def c:AttrCheck (new AttrCheck())
+        print "== MdAttrsTest =="
+        this.attaching(c)
+        this.spellings(c)
+        this.refusals(c)
+        this.spans(c)
+        print ""
+        print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

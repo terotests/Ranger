@@ -1,0 +1,372 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdCss.rgr — a company template, as a stylesheet over a markdown document.
+; ============================================================================
+;
+; ```css
+; page   { width: 13.333in; height: 7.5in; padding: 0.65in; }
+; document { font-family: Inter; font-size: 18pt; color: #1f2328; }
+; h1     { font-size: 42pt; }
+; h2     { font-size: 28pt; }
+; heading { font-family: Inter; margin-top: 24pt; margin-bottom: 12pt; }
+; .lead  { font-size: 22pt; }
+; .c3    { column-count: 3; column-gap: 28pt; }
+; ```
+;
+; Two companies are then two files, and the same markdown previews as either
+; without being touched — which is a better thing than a PowerPoint template,
+; because a master slide positions BOXES and this says what a level-two
+; heading IS.
+;
+; ============================================================================
+; WHAT THIS FILE DECIDES, AND WHAT CssCore DECIDED ALREADY
+; ============================================================================
+;
+; The same split `PptxCss` draws, and this is the third binding rather than
+; the third engine — `PLAN_SLIDES.md` §5 and §7.
+;
+; `CssCore` read the text, matched the selectors, ranked them by specificity
+; and handed back the properties that apply. It has no idea what any of them
+; MEAN. Everything below is the meaning:
+;
+;   * which element names a markdown selector may use — `document`, `page`,
+;     `deck`, `p`, `h1`…`h6`, `heading`, `a`, `code`, `pre`, `ul`, `ol`,
+;     `list`, `li`, `table`, `blockquote`, `hr`, `slide`;
+;   * where each property lands in `MdStyle`;
+;   * and which ones this layout cannot honour, which are NAMED and counted
+;     rather than dropped in a silence that reads as "applied".
+;
+; **`page` and `deck`, not `@page` and `@deck`.** The plan wrote the at-rule
+; spelling; `CssCore` deliberately does not read at-rules — it records them as
+; "not read here" so a consumer cannot silently apply what is inside one — and
+; teaching it to would change what every existing consumer sees. An element
+; name costs one character in the sheet and no change to the engine. Recorded
+; here rather than quietly settled.
+;
+; **A document with no sheet is byte-identical.** `MdStyle`'s field
+; initialisers are still the defaults; a sheet only ever overwrites what it
+; names. That is what makes this safe to add underneath a layout that is
+; already gated on its own numbers.
+;
+; **Per-block classes are resolved separately.** `resolve` answers "what does
+; the sheet say about THIS node", which is what columns and `{.lead}` need; it
+; is a different question from "what is the document set in", and mixing them
+; is how a stylesheet ends up with two cascades.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdLayout.rgr"
+Import "../../css/CssCore.rgr"
+
+class MdCss {
+    def sheet:CssSheet (new CssSheet())
+    ; Property names the sheet used that this layout cannot honour, each once.
+    def unsupported:[string]
+    ; How many declarations landed, and how many selectors were asked.
+    def applied:int 0
+    def asked:int 0
+
+    ; What the deck-level rules said. Read by the slide layout rather than by
+    ; `MdStyle`, because they are not about how a page looks.
+    def splitLevel:int 0
+    def overflow:string ""
+    def aspect:string ""
+
+    Constructor () {
+    }
+
+    fn addStyleSheet:void (css:string) {
+        sheet.parse(css)
+    }
+
+    fn errorCount:int () {
+        return (sheet.errorCount())
+    }
+
+    fn errorAt:string (i:int) {
+        return (sheet.errorAt(i))
+    }
+
+    fn unsupportedCount:int () {
+        return (array_length unsupported)
+    }
+
+    fn unsupportedAt:string (i:int) {
+        return (itemAt unsupported i)
+    }
+
+    fn note:void (name:string) {
+        def i:int 0
+        while (i < (array_length unsupported)) {
+            if ((itemAt unsupported i) == name) { return }
+            i = (i + 1)
+        }
+        push unsupported name
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The document's own style
+    ; ----------------------------------------------------------------------
+    ;
+    ; Each element name is asked once and what it said is written into the
+    ; fields it is about. The order is the order a reader would expect a
+    ; cascade to run in: the page, then the document's text, then the things
+    ; inside it.
+    fn applyTo:void (style:MdStyle) {
+        applied = 0
+        asked = 0
+        this.page(style (this.forTag("page")))
+        this.body(style (this.forTag("document")))
+        this.para(style (this.forTag("p")))
+        this.headings(style)
+        this.code(style (this.forTag("code")))
+        this.link(style (this.forTag("a")))
+        this.rule(style (this.forTag("hr")))
+        this.quote(style (this.forTag("blockquote")))
+        this.list(style (this.forTag("list")))
+        this.item(style (this.forTag("li")))
+        this.table(style (this.forTag("table")))
+        this.deck((this.forTag("deck")))
+    }
+
+    fn forTag:CssComputed (tag:string) {
+        def n (new CssNode())
+        n.tag = tag
+        asked = (asked + 1)
+        return (CssCascade.resolve(sheet n))
+    }
+
+    ; What the sheet says about one block of the document — its element name,
+    ; its `{.classes}` and its `{#id}`. This is the question columns and
+    ; `{.lead}` ask; the answer is handed back rather than written anywhere,
+    ; because a block's style belongs to the block.
+    fn resolve:CssComputed (node:MdNode) {
+        def n (new CssNode())
+        n.tag = (MdCss.tagOf(node))
+        n.id = node.nodeId
+        def i:int 0
+        while (i < (node.classCount())) {
+            n.addClass((node.classAt(i)))
+            i = (i + 1)
+        }
+        asked = (asked + 1)
+        return (CssCascade.resolve(sheet n))
+    }
+
+    ; The element name a node is written as in a sheet. A heading is `h2` AND
+    ; `heading`, and both have to match — a sheet says `h1 { font-size }` and
+    ; `heading { font-family }` — so the level-specific name is the tag and
+    ; the generic one is carried as a class. That is a lie about the DOM and
+    ; the truth about what the sheet's author meant.
+    sfn tagOf:string (node:MdNode) {
+        def k:string node.kind
+        if (k == "heading") { return ("h" + (to_string node.level)) }
+        if (k == "paragraph") { return "p" }
+        if (k == "code_block") { return "pre" }
+        if (k == "block_quote") { return "blockquote" }
+        if (k == "thematic_break") { return "hr" }
+        if (k == "item") { return "li" }
+        if (k == "table") { return "table" }
+        if (k == "list") {
+            if node.listOrdered { return "ol" }
+            return "ul"
+        }
+        return k
+    }
+
+    ; ----------------------------------------------------------------------
+    ; …and what each property means
+    ; ----------------------------------------------------------------------
+
+    fn page:void (style:MdStyle got:CssComputed) {
+        style.pageWidth = (this.len(got "width" style.pageWidth))
+        style.pageHeight = (this.len(got "height" style.pageHeight))
+        style.margin = (this.len(got "padding" style.margin))
+        this.rest(got "width,height,padding")
+    }
+
+    fn body:void (style:MdStyle got:CssComputed) {
+        style.bodyFamily = (this.family(got "font-family" style.bodyFamily))
+        style.bodySize = (this.size(got "font-size" style.bodySize))
+        style.lineHeight = (this.ratio(got "line-height" style.lineHeight))
+        style.textColor = (this.color(got "color" style.textColor))
+        this.rest(got "font-family,font-size,line-height,color")
+    }
+
+    fn para:void (style:MdStyle got:CssComputed) {
+        style.paraSpacing = (this.len(got "margin-bottom" style.paraSpacing))
+        this.rest(got "margin-bottom")
+    }
+
+    ; The six levels have six sizes and ONE family and ONE pair of margins, so
+    ; a per-level `margin-top` is a property this layout cannot honour and
+    ; says so. `heading` is where a sheet states the shared ones.
+    fn headings:void (style:MdStyle) {
+        def shared:CssComputed (this.forTag("heading"))
+        style.headingFamily = (this.family(shared "font-family" style.headingFamily))
+        style.headingSpaceBefore = (this.len(shared "margin-top" style.headingSpaceBefore))
+        style.headingSpaceAfter = (this.len(shared "margin-bottom" style.headingSpaceAfter))
+        style.h1Size = (this.size(shared "font-size" style.h1Size))
+        this.rest(shared "font-family,font-size,margin-top,margin-bottom")
+
+        def h1:CssComputed (this.forTag("h1"))
+        style.h1Size = (this.size(h1 "font-size" style.h1Size))
+        this.rest(h1 "font-size")
+        def h2:CssComputed (this.forTag("h2"))
+        style.h2Size = (this.size(h2 "font-size" style.h2Size))
+        this.rest(h2 "font-size")
+        def h3:CssComputed (this.forTag("h3"))
+        style.h3Size = (this.size(h3 "font-size" style.h3Size))
+        this.rest(h3 "font-size")
+        def h4:CssComputed (this.forTag("h4"))
+        style.h4Size = (this.size(h4 "font-size" style.h4Size))
+        this.rest(h4 "font-size")
+        def h5:CssComputed (this.forTag("h5"))
+        style.h5Size = (this.size(h5 "font-size" style.h5Size))
+        this.rest(h5 "font-size")
+        def h6:CssComputed (this.forTag("h6"))
+        style.h6Size = (this.size(h6 "font-size" style.h6Size))
+        this.rest(h6 "font-size")
+    }
+
+    fn code:void (style:MdStyle got:CssComputed) {
+        style.monoFamily = (this.family(got "font-family" style.monoFamily))
+        style.codeSize = (this.size(got "font-size" style.codeSize))
+        style.codeLineHeight = (this.ratio(got "line-height" style.codeLineHeight))
+        style.codePadding = (this.len(got "padding" style.codePadding))
+        style.codeBackground = (this.color(got "background-color" style.codeBackground))
+        style.codeBorder = (this.color(got "border-color" style.codeBorder))
+        this.rest(got "font-family,font-size,line-height,padding,background-color,border-color")
+    }
+
+    fn link:void (style:MdStyle got:CssComputed) {
+        style.linkColor = (this.color(got "color" style.linkColor))
+        this.rest(got "color")
+    }
+
+    fn rule:void (style:MdStyle got:CssComputed) {
+        style.ruleColor = (this.color(got "color" style.ruleColor))
+        this.rest(got "color")
+    }
+
+    fn quote:void (style:MdStyle got:CssComputed) {
+        style.quoteColor = (this.color(got "color" style.quoteColor))
+        style.quoteBarColor = (this.color(got "border-color" style.quoteBarColor))
+        style.quoteBarWidth = (this.len(got "border-width" style.quoteBarWidth))
+        style.quoteIndent = (this.len(got "padding-left" style.quoteIndent))
+        style.quotePadY = (this.len(got "padding-top" style.quotePadY))
+        this.rest(got "color,border-color,border-width,padding-left,padding-top")
+    }
+
+    fn list:void (style:MdStyle got:CssComputed) {
+        style.listIndent = (this.len(got "padding-left" style.listIndent))
+        style.markerGap = (this.len(got "margin-left" style.markerGap))
+        this.rest(got "padding-left,margin-left")
+    }
+
+    fn item:void (style:MdStyle got:CssComputed) {
+        style.listTightSpacing = (this.len(got "margin-bottom" style.listTightSpacing))
+        this.rest(got "margin-bottom")
+    }
+
+    fn table:void (style:MdStyle got:CssComputed) {
+        style.tableBorder = (this.color(got "border-color" style.tableBorder))
+        style.tableHeadBackground = (this.color(got "background-color" style.tableHeadBackground))
+        style.cellPadX = (this.len(got "padding-left" style.cellPadX))
+        style.cellPadY = (this.len(got "padding-top" style.cellPadY))
+        this.rest(got "border-color,background-color,padding-left,padding-top")
+    }
+
+    ; `deck { split-level: 2; overflow: split; aspect-ratio: 16 / 9 }` —
+    ; carried, not applied. The slide layout reads these; a page does not
+    ; have them and `MdStyle` should not grow fields it never uses.
+    fn deck:void (got:CssComputed) {
+        if (got.has("split-level")) {
+            def v:string (got.get("split-level"))
+            def n@(optional):int (str2int (CssSheet.tidy(v)))
+            splitLevel = (?? n 0)
+            applied = (applied + 1)
+        }
+        if (got.has("overflow")) {
+            overflow = (CssSheet.lower((CssSheet.tidy((got.get("overflow"))))))
+            applied = (applied + 1)
+        }
+        if (got.has("aspect-ratio")) {
+            aspect = (CssSheet.tidy((got.get("aspect-ratio"))))
+            applied = (applied + 1)
+        }
+        this.rest(got "split-level,overflow,aspect-ratio")
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Reading one value, and counting what was read
+    ; ----------------------------------------------------------------------
+
+    fn len:double (got:CssComputed name:string fallback:double) {
+        if (! (got.has(name))) { return fallback }
+        applied = (applied + 1)
+        return (CssValue.fontPoints((got.get(name)) fallback))
+    }
+
+    fn size:double (got:CssComputed name:string fallback:double) {
+        return (this.len(got name fallback))
+    }
+
+    ; `line-height: 1.45` is a ratio and `line-height: 16pt` is a length. Both
+    ; are written; the field is a ratio, so a length is divided by the size it
+    ; was stated against — which this layer does not know, so a length here is
+    ; the one thing reported rather than guessed.
+    fn ratio:double (got:CssComputed name:string fallback:double) {
+        if (! (got.has(name))) { return fallback }
+        def v:string (CssSheet.tidy((got.get(name))))
+        if (CssValue.isBareNumber(v)) {
+            applied = (applied + 1)
+            def d@(optional):double (to_double v)
+            return (?? d fallback)
+        }
+        this.note((name + " as a length"))
+        return fallback
+    }
+
+    fn family:string (got:CssComputed name:string fallback:string) {
+        if (! (got.has(name))) { return fallback }
+        def f:string (CssValue.firstFamily((got.get(name))))
+        if ((strlen f) == 0) { return fallback }
+        applied = (applied + 1)
+        return f
+    }
+
+    fn color:string (got:CssComputed name:string fallback:string) {
+        if (! (got.has(name))) { return fallback }
+        def c:EVGColor (CssValue.color((got.get(name))))
+        if (! c.isSet) { return fallback }
+        applied = (applied + 1)
+        return (c.toHexString())
+    }
+
+    ; Every property of a rule this layout did not just read. Named once each,
+    ; so a template author is told which of their lines did nothing rather
+    ; than being left to wonder — `PLAN_SLIDES.md` §8.4, and the problem
+    ; `PptxCss` already had and answered.
+    fn rest:void (got:CssComputed known:string) {
+        def i:int 0
+        while (i < (got.count())) {
+            def name:string (itemAt got.names i)
+            if (! (MdCss.listed(known name))) {
+                this.note(name)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn listed:boolean (csv:string name:string) {
+        def parts:[string] (strsplit csv ",")
+        def i:int 0
+        while (i < (array_length parts)) {
+            if ((itemAt parts i) == name) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+}
