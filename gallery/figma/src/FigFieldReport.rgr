@@ -115,6 +115,7 @@ class FigFieldReport {
         push k "windingRule"
         push k "arcData"
         push k "mask"
+        push k "letterSpacing"
         push k "borderTopWeight"
         push k "borderRightWeight"
         push k "borderBottomWeight"

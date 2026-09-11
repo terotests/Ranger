@@ -85,6 +85,10 @@ class EVGDrawCmd {
     ; When set, `w` is the text-box content width used to measure & place the run.
     def textAlign:string ""
     def fontWeight:string ""
+    ; CSS `letter-spacing` in pixels, zero for the font's own. It rides on
+    ; the command rather than being folded into `x` because a run is drawn
+    ; as one string: the painter has to space it, nobody else can.
+    def letterSpacing:double 0.0
     def maxWidth:double 0.0
     ; Optional 2-stop gradient for RECT (kind 0)
     def hasGrad:boolean false
@@ -2531,7 +2535,7 @@ class EVGDisplayList {
             ; `EVGElement.wrapWidth`, which is zero for a `white-space` that
             ; does not wrap. `avail` itself is still the box, because that is
             ; what `text-align` centres inside.
-            def lines:[string] (textEngine.breakToStrings(el.textContent face fs (el.wrapWidth(avail))))
+            def lines:[string] (textEngine.breakToStringsSpaced(el.textContent face fs (el.wrapWidth(avail)) el.letterSpacing))
             def tr:int 0
             def tg:int 0
             def tb:int 0
@@ -2558,7 +2562,7 @@ class EVGDisplayList {
                 ; came out and moving the start by the slack.
                 def indent:double 0.0
                 if ((el.textAlign == "center") || (el.textAlign == "right")) {
-                    def m:EVGTextMetrics (textEngine.measureRun((itemAt lines li) face fs))
+                    def m:EVGTextMetrics (textEngine.measureRunSpaced((itemAt lines li) face fs el.letterSpacing))
                     def slack:double (avail - m.width)
                     if (slack > 0.0) {
                         if (el.textAlign == "center") {
@@ -2593,6 +2597,7 @@ class EVGDisplayList {
                         c4.fontWeight = el.fontWeight
                     }
                 }
+                c4.letterSpacing = el.letterSpacing
                 c4.r = tr
                 c4.g = tg
                 c4.b = tb
@@ -2756,7 +2761,7 @@ class EVGDisplayList {
     ; JSON path for every fixture by `pptx/web/host/scene-binary-check.mjs`.
     ; Growing this number is safe; a reader that wants the new fields opts in.
     sfn stride:int () {
-        return 36
+        return 37
     }
 
     ; A value in hundredths, which is the precision `num` writes and therefore
@@ -2882,6 +2887,11 @@ class EVGDisplayList {
             int_buffer_set recs (base + 33) (EVGDisplayList.fixed(c2.shadowBlur))
             int_buffer_set recs (base + 34) (EVGDisplayList.packRgb(c2.shadowR c2.shadowG c2.shadowB))
             int_buffer_set recs (base + 35) (EVGDisplayList.fixed(c2.shadowA))
+            ; 36: `letter-spacing`. The record is read by its width and not
+            ; by a version — a reader that wants 36 fields reads a 37-wide
+            ; buffer and ignores this, which is how the shadow slots were
+            ; added and why the pptx decoder that reads 23 is still right.
+            int_buffer_set recs (base + 36) (EVGDisplayList.fixed(c2.letterSpacing))
             ; A command with no text names none of the three text strings, and
             ; `toJson` writes none of them either — so the reader must be able
             ; to tell "no text" from "empty text", which -1 says and 0 would
@@ -3096,6 +3106,9 @@ class EVGDisplayList {
                 out = out + ",\"size\":" + (EVGDisplayList.num(c.fontSize))
                 ; Weight / slant so a canvas backend paints the same face the
                 ; SoftCanvas rasterizer picked.
+                if (c.letterSpacing != 0.0) {
+                    out = out + ",\"ls\":" + (EVGDisplayList.num(c.letterSpacing))
+                }
                 if ((strlen c.fontWeight) > 0) {
                     out = out + ",\"weight\":" + (EVGDisplayList.jsonString(c.fontWeight))
                 }

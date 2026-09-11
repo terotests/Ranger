@@ -41,6 +41,7 @@ export function cmdsOf(dl) {
       o.font = c.fontFamily;
       o.size = c.fontSize;
       if (c.fontWeight.length > 0) o.weight = c.fontWeight;
+      if (c.letterSpacing !== 0) o.ls = c.letterSpacing;
       if (c.textAlign === "italic") o.italic = true;
     }
     if (c.src.length > 0) o.src = c.src;

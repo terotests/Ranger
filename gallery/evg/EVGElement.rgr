@@ -519,6 +519,12 @@ class EVGElement {
     def viewportH:double 0.0
     def fontFamily:string "Noto Sans"
     def fontWeight:string "normal"
+    ; Extra advance after every character, in pixels — CSS `letter-spacing`,
+    ; and negative is the tracking a designer tightens a heading with.
+    ; ZERO is the font's own spacing and every measurement and every painter
+    ; takes the same path it always did, so nothing that does not set this
+    ; can be moved by it.
+    def letterSpacing:double 0.0
     ; ZERO means `normal`, which is the FACE's own line box and is asked of
     ; the text engine. It used to default to 1.2 — a number people type, not
     ; one a browser computes: measured, the sans fallback's normal is 1.15em
@@ -2647,6 +2653,7 @@ class EVGElement {
         viewportH = other.viewportH
         fontFamily = other.fontFamily
         fontWeight = other.fontWeight
+        letterSpacing = other.letterSpacing
         lineHeight = other.lineHeight
         lineHeightUnit = other.lineHeightUnit
         textAlign = other.textAlign
@@ -3381,6 +3388,18 @@ class EVGElement {
         }
         if ((name == "line-break") || (name == "lineBreak")) {
             lineBreak = (value == "true")
+            return
+        }
+        if ((name == "letter-spacing") || (name == "letterSpacing")) {
+            ; `normal` is the font's own, which is zero extra.
+            if (value == "normal") {
+                letterSpacing = 0.0
+                return
+            }
+            def lsu:EVGUnit (EVGUnit.parse(value))
+            if lsu.isSet {
+                letterSpacing = lsu.pixels
+            }
             return
         }
         if (name == "overflow") {

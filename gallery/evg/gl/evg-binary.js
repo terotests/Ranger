@@ -18,6 +18,12 @@
 // a narrower one is refused with both numbers in the message. Values are
 // hundredths — `EVGDisplayList.fixed` rounds to what `toJson` writes — so the
 // division below gives back exactly the JSON's numbers.
+//
+// Slot 36 is `letter-spacing`, and it is read only when the buffer is wide
+// enough to have it. Raising FIELDS_READ instead would have refused every
+// bundle built before it existed — a hard failure for a field whose absence
+// means "the font's own spacing", which is what those bundles meant. A slot
+// that is optional in the data is optional in the reader.
 
 export const FIELDS_READ = 36;
 
@@ -71,6 +77,10 @@ export function cmdsOfBinary(bin) {
       o.size = r[b + 13] / 100;
       const w = r[b + 17];
       if (w >= 0) o.weight = pool[w];
+      if (stride > 36) {
+        const ls = r[b + 36];
+        if (ls !== 0) o.ls = ls / 100;
+      }
       if (flags & 2) o.italic = true;
     }
     const src = r[b + 18];

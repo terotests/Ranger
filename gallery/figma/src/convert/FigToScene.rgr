@@ -247,9 +247,18 @@ class FigToScene {
                 sn.pathData = (FigToScene.ellipsePath(nd.w nd.h))
             }
         }
+        ; A union or a subtract is drawn from the outline Figma flattened
+        ; for it. Without one there is nothing to draw — but an empty box
+        ; with no children is a node Figma draws nothing for either, and
+        ; reporting those said eight shapes were lost from a file that
+        ; was missing none. Only a node with a size or something under it
+        ; is ink that did not arrive.
         if ((t == "BOOLEAN_OPERATION") || (t == "BOOLEAN_GROUP")) {
             if ((strlen sn.pathData) == 0) {
-                sn.warn("boolean operation without geometry")
+                def hasBox:boolean ((nd.w > 0.0) && (nd.h > 0.0))
+                if (hasBox || ((array_length nd.children) > 0)) {
+                    sn.warn("boolean operation without geometry")
+                }
             }
         }
         def i:int 0
@@ -1201,12 +1210,6 @@ class FigToScene {
             sn.text.letterSpacing = (raw.childDouble("letterSpacing" 0.0))
         }
         sn.text.outline = (this.glyphOutline(nd))
-        if (sn.text.hasOutline()) {
-            return
-        }
-        if (sn.text.letterSpacing != 0.0) {
-            sn.warn("letterSpacing (EVG has no letter-spacing)")
-        }
     }
 
     ; One SVG path for every glyph the editor laid out, in node pixels.

@@ -142,6 +142,11 @@ SUITES=(
   evg:stylevar:test
   evg:timing:test
   evg:box:test
+  # Does a command survive being written down? Every picture test reads the
+  # command objects, so a field the serializer forgot was invisible: the
+  # pictures came out right and the browser drew something else. Never wired
+  # into CI until `letter-spacing` was added to the same two bridges.
+  evg:json:test
   evg:viewport:test
   evg:reconcile:test
   evg:component:test

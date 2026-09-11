@@ -28,6 +28,7 @@ Import "EVGDisplayList.rgr"
 Import "EVGColor.rgr"
 Import "EVGElement.rgr"
 Import "EVGLayout.rgr"
+Import "EVGTextEngine.rgr"
 
 class EVGJsonTest {
     def passed:int 0
@@ -62,6 +63,7 @@ class EVGJsonTest {
         this.testRectAndBorder()
         this.testTextAndImage()
         this.testEveryNumberIsANumber()
+        this.testLetterSpacing()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed > 0) {
@@ -299,6 +301,40 @@ class EVGJsonTest {
         this.has("the corner radius is written" json "\"r\":9.00")
         this.has("so is the rotation" json "\"rot\":45.00")
         this.has("and the border's thickness" json "\"t\":2.00")
+    }
+
+    ; `letter-spacing` — a run is drawn as one string, so the painter is
+    ; the only party that can space it and the command has to carry it.
+    ; It rides in the JSON as `ls` and in the binary at slot 36, and the
+    ; wrap has to agree with the ink: a line measured without the tracking
+    ; is a line the box was sized too narrow for.
+    fn testLetterSpacing:void () {
+        print "-- letter-spacing"
+        def root (new EVGElement())
+        root.setAttribute("width" "400px")
+        root.setAttribute("height" "100px")
+        def span:EVGElement (EVGElement.createSpan())
+        span.textContent = "abcd"
+        span.setAttribute("font-size" "20px")
+        span.setAttribute("letter-spacing" "5px")
+        root.addChild(span)
+        def layout (new EVGLayout())
+        layout.layout(root)
+        def dl (new EVGDisplayList())
+        dl.build(root)
+        def js:string (dl.toJson())
+        this.has("the command carries it" js "\"ls\":5")
+
+        ; And the measurement grew by one space per character, the last
+        ; one included — which is what CSS says and what a canvas with
+        ; `letterSpacing` set measures back.
+        def eng (new EVGTextEngine())
+        def plain:double ((eng.measureRun("abcd" "Open Sans" 20.0)).width)
+        def spaced:double ((eng.measureRunSpaced("abcd" "Open Sans" 20.0 5.0)).width)
+        this.ok("and the measurement grew by four spaces" (((spaced - plain) > 19.9) && ((spaced - plain) < 20.1)))
+        def tight:double ((eng.measureRunSpaced("abcd" "Open Sans" 20.0 (0.0 - 1.0))).width)
+        this.ok("negative tracking narrows it" (((plain - tight) > 3.9) && ((plain - tight) < 4.1)))
+        this.ok("and zero is the run as it was" (((eng.measureRunSpaced("abcd" "Open Sans" 20.0 0.0)).width) == plain))
     }
 
     fn testTextAndImage:void () {

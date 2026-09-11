@@ -429,7 +429,17 @@ export function fontSpec(c, dpr) {
 }
 
 function runKey(c, dpr) {
-  return `${dpr}|${c.font || ""}|${c.size}|${c.weight || ""}|${c.italic ? 1 : 0}|${c.text}`;
+  return `${dpr}|${c.font || ""}|${c.size}|${c.weight || ""}|${c.italic ? 1 : 0}|${c.ls || 0}|${c.text}`;
+}
+
+// `letter-spacing`, set on the 2D context that measures the run and on the
+// one that rasterizes it — the same value on both, or the slot is cut to a
+// width the ink does not fit in. A canvas that does not know the property
+// ignores the assignment and draws the run at the font's own spacing, which
+// is where every run was before this and is the right thing to lose.
+function applySpacing(ctx, c, dpr) {
+  const ls = c.ls || 0;
+  ctx.letterSpacing = ls ? `${ls * dpr}px` : "0px";
 }
 
 /** The runs an atlas holds: every distinct run, or — `onlyVisible` — only
@@ -460,6 +470,7 @@ const PAD = 2;
 /** One run, measured with the face it will be drawn in. */
 function measureRun(ctx, c, dpr) {
   ctx.font = fontSpec(c, dpr);
+  applySpacing(ctx, c, dpr);
   const m = ctx.measureText(verbatim(c.text));
   // Two different ascents, and the difference between them is the whole of
   // where a run sits. `actualBoundingBox*` is the INK of these particular
@@ -529,6 +540,7 @@ function rasterRuns(c2, measured, dpr) {
   c2.fillStyle = "#fff";
   for (const m of measured) {
     c2.font = fontSpec(m.c, dpr);
+    applySpacing(c2, m.c, dpr);
     c2.fillText(verbatim(m.c.text), m.x + PAD, m.y + PAD + m.asc);
   }
 }

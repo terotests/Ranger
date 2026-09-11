@@ -65,6 +65,7 @@ class FigTest {
         this.testArcs()
         this.testMask()
         this.testPerSideStroke()
+        this.testTracking()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -169,9 +170,9 @@ class FigTest {
         ; And it reaches the renderer as a box of that size that clips —
         ; the draw commands carry it scaled by the view, so the element is
         ; where the size can be read back.
-        def dump:string (app.evgText())
-        this.check("the renderer gets the clip" (FigTest.hasSub(dump "id=\"3:71#mask\" position=\"absolute\" left=\"10px\" top=\"10px\" width=\"80px\" height=\"80px\"")))
-        this.check("the mask shape is not painted" ((FigTest.hasSub(dump "id=\"3:71\"")) == false))
+        def dump0:string (app.evgText())
+        this.check("the renderer gets the clip" (FigTest.hasSub(dump0 "id=\"3:71#mask\" position=\"absolute\" left=\"10px\" top=\"10px\" width=\"80px\" height=\"80px\"")))
+        this.check("the mask shape is not painted" ((FigTest.hasSub(dump0 "id=\"3:71\"")) == false))
     }
 
     ; A rule under a row, and nothing on the other three sides.
@@ -190,6 +191,19 @@ class FigTest {
         this.check("drawn as a bar there" (FigTest.hasSub(dump "id=\"3:74:border-bottom\" position=\"absolute\" left=\"0px\" top=\"38px\" width=\"200px\" height=\"2px\"")))
         this.check("and the other sides draw nothing" (FigTest.hasSub(dump "id=\"3:74:border-top\" position=\"absolute\" left=\"0px\" top=\"0px\" width=\"200px\" height=\"0px\"")))
         this.check("no box around it" ((FigTest.hasSub(dump "id=\"3:74\" position=\"absolute\" left=\"4840px\" top=\"800px\" width=\"200px\" height=\"40px\" border-width=")) == false))
+    }
+
+    ; Tracking reaches the painter, because a run is drawn as one string
+    ; and nobody else can space it.
+    fn testTracking:void () {
+        print "--- letter-spacing ---"
+        def app (new FigApp())
+        this.check("open sample" (app.openSample()))
+        app.setPage(2)
+        def head:SceneNode ((app.currentPage()).childNamed("TrackedHeading"))
+        this.check("the tracking is read" (head.text.letterSpacing < (0.0 - 1.4)))
+        def scene:string (app.sceneJson())
+        this.check("and the draw command" (FigTest.hasSub(scene "\"ls\":-1.5")))
     }
 
     sfn countOf:int (s:string needle:string) {

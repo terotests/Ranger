@@ -22,6 +22,7 @@
 ; threaded through instead of a hardcoded one, and (c) honesty about whether the
 ; measurer can back the families a document asks for.
 
+Import "EVGGrapheme.rgr"
 Import "EVGTextMeasurer.rgr"
 ; So that every compiled module a host can attach to has the host measurer
 ; and the default registry, without the program importing them itself.
@@ -243,6 +244,20 @@ class EVGTextEngine {
     ; §8 contract
     ; -----------------------------------------------------------------------
 
+    fn measureRunSpaced:EVGTextMetrics (text:string fontFamily:string fontSize:double spacing:double) {
+        def m:EVGTextMetrics (this.measureRun(text fontFamily fontSize))
+        if (spacing == 0.0) {
+            return m
+        }
+        def wider (new EVGTextMetrics())
+        wider.width = (m.width + (EVGTextEngine.trackingWidth(text spacing)))
+        wider.height = m.height
+        wider.ascent = m.ascent
+        wider.descent = m.descent
+        wider.lineHeight = m.lineHeight
+        return wider
+    }
+
     fn measureRun:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
         ; Before the cache, and not inside it: the font warnings are counted
         ; per family and reported once, and a second frame must not be quieter
@@ -273,11 +288,21 @@ class EVGTextEngine {
     ; maxWidth <= 0 means "do not wrap": each newline-separated paragraph
     ; becomes exactly one line.
     fn breakLines:[EVGTextLine] (text:string fontFamily:string fontSize:double maxWidth:double) {
+        return (this.breakLinesSpaced(text fontFamily fontSize maxWidth 0.0))
+    }
+
+    ; The same wrap with `letter-spacing` in it. Zero is the call above and
+    ; the same cache entry, so a caller that has no tracking pays nothing
+    ; and cannot be moved by this.
+    fn breakLinesSpaced:[EVGTextLine] (text:string fontFamily:string fontSize:double maxWidth:double spacing:double) {
         this.checkFamily(fontFamily)
         def key:string (this.cacheKey("w" fontFamily fontSize maxWidth text))
+        if (spacing != 0.0) {
+            key = ((key + "|ls") + (to_string spacing))
+        }
         def hit@(optional):int (get wrapIndex key)
         if (null? hit) {
-            def fresh:[EVGTextLine] (this.wrapUncached(text fontFamily fontSize maxWidth))
+            def fresh:[EVGTextLine] (this.wrapUncached(text fontFamily fontSize maxWidth spacing))
             if ((array_length wrapStore) >= (EVGTextEngine.cacheLimit())) {
                 this.clearCache()
             }
@@ -292,7 +317,7 @@ class EVGTextEngine {
     }
 
     ; The wrap itself, with no cache in front of it.
-    fn wrapUncached:[EVGTextLine] (text:string fontFamily:string fontSize:double maxWidth:double) {
+    fn wrapUncached:[EVGTextLine] (text:string fontFamily:string fontSize:double maxWidth:double spacing:double) {
         def out:[EVGTextLine]
 
         def paragraphs:[string] (strsplit text "\n")
@@ -300,7 +325,7 @@ class EVGTextEngine {
         while (p < (array_length paragraphs)) {
             def para:string (itemAt paragraphs p)
             if (maxWidth <= 0.0) {
-                push out (this.measuredLine(para fontFamily fontSize))
+                push out (this.measuredLineSpaced(para fontFamily fontSize spacing))
             } {
                 def words:[string] (strsplit para " ")
                 ; How many TOKENS are on the line, not how many characters.
@@ -325,7 +350,7 @@ class EVGTextEngine {
                     } {
                         testLine = currentLine + " " + word
                     }
-                    def testWidth:double (measurer.measureTextWidth(testLine fontFamily fontSize))
+                    def testWidth:double ((measurer.measureTextWidth(testLine fontFamily fontSize)) + (EVGTextEngine.trackingWidth(testLine spacing)))
                     ; A HAIR OF TOLERANCE, and it is not a fudge — it is what
                     ; stops a box from breaking its own content.
                     ;
@@ -346,7 +371,7 @@ class EVGTextEngine {
                     ; asked for; it can only undo a round trip that should
                     ; have been the identity.
                     if (((testWidth - maxWidth) > (EVGTextEngine.fitEpsilon())) && (tokensOnLine > 0)) {
-                        push out (this.measuredLine(currentLine fontFamily fontSize))
+                        push out (this.measuredLineSpaced(currentLine fontFamily fontSize spacing))
                         currentLine = word
                         tokensOnLine = 1
                     } {
@@ -357,13 +382,13 @@ class EVGTextEngine {
                 }
                 ; An empty paragraph is still a line — blank lines take vertical
                 ; space, and dropping them would shorten the block.
-                push out (this.measuredLine(currentLine fontFamily fontSize))
+                push out (this.measuredLineSpaced(currentLine fontFamily fontSize spacing))
             }
             p = (p + 1)
         }
 
         if ((array_length out) == 0) {
-            push out (this.measuredLine("" fontFamily fontSize))
+            push out (this.measuredLineSpaced("" fontFamily fontSize spacing))
         }
         return out
     }
@@ -381,25 +406,53 @@ class EVGTextEngine {
     ; Found from `gallery/markdown`, whose own layout had hit the same trap
     ; a week earlier and left a note about it.
     fn measuredLine:EVGTextLine (text:string fontFamily:string fontSize:double) {
+        return (this.measuredLineSpaced(text fontFamily fontSize 0.0))
+    }
+
+    fn measuredLineSpaced:EVGTextLine (text:string fontFamily:string fontSize:double spacing:double) {
         def m:EVGTextMetrics (measurer.measureText(text fontFamily fontSize))
         def line (new EVGTextLine())
         line.text = text
-        line.width = m.width
+        line.width = (m.width + (EVGTextEngine.trackingWidth(text spacing)))
         line.ascent = m.ascent
         line.descent = m.descent
         return line
     }
 
+    ; What `letter-spacing` adds to a run: the extra advance AFTER every
+    ; character, the last one included, which is what CSS says and what a
+    ; canvas with `letterSpacing` set measures back. Counting the gaps
+    ; BETWEEN characters instead would make every measurement here one
+    ; space narrower than the ink the painter lays down, and a box sized
+    ; from it would clip its own last letter.
+    ;
+    ; Counted in graphemes, so an emoji or a combining accent is one
+    ; character and not the two or four units it is stored in.
+    sfn trackingWidth:double (text:string spacing:double) {
+        if (spacing == 0.0) {
+            return 0.0
+        }
+        return ((to_double (EVGGrapheme.clusterCount(text))) * spacing)
+    }
+
     ; Number of lines `text` occupies at `maxWidth` — the wrap and the height
     ; calculation therefore cannot disagree, because it is the same wrap.
     fn lineCount:int (text:string fontFamily:string fontSize:double maxWidth:double) {
-        def lines:[EVGTextLine] (this.breakLines(text fontFamily fontSize maxWidth))
+        return (this.lineCountSpaced(text fontFamily fontSize maxWidth 0.0))
+    }
+
+    fn lineCountSpaced:int (text:string fontFamily:string fontSize:double maxWidth:double spacing:double) {
+        def lines:[EVGTextLine] (this.breakLinesSpaced(text fontFamily fontSize maxWidth spacing))
         return (array_length lines)
     }
 
     ; Widest line, for shrink-wrapping a text node to its content.
     fn maxLineWidth:double (text:string fontFamily:string fontSize:double) {
-        def lines:[EVGTextLine] (this.breakLines(text fontFamily fontSize 0.0))
+        return (this.maxLineWidthSpaced(text fontFamily fontSize 0.0))
+    }
+
+    fn maxLineWidthSpaced:double (text:string fontFamily:string fontSize:double spacing:double) {
+        def lines:[EVGTextLine] (this.breakLinesSpaced(text fontFamily fontSize 0.0 spacing))
         def maxW:double 0.0
         def i:int 0
         while (i < (array_length lines)) {
@@ -416,7 +469,11 @@ class EVGTextEngine {
     ; min-content. Breaking at every opportunity puts one word per line, so the
     ; widest of those lines is the answer.
     fn minLineWidth:double (text:string fontFamily:string fontSize:double) {
-        def lines:[EVGTextLine] (this.breakLines(text fontFamily fontSize 0.001))
+        return (this.minLineWidthSpaced(text fontFamily fontSize 0.0))
+    }
+
+    fn minLineWidthSpaced:double (text:string fontFamily:string fontSize:double spacing:double) {
+        def lines:[EVGTextLine] (this.breakLinesSpaced(text fontFamily fontSize 0.001 spacing))
         def maxW:double 0.0
         def i:int 0
         while (i < (array_length lines)) {
@@ -431,8 +488,12 @@ class EVGTextEngine {
 
     ; Convenience for callers that only want the strings (PDF paint).
     fn breakToStrings:[string] (text:string fontFamily:string fontSize:double maxWidth:double) {
+        return (this.breakToStringsSpaced(text fontFamily fontSize maxWidth 0.0))
+    }
+
+    fn breakToStringsSpaced:[string] (text:string fontFamily:string fontSize:double maxWidth:double spacing:double) {
         def out:[string]
-        def lines:[EVGTextLine] (this.breakLines(text fontFamily fontSize maxWidth))
+        def lines:[EVGTextLine] (this.breakLinesSpaced(text fontFamily fontSize maxWidth spacing))
         def i:int 0
         while (i < (array_length lines)) {
             def ln:EVGTextLine (itemAt lines i)

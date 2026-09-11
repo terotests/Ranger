@@ -154,6 +154,7 @@ class FigSample {
         s.addField(node "borderRightWeight" "float" 48 false)
         s.addField(node "borderBottomWeight" "float" 49 false)
         s.addField(node "borderLeftWeight" "float" 50 false)
+        s.addField(node "letterSpacing" "float" 51 false)
         s.addField(node "arcData" "ArcData" 46 false)
         def blob:KiwiDef (s.addMessage("Blob"))
         s.addField(blob "bytes" "byte" 1 true)
@@ -794,6 +795,15 @@ class FigSample {
         row.put("borderBottomWeight" (KiwiValue.fromDouble(2.0)))
         row.put("borderLeftWeight" (KiwiValue.fromDouble(0.0)))
         nodes.pushItem(row)
+
+        ; Tracking: the designer tightened this heading. Drawn at the
+        ; font's own spacing it is a few per cent wider than the box the
+        ; file sized for it.
+        def tracked:KiwiValue (FigSample.node(3 75 "TEXT" "TrackedHeading" 0 3 "n" 300.0 40.0 5080.0 800.0))
+        tracked.put("textData" (FigSample.chars("TIGHT HEADING")))
+        tracked.put("fontSize" (KiwiValue.fromDouble(24.0)))
+        tracked.put("letterSpacing" (KiwiValue.fromDouble(0.0 - 1.5)))
+        nodes.pushItem(tracked)
 
         ; --- FigJam ---------------------------------------------------
         ;
