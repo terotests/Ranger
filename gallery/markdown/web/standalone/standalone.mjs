@@ -1035,29 +1035,35 @@ function selftest() {
       app.setPaged(false);
       say("…and back to continuous", overlapsNow() === 0, overlapsNow() + " overlapping runs");
 
-      // The other way text lands on text: a run drawn WIDER than the box it
-      // was measured into. The display list can be perfectly spaced and the
-      // page still overlap, because the painter advances by its own idea of
-      // each glyph. Two runs above were checked this way; the whole document
-      // is checked here, and the worst one is named.
-      // Both ways round. Too WIDE lands on the run after it; too NARROW
-      // leaves a hole in the middle of a sentence, which is what a reader
-      // saw where a soft line break had joined two segments.
+      // The other way text lands on text: a run drawn in a face nobody
+      // measured it in. The display list can be perfectly spaced and the page
+      // still overlap, because the painter advances by its own idea of each
+      // glyph. The runs at the top of this test were checked that way on the
+      // README; the deck — a second theme, a second set of faces — is checked
+      // the same way here, and the worst disagreement is named.
+      //
+      // It is deliberately NOT the command's `w`: `w` is the ELEMENT's inner
+      // width, and a run in a box wider than its text — a diagram's label, a
+      // table cell — is legitimately narrower than the box it sits in, so
+      // that comparison passed or failed on which run came first.
       let worst = null;
       let worstBy = 0;
+      let checked = 0;
+      let slack = 0.5;
       for (const c of JSON.parse(app.frame()).list.cmds) {
-        if (c.k !== 3 || !c.text || c.text.length < 2) continue;
-        const by = Math.abs(drawnWidth(c) - c.w);
-        if (by > worstBy) { worstBy = by; worst = c; }
+        if (!wide(c) || !c.font || !loadedFaces.includes(c.font)) continue;
+        checked++;
+        const measured = widthWith(faceSpec(c), c.text);
+        const by = Math.abs(widthWith(fontSpec(c, 1), c.text) - measured);
+        if (by > worstBy) { worstBy = by; worst = c; slack = Math.max(0.5, measured * 0.005); }
       }
+      say("deck runs to check", checked > 2, checked + " runs");
       say(
-        "every run is drawn at the width it was measured",
-        // A point of slack: a diagram's labels are measured by RangerFlow's
-        // own measurer rather than this one, and the two round differently in
-        // the last fraction. The fault this catches — a face substituted for
-        // another — is 7% of a run, not 2% of a word.
-        worstBy <= Math.max(1.0, (worst ? worst.w : 1) * 0.01),
-        worst ? worstBy.toFixed(2) + "pt out on [" + worst.text.slice(0, 24) + "] in " + worst.font : "none"
+        "every deck run is drawn in the face it was measured in",
+        worstBy <= slack,
+        worst
+          ? worstBy.toFixed(2) + "px out on [" + worst.text.slice(0, 24) + "] in " + worst.font
+          : checked + " runs agree exactly"
       );
 
       // …and the space BETWEEN two runs of one paragraph. A soft line break
