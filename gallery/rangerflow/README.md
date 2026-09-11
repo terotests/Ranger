@@ -1136,6 +1136,16 @@ attribute defaults that are the subtlest part of the language — `node
 road a Mermaid flowchart takes. A cluster is drawn as a band, not a bounding
 box, for the reason the PlantUML packages needed it.
 
+The edges are drawn by `ReadableRouter`, the router that can see every other
+edge — and the choice is measured rather than assumed. On a diagram of ordinary
+size it puts parallel lines 65 px apart where the older pass stack managed 16,
+and takes out the detours that make a reader follow a line with a finger. On a
+dense one it can run out of corridors and abandon an edge, which is then drawn
+straight through whatever is in the way; so it is asked first, checked
+afterwards, and the pass stack takes the whole diagram when anything was left
+unrouted. `npm run rangerflow:graphviz` prints the bends, the crossings, the
+lines drawn through a node and the nearest parallel gap for whatever it drew.
+
 The score is **132 of 132 checks over 20 files**, computed by **Graphviz
 itself**: `npm run rangerflow:graphviz:parity` asks Graphviz what each file in
 `fixtures/graphviz/` means — `-Tjson0` is its parse result, with subgraph

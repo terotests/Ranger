@@ -6,9 +6,8 @@
 ;
 ; `DotReader` produces a model of what the file said. This turns that into a
 ; `FlowGraph`, and from there nothing knows Graphviz exists: `LayeredLayout`
-; ranks it, `EdgeLanes` fans the edges, `ReadableRouter` draws them and the
-; four backends render them — the same road a Mermaid flowchart and a PlantUML
-; component diagram take.
+; ranks it, a router draws the edges and the four backends render them — the
+; same road a Mermaid flowchart and a PlantUML component diagram take.
 ;
 ; Three things are worth knowing about the translation:
 ;
@@ -38,6 +37,7 @@ Import "../../core/FlowStyleSheet.rgr"
 Import "../../layout/LayeredLayout.rgr"
 Import "../../layout/EdgeLanes.rgr"
 Import "../../layout/OrthoRouter.rgr"
+Import "../../layout/ReadableRouter.rgr"
 Import "../flowchart/Flowchart.rgr"
 
 ; ---------------------------------------------------------------------------
@@ -304,11 +304,36 @@ class DotFlow {
         }
         lay.run()
         def banded:int (this.bandLayout(lay))
-        def moved:int (EdgeLanes.assign(g))
-        def routed:int (lay.routeLongEdges())
-        EdgeLanes.resetLanes(g)
-        def refanned:int (EdgeLanes.assign(g))
-        def repaired:int (OrthoRouter.repairAll(g))
+        ; The routing, and which router gets to do it is decided by whether it
+        ; worked rather than by a guess about the graph.
+        ;
+        ; `ReadableRouter` is the one that can see every other edge: it charges
+        ; a route for crossings, for sharing a corridor and for turning inside
+        ; somebody else's clearance, and on a diagram of this size it is
+        ; visibly better — the same drawing came out with its parallel lines 65
+        ; px apart instead of 16, and without the detours that make a reader
+        ; follow a line with a finger. But it can FAIL: on a dense graph its
+        ; grid has no corridor left and an edge it gives up on is drawn
+        ; straight through whatever is in the way, which is worse than any
+        ; detour. Measured on `fixtures/graphviz/14_big_flat.gv`, 200 nodes and
+        ; 199 edges: 80 of them abandoned.
+        ;
+        ; So it is asked first and checked afterwards, and the pass stack —
+        ; lanes, long-edge chains, orthogonal repair — takes over whole when it
+        ; left anything unrouted. Half a diagram from each would be worse than
+        ; either.
+        def rr (new ReadableRouter)
+        def drawn:int (rr.route(g))
+        rr.placeLabels(g)
+        rr.finish(g)
+        if (rr.unrouted > 0) {
+            EdgeLanes.reset(g)
+            def moved:int (EdgeLanes.assign(g))
+            def routed:int (lay.routeLongEdges())
+            EdgeLanes.resetLanes(g)
+            def refanned:int (EdgeLanes.assign(g))
+            def repaired:int (OrthoRouter.repairAll(g))
+        }
         this.frames()
         g.reindex()
         return g

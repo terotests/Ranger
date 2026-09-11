@@ -1062,6 +1062,8 @@ class RangerFlowDemo {
             what = "RangerFlow — PlantUML activity diagram"
         }
         this.writeAll(v g "rangerflow-plantuml-activity" what)
+    }
+
     ; ---------------------------------------------------------- Graphviz ----
     ; A DOT digraph. One grammar, one reader, and from `DotFlow` onwards the
     ; same road a Mermaid flowchart takes. The scorecard for what this reader
@@ -1092,6 +1094,10 @@ class RangerFlowDemo {
         def style:FlowStyle (this.styleByName(styleName))
         def g:FlowGraph (DotFlow.build(d style))
         print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges, laid out " + (d.direction()))
+        ; What the lines came out like. A picture is not a test, and these are
+        ; the numbers a reader's eye takes from a drawing without knowing it:
+        ; see `layout/RouteQuality.rgr`.
+        print ("  routes " + (to_string (RouteQuality.totalBends(g))) + " bends, " + (to_string (EdgeOverlap.edgeCrossings(g))) + " crossings, " + (to_string (EdgeOverlap.nodeCrossings(g))) + " through a node, nearest parallel " + (to_string (RouteQuality.closestParallel(g))) + " px")
         def v:FlowView (FlowView.of(g))
         v.notation = "plain"
         style.applyToTheme(v.theme)

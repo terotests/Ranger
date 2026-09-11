@@ -395,6 +395,29 @@ groups, and `domains/graphviz/DotFlow.rgr` builds the `FlowGraph` with clusters
 drawn as the bands built for PlantUML's packages — a package is a band, not a
 bounding box, and a Graphviz cluster is the same promise.
 
+**The routing is chosen by measuring, not by guessing.** `ReadableRouter` — the
+router that can see every other edge and charges a route for crossings, shared
+corridors and turning inside somebody else's clearance — is asked first, and
+on a diagram of ordinary size it is visibly better: `fixtures/order_flow.gv`
+came out with its parallel lines **65 px apart instead of 16**, and without the
+detours that make a reader follow a line with a finger. It can also fail: on
+`fixtures/graphviz/14_big_flat.gv` (200 nodes, 199 edges) its grid runs out of
+corridors and it abandons **80** edges, which are then drawn straight through
+whatever is in the way — worse than any detour. So it is asked first and
+checked afterwards, and the older pass stack (lanes, long-edge chains,
+orthogonal repair) takes the whole diagram when anything was left unrouted:
+
+| | bends | crossings | through a node | nearest parallel |
+| --- | --- | --- | --- | --- |
+| `order_flow.gv`, readable router | 26 | 0 | 0 | **65 px** |
+| `order_flow.gv`, pass stack | 24 | 0 | 0 | 16 px |
+| `14_big_flat.gv`, readable router | 372 | 268 | **80** | 0 px |
+| `14_big_flat.gv`, pass stack | 502 | 555 | **7** | 0 px |
+
+`npm run rangerflow:graphviz` prints that line for whatever it drew, so a
+change to either router shows up as a number rather than as a picture somebody
+has to look at.
+
 One bug the web page's own self-test found and no amount of parity would have:
 `FlowGraph` names an edge nobody named `e<n>`, and this reader was naming its
 edges the same way. An edge added in the editor then collided with one of the
