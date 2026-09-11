@@ -61,6 +61,7 @@ Import "../domains/business/BusinessCharts.rgr"
 Import "../domains/plantuml/PlantUmlSequenceReader.rgr"
 Import "../domains/plantuml/PlantUmlEntityReader.rgr"
 Import "../domains/plantuml/PlantUmlActivityReader.rgr"
+Import "../domains/graphviz/DotFlow.rgr"
 
 class Checker {
     def passed:int 0
@@ -144,6 +145,10 @@ class RangerFlowTest {
         RangerFlowTest.testPlantUmlSequence(c)
         RangerFlowTest.testPlantUmlEntities(c)
         RangerFlowTest.testPlantUmlActivity(c)
+        RangerFlowTest.testDotGrammar(c)
+        RangerFlowTest.testDotDefaults(c)
+        RangerFlowTest.testDotRefusals(c)
+        RangerFlowTest.testDotFlow(c)
         RangerFlowTest.testMermaidGit(c)
         RangerFlowTest.testMermaidSubgraphEnds(c)
         RangerFlowTest.testMermaidKanban(c)
@@ -3947,6 +3952,186 @@ class RangerFlowTest {
     ; The expected answers are not opinions: each was asked of PlantUML
     ; 1.2025.4 as a two-line file and read off the `data-diagram-type` its own
     ; renderer writes into the SVG. See docs/PLAN_PLANTUML.md §3.
+    ; ----------------------------------------------------------- Graphviz ---
+    ; The grammar, in the places it is easy to get wrong. Every expectation
+    ; here was checked against Graphviz itself first — the standing version is
+    ; `docs/GRAPHVIZ_PARITY.md`, regenerated from the same corpus.
+    sfn testDotGrammar:void (c:Checker) {
+        c.section("Graphviz DOT — the grammar")
+
+        def src:string "strict digraph stack {\n"
+        src = (src + "  rankdir = LR;\n")
+        src = (src + "  subgraph cluster_core {\n")
+        src = (src + "    label = \"core\";\n")
+        src = (src + "    Web [shape=box];\n")
+        src = (src + "    API;\n")
+        src = (src + "  }\n")
+        src = (src + "  DB [shape=cylinder, label=\"Postgres\"];\n")
+        src = (src + "  Web -> API [label=\"http\"];\n")
+        src = (src + "  API -> DB;\n")
+        src = (src + "  API -> DB;\n")
+        src = (src + "}\n")
+
+        def d:DotGraph (DotReader.parse(src))
+        c.ok("it reads" d.ok)
+        c.eqStr("the graph keeps its name" d.name "stack")
+        c.ok("a digraph is directed" d.directed)
+        c.ok("`strict` is remembered" d.strict)
+        c.eqStr("`rankdir=LR` is the layout direction" (d.direction()) "LR")
+        c.eqInt("a node per name, in order" (d.nodeCount()) 3)
+        c.eqInt("`strict` collapses the repeated edge" (d.edgeCount()) 2)
+        c.eqInt("one subgraph" (d.subgraphCount()) 1)
+        c.eqInt("and it is a cluster" (d.clusterCount()) 1)
+        def core:DotSubgraph (itemAt d.subgraphs 0)
+        c.eqInt("with the two nodes declared inside it" (core.memberCount()) 2)
+        c.eqStr("its label is its own attribute" (?? (get core.attrs "label") "") "core")
+        def db:DotNode (d.nodeById("DB"))
+        c.eqStr("a quoted label keeps its spaces" (db.attr("label")) "Postgres")
+
+        ; An edge chain is one statement and several edges, and the attribute
+        ; list at the end belongs to all of them.
+        def chain:string "digraph { a -> b -> c [color=red] }"
+        def cd:DotGraph (DotReader.parse(chain))
+        c.eqInt("a chain is one edge per arrow" (cd.edgeCount()) 2)
+        def first:DotEdge (itemAt cd.edges 0)
+        def second:DotEdge (itemAt cd.edges 1)
+        c.eqStr("the chain's attributes reach the first edge" (first.attr("color")) "red")
+        c.eqStr("…and the last" (second.attr("color")) "red")
+
+        ; A subgraph at either end of an edge connects every node in it.
+        def cross:string "digraph { {a b} -> {c d} }"
+        def xd:DotGraph (DotReader.parse(cross))
+        c.eqInt("subgraph to subgraph is every pair" (xd.edgeCount()) 4)
+
+        ; An undirected graph has its own operator, and `strict` there has no
+        ; ends to tell apart.
+        def un:string "strict graph { a -- b; b -- a }"
+        def ud:DotGraph (DotReader.parse(un))
+        c.ok("a graph is undirected" (ud.directed == false))
+        c.eqInt("and an undirected pair is the same pair either way round" (ud.edgeCount()) 1)
+
+        ; The quoting rules: concatenation, escapes, and a continued line.
+        def q:string "digraph { n [label=\"a\" + \"b\"]; m [label=\"x \\\ny\"] }"
+        def qd:DotGraph (DotReader.parse(q))
+        def n1:DotNode (qd.nodeById("n"))
+        c.eqStr("`+` concatenates two quoted strings" (n1.attr("label")) "ab")
+        def m1:DotNode (qd.nodeById("m"))
+        c.eqStr("a backslash before a newline continues the line" (m1.attr("label")) "x y")
+
+        ; Comments, in all three spellings, and a `#` line marker.
+        def cm:string "# a line marker\ndigraph { // one\n /* two */ a -> b }"
+        def cmd:DotGraph (DotReader.parse(cm))
+        c.ok("comments and line markers are skipped" cmd.ok)
+        c.eqInt("and leave the graph they surround alone" (cmd.edgeCount()) 1)
+
+        ; Ports and compass points, which is the one ambiguity in the grammar:
+        ; one field that reads as a compass point IS one.
+        def pt:string "digraph { a:p:e -> b:w }"
+        def ptd:DotGraph (DotReader.parse(pt))
+        def pe:DotEdge (itemAt ptd.edges 0)
+        c.eqStr("`a:p:e` is a port and a compass point" pe.tailPort "p")
+        c.eqStr("…with the compass read as one" pe.tailCompass "e")
+        c.eqStr("`b:w` on its own is a compass point, not a port" pe.headPort "")
+        c.eqStr("…which is where the edge lands" pe.headCompass "w")
+    }
+
+    ; `node [...]` reaches forward, not back, and not into a sibling subgraph.
+    ; Graphviz resolves it exactly so, which is the answer `-Tjson0` prints and
+    ; the parity harness compares against.
+    sfn testDotDefaults:void (c:Checker) {
+        c.section("Graphviz DOT — attribute defaults are scoped and ordered")
+        def src:string "digraph {\n"
+        src = (src + "  node [shape=box, style=filled];\n")
+        src = (src + "  a;\n")
+        src = (src + "  node [shape=circle];\n")
+        src = (src + "  b;\n")
+        src = (src + "  subgraph s { node [color=red]; c }\n")
+        src = (src + "  d;\n")
+        src = (src + "}\n")
+        def d:DotGraph (DotReader.parse(src))
+        def a:DotNode (d.nodeById("a"))
+        def b:DotNode (d.nodeById("b"))
+        def cc:DotNode (d.nodeById("c"))
+        def dd:DotNode (d.nodeById("d"))
+        c.eqStr("a node keeps the default in force when it was declared" (a.attr("shape")) "box")
+        c.eqStr("a later default does not reach back for it" (b.attr("shape")) "circle")
+        c.eqStr("a default set earlier is still in force" (b.attr("style")) "filled")
+        c.eqStr("a subgraph inherits what is outside it" (cc.attr("shape")) "circle")
+        c.eqStr("and adds its own" (cc.attr("color")) "red")
+        c.eqStr("which does not escape it" (dd.attr("color")) "")
+
+        ; The repeated attribute list, which is in the grammar and which one of
+        ; the two pure-JS DOT parsers measured in GRAPHVIZ_BENCH.md refuses.
+        def two:string "digraph { a [color=red] [shape=box]; a -> b [weight=4][minlen=2] }"
+        def td:DotGraph (DotReader.parse(two))
+        def ta:DotNode (td.nodeById("a"))
+        c.eqStr("two attribute lists in a row, first" (ta.attr("color")) "red")
+        c.eqStr("…and second" (ta.attr("shape")) "box")
+        def te:DotEdge (itemAt td.edges 0)
+        c.eqStr("the same on an edge" (te.attr("weight")) "4")
+        c.eqStr("…and its neighbour" (te.attr("minlen")) "2")
+    }
+
+    ; A file Graphviz refuses must be refused here too. A reader that reads one
+    ; happily has invented syntax, and that is the failure a reader of somebody
+    ; else's file cannot see.
+    sfn testDotRefusals:void (c:Checker) {
+        c.section("Graphviz DOT — what must be refused")
+        def dangling:DotGraph (DotReader.parse("digraph { a -> }"))
+        c.ok("a dangling edge is refused" (dangling.ok == false))
+        def wrongOp:DotGraph (DotReader.parse("digraph { a -- b }"))
+        c.ok("`--` in a digraph is refused" (wrongOp.ok == false))
+        def wrongOp2:DotGraph (DotReader.parse("graph { a -> b }"))
+        c.ok("`->` in a graph is refused" (wrongOp2.ok == false))
+        def unclosed:DotGraph (DotReader.parse("digraph { a -> b"))
+        c.ok("an unclosed graph is refused" (unclosed.ok == false))
+        ; The published grammar has no bare `subgraph name`; two of the four
+        ; DOT parsers benchmarked in GRAPHVIZ_BENCH.md accept it anyway.
+        def ref:DotGraph (DotReader.parse("digraph { subgraph s { a } subgraph s -> b }"))
+        c.ok("a bare subgraph reference is refused" (ref.ok == false))
+        def notDot:DotGraph (DotReader.parse("flowchart TD\n a --> b"))
+        c.ok("a Mermaid flowchart is not a DOT graph" (notDot.ok == false))
+        c.ok("and a refusal says which line" (dangling.errorLine > 0))
+    }
+
+    ; And the drawing: shapes, clusters as frames, and the default that is not
+    ; a rectangle.
+    sfn testDotFlow:void (c:Checker) {
+        c.section("Graphviz DOT — the drawing")
+        def src:string "digraph {\n"
+        src = (src + "  subgraph cluster_a { label=\"A\"; x; y }\n")
+        src = (src + "  z [shape=diamond];\n")
+        src = (src + "  x -> y;\n")
+        src = (src + "  y -> z;\n")
+        src = (src + "}\n")
+        def d:DotGraph (DotReader.parse(src))
+        def style (new FlowStyle)
+        def g:FlowGraph (DotFlow.build(d style))
+        c.eqInt("a node per node, plus a frame for the cluster" (g.nodeCount()) 4)
+        c.eqInt("an edge per edge" (g.edgeCount()) 2)
+        def x:FlowNode (g.nodeById("x"))
+        c.eqStr("Graphviz's default node is an ellipse, not a box" x.shape "ellipse")
+        def z:FlowNode (g.nodeById("z"))
+        c.eqStr("and a shape it names is the shape drawn" z.shape "diamond")
+        def frame:FlowNode (g.nodeById("__cluster_cluster_a"))
+        c.eqStr("the frame is a group" frame.nodeType "group")
+        c.eqStr("and carries the cluster's label" frame.label "A")
+        def inside:boolean true
+        if ((z.x + z.width) <= frame.x) {
+            inside = false
+        }
+        if (z.x >= (frame.x + frame.width)) {
+            inside = false
+        }
+        if ((z.y + z.height) <= frame.y) {
+            inside = false
+        }
+        if (z.y >= (frame.y + frame.height)) {
+            inside = false
+        }
+        c.ok("a node in no cluster stands outside the frame" (inside == false))
+    }
+
     sfn testPlantUmlKinds:void (c:Checker) {
         c.section("PlantUML — which diagram is this")
 

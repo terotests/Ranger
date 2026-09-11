@@ -1,11 +1,15 @@
 # Graphviz DOT in RangerFlow — can the PlantUML shape be done twice?
 
-Status: **investigated and measured, nothing built.** The corpus
-(`fixtures/graphviz/`, 16 files Graphviz accepts and 4 it rejects) and the
-benchmark (`npm run rangerflow:graphviz:bench` →
-[`GRAPHVIZ_BENCH.md`](GRAPHVIZ_BENCH.md)) are in. Every number below was
-measured on 2026-09-11 against Graphviz 2.43.0 (native) and the same program
-compiled to WebAssembly, and is quoted as it came back.
+Status: **phases 0, 1, 2, 3 and 7 are built** · `?scenario=graphviz` in the web
+editor · `npm run rangerflow:graphviz` ·
+`npm run rangerflow:graphviz:parity` → **132/132 checks over 20 files**,
+computed by Graphviz itself · `npm run rangerflow:graphviz:bench` →
+[`GRAPHVIZ_BENCH.md`](GRAPHVIZ_BENCH.md). The grammar, the scoped attribute
+defaults, `strict`, subgraphs and clusters, ports and compass points are in,
+with 50 assertions in the test suite beside the parity harness; phases 4, 5 and
+6 are still design. Every number below was measured on 2026-09-11 against
+Graphviz 2.43.0 (native) and the same program compiled to WebAssembly, and is
+quoted as it came back.
 
 **The answer is yes, and DOT is a smaller job than PlantUML was.** The reason
 is not that DOT is a lesser language — it is that the two things that made
@@ -359,27 +363,42 @@ up.
 document reports. `fixtures/graphviz/` (16 accepted, 4 rejected) and
 `tools/graphviz-bench.mjs` → `docs/GRAPHVIZ_BENCH.md`.
 
-**Phase 1 — the oracle.** `harness/oracles/graphviz_oracle.mjs`: every fixture
-through wasm Graphviz for `json0` (the model) and its verdict (acceptance),
-plus native `dot` as a cross-check when present, into
+**Phase 1 — the oracle.** ✅ **Done.** `harness/oracles/graphviz_oracle.mjs`
+puts every fixture through wasm Graphviz for `json0` (the model) and its verdict
+(acceptance), with native `dot` as a cross-check when the machine has one, into
 `harness/out/graphviz.json`. `tests/DotParityDump.rgr` writes ours;
-`tools/graphviz-parity.mjs` scores them into `docs/GRAPHVIZ_PARITY.md`. The
-scoring is written before the reader, so the first number is honest and low.
+`tools/graphviz-parity.mjs` scores them into
+[`GRAPHVIZ_PARITY.md`](GRAPHVIZ_PARITY.md) — **132/132**, and the four files
+Graphviz rejects are refused here too.
 
-**Phase 2 — the grammar.** `DotReader.rgr`: all thirteen productions, both edge
+Two things the plan did not foresee. First, **Graphviz names an anonymous graph
+`%1` and an anonymous subgraph `%5`**, from a counter that is not our counter,
+so the meter compares subgraph *membership* and never those names. Second,
+`-Tjson0` prints `tailport`/`headport` as edge attributes while this reader
+keeps the port and the compass point apart — two different questions about
+where an edge lands. The translation lives in the meter, which is where a
+foreign tool's spelling belongs.
+
+**Phase 2 — the grammar.** ✅ **Done.** `domains/graphviz/DotReader.rgr`: all thirteen productions, both edge
 operators and the `digraph`/`graph` rule that separates them, `strict` with its
 deduplication, quoting (escapes, `\` line continuation, the `+` concatenation),
 numerals, HTML strings as an opaque token, `#` line markers and both comment
-spellings, `node_id:port:compass`, subgraphs named, anonymous and as edge
-endpoints, and attribute lists including the repeated `[..][..]` form that
-`@ts-graphviz/ast` gets wrong. Ends with acceptance parity at 20/20 on the
-corpus of §4 — the same test that broke two of the four references.
+spellings, `node_id:port:compass` with the one ambiguity the grammar has,
+subgraphs named, anonymous and as edge endpoints, and attribute lists including
+the repeated `[..][..]` form that `@ts-graphviz/ast` gets wrong. Acceptance
+parity is 20/20 on the corpus of §4 — the same test that broke two of the four
+references.
 
-**Phase 3 — the model.** Default-attribute scoping (§1), so the resolved
-attributes in `-Tjson0` and ours agree; subgraph membership including anonymous
-groups; `FlowGraph` with clusters drawn as the bands built for PlantUML's
-packages — a package is a band, not a bounding box, and a Graphviz cluster is
-the same promise.
+**Phase 3 — the model.** ✅ **Done.** Default-attribute scoping (§1) resolves to
+the same answer `-Tjson0` prints, subgraph membership includes the anonymous
+groups, and `domains/graphviz/DotFlow.rgr` builds the `FlowGraph` with clusters
+drawn as the bands built for PlantUML's packages — a package is a band, not a
+bounding box, and a Graphviz cluster is the same promise.
+
+One bug the web page's own self-test found and no amount of parity would have:
+`FlowGraph` names an edge nobody named `e<n>`, and this reader was naming its
+edges the same way. An edge added in the editor then collided with one of the
+file's, and the undo took back the wrong one. They are `dot<n>` now.
 
 **Phase 4 — the attributes that draw.** Shapes (geometry measured per §2.3,
 mapping onto the 41 `FlowShapes` already draws by name, plus one parameterised
@@ -397,10 +416,14 @@ plan put Creole late: it is invisible until there is something to put in it.
 the phase where the §3 framing gets tested — does our layered layout produce a
 drawing a Graphviz user recognises.
 
-**Phase 7 — the way in.** `?scenario=graphviz` in the web demo sharing the
-source panel with Mermaid and PlantUML, a gallery of examples, and
-`npm run rangerflow:graphviz`, driven by `rangerflow:web:test` so it cannot rot
-behind the default.
+**Phase 7 — the way in.** ✅ **Done.** `?scenario=graphviz` in the web demo,
+sharing the source panel with Mermaid and PlantUML — the dropdown decides which
+reader gets the text — with a gallery of four examples chosen for what a DOT
+reader can be wrong about: clusters, the shape vocabulary, the undirected
+grammar, and the scoped defaults. `npm run rangerflow:graphviz` renders
+`fixtures/order_flow.gv` to SVG, PDF, HTML and a scene, beside the Mermaid and
+PlantUML files of the same name. Driven by `rangerflow:web:test` like every
+other scenario, so it cannot rot behind the default.
 
 ---
 
@@ -421,25 +444,25 @@ behind the default.
 ## 11. What lands where
 
 ```text
-domains/graphviz/DotReader.rgr            the grammar
-                 DotModel.rgr             attributes, scoping, strict
-                 DotFlow.rgr              → FlowGraph
-                 DotRecordLabel.rgr       records + HTML-like labels
+domains/graphviz/DotReader.rgr            ✅ the grammar, the model, scoping
+                 DotFlow.rgr              ✅ → FlowGraph, shapes, clusters
+                 DotRecordLabel.rgr       records + HTML-like labels (phase 5)
 fixtures/graphviz/                        ✅ 16 accepted, 4 rejected
-harness/oracles/graphviz_oracle.mjs       Graphviz → out/graphviz.json
-tests/DotParityDump.rgr                   RangerFlow → out/rangerflow_dot.json
+fixtures/order_flow.gv                    ✅ the demo's diagram
+harness/oracles/graphviz_oracle.mjs       ✅ Graphviz → out/graphviz.json
+tests/DotParityDump.rgr                   ✅ RangerFlow → out/rangerflow_dot.json
 tools/graphviz-bench.mjs                  ✅ → docs/GRAPHVIZ_BENCH.md
-tools/graphviz-parity.mjs                 → docs/GRAPHVIZ_PARITY.md
+tools/graphviz-parity.mjs                 ✅ → docs/GRAPHVIZ_PARITY.md
 ```
 
 New scripts, named after the PlantUML ones so they read the same:
 
 ```
-rangerflow:graphviz            render fixtures/graphviz/04_clusters.gv
+rangerflow:graphviz            ✅ render fixtures/order_flow.gv
 rangerflow:graphviz:bench      ✅ the references, measured
-rangerflow:graphviz:oracle     build harness/out/graphviz.json
-rangerflow:graphviz:dump       build harness/out/rangerflow_dot.json
-rangerflow:graphviz:parity     score, and rewrite docs/GRAPHVIZ_PARITY.md
+rangerflow:graphviz:oracle     ✅ build harness/out/graphviz.json
+rangerflow:graphviz:dump       ✅ build harness/out/rangerflow_dot.json
+rangerflow:graphviz:parity     ✅ score, and rewrite docs/GRAPHVIZ_PARITY.md
 ```
 
 ---

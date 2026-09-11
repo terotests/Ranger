@@ -1,0 +1,771 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DotFlow.rgr — a DOT graph, drawn by the pipeline that already exists.
+; ============================================================================
+;
+; `DotReader` produces a model of what the file said. This turns that into a
+; `FlowGraph`, and from there nothing knows Graphviz exists: `LayeredLayout`
+; ranks it, `EdgeLanes` fans the edges, `ReadableRouter` draws them and the
+; four backends render them — the same road a Mermaid flowchart and a PlantUML
+; component diagram take.
+;
+; Three things are worth knowing about the translation:
+;
+; **Graphviz's default node is an ellipse**, not a box. A DOT file that says
+; nothing about shapes is a page of ellipses in Graphviz, and a page of
+; rectangles here would be a different drawing of the same text.
+;
+; **`rankdir` is the layout's direction.** `TB` and `LR` land on the layered
+; layout's own two; `BT` and `RL` are the same axis read backwards and land on
+; the axis they belong to rather than on nothing.
+;
+; **A cluster is a band, not a bounding box.** This is the lesson the PlantUML
+; packages taught: a frame drawn around wherever the layout happened to leave
+; the members will swallow a node that belongs to no cluster, and a cluster
+; that claims a node it never declared is a drawing that says something false.
+; Each root cluster gets a column and keeps it in every layer.
+;
+; What is NOT drawn yet, and is listed rather than hidden: `record` and
+; HTML-like labels (they land as their text), ports and compass points (read
+; into the model, not yet aimed at), and every attribute outside the list in
+; `DotStyle` below. `docs/GRAPHVIZ_PARITY.md` is where the gap is counted.
+; ============================================================================
+
+Import "DotReader.rgr"
+Import "../../core/GraphModel.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+Import "../../layout/LayeredLayout.rgr"
+Import "../../layout/EdgeLanes.rgr"
+Import "../../layout/OrthoRouter.rgr"
+Import "../flowchart/Flowchart.rgr"
+
+; ---------------------------------------------------------------------------
+; The attributes that draw
+; ---------------------------------------------------------------------------
+class DotStyle {
+    ; Graphviz has sixty-one shapes and RangerFlow draws forty-one; most of the
+    ; rest are one polygon with a different number of sides, and the ones that
+    ; have no counterpart land on the nearest outline rather than on a
+    ; rectangle that says nothing. `shape=record` is a language of its own and
+    ; is listed in the header above as not yet drawn.
+    sfn shapeFor:string (name:string) {
+        def w:string (DotChars.lower(name))
+        if (w == "")             { return "ellipse" }
+        if (w == "ellipse")      { return "ellipse" }
+        if (w == "oval")         { return "ellipse" }
+        if (w == "box")          { return "rect" }
+        if (w == "rect")         { return "rect" }
+        if (w == "rectangle")    { return "rect" }
+        if (w == "square")       { return "rect" }
+        if (w == "box3d")        { return "rect" }
+        if (w == "plaintext")    { return "rect" }
+        if (w == "plain")        { return "rect" }
+        if (w == "none")         { return "rect" }
+        if (w == "record")       { return "rect" }
+        if (w == "mrecord")      { return "rect" }
+        if (w == "underline")    { return "rect" }
+        if (w == "circle")       { return "circle" }
+        if (w == "doublecircle") { return "circle" }
+        if (w == "point")        { return "circle" }
+        if (w == "egg")          { return "ellipse" }
+        if (w == "diamond")      { return "diamond" }
+        if (w == "mdiamond")     { return "diamond" }
+        if (w == "msquare")      { return "rect" }
+        if (w == "mcircle")      { return "circle" }
+        if (w == "triangle")     { return "triangle" }
+        if (w == "invtriangle")  { return "triangledown" }
+        if (w == "trapezium")    { return "trapezoid" }
+        if (w == "invtrapezium") { return "trapezoid" }
+        if (w == "parallelogram") { return "parallelogram" }
+        if (w == "house")        { return "pentagon" }
+        if (w == "invhouse")     { return "pentagondown" }
+        if (w == "pentagon")     { return "pentagon" }
+        if (w == "hexagon")      { return "hexagon" }
+        if (w == "septagon")     { return "heptagon" }
+        if (w == "octagon")      { return "octagon" }
+        if (w == "doubleoctagon") { return "octagon" }
+        if (w == "tripleoctagon") { return "octagon" }
+        if (w == "decagon")      { return "decagon" }
+        if (w == "cylinder")     { return "cylinder" }
+        if (w == "note")         { return "note" }
+        if (w == "tab")          { return "note" }
+        if (w == "folder")       { return "note" }
+        if (w == "component")    { return "rect" }
+        if (w == "star")         { return "star" }
+        if (w == "star6")        { return "star" }
+        if (w == "stadium")      { return "stadium" }
+        if (w == "rarrow")       { return "parallelogram" }
+        if (w == "larrow")       { return "parallelogram" }
+        return "rect"
+    }
+
+    ; A colour RangerFlow can paint with. `#rrggbb` passes through; the names
+    ; are the handful a diagram actually uses, and an unknown one is left to
+    ; the theme rather than guessed at — the reader says what it does not know
+    ; instead of inventing a shade. The full X11 table is 154 names and is a
+    ; job for the style phase, where it will be read off Graphviz rather than
+    ; typed in here.
+    sfn colorFor:string (name:string) {
+        if ((strlen name) == 0) {
+            return ""
+        }
+        if ((charAt name 0) == 35) {
+            return name
+        }
+        def w:string (DotChars.lower(name))
+        if (w == "white")       { return "#ffffff" }
+        if (w == "black")       { return "#000000" }
+        if (w == "red")         { return "#ff0000" }
+        if (w == "green")       { return "#00ff00" }
+        if (w == "blue")        { return "#0000ff" }
+        if (w == "yellow")      { return "#ffff00" }
+        if (w == "orange")      { return "#ffa500" }
+        if (w == "purple")      { return "#a020f0" }
+        if (w == "grey")        { return "#c0c0c0" }
+        if (w == "gray")        { return "#c0c0c0" }
+        if (w == "lightgrey")   { return "#d3d3d3" }
+        if (w == "lightgray")   { return "#d3d3d3" }
+        if (w == "lightblue")   { return "#add8e6" }
+        if (w == "lightyellow") { return "#ffffe0" }
+        if (w == "lightgreen")  { return "#90ee90" }
+        if (w == "steelblue")   { return "#4682b4" }
+        if (w == "cornflowerblue") { return "#6495ed" }
+        if (w == "gold")        { return "#ffd700" }
+        if (w == "salmon")      { return "#fa8072" }
+        if (w == "tomato")      { return "#ff6347" }
+        if (w == "seagreen")    { return "#2e8b57" }
+        if (w == "navy")        { return "#000080" }
+        if (w == "darkgreen")   { return "#006400" }
+        if (w == "beige")       { return "#f5f5dc" }
+        if (w == "azure")       { return "#f0ffff" }
+        if (w == "ivory")       { return "#fffff0" }
+        if (w == "wheat")       { return "#f5deb3" }
+        return ""
+    }
+
+    ; `style` is a list: `filled,rounded,dashed`. One word at a time, because a
+    ; reader that tests the whole string against "dashed" misses every diagram
+    ; that also asked for something else.
+    sfn styleHas:boolean (style:string word:string) {
+        def w:string (DotChars.lower(style))
+        def parts:[string] (strsplit w ",")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (trim (itemAt parts i))
+            if (p == word) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; `\N` is the node's own name, `\n` `\l` `\r` are line breaks with an
+    ; alignment this renderer does not have, and `\G` is the graph's name.
+    ; Everything else a backslash introduces is left alone.
+    sfn label:string (raw:string nodeName:string graphName:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen raw)) {
+            def c:int (charAt raw i)
+            if (c == 92) {
+                if ((i + 1) < (strlen raw)) {
+                    def n:int (charAt raw (i + 1))
+                    if (n == 78) {
+                        out = (out + nodeName)
+                        i = (i + 2)
+                        continue
+                    }
+                    if (n == 71) {
+                        out = (out + graphName)
+                        i = (i + 2)
+                        continue
+                    }
+                    if (n == 110) {
+                        out = (out + "\n")
+                        i = (i + 2)
+                        continue
+                    }
+                    if (n == 108) {
+                        out = (out + "\n")
+                        i = (i + 2)
+                        continue
+                    }
+                    if (n == 114) {
+                        out = (out + "\n")
+                        i = (i + 2)
+                        continue
+                    }
+                }
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; An HTML-like label, until the phase that reads it properly: the text
+    ; between the tags, so a table label reads as its words rather than as its
+    ; markup. Cells are separated the way the rows read.
+    sfn stripTags:string (raw:string) {
+        def out:string ""
+        def depth:int 0
+        def i:int 0
+        while (i < (strlen raw)) {
+            def c:int (charAt raw i)
+            i = (i + 1)
+            if (c == 60) {
+                depth = (depth + 1)
+                continue
+            }
+            if (c == 62) {
+                if (depth > 0) {
+                    depth = (depth - 1)
+                    out = (out + " ")
+                }
+                continue
+            }
+            if (depth == 0) {
+                out = (out + (strfromcode c))
+            }
+        }
+        return (DotStyle.squeeze(out))
+    }
+
+    sfn squeeze:string (raw:string) {
+        def out:string ""
+        def space:boolean true
+        def i:int 0
+        while (i < (strlen raw)) {
+            def c:int (charAt raw i)
+            i = (i + 1)
+            if (DotChars.isSpace(c)) {
+                if (space == false) {
+                    out = (out + " ")
+                }
+                space = true
+                continue
+            }
+            space = false
+            out = (out + (strfromcode c))
+        }
+        return (trim out)
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The drawing
+; ---------------------------------------------------------------------------
+class DotFlow {
+    def g:FlowGraph (new FlowGraph)
+    def doc:DotGraph (new DotGraph)
+    def style:FlowStyle (new FlowStyle)
+    def chart:Flowchart (new Flowchart)
+
+    Constructor () {
+    }
+
+    sfn build:FlowGraph (d:DotGraph style:FlowStyle) {
+        def f (new DotFlow)
+        f.doc = d
+        f.style = style
+        return (f.run())
+    }
+
+    sfn render:FlowGraph (src:string) {
+        def d:DotGraph (DotReader.parse(src))
+        def s (new FlowStyle)
+        return (DotFlow.build(d s))
+    }
+
+    fn run:FlowGraph () {
+        this.nodes()
+        g.reindex()
+        this.edges()
+        g.reindex()
+        ; The sheet says what a node looks like; the file still says what THIS
+        ; node looks like. `--restyle` turns that round, which is the order the
+        ; Mermaid reader uses for a `classDef` and the same promise: somebody
+        ; who wrote `fillcolor=salmon` expects to see it.
+        if (style.strong) {
+            this.paint()
+            def last:int (style.applyTo(g))
+        } {
+            def first:int (style.applyTo(g))
+            this.paint()
+        }
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = (doc.direction())
+        lay.layerGap = 110.0
+        lay.nodeGap = 40.0
+        if ((doc.direction()) == "LR") {
+            lay.layerGap = 150.0
+        }
+        lay.run()
+        def banded:int (this.bandLayout(lay))
+        def moved:int (EdgeLanes.assign(g))
+        def routed:int (lay.routeLongEdges())
+        EdgeLanes.resetLanes(g)
+        def refanned:int (EdgeLanes.assign(g))
+        def repaired:int (OrthoRouter.repairAll(g))
+        this.frames()
+        g.reindex()
+        return g
+    }
+
+    ; ------------------------------------------------------------- nodes ----
+    fn nodes:void () {
+        def i:int 0
+        while (i < (array_length doc.nodes)) {
+            def dn:DotNode (itemAt doc.nodes i)
+            i = (i + 1)
+            def n:FlowNode (this.nodeFor(dn))
+            g.addNode(n)
+        }
+    }
+
+    fn nodeFor:FlowNode (dn:DotNode) {
+        def raw:string (dn.attr("label"))
+        def text:string dn.id
+        if ((strlen raw) > 0) {
+            text = (DotStyle.label(raw dn.id doc.name))
+            if (DotFlow.looksLikeMarkup(raw)) {
+                text = (DotStyle.stripTags(raw))
+            }
+        }
+        def shape:string (DotStyle.shapeFor((dn.attr("shape"))))
+        def s:FlowStep (chart.step(dn.id text "process"))
+        def n:FlowNode (chart.stepNode(s))
+        n.shape = shape
+        n.nodeType = "step"
+        ; An ellipse loses the corners a rectangle uses for its text, and a
+        ; circle has to be square before it is round.
+        if (shape == "ellipse") {
+            n.width = (n.width + 26.0)
+            n.height = (n.height + 8.0)
+        }
+        if (shape == "circle") {
+            DotFlow.squareOff(n)
+        }
+        if (shape == "diamond") {
+            n.width = (n.width + 30.0)
+            n.height = (n.height + 16.0)
+        }
+        n.tooltip = (dn.attr("tooltip"))
+        n.cssClass = ("graphviz node shape-" + shape)
+        n.syncFromModel()
+        return n
+    }
+
+    ; ------------------------------------------------------------ colour ----
+    ; What the file itself asked for. Kept apart from `nodeFor` so it can run
+    ; before or after the stylesheet — see `run`.
+    fn paint:void () {
+        def i:int 0
+        while (i < (array_length doc.nodes)) {
+            def dn:DotNode (itemAt doc.nodes i)
+            i = (i + 1)
+            if ((g.hasNode(dn.id)) == false) {
+                continue
+            }
+            def n:FlowNode (g.nodeById(dn.id))
+            def fill:string (DotStyle.colorFor((dn.attr("fillcolor"))))
+            def line:string (DotStyle.colorFor((dn.attr("color"))))
+            ; `style=filled` with no `fillcolor` fills with `color`, which is
+            ; the one place in DOT where the outline colour paints the inside.
+            if (DotStyle.styleHas((dn.attr("style")) "filled")) {
+                if ((strlen fill) == 0) {
+                    fill = line
+                }
+            }
+            if ((strlen fill) > 0) {
+                n.bgColor = fill
+            }
+            if ((strlen line) > 0) {
+                n.borderColor = line
+            }
+            def fontColor:string (DotStyle.colorFor((dn.attr("fontcolor"))))
+            if ((strlen fontColor) > 0) {
+                n.textColor = fontColor
+            }
+            n.syncFromModel()
+        }
+        ; The graph's edges carry the model's index in their id — `dot7` is
+        ; `doc.edges[7]` — because an edge cannot be found by its ends when a
+        ; DOT file is free to draw the same pair twice.
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            k = (k + 1)
+            def at:int (DotFlow.indexOfEdgeId(e.id))
+            if (at < 0) {
+                continue
+            }
+            if (at >= (array_length doc.edges)) {
+                continue
+            }
+            def de:DotEdge (itemAt doc.edges at)
+            def stroke:string (DotStyle.colorFor((de.attr("color"))))
+            if ((strlen stroke) > 0) {
+                e.strokeColor = stroke
+            }
+        }
+    }
+
+    sfn indexOfEdgeId:int (id:string) {
+        if ((strlen id) < 4) {
+            return -1
+        }
+        if ((substring id 0 3) != "dot") {
+            return -1
+        }
+        def digits:string (substring id 3 (strlen id))
+        return (?? (str2int digits) -1)
+    }
+
+    sfn looksLikeMarkup:boolean (raw:string) {
+        def i:int 0
+        while (i < (strlen raw)) {
+            if ((charAt raw i) == 60) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn squareOff:void (n:FlowNode) {
+        def side:double n.width
+        if (side < n.height) {
+            side = n.height
+        }
+        if (side < 64.0) {
+            side = 64.0
+        }
+        n.width = side
+        n.height = side
+    }
+
+    ; ------------------------------------------------------------- edges ----
+    fn edges:void () {
+        def i:int 0
+        while (i < (array_length doc.edges)) {
+            def de:DotEdge (itemAt doc.edges i)
+            def idx:int i
+            i = (i + 1)
+            if ((g.hasNode(de.tail)) == false) {
+                continue
+            }
+            if ((g.hasNode(de.head)) == false) {
+                continue
+            }
+            ; `dot7`, not `e7`: `FlowGraph` names an edge nobody named `e<n>`,
+            ; so an edge the editor adds later would collide with one of ours
+            ; and the undo would take back the wrong one. The web page's self
+            ; test is what found that.
+            def e:FlowEdge (FlowEdge.create(("dot" + (to_string idx)) de.tail de.head))
+            e.edgeType = "smoothstep"
+            def raw:string (de.attr("label"))
+            if ((strlen raw) > 0) {
+                e.label = (DotStyle.label(raw "" doc.name))
+            }
+            def st:string (de.attr("style"))
+            if (DotStyle.styleHas(st "dashed")) {
+                e.dash = 6.0
+            }
+            if (DotStyle.styleHas(st "dotted")) {
+                e.dash = 2.0
+            }
+            if (DotStyle.styleHas(st "invis")) {
+                e.hidden = true
+            }
+            ; An undirected graph has no arrowheads, and `dir` or
+            ; `arrowhead=none` takes them off a directed one.
+            e.markerEnd = "arrowclosed"
+            if (doc.directed == false) {
+                e.markerEnd = ""
+            }
+            def dir:string (DotChars.lower((de.attr("dir"))))
+            if (dir == "none") {
+                e.markerEnd = ""
+            }
+            if (dir == "back") {
+                e.markerEnd = ""
+                e.markerStart = "arrowclosed"
+            }
+            if (dir == "both") {
+                e.markerStart = "arrowclosed"
+            }
+            if ((DotChars.lower((de.attr("arrowhead")))) == "none") {
+                e.markerEnd = ""
+            }
+            e.cssClass = "graphviz edge"
+            e.sourcePort = de.tailPort
+            e.targetPort = de.headPort
+            g.addEdge(e)
+        }
+    }
+
+    ; ----------------------------------------------------------- packing ----
+    ; Each root cluster gets a column of its own and keeps it in every layer,
+    ; so a frame cannot reach outside it and cannot swallow a node that belongs
+    ; to nobody. The mechanism is the one the PlantUML packages needed, for the
+    ; same reason: the layered layout does not know that six of its nodes
+    ; belong together.
+    fn bandLayout:int (lay:LayeredLayout) {
+        if ((doc.clusterCount()) == 0) {
+            return 0
+        }
+        def bands:[string] (this.bandOrder())
+        if ((array_length bands) < 2) {
+            return 0
+        }
+        def horiz:boolean ((doc.direction()) == "LR")
+        def maxLayer:int -1
+        def i:int 0
+        while (i < (array_length lay.layerOf)) {
+            def lv:int (itemAt lay.layerOf i)
+            if (lv > maxLayer) {
+                maxLayer = lv
+            }
+            i = (i + 1)
+        }
+        def gap:double 26.0
+        def bandGap:double 64.0
+        def widths:[double]
+        def b:int 0
+        while (b < (array_length bands)) {
+            def key:string (itemAt bands b)
+            b = (b + 1)
+            def widest:double 0.0
+            def layer:int 0
+            while (layer <= maxLayer) {
+                def run:double 0.0
+                def count:int 0
+                def k:int 0
+                while (k < (g.nodeCount())) {
+                    def n:FlowNode (g.nodeAt(k))
+                    def idx:int k
+                    k = (k + 1)
+                    if (idx >= (array_length lay.layerOf)) {
+                        continue
+                    }
+                    if ((itemAt lay.layerOf idx) != layer) {
+                        continue
+                    }
+                    def mine:string (this.rootClusterOf(n.id))
+                    if (mine != key) {
+                        continue
+                    }
+                    def size:double n.width
+                    if horiz {
+                        size = n.height
+                    }
+                    run = (run + size)
+                    count = (count + 1)
+                }
+                if (count > 1) {
+                    def extra:double (to_double (count - 1))
+                    run = (run + (extra * gap))
+                }
+                if (run > widest) {
+                    widest = run
+                }
+                layer = (layer + 1)
+            }
+            push widths widest
+        }
+        ; Where each band starts, in the across-the-layers direction.
+        def starts:[double]
+        def cursor:double 0.0
+        def w:int 0
+        while (w < (array_length widths)) {
+            push starts cursor
+            cursor = ((cursor + (itemAt widths w)) + bandGap)
+            w = (w + 1)
+        }
+        ; And now place every layer's nodes inside their own band.
+        def placed:int 0
+        def layer2:int 0
+        while (layer2 <= maxLayer) {
+            def bi:int 0
+            while (bi < (array_length bands)) {
+                def key2:string (itemAt bands bi)
+                def at:double (itemAt starts bi)
+                bi = (bi + 1)
+                def k2:int 0
+                while (k2 < (g.nodeCount())) {
+                    def n2:FlowNode (g.nodeAt(k2))
+                    def idx2:int k2
+                    k2 = (k2 + 1)
+                    if (idx2 >= (array_length lay.layerOf)) {
+                        continue
+                    }
+                    if ((itemAt lay.layerOf idx2) != layer2) {
+                        continue
+                    }
+                    def mine2:string (this.rootClusterOf(n2.id))
+                    if (mine2 != key2) {
+                        continue
+                    }
+                    if horiz {
+                        n2.y = at
+                        at = ((at + n2.height) + gap)
+                    } {
+                        n2.x = at
+                        at = ((at + n2.width) + gap)
+                    }
+                    n2.syncFromModel()
+                    placed = (placed + 1)
+                }
+            }
+            layer2 = (layer2 + 1)
+        }
+        return placed
+    }
+
+    ; The bands, in the order the file declared them, with the nodes that
+    ; belong to no cluster as a band of their own.
+    fn bandOrder:[string] () {
+        def out:[string]
+        def seenLoose:boolean false
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            i = (i + 1)
+            def key:string (this.rootClusterOf(n.id))
+            if ((strlen key) == 0) {
+                if (seenLoose == false) {
+                    push out ""
+                    seenLoose = true
+                }
+                continue
+            }
+            if ((DotReader.listHas(out key)) == false) {
+                push out key
+            }
+        }
+        return out
+    }
+
+    ; The outermost cluster a node belongs to, or "" for a node that belongs to
+    ; none. A subgraph that is not a cluster is not a band: `{ rank=same; a; b }`
+    ; groups the ranking, not the page.
+    fn rootClusterOf:string (id:string) {
+        def best:string ""
+        def bestDepth:int 999
+        def i:int 0
+        while (i < (array_length doc.subgraphs)) {
+            def s:DotSubgraph (itemAt doc.subgraphs i)
+            i = (i + 1)
+            if (s.isCluster == false) {
+                continue
+            }
+            if ((DotReader.listHas(s.members id)) == false) {
+                continue
+            }
+            if (s.depth < bestDepth) {
+                bestDepth = s.depth
+                best = s.id
+            }
+        }
+        return best
+    }
+
+    ; ------------------------------------------------------------ frames ----
+    fn frames:void () {
+        def deepest:int 0
+        def i:int 0
+        while (i < (array_length doc.subgraphs)) {
+            def s:DotSubgraph (itemAt doc.subgraphs i)
+            if s.isCluster {
+                if (s.depth > deepest) {
+                    deepest = s.depth
+                }
+            }
+            i = (i + 1)
+        }
+        def level:int deepest
+        while (level >= 0) {
+            def k:int 0
+            while (k < (array_length doc.subgraphs)) {
+                def s2:DotSubgraph (itemAt doc.subgraphs k)
+                k = (k + 1)
+                if (s2.isCluster == false) {
+                    continue
+                }
+                if (s2.depth != level) {
+                    continue
+                }
+                def made:boolean (this.frameOne(s2))
+            }
+            level = (level - 1)
+        }
+    }
+
+    fn frameOne:boolean (s:DotSubgraph) {
+        def pad:double 20.0
+        def head:double 24.0
+        def r (new FlowRect)
+        def i:int 0
+        while (i < (array_length s.members)) {
+            def mid:string (itemAt s.members i)
+            i = (i + 1)
+            if ((g.hasNode(mid)) == false) {
+                continue
+            }
+            def n:FlowNode (g.nodeById(mid))
+            def right:double (n.x + n.width)
+            def bottom:double (n.y + n.height)
+            if (r.valid == false) {
+                r.x = n.x
+                r.y = n.y
+                r.w = n.width
+                r.h = n.height
+                r.valid = true
+                continue
+            }
+            if (n.x < r.x) {
+                def dw:double (r.x - n.x)
+                r.x = n.x
+                r.w = (r.w + dw)
+            }
+            if (n.y < r.y) {
+                def dh:double (r.y - n.y)
+                r.y = n.y
+                r.h = (r.h + dh)
+            }
+            def rr:double (r.x + r.w)
+            if (right > rr) {
+                r.w = (right - r.x)
+            }
+            def rb:double (r.y + r.h)
+            if (bottom > rb) {
+                r.h = (bottom - r.y)
+            }
+        }
+        if (r.valid == false) {
+            return false
+        }
+        def title:string (?? (get s.attrs "label") "")
+        def frame:FlowNode (FlowNode.create(("__cluster_" + s.id) title (r.x - pad) ((r.y - pad) - head)))
+        frame.nodeType = "group"
+        frame.width = (r.w + (pad * 2.0))
+        frame.height = ((r.h + (pad * 2.0)) + head)
+        frame.connectable = false
+        frame.cssClass = "graphviz cluster"
+        def line:string (DotStyle.colorFor((?? (get s.attrs "color") "")))
+        if ((strlen line) > 0) {
+            frame.borderColor = line
+        }
+        def fill:string (DotStyle.colorFor((?? (get s.attrs "bgcolor") "")))
+        if ((strlen fill) > 0) {
+            frame.bgColor = fill
+        }
+        frame.syncFromModel()
+        g.addNode(frame)
+        def sent:boolean (g.sendToBack(("__cluster_" + s.id)))
+        return true
+    }
+}

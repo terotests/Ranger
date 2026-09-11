@@ -1120,21 +1120,48 @@ the 26 preprocessor commands are all read off the tool.
 
 Still open: the state reader, the preprocessor, and Creole's styled runs. The plan is [`docs/PLAN_PLANTUML.md`](docs/PLAN_PLANTUML.md).
 
-### Graphviz DOT — measured, not yet read
+### Graphviz DOT
 
 The third format a diagram travels through a README in is Graphviz's DOT, and
-the question asked of it was whether the PlantUML shape — our own reader, the
-real tool as the oracle — works a second time. It was answered by measuring
-rather than by arguing: `npm run rangerflow:graphviz:bench` hands twenty files
-to four open-source implementations and prints what came back into
-[`docs/GRAPHVIZ_BENCH.md`](docs/GRAPHVIZ_BENCH.md). Graphviz itself, native and
-compiled to WebAssembly, agrees with itself 20/20 and answers in **0.23 ms a
-diagram** — about a hundred and fortieth of what asking PlantUML costs, with no
-JVM and no subprocess. The two pure-JavaScript DOT parsers agree 18/20 and
-17/20, which is why neither can be the oracle and neither would make a reader.
+`npm run rangerflow:graphviz` reads it — one grammar of thirteen productions,
+no preprocessor and no header to sniff, which is why it is a smaller job than
+PlantUML was. `DotReader` does the whole published grammar: both edge
+operators and the `digraph`/`graph` rule that separates them, `strict` with the
+deduplication it implies, clusters and anonymous subgraphs (including as the
+end of an edge), ports and compass points, quoting with escapes, `+`
+concatenation and line continuation, repeated attribute lists, and the scoped
+attribute defaults that are the subtlest part of the language — `node
+[shape=box]` reaches forward, not back, and not into a sibling subgraph.
+`DotFlow` hands the result to the layered layout, and from there it is the same
+road a Mermaid flowchart takes. A cluster is drawn as a band, not a bounding
+box, for the reason the PlantUML packages needed it.
 
-Nothing is built yet. The investigation, with the corpus and the phases, is
-[`docs/PLAN_GRAPHVIZ.md`](docs/PLAN_GRAPHVIZ.md).
+The score is **132 of 132 checks over 20 files**, computed by **Graphviz
+itself**: `npm run rangerflow:graphviz:parity` asks Graphviz what each file in
+`fixtures/graphviz/` means — `-Tjson0` is its parse result, with subgraph
+membership and every attribute *after default resolution* — and compares it
+with what this reader made of the same text. Four of the twenty files are ones
+Graphviz **refuses**, and refusing them too is the check that matters most: a
+reader that reads a file Graphviz will not is a reader that invented syntax.
+The table is [`docs/GRAPHVIZ_PARITY.md`](docs/GRAPHVIZ_PARITY.md), regenerated
+by the run.
+
+Which open-source library does the asking was itself measured before anything
+was built: `npm run rangerflow:graphviz:bench` hands the corpus to four of them
+and prints what came back into
+[`docs/GRAPHVIZ_BENCH.md`](docs/GRAPHVIZ_BENCH.md). Graphviz — native, and the
+same program compiled to WebAssembly — agrees with itself 20/20 and answers in
+**0.23 ms a diagram**, about a hundred and fortieth of what asking PlantUML
+costs, with no JVM and no subprocess. The two pure-JavaScript DOT parsers agree
+18/20 and 17/20, which is why neither is the oracle and neither would have made
+a reader. Graphviz is EPL-1.0: it is installed by npm into the gitignored
+harness, run as a sandboxed WebAssembly module, never linked, never shipped,
+and no Graphviz source is read or copied.
+
+Still open: `record` and HTML-like labels read as their text rather than as the
+nested box language they are, ports are parsed but nothing aims an edge at them
+yet, and the colour table is the handful a diagram actually uses rather than
+X11's 154. The plan is [`docs/PLAN_GRAPHVIZ.md`](docs/PLAN_GRAPHVIZ.md).
 
 ## …and in a window
 
