@@ -584,9 +584,20 @@ sampleEl.addEventListener("change", async () => {
 // The company template. One fetch, one string, and the layout is resolved
 // from it — the markdown is not touched, which is the whole claim.
 async function useTheme(key) {
+  // Empty is not "no template": it is "whatever the document asks for". The
+  // templates are all registered by name at startup, so clearing the reader's
+  // choice hands the decision back to the front matter.
   if (!key) {
     app.setStyleSheet("");
+    showStatus(app.themeReport());
+    refreshPagebar();
+    needsPaint = true;
+    return;
+  }
+  if (key === "none") {
+    app.setStyleSheet(" ");
     showStatus("no template");
+    refreshPagebar();
     needsPaint = true;
     return;
   }
@@ -692,6 +703,19 @@ async function start() {
   // `?sample=diagrams` opens one of the dropdown's documents, so a screenshot
   // of any of them can be taken without clicking. It goes through the same
   // handler the dropdown does rather than a second loader.
+  // Every template this page has, by name, so a document can ask for one
+  // itself. Registered once; which is used is then the document's business
+  // until the reader picks from the dropdown.
+  await Promise.all(
+    Object.keys(THEMES).map(async (name) => {
+      try {
+        app.addTheme(name, await (await fetch(THEMES[name])).text());
+      } catch (e) {
+        console.warn("template not loaded: " + name, e);
+      }
+    })
+  );
+
   const wantedTheme = q.get("theme");
   if (wantedTheme && THEMES[wantedTheme]) {
     themeEl.value = wantedTheme;
@@ -907,6 +931,38 @@ function selftest() {
     app.setSource(kept);
   }
 
+  // A document that names its own template gets it without anybody picking.
+  // The page registers every template it has by name at startup; the reader's
+  // choice, when there is one, beats the document's.
+  {
+    const kept = app.sourceText();
+    app.setStyleSheet("");
+    app.setSource("---\ntheme: corporate\n---\n\n# Title\n\nprose\n");
+    say("the document's own template is used", app.themeInUse() === "corporate", app.themeReport());
+    const corporate = JSON.parse(app.frame()).list.cmds.find((c) => c.k === 3);
+    app.setSource("---\ntheme: editorial\n---\n\n# Title\n\nprose\n");
+    say("…and another document gets another one", app.themeInUse() === "editorial", app.themeReport());
+    const editorial = JSON.parse(app.frame()).list.cmds.find((c) => c.k === 3);
+    say("…which is a different heading, not just a different name",
+        Math.abs(corporate.h - editorial.h) > 2,
+        corporate.h.toFixed(1) + " vs " + editorial.h.toFixed(1));
+
+    // A name nobody registered is said out loud rather than laid out plain
+    // in silence.
+    app.setSource("---\ntheme: nobodys\n---\n\n# Title\n\nprose\n");
+    say("a template nobody has is named", app.themeReport().includes("nobodys"), app.themeReport());
+
+    // …and the reader beats the document, which is the rule the page size
+    // already follows.
+    app.setSource("---\ntheme: corporate\n---\n\n# Title\n\nprose\n");
+    app.setStyleSheet(selftestTheme2 || "h1 { font-size: 9pt }");
+    say("the reader's choice wins", app.themeInUse() === "", app.themeReport());
+    app.setStyleSheet("");
+    say("…and giving it back returns the document's", app.themeInUse() === "corporate", app.themeReport());
+    app.setSource(kept);
+    app.setStyleSheet("");
+  }
+
   // …and the document that ships with the template, through the same door a
   // reader opens it by: the sample, then the sheet. Runs on one line may not
   // overlap, whatever order those two arrive in.
@@ -968,18 +1024,55 @@ function selftest() {
       // page still overlap, because the painter advances by its own idea of
       // each glyph. Two runs above were checked this way; the whole document
       // is checked here, and the worst one is named.
+      // Both ways round. Too WIDE lands on the run after it; too NARROW
+      // leaves a hole in the middle of a sentence, which is what a reader
+      // saw where a soft line break had joined two segments.
       let worst = null;
       let worstBy = 0;
       for (const c of JSON.parse(app.frame()).list.cmds) {
         if (c.k !== 3 || !c.text || c.text.length < 2) continue;
-        const by = drawnWidth(c) - c.w;
+        const by = Math.abs(drawnWidth(c) - c.w);
         if (by > worstBy) { worstBy = by; worst = c; }
       }
       say(
         "every run is drawn at the width it was measured",
-        worstBy <= Math.max(0.5, (worst ? worst.w : 1) * 0.01),
-        worst ? worstBy.toFixed(2) + "pt over on [" + worst.text.slice(0, 24) + "] in " + worst.font : "none"
+        // A point of slack: a diagram's labels are measured by RangerFlow's
+        // own measurer rather than this one, and the two round differently in
+        // the last fraction. The fault this catches — a face substituted for
+        // another — is 7% of a run, not 2% of a word.
+        worstBy <= Math.max(1.0, (worst ? worst.w : 1) * 0.01),
+        worst ? worstBy.toFixed(2) + "pt out on [" + worst.text.slice(0, 24) + "] in " + worst.font : "none"
       );
+
+      // …and the space BETWEEN two runs of one paragraph. A soft line break
+      // in the source joins two segments with one space; anything wider is a
+      // hole in the middle of a sentence, which is what the too-narrow half
+      // of the check above would look like on the page.
+      {
+        // A document short enough that the whole paragraph is one line at any
+        // width the test runs at, so the check is about the SPACE and not
+        // about where the line happened to break.
+        app.setSource("Yksi rivi\nja toinen.\n");
+        const all = JSON.parse(app.frame()).list.cmds.filter((c) => c.k === 3 && c.text);
+        const head = all.find((c) => c.text.startsWith("Yksi rivi"));
+        if (head) {
+          const line = all
+            .filter((c) => Math.abs(c.y - head.y) < 1)
+            .sort((a, b) => a.x - b.x);
+          let widest = 0;
+          for (let i = 1; i < line.length; i++) {
+            const g = line[i].x - (line[i - 1].x + line[i - 1].w);
+            if (g > widest) widest = g;
+          }
+          // One space of that face, with room for rounding.
+          const space = mctx.measureText(" ").width || 4;
+          say("the paragraph is more than one run", line.length > 1, line.length + " runs on its first line");
+          say("a soft break is one space, not a hole", widest <= space * 2.5,
+              widest.toFixed(2) + "pt between runs, a space is " + space.toFixed(2));
+        } else {
+          say("the paragraph is on the page", false, "not found");
+        }
+      }
 
       // The other template, over the same document. Two sheets is the claim;
       // one of them being clean is half a check.

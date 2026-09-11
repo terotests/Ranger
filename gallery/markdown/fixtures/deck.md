@@ -1,5 +1,6 @@
 ---
 title: Q3 Strategy
+theme: corporate
 page: a4 landscape
 ---
 

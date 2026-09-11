@@ -457,6 +457,7 @@ jobs:
           # …and the deck export, which is a different module again: without
           # it the PPTX button is a button that throws.
           grep -q "MdToPptx" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
+          grep -q "MdThemes" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
 
       # ---- RangerFlow at /rangerflow/ --------------------------------------
       # The graph editor with no host process: the schema is parsed in the tab,

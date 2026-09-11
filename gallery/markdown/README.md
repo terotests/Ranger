@@ -87,7 +87,20 @@ heading   { font-family: Open Sans; margin-top: 26pt }
 
 Two companies are two files, and the same markdown previews as either without
 being touched — `fixtures/themes/corporate.css` and `editorial.css` are the
-two, and the page's template dropdown switches between them.
+two. A document can ask for one by name:
+
+```yaml
+---
+title: Q3 Strategy
+theme: corporate
+---
+```
+
+Three answers, in order of who is closest to the reading: what the **reader**
+picked in the page's dropdown, then what the **document** asked for, then
+nothing. A name nobody registered is named — "no template called nobodys" —
+rather than laid out plain in silence. `MdThemes` holds the table and reads no
+files: a theme arrives as text from whoever could fetch it.
 
 `MdCss` is the third binding of [`gallery/css`](../css/CssCore.rgr)'s cascade,
 after `PptxCss` and EVG's own — not a third engine. `CssCore` matches the
@@ -139,8 +152,16 @@ leaves a hole.
 
 What could not go out as text is counted and named, per slide.
 
-Where it stops today: themes as files and the accounting for images — stages
-F and G of [`PLAN_SLIDES.md`](PLAN_SLIDES.md).
+What the export costs is counted and named, per slide: pictures named but not
+carried, clips ignored, blocks drawn rather than written. **Pictures do not
+go**, and the reason is upstream — a markdown layout has no bytes for an
+image, so `![alt](src)` is drawn as its alt text and the deck carries the alt
+text too. Nothing is lost between the preview and the deck; both are missing
+the same picture. Fixing that is a byte registry where the layout is, which
+[`gallery/PLAN_EDITOR_KERNEL.md`](../PLAN_EDITOR_KERNEL.md) Stage B0 already
+lists as open.
+
+All seven stages of [`PLAN_SLIDES.md`](PLAN_SLIDES.md) are done.
 
 
 **651 of 652** CommonMark 0.31.2 examples, compared as exact strings against
@@ -216,6 +237,7 @@ src/
   MdAttrs.rgr       `{.class #id key=value}` — Goldmark's block attributes
   MdStyle.rgr       the values a stylesheet sets, in one place
   MdCss.rgr         a stylesheet over the document, through gallery/css
+  MdThemes.rgr      `theme: corporate` — a name to a stylesheet, no files
   MdToPptx.rgr      the deck, as text PowerPoint can reflow
   MdEmbedKinds.rgr  which fence words name a drawing — no imports, read by both
   MdDiagram.rgr     the diagram handler — the only file that knows RangerFlow

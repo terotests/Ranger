@@ -40,6 +40,7 @@ Import "../src/MdToEvg.rgr"
 Import "../src/MdToHtml.rgr"
 Import "../src/MdDiagram.rgr"
 Import "../src/MdCss.rgr"
+Import "../src/MdThemes.rgr"
 Import "../src/MdToPptx.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
@@ -66,6 +67,14 @@ class MarkdownEdit {
     def sheet:MdCss (new MdCss())
     def sheetErrors:int 0
     def sheetUnsupported:int 0
+    ; …and the templates a document may name for itself. The reader's choice
+    ; beats the document's, the way the page size already does — but a
+    ; document that says `theme: corporate` and is opened by somebody who has
+    ; not chosen anything gets the template it was written for.
+    def themes:MdThemes (new MdThemes())
+    ; Which sheet the last layout actually used, and where it came from.
+    def themeUsed:string ""
+    def themeSource:string ""
 
     Constructor () {
     }
@@ -74,10 +83,50 @@ class MarkdownEdit {
     ; keystroke must not re-read a stylesheet.
     fn setStyleSheet:void (css:string) {
         styleCss = css
+        this.useSheet(css "the reader")
+        stale = true
+    }
+
+    fn addTheme:void (name:string css:string) {
+        themes.addTheme(name css)
+        stale = true
+    }
+
+    fn useSheet:void (css:string from:string) {
         sheet = (new MdCss())
         sheet.addStyleSheet(css)
         sheetErrors = (sheet.errorCount())
-        stale = true
+        themeSource = from
+    }
+
+    ; Which template this document is being laid out with, and why.
+    ;
+    ; Three answers and they are in order of who is closest to the reading:
+    ; what the READER picked in the page, then what the DOCUMENT asked for by
+    ; name, then nothing at all. A document that names a template nobody
+    ; registered is told so rather than quietly laid out plain.
+    fn chooseSheet:void (doc:MdNode) {
+        if ((strlen styleCss) > 0) {
+            themeUsed = ""
+            themeSource = "the reader"
+            return
+        }
+        def want:string (MdThemes.nameIn(doc))
+        if ((strlen want) == 0) {
+            if ((strlen themeUsed) > 0) {
+                themeUsed = ""
+                this.useSheet("" "no template")
+            }
+            return
+        }
+        if (want == themeUsed) { return }
+        def css:string (themes.sheetFor(want))
+        themeUsed = want
+        if ((strlen css) == 0) {
+            this.useSheet("" (("no template called " + want)))
+            return
+        }
+        this.useSheet(css (("the document, which asked for " + want)))
     }
 
     ; What the template said that this layout cannot do, as one line. A
@@ -109,6 +158,7 @@ class MarkdownEdit {
             return
         }
         doc = (MdBlock.parseText(source))
+        this.chooseSheet(doc)
         ; Fresh every time, and in this order: the DEFAULTS, then the company
         ; TEMPLATE, then the document's own FRONT MATTER, then what the reader
         ; picked in the page. Each beats the one before it, which is the order
@@ -125,7 +175,8 @@ class MarkdownEdit {
         ; …and the same sheet to the LAYOUT, which asks it a different
         ; question: not how the document is set, but what it says about each
         ; block's own `{.classes}` — which is what columns are.
-        layout.setStyleSheet(styleCss)
+        def sheetText:string (sheet.text())
+        layout.setStyleSheet(sheetText)
         layout.applyMeta(doc)
         if ((strlen pageSize) > 0) {
             def pw:double layout.style.pageWidth
@@ -303,6 +354,27 @@ class MarkdownWeb {
     fn setStyleSheet:void (css:string) {
         edit.setStyleSheet(css)
         this.rebuild()
+    }
+
+    ; …and the same thing under a NAME, so a document can ask for it itself
+    ; with `theme: corporate` in its front matter. The page registers every
+    ; template it has once, at startup; which one is used is then the
+    ; document's business until the reader says otherwise.
+    fn addTheme:void (name:string css:string) {
+        edit.addTheme(name css)
+        this.rebuild()
+    }
+
+    ; Which template the last layout used and where it came from — the reader,
+    ; the document, or nowhere. A document that names a template this page has
+    ; never heard of says so here rather than being laid out plain in silence.
+    fn themeReport:string () {
+        return edit.themeSource
+    }
+
+    fn themeInUse:string () {
+        if ((strlen edit.styleCss) > 0) { return "" }
+        return edit.themeUsed
     }
 
     ; What the template said that this layout cannot honour, as one line —

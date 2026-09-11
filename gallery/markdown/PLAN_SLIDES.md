@@ -497,12 +497,49 @@ fixture deck from §5 rendered as both.
 *Done when:* one markdown file and two stylesheets give two decks that differ
 in every measurement and not in a word of content.
 
+> **Done.** `MdThemes` is the table from a NAME to a stylesheet, and it does
+> not read files — `md_demo.rgr` is the only file in the module that touches a
+> disk and a browser has no disk at all. A theme arrives as TEXT from whoever
+> could fetch it, and the document picks one by name.
+>
+> Three answers, in order of who is closest to the reading: what the READER
+> picked in the page, then what the DOCUMENT asked for in its front matter,
+> then nothing. A name nobody registered is NAMED — "no template called
+> nobodys" — rather than laid out plain in silence.
+>
+> The check is both halves at once, because either alone passes on a template
+> that did nothing: the same words run for run across the whole deck, and a
+> different size, face, position, colour and slide count. The words are
+> compared with no mark for where one SHAPE ends, because that is exactly what
+> a template is allowed to change — `corporate` puts a list in three boxes and
+> `editorial` puts it in one. And the sheet SIZE is checked to be the same
+> under both, because `deck.md` states `page: a4 landscape` itself and the
+> document beats the template.
+
 ### Stage G — export, and what it costs
 
 The `.pptx` written from the tab, plus the honest accounting: images need the
 byte registry `gallery/PLAN_EDITOR_KERNEL.md` Stage B0 already lists as open
 (`PptxFromEvg` counts pictures it cannot place and says why), and clips are
 dropped.
+
+> **Done.** The file is written from the ⬇ PPTX button beside ⬇ PDF, and the
+> accounting is complete: pictures named but not carried, clips ignored,
+> blocks drawn rather than written, blocks dropped — counted, and each one
+> named per slide.
+>
+> **Pictures do not go, and the reason is upstream of this stage.** A markdown
+> layout has no bytes for an image: `MdLayout` draws `![alt](src)` as its ALT
+> TEXT in the muted colour, which is the most honest thing to draw when
+> nobody read the file. So the deck carries the alt text too, and nothing is
+> lost BETWEEN the preview and the deck — both are missing the same picture.
+> That is the sentence the accounting makes available, so that a deck of alt
+> text cannot be mistaken for a deck of pictures. Fixing it is the byte
+> registry, where the layout is rather than in the exporter.
+>
+> Clips come from the drawings: `PptxFromEvg` counts the ones it cannot
+> express and this passes the count on per slide, because a drawing that
+> relied on a clip to hide something comes out showing it.
 
 ---
 

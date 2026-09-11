@@ -61,6 +61,11 @@ Import "../../css/CssCore.rgr"
 
 class MdCss {
     def sheet:CssSheet (new CssSheet())
+    ; The text the sheet was parsed from, kept so a caller that has the
+    ; resolved sheet can hand the same text to something else — the LAYOUT
+    ; needs it, because it asks the sheet a different question and parses its
+    ; own copy.
+    def source:string ""
     ; Property names the sheet used that this layout cannot honour, each once.
     def unsupported:[string]
     ; How many declarations landed, and how many selectors were asked.
@@ -76,7 +81,12 @@ class MdCss {
     Constructor () {
     }
 
+    fn text:string () {
+        return source
+    }
+
     fn addStyleSheet:void (css:string) {
+        source = (source + css)
         sheet.parse(css)
         ; The deck rules are read here rather than in `applyTo`, because they
         ; are not about how a page LOOKS and a caller that only wants the
