@@ -172,6 +172,11 @@ SUITES=(
   # stayed one pixel, a scissor left where the camera moved away from — each
   # is a plausible drawing that is wrong and none changes a command count.
   evg:view:check
+  # And the arithmetic in front of it: keep the frame in hand or walk the
+  # board again. No browser and no GPU — a policy that keeps a frame it
+  # should have rebuilt shows stale pixels, which is the failure nobody
+  # notices in a profile.
+  evg:view:policy
   # A scroll moves the painter's kept frame with a uniform rather than
   # rebuilding it, so a draw that forgets the uniform paints where the frame
   # was BUILT. Needs a GPU to see and there is no oracle for it; this reads

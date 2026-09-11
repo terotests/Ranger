@@ -1660,6 +1660,10 @@ function buildFrame(gl, doc, opts = {}) {
   const dpr = opts.dpr || 1;
   const images = opts.images || new Map();
   const cmds = doc.list.cmds;
+  // The camera the LIST carried, if it carried one. A list with no view is in
+  // page coordinates already, which is every list written before this existed
+  // and every export that has no camera to speak of.
+  const viewOfDoc = doc.view || (doc.list && doc.list.view) || null;
 
   const built = programsFor(gl);
   const prog = built.prog;
@@ -1669,7 +1673,16 @@ function buildFrame(gl, doc, opts = {}) {
   // out every run on a 2-D canvas and uploading the result — and the runs are
   // the same from one frame to the next almost always, because a frame that
   // differs by a moved shape has not changed a single letter.
-  const { tex: atlas, slots, rebuilt: atlasRebuilt, added: atlasAdded } = atlasFor(gl, cmds, dpr, { w: doc.width, h: doc.height });
+  // THE ATLAS IS RASTERISED AT THE SIZE THE RUNS WILL BE DRAWN AT, which is
+  // the page's device ratio times the scale the frame is built at. A list
+  // with a camera is in scene units, so a 12-unit run on a board at 10% is
+  // 1.2 device pixels: rasterising it at 12 and letting the card shrink it
+  // costs a hundred times the atlas and comes out soft, which is what the
+  // figma board did the first time it was drawn this way. Everything the
+  // slot reports is divided by the same number, so the quad stays in scene
+  // units and the shader's scale puts the ink back at 1:1.
+  const textDpr = dpr * (viewVec(viewOfDoc)[0] || 1);
+  const { tex: atlas, slots, rebuilt: atlasRebuilt, added: atlasAdded } = atlasFor(gl, cmds, textDpr, { w: doc.width, h: doc.height });
 
   // One texture per distinct source, uploaded ONCE — not once per frame. This
   // used to make a new GL texture for every picture on every frame and never
@@ -1816,7 +1829,7 @@ function buildFrame(gl, doc, opts = {}) {
       continue;
     }
     if (c.k === KIND.TEXT) {
-      const s = slots.get(runKey(c, dpr));
+      const s = slots.get(runKey(c, textDpr));
       if (!s) continue;
       // EVG's y is the top of the LINE BOX and c.h is its height, so the
       // baseline is the CSS half-leading below the top plus one face ascent:
@@ -1950,10 +1963,6 @@ function buildFrame(gl, doc, opts = {}) {
   // What the layers had moved by when this frame was built. Those moves are
   // in the coordinates above already; `draw` applies only what came after.
   const baseShifts = (doc.list.shifts || []).map((s) => [s[0], s[1]]);
-  // The camera the LIST carried, if it carried one. A list with no view is in
-  // page coordinates already, which is every list written before this existed
-  // and every export that has no camera to speak of.
-  const viewOfDoc = doc.view || (doc.list && doc.list.view) || null;
 
   const frame = {
     doc,

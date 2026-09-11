@@ -292,6 +292,12 @@ class EVGDisplayList {
     def viewY:double 0.0
     def viewScale:double 1.0
     def hasView:boolean false
+    ; See `setRegion`.
+    def regionLeft:double 0.0
+    def regionTop:double 0.0
+    def regionRight:double 0.0
+    def regionBottom:double 0.0
+    def hasRegion:boolean false
 
     Constructor () {
     }
@@ -305,6 +311,33 @@ class EVGDisplayList {
         viewY = y
         viewScale = scale
         hasView = (((x != 0.0) || (y != 0.0)) || (scale != 1.0))
+    }
+
+    ; THE REGION THIS LIST IS BUILT FOR, in scene coordinates.
+    ;
+    ; Culling asks "is this inside the clip", and the outermost clip has
+    ; always been the page — the right question while the list is in page
+    ; coordinates. A list with a camera is not: the scene is the whole board
+    ; and the page is a window onto it, so the question becomes "is this
+    ; inside the part of the scene this frame was built to show".
+    ;
+    ; That part is the viewport mapped back through the camera and grown by
+    ; an overscan, so a pan has somewhere to go before the frame has to be
+    ; built again — the same trick the scroll layers already play in one
+    ; dimension (`setOverscan`), in two.
+    ;
+    ; Unset is what every caller had: culling starts off and the first clip
+    ; turns it on.
+    fn setRegion:void (l:double t:double r:double b:double) {
+        regionLeft = l
+        regionTop = t
+        regionRight = r
+        regionBottom = b
+        hasRegion = true
+    }
+
+    fn clearRegion:void () {
+        hasRegion = false
     }
 
     fn clearView:void () {
@@ -1990,6 +2023,16 @@ class EVGDisplayList {
         fragHits = 0
         fragMisses = 0
         cullOn = false
+        if hasRegion {
+            ; The walk starts inside the region rather than outside every
+            ; clip. A clip met on the way down still narrows it, which is
+            ; what `walk` already does with a nested one.
+            cullOn = true
+            cullLeft = regionLeft
+            cullTop = regionTop
+            cullRight = regionRight
+            cullBottom = regionBottom
+        }
         drawScale = 1.0
         effectKind = ""
         def noX:[double]
