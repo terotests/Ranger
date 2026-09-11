@@ -381,6 +381,13 @@ about a point every two device pixels, never finer than the ceiling above
 it had. 125 → 37 ms. All three of these are the engine's own gain: any EVG
 page with vectors on it redraws for less.
 
+What is left is the frame itself: 37 ms to build the list, 9 to decode it,
+18 to build the GPU buffers and 18 to draw. The first three of those are
+work a pan does not need — the scene has not changed, only the camera has —
+and taking the camera out of the coordinates is designed in
+[`../evg/PLAN_VIEW_TRANSFORM.md`](../evg/PLAN_VIEW_TRANSFORM.md), which
+would put a pan of this board at the draw alone.
+
 ## When the page looks wrong and nothing is reported
 
 A warning can only name a case someone thought of, so when a page comes

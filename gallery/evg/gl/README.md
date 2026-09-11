@@ -134,6 +134,13 @@ readers against each other on real frames. PLAN_NATIVE_HOSTS.md S1.
 
 ## Moving the view — [`evg-gestures.js`](evg-gestures.js)
 
+> The gestures move a view; the *view* itself is still baked into the
+> coordinates of every command, so a canvas rebuilds its whole list for every
+> frame of a pan. It does not have to:
+> [`../PLAN_VIEW_TRANSFORM.md`](../PLAN_VIEW_TRANSFORM.md) designs the camera
+> as a uniform beside `uShift`, measured on the canvases in this repository.
+
+
 Every page that draws a scene bigger than its canvas needs the same four
 gestures, and every standalone had written its own: drag to pan, wheel to
 zoom, a press that does not travel is a click — and, missing from all of

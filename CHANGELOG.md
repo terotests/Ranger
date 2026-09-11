@@ -29,6 +29,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layer is placed against the first entry with the same tail, and the third
   cell's text lands in the third cell.
 
+- **A design for the camera on the GPU.**
+  `gallery/evg/PLAN_VIEW_TRANSFORM.md` asks why a canvas rebuilds its whole
+  display list for every frame of a pan, when the pan is a translate the vertex
+  shader already applies for scroll layers (`uShift`) and the scene has not
+  changed. The list would be built in scene space and carry the camera beside
+  it; a kept frame is then drawn at any pan for nothing, and at a scale within
+  a band — the glyph atlas and the flattened curves are what a zoom cannot
+  stretch, and the band is where the design is honest. Measured, not projected:
+  a pan frame of the FigJam board is 87 ms of which 18 is the draw, and drawing
+  a frame that is already built costs 18.4 ms and rebuilds nothing. It says
+  what each painter would do, who else it helps (rangerflow's 12.1 ms frame,
+  markdown's per-frame `offsetBy` and list copy, the layer shifts it would
+  generalize), where it gives nothing (anything that draws once), and what
+  would go wrong. Design only — nothing is built.
+
 - **Two fingers pinch the canvas, and the gestures are one module.** Drag to
   pan, wheel to zoom, a press that does not travel is a click — every
   standalone had written its own, and none of them had a pinch.
