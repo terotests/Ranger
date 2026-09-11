@@ -999,16 +999,31 @@ class EVGDisplayList {
         if ((strlen pathData) == 0) {
             return
         }
-        def parser (new SVGPathParser())
-        parser.parse(pathData)
-
-        def b:PathBounds (parser.getBounds())
-        def vb:ViewBoxRect (VectorViewBox.effectiveViewBox(el.viewBox b.minX b.minY b.width b.height))
-        def m:Matrix2D (VectorViewBox.resolve(vb w h "xMidYMid meet"))
-
         def steps:int (this.flattenSteps(w h))
-
-        def rings:[PathRing] (parser.flattenRings(steps m.a m.b m.c m.d (m.e + x) (m.f + y)))
+        def rings:[PathRing] (el.ringsCache)
+        def sameBox:boolean ((((el.ringsX == x) && (el.ringsY == y)) && (el.ringsW == w)) && (el.ringsH == h))
+        def sameGeom:boolean (((el.ringsSteps == steps) && (el.ringsPath == pathData)) && (el.ringsViewBox == el.viewBox))
+        def fresh:boolean ((el.ringsHave && sameBox) && sameGeom)
+        if (fresh) {
+        } {
+            def parser (new SVGPathParser())
+            parser.parse(pathData)
+            def b:PathBounds (parser.getBounds())
+            def vb:ViewBoxRect (VectorViewBox.effectiveViewBox(el.viewBox b.minX b.minY b.width b.height))
+            def m:Matrix2D (VectorViewBox.resolve(vb w h "xMidYMid meet"))
+            rings = (parser.flattenRings(steps m.a m.b m.c m.d (m.e + x) (m.f + y)))
+            ; Kept for the next walk — see the note on `EVGElement.ringsCache`.
+            el.ringsCache = rings
+            el.ringsHave = true
+            el.ringsPath = pathData
+            el.ringsX = x
+            el.ringsY = y
+            el.ringsW = w
+            el.ringsH = h
+            el.ringsSteps = steps
+            el.ringsScale = m.a
+            el.ringsViewBox = el.viewBox
+        }
         if ((array_length rings) == 0) {
             return
         }
@@ -1043,7 +1058,7 @@ class EVGDisplayList {
                 cs.w = w
                 cs.h = h
                 ; stroke-width is in user units, so it scales with the geometry.
-                def scale:double m.a
+                def scale:double el.ringsScale
                 if (scale < 0.0) {
                     scale = (0.0 - scale)
                 }

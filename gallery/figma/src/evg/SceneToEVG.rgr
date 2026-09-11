@@ -57,8 +57,7 @@ class SceneToEVG {
         world.setAttribute("width" "100%")
         world.setAttribute("height" "100%")
         world.setAttribute("transform-origin" "0 0")
-        def t:string ("translate(" + (to_string panX) + "px, " + (to_string panY) + "px) scale(" + (to_string zoom) + ")")
-        world.setAttribute("transform" t)
+        world.setAttribute("transform" (SceneToEVG.viewTransform(panX panY zoom)))
         def kids:[EVGElement]
         if (page.sourceType == "CANVAS") {
             kids = (this.emitKids(page))
@@ -74,6 +73,13 @@ class SceneToEVG {
         }
         root.addChild(world)
         return root
+    }
+
+    ; The pan and the zoom, as the world element wears them. Written here
+    ; and nowhere else, because a view change re-writes this attribute on a
+    ; page that is already built rather than building another one.
+    sfn viewTransform:string (panX:double panY:double zoom:double) {
+        return ("translate(" + (to_string panX) + "px, " + (to_string panY) + "px) scale(" + (to_string zoom) + ")")
     }
 
     fn emitKids:[EVGElement] (n:SceneNode) {

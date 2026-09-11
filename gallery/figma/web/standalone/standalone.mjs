@@ -3,6 +3,8 @@
  * OpenFig-core is loaded only for the live parse-time comparison.
  */
 import { renderDisplayList, loadImages } from "./gl/evg-webgl.js";
+// The frame crosses as typed arrays, not as text — see `draw`.
+import { cmdsOfBinary } from "./gl/evg-binary.js";
 // The file this page's head started fetching before the body was parsed.
 import { responseFor } from "./evg/assets-client.mjs";
 import { figmaClipboard, figmaClipboardName, readFigmaClipboard, FIG_FILE_RE } from "./clipboard.mjs";
@@ -104,9 +106,17 @@ async function draw() {
   const dpr = resize();
   let doc;
   try {
-    doc = JSON.parse(web.scene());
+    // Typed arrays, not JSON. The list is the same picture either way — to
+    // the hundredth, which `gallery/evg/gl/list-binary-check.mjs` holds the
+    // two to — but a board is thousands of commands and tens of thousands of
+    // coordinates, and writing that as text was most of what a pan cost:
+    // `toJson` and the number formatting under it 42% of a profile, and the
+    // garbage they made another 33%. `scene()` still answers in JSON for
+    // anything that wants to read a frame.
+    const bin = web.sceneBin();
+    doc = { width: bin.width, height: bin.height, list: { cmds: cmdsOfBinary(bin) } };
   } catch (e) {
-    statusEl.textContent = "scene json failed: " + e.message;
+    statusEl.textContent = "scene failed: " + e.message;
     return;
   }
   doc = rewriteImages(doc);

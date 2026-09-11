@@ -319,6 +319,40 @@ matched the index put into it, so the control showed blank on every file,
 and picking one asked for frame 13,709 — out of range, which quietly showed
 the whole page again.
 
+## What a frame costs
+
+A board of 3,565 nodes, panned. Measured on this file, per frame:
+
+| | before | after |
+| --- | --- | --- |
+| build the display list | 1,702 ms | 581 ms |
+| hand the frame to the page | 5,630 ms | 180 ms |
+
+**The frame crosses as typed arrays.** `EVGDisplayList.toBinary()` — three
+`Int32Array`s and a small string pool — instead of JSON. The picture is the
+same to the hundredth, which is what `gallery/evg/gl/list-binary-check.mjs`
+holds the two bridges to, and `scene()` still answers in JSON for anything
+that wants to read a frame. Writing it as text was 42% of a profile in
+`toJson` and the number formatting under it, and another 33% in the garbage
+they made.
+
+**The EVG tree is dumped when someone asks for it.** The debug pane's text
+is twelve megabytes on this board, and it was built on every rebuild — so
+on every frame of a pan — and thrown away unread.
+
+**Pan and zoom move the pixels, not the boxes.** The transform is one
+attribute on the world element; the tree under it and its layout do not
+change, so a view change writes that attribute and walks the tree again
+rather than building a second tree and laying it out.
+
+**A flattened outline is kept.** `d` is a string and the painter wants
+points, so the walk parses and flattens every path — and a page of text
+drawn as glyph outlines is thousands of them. The result depends on the
+path and on the box it is drawn in, neither of which a pan changes, so
+`EVGElement` keeps it (`ringsCache`) and re-flattens when either changes.
+That is the 966 → 581 ms above, and it is the engine's own gain: any EVG
+page with vectors redraws for less.
+
 ## When the page looks wrong and nothing is reported
 
 A warning can only name a case someone thought of, so when a page comes

@@ -26,6 +26,16 @@ class FigApp {
     def evgRoot:EVGElement (EVGElement.createDiv())
     def list:EVGDisplayList (new EVGDisplayList())
     def evgDump:string ""
+    ; The EVG tree as text is for the debug pane and the tests, and on a real
+    ; board it is twelve megabytes of it. Built on every rebuild — so on
+    ; every frame of a pan — it was most of what a pan cost and all of it was
+    ; thrown away unread. Built when someone asks for it now.
+    def dumpStale:boolean true
+    ; The tree in `evgRoot` has been laid out at the current page size and
+    ; matches the current scene. False until the first build, and whenever
+    ; anything under the view changes.
+    def laidOut:boolean false
+    def layout:EVGLayout (new EVGLayout())
     def pageIndex:int 0
     def frameIndex:int (0 - 1)
     def selected:string ""
@@ -69,6 +79,7 @@ class FigApp {
     }
 
     fn convert:void () {
+        laidOut = false
         sceneDoc = (converter.convertDoc(doc))
         assets = (new SceneAssets())
         def i:int 0
@@ -116,6 +127,7 @@ class FigApp {
         pageIndex = i
         frameIndex = (0 - 1)
         selected = ""
+        laidOut = false
         this.fit()
         this.rebuild()
     }
@@ -123,24 +135,28 @@ class FigApp {
     fn setFrame:void (i:int) {
         frameIndex = i
         selected = ""
+        laidOut = false
         this.fit()
         this.rebuild()
     }
 
+    ; The ring is a command on top of the same tree.
     fn select:void (id:string) {
         selected = id
-        this.rebuild()
+        this.repaint()
     }
 
     fn setDebug:void (on:boolean) {
         debug = on
         emitter.setDebug(on)
+        laidOut = false
         this.rebuild()
     }
 
     fn setImageUrl:void (ref:string url:string) {
         assets.setImage(ref url)
         emitter.setAssets(assets)
+        laidOut = false
         this.rebuild()
     }
 
@@ -214,6 +230,7 @@ class FigApp {
         }
         pageW = w
         pageH = h
+        laidOut = false
         this.rebuild()
     }
 
@@ -251,7 +268,7 @@ class FigApp {
         zoom = 1.0
         panX = (40.0 - target.x)
         panY = (40.0 - target.y)
-        this.rebuild()
+        this.applyView()
     }
 
     fn setView:void (x:double y:double sc:double) {
@@ -264,9 +281,12 @@ class FigApp {
         if (zoom > 16.0) {
             zoom = 16.0
         }
-        this.rebuild()
+        this.applyView()
     }
 
+    ; The whole way down: the scene into an element tree, the tree laid out,
+    ; the layout walked into a display list. Everything that changes what is
+    ; on the page comes through here.
     fn rebuild:void () {
         if (ok == false) {
             return
@@ -275,17 +295,55 @@ class FigApp {
         emitter.setAssets(assets)
         def root:SceneNode (this.viewRoot())
         evgRoot = (emitter.buildPage(root (this.currentPage()) panX panY zoom))
-        evgDump = (emitter.dump(evgRoot))
-        def lay (new EVGLayout())
-        lay.setPageSize(pageW pageH)
-        lay.layout(evgRoot)
+        dumpStale = true
+        layout = (new EVGLayout())
+        layout.setPageSize(pageW pageH)
+        layout.layout(evgRoot)
+        laidOut = true
+        this.repaint()
+    }
+
+    ; The walk, and only the walk. A selection ring or a new view changes
+    ; which commands come out of a tree that is already built and already
+    ; laid out, and rebuilding both for it was most of what a pan cost: on a
+    ; board of 3,565 nodes, 1,230 ms a frame against 210 for the walk.
+    fn repaint:void () {
+        if (ok == false) {
+            return
+        }
+        if (laidOut == false) {
+            this.rebuild()
+            return
+        }
         list = (new EVGDisplayList())
-        list.setTextEngine((lay.getTextEngine()))
+        list.setTextEngine((layout.getTextEngine()))
         list.build(evgRoot)
         cmdCount = (array_length list.cmds)
         if ((strlen selected) > 0) {
             this.paintSelect()
         }
+    }
+
+    ; Pan and zoom move the pixels, not the boxes. The transform is one
+    ; attribute on the world element and the layout underneath it does not
+    ; change, so a view change writes that attribute and walks the tree
+    ; again — no second element tree, no second layout.
+    fn applyView:void () {
+        if (ok == false) {
+            return
+        }
+        if (laidOut == false) {
+            this.rebuild()
+            return
+        }
+        if ((evgRoot.getChildCount()) == 0) {
+            this.rebuild()
+            return
+        }
+        def world:EVGElement (evgRoot.getChild(0))
+        world.setAttribute("transform" (SceneToEVG.viewTransform(panX panY zoom)))
+        dumpStale = true
+        this.repaint()
     }
 
     ; The ring around the selected layer. Its box has to be walked to, not
@@ -372,11 +430,29 @@ class FigApp {
         return ("{\"width\":" + (to_string (to_int pageW)) + ",\"height\":" + (to_string (to_int pageH)) + ",\"list\":" + body + "}")
     }
 
+    ; The same frame as typed arrays. A board is thousands of commands and
+    ; tens of thousands of coordinates, and writing that as text — a number
+    ; at a time — was most of what a pan cost: of 9.1 seconds of profile,
+    ; `toJson` and the number formatting under it were 42%, and the garbage
+    ; they made another 33%. The host reads these arrays as they are.
+    ; `EVGSceneBinary` carries exactly what the JSON carried, to the
+    ; hundredth, which is what lets the two be compared field by field.
+    fn sceneBinary:EVGSceneBinary () {
+        def bin:EVGSceneBinary (list.toBinary())
+        bin.width = pageW
+        bin.height = pageH
+        return bin
+    }
+
     fn sceneGraphJson:string () {
         return (sceneDoc.toJson())
     }
 
     fn evgText:string () {
+        if dumpStale {
+            evgDump = (emitter.dump(evgRoot))
+            dumpStale = false
+        }
         return evgDump
     }
 
@@ -538,7 +614,7 @@ class FigApp {
         o = (o + ",\"w\":" + (to_string nd.w) + ",\"h\":" + (to_string nd.h))
         o = (o + "}")
         o = (o + ",\"scene\":" + (sn.toJson()))
-        o = (o + ",\"evg\":\"" + (this.esc(evgDump)) + "\"")
+        o = (o + ",\"evg\":\"" + (this.esc((this.evgText()))) + "\"")
         return (o + "}")
     }
 
@@ -773,8 +849,10 @@ class FigApp {
         return edits
     }
 
+    ; An edit changes the scene, so the tree and its layout go with it.
     fn afterEdit:void () {
         edits = (edits + 1)
+        laidOut = false
         this.rebuild()
     }
 

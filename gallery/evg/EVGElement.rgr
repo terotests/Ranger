@@ -8,6 +8,7 @@ Import "EVGEasing.rgr"
 Import "EVGBox.rgr"
 Import "EVGGradient.rgr"
 Import "SvgParser.rgr"
+Import "SVGPathParser.rgr"
 
 ; Element type constants
 ; 0 = CONTAINER (div)
@@ -679,6 +680,31 @@ class EVGElement {
     
     ; SVG Path properties
     def svgPath:string ""
+    ; --- the flattened outline, kept ------------------------------------------
+    ;
+    ; `d` is a string, and the display list wants points: parsing it and
+    ; flattening its curves is the walk's largest cost on anything vector —
+    ; a page of text drawn as glyph outlines is thousands of paths, and a
+    ; Figma board panned at 60 Hz re-parsed every one of them for every
+    ; frame, 1.2 seconds a frame on a board of 3,565 nodes.
+    ;
+    ; The result depends on the path and on the box it is drawn in, and
+    ; neither changes while the view moves — a transform moves the pixels
+    ; after the boxes are placed. So it is kept here, and re-flattened when
+    ; either changes. `EVGDisplayList.copyRings` copies out of this into the
+    ; command, so what is cached is never what a painter mutates.
+    def ringsCache:[PathRing]
+    def ringsHave:boolean false
+    def ringsPath:string ""
+    def ringsX:double 0.0
+    def ringsY:double 0.0
+    def ringsW:double 0.0
+    def ringsH:double 0.0
+    def ringsSteps:int 0
+    ; The viewBox scale the outline was flattened at, which is what a stroke
+    ; width is in user units of.
+    def ringsScale:double 1.0
+    def ringsViewBox:string ""
     ; An entire imported SVG document, as markup. Where `svgPath` is one `d`
     ; string with the element's own fill and stroke, this is a drawing with its
     ; own shapes, groups, transforms and paint, which SvgParser resolves into a

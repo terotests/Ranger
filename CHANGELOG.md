@@ -109,6 +109,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `URG` and `ACK` widens the ruler until those words fit, because six boxes
   with an ellipsis in each say nothing at all.
 
+### Changed
+
+- **A frame crosses as typed arrays, not as text.** The Figma viewer hands
+  the page `EVGDisplayList.toBinary()` — three `Int32Array`s and a string
+  pool — where it used to hand it JSON: on a board of 3,565 nodes that is
+  5,630 ms a frame against 180, and the two bridges describe the same picture
+  to the hundredth (`gallery/evg/gl/list-binary-check.mjs` holds them to it).
+  `scene()` still answers in JSON for anything that wants to read a frame.
+
+- **A flattened outline is kept on the element it belongs to.** `d` is a
+  string and the painter wants points, so every walk parsed and flattened
+  every path — and a page of text drawn as glyph outlines is thousands of
+  them. What comes out depends on the path and on the box it is drawn in,
+  and a pan changes neither: a transform moves the pixels after the boxes are
+  placed. `EVGElement.ringsCache` keeps it and re-flattens when either
+  changes, which takes a pan of that board from 966 ms to 581. Every EVG page
+  with vectors on it redraws for less.
+
+- **The viewer stopped rebuilding what a pan does not change.** The EVG tree
+  and its layout are the same from one frame of a pan to the next — only the
+  world element's transform moves — and the twelve-megabyte text dump of that
+  tree, built on every rebuild and thrown away unread, is built when the
+  debug pane asks for it.
+
 ### Fixed
 
 - **A page panned away from the origin drew almost nothing.** EVG skips a
