@@ -2545,6 +2545,7 @@ class EVGElement {
     fn adoptFrom:void (other:EVGElement) {
         id = other.id
         key = other.key
+        href = other.href
         tagName = other.tagName
         elementType = other.elementType
         format = other.format
