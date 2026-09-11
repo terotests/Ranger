@@ -153,8 +153,11 @@ leaves a hole.
 What could not go out as text is counted and named, per slide.
 
 What the export costs is counted and named, per slide: pictures named but not
-carried, clips ignored, blocks drawn rather than written. **Pictures do not
-go**, and the reason is upstream — a markdown layout has no bytes for an
+carried, clips ignored, blocks drawn rather than written, and the faces the
+deck will ask the reader's machine for — a deck carries no fonts, so a reader
+without Open Sans substitutes it and the text reflows inside its boxes.
+
+**Pictures do not go**, and the reason is upstream — a markdown layout has no bytes for an
 image, so `![alt](src)` is drawn as its alt text and the deck carries the alt
 text too. Nothing is lost between the preview and the deck; both are missing
 the same picture. Fixing that is a byte registry where the layout is, which
