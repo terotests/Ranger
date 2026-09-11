@@ -166,6 +166,12 @@ SUITES=(
   # all. The corners and the ends are measured here by area, because that is
   # the kind of wrong that is invisible to a test that counts commands.
   evg:stroke:check
+  # The camera against the coordinates it replaces: the same picture drawn
+  # once with the view multiplied into the list and once with it on the
+  # shader, read back as pixels. A radius that did not scale, a border that
+  # stayed one pixel, a scissor left where the camera moved away from — each
+  # is a plausible drawing that is wrong and none changes a command count.
+  evg:view:check
   # A scroll moves the painter's kept frame with a uniform rather than
   # rebuilding it, so a draw that forgets the uniform paints where the frame
   # was BUILT. Needs a GPU to see and there is no oracle for it; this reads
