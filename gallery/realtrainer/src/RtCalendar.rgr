@@ -991,6 +991,22 @@ class RtIcons {
         return (RtIcons.svgOf(((RtIcons.pathOf("M18 6 6 18")) + (RtIcons.pathOf("m6 6 12 12"))) color))
     }
 
+    ; The two shapes the export dialog offers, one glyph each: a sheet of
+    ; paper with lines on it, and the same sheet with a pair of braces.
+    sfn fileSheet:string () {
+        return ((RtIcons.pathOf("M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z")) + (RtIcons.pathOf("M14 2v4a2 2 0 0 0 2 2h4")))
+    }
+
+    sfn fileText:string (color:string) {
+        def lines:string (((RtIcons.pathOf("M10 9H8")) + (RtIcons.pathOf("M16 13H8"))) + (RtIcons.pathOf("M16 17H8")))
+        return (RtIcons.svgOf(((RtIcons.fileSheet()) + lines) color))
+    }
+
+    sfn fileJson:string (color:string) {
+        def braces:string ((RtIcons.pathOf("M10 12a1 1 0 0 0-1 1v1a1 1 0 0 1-1 1 1 1 0 0 1 1 1v1a1 1 0 0 0 1 1")) + (RtIcons.pathOf("M14 18a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1 1 1 0 0 1-1-1v-1a1 1 0 0 0-1-1")))
+        return (RtIcons.svgOf(((RtIcons.fileSheet()) + braces) color))
+    }
+
     ; The credits gauge: a battery, filled to the fraction left.
     sfn battery:string (color:string) {
         def body:string ((("<rect x='4' y='2' width='16' height='20' rx='3'/><rect x='7' y='6' width='10' height='13' rx='1' fill='" + color) + "'/>") + "<path d='M10 2V1M14 2V1'/>")

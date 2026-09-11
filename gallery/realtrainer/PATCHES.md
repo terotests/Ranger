@@ -88,6 +88,43 @@ prints them under "deliberate deviations" on every run. A difference that is
 not on that list still fails the gate; this one is on it, with its reason, so
 it cannot quietly become the thing everyone forgot to look at.
 
+## Vie tietokanta opens a dialog here at every width
+
+`ExportModal.tsx` is rendered in exactly one place — the bottom of
+`DashboardPage`'s DESKTOP return, after every early return above it. Four
+different buttons call `handleOpenExportModal`, and only the one on the
+desktop icon rail is drawn on a route that reaches the element:
+
+- the rail's **Vie tietokanta** on the desktop calendar — opens the dialog;
+- the same button on the **credits** route — `view === 'credits'` returns
+  before the modal is rendered, so nothing happens;
+- the bar's **Lisää → Vie tietokanta** below 768px — the mobile return's
+  "Modals — same as desktop" block does not include `ExportModal`, so nothing
+  happens there either;
+- **Asetukset → vie tiedot**, the same.
+
+This port opens the dialog from all of them. The tree it draws is the
+reference's — `heading "Vie tiedot"` at level 3, the unnamed close, the
+`Valitse vientimuoto:` line and the two option buttons whose names are their
+title and the sentence under them — so where the reference opens it at all,
+the comparison is exact. Neither format is written: the export itself is the
+backend's and there is no backend behind this port, so both options close the
+dialog and say so.
+
+What it costs the harness: `more-export` is the whole deviation, four extra
+nodes on its last two frames, and it is a scenario of its own so that no
+other one carries it. `rail` presses the export LAST and from the calendar,
+where the reference does open the dialog.
+
+## Reading the reference's tree: YAML quotes are not the app's
+
+`ariaSnapshot` is YAML, and a value that ends in a colon is quoted in it:
+`- paragraph: "Valitse vientimuoto:"`. The recorder read the quotes as part
+of the name and compared a string nothing on the page says.
+`scripts/record-reference-trace.mjs` strips one layer of double quotes off a
+leaf's text now. It changes no trace that had no colon in it, which is every
+trace recorded before the export dialog.
+
 ## Home's composer is more of a control here than there
 
 Six scenarios sit between 93% and 97% for one row of three elements — the

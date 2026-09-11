@@ -28,5 +28,7 @@
  "yearsheet-edit.json": 1,
  "settings-controls.json": 1,
  "home-notes-edit.json": 0.999,
- "more-pages.json": 1
+ "more-pages.json": 1,
+ "more-export.json": 1,
+ "rail.json": 0.16
 }

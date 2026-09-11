@@ -1,5 +1,5 @@
 {
-  "_": "The three items of the bar's Lisää sheet that `more-sheet` does not press: the knowledge store, the shared calendars and the database export. Each closes the sheet here and lands back where it started.",
+  "_": "The two items of the bar's Lisää sheet that `more-sheet` does not press: the shared calendars and the knowledge store. Each closes the sheet and lands back where it started. The third, Vie tietokanta, is `more-export` — it opens a modal, and a modal is the end of whatever scenario reaches it.",
   "id": "more-rest",
   "area": "navigaatio",
   "machine": "",
@@ -17,19 +17,6 @@
   "steps": [
     {
       "tick": 500
-    },
-    {
-      "id": "rt-nav-more",
-      "role": "button",
-      "name": "Lisää"
-    },
-    {
-      "id": "rt-more-export",
-      "role": "button",
-      "name": "Vie tietokanta"
-    },
-    {
-      "tick": 600
     },
     {
       "id": "rt-nav-more",

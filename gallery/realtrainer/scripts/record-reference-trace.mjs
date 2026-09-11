@@ -241,7 +241,12 @@ async function snapshot() {
     const states = [...rest.matchAll(/\[([a-z]+)(?:=([^\]]+))?\]/g)].map(([, k, v]) => (v ? `${k}=${v}` : k));
     // What the plain text of a leaf says, when it has no name of its own:
     // `- generic: wk 36` → the text is the name a reader hears.
-    const text = /^:\s*(.+)$/.exec(rest.replace(/\s*\[[^\]]*\]/g, ""))?.[1] ?? "";
+    // A VALUE THAT NEEDS QUOTING IN YAML KEEPS ITS QUOTES here, and they are
+    // the format's and not the app's: `- paragraph: "Valitse vientimuoto:"`
+    // is quoted because the text ends in a colon, and reading the quotes as
+    // part of the name compared a string nothing on the page says.
+    const rawText = /^:\s*(.+)$/.exec(rest.replace(/\s*\[[^\]]*\]/g, ""))?.[1] ?? "";
+    const text = /^"(.*)"$/.test(rawText) ? rawText.slice(1, -1).replace(/\\"/g, '"') : rawText;
     out.push({ role, name: name || text, state: states.join(" ") });
   }
   return out;
@@ -323,6 +328,14 @@ for (const name of fs.readdirSync(dir).filter((f) => f.endsWith(".json"))) {
   // write — is the port's alone, and has no reference trace.
   if (scenario.noReference) continue;
   const ref = scenario.reference ?? {};
+  // THE SCENARIO'S OWN VIEWPORT. `setup` carries a `page` step because the
+  // Ranger side reads it; this side used to ignore it and take `--viewport`
+  // for every scenario, so a desktop scenario recorded at a phone's width
+  // measured the phone's layout and called it the desktop's. Same number on
+  // both sides, from the same place.
+  const pageStep = (scenario.setup ?? []).find((s) => s.page !== undefined);
+  const [sw, sh] = pageStep ? pageStep.page.split("x").map(Number) : [VW, VH];
+  await page.setViewportSize({ width: sw, height: sh });
   await resetEmulators();
   const uid = await createUser();
   const seeded = await seed(uid);
@@ -375,7 +388,7 @@ for (const name of fs.readdirSync(dir).filter((f) => f.endsWith(".json"))) {
       nodes: await snapshot(),
     });
   }
-  const trace = { id: scenario.id, machine: scenario.machine, viewport: `${VW}x${VH}`, frames };
+  const trace = { id: scenario.id, machine: scenario.machine, viewport: `${sw}x${sh}`, frames };
   fs.writeFileSync(path.join(OUT, name), stringifyTrace(trace));
   console.log(
     `  recorded ${name} — ${frames.length} frames, ` +

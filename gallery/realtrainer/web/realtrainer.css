@@ -2029,6 +2029,67 @@
 .rt-ph-rail-btn:hover { background-color: var(--surface-3); }
 .rt-ph-rail-active { background-color: #3a2416; }
 .rt-ph-rail-gap { flex-grow: 1; }
+/* The gauge sits at the top of the rail with its number under the battery,
+   which is the one rail button that is not a bare icon. */
+.rt-rail-credits {
+  flex-direction: column;
+  gap: 1px;
+  width: 48px;
+  height: 40px;
+}
+/* WHAT THE POINTER IS OVER. A rail is icons and nothing else, so the name
+   hangs to the right of the button under the pointer. It is placed as an
+   overlay, so the only thing the sheet decides is how it looks. */
+.rt-rail-tip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border-width: 1px;
+  border-color: var(--line);
+  background-color: var(--surface-2);
+}
+.rt-rail-tip-text { color: var(--ink); font-family: Arial; font-size: 12px; height: 16px; white-space: nowrap; }
+
+/* --- Vie tiedot: the export dialog ------------------------------------------ */
+.rt-exp-sheet {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 12px;
+  width: 100%;
+  max-width: 420px;
+  padding: 20px;
+  border-radius: 12px;
+  border-width: 1px;
+  border-color: var(--line);
+  background-color: var(--surface-2);
+}
+/* The dialog's own head has no rule under it — `rt-modal-head`'s border is
+   the sheet's, and this dialog is one box. */
+.rt-exp-head { padding: 0px; border-width: 0px; }
+.rt-exp-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 18px; height: 24px; }
+.rt-exp-cap { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
+.rt-exp-opt {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 16px;
+  border-radius: 8px;
+  border-width: 1px;
+  border-color: var(--line);
+  background-color: var(--surface-3);
+  cursor: pointer;
+}
+.rt-exp-opt:hover { background-color: var(--surface); }
+.rt-exp-col { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 4px; flex-grow: 1; }
+.rt-exp-title { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 13px; height: 18px; }
+.rt-exp-para { color: var(--ink-dim); font-family: Arial; font-size: 11px; }
 
 /* --- the calendar ----------------------------------------------------------- */
 .rt-cal-actions {
@@ -2821,10 +2882,17 @@
 @media (max-width: 767px) {
   .rt-ph-rail { display: none; }
   .rt-ph-pct { display: none; }
+  /* The desktop's page titles. A phone's banner is the calendar selector and
+     the section under it needs no name; a wide page names what it is
+     looking at. `display: none` keeps it out of the reader's tree too. */
+  .rt-deskonly { display: none; }
 }
 @media (min-width: 768px) {
   .rt-ph-nav { display: none; }
   .rt-overlay-bottom { padding: 0px; }
+  /* The gauge is the rail's above the fold. The original's desktop banner
+     carries no credits at all, and drawing both showed the battery twice. */
+  .rt-ph-credits { display: none; }
 }
 
 /* A finger needs a bigger target than a mouse does — the third thing a media

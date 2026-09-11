@@ -289,6 +289,8 @@ treefactory Rt {
     tag PhRail   EVGElement (props (className "rt-ph-rail") (id "rt-ph-rail") (role "navigation"))
     tag PhRailBtn EVGElement (props (className "rt-ph-rail-btn") (role "button") (a11yFocusable true))
     tag PhRailGap EVGElement (props (className "rt-ph-rail-gap"))
+    tag RailTip  EVGElement (props (className "rt-rail-tip"))
+    tag RailTipTx EVGElement (props (className "rt-rail-tip-text") (elementType 1))
     tag PhSide   EVGElement (props (className "rt-ph-side"))
     tag PhPct    EVGElement (props (className "rt-ph-pct") (elementType 1))
     ; Where the toasts land. Empty until one does, and a landmark all the same
@@ -446,6 +448,10 @@ treefactory Rt {
     ; the original: a banner, a main, and no shell around them — see
     ; `traces/reference/more-sheet.json` and `traces/reference/more-rest.json`.
     tag SetHd1   EVGElement (props (className "rt-set-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    ; A PAGE TITLE THE PHONE DOES NOT SHOW. Above 768px the original's banner
+    ; names the section it is looking at, where below it the banner is the
+    ; calendar selector and nothing else. One tree; `rt-deskonly` is the fold.
+    tag DeskHd1  EVGElement (props (className "rt-set-hd rt-deskonly") (elementType 1) (role "heading") (a11yLevel 1))
     ; The measurement calendar's summary — one card per thing measured, as
     ; `traces/reference/calendar-measure.json` has them.
     tag MsHd     EVGElement (props (className "rt-ms-hd") (elementType 1) (role "heading") (a11yLevel 2))
@@ -571,6 +577,20 @@ treefactory Rt {
     tag VecOpts  EVGElement (props (className "rt-vec-opts"))
     tag VecOpt   EVGElement (props (className "rt-vec-opt") (role "button") (a11yFocusable true))
     tag VecOptTx EVGElement (props (className "rt-vec-opt-text") (elementType 1) (a11yHidden true))
+    ; VIE TIEDOT — `ExportModal`: a heading with a way out beside it, what it
+    ; is asking, and the two shapes it can write. Each shape is one button
+    ; whose name is its title and the line under it, which is how the browser
+    ; reads a button that holds both.
+    tag ExpSheet EVGElement (props (className "rt-exp-sheet"))
+    tag ExpHd    EVGElement (props (className "rt-exp-hd") (elementType 1) (role "heading") (a11yLevel 3))
+    tag ExpCap   EVGElement (props (className "rt-exp-cap") (elementType 1) (role "paragraph"))
+    tag ExpOpt   EVGElement (props (className "rt-exp-opt") (role "button") (a11yFocusable true))
+    tag ExpCol   EVGElement (props (className "rt-exp-col"))
+    ; The title and the line under it are read TWICE in the original — once as
+    ; the button's own name, which is everything inside it, and once as the
+    ; nodes they are. A button is not a leaf there, and the tree says so.
+    tag ExpTitle EVGElement (props (className "rt-exp-title") (elementType 1))
+    tag ExpPara  EVGElement (props (className "rt-exp-para") (elementType 1) (role "paragraph"))
     tag CardHd   EVGElement (props (className "rt-card-hd") (elementType 1) (role "heading") (a11yLevel 2))
     tag CardTx   EVGElement (props (className "rt-card-tx") (elementType 1))
 
@@ -960,6 +980,9 @@ class RealTrainerDemo {
     ; The bar's "Lisää" opens a sheet over whichever section is up; it is not
     ; a section of its own, and the original keeps it the same way.
     def moreOpen@(mutable):boolean false
+    ; "Vie tietokanta" opens a dialog asking in which shape, and the rail and
+    ; the sheet open the same one. It is not a section either.
+    def exportOpen@(mutable):boolean false
     ; How far the plan dialog's body is scrolled — the edit sheet is taller
     ; than a phone, and scrolls inside the dialog as the original's does.
     def modalScroll:double 0.0
@@ -3035,6 +3058,42 @@ class RealTrainerDemo {
             over3.addChild((this.moreSheet()))
             page.addChild(over3)
         }
+        if exportOpen {
+            def over4 (tree Rt (Overlay (props (id "rt-overlay-export"))))
+            over4.addChild((this.exportSheet()))
+            page.addChild(over4)
+        }
+    }
+
+    ; The export dialog. Neither shape is written here — both are the
+    ; backend's, and there is no database behind this port — so the dialog
+    ; asks, and says so on the way out. Its two option buttons carry their
+    ; description inside them, as the reference's do.
+    fn exportSheet:EVGElement () {
+        def sheet (tree Rt (ExpSheet))
+        def head (tree Rt (ModalHead (props (className "rt-modal-head rt-exp-head"))))
+        head.addChild((tree Rt (ExpHd "Vie tiedot")))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.iconBtn("rt-export-close" "" (RtIcons.x("#999999")))))
+        sheet.addChild(head)
+        sheet.addChild((tree Rt (ExpCap "Valitse vientimuoto:")))
+        sheet.addChild((this.exportOption("rt-export-json" "JSON (koko tietokanta)" "Vie kaikki kalenterit, merkinnät ja vuosisuunnitelmat JSON-tiedostona. Sopii varmuuskopiointiin." (RtIcons.fileJson("#3b82f6")))))
+        sheet.addChild((this.exportOption("rt-export-compact" "COMPACT (päiväkirja)" "Vie päiväkirjamerkinnät COMPACT-tekstimuodossa valitulta ajanjaksolta. Sopii jakamiseen ja analysointiin." (RtIcons.fileText("#f97316")))))
+        return sheet
+    }
+
+    fn exportOption:EVGElement (id:string title:string para:string icon:string) {
+        def opt (tree Rt (ExpOpt))
+        opt.id = id
+        opt.a11yLabel = ((title + " ") + para)
+        def glyph (tree Rt (PhIcon))
+        glyph.svgSource = icon
+        opt.addChild(glyph)
+        def col (tree Rt (ExpCol))
+        col.addChild((tree Rt (ExpTitle title)))
+        col.addChild((tree Rt (ExpPara para)))
+        opt.addChild(col)
+        return opt
     }
 
     ; A ROW'S HISTORY. The reference names it after the exercise, in the
@@ -3580,6 +3639,7 @@ class RealTrainerDemo {
     ; shared here, so every one of them reads "Ei jaettu".
     fn sharedSection:void (body:EVGElement) {
         def col (tree Rt (SetCol))
+        col.addChild((tree Rt (DeskHd1 "Jaetut päiväkirjat")))
         col.addChild((tree Rt (SetHd1 "Hallitse jakamista")))
         col.addChild((tree Rt (SetNote "Hallitse päiväkirjojesi jakamisasetuksia. Voit jakaa päiväkirjasi muiden kanssa ja antaa heille katselu- tai yhteistyöoikeudet.")))
         col.addChild((tree Rt (SetSub "Julkaise päiväkirja verkkoon")))
@@ -5812,7 +5872,21 @@ class RealTrainerDemo {
         page.addChild((tree Rt (CredSub "Yksityiskohtaiset kuitit")))
         page.addChild((tree Rt (CredDim "Ei vielä yksityiskohtaisia kuitteja")))
         page.addChild((this.toasts()))
-        return page
+        return (this.railShell(page))
+    }
+
+    ; THE RAIL FOLLOWS THE PAGE. A page of its own is still a page of this
+    ; app: above 768px the original draws its rail beside every one of them,
+    ; and only the bottom bar is the phone's. The same one tree at every
+    ; width — the stylesheet folds the rail away below the breakpoint, the
+    ; way it does on the calendar.
+    fn railShell:EVGElement (page:EVGElement) {
+        def shell (tree Rt (Phone))
+        shell.addChild((this.iconRail()))
+        def side (tree Rt (PhSide))
+        side.addChild(page)
+        shell.addChild(side)
+        return shell
     }
 
     ; HARJOITUSPAIKAT — a page of its own, and the bar cannot be reached from
@@ -5835,7 +5909,7 @@ class RealTrainerDemo {
         main.addChild((this.setBtn("rt-ven-first" "Lisää ensimmäinen")))
         page.addChild(main)
         page.addChild((this.toasts()))
-        return page
+        return (this.railShell(page))
     }
 
     ; TIETOPANKKI — a page too, but this one KEEPS the bottom bar, which is
@@ -5898,7 +5972,7 @@ class RealTrainerDemo {
             this.knowledgeEditor(page)
         }
         page.addChild((this.toasts()))
-        return page
+        return (this.railShell(page))
     }
 
     ; "LISÄÄ" ON TIETOPANKKI opens the editor the original opens: a link, a
@@ -6901,23 +6975,73 @@ class RealTrainerDemo {
     ; and at the bottom the export, the theme and the way out.
     fn iconRail:EVGElement () {
         def rail (tree Rt (PhRail))
-        def gauge (tree Rt (PhRailBtn (props (id "rt-rail-credits") (a11yLabel "AI Credits: 100k. Click to purchase more credits."))))
+        ; THE GAUGE IS THE RAIL'S, and only the rail's. It used to be drawn
+        ; here AND in the header, so a wide page showed the battery twice —
+        ; the header's is folded away above 768px now, which is where the
+        ; reference has no credits in its banner at all.
+        def gauge (tree Rt (PhRailBtn (props (id "rt-rail-credits") (className "rt-ph-rail-btn rt-rail-credits") (a11yLabel "AI Credits: 100k. Click to purchase more credits."))))
         def g (tree Rt (PhIcon))
         g.svgSource = (RtIcons.battery("#22c55e"))
         gauge.addChild(g)
+        gauge.addChild((tree Rt (PhCreditsTx "100k credits")))
         rail.addChild(gauge)
         rail.addChild((this.railItem("rt-nav-home" "Koti" (section == "home") (RtIcons.home((this.navColor((section == "home"))))))))
         rail.addChild((this.railItem("rt-nav-dashboard" "Dashboard" (section == "dashboard") (RtIcons.layoutDashboard((this.navColor((section == "dashboard"))))))))
         rail.addChild((this.railItem("rt-nav-calendar" "Kalenteri" (section == "calendar") (RtIcons.calendarDays((this.navColor((section == "calendar"))))))))
-        rail.addChild((this.railItem("rt-nav-shared" "Jaetut" false (RtIcons.users("#999999")))))
+        rail.addChild((this.railItem("rt-nav-shared" "Jaetut kalenterit" false (RtIcons.users("#999999")))))
         rail.addChild((this.railItem("rt-nav-chat" "AI Chat" (section == "chat") (RtIcons.messageSquare((this.navColor((section == "chat"))))))))
         rail.addChild((this.railItem("rt-nav-venues" "Harjoituspaikat" false (RtIcons.building("#999999")))))
         rail.addChild((this.railItem("rt-nav-knowledge" "Tietopankki" false (RtIcons.bookOpen("#999999")))))
         rail.addChild((this.railItem("rt-nav-settings" "Asetukset" false (RtIcons.settings("#999999")))))
         rail.addChild((tree Rt (PhRailGap)))
         rail.addChild((this.railItem("rt-nav-export" "Vie tietokanta" false (RtIcons.database("#999999")))))
+        rail.addChild((this.railItem("rt-nav-theme" "Toggle theme" false (RtIcons.settings("#999999")))))
         rail.addChild((this.railItem("rt-nav-logout" "Kirjaudu ulos" false (RtIcons.logOut("#999999")))))
+        ; A RAIL IS ICONS AND NOTHING ELSE, so the one under the pointer says
+        ; what it is. The name is the button's own — the same string a reader
+        ; is given — and it hangs off the button as an overlay, which is how
+        ; every other floating thing here is placed.
+        if (RtEntry.hasPrefix(hovered "rt-nav-")) {
+            def tipFor:EVGElement (this.railTipAnchor(rail))
+            if (tipFor.id != "") {
+                tipFor.isOverlayAnchor = true
+                def tip (tree Rt (RailTip (RailTipTx (RealTrainerDemo.railName(hovered)))))
+                tip.isOverlay = true
+                tip.overlayAnchor = tipFor
+                tip.overlaySide = "right"
+                tip.a11yHidden = true
+                tipFor.addChild(tip)
+            }
+        }
         return rail
+    }
+
+    ; The rail button the pointer is over, or an element with no id.
+    fn railTipAnchor:EVGElement (rail:EVGElement) {
+        def i@(mutable):int 0
+        while (i < (rail.getChildCount())) {
+            def kid:EVGElement (rail.getChild(i))
+            if (kid.id == hovered) {
+                return kid
+            }
+            i = (i + 1)
+        }
+        return (EVGElement.createDiv())
+    }
+
+    sfn railName:string (id:string) {
+        if (id == "rt-nav-home") { return "Koti" }
+        if (id == "rt-nav-dashboard") { return "Dashboard" }
+        if (id == "rt-nav-calendar") { return "Kalenteri" }
+        if (id == "rt-nav-shared") { return "Jaetut kalenterit" }
+        if (id == "rt-nav-chat") { return "AI Chat" }
+        if (id == "rt-nav-venues") { return "Harjoituspaikat" }
+        if (id == "rt-nav-knowledge") { return "Tietopankki" }
+        if (id == "rt-nav-settings") { return "Asetukset" }
+        if (id == "rt-nav-export") { return "Vie tietokanta" }
+        if (id == "rt-nav-theme") { return "Toggle theme" }
+        if (id == "rt-nav-logout") { return "Kirjaudu ulos" }
+        return ""
     }
 
     fn railItem:EVGElement (id:string label:string active:boolean icon:string) {
@@ -8472,6 +8596,65 @@ class RealTrainerDemo {
         return ""
     }
 
+    ; THE RAIL'S OWN BUTTONS, answered before any screen is. The rail is
+    ; drawn beside every page above the breakpoint — the calendar, the year
+    ; sheet, the credits, Harjoituspaikat, Tietopankki — and a navigation
+    ; that works on one of them is not one. Below the breakpoint the same
+    ; ids come off the More sheet, which is why the sheet is closed here.
+    ; The seven that follow are the ones no bottom-bar item carries.
+    fn pressNav:boolean (id:string) {
+        if (id == "rt-nav-shared") {
+            moreOpen = false
+            scene = "app"
+            return (this.goSection("shared"))
+        }
+        if (id == "rt-nav-knowledge") {
+            moreOpen = false
+            docScroll = 0.0
+            this.setScene("knowledge")
+            return true
+        }
+        if (id == "rt-nav-venues") {
+            moreOpen = false
+            docScroll = 0.0
+            this.setScene("venues")
+            return true
+        }
+        if (id == "rt-nav-settings") {
+            moreOpen = false
+            scene = "app"
+            return (this.goSection("settings"))
+        }
+        ; THE THEME AND THE EXPORT DO NOT LEAVE THE PAGE they were pressed
+        ; on: one restyles what is already there, the other opens a dialog
+        ; over it.
+        if (id == "rt-nav-theme") {
+            return (this.setPalette((RealTrainerDemo.nextPalette(palette))))
+        }
+        if (id == "rt-rail-credits") {
+            moreOpen = false
+            this.setScene("credits")
+            return true
+        }
+        ; VIE TIETOKANTA OPENS A DIALOG, and asks in which shape. It was a
+        ; button that did nothing on both the rail and the sheet.
+        if ((id == "rt-nav-export") || (id == "rt-more-export")) {
+            moreOpen = false
+            exportOpen = true
+            return true
+        }
+        if ((id == "rt-export-close") || (id == "rt-export-json") || (id == "rt-export-compact")) {
+            ; Neither shape is written: there is no database behind this and
+            ; nothing to hand a browser. The dialog closes and says so.
+            exportOpen = false
+            if (id != "rt-export-close") {
+                this.toast("Vienti on backendin, eikä sitä ole täällä" false)
+            }
+            return true
+        }
+        return false
+    }
+
     fn pressApp:boolean (id:string) {
         if (this.pressVectors(id)) {
             return true
@@ -8598,7 +8781,8 @@ class RealTrainerDemo {
             return true
         }
         if (id == "rt-nav-chat") { return (this.goSection("chat")) }
-        if (id == "rt-nav-settings") { return (this.goSection("settings")) }
+        ; Asetukset is the rail's and the sheet's both, and `pressNav`
+        ; answers it before this is reached — see `press`.
         ; The reference's four, and this port's fifth — see `settingsSection`.
         if (id == "rt-theme-night") { return (this.setPalette("")) }
         if (id == "rt-theme-ocean") { return (this.setPalette("ocean")) }
@@ -9962,6 +10146,17 @@ class RealTrainerDemo {
         return palette
     }
 
+    ; The rail's one theme button has no list to pick from: it steps through
+    ; the same five the settings screen lists, in the order it lists them, and
+    ; wraps. "" is night, which is the one the app opens with.
+    sfn nextPalette:string (name:string) {
+        if (name == "") { return "ocean" }
+        if (name == "ocean") { return "forest" }
+        if (name == "forest") { return "violet" }
+        if (name == "violet") { return "sunrise" }
+        return ""
+    }
+
     ; A palette is not a state machine: it is one value, and setting it to
     ; what it already is changes nothing. The whole tree is restyled on the
     ; next pass because every rule that carries a colour carries a `var()`.
@@ -10130,8 +10325,18 @@ class RealTrainerDemo {
         if (hovered == id) {
             return
         }
+        ; A HOVER IS NORMALLY A FLAG and not a new tree — `markStates` writes
+        ; it onto the elements that are already there. The rail's tooltip is
+        ; the one exception: it is an element that exists only while the
+        ; pointer is on a rail button, so entering or leaving one has to make
+        ; the tree again.
+        def wasRail:boolean (RtEntry.hasPrefix(hovered "rt-nav-"))
+        def isRail:boolean (RtEntry.hasPrefix(id "rt-nav-"))
         layoutDirty = true
         hovered = id
+        if (wasRail || isRail) {
+            this.rebuild()
+        }
     }
 
     fn setPressed:void (id:string) {
@@ -10171,6 +10376,21 @@ class RealTrainerDemo {
             }
             def c:InputCtl (this.fieldFor(id))
             focused = c.tid
+            this.rebuild()
+            return true
+        }
+        ; THE RAIL FIRST. It is on every screen above the breakpoint, and the
+        ; dialog it opens is over every screen too, so neither can be left to
+        ; a branch that only one scene reaches.
+        if (exportOpen) {
+            if (this.pressNav(id)) {
+                this.rebuild()
+                return true
+            }
+            ; A dialog is modal: nothing behind it answers.
+            return false
+        }
+        if (this.pressNav(id)) {
             this.rebuild()
             return true
         }

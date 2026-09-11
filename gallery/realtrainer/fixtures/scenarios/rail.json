@@ -1,0 +1,57 @@
+{
+  "_": "THE DESKTOP RAIL, which nothing has ever measured. Every other scenario is a phone at 390x844, and the rail down the left is what the stylesheet folds the bottom bar into above 768px — so a dozen buttons that only exist on a wide screen had never been compared against anything. This presses four of the rail's own: the knowledge store, the credit gauge, the shared calendars and the database export, which is last because it opens a modal. Harjoituspaikat is not among them — it replaces the whole screen, rail and all, and `more-sheet` already walks that page.",
+  "id": "rail",
+  "area": "kehys",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "1280x900",
+      "why": "wide enough for the rail; the bar is folded away above 768px"
+    },
+    {
+      "route": "/calendar/cal-train?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 500
+    },
+    {
+      "id": "rt-nav-knowledge",
+      "role": "button",
+      "name": "Tietopankki"
+    },
+    {
+      "tick": 600
+    },
+    {
+      "id": "rt-rail-credits",
+      "role": "button",
+      "name": "AI Credits: 100k. Click to purchase more credits."
+    },
+    {
+      "tick": 600
+    },
+    {
+      "id": "rt-nav-shared",
+      "role": "button",
+      "name": "Jaetut kalenterit",
+      "why": "the rail calls it by its full name, as the sheet does — this port said only \"Jaetut\""
+    },
+    {
+      "tick": 600
+    },
+    {
+      "id": "rt-nav-export",
+      "role": "button",
+      "name": "Vie tietokanta",
+      "why": "LAST: it opens a modal and nothing behind it can be pressed. NOT from the credits page — the reference returns that route before it renders `ExportModal`, so the dialog never comes up there."
+    },
+    {
+      "tick": 600
+    }
+  ]
+}
