@@ -6,7 +6,8 @@ the canvas scrolls the textarea. `docx_viewer` and `pptx` have the thing that
 is missing — a caret in the picture, a selection you can bold, handles on a
 picture, and an undo stack with rules.
 
-**Stages A, B, C, D and E are built.** What each of them turned out to cost, and the
+**Every stage is built.** The preview is editable: click it, type into it,
+select with a drag, press Ctrl+B, and undo back to the bytes that were there. What each of them turned out to cost, and the
 two things the building changed about the plan, are recorded in place below
 rather than quietly.
 
@@ -418,11 +419,7 @@ Two things the building changed:
   line for anything reaching it directly, which is the exact failure
   `OfficeHistory`'s own header describes.
 
-### Stage F — the semantic edits, which is the WYSIWYG part
-
-*Next.* `MdSemanticEdit` is the one thing between the caret that exists and a
-preview a reader can make bold. Everything it needs is built: the source map
-says which node a selection is in, and `MdEditOp` is what it has to produce.
+### Stage F — the semantic edits, which is the WYSIWYG part — ✅ done
 
 `MdSemanticEdit.rgr`: a table from an intent plus a selection to **one**
 `MdEditOp`, decided against the AST rather than by a regular expression.
@@ -449,9 +446,16 @@ Two rules keep this honest:
   declines produces a status line.
 
 *Done when:* `markdown:semantic:test` is green on the fixture, including the
-refusals, and every case round-trips to identical bytes.
+refusals, and every case round-trips to identical bytes. **112 assertions.**
 
-### Stage G — the preview becomes the editor
+The refusal list turned out to be two entries rather than one: a selection
+half inside `**` and half outside it, and one that crosses the edge of a code
+span — the markers would land inside the code and be drawn as characters. A
+setext heading refuses to become an ATX one for the same reason: its marker
+is on the line below, and a prefix rewrite would leave `====` under a
+paragraph.
+
+### Stage G — the preview becomes the editor — ✅ done
 
 - **Chrome.** Caret and selection rectangles become `MdBox`es from
   `OfficeLineNav`, so they travel the existing road to both painters and no
@@ -469,9 +473,18 @@ refusals, and every case round-trips to identical bytes.
 
 *Done when:* `markdown:web:test` in headless Chrome types a word into the
 **canvas**, sees it in the textarea, presses ⌘B, sees `**` appear in the
-source, presses undo twice and gets the original file back.
+source, presses undo twice and gets the original file back. **It does**, plus
+the selection band, the caret's x, a click near the end of a line, a refusal
+that says why, and a patch submitted from the source pane landing on the same
+undo stack.
 
-### Stage H — objects
+*One thing the page needed that the plan did not mention:* a canvas can
+receive neither typed text, nor an IME composition, nor a paste. A one-pixel
+focusable field takes all three and is emptied after each — a funnel, not a
+buffer. Every browser editor that draws its own glyphs does this; it is worth
+writing down because it looks like a hack and is the only way.
+
+### Stage H — objects — partly done
 
 Images, tables and mermaid fences, in that order.
 
@@ -481,14 +494,21 @@ Images, tables and mermaid fences, in that order.
 - A table cell is a source range: typing in it is an ordinary patch. Column
   re-alignment is an explicit command, never automatic — a hand-aligned table
   is a thing someone did on purpose.
-- `ClipboardTable` turns a pasted spreadsheet range into a GFM table. Cheapest
-  win in the document and it could be done any time after Stage E.
+- ~~`ClipboardTable` turns a pasted spreadsheet range into a GFM table.~~
+  **Done.** It imports nothing, so this was one import and a formatter rather
+  than a second tolerant HTML scanner. Columns are padded to line up and a
+  pipe inside a cell is escaped rather than silently ending the row.
 - A click on a diagram puts the caret in its fence. Direct manipulation of
   diagram geometry is not in this plan.
 
+*Still open:* the `EVGSelectChrome` handles on an image or a diagram, and
+editing a table cell in place. Both are ordinary work on top of what is
+built — a resize is a patch like everything else — and neither is needed for
+the preview to be an editor.
+
 ---
 
-## 6. The performance budget
+## 6. The performance budget — met, and measured
 
 [`PLAN.md`](PLAN.md) §6b measured a full reparse-and-relayout at **142 ms for a
 63 KB document**, down from 382 ms, and calls the remainder "the text
@@ -511,6 +531,44 @@ lists. `markdown:edit:test` runs with it on, over every keystroke in the suite.
 An incremental path that silently disagrees with the full one is a stale
 picture, which is the worst bug class this feature can have, and the only
 defence is to check rather than to trust.
+
+---
+
+### What was built, and what it measures
+
+**The strategy above is not what shipped, and the reason is a number.** The
+plan assumed the reparse was the cost. It is not: `markdown:bench` puts the
+README at 22.7 ms to parse and 117.5 ms to lay out. So the parse stays whole —
+an incremental block parser would be a second parser to keep in step with the
+first, for a fifth of the bill — and the **layout** is what remembers.
+
+`MdLayout` keys each top-level block's boxes under the exact source text that
+produced them. An edit changes one block's key and no other, so every other
+block is an array copy with two numbers added to it: the y it now sits at, and
+how far its source moved. No dirty-range arithmetic, no conservative
+structure check, and nothing to get subtly wrong about where a block begins.
+
+| file | bytes | blocks | cold | warm | hit |
+| --- | --- | --- | --- | --- | --- |
+| `README.md` | 63 196 | 305 | 119.2 ms | **10.2 ms** | 99% |
+| `ISSUES.md` | 137 676 | 1 041 | 201.5 ms | 23.3 ms | 99% |
+| `CHANGELOG.md` | 380 303 | 173 | 516.1 ms | 84.2 ms | 99% |
+
+The 16 ms budget holds at the size the page opens with and degrades
+gracefully above it — and the number is printed by `markdown:bench` rather
+than claimed here.
+
+Three things it refuses, stated in the code rather than discovered: paged
+layout (a block's boxes there depend on where the page break falls, which is
+not a property of the block), a document with a table of contents (a two-pass
+layout whose first pass exists to move the second), and anything below a
+top-level block.
+
+And the audit is real: `cacheAudit` lays every cached block out for real and
+compares box count, height, and each box's text, x, y and source offset.
+Mutation-checked — dropping the source-offset shift turns it red. It also
+counts what it compared, because a suite that never reached the cache would
+otherwise report a clean audit, which is §6 of the kernel plan biting again.
 
 ---
 
