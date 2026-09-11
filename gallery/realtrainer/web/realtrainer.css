@@ -1265,18 +1265,22 @@
   height: 22px;
 }
 
+/* The add-workout sheet was drawn at a desk and its rows carried the width
+   it had there — 836px, inside a 340px dialog on a phone. It is the row, so
+   it is as wide as the dialog. */
 .rt-sheet-row {
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: center;
   gap: 10px;
-  width: 836px;
-  height: 28px;
+  width: 100%;
+  min-height: 28px;
 }
 
 .rt-sheet-actions {
-  height: 34px;
+  flex-wrap: wrap;
+  min-height: 34px;
 }
 
 .rt-sheet-cap {
@@ -1301,14 +1305,27 @@
   height: 18px;
 }
 
+/* A BUTTON IS AS BIG AS WHAT IS WRITTEN ON IT. `width: 130px; height: 30px`
+   was two lines of "Tallenna ohjeet ja generoi" in a box with room for one,
+   and the second line drew below the button. `min-` on both, and padding
+   instead of a pinned height, so the box grows with the label; the width
+   still holds the short ones — Peruuta, Luo — to the same size as each
+   other. `rt:overflow` is the check that would have caught it. */
 .rt-sheet-btn {
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
+  /* 130 is what it WANTS, not a floor: on a 270px footer two of them and a
+     gap do not fit, and a button that cannot shrink draws past the edge of
+     the dialog. `flex-shrink` lets the row give it less, and the label then
+     wraps inside a box that grows. */
   width: 130px;
-  height: 30px;
+  flex-shrink: 1;
+  min-width: 0px;
+  min-height: 30px;
+  padding: 6px 12px;
   border-radius: 8px;
   background-color: #2b3242;
   cursor: pointer;
@@ -1320,12 +1337,14 @@
   background: linear-gradient(180deg, var(--accent-soft), var(--accent-2));
 }
 
+/* No `height` here on purpose: a label that wraps has to MEASURE, and a
+   pinned line box is what told the button one line when there were two. */
 .rt-sheet-btn-text {
   color: #e8e2da;
   font-family: Arial;
   font-weight: bold;
   font-size: 13px;
-  height: 18px;
+  text-align: center;
 }
 
 /* --- scene five: the document -------------------------------------------- */
@@ -2035,8 +2054,14 @@
   flex-direction: column;
   gap: 1px;
   width: 48px;
-  height: 40px;
+  min-height: 40px;
+  height: auto;
+  padding: 2px 0px;
 }
+/* "100k credits" does not fit a 48px rail on one line and is not meant to:
+   the rule that pins the header gauge's line at 14px would have cut the
+   second one off. */
+.rt-rail-credits-text { text-align: center; height: auto; }
 /* WHAT THE POINTER IS OVER. A rail is icons and nothing else, so the name
    hangs to the right of the button under the pointer. It is placed as an
    overlay, so the only thing the sheet decides is how it looks. */
@@ -2614,7 +2639,10 @@
 .rt-notes-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 18px; height: 24px; }
 .rt-notes-para { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
 .rt-notes-text { color: var(--ink-dim); font-family: Arial; font-size: 12px; height: 16px; }
-.rt-notes-hit { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 4px 0px; }
+/* A hit is a whole workout line and then the button that links it. On a
+   phone the line alone is wider than the row, so the row wraps rather than
+   drawing the button off the side of the page. */
+.rt-notes-hit { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 0px; }
 /* The measurement calendar: a summary card per thing measured, then the
    readings as lines rather than as cards. */
 .rt-ms { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 10px; padding: 8px 0px; }
@@ -2686,7 +2714,10 @@
   border-color: var(--line);
   background-color: var(--bg);
 }
-.rt-edit-day-text { color: var(--ink); font-family: Arial; font-size: 12px; height: 16px; }
+/* The day's line sits after the drag handle and takes what is left of the
+   row; without `flex` it was as wide as the whole row and started 44px in,
+   so its tail was drawn past the dialog. No pinned height: it wraps. */
+.rt-edit-day-text { color: var(--ink); font-family: Arial; font-size: 12px; flex: 1; min-width: 0px; }
 
 .rt-home { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 16px; padding: 12px; }
 .rt-home-center { display: flex; flex-direction: row; flex-wrap: nowrap; justify-content: center; }
@@ -2766,7 +2797,9 @@
 /* --- the year sheet ------------------------------------------------------------ */
 /* --- a card's own panels: a row's history, and the card's menu ---------- */
 .rt-card-sheet { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 8px; margin: 16px; padding: 14px; border-radius: 14px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
-.rt-card-menu { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; padding: 6px; border-radius: 10px; border-width: 1px; border-color: var(--line); background-color: var(--surface-3); }
+/* A WIDTH, because it floats. In the row it was as wide as its longest item;
+   an overlay has no parent to measure against and shrank to the icons. */
+.rt-card-menu { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; width: 210px; padding: 6px; border-radius: 10px; border-width: 1px; border-color: var(--line); background-color: var(--surface-3); }
 .rt-card-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
 .rt-card-tx { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
 
@@ -2851,8 +2884,14 @@
 .rt-ys-grid { display: flex; flex-direction: column; flex-wrap: nowrap; padding: 8px 16px; }
 .rt-ys-grid-row { display: flex; flex-direction: row; flex-wrap: nowrap; border-width: 1px; border-color: var(--line); }
 .rt-ys-grid-head { background-color: var(--bg); }
-.rt-ys-cell { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: center; flex-grow: 1; gap: 2px; padding: 6px 4px; }
+/* `flex: 1` and not `flex-grow: 1`: the shorthand sets the basis to zero, so
+   a column is a share of the row. With grow alone the basis is the column
+   HEADING — "Painotettu piste" — and six of those are wider than a phone. */
+.rt-ys-cell { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: center; flex: 1; min-width: 0px; gap: 2px; padding: 6px 4px; }
 .rt-ys-cell-name { align-items: flex-start; width: 150px; flex-grow: 0; }
+/* The head is a back button and then the title block, which takes what is
+   left of the row rather than being as wide as its longest sentence. */
+.rt-ys-titles { flex: 1; min-width: 0px; }
 .rt-ys-cell-total { width: 70px; flex-grow: 0; background-color: var(--surface); }
 .rt-ys-cell-text { color: var(--ink); font-family: Arial; font-size: 12px; height: 16px; }
 .rt-ys-legend { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 16px; }
@@ -3120,10 +3159,14 @@
 .rt-set-link { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; height: 30px; cursor: pointer; }
 .rt-set-select { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; height: 34px; padding: 0px 12px; border-radius: 8px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); cursor: pointer; }
 
+/* WRAP, NOT SHRINK. EVG shrinks a flex item only when it has a width of its
+   own (see gallery/evg/SPEC.md); this column is as wide as the sentence in
+   it, which on a phone is wider than the card. So the card wraps and
+   "Käytössä" drops to a line of its own instead of hanging off the edge. */
 .rt-theme-card {
   display: flex;
   flex-direction: row;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 14px;
@@ -3154,6 +3197,11 @@
 .rt-sw-sunrise-surface { background-color: #3b2330; }
 .rt-sw-sunrise-accent { background-color: #fb7185; }
 
+/* The card is swatches, a name and its line, and "Käytössä" at the end. The
+   line is longer than a phone, so the column it is in has to be allowed to
+   give ground — without `min-width: 0` a flex item never shrinks below its
+   content and the badge was pushed off the right of the card. */
+.rt-theme-col { flex-shrink: 1; min-width: 0px; }
 .rt-theme-name { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
-.rt-theme-desc { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
+.rt-theme-desc { color: var(--ink-dim); font-family: Arial; font-size: 13px; }
 .rt-theme-on { color: var(--accent); font-family: Arial; font-weight: bold; font-size: 13px; height: 18px; }

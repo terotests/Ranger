@@ -598,6 +598,96 @@ class EVGOverlayTest {
         c.ok("and still not the whole page" (w.calculatedWidth < 400.0))
     }
 
+    ; A KEPT SUBTREE IS REPLAYED, NOT WALKED, and the walk is what finds the
+    ; surfaces. A card whose commands the display list kept swallowed the menu
+    ; opened inside it: laid out, hit-testable, read aloud by a screen reader,
+    ; and never drawn. `walk` gives up the fragment when the layout says there
+    ; is a surface below — which is exactly the card with the menu open, and
+    ; no other.
+    sfn testKeptFragmentDrawsSurface:void (c:OverlayCheck) {
+        print "--- a surface inside a fragment the list kept is still drawn ---"
+        ; THE ORDER THE APP DOES IT IN: frames with the menu CLOSED, which is
+        ; what puts the card's commands in the fragment cache, and then the
+        ; menu opens into a card whose fragment is already kept.
+        def page:EVGElement (EVGOverlayTest.box("page" "page" 800.0 600.0))
+        def row:EVGElement (EVGOverlayTest.box("row" "row" 400.0 40.0))
+        row.setAttribute("background-color" "#111111")
+        ; What the app marks a card with: its boxes are good, keep its commands.
+        row.keepLayout = true
+        def trigger:EVGElement (EVGOverlayTest.box("trigger" "trigger" 60.0 30.0))
+        trigger.setAttribute("background-color" "#333333")
+        trigger.isOverlayAnchor = true
+        row.addChild(trigger)
+        page.addChild(row)
+        def lay:EVGLayout (EVGOverlayTest.laidOut(page))
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(page)
+
+        ; …and now the menu opens inside it.
+        def surface:EVGElement (EVGOverlayTest.box("surface" "surface" 200.0 90.0))
+        surface.setAttribute("background-color" "#202020")
+        surface.isOverlay = true
+        surface.overlayAnchor = trigger
+        surface.setAttribute("overlay-side" "bottom")
+        row.addChild(surface)
+        def lay2:EVGLayout (EVGOverlayTest.laidOut(page))
+        def dl2 (new EVGDisplayList())
+        dl2.setTextEngine((lay2.getTextEngine()))
+        dl2.takeFragments(dl)
+        dl2.build(page)
+        c.ok("the menu is drawn on the frame it opens on"
+             ((EVGOverlayTest.rectIndex(dl2 surface)) >= 0))
+
+        ; THE FRAME AFTER is the one that went wrong: nothing changed, so the
+        ; card's fragment holds — and its commands are the card's own, the
+        ; surface having been deferred out of them. Replaying them without
+        ; walking dropped the menu, one frame after it appeared.
+        def dl3 (new EVGDisplayList())
+        dl3.setTextEngine((lay2.getTextEngine()))
+        dl3.takeFragments(dl2)
+        dl3.build(page)
+        c.ok("and on every frame after it, while the card's commands are kept"
+             ((EVGOverlayTest.rectIndex(dl3 surface)) >= 0))
+    }
+
+    ; ONE GAP PER IN-FLOW CHILD. A surface is out of flow, so nothing moves
+    ; for it and there is no gap beside it — but the flex pass charged the
+    ; line for one, so the spacer holding a button against the right edge lost
+    ; `gap` pixels and the button slid sideways as its menu opened.
+    sfn testSurfaceCostsNoGap:void (c:OverlayCheck) {
+        print "--- an open surface does not move the row it is anchored in ---"
+        def page:EVGElement (EVGOverlayTest.box("page" "page" 800.0 600.0))
+        def row:EVGElement (EVGElement.createDiv())
+        row.id = "row"
+        row.setAttribute("display" "flex")
+        row.setAttribute("flex-direction" "row")
+        row.setAttribute("flex-wrap" "nowrap")
+        row.setAttribute("width" "400px")
+        row.setAttribute("height" "40px")
+        row.setAttribute("gap" "8px")
+        def spacer:EVGElement (EVGElement.createDiv())
+        spacer.id = "spacer"
+        spacer.setAttribute("flex" "1")
+        row.addChild(spacer)
+        def trigger:EVGElement (EVGOverlayTest.box("trigger" "trigger" 60.0 30.0))
+        trigger.isOverlayAnchor = true
+        row.addChild(trigger)
+        page.addChild(row)
+        EVGOverlayTest.laidOut(page)
+        def closedX:int (to_int trigger.calculatedX)
+
+        ; Now open a menu in the same row, anchored to the button.
+        def surface:EVGElement (EVGOverlayTest.box("surface" "surface" 200.0 90.0))
+        surface.isOverlay = true
+        surface.overlayAnchor = trigger
+        surface.setAttribute("overlay-side" "bottom")
+        row.addChild(surface)
+        EVGOverlayTest.laidOut(page)
+        c.eqInt("the button is where it was before the menu opened"
+                (to_int trigger.calculatedX) closedX)
+    }
+
     sfn main:void () {
         def c (new OverlayCheck())
         print "=== EVG overlay surfaces ==="
@@ -615,6 +705,8 @@ class EVGOverlayTest {
         EVGOverlayTest.testNoRoomEitherWay(c)
         EVGOverlayTest.testCover(c)
         EVGOverlayTest.testFitText(c)
+        EVGOverlayTest.testKeptFragmentDrawsSurface(c)
+        EVGOverlayTest.testSurfaceCostsNoGap(c)
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed > 0) {

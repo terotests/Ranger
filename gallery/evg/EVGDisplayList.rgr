@@ -2186,7 +2186,15 @@ class EVGDisplayList {
         ; and a child must not leave its own slot behind for the commands its
         ; parent emits afterwards.
         ; A kept subtree, from what it emitted last time when that holds.
-        def keeping:boolean ((fragments && el.keepLayout) && (attribute == false))
+        ;
+        ; NOT ONE WITH A SURFACE IN IT. A fragment is replayed instead of
+        ; walked, and the walk is what finds the overlays and puts them on
+        ; `deferredOverlays` — so a menu opened inside a kept card was laid
+        ; out, hit-tested and read aloud, and never drawn. The layout already
+        ; knows: `placeOverlaysIn` writes `hasOverlayBelow` on every element
+        ; on the way to a surface, so this costs a field read and gives up
+        ; the fragment for exactly the one card that has a menu open.
+        def keeping:boolean (((fragments && el.keepLayout) && (attribute == false)) && (el.hasOverlayBelow == false))
         if keeping {
             if (this.emitFragment(el)) {
                 fragHits = (fragHits + 1)

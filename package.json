@@ -909,6 +909,7 @@
     "rt:clock": "npm run rt:build --silent && node gallery/realtrainer/web/clock-check.mjs",
     "rt:keys": "npm run rt:build --silent && node gallery/realtrainer/web/keys-check.mjs",
     "rt:svg": "npm run rt:build --silent && node gallery/realtrainer/web/shot-svg.mjs --themes",
+    "rt:overflow": "npm run rt:build --silent && node gallery/realtrainer/web/overflow-check.mjs",
     "rt:trace": "npm run rt:build --silent && node gallery/realtrainer/web/trace-check.mjs",
     "rt:trace:record": "npm run rt:build --silent && node gallery/realtrainer/web/trace-check.mjs --record",
     "rt:trace:diff": "node gallery/realtrainer/web/trace-diff.mjs",

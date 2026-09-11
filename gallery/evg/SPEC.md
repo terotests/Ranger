@@ -221,6 +221,32 @@ container. In CSS a fixed box escapes an ancestor's `overflow`; here the clip
 stack is built from the tree, so it does not. Put the bar beside the scroller
 rather than inside it.
 
+**Out of flow means no gap either.** A row's `gap` is charged once per
+IN-FLOW child: an absolute child, a `display: none` child and an overlay
+surface are skipped by the flex pass and by the gap total both. They used to
+be skipped by one and not the other, so opening a menu anchored in a row took
+`gap` pixels off the `flex: 1` spacer beside it and the button the menu hangs
+off slid sideways as it opened. `npm run evg:overlay:test`.
+
+**A surface inside a kept subtree.** `EVGDisplayList` replays a kept
+subtree's commands rather than walking it again, and the WALK is what finds
+the overlay surfaces inside it and defers them to the top. A subtree the
+layout says has a surface below it (`hasOverlayBelow`, written by
+`placeOverlaysIn`) therefore gives up its fragment and is walked. Without
+that a menu opened inside a kept card was laid out, hit-tested and published
+to the accessibility tree, drawn on the frame it opened on — and gone on the
+next one.
+
+### Flex shrink applies to items with a width
+
+`flex-shrink` is implemented for row children that have an explicit `width`:
+when they overflow, each gives up a share weighted by `flex-shrink x width`.
+A child with **no** width shrink-wraps its content and is not shrunk below
+it, where CSS would take it down to its min-content size. So a row holding a
+column of text longer than the row overflows rather than wrapping the text.
+Give such an item a `width`, a `flex` (which sets a zero basis and sizes it
+from the leftover), or let the row `flex-wrap: wrap`.
+
 ### 4.3 Spacing Attributes
 
 #### Margin (outer spacing)

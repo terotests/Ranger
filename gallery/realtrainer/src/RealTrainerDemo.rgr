@@ -3956,7 +3956,7 @@ class RealTrainerDemo {
             sw.addChild(dot)
         }
         card.addChild(sw)
-        def col (tree Rt (Col))
+        def col (tree Rt (Col (props (className "rt-col rt-theme-col"))))
         col.addChild((tree Rt (ThemeName label)))
         col.addChild((tree Rt (ThemeDesc about)))
         card.addChild(col)
@@ -6479,7 +6479,7 @@ class RealTrainerDemo {
     fn ysFeatures:void (body:EVGElement) {
         def head (tree Rt (YsHead))
         head.addChild((this.iconBtn("rt-ys-feat-back" "" (RtIcons.arrowLeft("#f2f2f2")))))
-        def titles (tree Rt (Col))
+        def titles (tree Rt (Col (props (className "rt-col rt-ys-titles"))))
         titles.addChild((tree Rt (YsHd "Feature-vektorit (beta)")))
         titles.addChild((tree Rt (YsPara (props (id "rt-ys-feat-sub")) "Testaa vektorilaskentaa päiväkirjamerkinnöistä valitulta aikaväliltä")))
         head.addChild(titles)
@@ -6983,7 +6983,9 @@ class RealTrainerDemo {
         def g (tree Rt (PhIcon))
         g.svgSource = (RtIcons.battery("#22c55e"))
         gauge.addChild(g)
-        gauge.addChild((tree Rt (PhCreditsTx "100k credits")))
+        def gtx (tree Rt (PhCreditsTx "100k credits"))
+        gtx.className = "rt-ph-credits-text rt-rail-credits-text"
+        gauge.addChild(gtx)
         rail.addChild(gauge)
         rail.addChild((this.railItem("rt-nav-home" "Koti" (section == "home") (RtIcons.home((this.navColor((section == "home"))))))))
         rail.addChild((this.railItem("rt-nav-dashboard" "Dashboard" (section == "dashboard") (RtIcons.layoutDashboard((this.navColor((section == "dashboard"))))))))
@@ -7196,12 +7198,27 @@ class RealTrainerDemo {
         if withAdd {
             def addRow (tree Rt (ModalRow))
             addRow.addChild((tree Rt (Spacer)))
-            addRow.addChild((this.exButton(("rt-entry-add-" + (to_string i)) "Lisää" "Lisää")))
-            ; THE MENU HANGS OFF THE BUTTON, in the card and right after it,
-            ; which is where the reference puts it and therefore where a
-            ; reader walking the page finds it.
+            def addBtn:EVGElement (this.exButton(("rt-entry-add-" + (to_string i)) "Lisää" "Lisää"))
+            addRow.addChild(addBtn)
+            ; THE MENU HANGS OFF THE BUTTON, right after it in the card, which
+            ; is where a reader walking the page finds it — and OVER the page
+            ; rather than in the row. In the row it was a third item the row
+            ; had to make space for, so opening the menu pushed the button it
+            ; belongs to sideways, which is a button that walks away from the
+            ; finger that pressed it.
             if (menuCard == i) {
-                addRow.addChild((this.entryMenuSheet()))
+                ; IN THE ROW, ANCHORED TO THE BUTTON — the way the calendar's
+                ; dropdown hangs off its selector. Hung off the button itself
+                ; the button measured as wide as the menu inside it, and the
+                ; spacer beside it lost the room it needed to hold the button
+                ; against the right edge.
+                addBtn.isOverlayAnchor = true
+                def cmenu:EVGElement (this.entryMenuSheet())
+                cmenu.isOverlay = true
+                cmenu.overlayAnchor = addBtn
+                cmenu.overlaySide = "bottom"
+                cmenu.overlayAlign = "end"
+                addRow.addChild(cmenu)
             }
             card.addChild(addRow)
         }
@@ -9362,6 +9379,30 @@ class RealTrainerDemo {
     ; Close whatever is on top, innermost first — the order they are drawn in,
     ; reversed. Answers false when nothing is open, which is what lets Escape
     ; fall through to dropping the ring.
+    ; LIGHT DISMISS. The card's action menu is not a modal — there is no
+    ; scrim over the page and everything behind it is still there — so the
+    ; way out of it is to press somewhere else. That press is consumed: a
+    ; dropdown that dismisses AND activates whatever was under the pointer is
+    ; a menu that does two things to one click.
+    ;
+    ; Only this menu. The calendar's dropdown answers presses through its own
+    ; branch, which closes it and then lets the press do its work; changing
+    ; that would change what four scenarios record.
+    fn dismissMenu:boolean (id:string) {
+        if (menuCard < 0) {
+            return false
+        }
+        if (RtEntry.hasPrefix(id "rt-entry-menu-")) {
+            return false
+        }
+        menuCard = (0 - 1)
+        ; The card is KEPT across frames — see `cardFor` — so a rebuild alone
+        ; would hand back the card as it was, menu and all.
+        this.forgetCards()
+        this.rebuild()
+        return true
+    }
+
     fn closeTopmost:boolean () {
         if calMenuOpen {
             this.closeCalMenu()
@@ -10355,8 +10396,15 @@ class RealTrainerDemo {
     ; returns without doing anything, which is what makes this a list rather
     ; than a decision.
     fn press:boolean (id:string) {
+        ; A PRESS ON NOTHING IS STILL A PRESS. A menu is dismissed by pressing
+        ; AWAY from it, and away is usually the page — no button, no id. This
+        ; used to return before anything looked at it, so the card's menu
+        ; could only be closed with Escape or by choosing from it.
         if (id == "") {
-            return false
+            return (this.dismissMenu(""))
+        }
+        if (this.dismissMenu(id)) {
+            return true
         }
         ; THE FOCUS FOLLOWS THE POINTER. Before the press, because the press
         ; is what may take the element away — and on the tree as it stands,

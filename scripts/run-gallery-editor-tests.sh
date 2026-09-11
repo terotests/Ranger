@@ -349,6 +349,12 @@ SUITES=(
   # The quick entry end to end: text in, a proposal, a review, and a diary
   # entry only for what was agreed to.
   rt:add
+  # WHAT THE ACCESSIBILITY TRACE CANNOT SEE. A name is the same string whether
+  # the glyphs land inside the button or half a line below it, so a label that
+  # wrapped to two lines in a box with `height: 30px` on it passed every gate
+  # this app had. This lays out every scenario and reports text taller than
+  # the box the sheet gave it.
+  rt:overflow
   # And that a palette is a palette: the same frame, the same commands in the
   # same places, in every theme the settings page offers.
   rt:theme

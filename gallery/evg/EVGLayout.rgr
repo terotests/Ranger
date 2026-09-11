@@ -1012,6 +1012,7 @@ class EVGLayout {
             ; Calculate total fixed width and total flex
             def fixedWidth:double 0.0
             def totalFlex:double 0.0
+            def inFlowCount@(mutable):int 0
             def j:int 0
             while (j < childCount) {
                 def c:EVGElement (parent.getChild(j))
@@ -1024,6 +1025,7 @@ class EVGLayout {
                 def hasBasis:boolean c.flexBasis.isSet
                 if c.isAbsolute {
                 } {
+                inFlowCount = (inFlowCount + 1)
                 if ((c.flex > 0.0) && hasBasis) {
                     totalFlex = totalFlex + c.flex
                     fixedWidth = ((fixedWidth + c.flexBasis.pixels) + c.box.marginLeftPx) + c.box.marginRightPx
@@ -1048,9 +1050,17 @@ class EVGLayout {
             }
             
             ; Calculate available space for flex items (row gaps consume it too)
+            ;
+            ; ONE GAP PER IN-FLOW CHILD, not per child. An absolute child, one
+            ; the sheet folded away, and an overlay surface are all out of
+            ; flow — nothing moves for them and there is no gap beside them —
+            ; but this charged the line for one anyway, so opening a menu
+            ; anchored in a row took 8px off the spacer beside it and the
+            ; button the menu belongs to slid sideways as it opened. The sum
+            ; above already skips them; this is the half that did not.
             def totalGap:double 0.0
-            if (childCount > 1) {
-                totalGap = ((to_double (childCount - 1)) * gapPx)
+            if (inFlowCount > 1) {
+                totalGap = ((to_double (inFlowCount - 1)) * gapPx)
             }
             def availableForFlex:double ((innerWidth - fixedWidth) - totalGap)
             if (availableForFlex < 0.0) {
