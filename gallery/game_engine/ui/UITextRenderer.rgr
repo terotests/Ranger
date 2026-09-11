@@ -49,6 +49,8 @@ class UITextRenderer {
     def defaultSize:double 14.0
 
     ; Rasterized-line cache (LRU-ish: cleared wholesale when it grows too big).
+    ; The answer `metrics()` hands out, refreshed rather than rebuilt. See it.
+    def ownMetrics:UIMeasure (new UIMeasure())
     def cache:[UICachedLine]
     def maxCache:int 512
     def cacheHits:int 0
@@ -455,12 +457,24 @@ class UITextRenderer {
     ; This renderer, as the question `OfficeTextMetrics` actually asks. See
     ; `UIMeasure` below for why it is a subclass rather than a plain
     ; `OfficeMeasure.over(fm measurer)`.
+    ;
+    ; ONE OBJECT, REFRESHED, AND CALLED AT EVERY USE — not handed out once and
+    ; kept. `loadFontBytes` REPLACES `measurer` with a new `TTFTextMeasurer`
+    ; each time a face arrives, so anything holding the one that was current
+    ; when it asked goes on measuring through the estimate tables after the
+    ; real faces have loaded. That is not a theory: `OfficeTextMeasure.attach`
+    ; held one, every .pptx run whose text was measured after a font load came
+    ; out at guessed widths, and `gallery/pptx/web/wasm/parity.mjs` reported
+    ; forty-seven commands differing between the two engines — because the two
+    ; attach at different moments, so they were wrong by different amounts.
+    ;
+    ; The field rather than a fresh object per call: this is asked once per
+    ; run of text on every frame.
     fn metrics:OfficeMeasure () {
-        def o:UIMeasure (new UIMeasure())
-        o.fm = fm
-        o.measurer = measurer
-        o.fallback = "Open Sans"
-        return o
+        ownMetrics.fm = fm
+        ownMetrics.measurer = measurer
+        ownMetrics.fallback = "Open Sans"
+        return ownMetrics
     }
 
     fn bmScaleFor:int (fontSize:double) {

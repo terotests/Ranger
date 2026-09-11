@@ -32,10 +32,13 @@ Import "OfficeMeasure.rgr"
 class OfficeTextMeasure {
     def hasCtx:boolean false
     def ctx:UIContext (new UIContext)
-    ; The renderer, as the question `OfficeMeasure` answers. Built once at
-    ; attach and held for the life of the deck — which is safe because
-    ; `OfficeMeasure.hasFont` is derived from the FontManager rather than
-    ; snapshotted, so a face that arrives after the host attached is seen.
+    ; The renderer, as the question `OfficeMeasure` answers. ASKED FOR AT
+    ; EVERY USE rather than held: `UITextRenderer.loadFontBytes` replaces its
+    ; measurer with a new `TTFTextMeasurer` each time a face arrives, so one
+    ; captured at attach goes on answering from the estimate tables for the
+    ; life of the deck. Deriving `hasFont` from the FontManager was half of
+    ; that fix and the half that hid the other: the flag said "there are
+    ; fonts" while the measurer that did the measuring had never seen one.
     def om:OfficeMeasure (new OfficeMeasure())
     def family:string "Open Sans"
     def emFactor:double 0.52
@@ -47,7 +50,15 @@ class OfficeTextMeasure {
         ctx = c
         family = fam
         hasCtx = true
-        om = (c.tr.metrics())
+    }
+
+    ; The renderer's measurer AS IT IS NOW. One shared object on the renderer,
+    ; refreshed — not an allocation per call.
+    fn measure:OfficeMeasure () {
+        if (hasCtx == false) {
+            return om
+        }
+        return (ctx.tr.metrics())
     }
 
     ; The face the painter will actually use. `PptxView.paintTextCmd` switches
@@ -64,7 +75,7 @@ class OfficeTextMeasure {
         if (hasCtx == false) {
             return (OfficeFont.faceName(family bold italic))
         }
-        def hit:string (om.faceFor(family bold italic family))
+        def hit:string ((this.measure()).faceFor(family bold italic family))
         if ((strlen hit) > 0) {
             return hit
         }
@@ -80,7 +91,7 @@ class OfficeTextMeasure {
         if (hasCtx == false) {
             return true
         }
-        return (om.hasFamily(fam))
+        return ((this.measure()).hasFamily(fam))
     }
 
     ; --- what the run itself asked for ------------------------------------------
@@ -104,7 +115,7 @@ class OfficeTextMeasure {
             }
             return (OfficeFont.aliasFamily(named))
         }
-        return (om.drawnFamily(named bold italic family))
+        return ((this.measure()).drawnFamily(named bold italic family))
     }
 
     ; The face for a run that names its own family, as `faceFor` is for the
@@ -114,7 +125,7 @@ class OfficeTextMeasure {
         if (hasCtx == false) {
             return (OfficeFont.faceName(fam bold italic))
         }
-        def hit:string (om.faceFor(fam bold italic family))
+        def hit:string ((this.measure()).faceFor(fam bold italic family))
         if ((strlen hit) > 0) {
             return hit
         }
@@ -140,6 +151,6 @@ class OfficeTextMeasure {
         ; CURRENTLY on; `OfficeMeasure` takes the face as an argument, so there
         ; is no state to restore and no way to forget to.
         def fam:string (this.drawnFamily(named bold italic))
-        return (om.width(text fam bold italic sizePx family))
+        return ((this.measure()).width(text fam bold italic sizePx family))
     }
 }

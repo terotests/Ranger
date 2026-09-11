@@ -105,6 +105,13 @@ SUITES=(
   # import back into gallery/office/text compiles and passes every suite
   # above; this is the only thing that would notice.
   office:metrics:closure
+  # …and that a width is the width of the face that will be PAINTED, on every
+  # target and whichever order the host loaded its fonts in. The renderer
+  # replaces its measurer each time a face arrives, so a caller that captured
+  # one measures with the estimate tables for the life of the document — and
+  # says it has fonts while doing it. Only the .pptx WebAssembly parity check
+  # saw that, and only because its two engines attach at different moments.
+  office:measure:targets
   office:font:test
   office:style:test
   office:bidi:test
