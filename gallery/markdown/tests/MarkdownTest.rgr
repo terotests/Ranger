@@ -24,7 +24,7 @@ Import "../src/MdBlock.rgr"
 Import "../src/MdToHtml.rgr"
 Import "../src/MdLayout.rgr"
 Import "../src/MdToEvg.rgr"
-Import "../src/MdMermaid.rgr"
+Import "../src/MdDiagram.rgr"
 Import "../src/MdCodeHighlight.rgr"
 Import "../src/MdFrontMatter.rgr"
 Import "../../evg/EVGTextEngine.rgr"
@@ -88,6 +88,7 @@ class MarkdownTest {
         this.layout()
         this.evg()
         this.mermaid()
+        this.notations()
         this.highlight()
         this.frontMatter()
         this.furniture()
@@ -356,7 +357,7 @@ class MarkdownTest {
         ; width it was laid out at, so that re-flowing a document narrower
         ; re-runs the graph layout instead of stretching a stale one.
         def contentW:double (500.0 - (l.style.margin * 2.0))
-        MdMermaid.prepare(doc l.embeds contentW "default")
+        MdDiagram.prepare(doc l.embeds contentW "default")
         this.eqInt("one diagram prepared" (l.embeds.count()) 1)
         def h:double (l.embeds.heightFor("mermaid" node.literal contentW))
         this.ok("the diagram has a height" (h > 10.0))
@@ -399,6 +400,173 @@ class MarkdownTest {
         def plain:MdNode (MdBlock.parseText("```js\nconst x = 1;\n```\n"))
         def code:MdNode (plain.childAt(0))
         this.eq("a js fence is code" code.kind "code_block")
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Three notations, one door
+    ; ----------------------------------------------------------------------
+    ;
+    ; Mermaid was the only fence a markdown document could draw, because
+    ; `MermaidRender` was the only reader with an entry point that took text
+    ; and a width. PlantUML and Graphviz had readers just as good and no door
+    ; — their dispatch lived inside the diagram editor's own facade, tangled
+    ; with editor state, so a document could not call it.
+    ;
+    ; Two failures are possible and they fail differently, so both are
+    ; counted here. The PARSER can leave a `plantuml` fence as a code block,
+    ; in which case there is no slot at all. The RENDERER can leave the slot
+    ; empty, in which case there is a box with an apology in it. A check that
+    ; only counted boxes would pass the second one.
+    fn notations:void () {
+        ; --- the parser's half: which fence words are a drawing
+        def words:[string]
+        push words "mermaid"
+        push words "plantuml"
+        push words "puml"
+        push words "dot"
+        push words "graphviz"
+        def w:int 0
+        def drawable:int 0
+        while (w < (array_length words)) {
+            def word:string (itemAt words w)
+            def one:MdNode (MdBlock.parseText((("```" + word) + "\nbody\n```\n")))
+            def kid:MdNode (one.childAt(0))
+            if (kid.kind == "embed") { drawable = (drawable + 1) }
+            w = (w + 1)
+        }
+        this.eqInt("every notation's fence word opens a slot" drawable 5)
+
+        ; `d2` is a real notation and RangerFlow has no reader for it. A fence
+        ; listed as drawable that nothing draws is worse than one left as
+        ; code — it turns a highlighted block into an empty box — so it must
+        ; stay code until there is a reader.
+        def d2:MdNode (MdBlock.parseText("```d2\nx -> y\n```\n"))
+        def d2kid:MdNode (d2.childAt(0))
+        this.eq("d2 has no reader, so it stays code" d2kid.kind "code_block")
+
+        ; --- the renderer's half: a diagram, at a size, in each notation
+        def puml:string "@startuml\npackage \"tilaukset\" {\n  abstract class Tilaus {\n    +id: int\n  }\n  class Verkkotilaus\n  class Rivi\n}\ninterface Maksettava\nclass Asiakas\nTilaus <|-- Verkkotilaus\nTilaus *-- \"1..*\" Rivi : sisaltaa\nAsiakas \"1\" o-- \"monta\" Tilaus : tekee\nTilaus ..|> Maksettava\n@enduml"
+        def dot:string "digraph {\n  rankdir=LR;\n  saapuu -> tarkista;\n  tarkista -> laskuta;\n}"
+        def mer:string "flowchart LR\n  A --> B"
+        def src:string ((((("```plantuml\n" + puml) + "\n```\n\n```dot\n") + dot) + "\n```\n\n```mermaid\n") + mer + "\n```\n")
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        def contentW:double (700.0 - (l.style.margin * 2.0))
+        MdDiagram.prepare(doc l.embeds contentW "default")
+        this.eqInt("three fences, three diagrams prepared" (l.embeds.count()) 3)
+
+        def drawn:int 0
+        def e:int 0
+        while (e < (l.embeds.count())) {
+            def entry:MdEmbedEntry (l.embeds.entryAt(e))
+            if (entry.ok) {
+                if (entry.height > 10.0) {
+                    if (entry.width > 10.0) { drawn = (drawn + 1) }
+                }
+            }
+            e = (e + 1)
+        }
+        this.eqInt("every one of them has a drawing with a size" drawn 3)
+
+        l.layoutContinuous(doc 700.0)
+        this.eqInt("and the layout left three slots" (MarkdownTest.countKind(l 3)) 3)
+
+        ; --- and the marks land where the boxes are
+        def root:EVGElement (MdToEvg.buildPage(l 700.0))
+        def le:EVGLayout (new EVGLayout())
+        le.setPageSize(700.0 l.documentHeight)
+        le.layout(root)
+        def dl:EVGDisplayList (new EVGDisplayList())
+        dl.build(root)
+        def boxed:int 0
+        def bi:int 0
+        while (bi < (array_length l.boxes)) {
+            def box:MdBox (itemAt l.boxes bi)
+            if (box.kind == 3) {
+                def marks:int (MarkdownTest.marksIn(dl box))
+                if (marks > 0) { boxed = (boxed + 1) }
+            }
+            bi = (bi + 1)
+        }
+        this.eqInt("each slot has marks inside it" boxed 3)
+
+        ; --- the noun the PlantUML failure would be about: the classes.
+        ; A class diagram read as a sequence diagram is participants that do
+        ; not exist and no classes at all, and it still draws boxes and
+        ; edges — so counting shapes would not catch it. Counting the names
+        ; does.
+        def named:int 0
+        if (MarkdownTest.drewText(dl "Tilaus")) { named = (named + 1) }
+        if (MarkdownTest.drewText(dl "Verkkotilaus")) { named = (named + 1) }
+        if (MarkdownTest.drewText(dl "Rivi")) { named = (named + 1) }
+        if (MarkdownTest.drewText(dl "Maksettava")) { named = (named + 1) }
+        if (MarkdownTest.drewText(dl "Asiakas")) { named = (named + 1) }
+        this.eqInt("all five PlantUML classes are on the page" named 5)
+        ; And the DOT nodes, which are the same question for the other reader.
+        def dots:int 0
+        if (MarkdownTest.drewText(dl "saapuu")) { dots = (dots + 1) }
+        if (MarkdownTest.drewText(dl "tarkista")) { dots = (dots + 1) }
+        if (MarkdownTest.drewText(dl "laskuta")) { dots = (dots + 1) }
+        this.eqInt("all three DOT nodes are on the page" dots 3)
+
+        ; --- the store stays the size of the document
+        ;
+        ; The cache outlives an edit on purpose, so that typing far from a
+        ; diagram does not re-run a graph layout. But it is keyed by the
+        ; fence's TEXT, so typing INSIDE one changes the key on every
+        ; keystroke — and every half-typed predecessor used to stay, element
+        ; tree and all. The status line counts this store, so the same bug
+        ; told a reader their one-diagram document had sixty in it.
+        def typing:MdLayout (new MdLayout())
+        def t1:MdNode (MdBlock.parseText("```mermaid\nflowchart LR\n  A --> B\n```\n"))
+        MdDiagram.prepare(t1 typing.embeds contentW "default")
+        this.eqInt("one fence, one entry" (typing.embeds.count()) 1)
+        def t2:MdNode (MdBlock.parseText("```mermaid\nflowchart LR\n  A --> Bc\n```\n"))
+        MdDiagram.prepare(t2 typing.embeds contentW "default")
+        this.eqInt("a keystroke inside it does not leave the old one behind" (typing.embeds.count()) 1)
+        MdDiagram.prepare(t2 typing.embeds contentW "default")
+        this.eqInt("and preparing the same text again is a no-op" (typing.embeds.count()) 1)
+        def gone:MdNode (MdBlock.parseText("just prose now\n"))
+        MdDiagram.prepare(gone typing.embeds contentW "default")
+        this.eqInt("deleting the fence empties the store" (typing.embeds.count()) 0)
+
+        ; --- a notation whose reader refuses says why, rather than nothing
+        def broken:MdNode (MdBlock.parseText("```dot\ndigraph { a -> ; }\n```\n"))
+        def bl:MdLayout (new MdLayout())
+        MdDiagram.prepare(broken bl.embeds contentW "default")
+        def bad:MdEmbedEntry (bl.embeds.entryAt(0))
+        this.ok("a DOT file the reader refuses is not drawn" (! bad.ok))
+        this.ok("and the refusal says something" ((strlen bad.note) > 0))
+    }
+
+    sfn marksIn:int (dl:EVGDisplayList box:MdBox) {
+        def c:int 0
+        def i:int 0
+        def n:int (array_length dl.cmds)
+        while (i < n) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            def inside:boolean true
+            if (cmd.x < (box.x - 1.0)) { inside = false }
+            if (cmd.y < (box.y - 1.0)) { inside = false }
+            if (cmd.x > ((box.x + box.w) + 1.0)) { inside = false }
+            if (cmd.y > ((box.y + box.h) + 1.0)) { inside = false }
+            if inside { c = (c + 1) }
+            i = (i + 1)
+        }
+        return c
+    }
+
+    sfn drewText:boolean (dl:EVGDisplayList want:string) {
+        def i:int 0
+        def n:int (array_length dl.cmds)
+        while (i < n) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 3) {
+                if (MarkdownTest.hasSub(cmd.text want)) { return true }
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     sfn countKind:int (l:MdLayout kind:int) {
@@ -884,7 +1052,7 @@ class MarkdownTest {
         ; A page with a diagram on it still needs the engine, and says so.
         def withDiagram:MdNode (MdBlock.parseText("text\n\n```mermaid\nflowchart LR\n  A --> B\n```\n"))
         def l2:MdLayout (new MdLayout())
-        MdMermaid.prepare(withDiagram l2.embeds (420.0 - (l2.style.margin * 2.0)) "default")
+        MdDiagram.prepare(withDiagram l2.embeds (420.0 - (l2.style.margin * 2.0)) "default")
         l2.layoutContinuous(withDiagram 420.0)
         this.ok("a diagram needs the engine" (MdToEvg.needsEngine(l2)))
     }

@@ -82,6 +82,7 @@ const FACES = [
 
 const SAMPLES = {
   mermaid: "./samples/mermaid.md",
+  diagrams: "./samples/diagrams.md",
   sample: "./samples/sample.md",
   readme: "./samples/README.md",
 };
@@ -631,6 +632,14 @@ async function start() {
   // test drives this same page in headless Chrome and reads the result out of
   // the DOM rather than out of a screenshot.
   const q = new URLSearchParams(location.search);
+  // `?sample=diagrams` opens one of the dropdown's documents, so a screenshot
+  // of any of them can be taken without clicking. It goes through the same
+  // handler the dropdown does rather than a second loader.
+  const wanted = q.get("sample");
+  if (wanted && SAMPLES[wanted]) {
+    sampleEl.value = wanted;
+    sampleEl.dispatchEvent(new Event("change"));
+  }
   if (q.has("selftest")) {
     window.__selftest = selftest();
   }
@@ -717,6 +726,28 @@ function selftest() {
   const paths = cmds.filter((c) => c.k === 6 || c.k === 7).length;
   say("diagram is geometry", paths > 0, paths + " path/stroke commands");
   say("diagrams read", app.diagramCount() > 0, app.diagramCount() + " diagrams");
+
+  // Three notations, one document. Mermaid was the only fence this editor
+  // could draw; PlantUML and Graphviz are read through their own doors now,
+  // and the failure to catch is the quiet one — a fence that is parsed as
+  // code, so there is no slot at all and the count silently stays at one.
+  {
+    const kept = sourceEl.value;
+    const three =
+      "```plantuml\n@startuml\nclass Tilaus\nclass Rivi\nTilaus *-- Rivi\n@enduml\n```\n\n" +
+      "```dot\ndigraph { a -> b; }\n```\n\n" +
+      "```mermaid\nflowchart LR\n  A --> B\n```\n";
+    app.setSource(three);
+    say("three notations, three diagrams", app.diagramCount() === 3, app.diagramCount() + " read");
+    const three_cmds = JSON.parse(app.frame()).list.cmds;
+    const shapes = three_cmds.filter((c) => c.k === 6 || c.k === 7).length;
+    say("and all three arrive as geometry", shapes > 6, shapes + " path/stroke commands");
+    const drewName = (t) => three_cmds.some((c) => c.k === 3 && (c.text || "").includes(t));
+    // A class diagram read as a sequence diagram still draws boxes and
+    // edges, so counting shapes would not catch it. Counting names does.
+    say("the PlantUML classes are on the page", drewName("Tilaus") && drewName("Rivi"));
+    app.setSource(kept);
+  }
 
   // Typing changes the drawing.
   const before = app.commandCount();

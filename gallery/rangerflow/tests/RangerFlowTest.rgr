@@ -62,6 +62,8 @@ Import "../domains/plantuml/PlantUmlSequenceReader.rgr"
 Import "../domains/plantuml/PlantUmlEntityReader.rgr"
 Import "../domains/plantuml/PlantUmlActivityReader.rgr"
 Import "../domains/graphviz/DotFlow.rgr"
+Import "../domains/graphviz/DotRender.rgr"
+Import "../domains/plantuml/PlantUmlRender.rgr"
 
 class Checker {
     def passed:int 0
@@ -149,6 +151,7 @@ class RangerFlowTest {
         RangerFlowTest.testDotDefaults(c)
         RangerFlowTest.testDotRefusals(c)
         RangerFlowTest.testDotFlow(c)
+        RangerFlowTest.testRenderDoors(c)
         RangerFlowTest.testDotRecords(c)
         RangerFlowTest.testDotColors(c)
         RangerFlowTest.testDotEngines(c)
@@ -3236,6 +3239,74 @@ class RangerFlowTest {
         c.eqInt("a self-loop leaves by the side" (lg.edgeSide(self true)) 1)
         c.eqInt("and comes back to the same side" (lg.edgeSide(self false)) 1)
         c.eqInt("and nothing is drawn through E" (EdgeOverlap.nodeCrossings(lg)) 0)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The doors
+    ; ----------------------------------------------------------------------
+    ;
+    ; `MermaidRender.sceneOf` is how anything that is not the diagram editor
+    ; gets a drawing out of Mermaid text — a markdown page, a PDF, a slide.
+    ; PlantUML and Graphviz had readers just as good and no such door: their
+    ; dispatch lived inside the web facade, tangled with editor state, so the
+    ; only caller that could reach it was the editor itself.
+    ;
+    ; What is checked here is the door, not the readers behind it — those have
+    ; their own suites above. A door fails by returning an EMPTY scene for text
+    ; its reader handles, and that is the same failure for every family, so
+    ; every family is asked.
+    sfn testRenderDoors:void (c:Checker) {
+        c.section("One door per notation")
+
+        ; --- PlantUML: four families, one entry point
+        def cls:string "@startuml\nabstract class Tilaus {\n  +id: int\n}\nclass Verkkotilaus\nclass Rivi\ninterface Maksettava\nTilaus <|-- Verkkotilaus\nTilaus *-- Rivi\nTilaus ..|> Maksettava\n@enduml"
+        c.eqStr("the body says which family it is" (PlantUmlRender.kindOf(cls)) "class")
+        def cs:FlowScene (PlantUmlRender.sceneOf(cls "default" 600.0 10.0))
+        c.ok("a class diagram comes back with a size" ((cs.worldW > 1.0) && (cs.worldH > 1.0)))
+        c.eqStr("and is drawn in UML shapes" (PlantUmlRender.notationFor("class")) "uml")
+
+        def seq:string "@startuml\nUser -> API: Request\nAPI -> Database: Query\nDatabase --> API: Rows\n@enduml"
+        c.eqStr("a sequence body reads as one" (PlantUmlRender.kindOf(seq)) "sequence")
+        def ss:FlowScene (PlantUmlRender.sceneOf(seq "default" 600.0 10.0))
+        c.ok("a sequence diagram comes back with a size" ((ss.worldW > 1.0) && (ss.worldH > 1.0)))
+
+        def act:string "@startuml\nstart\n:Ota tilaus;\nif (saldo riittaa?) then (kylla)\n  :Laskuta;\nelse (ei)\n  :Hylkaa;\nendif\nstop\n@enduml"
+        c.eqStr("an activity body reads as one" (PlantUmlRender.kindOf(act)) "activity")
+        def as:FlowScene (PlantUmlRender.sceneOf(act "default" 600.0 10.0))
+        c.ok("an activity diagram comes back with a size" ((as.worldW > 1.0) && (as.worldH > 1.0)))
+
+        def comp:string "@startuml\n[Web] --> [API]\n[API] --> [Database]\n@enduml"
+        c.eqStr("a component body reads as one" (PlantUmlRender.kindOf(comp)) "description")
+        def ps:FlowScene (PlantUmlRender.sceneOf(comp "default" 600.0 10.0))
+        c.ok("a component diagram comes back with a size" ((ps.worldW > 1.0) && (ps.worldH > 1.0)))
+
+        ; A family RangerFlow reads and does not draw is an empty scene, not a
+        ; wrong one — the caller writes the apology, and needs to be able to.
+        def noone:FlowScene (PlantUmlRender.sceneOf("@startuml\nrobust \"Web\" as WB\n@enduml" "default" 600.0 10.0))
+        c.ok("and something nothing draws comes back empty" (noone.worldW <= 0.0))
+
+        ; --- Graphviz: one grammar, so one entry point
+        def dot:string "digraph {\n  rankdir=LR;\n  saapuu -> tarkista;\n  tarkista -> laskuta;\n}"
+        c.eqStr("a directed graph says so" (DotRender.kindOf(dot)) "digraph")
+        def ds:FlowScene (DotRender.sceneOf(dot "default" 600.0 10.0))
+        c.ok("a DOT graph comes back with a size" ((ds.worldW > 1.0) && (ds.worldH > 1.0)))
+
+        ; A file Graphviz would refuse is refused here too, and the refusal
+        ; carries the line — drawing something anyway would be guessing.
+        def st:FlowStyle (FlowStyle.named("default"))
+        def bad:DotDrawing (DotRender.draw("digraph { a -> ; }" st))
+        c.ok("a broken DOT file is not drawn" (! bad.ok))
+        c.ok("and the refusal says what went wrong" ((strlen bad.error) > 0))
+
+        ; --- fitted, never scaled up: the rule `MermaidRender` set, held to
+        ; by both new doors. A diagram wider than the column is brought onto
+        ; it; one that already fits is left at its own size.
+        def narrow:FlowScene (PlantUmlRender.sceneOf(cls "default" 200.0 10.0))
+        c.ok("a wide diagram is fitted to the column" (narrow.worldW <= 200.5))
+        def roomy:FlowScene (PlantUmlRender.sceneOf(cls "default" 4000.0 10.0))
+        c.ok("and a diagram with room to spare is left alone" ((fabs (roomy.worldW - cs.worldW)) < 0.5))
+        def dotNarrow:FlowScene (DotRender.sceneOf(dot "default" 150.0 10.0))
+        c.ok("the same for DOT" (dotNarrow.worldW <= 150.5))
     }
 
     ; How many pairs of frames, neither inside the other, overlap.

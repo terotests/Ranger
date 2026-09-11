@@ -776,7 +776,7 @@ class MdLayout {
 
     fn cacheFind:int (key:string) {
         if (has cacheAt key) {
-            return (?? (get cacheAt key) -1)
+            return (unwrap (get cacheAt key))
         }
         return -1
     }
@@ -1053,7 +1053,7 @@ class MdLayout {
         }
         def k:string (to_string srcStart)
         if (has boxIndexAt k) {
-            return (?? (get boxIndexAt k) -1)
+            return (unwrap (get boxIndexAt k))
         }
         return -1
     }

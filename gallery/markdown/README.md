@@ -80,7 +80,7 @@ never builds a string of tags.
 | blocks | ATX and setext headings, paragraphs, thematic breaks, fenced and indented code, block quotes, bullet and ordered lists with tight/loose flow, HTML blocks (all seven start conditions), link reference definitions |
 | inlines | emphasis and strong (the full delimiter stack, including the rule of three), code spans, links and images in all four forms, autolinks, raw HTML, HTML5 named and numeric entities, backslash escapes, hard breaks |
 | GFM | tables with column alignment, task lists, strikethrough |
-| beyond both | YAML front matter, and ```mermaid fences drawn as diagrams |
+| beyond both | YAML front matter, and ```mermaid, ```plantuml and ```dot fences drawn as diagrams |
 
 Every block carries `srcStart` / `srcEnd` — byte offsets into the text it came
 from — so a viewer can put a caret back where a reader clicked.
@@ -123,13 +123,14 @@ src/
   MdEmbed.rgr       the slot a fenced diagram fills, keyed by source and width
   MdCodeHighlight.rgr  a small lexer, fourteen languages, five colours
   MdFrontMatter.rgr    the YAML subset a metadata block actually uses
-  MdMermaid.rgr     the ```mermaid handler — the only file that knows RangerFlow
+  MdEmbedKinds.rgr  which fence words name a drawing — no imports, read by both
+  MdDiagram.rgr     the diagram handler — the only file that knows RangerFlow
   md_demo.rgr       the only file that touches a disk
 web/
   markdown_web.rgr  the host seam: the only file a browser talks to
   standalone/       build.sh, index.html, standalone.mjs, smoke.mjs
 tests/
-  MarkdownTest.rgr  139 assertions, run on three targets
+  MarkdownTest.rgr  153 assertions, run on three targets
   MdSpecDump.rgr    renders the specification's examples for the harness
   MdEmbedProbe.rgr  what landed inside each diagram's box, off the display list
 harness/
@@ -145,15 +146,15 @@ tools/
 
 ## Diagrams
 
-A ```mermaid fence is not code and not an image: it is a drawing that has to
-be **measured** before the page can be laid out around it and **drawn**
-afterwards.
+A ```mermaid, ```plantuml or ```dot fence is not code and not an image: it is
+a drawing that has to be **measured** before the page can be laid out around
+it and **drawn** afterwards.
 
 ```
-fence text ──► MermaidRender.sceneOf ──► FlowScene ──► toEvgTree()
-                                                           │
-                                          the same elements the rest of the
-                                          document is made of
+fence text ──► <notation>Render.sceneOf ──► FlowScene ──► toEvgTree()
+                                                              │
+                                             the same elements the rest of
+                                             the document is made of
 ```
 
 Nothing is rasterised on either path. In the PDF the diagram is vector
@@ -163,10 +164,26 @@ width of the column it lands in — a printed diagram is laid out at the
 printed width rather than scaled up from a screen, which is the whole reason
 to keep it as geometry.
 
-`MermaidRender` is new, and lives in
-[`gallery/rangerflow/domains/mermaid/`](../rangerflow/domains/mermaid/MermaidRender.rgr):
-Mermaid text in, a `FlowScene` out, no editor. All twenty-six dialects
-RangerFlow reads go through it.
+**Three notations, one branch.** Each has exactly one door on the RangerFlow
+side — text and a width in, a `FlowScene` out, no editor — and the dispatch
+between a notation's own dialects happens behind that door:
+
+| fence | door | behind it |
+| --- | --- | --- |
+| ```mermaid | [`MermaidRender`](../rangerflow/domains/mermaid/MermaidRender.rgr) | twenty-six dialects |
+| ```plantuml, ```puml | [`PlantUmlRender`](../rangerflow/domains/plantuml/PlantUmlRender.rgr) | class, sequence, activity, component |
+| ```dot, ```graphviz | [`DotRender`](../rangerflow/domains/graphviz/DotRender.rgr) | one grammar, `docs/GRAPHVIZ_PARITY.md` |
+
+`MdDiagram` branches on the notation rather than the fence word, so `plantuml`
+and `puml` are one path. The table saying which word is which lives in
+`MdEmbedKinds`, which has **no imports**: the parser reads it to decide that a
+fence is a slot and not code, and the renderer reads it to pick a door. A
+parser that says "code" while the renderer says "diagram" leaves a hole
+nobody fills, so there is one table and both read it.
+
+`d2` is deliberately absent — RangerFlow has no D2 reader, and a fence listed
+as drawable that nothing draws is worse than one left as code: it turns a
+highlighted block into an empty box with an apology in it.
 
 **How it is checked.** Not by looking at the preview — the HTML exporter
 cannot draw a scene's paths (see below). `npm run markdown:embed` builds the
@@ -196,8 +213,16 @@ of their own.
 **The cache is keyed by width.** Typing a sentence three paragraphs below a
 diagram must not re-run a graph layout; re-flowing the document *narrower*
 must. `MdEmbedCache` holds only `EVGElement` and two doubles, so `MdLayout`
-and `MdToEvg` never learn that a graph editor exists — `MdMermaid` is the
+and `MdToEvg` never learn that a graph editor exists — `MdDiagram` is the
 only file in the module that imports one.
+
+**And it is swept.** The key is the fence's *text*, so typing INSIDE a
+diagram changes it on every keystroke: a store meant to hold one diagram held
+one per character typed, each with an element tree hanging off it, and the
+status line — which counts this store — said a one-diagram document had sixty
+in it. A render is now a pass: every entry the document still wants is
+touched during it, and what was not touched is dropped at the end. A pass in
+which nothing changed touches everything and drops nothing.
 
 ## The page
 

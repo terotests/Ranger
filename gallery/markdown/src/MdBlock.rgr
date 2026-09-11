@@ -34,6 +34,7 @@
 Import "MdNode.rgr"
 Import "MdChar.rgr"
 Import "MdInline.rgr"
+Import "MdEmbedKinds.rgr"
 
 class MdBlock {
     def doc:MdNode (MdNode.create("document"))
@@ -1321,13 +1322,14 @@ class MdBlock {
         removeLast stack
     }
 
-    ; The info strings that name a drawing rather than a language. One entry
-    ; today; `vega` and `sql` are the next two, and each is a handler beside
-    ; MdMermaid rather than a branch in here.
+    ; The info strings that name a drawing rather than a language. The list
+    ; itself is in `MdEmbedKinds`, which has no imports and is read by the
+    ; renderer too — the parser deciding "code" while the renderer decides
+    ; "diagram" leaves a hole nobody fills, so there is one table and both
+    ; read it.
     sfn isEmbedInfo:boolean (info:string) {
         def first:string (MdBlock.firstWord(info))
-        if (first == "mermaid") { return true }
-        return false
+        return (MdEmbedKinds.isDrawing(first))
     }
 
     sfn firstWord:string (info:string) {

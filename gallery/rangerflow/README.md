@@ -154,6 +154,15 @@ def root:EVGElement (sc.toEvgTree())        ; → PDF, HTML; or toDisplayList() 
 own loaders still carry a copy of the dispatch, because they also report what
 each dialect counts; moving those summaries here is what collapses the two.
 
+The other two notations have the same door, with the same shape and the same
+"never scaled up" rule, so a caller that can draw one can draw all three:
+
+| notation | door | behind it |
+| --- | --- | --- |
+| Mermaid | [`MermaidRender`](domains/mermaid/MermaidRender.rgr) | twenty-six dialects |
+| PlantUML | [`PlantUmlRender`](domains/plantuml/PlantUmlRender.rgr) | class, sequence, activity, component — which one is decided from the body, since `@startuml` says nothing |
+| Graphviz | [`DotRender`](domains/graphviz/DotRender.rgr) | one grammar; a file Graphviz would refuse is refused here too, with the line |
+
 ![Mermaid pasted into the page and drawn on the GPU](artifacts/scenario_mermaid.png)
 
 What it reads, which is the flowchart dialect people actually write:

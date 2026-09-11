@@ -38,7 +38,7 @@ Import "../src/MdEditController.rgr"
 Import "../src/MdLayout.rgr"
 Import "../src/MdToEvg.rgr"
 Import "../src/MdToHtml.rgr"
-Import "../src/MdMermaid.rgr"
+Import "../src/MdDiagram.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
@@ -75,7 +75,7 @@ class MarkdownEdit {
             layout.style.pageWidth = (MdFrontMatter.pageW(pageSize pw ph))
             layout.style.pageHeight = (MdFrontMatter.pageH(pageSize ph pw))
         }
-        MdMermaid.prepare(doc layout.embeds embedWidth styleName)
+        MdDiagram.prepare(doc layout.embeds embedWidth styleName)
         diagrams = (layout.embeds.count())
         layout.setDocSource(source)
         if (sheetGap >= 0.0) {
@@ -713,7 +713,7 @@ class MarkdownWeb {
         }
         print.applyMeta(edit.doc)
         def cw:double (print.style.pageWidth - (print.style.margin * 2.0))
-        MdMermaid.prepare(edit.doc print.embeds cw styleName)
+        MdDiagram.prepare(edit.doc print.embeds cw styleName)
         print.layoutPaged(edit.doc)
         def root:EVGElement (MdToEvg.buildPrint(print))
         def renderer (new EVGPDFRenderer())

@@ -1,0 +1,65 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdEmbedKinds.rgr — which fence words name a drawing, and in which notation.
+; ============================================================================
+;
+; ````markdown
+; ```mermaid      ```plantuml     ```dot
+; ````
+;
+; Two places need this answer and they must not disagree. The PARSER needs it
+; to decide whether a fenced block is code or a slot — that decision changes
+; the node's kind, and a parser that says "code" while the renderer says
+; "diagram" leaves a hole nobody fills. The RENDERER needs it to pick which
+; reader the fence's text goes to.
+;
+; So the table lives here, on its own, with NO imports: the parser must not
+; grow a dependency on a graph library to find out that `dot` is a drawing,
+; and the renderer must not carry a second copy of the list.
+;
+;   fence word                  notation
+;   ─────────────────────────   ────────────
+;   mermaid                     mermaid
+;   plantuml, puml              plantuml
+;   dot, graphviz               graphviz
+;
+; The notation is what `MdDiagram` dispatches on, not the fence word: two
+; spellings of the same reader should not be two branches downstream.
+;
+; **`d2` is deliberately not here.** RangerFlow has no D2 reader, and a fence
+; listed here that nothing can draw is worse than one left as code: it turns
+; a syntax-highlighted block into an empty slot with an apology in it.
+; ============================================================================
+
+class MdEmbedKinds {
+    ; The notation a fence word belongs to, or "" when it names a language
+    ; rather than a drawing.
+    sfn notationOf:string (word:string) {
+        if (word == "mermaid") { return "mermaid" }
+        if (word == "plantuml") { return "plantuml" }
+        if (word == "puml") { return "plantuml" }
+        if (word == "dot") { return "graphviz" }
+        if (word == "graphviz") { return "graphviz" }
+        return ""
+    }
+
+    sfn isDrawing:boolean (word:string) {
+        def n:string (MdEmbedKinds.notationOf(word))
+        return ((strlen n) > 0)
+    }
+
+    ; The first whitespace-delimited word of an info string — `mermaid` out of
+    ; "mermaid theme=dark".
+    sfn firstWord:string (info:string) {
+        def n:int (strlen info)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt info i)
+            if (c == 32) { return (substring info 0 i) }
+            if (c == 9) { return (substring info 0 i) }
+            i = (i + 1)
+        }
+        return info
+    }
+}

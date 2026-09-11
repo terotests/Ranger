@@ -1,0 +1,157 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdDiagram.rgr — a fenced diagram, drawn.
+; ============================================================================
+;
+; ````markdown
+; ```mermaid                 ```plantuml              ```dot
+; flowchart LR               @startuml                digraph {
+;   A[Write] --> B[Print]    Tilaus <|-- Verkkotilaus   a -> b;
+; ```                        @enduml                  }
+;                            ```                      ```
+; ````
+;
+; Mermaid is how a diagram travels through a README, a ticket and a review;
+; PlantUML is how it travels through a design document, and DOT through a
+; generator. What none of them ordinarily is, is something you can print: the
+; usual renderer is a browser, and a browser gives you a picture of a page
+; rather than a page. Here the fence is read by RangerFlow's own reader, laid
+; out by its own layout, and lands on the page as GEOMETRY — vector paths and
+; text runs with the fonts embedded, the same commands the GPU painter draws.
+;
+;   fence text ──► <notation>Render.sceneOf ──► FlowScene ──► toEvgTree()
+;                                                                 │
+;                                                 the same elements the rest
+;                                                 of the document is made of
+;
+; Nothing is rasterised on either path, and the diagram is laid out at the
+; width of the column it lands in rather than scaled from a screen — which is
+; the whole reason to keep it as geometry rather than as a picture.
+;
+; **Three notations, one branch.** The fence word is turned into a notation by
+; `MdEmbedKinds` — the same table the parser used to decide this block was a
+; slot and not code — and the branch below is on the notation, so `plantuml`
+; and `puml` are one path rather than two. Each notation has exactly one entry
+; point on the RangerFlow side, a `sceneOf` that takes text and a width; the
+; dispatch between a notation's own dialects happens behind that door, not
+; here.
+;
+; This is the ONLY file in the markdown module that knows RangerFlow exists.
+; Everything downstream sees an `EVGElement` and a size, through
+; `MdEmbedCache`.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdEmbed.rgr"
+Import "MdEmbedKinds.rgr"
+Import "../../rangerflow/domains/mermaid/MermaidRender.rgr"
+Import "../../rangerflow/domains/plantuml/PlantUmlRender.rgr"
+Import "../../rangerflow/domains/graphviz/DotRender.rgr"
+
+class MdDiagram {
+    ; The padding around a diagram, in its own units, before it becomes a
+    ; block in a column of prose.
+    sfn padding:double () {
+        return 10.0
+    }
+
+    ; Render every drawable fence in the document at `width`, into the cache
+    ; the layout will ask. Called before layout, because a page cannot be
+    ; broken around a diagram whose height nobody has asked for yet.
+    sfn prepare:void (doc:MdNode cache:MdEmbedCache width:double styleName:string) {
+        cache.beginPass()
+        MdDiagram.walk(doc cache width styleName)
+        ; What this document no longer has a fence for goes. The store is
+        ; keyed by the fence's TEXT, so without this every keystroke inside a
+        ; diagram left its half-typed predecessor behind, element tree and
+        ; all.
+        cache.endPass()
+    }
+
+    sfn walk:void (node:MdNode cache:MdEmbedCache width:double styleName:string) {
+        if (node.kind == "embed") {
+            def word:string (MdEmbedKinds.firstWord(node.info))
+            def notation:string (MdEmbedKinds.notationOf(word))
+            if ((strlen notation) > 0) {
+                MdDiagram.render(node cache width styleName word notation)
+            }
+        }
+        def i:int 0
+        def n:int (node.childCount())
+        while (i < n) {
+            def c:MdNode (node.childAt(i))
+            MdDiagram.walk(c cache width styleName)
+            i = (i + 1)
+        }
+    }
+
+    ; The cache is keyed by the FENCE WORD, because that is what `MdLayout`
+    ; has in its hand when it asks — it reads the info string, not this table.
+    sfn render:void (node:MdNode cache:MdEmbedCache width:double styleName:string word:string notation:string) {
+        def already:int (cache.find(word node.literal width))
+        if (already >= 0) {
+            cache.touch(already)
+            return
+        }
+
+        def e:MdEmbedEntry (new MdEmbedEntry())
+        e.kind = word
+        e.source = node.literal
+        e.atWidth = width
+
+        def pad:double (MdDiagram.padding())
+        def sc:FlowScene (MdDiagram.sceneFor(notation node.literal styleName width pad))
+        if (sc.worldW <= 0.0) {
+            e.note = (MdDiagram.refusal(notation node.literal))
+            cache.add(e)
+            return
+        }
+        e.width = sc.worldW
+        e.height = sc.worldH
+        e.root = (sc.toEvgTree())
+        e.ok = true
+        cache.add(e)
+    }
+
+    sfn sceneFor:FlowScene (notation:string text:string styleName:string width:double pad:double) {
+        if (notation == "plantuml") {
+            return (PlantUmlRender.sceneOf(text styleName width pad))
+        }
+        if (notation == "graphviz") {
+            return (DotRender.sceneOf(text styleName width pad))
+        }
+        return (MermaidRender.sceneOf(text styleName width pad))
+    }
+
+    ; Why nothing was drawn. Recognised or not, say which: "a gantt diagram —
+    ; read, but nothing drew it" is a different fact from "that is not
+    ; Mermaid", and a reader can act on the difference. DOT can say more than
+    ; either, because its reader refuses a file with the line it went wrong on
+    ; rather than reading it as an empty graph.
+    sfn refusal:string (notation:string text:string) {
+        if (notation == "graphviz") {
+            def st (new FlowStyle)
+            def dd:DotDrawing (DotRender.draw(text st))
+            def elen:int (strlen dd.error)
+            if (elen > 0) {
+                return ((dd.error + " — line ") + (to_string dd.errorLine))
+            }
+            return "nothing declared in that graph"
+        }
+        if (notation == "plantuml") {
+            def pk:string (PlantUmlRender.kindOf(text))
+            def plen:int (strlen pk)
+            if (plen > 0) {
+                return (("a PlantUML " + pk) + " diagram — read, but nothing drew it")
+            }
+            return "not a PlantUML diagram this reader knows"
+        }
+        def kind:string (MermaidRender.kindOf(text))
+        def klen:int (strlen kind)
+        if (klen > 0) {
+            return (("a " + kind) + " diagram — read, but nothing drew it")
+        }
+        return "not a diagram this reader knows"
+    }
+}

@@ -429,16 +429,16 @@ class OrthoRouter {
     fn collectGrid:void (ax:double ay:double bx:double by:double) {
         clear xs
         clear ys
-        OrthoRouter.addCoord(xs ax)
-        OrthoRouter.addCoord(xs bx)
-        OrthoRouter.addCoord(ys ay)
-        OrthoRouter.addCoord(ys by)
+        xs = (OrthoRouter.addCoord(xs ax))
+        xs = (OrthoRouter.addCoord(xs bx))
+        ys = (OrthoRouter.addCoord(ys ay))
+        ys = (OrthoRouter.addCoord(ys by))
         def i:int 0
         while (i < (array_length ox)) {
-            OrthoRouter.addCoord(xs (itemAt ox i))
-            OrthoRouter.addCoord(xs ((itemAt ox i) + (itemAt ow i)))
-            OrthoRouter.addCoord(ys (itemAt oy i))
-            OrthoRouter.addCoord(ys ((itemAt oy i) + (itemAt oh i)))
+            xs = (OrthoRouter.addCoord(xs (itemAt ox i)))
+            xs = (OrthoRouter.addCoord(xs ((itemAt ox i) + (itemAt ow i))))
+            ys = (OrthoRouter.addCoord(ys (itemAt oy i)))
+            ys = (OrthoRouter.addCoord(ys ((itemAt oy i) + (itemAt oh i))))
             i = (i + 1)
         }
         OrthoRouter.sortDoubles(xs)
@@ -449,11 +449,11 @@ class OrthoRouter {
         ; hug one box or the other — or, where hugging is blocked at both ends,
         ; find no route at all and leave the line drawn through something. So
         ; put a line down the middle of every gap wide enough to walk through.
-        this.densify(xs)
-        this.densify(ys)
+        xs = (this.densify(xs))
+        ys = (this.densify(ys))
     }
 
-    fn densify:void (arr:[double]) {
+    fn densify:[double] (arr:[double]) {
         def gap:double (margin * 2.0)
         def added:[double]
         def i:int 0
@@ -467,21 +467,34 @@ class OrthoRouter {
         }
         def k:int 0
         while (k < (array_length added)) {
-            OrthoRouter.addCoord(arr (itemAt added k))
+            arr = (OrthoRouter.addCoord(arr (itemAt added k)))
             k = (k + 1)
         }
         OrthoRouter.sortDoubles(arr)
+        return arr
     }
 
-    sfn addCoord:void (arr:[double] v:double) {
+    ; **It returns the list it grew.** A `push` onto a parameter is a push
+    ; onto a COPY on the Go target, where an array parameter is a slice — so
+    ; a helper that fills a list it was handed fills nothing, and the caller
+    ; is left with the empty list it started with. Here that meant a routing
+    ; grid with no lines in it: `nx * ny * 4` states, which is zero states,
+    ; and the first write into the distance table walked off the end of an
+    ; empty array. `EVGTextEngine.breakLines` had the same shape and is what
+    ; the canary in `MarkdownTest.textEngine` was written for.
+    ;
+    ; `sortDoubles` below is safe as it is: it only ever writes through
+    ; `set_at`, and a slice shares its backing array.
+    sfn addCoord:[double] (arr:[double] v:double) {
         def i:int 0
         while (i < (array_length arr)) {
             if ((fabs ((itemAt arr i) - v)) < 0.5) {
-                return
+                return arr
             }
             i = (i + 1)
         }
         push arr v
+        return arr
     }
 
     sfn sortDoubles:void (arr:[double]) {

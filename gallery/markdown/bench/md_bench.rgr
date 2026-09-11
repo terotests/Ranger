@@ -22,7 +22,7 @@
 Import "../src/MdBlock.rgr"
 Import "../src/MdLayout.rgr"
 Import "../src/MdToEvg.rgr"
-Import "../src/MdMermaid.rgr"
+Import "../src/MdDiagram.rgr"
 Import "../src/MdEditController.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
@@ -159,7 +159,7 @@ class MdBench {
         }
         l.applyMeta(doc)
         def cw:double (820.0 - (l.style.margin * 2.0))
-        MdMermaid.prepare(doc l.embeds cw "default")
+        MdDiagram.prepare(doc l.embeds cw "default")
         def t2:double (wall_clock_ms)
 
         l.layoutContinuous(doc 820.0)

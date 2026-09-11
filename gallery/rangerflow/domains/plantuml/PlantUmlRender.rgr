@@ -1,0 +1,150 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PlantUmlRender.rgr — one door: PlantUML text in, something drawable out.
+; ============================================================================
+;
+; The same door `MermaidRender` is, for the other notation. RangerFlow reads
+; four PlantUML families — sequence, class, component and activity — and the
+; code that picked between them lived only inside the web page's own facade,
+; interleaved with editor state, theme switching and status strings. A
+; markdown document that wants a `@startuml` fence on the page cannot call
+; any of that, and a copy of the dispatch is a copy that falls behind.
+;
+;   text ──► kindOf   ──► which family the body reads as
+;        ──► draw     ──► FlowGraph, and the notation it is drawn in
+;        ──► sceneOf  ──► FlowScene, fitted to a width
+;
+; **`@startuml` says nothing.** Which family a body belongs to is decided by
+; `PlantUmlReader.read`, from the evidence in the lines — so `kindOf` is the
+; reader's answer, not a guess made here.
+;
+; **Never scaled up**, exactly as in `MermaidRender`: a diagram wider than
+; the space it is given is fitted onto it, and a narrower one is left alone.
+;
+; What this does NOT do is anything an editor needs — selection, dragging,
+; undo, a status line. Those stay in the editor.
+; ============================================================================
+
+Import "PlantUmlReader.rgr"
+Import "PlantUmlEntityReader.rgr"
+Import "PlantUmlActivityReader.rgr"
+Import "PlantUmlSequenceReader.rgr"
+Import "../../core/FlowView.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+; What came back. `ok` false with a `kind` set means "recognised, and nothing
+; here draws one yet" — a different answer from "that is not PlantUML", and
+; worth telling a reader apart.
+class PlantUmlDrawing {
+    def ok:boolean false
+    def kind:string ""
+    def notation:string "plain"
+    def title:string ""
+    def graph:FlowGraph (new FlowGraph)
+
+    Constructor () {
+    }
+}
+
+class PlantUmlRender {
+    ; The family, or "" when the text is not a PlantUML diagram at all.
+    sfn kindOf:string (text:string) {
+        def doc:PlantUmlSource (PlantUmlReader.read(text))
+        return doc.kind
+    }
+
+    ; The notation a family is drawn in. The entity families are UML shapes;
+    ; everything else is drawn plain.
+    sfn notationFor:string (kind:string) {
+        if (kind == "class") { return "uml" }
+        if (kind == "description") { return "uml" }
+        return "plain"
+    }
+
+    ; Text, and the look to draw it in, into a laid-out graph.
+    sfn draw:PlantUmlDrawing (text:string style:FlowStyle) {
+        def out:PlantUmlDrawing (new PlantUmlDrawing())
+        def doc:PlantUmlSource (PlantUmlReader.read(text))
+        def kind:string doc.kind
+        out.kind = kind
+        out.notation = (PlantUmlRender.notationFor(kind))
+        out.title = doc.title
+
+        if (kind == "sequence") {
+            ; The sequence model and its placement live in `core/SeqDiagram.rgr`
+            ; — Mermaid and PlantUML disagree about the syntax and about none
+            ; of the meaning, so the reader is the only PlantUML-shaped part.
+            def sd:SeqDiagram (PlantUmlSequenceReader.parse(text))
+            def n:int (sd.actorCount())
+            if (n == 0) { return out }
+            out.title = sd.title
+            out.graph = (SeqDiagramFlow.build(sd style))
+            out.ok = true
+            return out
+        }
+        if (kind == "class") {
+            return (PlantUmlRender.entity(text style out))
+        }
+        if (kind == "description") {
+            return (PlantUmlRender.entity(text style out))
+        }
+        if (kind == "activity") {
+            def ad:PlantUmlActivity (PlantUmlActivityReader.parse(text))
+            def n:int (ad.nodeCount())
+            if (n == 0) { return out }
+            def alen:int (strlen ad.title)
+            if (alen > 0) { out.title = ad.title }
+            out.graph = (PlantUmlActivityFlow.build(ad style))
+            out.ok = true
+            return out
+        }
+        return out
+    }
+
+    ; Class, object, component, deployment, use case and ArchiMate: one
+    ; grammar with a different shape per keyword, so one branch.
+    sfn entity:PlantUmlDrawing (text:string style:FlowStyle out:PlantUmlDrawing) {
+        def d:PlantUmlEntityModel (PlantUmlEntityReader.parse(text))
+        def n:int (d.entityCount())
+        if (n == 0) { return out }
+        def tlen:int (strlen d.title)
+        if (tlen > 0) { out.title = d.title }
+        out.graph = (PlantUmlEntityFlow.build(d style))
+        out.ok = true
+        return out
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A scene, fitted
+    ; ----------------------------------------------------------------------
+    sfn sceneOf:FlowScene (text:string styleName:string maxWidth:double padding:double) {
+        def style:FlowStyle (FlowStyle.named(styleName))
+        return (PlantUmlRender.sceneStyled(text style maxWidth padding))
+    }
+
+    sfn sceneStyled:FlowScene (text:string style:FlowStyle maxWidth:double padding:double) {
+        def drawing:PlantUmlDrawing (PlantUmlRender.draw(text style))
+        if (! drawing.ok) {
+            return (new FlowScene)
+        }
+        def v:FlowView (FlowView.of(drawing.graph))
+        v.notation = drawing.notation
+        style.applyToTheme(v.theme)
+        ; No canvas — the editor's paper and its grid of dots are part of an
+        ; EDITOR. Both halves are needed: `showBackground` stops the grid, and
+        ; the paper is a separate fill that follows the theme.
+        v.showBackground = false
+        v.theme.background = "#ffffff"
+        def natural:FlowScene (v.buildForExport(padding))
+        if (maxWidth <= 0.0) {
+            return natural
+        }
+        if (natural.worldW <= maxWidth) {
+            return natural
+        }
+        def scale:double (maxWidth / natural.worldW)
+        def h:double (natural.worldH * scale)
+        return (v.buildForPage(maxWidth h 0.0))
+    }
+}
