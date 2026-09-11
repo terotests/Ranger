@@ -1,0 +1,88 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdSrcMapProbe.rgr — the source map, over the specification's own corpus.
+; ============================================================================
+;
+;   node MdSrcMapProbe.js <casesDir> <count>
+;
+; Driven by `tools/markdown-srcmap.mjs`, which splits the pinned CommonMark
+; specification into `<casesDir>/0001.md` … exactly as the parity harness does
+; and then ratchets what this prints.
+;
+; The 652 examples are the right corpus for this and not merely a convenient
+; one. The source map is broken by the same things that break a parser —
+; stripped markers, tab expansion, lazy continuation, a reference definition
+; at the head of a paragraph, emphasis that pairs across a link boundary — and
+; the specification is a document whose entire purpose is to contain one of
+; each. A fixture file written by the person who wrote the stamping contains
+; the cases that person thought of.
+;
+; One process for all of them: the parser is a few milliseconds per example
+; and a process is not.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdSrcMap.rgr"
+
+class MdSrcMapProbe {
+    sfn main:void () {
+        def argc:int (shell_arg_cnt)
+        if (argc < 2) {
+            print "usage: MdSrcMapProbe <casesDir> <count>"
+            return
+        }
+        def casesDir:string (shell_arg 0)
+        def count:int (?? (str2int (shell_arg 1)) 0)
+
+        def totalNodes:int 0
+        def totalValid:int 0
+        def totalOrdered:int 0
+        def totalUnmapped:int 0
+        def totalExactChecked:int 0
+        def totalExactOk:int 0
+        def badExamples:int 0
+
+        def i:int 1
+        while (i <= count) {
+            def name:string (MdSrcMapProbe.pad4(i))
+            def inPath:string ((casesDir + "/") + (name + ".md"))
+            def text:string (?? (read_file "." inPath) "")
+            def doc:MdNode (MdBlock.parseText(text))
+            def scan:MdSrcMapScan (new MdSrcMapScan())
+            scan.scan(text doc)
+            totalNodes = (totalNodes + scan.nodes)
+            totalValid = (totalValid + scan.valid)
+            totalOrdered = (totalOrdered + scan.ordered)
+            totalUnmapped = (totalUnmapped + scan.unmapped)
+            totalExactChecked = (totalExactChecked + scan.exactChecked)
+            totalExactOk = (totalExactOk + scan.exactOk)
+            if ((scan.violations()) > 0) {
+                badExamples = (badExamples + 1)
+                ; One line per failing example, for the driver to list. The
+                ; first problem rather than all of them: a broken stamping
+                ; breaks every node after it and a wall of output hides which
+                ; one went first.
+                print ((("BAD " + (to_string i)) + " ") + scan.firstBad)
+            }
+            i = (i + 1)
+        }
+
+        print (("nodes " + (to_string totalNodes)))
+        print (("valid " + (to_string totalValid)))
+        print (("ordered " + (to_string totalOrdered)))
+        print (("unmapped " + (to_string totalUnmapped)))
+        print (("exactChecked " + (to_string totalExactChecked)))
+        print (("exactOk " + (to_string totalExactOk)))
+        print (("badExamples " + (to_string badExamples)))
+        print (("examples " + (to_string count)))
+    }
+
+    sfn pad4:string (n:int) {
+        def s:string (to_string n)
+        while ((strlen s) < 4) {
+            s = ("0" + s)
+        }
+        return s
+    }
+}

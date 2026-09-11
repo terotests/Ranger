@@ -1,0 +1,240 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdSrcMapTest.rgr — a character in the picture naming a character in the file.
+; ============================================================================
+;
+;   npm run markdown:srcmap:test
+;
+; Blocks have carried `srcStart` / `srcEnd` since the parser was written, and
+; the viewer used them: a click anywhere in a paragraph scrolled the source
+; pane to that paragraph's first byte. That is as fine as it got. `MdInline`
+; stamped nothing at all — `grep -c srcStart MdInline.rgr` was `0` — so there
+; was no way to ask which CHARACTER a reader clicked, which is the question a
+; caret is.
+;
+; This is the gate on the answer. Three properties, and they are different
+; questions rather than three spellings of one:
+;
+;   VALID       every offset is inside the document it was parsed from.
+;   ORDERED     a walk of the tree in document order never goes backwards.
+;               This is what catches a node stamped with someone else's span
+;               — the failure that looks right in every individual assertion.
+;   FAITHFUL    the source span of a text node, read out of the file, is the
+;               text of that node. Checked only where the two are the same
+;               string by construction: `&amp;` is five characters of source
+;               and one of text, and a run holding one is checked for LENGTH
+;               instead. That exemption is the whole reason this file lists
+;               which nodes it skipped.
+;
+; The corpus sweep over all 652 CommonMark examples is the companion gate,
+; `npm run markdown:srcmap:spec`, which ratchets the numbers. This file is the
+; cases worth naming: the ones that were wrong while it was being written, and
+; the ones a future change is most likely to break.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdSrcMap.rgr"
+
+class SrcMapCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ((("  FAIL " + name) + ("  got " + (to_string got))) + ("  want " + (to_string want)))
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+}
+
+class MdSrcMapTest {
+    Constructor () {
+    }
+
+    sfn main:void () {
+        def t:MdSrcMapTest (new MdSrcMapTest())
+        t.run()
+    }
+
+    ; The span, and the scan, are `MdSrcMapScan` — shared with the corpus
+    ; sweep so the two cannot disagree about what they are checking.
+    sfn spanOf:string (src:string n:MdNode) {
+        return (MdSrcMapScan.spanOf(src n))
+    }
+
+    fn sweep:void (c:SrcMapCheck label:string src:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def scan:MdSrcMapScan (new MdSrcMapScan())
+        scan.scan(src doc)
+        c.eqInt((label + ": every span is inside the document") scan.valid scan.nodes)
+        c.eqInt((label + ": the walk never goes backwards") scan.ordered scan.nodes)
+        c.eqInt((label + ": every verbatim run reads back as itself") scan.exactOk scan.exactChecked)
+        if ((strlen scan.firstBad) > 0) {
+            print ("    first problem — " + scan.firstBad)
+        }
+    }
+
+    ; Every node of a kind, in document order.
+    sfn collect:void (n:MdNode kind:string out:[MdNode]) {
+        if (n.kind == kind) { push out n }
+        def i:int 0
+        def cnt:int (n.childCount())
+        while (i < cnt) {
+            def kid:MdNode (n.childAt(i))
+            MdSrcMapTest.collect(kid kind out)
+            i = (i + 1)
+        }
+    }
+
+    ; The span of the i'th node of a kind. The FIRST text node of
+    ; "# Title\n\nHello" is the heading's, not the paragraph's — a distinction
+    ; that cost two failing assertions written the lazy way.
+    sfn spanOfNth:string (src:string kind:string idx:int) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def all:[MdNode]
+        MdSrcMapTest.collect(doc kind all)
+        if (idx >= (array_length all)) { return "<none>" }
+        def n:MdNode (itemAt all idx)
+        return (MdSrcMapTest.spanOf(src n))
+    }
+
+    sfn spanOfFirst:string (src:string kind:string) {
+        return (MdSrcMapTest.spanOfNth(src kind 0))
+    }
+
+    ; ----------------------------------------------------------------------
+    fn run:void () {
+        def c:SrcMapCheck (new SrcMapCheck())
+        print "== MdSrcMapTest =="
+
+        print "-- a block's literal, back to the file --"
+        ; The plainest case there is, and the one everything else is measured
+        ; against: no markers, no indent, nothing stripped.
+        def plain:string "Hello world\n"
+        def d1:MdNode (MdBlock.parseText(plain))
+        def p1:MdNode (d1.childAt(0))
+        c.eqStr("the paragraph is a paragraph" p1.kind "paragraph")
+        c.eqInt("its first character is the file's first" (p1.srcOfLiteral(0)) 0)
+        c.eqInt("and its seventh is the file's seventh" (p1.srcOfLiteral(6)) 6)
+        c.eqInt("the inverse agrees" (p1.literalOfSrc(6)) 6)
+
+        print "-- …with the document offset by a heading --"
+        def after:string "# Title\n\nHello world\n"
+        def d2:MdNode (MdBlock.parseText(after))
+        def p2:MdNode (d2.childAt(1))
+        ; "# Title\n\n" is nine characters, so the paragraph's H is at 9.
+        c.eqInt("the paragraph starts where it starts" (p2.srcOfLiteral(0)) 9)
+        ; The FIRST text node of that document is the heading's, so the
+        ; paragraph's is the second.
+        c.eqStr("and the span reads back" (MdSrcMapTest.spanOfNth(after "text" 1)) "Hello world")
+
+        print "-- a block quote, whose markers are not in the literal --"
+        ; "> " is stripped from every line, so literal offset 0 is source 2 and
+        ; the second line jumps the marker rather than counting through it.
+        def quoted:string "> alpha\n> beta\n"
+        def d3:MdNode (MdBlock.parseText(quoted))
+        def q:MdNode (d3.childAt(0))
+        def qp:MdNode (q.childAt(0))
+        c.eqInt("the first character is past the marker" (qp.srcOfLiteral(0)) 2)
+        c.eqInt("and the second line is past its own" (qp.srcOfLiteral(6)) 10)
+        ; A newline inside a paragraph is a softbreak node between two text
+        ; runs, so there are two of them and each names its own line.
+        c.eqStr("the first line reads back" (MdSrcMapTest.spanOfNth(quoted "text" 0)) "alpha")
+        c.eqStr("and the second reads back past its marker"
+            (MdSrcMapTest.spanOfNth(quoted "text" 1)) "beta")
+
+        print "-- a list item, whose indent is not in the literal either --"
+        def listed:string "- alpha\n- beta\n"
+        c.eqStr("the first item's text" (MdSrcMapTest.spanOfFirst(listed "text")) "alpha")
+
+        print "-- emphasis takes its span from the delimiters that paired --"
+        def emph:string "a *b* c\n"
+        c.eqStr("the emphasis is the stars and what is between them"
+            (MdSrcMapTest.spanOfFirst(emph "emph")) "*b*")
+        def strong:string "a **b** c\n"
+        c.eqStr("and strong takes two of each"
+            (MdSrcMapTest.spanOfFirst(strong "strong")) "**b**")
+        ; The one the delimiter stack makes interesting: three stars are both,
+        ; and which star belongs to which is decided after the line is read.
+        def both:string "***b***\n"
+        c.eqStr("three stars: the outer one is the whole run"
+            (MdSrcMapTest.spanOfFirst(both "emph")) "***b***")
+
+        print "-- a link spans from its bracket, not from its close --"
+        def link:string "see [the docs](http://x/) now\n"
+        c.eqStr("the link is the whole construct"
+            (MdSrcMapTest.spanOfFirst(link "link")) "[the docs](http://x/)")
+        def img:string "an ![alt](p.png) image\n"
+        c.eqStr("and an image takes its bang with it"
+            (MdSrcMapTest.spanOfFirst(img "image")) "![alt](p.png)")
+
+        print "-- a code span reads back as what was typed --"
+        def code:string "say `x + 1` please\n"
+        c.eqStr("the span is the backticks and their contents"
+            (MdSrcMapTest.spanOfFirst(code "code")) "`x + 1`")
+
+        print "-- a reference definition moves the text that follows it --"
+        def refd:string "[a]: /url\nhello [a]\n"
+        c.eqStr("the paragraph starts after the definition"
+            (MdSrcMapTest.spanOfFirst(refd "text")) "hello ")
+
+        print "-- an ATX heading, whose hashes are not its text --"
+        def atx:string "### Deep\n"
+        c.eqStr("the heading's text is past the hashes"
+            (MdSrcMapTest.spanOfFirst(atx "text")) "Deep")
+
+        print "-- a fenced block's body starts after the info line --"
+        def fence:string "```js\nlet x = 1\n```\n"
+        def d4:MdNode (MdBlock.parseText(fence))
+        def cb:MdNode (d4.childAt(0))
+        c.eqStr("it is a code block" cb.kind "code_block")
+        ; "```js\n" is six characters.
+        c.eqInt("and its body starts after the fence line" (cb.srcOfLiteral(0)) 6)
+
+        print "-- the sweep: every property, over documents that mix them --"
+        this.sweep(c "prose" "Hello **world**, this is `code` and [a link](x).\n\nSecond paragraph.\n")
+        this.sweep(c "nested" "> - one *two*\n>   three\n> - four\n\npara\n")
+        this.sweep(c "headings" "# A\n\n## B *c*\n\nSetext\n======\n\ntail\n")
+        this.sweep(c "code" "text\n\n```\nraw *not emphasis*\n```\n\nmore\n")
+        this.sweep(c "escapes" "a \\*b\\* c &amp; d\n\ne\n")
+        this.sweep(c "tables" "| a | b |\n| - | - |\n| 1 | 2 |\n\nafter\n")
+        this.sweep(c "tasks" "- [x] done *now*\n- [ ] not yet\n")
+        this.sweep(c "hardbreak" "one  \ntwo\\\nthree\n")
+        this.sweep(c "entities" "&copy; &#35; &amp;amp;\n")
+        this.sweep(c "html" "<div>\nraw\n</div>\n\nafter <b>inline</b> here\n")
+
+        print ""
+        print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

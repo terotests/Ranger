@@ -22,6 +22,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+// The split is shared with `markdown-srcmap.mjs`: two readers of one
+// specification file would be two opinions about what an example is.
+import { readExamples } from "./spec-examples.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MODULE = path.join(HERE, "..");
@@ -37,35 +40,6 @@ const argv = process.argv.slice(2);
 const wantDiff = argv.some((a) => a === "--diff" || a.startsWith("--diff="));
 const onlyDiff = argv.find((a) => a.startsWith("--diff="))?.slice(7);
 const bless = argv.includes("--bless");
-
-/**
- * The examples, read out of the specification the way its own test runner
- * reads them: fenced by 32 backticks, the markdown and the expected HTML
- * separated by a lone `.`, with `→` standing in for a tab.
- */
-function readExamples() {
-  const text = fs
-    .readFileSync(SPEC, "utf8")
-    .replace(/\r\n?/g, "\n")
-    .replace(/^<!-- END TESTS -->(.|[\n])*/m, "");
-  const out = [];
-  let section = "";
-  const re = /^`{32} example\n([\s\S]*?)^\.\n([\s\S]*?)^`{32}$|^#{1,6} *(.*)$/gm;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    if (m[3] !== undefined) {
-      section = m[3];
-    } else {
-      out.push({
-        number: out.length + 1,
-        section,
-        markdown: m[1].replace(/→/g, "\t"),
-        html: m[2].replace(/→/g, "\t"),
-      });
-    }
-  }
-  return out;
-}
 
 const pad4 = (n) => String(n).padStart(4, "0");
 
@@ -101,7 +75,7 @@ function bar(passed, total) {
   return "#".repeat(filled) + ".".repeat(width - filled);
 }
 
-const examples = readExamples();
+const examples = readExamples(SPEC);
 writeCases(examples);
 runParser(examples.length);
 

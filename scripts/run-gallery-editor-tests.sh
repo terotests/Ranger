@@ -83,6 +83,11 @@ SUITES=(
   markdown:test
   markdown:spec
   markdown:srcmap:test
+  # …and the same three properties over the specification's own 652 examples,
+  # ratcheted. A fixture file holds the cases the person who wrote the
+  # stamping thought of; the corpus holds one of everything that moves an
+  # offset.
+  markdown:srcmap:spec
   markdown:web:test
   datagrid:test
   datagrid:edit:test

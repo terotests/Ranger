@@ -57,6 +57,47 @@ class MdNode {
     def srcEnd:int 0
 
     ; ------------------------------------------------------------------
+    ; …and the same thing one level finer, for the text INSIDE a block.
+    ; ------------------------------------------------------------------
+    ;
+    ; `srcStart` says where a paragraph began. It does not say where the
+    ; fourth character of its third word is, and that is what a caret in a
+    ; drawn document needs — the viewer could name the paragraph a reader
+    ; clicked and nothing smaller.
+    ;
+    ; The two are not the same string. `literal` is what the block parser
+    ; handed the inline parser, and getting there strips list indents, block
+    ; quote markers and their following space, expands tabs into spaces that
+    ; were never in the file, drops reference definitions off the front, and
+    ; trims both ends. So offset 12 of `literal` is not offset 12 of anything.
+    ;
+    ; These three arrays are the correspondence, as PIECES: `mapLit[i]`
+    ; characters of `literal` starting at `mapSrc[i]` in the document, for
+    ; `mapLen[i]` characters. Pieces are in order and do not overlap, and a
+    ; literal offset in no piece has no source — which happens, and is
+    ; reported rather than guessed at:
+    ;
+    ;   * the spaces a tab was expanded into. They are one source character
+    ;     between them, so the piece names the TAB and is one long against
+    ;     several literal characters; only its first maps back.
+    ;   * `[x] ` taken off a task item — a marker the reader sees drawn as a
+    ;     checkbox rather than as text.
+    ;
+    ; The inline parser stamps every node it makes through this, so an `emph`
+    ; three levels down carries the offsets of the `*` that opened it and the
+    ; `*` that closed it.
+    def mapLit:[int]
+    def mapSrc:[int]
+    def mapLen:[int]
+    ; Has this node's own span been decided by something that knows better
+    ; than the step it was created in? A link began at a `[` several steps
+    ; back and an emphasis is decided after the line has been read, so both
+    ; set their span themselves — and the blanket stamp at the end of the
+    ; step must not then overwrite it. Without this the link took the span of
+    ; its own closing bracket, which is valid, ordered, and wrong.
+    def srcKnown:boolean false
+
+    ; ------------------------------------------------------------------
     ; Parser state. It lives on the node rather than in a table beside it
     ; for the reason cmark's own reference implementation puts it there:
     ; the block algorithm walks a stack of half-built nodes and asks each
@@ -66,6 +107,13 @@ class MdNode {
     ; ------------------------------------------------------------------
     def open:boolean true
     def lines:[string]
+    ; How long the raw text accumulated in `lines` is, counting the newline
+    ; each one is joined with. The map pieces below are built against THAT
+    ; string as the lines arrive, because the transformations between it and
+    ; `literal` are all prefix drops and trims — recorded once at the end by
+    ; `shiftMap` — while the lines themselves are rewritten in place by
+    ; `stripReferences` and would be gone by then.
+    def rawLen:int 0
     def lastLineBlank:boolean false
     def lastLineChecked:boolean false
     ; fenced code
@@ -126,6 +174,114 @@ class MdNode {
         if (kind == "heading") { return true }
         if (kind == "table_cell") { return true }
         return false
+    }
+
+    ; ------------------------------------------------------------------
+    ; The map, read
+    ; ------------------------------------------------------------------
+
+    fn hasMap:boolean () {
+        return ((array_length mapLit) > 0)
+    }
+
+    ; Turn a map built against the RAW text into one against `literal`:
+    ; `drop` characters came off the front, and what is left is `litLen` long.
+    ; A piece that falls entirely outside is dropped; one that straddles an
+    ; edge is clipped, which is what makes a trailing-newline trim and a
+    ; reference definition at the head the same operation.
+    fn shiftMap:void (drop:int litLen:int) {
+        def outL:[int]
+        def outS:[int]
+        def outN:[int]
+        def n:int (array_length mapLit)
+        def i:int 0
+        while (i < n) {
+            def a:int ((itemAt mapLit i) - drop)
+            def s:int (itemAt mapSrc i)
+            def len:int (itemAt mapLen i)
+            if (a < 0) {
+                ; clipped at the front: the piece starts before literal[0]
+                def cut:int (0 - a)
+                if (cut < len) {
+                    a = 0
+                    s = (s + cut)
+                    len = (len - cut)
+                } {
+                    len = 0
+                }
+            }
+            if ((a + len) > litLen) {
+                len = (litLen - a)
+            }
+            if (len > 0) {
+                push outL a
+                push outS s
+                push outN len
+            }
+            i = (i + 1)
+        }
+        mapLit = outL
+        mapSrc = outS
+        mapLen = outN
+    }
+
+    fn clearMap:void () {
+        clear mapLit
+        clear mapSrc
+        clear mapLen
+        rawLen = 0
+    }
+
+    fn addMapPiece:void (litOff:int srcOff:int len:int) {
+        if (len <= 0) { return }
+        push mapLit litOff
+        push mapSrc srcOff
+        push mapLen len
+    }
+
+    ; Where literal[off] is in the document, or -1 when it is one of the
+    ; characters the header says has no source.
+    ;
+    ; An offset one past the end of a piece belongs to that piece: a caret
+    ; sits BETWEEN characters, and the position after the last character of a
+    ; paragraph is a place a caret goes.
+    fn srcOfLiteral:int (off:int) {
+        def n:int (array_length mapLit)
+        def i:int 0
+        while (i < n) {
+            def a:int (itemAt mapLit i)
+            def len:int (itemAt mapLen i)
+            if ((off >= a) && (off < (a + len))) {
+                return ((itemAt mapSrc i) + (off - a))
+            }
+            i = (i + 1)
+        }
+        ; one past the last piece's end
+        if (n > 0) {
+            def last:int (n - 1)
+            def la:int (itemAt mapLit last)
+            def ll:int (itemAt mapLen last)
+            if (off == (la + ll)) {
+                return ((itemAt mapSrc last) + ll)
+            }
+        }
+        return -1
+    }
+
+    ; The inverse. A source offset inside a stripped marker is in no piece and
+    ; answers -1.
+    fn literalOfSrc:int (src:int) {
+        def n:int (array_length mapLit)
+        def i:int 0
+        while (i < n) {
+            def s:int (itemAt mapSrc i)
+            def len:int (itemAt mapLen i)
+            if ((src >= s) && (src < (s + len))) {
+                return ((itemAt mapLit i) + (src - s))
+            }
+            i = (i + 1)
+        }
+        return -1
     }
 
     ; The concatenated text of an inline subtree — what a heading anchor, an

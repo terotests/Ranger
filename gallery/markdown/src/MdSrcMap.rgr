@@ -1,0 +1,171 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdSrcMap.rgr — checking that a parsed document's offsets hold together.
+; ============================================================================
+;
+; `MdNode.srcStart` / `srcEnd` are what lets a click in the drawn document
+; find a character in the file. They are STAMPED — by the block parser from
+; the lines it read, by the inline parser from the positions it consumed, and
+; by the emphasis pass from the delimiters that turned out to pair. Nothing
+; about that is checkable from inside: a span can be perfectly formed and name
+; the wrong characters, and the picture still draws.
+;
+; So this is the checker, and it lives in `src/` rather than beside a test for
+; two reasons. The suite and the 652-example corpus sweep both need it and a
+; second copy would be a second answer. And an editor that reparses one block
+; per keystroke needs exactly this to run both ways and compare — which is the
+; open question in `PLAN_WYSIWYG.md` §6, and the reason a stale picture is the
+; worst bug this feature can have.
+;
+; Three properties, three different questions:
+;
+;   VALID     every offset lies inside the document it was parsed from.
+;   ORDERED   a walk in document order never goes backwards. This is the one
+;             that catches a node wearing someone else's span — the failure
+;             where every offset is individually plausible.
+;   FAITHFUL  the source span of a text run, read out of the file, IS that
+;             run's text. Only checkable where the two are the same string by
+;             construction: `&amp;` is five characters of source and one of
+;             text, `\*` is two and one, a tab is one character against the
+;             several spaces it became. Runs holding any of those are counted
+;             as skipped rather than quietly passed.
+;
+; A span of -1 is not a violation. It is the declared "this character has no
+; source" — inside a marker the parser stripped, or one of the spaces a tab
+; expanded into — and counting it as a failure would push the stamping to
+; guess rather than to say so.
+; ============================================================================
+
+Import "MdNode.rgr"
+
+class MdSrcMapScan {
+    def nodes:int 0
+    def valid:int 0
+    def ordered:int 0
+    def unmapped:int 0
+    def exactChecked:int 0
+    def exactOk:int 0
+    def lastStart:int 0
+    def firstBad:string ""
+
+    Constructor () {
+    }
+
+    fn reset:void () {
+        nodes = 0
+        valid = 0
+        ordered = 0
+        unmapped = 0
+        exactChecked = 0
+        exactOk = 0
+        lastStart = 0
+        firstBad = ""
+    }
+
+    fn violations:int () {
+        def v:int 0
+        v = (v + (nodes - valid))
+        v = (v + (nodes - ordered))
+        v = (v + (exactChecked - exactOk))
+        return v
+    }
+
+    ; The characters a node's span names, read out of the document.
+    sfn spanOf:string (src:string n:MdNode) {
+        def len:int (strlen src)
+        def a:int n.srcStart
+        def b:int n.srcEnd
+        if (a < 0) { return "" }
+        if (b > len) { b = len }
+        if (a >= b) { return "" }
+        return (substring src a b)
+    }
+
+    ; Is this a string whose text is its source, character for character?
+    sfn isVerbatim:boolean (s:string) {
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 92) { return false }
+            if (c == 38) { return false }
+            if (c == 10) { return false }
+            if (c == 9) { return false }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; The kinds that carry a span worth checking. A block's span was never in
+    ; doubt; these are the ones the inline pass decided.
+    sfn isSpanned:boolean (kind:string) {
+        if (kind == "text") { return true }
+        if (kind == "code") { return true }
+        if (kind == "emph") { return true }
+        if (kind == "strong") { return true }
+        if (kind == "strike") { return true }
+        if (kind == "link") { return true }
+        if (kind == "image") { return true }
+        return false
+    }
+
+    fn note:void (what:string) {
+        if ((strlen firstBad) == 0) {
+            firstBad = what
+        }
+    }
+
+    fn walk:void (src:string n:MdNode) {
+        if (MdSrcMapScan.isSpanned(n.kind)) {
+            nodes = (nodes + 1)
+            def len:int (strlen src)
+            def a:int n.srcStart
+            def b:int n.srcEnd
+            if ((a >= 0) && (b >= 0)) {
+                if (((a <= b) && (b <= len)) && (a <= len)) {
+                    valid = (valid + 1)
+                } {
+                    this.note((((n.kind + " span ") + (to_string a)) + (".." + (to_string b))))
+                }
+                if (a >= lastStart) {
+                    ordered = (ordered + 1)
+                    lastStart = a
+                } {
+                    this.note(((((n.kind + " went backwards: ") + (to_string a)) + " after ")
+                        + (to_string lastStart)))
+                }
+                if (n.kind == "text") {
+                    if (MdSrcMapScan.isVerbatim(n.literal)) {
+                        def got:string (MdSrcMapScan.spanOf(src n))
+                        if (MdSrcMapScan.isVerbatim(got)) {
+                            exactChecked = (exactChecked + 1)
+                            if (got == n.literal) {
+                                exactOk = (exactOk + 1)
+                            } {
+                                this.note(((("text [" + got) + "] wanted [") + (n.literal + "]")))
+                            }
+                        }
+                    }
+                }
+            } {
+                ; declared as having no source — see the header
+                unmapped = (unmapped + 1)
+                valid = (valid + 1)
+                ordered = (ordered + 1)
+            }
+        }
+        def i:int 0
+        def cnt:int (n.childCount())
+        while (i < cnt) {
+            def kid:MdNode (n.childAt(i))
+            this.walk(src kid)
+            i = (i + 1)
+        }
+    }
+
+    fn scan:void (src:string doc:MdNode) {
+        this.reset()
+        this.walk(src doc)
+    }
+}

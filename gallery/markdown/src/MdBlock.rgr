@@ -376,7 +376,14 @@ class MdBlock {
     fn addLine:void () {
         def t:MdNode (this.tip())
         def prefix:string ""
+        def tabAt:int -1
         if partiallyConsumedTab {
+            ; The tab is the character at `offset`, and it is being replaced by
+            ; the spaces that carry the line to the next tab stop. Those spaces
+            ; are not in the document: one source character stands for all of
+            ; them, so the map names the tab once and the rest of the run has
+            ; no source. See MdNode's header.
+            tabAt = (lineStart + offset)
             offset = (offset + 1)
             def charsToTab:int (4 - (column % 4))
             def k:int 0
@@ -388,6 +395,21 @@ class MdBlock {
         def n:int (strlen line)
         def rest:string (substring line offset n)
         push t.lines (prefix + rest)
+
+        ; …and where every character of it came from. Built here, against the
+        ; raw text, because this is the only place that still knows both.
+        def pad:int (strlen prefix)
+        def base:int t.rawLen
+        if (pad > 0) {
+            t.addMapPiece(base tabAt 1)
+        }
+        def restLen:int (strlen rest)
+        t.addMapPiece((base + pad) (lineStart + offset) restLen)
+        ; The newline `joinLines` puts back is the one the document already
+        ; had at the end of this line. A caret at the end of a line is a place
+        ; a reader puts one, so it is mapped rather than left out.
+        t.addMapPiece(((base + pad) + restLen) (lineStart + n) 1)
+        t.rawLen = (((base + pad) + restLen) + 1)
     }
 
     ; ----------------------------------------------------------------------
@@ -712,6 +734,13 @@ class MdBlock {
         h.level = hashes
         def rest:string (substring line offset n)
         h.literal = (MdBlock.stripAtxClosing(rest))
+        ; This heading never went through `addLine`, so its one piece is put
+        ; here: the whole of `rest`, then shifted past what the trim and the
+        ; closing hashes took off.
+        h.clearMap()
+        h.addMapPiece(0 (lineStart + offset) (strlen rest))
+        h.rawLen = (strlen rest)
+        h.shiftMap((MdBlock.leadTrim(rest)) (strlen h.literal))
         this.advanceOffset((n - offset) false)
         return 2
     }
@@ -834,6 +863,10 @@ class MdBlock {
         para.kind = "heading"
         para.level = level
         para.literal = body
+        ; The reference definitions came off the FRONT, so what is left is a
+        ; suffix of the raw text the map was built against, and the difference
+        ; in length is how far it moved.
+        para.shiftMap((((para.rawLen) - (strlen joined)) + (MdBlock.leadTrim(joined))) blen)
         clear para.lines
         this.advanceOffset((n - offset) false)
         return 2
@@ -1164,6 +1197,22 @@ class MdBlock {
     ; ----------------------------------------------------------------------
     ; Closing a block
     ; ----------------------------------------------------------------------
+    ; How many characters `trim` would take off the front. The map has to be
+    ; shifted by exactly that, and asking the trimmed result how much was
+    ; taken is the only way to be sure it matches whatever `trim` did.
+    sfn leadTrim:int (s:string) {
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c != 32) && (c != 9) && (c != 10) && (c != 13)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
     sfn joinLines:string (lines:[string]) {
         def out:string ""
         def i:int 0
@@ -1187,6 +1236,7 @@ class MdBlock {
             def joined:string (MdBlock.joinLines(node.lines))
             def body:string (trim joined)
             node.literal = body
+            node.shiftMap((((node.rawLen) - (strlen joined)) + (MdBlock.leadTrim(joined))) (strlen body))
             clear node.lines
             def blen:int (strlen body)
             if (blen == 0) {
@@ -1206,12 +1256,14 @@ class MdBlock {
             if (hl > 0) {
                 def joined2:string (MdBlock.joinLines(node.lines))
                 node.literal = (trim joined2)
+                node.shiftMap((MdBlock.leadTrim(joined2)) (strlen node.literal))
                 clear node.lines
             }
         }
         if (kind == "html_block") {
             def raw:string (MdBlock.joinLines(node.lines))
             node.literal = (MdBlock.stripTrailingNewlines(raw))
+            node.shiftMap(0 (strlen node.literal))
             clear node.lines
         }
         if (kind == "code_block") {
@@ -1228,6 +1280,11 @@ class MdBlock {
                     i = (i + 1)
                 }
                 node.literal = body
+                ; The info line and its newline are not in the body, so the
+                ; body starts that far into the raw text.
+                def infoDrop:int 0
+                if (cnt > 0) { infoDrop = ((strlen (itemAt all 0)) + 1) }
+                node.shiftMap(infoDrop (strlen body))
                 ; A fence whose info string names something drawable is not
                 ; code: it is a slot the layout has to leave a hole for. The
                 ; block structure is identical either way, so this is a
@@ -1238,6 +1295,7 @@ class MdBlock {
             } {
                 def raw2:string (MdBlock.joinLines(node.lines))
                 node.literal = (MdBlock.stripTrailingBlankLines(raw2))
+                node.shiftMap(0 (strlen node.literal))
             }
             clear node.lines
         }
@@ -1568,11 +1626,16 @@ class MdBlock {
             ; Before the inline pass, not after: `[x]` becomes a bracket the
             ; link parser has already taken apart into three text nodes, and
             ; the checkbox is no longer a thing you can see in the tree.
+            def shift:int 0
             if ((node.kind == "paragraph") && (index == 0)) {
+                def before:int (strlen raw)
                 raw = (MdBlock.markTaskItem(raw parent))
+                ; The marker came off the FRONT, so everything that is left is
+                ; that much further into the literal — and into the file.
+                shift = (before - (strlen raw))
             }
             node.literal = ""
-            inline.parse(node raw refs)
+            inline.parseFrom(node raw refs shift)
             return
         }
         def i:int 0
