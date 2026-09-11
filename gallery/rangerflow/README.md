@@ -42,9 +42,11 @@ npm run rangerflow:drag        # drop every node everywhere, count the lines lef
 npm run rangerflow:quality     # every fixture measured: lines through nodes, on each other, square, beside, corners
 npm run rangerflow:demo:web    # build the page, serve it, open a browser
 npm run rangerflow:web:serve   # …the same without opening anything
-npm run rangerflow:web:test    # …or run all eleven demos in headless Chrome
+npm run rangerflow:web:test    # …or run all thirteen demos in headless Chrome
 npm run rangerflow:mermaid:parity  # score the reader against Mermaid's own parser
 npm run rangerflow:plantuml:parity # …and the PlantUML reader against plantuml.jar
+npm run rangerflow:graphviz:parity # …and the DOT reader against Graphviz itself
+npm run rangerflow:graphviz:bench  # what each open-source DOT reference costs
 npm run rangerflow:parity      # score it against React Flow — see below
 npm run rangerflow:rivals      # …and against JointJS and Syncfusion
 npm run rangerflow:sdl:run     # the same editor in a native SDL2 + OpenGL window
@@ -69,13 +71,14 @@ dropdown in the page switches between them, and `?scenario=` picks one on load:
 | [`?scenario=atk`](http://localhost:8080/?scenario=atk) | an ATK chart in the ISO 5807 shapes: diamond, drum, parallelogram, wavy-footed page |
 | [`?scenario=mermaid`](http://localhost:8080/?scenario=mermaid) | **paste Mermaid, press render** — the text box is the diagram, and what comes out is draggable, editable and exportable. Eight examples in the dropdown beside it |
 | [`?scenario=plantuml`](http://localhost:8080/?scenario=plantuml) | **the same box, reading PlantUML** — class, sequence, activity, component, use case, deployment and object, seven examples to start from |
+| [`?scenario=graphviz`](http://localhost:8080/?scenario=graphviz) | **the same box again, reading Graphviz DOT** — clusters, the shape gallery, records and HTML tables with edges aimed at a named cell, `neato` and the scoped attribute defaults: five examples, and the whole published grammar behind them |
 | [`?scenario=org`](http://localhost:8080/?scenario=org) | an organisation chart, units coloured, the matrix report dashed |
 | [`?scenario=process`](http://localhost:8080/?scenario=process) | a swimlane process — drag a lane and its steps come with it |
 | [`?scenario=mindmap`](http://localhost:8080/?scenario=mindmap) | a mind map, branches balanced either side of the root |
 | [`?scenario=radial`](http://localhost:8080/?scenario=radial) | the same graph as a radial tree, a generation per ring |
 | [`?scenario=activity`](http://localhost:8080/?scenario=activity) | a UML **activity** diagram — actions, a fork and a join, signals sent and received, a wait |
 
-For those two the page splits: **the source on the left, the drawing on the
+For those three the page splits: **the source on the left, the drawing on the
 right**, so the text you are editing and the diagram it makes are both full
 height. `example` is a gallery — picking one replaces the text and draws it —
 and **`live` redraws as you type**, which is the whole point of having the two
