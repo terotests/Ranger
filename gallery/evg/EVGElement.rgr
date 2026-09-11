@@ -531,6 +531,11 @@ class EVGElement {
     ; included, so the gap has to be a property of the block. ZERO is the
     ; single-spaced block every caller had before.
     def paragraphSpacing:double 0.0
+    ; SVG's `stroke-linecap` and `stroke-linejoin` on a stroked path.
+    ; "butt" and "miter" are what the painter drew before either existed,
+    ; so a caller that says nothing keeps the picture it had.
+    def strokeLineCap:string "butt"
+    def strokeLineJoin:string "miter"
     ; ZERO means `normal`, which is the FACE's own line box and is asked of
     ; the text engine. It used to default to 1.2 — a number people type, not
     ; one a browser computes: measured, the sans fallback's normal is 1.15em
@@ -2661,6 +2666,8 @@ class EVGElement {
         fontWeight = other.fontWeight
         letterSpacing = other.letterSpacing
         paragraphSpacing = other.paragraphSpacing
+        strokeLineCap = other.strokeLineCap
+        strokeLineJoin = other.strokeLineJoin
         lineHeight = other.lineHeight
         lineHeightUnit = other.lineHeightUnit
         textAlign = other.textAlign
@@ -3414,6 +3421,14 @@ class EVGElement {
             if psu.isSet {
                 paragraphSpacing = psu.pixels
             }
+            return
+        }
+        if ((name == "stroke-linecap") || (name == "strokeLinecap")) {
+            strokeLineCap = value
+            return
+        }
+        if ((name == "stroke-linejoin") || (name == "strokeLinejoin")) {
+            strokeLineJoin = value
             return
         }
         if (name == "overflow") {

@@ -30,7 +30,11 @@ export function cmdsOf(dl) {
     o.h = c.h;
     if (c.perCorner) o.rc = [c.radius, c.radiusTR, c.radiusBR, c.radiusBL];
     if (c.radius > 0) o.r = c.radius;
-    if (c.thickness > 0) o.t = c.thickness;
+    if (c.thickness > 0) {
+      o.t = c.thickness;
+      if (c.strokeCap !== 0) o.cap = c.strokeCap;
+      if (c.strokeJoin !== 0) o.join = c.strokeJoin;
+    }
     o.c = [c.r, c.g, c.b, c.a];
     if (c.hasGrad) {
       o.gd = c.gradDir;

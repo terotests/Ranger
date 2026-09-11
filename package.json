@@ -752,6 +752,7 @@
     "evg:hostmeasurer:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGHostMeasurerTest.rgr -d=./gallery/evg/bin -o=EVGHostMeasurerTest.js -nodecli && node ./gallery/evg/bin/EVGHostMeasurerTest.js",
     "evg:measure:web": "node gallery/evg/gl/measure-check.mjs",
     "evg:binary:check": "node gallery/evg/gl/list-binary-check.mjs",
+    "evg:stroke:check": "node gallery/evg/gl/stroke-check.mjs",
     "evg:gestures:check": "node gallery/evg/gl/gestures-check.mjs",
     "evg:hosttree:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGHostTreeTest.rgr -d=./gallery/evg/bin -o=EVGHostTreeTest.js -nodecli && node ./gallery/evg/bin/EVGHostTreeTest.js",
     "evg:json:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGJsonTest.rgr -d=./gallery/evg/bin -o=EVGJsonTest.js -nodecli && node ./gallery/evg/bin/EVGJsonTest.js",

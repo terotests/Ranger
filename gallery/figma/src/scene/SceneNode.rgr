@@ -96,6 +96,10 @@ class SceneStroke {
     def wBottom:double 0.0
     def wLeft:double 0.0
     def align:string "center"
+    ; SVG's names: butt / round / square, and miter / round / bevel. Figma
+    ; calls them NONE, ROUND, SQUARE and MITER, ROUND, BEVEL.
+    def lineCap:string "butt"
+    def lineJoin:string "miter"
     def visible:boolean true
 
     Constructor () {

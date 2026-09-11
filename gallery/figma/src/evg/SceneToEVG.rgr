@@ -257,6 +257,12 @@ class SceneToEVG {
         if (this.isPathKind(n.kind)) {
             el.setAttribute("stroke" (s.hex()))
             el.setAttribute("stroke-width" (to_string s.weight))
+            if (s.lineCap != "butt") {
+                el.setAttribute("stroke-linecap" s.lineCap)
+            }
+            if (s.lineJoin != "miter") {
+                el.setAttribute("stroke-linejoin" s.lineJoin)
+            }
             return
         }
         if (n.kind == "text") {

@@ -19,7 +19,8 @@
 // hundredths — `EVGDisplayList.fixed` rounds to what `toJson` writes — so the
 // division below gives back exactly the JSON's numbers.
 //
-// Slot 36 is `letter-spacing`, and it is read only when the buffer is wide
+// Slots 36, 37 and 38 are `letter-spacing` and a stroke's cap and join, and
+// they are read only when the buffer is wide
 // enough to have it. Raising FIELDS_READ instead would have refused every
 // bundle built before it existed — a hard failure for a field whose absence
 // means "the font's own spacing", which is what those bundles meant. A slot
@@ -64,7 +65,13 @@ export function cmdsOfBinary(bin) {
     if (flags & 64) o.rc = [radius, r[b + 27] / 100, r[b + 28] / 100, r[b + 29] / 100];
     if (radius > 0) o.r = radius;
     const t = r[b + 6] / 100;
-    if (t > 0) o.t = t;
+    if (t > 0) {
+      o.t = t;
+      if (stride > 38) {
+        if (r[b + 37] !== 0) o.cap = r[b + 37];
+        if (r[b + 38] !== 0) o.join = r[b + 38];
+      }
+    }
     o.c = [...rgb(r[b + 7]), r[b + 8] / 100];
     if (flags & 1) {
       o.gd = r[b + 10];

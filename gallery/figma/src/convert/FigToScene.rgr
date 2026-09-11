@@ -961,6 +961,10 @@ class FigToScene {
             s.wRight = (nd.raw.childDouble("borderRightWeight" nd.strokeWeight))
             s.wBottom = (nd.raw.childDouble("borderBottomWeight" nd.strokeWeight))
             s.wLeft = (nd.raw.childDouble("borderLeftWeight" nd.strokeWeight))
+            def capRaw:string (nd.raw.childString("strokeCap" "NONE"))
+            def joinRaw:string (nd.raw.childString("strokeJoin" "MITER"))
+            s.lineCap = (FigToScene.capName(capRaw))
+            s.lineJoin = (FigToScene.joinName(joinRaw))
             s.align = (nd.raw.childString("strokeAlign" "CENTER"))
             if (s.align == "INSIDE") {
                 s.align = "inside"
@@ -1475,6 +1479,34 @@ class FigToScene {
         def d:string ("A" + (to_string rx) + " " + (to_string ry) + " 0 ")
         d = (d + (to_string big) + " " + (to_string dir) + " ")
         return (d + (to_string x) + " " + (to_string y))
+    }
+
+    ; Figma's names for a line's ends and corners, in SVG's. The arrow
+    ; heads — ARROW_LINES, ARROW_EQUILATERAL — are a shape at the end of
+    ; the line rather than a cap, and are not one of these; drawn as a
+    ; round end they are at least the right thickness, which is nearer
+    ; than the squared-off stop they had.
+    sfn capName:string (fig:string) {
+        if (fig == "ROUND") {
+            return "round"
+        }
+        if (fig == "SQUARE") {
+            return "square"
+        }
+        if (fig == "NONE") {
+            return "butt"
+        }
+        return "round"
+    }
+
+    sfn joinName:string (fig:string) {
+        if (fig == "ROUND") {
+            return "round"
+        }
+        if (fig == "BEVEL") {
+            return "bevel"
+        }
+        return "miter"
     }
 
     sfn ellipsePath:string (w:double h:double) {
