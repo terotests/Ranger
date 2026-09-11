@@ -836,25 +836,28 @@ function selftest() {
   say("diagram is geometry", paths > 0, paths + " path/stroke commands");
   say("diagrams read", app.diagramCount() > 0, app.diagramCount() + " diagrams");
 
-  // Three notations, one document. Mermaid was the only fence this editor
-  // could draw; PlantUML and Graphviz are read through their own doors now,
-  // and the failure to catch is the quiet one — a fence that is parsed as
-  // code, so there is no slot at all and the count silently stays at one.
+  // Four notations, one document. Mermaid was the only fence this editor
+  // could draw; PlantUML, Graphviz and D2 are read through their own doors
+  // now, and the failure to catch is the quiet one — a fence that is parsed
+  // as code, so there is no slot at all and the count silently stays at one.
   {
     const kept = sourceEl.value;
-    const three =
+    const four =
       "```plantuml\n@startuml\nclass Tilaus\nclass Rivi\nTilaus *-- Rivi\n@enduml\n```\n\n" +
       "```dot\ndigraph { a -> b; }\n```\n\n" +
+      "```d2\nvarasto -> keraily\nkeraily -> lahetys\n```\n\n" +
       "```mermaid\nflowchart LR\n  A --> B\n```\n";
-    app.setSource(three);
-    say("three notations, three diagrams", app.diagramCount() === 3, app.diagramCount() + " read");
-    const three_cmds = JSON.parse(app.frame()).list.cmds;
-    const shapes = three_cmds.filter((c) => c.k === 6 || c.k === 7).length;
-    say("and all three arrive as geometry", shapes > 6, shapes + " path/stroke commands");
-    const drewName = (t) => three_cmds.some((c) => c.k === 3 && (c.text || "").includes(t));
+    app.setSource(four);
+    say("four notations, four diagrams", app.diagramCount() === 4, app.diagramCount() + " read");
+    const four_cmds = JSON.parse(app.frame()).list.cmds;
+    const shapes = four_cmds.filter((c) => c.k === 6 || c.k === 7).length;
+    say("and all four arrive as geometry", shapes > 8, shapes + " path/stroke commands");
+    const drewName = (t) => four_cmds.some((c) => c.k === 3 && (c.text || "").includes(t));
     // A class diagram read as a sequence diagram still draws boxes and
     // edges, so counting shapes would not catch it. Counting names does.
     say("the PlantUML classes are on the page", drewName("Tilaus") && drewName("Rivi"));
+    // Same question for D2, and with words no other fence on this page uses.
+    say("the D2 objects are on the page", drewName("varasto") && drewName("lahetys"));
 
     // Switching the layout must not lose them. The diagrams are prepared at
     // the width of the column they land in, and that width changes with the

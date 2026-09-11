@@ -1,7 +1,7 @@
-# Three notations, one document
+# Four notations, one document
 
 A markdown document should not care which notation a diagram was written in.
-These three fences are read by RangerFlow's own readers and land on the page
+These four fences are read by RangerFlow's own readers and land on the page
 as geometry — the same vector paths and text runs the prose is made of.
 
 ## PlantUML
@@ -55,4 +55,17 @@ flowchart LR
   B -->|ei| A
 ```
 
-The same document, three readers, one page.
+## D2
+
+```d2
+direction: right
+varasto: Varasto {
+  hylly
+  keraily
+}
+lahetys: Lähetys
+varasto.keraily -> lahetys: paketti
+lahetys -> asiakas: toimitus
+```
+
+The same document, four readers, one page.

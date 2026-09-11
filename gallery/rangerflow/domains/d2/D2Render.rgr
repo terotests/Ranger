@@ -1,0 +1,112 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; D2Render.rgr — one door: D2 in, something drawable out.
+; ============================================================================
+;
+; The same door `MermaidRender`, `PlantUmlRender` and `DotRender` are, for D2.
+; Until this file the only way to get a drawn board out of D2 text was through
+; the web page's own facade — `RangerFlowWeb.loadD2Styled`, which sets a
+; viewport, a status line and a look dropdown. A markdown document has none of
+; those and cannot call it.
+;
+;   text ──► draw     ──► D2Drawing (board + graph)
+;        ──► sceneOf  ──► FlowScene, fitted to a width
+;
+; **The sheet first, then the file.** A `FlowStyle` knows nothing about the
+; colours a D2 file chose for itself, so painting in the other order loses
+; every one of them. `draw` applies the style and then `D2Flow.restyle`, which
+; is the order the web facade uses and the same order Mermaid needs.
+;
+; **Imports are refused, not resolved.** Reading an `@file` is `D2Imports`'
+; job and it needs a directory; a markdown renderer that fetched whatever a
+; fence named would be a worse bug than an unread import. `imports` says how
+; many were left so a caller can tell the reader.
+;
+; **Never scaled up**: a diagram wider than the space it is given is fitted
+; onto it, and a narrower one is left alone.
+; ============================================================================
+
+Import "D2Model.rgr"
+Import "D2Flow.rgr"
+Import "../../core/FlowView.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+; What came back. `objects` and `conns` are what the board actually declared —
+; a file that reads but declares nothing is `ok` false, because there is
+; nothing to draw and an empty box with a caption is not an improvement.
+class D2Drawing {
+    def ok:boolean false
+    def kind:string ""
+    def notation:string "crowfoot"
+    def objects:int 0
+    def conns:int 0
+    def boards:int 0
+    def imports:int 0
+    def graph:FlowGraph (new FlowGraph)
+
+    Constructor () {
+    }
+}
+
+class D2Render {
+    ; "d2" when the text declares something, "" when it does not. D2 has one
+    ; grammar and no header to sniff, so there is no family to report — only
+    ; whether anything was declared.
+    sfn kindOf:string (text:string) {
+        def b:D2Board (D2Model.read(text))
+        def objects:[D2Object] (b.live())
+        if ((array_length objects) == 0) { return "" }
+        return "d2"
+    }
+
+    sfn draw:D2Drawing (text:string style:FlowStyle) {
+        def out:D2Drawing (new D2Drawing())
+        def b:D2Board (D2Model.read(text))
+        def objects:[D2Object] (b.live())
+        def conns:[D2Conn] (b.liveConns())
+        out.objects = (array_length objects)
+        out.conns = (array_length conns)
+        out.boards = (b.boardCount())
+        out.imports = (array_length b.imports)
+        if (out.objects == 0) { return out }
+        def g:FlowGraph (D2Flow.laid(b))
+        def painted:int (style.applyTo(g))
+        ; The sheet went on first; what the file itself said goes back on top.
+        D2Flow.restyle(b g)
+        out.kind = "d2"
+        out.graph = g
+        out.ok = true
+        return out
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A scene, fitted
+    ; ----------------------------------------------------------------------
+    sfn sceneOf:FlowScene (text:string styleName:string maxWidth:double padding:double) {
+        def style:FlowStyle (FlowStyle.named(styleName))
+        return (D2Render.sceneStyled(text style maxWidth padding))
+    }
+
+    sfn sceneStyled:FlowScene (text:string style:FlowStyle maxWidth:double padding:double) {
+        def drawing:D2Drawing (D2Render.draw(text style))
+        if (! drawing.ok) {
+            return (new FlowScene)
+        }
+        def v:FlowView (FlowView.of(drawing.graph))
+        v.notation = drawing.notation
+        style.applyToTheme(v.theme)
+        v.showBackground = false
+        v.theme.background = "#ffffff"
+        def natural:FlowScene (v.buildForExport(padding))
+        if (maxWidth <= 0.0) {
+            return natural
+        }
+        if (natural.worldW <= maxWidth) {
+            return natural
+        }
+        def scale:double (maxWidth / natural.worldW)
+        def h:double (natural.worldH * scale)
+        return (v.buildForPage(maxWidth h 0.0))
+    }
+}

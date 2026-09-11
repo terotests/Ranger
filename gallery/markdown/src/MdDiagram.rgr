@@ -5,18 +5,19 @@
 ; ============================================================================
 ;
 ; ````markdown
-; ```mermaid                 ```plantuml              ```dot
-; flowchart LR               @startuml                digraph {
-;   A[Write] --> B[Print]    Tilaus <|-- Verkkotilaus   a -> b;
+; ```mermaid                 ```plantuml              ```dot         ```d2
+; flowchart LR               @startuml                digraph {      a -> b
+;   A[Write] --> B[Print]    Tilaus <|-- Verkkotilaus   a -> b;       ```
 ; ```                        @enduml                  }
 ;                            ```                      ```
 ; ````
 ;
 ; Mermaid is how a diagram travels through a README, a ticket and a review;
-; PlantUML is how it travels through a design document, and DOT through a
-; generator. What none of them ordinarily is, is something you can print: the
-; usual renderer is a browser, and a browser gives you a picture of a page
-; rather than a page. Here the fence is read by RangerFlow's own reader, laid
+; PlantUML is how it travels through a design document, DOT through a
+; generator, and D2 through a repository that keeps its diagrams as files.
+; What none of them ordinarily is, is something you can print: the usual
+; renderer is a browser, and a browser gives you a picture of a page rather
+; than a page. Here the fence is read by RangerFlow's own reader, laid
 ; out by its own layout, and lands on the page as GEOMETRY — vector paths and
 ; text runs with the fonts embedded, the same commands the GPU painter draws.
 ;
@@ -29,7 +30,7 @@
 ; width of the column it lands in rather than scaled from a screen — which is
 ; the whole reason to keep it as geometry rather than as a picture.
 ;
-; **Three notations, one branch.** The fence word is turned into a notation by
+; **Four notations, one branch.** The fence word is turned into a notation by
 ; `MdEmbedKinds` — the same table the parser used to decide this block was a
 ; slot and not code — and the branch below is on the notation, so `plantuml`
 ; and `puml` are one path rather than two. Each notation has exactly one entry
@@ -48,6 +49,7 @@ Import "MdEmbedKinds.rgr"
 Import "../../rangerflow/domains/mermaid/MermaidRender.rgr"
 Import "../../rangerflow/domains/plantuml/PlantUmlRender.rgr"
 Import "../../rangerflow/domains/graphviz/DotRender.rgr"
+Import "../../rangerflow/domains/d2/D2Render.rgr"
 
 class MdDiagram {
     ; The padding around a diagram, in its own units, before it becomes a
@@ -121,6 +123,9 @@ class MdDiagram {
         if (notation == "graphviz") {
             return (DotRender.sceneOf(text styleName width pad))
         }
+        if (notation == "d2") {
+            return (D2Render.sceneOf(text styleName width pad))
+        }
         return (MermaidRender.sceneOf(text styleName width pad))
     }
 
@@ -138,6 +143,14 @@ class MdDiagram {
                 return ((dd.error + " — line ") + (to_string dd.errorLine))
             }
             return "nothing declared in that graph"
+        }
+        if (notation == "d2") {
+            def st2 (new FlowStyle)
+            def dr:D2Drawing (D2Render.draw(text st2))
+            if (dr.imports > 0) {
+                return ("nothing declared in that board — " + ((to_string dr.imports) + " imports are not read here"))
+            }
+            return "nothing declared in that board"
         }
         if (notation == "plantuml") {
             def pk:string (PlantUmlRender.kindOf(text))
