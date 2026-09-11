@@ -24,6 +24,7 @@ Import "../domains/erd/SqlSchemaReader.rgr"
 Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
+Import "../domains/d2/D2Model.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
 Import "../domains/mermaid/MermaidRender.rgr"
 Import "../domains/mermaid/MermaidClassReader.rgr"
@@ -140,6 +141,9 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidPlaced(c)
         RangerFlowTest.testMermaidGantt(c)
         RangerFlowTest.testMermaidSequence(c)
+        RangerFlowTest.testD2Parser(c)
+        RangerFlowTest.testD2Model(c)
+        RangerFlowTest.testD2Imports(c)
         RangerFlowTest.testPlantUmlKinds(c)
         RangerFlowTest.testPlantUmlSequence(c)
         RangerFlowTest.testPlantUmlEntities(c)
@@ -6694,6 +6698,195 @@ class RangerFlowTest {
         def gj:string (FlowGraphJson.toJson(g))
         c.ok("graph json round trip has the node" ((indexOf gj "\"customers\"") > 0))
         c.ok("graph json has the edge" ((indexOf gj "\"edges\"") > 0))
+    }
+
+
+    ; ------------------------------------------------------------------ D2 --
+    ; The parser first, because everything else is downstream of it. What is
+    ; asserted here is structure — `D2Model` is where any of it means anything.
+    sfn testD2Parser:void (c:Checker) {
+        c.section("d2 parser")
+        def src:string "# a comment\n"
+        src = (src + "network: Network {\n")
+        src = (src + "  tower: cell tower { transmitter }\n")
+        src = (src + "  \"quoted.key\": held\n")
+        src = (src + "}\n")
+        src = (src + "a -> b -> c: chained\n")
+        src = (src + "x; y\n")
+        def f:D2File (D2Parser.parse(src))
+        c.eqInt("the comment is not a statement" (f.declCount()) 4)
+        c.eqInt("and nothing failed to parse" (f.errorCount()) 0)
+        def first:D2Decl (f.declAt(0))
+        c.eqStr("a container is one declaration" (first.key()) "network")
+        def v:D2Value (first.value())
+        c.eqStr("with a label of its own" v.text "Network")
+        c.ok("and a map under it" v.hasMap)
+        c.eqInt("holding two statements" (array_length v.body) 2)
+        def inner:D2Decl (itemAt v.body 1)
+        c.eqStr("a quoted key keeps its quotes in the id" (inner.key()) "\"quoted.key\"")
+        def qp:D2Path (inner.path())
+        def qpart:D2Part (qp.partAt(0))
+        c.eqStr("and loses them in the name" qpart.name "quoted.key")
+        def chain:D2Decl (f.declAt(1))
+        c.ok("a chain is one declaration" chain.isEdge)
+        c.eqInt("with three ends" (array_length chain.paths) 3)
+        c.eqInt("and two arrows" (array_length chain.arrows) 2)
+        c.eqStr("both pointing forward" (itemAt chain.arrows 0) "->")
+        ; `;` is a newline, and a `-` that is not an arrow is part of a name.
+        c.eqStr("a semicolon separates" ((f.declAt(2)).key()) "x")
+        c.eqStr("as a newline would" ((f.declAt(3)).key()) "y")
+        def dash:D2File (D2Parser.parse("grid-rows: 2\ncf-one -> cf-many\n"))
+        c.eqStr("a hyphen is a name character" ((dash.declAt(0)).key()) "grid-rows")
+        def dashEdge:D2Decl (dash.declAt(1))
+        c.ok("until it is an arrow" dashEdge.isEdge)
+        c.eqStr("and then the name ends before it" ((itemAt dashEdge.paths 0).text()) "cf-one")
+        ; Block strings: the tag, and the indentation the file was written in.
+        def blk:D2File (D2Parser.parse("doc: |md\n  # Title\n  body\n|\n"))
+        def bv:D2Value ((blk.declAt(0)).value())
+        c.eqStr("a block string carries its tag" bv.tag "md")
+        c.eqStr("and loses the file's indentation" bv.text "# Title\nbody")
+        ; A connection reference names a connection rather than making one.
+        def ref:D2File (D2Parser.parse("(a -> b)[1].style.stroke: red\n"))
+        def rp:D2Path ((ref.declAt(0)).path())
+        c.ok("a connection reference is not a key path" rp.isEdgeRef)
+        c.eqInt("it knows which connection" rp.refIndex 1)
+        c.eqStr("and what to say about it" (rp.text()) "(a -> b)[1].style.stroke")
+        ; A file that does not close what it opened says so.
+        def bad:D2File (D2Parser.parse("a: {\n  b\n"))
+        c.ok("an unterminated map is an error" ((bad.errorCount()) > 0))
+    }
+
+    ; What the text means: ids, labels, shapes, connections, and the four
+    ; things D2 has that no other format read here does — globs, classes,
+    ; boards and suspensions.
+    sfn testD2Model:void (c:Checker) {
+        c.section("d2 model")
+        def src:string "network: Network {\n"
+        src = (src + "  tower: cell tower {\n")
+        src = (src + "    satellites: { shape: stored_data; style.multiple: true }\n")
+        src = (src + "    transmitter\n")
+        src = (src + "    satellites -> transmitter: send\n")
+        src = (src + "  }\n")
+        src = (src + "}\n")
+        src = (src + "user: User { shape: person }\n")
+        src = (src + "user -> network.tower: make call\n")
+        def b:D2Board (D2Model.read(src))
+        c.eqInt("every object is created by being mentioned" (array_length (b.live())) 5)
+        def sat:D2Object (b.object("network.tower.satellites"))
+        c.eqStr("nesting is the id" sat.id "network.tower.satellites")
+        c.eqStr("the last segment is the label" sat.label "satellites")
+        c.eqInt("and the depth is the level" sat.level 3)
+        c.eqStr("a shape keyword is a shape" sat.shape "stored_data")
+        c.eqStr("a style keyword is kept as written" (sat.style("multiple")) "true")
+        def tower:D2Object (b.object("network.tower"))
+        c.eqStr("a label with a space needs no quotes" tower.label "cell tower")
+        c.eqInt("connections are resolved in the scope they were written in" (array_length (b.liveConns())) 2)
+        def inner:D2Conn (itemAt (b.liveConns()) 0)
+        c.eqStr("so a bare name inside a container is that container's child" inner.src "network.tower.satellites")
+        c.eqStr("and the other end too" inner.dst "network.tower.transmitter")
+        ; An arrowhead is only drawn where the arrow draws one — measured
+        ; against d2 v0.7.1, which answers `none` for the other two.
+        def arrows:D2Board (D2Model.read("a -> b: { source-arrowhead.shape: diamond }\nc -- d: { target-arrowhead.shape: box }\ne <- f\n"))
+        def a1:D2Conn (itemAt (arrows.liveConns()) 0)
+        c.eqStr("a forward arrow draws no source head" (a1.srcHead()) "none")
+        c.eqStr("and a triangle at the target" (a1.dstHead()) "triangle")
+        def a2:D2Conn (itemAt (arrows.liveConns()) 1)
+        c.eqStr("an undirected connection draws neither" (a2.dstHead()) "none")
+        def a3:D2Conn (itemAt (arrows.liveConns()) 2)
+        c.eqStr("a backwards arrow draws at the source" (a3.srcHead()) "triangle")
+        c.eqStr("and not at the target" (a3.dstHead()) "none")
+        ; vars, classes and globs.
+        def styled:string "vars: { accent: \"#4a6\" }\n"
+        styled = (styled + "classes: { svc: { shape: hexagon; style.fill: ${accent} } }\n")
+        styled = (styled + "api: Payments API { class: svc }\n")
+        styled = (styled + "db: { shape: cylinder }\n")
+        styled = (styled + "*.style.stroke-width: 2\n")
+        styled = (styled + "*: { &shape: cylinder; style.fill: \"#eee\" }\n")
+        def sb:D2Board (D2Model.read(styled))
+        def api:D2Object (sb.object("api"))
+        c.eqStr("a class hands over its shape" api.shape "hexagon")
+        c.eqStr("a substitution is resolved" (api.style("fill")) "#4a6")
+        c.eqStr("and the object's own label survives it" api.label "Payments API")
+        c.eqStr("a glob touches everything it selects" (api.style("stroke-width")) "2")
+        def db:D2Object (sb.object("db"))
+        c.eqStr("a filter narrows a glob to what matches" (db.style("fill")) "#eee")
+        c.eqStr("and leaves the rest alone" (api.style("fill")) "#4a6")
+        ; `suspend` takes an object off the board, with its connections.
+        def sus:D2Board (D2Model.read("a\nb\nc\na -> b\na -> c\nb: suspend\n"))
+        c.eqInt("a suspended object is not on the board" (array_length (sus.live())) 2)
+        c.eqInt("nor is the connection that touched it" (array_length (sus.liveConns())) 1)
+        ; A table's columns and a class's members are rows, not objects.
+        def tbl:string "users: { shape: sql_table; id: int { constraint: primary_key }; email: varchar }\n"
+        tbl = (tbl + "orgs: { shape: sql_table; id: int }\n")
+        tbl = (tbl + "users.id -> orgs.id: belongs to\n")
+        def tb:D2Board (D2Model.read(tbl))
+        c.eqInt("a table is one object" (array_length (tb.live())) 2)
+        def users:D2Object (tb.object("users"))
+        c.eqInt("with its columns on it" (users.fieldCount()) 2)
+        def col:D2Field (users.fieldAt(0))
+        c.eqStr("the column's type is its value" col.type "int")
+        c.eqInt("and its constraint is kept" (array_length col.constraints) 1)
+        def rowEdge:D2Conn (itemAt (tb.liveConns()) 0)
+        c.eqStr("a connection between rows is drawn between the tables" rowEdge.src "users")
+        c.eqStr("and remembers the row it left" rowEdge.srcField "id")
+        def cls:D2Board (D2Model.read("C: { shape: class; +field: int; -hide(): void }\n"))
+        def cobj:D2Object (cls.object("C"))
+        def m0:D2Field (cobj.fieldAt(0))
+        c.eqStr("a `+` is a public member" m0.visibility "public")
+        c.eqStr("with the marker off the name" m0.name "field")
+        def m1:D2Field (cobj.fieldAt(1))
+        c.eqStr("a `-` is a private one" m1.visibility "private")
+        c.ok("and parentheses make it a method" m1.isMethod)
+        ; Inside a sequence diagram a group is not a namespace.
+        def seq:string "sd: { shape: sequence_diagram\n"
+        seq = (seq + "  a -> b: hi\n")
+        seq = (seq + "  loop: { a -> b: again }\n")
+        seq = (seq + "}\n")
+        def sq:D2Board (D2Model.read(seq))
+        def msg:D2Conn (itemAt (sq.liveConns()) 1)
+        c.eqStr("a message inside a group is still between the participants" msg.src "sd.a")
+        c.eqStr("both of them" msg.dst "sd.b")
+        ; Boards: a layer starts empty, a scenario inherits, steps accumulate.
+        def boards:string "a -> b\n"
+        boards = (boards + "layers: { deep: { c } }\n")
+        boards = (boards + "scenarios: { fail: { b.style.fill: red } }\n")
+        boards = (boards + "steps: { one: { d }; two: { e } }\n")
+        def bb:D2Board (D2Model.read(boards))
+        c.eqInt("every board is read" (bb.boardCount()) 4)
+        def layer:D2Board (bb.boardAt(0))
+        c.eqStr("a layer is a layer" layer.kind "layer")
+        c.eqInt("and starts empty" (array_length (layer.live())) 1)
+        def scenario:D2Board (bb.boardAt(1))
+        c.eqInt("a scenario inherits the board it was declared in" (array_length (scenario.live())) 2)
+        def painted:D2Object (scenario.object("b"))
+        c.eqStr("and edits it" (painted.style("fill")) "red")
+        def step2:D2Board (bb.boardAt(3))
+        c.eqInt("steps accumulate" (array_length (step2.live())) 4)
+    }
+
+    ; Imports read files, which is a security boundary before it is a feature.
+    sfn testD2Imports:void (c:Checker) {
+        c.section("d2 imports")
+        def dir:string "gallery/rangerflow/fixtures/d2"
+        def src:string (?? (read_file "." "gallery/rangerflow/fixtures/d2/18_import.d2") "")
+        c.ok("the fixture is there" ((strlen src) > 0))
+        def b:D2Board (D2Model.readFrom(src dir))
+        def store:D2Object (b.object("store"))
+        c.eqStr("an imported key brings its shape" store.shape "cylinder")
+        c.eqStr("and its label" store.label "shared store")
+        def app:D2Object (b.object("app"))
+        c.eqStr("a spread merges the imported map" app.shape "cylinder")
+        c.eqStr("and what follows it wins" app.label "app store")
+        ; What a reader must refuse: a diagram is somebody else's text.
+        def out:D2Board (D2Model.readFrom("a: @../../etc/passwd\n" dir))
+        c.eqInt("nothing was read" (array_length out.imports) 1)
+        c.ok("and the refusal is said out loud" ((array_length out.errors) > 0))
+        def absolute:D2Board (D2Model.readFrom("a: @/etc/passwd\n" dir))
+        c.ok("an absolute path is refused too" ((array_length absolute.errors) > 0))
+        def url:D2Board (D2Model.readFrom("a: @https://example.com/x\n" dir))
+        c.ok("and so is a URL" ((array_length url.errors) > 0))
+        def missing:D2Board (D2Model.readFrom("a: @not_a_file\n" dir))
+        c.ok("a file that is not there is an error, not a silence" ((array_length missing.errors) > 0))
     }
 
     sfn headOf:string (b:buffer n:int) {

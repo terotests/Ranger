@@ -23,7 +23,9 @@ tests/PlantUmlParityDump.rgr           RangerFlow      →  out/rangerflow_plant
                       tools/plantuml-parity.mjs  →  docs/PLANTUML_PARITY.md
 
 harness/oracles/d2_oracle.{go,mjs}     d2 v0.7.1       →  out/d2.json
-                                       (no reader yet — docs/PLAN_D2.md)
+tests/D2ParityDump.rgr                 RangerFlow      →  out/rangerflow_d2.json
+                                              ↓
+                            tools/d2-parity.mjs  →  docs/D2_PARITY.md
 ```
 
 **PlantUML** has no parse database to ask, the way Mermaid has. It has
@@ -76,7 +78,7 @@ the middle to be wrong about.
 npm run rangerflow:parity          # installs on first run, then measures
 npm run rangerflow:mermaid:parity  # …and the same for the Mermaid reader
 npm run rangerflow:plantuml:parity # …and for PlantUML (needs a JVM)
-npm run rangerflow:d2:oracle       # …and D2's oracle (needs a Go toolchain)
+npm run rangerflow:d2:parity       # …and for D2 (needs a Go toolchain)
 cd gallery/rangerflow/harness && npm install    # or do it by hand
 ```
 

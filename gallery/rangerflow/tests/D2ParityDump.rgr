@@ -1,0 +1,280 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; D2ParityDump.rgr — what RangerFlow's reader made of D2's own examples.
+; ============================================================================
+;
+;   npm run rangerflow:d2:parity
+;   → gallery/rangerflow/harness/out/rangerflow_d2.json
+;
+; The corpus is `fixtures/d2/`, and the files are handed in as arguments rather
+; than discovered here: Ranger has no directory listing, and a list written
+; into this file is a list that goes stale the day somebody adds an example.
+; `tools/d2-parity.mjs` globs the directory, runs this, runs D2 itself over the
+; same files, and compares the two answers.
+;
+; Nothing is laid out and nothing is drawn. What is dumped is what the READER
+; understood — the objects with their ids, labels, shapes and levels, the
+; connections with their ends and arrowheads, the rows of a table and the
+; members of a class, and the boards a file declares. D2's oracle *can* answer
+; geometry, and it is deliberately not compared: RangerFlow lays a diagram out
+; with its own layered layout, and scoring that against dagre would measure two
+; layouts rather than one reader.
+; ============================================================================
+
+Import "../domains/d2/D2Model.rgr"
+
+class D2ParityDump {
+    sfn main:void () {
+        def out:string "{\n \"diagrams\": [\n"
+        def count:int (shell_arg_cnt)
+        def written:int 0
+        def i:int 0
+        while (i < count) {
+            def path:string (shell_arg i)
+            if ((D2ParityDump.isDiagram(path))) {
+                if (written > 0) {
+                    out = (out + ",\n")
+                }
+                out = (out + (D2ParityDump.dumpOne(path)))
+                written = (written + 1)
+            }
+            i = (i + 1)
+        }
+        out = (out + "\n ]\n}\n")
+        write_file "." "gallery/rangerflow/harness/out/rangerflow_d2.json" out
+        print ("  rangerflow reader: " + (to_string written) + " diagrams → gallery/rangerflow/harness/out/rangerflow_d2.json")
+    }
+
+    sfn isDiagram:boolean (path:string) {
+        def n:int (strlen path)
+        if (n < 4) {
+            return false
+        }
+        return ((substring path (n - 3) n) == ".d2")
+    }
+
+    sfn dumpOne:string (path:string) {
+        def src:string (?? (read_file "." path) "")
+        def b:D2Board (D2Model.readFrom(src (D2ParityDump.dirOf(path))))
+        def out:string "  {\n"
+        out = (out + "   \"file\": \"" + (D2ParityDump.baseName(path)) + "\",\n")
+        out = (out + "   \"direction\": \"" + b.direction + "\",\n")
+        out = (out + (D2ParityDump.dumpBoard(b "   ")))
+        out = (out + "\n  }")
+        return out
+    }
+
+    sfn dumpBoard:string (b:D2Board pad:string) {
+        def out:string (pad + "\"objects\": [")
+        def live:[D2Object] (b.live())
+        def i:int 0
+        while (i < (array_length live)) {
+            def o:D2Object (itemAt live i)
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            out = (out + "{\"id\": \"" + (D2ParityDump.esc(o.id)) + "\"")
+            out = (out + ", \"label\": \"" + (D2ParityDump.esc(o.label)) + "\"")
+            out = (out + ", \"shape\": \"" + (D2ParityDump.esc(o.shape)) + "\"")
+            out = (out + ", \"level\": " + (to_string o.level))
+            if ((strlen o.labelTag) > 0) {
+                out = (out + ", \"tag\": \"" + (D2ParityDump.esc(o.labelTag)) + "\"")
+            }
+            if ((strlen o.near) > 0) {
+                out = (out + ", \"near\": \"" + (D2ParityDump.esc(o.near)) + "\"")
+            }
+            if ((strlen o.icon) > 0) {
+                out = (out + ", \"icon\": true")
+            }
+            if ((o.fieldCount()) > 0) {
+                out = (out + ", \"fields\": [" + (D2ParityDump.dumpFields(o)) + "]")
+            }
+            if ((array_length o.styleKeys) > 0) {
+                out = (out + ", \"style\": {" + (D2ParityDump.dumpStyle(o.styleKeys o.styleVals)) + "}")
+            }
+            out = (out + "}")
+            i = (i + 1)
+        }
+        out = (out + "],\n" + pad + "\"connections\": [")
+        def conns:[D2Conn] (b.liveConns())
+        def k:int 0
+        while (k < (array_length conns)) {
+            def c:D2Conn (itemAt conns k)
+            if (k > 0) {
+                out = (out + ", ")
+            }
+            out = (out + "{\"src\": \"" + (D2ParityDump.esc(c.src)) + "\"")
+            out = (out + ", \"dst\": \"" + (D2ParityDump.esc(c.dst)) + "\"")
+            out = (out + ", \"label\": \"" + (D2ParityDump.esc(c.label)) + "\"")
+            out = (out + ", \"srcArrow\": \"" + (D2ParityDump.head(c true)) + "\"")
+            out = (out + ", \"dstArrow\": \"" + (D2ParityDump.head(c false)) + "\"")
+            out = (out + ", \"index\": " + (to_string c.index))
+            if ((strlen c.srcField) > 0) {
+                out = (out + ", \"srcField\": \"" + (D2ParityDump.esc(c.srcField)) + "\"")
+            }
+            if ((strlen c.dstField) > 0) {
+                out = (out + ", \"dstField\": \"" + (D2ParityDump.esc(c.dstField)) + "\"")
+            }
+            if ((array_length c.styleKeys) > 0) {
+                out = (out + ", \"style\": {" + (D2ParityDump.dumpStyle(c.styleKeys c.styleVals)) + "}")
+            }
+            out = (out + "}")
+            k = (k + 1)
+        }
+        out = (out + "],\n" + pad + "\"boards\": [")
+        def j:int 0
+        while (j < (b.boardCount())) {
+            def child:D2Board (b.boardAt(j))
+            if (j > 0) {
+                out = (out + ",")
+            }
+            out = (out + "\n" + pad + " {\"kind\": \"" + child.kind + "\", \"name\": \"" + (D2ParityDump.esc(child.name)) + "\",\n")
+            out = (out + (D2ParityDump.dumpBoard(child (pad + "  "))))
+            out = (out + "}")
+            j = (j + 1)
+        }
+        out = (out + "],\n" + pad + "\"errors\": [")
+        def e:int 0
+        while (e < (array_length b.errors)) {
+            if (e > 0) {
+                out = (out + ", ")
+            }
+            out = (out + "\"" + (D2ParityDump.esc((itemAt b.errors e))) + "\"")
+            e = (e + 1)
+        }
+        out = (out + "]")
+        return out
+    }
+
+    ; The arrowhead as D2's own answer spells it: an unfilled triangle and a
+    ; filled diamond have names of their own there, not a flag.
+    sfn head:string (c:D2Conn isSource:boolean) {
+        def shape:string (c.dstHead())
+        def filled:int c.dstFilled
+        if isSource {
+            shape = (c.srcHead())
+            filled = c.srcFilled
+        }
+        if (shape == "triangle") {
+            if (filled == 0) {
+                return "unfilled-triangle"
+            }
+        }
+        if (shape == "diamond") {
+            if (filled == 1) {
+                return "filled-diamond"
+            }
+        }
+        if (shape == "circle") {
+            if (filled == 1) {
+                return "filled-circle"
+            }
+        }
+        if (shape == "box") {
+            if (filled == 1) {
+                return "filled-box"
+            }
+        }
+        return shape
+    }
+
+    sfn dumpFields:string (o:D2Object) {
+        def out:string ""
+        def i:int 0
+        while (i < (o.fieldCount())) {
+            def f:D2Field (o.fieldAt(i))
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            out = (out + "{\"name\": \"" + (D2ParityDump.esc(f.name)) + "\"")
+            out = (out + ", \"type\": \"" + (D2ParityDump.esc(f.type)) + "\"")
+            out = (out + ", \"visibility\": \"" + f.visibility + "\"")
+            if f.isMethod {
+                out = (out + ", \"method\": true")
+            }
+            if ((array_length f.constraints) > 0) {
+                out = (out + ", \"constraint\": [")
+                def k:int 0
+                while (k < (array_length f.constraints)) {
+                    if (k > 0) {
+                        out = (out + ", ")
+                    }
+                    out = (out + "\"" + (D2ParityDump.esc((itemAt f.constraints k))) + "\"")
+                    k = (k + 1)
+                }
+                out = (out + "]")
+            }
+            out = (out + "}")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn dumpStyle:string (keys:[string] vals:[string]) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length keys)) {
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            out = (out + "\"" + (D2ParityDump.esc((itemAt keys i))) + "\": \"" + (D2ParityDump.esc((itemAt vals i))) + "\"")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn dirOf:string (path:string) {
+        def cut:int -1
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return ""
+        }
+        return (substring path 0 cut)
+    }
+
+    sfn baseName:string (path:string) {
+        def cut:int -1
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        return (substring path (cut + 1) (strlen path))
+    }
+
+    sfn esc:string (text:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen text)) {
+            def c:int (charAt text i)
+            if (c == 34) {
+                out = (out + (strfromcode 92) + (strfromcode 34))
+            } {
+                if (c == 92) {
+                    out = (out + (strfromcode 92) + (strfromcode 92))
+                } {
+                    if (c == 10) {
+                        out = (out + (strfromcode 92) + "n")
+                    } {
+                        if (c == 9) {
+                            out = (out + (strfromcode 92) + "t")
+                        } {
+                            out = (out + (strfromcode c))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

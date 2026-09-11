@@ -1,0 +1,2335 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; D2Model.rgr — what the AST means.
+; ============================================================================
+;
+; `D2Parser` says what is written. This file says what it is: which objects
+; exist, what their absolute ids are, which of them are connected, and which
+; keys were reserved words rather than names. It is the whole of D2's
+; semantics that is not drawing —
+;
+;   * objects, created by being mentioned, nested by their dotted path, and
+;     labelled by their last segment unless something says otherwise
+;   * connections, whose ends are resolved in the scope they were written in,
+;     with the arrowheads the arrow implies and the ones a keyword overrides
+;   * `vars` and `${substitution}`, `classes` and `class`, `suspend`
+;   * globs — `*`, `**` — and the `&` filters that narrow them
+;   * boards: `layers` start empty, `scenarios` inherit, `steps` accumulate
+;
+; **Reserved words are a list, and the list is D2's.** `shape`, `style.fill`,
+; `grid-rows` and the other 46 are `D2Keys.isReserved`, taken from
+; `d2ast.ReservedKeywords` — printed by the oracle, not typed from a website.
+; A key that is not on the list is a name, which is the rule that makes
+; `+find(id int)` a class method and `shape` a shape.
+;
+; **Styles are kept as they were written**, in two parallel arrays rather than
+; twenty fields. A style keyword the next D2 release adds arrives here as a
+; pair this reader does not interpret instead of as a parse error, and
+; `D2Flow` — which is where drawing starts — decides what it can honour.
+;
+; **What is not here.** Geometry, shapes, colours: nothing in this file knows
+; that a `cylinder` is round. And imports: `...@file` and `@file` are recorded
+; with their path and left unresolved, because resolving them means reading
+; files, which is a security boundary that gets its own pass.
+; ============================================================================
+
+Import "./D2Parser.rgr"
+
+; ---------------------------------------------------------------------------
+; D2's reserved vocabulary. The lists are the oracle's
+; (`harness/out/d2.json` → `keywords`), so they can be re-checked against the
+; tool rather than believed.
+; ---------------------------------------------------------------------------
+class D2Keys {
+    ; The keywords that hold a value: `d2ast.SimpleReservedKeywords`.
+    sfn isSimple:boolean (k:string) {
+        if (k == "label")          { return true }
+        if (k == "shape")          { return true }
+        if (k == "icon")           { return true }
+        if (k == "constraint")     { return true }
+        if (k == "tooltip")        { return true }
+        if (k == "link")           { return true }
+        if (k == "near")           { return true }
+        if (k == "width")          { return true }
+        if (k == "height")         { return true }
+        if (k == "direction")      { return true }
+        if (k == "top")            { return true }
+        if (k == "left")           { return true }
+        if (k == "grid-rows")      { return true }
+        if (k == "grid-columns")   { return true }
+        if (k == "grid-gap")       { return true }
+        if (k == "vertical-gap")   { return true }
+        if (k == "horizontal-gap") { return true }
+        if (k == "class")          { return true }
+        if (k == "vars")           { return true }
+        return false
+    }
+
+    ; `d2ast.StyleKeywords` — the twenty that live under `style`.
+    sfn isStyle:boolean (k:string) {
+        if (k == "opacity")        { return true }
+        if (k == "stroke")         { return true }
+        if (k == "fill")           { return true }
+        if (k == "fill-pattern")   { return true }
+        if (k == "stroke-width")   { return true }
+        if (k == "stroke-dash")    { return true }
+        if (k == "border-radius")  { return true }
+        if (k == "font")           { return true }
+        if (k == "font-size")      { return true }
+        if (k == "font-color")     { return true }
+        if (k == "bold")           { return true }
+        if (k == "italic")         { return true }
+        if (k == "underline")      { return true }
+        if (k == "text-transform") { return true }
+        if (k == "shadow")         { return true }
+        if (k == "multiple")       { return true }
+        if (k == "double-border")  { return true }
+        if (k == "3d")             { return true }
+        if (k == "animated")       { return true }
+        if (k == "filled")         { return true }
+        return false
+    }
+
+    ; `d2ast.BoardKeywords`.
+    sfn isBoard:boolean (k:string) {
+        if (k == "layers")    { return true }
+        if (k == "scenarios") { return true }
+        if (k == "steps")     { return true }
+        return false
+    }
+
+    ; The ones that hold a map: `d2ast.CompositeReservedKeywords` plus `style`.
+    sfn isComposite:boolean (k:string) {
+        if (k == "style")            { return true }
+        if (k == "source-arrowhead") { return true }
+        if (k == "target-arrowhead") { return true }
+        if (k == "classes")          { return true }
+        if (k == "constraint")       { return true }
+        if (k == "label")            { return true }
+        if (k == "icon")             { return true }
+        if (k == "tooltip")          { return true }
+        return (D2Keys.isBoard(k))
+    }
+
+    sfn isReserved:boolean (k:string) {
+        if (D2Keys.isSimple(k))    { return true }
+        if (D2Keys.isStyle(k))     { return true }
+        if (D2Keys.isComposite(k)) { return true }
+        return false
+    }
+
+    ; `d2target.Shapes` — the 25 values `shape` accepts. A value that is not
+    ; one of them is kept anyway and reported, because refusing to draw is
+    ; better done with a name than with a silence.
+    sfn isShape:boolean (s:string) {
+        if (s == "rectangle")         { return true }
+        if (s == "square")            { return true }
+        if (s == "page")              { return true }
+        if (s == "parallelogram")     { return true }
+        if (s == "document")          { return true }
+        if (s == "cylinder")          { return true }
+        if (s == "queue")             { return true }
+        if (s == "package")           { return true }
+        if (s == "step")              { return true }
+        if (s == "callout")           { return true }
+        if (s == "stored_data")       { return true }
+        if (s == "person")            { return true }
+        if (s == "c4-person")         { return true }
+        if (s == "diamond")           { return true }
+        if (s == "oval")              { return true }
+        if (s == "circle")            { return true }
+        if (s == "hexagon")           { return true }
+        if (s == "cloud")             { return true }
+        if (s == "text")              { return true }
+        if (s == "code")              { return true }
+        if (s == "class")             { return true }
+        if (s == "sql_table")         { return true }
+        if (s == "image")             { return true }
+        if (s == "sequence_diagram")  { return true }
+        if (s == "hierarchy")         { return true }
+        return false
+    }
+
+    ; `d2target.Arrowheads`.
+    sfn isArrowhead:boolean (s:string) {
+        if (s == "none")             { return true }
+        if (s == "arrow")            { return true }
+        if (s == "triangle")         { return true }
+        if (s == "diamond")          { return true }
+        if (s == "circle")           { return true }
+        if (s == "box")              { return true }
+        if (s == "cross")            { return true }
+        if (s == "cf-one")           { return true }
+        if (s == "cf-many")          { return true }
+        if (s == "cf-one-required")  { return true }
+        if (s == "cf-many-required") { return true }
+        return false
+    }
+
+    sfn lower:string (t:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if (c >= 65) {
+                if (c <= 90) {
+                    c = (c + 32)
+                }
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+; ---------------------------------------------------------------------------
+; A row of a `sql_table` or a member of a `class`. D2 writes both as children
+; of the shape — `id: int { constraint: primary_key }`, `+find(id int): Row` —
+; and neither is an object: D2's own answer for a table with three columns is
+; one shape with three columns, not four shapes.
+; ---------------------------------------------------------------------------
+class D2Field {
+    ; The name with its visibility marker removed: `+find(id int)` → `find(id int)`.
+    def name:string ""
+    ; The name as written, marker and all.
+    def raw:string ""
+    ; The value: a column's type, a method's return.
+    def type:string ""
+    ; "public" · "private" · "protected"
+    def visibility:string "public"
+    def isMethod:boolean false
+    def constraints:[string]
+
+    Constructor () {
+    }
+
+    fn clone:D2Field () {
+        def f (new D2Field)
+        f.name = name
+        f.raw = raw
+        f.type = type
+        f.visibility = visibility
+        f.isMethod = isMethod
+        def i:int 0
+        while (i < (array_length constraints)) {
+            push f.constraints (itemAt constraints i)
+            i = (i + 1)
+        }
+        return f
+    }
+}
+
+; ---------------------------------------------------------------------------
+; One object. Everything D2 can say about a box, kept as D2 spells it.
+; ---------------------------------------------------------------------------
+class D2Object {
+    def id:string ""
+    def name:string ""
+    def label:string ""
+    ; Whether anything said what the label is, as opposed to it defaulting to
+    ; the object's own name.
+    def labelSet:boolean false
+    ; "" for a plain label, else the block string's tag: `md`, `go`, `latex`…
+    def labelTag:string ""
+    def parent:string ""
+    def level:int 1
+    ; "" means D2's default, which is `rectangle`.
+    def shape:string ""
+    def near:string ""
+    def icon:string ""
+    def link:string ""
+    def tooltip:string ""
+    def direction:string ""
+    def width:double 0.0
+    def height:double 0.0
+    def top:double 0.0
+    def left:double 0.0
+    def hasPosition:boolean false
+    def gridRows:int 0
+    def gridColumns:int 0
+    def gridGap:int -1
+    def verticalGap:int -1
+    def horizontalGap:int -1
+    def constraints:[string]
+    def classNames:[string]
+    def suspended:boolean false
+    def order:int 0
+    ; Style, as written: two parallel arrays, so a keyword this reader does
+    ; not know survives to be reported rather than dropped.
+    def styleKeys:[string]
+    def styleVals:[string]
+    ; A `sql_table`'s columns and a `class`'s members — children in the text,
+    ; rows of one shape in the diagram.
+    def fields:[D2Field]
+
+    Constructor () {
+    }
+
+    fn setStyle:void (k:string v:string) {
+        def i:int 0
+        while (i < (array_length styleKeys)) {
+            if ((itemAt styleKeys i) == k) {
+                styleVals = (D2Object.replaceAt(styleVals i v))
+                return
+            }
+            i = (i + 1)
+        }
+        push styleKeys k
+        push styleVals v
+    }
+
+    fn style:string (k:string) {
+        def i:int 0
+        while (i < (array_length styleKeys)) {
+            if ((itemAt styleKeys i) == k) {
+                return (itemAt styleVals i)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn hasStyle:boolean (k:string) {
+        def i:int 0
+        while (i < (array_length styleKeys)) {
+            if ((itemAt styleKeys i) == k) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn addField:D2Field (f:D2Field) {
+        push fields f
+        return f
+    }
+
+    fn fieldCount:int () {
+        return (array_length fields)
+    }
+
+    fn fieldAt:D2Field (i:int) {
+        return (itemAt fields i)
+    }
+
+    ; The table or class this row belongs to, when a connection names a row:
+    ; `users.org_id -> orgs.id` is drawn between the two tables.
+    fn hasField:boolean (name:string) {
+        def i:int 0
+        while (i < (array_length fields)) {
+            def f:D2Field (itemAt fields i)
+            if (f.raw == name) {
+                return true
+            }
+            if (f.name == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn isCompartment:boolean () {
+        if (shape == "sql_table") {
+            return true
+        }
+        return (shape == "class")
+    }
+
+    ; Ranger has no array assignment at an index, so a replacement is a copy.
+    sfn replaceAt:[string] (arr:[string] at:int v:string) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length arr)) {
+            if (i == at) {
+                push out v
+            } {
+                push out (itemAt arr i)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn clone:D2Object () {
+        def o (new D2Object)
+        o.id = id
+        o.name = name
+        o.label = label
+        o.labelSet = labelSet
+        o.labelTag = labelTag
+        o.parent = parent
+        o.level = level
+        o.shape = shape
+        o.near = near
+        o.icon = icon
+        o.link = link
+        o.tooltip = tooltip
+        o.direction = direction
+        o.width = width
+        o.height = height
+        o.top = top
+        o.left = left
+        o.hasPosition = hasPosition
+        o.gridRows = gridRows
+        o.gridColumns = gridColumns
+        o.gridGap = gridGap
+        o.verticalGap = verticalGap
+        o.horizontalGap = horizontalGap
+        o.suspended = suspended
+        o.order = order
+        def i:int 0
+        while (i < (array_length constraints)) {
+            push o.constraints (itemAt constraints i)
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length classNames)) {
+            push o.classNames (itemAt classNames j)
+            j = (j + 1)
+        }
+        def k:int 0
+        while (k < (array_length styleKeys)) {
+            push o.styleKeys (itemAt styleKeys k)
+            push o.styleVals (itemAt styleVals k)
+            k = (k + 1)
+        }
+        def m:int 0
+        while (m < (array_length fields)) {
+            def f:D2Field (itemAt fields m)
+            push o.fields (f.clone())
+            m = (m + 1)
+        }
+        return o
+    }
+}
+
+; ---------------------------------------------------------------------------
+; Where one end of a connection landed: the object, and the row of it when the
+; end named a `sql_table` column or a `class` member.
+; ---------------------------------------------------------------------------
+class D2EndRef {
+    def id:string ""
+    def field:string ""
+
+    Constructor () {
+    }
+}
+
+; ---------------------------------------------------------------------------
+; One connection.
+; ---------------------------------------------------------------------------
+class D2Conn {
+    def src:string ""
+    def dst:string ""
+    ; "->" "<-" "--" "<->", as written.
+    def arrow:string ""
+    ; The arrowhead each end draws. "" means D2's default for the arrow.
+    def srcArrow:string ""
+    def dstArrow:string ""
+    ; -1 unset · 0 `filled: false` · 1 `filled: true`
+    def srcFilled:int -1
+    def dstFilled:int -1
+    def srcArrowLabel:string ""
+    def dstArrowLabel:string ""
+    def label:string ""
+    def labelTag:string ""
+    ; When an end named a `sql_table` row or a `class` member, the connection
+    ; is drawn between the two shapes and this is the row it started from.
+    def srcField:string ""
+    def dstField:string ""
+    def scope:string ""
+    ; Which connection between these two ends this is: `(a -> b)[1]`.
+    def index:int 0
+    def order:int 0
+    def suspended:boolean false
+    def styleKeys:[string]
+    def styleVals:[string]
+
+    Constructor () {
+    }
+
+    fn setStyle:void (k:string v:string) {
+        def i:int 0
+        while (i < (array_length styleKeys)) {
+            if ((itemAt styleKeys i) == k) {
+                styleVals = (D2Object.replaceAt(styleVals i v))
+                return
+            }
+            i = (i + 1)
+        }
+        push styleKeys k
+        push styleVals v
+    }
+
+    fn style:string (k:string) {
+        def i:int 0
+        while (i < (array_length styleKeys)) {
+            if ((itemAt styleKeys i) == k) {
+                return (itemAt styleVals i)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; What the arrow itself says, before any `source-arrowhead` overrides it.
+    fn defaultSrc:string () {
+        if (arrow == "<->") { return "triangle" }
+        if (arrow == "<-")  { return "triangle" }
+        return "none"
+    }
+
+    fn defaultDst:string () {
+        if (arrow == "--") { return "none" }
+        if (arrow == "<-") { return "none" }
+        return "triangle"
+    }
+
+    ; An arrowhead keyword only counts at an end where the arrow itself draws
+    ; one: `a -> b` with a `source-arrowhead` draws no source head, and `--`
+    ; draws neither however it is decorated. Measured against d2 v0.7.1, which
+    ; answers `none` for all three.
+    fn srcHead:string () {
+        if ((this.defaultSrc()) == "none") {
+            return "none"
+        }
+        if ((strlen srcArrow) > 0) {
+            return srcArrow
+        }
+        return (this.defaultSrc())
+    }
+
+    fn dstHead:string () {
+        if ((this.defaultDst()) == "none") {
+            return "none"
+        }
+        if ((strlen dstArrow) > 0) {
+            return dstArrow
+        }
+        return (this.defaultDst())
+    }
+
+    fn clone:D2Conn () {
+        def c (new D2Conn)
+        c.src = src
+        c.dst = dst
+        c.arrow = arrow
+        c.srcArrow = srcArrow
+        c.dstArrow = dstArrow
+        c.srcFilled = srcFilled
+        c.dstFilled = dstFilled
+        c.srcArrowLabel = srcArrowLabel
+        c.dstArrowLabel = dstArrowLabel
+        c.label = label
+        c.labelTag = labelTag
+        c.srcField = srcField
+        c.dstField = dstField
+        c.scope = scope
+        c.index = index
+        c.order = order
+        c.suspended = suspended
+        def k:int 0
+        while (k < (array_length styleKeys)) {
+            push c.styleKeys (itemAt styleKeys k)
+            push c.styleVals (itemAt styleVals k)
+            k = (k + 1)
+        }
+        return c
+    }
+}
+
+; ---------------------------------------------------------------------------
+; One board: the root, or a layer, a scenario or a step of it.
+; ---------------------------------------------------------------------------
+class D2Board {
+    ; "root" · "layer" · "scenario" · "step"
+    def kind:string "root"
+    def name:string ""
+    def objects:[D2Object]
+    def conns:[D2Conn]
+    def boards:[D2Board]
+    def index:[string:int]
+    def direction:string ""
+    ; `@file` and `...@file`, recorded and not resolved — see the header.
+    def imports:[string]
+    def errors:[string]
+
+    Constructor () {
+    }
+
+    fn objectCount:int () {
+        return (array_length objects)
+    }
+
+    fn connCount:int () {
+        return (array_length conns)
+    }
+
+    fn boardCount:int () {
+        return (array_length boards)
+    }
+
+    fn has:boolean (id:string) {
+        return (has index id)
+    }
+
+    fn indexOf:int (id:string) {
+        if (has index id) {
+            return (unwrap (get index id))
+        }
+        return -1
+    }
+
+    fn object:D2Object (id:string) {
+        def i:int (this.indexOf(id))
+        if (i < 0) {
+            return (new D2Object)
+        }
+        return (itemAt objects i)
+    }
+
+    fn add:D2Object (o:D2Object) {
+        set index o.id (array_length objects)
+        push objects o
+        return o
+    }
+
+    ; Every object that is still on the board — `suspend` takes one off it.
+    fn live:[D2Object] () {
+        def out:[D2Object]
+        def i:int 0
+        while (i < (array_length objects)) {
+            def o:D2Object (itemAt objects i)
+            if (o.suspended == false) {
+                push out o
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn liveConns:[D2Conn] () {
+        def out:[D2Conn]
+        def i:int 0
+        while (i < (array_length conns)) {
+            def c:D2Conn (itemAt conns i)
+            if (c.suspended == false) {
+                push out c
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn boardAt:D2Board (i:int) {
+        return (itemAt boards i)
+    }
+
+    ; A scenario starts as its parent and is then edited; a step starts as the
+    ; step before it. Both need the board copied rather than shared.
+    fn clone:D2Board () {
+        def b (new D2Board)
+        b.kind = kind
+        b.name = name
+        b.direction = direction
+        def i:int 0
+        while (i < (array_length objects)) {
+            def o:D2Object (itemAt objects i)
+            def c:D2Object (o.clone())
+            set b.index c.id (array_length b.objects)
+            push b.objects c
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length conns)) {
+            def cn:D2Conn (itemAt conns j)
+            push b.conns (cn.clone())
+            j = (j + 1)
+        }
+        def k:int 0
+        while (k < (array_length imports)) {
+            push b.imports (itemAt imports k)
+            k = (k + 1)
+        }
+        return b
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The compiler from AST to board.
+; ---------------------------------------------------------------------------
+class D2Model {
+    ; `vars`, flattened to `name` → text, and `classes`, name → declarations.
+    def varNames:[string]
+    def varVals:[string]
+    def classNames:[string]
+    def classBodies:[[D2Decl]]
+    def order:int 0
+    def board:D2Board
+    ; The directory the file being read lives in. Imports resolve against it,
+    ; and may not leave it — see `importPath`.
+    def baseDir:string ""
+    ; The import chain, so a file that imports itself is an error rather than
+    ; a hang.
+    def importing:[string]
+
+    Constructor () {
+    }
+
+    sfn compile:D2Board (f:D2File) {
+        return (D2Model.compileIn(f ""))
+    }
+
+    ; `dir` is where the file was read from, and the only directory an import
+    ; is allowed to name.
+    sfn compileIn:D2Board (f:D2File dir:string) {
+        def m (new D2Model)
+        def b (new D2Board)
+        b.kind = "root"
+        m.board = b
+        m.baseDir = dir
+        def i:int 0
+        while (i < (array_length f.errors)) {
+            push b.errors (itemAt f.errors i)
+            i = (i + 1)
+        }
+        m.collectVars(f.decls)
+        m.run(f.decls "")
+        m.finish()
+        return b
+    }
+
+    ; What can only be known once the whole file has been read.
+    ;
+    ; A span inside a sequence diagram — `api.t1` — is a lifetime, not a box
+    ; with a name on it, and D2 draws it with no label at all. Nothing says so
+    ; at the point it is created, because the shape of its grandparent may be
+    ; declared afterwards.
+    fn finish:void () {
+        def i:int 0
+        while (i < (array_length board.objects)) {
+            def o:D2Object (itemAt board.objects i)
+            i = (i + 1)
+            if o.labelSet {
+                continue
+            }
+            def sd:string (this.sequenceAncestor(o.parent))
+            if ((strlen sd) == 0) {
+                continue
+            }
+            if (o.level > ((D2Model.levelOf(sd)) + 1)) {
+                o.label = ""
+            }
+        }
+    }
+
+    sfn read:D2Board (src:string) {
+        return (D2Model.readFrom(src ""))
+    }
+
+    ; The form that can follow an import: `dir` is where the file was read
+    ; from, and the only directory an import is allowed to name.
+    sfn readFrom:D2Board (src:string dir:string) {
+        def f:D2File (D2Parser.parse(src))
+        return (D2Model.compileIn(f dir))
+    }
+
+    ; ------------------------------------------------------------- vars ----
+    ; `vars` is read before anything else, because a substitution can appear
+    ; in the very first statement of a file that declares them at the bottom.
+    fn collectVars:void (decls:[D2Decl]) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:D2Decl (itemAt decls i)
+            i = (i + 1)
+            if d.isEdge {
+                continue
+            }
+            def p:D2Path (d.path())
+            if ((p.size()) != 1) {
+                continue
+            }
+            if (((p.partAt(0)).name) != "vars") {
+                continue
+            }
+            if ((d.hasValue()) == false) {
+                continue
+            }
+            def v:D2Value (d.value())
+            if (v.hasMap) {
+                this.readVars(v.body "")
+            }
+        }
+    }
+
+    fn readVars:void (decls:[D2Decl] prefix:string) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:D2Decl (itemAt decls i)
+            i = (i + 1)
+            if d.isEdge {
+                continue
+            }
+            def p:D2Path (d.path())
+            if ((p.size()) == 0) {
+                continue
+            }
+            def name:string ((p.partAt(0)).name)
+            if ((strlen prefix) > 0) {
+                name = (prefix + "." + name)
+            }
+            if ((d.hasValue()) == false) {
+                continue
+            }
+            def v:D2Value (d.value())
+            if v.hasMap {
+                this.readVars(v.body name)
+            }
+            if ((strlen v.text) > 0) {
+                push varNames name
+                push varVals (this.substitute(v.text))
+            }
+        }
+    }
+
+    ; `${name}` — resolved against `vars`, left as written when nothing
+    ; declares it, which is what D2 does with an unknown substitution.
+    fn substitute:string (text:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == 36) {
+                if ((i + 1) < n) {
+                    if ((charAt text (i + 1)) == 123) {
+                        def close:int -1
+                        def k:int (i + 2)
+                        while (k < n) {
+                            if ((charAt text k) == 125) {
+                                close = k
+                                k = n
+                            } {
+                                k = (k + 1)
+                            }
+                        }
+                        if (close > 0) {
+                            def name:string (trim (substring text (i + 2) close))
+                            out = (out + (this.varValue(name)))
+                            i = (close + 1)
+                            continue
+                        }
+                    }
+                }
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn varValue:string (name:string) {
+        def i:int 0
+        while (i < (array_length varNames)) {
+            if ((itemAt varNames i) == name) {
+                return (itemAt varVals i)
+            }
+            i = (i + 1)
+        }
+        return ("${" + name + "}")
+    }
+
+    ; ------------------------------------------------------------ classes --
+    fn classBody:[D2Decl] (name:string) {
+        def i:int 0
+        while (i < (array_length classNames)) {
+            if ((itemAt classNames i) == name) {
+                return (itemAt classBodies i)
+            }
+            i = (i + 1)
+        }
+        def empty:[D2Decl]
+        return empty
+    }
+
+    fn hasClass:boolean (name:string) {
+        def i:int 0
+        while (i < (array_length classNames)) {
+            if ((itemAt classNames i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; -------------------------------------------------------------- ids -----
+    sfn joinId:string (scope:string name:string) {
+        if ((strlen scope) == 0) {
+            return name
+        }
+        return (scope + "." + name)
+    }
+
+    sfn levelOf:int (id:string) {
+        def n:int 1
+        def i:int 0
+        while (i < (strlen id)) {
+            if ((charAt id i) == 46) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; An object is created by being mentioned, and so is every ancestor of it.
+    fn ensure:D2Object (scope:string path:D2Path) {
+        def id:string scope
+        def obj (new D2Object)
+        def i:int 0
+        while (i < (path.size())) {
+            def part:D2Part (path.partAt(i))
+            id = (D2Model.joinId(id part.raw))
+            obj = (this.ensureId(id part))
+            i = (i + 1)
+        }
+        return obj
+    }
+
+    fn ensureId:D2Object (id:string part:D2Part) {
+        def at:int (board.indexOf(id))
+        if (at >= 0) {
+            return (itemAt board.objects at)
+        }
+        def o (new D2Object)
+        o.id = id
+        o.name = part.name
+        o.label = part.name
+        o.level = (D2Model.levelOf(id))
+        o.parent = (D2Model.parentOf(id))
+        o.order = order
+        order = (order + 1)
+        return (board.add(o))
+    }
+
+    sfn parentOf:string (id:string) {
+        def cut:int -1
+        def i:int 0
+        while (i < (strlen id)) {
+            if ((charAt id i) == 46) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return ""
+        }
+        return (substring id 0 cut)
+    }
+
+    ; ------------------------------------------------------ the main walk ---
+    fn run:void (decls:[D2Decl] scope:string) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:D2Decl (itemAt decls i)
+            i = (i + 1)
+            this.statement(d scope)
+        }
+    }
+
+    fn statement:void (d:D2Decl scope:string) {
+        if d.isSpread {
+            push board.imports d.spread
+            if ((strlen d.spread) > 0) {
+                if ((charAt d.spread 0) == 64) {
+                    def saved:string baseDir
+                    def depth:int (array_length importing)
+                    def iv:D2Value (this.importValue((substring d.spread 1 (strlen d.spread))))
+                    if iv.hasMap {
+                        this.run(iv.body scope)
+                    }
+                    baseDir = saved
+                    importing = (D2Model.truncate(importing depth))
+                }
+            }
+            return
+        }
+        if d.isEdge {
+            this.edge(d scope)
+            return
+        }
+        def p:D2Path (d.path())
+        if p.isEdgeRef {
+            this.edgeRefStatement(d scope)
+            return
+        }
+        if ((p.size()) == 0) {
+            return
+        }
+        ; A reserved word at the head of the path is a property of the scope
+        ; itself: `shape: circle` inside `a: { … }`, `direction: right` at the
+        ; root, `layers: { … }` anywhere.
+        def head:string ((p.partAt(0)).name)
+        if (D2Keys.isBoard(head)) {
+            this.boardsOf(d head)
+            return
+        }
+        if (head == "vars") {
+            return
+        }
+        if (head == "classes") {
+            this.declareClasses(d)
+            return
+        }
+        if (D2Keys.isReserved(head)) {
+            if (D2Model.allReserved(p)) {
+                this.property(scope p 0 d)
+                return
+            }
+        }
+        ; Otherwise the path names objects, up to the point where a reserved
+        ; word takes over: `a.b.style.fill` is object `a.b`, style `fill`.
+        def cut:int (D2Model.reservedAt(p))
+        if (cut == 0) {
+            cut = (p.size())
+        }
+        def objPath:D2Path (D2Model.subPath(p 0 cut))
+        if (objPath.hasPattern()) {
+            this.patterned(d scope objPath p cut)
+            return
+        }
+        def o:D2Object (this.ensure(scope objPath))
+        if (cut < (p.size())) {
+            this.applyProperty(o (D2Model.subPath(p cut (p.size()))) d)
+            return
+        }
+        this.applyValue(o d scope)
+    }
+
+    ; Where the reserved part of a path begins, or 0 when it has none.
+    sfn reservedAt:int (p:D2Path) {
+        def i:int 0
+        while (i < (p.size())) {
+            def part:D2Part (p.partAt(i))
+            if (part.quoted == false) {
+                if (D2Keys.isReserved(part.name)) {
+                    ; `style` and the arrowheads only hold maps, so they are
+                    ; never the last word of an object path either way.
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    sfn allReserved:boolean (p:D2Path) {
+        return ((D2Model.reservedAt(p)) == 0)
+    }
+
+    sfn subPath:D2Path (p:D2Path from:int to:int) {
+        def out (new D2Path)
+        def i:int from
+        while (i < to) {
+            push out.parts (p.partAt(i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A property of the scope itself, rather than of an object under it.
+    fn property:void (scope:string p:D2Path at:int d:D2Decl) {
+        if ((strlen scope) == 0) {
+            ; The root board's own keys: `direction`, and the styles a root
+            ; has no box to carry — recorded, never invented.
+            def head:string ((p.partAt(0)).name)
+            if (head == "direction") {
+                board.direction = (this.scalarOf(d))
+            }
+            return
+        }
+        def o:D2Object (board.object(scope))
+        if ((strlen o.id) == 0) {
+            return
+        }
+        this.applyProperty(o p d)
+    }
+
+    ; ------------------------------------------------------------- values ---
+    fn scalarOf:string (d:D2Decl) {
+        if ((d.hasValue()) == false) {
+            return ""
+        }
+        def v:D2Value (d.value())
+        return (this.substitute(v.text))
+    }
+
+    fn applyValue:void (o:D2Object d:D2Decl scope:string) {
+        if ((d.hasValue()) == false) {
+            return
+        }
+        def v:D2Value (d.value())
+        if (v.kind == "suspend") {
+            this.suspend(o.id true)
+            return
+        }
+        if (v.kind == "unsuspend") {
+            this.suspend(o.id false)
+            return
+        }
+        if (v.kind == "import") {
+            push board.imports v.text
+            def saved:string baseDir
+            def depth:int (array_length importing)
+            def iv:D2Value (this.importValue(v.text))
+            if ((strlen iv.text) > 0) {
+                o.label = iv.text
+                o.labelSet = true
+            }
+            if iv.hasMap {
+                def sh:string (this.shapeIn(iv.body o.shape))
+                if (D2Model.isCompartmentShape(sh)) {
+                    this.members(o iv.body)
+                } {
+                    this.run(iv.body o.id)
+                }
+            }
+            baseDir = saved
+            importing = (D2Model.truncate(importing depth))
+            return
+        }
+        if (v.kind == "block") {
+            this.blockLabel(o v)
+        } {
+            if ((strlen v.text) > 0) {
+                o.label = (this.substitute(v.text))
+                o.labelSet = true
+            }
+        }
+        if v.hasMap {
+            ; `shape` is read before the children are, so a table's columns are
+            ; columns whichever line declares the shape.
+            def sh:string (this.shapeIn(v.body o.shape))
+            if (D2Model.isCompartmentShape(sh)) {
+                this.members(o v.body)
+            } {
+                this.run(v.body o.id)
+            }
+        }
+    }
+
+    sfn isCompartmentShape:boolean (sh:string) {
+        if (sh == "sql_table") {
+            return true
+        }
+        return (sh == "class")
+    }
+
+    ; What `shape:` says in this map, or what the object already had.
+    fn shapeIn:string (decls:[D2Decl] fallback:string) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:D2Decl (itemAt decls i)
+            i = (i + 1)
+            if d.isEdge {
+                continue
+            }
+            def p:D2Path (d.path())
+            if ((p.size()) != 1) {
+                continue
+            }
+            def part:D2Part (p.partAt(0))
+            if (part.name != "shape") {
+                continue
+            }
+            def sv:string (this.scalarOf(d))
+            return (D2Keys.lower(sv))
+        }
+        return fallback
+    }
+
+    ; The children of a `sql_table` or a `class`: rows, not objects. The
+    ; reserved words still mean what they mean — a table has a `style` too.
+    fn members:void (o:D2Object decls:[D2Decl]) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:D2Decl (itemAt decls i)
+            i = (i + 1)
+            if d.isEdge {
+                continue
+            }
+            def p:D2Path (d.path())
+            if ((p.size()) == 0) {
+                continue
+            }
+            def part:D2Part (p.partAt(0))
+            if (part.quoted == false) {
+                if (D2Keys.isReserved(part.name)) {
+                    this.applyProperty(o p d)
+                    continue
+                }
+            }
+            def f (new D2Field)
+            f.raw = part.raw
+            f.name = D2Model.stripVisibility(part.name)
+            f.visibility = D2Model.visibilityOf(part.name)
+            f.isMethod = D2Model.looksLikeMethod(f.name)
+            if (d.hasValue()) {
+                def v:D2Value (d.value())
+                f.type = (this.substitute(v.text))
+                if v.hasMap {
+                    this.memberMap(f v.body)
+                }
+            }
+            o.addField(f)
+        }
+    }
+
+    ; `id: int { constraint: primary_key }`
+    fn memberMap:void (f:D2Field decls:[D2Decl]) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:D2Decl (itemAt decls i)
+            i = (i + 1)
+            def p:D2Path (d.path())
+            if ((p.size()) == 0) {
+                continue
+            }
+            def part:D2Part (p.partAt(0))
+            if (part.name != "constraint") {
+                continue
+            }
+            if ((d.hasValue()) == false) {
+                continue
+            }
+            def v:D2Value (d.value())
+            if ((array_length v.items) > 0) {
+                def k:int 0
+                while (k < (array_length v.items)) {
+                    def it:D2Value (itemAt v.items k)
+                    push f.constraints it.text
+                    k = (k + 1)
+                }
+            } {
+                if ((strlen v.text) > 0) {
+                    push f.constraints v.text
+                }
+            }
+        }
+    }
+
+    ; `+`, `-` and `#` in front of a class member.
+    sfn visibilityOf:string (name:string) {
+        if ((strlen name) == 0) {
+            return "public"
+        }
+        def c:int (charAt name 0)
+        if (c == 45) {
+            return "private"
+        }
+        if (c == 35) {
+            return "protected"
+        }
+        return "public"
+    }
+
+    sfn stripVisibility:string (name:string) {
+        if ((strlen name) == 0) {
+            return name
+        }
+        def c:int (charAt name 0)
+        if (c == 43) {
+            return (substring name 1 (strlen name))
+        }
+        if (c == 45) {
+            return (substring name 1 (strlen name))
+        }
+        if (c == 35) {
+            return (substring name 1 (strlen name))
+        }
+        return name
+    }
+
+    sfn looksLikeMethod:boolean (name:string) {
+        def i:int 0
+        while (i < (strlen name)) {
+            if ((charAt name i) == 40) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; `shape: circle`, `style.fill: red`, `source-arrowhead.shape: diamond` —
+    ; `p` is the reserved tail of the path, `d` carries the value.
+    fn applyProperty:void (o:D2Object p:D2Path d:D2Decl) {
+        if ((p.size()) == 0) {
+            return
+        }
+        def k:string ((p.partAt(0)).name)
+        def text:string (this.scalarOf(d))
+        if (k == "style") {
+            if ((p.size()) > 1) {
+                this.styleOn(o ((p.partAt(1)).name) text)
+                return
+            }
+            if (d.hasValue()) {
+                def sv:D2Value (d.value())
+                if sv.hasMap {
+                    this.styleMap(o sv.body)
+                }
+            }
+            return
+        }
+        if (D2Keys.isStyle(k)) {
+            ; `a.bold: true` is not legal D2, but `style` may have been the
+            ; scope: `style: { bold: true }` arrives here one part shorter.
+            this.styleOn(o k text)
+            return
+        }
+        if (k == "label") {
+            this.labelOn(o d)
+            return
+        }
+        if (k == "shape") {
+            o.shape = (D2Keys.lower(text))
+            return
+        }
+        if (k == "icon") {
+            o.icon = text
+            return
+        }
+        if (k == "link") {
+            o.link = text
+            return
+        }
+        if (k == "tooltip") {
+            o.tooltip = text
+            return
+        }
+        if (k == "near") {
+            o.near = text
+            return
+        }
+        if (k == "direction") {
+            o.direction = (D2Keys.lower(text))
+            return
+        }
+        if (k == "width") {
+            o.width = (D2Model.toNum(text))
+            return
+        }
+        if (k == "height") {
+            o.height = (D2Model.toNum(text))
+            return
+        }
+        if (k == "top") {
+            o.top = (D2Model.toNum(text))
+            o.hasPosition = true
+            return
+        }
+        if (k == "left") {
+            o.left = (D2Model.toNum(text))
+            o.hasPosition = true
+            return
+        }
+        if (k == "grid-rows") {
+            o.gridRows = (D2Model.toInt(text))
+            return
+        }
+        if (k == "grid-columns") {
+            o.gridColumns = (D2Model.toInt(text))
+            return
+        }
+        if (k == "grid-gap") {
+            o.gridGap = (D2Model.toInt(text))
+            return
+        }
+        if (k == "vertical-gap") {
+            o.verticalGap = (D2Model.toInt(text))
+            return
+        }
+        if (k == "horizontal-gap") {
+            o.horizontalGap = (D2Model.toInt(text))
+            return
+        }
+        if (k == "class") {
+            this.applyClasses(o d)
+            return
+        }
+        if (k == "constraint") {
+            this.constraintOn(o d)
+            return
+        }
+    }
+
+    fn labelOn:void (o:D2Object d:D2Decl) {
+        if ((d.hasValue()) == false) {
+            return
+        }
+        def v:D2Value (d.value())
+        if (v.kind == "block") {
+            this.blockLabel(o v)
+            return
+        }
+        o.label = (this.substitute(v.text))
+        o.labelSet = true
+    }
+
+    ; A block string is not only a label: D2 draws `|md …|` and `|latex …|` as
+    ; a `text` shape and a tagged one — `|go …|` — as `code`, unless the object
+    ; says what shape it is.
+    fn blockLabel:void (o:D2Object v:D2Value) {
+        o.label = v.text
+        o.labelTag = v.tag
+        o.labelSet = true
+        if ((strlen o.shape) > 0) {
+            return
+        }
+        if (v.tag == "md") {
+            o.shape = "text"
+            return
+        }
+        if (v.tag == "latex") {
+            o.shape = "text"
+            return
+        }
+        if (v.tag == "text") {
+            o.shape = "text"
+            return
+        }
+        o.shape = "code"
+    }
+
+    fn styleOn:void (o:D2Object k:string v:string) {
+        o.setStyle(k v)
+    }
+
+    fn styleMap:void (o:D2Object decls:[D2Decl]) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:D2Decl (itemAt decls i)
+            i = (i + 1)
+            def p:D2Path (d.path())
+            if ((p.size()) == 0) {
+                continue
+            }
+            this.styleOn(o ((p.partAt(0)).name) (this.scalarOf(d)))
+        }
+    }
+
+    fn constraintOn:void (o:D2Object d:D2Decl) {
+        if ((d.hasValue()) == false) {
+            return
+        }
+        def v:D2Value (d.value())
+        if ((array_length v.items) > 0) {
+            def i:int 0
+            while (i < (array_length v.items)) {
+                def it:D2Value (itemAt v.items i)
+                push o.constraints it.text
+                i = (i + 1)
+            }
+            return
+        }
+        if ((strlen v.text) > 0) {
+            push o.constraints v.text
+        }
+    }
+
+    fn applyClasses:void (o:D2Object d:D2Decl) {
+        if ((d.hasValue()) == false) {
+            return
+        }
+        def v:D2Value (d.value())
+        def names:[string]
+        if ((array_length v.items) > 0) {
+            def i:int 0
+            while (i < (array_length v.items)) {
+                def it:D2Value (itemAt v.items i)
+                push names it.text
+                i = (i + 1)
+            }
+        } {
+            if ((strlen v.text) > 0) {
+                push names v.text
+            }
+        }
+        def j:int 0
+        while (j < (array_length names)) {
+            def name:string (itemAt names j)
+            j = (j + 1)
+            push o.classNames name
+            if (this.hasClass(name)) {
+                this.run((this.classBody(name)) o.id)
+            } {
+                push board.errors ("no class named `" + name + "`")
+            }
+        }
+    }
+
+    fn declareClasses:void (d:D2Decl) {
+        if ((d.hasValue()) == false) {
+            return
+        }
+        def v:D2Value (d.value())
+        if (v.hasMap == false) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length v.body)) {
+            def one:D2Decl (itemAt v.body i)
+            i = (i + 1)
+            def p:D2Path (one.path())
+            if ((p.size()) == 0) {
+                continue
+            }
+            if ((one.hasValue()) == false) {
+                continue
+            }
+            def bv:D2Value (one.value())
+            if (bv.hasMap == false) {
+                continue
+            }
+            push classNames ((p.partAt(0)).name)
+            push classBodies bv.body
+        }
+    }
+
+    sfn toNum:double (t:string) {
+        return (?? (to_double t) 0.0)
+    }
+
+    sfn toInt:int (t:string) {
+        return (?? (to_int t) 0)
+    }
+
+    ; ----------------------------------------------------------- suspend ----
+    ; `x: suspend` takes an object and everything under it off the board, and
+    ; the connections that touched it with them.
+    fn suspend:void (id:string on:boolean) {
+        def i:int 0
+        while (i < (array_length board.objects)) {
+            def o:D2Object (itemAt board.objects i)
+            i = (i + 1)
+            if (o.id == id) {
+                o.suspended = on
+            } {
+                if (D2Model.isUnder(o.id id)) {
+                    o.suspended = on
+                }
+            }
+        }
+        def j:int 0
+        while (j < (array_length board.conns)) {
+            def c:D2Conn (itemAt board.conns j)
+            j = (j + 1)
+            if (D2Model.touches(c.src id)) {
+                c.suspended = on
+            }
+            if (D2Model.touches(c.dst id)) {
+                c.suspended = on
+            }
+        }
+    }
+
+    sfn isUnder:boolean (id:string ancestor:string) {
+        def n:int (strlen ancestor)
+        if ((strlen id) <= n) {
+            return false
+        }
+        if ((substring id 0 n) != ancestor) {
+            return false
+        }
+        return ((charAt id n) == 46)
+    }
+
+    sfn touches:boolean (id:string other:string) {
+        if (id == other) {
+            return true
+        }
+        return (D2Model.isUnder(id other))
+    }
+
+    ; ------------------------------------------------------------ globs -----
+    ; `*.style.fill: red` and `**.style.opacity: 0.9`. A glob never creates an
+    ; object: it selects the ones that are there when the line is read, which
+    ; is why the order of statements in a D2 file is part of its meaning.
+    fn patterned:void (d:D2Decl scope:string objPath:D2Path full:D2Path cut:int) {
+        def targets:[string] (this.matches(scope objPath))
+        def filters:[D2Decl]
+        def body:[D2Decl]
+        def hasBody:boolean false
+        if (cut >= (full.size())) {
+            if (d.hasValue()) {
+                def v:D2Value (d.value())
+                if v.hasMap {
+                    hasBody = true
+                    def i:int 0
+                    while (i < (array_length v.body)) {
+                        def one:D2Decl (itemAt v.body i)
+                        i = (i + 1)
+                        if (((one.path()).filterKind()) > 0) {
+                            push filters one
+                        } {
+                            push body one
+                        }
+                    }
+                }
+            }
+        }
+        def t:int 0
+        while (t < (array_length targets)) {
+            def id:string (itemAt targets t)
+            t = (t + 1)
+            def o:D2Object (board.object(id))
+            if ((strlen o.id) == 0) {
+                continue
+            }
+            if ((this.passes(o filters)) == false) {
+                continue
+            }
+            if (cut < (full.size())) {
+                this.applyProperty(o (D2Model.subPath(full cut (full.size()))) d)
+                continue
+            }
+            if hasBody {
+                this.run(body o.id)
+                continue
+            }
+            this.applyValue(o d scope)
+        }
+    }
+
+    ; `&shape: circle` — the objects a glob is allowed to touch.
+    fn passes:boolean (o:D2Object filters:[D2Decl]) {
+        def i:int 0
+        while (i < (array_length filters)) {
+            def f:D2Decl (itemAt filters i)
+            i = (i + 1)
+            def p:D2Path (f.path())
+            def want:string (this.scalarOf(f))
+            def got:string (this.attribute(o p))
+            def hit:boolean (got == want)
+            if (((p.filterKind()) == 2)) {
+                if hit {
+                    return false
+                }
+            } {
+                if (hit == false) {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
+    ; The value a filter compares against, by the name it used.
+    fn attribute:string (o:D2Object p:D2Path) {
+        def k:string ((p.partAt(0)).name)
+        if (k == "style") {
+            if ((p.size()) > 1) {
+                return (o.style(((p.partAt(1)).name)))
+            }
+            return ""
+        }
+        if (D2Keys.isStyle(k)) {
+            return (o.style(k))
+        }
+        if (k == "shape") {
+            if ((strlen o.shape) == 0) {
+                return "rectangle"
+            }
+            return o.shape
+        }
+        if (k == "label") {
+            return o.label
+        }
+        if (k == "icon") {
+            return o.icon
+        }
+        if (k == "link") {
+            return o.link
+        }
+        if (k == "near") {
+            return o.near
+        }
+        if (k == "tooltip") {
+            return o.tooltip
+        }
+        return ""
+    }
+
+    ; Which objects a pattern path selects. `*` is one level under the scope,
+    ; `**` is every level under it.
+    fn matches:[string] (scope:string path:D2Path) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length board.objects)) {
+            def o:D2Object (itemAt board.objects i)
+            i = (i + 1)
+            if (o.suspended) {
+                continue
+            }
+            if (D2Model.matchesPath(o.id scope path)) {
+                push out o.id
+            }
+        }
+        return out
+    }
+
+    sfn matchesPath:boolean (id:string scope:string path:D2Path) {
+        if ((strlen scope) > 0) {
+            if ((D2Model.isUnder(id scope)) == false) {
+                return false
+            }
+            id = (substring id ((strlen scope) + 1) (strlen id))
+        }
+        def segs:[string] (strsplit id ".")
+        def n:int (path.size())
+        ; `**` at the head matches any depth; every other pattern is
+        ; positional, one segment per part.
+        def deep:boolean false
+        def j:int 0
+        while (j < n) {
+            def part:D2Part (path.partAt(j))
+            if part.doubleStar {
+                deep = true
+            }
+            j = (j + 1)
+        }
+        if deep {
+            return ((array_length segs) >= n)
+        }
+        if ((array_length segs) != n) {
+            return false
+        }
+        def k:int 0
+        while (k < n) {
+            def p2:D2Part (path.partAt(k))
+            def seg:string (itemAt segs k)
+            if (p2.pattern) {
+                if ((D2Model.globHit(seg p2.name)) == false) {
+                    return false
+                }
+            } {
+                if (seg != p2.raw) {
+                    return false
+                }
+            }
+            k = (k + 1)
+        }
+        return true
+    }
+
+    ; `*` anywhere in a segment: `api*` and `*-service` select too.
+    sfn globHit:boolean (seg:string pat:string) {
+        if (pat == "*") {
+            return true
+        }
+        if (pat == "**") {
+            return true
+        }
+        def star:int -1
+        def i:int 0
+        while (i < (strlen pat)) {
+            if ((charAt pat i) == 42) {
+                star = i
+                i = (strlen pat)
+            } {
+                i = (i + 1)
+            }
+        }
+        if (star < 0) {
+            return (seg == pat)
+        }
+        def head:string (substring pat 0 star)
+        def tail:string (substring pat (star + 1) (strlen pat))
+        if ((strlen head) > 0) {
+            if ((strlen seg) < (strlen head)) {
+                return false
+            }
+            if ((substring seg 0 (strlen head)) != head) {
+                return false
+            }
+        }
+        if ((strlen tail) > 0) {
+            def at:int ((strlen seg) - (strlen tail))
+            if (at < 0) {
+                return false
+            }
+            if ((substring seg at (strlen seg)) != tail) {
+                return false
+            }
+        }
+        return true
+    }
+
+    ; ------------------------------------------------------- connections ----
+    fn edge:void (d:D2Decl scope:string) {
+        def made:[D2Conn]
+        def i:int 0
+        while (i < ((array_length d.paths) - 1)) {
+            def a:D2Path (itemAt d.paths i)
+            def b:D2Path (itemAt d.paths (i + 1))
+            def arrow:string (itemAt d.arrows i)
+            def src:D2EndRef (this.resolveEnd(scope a))
+            def dst:D2EndRef (this.resolveEnd(scope b))
+            def c (new D2Conn)
+            c.src = src.id
+            c.dst = dst.id
+            c.srcField = src.field
+            c.dstField = dst.field
+            c.arrow = arrow
+            c.scope = scope
+            c.order = order
+            order = (order + 1)
+            c.index = (this.nextIndex(src.id dst.id))
+            push board.conns c
+            push made c
+            i = (i + 1)
+        }
+        ; The label and the map go on every link of a chain, which is what D2
+        ; does: `a -> b -> c: ok` labels both.
+        if ((d.hasValue()) == false) {
+            return
+        }
+        def v:D2Value (d.value())
+        def k:int 0
+        while (k < (array_length made)) {
+            def c2:D2Conn (itemAt made k)
+            k = (k + 1)
+            this.applyConnValue(c2 v)
+        }
+    }
+
+    ; The end of a connection, which is not quite the same walk as a key path:
+    ;
+    ;   * a `sql_table` row or a `class` member is not an object, so the
+    ;     connection lands on the shape and remembers the row — which is what
+    ;     D2 draws and what its own answer says
+    ;   * inside a sequence diagram, a group is not a namespace: `api -> db`
+    ;     written inside `loop` is still a message between the participants
+    fn resolveEnd:D2EndRef (scope:string path:D2Path) {
+        def r (new D2EndRef)
+        def useScope:string scope
+        if ((path.size()) > 0) {
+            def sd:string (this.sequenceAncestor(scope))
+            if ((strlen sd) > 0) {
+                if (sd != scope) {
+                    def head:D2Part (path.partAt(0))
+                    def here:string (D2Model.joinId(scope head.raw))
+                    if ((board.indexOf(here)) < 0) {
+                        def there:string (D2Model.joinId(sd head.raw))
+                        if ((board.indexOf(there)) >= 0) {
+                            useScope = sd
+                        }
+                    }
+                }
+            }
+        }
+        def id:string useScope
+        def i:int 0
+        while (i < (path.size())) {
+            def part:D2Part (path.partAt(i))
+            if ((strlen id) > 0) {
+                def owner:D2Object (board.object(id))
+                if (owner.isCompartment()) {
+                    r.id = id
+                    r.field = (D2Model.tailText(path i))
+                    return r
+                }
+            }
+            id = (D2Model.joinId(id part.raw))
+            this.ensureId(id part)
+            i = (i + 1)
+        }
+        r.id = id
+        return r
+    }
+
+    ; The nearest `shape: sequence_diagram` at or above this scope.
+    fn sequenceAncestor:string (scope:string) {
+        def id:string scope
+        while ((strlen id) > 0) {
+            def o:D2Object (board.object(id))
+            if (o.shape == "sequence_diagram") {
+                return id
+            }
+            id = (D2Model.parentOf(id))
+        }
+        return ""
+    }
+
+    sfn tailText:string (path:D2Path from:int) {
+        def out:string ""
+        def i:int from
+        while (i < (path.size())) {
+            def part:D2Part (path.partAt(i))
+            if (i > from) {
+                out = (out + ".")
+            }
+            out = (out + part.raw)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn nextIndex:int (src:string dst:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length board.conns)) {
+            def c:D2Conn (itemAt board.conns i)
+            i = (i + 1)
+            if (c.src == src) {
+                if (c.dst == dst) {
+                    n = (n + 1)
+                }
+            }
+        }
+        return n
+    }
+
+    fn applyConnValue:void (c:D2Conn v:D2Value) {
+        if (v.kind == "block") {
+            c.label = v.text
+            c.labelTag = v.tag
+        } {
+            if ((strlen v.text) > 0) {
+                c.label = (this.substitute(v.text))
+            }
+        }
+        if v.hasMap {
+            this.connMap(c v.body)
+        }
+    }
+
+    ; The keys a connection takes. Written here rather than shared with the
+    ; object walk because the two vocabularies only look alike.
+    fn connMap:void (c:D2Conn decls:[D2Decl]) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:D2Decl (itemAt decls i)
+            i = (i + 1)
+            def p:D2Path (d.path())
+            if ((p.size()) == 0) {
+                continue
+            }
+            def k:string ((p.partAt(0)).name)
+            def text:string (this.scalarOf(d))
+            if (k == "style") {
+                if ((p.size()) > 1) {
+                    c.setStyle(((p.partAt(1)).name) text)
+                    continue
+                }
+                if (d.hasValue()) {
+                    def sv:D2Value (d.value())
+                    if sv.hasMap {
+                        def j:int 0
+                        while (j < (array_length sv.body)) {
+                            def one:D2Decl (itemAt sv.body j)
+                            j = (j + 1)
+                            def op:D2Path (one.path())
+                            if ((op.size()) > 0) {
+                                c.setStyle(((op.partAt(0)).name) (this.scalarOf(one)))
+                            }
+                        }
+                    }
+                }
+                continue
+            }
+            if (k == "source-arrowhead") {
+                this.arrowhead(c true p d)
+                continue
+            }
+            if (k == "target-arrowhead") {
+                this.arrowhead(c false p d)
+                continue
+            }
+            if (k == "label") {
+                c.label = text
+                continue
+            }
+            if (D2Keys.isStyle(k)) {
+                c.setStyle(k text)
+                continue
+            }
+            if (k == "tooltip") {
+                continue
+            }
+        }
+    }
+
+    ; `target-arrowhead.shape: diamond`, and the map form with a label and a
+    ; `filled` under it.
+    fn arrowhead:void (c:D2Conn isSource:boolean p:D2Path d:D2Decl) {
+        if ((p.size()) > 1) {
+            def k:string ((p.partAt(1)).name)
+            def text:string (this.scalarOf(d))
+            this.arrowheadKey(c isSource k text (p.size()) p)
+            return
+        }
+        if ((d.hasValue()) == false) {
+            return
+        }
+        def v:D2Value (d.value())
+        if ((strlen v.text) > 0) {
+            ; `target-arrowhead: 1` is the arrowhead's label.
+            if isSource {
+                c.srcArrowLabel = (this.substitute(v.text))
+            } {
+                c.dstArrowLabel = (this.substitute(v.text))
+            }
+        }
+        if (v.hasMap == false) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length v.body)) {
+            def one:D2Decl (itemAt v.body i)
+            i = (i + 1)
+            def op:D2Path (one.path())
+            if ((op.size()) == 0) {
+                continue
+            }
+            this.arrowheadKey(c isSource ((op.partAt(0)).name) (this.scalarOf(one)) (op.size()) op)
+        }
+    }
+
+    fn arrowheadKey:void (c:D2Conn isSource:boolean k:string text:string depth:int p:D2Path) {
+        if (k == "shape") {
+            if isSource {
+                c.srcArrow = (D2Keys.lower(text))
+            } {
+                c.dstArrow = (D2Keys.lower(text))
+            }
+            return
+        }
+        if (k == "label") {
+            if isSource {
+                c.srcArrowLabel = text
+            } {
+                c.dstArrowLabel = text
+            }
+            return
+        }
+        if (k == "style") {
+            def sub:string ""
+            if (depth > 1) {
+                def sp:D2Part (p.partAt(1))
+                sub = sp.name
+            }
+            if (sub == "filled") {
+                def on:int 0
+                if (text == "true") {
+                    on = 1
+                }
+                if isSource {
+                    c.srcFilled = on
+                } {
+                    c.dstFilled = on
+                }
+            }
+            return
+        }
+        if (k == "filled") {
+            def on2:int 0
+            if (text == "true") {
+                on2 = 1
+            }
+            if isSource {
+                c.srcFilled = on2
+            } {
+                c.dstFilled = on2
+            }
+        }
+    }
+
+    ; `(a -> b)[0].style.stroke: red` — a statement about a connection that
+    ; already exists. One that does not is an error rather than a new edge.
+    fn edgeRefStatement:void (d:D2Decl scope:string) {
+        def p:D2Path (d.path())
+        def left (new D2Path)
+        left.parts = p.refLeft
+        def right (new D2Path)
+        right.parts = p.refRight
+        def srcId:string (D2Model.resolve(scope left))
+        def dstId:string (D2Model.resolve(scope right))
+        def hits:[D2Conn]
+        def i:int 0
+        while (i < (array_length board.conns)) {
+            def c:D2Conn (itemAt board.conns i)
+            i = (i + 1)
+            if (c.src != srcId) {
+                continue
+            }
+            if (c.dst != dstId) {
+                continue
+            }
+            if (p.refIndex >= 0) {
+                if (c.index != p.refIndex) {
+                    continue
+                }
+            }
+            push hits c
+        }
+        if ((array_length hits) == 0) {
+            push board.errors ("no connection " + (p.text()))
+            return
+        }
+        def k:int 0
+        while (k < (array_length hits)) {
+            def c2:D2Conn (itemAt hits k)
+            k = (k + 1)
+            if ((p.size()) > 0) {
+                def one (new D2Decl)
+                one.line = d.line
+                def tail (new D2Path)
+                tail.parts = p.parts
+                push one.paths tail
+                def j:int 0
+                while (j < (array_length d.values)) {
+                    push one.values (itemAt d.values j)
+                    j = (j + 1)
+                }
+                def wrap:[D2Decl]
+                push wrap one
+                this.connMap(c2 wrap)
+            } {
+                if (d.hasValue()) {
+                    this.applyConnValue(c2 (d.value()))
+                }
+            }
+        }
+    }
+
+    sfn resolve:string (scope:string path:D2Path) {
+        def id:string scope
+        def i:int 0
+        while (i < (path.size())) {
+            def part:D2Part (path.partAt(i))
+            id = (D2Model.joinId(id part.raw))
+            i = (i + 1)
+        }
+        return id
+    }
+
+    ; ----------------------------------------------------------- imports ----
+    ; `@file`, `@file.key`, `...@file.key`.
+    ;
+    ; The first segment is the file — `.d2` is added when it has no extension,
+    ; and a literal `d2` segment is that extension rather than a key, which is
+    ; D2's own rule. Everything after it is a path *inside* the imported file.
+    ;
+    ; **What is refused.** An absolute path, any `..` segment, and anything
+    ; with a scheme in it. A diagram is somebody else's text, and a reader that
+    ; follows `@../../.ssh/id_rsa` because a file asked it to is a reader that
+    ; should not be run on a repository. The refusals are errors on the board,
+    ; not silence.
+    fn importValue:D2Value (spec:string) {
+        def out (new D2Value)
+        def clean:string (trim spec)
+        if ((strlen clean) == 0) {
+            push board.errors "an import with no path"
+            return out
+        }
+        if (D2Model.isUnsafePath(clean)) {
+            push board.errors ("refused the import `" + clean + "`: outside the diagram")
+            return out
+        }
+        def segs:[string] (strsplit clean ".")
+        def file:string (itemAt segs 0)
+        def first:int 1
+        if ((array_length segs) > 1) {
+            if ((itemAt segs 1) == "d2") {
+                first = 2
+            }
+        }
+        file = (file + ".d2")
+        def full:string file
+        if ((strlen baseDir) > 0) {
+            full = (baseDir + "/" + file)
+        }
+        def k:int 0
+        while (k < (array_length importing)) {
+            if ((itemAt importing k) == full) {
+                push board.errors ("cyclic import: " + full)
+                return out
+            }
+            k = (k + 1)
+        }
+        ; A chain with no cycle in it can still be deeper than anything a
+        ; diagram needs, and depth is the other way to make a reader hang.
+        if ((array_length importing) >= 16) {
+            push board.errors ("imports nested deeper than 16: " + full)
+            return out
+        }
+        def src:string (?? (read_file "." full) "")
+        if ((strlen src) == 0) {
+            push board.errors ("could not read the import `" + full + "`")
+            return out
+        }
+        push importing full
+        def f:D2File (D2Parser.parse(src))
+        def decls:[D2Decl] f.decls
+        def value (new D2Value)
+        value.kind = "map"
+        value.hasMap = true
+        value.body = decls
+        def i:int first
+        while (i < (array_length segs)) {
+            def want:string (itemAt segs i)
+            i = (i + 1)
+            def hit:D2Decl (D2Model.findKey(value.body want))
+            if ((array_length hit.paths) == 0) {
+                push board.errors ("import key `" + want + "` is not in " + full)
+                return out
+            }
+            value = (hit.value())
+        }
+        baseDir = (D2Model.dirOf(full))
+        return value
+    }
+
+    sfn isUnsafePath:boolean (p:string) {
+        if ((strlen p) == 0) {
+            return true
+        }
+        if ((charAt p 0) == 47) {
+            return true
+        }
+        def segs:[string] (strsplit p "/")
+        def i:int 0
+        while (i < (array_length segs)) {
+            if ((itemAt segs i) == "..") {
+                return true
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < ((strlen p) - 2)) {
+            if ((charAt p j) == 58) {
+                if ((charAt p (j + 1)) == 47) {
+                    if ((charAt p (j + 2)) == 47) {
+                        return true
+                    }
+                }
+            }
+            j = (j + 1)
+        }
+        return false
+    }
+
+    sfn findKey:D2Decl (decls:[D2Decl] name:string) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:D2Decl (itemAt decls i)
+            i = (i + 1)
+            if d.isEdge {
+                continue
+            }
+            def p:D2Path (d.path())
+            if ((p.size()) != 1) {
+                continue
+            }
+            def part:D2Part (p.partAt(0))
+            if (part.name == name) {
+                return d
+            }
+        }
+        return (new D2Decl)
+    }
+
+    ; The import stack, back to what it was before this file was opened.
+    sfn truncate:[string] (arr:[string] n:int) {
+        def out:[string]
+        def i:int 0
+        while (i < n) {
+            if (i < (array_length arr)) {
+                push out (itemAt arr i)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn dirOf:string (p:string) {
+        def cut:int -1
+        def i:int 0
+        while (i < (strlen p)) {
+            if ((charAt p i) == 47) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return ""
+        }
+        return (substring p 0 cut)
+    }
+
+    ; ------------------------------------------------------------ boards ----
+    ; `layers` start empty, `scenarios` inherit the board they are declared
+    ; in, and `steps` accumulate — each one starting from the one before it.
+    fn boardsOf:void (d:D2Decl kind:string) {
+        if ((d.hasValue()) == false) {
+            return
+        }
+        def v:D2Value (d.value())
+        if (v.hasMap == false) {
+            return
+        }
+        def previous:D2Board board
+        def i:int 0
+        while (i < (array_length v.body)) {
+            def one:D2Decl (itemAt v.body i)
+            i = (i + 1)
+            def p:D2Path (one.path())
+            if ((p.size()) == 0) {
+                continue
+            }
+            if ((one.hasValue()) == false) {
+                continue
+            }
+            def bv:D2Value (one.value())
+            if (bv.hasMap == false) {
+                continue
+            }
+            def child (new D2Board)
+            if (kind == "layers") {
+                child.kind = "layer"
+            }
+            if (kind == "scenarios") {
+                child = (previous.clone())
+                child.kind = "scenario"
+            }
+            if (kind == "steps") {
+                child = (previous.clone())
+                child.kind = "step"
+            }
+            def np:D2Part (p.partAt(0))
+            child.name = np.name
+            ; The child is compiled by a model of its own, sharing the vars
+            ; and classes the parent declared.
+            def m (new D2Model)
+            m.board = child
+            m.varNames = varNames
+            m.varVals = varVals
+            m.classNames = classNames
+            m.classBodies = classBodies
+            m.order = 0
+            m.collectVars(bv.body)
+            m.run(bv.body "")
+            push board.boards child
+            if (kind == "steps") {
+                previous = child
+            }
+        }
+    }
+}

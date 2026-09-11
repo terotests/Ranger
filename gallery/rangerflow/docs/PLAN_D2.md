@@ -1,22 +1,27 @@
 # D2 in RangerFlow — is it worth it, and what would it take
 
-Status: **research, measured.** No reader is written. What exists after this
-document is the thing a reader needs to be judged by — the corpus
-(`fixtures/d2/`, 20 files), the oracle (`harness/oracles/d2_oracle.{go,mjs}`,
-`npm run rangerflow:d2:oracle`) and the feature matrix
-([`D2_FEATURES.md`](D2_FEATURES.md), 100 rows). Every number below was produced
-by **d2 v0.7.1** on this machine on 2026-09-11, not read off a website —
-`d2lang.com` is blocked by the egress proxy here, which forced the denominator
-to come from D2's own source and binary instead.
+Status: **the reader is built; nothing is drawn yet.** `D2Parser` and
+`D2Model` read the language — objects, connections, styles, vars, classes,
+globs and filters, suspensions, table rows and class members, sequence-diagram
+scoping, boards and imports — and `npm run rangerflow:d2:parity` scores that
+against D2 itself: **103/103 checks over the 20 files in `fixtures/d2/`**
+([`D2_PARITY.md`](D2_PARITY.md)). What is *not* built is `D2Flow`: no `.d2`
+file becomes a `FlowGraph`, and nothing reaches a screen. That is deliberate —
+the parser is the part that can be wrong in ways a picture hides, so it was
+made measurable first.
+
+Every number below was produced by **d2 v0.7.1** on this machine, not read off
+a website — `d2lang.com` is blocked by the egress proxy here, which forced the
+denominator to come from D2's own source and binary instead.
 
 ```text
   .d2 text
       ↓
-  D2Reader          keys · maps · edges · globs · vars · imports · boards
+  D2Parser          keys · maps · edges · block strings · globs · imports    ✅
       ↓
-  D2Model           objects · connections · styles      ← one model, one grammar
-      ↓
-  D2Flow            → FlowGraph
+  D2Model           objects · connections · styles · boards                  ✅
+      ↓                                            ← scored against D2: 103/103
+  D2Flow            → FlowGraph                                              ⬜
       ↓
   the pipeline that already exists: LayeredLayout · ReadableRouter · EVG
       ↓
@@ -150,48 +155,54 @@ quoting, comments — is an afternoon each.
 
 Each phase names the fixtures it must read and the matrix rows it retires.
 
-| # | What | Fixtures | Retires |
+| # | What | Fixtures | Status |
 | --- | --- | --- | --- |
-| 1 | Lexer, AST, keys/maps/paths, edges, chains, containers, labels, comments | `00`, `02`, `03`, `19` | §1 most, §5 nesting |
-| 2 | Shapes and styles: the 25 values, the 20 style keywords, arrowheads | `01`, `04`, `05` | §2, §3, §4 |
-| 3 | `vars`, `classes`, globs, filters, imports, suspensions | `06`, `07`, `16`, `18` | §1 rest |
-| 4 | `sql_table`, `class`, `text`, block strings | `10`, `11`, `12` | §6 partly |
-| 5 | `shape: sequence_diagram` → `core/SeqDiagram.rgr` | `09` | §6 |
-| 6 | Grid diagrams — the new layout | `08` | §5 |
-| 7 | Boards: `layers`, `scenarios`, `steps` | `13` | §7 |
-| 8 | `near`, absolute position, icons, links, tooltips | `14`, `15` | §5, §6 rest |
-| 9 | Parity harness: dump, score, generate `D2_PARITY.md` | all | — |
-| 10 | `?scenario=d2` in the web editor, driven by `rangerflow:web:test` | — | — |
+| 1 | Lexer, AST, keys/maps/paths, edges, chains, containers, labels, comments | `00`, `02`, `03`, `19` | ✅ `D2Parser.rgr` |
+| 2 | Shapes and styles: the 25 values, the 20 style keywords, arrowheads | `01`, `04`, `05` | ✅ read into the model |
+| 3 | `vars`, `classes`, globs, filters, imports, suspensions | `06`, `07`, `16`, `18` | ✅ including the import boundary |
+| 4 | `sql_table` rows and `class` members, `text`, block strings | `10`, `11`, `12` | ✅ read · ⬜ drawn |
+| 5 | `shape: sequence_diagram` → `core/SeqDiagram.rgr` | `09` | ✅ read · ⬜ wired |
+| 6 | Grid diagrams — the new layout | `08` | ✅ read · ⬜ laid out |
+| 7 | Boards: `layers`, `scenarios`, `steps` | `13` | ✅ read · ⬜ shown |
+| 8 | `near`, absolute position, icons, links, tooltips | `14`, `15` | ✅ read · ⬜ placed |
+| 9 | Parity harness: dump, score, generate `D2_PARITY.md` | all | ✅ 103/103 |
+| 10 | **`D2Flow` — the model into a `FlowGraph`** | all | ⬜ next |
+| 11 | `?scenario=d2` in the web editor, driven by `rangerflow:web:test` | — | ⬜ |
 
-Phases 1-3 are the reader. Phases 4-5 are wiring to things that already exist.
-Phase 6-8 are the gaps in the table above. A stop after phase 3 would already
-read the majority of D2 files people write.
+The reading half is done and measured. What is left is the drawing half, and
+it divides the same way [`D2_FEATURES.md`](D2_FEATURES.md) does: most of it is
+wiring the model to a pipeline that already draws containers, compartment
+nodes, sequence diagrams and arrowheads — and five gaps that are new work
+(boards, grid layout, nine outlines, an image primitive, rich labels).
 
 ## 7. What lands where
 
 ```text
-domains/d2/D2Lexer.rgr            tokens, block strings, quoting
-           D2Parser.rgr           AST: keys, maps, edges, imports, boards
-           D2Model.rgr            objects · connections · styles, after merge
-           D2Globs.rgr            globs, filters, classes, vars
-           D2Flow.rgr             → FlowGraph
-           D2Sequence.rgr         shape: sequence_diagram → SeqDiagram
-layout/GridLayout.rgr             grid-rows / grid-columns / gaps
-fixtures/d2/                      20 files today, all 20 accepted by D2
-harness/oracles/d2_oracle.go      D2 → JSON, built into gitignored vendor/
-harness/oracles/d2_oracle.mjs     → harness/out/d2.json
-tests/D2ParityDump.rgr            RangerFlow → out/rangerflow_d2.json
-tools/d2-parity.mjs               → docs/D2_PARITY.md
-docs/D2_PARITY.md                 generated, never hand-edited
+domains/d2/D2Parser.rgr           ✅ AST: keys, maps, edges, block strings, imports
+           D2Model.rgr            ✅ objects · connections · styles · boards
+           D2Flow.rgr             ⬜ → FlowGraph
+           D2Sequence.rgr         ⬜ shape: sequence_diagram → SeqDiagram
+layout/GridLayout.rgr             ⬜ grid-rows / grid-columns / gaps
+fixtures/d2/                      ✅ 20 files, all 20 accepted by D2
+harness/oracles/d2_oracle.go      ✅ D2 → JSON, built into gitignored vendor/
+harness/oracles/d2_oracle.mjs     ✅ → harness/out/d2.json
+tests/D2ParityDump.rgr            ✅ RangerFlow → out/rangerflow_d2.json
+tools/d2-parity.mjs               ✅ → docs/D2_PARITY.md
+docs/D2_PARITY.md                 ✅ generated, never hand-edited
 ```
+
+The lexer is not a file of its own. D2's strings are context-sensitive — the
+same run of letters is a key in one position and a label in the other — so the
+parser scans characters directly, the way D2's own does, and a separate token
+stream would have had to be told which it was looking at.
 
 Scripts, named after the Mermaid and PlantUML ones so they read the same:
 
 ```
-rangerflow:d2:oracle      build harness/out/d2.json          ← exists
-rangerflow:d2             render a fixture
-rangerflow:d2:dump        build harness/out/rangerflow_d2.json
-rangerflow:d2:parity      score, and rewrite docs/D2_PARITY.md
+rangerflow:d2:oracle      build harness/out/d2.json                    ✅
+rangerflow:d2:dump        build harness/out/rangerflow_d2.json         ✅
+rangerflow:d2:parity      score, and rewrite docs/D2_PARITY.md         ✅
+rangerflow:d2             render a fixture                             ⬜
 ```
 
 `harness/vendor/` already holds the built oracle and is already gitignored.
@@ -212,13 +223,38 @@ rangerflow:d2:parity      score, and rewrite docs/D2_PARITY.md
   keyword shows up as a keyword the reader does not know, because the keyword
   table comes from D2 rather than from us.
 
+## 8b. What the reader learned from the oracle
+
+Five rules that are not in any tutorial, and that a reader written from the
+documentation would have got wrong. Each was found by disagreeing with D2 and
+then asking it directly:
+
+- **An arrowhead keyword only counts where the arrow draws a head.**
+  `a -> b: { source-arrowhead.shape: diamond }` draws no diamond, and `a -- b`
+  draws nothing however it is decorated. D2 answers `none` for all three.
+- **A block string is a shape as well as a label.** `|md …|` and `|latex …|`
+  make the object a `text` shape; a language tag — `|go …|` — makes it `code`.
+- **A span inside a sequence diagram has no label.** `api.t1` draws as a
+  lifetime, not as a box called `t1`.
+- **A group inside a sequence diagram is not a namespace.** `a -> b` written
+  inside `loop` is still a message between the participants, not two new ones.
+- **A `sql_table` row and a `class` member are not objects.** A table with
+  three columns is one shape with three columns, and a connection written
+  between two rows is drawn between the two tables.
+
+All five are asserted in `tests/RangerFlowTest.rgr`, so the next reader cannot
+lose them quietly.
+
 ## 9. Done means
 
-- Tier A and Tier B at **100%** on `fixtures/d2/` — or every gap named in
-  `D2_PARITY.md` with the reason
+- ~~Tier A and Tier B at **100%** on `fixtures/d2/`~~ — done: 103/103, and the
+  meter runs on every change
 - every file D2 accepts, RangerFlow reads; every file D2 refuses, RangerFlow
   refuses, with a message that names the line
-- imports outside the diagram root and over the network **refused**, tested
+- ~~imports outside the diagram root and over the network **refused**,
+  tested~~ — done: absolute paths, `..` segments and anything with a scheme are
+  refused with an error on the board, and a cyclic or 16-deep import chain ends
+  rather than hanging
 - `?scenario=d2` in the web demo, driven by `rangerflow:web:test` like every
   other scenario, so it cannot rot behind the default
 - `D2_PARITY.md` regenerated, with no number in it that a human typed

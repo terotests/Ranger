@@ -20,10 +20,16 @@ npm run rangerflow:d2:oracle
 ```
 
 **Where the right column comes from.** `core/`, `layout/` and `export/` as they
-stand today, with the probe or the file that says so. There is **no D2 reader
-yet**, so no row claims D2 is read. The question each row answers is narrower
-and more useful: *when a reader hands this to the pipeline, can the pipeline
+stand today, with the probe or the file that says so. The question each row
+answers is: *when the reader hands this to the pipeline, can the pipeline
 already draw it?*
+
+**The reader now exists** — `domains/d2/D2Parser.rgr` and
+`domains/d2/D2Model.rgr`, scored against D2 itself at **103/103 checks over the
+20 files in `fixtures/d2/`** ([`D2_PARITY.md`](D2_PARITY.md)). So §1 is no
+longer a forecast: every row of it is read and asserted. Everything below §1
+still describes the *drawing* half, which is not built: no `.d2` file becomes a
+`FlowGraph` yet. [`PLAN_D2.md`](PLAN_D2.md) is where that goes next.
 
 Status keys: **✓** the pipeline has it · **~** it has something narrower, and
 the row says what · **·** it does not have it.
@@ -32,7 +38,11 @@ the row says what · **·** it does not have it.
 
 ## 1. Syntax — what the parser must accept
 
-| D2 | RangerFlow pipeline | Reader work |
+**All of it is read**, and every row is asserted in `tests/RangerFlowTest.rgr`.
+The middle column is what the *pipeline* does with it once a `FlowGraph` is
+being built.
+
+| D2 | RangerFlow pipeline | Reader |
 | --- | :---: | --- |
 | Keys and nested maps: `a: { b: { c } }` | ✓ | the tree is `parentId`, which sub-flows already carry |
 | Dot paths: `a.b.c: label` | ✓ | path → the same node the map form makes |
@@ -215,9 +225,10 @@ containers, styles — is the model RangerFlow already has.
 
 ## What this matrix is not
 
-It is not a parity score. Nothing here was computed by comparing RangerFlow's
-output to D2's, because there is nothing to compare yet. When the reader
-exists, `docs/D2_PARITY.md` will be generated the way
-[`MERMAID_PARITY.md`](MERMAID_PARITY.md) and
-[`PLANTUML_PARITY.md`](PLANTUML_PARITY.md) are — by the oracle, with no number
-a human typed. The plan for that is [`PLAN_D2.md`](PLAN_D2.md).
+It is not the parity score. [`D2_PARITY.md`](D2_PARITY.md) is, and it measures
+a different thing: what the **reader** understood, computed by D2 itself the
+way [`MERMAID_PARITY.md`](MERMAID_PARITY.md) and
+[`PLANTUML_PARITY.md`](PLANTUML_PARITY.md) are. This file is the wider,
+hand-written picture of what the **pipeline** can draw, and the rows below §1
+are still a forecast until `D2Flow` exists. Where the two disagree, the
+measured one is right.

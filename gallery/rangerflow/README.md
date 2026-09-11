@@ -1143,7 +1143,34 @@ pipeline as it stands: 100 rows, **57 it already draws, 15 narrower, 28
 missing** — boards, grid diagrams, nine outlines, an image primitive and rich
 labels. The reading of that is in [`docs/PLAN_D2.md`](docs/PLAN_D2.md): a D2
 reader is mostly a parser, because D2's model is the model RangerFlow already
-has. Nothing of it is written yet.
+has.
+
+So the parser is what was built first:
+
+```
+npm run rangerflow:d2:parity
+  d2 v0.7.1: 20/20 fixtures accepted …
+  d2 parity: 103/103 checks agree (100%) → gallery/rangerflow/docs/D2_PARITY.md
+```
+
+`domains/d2/D2Parser.rgr` reads the language — keys and dotted paths, maps,
+connections and chains, connection references, block strings with their tags,
+globs and `&` filters, imports and spreads, both kinds of comment — and
+`domains/d2/D2Model.rgr` says what it means: objects created by being
+mentioned, `vars` and `classes`, `suspend`, the rows of a `sql_table` and the
+members of a `class`, sequence-diagram scoping, and the boards `layers`,
+`scenarios` and `steps` make. Imports read files, so they are confined to the
+diagram's own directory: an absolute path, a `..` segment, a URL and a cyclic
+chain are each refused with an error rather than followed.
+
+The score is [`docs/D2_PARITY.md`](docs/D2_PARITY.md), computed by D2 over
+objects, labels, shapes, levels, connections, table rows, class members and
+boards. **No geometry is compared**: D2's answer carries every position and
+route, and scoring those against RangerFlow's own layered layout would measure
+two layouts rather than one reader.
+
+Nothing is drawn yet — `D2Flow`, the step that turns the model into a
+`FlowGraph`, is the next piece.
 
 ## …and in a window
 
