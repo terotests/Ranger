@@ -390,6 +390,16 @@ painter and `rt:android:typecheck` checks the two Android-only files, both
 with `kotlinc`; `npm run rt:android:run` needs an SDK and puts it on an
 emulator.
 
+[`platform/sdl/`](platform/sdl/README.md) is the fourth, in a desktop window:
+`RtHost` again, with an SDL2 event loop around it, the five texts read off the
+disk rather than out of a bundle, and the display list drawn by
+`EvgGlPainter` + `evg_gl_native.cpp` — the window, the input and the GL present
+path borrowed from `gallery/datagrid/platform/sdl`, as the book editor and the
+schema editor borrow them. `npm run rt:sdl:ranger` compiles it to C++ with no
+SDL2 on the machine; `npm run rt:sdl` links the binary and `rt:sdl:smoke` runs
+thirty frames headless. Drag the corner narrow and the desktop shell becomes
+the phone one, because the page is the window here too.
+
 ## Traces: the app itself as the oracle
 
 A machine that passes its transition table can still be wired to the wrong
