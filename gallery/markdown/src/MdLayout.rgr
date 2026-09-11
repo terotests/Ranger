@@ -2393,6 +2393,29 @@ class MdLayout {
         def head:MdNode (node.childAt(0))
         def cols:int (head.childCount())
         if (cols == 0) { return }
+        def widths:[double] (this.tableWidths(node w))
+        def r2:int 0
+        while (r2 < rows) {
+            def row:MdNode (node.childAt(r2))
+            this.tableRow(row x widths cols)
+            r2 = (r2 + 1)
+        }
+        cursorY = (cursorY + style.paraSpacing)
+    }
+
+    ; How wide each column is, in the space the table has.
+    ;
+    ; Split out of `table` so that the DECK can ask it: `MdToPptx` builds a
+    ; real PowerPoint table and has to give it the same grid, and a second
+    ; implementation of this would be a second table algorithm to keep in
+    ; step with the first. One algorithm, two callers.
+    fn tableWidths:[double] (node:MdNode w:double) {
+        def widths:[double]
+        def rows:int (node.childCount())
+        if (rows == 0) { return widths }
+        def head:MdNode (node.childAt(0))
+        def cols:int (head.childCount())
+        if (cols == 0) { return widths }
 
         ; TWO widths per column, not one: what the cell wants if nothing
         ; wrapped (MAX-CONTENT) and what it needs before a word has to be
@@ -2458,7 +2481,6 @@ class MdLayout {
             leastTotal = (leastTotal + (itemAt minimum k))
             k = (k + 1)
         }
-        def widths:[double]
         def j:int 0
         if (total <= w) {
             ; It fits as written.
@@ -2489,14 +2511,7 @@ class MdLayout {
                 }
             }
         }
-
-        def r2:int 0
-        while (r2 < rows) {
-            def row:MdNode (node.childAt(r2))
-            this.tableRow(row x widths cols)
-            r2 = (r2 + 1)
-        }
-        cursorY = (cursorY + style.paraSpacing)
+        return widths
     }
 
     fn runsWidth:double (runs:[MdRun]) {

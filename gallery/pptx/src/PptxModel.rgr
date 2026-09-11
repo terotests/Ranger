@@ -539,6 +539,12 @@ class PptxTextBody {
     def anchor:string "t"       ; t / ctr / b
     def anchorSet:boolean false
     def wrap:boolean true
+    ; `a:bodyPr@numCol` / `@spcCol` — PowerPoint's own text columns. A text
+    ; body flows down the first column and into the next, which is what a
+    ; multi-column list on a slide IS; the alternative is one shape per
+    ; column, and three shapes are not one list.
+    def columns:int 1
+    def columnGapPt:double 0.0
     ; Default run props from a:lstStyle / a:defRPr (placeholder style inheritance)
     def hasDefRPr:boolean false
     def defFontSizePt:double 18.0

@@ -601,6 +601,14 @@ class PptxWriter {
         } {
             attrs = (attrs + " wrap=\"none\"")
         }
+        ; Text columns. Written only when there is more than one, so a deck
+        ; that never asked for them is byte-identical to what it was.
+        if (body.columns > 1) {
+            attrs = (attrs + " numCol=\"" + (to_string body.columns) + "\"")
+            if (body.columnGapPt > 0.0) {
+                attrs = (attrs + " spcCol=\"" + (PptxWriter.emu(body.columnGapPt)) + "\"")
+            }
+        }
         def out:string ("<p:txBody><a:bodyPr" + attrs + "/><a:lstStyle/>")
         def i:int 0
         while (i < (array_length body.paragraphs)) {

@@ -41,6 +41,7 @@ const sampleEl = document.getElementById("sample");
 const themeEl = document.getElementById("theme");
 const pdfBtn = document.getElementById("pdf");
 const htmlBtn = document.getElementById("html");
+const pptxBtn = document.getElementById("pptx");
 const openBtn = document.getElementById("openFile");
 const filePick = document.getElementById("filepick");
 const keyCatcher = document.getElementById("keys");
@@ -544,6 +545,21 @@ pdfBtn.addEventListener("click", () => {
 htmlBtn.addEventListener("click", () => {
   const html = app.html();
   deliver(new TextEncoder().encode(html), docName + ".html", "text/html");
+});
+
+// The deck. Not a picture of the slides: a heading is a title placeholder, a
+// list is bullets PowerPoint reflows, a table is a table. What could not go
+// out as text — a diagram — went out as shapes, and the status line says so,
+// because a reader who opens it and cannot edit the flowchart should have
+// been told before they tried.
+pptxBtn.addEventListener("click", () => {
+  const t0 = performance.now();
+  const buf = app.pptx();
+  const ms = Math.round(performance.now() - t0);
+  const bytes = buf instanceof ArrayBuffer ? buf : buf.buffer || buf;
+  deliver(bytes, docName + ".pptx",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+  showStatus(app.pptxReport() + " — " + ms + " ms");
 });
 
 openBtn.addEventListener("click", () => filePick.click());
@@ -1286,6 +1302,37 @@ function selftest() {
     say("a built file can be handed to the browser", n === "downloaded", n);
   } catch (e) {
     say("a built file can be handed to the browser", false, String(e));
+  }
+
+  // …and the deck, which is the third file this page can produce. A `.pptx`
+  // is a zip, so the two bytes at the front are the cheapest proof that what
+  // came back is a file and not a message; the exporter's own report is the
+  // proof that it went out as TEXT rather than as a picture of the slides.
+  {
+    const kept = app.sourceText();
+    app.setSource(selftestDeck || "# One\n\n- a\n- b\n\n## Two\n\nb\n");
+    app.setStyleSheet(selftestTheme || "deck { split-level: 2 }");
+    app.setMode("slides");
+    try {
+      const buf = app.pptx();
+      const bytes = new Uint8Array(buf instanceof ArrayBuffer ? buf : buf.buffer || buf);
+      say("a deck comes out as a zip", bytes[0] === 0x50 && bytes[1] === 0x4b,
+          bytes.length + " bytes");
+      const report = app.pptxReport();
+      say("…with a title on every slide", report.includes(app.pdfPageCount() + " title"), report);
+      say("…and bullets in it", /[1-9]\d* bullet/.test(report), report);
+      // The one thing that could not go out as text says so, per slide.
+      say("…and says what it had to draw instead",
+          app.pptxNotesText().length === 0 || app.pptxNotesText().includes("slide"),
+          app.pptxNotesText().split("\n")[0] || "nothing to report");
+      pptxBtn.click();
+      say("and the button delivers it", true);
+    } catch (e) {
+      say("a deck can be exported", false, String(e));
+    }
+    app.setMode("continuous");
+    app.setStyleSheet("");
+    app.setSource(kept);
   }
 
   // ---- the sheet, centred, turned, and counted -----------------------------

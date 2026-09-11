@@ -118,10 +118,28 @@ hand-made — **a heading is never the last thing on a slide.** A block too tall
 for one slide is cut, the continuation repeats the title, and the count is
 printed rather than hidden.
 
-Where it stops today: the `.pptx` file itself. The slides tab shows the deck
-so the split rules can be tuned by watching it reflow; `MdToPptx` — heading to
-title placeholder, list to a text body PowerPoint can reflow, table to a real
-table — is Stage E of [`PLAN_SLIDES.md`](PLAN_SLIDES.md).
+And the deck comes out as a **`.pptx` somebody can edit**, not as a picture of
+the slides. `MdToPptx` picks the road per block:
+
+```
+  heading      → the slide's title placeholder
+  paragraph    → one text box, one run — PowerPoint breaks the lines
+  list         → one text body, one paragraph per item, levels and numbering
+  table        → a real a:tbl, with the grid the layout measured
+  a diagram    → the display-list road, and it says so
+```
+
+The geometry is the layout's and the wrapping is PowerPoint's, so the deck
+differs from the preview by a line break here and there. That is the trade,
+and the alternative — the display-list road for everything, which is what
+`BookToPptx` does for a book page — is a deck nobody can edit: a paragraph
+that wraps across five lines arrives as five text boxes, and deleting a word
+leaves a hole.
+
+What could not go out as text is counted and named, per slide.
+
+Where it stops today: themes as files and the accounting for images — stages
+F and G of [`PLAN_SLIDES.md`](PLAN_SLIDES.md).
 
 
 **651 of 652** CommonMark 0.31.2 examples, compared as exact strings against
@@ -197,6 +215,7 @@ src/
   MdAttrs.rgr       `{.class #id key=value}` — Goldmark's block attributes
   MdStyle.rgr       the values a stylesheet sets, in one place
   MdCss.rgr         a stylesheet over the document, through gallery/css
+  MdToPptx.rgr      the deck, as text PowerPoint can reflow
   MdEmbedKinds.rgr  which fence words name a drawing — no imports, read by both
   MdDiagram.rgr     the diagram handler — the only file that knows RangerFlow
   md_demo.rgr       the only file that touches a disk

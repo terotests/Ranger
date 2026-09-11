@@ -40,6 +40,7 @@ Import "../src/MdToEvg.rgr"
 Import "../src/MdToHtml.rgr"
 Import "../src/MdDiagram.rgr"
 Import "../src/MdCss.rgr"
+Import "../src/MdToPptx.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
@@ -170,6 +171,8 @@ class MarkdownWeb {
     def wantPageSize:string ""
     ; "continuous" | "paged" | "slides".
     def mode:string "continuous"
+    def pptxSummary:string ""
+    def pptxNotes:string ""
     def docList:EVGDisplayList (new EVGDisplayList())
     ; Where `docList` currently sits. The list is moved to the scroll position
     ; rather than copied there: `appendFrom` shares its commands, so a copy
@@ -810,6 +813,60 @@ class MarkdownWeb {
 
     fn sourceVersion:int () {
         return ((edit.history.depth()) + (edit.history.redoDepth()))
+    }
+
+    ; The deck, as a `.pptx` a reader can open and change the number in.
+    ;
+    ; Built from a layout of its own, the way the PDF is, and from the same
+    ; three things in the same order — the template, the document's metadata,
+    ; the reader's page size — because a deck that is not the slides the
+    ; reader was looking at is not an export of anything.
+    ;
+    ; `MdToPptx` picks the road per BLOCK: a heading, a paragraph, a list or a
+    ; table go out as text PowerPoint can reflow; a diagram goes out as
+    ; shapes. What did not go out as text is counted, and `pptxReport` says
+    ; so — see `PLAN_SLIDES.md` §2 for why that is the whole design.
+    fn pptx:buffer () {
+        def deck:MdLayout (new MdLayout())
+        if (!null? measurer) {
+            deck.setMeasurer((unwrap measurer))
+        }
+        deck.style = (new MdStyle())
+        edit.sheet.applyTo(deck.style)
+        deck.setStyleSheet(edit.styleCss)
+        deck.applyMeta(edit.doc)
+        if ((strlen wantPageSize) > 0) {
+            def pw:double deck.style.pageWidth
+            def ph:double deck.style.pageHeight
+            deck.style.pageWidth = (MdFrontMatter.pageW(wantPageSize pw ph))
+            deck.style.pageHeight = (MdFrontMatter.pageH(wantPageSize ph pw))
+        }
+        def cw:double (deck.style.pageWidth - (deck.style.margin * 2.0))
+        MdDiagram.prepare(edit.doc deck.embeds cw styleName)
+        deck.applySlideMeta(edit.doc)
+        deck.layoutSlides(edit.doc)
+        def x (new MdToPptx())
+        def d:PptxDeck (x.deck(edit.doc deck))
+        pptxSummary = (x.result.describe())
+        pptxNotes = ""
+        def i:int 0
+        while (i < (x.result.noteCount())) {
+            if (i > 0) { pptxNotes = (pptxNotes + "\n") }
+            pptxNotes = (pptxNotes + (x.result.noteAt(i)))
+            i = (i + 1)
+        }
+        return (d.save())
+    }
+
+    fn pptxReport:string () {
+        return pptxSummary
+    }
+
+    ; …and per slide, what did not go out as text. A deck that claims a slide
+    ; went out whole when it did not is worse than one that cannot carry
+    ; something.
+    fn pptxNotesText:string () {
+        return pptxNotes
     }
 
     ; ----------------------------------------------------------------------

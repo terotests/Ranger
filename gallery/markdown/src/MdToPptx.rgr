@@ -1,0 +1,667 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdToPptx.rgr — the deck somebody can open and change the number in.
+; ============================================================================
+;
+; `PLAN_SLIDES.md` §2 is the finding this file exists because of, and it is
+; worth restating in one line: `MdToEvg` emits one text command per placed
+; SEGMENT, and `PptxFromEvg.emitText` makes one PowerPoint text box per text
+; command — so a paragraph that wraps across five lines arrives in PowerPoint
+; as five text boxes. None of them reflows, none of them can be edited into a
+; sentence, and deleting a word leaves a hole.
+;
+; That is fine for a book page exported to a slide, which is what `BookToPptx`
+; was for: a page is a picture and nobody edits it afterwards. It is the wrong
+; answer for a company deck, because the point of a company deck is that
+; somebody opens it in PowerPoint and changes the number.
+;
+; So the road is picked per BLOCK, not per document:
+;
+;   heading, paragraph, list, table   ──►  native  ──► PowerPoint wraps it
+;   code, quote, rule                 ──►  native  ──► …as plain text boxes
+;   a diagram, anything drawn         ──►  EVG display list ──► PptxFromEvg
+;
+; `PptxFromEvg` is not wasted by that: it is exactly what a diagram needs, it
+; already exists, and it stops being the main road.
+;
+; **THE GEOMETRY IS THE LAYOUT'S, THE WRAPPING IS POWERPOINT'S.** Every shape
+; is placed at the rectangle `MdLayout` gave that block on that slide, so the
+; deck looks like the preview. Inside the rectangle PowerPoint breaks the
+; lines itself, so it does NOT match to the point. That is the trade in §2 and
+; it has to be accepted rather than engineered away — the alternative is a
+; deck nobody can edit. The preview's job is "this is what the slide holds and
+; roughly where"; the PDF tab beside it is the one that is exact.
+;
+; **WHAT DID NOT GO NATIVE IS COUNTED AND NAMED**, per slide, the way
+; `book_slides.rgr` prints what did not survive the trip. A converter that
+; claims a slide went out whole when it did not is worse than one that cannot
+; carry something.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdLayout.rgr"
+Import "MdToEvg.rgr"
+Import "../../pptx/api/PptxApi.rgr"
+Import "../../pptx/src/PptxFromEvg.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGLayout.rgr"
+
+; What came out, and what did not come out the way it went in.
+class MdDeckResult {
+    def slides:int 0
+    def titles:int 0
+    def paragraphs:int 0
+    def bullets:int 0
+    def tables:int 0
+    ; Blocks that took the display-list road: a diagram, or anything with no
+    ; PresentationML spelling. Not an error — but not native either, and the
+    ; difference is whether a reader can edit it.
+    def drawn:int 0
+    ; …and blocks that took neither road. This should be zero and is counted
+    ; so that it can be seen not to be.
+    def dropped:int 0
+    def notes:[string]
+
+    Constructor () {
+    }
+
+    fn note:void (msg:string) {
+        push notes msg
+    }
+
+    fn noteCount:int () {
+        return (array_length notes)
+    }
+
+    fn noteAt:string (i:int) {
+        return (itemAt notes i)
+    }
+
+    fn describe:string () {
+        def out:string ((to_string slides) + " slide(s), " + (to_string titles) + " title(s), ")
+        out = (out + (to_string paragraphs) + " text box(es), " + (to_string bullets) + " bullet(s), ")
+        out = (out + (to_string tables) + " table(s)")
+        if (drawn > 0) {
+            out = (out + " — " + (to_string drawn) + " block(s) drawn rather than written")
+        }
+        if (dropped > 0) {
+            out = (out + ", " + (to_string dropped) + " dropped")
+        }
+        return out
+    }
+}
+
+class MdToPptx {
+    def layout:MdLayout (new MdLayout())
+    def result:MdDeckResult (new MdDeckResult())
+
+    Constructor () {
+    }
+
+    ; The deck. `layout` must already have been through `layoutSlides`, which
+    ; is what decided where the slides break and where every block sits on
+    ; one; this file reads that decision rather than making it again.
+    fn deck:PptxDeck (doc:MdNode l:MdLayout) {
+        layout = l
+        result = (new MdDeckResult())
+        ; `PptxApi.create` and not `PptxDeck.create`: the facade is the
+        ; published entry point and the one the API test drives.
+        def d:PptxDeck (PptxApi.create())
+        d.setSize(l.style.pageWidth l.style.pageHeight)
+        def slides:int l.pageCount
+        if (slides < 1) { slides = 1 }
+        def s:int 0
+        while (s < slides) {
+            d.addSlide()
+            s = (s + 1)
+        }
+        result.slides = slides
+
+        def i:int 0
+        def n:int (doc.childCount())
+        while (i < n) {
+            def child:MdNode (doc.childAt(i))
+            this.block(d child)
+            i = (i + 1)
+        }
+        return d
+    }
+
+    ; ----------------------------------------------------------------------
+    ; One block, on the slide the layout put it on
+    ; ----------------------------------------------------------------------
+    fn block:void (d:PptxDeck node:MdNode) {
+        if (node.kind == "front_matter") { return }
+        def page:int (this.pageOf(node))
+        if (page < 0) {
+            ; No boxes at all: the layout drew nothing for it, so there is
+            ; nothing to place and nothing was lost.
+            return
+        }
+        if (page >= (d.slideCount())) { return }
+        def slide:PptxSlideRef (d.slideAt(page))
+        def x:double (this.leftOf(node page))
+        def y:double (this.topOf(node page))
+        def w:double (this.widthOf(node page))
+        def h:double (this.heightOf(node page))
+        if (w <= 1.0) { w = (layout.style.pageWidth - (layout.style.margin * 2.0)) }
+        if (h <= 1.0) { h = (layout.style.bodySize * layout.style.lineHeight) }
+
+        def kind:string node.kind
+        if (kind == "heading") {
+            this.heading(slide node x y w h)
+            return
+        }
+        if (kind == "paragraph") {
+            this.paragraph(slide node x y w h)
+            return
+        }
+        if (kind == "list") {
+            this.list(slide node x y w h)
+            return
+        }
+        if (kind == "table") {
+            this.table(slide node x y w h)
+            return
+        }
+        if (kind == "block_quote") {
+            this.quote(slide node x y w h)
+            return
+        }
+        if (kind == "code_block") {
+            this.code(slide node x y w h)
+            return
+        }
+        if (kind == "html_block") {
+            this.code(slide node x y w h)
+            return
+        }
+        if (kind == "thematic_break") {
+            def line:PptxShapeRef (slide.addShape("rect" x y w 1.0))
+            line.fill(layout.style.ruleColor)
+            line.noLine()
+            return
+        }
+        if (kind == "embed") {
+            this.drawn(slide node x y w h)
+            return
+        }
+        result.dropped = (result.dropped + 1)
+        result.note((("slide " + (to_string (this.pageOf(node)) + 1)) + ": a ") + kind + " has no spelling here and was left out")
+    }
+
+    ; A text body's own padding, off.
+    ;
+    ; PowerPoint insets a text box by 7.2pt left and right out of the box,
+    ; and the rectangle this shape was given is the one `MdLayout` already
+    ; placed the text in — padding and all. Leaving both on makes every box
+    ; 14pt narrower than the layout measured, which wraps one word more per
+    ; line than the preview did; on a list in three columns that is one extra
+    ; line per column, and the block under it is drawn over them.
+    sfn tight:void (box:PptxShapeRef) {
+        def m:PptxShape (box.model())
+        m.text.insetL = 0.0
+        m.text.insetR = 0.0
+        m.text.insetT = 0.0
+        m.text.insetB = 0.0
+        m.text.insetsSet = true
+    }
+
+    ; A heading at or above the deck's split level is the slide's TITLE — the
+    ; placeholder, so a PowerPoint layout styles it and an outline view shows
+    ; it. A deeper one is a text box, because a slide has one title.
+    fn heading:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {
+        def text:string (node.plainText())
+        def box:PptxShapeRef (slide.addTextBox(x y w h text))
+        MdToPptx.tight(box)
+        def size:double (layout.style.headingSize(node.level))
+        def r:PptxRunRef (box.runAt(0 0))
+        r.font(layout.style.headingFamily size)
+        r.bold(true)
+        r.color(layout.style.textColor)
+        if (node.level <= layout.splitLevel) {
+            ; `isPlaceholder` as well as the type: the writer emits a bare
+            ; `<p:nvPr/>` without it, and a title that is not a placeholder is
+            ; an ordinary text box — out of the outline view, not inheriting
+            ; from the layout, and not a title to anything that reads the deck.
+            def m:PptxShape (box.model())
+            m.isPlaceholder = true
+            m.phType = "title"
+            m.phIdx = -1
+            m.name = "Title"
+            result.titles = (result.titles + 1)
+        } {
+            result.paragraphs = (result.paragraphs + 1)
+        }
+    }
+
+    fn paragraph:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {
+        def text:string (node.plainText())
+        if ((strlen (trim text)) == 0) { return }
+        def box:PptxShapeRef (slide.addTextBox(x y w h text))
+        MdToPptx.tight(box)
+        def r:PptxRunRef (box.runAt(0 0))
+        r.font(layout.style.bodyFamily layout.style.bodySize)
+        r.color(layout.style.textColor)
+        result.paragraphs = (result.paragraphs + 1)
+    }
+
+    fn quote:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {
+        def text:string (trim (node.plainText()))
+        def box:PptxShapeRef (slide.addTextBox(x y w h text))
+        MdToPptx.tight(box)
+        def r:PptxRunRef (box.runAt(0 0))
+        r.font(layout.style.bodyFamily layout.style.bodySize)
+        r.italic(true)
+        r.color(layout.style.quoteColor)
+        result.paragraphs = (result.paragraphs + 1)
+    }
+
+    ; A listing keeps its line breaks, which is the whole reason it is a
+    ; listing. One paragraph per line, no bullet, in the mono family.
+    fn code:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {
+        def box:PptxShapeRef (slide.addTextBox(x y w h ""))
+        MdToPptx.tight(box)
+        def m:PptxShape (box.model())
+        clear m.text.paragraphs
+        def lines:[string] (strsplit node.literal "\n")
+        def i:int 0
+        def n:int (array_length lines)
+        ; A fence ends with a newline, so the last piece is empty and is not a
+        ; line of the program.
+        if (n > 1) {
+            if ((strlen (itemAt lines (n - 1))) == 0) { n = (n - 1) }
+        }
+        while (i < n) {
+            def p (new PptxParagraph)
+            def r (new PptxTextRun)
+            r.text = (itemAt lines i)
+            r.fontFamily = layout.style.monoFamily
+            r.fontSizePt = layout.style.codeSize
+            r.sizeSet = true
+            r.color = (PptxApi.colorOf(layout.style.codePlain))
+            push p.runs r
+            push m.text.paragraphs p
+            i = (i + 1)
+        }
+        def fill:PptxShapeRef (box.fill(layout.style.codeBackground))
+        result.paragraphs = (result.paragraphs + 1)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A list, as a text body PowerPoint can reflow
+    ; ----------------------------------------------------------------------
+    ;
+    ; One shape for the whole list and one PARAGRAPH per item, with `level`
+    ; for the nesting and a bullet character per level. A shape per item would
+    ; place them exactly and would not be a list: pressing return at the end
+    ; of one would not make another.
+    fn list:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {
+        def box:PptxShapeRef (slide.addTextBox(x y w h ""))
+        MdToPptx.tight(box)
+        def m:PptxShape (box.model())
+        clear m.text.paragraphs
+        def before:int result.bullets
+        this.items(m node 0)
+        ; A list the sheet put in columns goes out in ONE. A PowerPoint text
+        ; body has no columns; three of them would be three shapes and not a
+        ; list, and pressing return at the end of the first would not make a
+        ; fourth bullet. Said rather than silently flattened.
+        ; A list the sheet put in columns goes out in columns: PresentationML
+        ; has the spelling — `a:bodyPr@numCol` — and a text body that flows
+        ; down the first column and into the next IS a multi-column list. One
+        ; shape per column would place them exactly and would not be a list.
+        ;
+        ; It matters more than it looks. The layout gave this block a WIDE,
+        ; SHORT rectangle because it cut the items into columns; putting the
+        ; same items in one column inside that rectangle overflows it, and
+        ; the next block on the slide is drawn on top.
+        def cols:int (layout.columnCount(node))
+        if (cols > 1) {
+            m.text.columns = cols
+            m.text.columnGapPt = (layout.columnGap(node))
+        }
+        if ((array_length m.text.paragraphs) == 0) {
+            result.bullets = before
+            return
+        }
+    }
+
+    fn items:void (m:PptxShape node:MdNode level:int) {
+        def ordered:boolean node.listOrdered
+        def number:int node.listStart
+        def i:int 0
+        def n:int (node.childCount())
+        while (i < n) {
+            def item:MdNode (node.childAt(i))
+            def text:string (trim (MdToPptx.itemText(item)))
+            if ((strlen text) > 0) {
+                def p (new PptxParagraph)
+                p.level = level
+                p.hasBullet = true
+                p.bulletSet = true
+                ; The indent, stated rather than left to the reader.
+                ;
+                ; A reader that is told neither invents a level's worth and
+                ; then adds twelve points more for the bullet — and the
+                ; rectangle this shape was given is one `MdLayout` measured
+                ; with the bullet OUTSIDE the text column. Nineteen points of
+                ; text width vanish, a bullet in a three-column list wraps to
+                ; a second line, and the block under it is drawn over them.
+                ;
+                ; `marL` is where the text starts and `indent` is the bullet's
+                ; offset from it, negative for the hanging bullet every list
+                ; has. One level in is one step, which is what the nesting is.
+                def step:double 14.0
+                p.marginLeftPt = (((to_double level) + 1.0) * step)
+                p.marginSet = true
+                p.indentPt = (0.0 - step)
+                p.indentSet = true
+                if ordered {
+                    p.bulletAutoNum = true
+                    p.bulletScheme = "arabicPeriod"
+                    p.bulletStartAt = node.listStart
+                } {
+                    p.bulletChar = (MdToPptx.bulletFor(level))
+                }
+                def r (new PptxTextRun)
+                r.text = text
+                r.fontFamily = layout.style.bodyFamily
+                r.fontSizePt = layout.style.bodySize
+                r.sizeSet = true
+                r.color = (PptxApi.colorOf(layout.style.textColor))
+                push p.runs r
+                push m.text.paragraphs p
+                result.bullets = (result.bullets + 1)
+            }
+            ; A list inside an item is the next level down, and PowerPoint
+            ; spells that as a level rather than as a second shape.
+            def k:int 0
+            while (k < (item.childCount())) {
+                def sub:MdNode (item.childAt(k))
+                if (sub.kind == "list") {
+                    this.items(m sub (level + 1))
+                }
+                k = (k + 1)
+            }
+            if ordered { number = (number + 1) }
+            i = (i + 1)
+        }
+    }
+
+    ; The item's own text, without any list nested under it — that goes in as
+    ; its own paragraphs at the next level.
+    sfn itemText:string (item:MdNode) {
+        def out:string ""
+        def i:int 0
+        while (i < (item.childCount())) {
+            def c:MdNode (item.childAt(i))
+            if (c.kind != "list") {
+                def part:string (c.plainText())
+                if ((strlen out) > 0) { out = (out + " ") }
+                out = (out + part)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn bulletFor:string (level:int) {
+        if (level == 0) { return "•" }
+        if (level == 1) { return "–" }
+        return "·"
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A table, as a table
+    ; ----------------------------------------------------------------------
+    fn table:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {
+        def rows:int (node.childCount())
+        if (rows == 0) { return }
+        def head:MdNode (node.childAt(0))
+        def cols:int (head.childCount())
+        if (cols == 0) { return }
+
+        def sh (new PptxShape)
+        sh.kind = (PptxShapeKind.table())
+        sh.name = "Table"
+        sh.x = x
+        sh.y = y
+        sh.width = w
+        sh.height = h
+        sh.hasXfrm = true
+        sh.tableRows = rows
+        sh.tableCols = cols
+        ; The SAME grid the layout drew, asked of the same function — not a
+        ; width divided by a count. A table of one narrow column of labels
+        ; beside two of numbers is exactly the case equal division gets wrong,
+        ; and it gets it wrong by writing the label across the next cell.
+        def widths:[double] (layout.tableWidths(node w))
+        def c:int 0
+        while (c < cols) {
+            if (c < (array_length widths)) {
+                push sh.tableColW (itemAt widths c)
+            } {
+                push sh.tableColW (w / (int2double cols))
+            }
+            c = (c + 1)
+        }
+        def rowH:double (h / (int2double rows))
+        def r:int 0
+        while (r < rows) {
+            push sh.tableRowH rowH
+            r = (r + 1)
+        }
+        r = 0
+        while (r < rows) {
+            def row:MdNode (node.childAt(r))
+            def cc:int 0
+            while (cc < cols) {
+                def cell (new PptxTableCell)
+                if (cc < (row.childCount())) {
+                    def cn:MdNode (row.childAt(cc))
+                    cell.text = (trim (cn.plainText()))
+                    def a:string cn.align
+                    if ((strlen a) > 0) {
+                        if (a == "right") { cell.align = "r" }
+                        if (a == "center") { cell.align = "ctr" }
+                    }
+                }
+                cell.fontSizePt = layout.style.bodySize
+                if (r == 0) {
+                    cell.bold = true
+                    cell.fill = (PptxApi.colorOf(layout.style.tableHeadBackground))
+                }
+                ; A cell is a TEXT BODY, and `text` beside it is the shorthand.
+                ; The writer will fall back to the shorthand, but nothing that
+                ; DRAWS a deck reads it — the renderer lays the body out — so a
+                ; cell built with only the shorthand is a table of empty boxes
+                ; on screen and a table of words in the file.
+                def cp (new PptxParagraph)
+                cp.align = cell.align
+                cp.alignSet = true
+                def cr (new PptxTextRun)
+                cr.text = cell.text
+                cr.fontFamily = layout.style.bodyFamily
+                cr.fontSizePt = layout.style.bodySize
+                cr.sizeSet = true
+                cr.bold = cell.bold
+                cr.boldSet = true
+                cr.color = (PptxApi.colorOf(layout.style.textColor))
+                push cp.runs cr
+                push cell.body.paragraphs cp
+                ; …and the grid, which markdown's table always draws.
+                cell.lnT = (MdToPptx.rule(layout.style.tableBorder))
+                cell.lnB = (MdToPptx.rule(layout.style.tableBorder))
+                cell.lnL = (MdToPptx.rule(layout.style.tableBorder))
+                cell.lnR = (MdToPptx.rule(layout.style.tableBorder))
+                push sh.tableCells cell
+                cc = (cc + 1)
+            }
+            r = (r + 1)
+        }
+        def model:PptxSlide (slide.model())
+        push model.shapes sh
+        result.tables = (result.tables + 1)
+    }
+
+    sfn rule:PptxTableLine (hex:string) {
+        def ln (new PptxTableLine)
+        ln.isSet = true
+        ln.widthPt = 0.75
+        ln.color = (PptxApi.colorOf(hex))
+        return ln
+    }
+
+    ; ----------------------------------------------------------------------
+    ; …and the fallback, which is what a diagram is for
+    ; ----------------------------------------------------------------------
+    ;
+    ; The drawing is already an `EVGElement` in the embed cache, laid out at
+    ; the width of the column it lands in. From there it is the road
+    ; `BookToPptx` proved: display list in, DrawingML shapes out.
+    fn drawn:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {
+        def kind:string (MdLayout.firstWord(node.info))
+        def idx:int (layout.embeds.find(kind node.literal w))
+        if (idx < 0) {
+            idx = (this.embedAtAnyWidth(kind node.literal))
+        }
+        if (idx < 0) {
+            result.dropped = (result.dropped + 1)
+            result.note((("slide " + (to_string ((this.pageOf(node)) + 1))) + ": a ") + kind + " diagram was never drawn, so there was nothing to place")
+            return
+        }
+        def e:MdEmbedEntry (layout.embeds.entryAt(idx))
+        if (! e.ok) {
+            result.dropped = (result.dropped + 1)
+            result.note((("slide " + (to_string ((this.pageOf(node)) + 1))) + ": ") + e.note)
+            return
+        }
+        ; The scene's root has to be PLACED and LAID OUT before it has any
+        ; geometry: its paths carry an `svgPath` and a `viewBox` and are put
+        ; where the box their container gives them is, not at a left and a top
+        ; of their own. Built straight from the tree, the edges come out
+        ; because they are absolute and every node's label lands in the corner
+        ; — which is exactly what the first attempt at this drew.
+        def root:EVGElement (unwrap e.root)
+        MdToEvg.put(root 0.0 0.0 w h)
+        root.backgroundColor = (EVGColor.noColor())
+        def le (new EVGLayout())
+        le.setPageSize(w h)
+        le.layout(root)
+        def dl (new EVGDisplayList())
+        dl.build(root)
+        def conv (new PptxFromEvg())
+        def group:PptxShape (conv.build(dl x y))
+        def model:PptxSlide (slide.model())
+        push model.shapes group
+        result.drawn = (result.drawn + 1)
+        result.note((("slide " + (to_string ((this.pageOf(node)) + 1))) + ": the ") + kind + " diagram is drawn as shapes, not as text — it cannot be edited in PowerPoint")
+        if (conv.unresolvedImages > 0) {
+            result.note((("slide " + (to_string ((this.pageOf(node)) + 1))) + ": ") + (to_string conv.unresolvedImages) + " picture(s) in it could not be carried")
+        }
+    }
+
+    fn embedAtAnyWidth:int (kind:string source:string) {
+        def i:int 0
+        while (i < (layout.embeds.count())) {
+            def e:MdEmbedEntry (layout.embeds.entryAt(i))
+            if ((e.kind == kind) && (e.source == source)) { return i }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Where the layout put it
+    ; ----------------------------------------------------------------------
+    ;
+    ; Read off the boxes rather than recomputed: the layout already decided,
+    ; and a second answer here would be a second layout to keep in step.
+    ; A box belongs to this block when its source offset is inside the
+    ; block's span, which is true for a list's items and its bullets alike.
+    fn pageOf:int (node:MdNode) {
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if (MdToPptx.inSpan(node b.srcStart)) { return b.page }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn inSpan:boolean (node:MdNode off:int) {
+        if (off < 0) { return false }
+        if (node.srcStart < 0) { return false }
+        if (off < node.srcStart) { return false }
+        if (off >= node.srcEnd) { return false }
+        return true
+    }
+
+    fn leftOf:double (node:MdNode page:int) {
+        def best:double (0.0 - 1.0)
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if (b.page == page) {
+                if (MdToPptx.inSpan(node b.srcStart)) {
+                    if ((best < 0.0) || (b.x < best)) { best = b.x }
+                }
+            }
+            i = (i + 1)
+        }
+        if (best < 0.0) { return layout.style.margin }
+        return best
+    }
+
+    fn topOf:double (node:MdNode page:int) {
+        def best:double (0.0 - 1.0)
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if (b.page == page) {
+                if (MdToPptx.inSpan(node b.srcStart)) {
+                    if ((best < 0.0) || (b.y < best)) { best = b.y }
+                }
+            }
+            i = (i + 1)
+        }
+        if (best < 0.0) { return layout.style.margin }
+        return best
+    }
+
+    fn widthOf:double (node:MdNode page:int) {
+        def left:double (this.leftOf(node page))
+        def right:double 0.0
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if (b.page == page) {
+                if (MdToPptx.inSpan(node b.srcStart)) {
+                    def r:double (b.x + b.w)
+                    if (r > right) { right = r }
+                }
+            }
+            i = (i + 1)
+        }
+        return (right - left)
+    }
+
+    fn heightOf:double (node:MdNode page:int) {
+        def top:double (this.topOf(node page))
+        def bottom:double 0.0
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if (b.page == page) {
+                if (MdToPptx.inSpan(node b.srcStart)) {
+                    def bt:double (b.y + b.h)
+                    if (bt > bottom) { bottom = bt }
+                }
+            }
+            i = (i + 1)
+        }
+        return (bottom - top)
+    }
+}

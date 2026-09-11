@@ -426,6 +426,44 @@ and comes back with the same heading text, the same bullet count and the same
 slide count — and `MdToPptx` reports, per slide, what went the display-list
 road, the way `book_slides` does.
 
+> **Done.** `MdToPptx` picks the road per block. A heading at or above the
+> split level is the slide's TITLE PLACEHOLDER — `isPlaceholder` as well as
+> the type, or the writer emits a bare `<p:nvPr/>` and a title that is not a
+> placeholder is an ordinary text box, out of the outline view. A paragraph is
+> one text box with one run. A list is ONE text body with one paragraph per
+> item, `level` for the nesting and `buAutoNum` for an ordered one, so
+> pressing return at the end of a bullet makes another and inserting one
+> renumbers the rest. A table is a real `a:tbl`. A diagram is the display-list
+> road, and it is counted and named.
+>
+> The geometry is the layout's and the wrapping is PowerPoint's, per §2.
+>
+> **Three things were right in the file and wrong on the screen**, which is
+> why `markdown:pptx:test` counts what the RENDERER reads and not only what
+> comes back through the parser:
+>
+>   * A table cell is a TEXT BODY. `cell.text` beside it is the shorthand the
+>     writer falls back to and nothing that draws a deck reads it — the table
+>     came back perfect from the file and drew as a grid of empty boxes.
+>   * The grid is the layout's. `MdLayout.tableWidths` was split out of
+>     `table` so the deck asks the same function; a width divided by a count
+>     writes "Verkkokauppa" across the cell beside it.
+>   * A diagram's scene has to be PLACED and LAID OUT before its display list
+>     is built: its paths carry an `svgPath` and a `viewBox` and are put where
+>     their container's box is. Built straight off the tree the edges came out
+>     and every node's label landed in the corner.
+>
+> **And one thing needed a spelling the repository did not have.** A list the
+> sheet gives `column-count` to is given a wide, short rectangle by the
+> layout; one column of items in that rectangle overflows onto whatever is
+> under it. PresentationML has the answer — `a:bodyPr@numCol` / `@spcCol` —
+> so `PptxTextBody` gained `columns` and `columnGapPt`, the writer writes
+> them, the parser reads them, and `PptxTextLayout` flows the lines into
+> columns by PARAGRAPH, so a bullet is never cut from its own words. A deck
+> that never asked for columns writes exactly the bytes it wrote before.
+>
+> 38 assertions, through `save()` and `open()` rather than over the model.
+
 ### Stage F — themes as files, and the company deck
 
 `theme: company-2026` resolves to a stylesheet; two example themes; the

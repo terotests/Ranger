@@ -222,6 +222,7 @@
     "markdown:attrs:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdAttrsTest.rgr ./gallery/markdown/bin MdAttrsTest.js",
     "markdown:css:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdCssTest.rgr ./gallery/markdown/bin MdCssTest.js",
     "markdown:edit:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdEditTest.rgr ./gallery/markdown/bin MdEditTest.js",
+    "markdown:pptx:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdPptxTest.rgr ./gallery/markdown/bin MdPptxTest.js",
     "markdown:slides:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdSlidesTest.rgr ./gallery/markdown/bin MdSlidesTest.js",
     "markdown:srcmap:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/markdown/tests/MdSrcMapProbe.rgr -d=./gallery/markdown/bin -o=MdSrcMapProbe.js -nodecli",
     "markdown:srcmap:spec": "npm run --silent markdown:srcmap:build && node gallery/markdown/tools/markdown-srcmap.mjs",
