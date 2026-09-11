@@ -14,6 +14,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **FigJam boards draw.** A sticky, a shape with text, a connector and a table
+  carry no children: Figma builds their layers itself and a `.jam` ships only
+  what it built, as two lists that pair by `guidPath` —
+  `derivedImmutableFrameData` with each layer's size, transform, flattened
+  paths and shaped glyphs, and `nodeGenerationData` with its paints, its text
+  and its `visible`. Neither was read, so a real board opened as a page of
+  empty boxes: all 26 of its stickies, all 56 shapes, all 5 connectors and all
+  5 tables drew nothing whatever. Each layer is now merged the way an instance
+  override is and run through the ordinary reader, so a sticky's body is a
+  vector and its text is text with outlines, and nothing is written twice. The
+  first guid on a path names the layer and the rest name the node, which is why
+  a cell's background and its text share a path *tail* and not a prefix — a
+  layer is placed against the first entry with the same tail, and the third
+  cell's text lands in the third cell.
+
+- **`fig_cli fields <file> <node-id>`** prints one node's raw kiwi fields and
+  lists its children, which is how a layer that draws wrong is read against
+  what the file says about it, and how a variant set's variants are found.
+
+- **The layers pane is a tree, and it is rooted where you are looking.** It
+  used to be every layer in the file in one flat list — three and a half
+  thousand rows on a board, which is a wall and not a tree. Rows fold now, and
+  picking something on the canvas roots the pane at it (or at its parent, when
+  what you picked has nothing under it), with crumbs back out. Everything is
+  open by default; what folds itself is what does not fit, counting the rows
+  still owed to the layers queued behind it, so every section of a board gets a
+  row even when the first one could have filled the pane on its own.
+
+- **An inspector for the selected layer, and it edits.** The numbers in the
+  right-hand pane are the layer, not a report about it: type one and the page
+  is painted again. Position and size, opacity, corner radius, fill and stroke
+  colour and the text itself are editable, a field's label is a scrub handle,
+  and retyping a text layer drops the glyph outlines the editor shaped with it
+  for the font this machine has — which says plainly which half of the pipeline
+  drew what you are looking at. Nothing is written back to the file; **Revert
+  edits** re-reads the document the scene was converted from.
+
 - **Mermaid event models.** Time across the page, kind down it: each `tf` is a
   time frame and lands in the lane its kind belongs to, under the three names
   Mermaid's own config gives them. The lane is not a choice — an event drawn in
@@ -73,6 +110,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with an ellipsis in each say nothing at all.
 
 ### Fixed
+
+- **A page panned away from the origin drew almost nothing.** EVG skips a
+  subtree that cannot reach the clip it is inside, and the test was made
+  against the boxes the layout placed while a transform moves the pixels
+  afterwards. A Figma page is laid out around the origin and never noticed it;
+  a FigJam board is laid out where the designer left it — x = -13,264 on the
+  board that found this — so every frame measured as ten thousand pixels
+  off-screen and was skipped whole: 193 draw commands for 3,565 nodes. The clip
+  now travels into the space the subtree is laid out in, and a rotation, which
+  no rectangle can follow, turns culling off for that subtree rather than
+  guessing at one.
+
+- **An instance showed the component's placeholder, at the component's size.**
+  An override path is spelled in `overrideKey` — a component copied in from a
+  library is re-guided on the way in and keeps its old identity there — and
+  matching on the node's own guid placed 55 of a board's 1,323 overrides. It is
+  also two lists and not one: `derivedSymbolData` is what Figma computed, the
+  shaped glyphs and the size the instance laid the node out at, and
+  `symbolData.symbolOverrides` is what the designer typed. Reading only the
+  first left a 2,030-pixel card spilling 4,600 pixels of placeholder down the
+  board.
+
+- **The selection ring was drawn in the corner of the page.** It read `x`/`y`
+  off the node, and those are an offset from the PARENT: a title twenty pixels
+  into a card three thousand pixels across the board ringed 20,16 — nowhere
+  near the layer it was pointing at. The box is walked to now, the same walk
+  the hit test makes, and a layer with no height still gets a ring you can see.
+
+- **The Frame control was blank, and picking a frame did nothing.** Its options
+  carried the frames' ids while the code put the frame's index into the
+  control and read an index back out, so nothing ever matched and
+  `parseInt("13709:3271")` asked for frame 13,709 — out of range, which
+  quietly showed the whole page again. A section with no name now wears its id
+  rather than an empty row.
+
+- **An instance swapped for another component drew the one it was not
+  swapped to.** `overriddenSymbolID` is an override of the symbol the
+  instance names and was read after it, so it never won: a template card
+  that swaps its thumbnail for the "you are here" variant of a set drew the
+  placeholder artwork the set happens to list first.
+
+- **An instance now clips the way its component does.** The flag is on the
+  component and the instance carries only `frameMaskDisabled`, so the
+  screenshot inside a tip card ran out of the side of the card.
+
+- **A layer whose only fill was switched off was painted opaque black.**
+  `firstFill` handed back an empty paint that read as visible black when every
+  paint on the node was hidden, which put a black box over every icon on a
+  FigJam board that carried one.
+
+- **The scene-graph JSON was not JSON.** Layer names, path data and a sticky's
+  text went in unescaped, so a board whose first sticky ran to two lines made
+  the whole pane unparseable.
 
 - **The C++ backend named classes it had not declared.** `CreateUnions` wrote
   every class the program knows into the `r_union_Any` variant; the forward

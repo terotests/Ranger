@@ -2199,17 +2199,75 @@ class EVGDisplayList {
             curNode = el.inspectSlot
         }
         def hadCull:boolean cullOn
+        def hadCullL:double cullLeft
+        def hadCullT:double cullTop
+        def hadCullR:double cullRight
+        def hadCullB:double cullBottom
         if keeping {
             cullOn = false
         }
+        if cullOn {
+            if (el.hasTransform()) {
+                this.cullThroughTransform(el)
+            }
+        }
         this.walkOpaque(el)
         cullOn = hadCull
+        cullLeft = hadCullL
+        cullTop = hadCullT
+        cullRight = hadCullR
+        cullBottom = hadCullB
         curNode = prevNode
         this.fadeFrom(emitStart el.opacity)
         this.transformFrom(emitStart el)
         if keeping {
             this.recordFragment(el emitStart)
         }
+    }
+
+    ; The clip in force, carried into the space this element's children are
+    ; laid out in. A transform moves the pixels after the boxes are placed,
+    ; so a clip outside it is a rectangle in a different space from the
+    ; boxes below it — and testing one against the other is what made a
+    ; panned canvas draw nothing: a Figma board lays its frames out at
+    ; x = -13264 and a `translate` puts them on the screen, so every frame
+    ; measured as ten thousand pixels off and was skipped whole.
+    ;
+    ; `paintUnbounded` already spares the element that carries the
+    ; transform. Its children are not spared by it — they carry no
+    ; transform of their own — which is why the rectangle has to travel
+    ; rather than the flag. A rotation, which no rectangle here can follow,
+    ; turns culling off for the subtree instead of guessing at one.
+    fn cullThroughTransform:void (el:EVGElement) {
+        if (el.rotate != 0.0) {
+            cullOn = false
+            return
+        }
+        def sc:double el.scale
+        if ((fabs sc) < 0.000001) {
+            cullOn = false
+            return
+        }
+        def ox:double (el.calculatedX + (EVGElement.resolveOrigin(el.transformOriginX el.calculatedWidth)))
+        def oy:double (el.calculatedY + (EVGElement.resolveOrigin(el.transformOriginY el.calculatedHeight)))
+        def l:double (ox + (((cullLeft - el.translateX) - ox) / sc))
+        def r:double (ox + (((cullRight - el.translateX) - ox) / sc))
+        def t:double (oy + (((cullTop - el.translateY) - oy) / sc))
+        def b:double (oy + (((cullBottom - el.translateY) - oy) / sc))
+        if (l > r) {
+            def sw:double l
+            l = r
+            r = sw
+        }
+        if (t > b) {
+            def sw2:double t
+            t = b
+            b = sw2
+        }
+        cullLeft = l
+        cullTop = t
+        cullRight = r
+        cullBottom = b
     }
 
     fn walkOpaque:void (el:EVGElement) {

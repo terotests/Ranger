@@ -58,6 +58,7 @@ class FigTest {
         this.testSampleFig()
         this.testViewer()
         this.testSceneIr()
+        this.testInspector()
         this.testFixtures()
         this.testHealthFig()
         this.testPaste()
@@ -296,10 +297,102 @@ class FigTest {
         this.check("census names a type in the scene" (FigTest.hasSub(census "\"type\":\"FRAME\"")))
         this.check("census counts what draws nothing" (FigTest.hasSub(census "drawNothing")))
         this.check("census counts missing images" (FigTest.hasSub(census "imagesMissing")))
+        ; FigJam: a sticky has no children and its look is in two derived
+        ; lists. Reading neither leaves an empty box, which is what a whole
+        ; board came out as.
+        def sticky:SceneNode (shapes.childNamed("Sticky"))
+        this.eqStr("sticky is a container" sticky.kind "container")
+        this.eqInt("sticky drew its layers, and not the hidden one" (array_length sticky.children) 2)
+        if ((array_length sticky.children) > 1) {
+            def body:SceneNode (itemAt sticky.children 0)
+            this.eqStr("the sticky body is its geometry" body.kind "path")
+            this.check("and it is painted" ((array_length body.fills) > 0))
+            def note:SceneNode (itemAt sticky.children 1)
+            this.eqStr("the sticky text is text" note.kind "text")
+            this.eqStr("and it says what the file says" note.text.characters "Sticky text")
+            this.close("the text layer sits where the frame put it" note.x 20.0)
+            this.close("and at its own offset down" note.y 20.0)
+        }
+        ; The first guid names the layer and the rest name the cell, so a
+        ; cell's text is placed against the background with the same path
+        ; TAIL. Matched on the prefix instead, every cell's text lands in
+        ; the first cell.
+        def table:SceneNode (shapes.childNamed("Table"))
+        this.eqInt("the table drew a layer per cell" (array_length table.children) 3)
+        if ((array_length table.children) > 2) {
+            def cellText:SceneNode (itemAt table.children 2)
+            this.eqStr("the cell text is text" cellText.text.characters "Cell two")
+            this.close("and it is in the second cell" cellText.x 110.0)
+            this.close("at the cell's own inset" cellText.y 10.0)
+        }
+        ; A component out of a library keeps its identity in overrideKey,
+        ; and the override path names that and not the guid the copy was
+        ; given. The text is in what the designer typed; the size is in
+        ; what Figma computed — both lists have to be read.
+        def keyed:SceneNode (shapes.childNamed("KeyedInstance"))
+        this.eqInt("the keyed instance drew the component" (array_length keyed.children) 1)
+        if ((array_length keyed.children) > 0) {
+            def keyedText:SceneNode (itemAt keyed.children 0)
+            this.eqStr("an overrideKey path places the edit" keyedText.text.characters "Typed by hand")
+            this.close("and the derived entry brought its size" keyedText.h 44.0)
+        }
+        def keyedMaster:SceneNode (shapes.childNamed("KeyedCard"))
+        if ((array_length keyedMaster.children) > 0) {
+            def keyedPlaceholder:SceneNode (itemAt keyedMaster.children 0)
+            this.eqStr("the component keeps its placeholder" keyedPlaceholder.text.characters "Keyed placeholder")
+        }
+        ; An instance swapped for another component draws the one it was
+        ; swapped to. Read after the name instead of over it, the swap
+        ; never won and a card drew the variant the set lists first.
+        def swapped:SceneNode (shapes.childNamed("SwappedInstance"))
+        this.eqInt("the swapped instance drew a component" (array_length swapped.children) 1)
+        if ((array_length swapped.children) > 0) {
+            def swappedText:SceneNode (itemAt swapped.children 0)
+            this.eqStr("and it is the one it was swapped to" swappedText.text.characters "You are here")
+        }
         def unread:string (app.unreadJson())
         this.check("unread leaves out fillPaints" ((FigTest.hasSub(unread "\"field\":\"fillPaints\"")) == false))
         this.check("unread leaves out transform" ((FigTest.hasSub(unread "\"field\":\"transform\"")) == false))
         this.check("unread leaves out symbolData" ((FigTest.hasSub(unread "\"field\":\"symbolData\"")) == false))
+    }
+
+    ; The right-hand pane, and the ring on the canvas. Both read the same
+    ; box, and the box has to be walked to: a node's x/y is an offset from
+    ; its parent, so a title twenty pixels into a card is not at 20,20 on
+    ; the page.
+    fn testInspector:void () {
+        print "--- inspector ---"
+        def app (new FigApp())
+        this.check("open" (app.openSample()))
+        app.setPage(2)
+        app.select("3:47")
+        def sel:string (app.inspectJson())
+        this.check("the pane names the layer" (FigTest.hasSub(sel "\"id\":\"3:47\"")))
+        this.check("its own offset is from its parent" (FigTest.hasSub(sel "\"x\":20")))
+        ; CardWithTitle sits at 1380,800 and the title 20,20 inside it.
+        this.check("and its place on the page is walked to" (FigTest.hasSub(sel "\"pageX\":1400")))
+        this.check("in both axes" (FigTest.hasSub(sel "\"pageY\":820")))
+        this.check("the text comes with it" (FigTest.hasSub(sel "\"chars\":\"Title text\"")))
+        ; An edit is a value on the scene graph and a repaint, nothing more.
+        app.editOpacity(0.5)
+        app.editFill("#ff0000")
+        app.editText("Retyped")
+        def edited:string (app.inspectJson())
+        this.check("an edit changes the layer" (FigTest.hasSub(edited "\"opacity\":0.5")))
+        this.check("a colour is a colour" (FigTest.hasSub(edited "\"hex\":\"#ff0000\"")))
+        this.check("retyping replaces the text" (FigTest.hasSub(edited "\"chars\":\"Retyped\"")))
+        this.check("and drops the outlines it was shaped into" (FigTest.hasSub(edited "\"outline\":false")))
+        this.eqInt("the edits are counted" (app.editCount()) 3)
+        app.revertEdits()
+        app.setPage(2)
+        app.select("3:47")
+        def back:string (app.inspectJson())
+        this.check("revert reads the layer back from the file" (FigTest.hasSub(back "\"chars\":\"Title text\"")))
+        this.check("with its own colour" ((FigTest.hasSub(back "\"hex\":\"#ff0000\"")) == false))
+        this.eqInt("and no edits left" (app.editCount()) 0)
+        ; A layer nobody selected has no pane.
+        app.select("")
+        this.eqStr("nothing selected, nothing shown" (app.inspectJson()) "{}")
     }
 
     fn testFixtures:void () {

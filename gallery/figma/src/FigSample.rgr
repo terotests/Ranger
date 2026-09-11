@@ -31,6 +31,8 @@ class FigSample {
         s.addEnumMember(nt "COMPONENT" 10)
         s.addEnumMember(nt "INSTANCE" 11)
         s.addEnumMember(nt "RECTANGLE" 12)
+        s.addEnumMember(nt "STICKY" 13)
+        s.addEnumMember(nt "TABLE" 14)
         def guid:KiwiDef (s.addStruct("GUID"))
         s.addField(guid "sessionID" "uint" 0 false)
         s.addField(guid "localID" "uint" 1 false)
@@ -126,6 +128,23 @@ class FigSample {
         s.addField(node "guidPath" "GUIDPath" 39 false)
         s.addField(node "derivedSymbolData" "Node" 40 true)
         s.addField(node "borderStrokeWeightsIndependent" "bool" 38 false)
+        ; A component copied in from a library is re-guided on the way in
+        ; and keeps its identity in the library's namespace here. That is
+        ; what an override path names — not the guid the copy carries.
+        s.addField(node "overrideKey" "GUID" 41 false)
+        ; What the designer typed, beside what Figma computed from it.
+        s.addField(symd "symbolOverrides" "Node" 2 true)
+        ; FigJam builds a sticky, a shape, a connector and a table out of
+        ; layers of its own; a file ships them as these two lists, paired
+        ; by guidPath — the geometry in one, the paints and the text in
+        ; the other.
+        def imf:KiwiDef (s.addMessage("ImmutableFrame"))
+        s.addField(imf "overrides" "Node" 1 true)
+        ; An instance swapped for another component: one variant of a set
+        ; picked instead of the one the set lists first.
+        s.addField(node "overriddenSymbolID" "GUID" 44 false)
+        s.addField(node "derivedImmutableFrameData" "ImmutableFrame" 42 false)
+        s.addField(node "nodeGenerationData" "ImmutableFrame" 43 false)
         def blob:KiwiDef (s.addMessage("Blob"))
         s.addField(blob "bytes" "byte" 1 true)
         def msg:KiwiDef (s.addMessage("Message"))
@@ -140,6 +159,39 @@ class FigSample {
         o.put("sessionID" (KiwiValue.fromInt(sid)))
         o.put("localID" (KiwiValue.fromInt(lid)))
         return o
+    }
+
+    ; A one-guid override path, and a two-guid one: the layer, then the
+    ; node inside the frame.
+    sfn path1:KiwiValue (sid:int lid:int) {
+        def guids:KiwiValue (KiwiValue.fromArray())
+        guids.pushItem((FigSample.guid(sid lid)))
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("guids" guids)
+        return o
+    }
+
+    sfn path2:KiwiValue (sid0:int lid0:int sid1:int lid1:int) {
+        def guids:KiwiValue (KiwiValue.fromArray())
+        guids.pushItem((FigSample.guid(sid0 lid0)))
+        guids.pushItem((FigSample.guid(sid1 lid1)))
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("guids" guids)
+        return o
+    }
+
+    sfn chars:KiwiValue (text:string) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("characters" (KiwiValue.fromString(text)))
+        return o
+    }
+
+    sfn geomBlob:KiwiValue (index:int) {
+        def g:KiwiValue (KiwiValue.fromObject())
+        g.put("commandsBlob" (KiwiValue.fromInt(index)))
+        def a:KiwiValue (KiwiValue.fromArray())
+        a.pushItem(g)
+        return a
     }
 
     sfn vec:KiwiValue (x:double y:double) {
@@ -668,6 +720,155 @@ class FigSample {
         symBlock.put("symbolID" (FigSample.guid(3 36)))
         fInst3.put("symbolData" symBlock)
         nodes.pushItem(fInst3)
+        ; A variant set: two components, and an instance that names the
+        ; first and is swapped to the second. `overriddenSymbolID` is an
+        ; override of the symbol the instance names, so it has to beat the
+        ; name rather than fill in for a missing one.
+        def varA:KiwiValue (FigSample.node(3 65 "COMPONENT" "VariantA" 0 3 "h" 200.0 40.0 3640.0 800.0))
+        varA.put("fillPaints" (FigSample.paints(0.9 0.9 0.95)))
+        nodes.pushItem(varA)
+        def varAText:KiwiValue (FigSample.node(3 66 "TEXT" "VariantLabel" 3 65 "!" 180.0 24.0 10.0 8.0))
+        varAText.put("textData" (FigSample.chars("Placeholder artwork")))
+        nodes.pushItem(varAText)
+        def varB:KiwiValue (FigSample.node(3 67 "COMPONENT" "VariantB" 0 3 "i" 200.0 40.0 3880.0 800.0))
+        varB.put("fillPaints" (FigSample.paints(0.9 0.95 0.9)))
+        nodes.pushItem(varB)
+        def varBText:KiwiValue (FigSample.node(3 68 "TEXT" "VariantLabel" 3 67 "!" 180.0 24.0 10.0 8.0))
+        varBText.put("textData" (FigSample.chars("You are here")))
+        nodes.pushItem(varBText)
+        def swapInst:KiwiValue (FigSample.node(3 69 "INSTANCE" "SwappedInstance" 0 3 "j" 200.0 40.0 4120.0 800.0))
+        def swapSym:KiwiValue (KiwiValue.fromObject())
+        swapSym.put("symbolID" (FigSample.guid(3 65)))
+        swapInst.put("symbolData" swapSym)
+        swapInst.put("overriddenSymbolID" (FigSample.guid(3 67)))
+        nodes.pushItem(swapInst)
+
+        ; --- FigJam ---------------------------------------------------
+        ;
+        ; A sticky has no children. Its look is two lists that pair by
+        ; guidPath: the geometry, and the paints and text for the same
+        ; layers. A reader that stops at the node draws an empty box.
+        def sticky:KiwiValue (FigSample.node(3 60 "STICKY" "Sticky" 0 3 "d" 240.0 240.0 2580.0 800.0))
+        def stGeom:KiwiValue (KiwiValue.fromArray())
+        def stBody:KiwiValue (KiwiValue.fromObject())
+        stBody.put("guidPath" (FigSample.path1(40000000 0)))
+        stBody.put("size" (FigSample.vec(240.0 240.0)))
+        stBody.put("transform" (FigSample.xform(0.0 0.0)))
+        stBody.put("fillGeometry" (FigSample.geomBlob(0)))
+        stGeom.pushItem(stBody)
+        def stTextGeom:KiwiValue (KiwiValue.fromObject())
+        stTextGeom.put("guidPath" (FigSample.path1(40000000 1)))
+        stTextGeom.put("size" (FigSample.vec(200.0 48.0)))
+        stTextGeom.put("transform" (FigSample.xform(20.0 20.0)))
+        stGeom.pushItem(stTextGeom)
+        def stAuthorGeom:KiwiValue (KiwiValue.fromObject())
+        stAuthorGeom.put("guidPath" (FigSample.path1(40000000 2)))
+        stAuthorGeom.put("size" (FigSample.vec(200.0 16.0)))
+        stAuthorGeom.put("transform" (FigSample.xform(0.0 0.0)))
+        stGeom.pushItem(stAuthorGeom)
+        def stFrame:KiwiValue (KiwiValue.fromObject())
+        stFrame.put("overrides" stGeom)
+        sticky.put("derivedImmutableFrameData" stFrame)
+        def stStyles:KiwiValue (KiwiValue.fromArray())
+        def stBodyStyle:KiwiValue (KiwiValue.fromObject())
+        stBodyStyle.put("guidPath" (FigSample.path1(40000000 0)))
+        stBodyStyle.put("fillPaints" (FigSample.paints(0.576 0.89 0.588)))
+        stStyles.pushItem(stBodyStyle)
+        def stTextStyle:KiwiValue (KiwiValue.fromObject())
+        stTextStyle.put("guidPath" (FigSample.path1(40000000 1)))
+        stTextStyle.put("textData" (FigSample.chars("Sticky text")))
+        stTextStyle.put("fillPaints" (FigSample.paints(0.2 0.2 0.2)))
+        stTextStyle.put("fontSize" (KiwiValue.fromDouble(16.0)))
+        stStyles.pushItem(stTextStyle)
+        ; The author's name is a layer like any other, and the file says
+        ; it is switched off.
+        def stAuthorStyle:KiwiValue (KiwiValue.fromObject())
+        stAuthorStyle.put("guidPath" (FigSample.path1(40000000 2)))
+        stAuthorStyle.put("textData" (FigSample.chars("Author")))
+        stAuthorStyle.put("visible" (KiwiValue.fromBool(false)))
+        stStyles.pushItem(stAuthorStyle)
+        def stGen:KiwiValue (KiwiValue.fromObject())
+        stGen.put("overrides" stStyles)
+        sticky.put("nodeGenerationData" stGen)
+        nodes.pushItem(sticky)
+
+        ; A table, where the first guid on a path names the layer and the
+        ; rest name the cell: a cell's background and its text share a path
+        ; TAIL and not a prefix, so the text is placed against the entry
+        ; with the same tail. Get that wrong and every cell's text piles up
+        ; in the table's first cell.
+        def table:KiwiValue (FigSample.node(3 61 "TABLE" "Table" 0 3 "e" 200.0 40.0 2860.0 800.0))
+        def tbGeom:KiwiValue (KiwiValue.fromArray())
+        def cellA:KiwiValue (KiwiValue.fromObject())
+        cellA.put("guidPath" (FigSample.path2(40000000 0 9 1)))
+        cellA.put("size" (FigSample.vec(100.0 40.0)))
+        cellA.put("transform" (FigSample.xform(0.0 0.0)))
+        cellA.put("fillGeometry" (FigSample.geomBlob(0)))
+        tbGeom.pushItem(cellA)
+        def cellB:KiwiValue (KiwiValue.fromObject())
+        cellB.put("guidPath" (FigSample.path2(40000000 0 9 2)))
+        cellB.put("size" (FigSample.vec(100.0 40.0)))
+        cellB.put("transform" (FigSample.xform(100.0 0.0)))
+        cellB.put("fillGeometry" (FigSample.geomBlob(0)))
+        tbGeom.pushItem(cellB)
+        def cellBText:KiwiValue (KiwiValue.fromObject())
+        cellBText.put("guidPath" (FigSample.path2(40000000 1 9 2)))
+        cellBText.put("size" (FigSample.vec(80.0 20.0)))
+        cellBText.put("transform" (FigSample.xform(10.0 10.0)))
+        tbGeom.pushItem(cellBText)
+        def tbFrame:KiwiValue (KiwiValue.fromObject())
+        tbFrame.put("overrides" tbGeom)
+        table.put("derivedImmutableFrameData" tbFrame)
+        def tbStyles:KiwiValue (KiwiValue.fromArray())
+        def cellAStyle:KiwiValue (KiwiValue.fromObject())
+        cellAStyle.put("guidPath" (FigSample.path2(40000000 0 9 1)))
+        cellAStyle.put("fillPaints" (FigSample.paints(0.95 0.95 0.95)))
+        tbStyles.pushItem(cellAStyle)
+        def cellBStyle:KiwiValue (KiwiValue.fromObject())
+        cellBStyle.put("guidPath" (FigSample.path2(40000000 0 9 2)))
+        cellBStyle.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        tbStyles.pushItem(cellBStyle)
+        def cellBTextStyle:KiwiValue (KiwiValue.fromObject())
+        cellBTextStyle.put("guidPath" (FigSample.path2(40000000 1 9 2)))
+        cellBTextStyle.put("textData" (FigSample.chars("Cell two")))
+        cellBTextStyle.put("fillPaints" (FigSample.paints(0.1 0.1 0.1)))
+        tbStyles.pushItem(cellBTextStyle)
+        def tbGen:KiwiValue (KiwiValue.fromObject())
+        tbGen.put("overrides" tbStyles)
+        table.put("nodeGenerationData" tbGen)
+        nodes.pushItem(table)
+
+        ; A component out of a library: the copy carries new guids and the
+        ; override paths still name the old ones, which every node keeps in
+        ; `overrideKey`. And two lists — what the designer typed, and what
+        ; Figma computed from it — because the text is only in the first
+        ; and the size the instance laid it out at only in the second.
+        def kComp:KiwiValue (FigSample.node(3 62 "COMPONENT" "KeyedCard" 0 3 "f" 220.0 80.0 3120.0 800.0))
+        kComp.put("fillPaints" (FigSample.paints(0.97 0.97 0.98)))
+        kComp.put("overrideKey" (FigSample.guid(1 899)))
+        nodes.pushItem(kComp)
+        def kText:KiwiValue (FigSample.node(3 63 "TEXT" "KeyedTitle" 3 62 "!" 180.0 24.0 20.0 20.0))
+        kText.put("textData" (FigSample.chars("Keyed placeholder")))
+        kText.put("overrideKey" (FigSample.guid(1 900)))
+        nodes.pushItem(kText)
+        def kInst:KiwiValue (FigSample.node(3 64 "INSTANCE" "KeyedInstance" 0 3 "g" 220.0 80.0 3380.0 800.0))
+        def kSym:KiwiValue (KiwiValue.fromObject())
+        kSym.put("symbolID" (FigSample.guid(3 62)))
+        def kEdits:KiwiValue (KiwiValue.fromArray())
+        def kEdit:KiwiValue (KiwiValue.fromObject())
+        kEdit.put("guidPath" (FigSample.path1(1 900)))
+        kEdit.put("textData" (FigSample.chars("Typed by hand")))
+        kEdits.pushItem(kEdit)
+        kSym.put("symbolOverrides" kEdits)
+        kInst.put("symbolData" kSym)
+        def kDerived:KiwiValue (KiwiValue.fromArray())
+        def kDer:KiwiValue (KiwiValue.fromObject())
+        kDer.put("guidPath" (FigSample.path1(1 900)))
+        kDer.put("size" (FigSample.vec(180.0 44.0)))
+        kDerived.pushItem(kDer)
+        kInst.put("derivedSymbolData" kDerived)
+        nodes.pushItem(kInst)
+
         def blobs:KiwiValue (KiwiValue.fromArray())
         def blob0:KiwiValue (KiwiValue.fromObject())
         blob0.put("bytes" (KiwiValue.fromBytes((FigSample.triangleBlob()))))

@@ -68,6 +68,48 @@ class FigWeb {
         return (app.propsJson())
     }
 
+    ; The selected layer, small enough to re-read on every keystroke.
+    fn inspect:string () {
+        return (app.inspectJson())
+    }
+
+    ; Editing the scene graph. Nothing is written back to the file.
+    fn editRect:void (x:double y:double w:double h:double) {
+        app.editRect(x y w h)
+    }
+
+    fn editOpacity:void (v:double) {
+        app.editOpacity(v)
+    }
+
+    fn editVisible:void (on:boolean) {
+        app.editVisible(on)
+    }
+
+    fn editRadius:void (v:double) {
+        app.editRadius(v)
+    }
+
+    fn editFill:void (hex:string) {
+        app.editFill(hex)
+    }
+
+    fn editStroke:void (hex:string weight:double) {
+        app.editStroke(hex weight)
+    }
+
+    fn editText:void (text:string) {
+        app.editText(text)
+    }
+
+    fn revertEdits:void () {
+        app.revertEdits()
+    }
+
+    fn editCount:int () {
+        return (app.editCount())
+    }
+
     fn warnings:string () {
         return (app.warningsJson())
     }
