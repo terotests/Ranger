@@ -1,0 +1,6 @@
+digraph chains {
+  a -> b -> c -> d;
+  { rank=same; b; c }
+  { x1 x2 } -> { y1 y2 } [style=dotted];
+  subgraph s1 { s -> t }
+}

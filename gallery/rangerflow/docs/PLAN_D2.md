@@ -40,13 +40,15 @@ PlantUML readers already follow.
 
 ## 1. The question that was asked
 
-*Is there an open-source reference library?* Yes, and it is the best of the
-three.
+*Is there an open-source reference library?* Yes, and at the time this was
+written it was the best of the three. Graphviz has since been read too, and its
+`-Tjson0` is the same kind of answer — the row is here so the table stays true.
 
 | | Licence | Language | Oracle | Installs with |
 | --- | --- | --- | --- | --- |
 | Mermaid | MIT | JS | its parse database | `npm install mermaid` |
 | PlantUML | GPL-2.0-or-later | Java | its annotated SVG | a 22 MB jar from Maven |
+| Graphviz | EPL-1.0 | C (wasm) | `-Tjson0`, its own parse result | `npm install @hpcc-js/wasm-graphviz` |
 | **D2** | **MPL-2.0** | **Go** | **`d2target.Diagram`, as JSON** | `go install oss.terrastruct.com/d2@v0.7.1` |
 
 MPL-2.0 is file-level copyleft. It is a weaker obligation than PlantUML's GPL
@@ -56,14 +58,16 @@ this repository — not a grammar, not a keyword table. What the reader will kno
 about D2 it learns from D2's observable behaviour and from the tables the
 oracle prints.
 
-## 2. Why D2's oracle is better than the two we have
+## 2. Why D2's oracle asks less than the two before it
 
 PlantUML has to be read off an annotated SVG and Mermaid off a parse database
-that says nothing about geometry. D2 hands back the whole answer:
+that says nothing about geometry. D2 hands back the whole answer — and unlike
+Graphviz's, it carries the *semantics* as well: table columns, class members
+and the board tree, not only nodes and edges.
 
 ```bash
 $ npm run rangerflow:d2:oracle
-  d2 v0.7.1: 20/20 fixtures accepted, 139 shapes and 58 connections laid out by
+  d2 v0.7.1: 41/41 fixtures accepted, 265 shapes and 117 connections laid out by
   dagre and elk, 46 keywords, 25 shapes, 11 arrowheads
 ```
 

@@ -1,0 +1,657 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DotRecordLabel.rgr — the two label languages inside DOT's labels.
+; ============================================================================
+;
+; Most of a DOT file is one grammar of thirteen productions. Two attributes are
+; not: `shape=record` and `label=<...>` each carry a nested box language, and a
+; reader that treats them as text draws a box with `<id> id | <cust> customer`
+; written across it instead of the three-celled table the author asked for.
+;
+;   order [shape=record, label="<id> id | <cust> customer | <total> total"]
+;   tree  [shape=record, label="{ a | { b | c } | d }"]
+;   html  [label=<<TABLE><TR><TD PORT="l">left</TD><TD>right</TD></TR></TABLE>>]
+;
+; Both mean the same thing here — a tree of cells, each with a size, some with
+; a **port name that an edge can aim at** — so both are parsed into `DotCell`
+; and everything downstream is written once.
+;
+; **The direction alternates.** A record's top-level fields run across the page
+; when `rankdir` is `TB`, down it when `rankdir` is `LR`, and every `{ }` flips
+; the axis again. That is the whole of the layout rule, and it is why the tree
+; carries `across` rather than the reader deciding per level.
+;
+; **What is not read**, and is listed rather than hidden: `ROWSPAN` (a cell that
+; spans two rows is drawn in one), nested tables inside a cell, `<IMG>`, and the
+; per-cell colours of an HTML table. `COLSPAN` is spent as a share of the row's
+; width rather than by merging cells, which is the same picture wherever the
+; row has nothing else in that column. The text and the ports — which is what
+; an edge and a reader need — are read.
+; ============================================================================
+
+Import "DotReader.rgr"
+Import "../flowchart/Flowchart.rgr"
+
+; ---------------------------------------------------------------------------
+; One box
+; ---------------------------------------------------------------------------
+class DotCell {
+    def text:string ""
+    ; The `<name>` an edge writes after the colon. Empty for a cell nobody can
+    ; aim at.
+    def port:string ""
+    def kids:[DotCell]
+    ; How this cell's children are laid out: across the page, or down it.
+    def across:boolean true
+    ; `COLSPAN` from an HTML table: how many columns wide this cell asks to be.
+    ; One for everything a record label ever says.
+    def span:int 1
+    ; Measured size, then placed position — both in flow-space pixels.
+    def w:double 0.0
+    def h:double 0.0
+    def x:double 0.0
+    def y:double 0.0
+
+    Constructor () {
+    }
+
+    fn isLeaf:boolean () {
+        return ((array_length kids) == 0)
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The record language
+; ---------------------------------------------------------------------------
+class DotRecordLabel {
+    def root:DotCell (new DotCell)
+    def ok:boolean true
+    def chart:Flowchart (new Flowchart)
+    def fontSize:double 12.0
+    ; A cell is its text plus room to breathe, and never smaller than this: a
+    ; record of six empty fields is six boxes, not a line.
+    def padX:double 14.0
+    def padY:double 9.0
+    def minW:double 34.0
+    def minH:double 30.0
+
+    ; the parser's cursor
+    def src:string ""
+    def pos:int 0
+
+    Constructor () {
+    }
+
+    ; `across` is the direction the TOP level runs in, which `rankdir` decides.
+    sfn parse:DotRecordLabel (label:string across:boolean) {
+        def r (new DotRecordLabel)
+        r.src = label
+        r.pos = 0
+        r.root = (r.readList(across))
+        if (r.pos < (strlen label)) {
+            ; A `}` with nothing open is the one thing a record label can be
+            ; wrong about that Graphviz also refuses.
+            r.ok = false
+        }
+        return r
+    }
+
+    ; A `|`-separated list of fields. Returns the cell that holds them; a list
+    ; of one is that one field rather than a box around it.
+    fn readList:DotCell (across:boolean) {
+        def holder (new DotCell)
+        holder.across = across
+        while (true) {
+            def field:DotCell (this.readField(across == false))
+            push holder.kids field
+            ; A `{ … }` field stops at its own brace, so the spaces before the
+            ; next `|` are still there. A leaf field ate them as text.
+            this.skipSpace()
+            if (pos >= (strlen src)) {
+                break
+            }
+            def c:int (charAt src pos)
+            if (c == 124) {
+                pos = (pos + 1)
+                continue
+            }
+            break
+        }
+        if ((array_length holder.kids) == 1) {
+            def only:DotCell (itemAt holder.kids 0)
+            if (only.isLeaf()) {
+                return only
+            }
+        }
+        return holder
+    }
+
+    ; One field: `{ ... }`, or `<port>` and text, in either order.
+    fn readField:DotCell (innerAcross:boolean) {
+        this.skipSpace()
+        if (pos < (strlen src)) {
+            if ((charAt src pos) == 123) {
+                pos = (pos + 1)
+                def inner:DotCell (this.readList(innerAcross))
+                this.skipSpace()
+                if (pos < (strlen src)) {
+                    if ((charAt src pos) == 125) {
+                        pos = (pos + 1)
+                    } {
+                        ok = false
+                    }
+                } {
+                    ok = false
+                }
+                return inner
+            }
+        }
+        def cell (new DotCell)
+        def text:string ""
+        while (pos < (strlen src)) {
+            def c:int (charAt src pos)
+            if (c == 124) {
+                break
+            }
+            if (c == 125) {
+                break
+            }
+            if (c == 60) {
+                pos = (pos + 1)
+                cell.port = (this.readPort())
+                continue
+            }
+            if (c == 92) {
+                pos = (pos + 1)
+                text = (text + (this.escaped()))
+                continue
+            }
+            text = (text + (strfromcode c))
+            pos = (pos + 1)
+        }
+        cell.text = (trim text)
+        return cell
+    }
+
+    fn readPort:string () {
+        def name:string ""
+        while (pos < (strlen src)) {
+            def c:int (charAt src pos)
+            pos = (pos + 1)
+            if (c == 62) {
+                return (trim name)
+            }
+            if (c == 92) {
+                if (pos < (strlen src)) {
+                    name = (name + (strfromcode (charAt src pos)))
+                    pos = (pos + 1)
+                }
+                continue
+            }
+            name = (name + (strfromcode c))
+        }
+        ok = false
+        return (trim name)
+    }
+
+    ; What a backslash introduces inside a record label. `\n`, `\l` and `\r`
+    ; break the line; the four structural characters are how a record says one
+    ; of them is text; anything else is itself.
+    fn escaped:string () {
+        if (pos >= (strlen src)) {
+            return ""
+        }
+        def c:int (charAt src pos)
+        pos = (pos + 1)
+        if (c == 110) { return "\n" }
+        if (c == 108) { return "\n" }
+        if (c == 114) { return "\n" }
+        return (strfromcode c)
+    }
+
+    fn skipSpace:void () {
+        while (pos < (strlen src)) {
+            def c:int (charAt src pos)
+            if (DotChars.isSpace(c) == false) {
+                return
+            }
+            pos = (pos + 1)
+        }
+    }
+
+    ; ---------------------------------------------------------- measuring ----
+    ; Bottom-up: a leaf is its text, a box is the sum of its children along its
+    ; own axis and the widest of them across it.
+    fn measure:void () {
+        this.measureCell(root)
+    }
+
+    fn measureCell:void (c:DotCell) {
+        if (c.isLeaf()) {
+            def lines:int (DotRecordLabel.lineCount(c.text))
+            def widest:double (chart.textWidth(c.text fontSize))
+            c.w = (widest + (padX * 2.0))
+            if (c.w < minW) {
+                c.w = minW
+            }
+            def lineH:double (fontSize * 1.35)
+            c.h = ((lineH * (to_double lines)) + (padY * 2.0))
+            if (c.h < minH) {
+                c.h = minH
+            }
+            ; A cell that spans two columns is asking for two columns' worth of
+            ; the room its row has. The room is shared out in proportion to
+            ; what was measured, so this is where the span is spent.
+            if (c.span > 1) {
+                c.w = (c.w * (to_double c.span))
+            }
+            return
+        }
+        def along:double 0.0
+        def across:double 0.0
+        def i:int 0
+        while (i < (array_length c.kids)) {
+            def k:DotCell (itemAt c.kids i)
+            i = (i + 1)
+            this.measureCell(k)
+            if (c.across) {
+                along = (along + k.w)
+                if (k.h > across) {
+                    across = k.h
+                }
+            } {
+                along = (along + k.h)
+                if (k.w > across) {
+                    across = k.w
+                }
+            }
+        }
+        if (c.across) {
+            c.w = along
+            c.h = across
+        } {
+            c.w = across
+            c.h = along
+        }
+    }
+
+    sfn lineCount:int (t:string) {
+        def n:int 1
+        def i:int 0
+        while (i < (strlen t)) {
+            if ((charAt t i) == 10) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; ----------------------------------------------------------- placing -----
+    ; Top-down, into the box the layout actually gave the node: whatever room
+    ; there is over what was measured is shared out in proportion, so a record
+    ; stretched to a minimum node width stretches its cells with it.
+    fn place:void (x:double y:double w:double h:double) {
+        this.placeCell(root x y w h)
+    }
+
+    fn placeCell:void (c:DotCell x:double y:double w:double h:double) {
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        if (c.isLeaf()) {
+            return
+        }
+        def total:double 0.0
+        def i:int 0
+        while (i < (array_length c.kids)) {
+            def k:DotCell (itemAt c.kids i)
+            i = (i + 1)
+            if (c.across) {
+                total = (total + k.w)
+            } {
+                total = (total + k.h)
+            }
+        }
+        if (total <= 0.0) {
+            total = 1.0
+        }
+        def cursor:double x
+        if (c.across == false) {
+            cursor = y
+        }
+        def n:int (array_length c.kids)
+        def k2:int 0
+        while (k2 < n) {
+            def kid:DotCell (itemAt c.kids k2)
+            def idx:int k2
+            k2 = (k2 + 1)
+            if (c.across) {
+                def share:double ((kid.w / total) * w)
+                if (idx == (n - 1)) {
+                    share = ((x + w) - cursor)
+                }
+                this.placeCell(kid cursor y share h)
+                cursor = (cursor + share)
+            } {
+                def shareH:double ((kid.h / total) * h)
+                if (idx == (n - 1)) {
+                    shareH = ((y + h) - cursor)
+                }
+                this.placeCell(kid x cursor w shareH)
+                cursor = (cursor + shareH)
+            }
+        }
+    }
+
+    ; ------------------------------------------------------------ reading ----
+    fn leaves:[DotCell] () {
+        def out:[DotCell]
+        this.collect(root out)
+        return out
+    }
+
+    fn collect:void (c:DotCell out:[DotCell]) {
+        if (c.isLeaf()) {
+            push out c
+            return
+        }
+        def i:int 0
+        while (i < (array_length c.kids)) {
+            def k:DotCell (itemAt c.kids i)
+            i = (i + 1)
+            this.collect(k out)
+        }
+    }
+
+    ; Every cell that named a port, at any depth — a `{ }` may carry one too.
+    fn ported:[DotCell] () {
+        def out:[DotCell]
+        this.collectPorted(root out)
+        return out
+    }
+
+    fn collectPorted:void (c:DotCell out:[DotCell]) {
+        if ((strlen c.port) > 0) {
+            push out c
+        }
+        def i:int 0
+        while (i < (array_length c.kids)) {
+            def k:DotCell (itemAt c.kids i)
+            i = (i + 1)
+            this.collectPorted(k out)
+        }
+    }
+
+    fn cellCount:int () {
+        def all:[DotCell] (this.leaves())
+        return (array_length all)
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The HTML-like language
+; ---------------------------------------------------------------------------
+; `label=<<TABLE>…</TABLE>>` is the other way a DOT node carries a table, and
+; it means the same thing: rows of cells, some of them named by `PORT`. It is
+; parsed into the same `DotCell` tree, so the drawing, the ports and the edges
+; are written once.
+;
+; A label that is HTML-like but is NOT a table — `<B>bold</B>` — is a single
+; cell with the tags taken out, which is what it looks like.
+class DotHtmlLabel {
+    sfn isTable:boolean (raw:string) {
+        def low:string (DotChars.lower(raw))
+        return (DotHtmlLabel.hasSub(low "<table"))
+    }
+
+    sfn hasSub:boolean (text:string needle:string) {
+        def n:int (strlen needle)
+        if (n == 0) {
+            return true
+        }
+        def i:int 0
+        while ((i + n) <= (strlen text)) {
+            if ((substring text i (i + n)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The table, as rows of cells. Rows run down the page and cells across it,
+    ; which is what a table is and does not depend on `rankdir`.
+    sfn parse:DotRecordLabel (raw:string) {
+        def r (new DotRecordLabel)
+        r.root = (DotHtmlLabel.readTable(raw))
+        return r
+    }
+
+    sfn readTable:DotCell (raw:string) {
+        def table (new DotCell)
+        table.across = false
+        def i:int 0
+        def row:DotCell (new DotCell)
+        def open:boolean false
+        while (i < (strlen raw)) {
+            def c:int (charAt raw i)
+            if (c != 60) {
+                i = (i + 1)
+                continue
+            }
+            def close:int (DotHtmlLabel.tagEnd(raw i))
+            if (close < 0) {
+                break
+            }
+            def tag:string (substring raw (i + 1) close)
+            def name:string (DotChars.lower((DotHtmlLabel.tagName(tag))))
+            if (name == "tr") {
+                row = (new DotCell)
+                row.across = true
+                push table.kids row
+                open = true
+                i = (close + 1)
+                continue
+            }
+            if (name == "td") {
+                def cell (new DotCell)
+                cell.port = (DotHtmlLabel.attr(tag "port"))
+                cell.span = (DotHtmlLabel.spanOf(tag))
+                def bodyEnd:int (DotHtmlLabel.bodyEnd(raw (close + 1)))
+                cell.text = (DotHtmlLabel.textOf((substring raw (close + 1) bodyEnd)))
+                if (open == false) {
+                    row = (new DotCell)
+                    row.across = true
+                    push table.kids row
+                    open = true
+                }
+                push row.kids cell
+                i = bodyEnd
+                continue
+            }
+            i = (close + 1)
+        }
+        if ((array_length table.kids) == 0) {
+            def plain (new DotCell)
+            plain.text = (DotHtmlLabel.textOf(raw))
+            return plain
+        }
+        return table
+    }
+
+    ; Where the `>` that closes a tag is.
+    sfn tagEnd:int (raw:string from:int) {
+        def i:int from
+        while (i < (strlen raw)) {
+            if ((charAt raw i) == 62) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Where a cell's body stops: the next tag that opens or closes a cell or a
+    ; row. `<B>bold</B>` inside it is body, not a boundary.
+    sfn bodyEnd:int (raw:string from:int) {
+        def i:int from
+        while (i < (strlen raw)) {
+            if ((charAt raw i) == 60) {
+                def close:int (DotHtmlLabel.tagEnd(raw i))
+                if (close < 0) {
+                    return (strlen raw)
+                }
+                def name:string (DotChars.lower((DotHtmlLabel.tagName((substring raw (i + 1) close)))))
+                if (name == "td")    { return i }
+                if (name == "/td")   { return i }
+                if (name == "tr")    { return i }
+                if (name == "/tr")   { return i }
+                if (name == "table") { return i }
+                if (name == "/table") { return i }
+                i = (close + 1)
+                continue
+            }
+            i = (i + 1)
+        }
+        return (strlen raw)
+    }
+
+    ; `COLSPAN="2"`, and one for a tag that does not say.
+    sfn spanOf:int (tag:string) {
+        def raw:string (DotHtmlLabel.attr(tag "colspan"))
+        if ((strlen raw) == 0) {
+            return 1
+        }
+        def n:int (?? (str2int (trim raw)) 1)
+        if (n < 1) {
+            return 1
+        }
+        if (n > 32) {
+            return 32
+        }
+        return n
+    }
+
+    sfn tagName:string (tag:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen tag)) {
+            def c:int (charAt tag i)
+            if (DotChars.isSpace(c)) {
+                return out
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; `PORT="l"` out of a tag, in either quoting and either case.
+    sfn attr:string (tag:string want:string) {
+        def low:string (DotChars.lower(tag))
+        def n:int (strlen want)
+        def i:int 0
+        while ((i + n) < (strlen low)) {
+            if ((substring low i (i + n)) == want) {
+                def at:int (i + n)
+                while (at < (strlen tag)) {
+                    def c:int (charAt tag at)
+                    if (DotChars.isSpace(c)) {
+                        at = (at + 1)
+                        continue
+                    }
+                    if (c == 61) {
+                        at = (at + 1)
+                        continue
+                    }
+                    break
+                }
+                if (at >= (strlen tag)) {
+                    return ""
+                }
+                def quote:int (charAt tag at)
+                if (quote == 34) {
+                    at = (at + 1)
+                    def out:string ""
+                    while (at < (strlen tag)) {
+                        def q:int (charAt tag at)
+                        at = (at + 1)
+                        if (q == 34) {
+                            return out
+                        }
+                        out = (out + (strfromcode q))
+                    }
+                    return out
+                }
+                def bare:string ""
+                while (at < (strlen tag)) {
+                    def b:int (charAt tag at)
+                    at = (at + 1)
+                    if (DotChars.isSpace(b)) {
+                        return bare
+                    }
+                    bare = (bare + (strfromcode b))
+                }
+                return bare
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; The words inside a run of markup, with `<BR/>` as the line break it is.
+    sfn textOf:string (raw:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen raw)) {
+            def c:int (charAt raw i)
+            if (c == 60) {
+                def close:int (DotHtmlLabel.tagEnd(raw i))
+                if (close < 0) {
+                    return (DotHtmlLabel.squeeze(out))
+                }
+                def name:string (DotChars.lower((DotHtmlLabel.tagName((substring raw (i + 1) close)))))
+                if (name == "br") {
+                    out = (out + "\n")
+                }
+                if (name == "br/") {
+                    out = (out + "\n")
+                }
+                i = (close + 1)
+                continue
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return (DotHtmlLabel.squeeze(out))
+    }
+
+    ; Markup is written with newlines and indentation that are not text.
+    sfn squeeze:string (raw:string) {
+        def out:string ""
+        def space:boolean true
+        def i:int 0
+        while (i < (strlen raw)) {
+            def c:int (charAt raw i)
+            i = (i + 1)
+            if (c == 10) {
+                out = (out + "\n")
+                space = true
+                continue
+            }
+            if (DotChars.isSpace(c)) {
+                if (space == false) {
+                    out = (out + " ")
+                }
+                space = true
+                continue
+            }
+            space = false
+            out = (out + (strfromcode c))
+        }
+        return (trim out)
+    }
+}

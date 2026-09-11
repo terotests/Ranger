@@ -294,12 +294,13 @@ const srcArea = document.getElementById("srcarea");
 const exampleSel = document.getElementById("example");
 const srcHint = document.getElementById("srchint");
 
-const FORMATS = ["mermaid", "plantuml", "d2"];
+const FORMATS = ["mermaid", "plantuml", "graphviz", "d2"];
 let srcFormat = "mermaid";
 
 const HINT = {
   mermaid: "Mermaid: flowcharts, sequence, class, state, ER, mind maps and more. Live redraw is on; Ctrl/\u2318+Enter renders now.",
   plantuml: "PlantUML: sequence, class, object, activity, component, deployment, use case. Live redraw is on; Ctrl/\u2318+Enter renders now.",
+  graphviz: "Graphviz DOT: one grammar, clusters, shapes and attributes. Live redraw is on; Ctrl/\u2318+Enter renders now.",
   d2: "D2: containers, shapes, sql_table, class, sequence diagrams, vars, classes and globs. Imports are not resolved in the browser. Live redraw is on; Ctrl/\u2318+Enter renders now.",
 };
 

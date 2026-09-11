@@ -15,6 +15,8 @@
 ;                                           wins over the diagram's own classDef
 ;                                           (default | forest | dark | neutral
 ;                                            | print, or a path to a .css file)
+;   npm run rangerflow:demo -- --graphviz   a Graphviz DOT digraph, read from a
+;                                           file — clusters, shapes, attributes
 ;   npm run rangerflow:demo -- --org        an organisation chart
 ;   npm run rangerflow:demo -- --process    a swimlane process
 ;   npm run rangerflow:demo -- --drag       drop every node everywhere, count
@@ -46,6 +48,7 @@ Import "../domains/mermaid/MermaidSequenceReader.rgr"
 Import "../domains/plantuml/PlantUmlSequenceReader.rgr"
 Import "../domains/plantuml/PlantUmlEntityReader.rgr"
 Import "../domains/plantuml/PlantUmlActivityReader.rgr"
+Import "../domains/graphviz/DotFlow.rgr"
 Import "../domains/d2/D2Flow.rgr"
 Import "../domains/d2/D2Imports.rgr"
 Import "../domains/mermaid/MermaidGitReader.rgr"
@@ -88,6 +91,7 @@ class RangerFlowDemo {
         def benchSize:int 0
         def mermaidPath:string "gallery/rangerflow/fixtures/order_flow.mmd"
         def plantumlPath:string "gallery/rangerflow/fixtures/order_flow.puml"
+        def dotPath:string "gallery/rangerflow/fixtures/order_flow.gv"
         def d2Path:string "gallery/rangerflow/fixtures/d2/19_architecture.d2"
         def styleName:string ""
         def restyle:boolean false
@@ -117,6 +121,15 @@ class RangerFlowDemo {
                     def givenP:string (shell_arg (i + 1))
                     if ((charAt givenP 0) != 45) {
                         plantumlPath = givenP
+                    }
+                }
+            }
+            if (a == "--graphviz") {
+                mode = "graphviz"
+                if ((i + 1) < argCount) {
+                    def givenG:string (shell_arg (i + 1))
+                    if ((charAt givenG 0) != 45) {
+                        dotPath = givenG
                     }
                 }
             }
@@ -163,6 +176,7 @@ class RangerFlowDemo {
         if (mode == "flowchart") { d.runFlowchart() }
         if (mode == "mermaid")   { d.runMermaid(mermaidPath styleName restyle) }
         if (mode == "plantuml")  { d.runPlantUml(plantumlPath styleName) }
+        if (mode == "graphviz")  { d.runGraphviz(dotPath styleName) }
         if (mode == "d2")        { d.runD2(d2Path styleName) }
         if (mode == "org")       { d.runOrg() }
         if (mode == "process")   { d.runProcess() }
@@ -1108,6 +1122,51 @@ class RangerFlowDemo {
             what = "RangerFlow — PlantUML activity diagram"
         }
         this.writeAll(v g "rangerflow-plantuml-activity" what)
+    }
+
+    ; ---------------------------------------------------------- Graphviz ----
+    ; A DOT digraph. One grammar, one reader, and from `DotFlow` onwards the
+    ; same road a Mermaid flowchart takes. The scorecard for what this reader
+    ; understood is `docs/GRAPHVIZ_PARITY.md`, computed by Graphviz itself.
+    fn runGraphviz:void (path:string styleName:string) {
+        print "== RangerFlow: Graphviz DOT =="
+        def srcOpt:string (?? (read_file "." path) "")
+        if ((strlen srcOpt) == 0) {
+            print ("  could not read " + path)
+            return
+        }
+        def d:DotGraph (DotReader.parse(srcOpt))
+        if (d.ok == false) {
+            ; Graphviz refuses a file with a line number, and so does this. A
+            ; reader that draws something anyway is a reader that guessed.
+            print ("  " + path + ": " + d.error + " (line " + (to_string d.errorLine) + ")")
+            return
+        }
+        def kind:string "digraph"
+        if (d.directed == false) {
+            kind = "graph"
+        }
+        if d.strict {
+            kind = ("strict " + kind)
+        }
+        print ("  read   " + path + " — " + kind + " " + d.name)
+        print ("  model  " + (to_string (d.nodeCount())) + " nodes, " + (to_string (d.edgeCount())) + " edges, " + (to_string (d.clusterCount())) + " clusters, " + (to_string ((d.subgraphCount()) - (d.clusterCount()))) + " plain subgraphs")
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (DotFlow.build(d style))
+        def how:string (?? (get d.attrs "layout") "dot")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges, laid out by " + how + " (" + (d.direction()) + ")")
+        ; What the lines came out like. A picture is not a test, and these are
+        ; the numbers a reader's eye takes from a drawing without knowing it:
+        ; see `layout/RouteQuality.rgr`.
+        print ("  routes " + (to_string (RouteQuality.totalBends(g))) + " bends, " + (to_string (EdgeOverlap.edgeCrossings(g))) + " crossings, " + (to_string (EdgeOverlap.nodeCrossings(g))) + " through a node, nearest parallel " + (to_string (RouteQuality.closestParallel(g))) + " px")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string (?? (get d.attrs "label") "")
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Graphviz DOT"
+        }
+        this.writeAll(v g "rangerflow-graphviz" title)
     }
 
     ; A git graph: the commits in the order they happened, one row per branch.

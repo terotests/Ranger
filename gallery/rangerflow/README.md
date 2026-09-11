@@ -42,9 +42,11 @@ npm run rangerflow:drag        # drop every node everywhere, count the lines lef
 npm run rangerflow:quality     # every fixture measured: lines through nodes, on each other, square, beside, corners
 npm run rangerflow:demo:web    # build the page, serve it, open a browser
 npm run rangerflow:web:serve   # …the same without opening anything
-npm run rangerflow:web:test    # …or run all eleven demos in headless Chrome
+npm run rangerflow:web:test    # …or run all thirteen demos in headless Chrome
 npm run rangerflow:mermaid:parity  # score the reader against Mermaid's own parser
 npm run rangerflow:plantuml:parity # …and the PlantUML reader against plantuml.jar
+npm run rangerflow:graphviz:parity # …and the DOT reader against Graphviz itself
+npm run rangerflow:graphviz:bench  # what each open-source DOT reference costs
 npm run rangerflow:parity      # score it against React Flow — see below
 npm run rangerflow:rivals      # …and against JointJS and Syncfusion
 npm run rangerflow:sdl:run     # the same editor in a native SDL2 + OpenGL window
@@ -69,13 +71,14 @@ dropdown in the page switches between them, and `?scenario=` picks one on load:
 | [`?scenario=atk`](http://localhost:8080/?scenario=atk) | an ATK chart in the ISO 5807 shapes: diamond, drum, parallelogram, wavy-footed page |
 | [`?scenario=mermaid`](http://localhost:8080/?scenario=mermaid) | **paste Mermaid, press render** — the text box is the diagram, and what comes out is draggable, editable and exportable. Eight examples in the dropdown beside it |
 | [`?scenario=plantuml`](http://localhost:8080/?scenario=plantuml) | **the same box, reading PlantUML** — class, sequence, activity, component, use case, deployment and object, seven examples to start from |
+| [`?scenario=graphviz`](http://localhost:8080/?scenario=graphviz) | **the same box again, reading Graphviz DOT** — clusters, the shape gallery, records and HTML tables with edges aimed at a named cell, `neato` and the scoped attribute defaults: five examples, and the whole published grammar behind them |
 | [`?scenario=org`](http://localhost:8080/?scenario=org) | an organisation chart, units coloured, the matrix report dashed |
 | [`?scenario=process`](http://localhost:8080/?scenario=process) | a swimlane process — drag a lane and its steps come with it |
 | [`?scenario=mindmap`](http://localhost:8080/?scenario=mindmap) | a mind map, branches balanced either side of the root |
 | [`?scenario=radial`](http://localhost:8080/?scenario=radial) | the same graph as a radial tree, a generation per ring |
 | [`?scenario=activity`](http://localhost:8080/?scenario=activity) | a UML **activity** diagram — actions, a fork and a join, signals sent and received, a wait |
 
-For those two the page splits: **the source on the left, the drawing on the
+For those three the page splits: **the source on the left, the drawing on the
 right**, so the text you are editing and the diagram it makes are both full
 height. `example` is a gallery — picking one replaces the text and draws it —
 and **`live` redraws as you type**, which is the whole point of having the two
@@ -1120,10 +1123,87 @@ the 26 preprocessor commands are all read off the tool.
 
 Still open: the state reader, the preprocessor, and Creole's styled runs. The plan is [`docs/PLAN_PLANTUML.md`](docs/PLAN_PLANTUML.md).
 
+### Graphviz DOT
+
+The third format a diagram travels through a README in is Graphviz's DOT, and
+`npm run rangerflow:graphviz` reads it — one grammar of thirteen productions,
+no preprocessor and no header to sniff, which is why it is a smaller job than
+PlantUML was. `DotReader` does the whole published grammar: both edge
+operators and the `digraph`/`graph` rule that separates them, `strict` with the
+deduplication it implies, clusters and anonymous subgraphs (including as the
+end of an edge), ports and compass points, quoting with escapes, `+`
+concatenation and line continuation, repeated attribute lists, and the scoped
+attribute defaults that are the subtlest part of the language — `node
+[shape=box]` reaches forward, not back, and not into a sibling subgraph.
+`DotFlow` hands the result to the layered layout, and from there it is the same
+road a Mermaid flowchart takes. A cluster is drawn as a band, not a bounding
+box, for the reason the PlantUML packages needed it.
+
+The edges are drawn by `ReadableRouter`, the router that can see every other
+edge — and the choice is measured rather than assumed. On a diagram of ordinary
+size it puts parallel lines 65 px apart where the older pass stack managed 16,
+and takes out the detours that make a reader follow a line with a finger. On a
+dense one it can run out of corridors and abandon an edge, which is then drawn
+straight through whatever is in the way; so it is asked first, checked
+afterwards, and the pass stack takes the whole diagram when anything was left
+unrouted. `npm run rangerflow:graphviz` prints the bends, the crossings, the
+lines drawn through a node and the nearest parallel gap for whatever it drew.
+
+The score is **132 of 132 checks over 20 files**, computed by **Graphviz
+itself**: `npm run rangerflow:graphviz:parity` asks Graphviz what each file in
+`fixtures/graphviz/` means — `-Tjson0` is its parse result, with subgraph
+membership and every attribute *after default resolution* — and compares it
+with what this reader made of the same text. Four of the twenty files are ones
+Graphviz **refuses**, and refusing them too is the check that matters most: a
+reader that reads a file Graphviz will not is a reader that invented syntax.
+The table is [`docs/GRAPHVIZ_PARITY.md`](docs/GRAPHVIZ_PARITY.md), regenerated
+by the run.
+
+Which open-source library does the asking was itself measured before anything
+was built: `npm run rangerflow:graphviz:bench` hands the corpus to four of them
+and prints what came back into
+[`docs/GRAPHVIZ_BENCH.md`](docs/GRAPHVIZ_BENCH.md). Graphviz — native, and the
+same program compiled to WebAssembly — agrees with itself 20/20 and answers in
+**0.23 ms a diagram**, about a hundred and fortieth of what asking PlantUML
+costs, with no JVM and no subprocess. The two pure-JavaScript DOT parsers agree
+18/20 and 17/20, which is why neither is the oracle and neither would have made
+a reader. Graphviz is EPL-1.0: it is installed by npm into the gitignored
+harness, run as a sandboxed WebAssembly module, never linked, never shipped,
+and no Graphviz source is read or copied.
+
+`shape=record` and an HTML `<TABLE>` label are both box languages rather than
+strings, and both are read: into one tree of cells, measured bottom-up and
+placed into whatever box the layout gave the node, with the axis alternating
+the way DOT says — across the page under `rankdir=TB`, down it under `LR`, and
+flipped again by every `{ }`. The cells are drawn as children of the record, so
+a record dragged across the page takes them with it, and a named field becomes
+a port: `order:cust:e -> customer:id:w` leaves the cell it names on the side
+the compass names. Where the file gives no compass the side is chosen from
+where the other end of the edge actually is, which is what Graphviz does.
+
+The colours are **measured, not transcribed**. `npm run
+rangerflow:graphviz:colors` hands every candidate name to Graphviz as a
+`fillcolor` and reads the RGB back out of its own xdot output, where a colour
+is always hex whatever the name was; 666 of them come back, and they are
+written into `domains/graphviz/DotColors.rgr`, which is generated and says so
+on its first line. A name Graphviz does not know is left to the theme rather
+than guessed at.
+
+`layout=` picks the drawing: `dot` ranks, `neato`/`fdp`/`sfdp` push,
+`twopi`/`circo` ring — and the two that are not ranked draw straight edges,
+because an orthogonal line between two nodes that are merely near each other is
+three turns saying nothing. `pos="x,y!"` pins a node where the author put it,
+remembering that DOT names a node's centre and counts upwards where a screen
+counts down.
+
+Still open: `style=diagonals`, `fontname`, `ROWSPAN` in an HTML table, and the
+Brewer colour schemes. The plan is
+[`docs/PLAN_GRAPHVIZ.md`](docs/PLAN_GRAPHVIZ.md).
+
 ## D2, measured before it is read
 
-[D2](https://d2lang.com) is the third text-to-diagram format worth reading, and
-the easiest of the three to be honest about: it is **MPL-2.0**, it installs
+[D2](https://d2lang.com) is the fourth text-to-diagram format read here, and
+the easiest of them to be honest about: it is **MPL-2.0**, it installs
 with `go install oss.terrastruct.com/d2@v0.7.1`, and `d2lib.Compile` hands back
 a whole diagram as JSON — every shape with its position, size, type and level,
 every connection with its arrowheads and its route, `sql_table` columns with

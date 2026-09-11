@@ -1,0 +1,240 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DotParityDump.rgr — what RangerFlow's reader made of Graphviz's files.
+; ============================================================================
+;
+;   npm run rangerflow:graphviz:parity
+;   → gallery/rangerflow/harness/out/rangerflow_dot.json
+;
+; The corpus is `fixtures/graphviz/`, handed in as arguments rather than
+; discovered here: Ranger has no directory listing, and a list written into
+; this file is a list that goes stale the day somebody adds an example.
+;
+; Nothing is laid out and nothing is drawn. What is dumped is what the READER
+; understood — the header, the nodes with their resolved attributes, the edges
+; by endpoint, and the subgraphs with their membership — because that is the
+; half Graphviz can disagree with. Where the diagram goes on the page is
+; RangerFlow's own business and Graphviz has no opinion about it.
+;
+; A file the reader REFUSES is an answer too, and the important one: Graphviz
+; rejects four files in the corpus on purpose, and a reader that reads them
+; happily has invented syntax.
+; ============================================================================
+
+Import "../domains/graphviz/DotReader.rgr"
+
+class DotParityDump {
+    sfn main:void () {
+        def out:string "{\n \"diagrams\": [\n"
+        def count:int (shell_arg_cnt)
+        def written:int 0
+        def i:int 0
+        while (i < count) {
+            def path:string (shell_arg i)
+            if ((DotParityDump.isDiagram(path))) {
+                if (written > 0) {
+                    out = (out + ",\n")
+                }
+                out = (out + (DotParityDump.dumpOne(path)))
+                written = (written + 1)
+            }
+            i = (i + 1)
+        }
+        out = (out + "\n ]\n}\n")
+        write_file "." "gallery/rangerflow/harness/out/rangerflow_dot.json" out
+        print ("  rangerflow reader: " + (to_string written) + " diagrams → gallery/rangerflow/harness/out/rangerflow_dot.json")
+    }
+
+    sfn isDiagram:boolean (path:string) {
+        if ((strlen path) < 4) {
+            return false
+        }
+        def tail:string (substring path ((strlen path) - 3) (strlen path))
+        return (tail == ".gv")
+    }
+
+    sfn dumpOne:string (path:string) {
+        def src:string (?? (read_file "." path) "")
+        def d:DotGraph (DotReader.parse(src))
+        def out:string "  {"
+        out = (out + "\"file\": \"" + (DotParityDump.esc((DotParityDump.baseName(path)))) + "\"")
+        out = (out + ", \"ok\": " + (to_string d.ok))
+        out = (out + ", \"error\": \"" + (DotParityDump.esc(d.error)) + "\"")
+        out = (out + ", \"errorLine\": " + (to_string d.errorLine))
+        out = (out + ", \"name\": \"" + (DotParityDump.esc(d.name)) + "\"")
+        out = (out + ", \"strict\": " + (to_string d.strict))
+        out = (out + ", \"directed\": " + (to_string d.directed))
+        out = (out + ", \"attrs\": " + (DotParityDump.attrs(d.attrs)))
+        out = (out + ",\n   \"nodes\": [")
+        def i:int 0
+        while (i < (array_length d.nodes)) {
+            def n:DotNode (itemAt d.nodes i)
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            out = (out + "{\"id\": \"" + (DotParityDump.esc(n.id)) + "\"")
+            out = (out + ", \"attrs\": " + (DotParityDump.attrs(n.attrs)) + "}")
+            i = (i + 1)
+        }
+        out = (out + "],\n   \"edges\": [")
+        def k:int 0
+        while (k < (array_length d.edges)) {
+            def e:DotEdge (itemAt d.edges k)
+            if (k > 0) {
+                out = (out + ", ")
+            }
+            out = (out + "{\"tail\": \"" + (DotParityDump.esc(e.tail)) + "\"")
+            out = (out + ", \"head\": \"" + (DotParityDump.esc(e.head)) + "\"")
+            if ((strlen e.tailPort) > 0) {
+                out = (out + ", \"tailPort\": \"" + (DotParityDump.esc(e.tailPort)) + "\"")
+            }
+            if ((strlen e.headPort) > 0) {
+                out = (out + ", \"headPort\": \"" + (DotParityDump.esc(e.headPort)) + "\"")
+            }
+            if ((strlen e.tailCompass) > 0) {
+                out = (out + ", \"tailCompass\": \"" + (DotParityDump.esc(e.tailCompass)) + "\"")
+            }
+            if ((strlen e.headCompass) > 0) {
+                out = (out + ", \"headCompass\": \"" + (DotParityDump.esc(e.headCompass)) + "\"")
+            }
+            out = (out + ", \"attrs\": " + (DotParityDump.attrs(e.attrs)) + "}")
+            k = (k + 1)
+        }
+        out = (out + "],\n   \"subgraphs\": [")
+        def s:int 0
+        while (s < (array_length d.subgraphs)) {
+            def sub:DotSubgraph (itemAt d.subgraphs s)
+            if (s > 0) {
+                out = (out + ", ")
+            }
+            out = (out + "{\"id\": \"" + (DotParityDump.esc(sub.id)) + "\"")
+            out = (out + ", \"cluster\": " + (to_string sub.isCluster))
+            out = (out + ", \"depth\": " + (to_string sub.depth))
+            out = (out + ", \"attrs\": " + (DotParityDump.attrs(sub.attrs)))
+            out = (out + ", \"nodes\": [")
+            def m:int 0
+            while (m < (array_length sub.members)) {
+                if (m > 0) {
+                    out = (out + ", ")
+                }
+                out = (out + "\"" + (DotParityDump.esc((itemAt sub.members m))) + "\"")
+                m = (m + 1)
+            }
+            out = (out + "]}")
+            s = (s + 1)
+        }
+        out = (out + "]}")
+        return out
+    }
+
+    sfn attrs:string (m:[string:string]) {
+        def ks:[string] (keys m)
+        def sorted:[string] (DotParityDump.sortNames(ks))
+        def out:string "{"
+        def i:int 0
+        while (i < (array_length sorted)) {
+            def k:string (itemAt sorted i)
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            out = (out + "\"" + (DotParityDump.esc(k)) + "\": \"")
+            out = (out + (DotParityDump.esc((?? (get m k) ""))) + "\"")
+            i = (i + 1)
+        }
+        return (out + "}")
+    }
+
+    ; JSON objects have no order, but a diff of two files does.
+    sfn sortNames:[string] (names:[string]) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length names)) {
+            push out (itemAt names i)
+            i = (i + 1)
+        }
+        def n:int (array_length out)
+        def a:int 0
+        while (a < n) {
+            def b:int (a + 1)
+            while (b < n) {
+                def x:string (itemAt out a)
+                def y:string (itemAt out b)
+                if (DotParityDump.before(y x)) {
+                    set_at out a y
+                    set_at out b x
+                }
+                b = (b + 1)
+            }
+            a = (a + 1)
+        }
+        return out
+    }
+
+    ; Ranger's `<` is for numbers. Alphabetical order is a loop over the two
+    ; strings, which is all `<` would have done for a string anyway.
+    sfn before:boolean (a:string b:string) {
+        def n:int (strlen a)
+        if ((strlen b) < n) {
+            n = (strlen b)
+        }
+        def i:int 0
+        while (i < n) {
+            def ca:int (charAt a i)
+            def cb:int (charAt b i)
+            if (ca < cb) {
+                return true
+            }
+            if (ca > cb) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return ((strlen a) < (strlen b))
+    }
+
+    sfn baseName:string (path:string) {
+        def cut:int -1
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return path
+        }
+        return (substring path (cut + 1) (strlen path))
+    }
+
+    sfn esc:string (t:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            i = (i + 1)
+            if (c == 34) {
+                out = (out + "\\\"")
+                continue
+            }
+            if (c == 92) {
+                out = (out + "\\\\")
+                continue
+            }
+            if (c == 10) {
+                out = (out + "\\n")
+                continue
+            }
+            if (c == 13) {
+                continue
+            }
+            if (c == 9) {
+                out = (out + "\\t")
+                continue
+            }
+            out = (out + (strfromcode c))
+        }
+        return out
+    }
+}

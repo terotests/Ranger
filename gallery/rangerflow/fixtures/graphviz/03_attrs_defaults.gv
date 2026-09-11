@@ -1,0 +1,8 @@
+digraph styled {
+  graph [rankdir=LR, bgcolor="#fafafa"];
+  node [shape=box, style=filled, fillcolor=lightgrey];
+  edge [color=blue, arrowhead=vee];
+  Web -> API [label="http", penwidth=2];
+  API -> DB;
+  DB [shape=cylinder, fillcolor=white];
+}

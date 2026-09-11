@@ -113,7 +113,7 @@ const CHROME_FLAGS = [
   "--enable-unsafe-swiftshader",
 ];
 
-const ALL_SCENARIOS = ["erd", "uml", "force", "flow", "atk", "org", "process", "mindmap", "radial", "activity", "mermaid", "plantuml", "d2"];
+const ALL_SCENARIOS = ["erd", "uml", "force", "flow", "atk", "org", "process", "mindmap", "radial", "activity", "mermaid", "plantuml", "graphviz", "d2"];
 
 /**
  * Drive one demo through the page's own self test and report.

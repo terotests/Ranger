@@ -3,11 +3,14 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "React Flow, d3-force and Mermaid, installed so they can be asked the same questions RangerFlow is asked.",
+  "description": "React Flow, d3-force, Mermaid and Graphviz, installed so they can be asked the same questions RangerFlow is asked.",
   "dependencies": {
+    "@hpcc-js/wasm-graphviz": "1.29.0",
+    "@ts-graphviz/ast": "3.0.6",
     "@xyflow/system": "0.0.80",
     "d3-force": "3.0.0",
-    "mermaid": "11.17.2",
-    "jsdom": "26.1.0"
+    "dotparser": "1.1.1",
+    "jsdom": "26.1.0",
+    "mermaid": "11.17.2"
   }
 }

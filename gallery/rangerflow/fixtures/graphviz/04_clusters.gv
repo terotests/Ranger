@@ -1,0 +1,17 @@
+digraph stack {
+  compound=true;
+  subgraph cluster_front {
+    label = "frontend";
+    color = blue;
+    Web; Mobile;
+  }
+  subgraph cluster_back {
+    label = "backend";
+    API; Worker;
+  }
+  Cache;
+  Web -> API;
+  Mobile -> API;
+  API -> Worker;
+  Worker -> Cache [lhead=cluster_back];
+}

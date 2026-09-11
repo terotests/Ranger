@@ -239,7 +239,11 @@ class ReadableRouter {
                     if ((g.edgeSide(e true)) == side) {
                         push ends k
                         push atSrc true
-                        push along e.portNudgeSource
+                        ; Where along the side this end actually leaves from,
+                        ; not how far it was nudged: an end attached to a port
+                        ; is not nudged at all and is still somewhere in
+                        ; particular. Asking the graph gets both cases right.
+                        push along (ReadableRouter.alongOf(g e true side centre))
                         push toward ((OrientedPorts.otherKey(g e true side)) - centre)
                     }
                 }
@@ -247,7 +251,7 @@ class ReadableRouter {
                     if ((g.edgeSide(e false)) == side) {
                         push ends k
                         push atSrc false
-                        push along e.portNudgeTarget
+                        push along (ReadableRouter.alongOf(g e false side centre))
                         push toward ((OrientedPorts.otherKey(g e false side)) - centre)
                     }
                 }
@@ -291,6 +295,14 @@ class ReadableRouter {
             }
             m = (m + 1)
         }
+    }
+
+    ; How far along its side an end departs, measured from the middle of that
+    ; side — the same axis `centreAlong` runs in.
+    sfn alongOf:double (g:FlowGraph e:FlowEdge atSource:boolean side:int centre:double) {
+        if (side == 0) { return ((g.endpointX(e atSource)) - centre) }
+        if (side == 2) { return ((g.endpointX(e atSource)) - centre) }
+        return ((g.endpointY(e atSource)) - centre)
     }
 
     sfn centreAlong:double (nd:FlowNode side:int) {

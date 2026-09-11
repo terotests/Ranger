@@ -1,0 +1,43 @@
+// The demo diagram, written the way anyone would write it in a README.
+// `npm run rangerflow:graphviz` renders this file to SVG, PDF, HTML and a scene.
+digraph order_flow {
+    label = "Tilauksen käsittely";
+    rankdir = TB;
+
+    node [shape=box, style=filled, fillcolor=white, color=steelblue];
+    edge [color=steelblue];
+
+    alku   [shape=circle, label="Alku"];
+    tilaus [shape=parallelogram, label="Lue tilaus"];
+    tarkista [label="Tarkista\nluottotiedot"];
+    rekisteri [shape=cylinder, label="Asiakasrekisteri", fillcolor=lightyellow];
+    luotto [shape=diamond, label="Luotto\nkunnossa?"];
+    hylkaa [label="Ilmoita hylkäys", fillcolor=salmon, color=tomato];
+
+    subgraph cluster_laskutus {
+        label = "Laskutus";
+        color = seagreen;
+        saldo   [shape=diamond, label="Riittääkö\nsaldo?"];
+        varasto [label="Varaa tuotteet"];
+        jalki   [label="Merkitse\njälkitoimitukseen"];
+        laskuta [shape=note, label="Muodosta lasku"];
+        lasku   [shape=parallelogram, label="Lasku asiakkaalle"];
+
+        varasto -> saldo;
+        saldo -> laskuta [label="kyllä"];
+        saldo -> jalki   [label="ei"];
+        jalki -> laskuta;
+        laskuta -> lasku;
+    }
+
+    loppu [shape=doublecircle, label="Loppu", fillcolor=lightblue];
+
+    alku -> tilaus;
+    tilaus -> tarkista;
+    rekisteri -> tarkista [style=dashed, dir=none];
+    tarkista -> luotto;
+    luotto -> varasto [label="kyllä"];
+    luotto -> hylkaa  [label="ei"];
+    lasku -> loppu;
+    hylkaa -> loppu;
+}
