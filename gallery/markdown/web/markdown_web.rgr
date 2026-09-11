@@ -319,6 +319,15 @@ class MarkdownWeb {
     ; one works.
     fn sourceOffsetAt:int (x:double y:double) {
         def docY:double (y + scrollY)
+        ; The CHARACTER under the pointer, when one was drawn there. This used
+        ; to answer with the block's first byte and nothing finer, because
+        ; that was all a box carried — a click in the middle of the fourth
+        ; paragraph put the source caret at the start of it.
+        def exact:int (layout.srcAtPoint(x docY (this.sheetGap())))
+        if (exact >= 0) { return exact }
+        ; Nothing that carries a source was drawn at that point — the margin,
+        ; the gap between sheets, a rule, a diagram. Fall back to the block
+        ; above, which is the answer the viewer always gave.
         def best:int -1
         def bestY:double (0.0 - 1000000.0)
         def i:int 0
@@ -337,8 +346,40 @@ class MarkdownWeb {
         return best
     }
 
+    ; How the sheets are stacked, as `MdLayout` wants to be told: below zero
+    ; for one continuous column.
+    fn sheetGap:double () {
+        if paged {
+            return (MdToEvg.sheetGap())
+        }
+        return (0.0 - 1.0)
+    }
+
     ; Where a source offset ended up on the drawing.
+    ;
+    ; The boxes first, so the answer is the LINE the character is on rather
+    ; than the top of the paragraph it is in: a caret moved down inside a long
+    ; paragraph used to scroll nowhere, because every box of that paragraph
+    ; reported the same y.
     fn offsetToY:double (offset:int) {
+        def bestBox:double (0.0 - 1.0)
+        def bestSrc:int -1
+        def gap:double (this.sheetGap())
+        def bi:int 0
+        def bn:int (array_length layout.boxes)
+        while (bi < bn) {
+            def bx:MdBox (itemAt layout.boxes bi)
+            if ((bx.kind == 0) && (bx.segSrc >= 0)) {
+                if (bx.segSrc <= offset) {
+                    if (bx.segSrc >= bestSrc) {
+                        bestSrc = bx.segSrc
+                        bestBox = (layout.boxTop(bx gap))
+                    }
+                }
+            }
+            bi = (bi + 1)
+        }
+        if (bestBox >= 0.0) { return bestBox }
         def best:double 0.0
         def i:int 0
         def n:int (doc.childCount())

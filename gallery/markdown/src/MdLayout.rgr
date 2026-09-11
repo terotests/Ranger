@@ -185,10 +185,23 @@ class MdRun {
     def link:string ""
     ; a forced break — two spaces at the end of a line, or a backslash
     def hardBreak:boolean false
+    ; Where this run's text came from, in the document — the span of the
+    ; inline node it was made from. -1 when the node had none to give.
+    ;
+    ; It is carried rather than looked up because the run is where the text
+    ; and the source stop being the same length: `&amp;` is one character of
+    ; run text and five of source, so an offset INSIDE a run is exact only
+    ; where the run is verbatim, and `srcEnd` is what stops an inexact one
+    ; running off the end of the node it belongs to.
+    def srcStart:int -1
+    def srcEnd:int -1
 
     Constructor () {
     }
 
+    ; The source span is NOT copied: a style is inherited by a child run and
+    ; a position is not. Copying it is how `*a* b` would have had both runs
+    ; claiming the same character.
     fn copyStyle:MdRun () {
         def r:MdRun (new MdRun())
         r.family = family
@@ -214,6 +227,11 @@ class MdSeg {
     def link:string ""
     def x:double 0.0
     def w:double 0.0
+    ; Where this placed piece of text starts in the document, and how much of
+    ; the document it covers. This is the finest thing the layout knows, and
+    ; it is what a click turns into a caret.
+    def srcStart:int -1
+    def srcLen:int 0
 
     Constructor () {
     }
@@ -257,6 +275,13 @@ class MdBox {
     ; the layout, not by the author: it is what lets a click on a drawing find
     ; a caret in the text a reader typed.
     def srcStart:int -1
+    ; …and the character THIS BOX begins at, which is a different question.
+    ; `srcStart` names the block, so every box of a paragraph carries the same
+    ; one and a click could name the paragraph and nothing smaller. `segSrc`
+    ; is the placed run's own start, so a click inside the box can be turned
+    ; into an offset by measuring across it.
+    def segSrc:int -1
+    def segLen:int 0
 
     Constructor () {
     }
@@ -298,6 +323,10 @@ class MdBox {
 
 class MdLayout {
     def style:MdStyle (new MdStyle())
+    ; Built once per layout by `buildBoxIndex`: the first box of each block,
+    ; by that block's source offset.
+    def boxIndexAt:[string:int]
+    def boxIndexReady:boolean false
     def engine:EVGTextEngine (new EVGTextEngine())
     def boxes:[MdBox]
 
@@ -394,6 +423,7 @@ class MdLayout {
     ; One page, as tall as it needs to be. What the canvas scrolls.
     fn layoutContinuous:void (doc:MdNode width:double) {
         clear boxes
+        boxIndexReady = false
         this.resetHeadings()
         paginate = false
         page = 0
@@ -410,6 +440,7 @@ class MdLayout {
     ; Sheets of a stated size, with the breaks decided here. What is printed.
     fn layoutPaged:void (doc:MdNode) {
         clear boxes
+        boxIndexReady = false
         this.resetHeadings()
         paginate = true
         page = 0
@@ -589,6 +620,7 @@ class MdLayout {
             i = (i + 1)
         }
         clear boxes
+        boxIndexReady = false
         this.resetHeadings()
         page = 0
         pageCount = 1
@@ -665,13 +697,36 @@ class MdLayout {
 
     ; The first box a block produced, or -1. The two panes of the viewer are
     ; kept in step through this and nothing else.
-    fn firstBoxOf:int (srcStart:int) {
+    ;
+    ; It was a scan of every box in the document, once per call, and the
+    ; viewer calls it once per BLOCK — so putting the source caret back after
+    ; a click was quadratic in the document. Nobody noticed at a click a
+    ; second; a caret that moves on every keystroke would have. The index is
+    ; built once per layout, at the end, keyed by the block's own srcStart.
+    fn buildBoxIndex:void () {
+        map_clear boxIndexAt
         def i:int 0
         def n:int (array_length boxes)
         while (i < n) {
             def b:MdBox (itemAt boxes i)
-            if (b.srcStart == srcStart) { return i }
+            if (b.srcStart >= 0) {
+                def k:string (to_string b.srcStart)
+                if (! (has boxIndexAt k)) {
+                    set boxIndexAt k i
+                }
+            }
             i = (i + 1)
+        }
+        boxIndexReady = true
+    }
+
+    fn firstBoxOf:int (srcStart:int) {
+        if (! boxIndexReady) {
+            this.buildBoxIndex()
+        }
+        def k:string (to_string srcStart)
+        if (has boxIndexAt k) {
+            return (?? (get boxIndexAt k) -1)
         }
         return -1
     }
@@ -1098,16 +1153,22 @@ class MdLayout {
             if (kind == "text") {
                 def r:MdRun (base.copyStyle())
                 r.text = c.literal
+                r.srcStart = c.srcStart
+                r.srcEnd = c.srcEnd
                 push out r
             }
             if (kind == "softbreak") {
                 def sb:MdRun (base.copyStyle())
                 sb.text = " "
+                sb.srcStart = c.srcStart
+                sb.srcEnd = c.srcEnd
                 push out sb
             }
             if (kind == "linebreak") {
                 def lb:MdRun (base.copyStyle())
                 lb.hardBreak = true
+                lb.srcStart = c.srcStart
+                lb.srcEnd = c.srcEnd
                 push out lb
             }
             if (kind == "code") {
@@ -1118,6 +1179,8 @@ class MdLayout {
                 cr.bold = false
                 cr.italic = false
                 cr.text = c.literal
+                cr.srcStart = c.srcStart
+                cr.srcEnd = c.srcEnd
                 push out cr
             }
             if (kind == "html_inline") {
@@ -1126,6 +1189,8 @@ class MdLayout {
                 hr.size = (base.size * 0.92)
                 hr.color = style.mutedColor
                 hr.text = c.literal
+                hr.srcStart = c.srcStart
+                hr.srcEnd = c.srcEnd
                 push out hr
             }
             if (kind == "emph") {
@@ -1180,6 +1245,8 @@ class MdLayout {
                 ir.color = style.mutedColor
                 def alt:string (c.plainText())
                 ir.text = (("[" + alt) + "]")
+                ir.srcStart = c.srcStart
+                ir.srcEnd = c.srcEnd
                 push out ir
             }
             i = (i + 1)
@@ -1208,6 +1275,8 @@ class MdLayout {
                     this.emit(bg)
                 }
                 def b:MdBox (MdBox.text(seg.text (x + seg.x) y seg.w ln.height))
+                b.segSrc = seg.srcStart
+                b.segLen = seg.srcLen
                 b.family = seg.family
                 b.size = seg.size
                 b.bold = seg.bold
@@ -1220,6 +1289,113 @@ class MdLayout {
             cursorY = (y + ln.height)
             i = (i + 1)
         }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; From a point on the page back to a character in the file
+    ; ----------------------------------------------------------------------
+    ;
+    ; This is the question a caret is, and until the segments carried their
+    ; own offsets it could not be asked: every box of a paragraph held that
+    ; PARAGRAPH's start, so the finest answer available was "the block you
+    ; clicked". The viewer's `sourceOffsetAt` returned exactly that.
+    ;
+    ; It lives here rather than in the web facade because it is layout, not
+    ; chrome: it has to measure with the measurer the layout measured with, or
+    ; the caret lands beside the glyphs rather than between them. `PptxEdit`
+    ; and `DocxEditController` each learned that separately.
+
+    ; A box's y in DOCUMENT coordinates. `sheetGap` >= 0 means the sheets are
+    ; stacked with that much between them; below zero means one column.
+    fn boxTop:double (b:MdBox sheetGap:double) {
+        if (sheetGap >= 0.0) {
+            return (b.y + ((to_double b.page) * (style.pageHeight + sheetGap)))
+        }
+        return b.y
+    }
+
+    fn measureStyled:double (text:string family:string size:double bold:boolean italic:boolean) {
+        def len:int (strlen text)
+        if (len == 0) { return 0.0 }
+        def face:string (style.faceFor(family bold italic))
+        def m:EVGTextMetrics (engine.measureRun(text face size))
+        return m.width
+    }
+
+    ; Which character of a placed run the pointer at `x` is over, as a source
+    ; offset. Splits on glyph midpoints, so a click lands on the nearer side
+    ; of a character rather than always its left — the same rule
+    ; `OfficeTextMetrics.offsetAtX` follows for the .docx caret.
+    ;
+    ; The walk is over the box's TEXT and the answer is in the FILE, and those
+    ; are the same length only where the run holds no escape and no entity. So
+    ; the result is clamped into the box's own span: an approximate offset
+    ; inside a run is a caret one character out, while an unclamped one is a
+    ; caret in the next paragraph.
+    fn offsetInBox:int (b:MdBox x:double) {
+        if (b.segSrc < 0) { return -1 }
+        def len:int (strlen b.text)
+        if (len == 0) { return b.segSrc }
+        def want:double (x - b.x)
+        if (want <= 0.0) { return b.segSrc }
+        def k:int 0
+        def hit:int len
+        while (k < len) {
+            def w0:double (this.measureStyled((substring b.text 0 k) b.family b.size b.bold b.italic))
+            def w1:double (this.measureStyled((substring b.text 0 (k + 1)) b.family b.size b.bold b.italic))
+            if (want < ((w0 + w1) * 0.5)) {
+                hit = k
+                k = len
+            } {
+                k = (k + 1)
+            }
+        }
+        def at:int (b.segSrc + hit)
+        def stop:int (b.segSrc + b.segLen)
+        if (at > stop) { at = stop }
+        return at
+    }
+
+    ; The text box at a point in document coordinates, or -1. A click to the
+    ; right of the last word on a line belongs to that line rather than to
+    ; nothing, so the nearest box on the line the pointer is ON wins — which
+    ; is what puts a caret at the end of a line when a reader clicks past it.
+    fn boxAtPoint:int (x:double y:double sheetGap:double) {
+        def best:int -1
+        def bestDx:double 0.0
+        def i:int 0
+        def n:int (array_length boxes)
+        while (i < n) {
+            def b:MdBox (itemAt boxes i)
+            if ((b.kind == 0) && (b.segSrc >= 0)) {
+                def top:double (this.boxTop(b sheetGap))
+                if ((y >= top) && (y < (top + b.h))) {
+                    def dx:double 0.0
+                    if (x < b.x) { dx = (b.x - x) }
+                    if (x > (b.x + b.w)) { dx = (x - (b.x + b.w)) }
+                    if (best < 0) {
+                        best = i
+                        bestDx = dx
+                    } {
+                        if (dx < bestDx) {
+                            best = i
+                            bestDx = dx
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; The whole question in one call: a point on the page, a character in the
+    ; file, or -1 when nothing that carries a source was drawn there.
+    fn srcAtPoint:int (x:double y:double sheetGap:double) {
+        def i:int (this.boxAtPoint(x y sheetGap))
+        if (i < 0) { return -1 }
+        def b:MdBox (itemAt boxes i)
+        return (this.offsetInBox(b x))
     }
 
     fn measureRun:double (text:string r:MdRun) {
@@ -1247,6 +1423,11 @@ class MdLayout {
         def aRun:[int]
         def aSpace:[boolean]
         def aBreak:[boolean]
+        ; Where each atom starts inside its run's text. The atoms are what a
+        ; segment is assembled from, so this is the only place the offset is
+        ; still known — by the time `flushOpen` sees `openText` it is a string
+        ; with no memory of where it was cut from.
+        def aOff:[int]
         def ri:int 0
         def rn:int (array_length runs)
         while (ri < rn) {
@@ -1256,6 +1437,7 @@ class MdLayout {
                 push aRun ri
                 push aSpace false
                 push aBreak true
+                push aOff 0
             } {
                 def t:string r.text
                 def tn:int (strlen t)
@@ -1277,6 +1459,7 @@ class MdLayout {
                     push aRun ri
                     push aSpace isSpace
                     push aBreak false
+                    push aOff start
                 }
             }
             ri = (ri + 1)
@@ -1287,6 +1470,7 @@ class MdLayout {
         def usedWidth:double 0.0
         def openRun:int -1
         def openText:string ""
+        def openOff:int 0
         ; What `openText` measures, carried forward instead of measured again.
         ; `prevAtom` is the last atom that went in, and `prevAtomW` what it
         ; measures alone — the pair that lets the next atom be charged its
@@ -1306,9 +1490,10 @@ class MdLayout {
                 def segCount:int (array_length cur.segs)
                 def lineEmpty:boolean ((segCount == 0) && ((strlen openText) == 0))
                 if hard {
-                    usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
+                    usedWidth = (this.flushOpen(cur runs openRun openText openOff usedWidth))
                     openRun = -1
                     openText = ""
+                    openOff = 0
                     openW = 0.0
                     prevAtom = ""
                     prevAtomW = 0.0
@@ -1380,9 +1565,10 @@ class MdLayout {
                             ; followed by ` for details` lost the space
                             ; between them in the preview while the PDF kept
                             ; it: one layout, two pictures.
-                            usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
+                            usedWidth = (this.flushOpen(cur runs openRun openText openOff usedWidth))
                             openRun = -1
                             openText = ""
+                            openOff = 0
                             openW = 0.0
                             prevAtom = ""
                             prevAtomW = 0.0
@@ -1391,9 +1577,10 @@ class MdLayout {
                         } {
                         def overflows:boolean ((candidate > maxWidth) && (! lineEmpty) && (! isSpace))
                         if overflows {
-                            usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
+                            usedWidth = (this.flushOpen(cur runs openRun openText openOff usedWidth))
                             openRun = -1
                             openText = ""
+                            openOff = 0
                             openW = 0.0
                             prevAtom = ""
                             prevAtomW = 0.0
@@ -1405,9 +1592,10 @@ class MdLayout {
                             if (r == openRun) {
                                 openText = (openText + t)
                             } {
-                                usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
+                                usedWidth = (this.flushOpen(cur runs openRun openText openOff usedWidth))
                                 openRun = r
                                 openText = t
+                                openOff = (itemAt aOff ai)
                             }
                             openW = grown
                             prevAtom = t
@@ -1419,7 +1607,7 @@ class MdLayout {
                 }
             }
         }
-        usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
+        usedWidth = (this.flushOpen(cur runs openRun openText openOff usedWidth))
         def leftover:int (array_length cur.segs)
         def any:int (array_length lines)
         if ((leftover > 0) || (any == 0)) {
@@ -1430,13 +1618,33 @@ class MdLayout {
     }
 
     ; The open segment, measured and placed. Returns the new used width.
-    fn flushOpen:double (cur:MdLine runs:[MdRun] openRun:int openText:string usedWidth:double) {
+    fn flushOpen:double (cur:MdLine runs:[MdRun] openRun:int openText:string openOff:int usedWidth:double) {
         if (openRun < 0) { return usedWidth }
         def len:int (strlen openText)
         if (len == 0) { return usedWidth }
         def run:MdRun (itemAt runs openRun)
         def seg:MdSeg (new MdSeg())
         seg.text = openText
+        ; Where this piece sits in the document. `openOff` is how far into the
+        ; run's TEXT it started, and text and source are the same length only
+        ; where the run holds no escape and no entity — so the answer is
+        ; clamped to the run's own span rather than allowed to run past the
+        ; node it belongs to. `MdSrcMapScan` is what says how often the two
+        ; are the same string: on CommonMark's own corpus, every time it can
+        ; be checked at all.
+        if (run.srcStart >= 0) {
+            def at:int (run.srcStart + openOff)
+            if (run.srcEnd >= run.srcStart) {
+                if (at > run.srcEnd) { at = run.srcEnd }
+            }
+            seg.srcStart = at
+            def upto:int (at + len)
+            if (run.srcEnd >= run.srcStart) {
+                if (upto > run.srcEnd) { upto = run.srcEnd }
+            }
+            seg.srcLen = (upto - at)
+            if (seg.srcLen < 0) { seg.srcLen = 0 }
+        }
         seg.family = run.family
         seg.size = run.size
         seg.bold = run.bold
@@ -1465,6 +1673,14 @@ class MdLayout {
             def olen:int (strlen last.text)
             if (tlen != olen) {
                 last.text = trimmed
+                ; …and the source it covers shrinks with it, or a caret
+                ; dragged to the end of a wrapped line lands on a space the
+                ; line no longer draws.
+                if (last.srcLen > (olen - tlen)) {
+                    last.srcLen = (last.srcLen - (olen - tlen))
+                } {
+                    last.srcLen = 0
+                }
                 def r:MdRun (new MdRun())
                 r.family = last.family
                 r.size = last.size

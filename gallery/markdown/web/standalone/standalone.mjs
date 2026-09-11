@@ -464,6 +464,43 @@ function selftest() {
     say("pdf", false, String(e));
   }
 
+  // A click on the drawing names a CHARACTER, not a paragraph.
+  //
+  // This is the whole point of the source map, and the failure it replaces
+  // was invisible in a screenshot: `sourceOffsetAt` answered with the block's
+  // first byte whatever x it was given, so clicking the last word of the
+  // fourth paragraph put the source caret at the start of it. Two clicks on
+  // one line, and the answers have to differ — and both have to land inside
+  // that line rather than at the top of the paragraph.
+  //
+  // Asked HERE, in the browser, because the offsets are computed by measuring
+  // and the measurer here has the four real faces attached; the layout-level
+  // version of the same round trip runs against the estimate tables in
+  // `markdown:srcmap:test`.
+  app.setSource("first paragraph\n\nsecond paragraph with several words in it\n");
+  app.scrollTo(0);
+  const mapped = JSON.parse(app.frame()).list.cmds.filter(
+    (c) => c.k === 3 && c.text && c.text.indexOf("second") === 0
+  );
+  say("the second paragraph is on the page", mapped.length > 0, mapped.length + " runs");
+  if (mapped.length > 0) {
+    const run = mapped[0];
+    const wantStart = "first paragraph\n\n".length;
+    const atLeft = app.sourceOffsetAt(run.x + 1, run.y);
+    say("a click on the first letter is that letter", atLeft === wantStart,
+        atLeft + " wanted " + wantStart);
+    const atRight = app.sourceOffsetAt(run.x + run.w - 1, run.y);
+    say("a click on the last letter is a different letter", atRight > atLeft + 10,
+        atLeft + " → " + atRight);
+    say("and it is still inside the same paragraph",
+        atRight <= wantStart + run.text.length, atRight + " of " + run.text.length);
+    // …and the caret comes back to the line it was on rather than to the top
+    // of the block, which is what makes the two panes track each other.
+    const y = app.offsetToY(atRight);
+    say("the offset maps back to its own line", Math.abs(y - run.y) <= 2,
+        y.toFixed(1) + " vs " + run.y.toFixed(1));
+  }
+
   const el = document.createElement("div");
   el.id = "selftest-result";
   el.textContent = (out.ok ? "SELFTEST OK " : "SELFTEST FAILED ") + out.notes.join(" | ");
