@@ -164,6 +164,12 @@ class MdBlock {
                     lineStart = ((lineStart + clen) + 1)
                     k = (k + 1)
                 }
+                ; …and where it ended, which is where the real parse begins.
+                ; It had none — front matter is consumed before the block
+                ; parser starts, so nothing later stamps it — and a block whose
+                ; span is empty is a block nothing downstream can tell apart
+                ; from another one.
+                node.srcEnd = lineStart
                 return (i + 1)
             }
             i = (i + 1)
@@ -1301,6 +1307,16 @@ class MdBlock {
         }
         if (kind == "list") {
             node.listTight = (MdBlock.listIsTight(node))
+        }
+        ; `srcEnd` was stamped from the start of the line this block is being
+        ; closed ON, which for a block that opens and closes on one line is the
+        ; line it STARTED on — so a one-line HTML block came out as [32,32] and
+        ; six of the specification's own examples had a block whose span was
+        ; empty. The map knows where the block really ended; it is built from
+        ; the lines that went into it.
+        def mapEnd:int (node.srcEndOfMap())
+        if (mapEnd > node.srcEnd) {
+            node.srcEnd = mapEnd
         }
         removeLast stack
     }

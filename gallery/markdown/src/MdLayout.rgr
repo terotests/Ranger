@@ -778,21 +778,36 @@ class MdLayout {
         return -1
     }
 
+    ; ONE cached box, put where it goes. Both the replay and the audit go
+    ; through this, and that is the point of it being a function.
+    ;
+    ; It was not, and the two disagreed: the replay shifted a box's source
+    ; offset by the DIFFERENCE between where the block was and where it is,
+    ; having already stored it relative to where it was — subtracting the base
+    ; twice — while the audit re-derived the right answer and passed. So a
+    ; block that moved got boxes claiming to come from the wrong part of the
+    ; file, the caret's line table came out as [[0,10],[0,16],[0,10],[43,63]],
+    ; and Up from the end of the document went to the end of the first line.
+    ;
+    ; A check that recomputes the answer is not checking the code. It is
+    ; checking that two people can do the same arithmetic, and here they could
+    ; not.
+    fn cacheBoxAt:MdBox (slot:int i:int node:MdNode baseY:double) {
+        def src:MdBox (itemAt cacheBoxes ((itemAt cacheFrom slot) + i))
+        def b:MdBox (src.copy())
+        b.y = (b.y + baseY)
+        if (b.srcStart >= 0) { b.srcStart = (b.srcStart + node.srcStart) }
+        if (b.segSrc >= 0) { b.segSrc = (b.segSrc + node.srcStart) }
+        return b
+    }
+
     ; A hit: the boxes again, moved to where this block now sits and stamped
     ; with where its source now is.
     fn cacheReplay:void (slot:int node:MdNode) {
-        def dy:double (cursorY - (itemAt cacheTop slot))
-        def ds:int (node.srcStart - (itemAt cacheSrc slot))
-        def from:int (itemAt cacheFrom slot)
         def cnt:int (itemAt cacheCount slot)
         def i:int 0
         while (i < cnt) {
-            def src:MdBox (itemAt cacheBoxes (from + i))
-            def b:MdBox (src.copy())
-            b.y = (b.y + dy)
-            if (b.srcStart >= 0) { b.srcStart = (b.srcStart + ds) }
-            if (b.segSrc >= 0) { b.segSrc = (b.segSrc + ds) }
-            push boxes b
+            push boxes (this.cacheBoxAt(slot i node cursorY))
             i = (i + 1)
         }
         cursorY = (cursorY + (itemAt cacheHeight slot))
@@ -817,7 +832,10 @@ class MdLayout {
         if (! (has cacheAt key)) {
             set cacheAt key slot
         }
-        push cacheSrc node.srcStart
+        ; Zero, like `cacheTop`: the boxes were stored RELATIVE to the block,
+        ; so what they are relative TO is nothing. Storing the block's own
+        ; start here and subtracting it again on replay is the bug above.
+        push cacheSrc 0
         push cacheTop 0.0
         push cacheHeight (cursorY - top)
         push cacheFrom at
@@ -833,6 +851,16 @@ class MdLayout {
             return
         }
         if (node.srcStart < 0) {
+            this.block(node x w)
+            return
+        }
+        ; A span that is empty does not identify a block, and two blocks that
+        ; share a key share each other's boxes. That is not hypothetical: a
+        ; one-line HTML block used to come out as [32,32], so a document with
+        ; two comments in it drew one of them twice and the other not at all.
+        ; The parser is fixed and this is the guard that makes the fix
+        ; unnecessary rather than load-bearing.
+        if (node.srcEnd <= node.srcStart) {
             this.block(node x w)
             return
         }
@@ -872,17 +900,17 @@ class MdLayout {
             this.cacheFault(("height " + (to_string realHeight)))
             return
         }
-        def cfrom:int (itemAt cacheFrom slot)
-        def ds:int (node.srcStart - (itemAt cacheSrc slot))
         def i:int 0
         while (i < cnt) {
             def got:MdBox (itemAt boxes (from + i))
-            def want:MdBox (itemAt cacheBoxes (cfrom + i))
+            ; What the CACHE would have handed back — built by the same
+            ; function the replay uses, not by doing its arithmetic again.
+            def want:MdBox (this.cacheBoxAt(slot i node top))
             if (got.text != want.text) {
                 this.cacheFault((("text [" + got.text) + ("] vs [" + (want.text + "]"))))
                 i = cnt
             } {
-                if ((fabs (got.y - (want.y + top))) > 0.01) {
+                if ((fabs (got.y - want.y)) > 0.01) {
                     this.cacheFault(("y " + (to_string got.y)))
                     i = cnt
                 } {
@@ -890,15 +918,19 @@ class MdLayout {
                         this.cacheFault(("x " + (to_string got.x)))
                         i = cnt
                     } {
-                        if (got.segSrc >= 0) {
-                            def wantSrc:int ((want.segSrc + (itemAt cacheSrc slot)) + ds)
-                            if (got.segSrc != wantSrc) {
-                                this.cacheFault((("segSrc " + (to_string got.segSrc))
-                                    + (" vs " + (to_string wantSrc))))
+                        if (got.segSrc != want.segSrc) {
+                            this.cacheFault((("segSrc " + (to_string got.segSrc))
+                                + (" vs " + (to_string want.segSrc))))
+                            i = cnt
+                        } {
+                            if (got.srcStart != want.srcStart) {
+                                this.cacheFault((("srcStart " + (to_string got.srcStart))
+                                    + (" vs " + (to_string want.srcStart))))
                                 i = cnt
+                            } {
+                                i = (i + 1)
                             }
                         }
-                        i = (i + 1)
                     }
                 }
             }

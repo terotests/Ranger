@@ -577,6 +577,27 @@ class MarkdownWeb {
         edit.insertText(text)
     }
 
+    ; The drawn lines, as the caret navigates them: `[start,end]` per line, in
+    ; document order. Not chrome — it is what `OfficeLineNav` walks, and a
+    ; caret that lands on the wrong line is a question about THIS and nothing
+    ; else. The page's checks print it when a move goes somewhere unexpected.
+    fn linesJson:string () {
+        this.sync()
+        def out:string "["
+        def i:int 0
+        def n:int (edit.lines.count())
+        while (i < n) {
+            if (i > 0) { out = (out + ",") }
+            out = (out + "[")
+            out = (out + (to_string (edit.lines.startAt(i))))
+            out = (out + ",")
+            out = (out + (to_string (edit.lines.endAt(i))))
+            out = (out + "]")
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
     ; The page's caret, moved into the module: the textarea is the other view
     ; and this is how IT leads.
     fn setSelection:void (a:int b:int) {

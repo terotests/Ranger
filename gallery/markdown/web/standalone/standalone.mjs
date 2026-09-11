@@ -145,6 +145,26 @@ function showStatus(extra) {
   statusEl.textContent = extra ? base + " — " + extra : base;
 }
 
+// A built file, handed to the browser to save. It went out with the old
+// source-pane code and nothing said so until a reader pressed ⬇ PDF and got
+// `ReferenceError: deliver is not defined` — the second function this edit
+// deleted by accident, after `docName`. Both are now covered by the page's
+// own checks, which press the buttons.
+function deliver(bytes, name, mime) {
+  const view = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
+  if (!view || !view.length) return "empty";
+  const blob = new Blob([view], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  return "downloaded";
+}
+
 // What a downloaded PDF or HTML file is called. It follows whatever was
 // opened, so a saved file is named after the document rather than after the
 // page. (It lived beside the old source-pane code and went out with it; the
@@ -181,9 +201,11 @@ function showSource(caretTo) {
     suppressSourceEvent = true;
     sourceEl.value = text;
     suppressSourceEvent = false;
-    if (caretTo === undefined) sourceEl.setSelectionRange(at, end);
+    // Only while the SOURCE pane owns the keyboard. Putting a selection back
+    // into a textarea nobody is typing in is how the caret ended up there.
+    if (caretTo === undefined && active === "source") sourceEl.setSelectionRange(at, end);
   }
-  if (caretTo !== undefined) sourceEl.setSelectionRange(caretTo, caretTo);
+  if (caretTo !== undefined && active === "source") sourceEl.setSelectionRange(caretTo, caretTo);
 }
 
 function afterEdit(ms) {
@@ -196,6 +218,7 @@ function afterEdit(ms) {
 
 sourceEl.addEventListener("input", () => {
   if (suppressSourceEvent) return;
+  setActive("source");
   const t0 = performance.now();
   const p = commonPatch(app.sourceText(), sourceEl.value);
   app.applyPatch(p.start, p.end, p.text);
@@ -210,6 +233,7 @@ sourceEl.addEventListener("input", () => {
 // the place.
 function syncFromCaret() {
   if (!app.ready()) return;
+  if (active !== "source") return;
   const a = sourceEl.selectionStart | 0;
   const b = sourceEl.selectionEnd | 0;
   app.setSelection(a, b);
@@ -232,6 +256,36 @@ sourceEl.addEventListener("keyup", (ev) => {
 // HTML is that field.
 app.setEditMode(true);
 
+// ---- one editor at a time -------------------------------------------------
+//
+// Both panes show the same document and only one of them is being typed into.
+// Which one is a MODE, not a guess: the pane that was last clicked owns the
+// keyboard, the other one is read-only until it is clicked, and the canvas
+// draws a caret only while it owns it.
+//
+// Without the mode the two fight. A keystroke on the canvas writes the source
+// back into the textarea, the textarea's selection is restored, and a reader
+// who glances down finds their next word going into the left pane instead.
+// The bug looked like "focus jumps"; it was two editors both believing they
+// were active.
+let active = "source";
+function setActive(which) {
+  if (active === which) return;
+  active = which;
+  sourceEl.readOnly = which !== "source";
+  sourceEl.classList.toggle("readonly", which !== "source");
+  if (which === "canvas") {
+    keyCatcher.focus({ preventScroll: true });
+    restartBlink();
+  } else {
+    clearInterval(blinkTimer);
+    app.setCaretOn(false);
+  }
+  needsPaint = true;
+}
+sourceEl.addEventListener("focus", () => setActive("source"));
+sourceEl.addEventListener("pointerdown", () => setActive("source"));
+
 function viewPoint(ev) {
   const r = canvas.getBoundingClientRect();
   return [ev.clientX - r.left, ev.clientY - r.top];
@@ -247,7 +301,7 @@ function restartBlink() {
   needsPaint = true;
   clearInterval(blinkTimer);
   blinkTimer = setInterval(() => {
-    if (document.activeElement !== keyCatcher) return;
+    if (active !== "canvas" || document.activeElement !== keyCatcher) return;
     caretOn = !caretOn;
     app.setCaretOn(caretOn);
     needsPaint = true;
@@ -255,6 +309,9 @@ function restartBlink() {
 }
 
 function focusCanvas() {
+  setActive("canvas");
+  // …and re-focus even when the mode did not change: a click inside the
+  // canvas after a click on a toolbar button has to come back.
   keyCatcher.focus({ preventScroll: true });
   restartBlink();
 }
@@ -276,7 +333,10 @@ canvas.addEventListener(
 let selecting = false;
 canvas.addEventListener("pointerdown", (ev) => {
   ev.preventDefault();
-  canvas.setPointerCapture(ev.pointerId);
+  // Throws `NotFoundError` for a pointer the browser does not have down —
+  // which a synthetic event never is, and a real one sometimes is not either.
+  // Capture is an optimisation for the drag; the click must not depend on it.
+  try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   focusCanvas();
   const [x, y] = viewPoint(ev);
   if (ev.detail >= 2) {
@@ -368,7 +428,7 @@ keyCatcher.addEventListener("paste", (ev) => {
   afterEdit();
   if (madeTable) showStatus("pasted as a table");
 });
-keyCatcher.addEventListener("focus", restartBlink);
+keyCatcher.addEventListener("focus", () => setActive("canvas"));
 keyCatcher.addEventListener("blur", () => {
   clearInterval(blinkTimer);
   app.setCaretOn(false);
@@ -773,6 +833,94 @@ function selftest() {
   say("a patch from the source pane lands", app.sourceText() === "hello world\n", app.sourceText().trim());
   app.undo();
   say("and is one undo like any other", app.sourceText() === "hello\n");
+
+  // ---- the page's own wiring, driven with REAL events ----------------------
+  //
+  // Everything above asks the MODULE questions. These press keys, because the
+  // three bugs a reader hit were all in the wiring between the two: Down did
+  // nothing, Shift+Arrow selected nothing, and a caret would not go into a
+  // line that had just been typed. None of them was reachable from the module
+  // — `markdown:edit:test` drives the same moves and is green — so nothing
+  // short of a synthetic KeyboardEvent could have caught them.
+  const press = (key, opts) =>
+    keyCatcher.dispatchEvent(
+      new KeyboardEvent("keydown", Object.assign({ key, bubbles: true, cancelable: true }, opts || {}))
+    );
+  const caret = () => JSON.parse(app.caretJson());
+
+  app.setSource("alpha beta\n\nsecond line here\n\nthird line\n");
+  app.setEditMode(true);
+  // A click on the drawing is what makes the canvas the active editor.
+  const firstRun = JSON.parse(app.frame()).list.cmds.find(
+    (c) => c.k === 3 && c.text && c.text.indexOf("alpha") === 0
+  );
+  if (firstRun) {
+    canvas.dispatchEvent(new PointerEvent("pointerdown", {
+      bubbles: true, cancelable: true, pointerId: 1, detail: 1,
+      clientX: canvas.getBoundingClientRect().left + firstRun.x + 2,
+      clientY: canvas.getBoundingClientRect().top + firstRun.y + 4,
+    }));
+  }
+  say("clicking the drawing gives it the keyboard", document.activeElement === keyCatcher,
+      document.activeElement ? document.activeElement.id || document.activeElement.tagName : "none");
+  say("…and the source pane goes read-only", sourceEl.readOnly);
+
+  app.setSelection(2, 2);
+  const wasAt = caret().offset;
+  press("ArrowDown");
+  const afterDown = caret().offset;
+  say("Down moves the caret", afterDown > wasAt, wasAt + " → " + afterDown);
+  press("ArrowUp");
+  say("…and Up brings it back", caret().offset === wasAt, caret().offset + " vs " + wasAt);
+
+  press("ArrowRight", { shiftKey: true });
+  press("ArrowRight", { shiftKey: true });
+  const sel = caret();
+  say("Shift+Right selects", sel.focus - sel.anchor === 2, sel.anchor + ".." + sel.focus);
+
+  // A line typed just now is a line the caret can go into. This is the one a
+  // reader reported: add a line, then try to reach it.
+  app.setSelection(app.sourceText().length, app.sourceText().length);
+  app.typeText("\n\nwrite something here");
+  needsPaint = true;
+  const end = app.sourceText().length;
+  const atEnd = caret().offset;
+  app.key("up", false, false);
+  const direct = caret().offset;
+  app.setSelection(end, end);
+  press("ArrowUp");
+  const up1 = caret().offset;
+  press("ArrowDown");
+  say("a line typed just now can be reached", caret().offset >= end - 21,
+      "end=" + end + " caret=" + atEnd + " up=" + up1 + " down=" + caret().offset +
+      " lines=" + app.linesJson());
+
+  // …and by clicking it, which is how a reader actually gets there.
+  const newRun = JSON.parse(app.frame()).list.cmds.find(
+    (c) => c.k === 3 && c.text && c.text.indexOf("write something") === 0
+  );
+  say("the new line is on the page", !!newRun, newRun ? newRun.text : "not drawn");
+  if (newRun) {
+    app.click(newRun.x + 3, newRun.y + 2, false);
+    say("and a click lands in it", caret().offset >= end - 21, caret().offset + " of " + end);
+  }
+
+  // The source pane takes the keyboard back when it is clicked, and gives it
+  // up again — the mode, both ways.
+  sourceEl.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerId: 2 }));
+  say("clicking the source pane takes the keyboard back", !sourceEl.readOnly);
+  canvas.dispatchEvent(new PointerEvent("pointerdown", {
+    bubbles: true, cancelable: true, pointerId: 3, detail: 1, clientX: 10, clientY: 10,
+  }));
+  say("…and the drawing takes it again", sourceEl.readOnly);
+
+  // The buttons. Both were broken by a deleted helper and nothing said so.
+  try {
+    const n = deliver(new TextEncoder().encode("x"), "probe.txt", "text/plain");
+    say("a built file can be handed to the browser", n === "downloaded", n);
+  } catch (e) {
+    say("a built file can be handed to the browser", false, String(e));
+  }
 
   const el = document.createElement("div");
   el.id = "selftest-result";

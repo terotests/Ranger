@@ -71,6 +71,9 @@
     tab-size: 4;
   }
   #viewPane { flex: 1; min-width: 0; position: relative; background: var(--bg); }
+  /* The pane that does not own the keyboard says so. Both show the same
+     document; only one is being typed into. */
+  #source.readonly { background: #fafbfc; color: var(--muted); }
 
   /* A canvas cannot receive typed text, an IME composition or a paste. This
      field can, and is what the drawing pane actually focuses. It must stay in
