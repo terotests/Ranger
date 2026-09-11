@@ -1120,6 +1120,31 @@ the 26 preprocessor commands are all read off the tool.
 
 Still open: the state reader, the preprocessor, and Creole's styled runs. The plan is [`docs/PLAN_PLANTUML.md`](docs/PLAN_PLANTUML.md).
 
+## D2, measured before it is read
+
+[D2](https://d2lang.com) is the third text-to-diagram format worth reading, and
+the easiest of the three to be honest about: it is **MPL-2.0**, it installs
+with `go install oss.terrastruct.com/d2@v0.7.1`, and `d2lib.Compile` hands back
+a whole diagram as JSON — every shape with its position, size, type and level,
+every connection with its arrowheads and its route, `sql_table` columns with
+their constraints, `class` members with their visibility, and the boards that
+`layers` / `scenarios` / `steps` created.
+
+So the oracle came first, before any reader:
+
+```
+npm run rangerflow:d2:oracle
+  d2 v0.7.1: 20/20 fixtures accepted, 139 shapes and 58 connections laid out by
+  dagre and elk, 46 keywords, 25 shapes, 11 arrowheads
+```
+
+[`docs/D2_FEATURES.md`](docs/D2_FEATURES.md) scores D2's own tables against the
+pipeline as it stands: 100 rows, **57 it already draws, 15 narrower, 28
+missing** — boards, grid diagrams, nine outlines, an image primitive and rich
+labels. The reading of that is in [`docs/PLAN_D2.md`](docs/PLAN_D2.md): a D2
+reader is mostly a parser, because D2's model is the model RangerFlow already
+has. Nothing of it is written yet.
+
 ## …and in a window
 
 `npm run rangerflow:sdl:run` compiles the whole thing to C++ and links it

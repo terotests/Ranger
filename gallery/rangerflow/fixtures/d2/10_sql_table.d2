@@ -1,0 +1,13 @@
+# sql_table, with constraints and row-level connections.
+users: {
+  shape: sql_table
+  id: int { constraint: primary_key }
+  email: varchar { constraint: unique }
+  org_id: int { constraint: foreign_key }
+}
+orgs: {
+  shape: sql_table
+  id: int { constraint: primary_key }
+  name: varchar
+}
+users.org_id -> orgs.id: belongs to

@@ -1,0 +1,14 @@
+# Nesting, container labels, edges that cross a container boundary.
+network: Network {
+  tower: cell tower {
+    satellites: { shape: stored_data; style.multiple: true }
+    transmitter
+    satellites -> transmitter: send
+  }
+  processor: data processor {
+    storage: { shape: cylinder }
+  }
+  tower.transmitter -> processor.storage: phone logs
+}
+user: User { shape: person }
+user -> network.tower: make call

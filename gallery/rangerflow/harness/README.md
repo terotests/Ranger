@@ -21,6 +21,9 @@ harness/oracles/plantuml_oracle.mjs    plantuml.jar    →  out/plantuml.json
 tests/PlantUmlParityDump.rgr           RangerFlow      →  out/rangerflow_plantuml.json
                                               ↓
                       tools/plantuml-parity.mjs  →  docs/PLANTUML_PARITY.md
+
+harness/oracles/d2_oracle.{go,mjs}     d2 v0.7.1       →  out/d2.json
+                                       (no reader yet — docs/PLAN_D2.md)
 ```
 
 **PlantUML** has no parse database to ask, the way Mermaid has. It has
@@ -47,6 +50,20 @@ needs a DOM to load at all; `jsdom` is that DOM and nothing else. Nothing is
 rendered and no geometry is read: Mermaid lays a diagram out its own way and has
 no opinion about RangerFlow's, so what is compared is the *reading*.
 
+**D2** gives more than either and asks less. `d2lib.Compile` returns a
+`d2target.Diagram`, which is the whole answer as JSON: every shape with its
+position, size, type, level and label, every connection with its arrowheads,
+label and route, `sql_table` columns with their constraints, `class` members
+with their visibility, and the boards `layers` / `scenarios` / `steps` created —
+for both bundled layout engines, dagre and ELK. So the oracle was built *before*
+any reader, and `fixtures/d2/` exists to be read against it.
+
+D2 is MPL-2.0. The Go toolchain fetches it at the pinned version when
+`d2_oracle.go` is built into `harness/vendor/` (gitignored), it is run as a
+subprocess, and no D2 source is copied into this repository. Without a Go
+toolchain the oracle reports `available: false` with the reason, like the
+PlantUML one without a JVM.
+
 `@xyflow/system` is the package React Flow itself builds on, and the functions
 compared — `getBezierPath`, `getSmoothStepPath`, `getStraightPath`,
 `getViewportForBounds`, `pointToRendererPoint`, `rendererPointToPoint` — are
@@ -59,6 +76,7 @@ the middle to be wrong about.
 npm run rangerflow:parity          # installs on first run, then measures
 npm run rangerflow:mermaid:parity  # …and the same for the Mermaid reader
 npm run rangerflow:plantuml:parity # …and for PlantUML (needs a JVM)
+npm run rangerflow:d2:oracle       # …and D2's oracle (needs a Go toolchain)
 cd gallery/rangerflow/harness && npm install    # or do it by hand
 ```
 

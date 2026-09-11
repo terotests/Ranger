@@ -1,0 +1,25 @@
+# A diagram of the kind d2lang.com's dagre example shows: containers,
+# cross-container edges, a direction, and shaped leaves.
+direction: right
+client: Client { shape: person }
+edge: Edge {
+  cdn: CDN
+  lb: Load balancer { shape: hexagon }
+  cdn -> lb
+}
+core: Core {
+  api: API
+  worker: Worker
+  queue: { shape: queue }
+  api -> queue: enqueue
+  queue -> worker: dequeue
+}
+data: Data {
+  primary: { shape: cylinder; label: primary }
+  replica: { shape: cylinder; style.multiple: true }
+  primary -> replica: stream
+}
+client -> edge.cdn: GET
+edge.lb -> core.api
+core.api -> data.primary: write
+core.worker -> data.replica: read

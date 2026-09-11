@@ -1,0 +1,23 @@
+# Layers, scenarios and steps — one file, several boards.
+direction: right
+web -> api -> db
+
+layers: {
+  detail: {
+    api: API {
+      handler
+      router
+      router -> handler
+    }
+  }
+}
+scenarios: {
+  outage: {
+    db.style.fill: "#f99"
+    api -> db: timeout
+  }
+}
+steps: {
+  one: { cache }
+  two: { api -> cache }
+}

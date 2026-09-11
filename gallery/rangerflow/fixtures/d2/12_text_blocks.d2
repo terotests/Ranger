@@ -1,0 +1,17 @@
+# Block strings: markdown, code and latex labels, plus the text shape.
+doc: |md
+  # Heading
+  Some **bold** text and a list:
+  - one
+  - two
+|
+snippet: |go
+  func main() {
+      fmt.Println("hi")
+  }
+|
+formula: |latex
+  \sum_{i=0}^{n} i^2
+|
+plain: { shape: text; label: just text }
+doc -> snippet -> formula
