@@ -1,0 +1,276 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeHistoryEditorsTest — one action is one undo, in all five editors
+; ==============================================================================
+;
+; `OfficeHistoryTest` checks the rules. It would pass just as happily if
+; nothing in the gallery ever called them. This is the test that would not,
+; and it is the item `gallery/PLAN_EDITOR_KERNEL.md` left open when Stage C
+; landed:
+;
+;   > *Still open:* the **wiring test** — one test that drives a transaction
+;   > through all four editors and asserts that one action is one undo in
+;   > each. Four instantiations prove the type-checker is happy; they do not
+;   > prove the rules are reached.
+;
+; Five now. `MdEditController` is the fifth and the first whose document is
+; text rather than an object graph.
+;
+; WHAT IS ASSERTED, AND WHY IT IS THIS AND NOT THE STACK DEPTH. The five do
+; not store the same thing. `docx`, `datagrid` and `markdown` record
+; OPERATIONS — what changed, and enough to put it back. `pptx` and `book`
+; record SNAPSHOTS — the whole document as it was. Both are legitimate and the
+; shared file holds neither: what it holds is every rule ABOUT the array, which
+; is why it can be `@params(Op)` at all.
+;
+; So counting entries would be asserting an implementation, differently for
+; each, and would pass while the thing a reader cares about was broken. What is
+; actually common is the behaviour, and it is one sentence:
+;
+;   **After one action, one press of undo gives back the document that was
+;   there before it.**
+;
+; Each editor is driven through its own public API — the call a keystroke
+; reaches — and compared against a string taken before the action. A copy that
+; is still the same object, an undo that goes back two steps, a paste recorded
+; as three separate ops: all three fail here and none of them fails in the
+; per-editor suites, because each of those suites only ever knew its own rules.
+;
+;   npm run office:history:editors:test
+; ==============================================================================
+
+Import "../OfficeHistory.rgr"
+Import "../../../markdown/src/MdEditController.rgr"
+Import "../../../docx_viewer/src/DocxEditController.rgr"
+Import "../../../datagrid/src/SpreadsheetModel.rgr"
+Import "../../../pptx/src/PptxEdit.rgr"
+Import "../../../book/src/BookEdit.rgr"
+
+class HistCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+
+    fn near:void (name:string got:double want:double) {
+        if ((fabs (got - want)) < 0.01) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ((("  FAIL " + name) + ("  got " + (to_string got))) + ("  want " + (to_string want)))
+        }
+    }
+}
+
+class OfficeHistoryEditorsTest {
+    sfn main:void () {
+        def t:OfficeHistoryEditorsTest (new OfficeHistoryEditorsTest())
+        t.run()
+    }
+
+    ; ----------------------------------------------------------------------
+    ; 1. markdown — a paste of three lines into a file.
+    ; ----------------------------------------------------------------------
+    fn markdown:void (c:HistCheck) {
+        print "-- markdown --"
+        def before:string "# Title\n\nprose\n"
+        def e:MdEditController (new MdEditController())
+        e.open(before)
+        e.setCaret(9)
+        e.paste("one\ntwo\nthree\n")
+        c.ok("the paste changed the file" ((e.text()) != before))
+        c.ok("and there is something to undo" (e.canUndo()))
+        e.undo()
+        c.eqStr("one undo gives back the file" (e.text()) before)
+        c.ok("and there is nothing left to undo" ((e.canUndo()) == false))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; 2. docx — three lines pasted into a paragraph, which splits it twice.
+    ; ----------------------------------------------------------------------
+    fn documents:void (c:HistCheck) {
+        print "-- the document editor --"
+        def doc:RichDocument (new RichDocument)
+        def p:Paragraph (doc.addParagraph())
+        p.text = "hello"
+        push p.spans (TextSpan.create(0 5))
+        def ed:DocxEditController (new DocxEditController)
+        ed.bindDocument(doc)
+        ed.setEnabled(true)
+        ed.setCaret(p.id 5)
+
+        def before:int (doc.paragraphCount())
+        def beforeText:string p.text
+        ; The path a Ctrl+V reaches.
+        ed.pasteText("one\ntwo\nthree")
+        c.ok("the paste made paragraphs" ((doc.paragraphCount()) > before))
+        ed.undo()
+        c.ok("one undo gives back the paragraph count"
+            ((doc.paragraphCount()) == before))
+        def after:Paragraph (doc.paragraphAt(0))
+        c.eqStr("and the text that was in it" after.text beforeText)
+
+        ; …and the primitive underneath it, reached on its own. It is public
+        ; and it was NOT transactional, so anything calling it directly got one
+        ; undo per line — which is the failure `OfficeHistory`'s own header
+        ; describes and the reason this file exists.
+        ed.setCaret(p.id (strlen p.text))
+        def before2:int (doc.paragraphCount())
+        ed.pasteLines("four\nfive")
+        c.ok("the primitive made paragraphs too" ((doc.paragraphCount()) > before2))
+        ed.undo()
+        c.ok("and it is one undo as well" ((doc.paragraphCount()) == before2))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; 3. datagrid — one cell set.
+    ; ----------------------------------------------------------------------
+    fn sheets:void (c:HistCheck) {
+        print "-- the spreadsheet --"
+        def m:SpreadsheetModel (new SpreadsheetModel)
+        m.setCell(1 1 "first")
+        def before:string (m.getCell(1 1))
+        m.setCell(1 1 "second")
+        c.eqStr("the cell changed" (m.getCell(1 1)) "second")
+        m.undo()
+        c.eqStr("one undo gives back what was in it" (m.getCell(1 1)) before)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; 4. pptx — a shape moved. The deck records SNAPSHOTS, so the top of the
+    ;    stack is the state the deck is IN and there has to be one below it.
+    ; ----------------------------------------------------------------------
+    fn slides:void (c:HistCheck) {
+        print "-- the slide editor --"
+        def pres (new PptxPresentation())
+        pres.slideWidth = 720.0
+        pres.slideHeight = 540.0
+        def slide (new PptxSlide())
+        slide.width = 720.0
+        slide.height = 540.0
+        def a (new PptxShape())
+        a.name = "A"
+        a.x = 100.0
+        a.y = 100.0
+        a.width = 200.0
+        a.height = 100.0
+        a.hasXfrm = true
+        push slide.shapes a
+        push pres.slides slide
+
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ed.select(a.editId)
+        c.ok("a shape is selected" ((ed.selectionCount()) > 0))
+        def before:double 100.0
+        ed.moveSelection(40.0 0.0)
+        def moved@(optional):PptxShape (ed.findShape(a.editId))
+        c.ok("the shape moved" (!null? moved))
+        if (!null? moved) {
+            def mm:PptxShape (unwrap moved)
+            c.near("…by what it was asked to" mm.x 140.0)
+        }
+        c.ok("and there is something to undo" (ed.canUndo()))
+        ed.undo()
+        def back@(optional):PptxShape (ed.findShape(a.editId))
+        if (!null? back) {
+            def bb:PptxShape (unwrap back)
+            c.near("one undo puts it back" bb.x before)
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; 5. book — a frame moved. Snapshots again, and a different editor's
+    ;    idea of when one is taken.
+    ; ----------------------------------------------------------------------
+    fn books:void (c:HistCheck) {
+        print "-- the book editor --"
+        def d (BookDocument.create("Fixture" "square-210"))
+        def body (BookStyle.create("body" "Noto Sans" 10.0))
+        body.leading = 10.0
+        d.addStyle(body)
+        def m (BookMasterPage.create("story"))
+        m.setMargins(40.0 40.0 60.0 40.0)
+        d.addMaster(m)
+        def s:BookStory (d.newStory("main"))
+        s.addParagraph("l1\nl2\nl3" "body")
+        def p1:BookPage (d.newPage("story"))
+        def f1 (BookFrame.textFrame("a" 60.0 60.0 400.0 200.0 "main"))
+        p1.addFrame(f1)
+
+        def ed (new BookEditor())
+        ed.attach(d)
+        ed.editMode = true
+        ed.select("a" false)
+        def f0:BookFrame (d.frameFor("a"))
+        def before:double f0.x
+        ed.pushSnapshot()
+        ed.applyMove(25.0 0.0)
+        def f1b:BookFrame (d.frameFor("a"))
+        c.ok("the frame moved" ((fabs (f1b.x - before)) > 1.0))
+        c.ok("and there is something to undo" (ed.canUndo()))
+        ed.undo()
+        def f2:BookFrame (d.frameFor("a"))
+        c.near("one undo puts it back" f2.x before)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; …and the rule itself, so a failure above reads as "the editor did not
+    ; reach it" rather than "the rule is wrong".
+    ; ----------------------------------------------------------------------
+    fn theRuleItself:void (c:HistCheck) {
+        print "-- the rule, before asking who reaches it --"
+        def h:OfficeHistory@(MdEditOp) (new OfficeHistory@(MdEditOp) ())
+        h.begin()
+        h.record((MdEditOp.of(0 0 "" "a")))
+        h.record((MdEditOp.of(1 1 "" "b")))
+        h.record((MdEditOp.of(2 2 "" "c")))
+        h.end()
+        c.ok("three ops inside one action" ((h.depth()) == 3))
+        c.ok("…are one press of undo" ((h.undoSpan()) == 3))
+        h.record((MdEditOp.of(3 3 "" "d")))
+        c.ok("and an op outside one is its own" ((h.undoSpan()) == 1))
+    }
+
+    fn run:void () {
+        def c:HistCheck (new HistCheck())
+        print "== OfficeHistoryEditorsTest =="
+        this.theRuleItself(c)
+        this.markdown(c)
+        this.documents(c)
+        this.sheets(c)
+        this.slides(c)
+        this.books(c)
+        print ""
+        print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+            print ""
+            print "one action is one undo, in five editors"
+        } {
+            print "FAILURES"
+        }
+    }
+}

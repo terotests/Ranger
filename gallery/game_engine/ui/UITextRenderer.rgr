@@ -459,7 +459,6 @@ class UITextRenderer {
         def o:UIMeasure (new UIMeasure())
         o.fm = fm
         o.measurer = measurer
-        o.hasFont = hasFont
         o.fallback = "Open Sans"
         return o
     }

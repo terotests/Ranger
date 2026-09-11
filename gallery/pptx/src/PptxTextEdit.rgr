@@ -22,6 +22,7 @@
 
 Import "PptxModel.rgr"
 Import "../../evg/EVGCodepoint.rgr"
+Import "../../office/text/OfficeCaretMotion.rgr"
 
 class PptxTextPos {
     def para:int 0
@@ -641,34 +642,16 @@ class PptxTextEdit {
 
     ; --- moving --------------------------------------------------------------
 
+    ; Shared with the .docx editor and the markdown one, in
+    ; `gallery/office/text/OfficeCaretMotion`. The bodies were here; the .docx
+    ; editor stepped by one UTF-16 unit and landed inside surrogate pairs,
+    ; which is what moving them was for.
     sfn stepBack:int (s:string col:int) {
-        if (col <= 1) {
-            return 0
-        }
-        def lo:int (charAt s (col - 1))
-        if (EVGCodepoint.isLowSurrogate(lo)) {
-            def hi:int (charAt s (col - 2))
-            if (EVGCodepoint.isHighSurrogate(hi)) {
-                return (col - 2)
-            }
-        }
-        return (col - 1)
+        return (OfficeCaretMotion.stepBack(s col))
     }
 
     sfn stepForward:int (s:string col:int) {
-        def n:int (strlen s)
-        if (col >= n) {
-            return n
-        }
-        def units:int (EVGCodepoint.unitsAt(s col))
-        if (units < 1) {
-            units = 1
-        }
-        def next:int (col + units)
-        if (next > n) {
-            return n
-        }
-        return next
+        return (OfficeCaretMotion.stepForward(s col))
     }
 
     sfn moveLeft:PptxTextPos (body:PptxTextBody pos:PptxTextPos) {
@@ -740,19 +723,7 @@ class PptxTextEdit {
     }
 
     sfn isWordChar:boolean (c:int) {
-        if ((c >= 48) && (c <= 57)) {
-            return true
-        }
-        if ((c >= 65) && (c <= 90)) {
-            return true
-        }
-        if ((c >= 97) && (c <= 122)) {
-            return true
-        }
-        if (c > 127) {
-            return true
-        }
-        return false
+        return (OfficeCaretMotion.isWordChar(c))
     }
 
     ; Back over any spaces, then back over the word before them. Forward is
@@ -764,32 +735,7 @@ class PptxTextEdit {
             return (PptxTextEdit.moveLeft(body out))
         }
         def line:string (PptxTextEdit.paraText(body out.para))
-        def c:int out.col
-        def skipping:boolean true
-        while (skipping) {
-            if (c <= 0) {
-                skipping = false
-            } {
-                if (PptxTextEdit.isWordChar((charAt line (c - 1)))) {
-                    skipping = false
-                } {
-                    c = (c - 1)
-                }
-            }
-        }
-        def eating:boolean true
-        while (eating) {
-            if (c <= 0) {
-                eating = false
-            } {
-                if (PptxTextEdit.isWordChar((charAt line (c - 1)))) {
-                    c = (c - 1)
-                } {
-                    eating = false
-                }
-            }
-        }
-        out.col = c
+        out.col = (OfficeCaretMotion.wordLeft(line out.col))
         return out
     }
 
@@ -801,32 +747,7 @@ class PptxTextEdit {
         if (out.col >= n) {
             return (PptxTextEdit.moveRight(body out))
         }
-        def c:int out.col
-        def eating:boolean true
-        while (eating) {
-            if (c >= n) {
-                eating = false
-            } {
-                if (PptxTextEdit.isWordChar((charAt line c))) {
-                    c = (c + 1)
-                } {
-                    eating = false
-                }
-            }
-        }
-        def skipping:boolean true
-        while (skipping) {
-            if (c >= n) {
-                skipping = false
-            } {
-                if (PptxTextEdit.isWordChar((charAt line c))) {
-                    skipping = false
-                } {
-                    c = (c + 1)
-                }
-            }
-        }
-        out.col = c
+        out.col = (OfficeCaretMotion.wordRight(line out.col))
         return out
     }
 

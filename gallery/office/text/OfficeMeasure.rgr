@@ -35,6 +35,18 @@
 ; same side as the measurement or a line measured from source and painted from
 ; the display string disagree about where it ends.
 ;
+; **`OfficeTextMeasure` is the other half of this**, and it was here first.
+; It answers the same question for `pptx` and `odp`, holds the alias map walk
+; a deck needs (a .pptx says "Calibri"; Calibri is not here), and falls back to
+; a 0.52em guess with no renderer attached. It was missed when this class was
+; written, which is the exact defect this directory exists to prevent — two
+; answers to one question — and is recorded here rather than quietly fixed.
+;
+; They are one body now: `OfficeTextMeasure` keeps its `UIContext` door and its
+; em-factor fallback, and every face it resolves and every width it takes comes
+; through here. What is left on that side is what genuinely differs — which
+; host attached it, and what to answer when no font was ever loaded.
+;
 ; **It reports its own wiring**, which is `gallery/PLAN_EDITOR_KERNEL.md` §6:
 ; `isAccurate()` is false until a measurer that opened a font says otherwise,
 ; so a caret computed from guessed advances can REFUSE rather than sit half a
@@ -49,10 +61,11 @@ Import "../../pdf_writer/src/fonts/FontManager.rgr"
 class OfficeMeasure {
     def fm:FontManager (new FontManager)
     def measurer:EVGTextMeasurer (new EVGTextMeasurer)
-    ; Are there real faces behind `measurer`? The renderer this was cut out of
-    ; kept the same flag and branched on it, rather than asking the measurer,
-    ; because a measurer is present from construction and a font is not.
-    def hasFont:boolean false
+    ; Are there real faces behind `measurer`? DERIVED rather than stored: a
+    ; caller can hold one of these across a font load — `OfficeTextMeasure`
+    ; does, for the whole life of a deck — and a snapshot taken at attach time
+    ; would answer "no fonts" for a document whose faces arrived afterwards.
+    ; That is the `FontManager.loadFont` failure from the other side.
     ; The family used when a run names none, or names one nothing resolves to.
     def fallback:string "Open Sans"
 
@@ -65,15 +78,18 @@ class OfficeMeasure {
         def o:OfficeMeasure (new OfficeMeasure())
         o.fm = fm
         o.measurer = m
-        o.hasFont = ((fm.getFontCount()) > 0)
         return o
+    }
+
+    fn hasFont:boolean () {
+        return ((fm.getFontCount()) > 0)
     }
 
     ; Does this answer come from the face that will be painted? See the header:
     ; a caller placing a caret should ask, and should decline when the answer
     ; is no rather than draw one in the wrong place.
     fn isAccurate:boolean () {
-        if (hasFont == false) {
+        if ((this.hasFont()) == false) {
             return false
         }
         return (measurer.isFontAccurate())
@@ -88,7 +104,7 @@ class OfficeMeasure {
     ; The width of `text` drawn in that face at that size.
     fn width:double (text:string family:string bold:boolean italic:boolean size:double fallbackFamily:string) {
         def shaped:string (OfficeText.forMetrics(text))
-        if (hasFont == false) {
+        if ((this.hasFont()) == false) {
             return (this.fallbackWidth(shaped size))
         }
         def face:string (this.faceFor(family bold italic fallbackFamily))
@@ -106,8 +122,40 @@ class OfficeMeasure {
         return (measurer.measureTextWidth(shaped fallback size))
     }
 
+    ; --- the family a DOCUMENT named, as opposed to one we already have ------
+    ;
+    ; A .pptx says "Calibri" and a .docx says "Cambria", and neither is in this
+    ; repository. `OfficeFont.aliasFamily` decides what to draw instead, and
+    ; the pair below is why it has to be asked here rather than at the call
+    ; site: `drawnFamily` is what the display list carries and `widthNamed` is
+    ; what every width comes from, so a backend that obeys the family it is
+    ; handed draws what was measured. Name one family and measure another and
+    ; the caret drifts by the difference between two faces.
+    fn drawnFamily:string (named:string bold:boolean italic:boolean fallbackFamily:string) {
+        if ((strlen (trim named)) == 0) {
+            return fallbackFamily
+        }
+        if ((this.hasFont()) == false) {
+            return (OfficeFont.aliasFamily(named))
+        }
+        return (OfficeFont.drawnFamily(fm named bold italic fallbackFamily))
+    }
+
+    fn widthNamed:double (text:string named:string bold:boolean italic:boolean size:double fallbackFamily:string) {
+        def fam:string (this.drawnFamily(named bold italic fallbackFamily))
+        return (this.width(text fam bold italic size fallbackFamily))
+    }
+
+    ; Is the family a document NAMED one we can actually draw with? A box the
+    ; author sized to fit is a box the text spills out of when the answer is no.
+    fn hasFamily:boolean (named:string) {
+        if ((strlen named) == 0) { return true }
+        if ((this.hasFont()) == false) { return true }
+        return ((OfficeFont.substituted(fm named)) == false)
+    }
+
     fn lineHeight:double (family:string bold:boolean italic:boolean size:double) {
-        if (hasFont == false) {
+        if ((this.hasFont()) == false) {
             return (measurer.getLineHeight(fallback size))
         }
         def face:string (this.faceFor(family bold italic fallback))

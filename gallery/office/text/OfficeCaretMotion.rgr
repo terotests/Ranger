@@ -1,0 +1,216 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeCaretMotion.rgr — one character left, one word right, over a string.
+; ==============================================================================
+;
+; The smallest thing every caret in this gallery does, and the one that was
+; written four times:
+;
+;   `PptxTextEdit.stepBack` / `stepForward` / `wordLeft` / `wordRight`
+;   `EditorBuffer`, inline, for the surrogate half only
+;   `DocxEditController.moveLeft` / `moveRight` — as `off - 1` and `off + 1`
+;   `gallery/markdown`, which had no caret at all and is about to
+;
+; The third of those is why this exists rather than being tidy. A caret that
+; steps by one UTF-16 unit lands INSIDE a surrogate pair, and the next edit
+; splits an emoji into two halves that are not characters. pptx got this right
+; and the .docx editor did not, and nothing connected the two — which is
+; `gallery/PLAN_EDITOR_KERNEL.md` §2's pattern seam, exactly: a rule somebody
+; has to remember, remembered in one place out of three.
+;
+; Everything here is a function from (string, offset) to offset. No document
+; model, no container walk, no paragraph: which string, and what to do when the
+; offset runs off the end of it, are questions each editor answers for itself,
+; because a slide's answer (the previous paragraph of this shape) is not the
+; .docx's (the previous paragraph of the body, which may be in another table
+; cell on another page) and neither is markdown's (the previous character of
+; the file, full stop).
+;
+; Offsets are UTF-16 units, which is what `strlen`, `substring` and `charAt`
+; count in on every target this compiler emits.
+; ==============================================================================
+
+Import "../../evg/EVGCodepoint.rgr"
+
+class OfficeCaretMotion {
+    ; --- one character -------------------------------------------------------
+
+    ; The offset one character before `col`, never inside a surrogate pair.
+    sfn stepBack:int (s:string col:int) {
+        if (col <= 1) {
+            return 0
+        }
+        def n:int (strlen s)
+        def at:int col
+        if (at > n) { at = n }
+        if (at <= 1) { return 0 }
+        def lo:int (charAt s (at - 1))
+        if (EVGCodepoint.isLowSurrogate(lo)) {
+            def hi:int (charAt s (at - 2))
+            if (EVGCodepoint.isHighSurrogate(hi)) {
+                return (at - 2)
+            }
+        }
+        return (at - 1)
+    }
+
+    ; …and one after.
+    sfn stepForward:int (s:string col:int) {
+        def n:int (strlen s)
+        if (col >= n) {
+            return n
+        }
+        def at:int col
+        if (at < 0) { at = 0 }
+        def units:int (EVGCodepoint.unitsAt(s at))
+        if (units < 1) {
+            units = 1
+        }
+        def next:int (at + units)
+        if (next > n) {
+            return n
+        }
+        return next
+    }
+
+    ; --- one word ------------------------------------------------------------
+
+    ; What counts as being inside a word. Everything above ASCII is a word
+    ; character: this is not a Unicode word-break implementation and does not
+    ; claim to be one, and treating every accented letter, every CJK glyph and
+    ; every emoji as punctuation would be worse than treating them all as
+    ; letters. The editors that had a rule all had this rule.
+    sfn isWordChar:boolean (c:int) {
+        if ((c >= 48) && (c <= 57)) {
+            return true
+        }
+        if ((c >= 65) && (c <= 90)) {
+            return true
+        }
+        if ((c >= 97) && (c <= 122)) {
+            return true
+        }
+        if (c > 127) {
+            return true
+        }
+        return false
+    }
+
+    ; Back over any run of non-word characters, then back over the word before
+    ; them. At 0 already, it stays: the CALLER decides whether that means the
+    ; end of the previous paragraph, the previous shape, or nothing at all.
+    sfn wordLeft:int (s:string col:int) {
+        def n:int (strlen s)
+        def c:int col
+        if (c > n) { c = n }
+        if (c <= 0) { return 0 }
+        def skipping:boolean true
+        while (skipping) {
+            if (c <= 0) {
+                skipping = false
+            } {
+                if (OfficeCaretMotion.isWordChar((charAt s (c - 1)))) {
+                    skipping = false
+                } {
+                    c = (c - 1)
+                }
+            }
+        }
+        def eating:boolean true
+        while (eating) {
+            if (c <= 0) {
+                eating = false
+            } {
+                if (OfficeCaretMotion.isWordChar((charAt s (c - 1)))) {
+                    c = (c - 1)
+                } {
+                    eating = false
+                }
+            }
+        }
+        return c
+    }
+
+    ; The mirror: over the word, then over what follows it.
+    sfn wordRight:int (s:string col:int) {
+        def n:int (strlen s)
+        def c:int col
+        if (c < 0) { c = 0 }
+        if (c >= n) { return n }
+        def eating:boolean true
+        while (eating) {
+            if (c >= n) {
+                eating = false
+            } {
+                if (OfficeCaretMotion.isWordChar((charAt s c))) {
+                    c = (c + 1)
+                } {
+                    eating = false
+                }
+            }
+        }
+        def skipping:boolean true
+        while (skipping) {
+            if (c >= n) {
+                skipping = false
+            } {
+                if (OfficeCaretMotion.isWordChar((charAt s c))) {
+                    skipping = false
+                } {
+                    c = (c + 1)
+                }
+            }
+        }
+        return c
+    }
+
+    ; The word `col` is inside, as a pair of offsets — what a double-click
+    ; selects. On a run of non-word characters it takes that run instead, which
+    ; is what a browser does and what a reader expects when they double-click a
+    ; gap.
+    sfn wordAt:void (s:string col:int out:[int]) {
+        clear out
+        def n:int (strlen s)
+        def c:int col
+        if (c < 0) { c = 0 }
+        if (c > n) { c = n }
+        if (n == 0) {
+            push out 0
+            push out 0
+            return
+        }
+        ; A caret at the very end belongs to the word in FRONT of it.
+        def probe:int c
+        if (probe >= n) { probe = (n - 1) }
+        def want:boolean (OfficeCaretMotion.isWordChar((charAt s probe)))
+        def a:int probe
+        def goingBack:boolean true
+        while (goingBack) {
+            if (a <= 0) {
+                goingBack = false
+            } {
+                if ((OfficeCaretMotion.isWordChar((charAt s (a - 1)))) == want) {
+                    a = (a - 1)
+                } {
+                    goingBack = false
+                }
+            }
+        }
+        def b:int probe
+        def goingOn:boolean true
+        while (goingOn) {
+            if (b >= n) {
+                goingOn = false
+            } {
+                if ((OfficeCaretMotion.isWordChar((charAt s b))) == want) {
+                    b = (b + 1)
+                } {
+                    goingOn = false
+                }
+            }
+        }
+        push out a
+        push out b
+    }
+}

@@ -729,8 +729,14 @@ class DocxApp {
             if (name == "s") { return (this.runCommand("file.save" "")) }
             if (name == "p") { return (this.runCommand("file.print" "")) }
         }
-        if (name == "left")     { viewer.keyLeft(shift)   return true }
-        if (name == "right")    { viewer.keyRight(shift)  return true }
+        if (name == "left")     {
+            if ctrl { viewer.keyWordLeft(shift) return true }
+            viewer.keyLeft(shift)   return true
+        }
+        if (name == "right")    {
+            if ctrl { viewer.keyWordRight(shift) return true }
+            viewer.keyRight(shift)  return true
+        }
         if (name == "up")       { viewer.keyUp(shift)     return true }
         if (name == "down")     { viewer.keyDown(shift)   return true }
         if (name == "pageUp")   { viewer.keyPageUp(shift) return true }
