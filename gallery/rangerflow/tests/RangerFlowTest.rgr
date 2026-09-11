@@ -3566,6 +3566,15 @@ class RangerFlowTest {
         c.ok("the periods run along the axis in the order written" (a.x < b.x))
         def frame:FlowNode (tg.nodeAt(0))
         c.eqStr("and a section is a frame behind them" frame.nodeType "group")
+        ; A section you can pick up has to bring its periods: a frame that
+        ; slides off its own contents is a box that means nothing. The frames
+        ; are sent to the back as they are made, so which one is node 0 is the
+        ; paint order — the section is named instead.
+        c.eqStr("a period belongs to the section it was written under" a.parentId "sg-section0")
+        def ev:FlowNode (tg.nodeById("event0"))
+        c.eqStr("and so does the event under it" ev.parentId "sg-section0")
+        def late:FlowNode (tg.nodeById("period2"))
+        c.eqStr("a period in the next section belongs to that one" late.parentId "sg-section1")
 
         def jn:string "journey\n"
         jn = (jn + "    title My working day\n")
@@ -3584,6 +3593,9 @@ class RangerFlowTest {
         def low:FlowNode (jg.nodeById("task1"))
         c.ok("a five sits above a one, which is the whole point" (high.y < low.y))
         c.ok("and the day runs left to right" (high.x < low.x))
+        def jframe:FlowNode (jg.nodeById("sg-section0"))
+        c.eqStr("a journey's section is a frame too" jframe.nodeType "group")
+        c.eqStr("and its tasks move with it" high.parentId "sg-section0")
         c.ok("both are diagrams this library draws" ((MermaidReader.draws("timeline")) && (MermaidReader.draws("journey"))))
     }
 

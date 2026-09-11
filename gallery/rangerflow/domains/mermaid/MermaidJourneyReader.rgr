@@ -224,11 +224,15 @@ class MermaidJourneyFlow {
         while (s < (array_length d.sections)) {
             def name:string (itemAt d.sections s)
             def r (new FlowRect)
+            ; Kept as well as measured: the frame has to know afterwards what
+            ; it was drawn around, or dragging it leaves that behind.
+            def members:[string]
             def i:int 0
             while (i < (array_length d.tasks)) {
                 def t:MermaidJourneyTask (itemAt d.tasks i)
                 if (t.section == name) {
                     MermaidJourneyFlow.growTo(r g t.id)
+                    push members t.id
                 }
                 i = (i + 1)
             }
@@ -249,6 +253,18 @@ class MermaidJourneyFlow {
                 g.addNode(frame)
                 style.styleNode(frame)
                 g.sendToBack(frameId)
+                ; The frame adopts its tasks, so dragging a section takes the
+                ; section with it — the same `parentId` the flowchart's
+                ; subgraphs and the swimlanes use.
+                def m:int 0
+                while (m < (array_length members)) {
+                    def mid:string (itemAt members m)
+                    m = (m + 1)
+                    if (g.hasNode(mid)) {
+                        def child:FlowNode (g.nodeById(mid))
+                        child.parentId = frameId
+                    }
+                }
                 made = (made + 1)
             }
             s = (s + 1)
