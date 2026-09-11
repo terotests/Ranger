@@ -1,0 +1,117 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; D2Imports.rgr — the files a diagram asked for, read before it is compiled.
+; ============================================================================
+;
+; `@file` and `...@file.key` are the one thing in D2 that reaches outside the
+; text, and this is the only file in the reader that touches a disk. That is a
+; boundary in two directions.
+;
+; **Security.** A diagram is somebody else's text. `D2Model.importPathOf`
+; refuses an absolute path, any `..` segment and anything with a scheme in it,
+; and this file refuses to follow what it refuses to name — so `@../../.ssh/id_rsa`
+; reads nothing and says so on the board.
+;
+; **The browser.** `read_file` is asynchronous on the web target, and Ranger
+; infers that up the call graph: one call to it under `D2Model.read` would
+; make every method that can reach it async, including the web editor's own
+; self test, which then hands the page a promise where it expects a verdict.
+; Keeping the read here — in a file the web editor does not import — is what
+; lets the same model run in a browser, where it reports the imports as
+; unresolved instead of following them.
+;
+;   node          D2Imports.readFrom(src dir) → D2Model.readCached(…)  imports read
+;   browser       D2Model.read(src)                                   imports named
+;
+; The loading is a fixpoint rather than a walk: a file's imports are collected,
+; read, and then their own imports are collected, until nothing new turns up or
+; the chain is sixteen deep.
+; ============================================================================
+
+Import "./D2Model.rgr"
+
+class D2Imports {
+    ; The board, with every import the file can legally reach already read.
+    sfn readFrom:D2Board (src:string dir:string) {
+        def files:[string]
+        def texts:[string]
+        D2Imports.collect(src dir files texts 0)
+        return (D2Model.readCached(src dir files texts))
+    }
+
+    sfn collect:void (src:string dir:string files:[string] texts:[string] depth:int) {
+        if (depth > 16) {
+            return
+        }
+        def f:D2File (D2Parser.parse(src))
+        def specs:[string]
+        D2Imports.scan(f.decls specs)
+        def i:int 0
+        while (i < (array_length specs)) {
+            def spec:string (itemAt specs i)
+            i = (i + 1)
+            def full:string (D2Model.importPathOf(spec dir))
+            if ((strlen full) == 0) {
+                continue
+            }
+            if (D2Imports.known(files full)) {
+                continue
+            }
+            def text:string (?? (read_file "." full) "")
+            push files full
+            push texts text
+            if ((strlen text) > 0) {
+                D2Imports.collect(text (D2Model.dirOf(full)) files texts (depth + 1))
+            }
+        }
+    }
+
+    sfn known:boolean (files:[string] full:string) {
+        def i:int 0
+        while (i < (array_length files)) {
+            if ((itemAt files i) == full) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Every `@…` in a file: as a value, as a spread, and inside any map or
+    ; array under either of them.
+    sfn scan:void (decls:[D2Decl] out:[string]) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:D2Decl (itemAt decls i)
+            i = (i + 1)
+            if d.isSpread {
+                if ((strlen d.spread) > 0) {
+                    if ((charAt d.spread 0) == 64) {
+                        push out (substring d.spread 1 (strlen d.spread))
+                    }
+                }
+            }
+            if ((d.hasValue()) == false) {
+                continue
+            }
+            def v:D2Value (d.value())
+            D2Imports.scanValue(v out)
+        }
+    }
+
+    sfn scanValue:void (v:D2Value out:[string]) {
+        if (v.kind == "import") {
+            push out v.text
+        }
+        if (v.hasMap) {
+            D2Imports.scan(v.body out)
+        }
+        def i:int 0
+        while (i < (array_length v.items)) {
+            def it:D2Value (itemAt v.items i)
+            i = (i + 1)
+            D2Imports.scanValue(it out)
+        }
+    }
+}

@@ -715,6 +715,17 @@ class D2Model {
     ; The import chain, so a file that imports itself is an error rather than
     ; a hang.
     def importing:[string]
+    ; The files an import may name, and what is in them. The model does NOT
+    ; read them: `D2Imports` does that and hands them over.
+    ;
+    ; This is not tidiness. `read_file` is asynchronous on the browser target,
+    ; and Ranger infers that up the call graph — so a single call to it
+    ; anywhere under `D2Model.read` makes every method that can reach it
+    ; async, including the web editor's own self test, which then returns a
+    ; promise where the page expects a verdict. Keeping the read outside the
+    ; model keeps the model callable from a browser at all.
+    def importFiles:[string]
+    def importTexts:[string]
 
     Constructor () {
     }
@@ -775,6 +786,29 @@ class D2Model {
     sfn readFrom:D2Board (src:string dir:string) {
         def f:D2File (D2Parser.parse(src))
         return (D2Model.compileIn(f dir))
+    }
+
+    ; The form with the imported files already read — `D2Imports.readFrom` is
+    ; what loads them, and a caller with no filesystem (the web editor) simply
+    ; does not, and gets the imports reported as unresolved instead.
+    sfn readCached:D2Board (src:string dir:string files:[string] texts:[string]) {
+        def f:D2File (D2Parser.parse(src))
+        def m (new D2Model)
+        def b (new D2Board)
+        b.kind = "root"
+        m.board = b
+        m.baseDir = dir
+        m.importFiles = files
+        m.importTexts = texts
+        def i:int 0
+        while (i < (array_length f.errors)) {
+            push b.errors (itemAt f.errors i)
+            i = (i + 1)
+        }
+        m.collectVars(f.decls)
+        m.run(f.decls "")
+        m.finish()
+        return b
     }
 
     ; ------------------------------------------------------------- vars ----
@@ -2262,18 +2296,8 @@ class D2Model {
             return out
         }
         def segs:[string] (strsplit clean ".")
-        def file:string (itemAt segs 0)
-        def first:int 1
-        if ((array_length segs) > 1) {
-            if ((itemAt segs 1) == "d2") {
-                first = 2
-            }
-        }
-        file = (file + ".d2")
-        def full:string file
-        if ((strlen baseDir) > 0) {
-            full = (baseDir + "/" + file)
-        }
+        def first:int (D2Model.keyStart(segs))
+        def full:string (D2Model.importPathOf(clean baseDir))
         def k:int 0
         while (k < (array_length importing)) {
             if ((itemAt importing k) == full) {
@@ -2288,7 +2312,7 @@ class D2Model {
             push board.errors ("imports nested deeper than 16: " + full)
             return out
         }
-        def src:string (?? (read_file "." full) "")
+        def src:string (this.fileText(full))
         if ((strlen src) == 0) {
             push board.errors ("could not read the import `" + full + "`")
             return out
@@ -2313,6 +2337,46 @@ class D2Model {
         }
         baseDir = (D2Model.dirOf(full))
         return value
+    }
+
+    ; Where an import's first segment points, as a file path. `@a.b` is the
+    ; file `a.d2` and the key `b` inside it; `@a.d2.b` spells the extension
+    ; out, which is D2's own rule. "" when the path may not be followed.
+    sfn importPathOf:string (spec:string baseDir:string) {
+        def clean:string (trim spec)
+        if ((strlen clean) == 0) {
+            return ""
+        }
+        if (D2Model.isUnsafePath(clean)) {
+            return ""
+        }
+        def segs:[string] (strsplit clean ".")
+        def file:string ((itemAt segs 0) + ".d2")
+        if ((strlen baseDir) == 0) {
+            return file
+        }
+        return (baseDir + "/" + file)
+    }
+
+    ; Which segment the key path inside the imported file starts at.
+    sfn keyStart:int (segs:[string]) {
+        if ((array_length segs) > 1) {
+            if ((itemAt segs 1) == "d2") {
+                return 2
+            }
+        }
+        return 1
+    }
+
+    fn fileText:string (full:string) {
+        def i:int 0
+        while (i < (array_length importFiles)) {
+            if ((itemAt importFiles i) == full) {
+                return (itemAt importTexts i)
+            }
+            i = (i + 1)
+        }
+        return ""
     }
 
     sfn isUnsafePath:boolean (p:string) {

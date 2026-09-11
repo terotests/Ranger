@@ -1,13 +1,15 @@
 # D2 in RangerFlow — is it worth it, and what would it take
 
-Status: **read and drawn.** `D2Parser` and `D2Model` read the language —
+Status: **read, drawn, and in the editor.** `D2Parser` and `D2Model` read the language —
 objects, connections, styles, vars, classes, globs and filters, suspensions,
 table rows and class members, sequence-diagram scoping, boards and imports —
 and `npm run rangerflow:d2:parity` scores that against D2 itself: **256/256
 checks over the 41 files in `fixtures/d2/`** ([`D2_PARITY.md`](D2_PARITY.md)).
 `D2Flow` then draws it: `npm run rangerflow:d2` writes the SVG, the PDF, the
 HTML and the GPU scene, with containers as nested layouts and D2's nine
-missing outlines added to the shape library.
+missing outlines added to the shape library. `?scenario=d2` in the web editor
+is the same reader with a textarea in front of it — seven examples, live
+redraw, and the page's own self test walking it like every other scenario.
 
 The parser came first on purpose — it is the part that can be wrong in ways a
 picture hides — and the drawing came last, which is the order this plan was
@@ -174,7 +176,7 @@ Each phase names the fixtures it must read and the matrix rows it retires.
 | 9 | Parity harness: dump, score, generate `D2_PARITY.md` | all | ✅ 256/256 |
 | 10 | `D2Flow` — the model into a `FlowGraph`, containers as nested layouts | all | ✅ `npm run rangerflow:d2` |
 | 11 | The nine outlines D2 has and this library did not | `01` | ✅ `core/FlowShapes.rgr` |
-| 12 | `?scenario=d2` in the web editor, driven by `rangerflow:web:test` | — | ⬜ next |
+| 12 | `?scenario=d2` in the web editor, driven by `rangerflow:web:test` | — | ✅ seven examples |
 | 13 | Grid containers, `sequence_diagram` through `SeqDiagram`, boards shown | `08`, `09`, `13` | ⬜ |
 
 What is left is in [`D2_FEATURES.md`](D2_FEATURES.md): 66 rows of 100 are
@@ -310,6 +312,29 @@ The person is the same lesson in miniature: D2 draws it as one head-and-
 shoulders silhouette, and a circle floating over a box does not read as a
 person at the size a node is.
 
+## 8d. What the editor needed
+
+Three things, and two of them were bugs this wiring found rather than made.
+
+**`read_file` is asynchronous on the web target, and Ranger infers that up the
+call graph.** One call to it under `D2Model.read` made every method that can
+reach it async — including the editor's own `selfTest`, which then handed the
+page a promise where it expected a verdict, and *every* scenario's smoke test
+failed with `[object Promise]`. So the import resolver moved out into
+`D2Imports`, which the editor does not import: node reads the files, the
+browser reports them unresolved, and the model itself never touches a disk.
+
+**The self test clicked node 0's centre.** On a small canvas the minimap is
+drawn over part of the diagram, and a press there is a press on the map — so
+whether the test passed depended on where the layout happened to put the first
+node. It now picks the first node whose middle is on the canvas, clear of the
+minimap, the controls and the tools, and hit-tests to something selectable.
+
+**A stylesheet paints over what the file said.** The `look` dropdown's
+`FlowStyle` knows nothing about D2's fills, so `D2Flow.restyle` puts the
+diagram's own colours back on afterwards — the same order Mermaid uses for its
+`classDef`.
+
 ## 9. Done means
 
 - ~~Tier A and Tier B at **100%** on `fixtures/d2/`~~ — done: 256/256 over 41
@@ -320,8 +345,9 @@ person at the size a node is.
   tested~~ — done: absolute paths, `..` segments and anything with a scheme are
   refused with an error on the board, and a cyclic or 16-deep import chain ends
   rather than hanging
-- `?scenario=d2` in the web demo, driven by `rangerflow:web:test` like every
-  other scenario, so it cannot rot behind the default
+- ~~`?scenario=d2` in the web demo, driven by `rangerflow:web:test` like every
+  other scenario, so it cannot rot behind the default~~ — done, with seven
+  examples in the gallery
 - `D2_PARITY.md` regenerated, with no number in it that a human typed
 
 ---

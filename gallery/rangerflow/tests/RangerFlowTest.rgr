@@ -25,6 +25,7 @@ Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/d2/D2Flow.rgr"
+Import "../domains/d2/D2Imports.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
 Import "../domains/mermaid/MermaidRender.rgr"
 Import "../domains/mermaid/MermaidClassReader.rgr"
@@ -6981,7 +6982,7 @@ class RangerFlowTest {
         def dir:string "gallery/rangerflow/fixtures/d2"
         def src:string (?? (read_file "." "gallery/rangerflow/fixtures/d2/18_import.d2") "")
         c.ok("the fixture is there" ((strlen src) > 0))
-        def b:D2Board (D2Model.readFrom(src dir))
+        def b:D2Board (D2Imports.readFrom(src dir))
         def store:D2Object (b.object("store"))
         c.eqStr("an imported key brings its shape" store.shape "cylinder")
         c.eqStr("and its label" store.label "shared store")
@@ -6989,14 +6990,14 @@ class RangerFlowTest {
         c.eqStr("a spread merges the imported map" app.shape "cylinder")
         c.eqStr("and what follows it wins" app.label "app store")
         ; What a reader must refuse: a diagram is somebody else's text.
-        def out:D2Board (D2Model.readFrom("a: @../../etc/passwd\n" dir))
+        def out:D2Board (D2Imports.readFrom("a: @../../etc/passwd\n" dir))
         c.eqInt("nothing was read" (array_length out.imports) 1)
         c.ok("and the refusal is said out loud" ((array_length out.errors) > 0))
-        def absolute:D2Board (D2Model.readFrom("a: @/etc/passwd\n" dir))
+        def absolute:D2Board (D2Imports.readFrom("a: @/etc/passwd\n" dir))
         c.ok("an absolute path is refused too" ((array_length absolute.errors) > 0))
-        def url:D2Board (D2Model.readFrom("a: @https://example.com/x\n" dir))
+        def url:D2Board (D2Imports.readFrom("a: @https://example.com/x\n" dir))
         c.ok("and so is a URL" ((array_length url.errors) > 0))
-        def missing:D2Board (D2Model.readFrom("a: @not_a_file\n" dir))
+        def missing:D2Board (D2Imports.readFrom("a: @not_a_file\n" dir))
         c.ok("a file that is not there is an error, not a silence" ((array_length missing.errors) > 0))
     }
 

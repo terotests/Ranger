@@ -37,6 +37,7 @@ Import "../domains/mermaid/MermaidSequenceReader.rgr"
 Import "../domains/plantuml/PlantUmlSequenceReader.rgr"
 Import "../domains/plantuml/PlantUmlEntityReader.rgr"
 Import "../domains/plantuml/PlantUmlActivityReader.rgr"
+Import "../domains/d2/D2Flow.rgr"
 Import "../domains/mermaid/MermaidGitReader.rgr"
 Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
@@ -349,6 +350,11 @@ class RangerFlowWeb {
             sourceFormat = "plantuml"
             def puml:string (RangerFlowWeb.samplePlantUml())
             return (this.loadPlantUmlStyled(puml sourceStyle))
+        }
+        if (name == "d2") {
+            sourceFormat = "d2"
+            def d2text:string (RangerFlowWeb.sampleD2())
+            return (this.loadD2Styled(d2text sourceStyle))
         }
         if (name == "org") {
             return (this.loadOrgChart())
@@ -669,6 +675,9 @@ class RangerFlowWeb {
         if (sourceFormat == "plantuml") {
             return (this.loadPlantUmlStyled(text styleName))
         }
+        if (sourceFormat == "d2") {
+            return (this.loadD2Styled(text styleName))
+        }
         return (this.loadMermaidStyled(text styleName))
     }
 
@@ -709,6 +718,59 @@ class RangerFlowWeb {
         editor.view.viewport.x = keepX
         editor.view.viewport.y = keepY
         editor.view.viewport.zoom = keepZoom
+        return true
+    }
+
+    ; ------------------------------------------------------------------ D2 --
+    ; One grammar, so there is no family to sniff: the text is a board, the
+    ; board is a graph, and the graph is drawn by the same pipeline as
+    ; everything else on this page. Containers come out as frames, because
+    ; `D2Flow` lays each one out as a diagram of its own first.
+    ;
+    ; Imports are refused here rather than resolved — the page has no
+    ; directory to resolve them against, and a browser that fetched whatever a
+    ; pasted diagram named would be a worse bug than an unread `@file`. The
+    ; status line says how many were left.
+    fn loadD2Styled:boolean (text:string styleName:string) {
+        def b:D2Board (D2Model.read(text))
+        def objects:[D2Object] (b.live())
+        if ((array_length objects) == 0) {
+            status = "nothing to draw in that D2 diagram"
+            return false
+        }
+        def want:string styleName
+        if ((strlen want) == 0) {
+            want = "default"
+        }
+        sourceText = text
+        sourceStyle = styleName
+        sourceFormat = "d2"
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (D2Flow.laid(b))
+        ; The sheet first, then what the file itself said — otherwise the look
+        ; dropdown paints over every colour the diagram chose.
+        def painted:int (style.applyTo(g))
+        D2Flow.restyle(b g)
+        this.adopt(g)
+        editor.view.notation = "crowfoot"
+        layoutName = "none"
+        simRunning = false
+        editor.pinWhileDragging = false
+        style.applyToTheme(editor.view.theme)
+        if (want == "dark") {
+            editor.view.theme.name = "dark"
+        } {
+            editor.view.theme.name = "light"
+        }
+        def conns:[D2Conn] (b.liveConns())
+        def said:string ((to_string (array_length objects)) + " objects, " + (to_string (array_length conns)) + " connections")
+        if ((b.boardCount()) > 0) {
+            said = (said + ", " + (to_string (b.boardCount())) + " more boards (the root one is drawn)")
+        }
+        if ((array_length b.imports) > 0) {
+            said = (said + ", " + (to_string (array_length b.imports)) + " imports not resolved here")
+        }
+        status = (said + " — D2, " + want)
         return true
     }
 
@@ -1654,6 +1716,16 @@ class RangerFlowWeb {
     ; and a string survives it without a wrapper on either side: entries are
     ; separated by `|`, and an entry's id from its label by a tab.
     sfn sampleList:string (format:string) {
+        if (format == "d2") {
+            def d:string "architecture\tarkkitehtuuri (kontit)"
+            d = (d + "|shapes\tmuodot")
+            d = (d + "|flow\tvuokaavio")
+            d = (d + "|table\tsql_table")
+            d = (d + "|class\tluokkakaavio")
+            d = (d + "|sequence\tsekvenssikaavio")
+            d = (d + "|styles\tvars, classes, globit")
+            return d
+        }
         if (format == "plantuml") {
             ; The class diagram opens the panel rather than the sequence one:
             ; a sequence diagram is PLACED — who across, when down — so its
@@ -1683,7 +1755,175 @@ class RangerFlowWeb {
         if (format == "plantuml") {
             return (RangerFlowWeb.plantUmlSample(name))
         }
+        if (format == "d2") {
+            return (RangerFlowWeb.d2Sample(name))
+        }
         return (RangerFlowWeb.mermaidSample(name))
+    }
+
+    ; ------------------------------------------------------------ D2 samples --
+    ; Seven files, each one showing something the last one did not: the
+    ; containers D2 is written for, the shapes it has that other formats do
+    ; not, a table, a class, a sequence diagram, and the three features — vars,
+    ; classes, globs — that make a D2 file shorter than what it draws.
+    sfn d2Sample:string (name:string) {
+        if (name == "shapes") {
+            def t:string "# Every shape D2 has an outline for.\n"
+            t = (t + "direction: right\n")
+            t = (t + "user: Asiakas { shape: person }\n")
+            t = (t + "site: Verkkokauppa {\n")
+            t = (t + "  cdn: { shape: cloud }\n")
+            t = (t + "  lb: Kuormantasaaja { shape: hexagon }\n")
+            t = (t + "  cdn -> lb\n")
+            t = (t + "}\n")
+            t = (t + "queue: Jono { shape: queue }\n")
+            t = (t + "docs: Ohjeet { shape: page }\n")
+            t = (t + "store: Levy { shape: cylinder }\n")
+            t = (t + "archive: Arkisto { shape: stored_data }\n")
+            t = (t + "note: |md\n  **callout**: mikä tahansa muoto ottaa\n  tyylin ja tooltipin\n|\n")
+            t = (t + "user -> site.cdn: selaa\n")
+            t = (t + "site.lb -> queue: tilaus\n")
+            t = (t + "queue -> store: kirjoita\n")
+            t = (t + "store -> archive: varmuuskopio\n")
+            return t
+        }
+        if (name == "table") {
+            def t:string "# sql_table: rivit ovat rivejä, eivät laatikoita.\n"
+            t = (t + "users: {\n")
+            t = (t + "  shape: sql_table\n")
+            t = (t + "  id: int { constraint: primary_key }\n")
+            t = (t + "  email: varchar { constraint: unique }\n")
+            t = (t + "  org_id: int { constraint: foreign_key }\n")
+            t = (t + "}\n")
+            t = (t + "orgs: {\n")
+            t = (t + "  shape: sql_table\n")
+            t = (t + "  id: int { constraint: primary_key }\n")
+            t = (t + "  name: varchar\n")
+            t = (t + "}\n")
+            t = (t + "orders: {\n")
+            t = (t + "  shape: sql_table\n")
+            t = (t + "  id: int { constraint: primary_key }\n")
+            t = (t + "  user_id: int { constraint: foreign_key }\n")
+            t = (t + "  total: decimal\n")
+            t = (t + "}\n")
+            t = (t + "users.org_id -> orgs.id: kuuluu\n")
+            t = (t + "orders.user_id -> users.id: tilaaja\n")
+            return t
+        }
+        if (name == "class") {
+            def t:string "# shape: class — jäsenet näkyvyyksineen.\n"
+            t = (t + "direction: right\n")
+            t = (t + "Order: {\n")
+            t = (t + "  shape: class\n")
+            t = (t + "  +id: int\n")
+            t = (t + "  +lines: [OrderLine]\n")
+            t = (t + "  -state: State\n")
+            t = (t + "  +total(): Money\n")
+            t = (t + "  +confirm(): void\n")
+            t = (t + "}\n")
+            t = (t + "OrderLine: {\n")
+            t = (t + "  shape: class\n")
+            t = (t + "  +sku: string\n")
+            t = (t + "  +qty: int\n")
+            t = (t + "}\n")
+            t = (t + "Repository: {\n")
+            t = (t + "  shape: class\n")
+            t = (t + "  -conn: Connection\n")
+            t = (t + "  +find(id int): Order\n")
+            t = (t + "}\n")
+            t = (t + "Order -> OrderLine: { source-arrowhead.shape: cf-one; target-arrowhead.shape: cf-many }\n")
+            t = (t + "Repository -> Order: lukee\n")
+            return t
+        }
+        if (name == "sequence") {
+            def t:string "# shape: sequence_diagram — ryhmä ei ole nimiavaruus.\n"
+            t = (t + "sd: {\n")
+            t = (t + "  shape: sequence_diagram\n")
+            t = (t + "  asiakas: Asiakas { shape: person }\n")
+            t = (t + "  kauppa: Kauppa\n")
+            t = (t + "  pankki: Pankki\n")
+            t = (t + "  asiakas -> kauppa: tee tilaus\n")
+            t = (t + "  kauppa -> pankki: varmenna maksu\n")
+            t = (t + "  pankki -> kauppa: hyväksytty\n")
+            t = (t + "  uudelleen: {\n")
+            t = (t + "    kauppa -> pankki: yritä uudelleen\n")
+            t = (t + "  }\n")
+            t = (t + "  kauppa -> asiakas: vahvistus\n")
+            t = (t + "}\n")
+            return t
+        }
+        if (name == "styles") {
+            def t:string "# vars, classes ja globit: lyhyempi kuin mitä se piirtää.\n"
+            t = (t + "vars: {\n")
+            t = (t + "  accent: \"#2a6\"\n")
+            t = (t + "  muted: \"#f3f4f8\"\n")
+            t = (t + "}\n")
+            t = (t + "classes: {\n")
+            t = (t + "  palvelu: { shape: hexagon; style.fill: ${accent} }\n")
+            t = (t + "  ulkoinen: { style: { stroke-dash: 4; fill: ${muted} } }\n")
+            t = (t + "}\n")
+            t = (t + "api: { class: palvelu }\n")
+            t = (t + "worker: { class: palvelu }\n")
+            t = (t + "maksut: Maksunvälittäjä { class: ulkoinen }\n")
+            t = (t + "posti: Postitus { class: ulkoinen }\n")
+            t = (t + "db: { shape: cylinder }\n")
+            t = (t + "api -> db\n")
+            t = (t + "worker -> db\n")
+            t = (t + "api -> maksut\n")
+            t = (t + "worker -> posti\n")
+            t = (t + "# jokainen yhteys kerralla, ja sitten yksi niistä\n")
+            t = (t + "(* -> *)[*].style.stroke-width: 2\n")
+            t = (t + "(api -> maksut)[0].style.stroke: \"#c33\"\n")
+            return t
+        }
+        if (name == "flow") {
+            def t:string "# Nuolet, nuolenpäät ja ketjut.\n"
+            t = (t + "direction: right\n")
+            t = (t + "alku: Alku { shape: oval }\n")
+            t = (t + "lue: Lue tilaus { shape: parallelogram }\n")
+            t = (t + "ehto: Luotto kunnossa? { shape: diamond }\n")
+            t = (t + "varaa: Varaa tuotteet\n")
+            t = (t + "hylkaa: Ilmoita hylkäys { shape: document }\n")
+            t = (t + "loppu: Loppu { shape: oval }\n")
+            t = (t + "alku -> lue -> ehto\n")
+            t = (t + "ehto -> varaa: kyllä\n")
+            t = (t + "ehto -> hylkaa: ei\n")
+            t = (t + "varaa -> loppu\n")
+            t = (t + "hylkaa -> loppu\n")
+            t = (t + "ehto.style.fill: \"#fff7e6\"\n")
+            return t
+        }
+        def a:string "# Kontit ovat D2:n idea: jokainen niistä on oma layoutinsa.\n"
+        a = (a + "direction: right\n")
+        a = (a + "asiakas: Asiakas { shape: person }\n")
+        a = (a + "reuna: Reuna {\n")
+        a = (a + "  cdn: CDN { shape: cloud }\n")
+        a = (a + "  lb: Kuormantasaaja { shape: hexagon }\n")
+        a = (a + "  cdn -> lb\n")
+        a = (a + "}\n")
+        a = (a + "ydin: Ydin {\n")
+        a = (a + "  api: Tilaus-API\n")
+        a = (a + "  jono: { shape: queue; label: tilausjono }\n")
+        a = (a + "  tyontekija: Poimija\n")
+        a = (a + "  api -> jono: vie jonoon\n")
+        a = (a + "  jono -> tyontekija: ota jonosta\n")
+        a = (a + "}\n")
+        a = (a + "data: Data {\n")
+        a = (a + "  paa: { shape: cylinder; label: pääkanta }\n")
+        a = (a + "  kopio: { shape: cylinder; style.multiple: true; label: replikat }\n")
+        a = (a + "  paa -> kopio: replikointi\n")
+        a = (a + "}\n")
+        a = (a + "asiakas -> reuna.cdn: GET\n")
+        a = (a + "reuna.lb -> ydin.api\n")
+        a = (a + "ydin.api -> data.paa: kirjoita\n")
+        a = (a + "ydin.tyontekija -> data.kopio: lue\n")
+        return a
+    }
+
+    ; What `?scenario=d2` opens with — the first entry of the gallery, so the
+    ; page and the dropdown agree about what is on screen.
+    sfn sampleD2:string () {
+        return (RangerFlowWeb.d2Sample("architecture"))
     }
 
     sfn mermaidSample:string (name:string) {
@@ -2391,18 +2631,76 @@ class RangerFlowWeb {
         def wasRunning:boolean simRunning
         simRunning = false
         editor.fitView()
-        def first:FlowNode (graph.nodeAt(0))
-        def sx:double (editor.view.viewport.toScreenX((first.centerX())))
-        def sy:double (editor.view.viewport.toScreenY((first.centerY())))
-        ; Which node is actually under that point — with overlapping nodes the
-        ; topmost one wins, and asserting on node 0 would be asserting on the
-        ; paint order rather than on the click.
-        def fx:double (editor.view.viewport.toFlowX(sx))
-        def fy:double (editor.view.viewport.toFlowY(sy))
-        def hit:int (graph.nodeAtPoint(fx fy))
+        ; A node whose middle can actually be clicked.
+        ;
+        ; Not node 0: the minimap and the control panel are drawn ON the
+        ; canvas, and on a small one they cover part of the drawing — a press
+        ; there is a press on the map, which is a place to go rather than a
+        ; thing to select. Which node that hides depends on the layout, so a
+        ; test that always aimed at the first one would pass or fail by where
+        ; the layout happened to put it.
+        def pick:int -1
+        def sx:double 0.0
+        def sy:double 0.0
+        def hit:int -1
+        def c:int 0
+        while (c < (graph.nodeCount())) {
+            def cand:FlowNode (graph.nodeAt(c))
+            def cx:double (editor.view.viewport.toScreenX((cand.centerX())))
+            def cy:double (editor.view.viewport.toScreenY((cand.centerY())))
+            c = (c + 1)
+            if (cand.hidden) {
+                continue
+            }
+            if ((cand.selectable) == false) {
+                continue
+            }
+            if (cx < 0.0) {
+                continue
+            }
+            if (cy < 0.0) {
+                continue
+            }
+            if (cx > viewW) {
+                continue
+            }
+            if (cy > viewH) {
+                continue
+            }
+            if (editor.view.minimapAt(cx cy)) {
+                continue
+            }
+            if ((editor.view.controlAt(cx cy)) >= 0) {
+                continue
+            }
+            if ((strlen (editor.view.toolAt(cx cy))) > 0) {
+                continue
+            }
+            ; Which node is actually under that point — with overlapping nodes
+            ; the topmost one wins, and asserting on the one whose middle it
+            ; is would be asserting on the paint order rather than on the click.
+            def fx:double (editor.view.viewport.toFlowX(cx))
+            def fy:double (editor.view.viewport.toFlowY(cy))
+            def under:int (graph.nodeAtPoint(fx fy))
+            if (under < 0) {
+                continue
+            }
+            def topmost:FlowNode (graph.nodeAt(under))
+            if ((topmost.selectable) == false) {
+                continue
+            }
+            if ((topmost.draggable) == false) {
+                continue
+            }
+            pick = under
+            sx = cx
+            sy = cy
+            hit = under
+            c = (graph.nodeCount())
+        }
         if (hit < 0) {
             simRunning = wasRunning
-            return "FAIL nothing under the pointer after fitView"
+            return "FAIL nothing clickable on the canvas after fitView"
         }
         def n:FlowNode (graph.nodeAt(hit))
         this.pointerDown(sx sy false false)

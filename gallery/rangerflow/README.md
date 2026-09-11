@@ -1191,6 +1191,22 @@ nothing else. And **the nine outlines D2 has that this library did not** —
 two rules as every other outline: inside its own box, and enclosing its own
 middle.
 
+…and in the editor. `?scenario=d2` opens the same reader with a textarea in
+front of it — seven examples in the gallery (containers, shapes, a flowchart,
+`sql_table`, a class diagram, a sequence diagram, and one that shows `vars`,
+`classes` and connection globs), live redraw as you type, and the page's own
+self test walking it like every other scenario.
+
+![the D2 scenario in the web editor](artifacts/scenario_d2.png)
+
+Imports are refused in the browser rather than resolved: a page that fetched
+whatever a pasted diagram named would be a worse bug than an unread `@file`,
+and the status line says how many were left. That is also why reading a file
+lives in `domains/d2/D2Imports.rgr` and nowhere else — `read_file` is
+asynchronous on the web target and Ranger infers that up the call graph, so a
+single call under `D2Model.read` would make the editor's own self test return
+a promise instead of a verdict.
+
 What is not drawn yet: a grid container lays out as an ordinary one, a
 `sequence_diagram` is drawn as a container of participants rather than by
 `SeqDiagram`, and only the root board is drawn. Each is a row in

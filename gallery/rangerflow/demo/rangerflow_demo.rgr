@@ -47,6 +47,7 @@ Import "../domains/plantuml/PlantUmlSequenceReader.rgr"
 Import "../domains/plantuml/PlantUmlEntityReader.rgr"
 Import "../domains/plantuml/PlantUmlActivityReader.rgr"
 Import "../domains/d2/D2Flow.rgr"
+Import "../domains/d2/D2Imports.rgr"
 Import "../domains/mermaid/MermaidGitReader.rgr"
 Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
@@ -179,7 +180,7 @@ class RangerFlowDemo {
             return
         }
         def dir:string (RangerFlowDemo.dirOf(path))
-        def b:D2Board (D2Model.readFrom(srcOpt dir))
+        def b:D2Board (D2Imports.readFrom(srcOpt dir))
         print ("  read   " + path)
         def objects:[D2Object] (b.live())
         def conns:[D2Conn] (b.liveConns())
@@ -193,6 +194,7 @@ class RangerFlowDemo {
         print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
         def style:FlowStyle (this.styleByName(styleName))
         def applied:int (style.applyTo(g))
+        D2Flow.restyle(b g)
         def v:FlowView (FlowView.of(g))
         style.applyToTheme(v.theme)
         this.writeAll(v g "rangerflow-d2" "RangerFlow — D2")

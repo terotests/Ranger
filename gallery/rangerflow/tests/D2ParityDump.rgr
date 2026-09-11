@@ -22,7 +22,7 @@
 ; layouts rather than one reader.
 ; ============================================================================
 
-Import "../domains/d2/D2Model.rgr"
+Import "../domains/d2/D2Imports.rgr"
 
 class D2ParityDump {
     sfn main:void () {
@@ -56,7 +56,7 @@ class D2ParityDump {
 
     sfn dumpOne:string (path:string) {
         def src:string (?? (read_file "." path) "")
-        def b:D2Board (D2Model.readFrom(src (D2ParityDump.dirOf(path))))
+        def b:D2Board (D2Imports.readFrom(src (D2ParityDump.dirOf(path))))
         def out:string "  {\n"
         out = (out + "   \"file\": \"" + (D2ParityDump.baseName(path)) + "\",\n")
         out = (out + "   \"direction\": \"" + b.direction + "\",\n")
