@@ -196,6 +196,62 @@ class MdFrontMatter {
         return (whole + frac)
     }
 
+    ; `a4 landscape`, `letter-landscape`, `a4 portrait`. A sheet turned on its
+    ; side is the same sheet, so this is one flag over the table below rather
+    ; than a second table — and `portrait` is spelled out because a document
+    ; that says which way up it is should not have to know the default.
+    sfn isLandscape:boolean (name:string) {
+        def t:string (MdChar.lower((trim name)))
+        return (MdFrontMatter.hasSuffix(t "landscape"))
+    }
+
+    ; Not `endsWith`: that name collides with a built-in on this compiler and
+    ; the call resolves to nothing, the way `replace` did in `MdEdit`.
+    sfn hasSuffix:boolean (s:string suffix:string) {
+        def n:int (strlen s)
+        def m:int (strlen suffix)
+        if (m > n) { return false }
+        return ((substring s (n - m) n) == suffix)
+    }
+
+    ; The size name with any orientation word taken off it.
+    sfn sizeName:string (name:string) {
+        def t:string (MdChar.lower((trim name)))
+        def out:string t
+        if (MdFrontMatter.hasSuffix(out "landscape")) {
+            out = (substring out 0 ((strlen out) - 9))
+        }
+        if (MdFrontMatter.hasSuffix(out "portrait")) {
+            out = (substring out 0 ((strlen out) - 8))
+        }
+        return (trim (MdFrontMatter.stripTrailingDash(out)))
+    }
+
+    sfn stripTrailingDash:string (s:string) {
+        def n:int (strlen s)
+        if (n == 0) { return s }
+        def c:int (charAt s (n - 1))
+        if ((c == 45) || (c == 95)) {
+            return (substring s 0 (n - 1))
+        }
+        return s
+    }
+
+    ; The width a document gets, orientation included.
+    sfn pageW:double (name:string fallback:double fallbackH:double) {
+        if (MdFrontMatter.isLandscape(name)) {
+            return (MdFrontMatter.pageHeight((MdFrontMatter.sizeName(name)) fallbackH))
+        }
+        return (MdFrontMatter.pageWidth((MdFrontMatter.sizeName(name)) fallback))
+    }
+
+    sfn pageH:double (name:string fallback:double fallbackW:double) {
+        if (MdFrontMatter.isLandscape(name)) {
+            return (MdFrontMatter.pageWidth((MdFrontMatter.sizeName(name)) fallbackW))
+        }
+        return (MdFrontMatter.pageHeight((MdFrontMatter.sizeName(name)) fallback))
+    }
+
     ; The named page sizes, in points, plus `210x297mm` for anything else.
     sfn pageWidth:double (name:string fallback:double) {
         def t:string (MdChar.lower((trim name)))

@@ -376,6 +376,31 @@ class MdEditTest {
         ; hit an entry would report a clean audit, which is the check that
         ; counts the wrong noun.
         c.ok("…over blocks it actually had cached" ((e.layout.cacheAudited) > 20))
+
+        ; …and that it stays out of the way of a PAGINATING layout. A cached
+        ; block is replayed rather than laid out, so `reserve` never runs and
+        ; the page never breaks: a long document came out on two sheets with
+        ; every paragraph drawn over the last. `armCache` refuses a paginating
+        ; layout, but it is asked before `layoutPaged` sets the flag.
+        ; Three hundred DIFFERENT paragraphs. Three hundred identical ones
+        ; would be one miss and 299 hits, which is the cache working and not
+        ; the thing being measured.
+        def body:string ""
+        def k:int 0
+        while (k < 300) {
+            body = ((body + "para ") + (to_string k) + "\n\n")
+            k = (k + 1)
+        }
+        def big:MdEditController (MdEditTest.fresh(body))
+        big.setViewWidth(820.0)
+        big.ensureLayout()
+        c.ok("a continuous layout fills the cache" ((big.layout.cacheMisses) > 100))
+        big.layout.cacheHits = 0
+        big.sheetGap = 12.0
+        big.stale = true
+        big.ensureLayout()
+        c.ok("and a paged one paginates" ((big.layout.pageCount) > 8))
+        c.eqInt("…without replaying a single cached block" (big.layout.cacheHits) 0)
     }
 
     ; ----------------------------------------------------------------------

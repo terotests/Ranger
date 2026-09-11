@@ -180,6 +180,24 @@ class MdNode {
     ; The map, read
     ; ------------------------------------------------------------------
 
+    ; One past the last source character any piece of this block's map covers.
+    ; -1 for a block with no map. It is what `srcEnd` should be, and for the
+    ; blocks that close on the line they opened on it is the only thing that
+    ; knows: `finalizeTop` stamps `srcEnd` from the start of the line it is
+    ; ON, which for a one-line block is the line it STARTED on.
+    fn srcEndOfMap:int () {
+        def n:int (array_length mapLit)
+        if (n == 0) { return -1 }
+        def best:int -1
+        def i:int 0
+        while (i < n) {
+            def e:int ((itemAt mapSrc i) + (itemAt mapLen i))
+            if (e > best) { best = e }
+            i = (i + 1)
+        }
+        return best
+    }
+
     fn hasMap:boolean () {
         return ((array_length mapLit) > 0)
     }

@@ -55,6 +55,10 @@ class MarkdownEdit {
     def styleName:string "default"
     def embedWidth:double 820.0
     def diagrams:int 0
+    ; The sheet the PAGE asked for, which beats the document's front matter:
+    ; it is the reader asking rather than the author. Empty means the document
+    ; decides, which is what `applyMeta` already did.
+    def pageSize:string ""
 
     Constructor () {
     }
@@ -65,6 +69,12 @@ class MarkdownEdit {
         }
         doc = (MdBlock.parseText(source))
         layout.applyMeta(doc)
+        if ((strlen pageSize) > 0) {
+            def pw:double layout.style.pageWidth
+            def ph:double layout.style.pageHeight
+            layout.style.pageWidth = (MdFrontMatter.pageW(pageSize pw ph))
+            layout.style.pageHeight = (MdFrontMatter.pageH(pageSize ph pw))
+        }
         MdMermaid.prepare(doc layout.embeds embedWidth styleName)
         diagrams = (layout.embeds.count())
         layout.setDocSource(source)
@@ -81,11 +91,21 @@ class MarkdownEdit {
 
 class MarkdownWeb {
     def edit:MarkdownEdit (new MarkdownEdit())
+    ; What the PAGE asked for, which beats what the document said, because it
+    ; is the reader asking rather than the author. Empty means the document
+    ; decides.
+    def wantPageSize:string ""
     def docList:EVGDisplayList (new EVGDisplayList())
     ; Where `docList` currently sits. The list is moved to the scroll position
     ; rather than copied there: `appendFrom` shares its commands, so a copy
     ; would alias the original and the second scroll would move it twice.
     def listOffset:double 0.0
+    ; …and how far right it is. A sheet narrower than the window sits in the
+    ; MIDDLE of it, the way a page does in every reader, rather than against
+    ; the left edge with the paper stopping half way across. Kept as a number
+    ; rather than baked into the layout because a click arrives in view
+    ; coordinates and has to come back out of them.
+    def listOffsetX:double 0.0
 
     def fontManager:FontManager (new FontManager())
     def faceCount:int 0
@@ -168,6 +188,61 @@ class MarkdownWeb {
         this.rebuild()
     }
 
+    ; `a4`, `a4 landscape`, `letter`, `210x297mm` — whatever `MdFrontMatter`
+    ; reads, because the front matter and this are the same setting arriving
+    ; from two places. Empty means "whatever the document said".
+    fn setPageSize:void (name:string) {
+        wantPageSize = name
+        this.rebuild()
+    }
+
+    fn currentPageSize:string () {
+        return wantPageSize
+    }
+
+    ; How far right the sheets are drawn. Zero in continuous mode, and in
+    ; paged mode whatever centres the paper in the window.
+    fn sheetLeft:double () {
+        if (! paged) { return 0.0 }
+        def spare:double (viewW - edit.layout.style.pageWidth)
+        if (spare <= 0.0) { return 0.0 }
+        return (spare * 0.5)
+    }
+
+    ; --- which page a reader is looking at ------------------------------------
+    ;
+    ; The one under the top third of the window, which is where a reader's eye
+    ; is rather than at the very top: a page whose last line is just visible is
+    ; not the page they are on.
+    fn pageAt:int () {
+        this.sync()
+        if (! paged) { return 0 }
+        def gap:double (MdToEvg.sheetGap())
+        def step:double (edit.layout.style.pageHeight + gap)
+        if (step <= 0.0) { return 0 }
+        def at:double ((scrollY + (viewH * 0.33)) - gap)
+        def p:int (to_int (at / step))
+        if (p < 0) { p = 0 }
+        if (p >= edit.layout.pageCount) { p = (edit.layout.pageCount - 1) }
+        return p
+    }
+
+    fn pageCountNow:int () {
+        this.sync()
+        return edit.layout.pageCount
+    }
+
+    ; …and jumping to one, which is the other half of saying which it is.
+    fn scrollToPage:void (p:int) {
+        this.sync()
+        if (! paged) { return }
+        def gap:double (MdToEvg.sheetGap())
+        def i:int p
+        if (i < 0) { i = 0 }
+        if (i >= edit.layout.pageCount) { i = (edit.layout.pageCount - 1) }
+        this.scrollTo(((to_double i) * (edit.layout.style.pageHeight + gap)))
+    }
+
     fn resize:void (w:double h:double) {
         def changed:boolean (w != viewW)
         viewW = w
@@ -194,6 +269,7 @@ class MarkdownWeb {
         } {
             edit.sheetGap = (0.0 - 1.0)
         }
+        edit.pageSize = wantPageSize
         edit.stale = true
         edit.ensureLayout()
         blocks = (edit.doc.childCount())
@@ -219,6 +295,7 @@ class MarkdownWeb {
     ; and the reader can see where page four starts before they print it.
     fn buildList:void () {
         listOffset = 0.0
+        listOffsetX = 0.0
         ; Straight to the commands: the canvas never wanted an element tree,
         ; and building one only to walk it back was 133 ms of a 342 ms
         ; document. `MarkdownTest.presized` holds the two roads to the same
@@ -285,9 +362,12 @@ class MarkdownWeb {
         this.sync()
         def want:double (0.0 - scrollY)
         def delta:double (want - listOffset)
-        if (delta != 0.0) {
-            docList.offsetBy(0.0 delta)
+        def wantX:double (this.sheetLeft())
+        def deltaX:double (wantX - listOffsetX)
+        if ((delta != 0.0) || (deltaX != 0.0)) {
+            docList.offsetBy(deltaX delta)
             listOffset = want
+            listOffsetX = wantX
         }
         ; The document, then the caret and the selection on top of it. The
         ; chrome is built fresh every frame and the document is not: a caret
@@ -316,6 +396,7 @@ class MarkdownWeb {
         if (! editing) { return }
         def sel:EVGColor (EVGColor.rgba(9 105 218 0.22))
         def ink:EVGColor (EVGColor.rgba(31 35 40 1.0))
+        def dx:double (this.sheetLeft())
         def a:int (edit.selStart())
         def b:int (edit.selEnd())
         def n:int (edit.lines.count())
@@ -334,9 +415,9 @@ class MarkdownWeb {
                     if (from < ls) { from = ls }
                     if (to > le) { to = le }
                     if (to > from) {
-                        def x0:double (edit.xOnLine(i from))
-                        def x1:double (edit.xOnLine(i to))
-                        if ((x0 >= 0.0) && (x1 > x0)) {
+                        def x0:double ((edit.xOnLine(i from)) + dx)
+                        def x1:double ((edit.xOnLine(i to)) + dx)
+                        if ((x0 >= dx) && (x1 > x0)) {
                             out.addRect(x0 top (x1 - x0) h sel)
                         }
                     }
@@ -345,8 +426,8 @@ class MarkdownWeb {
             i = (i + 1)
         }
         if (caretOn) {
-            def cx:double (edit.caretX())
-            if (cx >= 0.0) {
+            def cx:double ((edit.caretX()) + dx)
+            if (cx >= dx) {
                 def li:int (OfficeLineNav.indexOfOffset(edit.lines (edit.caret())))
                 if (li >= 0) {
                     def ct:double ((edit.lines.topAt(li)) - scrollY)
@@ -418,19 +499,19 @@ class MarkdownWeb {
 
     fn click:void (x:double y:double extend:boolean) {
         this.sync()
-        edit.clickAt(x (y + scrollY) extend)
+        edit.clickAt((x - (this.sheetLeft())) (y + scrollY) extend)
     }
 
     ; A drag, and a double-click. Separate from `click` because a page can
     ; tell them apart and the module cannot.
     fn dragTo:void (x:double y:double) {
         this.sync()
-        edit.clickAt(x (y + scrollY) true)
+        edit.clickAt((x - (this.sheetLeft())) (y + scrollY) true)
     }
 
     fn selectWordAt:void (x:double y:double) {
         this.sync()
-        edit.clickAt(x (y + scrollY) false)
+        edit.clickAt((x - (this.sheetLeft())) (y + scrollY) false)
         edit.selectWord()
     }
 
@@ -538,7 +619,7 @@ class MarkdownWeb {
     ; textarea is a second view of one source, and this is how it follows.
     fn caretJson:string () {
         this.sync()
-        def cx:double (edit.caretX())
+        def cx:double ((edit.caretX()) + (this.sheetLeft()))
         def li:int (OfficeLineNav.indexOfOffset(edit.lines (edit.caret())))
         def cy:double 0.0
         def ch:double 0.0
@@ -575,6 +656,27 @@ class MarkdownWeb {
         this.sync()
         edit.setRange(start end)
         edit.insertText(text)
+    }
+
+    ; The drawn lines, as the caret navigates them: `[start,end]` per line, in
+    ; document order. Not chrome — it is what `OfficeLineNav` walks, and a
+    ; caret that lands on the wrong line is a question about THIS and nothing
+    ; else. The page's checks print it when a move goes somewhere unexpected.
+    fn linesJson:string () {
+        this.sync()
+        def out:string "["
+        def i:int 0
+        def n:int (edit.lines.count())
+        while (i < n) {
+            if (i > 0) { out = (out + ",") }
+            out = (out + "[")
+            out = (out + (to_string (edit.lines.startAt(i))))
+            out = (out + ",")
+            out = (out + (to_string (edit.lines.endAt(i))))
+            out = (out + "]")
+            i = (i + 1)
+        }
+        return (out + "]")
     }
 
     ; The page's caret, moved into the module: the textarea is the other view
@@ -648,7 +750,7 @@ class MarkdownWeb {
         ; to answer with the block's first byte and nothing finer, because
         ; that was all a box carried — a click in the middle of the fourth
         ; paragraph put the source caret at the start of it.
-        def exact:int (edit.layout.srcAtPoint(x docY (this.sheetGap())))
+        def exact:int (edit.layout.srcAtPoint((x - (this.sheetLeft())) docY (this.sheetGap())))
         if (exact >= 0) { return exact }
         ; Nothing that carries a source was drawn at that point — the margin,
         ; the gap between sheets, a rule, a diagram. Fall back to the block

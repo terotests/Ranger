@@ -44,6 +44,12 @@ const openBtn = document.getElementById("openFile");
 const filePick = document.getElementById("filepick");
 const keyCatcher = document.getElementById("keys");
 const toolbarEl = document.getElementById("toolbar");
+const shapeEl = document.getElementById("pageshape");
+const pagebarEl = document.getElementById("pagebar");
+const pagenumEl = document.getElementById("pagenum");
+const pagetotalEl = document.getElementById("pagetotal");
+const pageprevEl = document.getElementById("pageprev");
+const pagenextEl = document.getElementById("pagenext");
 
 const gl = canvas.getContext("webgl2", {
   antialias: true,
@@ -145,6 +151,26 @@ function showStatus(extra) {
   statusEl.textContent = extra ? base + " — " + extra : base;
 }
 
+// A built file, handed to the browser to save. It went out with the old
+// source-pane code and nothing said so until a reader pressed ⬇ PDF and got
+// `ReferenceError: deliver is not defined` — the second function this edit
+// deleted by accident, after `docName`. Both are now covered by the page's
+// own checks, which press the buttons.
+function deliver(bytes, name, mime) {
+  const view = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
+  if (!view || !view.length) return "empty";
+  const blob = new Blob([view], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  return "downloaded";
+}
+
 // What a downloaded PDF or HTML file is called. It follows whatever was
 // opened, so a saved file is named after the document rather than after the
 // page. (It lived beside the old source-pane code and went out with it; the
@@ -181,21 +207,25 @@ function showSource(caretTo) {
     suppressSourceEvent = true;
     sourceEl.value = text;
     suppressSourceEvent = false;
-    if (caretTo === undefined) sourceEl.setSelectionRange(at, end);
+    // Only while the SOURCE pane owns the keyboard. Putting a selection back
+    // into a textarea nobody is typing in is how the caret ended up there.
+    if (caretTo === undefined && active === "source") sourceEl.setSelectionRange(at, end);
   }
-  if (caretTo !== undefined) sourceEl.setSelectionRange(caretTo, caretTo);
+  if (caretTo !== undefined && active === "source") sourceEl.setSelectionRange(caretTo, caretTo);
 }
 
 function afterEdit(ms) {
   needsPaint = true;
   showSource();
   refreshToolbar();
+  refreshPagebar();
   const why = app.refusal();
   showStatus(why ? why : ms !== undefined ? ms + " ms" : "");
 }
 
 sourceEl.addEventListener("input", () => {
   if (suppressSourceEvent) return;
+  setActive("source");
   const t0 = performance.now();
   const p = commonPatch(app.sourceText(), sourceEl.value);
   app.applyPatch(p.start, p.end, p.text);
@@ -210,6 +240,7 @@ sourceEl.addEventListener("input", () => {
 // the place.
 function syncFromCaret() {
   if (!app.ready()) return;
+  if (active !== "source") return;
   const a = sourceEl.selectionStart | 0;
   const b = sourceEl.selectionEnd | 0;
   app.setSelection(a, b);
@@ -217,6 +248,7 @@ function syncFromCaret() {
   app.scrollTo(y - 24);
   needsPaint = true;
   refreshToolbar();
+  refreshPagebar();
 }
 sourceEl.addEventListener("click", syncFromCaret);
 sourceEl.addEventListener("keyup", (ev) => {
@@ -231,6 +263,36 @@ sourceEl.addEventListener("keyup", (ev) => {
 // clipboard, and its content is thrown away after each one. `keys` in the
 // HTML is that field.
 app.setEditMode(true);
+
+// ---- one editor at a time -------------------------------------------------
+//
+// Both panes show the same document and only one of them is being typed into.
+// Which one is a MODE, not a guess: the pane that was last clicked owns the
+// keyboard, the other one is read-only until it is clicked, and the canvas
+// draws a caret only while it owns it.
+//
+// Without the mode the two fight. A keystroke on the canvas writes the source
+// back into the textarea, the textarea's selection is restored, and a reader
+// who glances down finds their next word going into the left pane instead.
+// The bug looked like "focus jumps"; it was two editors both believing they
+// were active.
+let active = "source";
+function setActive(which) {
+  if (active === which) return;
+  active = which;
+  sourceEl.readOnly = which !== "source";
+  sourceEl.classList.toggle("readonly", which !== "source");
+  if (which === "canvas") {
+    keyCatcher.focus({ preventScroll: true });
+    restartBlink();
+  } else {
+    clearInterval(blinkTimer);
+    app.setCaretOn(false);
+  }
+  needsPaint = true;
+}
+sourceEl.addEventListener("focus", () => setActive("source"));
+sourceEl.addEventListener("pointerdown", () => setActive("source"));
 
 function viewPoint(ev) {
   const r = canvas.getBoundingClientRect();
@@ -247,7 +309,7 @@ function restartBlink() {
   needsPaint = true;
   clearInterval(blinkTimer);
   blinkTimer = setInterval(() => {
-    if (document.activeElement !== keyCatcher) return;
+    if (active !== "canvas" || document.activeElement !== keyCatcher) return;
     caretOn = !caretOn;
     app.setCaretOn(caretOn);
     needsPaint = true;
@@ -255,6 +317,9 @@ function restartBlink() {
 }
 
 function focusCanvas() {
+  setActive("canvas");
+  // …and re-focus even when the mode did not change: a click inside the
+  // canvas after a click on a toolbar button has to come back.
   keyCatcher.focus({ preventScroll: true });
   restartBlink();
 }
@@ -266,6 +331,7 @@ canvas.addEventListener(
     const step = ev.deltaMode === 1 ? 18 : 1;
     app.scrollBy(ev.deltaY * step);
     needsPaint = true;
+    refreshPagebar();
   },
   { passive: false }
 );
@@ -276,7 +342,10 @@ canvas.addEventListener(
 let selecting = false;
 canvas.addEventListener("pointerdown", (ev) => {
   ev.preventDefault();
-  canvas.setPointerCapture(ev.pointerId);
+  // Throws `NotFoundError` for a pointer the browser does not have down —
+  // which a synthetic event never is, and a real one sometimes is not either.
+  // Capture is an optimisation for the drag; the click must not depend on it.
+  try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   focusCanvas();
   const [x, y] = viewPoint(ev);
   if (ev.detail >= 2) {
@@ -368,11 +437,54 @@ keyCatcher.addEventListener("paste", (ev) => {
   afterEdit();
   if (madeTable) showStatus("pasted as a table");
 });
-keyCatcher.addEventListener("focus", restartBlink);
+keyCatcher.addEventListener("focus", () => setActive("canvas"));
 keyCatcher.addEventListener("blur", () => {
   clearInterval(blinkTimer);
   app.setCaretOn(false);
   needsPaint = true;
+});
+
+// ---- the sheet, and which of them you are on ------------------------------
+//
+// The page number sits OVER the paper rather than beside it, follows the
+// scroll, and is also how you jump: typing a number in it goes there. All
+// three are one control because they are one question — "where am I" and
+// "take me there" are the same widget in every reader.
+function refreshPagebar() {
+  const on = modeEl.value === "paged";
+  pagebarEl.classList.toggle("on", on);
+  shapeEl.disabled = !on;
+  if (!on) return;
+  const total = app.pageCountNow();
+  const at = app.pageAt() + 1;
+  pagetotalEl.textContent = String(total);
+  if (document.activeElement !== pagenumEl) pagenumEl.value = String(at);
+  pageprevEl.disabled = at <= 1;
+  pagenextEl.disabled = at >= total;
+}
+
+function goToPage(n) {
+  app.scrollToPage(n - 1);
+  needsPaint = true;
+  refreshPagebar();
+}
+
+pageprevEl.addEventListener("click", () => goToPage(app.pageAt()));
+pagenextEl.addEventListener("click", () => goToPage(app.pageAt() + 2));
+pagenumEl.addEventListener("change", () => {
+  const n = parseInt(pagenumEl.value, 10);
+  if (Number.isFinite(n)) goToPage(n);
+  else refreshPagebar();
+});
+pagenumEl.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter") { ev.preventDefault(); pagenumEl.blur(); }
+});
+
+shapeEl.addEventListener("change", () => {
+  app.setPageSize(shapeEl.value);
+  needsPaint = true;
+  refreshPagebar();
+  showStatus();
 });
 
 // ---- the toolbar ----------------------------------------------------------
@@ -439,9 +551,12 @@ sampleEl.addEventListener("change", async () => {
 });
 
 modeEl.addEventListener("change", () => {
-  app.setPaged(modeEl.value === "paged");
+  const paged = modeEl.value === "paged";
+  if (paged) app.setPageSize(shapeEl.value);
+  app.setPaged(paged);
   app.scrollTo(0);
   needsPaint = true;
+  refreshPagebar();
   showStatus();
 });
 
@@ -453,6 +568,7 @@ async function load(text) {
   app.scrollTo(0);
   needsPaint = true;
   refreshToolbar();
+  refreshPagebar();
   showStatus(ms + " ms");
 }
 
@@ -522,6 +638,15 @@ async function start() {
   // keystroke does — there is no demo-only path into the document — so a
   // picture taken this way is a picture of the editor rather than of a mock.
   if (q.has("demo")) {
+    if (q.get("demo") === "paged") {
+      modeEl.value = "paged";
+      app.setPageSize(q.get("size") || "a4");
+      app.setPaged(true);
+      app.scrollTo(0);
+      refreshPagebar();
+      needsPaint = true;
+      return;
+    }
     const at = app.sourceText().indexOf("diagram travels");
     if (at > 0) {
       app.setSelection(at, at + 15);
@@ -773,6 +898,146 @@ function selftest() {
   say("a patch from the source pane lands", app.sourceText() === "hello world\n", app.sourceText().trim());
   app.undo();
   say("and is one undo like any other", app.sourceText() === "hello\n");
+
+  // ---- the page's own wiring, driven with REAL events ----------------------
+  //
+  // Everything above asks the MODULE questions. These press keys, because the
+  // three bugs a reader hit were all in the wiring between the two: Down did
+  // nothing, Shift+Arrow selected nothing, and a caret would not go into a
+  // line that had just been typed. None of them was reachable from the module
+  // — `markdown:edit:test` drives the same moves and is green — so nothing
+  // short of a synthetic KeyboardEvent could have caught them.
+  const press = (key, opts) =>
+    keyCatcher.dispatchEvent(
+      new KeyboardEvent("keydown", Object.assign({ key, bubbles: true, cancelable: true }, opts || {}))
+    );
+  const caret = () => JSON.parse(app.caretJson());
+
+  app.setSource("alpha beta\n\nsecond line here\n\nthird line\n");
+  app.setEditMode(true);
+  // A click on the drawing is what makes the canvas the active editor.
+  const firstRun = JSON.parse(app.frame()).list.cmds.find(
+    (c) => c.k === 3 && c.text && c.text.indexOf("alpha") === 0
+  );
+  if (firstRun) {
+    canvas.dispatchEvent(new PointerEvent("pointerdown", {
+      bubbles: true, cancelable: true, pointerId: 1, detail: 1,
+      clientX: canvas.getBoundingClientRect().left + firstRun.x + 2,
+      clientY: canvas.getBoundingClientRect().top + firstRun.y + 4,
+    }));
+  }
+  say("clicking the drawing gives it the keyboard", document.activeElement === keyCatcher,
+      document.activeElement ? document.activeElement.id || document.activeElement.tagName : "none");
+  say("…and the source pane goes read-only", sourceEl.readOnly);
+
+  app.setSelection(2, 2);
+  const wasAt = caret().offset;
+  press("ArrowDown");
+  const afterDown = caret().offset;
+  say("Down moves the caret", afterDown > wasAt, wasAt + " → " + afterDown);
+  press("ArrowUp");
+  say("…and Up brings it back", caret().offset === wasAt, caret().offset + " vs " + wasAt);
+
+  press("ArrowRight", { shiftKey: true });
+  press("ArrowRight", { shiftKey: true });
+  const sel = caret();
+  say("Shift+Right selects", sel.focus - sel.anchor === 2, sel.anchor + ".." + sel.focus);
+
+  // A line typed just now is a line the caret can go into. This is the one a
+  // reader reported: add a line, then try to reach it.
+  app.setSelection(app.sourceText().length, app.sourceText().length);
+  app.typeText("\n\nwrite something here");
+  needsPaint = true;
+  const end = app.sourceText().length;
+  const atEnd = caret().offset;
+  app.key("up", false, false);
+  const direct = caret().offset;
+  app.setSelection(end, end);
+  press("ArrowUp");
+  const up1 = caret().offset;
+  press("ArrowDown");
+  say("a line typed just now can be reached", caret().offset >= end - 21,
+      "end=" + end + " caret=" + atEnd + " up=" + up1 + " down=" + caret().offset +
+      " lines=" + app.linesJson());
+
+  // …and by clicking it, which is how a reader actually gets there.
+  const newRun = JSON.parse(app.frame()).list.cmds.find(
+    (c) => c.k === 3 && c.text && c.text.indexOf("write something") === 0
+  );
+  say("the new line is on the page", !!newRun, newRun ? newRun.text : "not drawn");
+  if (newRun) {
+    app.click(newRun.x + 3, newRun.y + 2, false);
+    say("and a click lands in it", caret().offset >= end - 21, caret().offset + " of " + end);
+  }
+
+  // The source pane takes the keyboard back when it is clicked, and gives it
+  // up again — the mode, both ways.
+  sourceEl.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerId: 2 }));
+  say("clicking the source pane takes the keyboard back", !sourceEl.readOnly);
+  canvas.dispatchEvent(new PointerEvent("pointerdown", {
+    bubbles: true, cancelable: true, pointerId: 3, detail: 1, clientX: 10, clientY: 10,
+  }));
+  say("…and the drawing takes it again", sourceEl.readOnly);
+
+  // The buttons. Both were broken by a deleted helper and nothing said so.
+  try {
+    const n = deliver(new TextEncoder().encode("x"), "probe.txt", "text/plain");
+    say("a built file can be handed to the browser", n === "downloaded", n);
+  } catch (e) {
+    say("a built file can be handed to the browser", false, String(e));
+  }
+
+  // ---- the sheet, centred, turned, and counted -----------------------------
+  app.setSource("# One\n\n" + "para\n\n".repeat(400) + "# Two\n\nlast\n");
+  modeEl.value = "paged";
+  app.setPageSize("a4");
+  app.setPaged(true);
+  app.scrollTo(0);
+  const portraitPages = app.pageCountNow();
+  // Four hundred paragraphs is more than two sheets, and saying so is the
+  // check: the layout cache stayed armed into `layoutPaged`, which replays a
+  // block's boxes instead of laying it out — so `reserve` never ran, the page
+  // never broke, and the whole document came out on two sheets drawn over
+  // each other. Paged mode had been wrong since the cache landed.
+  say("paged gives as many sheets as it needs", portraitPages > 8,
+      portraitPages + " pages for " + app.blockCount() + " blocks");
+
+  // The paper sits in the MIDDLE of the window when the window is wider.
+  // The PAPER, not the grey it sits on: the backdrop is a rect too, and it is
+  // the first one, and it is the whole document tall.
+  // The PAPER, not the grey it sits on: the backdrop is a rect too, and it is
+  // the first one, and it is the whole document tall. The colour is an array
+  // under `c`, which is how the display list carries one.
+  const isWhite = (c) => c.c && c.c[0] === 255 && c.c[1] === 255 && c.c[2] === 255;
+  const sheetOf = (l) =>
+    l.list.cmds.find((cmd) => cmd.k === 0 && cmd.w > 100 && cmd.h > 100 && isWhite(cmd));
+  const sheet = sheetOf(JSON.parse(app.frame()));
+  say("the sheet is drawn", !!sheet, sheet ? sheet.w.toFixed(0) + "x" + sheet.h.toFixed(0) : "none");
+  if (sheet) {
+    const slack = canvas.clientWidth - sheet.w;
+    const centred = slack <= 0 || Math.abs(sheet.x - slack / 2) < 1.5;
+    say("…centred in the window", centred,
+        "x=" + sheet.x.toFixed(1) + " slack/2=" + (slack / 2).toFixed(1));
+    say("…and with a margin above it", sheet.y > 0, "y=" + sheet.y.toFixed(1));
+  }
+
+  // Landscape is the same sheet on its side, and it takes fewer pages.
+  app.setPageSize("a4 landscape");
+  const land = sheetOf(JSON.parse(app.frame()));
+  say("landscape is wider than it is tall", !!land && land.w > land.h,
+      land ? land.w.toFixed(0) + "x" + land.h.toFixed(0) : "none");
+  app.setPageSize("a4");
+
+  // Which page you are on follows the scroll, and jumping goes there.
+  app.scrollTo(0);
+  say("the first page is page 1", app.pageAt() === 0, String(app.pageAt()));
+  app.scrollToPage(2);
+  say("jumping to page 3 lands on it", app.pageAt() === 2, String(app.pageAt()));
+  const y3 = app.scrollPosition();
+  app.scrollBy(-40);
+  say("…and scrolling back up says so", app.pageAt() <= 2, String(app.pageAt()));
+  say("a jump actually scrolled", y3 > 0, y3.toFixed(0));
+  app.setPaged(false);
 
   const el = document.createElement("div");
   el.id = "selftest-result";
