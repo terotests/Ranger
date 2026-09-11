@@ -497,6 +497,24 @@ class MdEditController {
         def a:int (this.selStart())
         def b:int (this.selEnd())
         def wasSelection:boolean (a != b)
+        ; A space typed at the inside edge of `**bold**` closes nothing, and
+        ; the four asterisks appear in the document the reader is reading.
+        ; `MdSemanticEdit` decides where that space really goes; the pre-check
+        ; on the text keeps every other keystroke off the parse.
+        if (! wasSelection) {
+            def lead:int (MdSemanticEdit.leadSpace(s))
+            def tail:int (MdSemanticEdit.tailSpace(s))
+            if ((lead + tail) > 0) {
+                this.ensureLayout()
+                def guard:[MdEditOp]
+                if ((MdSemanticEdit.guardWhitespace(guard source doc a s)) > 0) {
+                    ; Moving a delimiter run is not the continuation of a word.
+                    canMerge = false
+                    this.apply((itemAt guard 0))
+                    return
+                }
+            }
+        }
         def op:MdEditOp (MdEdit.patch(source a b s))
         if wasSelection {
             ; Replacing a selection is never the continuation of a word.

@@ -122,6 +122,185 @@ class MdSemanticEdit {
     }
 
     ; ----------------------------------------------------------------------
+    ; Typing must not un-write the markup
+    ; ----------------------------------------------------------------------
+    ;
+    ; A delimiter run closes emphasis only when the character before it is not
+    ; whitespace. So a space typed at the inside edge of a bold word —
+    ; `**travels|**` — turns it into `**travels **`, which is not bold at all,
+    ; and four asterisks the reader never typed appear in the document they
+    ; are reading. The same at the other end: `**|travels**` + a space is
+    ; `** travels**`, and the markers show again.
+    ;
+    ; That is the one way a plain keystroke can take valid markup apart, and
+    ; it is the one the reader reported. Every WYSIWYG editor answers it the
+    ; same way: the space goes on the OUTSIDE of the run.
+    ;
+    ;     **travels|**   + " "   ──►   **travels**|
+    ;     **|travels**   + " "   ──►    |**travels**
+    ;
+    ; **It stays one op, so it stays one undo.** The range replaced is the
+    ; delimiter run itself, rewritten with the whitespace on the far side of
+    ; it — not the insertion followed by a repair, which would be two entries
+    ; on the stack and a half-broken document in between.
+    ;
+    ; Inline code is deliberately not guarded: a space inside backticks is
+    ; ordinary content, and `` ` a ` `` is a perfectly good code span.
+
+    sfn isSpaceCode:boolean (c:int) {
+        if (c == 32) { return true }
+        if (c == 9) { return true }
+        return false
+    }
+
+    ; The three characters a delimiter run can be made of. Which SPELLING a
+    ; node used is read from the source rather than assumed, so `__bold__`
+    ; is guarded exactly as `**bold**` is.
+    sfn isMarkCode:boolean (c:int) {
+        if (c == 42) { return true }
+        if (c == 95) { return true }
+        if (c == 126) { return true }
+        return false
+    }
+
+    sfn isEmphKind:boolean (k:string) {
+        if (k == "strong") { return true }
+        if (k == "emph") { return true }
+        if (k == "strike") { return true }
+        return false
+    }
+
+    sfn leadSpace:int (s:string) {
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            if (! (MdSemanticEdit.isSpaceCode((charAt s i)))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn tailSpace:int (s:string) {
+        def n:int (strlen s)
+        def k:int 0
+        while (k < n) {
+            if (! (MdSemanticEdit.isSpaceCode((charAt s ((n - k) - 1))))) {
+                return k
+            }
+            k = (k + 1)
+        }
+        return n
+    }
+
+    ; How long the delimiter run that OPENS this node is, 0 when it does not
+    ; start with one.
+    sfn openerLen:int (src:string n:MdNode) {
+        def i:int n.srcStart
+        def len:int (strlen src)
+        if (i < 0) { return 0 }
+        if (i >= len) { return 0 }
+        def c:int (charAt src i)
+        if (! (MdSemanticEdit.isMarkCode(c))) { return 0 }
+        def k:int 0
+        while ((i + k) < len) {
+            if ((charAt src (i + k)) != c) {
+                return k
+            }
+            k = (k + 1)
+        }
+        return k
+    }
+
+    ; …and the one that closes it.
+    sfn closerLen:int (src:string n:MdNode) {
+        def e:int n.srcEnd
+        def len:int (strlen src)
+        if (e <= 0) { return 0 }
+        if (e > len) { return 0 }
+        def c:int (charAt src (e - 1))
+        if (! (MdSemanticEdit.isMarkCode(c))) { return 0 }
+        def k:int 0
+        while (((e - k) - 1) >= 0) {
+            if ((charAt src ((e - k) - 1)) != c) {
+                return k
+            }
+            k = (k + 1)
+        }
+        return k
+    }
+
+    ; The innermost emphasis node one of whose INNER edges `off` sits on. The
+    ; innermost because `***x***` is a strong inside an emph and the run that
+    ; a space would break is the inner one.
+    sfn edgeNode:int (out:[MdNode] src:string n:MdNode off:int) {
+        def hit:int 0
+        if (MdSemanticEdit.isEmphKind(n.kind)) {
+            if (n.srcStart >= 0) {
+                def ol:int (MdSemanticEdit.openerLen(src n))
+                def cl:int (MdSemanticEdit.closerLen(src n))
+                if ((ol > 0) && (cl > 0)) {
+                    def opens:boolean (off == (n.srcStart + ol))
+                    def closes:boolean (off == (n.srcEnd - cl))
+                    if (opens || closes) {
+                        clear out
+                        push out n
+                        hit = 1
+                    }
+                }
+            }
+        }
+        def i:int 0
+        def cnt:int (n.childCount())
+        while (i < cnt) {
+            def k:MdNode (n.childAt(i))
+            def deeper:int (MdSemanticEdit.edgeNode(out src k off))
+            if (deeper > 0) { hit = 1 }
+            i = (i + 1)
+        }
+        return hit
+    }
+
+    ; The op that inserts `s` at `off` without taking the markup apart, or
+    ; nothing when the plain insertion is already safe. `out` gets the op.
+    sfn guardWhitespace:int (out:[MdEditOp] src:string doc:MdNode off:int s:string) {
+        clear out
+        def lead:int (MdSemanticEdit.leadSpace(s))
+        def tail:int (MdSemanticEdit.tailSpace(s))
+        if ((lead == 0) && (tail == 0)) { return 0 }
+        def hit:[MdNode]
+        if ((MdSemanticEdit.edgeNode(hit src doc off)) == 0) { return 0 }
+        def n:MdNode (itemAt hit 0)
+        def ol:int (MdSemanticEdit.openerLen(src n))
+        def cl:int (MdSemanticEdit.closerLen(src n))
+        def slen:int (strlen s)
+
+        ; At the closing edge, the trailing whitespace of what is being typed
+        ; is what would break the run, so it moves past it.
+        if (off == (n.srcEnd - cl)) {
+            if (tail > 0) {
+                def core:string (substring s 0 (slen - tail))
+                def ws:string (substring s (slen - tail) slen)
+                def marker:string (substring src off n.srcEnd)
+                push out (MdEdit.patch(src off n.srcEnd ((core + marker) + ws)))
+                return 1
+            }
+        }
+        ; At the opening edge it is the leading whitespace.
+        if (off == (n.srcStart + ol)) {
+            if (lead > 0) {
+                def ws2:string (substring s 0 lead)
+                def rest:string (substring s lead slen)
+                def marker2:string (substring src n.srcStart off)
+                push out (MdEdit.patch(src n.srcStart off ((ws2 + marker2) + rest)))
+                return 1
+            }
+        }
+        return 0
+    }
+
+    ; ----------------------------------------------------------------------
     ; Wrapping: bold, italic, strikethrough, inline code
     ; ----------------------------------------------------------------------
 

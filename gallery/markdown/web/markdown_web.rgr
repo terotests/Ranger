@@ -53,7 +53,6 @@ class MarkdownEdit {
     Extends(MdEditController)
 
     def styleName:string "default"
-    def embedWidth:double 820.0
     def diagrams:int 0
     ; The sheet the PAGE asked for, which beats the document's front matter:
     ; it is the reader asking rather than the author. Empty means the document
@@ -61,6 +60,17 @@ class MarkdownEdit {
     def pageSize:string ""
 
     Constructor () {
+    }
+
+    ; The column a diagram lands in: the page's text width when the sheets
+    ; are being drawn, the window's otherwise. A function of the layout's own
+    ; style, so it is read from the style rather than remembered.
+    fn contentWidth:double () {
+        def m:double layout.style.margin
+        if (sheetGap >= 0.0) {
+            return (layout.style.pageWidth - (m * 2.0))
+        }
+        return (viewWidth - (m * 2.0))
     }
 
     fn ensureLayout:void () {
@@ -75,7 +85,18 @@ class MarkdownEdit {
             layout.style.pageWidth = (MdFrontMatter.pageW(pageSize pw ph))
             layout.style.pageHeight = (MdFrontMatter.pageH(pageSize ph pw))
         }
-        MdDiagram.prepare(doc layout.embeds embedWidth styleName)
+        ; The width is derived HERE, after the metadata and the reader's page
+        ; size have been applied — not handed in by the host.
+        ;
+        ; It used to be handed in, and the host computed it from the layout's
+        ; style as it stood BEFORE this method updated it. So the first
+        ; rebuild after switching to paged, or after picking another page
+        ; shape, prepared every diagram at the width the previous layout had
+        ; used and then asked the cache at the new one. Nothing matched, and
+        ; every diagram in the document came back as a labelled empty slot —
+        ; "mermaid — no handler prepared this one" — until some later rebuild
+        ; happened to run with the style already correct and it fixed itself.
+        MdDiagram.prepare(doc layout.embeds (this.contentWidth()) styleName)
         diagrams = (layout.embeds.count())
         layout.setDocSource(source)
         if (sheetGap >= 0.0) {
@@ -252,18 +273,9 @@ class MarkdownWeb {
         }
     }
 
-    fn contentWidth:double () {
-        def m:double edit.layout.style.margin
-        if paged {
-            return (edit.layout.style.pageWidth - (m * 2.0))
-        }
-        return (viewW - (m * 2.0))
-    }
-
     fn rebuild:void () {
         edit.styleName = styleName
         edit.viewWidth = viewW
-        edit.embedWidth = (this.contentWidth())
         if paged {
             edit.sheetGap = (MdToEvg.sheetGap())
         } {

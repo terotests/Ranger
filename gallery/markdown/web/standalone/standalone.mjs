@@ -746,6 +746,61 @@ function selftest() {
     // A class diagram read as a sequence diagram still draws boxes and
     // edges, so counting shapes would not catch it. Counting names does.
     say("the PlantUML classes are on the page", drewName("Tilaus") && drewName("Rivi"));
+
+    // Switching the layout must not lose them. The diagrams are prepared at
+    // the width of the column they land in, and that width changes with the
+    // page shape — so the preparation has to happen against the style the
+    // layout is about to use, not the one it used last time. When it did
+    // not, every diagram came back as "… — no handler prepared this one"
+    // until some later rebuild happened to line up.
+    const notes = () =>
+      JSON.parse(app.frame()).list.cmds.filter(
+        (c) => c.k === 3 && (c.text || "").includes("no handler prepared")
+      ).length;
+    say("no unprepared slot to begin with", notes() === 0);
+    app.setPaged(true);
+    say("…none after switching to paged", notes() === 0, app.diagramCount() + " diagrams");
+    app.setPageSize("a4 landscape");
+    say("…none after changing the page shape", notes() === 0);
+    app.setPageSize("a4");
+    app.setPaged(false);
+    say("…and none on the way back", notes() === 0);
+    app.setSource(kept);
+  }
+
+  // A space typed at the inside edge of bold used to un-write it: a
+  // delimiter run closes emphasis only when what precedes it is not
+  // whitespace, so `**travels **` is four literal asterisks, and the reader
+  // watched markers they never typed appear in the document.
+  {
+    const kept = sourceEl.value;
+    app.setSource("Mermaid is how **a diagram travels** through a README.\n");
+    const at = app.sourceText().indexOf("travels") + "travels".length;
+    app.setSelection(at, at);
+    app.typeText(" ");
+    say(
+      "a space at the closing edge steps outside the bold",
+      app.sourceText().includes("**a diagram travels** "),
+      JSON.stringify(app.sourceText().trim())
+    );
+    const shown = JSON.parse(app.frame()).list.cmds
+      .filter((c) => c.k === 3)
+      .map((c) => c.text || "")
+      .join(" ");
+    say("…so no asterisks reach the page", !shown.includes("**"), shown.slice(0, 80));
+    app.undo();
+    say("…and one undo puts it back", app.sourceText().includes("**a diagram travels** through"));
+
+    // The other end of the run, which breaks the same way.
+    app.setSource("Mermaid is how **a diagram travels** through a README.\n");
+    const open = app.sourceText().indexOf("**a diagram") + 2;
+    app.setSelection(open, open);
+    app.typeText(" ");
+    say(
+      "a space at the opening edge steps outside it too",
+      app.sourceText().includes("how  **a diagram travels**"),
+      JSON.stringify(app.sourceText().trim())
+    );
     app.setSource(kept);
   }
 

@@ -46,6 +46,20 @@ Where the answer is not defined it says so rather than guessing: bolding a
 selection that begins inside `**` and ends outside it is refused, with a
 sentence saying why.
 
+**And a keystroke may not un-write the markup.** A delimiter run closes
+emphasis only when the character before it is not whitespace, so one space at
+the inside edge of a bold word turns `**travels**` into four literal
+asterisks — the one way ordinary typing takes valid markdown apart, and the
+one thing a reader of a WYSIWYG editor should never see. The space goes on
+the outside of the run instead, in the same op, so it is still one undo:
+
+```
+  **travels|**  + " "   →   **travels**|
+  **|travels**  + " "   →    |**travels**
+```
+
+Inline code is left alone: a space inside backticks is content.
+
 Typing into this repository's 63 KB README costs **10 ms**, because the
 layout remembers per block — the design and the numbers are in
 [`PLAN_WYSIWYG.md`](PLAN_WYSIWYG.md) §6.
