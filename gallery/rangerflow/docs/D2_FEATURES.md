@@ -24,12 +24,13 @@ stand today, with the probe or the file that says so. The question each row
 answers is: *when the reader hands this to the pipeline, can the pipeline
 already draw it?*
 
-**The reader now exists** — `domains/d2/D2Parser.rgr` and
-`domains/d2/D2Model.rgr`, scored against D2 itself at **103/103 checks over the
-20 files in `fixtures/d2/`** ([`D2_PARITY.md`](D2_PARITY.md)). So §1 is no
-longer a forecast: every row of it is read and asserted. Everything below §1
-still describes the *drawing* half, which is not built: no `.d2` file becomes a
-`FlowGraph` yet. [`PLAN_D2.md`](PLAN_D2.md) is where that goes next.
+**The reader exists** — `domains/d2/D2Parser.rgr` and `domains/d2/D2Model.rgr`,
+scored against D2 itself at **103/103 checks over the 20 files in
+`fixtures/d2/`** ([`D2_PARITY.md`](D2_PARITY.md)) — and so does the drawing:
+`domains/d2/D2Flow.rgr` turns a board into a `FlowGraph`, containers and all,
+and `npm run rangerflow:d2` writes the SVG, the PDF, the HTML and the scene.
+What is still missing is listed row by row below, and the five gaps are
+summarised at the end.
 
 Status keys: **✓** the pipeline has it · **~** it has something narrower, and
 the row says what · **·** it does not have it.
@@ -65,22 +66,22 @@ being built.
 | --- | :---: | --- |
 | `rectangle` | ✓ | `rect` |
 | `square` | ~ | `rect` with the aspect forced |
-| `page` | · | new outline |
+| `page` | ✓ |  |
 | `parallelogram` | ✓ | |
 | `document` | ✓ | |
 | `cylinder` | ✓ | |
-| `queue` | · | new outline |
-| `package` | · | new outline |
-| `step` | · | new outline (the chevron) |
-| `callout` | · | new outline |
-| `stored_data` | · | new outline |
-| `person` | · | new outline |
-| `c4-person` | · | new outline |
+| `queue` | ✓ |  |
+| `package` | ✓ |  |
+| `step` | ✓ | the chevron |
+| `callout` | ✓ | bubble and tail |
+| `stored_data` | ✓ |  |
+| `person` | ✓ | head and shoulders; the head is an ornament, the body is the ring |
+| `c4-person` | ✓ |  |
 | `diamond` | ✓ | |
 | `oval` | ✓ | `ellipse` |
 | `circle` | ✓ | |
 | `hexagon` | ✓ | |
-| `cloud` | · | new outline; `MermaidArchReader` currently approximates a cloud with an ellipse |
+| `cloud` | ✓ | five overlapping bumps, joined at the crossings; `MermaidArchReader` still approximates its own with an ellipse |
 | `text` | ✓ | label-only node |
 | `code` | ~ | the text is drawn; no monospace block, no highlighting |
 | `class` | ✓ | compartment node — `domains/uml/UMLModel.rgr` |
@@ -89,9 +90,11 @@ being built.
 | `sequence_diagram` | ✓ | `core/SeqDiagram.rgr` |
 | `hierarchy` | · | a layout, not an outline |
 
-Nine outlines, one image primitive, one layout. The shape library is forty-odd
-outlines drawn from one ring of points (`core/FlowShapes.rgr`), so nine more is
-a day, not a phase.
+**The nine are drawn.** They were added to `core/FlowShapes.rgr` as part of the
+D2 work — one ring of points each, so they arrive in the SVG, the PDF, the HTML
+and the GPU scene by the road the rectangles took, and they are held to the
+same two rules as every other outline in `testShapes`: inside its own box, and
+enclosing its own middle. What is left is an image primitive and a layout.
 
 ## 3. Connections
 
@@ -197,22 +200,27 @@ board still reads the root board correctly, which is what `--target=''` does.
 | Section | ✓ | ~ | · | rows |
 | --- | ---: | ---: | ---: | ---: |
 | 1 Syntax | 13 | 1 | 0 | 14 |
-| 2 Shapes | 12 | 2 | 11 | 25 |
+| 2 Shapes | 21 | 2 | 2 | 25 |
 | 3 Connections | 11 | 0 | 0 | 11 |
 | 4 Styles | 8 | 6 | 4 | 18 |
 | 5 Containers and layout | 6 | 2 | 3 | 11 |
 | 6 Content | 4 | 2 | 3 | 9 |
 | 7 Boards | 0 | 0 | 4 | 4 |
 | 8 Output | 3 | 2 | 3 | 8 |
-| **Total** | **57** | **15** | **28** | **100** |
+| **Total** | **66** | **15** | **19** | **100** |
+
+The nine that moved are the shapes: `page`, `queue`, `package`, `step`,
+`callout`, `stored_data`, `person`, `c4-person` and `cloud` are outlines now,
+not stand-ins.
 
 Five real gaps, and only two of them are large:
 
 1. **Boards** (`layers` / `scenarios` / `steps`) — a model change, not a
    drawing change. Large.
 2. **Grid diagrams** — a new layout in `layout/`. Medium.
-3. **Nine shape outlines** plus `fill-pattern`, `double-border`, `3d`,
-   `text-transform` — small, and the shape library is built for exactly this.
+3. ~~**Nine shape outlines**~~ — done, in `core/FlowShapes.rgr`. What is left
+   of this row is small and cosmetic: `fill-pattern`, `double-border`, `3d`
+   and `text-transform`.
 4. **An image primitive**, which `icon`, `image` and `RIVALS.md`'s missing
    JointJS row all want. Medium, and it pays for three rows at once.
 5. **Rich labels** — markdown, code and LaTeX. The Creole work planned for

@@ -82,6 +82,22 @@ class FlowShape {
     sfn orJunction:string ()     { return "or" }
     sfn internalStorage:string () { return "internalstorage" }
 
+    ; ------------------------------------------------------ the D2 set ------
+    ; Nine shapes D2 draws that ISO 5807 and UML do not, and that a reader of
+    ; somebody else's `.d2` file meets in the first diagram: the architecture
+    ; vocabulary. Drawing a `cloud` as an ellipse or a `person` as a stadium
+    ; is the same mistake as drawing a magnetic tape as a rectangle — it
+    ; throws away the one thing the reader was going to read first.
+    sfn page:string ()          { return "page" }
+    sfn queue:string ()         { return "queue" }
+    sfn package:string ()       { return "package" }
+    sfn step:string ()          { return "step" }
+    sfn callout:string ()       { return "callout" }
+    sfn storedData:string ()    { return "storeddata" }
+    sfn person:string ()        { return "person" }
+    sfn c4Person:string ()      { return "c4person" }
+    sfn cloud:string ()         { return "cloud" }
+
     ; --------------------------------------------------- UML activity set ----
     ; An activity diagram is a different vocabulary from a class diagram: an
     ; action is a rounded box, a fork is a bar, a signal is a box with one end
@@ -147,6 +163,10 @@ class FlowShapes {
     ; not care about them, and neither must the fill), so they are asked for
     ; separately and drawn as strokes afterwards.
     sfn ornamentCount:int (shape:string) {
+        if (shape == "page") { return 1 }
+        if (shape == "queue") { return 1 }
+        if (shape == "person") { return 1 }
+        if (shape == "c4person") { return 1 }
         if (shape == "sort") { return 1 }
         if (shape == "or") { return 2 }
         if (shape == "internalstorage") { return 2 }
@@ -160,6 +180,8 @@ class FlowShapes {
     ; Whether ornament `i` is a closed ring (drawn as a loop) or an open line.
     sfn ornamentClosed:boolean (shape:string i:int) {
         if (shape == "finalnode") { return true }
+        if (shape == "person") { return true }
+        if (shape == "c4person") { return true }
         return false
     }
 
@@ -171,6 +193,37 @@ class FlowShapes {
         def cy:double (y + (h * 0.5))
         if (shape == "cylinder") {
             return (FlowShapes.drumLid(x y w h))
+        }
+        if (shape == "page") {
+            ; The dog-ear: the two lines that make the folded corner look
+            ; folded rather than cut off.
+            def fold:double (FlowShapes.foldOf(w h))
+            push pts (r - fold)
+            push pts y
+            push pts (r - fold)
+            push pts (y + fold)
+            push pts r
+            push pts (y + fold)
+            return pts
+        }
+        if (shape == "queue") {
+            ; The near end of the pipe, drawn inside the body — the same line
+            ; the upright cylinder's lid is, turned on its side. Drawn at the
+            ; LEFT cap, because at the right one it would land exactly on the
+            ; outline and say nothing.
+            def qr:double (FlowShapes.capOf(w h))
+            FlowShapes.ellipseArcInto(pts (x + qr) cy qr (h * 0.5) (0.0 - 90.0) 90.0 14)
+            return pts
+        }
+        if (shape == "person") {
+            def hr:double (FlowShapes.headRadius(w h))
+            FlowShapes.ellipseInto(pts cx (y + hr) hr hr 18)
+            return pts
+        }
+        if (shape == "c4person") {
+            def hr2:double (FlowShapes.headRadius(w h))
+            FlowShapes.ellipseInto(pts cx (y + hr2) hr2 hr2 18)
+            return pts
         }
         if (shape == "sort") {
             ; The bar across the middle: the line that says a diamond here is
@@ -243,6 +296,35 @@ class FlowShapes {
             return pts
         }
         return pts
+    }
+
+    ; The turned-over corner of a page, and the rounded end of a pipe: both
+    ; are a fraction of the smaller side, so a wide box does not get a fold
+    ; half its width.
+    sfn foldOf:double (w:double h:double) {
+        def f:double (h * 0.3)
+        def cap:double (w * 0.3)
+        if (f > cap) { f = cap }
+        if (f > 20.0) { f = 20.0 }
+        if (f < 5.0) { f = 5.0 }
+        return f
+    }
+
+    sfn capOf:double (w:double h:double) {
+        def c:double (w * 0.16)
+        if (c > 26.0) { c = 26.0 }
+        if (c < 5.0) { c = 5.0 }
+        if (c > (w * 0.4)) { c = (w * 0.4) }
+        return c
+    }
+
+    sfn headRadius:double (w:double h:double) {
+        def hr:double (h * 0.22)
+        def cap:double (w * 0.26)
+        if (hr > cap) { hr = cap }
+        if (hr > 22.0) { hr = 22.0 }
+        if (hr < 5.0) { hr = 5.0 }
+        return hr
     }
 
     sfn storageInset:double (w:double h:double) {
@@ -444,6 +526,184 @@ class FlowShapes {
             push pts b
             push pts x
             push pts cy
+            return pts
+        }
+        ; ------------------------------------------------------ the D2 set --
+        if (shape == "page") {
+            ; A sheet with the top-right corner turned over.
+            def fold:double (FlowShapes.foldOf(w h))
+            push pts x
+            push pts y
+            push pts (r - fold)
+            push pts y
+            push pts r
+            push pts (y + fold)
+            push pts r
+            push pts b
+            push pts x
+            push pts b
+            return pts
+        }
+        if (shape == "queue") {
+            ; A pipe: a rectangle with a rounded end at each side. The caps
+            ; are elliptical rather than circular so a long queue does not
+            ; turn into a stadium.
+            def qr:double (FlowShapes.capOf(w h))
+            push pts (x + qr)
+            push pts y
+            push pts (r - qr)
+            push pts y
+            FlowShapes.ellipseArcInto(pts (r - qr) cy qr (h * 0.5) (0.0 - 90.0) 90.0 12)
+            push pts (x + qr)
+            push pts b
+            FlowShapes.ellipseArcInto(pts (x + qr) cy qr (h * 0.5) 90.0 270.0 12)
+            return pts
+        }
+        if (shape == "package") {
+            ; The UML package: a box with a tab on the top left, which is the
+            ; folder every reader already knows.
+            def tabH:double (h * 0.2)
+            if (tabH > 16.0) { tabH = 16.0 }
+            if (tabH < 6.0) { tabH = 6.0 }
+            def tabW:double (w * 0.42)
+            if (tabW > 90.0) { tabW = 90.0 }
+            push pts x
+            push pts y
+            push pts (x + tabW)
+            push pts y
+            push pts (x + tabW)
+            push pts (y + tabH)
+            push pts r
+            push pts (y + tabH)
+            push pts r
+            push pts b
+            push pts x
+            push pts b
+            return pts
+        }
+        if (shape == "step") {
+            ; A chevron: pointed at the leading edge, notched at the trailing
+            ; one, so a row of them reads as a sequence without any arrows.
+            def notch:double (w * 0.16)
+            def cap:double (h * 0.5)
+            if (notch > cap) { notch = cap }
+            push pts x
+            push pts y
+            push pts (r - notch)
+            push pts y
+            push pts r
+            push pts cy
+            push pts (r - notch)
+            push pts b
+            push pts x
+            push pts b
+            push pts (x + notch)
+            push pts cy
+            return pts
+        }
+        if (shape == "callout") {
+            ; A speech bubble: the body, and a tail on the bottom left that
+            ; points at whatever the callout is about.
+            def tail:double (h * 0.22)
+            if (tail > 18.0) { tail = 18.0 }
+            if (tail < 6.0) { tail = 6.0 }
+            def bodyB:double (b - tail)
+            push pts x
+            push pts y
+            push pts r
+            push pts y
+            push pts r
+            push pts bodyB
+            push pts (x + (w * 0.42))
+            push pts bodyB
+            push pts (x + (w * 0.22))
+            push pts b
+            push pts (x + (w * 0.28))
+            push pts bodyB
+            push pts x
+            push pts bodyB
+            return pts
+        }
+        if (shape == "storeddata") {
+            ; ISO's stored data: both sides bow the same way, so the shape
+            ; reads as a stack of pages seen edge-on.
+            def sr:double (FlowShapes.capOf(w h))
+            push pts (x + sr)
+            push pts y
+            push pts (r - sr)
+            push pts y
+            FlowShapes.ellipseArcInto(pts (r - sr) cy sr (h * 0.5) (0.0 - 90.0) 90.0 12)
+            push pts (x + sr)
+            push pts b
+            FlowShapes.ellipseArcInto(pts x cy sr (h * 0.5) 90.0 (0.0 - 90.0) 12)
+            return pts
+        }
+        if (shape == "person") {
+            ; Head and shoulders. The ring is the body, because that is what
+            ; an arrow should land on and what the label sits in; the head is
+            ; an ornament drawn on top of it.
+            def hr:double (FlowShapes.headRadius(w h))
+            def top:double (y + (hr * 1.9))
+            def rad:double (w * 0.18)
+            if (rad > ((b - top) * 0.5)) { rad = ((b - top) * 0.5) }
+            if (rad < 2.0) { rad = 2.0 }
+            FlowShapes.arcInto(pts (x + rad) (top + rad) rad 180.0 270.0 6)
+            FlowShapes.arcInto(pts (r - rad) (top + rad) rad 270.0 360.0 6)
+            push pts r
+            push pts b
+            push pts x
+            push pts b
+            return pts
+        }
+        if (shape == "c4person") {
+            ; The C4 figure: the same head, on a box with square shoulders.
+            def hr2:double (FlowShapes.headRadius(w h))
+            def top2:double (y + (hr2 * 1.9))
+            push pts x
+            push pts top2
+            push pts r
+            push pts top2
+            push pts r
+            push pts b
+            push pts x
+            push pts b
+            return pts
+        }
+        if (shape == "cloud") {
+            ; Five overlapping bumps, each drawn only between the two points
+            ; where it crosses its neighbours — which is what makes the join a
+            ; scallop instead of a chord across the silhouette.
+            ;
+            ; The bumps are identical ellipses on one centre line, spaced
+            ; exactly one radius apart, so the crossing is always at 60° from
+            ; the line between two centres. That is why the angles below are
+            ; constants and no intersection has to be solved: 240° to 300° is
+            ; the piece of each bump that is on the outside.
+            def rx:double (w / 6.0)
+            ; The bumps are as tall as the box allows rather than as tall as
+            ; they are wide: a cloud that only filled the bottom third of its
+            ; node would not contain its own middle, which is where the label
+            ; and the ports are.
+            def ry:double (h * 0.62)
+            def ccy:double (b - (ry * 0.5))
+            def i2:int 0
+            while (i2 < 5) {
+                def ccx:double ((x + rx) + (rx * (to_double i2)))
+                def from:double 240.0
+                def upto:double 300.0
+                if (i2 == 0) {
+                    from = 180.0
+                }
+                if (i2 == 4) {
+                    upto = 360.0
+                }
+                FlowShapes.ellipseArcInto(pts ccx ccy rx ry from upto 6)
+                i2 = (i2 + 1)
+            }
+            push pts r
+            push pts b
+            push pts x
+            push pts b
             return pts
         }
         if (shape == "stadium") {
@@ -983,6 +1243,31 @@ class FlowShapes {
         ; where a collate symbol is labelled anyway.
         if (shape == "collate")   { return (y + (h * 0.76)) }
         if (shape == "timeevent") { return (y + (h * 0.76)) }
+        ; A figure's text goes on the body, under the head — the head is not
+        ; part of the box you write in.
+        if (shape == "person") {
+            def hr:double (FlowShapes.headRadius(w h))
+            return ((y + (hr * 1.9)) + ((h - (hr * 1.9)) * 0.5))
+        }
+        if (shape == "c4person") {
+            def hr2:double (FlowShapes.headRadius(w h))
+            return ((y + (hr2 * 1.9)) + ((h - (hr2 * 1.9)) * 0.5))
+        }
+        ; A speech bubble is labelled in the bubble, not over the tail.
+        if (shape == "callout") {
+            def tail:double (h * 0.22)
+            if (tail > 18.0) { tail = 18.0 }
+            return (y + ((h - tail) * 0.5))
+        }
+        ; A folder's tab is not writing room either.
+        if (shape == "package") {
+            def tabH:double (h * 0.2)
+            if (tabH > 16.0) { tabH = 16.0 }
+            return ((y + tabH) + ((h - tabH) * 0.5))
+        }
+        if (shape == "cloud") {
+            return (y + (h * 0.58))
+        }
         return (y + (h * 0.5))
     }
 
@@ -1013,6 +1298,11 @@ class FlowShapes {
         if (shape == "papertape")      { return (w - 16.0) }
         if (shape == "directdata")     { return (w * 0.72) }
         if (shape == "multidocument")  { return (w * 0.78) }
+        if (shape == "queue")          { return (w * 0.7) }
+        if (shape == "storeddata")     { return (w * 0.72) }
+        if (shape == "step")           { return (w * 0.66) }
+        if (shape == "cloud")          { return (w * 0.62) }
+        if (shape == "page")           { return (w - 22.0) }
         return (w - 16.0)
     }
 

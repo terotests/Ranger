@@ -24,7 +24,7 @@ Import "../domains/erd/SqlSchemaReader.rgr"
 Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
-Import "../domains/d2/D2Model.rgr"
+Import "../domains/d2/D2Flow.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
 Import "../domains/mermaid/MermaidRender.rgr"
 Import "../domains/mermaid/MermaidClassReader.rgr"
@@ -144,6 +144,7 @@ class RangerFlowTest {
         RangerFlowTest.testD2Parser(c)
         RangerFlowTest.testD2Model(c)
         RangerFlowTest.testD2Imports(c)
+        RangerFlowTest.testD2Flow(c)
         RangerFlowTest.testPlantUmlKinds(c)
         RangerFlowTest.testPlantUmlSequence(c)
         RangerFlowTest.testPlantUmlEntities(c)
@@ -2385,6 +2386,59 @@ class RangerFlowTest {
         ed.pointerDown(inp)
         ed.pointerUp(inp)
         c.ok("clicking its middle selects it" d.selected)
+
+        ; The nine D2 brought with it, held to the same two rules as the rest:
+        ; inside its own box, and enclosing its own middle. A `person` is the
+        ; exception that proves the rule — its ring is the body, and the head
+        ; is an ornament drawn above it, so its centre is measured on the body.
+        def d2names:[string]
+        push d2names "page"
+        push d2names "queue"
+        push d2names "package"
+        push d2names "step"
+        push d2names "callout"
+        push d2names "storeddata"
+        push d2names "cloud"
+        def d2leaks:int 0
+        def d2hollow:int 0
+        def n2:int 0
+        while (n2 < (array_length d2names)) {
+            def nm:string (itemAt d2names n2)
+            n2 = (n2 + 1)
+            def pts2:[double] (FlowShapes.outline(nm 10.0 20.0 140.0 80.0))
+            if ((idiv (array_length pts2) 2) < 3) {
+                d2hollow = (d2hollow + 1)
+            }
+            if ((FlowShapes.holds(pts2 80.0 60.0)) == false) {
+                d2hollow = (d2hollow + 1)
+            }
+            def q:int 0
+            while (q < (idiv (array_length pts2) 2)) {
+                def qx:double (itemAt pts2 (q * 2))
+                def qyAt:int ((q * 2) + 1)
+                def qy:double (itemAt pts2 qyAt)
+                if (qx < 9.99)   { d2leaks = (d2leaks + 1) }
+                if (qx > 150.01) { d2leaks = (d2leaks + 1) }
+                if (qy < 19.99)  { d2leaks = (d2leaks + 1) }
+                if (qy > 100.01) { d2leaks = (d2leaks + 1) }
+                q = (q + 1)
+            }
+        }
+        c.eqInt("none of the D2 shapes leaves its box" d2leaks 0)
+        c.eqInt("and every one encloses its centre" d2hollow 0)
+        def body:[double] (FlowShapes.outline("person" 10.0 20.0 140.0 80.0))
+        c.ok("a person's ring is the body" (FlowShapes.holds(body 80.0 85.0)))
+        def headroom:double (FlowShapes.headRadius(140.0 80.0))
+        c.ok("and the head is above it" ((FlowShapes.holds(body 80.0 (20.0 + (headroom * 0.5)))) == false))
+        c.eqInt("the head is drawn as an ornament" (FlowShapes.ornamentCount("person")) 1)
+        c.ok("a closed one, because it is a head" (FlowShapes.ornamentClosed("person" 0)))
+        c.eqInt("a page has its fold" (FlowShapes.ornamentCount("page")) 1)
+        c.eqInt("and a queue its near end" (FlowShapes.ornamentCount("queue")) 1)
+        ; The label has to miss both the head and the tail.
+        def pcy:double (FlowShapes.labelCY("person" 0.0 0.0 140.0 80.0))
+        c.ok("a person's label sits on the body" (pcy > 40.0))
+        def ccy:double (FlowShapes.labelCY("callout" 0.0 0.0 140.0 80.0))
+        c.ok("a callout's sits in the bubble, above the tail" (ccy < 40.0))
     }
 
     ; ------------------------------------------------------------ flowchart --
@@ -6887,6 +6941,77 @@ class RangerFlowTest {
         c.ok("and so is a URL" ((array_length url.errors) > 0))
         def missing:D2Board (D2Model.readFrom("a: @not_a_file\n" dir))
         c.ok("a file that is not there is an error, not a silence" ((array_length missing.errors) > 0))
+    }
+
+
+    ; The model, drawn: nodes with shapes, containers as frames, connections
+    ; with the arrowheads D2 says they have.
+    sfn testD2Flow:void (c:Checker) {
+        c.section("d2 flow")
+        def src:string "direction: right\n"
+        src = (src + "client: Client { shape: person }\n")
+        src = (src + "core: Core {\n")
+        src = (src + "  api: API\n")
+        src = (src + "  db: { shape: cylinder }\n")
+        src = (src + "  api -> db: write\n")
+        src = (src + "}\n")
+        src = (src + "client -> core.api: GET\n")
+        def b:D2Board (D2Model.read(src))
+        def g:FlowGraph (D2Flow.laid(b))
+        c.ok("the leaves are nodes" (g.hasNode("core.api")))
+        c.ok("and the container is a frame round them" (g.hasNode("core")))
+        def frame:FlowNode (g.nodeById("core"))
+        c.eqStr("a frame is a group" frame.nodeType "group")
+        c.eqStr("with the container's label on it" frame.label "Core")
+        def api:FlowNode (g.nodeById("core.api"))
+        c.eqStr("a child knows what it is inside" api.parentId "core")
+        c.ok("and the frame is drawn around it" (frame.x < api.x))
+        c.ok("on both axes" (frame.y < api.y))
+        c.ok("with room to the right" (((frame.x + frame.width)) > ((api.x + api.width))))
+        def db:FlowNode (g.nodeById("core.db"))
+        c.eqStr("a shape keyword picks the outline" db.shape "cylinder")
+        def client:FlowNode (g.nodeById("client"))
+        c.eqStr("a person is drawn as a person" client.shape "person")
+        ; The nine D2 shapes the library learned map straight through; the
+        ; three that are still stand-ins say so rather than pretending.
+        c.eqStr("a cloud is a cloud" (D2Shapes.outlineFor("cloud")) "cloud")
+        c.eqStr("a queue is a queue" (D2Shapes.outlineFor("queue")) "queue")
+        c.eqStr("and stored data keeps its name too" (D2Shapes.outlineFor("stored_data")) "storeddata")
+        c.ok("an image is still a stand-in" (D2Shapes.isStandIn("image")))
+        c.ok("and a cloud is not" ((D2Shapes.isStandIn("cloud")) == false))
+        c.eqInt("both connections are drawn" (g.edgeCount()) 2)
+        ; The arrow that named the container is drawn to the frame's child,
+        ; because that is what it named: `core.api`.
+        def crossing:FlowEdge (g.edgeAt(1))
+        c.eqStr("an arrow into a container lands where it was aimed" crossing.target "core.api")
+        c.eqStr("and carries its label" crossing.label "GET")
+        c.eqStr("with the arrowhead D2 draws" crossing.markerEnd "arrowclosed")
+        ; `->` draws no source head, whatever a keyword says.
+        c.eqStr("and nothing at the source" crossing.markerStart "")
+        ; Crow's feet are cardinalities here: FlowView draws the ornament.
+        def erd:FlowGraph (D2Flow.render("a -> b: { source-arrowhead.shape: cf-one; target-arrowhead.shape: cf-many }\n"))
+        def link:FlowEdge (erd.edgeAt(0))
+        c.eqStr("a crow's foot is a cardinality" link.targetCardinality "0..*")
+        c.ok("and an optional one at that" link.optionalTarget)
+        ; A table is one node with rows and a port per row.
+        def tbl:string "users: { shape: sql_table; id: int { constraint: primary_key }; email: varchar }\n"
+        tbl = (tbl + "orgs: { shape: sql_table; id: int }\n")
+        tbl = (tbl + "users.id -> orgs.id\n")
+        def tg:FlowGraph (D2Flow.render(tbl))
+        c.eqInt("a table is one node" (tg.nodeCount()) 2)
+        def users:FlowNode (tg.nodeById("users"))
+        c.eqInt("with a compartment" (array_length users.sections) 1)
+        def sec:FlowSection (itemAt users.sections 0)
+        c.eqInt("holding a row per column" (array_length sec.rows) 2)
+        def row:FlowRow (itemAt sec.rows 0)
+        c.eqStr("a primary key is badged" row.badge "pk")
+        def rowEdge:FlowEdge (tg.edgeAt(0))
+        c.eqStr("and the connection leaves from that row's port" rowEdge.sourcePort "users.id")
+        ; An explicit position is applied after the layout, so it wins.
+        def pinned:FlowGraph (D2Flow.render("a\nb\na -> b\nb: { top: 400; left: 50 }\n"))
+        def moved:FlowNode (pinned.nodeById("b"))
+        c.near("a pinned box is where the file put it" moved.x 50.0 0.001)
+        c.near("on both axes" moved.y 400.0 0.001)
     }
 
     sfn headOf:string (b:buffer n:int) {

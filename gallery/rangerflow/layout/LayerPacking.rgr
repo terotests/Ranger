@@ -1,0 +1,193 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; LayerPacking.rgr — keeping a group's members next to each other in a layer.
+; ============================================================================
+;
+; A layered layout ranks nodes and then orders each rank to cut crossings. It
+; has no idea that six of those nodes are supposed to be drawn inside one box:
+; the ordering that crosses fewest lines will happily put a member of group A
+; between two members of group B, and then the two frames drawn around them
+; overlap and the picture is a lie about what contains what.
+;
+;   layer, as the layout left it        layer, packed by owner
+;   ┌───┐ ┌───┐ ┌───┐ ┌───┐             ┌───┐ ┌───┐ ┌───┐ ┌───┐
+;   │ A1│ │ B1│ │ A2│ │ B2│      →      │ A1│ │ A2│ │ B1│ │ B2│
+;   └───┘ └───┘ └───┘ └───┘             └───┘ └───┘ └───┘ └───┘
+;    ╰──── A ────╯ overlapping           ╰─ A ─╯     ╰─ B ─╯
+;
+; So each layer is re-packed by owner, in first-seen order, and the layer keeps
+; exactly the room it had — the same sizes, and a gap that is the average of
+; the ones the layout chose. Nothing outside the layer has to move, and a group
+; that was already contiguous does not move at all.
+;
+; The caller says who owns what, as one key per node: whatever two nodes must
+; be kept together, they share a key. Mermaid's subgraphs and D2's containers
+; are the same question asked in two languages.
+; ============================================================================
+
+Import "../core/GraphModel.rgr"
+
+class LayerPacking {
+    ; `idx` are indices into `g`'s nodes that share a layer, `keys` is the
+    ; owner of each one, in the same order. Returns how many nodes moved.
+    sfn packLayer:int (g:FlowGraph idx:[int] keys:[string] horiz:boolean) {
+        def sorted:[int]
+        def sortedKeys:[string]
+        LayerPacking.sortByCross(g idx keys horiz sorted sortedKeys)
+        ; Grouped, first-seen first, so a group that was already contiguous
+        ; does not move at all.
+        def order:[int]
+        def seen:[string]
+        def a:int 0
+        while (a < (array_length sorted)) {
+            def key:string (itemAt sortedKeys a)
+            def already:boolean false
+            def s:int 0
+            while (s < (array_length seen)) {
+                if ((itemAt seen s) == key) {
+                    already = true
+                }
+                s = (s + 1)
+            }
+            if (already == false) {
+                push seen key
+                def b:int a
+                while (b < (array_length sorted)) {
+                    if ((itemAt sortedKeys b) == key) {
+                        push order (itemAt sorted b)
+                    }
+                    b = (b + 1)
+                }
+            }
+            a = (a + 1)
+        }
+        def changed:int 0
+        def c:int 0
+        while (c < (array_length order)) {
+            if ((itemAt order c) != (itemAt sorted c)) {
+                changed = (changed + 1)
+            }
+            c = (c + 1)
+        }
+        if (changed == 0) {
+            return 0
+        }
+        ; Repack along the cross axis. The layer keeps the room it had: the
+        ; sizes are the same set and the gap is the average of the ones the
+        ; layout chose, so nothing outside this layer has to move.
+        def lo:double 0.0
+        def hi:double 0.0
+        def total:double 0.0
+        def m:int 0
+        while (m < (array_length sorted)) {
+            def n2:FlowNode (g.nodeAt((itemAt sorted m)))
+            def start:double n2.x
+            def size:double n2.width
+            if horiz {
+                start = n2.y
+                size = n2.height
+            }
+            def endAt:double (start + size)
+            if (m == 0) {
+                lo = start
+                hi = endAt
+            }
+            if (start < lo) {
+                lo = start
+            }
+            if (endAt > hi) {
+                hi = endAt
+            }
+            total = (total + size)
+            m = (m + 1)
+        }
+        def count:int (array_length order)
+        def gap:double 12.0
+        if (count > 1) {
+            def slack:double (hi - lo)
+            def free:double (slack - total)
+            def divisor:double (to_double (count - 1))
+            gap = (free / divisor)
+        }
+        if (gap < 10.0) {
+            gap = 10.0
+        }
+        def cursor:double lo
+        def q:int 0
+        while (q < (array_length order)) {
+            def n3:FlowNode (g.nodeAt((itemAt order q)))
+            if horiz {
+                n3.y = cursor
+                cursor = ((cursor + n3.height) + gap)
+            } {
+                n3.x = cursor
+                cursor = ((cursor + n3.width) + gap)
+            }
+            n3.syncFromModel()
+            q = (q + 1)
+        }
+        return changed
+    }
+
+    ; Insertion sort on the cross axis: the layers are short and the order has
+    ; to be stable, which rules out the clever ones. The keys are carried along
+    ; so the caller does not have to look an owner up twice.
+    sfn sortByCross:void (g:FlowGraph idx:[int] keys:[string] horiz:boolean out:[int] outKeys:[string]) {
+        def i:int 0
+        while (i < (array_length idx)) {
+            def cand:int (itemAt idx i)
+            def candKey:string ""
+            if (i < (array_length keys)) {
+                candKey = (itemAt keys i)
+            }
+            def cn:FlowNode (g.nodeAt(cand))
+            def cv:double cn.x
+            if horiz {
+                cv = cn.y
+            }
+            def at:int (array_length out)
+            def j:int 0
+            while (j < (array_length out)) {
+                def on:FlowNode (g.nodeAt((itemAt out j)))
+                def ov:double on.x
+                if horiz {
+                    ov = on.y
+                }
+                if (cv < ov) {
+                    at = j
+                    j = (array_length out)
+                } {
+                    j = (j + 1)
+                }
+            }
+            push out cand
+            push outKeys candKey
+            def k:int ((array_length out) - 1)
+            while (k > at) {
+                def prev:int (itemAt out (k - 1))
+                set_at out k prev
+                def prevKey:string (itemAt outKeys (k - 1))
+                set_at outKeys k prevKey
+                k = (k - 1)
+            }
+            set_at out at cand
+            set_at outKeys at candKey
+            i = (i + 1)
+        }
+    }
+
+    ; The layers a layout produced, as a list of node indices per layer.
+    sfn maxLayer:int (layerOf:[int]) {
+        def top:int -1
+        def i:int 0
+        while (i < (array_length layerOf)) {
+            def lv:int (itemAt layerOf i)
+            if (lv > top) {
+                top = lv
+            }
+            i = (i + 1)
+        }
+        return top
+    }
+}

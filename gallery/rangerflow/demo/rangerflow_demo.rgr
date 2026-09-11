@@ -46,6 +46,7 @@ Import "../domains/mermaid/MermaidSequenceReader.rgr"
 Import "../domains/plantuml/PlantUmlSequenceReader.rgr"
 Import "../domains/plantuml/PlantUmlEntityReader.rgr"
 Import "../domains/plantuml/PlantUmlActivityReader.rgr"
+Import "../domains/d2/D2Flow.rgr"
 Import "../domains/mermaid/MermaidGitReader.rgr"
 Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
@@ -86,6 +87,7 @@ class RangerFlowDemo {
         def benchSize:int 0
         def mermaidPath:string "gallery/rangerflow/fixtures/order_flow.mmd"
         def plantumlPath:string "gallery/rangerflow/fixtures/order_flow.puml"
+        def d2Path:string "gallery/rangerflow/fixtures/d2/19_architecture.d2"
         def styleName:string ""
         def restyle:boolean false
         def qualityPaths:[string]
@@ -114,6 +116,15 @@ class RangerFlowDemo {
                     def givenP:string (shell_arg (i + 1))
                     if ((charAt givenP 0) != 45) {
                         plantumlPath = givenP
+                    }
+                }
+            }
+            if (a == "--d2") {
+                mode = "d2"
+                if ((i + 1) < argCount) {
+                    def givenD:string (shell_arg (i + 1))
+                    if ((charAt givenD 0) != 45) {
+                        d2Path = givenD
                     }
                 }
             }
@@ -151,8 +162,55 @@ class RangerFlowDemo {
         if (mode == "flowchart") { d.runFlowchart() }
         if (mode == "mermaid")   { d.runMermaid(mermaidPath styleName restyle) }
         if (mode == "plantuml")  { d.runPlantUml(plantumlPath styleName) }
+        if (mode == "d2")        { d.runD2(d2Path styleName) }
         if (mode == "org")       { d.runOrg() }
         if (mode == "process")   { d.runProcess() }
+    }
+
+    ; ---------------------------------------------------------------- D2 ----
+    ; `.d2` text through the whole pipeline: `D2Parser` → `D2Model` → `D2Flow`
+    ; → the layered layout → the four backends. Nothing below `D2Flow` knows
+    ; that D2 exists.
+    fn runD2:void (path:string styleName:string) {
+        print "== RangerFlow: D2 =="
+        def srcOpt:string (?? (read_file "." path) "")
+        if ((strlen srcOpt) == 0) {
+            print ("could not read " + path)
+            return
+        }
+        def dir:string (RangerFlowDemo.dirOf(path))
+        def b:D2Board (D2Model.readFrom(srcOpt dir))
+        print ("  read   " + path)
+        def objects:[D2Object] (b.live())
+        def conns:[D2Conn] (b.liveConns())
+        print ("  model  " + (to_string (array_length objects)) + " objects, " + (to_string (array_length conns)) + " connections, " + (to_string (b.boardCount())) + " extra boards")
+        def e:int 0
+        while (e < (array_length b.errors)) {
+            print ("  note   " + (itemAt b.errors e))
+            e = (e + 1)
+        }
+        def g:FlowGraph (D2Flow.laid(b))
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def style:FlowStyle (this.styleByName(styleName))
+        def applied:int (style.applyTo(g))
+        def v:FlowView (FlowView.of(g))
+        style.applyToTheme(v.theme)
+        this.writeAll(v g "rangerflow-d2" "RangerFlow — D2")
+    }
+
+    sfn dirOf:string (path:string) {
+        def cut:int -1
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return ""
+        }
+        return (substring path 0 cut)
     }
 
     ; --------------------------------------------------------------- ERD ----

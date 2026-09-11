@@ -1169,8 +1169,32 @@ boards. **No geometry is compared**: D2's answer carries every position and
 route, and scoring those against RangerFlow's own layered layout would measure
 two layouts rather than one reader.
 
-Nothing is drawn yet — `D2Flow`, the step that turns the model into a
-`FlowGraph`, is the next piece.
+And then it is drawn. `domains/d2/D2Flow.rgr` turns a board into a `FlowGraph`
+and from there it is the same layered layout, the same lane router and the same
+four backends the ERD and Mermaid use:
+
+```
+npm run rangerflow:d2                                    # or any .d2 file
+npm run rangerflow:d2 -- gallery/rangerflow/fixtures/d2/02_containers.d2
+```
+
+Two things had to be built for it. **A container is laid out as a diagram of
+its own** and then placed in its parent as one box the size of what came out —
+a flat layered layout has no idea that six of these boxes belong in one frame,
+so it interleaves them with the next container's and the frames drawn
+afterwards overlap. Nesting the layouts also gives `direction` its proper
+meaning: a `direction: right` inside a container turns that container and
+nothing else. And **the nine outlines D2 has that this library did not** —
+`page`, `queue`, `package`, `step`, `callout`, `stored_data`, `person`,
+`c4-person` and `cloud` — are in `core/FlowShapes.rgr` now, held to the same
+two rules as every other outline: inside its own box, and enclosing its own
+middle.
+
+What is not drawn yet: a grid container lays out as an ordinary one, a
+`sequence_diagram` is drawn as a container of participants rather than by
+`SeqDiagram`, and only the root board is drawn. Each is a row in
+[`docs/D2_FEATURES.md`](docs/D2_FEATURES.md) and a phase in
+[`docs/PLAN_D2.md`](docs/PLAN_D2.md).
 
 ## …and in a window
 

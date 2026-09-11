@@ -1,14 +1,17 @@
 # D2 in RangerFlow — is it worth it, and what would it take
 
-Status: **the reader is built; nothing is drawn yet.** `D2Parser` and
-`D2Model` read the language — objects, connections, styles, vars, classes,
-globs and filters, suspensions, table rows and class members, sequence-diagram
-scoping, boards and imports — and `npm run rangerflow:d2:parity` scores that
-against D2 itself: **103/103 checks over the 20 files in `fixtures/d2/`**
-([`D2_PARITY.md`](D2_PARITY.md)). What is *not* built is `D2Flow`: no `.d2`
-file becomes a `FlowGraph`, and nothing reaches a screen. That is deliberate —
-the parser is the part that can be wrong in ways a picture hides, so it was
-made measurable first.
+Status: **read and drawn.** `D2Parser` and `D2Model` read the language —
+objects, connections, styles, vars, classes, globs and filters, suspensions,
+table rows and class members, sequence-diagram scoping, boards and imports —
+and `npm run rangerflow:d2:parity` scores that against D2 itself: **103/103
+checks over the 20 files in `fixtures/d2/`** ([`D2_PARITY.md`](D2_PARITY.md)).
+`D2Flow` then draws it: `npm run rangerflow:d2` writes the SVG, the PDF, the
+HTML and the GPU scene, with containers as nested layouts and D2's nine
+missing outlines added to the shape library.
+
+The parser came first on purpose — it is the part that can be wrong in ways a
+picture hides — and the drawing came last, which is the order this plan was
+written in.
 
 Every number below was produced by **d2 v0.7.1** on this machine, not read off
 a website — `d2lang.com` is blocked by the egress proxy here, which forced the
@@ -21,7 +24,7 @@ denominator to come from D2's own source and binary instead.
       ↓
   D2Model           objects · connections · styles · boards                  ✅
       ↓                                            ← scored against D2: 103/103
-  D2Flow            → FlowGraph                                              ⬜
+  D2Flow            → FlowGraph · containers as nested layouts               ✅
       ↓
   the pipeline that already exists: LayeredLayout · ReadableRouter · EVG
       ↓
@@ -166,22 +169,24 @@ Each phase names the fixtures it must read and the matrix rows it retires.
 | 7 | Boards: `layers`, `scenarios`, `steps` | `13` | ✅ read · ⬜ shown |
 | 8 | `near`, absolute position, icons, links, tooltips | `14`, `15` | ✅ read · ⬜ placed |
 | 9 | Parity harness: dump, score, generate `D2_PARITY.md` | all | ✅ 103/103 |
-| 10 | **`D2Flow` — the model into a `FlowGraph`** | all | ⬜ next |
-| 11 | `?scenario=d2` in the web editor, driven by `rangerflow:web:test` | — | ⬜ |
+| 10 | `D2Flow` — the model into a `FlowGraph`, containers as nested layouts | all | ✅ `npm run rangerflow:d2` |
+| 11 | The nine outlines D2 has and this library did not | `01` | ✅ `core/FlowShapes.rgr` |
+| 12 | `?scenario=d2` in the web editor, driven by `rangerflow:web:test` | — | ⬜ next |
+| 13 | Grid containers, `sequence_diagram` through `SeqDiagram`, boards shown | `08`, `09`, `13` | ⬜ |
 
-The reading half is done and measured. What is left is the drawing half, and
-it divides the same way [`D2_FEATURES.md`](D2_FEATURES.md) does: most of it is
-wiring the model to a pipeline that already draws containers, compartment
-nodes, sequence diagrams and arrowheads — and five gaps that are new work
-(boards, grid layout, nine outlines, an image primitive, rich labels).
+What is left is in [`D2_FEATURES.md`](D2_FEATURES.md): 66 rows of 100 are
+drawn, 15 are narrower than D2's, and 19 are not there — the boards, the grid
+layout, an image primitive for `icon`, rich labels, and four cosmetic styles.
 
 ## 7. What lands where
 
 ```text
 domains/d2/D2Parser.rgr           ✅ AST: keys, maps, edges, block strings, imports
            D2Model.rgr            ✅ objects · connections · styles · boards
-           D2Flow.rgr             ⬜ → FlowGraph
+           D2Flow.rgr             ✅ → FlowGraph, containers as nested layouts
            D2Sequence.rgr         ⬜ shape: sequence_diagram → SeqDiagram
+core/FlowShapes.rgr               ✅ the nine outlines D2 has and this did not
+layout/LayerPacking.rgr           ✅ a group's members kept together in a layer
 layout/GridLayout.rgr             ⬜ grid-rows / grid-columns / gaps
 fixtures/d2/                      ✅ 20 files, all 20 accepted by D2
 harness/oracles/d2_oracle.go      ✅ D2 → JSON, built into gitignored vendor/
@@ -202,7 +207,7 @@ Scripts, named after the Mermaid and PlantUML ones so they read the same:
 rangerflow:d2:oracle      build harness/out/d2.json                    ✅
 rangerflow:d2:dump        build harness/out/rangerflow_d2.json         ✅
 rangerflow:d2:parity      score, and rewrite docs/D2_PARITY.md         ✅
-rangerflow:d2             render a fixture                             ⬜
+rangerflow:d2             render a fixture to SVG · PDF · HTML · scene  ✅
 ```
 
 `harness/vendor/` already holds the built oracle and is already gitignored.
@@ -244,6 +249,30 @@ then asking it directly:
 
 All five are asserted in `tests/RangerFlowTest.rgr`, so the next reader cannot
 lose them quietly.
+
+## 8c. What the drawing needed that the reading did not
+
+**A container is not a node.** A layered layout ranks and orders to cut
+crossings and has no idea that six of these boxes belong inside one frame, so
+it interleaves them with the next container's members — and the two frames
+drawn afterwards overlap, which is a picture that lies about what contains
+what. It is not a tuning problem: no ordering of one flat layout keeps two
+containers apart in the general case.
+
+So `D2Flow` does what D2 does: each container is laid out as a diagram of its
+own, and then placed in its parent as one box the size of what came out. That
+also gives `direction` its proper meaning — a `direction: right` inside a
+container turns that container and nothing else — and it makes the frame
+exact rather than a bounding box drawn round whatever landed nearby.
+
+The nine outlines were the other half. `page`, `queue`, `package`, `step`,
+`callout`, `stored_data`, `person`, `c4-person` and `cloud` are D2's
+architecture vocabulary, and drawing a cloud as an ellipse is the same mistake
+as drawing a magnetic tape as a rectangle: it throws away the one thing the
+reader was going to read first. The cloud is the interesting one — five
+identical ellipses on one centre line, spaced exactly one radius apart, so the
+crossings are at a constant 60° and the outline is continuous at any size
+without solving a single intersection.
 
 ## 9. Done means
 
