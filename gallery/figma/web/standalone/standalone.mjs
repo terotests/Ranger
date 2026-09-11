@@ -469,7 +469,10 @@ function diagnosticsText() {
   if (c.overridesSeen) {
     out.push(
       c.overridesSeen + " instance overrides in the file, " + c.overridesUsed + " applied"
-        + (c.overridesUnplaced ? ", " + c.overridesUnplaced + " naming no node in their component" : "")
+        + (c.overridesUnplaced
+            ? ", " + c.overridesUnplaced + " naming no node in their component"
+              + " (a variant that is not the one shown, or a layer hidden in it — Figma draws neither)"
+            : "")
         + (c.overridesUsed ? "" : " — instances are showing their component's own text")
     );
   }

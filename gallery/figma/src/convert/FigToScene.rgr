@@ -51,6 +51,10 @@ class FigToScene {
         instanceDepth = 0
         overridesSeen = 0
         overridesUsed = 0
+        ; A second file opened into the same app must count its own keys,
+        ; not carry the first one's.
+        def freshKeys:[string:boolean]
+        keyListed = freshKeys
         pathPrefix = ""
         outDoc = (new SceneDocument())
         outDoc.name = src.fileName
@@ -227,8 +231,31 @@ class FigToScene {
     ; here, the glyphs it was shaped into are there.
     def authored:[string:KiwiValue]
     def pathPrefix:string ""
+    ; Distinct keys stored, and how many found their node. The two lists
+    ; overlap — an edit usually has a derived entry as well — so counting
+    ; entries rather than keys made one override count twice and the
+    ; report say 1,584 stored where the roadmap file holds 1,076.
+    def keyListed:[string:boolean]
     def overridesSeen:int 0
     def overridesUsed:int 0
+
+    ; WHAT THE ONES THAT MISS ARE. On that file 860 of the 1,076 keys find
+    ; their node, and the other 216 were traced one by one:
+    ;
+    ;   146  a variant that is not the one shown. Figma keeps the edits for
+    ;        every variant of a component set so switching back restores
+    ;        them; 110 of those entries name the variant's SYMBOL itself
+    ;        and 36 are the layers inside one.
+    ;    70  a layer hidden in the component, and the 52 layers under it.
+    ;        The walk turns a hidden child away before the override is
+    ;        merged, so an entry that switched one back on could not reach
+    ;        it — but not one of these 70 carries `visible`, so merging
+    ;        first would light nothing up.
+    ;
+    ; Both are dead: an entry that misses here is one Figma does not draw
+    ; either. The count is worth reporting as a tripwire — a file where it
+    ; climbs is a file to look at — but it is not a measure of what is
+    ; missing from the picture.
 
     ; What an override entry calls this node. A component in this file is
     ; a copy of one from a library, re-guided on the way in, and the paths
@@ -237,6 +264,15 @@ class FigToScene {
     ; namespace, and matching on the node's own guid placed 55 of 1,323.
     ; A file whose components are its own (the bundled sample, a REST
     ; import) has no overrideKey and is matched on the guid as before.
+    ; One key, counted once, however many of the two lists carry it.
+    fn countKey:void (key:string) {
+        def had@(optional):boolean (get keyListed key)
+        if (null? had) {
+            set keyListed key true
+            overridesSeen = (overridesSeen + 1)
+        }
+    }
+
     sfn overrideKeyOf:string (nd:FigNode) {
         def key:KiwiValue (nd.raw.child("overrideKey"))
         if (key.isObject()) {
@@ -394,11 +430,11 @@ class FigToScene {
             def d:int 0
             while (d < (derived.itemCount())) {
                 def change:KiwiValue (derived.item(d))
-                overridesSeen = (overridesSeen + 1)
                 def rel:string (FigToScene.overridePath(change))
                 if ((strlen rel) > 0) {
                     def full:string (childPrefix + rel)
                     set overrides full change
+                    this.countKey(full)
                 }
                 d = (d + 1)
             }
@@ -410,7 +446,9 @@ class FigToScene {
                 def edit:KiwiValue (edits.item(e))
                 def erel:string (FigToScene.overridePath(edit))
                 if ((strlen erel) > 0) {
-                    set authored (childPrefix + erel) edit
+                    def efull:string (childPrefix + erel)
+                    set authored efull edit
+                    this.countKey(efull)
                 }
                 e = (e + 1)
             }

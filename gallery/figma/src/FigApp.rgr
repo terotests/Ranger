@@ -909,10 +909,14 @@ class FigApp {
             j = (j + 1)
         }
         o = (o + "],\"imagesMissing\":" + (to_string missingImages))
-        ; What the instances brought with them. `seen` above `used` means
-        ; overrides arrived and were not matched to a node in the
-        ; component — the placeholder text would still be showing, and
-        ; that is a different fault from having no overrides at all.
+        ; What the instances brought with them, counted by distinct key.
+        ; `seen` above `used` means entries that found no node: on the
+        ; files traced so far every one of those was a variant that is not
+        ; the one shown or a layer hidden in the component, neither of
+        ; which Figma draws either (`FigToScene` has the tally). It is a
+        ; tripwire rather than a fault — a file where the gap is wide is a
+        ; file to look at — but `used` at zero with `seen` above it is a
+        ; real one: the instances are showing their placeholder text.
         o = (o + ",\"overridesSeen\":" + (to_string converter.overridesSeen))
         o = (o + ",\"overridesUsed\":" + (to_string converter.overridesUsed))
         o = (o + ",\"overridesUnplaced\":" + (to_string (converter.overridesSeen - converter.overridesUsed)))
