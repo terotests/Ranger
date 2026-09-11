@@ -67,9 +67,11 @@ class MarkdownEdit {
         layout.applyMeta(doc)
         MdMermaid.prepare(doc layout.embeds embedWidth styleName)
         diagrams = (layout.embeds.count())
+        layout.setDocSource(source)
         if (sheetGap >= 0.0) {
             layout.layoutPaged(doc)
         } {
+            layout.armCache(doc)
             layout.layoutContinuous(doc viewWidth)
         }
         this.buildLines()
@@ -505,6 +507,15 @@ class MarkdownWeb {
 
     fn paste:void (v:string) {
         edit.paste(v)
+    }
+
+    ; Both clipboard flavours, as `docx_web.paste` takes them. A spreadsheet
+    ; range carries a real `<table>` in the HTML one and tab-separated text in
+    ; the other, and only one of the two is a table when it lands. Answers
+    ; whether a table was made, so the page can say so.
+    fn pasteRich:boolean (html:string text:string) {
+        this.sync()
+        return (edit.pasteRich(html text))
     }
 
     fn undo:void () {

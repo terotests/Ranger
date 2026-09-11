@@ -40,6 +40,11 @@
 Import "MdNode.rgr"
 Import "MdBlock.rgr"
 Import "MdEdit.rgr"
+; The clipboard reader the .docx editor already has. It imports NOTHING — it
+; is a tolerant scanner over the `text/html` a spreadsheet puts on the
+; clipboard, not an XML parser — so markdown gets a spreadsheet range pasted
+; as a table for the cost of one import and none of `gallery/docx_viewer`.
+Import "../../docx_viewer/src/ClipboardTable.rgr"
 
 class MdSemanticEdit {
     ; ----------------------------------------------------------------------
@@ -214,6 +219,121 @@ class MdSemanticEdit {
         op2.selAfterA = (a + 1)
         op2.selAfterB = ((a + 1) + (strlen sel))
         return op2
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A table, pasted
+    ; ----------------------------------------------------------------------
+    ;
+    ; What a spreadsheet puts on the clipboard is two flavours of one
+    ; selection: `text/plain` as tab-separated lines and `text/html` holding a
+    ; real `<table>`. The .docx editor reads the HTML flavour to make a
+    ; DocumentTable; this reads the same flavour and writes GFM, so a range
+    ; copied in the Ranger DataGrid — or in Excel — lands in a markdown file
+    ; as a table rather than as a wall of tabs.
+    ;
+    ; The columns are padded to line up, because a markdown table nobody can
+    ; read in the source is one the next person reformats by hand. That is a
+    ; choice about text this file is WRITING, not a normalisation of text
+    ; somebody else typed — the rule in the header stands.
+
+    sfn padTo:string (v:string n:int) {
+        def out:string v
+        while ((strlen out) < n) {
+            out = (out + " ")
+        }
+        return out
+    }
+
+    ; A cell's text, with the two characters that would break the row escaped.
+    sfn cellText:string (v:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen v)
+        while (i < n) {
+            def c:int (charAt v i)
+            if (c == 124) {
+                out = (out + "\\|")
+            } {
+                if ((c == 10) || (c == 13)) {
+                    out = (out + " ")
+                } {
+                    out = (out + (substring v i (i + 1)))
+                }
+            }
+            i = (i + 1)
+        }
+        return (trim out)
+    }
+
+    ; The clipboard's HTML as a GFM table, or "" when it held no table. The
+    ; first row is the header, which is what a spreadsheet selection almost
+    ; always starts with and what GFM requires: a table with no header row is
+    ; not a table as far as the specification is concerned.
+    sfn tableFromHtml:string (html:string) {
+        def tbl:ClipboardTable (new ClipboardTable)
+        if ((tbl.parseHtml(html)) == false) { return "" }
+        def rows:int (tbl.rowCount())
+        def cols:int (tbl.columnCount())
+        if ((rows == 0) || (cols == 0)) { return "" }
+
+        ; Widths first, so the pipes line up.
+        def width:[int]
+        def k:int 0
+        while (k < cols) {
+            push width 3
+            k = (k + 1)
+        }
+        def texts:[string]
+        def r:int 0
+        while (r < rows) {
+            def row:ClipRow (tbl.rowAt(r))
+            def cN:int (array_length row.cells)
+            def cIdx:int 0
+            while (cIdx < cols) {
+                def v:string ""
+                if (cIdx < cN) {
+                    def cell:ClipCell (itemAt row.cells cIdx)
+                    v = (MdSemanticEdit.cellText(cell.text))
+                }
+                push texts v
+                if ((strlen v) > (itemAt width cIdx)) {
+                    set_at width cIdx (strlen v)
+                }
+                cIdx = (cIdx + 1)
+            }
+            r = (r + 1)
+        }
+
+        def out:string ""
+        def r2:int 0
+        while (r2 < rows) {
+            def line:string "|"
+            def c2:int 0
+            while (c2 < cols) {
+                def v:string (itemAt texts ((r2 * cols) + c2))
+                line = ((line + " ") + (MdSemanticEdit.padTo(v (itemAt width c2))) + " |")
+                c2 = (c2 + 1)
+            }
+            out = ((out + line) + "\n")
+            if (r2 == 0) {
+                def sep:string "|"
+                def c3:int 0
+                while (c3 < cols) {
+                    def dashes:string ""
+                    def d:int 0
+                    while (d < (itemAt width c3)) {
+                        dashes = (dashes + "-")
+                        d = (d + 1)
+                    }
+                    sep = ((sep + " ") + dashes + " |")
+                    c3 = (c3 + 1)
+                }
+                out = ((out + sep) + "\n")
+            }
+            r2 = (r2 + 1)
+        }
+        return out
     }
 
     ; ----------------------------------------------------------------------

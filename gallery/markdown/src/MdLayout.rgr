@@ -286,6 +286,32 @@ class MdBox {
     Constructor () {
     }
 
+    fn copy:MdBox () {
+        def b:MdBox (new MdBox())
+        b.kind = kind
+        b.x = x
+        b.y = y
+        b.w = w
+        b.h = h
+        b.text = text
+        b.family = family
+        b.size = size
+        b.bold = bold
+        b.italic = italic
+        b.color = color
+        b.fill = fill
+        b.stroke = stroke
+        b.strokeWidth = strokeWidth
+        b.link = link
+        b.embedKind = embedKind
+        b.embedSource = embedSource
+        b.page = page
+        b.srcStart = srcStart
+        b.segSrc = segSrc
+        b.segLen = segLen
+        return b
+    }
+
     sfn text:MdBox (t:string x:double y:double w:double h:double) {
         def b:MdBox (new MdBox())
         b.kind = 0
@@ -327,6 +353,64 @@ class MdLayout {
     ; by that block's source offset.
     def boxIndexAt:[string:int]
     def boxIndexReady:boolean false
+
+    ; --- the per-block layout cache -------------------------------------------
+    ;
+    ; A keystroke changes ONE block and the other four hundred are laid out
+    ; again for nothing. `markdown:bench` puts this repository's README at
+    ; 22.7 ms to parse and 117.5 ms to lay out, so the parse is not the
+    ; problem: measuring text is. The parse stays whole — it is cheap, and an
+    ; incremental block parser is a second parser to keep in step with the
+    ; first — and the LAYOUT is what remembers.
+    ;
+    ; A block's boxes are kept under the exact source text that produced them.
+    ; An edit changes that text for one block and no other, so every other
+    ; block hits, and a hit is an array copy with two numbers added to it: the
+    ; y it now sits at, and how far its source moved.
+    ;
+    ; WHAT IT DOES NOT DO, stated rather than discovered:
+    ;   * paged layout. A block's boxes there depend on where the page break
+    ;     falls, which is not a property of the block. `armCache` refuses.
+    ;   * documents with a table of contents. That is a two-pass layout whose
+    ;     first pass exists to move the second, and a cache would serve the
+    ;     first pass's answers to the second.
+    ;   * anything below a top-level block. A list is one entry, not one per
+    ;     item: the win is in the hundreds of blocks a long document has, and
+    ;     the bookkeeping for nesting buys nothing on top of that.
+    def cacheOn:boolean false
+    def cacheKey:[string]
+    ; …and the same keys as a map. A scan over the keys is O(blocks) per
+    ; block, which is O(blocks²) per layout: fine for the thirteen a fixture
+    ; has and 1.1 million string compares for the thousand in ISSUES.md,
+    ; where it cost more than the layout it was saving.
+    def cacheAt:[string:int]
+    def cacheSrc:[int]
+    def cacheTop:[double]
+    def cacheHeight:[double]
+    def cacheFrom:[int]
+    def cacheCount:[int]
+    def cacheBoxes:[MdBox]
+    def cacheHits:int 0
+    def cacheMisses:int 0
+    ; Lay every block out BOTH ways and compare. A cache that disagrees with
+    ; the layout it is caching shows a stale picture, which is the worst thing
+    ; this feature can do and the one failure a screenshot cannot catch — so
+    ; there is a mode that checks rather than trusts, and the edit suite runs
+    ; with it on.
+    def cacheAudit:boolean false
+    def cacheFaults:int 0
+    ; How many blocks the audit actually compared. Without it a suite that
+    ; never reached the cache at all reports a clean audit, which is the
+    ; §6 trap: a check that counts the wrong noun says the failure is fine.
+    def cacheAudited:int 0
+    def cacheFirstFault:string ""
+    ; The text the tree was parsed from. The cache keys off each block's slice
+    ; of it, so the layout has to be told: a tree does not carry the string it
+    ; came from, only the offsets into it.
+    def docSource:string ""
+    ; The width every cached entry was measured at. A different one makes all
+    ; of them wrong, and the cheap total answer is to throw the lot away.
+    def cacheWidth:double (0.0 - 1.0)
     def engine:EVGTextEngine (new EVGTextEngine())
     def boxes:[MdBox]
 
@@ -388,6 +472,8 @@ class MdLayout {
 
     fn setMeasurer:void (m:EVGTextMeasurer) {
         engine.setMeasurer(m)
+        ; Everything cached was measured through the old one.
+        this.dropCache()
     }
 
     ; ----------------------------------------------------------------------
@@ -422,6 +508,10 @@ class MdLayout {
 
     ; One page, as tall as it needs to be. What the canvas scrolls.
     fn layoutContinuous:void (doc:MdNode width:double) {
+        if ((fabs (width - cacheWidth)) > 0.01) {
+            this.dropCache()
+            cacheWidth = width
+        }
         clear boxes
         boxIndexReady = false
         this.resetHeadings()
@@ -629,13 +719,206 @@ class MdLayout {
     }
 
     ; `mode`: 0 no contents, 1 reserve the space, 2 fill it in.
+    ; ----------------------------------------------------------------------
+    ; The per-block layout cache
+    ; ----------------------------------------------------------------------
+
+    ; Turn it on for this document, if this document is one it can serve.
+    ; Answers whether it did, so a caller can say so rather than assume.
+    fn setDocSource:void (text:string) {
+        docSource = text
+    }
+
+    fn armCache:boolean (doc:MdNode) {
+        cacheOn = false
+        if paginate { return false }
+        if style.wantToc { return false }
+        if ((strlen docSource) == 0) { return false }
+        cacheOn = true
+        return true
+    }
+
+    fn disarmCache:void () {
+        cacheOn = false
+    }
+
+    ; Everything measured is measured at a width and through a measurer, so a
+    ; change to either makes every entry wrong. The cheap and total answer is
+    ; to throw the lot away: it costs one document's layout, once.
+    fn dropCache:void () {
+        map_clear cacheAt
+        clear cacheKey
+        clear cacheSrc
+        clear cacheTop
+        clear cacheHeight
+        clear cacheFrom
+        clear cacheCount
+        clear cacheBoxes
+        cacheHits = 0
+        cacheMisses = 0
+    }
+
+    ; The text that produced this block, which is the only thing its boxes
+    ; depend on — plus the width it was measured at, because the same
+    ; paragraph breaks in different places in a different column.
+    fn cacheKeyOf:string (node:MdNode src:string w:double) {
+        def a:int node.srcStart
+        def b:int node.srcEnd
+        def n:int (strlen src)
+        if (a < 0) { a = 0 }
+        if (b > n) { b = n }
+        if (b < a) { b = a }
+        return (((to_string (to_int (w * 16.0))) + "\u0001") + (substring src a b))
+    }
+
+    fn cacheFind:int (key:string) {
+        if (has cacheAt key) {
+            return (?? (get cacheAt key) -1)
+        }
+        return -1
+    }
+
+    ; A hit: the boxes again, moved to where this block now sits and stamped
+    ; with where its source now is.
+    fn cacheReplay:void (slot:int node:MdNode) {
+        def dy:double (cursorY - (itemAt cacheTop slot))
+        def ds:int (node.srcStart - (itemAt cacheSrc slot))
+        def from:int (itemAt cacheFrom slot)
+        def cnt:int (itemAt cacheCount slot)
+        def i:int 0
+        while (i < cnt) {
+            def src:MdBox (itemAt cacheBoxes (from + i))
+            def b:MdBox (src.copy())
+            b.y = (b.y + dy)
+            if (b.srcStart >= 0) { b.srcStart = (b.srcStart + ds) }
+            if (b.segSrc >= 0) { b.segSrc = (b.segSrc + ds) }
+            push boxes b
+            i = (i + 1)
+        }
+        cursorY = (cursorY + (itemAt cacheHeight slot))
+        cacheHits = (cacheHits + 1)
+    }
+
+    fn cacheStore:void (key:string node:MdNode from:int top:double) {
+        def n:int (array_length boxes)
+        def at:int (array_length cacheBoxes)
+        def i:int from
+        while (i < n) {
+            def b:MdBox (itemAt boxes i)
+            def keep:MdBox (b.copy())
+            keep.y = (keep.y - top)
+            if (keep.srcStart >= 0) { keep.srcStart = (keep.srcStart - node.srcStart) }
+            if (keep.segSrc >= 0) { keep.segSrc = (keep.segSrc - node.srcStart) }
+            push cacheBoxes keep
+            i = (i + 1)
+        }
+        def slot:int (array_length cacheKey)
+        push cacheKey key
+        if (! (has cacheAt key)) {
+            set cacheAt key slot
+        }
+        push cacheSrc node.srcStart
+        push cacheTop 0.0
+        push cacheHeight (cursorY - top)
+        push cacheFrom at
+        push cacheCount (n - from)
+        cacheMisses = (cacheMisses + 1)
+    }
+
+    ; One top-level block, from the cache when it can be and from the layout
+    ; when it cannot.
+    fn blockCached:void (node:MdNode src:string x:double w:double) {
+        if (! cacheOn) {
+            this.block(node x w)
+            return
+        }
+        if (node.srcStart < 0) {
+            this.block(node x w)
+            return
+        }
+        def key:string (this.cacheKeyOf(node src w))
+        def slot:int (this.cacheFind(key))
+        if (slot >= 0) {
+            if cacheAudit {
+                this.auditBlock(slot node x w)
+                return
+            }
+            this.cacheReplay(slot node)
+            return
+        }
+        def from:int (array_length boxes)
+        def top:double cursorY
+        this.block(node x w)
+        this.cacheStore(key node from top)
+    }
+
+    ; Lay the block out for real, then check the cache would have said the
+    ; same thing. Slower than either on its own, which is the point: it is a
+    ; gate, not a mode anyone ships with.
+    fn auditBlock:void (slot:int node:MdNode x:double w:double) {
+        cacheAudited = (cacheAudited + 1)
+        def from:int (array_length boxes)
+        def top:double cursorY
+        this.block(node x w)
+        def realCount:int ((array_length boxes) - from)
+        def realHeight:double (cursorY - top)
+        def cnt:int (itemAt cacheCount slot)
+        if (realCount != cnt) {
+            this.cacheFault((((("box count " + (to_string realCount)) + " vs cached ")
+                + (to_string cnt)) + (" for " + node.kind)))
+            return
+        }
+        if ((fabs (realHeight - (itemAt cacheHeight slot))) > 0.01) {
+            this.cacheFault(("height " + (to_string realHeight)))
+            return
+        }
+        def cfrom:int (itemAt cacheFrom slot)
+        def ds:int (node.srcStart - (itemAt cacheSrc slot))
+        def i:int 0
+        while (i < cnt) {
+            def got:MdBox (itemAt boxes (from + i))
+            def want:MdBox (itemAt cacheBoxes (cfrom + i))
+            if (got.text != want.text) {
+                this.cacheFault((("text [" + got.text) + ("] vs [" + (want.text + "]"))))
+                i = cnt
+            } {
+                if ((fabs (got.y - (want.y + top))) > 0.01) {
+                    this.cacheFault(("y " + (to_string got.y)))
+                    i = cnt
+                } {
+                    if ((fabs (got.x - want.x)) > 0.01) {
+                        this.cacheFault(("x " + (to_string got.x)))
+                        i = cnt
+                    } {
+                        if (got.segSrc >= 0) {
+                            def wantSrc:int ((want.segSrc + (itemAt cacheSrc slot)) + ds)
+                            if (got.segSrc != wantSrc) {
+                                this.cacheFault((("segSrc " + (to_string got.segSrc))
+                                    + (" vs " + (to_string wantSrc))))
+                                i = cnt
+                            }
+                        }
+                        i = (i + 1)
+                    }
+                }
+            }
+        }
+    }
+
+    fn cacheFault:void (what:string) {
+        cacheFaults = (cacheFaults + 1)
+        if ((strlen cacheFirstFault) == 0) {
+            cacheFirstFault = what
+        }
+    }
+
     fn bodyPass:void (doc:MdNode mode:int) {
         def placed:boolean (mode == 0)
         def i:int 0
         def n:int (doc.childCount())
         while (i < n) {
             def child:MdNode (doc.childAt(i))
-            this.block(child contentX contentW)
+            this.blockCached(child docSource contentX contentW)
             if (! placed) {
                 ; After the title, which is where a reader looks for it; at
                 ; the very top when the document has no heading at all.

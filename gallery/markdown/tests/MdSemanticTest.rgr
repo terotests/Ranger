@@ -245,6 +245,66 @@ class MdSemanticTest {
     }
 
     ; ----------------------------------------------------------------------
+    ; A spreadsheet range, pasted
+    ; ----------------------------------------------------------------------
+    ;
+    ; The reader of the clipboard is `ClipboardTable`, which the .docx editor
+    ; already had and which imports nothing — so this is one import and a
+    ; formatter rather than a second tolerant HTML scanner. The HTML below is
+    ; the awkward shape a real clipboard carries: fragment comments, a style
+    ; block, unquoted attributes and entities.
+    fn tables:void (c:SemCheck) {
+        print "-- a spreadsheet range, pasted as a table --"
+        def html:string "<html><head><style>td{}</style></head><body><!--StartFragment--><table><tr><td>Name</td><td>Qty</td></tr><tr><td>Bolt &amp; nut</td><td>12</td></tr></table><!--EndFragment--></body></html>"
+        def e:MdEditController (MdSemanticTest.on("before\n"))
+        e.setCaret(7)
+        c.ok("the HTML flavour made a table" (e.pasteRich(html "Name\tQty\nBolt & nut\t12")))
+        c.eqStr("with a header row and its rule"
+            (e.text())
+            "before\n\n\n| Name       | Qty |\n| ---------- | --- |\n| Bolt & nut | 12  |\n\n")
+        c.ok("and one undo takes the whole thing" (e.canUndo()))
+        e.undo()
+        c.eqStr("byte for byte" (e.text()) "before\n")
+
+        ; Clipboard HTML with no table falls back to the plain flavour, which
+        ; is what most pastes are.
+        def e2:MdEditController (MdSemanticTest.on(""))
+        e2.setCaret(0)
+        c.ok("no table means no table" ((e2.pasteRich("<p>just words</p>" "just words")) == false))
+        c.eqStr("and the text landed instead" (e2.text()) "just words")
+
+        ; A pipe inside a cell would end the row; it is escaped rather than
+        ; silently splitting the table.
+        def piped:string "<table><tr><td>a|b</td><td>c</td></tr></table>"
+        def e3:MdEditController (MdSemanticTest.on(""))
+        e3.setCaret(0)
+        e3.pasteRich(piped "")
+        c.ok("a pipe in a cell is escaped" ((indexOf (e3.text()) "a\\|b") >= 0))
+
+        ; …and what it wrote parses back as a table rather than as prose.
+        def e4:MdEditController (MdSemanticTest.on(""))
+        e4.setCaret(0)
+        e4.pasteRich(html "")
+        e4.ensureLayout()
+        def found:[MdNode]
+        def hits:int (MdSemanticEdit.blockAt(found e4.doc 0))
+        c.ok("and the result is a table in the tree"
+            ((MdSemanticTest.hasKind(e4.doc "table")) > 0))
+    }
+
+    sfn hasKind:int (n:MdNode kind:string) {
+        def c:int 0
+        if (n.kind == kind) { c = 1 }
+        def i:int 0
+        while (i < (n.childCount())) {
+            def k:MdNode (n.childAt(i))
+            c = (c + (MdSemanticTest.hasKind(k kind)))
+            i = (i + 1)
+        }
+        return c
+    }
+
+    ; ----------------------------------------------------------------------
     ; Every intent is one undo, and undo gives back the bytes — the Stage E
     ; promise, asked of the Stage F operations.
     fn undoable:void (c:SemCheck) {
@@ -274,6 +334,7 @@ class MdSemanticTest {
         this.headings(c)
         this.lists(c)
         this.links(c)
+        this.tables(c)
         this.undoable(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))

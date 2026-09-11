@@ -356,12 +356,17 @@ keyCatcher.addEventListener("cut", (ev) => {
   ev.preventDefault();
   afterEdit();
 });
+// Both flavours. A range copied in a spreadsheet carries a real `<table>` in
+// `text/html` and tab-separated text in `text/plain`; the module reads the
+// first with the same scanner the .docx editor uses and writes a GFM table.
 keyCatcher.addEventListener("paste", (ev) => {
-  const v = ev.clipboardData.getData("text/plain");
+  const html = ev.clipboardData.getData("text/html") || "";
+  const text = ev.clipboardData.getData("text/plain") || "";
   ev.preventDefault();
-  if (!v) return;
-  app.paste(v);
+  if (!html && !text) return;
+  const madeTable = app.pasteRich(html, text);
   afterEdit();
+  if (madeTable) showStatus("pasted as a table");
 });
 keyCatcher.addEventListener("focus", restartBlink);
 keyCatcher.addEventListener("blur", () => {
@@ -732,6 +737,18 @@ function selftest() {
   } else {
     say("the line is on the page", false);
   }
+
+  // The clipboard's HTML flavour, as a table.
+  app.setSource("before\n");
+  app.setSelection(7, 7);
+  const madeTable = app.pasteRich(
+    "<table><tr><td>Name</td><td>Qty</td></tr><tr><td>Bolt</td><td>12</td></tr></table>",
+    "Name\tQty\nBolt\t12"
+  );
+  say("a spreadsheet range pastes as a table", madeTable);
+  say("…with a header rule", app.sourceText().indexOf("| ---") > 0, app.sourceText().trim().split("\n")[1] || "");
+  app.undo();
+  say("…and one undo takes the whole table", app.sourceText() === "before\n");
 
   // The other pane's edit arrives as a patch on the same stack.
   app.setSource("hello\n");

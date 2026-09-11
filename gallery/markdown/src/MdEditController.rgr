@@ -116,9 +116,16 @@ class MdEditController {
             return
         }
         doc = (MdBlock.parseText(source))
+        ; The parse stays whole — it is 22.7 ms of a 140 ms README and an
+        ; incremental one would be a second parser to keep in step with the
+        ; first. The LAYOUT is what remembers: `MdLayout`'s per-block cache
+        ; keys each block's boxes under the exact source that produced them,
+        ; so a keystroke re-measures one block and copies the rest.
+        layout.setDocSource(source)
         if (sheetGap >= 0.0) {
             layout.layoutPaged(doc)
         } {
+            layout.armCache(doc)
             layout.layoutContinuous(doc viewWidth)
         }
         this.buildLines()
@@ -532,6 +539,29 @@ class MdEditController {
         this.beginAction()
         this.insertText(s)
         this.endAction()
+    }
+
+    ; A paste with both clipboard flavours. The HTML one is tried first: a
+    ; spreadsheet range copied in the Ranger DataGrid or in Excel carries a
+    ; real `<table>` there and tab-separated text in the other, and only one
+    ; of the two is a table when it lands. Falls back to the text when the
+    ; HTML held no table, which is most pastes.
+    ;
+    ; A pasted table needs blank lines around it or it joins the paragraph it
+    ; landed in, which is a table drawn as prose with pipes in it.
+    fn pasteRich:boolean (html:string text:string) {
+        def made:string ""
+        if ((strlen html) > 0) {
+            made = (MdSemanticEdit.tableFromHtml(html))
+        }
+        if ((strlen made) == 0) {
+            this.paste(text)
+            return false
+        }
+        def before:string "\n\n"
+        if (focus <= 0) { before = "" }
+        this.paste(((before + made) + "\n"))
+        return true
     }
 
     ; ----------------------------------------------------------------------

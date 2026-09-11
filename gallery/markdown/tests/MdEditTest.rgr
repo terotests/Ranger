@@ -83,6 +83,7 @@ class MdEditTest {
         this.motion(c)
         this.vertical(c)
         this.roundTrip(c)
+        this.cacheHolds(c)
 
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
@@ -316,6 +317,65 @@ class MdEditTest {
     sfn lineTop:double (e:MdEditController i:int) {
         e.ensureLayout()
         return (e.lines.topAt(i))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The layout cache says what the layout says
+    ; ----------------------------------------------------------------------
+    ;
+    ; A keystroke re-measures one block and copies the rest, which is what
+    ; makes typing into a 63 KB document cost 10 ms instead of 119. It is also
+    ; the worst thing this feature can get wrong: a cache that disagrees with
+    ; the layout it is caching draws a STALE PICTURE, and a stale picture is
+    ; indistinguishable from a correct one until a reader notices their own
+    ; words are not where they typed them.
+    ;
+    ; So `MdLayout.cacheAudit` lays every cached block out for real and
+    ; compares — box count, height, and each box's text, x, y and source
+    ; offset — and this drives it over a document with one of everything in
+    ; it, editing in each of the ways that move a block: inside one, across
+    ; two, at the very start, and a paste that makes new ones.
+    fn cacheHolds:void (c:EditCheck) {
+        print "-- the layout cache agrees with the layout --"
+        def src:string "# Title\n\nSome **prose** with `code` and [a link](x).\n\n- one\n- two\n\n> quoted\n\n```\nfenced\n```\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\nlast\n"
+        def e:MdEditController (MdEditTest.fresh(src))
+        e.setViewWidth(820.0)
+        e.ensureLayout()
+        e.layout.cacheAudit = true
+
+        ; Inside one block.
+        e.setCaret(20)
+        e.insertText("X")
+        e.ensureLayout()
+        ; At the very start, which moves every block after it.
+        e.setCaret(0)
+        e.insertText("Z")
+        e.ensureLayout()
+        ; A paste that makes new blocks.
+        e.setCaret(12)
+        e.paste("\n\nnew paragraph\n\n")
+        e.ensureLayout()
+        ; Across two blocks.
+        e.setRange(5 40)
+        e.insertText("merged")
+        e.ensureLayout()
+        ; …and all the way back.
+        def guard:int 0
+        while ((e.canUndo()) && (guard < 40)) {
+            e.undo()
+            e.ensureLayout()
+            guard = (guard + 1)
+        }
+        c.eqStr("the document is back where it started" (e.text()) src)
+        c.eqInt("and the cache never disagreed with the layout"
+            e.layout.cacheFaults 0)
+        if ((strlen e.layout.cacheFirstFault) > 0) {
+            print ("    first disagreement — " + e.layout.cacheFirstFault)
+        }
+        ; …and that the audit reached the cache at all. A suite that never
+        ; hit an entry would report a clean audit, which is the check that
+        ; counts the wrong noun.
+        c.ok("…over blocks it actually had cached" ((e.layout.cacheAudited) > 20))
     }
 
     ; ----------------------------------------------------------------------
