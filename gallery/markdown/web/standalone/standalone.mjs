@@ -514,8 +514,25 @@ async function start() {
   // The page checks itself, and the check is readable from outside: the smoke
   // test drives this same page in headless Chrome and reads the result out of
   // the DOM rather than out of a screenshot.
-  if (new URLSearchParams(location.search).has("selftest")) {
+  const q = new URLSearchParams(location.search);
+  if (q.has("selftest")) {
     window.__selftest = selftest();
+  }
+  // A known editing state, for a screenshot. It drives the same seam a
+  // keystroke does — there is no demo-only path into the document — so a
+  // picture taken this way is a picture of the editor rather than of a mock.
+  if (q.has("demo")) {
+    const at = app.sourceText().indexOf("diagram travels");
+    if (at > 0) {
+      app.setSelection(at, at + 15);
+      app.run("format.bold", "");
+      const after = app.sourceText().indexOf("through a README");
+      app.setSelection(after + 10, after + 16);
+    }
+    app.setCaretOn(true);
+    showSource();
+    refreshToolbar();
+    needsPaint = true;
   }
 }
 
