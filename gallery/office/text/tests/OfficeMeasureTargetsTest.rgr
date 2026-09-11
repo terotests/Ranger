@@ -1,0 +1,176 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeMeasureTargetsTest — the width a run is placed from, and when it is real
+; ==============================================================================
+;
+;   npm run office:measure:targets
+;
+; `OfficeTextMeasure.widthOfIn` is what every slide's text is placed from, and
+; a run's x is computed from the width of the runs before it — so a width that
+; differs by a character's worth moves a whole line, and moves it only on the
+; target where the difference is.
+;
+; That is not hypothetical. It is what the .pptx WebAssembly parity check
+; reports when it reports anything: forty-seven commands differing between the
+; JavaScript engine and the C++ one, all of them text, all of them by an amount
+; proportional to the point size — and the strings that differ are the ones
+; with a character outside ASCII in them. `gallery/pptx/web/wasm/parity.mjs`
+; catches it, at the cost of an emscripten toolchain and a two-minute build;
+; this catches the same thing in a second, and names the string.
+;
+; The witnesses are the exact strings that differed: an em dash, an arrow, and
+; a plain ASCII control so a failure can be read as "non-ASCII" rather than
+; "everything".
+;
+; AND THE ORDER THE HOST DOES THINGS IN, which is the half that actually broke.
+; `UITextRenderer.loadFontBytes` REPLACES its measurer with a new
+; `TTFTextMeasurer` every time a face arrives. A caller that captured the one
+; that was current when it attached goes on measuring through the estimate
+; tables for the life of the document — and says it has fonts while doing it,
+; because the FLAG is read from the FontManager and the MEASURING is not.
+;
+; So every width below is taken twice: once with the faces loaded BEFORE the
+; measurer was attached, and once with them loaded AFTER. The two have to be
+; the same number. They were not, and nothing under `npm test` could see it:
+; the .pptx WebAssembly parity check could, because its two engines attach at
+; different moments and were therefore wrong by different amounts.
+; ==============================================================================
+
+Import "../OfficeTextMeasure.rgr"
+Import "../OfficeMeasure.rgr"
+Import "../../../game_engine/ui/UIContext.rgr"
+
+class TargetCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class OfficeMeasureTargetsTest {
+    ; The measurer that attached BEFORE the faces did. Held so `show` can ask
+    ; it the same question as the easy one and print both.
+    def lateM:OfficeTextMeasure (new OfficeTextMeasure())
+
+    Constructor () {
+    }
+
+    sfn loadFaces:void (ctx:UIContext) {
+        ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf")
+        ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Bold.ttf")
+        ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Italic.ttf")
+    }
+
+    sfn main:void () {
+        def t:OfficeMeasureTargetsTest (new OfficeMeasureTargetsTest())
+        t.run()
+    }
+
+    ; One decimal, printed the same way on every target: `to_string` on a
+    ; double prints whatever the target prints, and three targets print three
+    ; things — which would make this check about formatting.
+    sfn num:string (v:double) {
+        def hundredths:int (to_int ((v * 100.0) + 0.5))
+        def whole:int (idiv hundredths 100)
+        def rest:int (hundredths % 100)
+        def r:string (to_string rest)
+        while ((strlen r) < 2) { r = ("0" + r) }
+        return ((to_string whole) + "." + r)
+    }
+
+    fn run:void () {
+        def c:TargetCheck (new TargetCheck())
+        print "== OfficeMeasureTargetsTest =="
+
+        ; FONTS FIRST, THEN ATTACH — the easy order.
+        def ctx:UIContext (new UIContext)
+        ctx.tr.addFontDir("gallery/pdf_writer/assets/fonts")
+        OfficeMeasureTargetsTest.loadFaces(ctx)
+        c.ok("the faces loaded" (ctx.tr.hasFont))
+        def m:OfficeTextMeasure (new OfficeTextMeasure())
+        m.attach(ctx "Open Sans")
+        c.ok("the measurer has a renderer" m.hasCtx)
+
+        ; ATTACH FIRST, THEN FONTS — what a host actually does, and what was
+        ; broken. Every number below has to come out the same both ways.
+        def ctx2:UIContext (new UIContext)
+        ctx2.tr.addFontDir("gallery/pdf_writer/assets/fonts")
+        def late:OfficeTextMeasure (new OfficeTextMeasure())
+        late.attach(ctx2 "Open Sans")
+        OfficeMeasureTargetsTest.loadFaces(ctx2)
+        c.ok("the late faces loaded" (ctx2.tr.hasFont))
+        c.ok("and a measurer attached before them measures with them"
+            ((late.widthOfIn("Kitchen sink — slide A" 6.44 true false ""))
+             == (m.widthOfIn("Kitchen sink — slide A" 6.44 true false ""))))
+        c.ok("…and not with the estimate tables it had when it attached"
+            ((late.widthOfIn("Kitchen sink" 11.0 false false "")) > 0.0))
+        lateM = late
+
+        ; The numbers themselves are printed rather than asserted: what this
+        ; file checks is that the two targets print the SAME ones, which the
+        ; runner does by comparing the two outputs. An assertion against a
+        ; constant would be an assertion about a particular font file.
+        print "-- widths, which every target must agree on --"
+        this.show("ascii" m "Kitchen sink" 6.44 true)
+        this.show("emdash" m "Kitchen sink — slide A" 6.44 true)
+        this.show("emdash-big" m "Kitchen sink — slide A" 26.07 true)
+        this.show("arrow" m "↑ 18%" 2.17 true)
+        this.show("trailing-space" m "Pipeline " 2.17 false)
+        this.show("accents" m "Päivitä suunnitelma" 11.0 false)
+        this.show("cjk" m "日本語のテキスト" 11.0 false)
+        this.show("emoji" m "a😀b" 11.0 false)
+
+        ; …and the thing the widths are FOR: a run placed after another run
+        ; starts where the first one ended, so a width that differs moves
+        ; every run after it on that line.
+        print "-- …and with a family the document NAMED --"
+        this.showIn("calibri-reg" m "Kitchen sink — slide A" 6.44 false "Calibri")
+        this.showIn("calibri-bold" m "Kitchen sink — slide A" 6.44 true "Calibri")
+        this.showIn("papyrus-bold" m "Kitchen sink — slide A" 6.44 true "Papyrus")
+        this.showIn("opensans-bold" m "Kitchen sink — slide A" 6.44 true "Open Sans")
+        print (("  face calibri-bold  " + (m.faceForIn("Calibri" true false))))
+        print (("  face papyrus-bold  " + (m.faceForIn("Papyrus" true false))))
+        print (("  drawn calibri-bold " + (m.drawnFamily("Calibri" true false))))
+
+        print "-- and the x a second run would start at --"
+        def first:double (m.widthOfIn("Pipeline " 2.17 false false ""))
+        print (("  pipeline-end   " + (OfficeMeasureTargetsTest.num(first))))
+
+        print ""
+        print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+
+    ; Both orders on one line. They are the same number or the line says so,
+    ; which is what makes a failure readable without a second run.
+    fn showIn:void (label:string m:OfficeTextMeasure text:string size:double bold:boolean named:string) {
+        def w:double (m.widthOfIn(text size bold false named))
+        def late:double (lateM.widthOfIn(text size bold false named))
+        def pad:string label
+        while ((strlen pad) < 16) { pad = (pad + " ") }
+        def line:string (("  " + pad) + (OfficeMeasureTargetsTest.num(w)))
+        if ((fabs (w - late)) > 0.005) {
+            line = ((line + "   ATTACHED-BEFORE-FONTS: ") + (OfficeMeasureTargetsTest.num(late)))
+        }
+        print line
+    }
+
+    fn show:void (label:string m:OfficeTextMeasure text:string size:double bold:boolean) {
+        this.showIn(label m text size bold "")
+    }
+}
