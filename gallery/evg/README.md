@@ -28,6 +28,7 @@ This file is the reference for the engine itself. The other documents here are:
 | [`PLAN_VECTOR_IR.md`](PLAN_VECTOR_IR.md) | The vector layer: paths, strokes, `viewBox`, SVG import |
 | [`PLAN_ACCESSIBILITY.md`](PLAN_ACCESSIBILITY.md) | The second list a frame publishes — what it *means* |
 | [`PLAN_NATIVE_HOSTS.md`](PLAN_NATIVE_HOSTS.md) | A spike: DOM, SwiftUI and Compose as hosts rather than painters — what the platform can do better than a canvas, where native layout stops, and the engine off the UI thread |
+| [`bench/README.md`](bench/README.md) | The same CSS through this engine and through Chromium — where they disagree, and what layout costs at 100k boxes |
 | [`ISSUES.md`](ISSUES.md) | Known defects, with the measurements that found them |
 | [`showcase/README.md`](showcase/README.md) | The gallery, and how it is built |
 | [`gl/README.md`](gl/README.md) | The display-list seam and the GPU backend |
@@ -189,12 +190,13 @@ drifting apart, because the sheet hands its declarations to the same function.
 | Property | Values |
 | --- | --- |
 | `display` | `flex`, `grid` — anything else is block flow |
-| `flex-direction` | `row` (the default), `column`, `column-reverse` |
+| `flex-direction` | `row`, `column`. The reversed directions parse and then warn: nothing lays them out |
 | `flex-wrap` | `nowrap`, `wrap`, `wrap-reverse` |
 | `justify-content` | `flex-start`, `center`, `flex-end`, `space-between`, `space-around`, `space-evenly` |
 | `align-items` `align-content` | `flex-start`, `center`, `flex-end`, `stretch`, `baseline` |
+| `align-self` | the same set, on the item, overriding its container's `align-items` |
 | `flex` | the shorthand; `flex-basis` and `flex-shrink` separately |
-| `gap` `row-gap` `column-gap` | |
+| `gap` `row-gap` `column-gap` | the longhands override the shorthand, per axis — in a row `column-gap` is between the items and `row-gap` between the wrapped lines |
 | `grid-template-columns` `grid-template-rows` | `120px 1fr 40%`, `repeat(3, 1fr)`, `minmax(40px, 1fr)`, `subgrid` |
 | `grid-template-areas` | a picture of names; a repeated name is one rectangle |
 | `grid-column` `grid-row` `grid-area` | placement and spans |
@@ -484,10 +486,21 @@ already-resolved parent. Anything laid out more than once therefore has to start
 from `resetLayoutState()`, which `layout()` calls.
 
 **Flow** is a column of boxes. **Flex** is `display: flex` with direction, wrap,
-justify, align and gaps; a text leaf shrink-wraps to its measured content rather
-than claiming the parent's width. **Grid** is `display: grid` with fixed,
-percentage and `fr` tracks, `repeat()`, `minmax()`, named areas, spans and row
-`subgrid`.
+justify, align, `align-self` and the two gaps; a text leaf shrink-wraps to its
+measured content rather than claiming the parent's width. **Grid** is
+`display: grid` with fixed, percentage and `fr` tracks, `repeat()`, `minmax()`,
+named areas, spans and row `subgrid`.
+
+**Sizing a flex line** is CSS's "resolve flexible lengths" in both directions:
+a `flex-basis` is the item's starting main size whether or not it grows, the
+free space is shared by `flex-grow` and the overflow by `flex-shrink` × base,
+and an item that hits `min-width` or `max-width` is FROZEN at the limit and
+what it did not take is offered to the rest. `max-width` is applied before
+`min-width`, so when the two contradict each other the minimum wins.
+[`EVGFlexRulesTest.rgr`](EVGFlexRulesTest.rgr) (`npm run evg:flexrules:test`)
+is the statement of all five rules, and
+[`bench/`](bench/) is where they were found — the same CSS through this engine
+and through Chromium, box for box.
 
 Three things worth knowing, all documented at their source:
 
@@ -514,6 +527,16 @@ own height measures the children's lowest edge, as
 
 **Layout warnings** are collected rather than printed: `warningCount()` /
 `warningAt(i)`. The showcase build fails on them.
+
+**And a declaration the engine cannot use is one of them.** `calc()`,
+`width: min-content`, `aspect-ratio`, `align-self` before it existed,
+`repeat(auto-fit, …)`, a reversed flex direction — each of these used to be
+dropped in silence, and a dropped `width` is not neutral: in a row it fills the
+parent, so `width: calc(100% - 40px)` did not fail to apply, it applied as
+`width: 100%`. [`EVGReject`](EVGReject.rgr) collects every one and `layout()`
+drains it into the same list. It de-duplicates and caps itself, so one bad rule
+applied to 22,403 elements is one warning and not 22,403 — measured, because
+the style cache replays a plan per element per frame.
 
 ---
 

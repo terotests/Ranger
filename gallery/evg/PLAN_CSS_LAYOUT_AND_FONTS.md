@@ -35,16 +35,19 @@ Without that, flex/grid improvements will still look wrong in print.
 | --- | --- | --- |
 | Lengths | `px`, `%`, `em`, `rem`, `vw` / `vh`, and the absolute print units `pt` / `pc` / `in` / `mm` / `cm`, plus EVG's own `hp` and `fill` | `vmin` / `vmax`, `ch` / `ex`, `calc()` — all rejected rather than misread |
 | Kerning | GPOS pair adjustments (formats 1 and 2, incl. Extension lookups) and the legacy `kern` table, in measurement and in paint | Ligatures and other GPOS features |
-| Flex | Grow, per-item `flex-shrink`, `flex-basis`, `flex` shorthand, min/max resolved inside the distribution | — |
-| `gap` | Main axis, row + column | No separate `row-gap` / `column-gap` |
+| Flex | Grow, per-item `flex-shrink`, `flex-basis` (as a size, growing or not), `flex` shorthand, min/max frozen and redistributed on BOTH sides of the distribution, `align-self` | Reversed directions (`row-reverse` / `column-reverse`) parse and warn |
+| `gap` | Both axes, including between wrapped lines, with `row-gap` / `column-gap` overriding the shorthand per axis | — |
 | `flex-wrap` | `wrap` (default) / `nowrap` / `wrap-reverse`, with the full `align-content` set including `stretch` | — |
 | Alignment | `justifyContent`, `alignItems` (incl. `stretch` and `baseline`), plus legacy `align` / `verticalAlign` | Naming overlap between the CSS and legacy names |
 | Text intrinsic size | Shrink-wraps to content measured from the real face | — |
 | Grid | `display: grid` with fr/px/%/`auto`/`fit-content()`/repeat/`minmax()` tracks, gaps, spans, `grid-template-areas`, `grid-auto-flow: dense`, `subgrid` on both axes, named lines. 20 fixtures checked against Chromium | Intrinsic sizing of a container item (only definite widths and text leaves contribute) |
 | Styles | Mostly inline JSX attributes | No class/theme stylesheet layer |
 
-`min-width` / `max-width` / `min-height` / `max-height` already parse and clamp;
-what is missing is ordering them correctly against grow/shrink.
+`min-width` / `max-width` / `min-height` / `max-height` parse, clamp, and are
+ordered correctly: `max` first and `min` second, so the minimum wins a
+contradiction, and inside a flex line a clamp freezes the item and hands the
+space it refused to its siblings. Measured against Chromium in
+[`bench/`](../evg/bench/); asserted in `EVGFlexRulesTest.rgr`.
 
 ISSUES #1 (labels taking full parent width in a `row`) is resolved — see that
 file for what the fix depended on.
