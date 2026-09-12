@@ -78,6 +78,21 @@ alignment, per-side weights, caps and dashes; a CSS border is the fallback
 for a file without it. A translucent paint goes into its colour, not into
 the element's opacity, so a bar inside a 15% track stays solid.
 
+An underline comes from the same block as the glyphs. Which characters
+carry one is per-character styling — `textDecoration` on an entry of the
+text's style table — and where the line sits is the font's business, so
+Figma works it out and writes the rectangle into
+`derivedTextData.decorations`. Painted as part of the text's own path, so
+it takes the text's ink and the renderer is taught nothing; a strikethrough
+is the same rectangle higher up. Read the glyphs and not that, and a run
+the designer underlined comes out plain.
+
+A frame paints its stroke over its content, so the outline the stroke
+geometry became is the frame's last child. A section does not: it is the
+board's own furniture, and what is left on it is drawn over its edge. A
+sticker across a section's corner is whole in Figma, and here the section's
+green line was cutting through it.
+
 ## Try it
 
 ```bash
@@ -237,9 +252,14 @@ path *tail* and not a prefix — `40000000:0/601:5/601:7` and
 with the same tail. That is what puts the third cell's text in the third
 cell rather than 20 pixels from the table's corner.
 
-A connector keeps one style block for the line, its caps and its label,
-and its arrow head is a filled path in the line's colour — the only colour
-the file gives it.
+A connector ships three layers — the line, and the text and rounded box
+its label is made of — and one style block, which is the line's: its caps
+and its arrow head are drawn in it, the head as a filled path in the line's
+colour, the only colour the file gives it. The label layers are styled only
+when there is a label, so a connector without one carries a 100x100 box
+nothing says how to paint. Reading that block as the whole connector's
+painted the box too, and every divider drawn with a connector came out with
+a coloured square sitting on one end of it.
 
 ## Moving around
 

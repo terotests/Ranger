@@ -147,7 +147,7 @@ class FigFieldReport {
             return "multiply, overlay and the rest — everything is drawn normal"
         }
         if (field == "styleOverrideTable") {
-            return "per-character text styling (a bold word, a coloured span) — the whole string takes one style"
+            return "per-character text styling (a bold word, a coloured span) — the whole string takes one style, though an underline is drawn from the rectangle the file carries for it"
         }
         if (field == "textTruncation") {
             return "text that should be cut with an ellipsis is drawn in full"

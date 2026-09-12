@@ -2,14 +2,15 @@
  * RangerFlow in a tab.
  *
  *   INPUT   browser event → RangerFlowWeb → FlowEditor          (here)
- *   RENDER  FlowEditor.sceneJson() → EVGDisplayList → evg-webgl.js (here)
+ *   RENDER  FlowEditor.frameJson() → EVGDisplayList → evg-webgl.js (here)
  *
  * The seam is the display list, and `evg-webgl.js` is the same renderer the
  * DataGrid page uses — this page adds no drawing code of its own. What is
  * fetched is only what a browser cannot make for itself: the font faces the
  * text runs are rasterized with, and a `.sql` file to open.
  */
-import { renderDisplayList } from "./gl/evg-webgl.js";
+import { prepareDisplayList } from "./gl/evg-webgl.js";
+import { createViewKeeper } from "./gl/evg-view.js";
 // The fixture this page's head started fetching before the body was parsed —
 // see gallery/evg/web/tools/inline-assets.mjs, which writes that head.
 import { textOf } from "./evg/assets-client.mjs";
@@ -63,7 +64,53 @@ function engineClass() {
   return cls;
 }
 
-const app = new (engineClass())();
+// ---- what has to be built again ------------------------------------------
+//
+// The graph is built in ITS OWN coordinates now and the camera is a uniform
+// (`gallery/evg/PLAN_VIEW_TRANSFORM.md` S2), so a pan and a zoom inside the
+// band redraw the frame the GPU already holds: no walk over the diagram, no
+// atlas, no upload. What still needs a new frame is a change to the PICTURE —
+// a drag, a selection, a hover, a keystroke, a new document.
+//
+// Which is a question about what just happened, and the answer comes from the
+// engine's own surface: every call into it marks the frame stale EXCEPT the
+// handful that can only move the view, and a field written on it does too. The
+// list below is therefore the safe way round — a reader left off it costs a
+// rebuild, while a writer left off it would show a stale picture, and anything
+// the page adds later is stale by default.
+let sceneStale = true;
+const VIEW_ONLY = new Set([
+  // gestures that can only move the camera
+  "wheelGesture", "pinchBegin", "pinchTo", "pinchEnd", "fitView",
+  // a pointer move is one of the two, and `viewGesture` below says which
+  "pointerMove",
+  // and everything that only reads
+  "editing", "editValue", "pendingConnect", "cursorAt", "connectMode",
+  "statusText", "stats", "selfTest", "selectedId", "selectedLabel",
+  "selectedRowCount", "sceneJson", "svg", "frame", "frameScene", "frameView",
+  "tick", "viewGesture", "sampleText", "frameGrid",
+]);
+
+const rawApp = new (engineClass())();
+const app = new Proxy(rawApp, {
+  get(target, key) {
+    const val = target[key];
+    if (typeof val !== "function") return val;
+    return (...args) => {
+      if (!VIEW_ONLY.has(key)) sceneStale = true;
+      const out = val.apply(target, args);
+      // A pointer move is a pan while the canvas is being dragged and a hover
+      // otherwise — and a hover repaints the node under it, so it is not free.
+      if (key === "pointerMove" && !target.viewGesture()) sceneStale = true;
+      return out;
+    };
+  },
+  set(target, key, value) {
+    sceneStale = true;
+    target[key] = value;
+    return true;
+  },
+});
 let dpr = Math.min(window.devicePixelRatio || 1, 2);
 
 // The drawing buffer has to match the element it is displayed in. When it
@@ -500,6 +547,85 @@ document.getElementById("file").addEventListener("change", async (ev) => {
 // ---- frame loop ----------------------------------------------------------
 let frames = 0, lastFps = performance.now();
 
+// The frame the GPU holds, and what it was built for. `keeper` is the
+// arithmetic of §4 of the design: a built frame may be drawn at a view within
+// a √2 band of the one it was built at, and while the window stays inside the
+// region the build covered — one window of overscan each way, the same number
+// `FlowView.overscan` builds for.
+let sceneFrame = null;
+let builtDpr = 0;
+const keeper = createViewKeeper({ overscan: 1 });
+const frameCounts = { builds: 0, kept: 0 };
+window.__frames = frameCounts;
+
+let lastCmds = 0;
+// The paper and the background pattern. Periodic, so a pan SLIDES it: it is
+// built two periods wider than the canvas and drawn at the offset the engine
+// reports, and only a new period — a zoom, a resize — builds it again. Built
+// into the diagram's frame instead, the same grid would be nine times the dots
+// (the region is three windows across) and rebuilt on every click.
+let gridFrame = null;
+let gridPeriod = -1;
+let gridBuiltAt = [0, 0];
+let gridSize = [0, 0];
+
+function paintOnce() {
+  // One step of the force layout, if one is running. A settling graph moves
+  // every frame, so it is a new frame every time; a settled one is not.
+  if (app.tick()) sceneStale = true;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  // The camera, the grid's offset and the screen-anchored half. Cheap: no
+  // diagram in it, which is the point — this is what a pan costs.
+  const tick = JSON.parse(app.frameView());
+  const view = { x: tick.view[0], y: tick.view[1], scale: tick.view[2] };
+  const grid = tick.grid || [0, 0, 0];
+  const sizeChanged = gridSize[0] !== w || gridSize[1] !== h;
+
+  // ---- the paper and the pattern, slid ------------------------------------
+  if (!gridFrame || grid[2] !== gridPeriod || sizeChanged || dpr !== builtDpr) {
+    const gdoc = JSON.parse(app.frameGrid());
+    if (gridFrame) gridFrame.dispose();
+    gridFrame = prepareDisplayList(gl, gdoc, { dpr });
+    gridPeriod = grid[2];
+    gridBuiltAt = [grid[0], grid[1]];
+    gridSize = [w, h];
+  }
+  const gridStats = gridFrame.draw(null, [grid[0] - gridBuiltAt[0], grid[1] - gridBuiltAt[1], 1]);
+
+  // ---- the diagram, through the camera ------------------------------------
+  const fit = keeper.fits(view, w, h);
+  let cmds = lastCmds;
+  if (sceneStale || !sceneFrame || !fit.keep || dpr !== builtDpr) {
+    const doc = JSON.parse(app.frameScene());
+    if (sceneFrame) sceneFrame.dispose();
+    sceneFrame = prepareDisplayList(gl, doc, { dpr });
+    keeper.built(view, w, h);
+    sceneStale = false;
+    cmds = doc.list.cmds.length;
+    lastCmds = cmds;
+    frameCounts.builds += 1;
+  } else {
+    frameCounts.kept += 1;
+  }
+  builtDpr = dpr;
+  const stats = sceneFrame.draw(null, tick.view, { clear: false });
+
+  // ---- the chrome, on top and fresh --------------------------------------
+  const chrome = tick.chrome;
+  let chromeStats = null;
+  if (chrome && chrome.cmds && chrome.cmds.length > 0) {
+    const cf = prepareDisplayList(gl, { width: tick.width, height: tick.height, list: chrome }, { dpr });
+    chromeStats = cf.draw(null, null, { clear: false });
+    cf.dispose();
+  }
+  return {
+    cmds: cmds + (chrome && chrome.cmds ? chrome.cmds.length : 0),
+    stats,
+    chromeStats,
+    gridStats,
+  };
+}
+
 function frame() {
   // The drawing buffer is a property of THIS frame, so it is decided here.
   // A `ResizeObserver` alone was not enough — it depends on the browser
@@ -507,10 +633,13 @@ function frame() {
   // buffer is stretched into the element and every hit test in the core
   // points somewhere else. Two integer comparisons per frame buy certainty.
   resize();
-  const doc = JSON.parse(app.frame());
-  const stats = renderDisplayList(gl, doc, { dpr });
+  const painted = paintOnce();
+  const stats = painted.stats;
+  const runs = stats.runs + (painted.chromeStats ? painted.chromeStats.runs : 0);
+  const paths = stats.paths + (painted.chromeStats ? painted.chromeStats.paths : 0);
   cmdsEl.textContent =
-    `${doc.list.cmds.length} cmds · ${stats.runs} runs · ${stats.paths} paths`;
+    `${painted.cmds} cmds · ${runs} runs · ${paths} paths · ` +
+    `${frameCounts.kept} kept/${frameCounts.builds} built`;
   statusEl.textContent = app.statusText() + " · " + app.stats();
   frames += 1;
   const now = performance.now();
@@ -604,15 +733,180 @@ async function boot() {
     const line = app.selfTest();
     const glOk = gl instanceof WebGL2RenderingContext;
     const stencil = gl.getContextAttributes().stencil === true;
-    const doc = JSON.parse(app.sceneJson());
-    const stats = renderDisplayList(gl, doc, { dpr });
+    const painted = paintOnce();
+    // Three frames make one canvas now \u2014 the pattern, the diagram, the chrome
+    // \u2014 so what the page reports about "how much was drawn" is the sum. Read
+    // from one frame it would say a schema was nearly empty.
+    const sumOf = (key) =>
+      (painted.stats[key] || 0) + (painted.gridStats ? painted.gridStats[key] || 0 : 0) +
+      (painted.chromeStats ? painted.chromeStats[key] || 0 : 0);
+    const stats = {
+      drawn: sumOf("drawn"),
+      paths: sumOf("paths"),
+      runs: sumOf("runs"),
+      skippedFills: sumOf("skippedFills"),
+    };
+
+    // ---- the camera, checked rather than described -------------------------
+    //
+    // The claim is that a pan and a zoom inside the band redraw the frame the
+    // GPU already holds, and that everything else builds a new one. Both
+    // halves matter: a policy that never rebuilt would be fast and show a
+    // stale diagram, which is the failure this cannot be allowed to have.
+    const camera = [];
+    const say = (name, cond, detail) =>
+      camera.push((cond ? "ok " : "FAIL ") + name + (detail ? " (" + detail + ")" : ""));
+    paintOnce();
+    {
+      const before = frameCounts.builds;
+      for (let i = 0; i < 6; i += 1) {
+        app.wheelGesture(200, 200, -40, 0, false, false); // a pan, not a zoom
+        paintOnce();
+      }
+      // A force layout that is still settling moves the graph every frame, so
+      // there is no frame to keep and nothing for this to say.
+      const settling = rawApp.simRunning === true;
+      say("a pan keeps the frame", settling || frameCounts.builds === before,
+          settling ? "the layout is still settling"
+                   : before + " \u2192 " + frameCounts.builds + " builds");
+    }
+    {
+      // A click changes the picture — the node under it takes a selection
+      // border — so it has to cost a frame.
+      const before = frameCounts.builds;
+      app.pointerDown(300, 200, false, false);
+      app.pointerUp(300, 200, false, false);
+      paintOnce();
+      say("a click builds a new one", frameCounts.builds > before,
+          before + " \u2192 " + frameCounts.builds);
+    }
+    {
+      // And so does a zoom past the band: the atlas was rasterised at a size
+      // and the curves were flattened for one.
+      const before = frameCounts.builds;
+      for (let i = 0; i < 8; i += 1) {
+        app.wheelGesture(400, 300, 0, -120, true, false); // ctrl+wheel = zoom
+      }
+      paintOnce();
+      say("a zoom past the band rebuilds", frameCounts.builds > before,
+          before + " \u2192 " + frameCounts.builds);
+      app.fitView();
+      paintOnce();
+    }
+    {
+      // ---- THE PICTURE ITSELF, both ways ----------------------------------
+      //
+      // Everything above counts commands and builds. This reads the canvas
+      // back: the three frames the page now draws \u2014 the pattern slid, the
+      // diagram through the camera, the chrome on top \u2014 against ONE list with
+      // the camera multiplied in, which is what this page drew before and what
+      // every exporter still emits. A camera that is off by a pan, a grid slid
+      // the wrong way, a chrome list drawn with a clear: all of them pass every
+      // other check on this page and none of them survives this one.
+      const W = canvas.width, H = canvas.height;
+      const read = () => {
+        const px = new Uint8Array(W * H * 4);
+        gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        return px;
+      };
+      const bothWays = () => {
+        paintOnce();
+        const a = read();
+        const baked = JSON.parse(app.sceneJson());
+        const bf = prepareDisplayList(gl, baked, { dpr });
+        bf.draw(null);
+        bf.dispose();
+        return [a, read()];
+      };
+      // THE THREE-PIXEL BORDER IS LEFT OUT, and it is the one place the two are
+      // expected to differ: the baked paper ends exactly at the canvas edge and
+      // is antialiased there, while the pattern frame's paper is padded so it
+      // can be slid, so it covers that row completely.
+      const differ = (a, b) => {
+        let worst = 0, off = 0;
+        for (let y = 3; y < H - 3; y += 1) {
+          for (let x = 3; x < W - 3; x += 1) {
+            const i = (y * W + x) * 4;
+            for (let k = 0; k < 4; k += 1) {
+              const d = Math.abs(a[i + k] - b[i + k]);
+              if (d > worst) worst = d;
+              if (d > 8) off += 1;
+            }
+          }
+        }
+        return { worst, pct: (100 * off) / (W * H * 4) };
+      };
+      // Where the ink is, which is the question a difference of antialiasing
+      // cannot change: a camera off by a pan or a scale moves this box.
+      //
+      // INK MEANS INK, not the pale edge of a hairline: at a sixth of a zoom a
+      // one-pixel rule lands between pixels and the two roads spread it
+      // differently, so a threshold near the paper would report a stray
+      // 190-grey pixel as the top of the diagram and this would measure
+      // antialiasing instead of geometry.
+      const inkBox = (px) => {
+        let x0 = W, y0 = H, x1 = -1, y1 = -1;
+        for (let y = 3; y < H - 3; y += 1) {
+          for (let x = 3; x < W - 3; x += 1) {
+            const i = (y * W + x) * 4;
+            if (px[i] < 150 || px[i + 1] < 150 || px[i + 2] < 150) {
+              if (x < x0) x0 = x; if (x > x1) x1 = x;
+              if (y < y0) y0 = y; if (y > y1) y1 = y;
+            }
+          }
+        }
+        return [x0, y0, x1, y1];
+      };
+
+      // AT UNIT ZOOM THE TWO ARE THE SAME PICTURE, to the last bit. This is
+      // the check with no slack in it: the glyph atlas is rasterised at the
+      // same size on both roads, so anything that differs here is geometry.
+      app.fitView();
+      rawApp.editor.view.viewport.zoom = 1;
+      sceneStale = true;
+      const [camOne, bakedOne] = bothWays();
+      const one = differ(camOne, bakedOne);
+      say("at unit zoom the camera draws the baked picture", one.pct < 0.2,
+          `worst ${one.worst}, ${one.pct.toFixed(3)}% of the interior differs`);
+
+      // AND AT THE DIAGRAM'S OWN ZOOM the ink lands in the same place. Not the
+      // same pixels: a glyph rasterised for a frame built at 0.2 and then drawn
+      // through the camera is not bit-identical to one rasterised at the size
+      // the walk baked in, and neither is a hairline that lands between pixels.
+      // What must not change is WHERE the diagram is, and that is the box.
+      app.fitView();
+      sceneStale = true;
+      const [camFit, bakedFit] = bothWays();
+      const a = inkBox(camFit), b = inkBox(bakedFit);
+      const slip = Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+      say("and at the diagram's own zoom the ink is in the same place", slip <= 2,
+          `camera ${a.join(",")} vs baked ${b.join(",")}`);
+    }
+    {
+      // The chrome is a list of its own and is NOT in the graph's frame: it is
+      // built every frame, which is why a ruler stays 18 pixels wide while the
+      // diagram under it zooms.
+      const f = JSON.parse(app.frameView());
+      const hasChrome = !!(f.chrome && f.chrome.cmds);
+      const g = JSON.parse(app.frameScene());
+      say("the frame carries a camera", Array.isArray(f.view) && f.view.length === 3,
+          JSON.stringify(f.view));
+      say("the chrome is its own list", hasChrome, hasChrome ? f.chrome.cmds.length + " commands" : "none");
+      say("the graph is not in it", (g.list.cmds.length > (f.chrome.cmds.length || 0)),
+          g.list.cmds.length + " vs " + (f.chrome.cmds.length || 0));
+      // A pan's payload: the camera and the chrome, against the diagram.
+      say("a pan's payload is the camera, not the diagram",
+          app.frameView().length * 3 < app.frameScene().length,
+          app.frameView().length + " vs " + app.frameScene().length + " bytes");
+    }
+
     selfTestEl.hidden = false;
     // `drift` is the one number that says whether what you see is where you
     // can click: the drawing buffer against the element it is scaled into.
     selfTestEl.textContent =
       `${line}\nwebgl2=${glOk} stencil=${stencil} quads=${stats.drawn} ` +
       `paths=${stats.paths} runs=${stats.runs} skippedFills=${stats.skippedFills} ` +
-      `drift=${drift.toFixed(3)}`;
+      `drift=${drift.toFixed(3)}\ncamera: ${camera.join(" | ")}`;
   }
   requestAnimationFrame(frame);
 }

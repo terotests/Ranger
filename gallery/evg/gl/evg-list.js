@@ -16,6 +16,12 @@
 // layout computed, not its decimal form.
 
 /** The commands of an `EVGDisplayList` in the JSON writer's shape. */
+/** The camera the list carries, or null. Mirrors `viewOfBinary`. */
+export function viewOf(dl) {
+  if (!dl || !dl.hasView) return null;
+  return { x: dl.viewX || 0, y: dl.viewY || 0, scale: dl.viewScale === undefined ? 1 : dl.viewScale };
+}
+
 export function cmdsOf(dl) {
   const attribute = !!dl.attribute;
   const out = new Array(dl.cmds.length);

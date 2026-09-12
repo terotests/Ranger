@@ -238,17 +238,21 @@ class MarkdownWeb {
     def ownerRefusal:string ""
     def pptxSummary:string ""
     def pptxNotes:string ""
+    ; The document, in DOCUMENT coordinates, and it stays there. Where the
+    ; reader is looking is a camera on it — `setView(sheetLeft -scrollY 1)`,
+    ; which the painter multiplies in the shader — so a scroll moves three
+    ; numbers rather than every command in the list, and the host can draw the
+    ; frame it already built (`gallery/evg/PLAN_VIEW_TRANSFORM.md` S3). The list
+    ; used to be walked and rewritten on every scroll instead.
+    ;
+    ; A sheet narrower than the window sits in the MIDDLE of it, the way a page
+    ; does in every reader, rather than against the left edge with the paper
+    ; stopping half way across; that is the camera's x.
     def docList:EVGDisplayList (new EVGDisplayList())
-    ; Where `docList` currently sits. The list is moved to the scroll position
-    ; rather than copied there: `appendFrom` shares its commands, so a copy
-    ; would alias the original and the second scroll would move it twice.
-    def listOffset:double 0.0
-    ; …and how far right it is. A sheet narrower than the window sits in the
-    ; MIDDLE of it, the way a page does in every reader, rather than against
-    ; the left edge with the paper stopping half way across. Kept as a number
-    ; rather than baked into the layout because a click arrives in view
-    ; coordinates and has to come back out of them.
-    def listOffsetX:double 0.0
+    ; Which BUILD of the document this is. A host keeps its built frame while
+    ; this is unchanged — a scroll, a blink, a click all leave it alone — and
+    ; builds again when a keystroke or a style change moves it on.
+    def listRev:int 0
 
     def fontManager:FontManager (new FontManager())
     def faceCount:int 0
@@ -527,8 +531,7 @@ class MarkdownWeb {
     ; document shows what will be printed — the same call, the same breaks,
     ; and the reader can see where page four starts before they print it.
     fn buildList:void () {
-        listOffset = 0.0
-        listOffsetX = 0.0
+        listRev = (listRev + 1)
         ; Straight to the commands: the canvas never wanted an element tree,
         ; and building one only to walk it back was 133 ms of a 342 ms
         ; document. `MarkdownTest.presized` holds the two roads to the same
@@ -586,43 +589,67 @@ class MarkdownWeb {
         this.scrollTo(y)
     }
 
-    ; The commands for what is on screen, in screen coordinates, in the
-    ; envelope the WebGL painter reads: `{width, height, list}`. The list
+    ; The whole document plus where it is looked at from, in the envelope the
+    ; WebGL painter reads: `{width, height, view, list, chrome, rev}`. The list
     ; alone is what `toJson` gives, and the painter reaches for `doc.list.cmds`
     ; — handing it the bare list is a page that draws nothing and says
     ; "cannot read properties of undefined".
+    ;
+    ; THE DOCUMENT AND THE CHROME ARE TWO LISTS. The document is in document
+    ; coordinates and `view` says where the window on it is; the caret and the
+    ; selection are in screen coordinates and carry no camera, because they are
+    ; the same 1.6 points wide wherever the document is. That is what lets a
+    ; host build the document once and redraw a blink without it: a caret
+    ; blinks and moves without a character changing, and serialising a
+    ; forty-page document to draw a two-point rectangle is the difference
+    ; between an editor that types and one that stutters.
+    ;
+    ; `viewFrame` is this without the document, which is what a scroll needs.
     fn frame:string () {
         this.sync()
-        def want:double (0.0 - scrollY)
-        def delta:double (want - listOffset)
-        def wantX:double (this.sheetLeft())
-        def deltaX:double (wantX - listOffsetX)
-        if ((delta != 0.0) || (deltaX != 0.0)) {
-            docList.offsetBy(deltaX delta)
-            listOffset = want
-            listOffsetX = wantX
-        }
-        ; The document, then the caret and the selection on top of it. The
-        ; chrome is built fresh every frame and the document is not: a caret
-        ; blinks and moves without a character changing, and relaying out a
-        ; document to draw a two-point rectangle is the difference between an
-        ; editor that types and one that stutters.
-        def out:EVGDisplayList (new EVGDisplayList())
-        out.appendFrom(docList)
-        this.paintChrome(out)
-        def body:string (out.toJson())
+        def vdx:double (this.sheetLeft())
+        docList.setView(vdx (0.0 - scrollY) 1.0)
+        def body:string (docList.toJson())
+        def head:string (this.frameHead())
+        return (((head + ",\"list\":") + body) + "}")
+    }
+
+    ; A frame with no document in it: the camera, the chrome and the build
+    ; number. A host that already holds the built document draws it again from
+    ; these three — so a scroll or a blink costs a caret's worth of JSON
+    ; rather than the document's, and nothing walks the commands at all.
+    fn viewFrame:string () {
+        this.sync()
+        return ((this.frameHead()) + "}")
+    }
+
+    ; What both share: the canvas, the camera, the chrome and the build number.
+    ; The camera is written out whatever it is, including the identity one at
+    ; the top of a continuous document — a host reading `doc.view` should not
+    ; have to know that the list drops a camera that does nothing.
+    fn frameHead:string () {
+        def chrome:EVGDisplayList (new EVGDisplayList())
+        this.paintChrome(chrome)
         def w:string (EVGDisplayList.num(viewW))
         def h:string (EVGDisplayList.num(viewH))
-        return ((((("{\"width\":" + w) + ",\"height\":") + h) + ",\"list\":") + body) + "}"
+        def dx:double (this.sheetLeft())
+        def dy:double (0.0 - scrollY)
+        def vx:string (EVGDisplayList.fine(dx))
+        def vy:string (EVGDisplayList.fine(dy))
+        def out:string (((("{\"width\":" + w) + ",\"height\":") + h) + ",\"view\":[")
+        out = ((((out + vx) + ",") + vy) + ",1]")
+        out = ((out + ",\"rev\":") + (to_string listRev))
+        out = ((out + ",\"chrome\":") + (chrome.toJson()))
+        return out
     }
 
     ; ----------------------------------------------------------------------
     ; The caret, and the band behind a selection
     ; ----------------------------------------------------------------------
     ;
-    ; Drawn as ordinary rectangles into the same display list as the document,
-    ; so every painter that can draw the document can draw the caret and none
-    ; of them learns what a caret is. That is the data seam
+    ; Drawn as ordinary rectangles into a display list — its own, beside the
+    ; document's — so every painter that can draw the document can draw the
+    ; caret and none of them learns what a caret is. That is the data seam
     ; `gallery/PLAN_EDITOR_KERNEL.md` §2 prefers, and here it means the SDL
     ; host and the WebGL one get an editor without being told.
     fn paintChrome:void (out:EVGDisplayList) {
