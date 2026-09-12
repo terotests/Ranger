@@ -632,6 +632,14 @@ class EVGDisplayList {
     }
 
     fn addFrame:void (x:double y:double w:double h:double thickness:double col:EVGColor) {
+        this.addTurnedFrame(x y w h thickness col 0.0 0.0 0.0)
+    }
+
+    ; The same, turned about a point of its own. A selection ring around a
+    ; layer that is not upright has to lean the way the layer does or it says
+    ; the wrong thing about it — an axis-aligned box around a turned shape
+    ; reads as "this is straight and bigger than it looks".
+    fn addTurnedFrame:void (x:double y:double w:double h:double thickness:double col:EVGColor deg:double ox:double oy:double) {
         def c:EVGDrawCmd (new EVGDrawCmd)
         c.kind = 1
         c.x = x
@@ -643,6 +651,12 @@ class EVGDisplayList {
         c.g = (col.green())
         c.b = (col.blue())
         c.a = (col.alpha())
+        if ((deg > 0.001) || (deg < (0.0 - 0.001))) {
+            c.rotate = deg
+            c.rotOriginX = ox
+            c.rotOriginY = oy
+            c.hasRotOrigin = true
+        }
         this.addCmd(c)
     }
 
@@ -1118,7 +1132,10 @@ class EVGDisplayList {
         def steps:int (this.flattenSteps(w h))
         def rings:[PathRing] (el.ringsCache)
         def sameBox:boolean ((((el.ringsX == x) && (el.ringsY == y)) && (el.ringsW == w)) && (el.ringsH == h))
-        def sameGeom:boolean (((el.ringsSteps == steps) && (el.ringsPath == pathData)) && (el.ringsViewBox == el.viewBox))
+        ; …and the FIT, which decides the matrix the rings were flattened
+        ; through. Left out of the key, a shape that started stretching went
+        ; on drawing the rings it had before it did.
+        def sameGeom:boolean ((((el.ringsSteps == steps) && (el.ringsPath == pathData)) && (el.ringsViewBox == el.viewBox)) && (el.ringsFit == el.preserveAspectRatio))
         def fresh:boolean ((el.ringsHave && sameBox) && sameGeom)
         if (fresh) {
         } {
@@ -1126,7 +1143,7 @@ class EVGDisplayList {
             parser.parse(pathData)
             def b:PathBounds (parser.getBounds())
             def vb:ViewBoxRect (VectorViewBox.effectiveViewBox(el.viewBox b.minX b.minY b.width b.height))
-            def m:Matrix2D (VectorViewBox.resolve(vb w h "xMidYMid meet"))
+            def m:Matrix2D (VectorViewBox.resolve(vb w h el.preserveAspectRatio))
             rings = (parser.flattenRings(steps m.a m.b m.c m.d (m.e + x) (m.f + y)))
             ; Kept for the next walk — see the note on `EVGElement.ringsCache`.
             el.ringsCache = rings
@@ -1139,6 +1156,7 @@ class EVGDisplayList {
             el.ringsSteps = steps
             el.ringsScale = m.a
             el.ringsViewBox = el.viewBox
+            el.ringsFit = el.preserveAspectRatio
         }
         if ((array_length rings) == 0) {
             return

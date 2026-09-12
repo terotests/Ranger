@@ -708,6 +708,12 @@ class EVGElement {
     
     ; SVG Path properties
     def svgPath:string ""
+    ; How the outline is fitted into the box, in SVG's own words. `meet`
+    ; keeps the shape and letterboxes it; `none` stretches. Everything here
+    ; is authored at its own size and so fits either way — until a shape is
+    ; RESIZED, and then the two are the difference between a wider shape and
+    ; the same shape in a wider frame.
+    def preserveAspectRatio:string "xMidYMid meet"
     ; --- the flattened outline, kept ------------------------------------------
     ;
     ; `d` is a string, and the display list wants points: parsing it and
@@ -733,6 +739,7 @@ class EVGElement {
     ; width is in user units of.
     def ringsScale:double 1.0
     def ringsViewBox:string ""
+    def ringsFit:string ""
     ; An entire imported SVG document, as markup. Where `svgPath` is one `d`
     ; string with the element's own fill and stroke, this is a drawing with its
     ; own shapes, groups, transforms and paint, which SvgParser resolves into a
@@ -2838,6 +2845,7 @@ class EVGElement {
         borderColor = other.borderColor
         src = other.src
         alt = other.alt
+        preserveAspectRatio = other.preserveAspectRatio
         imageViewBox = other.imageViewBox
         imageViewBoxX = other.imageViewBoxX
         imageViewBoxY = other.imageViewBoxY
@@ -3523,6 +3531,10 @@ class EVGElement {
         ; that drops it draws the whole frame where a detail belongs — two
         ; boxes showing two halves of one screenshot come out as the same
         ; picture twice.
+        if ((name == "preserve-aspect-ratio") || (name == "preserveAspectRatio")) {
+            preserveAspectRatio = value
+            return
+        }
         if ((name == "image-view-box") || (name == "imageViewBox")) {
             imageViewBox = value
             imageViewBoxSet = (EVGElement.parseViewBox(value this))

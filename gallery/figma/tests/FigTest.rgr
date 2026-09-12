@@ -773,6 +773,45 @@ class FigTest {
         this.check("turning a mirrored layer keeps the mirror" (again.xf.isMirrored()))
         this.check("at the new angle" ((fabs ((again.xf.rotationDeg()) + 45.0)) < 0.5))
 
+        ; A HAND TURNS A THING ABOUT ITS MIDDLE. The file's matrix turns a
+        ; layer about its own ORIGIN, so about the corner a half turn sends
+        ; a layer its own height up the page and its own width to the left —
+        ; which is the layer leaving the place it was being turned in. The
+        ; middle is held and the origin moved to wherever the angle puts it.
+        app.editRotation(0.0)
+        def flat:SceneNode (app.findScene("3:47"))
+        def midX:double (flat.x + ((FigApp.linX(flat.xf (flat.w * 0.5) (flat.h * 0.5)))))
+        def midY:double (flat.y + ((FigApp.linY(flat.xf (flat.w * 0.5) (flat.h * 0.5)))))
+        app.editRotation(90.0)
+        def turned90:SceneNode (app.findScene("3:47"))
+        def m2x:double (turned90.x + ((FigApp.linX(turned90.xf (turned90.w * 0.5) (turned90.h * 0.5)))))
+        def m2y:double (turned90.y + ((FigApp.linY(turned90.xf (turned90.w * 0.5) (turned90.h * 0.5)))))
+        this.close("a quarter turn leaves the middle where it was" m2x midX)
+        this.close("in both axes" m2y midY)
+        app.editFlip()
+        def flip2:SceneNode (app.findScene("3:47"))
+        def m3x:double (flip2.x + ((FigApp.linX(flip2.xf (flip2.w * 0.5) (flip2.h * 0.5)))))
+        this.close("and so does a flip" m3x midX)
+
+        ; AND WHAT IS INSIDE GOES WITH THE BOX. A layer's box is not a frame
+        ; drawn around its content — it IS the content's extent, and a sticky
+        ; made wider while its body stayed the old width came out as a ring
+        ; with a white wedge inside it.
+        app.editRotation(0.0)
+        def host:SceneNode (app.findScene("3:47"))
+        def kidW:double 0.0
+        if ((array_length host.children) > 0) {
+            def kid0:SceneNode (itemAt host.children 0)
+            kidW = kid0.w
+        }
+        def hostW:double host.w
+        app.editRect(host.x host.y (hostW * 2.0) host.h)
+        def grown:SceneNode (app.findScene("3:47"))
+        if ((array_length grown.children) > 0) {
+            def kid1:SceneNode (itemAt grown.children 0)
+            this.close("the subtree grows with the box" kid1.w (kidW * 2.0))
+        }
+
         ; The text's own numbers, which could be seen and not tried.
         app.editTextStyle(28.0 1.2 0.0 "center")
         def styled:string (app.inspectJson())
@@ -780,6 +819,18 @@ class FigTest {
         this.check("and an alignment" (FigTest.hasSub(styled "\"align\":\"center\"")))
         app.editClip(true)
         this.check("a container can be told to cut its children off" (FigTest.hasSub((app.inspectJson()) "\"clip\":true")))
+
+        ; THE BOXES A DRAG CAN LINE UP WITH. A hand puts a layer where it
+        ; looks right, and what "right" means is the edges of what is beside
+        ; it — so the host is handed the siblings and the parent, in page
+        ; coordinates, and nothing further: a guide to a layer on the other
+        ; side of a board is a guide to nothing.
+        def snaps:string (app.snapBoxesJson())
+        this.check("the drag is given boxes to line up with" (FigTest.hasSub(snaps "\"x\":")))
+        this.check("with their sizes, so centres and far edges count too" (FigTest.hasSub(snaps "\"w\":")))
+        app.select("")
+        this.eqStr("and nothing selected lines up with nothing" (app.snapBoxesJson()) "[]")
+        app.select("3:47")
         app.revertEdits()
 
         ; A layer nobody selected has no pane.

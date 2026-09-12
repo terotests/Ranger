@@ -444,19 +444,48 @@ class FigApp {
         if ((strlen n.id) == 0) {
             return
         }
+        ; THE RING LEANS THE WAY THE LAYER DOES. Drawn on the containing box
+        ; it was an upright rectangle around a turned shape, which says the
+        ; layer is straight and half again as big as it is — and on a board
+        ; where a layer can be turned it is the one thing the ring is for.
+        ; So the ring is the layer's OWN box at its own angle, and the
+        ; containing box is only the fallback for a matrix that is not a
+        ; turn at all.
+        def deg:double 0.0
+        def ox:double 0.0
+        def oy:double 0.0
+        def bx:double n.x
+        def by:double n.y
+        def bw:double n.w
+        def bh:double n.h
+        if n.hasXf {
+            if (n.xf.isSimilarity()) {
+                deg = (n.xf.rotationDeg())
+                bx = n.xf.tx
+                by = n.xf.ty
+                bw = (n.ow * (n.xf.uniformScale()))
+                bh = (n.oh * (n.xf.uniformScale()))
+                ox = bx
+                oy = by
+            }
+        }
         ; In the coordinates the LIST is written in: page pixels with the
         ; view baked, scene units with a camera. The ring is a command like
         ; any other, so it has to be in the same space as the rest of them.
-        def x:double ((n.x * zoom) + panX)
-        def y:double ((n.y * zoom) + panY)
-        def w:double (n.w * zoom)
-        def h:double (n.h * zoom)
+        def x:double ((bx * zoom) + panX)
+        def y:double ((by * zoom) + panY)
+        def w:double (bw * zoom)
+        def h:double (bh * zoom)
+        ox = ((ox * zoom) + panX)
+        oy = ((oy * zoom) + panY)
         def ringW:double 2.0
         if camera {
-            x = n.x
-            y = n.y
-            w = n.w
-            h = n.h
+            x = bx
+            y = by
+            w = bw
+            h = bh
+            ox = bx
+            oy = by
             ; …and a ring that is 2 px on the page is 2/zoom in the scene,
             ; because the camera will multiply it. A kept frame drawn at
             ; another scale carries the ring it was built with, which is why
@@ -473,7 +502,7 @@ class FigApp {
         if (h < 2.0) {
             h = 2.0
         }
-        list.addFrame(x y w h ringW (EVGColor.rgb(59 130 246)))
+        list.addTurnedFrame(x y w h ringW (EVGColor.rgb(59 130 246)) deg ox oy)
         cmdCount = (array_length list.cmds)
     }
 
@@ -517,6 +546,14 @@ class FigApp {
             box.y = minY
             box.w = (maxX - minX)
             box.h = (maxY - minY)
+            ; …and HOW it is placed, beside where it ends up. The box above
+            ; is the rectangle that CONTAINS a turned layer, which is what a
+            ; hit test and a snap want; a ring wants the layer's own box and
+            ; the angle it leans at, and both are in this matrix.
+            box.xf = here
+            box.hasXf = true
+            box.ow = n.w
+            box.oh = n.h
             return true
         }
         def i:int 0
@@ -813,8 +850,14 @@ class FigApp {
         o = (o + ",\"x\":" + (to_string nd.m02) + ",\"y\":" + (to_string nd.m12))
         o = (o + ",\"w\":" + (to_string nd.w) + ",\"h\":" + (to_string nd.h))
         o = (o + "}")
-        o = (o + ",\"scene\":" + (sn.toJson()))
-        o = (o + ",\"evg\":\"" + (this.esc((this.evgText()))) + "\"")
+        ; THE SELECTED LAYER, not the page around it. This used to carry
+        ; `evgText()` — the WHOLE page's element tree, escaped a character at
+        ; a time — beside a scene walk 24 levels deep. Nothing read the
+        ; element tree and nobody can read twelve megabytes of JSON, and
+        ; building it was 2.8 seconds of a 5-second profile of clicking a
+        ; layer. Four levels is what a reader is actually checking: this
+        ; layer, and what it is made of.
+        o = (o + ",\"scene\":" + (sn.toJsonDepth(20)))
         return (o + "}")
     }
 
@@ -1284,13 +1327,57 @@ class FigApp {
         }
         n.x = x
         n.y = y
+        ; WHAT IS INSIDE GOES WITH IT. A layer's box is not a frame drawn
+        ; around its content — it IS the content's extent, and a sticky whose
+        ; box was made wider while its body stayed the old width came out as
+        ; a selection ring with a white wedge inside it. Figma resizes the
+        ; subtree; so does this, in proportion.
+        ;
+        ; In proportion and not by constraints: a file carries a constraint
+        ; per layer (pin left, stretch, scale) and none of them is read here,
+        ; so the honest approximation is the one that treats every child the
+        ; same. A layer pinned to the right will move when Figma would have
+        ; held it.
+        def kx:double 1.0
+        def ky:double 1.0
+        if ((w >= 0.0) && (n.w > 0.000001)) {
+            kx = (w / n.w)
+        }
+        if ((h >= 0.0) && (n.h > 0.000001)) {
+            ky = (h / n.h)
+        }
         if (w >= 0.0) {
             n.w = w
         }
         if (h >= 0.0) {
             n.h = h
         }
+        def moved:double ((fabs (kx - 1.0)) + (fabs (ky - 1.0)))
+        if (moved > 0.000001) {
+            def i:int 0
+            while (i < (array_length n.children)) {
+                FigApp.scaleSubtree((itemAt n.children i) kx ky)
+                i = (i + 1)
+            }
+        }
         this.afterEdit()
+    }
+
+    ; Every layer under this one, by the same two factors. A path is fitted
+    ; into its own box through a viewBox, so its outline follows the box and
+    ; does not have to be rewritten; text keeps its size, because a bigger
+    ; box is somewhere for a line to be longer rather than a reason for it to
+    ; be bigger.
+    sfn scaleSubtree:void (n:SceneNode kx:double ky:double) {
+        n.x = (n.x * kx)
+        n.y = (n.y * ky)
+        n.w = (n.w * kx)
+        n.h = (n.h * ky)
+        def i:int 0
+        while (i < (array_length n.children)) {
+            FigApp.scaleSubtree((itemAt n.children i) kx ky)
+            i = (i + 1)
+        }
     }
 
     fn editOpacity:void (v:double) {
@@ -1468,6 +1555,80 @@ class FigApp {
         return (new SceneNode())
     }
 
+    ; HOW THE LAYER IS PLACED, as the matrix that puts it on the page —
+    ; every ancestor's offset and turn, composed. The host needs its INVERSE
+    ; and not its angle: a pointer travels in page pixels, and what a resize
+    ; means by "wider" is along the LAYER's own axes. One angle is enough
+    ; only while nothing above the layer is turned, and on a board something
+    ; usually is.
+    fn placementJson:string () {
+        if ((strlen selected) == 0) {
+            return "{}"
+        }
+        def box:SceneNode (this.absBox(selected))
+        if (box.hasXf == false) {
+            return "{}"
+        }
+        def o:string ("{\"own\":" + (box.xf.asJson()))
+        o = (o + ",\"w\":" + (to_string box.ow) + ",\"h\":" + (to_string box.oh))
+        ; And the frame the layer's own x/y are written in, which is the one
+        ; a MOVE is in: `editRect` writes into the parent's coordinates.
+        def par:SceneNode (this.parentScene(selected))
+        if ((strlen par.id) > 0) {
+            def pb:SceneNode (this.absBox(par.id))
+            if pb.hasXf {
+                o = (o + ",\"parent\":" + (pb.xf.asJson()))
+            }
+        }
+        return (o + "}")
+    }
+
+    ; THE BOXES A DRAG CAN LINE UP WITH: what the selected layer sits
+    ; beside, and the box it sits in. In PAGE coordinates, because that is
+    ; the frame the host drags in and the only one in which two layers from
+    ; different parents can be said to line up at all.
+    ;
+    ; Siblings and the parent, and nothing further: a board is thousands of
+    ; layers and a guide to one on the other side of it is a guide to
+    ; nothing. What a hand is actually trying to line up with is next to it.
+    fn snapBoxesJson:string () {
+        if ((strlen selected) == 0) {
+            return "[]"
+        }
+        def par:SceneNode (this.parentScene(selected))
+        if ((strlen par.id) == 0) {
+            return "[]"
+        }
+        def out:string "["
+        def first:boolean true
+        def pb:SceneNode (this.absBox(par.id))
+        if (pb.w > 0.0) {
+            out = (out + (FigApp.boxJson(pb)))
+            first = false
+        }
+        def i:int 0
+        while (i < (array_length par.children)) {
+            def ch:SceneNode (itemAt par.children i)
+            if ((ch.id != selected) && ch.visible) {
+                def b:SceneNode (this.absBox(ch.id))
+                if ((b.w > 0.0) && (b.h > 0.0)) {
+                    if (first == false) {
+                        out = (out + ",")
+                    }
+                    out = (out + (FigApp.boxJson(b)))
+                    first = false
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
+    sfn boxJson:string (b:SceneNode) {
+        return ("{\"x\":" + (to_string b.x) + ",\"y\":" + (to_string b.y)
+            + ",\"w\":" + (to_string b.w) + ",\"h\":" + (to_string b.h) + "}")
+    }
+
     ; THE TURN, as an angle about the layer's own origin — which is where
     ; Figma turns one. The mirror is kept: a flipped layer that is given an
     ; angle stays flipped, because the two are different things and the
@@ -1489,6 +1650,27 @@ class FigApp {
                 sc = 1.0
             }
         }
+        ; WHERE THE MIDDLE WAS. The file's matrix turns a layer about its own
+        ; ORIGIN — its top-left corner — and that is the number written back.
+        ; But a hand turning a thing turns it about its MIDDLE: about the
+        ; corner, a half turn sends a layer its own height up the page and
+        ; its own width to the left, which is the layer leaving the place it
+        ; was being turned in. So the middle is held and the origin is moved
+        ; to wherever the new angle puts it.
+        def hw:double (n.w * 0.5)
+        def hh:double (n.h * 0.5)
+        ; THE LINEAR PART AND NOT THE MATRIX. `applyX` adds the matrix's own
+        ; translation, and for a layer read from a file that translation is
+        ; the same number `n.x` already holds — the file writes where a layer
+        ; is into m02/m12 and the reader keeps it in both places. Counted
+        ; twice, the middle came out a whole position away and the first turn
+        ; threw the layer across the board.
+        def cx:double (n.x + (FigApp.linX(n.xf hw hh)))
+        def cy:double (n.y + (FigApp.linY(n.xf hw hh)))
+        if (n.hasXf == false) {
+            cx = (n.x + hw)
+            cy = (n.y + hh)
+        }
         n.xf.a = (co * sc)
         n.xf.b = (si * sc)
         if mirror {
@@ -1499,6 +1681,10 @@ class FigApp {
             n.xf.d = (co * sc)
         }
         n.hasXf = true
+        ; The matrix's own translation is not the layer's position — x and y
+        ; are — so the middle is put back by moving those.
+        n.x = (cx - (FigApp.linX(n.xf hw hh)))
+        n.y = (cy - (FigApp.linY(n.xf hw hh)))
         this.afterEdit()
     }
 
@@ -1513,9 +1699,26 @@ class FigApp {
             n.xf = (SceneMatrix.ident())
             n.hasXf = true
         }
+        ; About the middle, for the same reason a turn is.
+        def hw:double (n.w * 0.5)
+        def hh:double (n.h * 0.5)
+        def cx:double (n.x + (FigApp.linX(n.xf hw hh)))
+        def cy:double (n.y + (FigApp.linY(n.xf hw hh)))
         n.xf.c = (0.0 - n.xf.c)
         n.xf.d = (0.0 - n.xf.d)
+        n.x = (cx - (FigApp.linX(n.xf hw hh)))
+        n.y = (cy - (FigApp.linY(n.xf hw hh)))
         this.afterEdit()
+    }
+
+    ; A point through a matrix's TURN and SCALE, with its translation left
+    ; out. What a layer's matrix does to an offset, which is all a centre is.
+    sfn linX:double (m:SceneMatrix x:double y:double) {
+        return ((m.a * x) + (m.c * y))
+    }
+
+    sfn linY:double (m:SceneMatrix x:double y:double) {
+        return ((m.b * x) + (m.d * y))
     }
 
     fn editClip:void (on:boolean) {

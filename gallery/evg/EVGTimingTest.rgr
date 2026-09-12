@@ -727,6 +727,40 @@ class EVGTimingTest {
     ; where a rounded pill should be, and flattened to the average of its two
     ; ends it kept the pill and lost the shading. The command carries the
     ; rings AND the stops, so neither is given up.
+    ; A RING AROUND A TURNED LAYER HAS TO LEAN THE WAY IT DOES. Drawn on the
+    ; box that CONTAINS a turned shape it is an upright rectangle half again
+    ; too big, which says the layer is straight — and on a board where a
+    ; layer can be turned, which way it is turned is what the ring is for.
+    sfn checkTurnedFrame:void (c:TimingCheck) {
+        def dl (new EVGDisplayList())
+        dl.addTurnedFrame(10.0 20.0 100.0 40.0 2.0 (EVGColor.rgb(59 130 246)) 35.0 10.0 20.0)
+        ; …and one with no angle, which must stay exactly the command it was
+        ; before this existed: `addFrame` goes through the same code.
+        dl.addFrame(0.0 0.0 50.0 50.0 1.0 (EVGColor.rgb(0 0 0)))
+        def turned:int 0
+        def plain:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 1) {
+                if cmd.hasRotOrigin {
+                    turned = (turned + 1)
+                    c.near("the ring leans by the layer's own angle" cmd.rotate 35.0)
+                    ; About the layer's CORNER, which is where Figma turns
+                    ; one — about the centre it would swing off the shape.
+                    c.near("about the corner it was given" cmd.rotOriginX 10.0)
+                    c.near("in both axes" cmd.rotOriginY 20.0)
+                } {
+                    plain = (plain + 1)
+                    c.near("and an upright ring carries no angle" cmd.rotate 0.0)
+                }
+            }
+            i = (i + 1)
+        }
+        c.ok("the turned ring is one command" (turned == 1))
+        c.ok("and the upright one is unchanged" (plain == 1))
+    }
+
     sfn checkPathGradient:void (c:TimingCheck) {
         def page (new EVGElement())
         page.setAttribute("width" "200")
@@ -1356,6 +1390,7 @@ class EVGTimingTest {
         EVGTimingTest.checkTransformOrigin(c)
         EVGTimingTest.checkTransformScale(c)
         EVGTimingTest.checkMirroredBox(c)
+        EVGTimingTest.checkTurnedFrame(c)
         EVGTimingTest.checkPathGradient(c)
         EVGTimingTest.checkShadowFromElement(c)
         EVGTimingTest.checkImageCrop(c)
