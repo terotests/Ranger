@@ -199,6 +199,14 @@ are here" variant of a set drew the placeholder artwork the set lists
 first. Expansion stops at fifteen levels, so a cycle is a warning and not
 a hang.
 
+A picture on something that is not a rectangle is still the picture. An
+image fill made the node an image only where the node was already a
+rectangle, so a FigJam STAMP — the profile photo people drop on a board —
+kept the grey box that stands for a picture nothing can draw, with the
+bytes read and in hand. Anything holding nothing but the fill takes it now;
+a node with children of its own does not, since an image element has
+nowhere to put them.
+
 ### Overrides
 
 Everything the designer changed inside an instance — the text above all —
@@ -225,6 +233,14 @@ nested instance `J`. Entries go into one table for the document, keyed by
 where the node sits inside the outermost instance, and a nested expansion
 adds to that table rather than replacing it — an earlier version replaced
 it and placed 115 overrides out of 25,672.
+
+A nested instance carries entries for the same nodes as the one outside it,
+and they say what the COMPONENT laid out rather than what this instance of
+it did. The outer table is the one that describes what is on the board, so
+an inner entry fills in only what the outer does not say. Letting it
+replace the outer entry wholesale is what drew a Stars instance resized to
+112 pixels at the 240 its component is: those inner entries carry no size
+at all, and they were overwriting the three the outer one computed.
 
 A path is spelled in `overrideKey`, not in guids. A component that came
 from a library is copied into the file and re-guided on the way in, so the

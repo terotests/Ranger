@@ -746,6 +746,19 @@ class FigSample {
         def nestedSym:KiwiValue (KiwiValue.fromObject())
         nestedSym.put("symbolID" (FigSample.guid(3 50)))
         nestedInst.put("symbolData" nestedSym)
+        ; The nested instance carries an entry for the same node the outer
+        ; one does, and it says nothing: what the COMPONENT laid out, not
+        ; what this instance of it did. Letting it replace the outer entry
+        ; is what drew a resized instance at its component's own size.
+        def innerDerived:KiwiValue (KiwiValue.fromArray())
+        def innerEntry:KiwiValue (KiwiValue.fromObject())
+        def innerPath:KiwiValue (KiwiValue.fromObject())
+        def innerGuids:KiwiValue (KiwiValue.fromArray())
+        innerGuids.pushItem((FigSample.guid(3 51)))
+        innerPath.put("guids" innerGuids)
+        innerEntry.put("guidPath" innerPath)
+        innerDerived.pushItem(innerEntry)
+        nestedInst.put("derivedSymbolData" innerDerived)
         nodes.pushItem(nestedInst)
         def outer:KiwiValue (FigSample.node(3 54 "INSTANCE" "NestedOverride" 0 3 "c" 220.0 60.0 2340.0 800.0))
         def outerSym:KiwiValue (KiwiValue.fromObject())
@@ -762,6 +775,9 @@ class FigSample {
         def deepTd:KiwiValue (KiwiValue.fromObject())
         deepTd.put("characters" (KiwiValue.fromString("Deep real text")))
         deep.put("textData" deepTd)
+        ; And the size this instance laid that node out at, which is the
+        ; half of an override the nested entry cannot know.
+        deep.put("size" (FigSample.vec(90.0 12.0)))
         deepOverrides.pushItem(deep)
         outer.put("derivedSymbolData" deepOverrides)
         nodes.pushItem(outer)
@@ -1132,6 +1148,14 @@ class FigSample {
         sidv.put("guid" (FigSample.guid(9 99)))
         styled.put("styleIdForFill" sidv)
         nodes.pushItem(styled)
+
+        ; A picture on something that is not a rectangle. A FigJam stamp —
+        ; the profile photo people drop on a board — is a container by
+        ; type, and a container with an image fill got the grey box that
+        ; stands for a picture nothing can draw.
+        def stampish:KiwiValue (FigSample.node(3 83 "FRAME" "PhotoFrame" 0 3 "f0" 80.0 80.0 2580.0 1660.0))
+        stampish.put("fillPaints" (FigSample.imagePaint("abc123")))
+        nodes.pushItem(stampish)
 
         ; A component out of a library: the copy carries new guids and the
         ; override paths still name the old ones, which every node keeps in

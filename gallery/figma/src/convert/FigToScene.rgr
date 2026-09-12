@@ -225,9 +225,27 @@ class FigToScene {
         ; geometry is read: the rounded avatar in a Figma export carries a
         ; fillGeometry like every other node, and reading that first turned
         ; it into a path, which then dropped the picture for a grey box.
+        ; And on anything else that holds nothing but the picture. A
+        ; FigJam STAMP — the profile photo people drop on a board — is a
+        ; container by type, and a container with an image fill got the
+        ; grey box that stands for a picture nothing can draw: the bytes
+        ; were in the file and read, and thrown away at the last step.
+        ; A node with children of its own is not turned into one, since an
+        ; image element has nowhere to put them.
         if ((t == "IMAGE") || ((array_length sn.fills) > 0)) {
             def imgFill:SceneFill (sn.firstFill())
-            if ((t == "IMAGE") || ((imgFill.kind == "image") && (sn.kind == "rect"))) {
+            def bare:boolean (((array_length nd.children) == 0) && ((strlen nd.symbolId) == 0))
+            if (nd.raw.hasField("derivedImmutableFrameData")) {
+                bare = false
+            }
+            def holdsImage:boolean false
+            if (sn.kind == "rect") {
+                holdsImage = true
+            }
+            if ((sn.kind == "container") && bare) {
+                holdsImage = true
+            }
+            if ((t == "IMAGE") || ((imgFill.kind == "image") && holdsImage)) {
                 if ((strlen imgFill.imageRef) > 0) {
                     sn.kind = "image"
                     sn.imageRef = imgFill.imageRef
@@ -539,7 +557,22 @@ class FigToScene {
                 def rel:string (FigToScene.overridePath(change))
                 if ((strlen rel) > 0) {
                     def full:string (childPrefix + rel)
-                    set overrides full change
+                    def had@(optional):KiwiValue (get overrides full)
+                    if (null? had) {
+                        set overrides full change
+                    } {
+                        ; A nested instance carries entries for the same
+                        ; nodes as the one outside it, and they say what
+                        ; the COMPONENT laid out, not what this instance of
+                        ; it did. The outer table is the one that describes
+                        ; what is on the board, so an inner entry fills in
+                        ; only what the outer does not say. Replacing them
+                        ; wholesale is what drew a Stars instance resized
+                        ; to 112 as the 240 its component is: the inner
+                        ; entries carry no size at all, and they were
+                        ; overwriting the three the outer one computed.
+                        set overrides full (FigToScene.mergeOverride(change (unwrap had)))
+                    }
                     this.countKey(full)
                 }
                 d = (d + 1)
@@ -553,7 +586,12 @@ class FigToScene {
                 def erel:string (FigToScene.overridePath(edit))
                 if ((strlen erel) > 0) {
                     def efull:string (childPrefix + erel)
-                    set authored efull edit
+                    def hadE@(optional):KiwiValue (get authored efull)
+                    if (null? hadE) {
+                        set authored efull edit
+                    } {
+                        set authored efull (FigToScene.mergeOverride(edit (unwrap hadE)))
+                    }
                     this.countKey(efull)
                 }
                 e = (e + 1)

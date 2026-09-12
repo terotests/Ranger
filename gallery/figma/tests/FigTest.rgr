@@ -404,6 +404,29 @@ class FigTest {
         ; The change the designer made inside the instance. Reading the
         ; component but not this is what leaves a whole file showing
         ; placeholder text — the component's own "Title text" everywhere.
+        ; An image fill on something that is not a rectangle is still the
+        ; picture. A FigJam stamp is a container by type, and a container
+        ; with an image fill got the grey box that stands for a picture
+        ; nothing can draw — with the bytes read and in hand.
+        def photo:SceneNode (shapes.childNamed("PhotoFrame"))
+        this.eqStr("a container whose fill is a picture IS the picture" photo.kind "image")
+        this.eqStr("and it names the image" photo.imageRef "abc123")
+
+        ; A nested instance carries entries for the same nodes as the one
+        ; outside it, saying what the component laid out rather than what
+        ; this instance of it did. Replacing the outer table with them drew
+        ; a resized instance at the component's own size — three stars that
+        ; belong in 112 pixels drawn across 240.
+        def nestedOv:SceneNode (shapes.childNamed("NestedOverride"))
+        if ((array_length nestedOv.children) > 0) {
+            def midInst:SceneNode (itemAt nestedOv.children 0)
+            if ((array_length midInst.children) > 0) {
+                def deepText:SceneNode (itemAt midInst.children 0)
+                this.eqStr("the deep override still replaces the text" deepText.text.characters "Deep real text")
+                this.close("and the outer instance's size survives the inner entry" deepText.w 90.0)
+                this.close("in both directions" deepText.h 12.0)
+            }
+        }
         def titled:SceneNode (shapes.childNamed("TitledInstance"))
         this.eqInt("the instance drew the component's text" (array_length titled.children) 1)
         if ((array_length titled.children) > 0) {
