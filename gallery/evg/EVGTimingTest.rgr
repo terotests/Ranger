@@ -760,6 +760,20 @@ class EVGTimingTest {
             i = (i + 1)
         }
         c.ok("the shaded vector is one PATH command, shaded" (shaded == 1))
+        ; ONE command, not two. A path is not its box, so the paint goes on
+        ; the path and a background rectangle beside it draws the box the
+        ; shape is not: the shaded pill came out sitting on a shaded
+        ; rectangle, grey leaking past its own rounded corner.
+        def boxes:int 0
+        def k:int 0
+        while (k < (array_length dl.cmds)) {
+            def bc:EVGDrawCmd (itemAt dl.cmds k)
+            if (bc.kind == 0) {
+                boxes = (boxes + 1)
+            }
+            k = (k + 1)
+        }
+        c.ok("and no rectangle is drawn under it" (boxes == 0))
         def json:string (dl.toJson())
         c.ok("and both stops reach the painter" (EVGTimingTest.hasSub(json "\"c2\":[0,0,255,1.00]")))
     }

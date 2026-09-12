@@ -2529,7 +2529,15 @@ class EVGDisplayList {
         ; `background-color` beside it emitted no rectangle at all, and with
         ; one it was painted flat.
         def gradOk:boolean (EVGDisplayList.hasLinearGradient(el))
-        if (bgSet || gradOk) {
+        ; A PATH IS NOT ITS BOX. Its paint belongs on the path command, where
+        ; `walkPath` puts it, and a background rectangle beside it draws the
+        ; box the shape is not: a shaded pill came out sitting on a shaded
+        ; rectangle, grey leaking past its own rounded corner. The same is
+        ; true of a flat colour and always was — a path element carries it as
+        ; `fill` and never as `background-color`, so nothing noticed until a
+        ; gradient could be on both.
+        def paintsItsBox:boolean (el.tagName != "path")
+        if ((bgSet || gradOk) && paintsItsBox) {
             def c (new EVGDrawCmd())
             c.kind = 0
             c.x = x
@@ -2572,7 +2580,7 @@ class EVGDisplayList {
             ; what it did before this existed.
             def probe (new EVGDrawCmd())
             EVGDisplayList.applyShadow(probe el)
-            if (probe.hasShadow && (el.backdropBlur <= 0.0)) {
+            if ((probe.hasShadow && (el.backdropBlur <= 0.0)) && paintsItsBox) {
                 def cs (new EVGDrawCmd())
                 cs.kind = 0
                 cs.x = x
