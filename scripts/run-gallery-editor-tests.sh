@@ -41,6 +41,10 @@ if [ -n "$SHARD" ] && { [ "$SHARD" -lt 1 ] || [ "$SHARDS" -lt 1 ] || [ "$SHARD" 
 fi
 
 SUITES=(
+  # The shared byte store. Nothing reads it yet, which is exactly why it is
+  # wired in now: a module that joins the gate on the day its first consumer
+  # lands is one whose first consumer breaks it silently.
+  vfs:test
   book:test
   book:editor:test
   book:slides:test

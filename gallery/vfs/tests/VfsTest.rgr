@@ -1,0 +1,290 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; VfsTest.rgr — the store, and what a path means.
+; ============================================================================
+;
+;   npm run vfs:test
+;
+; Two claims, and the checks count the nouns the failures are about:
+;
+;   - **A blob is stored once however many names point at it.** Counting NAMES
+;     would pass on a store that kept a copy per name, which is the failure —
+;     a logo on twelve slides written into a package twelve times.
+;   - **A path means one thing.** Including the paths that must not resolve:
+;     `..` out of the tree, and anything off the network.
+; ============================================================================
+
+Import "../src/Vfs.rgr"
+
+class VfsCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print (("  FAIL " + name) + ("  got " + (to_string got)) + ("  want " + (to_string want)))
+        }
+    }
+}
+
+class VfsTest {
+    sfn main:void () {
+        def t (new VfsTest())
+        t.run()
+    }
+
+    sfn blobOf:VfsBlob (text:string ct:string) {
+        def b (new VfsBlob())
+        def n:int (strlen text)
+        def buf:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set buf i (charAt text i)
+            i = (i + 1)
+        }
+        b.bytes = buf
+        b.contentType = ct
+        return b
+    }
+
+    sfn readOf:string (m:VfsMemory path:string) {
+        def b:buffer (m.read(path))
+        return (VfsTest.textOf(b))
+    }
+
+    sfn readVia:string (v:Vfs path:string) {
+        def b:buffer (v.read(path))
+        return (VfsTest.textOf(b))
+    }
+
+    sfn textOf:string (b:buffer) {
+        def out:string ""
+        def i:int 0
+        while (i < (buffer_length b)) {
+            out = (out + (strfromcode (buffer_get b i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn run:void () {
+        def c (new VfsCheck())
+        print "== VfsTest =="
+        this.store(c)
+        this.dedupe(c)
+        this.folders(c)
+        this.mounts(c)
+        this.overlay(c)
+        this.paths(c)
+        this.resolving(c)
+        this.readOnly(c)
+        print ""
+        print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    fn store:void (c:VfsCheck) {
+        print "-- bytes in, bytes out --"
+        def m (new VfsMemory())
+        c.ok("an empty store has nothing in it" (! (m.exists("/a.txt"))))
+        m.put("/a.txt" (VfsTest.blobOf("hello" "text/plain")))
+        c.ok("…and something after a put" (m.exists("/a.txt")))
+        c.eqStr("the bytes come back" (VfsTest.readOf(m "/a.txt")) "hello")
+
+        def st:VfsStat (m.stat("/a.txt"))
+        c.ok("the stat finds it" st.found)
+        c.eqInt("…with the size" st.size 5)
+        c.eqStr("…and what it is" st.contentType "text/plain")
+        c.ok("…and is not a folder" (! st.isFolder))
+
+        def miss:VfsStat (m.stat("/nope.txt"))
+        c.ok("a stat that misses says so rather than throwing" (! miss.found))
+        c.eqInt("…and reading it gives nothing" (buffer_length (m.read("/nope.txt"))) 0)
+
+        c.ok("a name can be taken away" (m.remove("/a.txt")))
+        c.ok("…and is gone" (! (m.exists("/a.txt"))))
+        c.ok("…and taking it away twice says so" (! (m.remove("/a.txt"))))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The claim content addressing is about. Counting NAMES would pass on a
+    ; store that kept a copy per name, which is the failure: a logo on twelve
+    ; slides written into a package twelve times.
+    fn dedupe:void (c:VfsCheck) {
+        print "-- one blob, many names --"
+        def m (new VfsMemory())
+        m.put("/img/logo.png" (VfsTest.blobOf("PNGDATA" "image/png")))
+        m.put("/img/logo-copy.png" (VfsTest.blobOf("PNGDATA" "image/png")))
+        m.put("/img/other.png" (VfsTest.blobOf("DIFFERENT" "image/png")))
+        c.eqInt("three names" (m.nameCount()) 3)
+        c.eqInt("…and two blobs" (m.blobCount()) 2)
+        c.eqStr("the shared blob reads back under the first name"
+            (VfsTest.readOf(m "/img/logo.png")) "PNGDATA")
+        c.eqStr("…and under the second" (VfsTest.readOf(m "/img/logo-copy.png")) "PNGDATA")
+        c.eqStr("…and the other one is still itself"
+            (VfsTest.readOf(m "/img/other.png")) "DIFFERENT")
+
+        ; Overwriting a name does not disturb the other name on the same blob.
+        m.put("/img/logo-copy.png" (VfsTest.blobOf("REPLACED" "image/png")))
+        c.eqStr("overwriting one name leaves the other alone"
+            (VfsTest.readOf(m "/img/logo.png")) "PNGDATA")
+        c.eqInt("…and the name count does not grow" (m.nameCount()) 3)
+    }
+
+    ; ----------------------------------------------------------------------
+    fn folders:void (c:VfsCheck) {
+        print "-- a folder is implied by what is under it --"
+        def m (new VfsMemory())
+        m.put("/img/logo.png" (VfsTest.blobOf("A" "image/png")))
+        m.put("/img/deep/inner.png" (VfsTest.blobOf("B" "image/png")))
+        m.put("/notes.md" (VfsTest.blobOf("C" "text/markdown")))
+
+        def st:VfsStat (m.stat("/img"))
+        c.ok("a folder nobody stored is found" st.found)
+        c.ok("…and says it is one" st.isFolder)
+
+        def top:[string] (m.list("/"))
+        c.eqInt("the root has two entries" (array_length top) 2)
+        c.ok("…the folder" (VfsMemory.holds(top "img")))
+        c.ok("…and the file" (VfsMemory.holds(top "notes.md")))
+
+        def inner:[string] (m.list("/img"))
+        c.eqInt("the folder has two" (array_length inner) 2)
+        c.ok("…a file" (VfsMemory.holds(inner "logo.png")))
+        c.ok("…and a folder under it, named once" (VfsMemory.holds(inner "deep")))
+    }
+
+    ; ----------------------------------------------------------------------
+    fn mounts:void (c:VfsCheck) {
+        print "-- a provider does not know where it is mounted --"
+        def v (new Vfs())
+        def m (new VfsMemory())
+        m.put("/logo.png" (VfsTest.blobOf("LOGO" "image/png")))
+        v.mount("/assets" m)
+
+        c.ok("the file is where the mount put it" (v.exists("/assets/logo.png")))
+        c.ok("…and not where it is not" (! (v.exists("/logo.png"))))
+        c.eqStr("and it reads" (VfsTest.readVia(v "/assets/logo.png")) "LOGO")
+
+        ; The same provider, mounted twice. A provider that had to know where
+        ; it was would be one you could not do this to.
+        v.mount("/again" m)
+        c.ok("the same provider answers under a second mount" (v.exists("/again/logo.png")))
+        c.eqStr("…with the same bytes" (VfsTest.readVia(v "/again/logo.png")) "LOGO")
+    }
+
+    ; ----------------------------------------------------------------------
+    ; What makes a demo and a reader the same case: samples mounted low,
+    ; uploads mounted over them, and a dropped file simply wins.
+    fn overlay:void (c:VfsCheck) {
+        print "-- uploads over samples --"
+        def v (new Vfs())
+        def samples (new VfsMemory())
+        samples.put("/logo.png" (VfsTest.blobOf("SAMPLE" "image/png")))
+        samples.put("/only-sample.png" (VfsTest.blobOf("ONLY" "image/png")))
+        samples.setReadOnly()
+        def uploads (new VfsMemory())
+        v.mount("/" samples)
+        v.mount("/" uploads)
+
+        c.eqStr("the sample answers while nothing is over it"
+            (VfsTest.readVia(v "/logo.png")) "SAMPLE")
+        v.put("/logo.png" (VfsTest.blobOf("UPLOADED" "image/png")))
+        c.eqStr("…and the upload wins once there is one"
+            (VfsTest.readVia(v "/logo.png")) "UPLOADED")
+        c.eqStr("…without disturbing the sample beside it"
+            (VfsTest.readVia(v "/only-sample.png")) "ONLY")
+        c.ok("the write went to the writable mount" (uploads.exists("/logo.png")))
+        c.ok("…and not into the read-only one" (! (samples.exists("/uploaded-only.png"))))
+
+        def all:[string] (v.list("/"))
+        c.eqInt("the listing is one listing, not one per mount" (array_length all) 2)
+    }
+
+    ; ----------------------------------------------------------------------
+    fn paths:void (c:VfsCheck) {
+        print "-- a path means one thing --"
+        c.eqStr("a plain path is itself" (Vfs.normal("/a/b.png")) "/a/b.png")
+        c.eqStr("a relative one is rooted" (Vfs.normal("a/b.png")) "/a/b.png")
+        c.eqStr("a trailing slash goes" (Vfs.normal("/a/b/")) "/a/b")
+        c.eqStr("doubled slashes collapse" (Vfs.normal("/a//b.png")) "/a/b.png")
+        c.eqStr("a dot is nothing" (Vfs.normal("/a/./b.png")) "/a/b.png")
+        c.eqStr("dot dot goes up one" (Vfs.normal("/a/c/../b.png")) "/a/b.png")
+        c.eqStr("…twice" (Vfs.normal("/a/c/d/../../b.png")) "/a/b.png")
+        c.eqStr("the root is the root" (Vfs.normal("/")) "/")
+        c.eqStr("…and so is nothing at all" (Vfs.normal("")) "/")
+        ; The refusal, as a path that is not one.
+        c.eqStr("climbing out of the tree is not a path" (Vfs.normal("/a/../../etc/passwd")) "")
+    }
+
+    ; ----------------------------------------------------------------------
+    fn resolving:void (c:VfsCheck) {
+        print "-- one reference, one path --"
+        def v (new Vfs())
+        c.eqStr("an absolute reference ignores the base" (v.resolve("/img/logo.png" "/docs")) "/img/logo.png")
+        c.eqStr("a relative one is against the document's folder" (v.resolve("logo.png" "/docs")) "/docs/logo.png")
+        c.eqStr("…including upwards" (v.resolve("../img/logo.png" "/docs/deep")) "/docs/img/logo.png")
+        c.eqStr("…and from the root" (v.resolve("logo.png" "/")) "/logo.png")
+
+        c.eqStr("out of the tree is refused" (v.resolve("../../etc/passwd" "/docs")) "")
+        c.ok("…by name" ((strlen v.refusal) > 0))
+
+        c.eqStr("the network is refused" (v.resolve("https://example.com/x.png" "/docs")) "")
+        c.ok("…and says nothing here fetches" ((indexOf v.refusal "network") > 0))
+        c.eqStr("…whatever the case of the scheme" (v.resolve("HTTPS://example.com/x.png" "/docs")) "")
+
+        ; …unless the host says otherwise. A capability, not a default.
+        v.allowRemote = true
+        c.eqStr("a host that allows it gets the reference back"
+            (v.resolve("https://example.com/x.png" "/docs")) "https://example.com/x.png")
+
+        def v2 (new Vfs())
+        c.eqStr("a data: reference is not resolved" (v2.resolve("data:image/png;base64,AAAA" "/docs")) "")
+        c.ok("…and says it is decoded on the way in" ((indexOf v2.refusal "decoded") > 0))
+        c.eqStr("an empty reference is refused" (v2.resolve("" "/docs")) "")
+    }
+
+    ; ----------------------------------------------------------------------
+    fn readOnly:void (c:VfsCheck) {
+        print "-- read-only means it --"
+        def m (new VfsMemory())
+        m.put("/a.txt" (VfsTest.blobOf("A" "text/plain")))
+        m.setReadOnly()
+        c.ok("a read-only provider refuses a put" (! (m.put("/b.txt" (VfsTest.blobOf("B" "text/plain"))))))
+        c.ok("…and the file it refused is not there" (! (m.exists("/b.txt"))))
+        c.ok("…and refuses a remove too" (! (m.remove("/a.txt"))))
+        c.ok("…and what was there is still there" (m.exists("/a.txt")))
+    }
+}

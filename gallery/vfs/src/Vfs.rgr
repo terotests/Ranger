@@ -1,0 +1,314 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; Vfs.rgr — mounts, and one answer to "what does that path mean".
+; ============================================================================
+;
+; `![](logo.png)` in markdown, `url(logo.png)` in CSS, `r:embed` in OOXML and
+; `<img src>` in HTML are four syntaxes for one question. Four copies of the
+; arithmetic would be four different answers to what `../` means here, so
+; there is one: `Vfs.resolve`.
+;
+;   /logo.png                 from the mount root
+;   logo.png, ../img/logo.png relative to the document's own directory
+;   data:image/png;base64,…   decoded on entry, so nothing downstream sees a
+;                             data URI
+;   http://…, https://…       REFUSED. A renderer that fetched whatever a
+;                             pasted document named is the same bug
+;                             `D2Render` refuses `@file` imports for. A
+;                             capability the host grants explicitly, not a
+;                             default.
+;
+; `..` above the mount root is refused too, and that is not paranoia about
+; this process: a document is a thing people send each other.
+; ============================================================================
+
+Import "VfsCore.rgr"
+
+class VfsMount {
+    def prefix:string "/"
+    def provider:VfsProvider (new VfsProvider())
+
+    Constructor () {
+    }
+}
+
+class Vfs {
+    ; Searched from the LAST mount backwards, so a later mount wins. That is
+    ; what makes a reader's upload beat a bundled sample without either side
+    ; knowing about the other.
+    def mounts:[VfsMount]
+    ; Why the last resolve answered "". Kept beside the answer rather than
+    ; inside it: a path that does not exist and a path that was refused look
+    ; the same to a renderer and completely different to a reader.
+    def refusal:string ""
+    ; Off by default. See the header.
+    def allowRemote:boolean false
+
+    Constructor () {
+    }
+
+    fn mount:void (prefix:string p:VfsProvider) {
+        def m (new VfsMount())
+        m.prefix = (Vfs.normal(prefix))
+        m.provider = p
+        push mounts m
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The six reads
+    ; ----------------------------------------------------------------------
+    fn exists:boolean (path:string) {
+        def p:string (Vfs.normal(path))
+        def i:int ((array_length mounts) - 1)
+        while (i >= 0) {
+            def m:VfsMount (itemAt mounts i)
+            if (Vfs.under(p m.prefix)) {
+                def inner:string (Vfs.strip(p m.prefix))
+                if (m.provider.exists(inner)) { return true }
+            }
+            i = (i - 1)
+        }
+        return false
+    }
+
+    fn stat:VfsStat (path:string) {
+        def p:string (Vfs.normal(path))
+        def i:int ((array_length mounts) - 1)
+        while (i >= 0) {
+            def m:VfsMount (itemAt mounts i)
+            if (Vfs.under(p m.prefix)) {
+                def inner:string (Vfs.strip(p m.prefix))
+                def st:VfsStat (m.provider.stat(inner))
+                if st.found {
+                    st.path = p
+                    return st
+                }
+            }
+            i = (i - 1)
+        }
+        def miss (new VfsStat())
+        miss.path = p
+        return miss
+    }
+
+    fn read:buffer (path:string) {
+        def p:string (Vfs.normal(path))
+        def i:int ((array_length mounts) - 1)
+        while (i >= 0) {
+            def m:VfsMount (itemAt mounts i)
+            if (Vfs.under(p m.prefix)) {
+                def inner:string (Vfs.strip(p m.prefix))
+                if (m.provider.exists(inner)) {
+                    return (m.provider.read(inner))
+                }
+            }
+            i = (i - 1)
+        }
+        return (buffer_alloc 0)
+    }
+
+    ; Every name under a folder, across every mount, each once. A reader
+    ; looking at a folder sees one listing and not one per mount.
+    fn list:[string] (path:string) {
+        def out:[string]
+        def p:string (Vfs.normal(path))
+        def i:int 0
+        while (i < (array_length mounts)) {
+            def m:VfsMount (itemAt mounts i)
+            if (Vfs.under(p m.prefix)) {
+                def inner:string (Vfs.strip(p m.prefix))
+                def got:[string] (m.provider.list(inner))
+                def j:int 0
+                while (j < (array_length got)) {
+                    def nm:string (itemAt got j)
+                    if (! (VfsMemory.holds(out nm))) { push out nm }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Writes go to the LAST mount that can take them and that the path is
+    ; under. A read-only mount is skipped rather than failing the write, so
+    ; samples mounted low and uploads mounted over them do the obvious thing.
+    fn put:boolean (path:string b:VfsBlob) {
+        def p:string (Vfs.normal(path))
+        def i:int ((array_length mounts) - 1)
+        while (i >= 0) {
+            def m:VfsMount (itemAt mounts i)
+            if (Vfs.under(p m.prefix)) {
+                if (! m.provider.readonly) {
+                    def inner:string (Vfs.strip(p m.prefix))
+                    return (m.provider.put(inner b))
+                }
+            }
+            i = (i - 1)
+        }
+        return false
+    }
+
+    fn remove:boolean (path:string) {
+        def p:string (Vfs.normal(path))
+        def i:int ((array_length mounts) - 1)
+        while (i >= 0) {
+            def m:VfsMount (itemAt mounts i)
+            if (Vfs.under(p m.prefix)) {
+                if (! m.provider.readonly) {
+                    def inner:string (Vfs.strip(p m.prefix))
+                    if (m.provider.remove(inner)) { return true }
+                }
+            }
+            i = (i - 1)
+        }
+        return false
+    }
+
+    ; ----------------------------------------------------------------------
+    ; One reference, one path
+    ; ----------------------------------------------------------------------
+    ;
+    ; `base` is the DIRECTORY the document lives in, not the document itself.
+    ; Answers "" and sets `refusal` when the reference is one this refuses to
+    ; follow.
+    fn resolve:string (ref:string base:string) {
+        refusal = ""
+        def r:string (trim ref)
+        if ((strlen r) == 0) {
+            refusal = "an empty reference"
+            return ""
+        }
+        if (Vfs.hasScheme(r "data:")) {
+            refusal = "a data: reference is decoded on the way in, not resolved"
+            return ""
+        }
+        def isHttp:boolean (Vfs.hasScheme(r "http://"))
+        def isHttps:boolean (Vfs.hasScheme(r "https://"))
+        if (isHttp || isHttps) {
+            if (! allowRemote) {
+                refusal = ("this document asks for " + r) + ", and nothing here fetches from the network"
+                return ""
+            }
+            return r
+        }
+        def joined:string r
+        if ((charAt r 0) != 47) {
+            def b:string (Vfs.normal(base))
+            if (b == "/") {
+                joined = ("/" + r)
+            } {
+                joined = ((b + "/") + r)
+            }
+        }
+        def out:string (Vfs.normal(joined))
+        if ((strlen out) == 0) {
+            refusal = ("that reference climbs out of the document's own tree: " + ref)
+            return ""
+        }
+        return out
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Paths
+    ; ----------------------------------------------------------------------
+    ;
+    ; POSIX, absolute, with `.` and `..` resolved. Answers "" when `..`
+    ; climbs above the root, which is a refusal and not a path — a document is
+    ; a thing people send each other, and `../../etc/passwd` is a reference
+    ; somebody wrote on purpose.
+    sfn normal:string (path:string) {
+        def parts:[string]
+        def cur:string ""
+        def n:int (strlen path)
+        def i:int 0
+        def escaped:boolean false
+        while (i <= n) {
+            def atEnd:boolean (i == n)
+            def c:int 47
+            if (! atEnd) { c = (charAt path i) }
+            if (atEnd || (c == 47)) {
+                if (cur == "..") {
+                    if ((array_length parts) == 0) {
+                        escaped = true
+                    } {
+                        def kept:[string]
+                        def k:int 0
+                        while (k < ((array_length parts) - 1)) {
+                            push kept (itemAt parts k)
+                            k = (k + 1)
+                        }
+                        parts = kept
+                    }
+                } {
+                    if ((strlen cur) > 0) {
+                        if (cur != ".") { push parts cur }
+                    }
+                }
+                cur = ""
+            } {
+                cur = (cur + (substring path i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        if escaped { return "" }
+        if ((array_length parts) == 0) { return "/" }
+        def out:string ""
+        def j:int 0
+        while (j < (array_length parts)) {
+            out = ((out + "/") + (itemAt parts j))
+            j = (j + 1)
+        }
+        return out
+    }
+
+    sfn under:boolean (path:string prefix:string) {
+        if (prefix == "/") { return true }
+        if (path == prefix) { return true }
+        def with:string (prefix + "/")
+        return (VfsMemory.startsAt(path with))
+    }
+
+    ; The path as the PROVIDER sees it: rooted at the mount rather than at the
+    ; tree. A provider that had to know where it was mounted would be one you
+    ; could not mount twice.
+    sfn strip:string (path:string prefix:string) {
+        if (prefix == "/") { return path }
+        def n:int (strlen prefix)
+        if ((strlen path) <= n) { return "/" }
+        return (substring path n (strlen path))
+    }
+
+    sfn hasScheme:boolean (s:string scheme:string) {
+        def n:int (strlen scheme)
+        if ((strlen s) < n) { return false }
+        def head:string (substring s 0 n)
+        def low:string (VfsText.lower(head))
+        return (low == scheme)
+    }
+}
+
+; Lower-casing, because a scheme is compared case-insensitively and there is
+; no reason for this module to import a markdown file to do it.
+class VfsText {
+    sfn lower:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c >= 65) && (c <= 90)) {
+                out = (out + (VfsText.fromCode((c + 32))))
+            } {
+                out = (out + (substring s i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn fromCode:string (c:int) {
+        return (strfromcode c)
+    }
+}

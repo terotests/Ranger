@@ -195,3 +195,6 @@ gallery/statechart/bin/statechart_viz.js
 # Compiled Ranger bundles for the zstd decoder — rebuilt by npm run zstd:test.
 gallery/zstd/bin/
 .firesim-build/
+
+# Compiled suite output for gallery/vfs, like every other module's
+gallery/vfs/bin/

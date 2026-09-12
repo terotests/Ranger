@@ -215,6 +215,7 @@
     "markdown:demo": "npm run --silent markdown:build && node ./gallery/markdown/bin/md_demo.js gallery/markdown/fixtures/sample.md gallery/markdown/out && node ./gallery/markdown/bin/md_demo.js gallery/markdown/fixtures/mermaid.md gallery/markdown/out && node ./gallery/markdown/bin/md_demo.js gallery/markdown/fixtures/code.md gallery/markdown/out && node ./gallery/markdown/bin/md_demo.js gallery/markdown/fixtures/paged.md gallery/markdown/out && node ./gallery/markdown/bin/md_demo.js README.md gallery/markdown/out",
     "markdown:pdf": "npm run --silent markdown:build && node ./gallery/markdown/bin/md_demo.js",
     "markdown:embed": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/markdown/tests/MdEmbedProbe.rgr -d=./gallery/markdown/bin -o=MdEmbedProbe.js -nodecli && node ./gallery/markdown/bin/MdEmbedProbe.js gallery/markdown/fixtures/mermaid.md 820",
+    "vfs:test": "bash scripts/rgr-suite.sh ./gallery/vfs/tests/VfsTest.rgr ./gallery/vfs/bin VfsTest.js",
     "markdown:web": "bash gallery/markdown/web/standalone/build.sh",
     "markdown:web:serve": "bash gallery/markdown/web/standalone/build.sh && python3 -m http.server -d gallery/markdown/web/standalone/dist 8008",
     "markdown:web:test": "bash gallery/markdown/web/standalone/build.sh && node gallery/markdown/web/standalone/smoke.mjs",
