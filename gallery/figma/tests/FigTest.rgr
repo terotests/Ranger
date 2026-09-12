@@ -544,6 +544,22 @@ class FigTest {
         def under:SceneNode (shapes.childNamed("Underlined"))
         this.check("the text kept the glyphs it was shaped into" (under.text.hasOutline()))
         this.check("and carries the underline the file computed" (FigTest.hasSub(under.text.outline "M10 30L130 30L130 33L10 33Z")))
+        ; An emoji's slot in the glyph list is the em square its picture
+        ; goes in, not an outline of it. Filled in the text's ink — which
+        ; is what drawing every glyph does — it is a black block, and a
+        ; table heading came out as "Status ■". It is left out and the code
+        ; point is drawn as text, in whatever emoji font the machine has,
+        ; because the picture Figma drew is not in the file.
+        this.eqInt("the emoji is not filled as a glyph" (array_length under.children) 1)
+        if ((array_length under.children) > 0) {
+            def emo:SceneNode (itemAt under.children 0)
+            this.eqStr("it is drawn as the character it is" emo.sourceType "EMOJI")
+            def wanted:string (EVGCodepoint.toStr(128677))
+            this.eqStr("with the code point the file names" emo.text.characters wanted)
+            this.close("at the x the file gives it" emo.x 40.0)
+            this.close("in the em square above the baseline" emo.y 1.6800000000000015)
+            this.close("as wide as its advance" emo.w 24.0)
+        }
         ; A stroke the file brought as geometry is painted by a child, and
         ; the layer keeps saying what its edge is — so the pane can show it
         ; and an edit reaches the thing that draws. Recolouring used to

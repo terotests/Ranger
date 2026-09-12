@@ -1346,6 +1346,71 @@ class FigToScene {
             shaped = (shaped + (this.decorationOutline(nd)))
         }
         sn.text.outline = shaped
+        this.emojiLayers(nd sn)
+    }
+
+    ; An emoji is not an outline. Figma shapes the rest of a string into
+    ; glyph paths and draws a colour emoji as a picture, so the slot it
+    ; leaves in the glyph list carries the code point and, for a path, the
+    ; em square the picture goes in. Filled in the text's ink — which is
+    ; what a reader that draws every glyph does — that square is a black
+    ; block, and a table heading came out as "Status ■".
+    ;
+    ; The square is left out of the outline and the code point is drawn as
+    ; text instead, one span per emoji at the box the file gives it, in
+    ; whatever emoji font the machine has. That is the same bargain the
+    ; rest of the pipeline makes for text with no glyphs in the file, and
+    ; it is the only way to it here: the picture Figma drew is not in the
+    ; file, only the code point is.
+    fn emojiLayers:void (nd:FigNode sn:SceneNode) {
+        def derived:KiwiValue (nd.raw.child("derivedTextData"))
+        def glyphs:KiwiValue (derived.child("glyphs"))
+        def n:int (glyphs.itemCount())
+        def i:int 0
+        while (i < n) {
+            def g:KiwiValue (glyphs.item(i))
+            def cps:KiwiValue (g.child("emojiCodePoints"))
+            if ((cps.itemCount()) > 0) {
+                def fs:double (g.childDouble("fontSize" nd.fontSize))
+                def pos:KiwiValue (g.child("position"))
+                def px:double (pos.childDouble("x" 0.0))
+                def py:double (pos.childDouble("y" 0.0))
+                def adv:double (g.childDouble("advance" 1.0))
+                def chars:string ""
+                def c:int 0
+                while (c < (cps.itemCount())) {
+                    chars = (chars + (EVGCodepoint.toStr(((cps.item(c)).asInt(0)))))
+                    c = (c + 1)
+                }
+                def em (new SceneNode())
+                em.id = ((sn.id + ":emoji") + (to_string i))
+                em.name = "emoji"
+                em.kind = "text"
+                em.sourceType = "EMOJI"
+                em.x = px
+                ; The em square the file gives the picture sits from the
+                ; baseline up: 0.93 of it above, 0.07 below.
+                em.y = (py - (0.93 * fs))
+                em.w = (adv * fs)
+                em.h = fs
+                em.text.characters = chars
+                em.text.fontSize = fs
+                em.text.lineHeight = 1.0
+                em.text.align = "center"
+                def f (new SceneFill())
+                f.kind = "solid"
+                if ((array_length sn.fills) > 0) {
+                    def src:SceneFill (sn.firstFill())
+                    f.r = src.r
+                    f.g = src.g
+                    f.b = src.b
+                    f.a = src.a
+                }
+                push em.fills f
+                push sn.children em
+            }
+            i = (i + 1)
+        }
     }
 
     ; One SVG path for every glyph the editor laid out, in node pixels.
@@ -1362,6 +1427,12 @@ class FigToScene {
         def i:int 0
         while (i < n) {
             def g:KiwiValue (glyphs.item(i))
+            ; An emoji's slot carries the em square its picture goes in,
+            ; not an outline of it. Drawn, that is a black block.
+            if (((g.child("emojiCodePoints")).itemCount()) > 0) {
+                i = (i + 1)
+                continue
+            }
             def idx:int (g.childInt("commandsBlob" (0 - 1)))
             def fs:double (g.childDouble("fontSize" nd.fontSize))
             def pos:KiwiValue (g.child("position"))

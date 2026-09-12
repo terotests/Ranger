@@ -98,6 +98,17 @@ a band of colour — a track at 16% red over white, a caption fading out —
 and with the alpha dropped those came out as the full colour, an alignment
 scale in poster red and a white label on a black slab.
 
+An emoji is not an outline. Figma shapes the rest of a string into glyph
+paths and draws a colour emoji as a picture, so the slot it leaves in the
+glyph list carries the code point and the em square that picture goes in.
+Filled in the text's ink — which is what drawing every glyph does — that
+square is a black block, and a table heading came out as "Status ■". The
+square is left out and the code point is drawn as text instead, one span
+per emoji at the box the file gives it, in whatever emoji font the machine
+has. That is the same bargain the pipeline makes for any text the file did
+not shape, and it is the only way to it here: the picture Figma drew is not
+in the file, only the code point is.
+
 An underline comes from the same block as the glyphs. Which characters
 carry one is per-character styling — `textDecoration` on an entry of the
 text's style table — and where the line sits is the font's business, so
