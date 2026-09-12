@@ -404,6 +404,36 @@ class FigTest {
         ; The change the designer made inside the instance. Reading the
         ; component but not this is what leaves a whole file showing
         ; placeholder text — the component's own "Title text" everywhere.
+        ; A path inside a turn is turned with it: the rotation is on the
+        ; box, the path carries none of its own, and the only way it lands
+        ; where the picture shows it is for the box's turn to reach it.
+        def turnedBox:SceneNode (shapes.childNamed("TurnedBox"))
+        this.check("the box is turned" turnedBox.hasXf)
+        this.eqInt("and holds the path" (array_length turnedBox.children) 1)
+
+        ; An image fill on something that is not a rectangle is still the
+        ; picture. A FigJam stamp is a container by type, and a container
+        ; with an image fill got the grey box that stands for a picture
+        ; nothing can draw — with the bytes read and in hand.
+        def photo:SceneNode (shapes.childNamed("PhotoFrame"))
+        this.eqStr("a container whose fill is a picture IS the picture" photo.kind "image")
+        this.eqStr("and it names the image" photo.imageRef "abc123")
+
+        ; A nested instance carries entries for the same nodes as the one
+        ; outside it, saying what the component laid out rather than what
+        ; this instance of it did. Replacing the outer table with them drew
+        ; a resized instance at the component's own size — three stars that
+        ; belong in 112 pixels drawn across 240.
+        def nestedOv:SceneNode (shapes.childNamed("NestedOverride"))
+        if ((array_length nestedOv.children) > 0) {
+            def midInst:SceneNode (itemAt nestedOv.children 0)
+            if ((array_length midInst.children) > 0) {
+                def deepText:SceneNode (itemAt midInst.children 0)
+                this.eqStr("the deep override still replaces the text" deepText.text.characters "Deep real text")
+                this.close("and the outer instance's size survives the inner entry" deepText.w 90.0)
+                this.close("in both directions" deepText.h 12.0)
+            }
+        }
         def titled:SceneNode (shapes.childNamed("TitledInstance"))
         this.eqInt("the instance drew the component's text" (array_length titled.children) 1)
         if ((array_length titled.children) > 0) {
@@ -544,6 +574,22 @@ class FigTest {
         def under:SceneNode (shapes.childNamed("Underlined"))
         this.check("the text kept the glyphs it was shaped into" (under.text.hasOutline()))
         this.check("and carries the underline the file computed" (FigTest.hasSub(under.text.outline "M10 30L130 30L130 33L10 33Z")))
+        ; An emoji's slot in the glyph list is the em square its picture
+        ; goes in, not an outline of it. Filled in the text's ink — which
+        ; is what drawing every glyph does — it is a black block, and a
+        ; table heading came out as "Status ■". It is left out and the code
+        ; point is drawn as text, in whatever emoji font the machine has,
+        ; because the picture Figma drew is not in the file.
+        this.eqInt("the emoji is not filled as a glyph" (array_length under.children) 1)
+        if ((array_length under.children) > 0) {
+            def emo:SceneNode (itemAt under.children 0)
+            this.eqStr("it is drawn as the character it is" emo.sourceType "EMOJI")
+            def wanted:string (EVGCodepoint.toStr(128677))
+            this.eqStr("with the code point the file names" emo.text.characters wanted)
+            this.close("at the x the file gives it" emo.x 40.0)
+            this.close("in the em square above the baseline" emo.y 1.6800000000000015)
+            this.close("as wide as its advance" emo.w 24.0)
+        }
         ; A stroke the file brought as geometry is painted by a child, and
         ; the layer keeps saying what its edge is — so the pane can show it
         ; and an edit reaches the thing that draws. Recolouring used to

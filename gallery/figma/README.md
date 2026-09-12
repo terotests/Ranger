@@ -98,6 +98,17 @@ a band of colour — a track at 16% red over white, a caption fading out —
 and with the alpha dropped those came out as the full colour, an alignment
 scale in poster red and a white label on a black slab.
 
+An emoji is not an outline. Figma shapes the rest of a string into glyph
+paths and draws a colour emoji as a picture, so the slot it leaves in the
+glyph list carries the code point and the em square that picture goes in.
+Filled in the text's ink — which is what drawing every glyph does — that
+square is a black block, and a table heading came out as "Status ■". The
+square is left out and the code point is drawn as text instead, one span
+per emoji at the box the file gives it, in whatever emoji font the machine
+has. That is the same bargain the pipeline makes for any text the file did
+not shape, and it is the only way to it here: the picture Figma drew is not
+in the file, only the code point is.
+
 An underline comes from the same block as the glyphs. Which characters
 carry one is per-character styling — `textDecoration` on an entry of the
 text's style table — and where the line sits is the font's business, so
@@ -188,6 +199,14 @@ are here" variant of a set drew the placeholder artwork the set lists
 first. Expansion stops at fifteen levels, so a cycle is a warning and not
 a hang.
 
+A picture on something that is not a rectangle is still the picture. An
+image fill made the node an image only where the node was already a
+rectangle, so a FigJam STAMP — the profile photo people drop on a board —
+kept the grey box that stands for a picture nothing can draw, with the
+bytes read and in hand. Anything holding nothing but the fill takes it now;
+a node with children of its own does not, since an image element has
+nowhere to put them.
+
 ### Overrides
 
 Everything the designer changed inside an instance — the text above all —
@@ -214,6 +233,14 @@ nested instance `J`. Entries go into one table for the document, keyed by
 where the node sits inside the outermost instance, and a nested expansion
 adds to that table rather than replacing it — an earlier version replaced
 it and placed 115 overrides out of 25,672.
+
+A nested instance carries entries for the same nodes as the one outside it,
+and they say what the COMPONENT laid out rather than what this instance of
+it did. The outer table is the one that describes what is on the board, so
+an inner entry fills in only what the outer does not say. Letting it
+replace the outer entry wholesale is what drew a Stars instance resized to
+112 pixels at the 240 its component is: those inner entries carry no size
+at all, and they were overwriting the three the outer one computed.
 
 A path is spelled in `overrideKey`, not in guids. A component that came
 from a library is copied into the file and re-guided on the way in, so the
@@ -292,6 +319,18 @@ when there is a label, so a connector without one carries a 100x100 box
 nothing says how to paint. Reading that block as the whole connector's
 painted the box too, and every divider drawn with a connector came out with
 a coloured square sitting on one end of it.
+
+A clip inside a turn is not a clip. It crosses the display list as x/y/w/h
+and every backend makes it a scissor, which is axis-aligned; the rotation
+that moves the pixels cannot move the rectangle with them, so the two end
+up describing different places. Applied anyway, a turned frame clips away
+the very thing it contains — a quarter-turned arrow on a board drew nothing
+at all, its content sent a hundred pixels above a scissor that stayed where
+the layout put it. `EVGDisplayList` drops the clip instead, which is the
+same choice it already makes for culling under a rotation: content that
+overflows a turned frame is drawn rather than cut in the wrong place.
+Anything better needs a stencil, and that is a list format every backend
+would have to follow.
 
 ## Moving around
 

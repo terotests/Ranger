@@ -264,6 +264,9 @@ class EVGDisplayList {
     ; Overlay surfaces met during the first pass, drawn by the second. See
     ; `build`.
     def deferredOverlays:[EVGElement]
+    ; How many turns the walk is inside. A clip is a scissor rectangle and
+    ; a turn cannot be written into one, so inside a turn there is no clip.
+    def turnedDepth:int 0
     ; The same engine layout measured with. A paragraph is emitted one command
     ; per LINE, broken exactly where layout broke it — a backend that got the
     ; whole string would draw one long run straight out of its box, which is
@@ -2344,6 +2347,7 @@ class EVGDisplayList {
             cullOn = false
         }
         def hadScale:double drawScale
+        def hadTurned:int turnedDepth
         if (el.hasTransform()) {
             def sc:double el.scale
             if (sc < 0.0) {
@@ -2355,8 +2359,16 @@ class EVGDisplayList {
             if cullOn {
                 this.cullThroughTransform(el)
             }
+            ; A clip inside a turn is a rectangle in a space the painter
+            ; cannot scissor to — see `clipsContent` below. Counted here,
+            ; where the turn is known, and counted for this element as well
+            ; as its children: its own clip is turned by it too.
+            if (el.rotate != 0.0) {
+                turnedDepth = (turnedDepth + 1)
+            }
         }
         this.walkOpaque(el)
+        turnedDepth = hadTurned
         drawScale = hadScale
         cullOn = hadCull
         cullLeft = hadCullL
@@ -2746,6 +2758,22 @@ class EVGDisplayList {
             }
         }
         def clips:boolean (el.clipsContent())
+        ; NOT INSIDE A TURN. A clip crosses the list as x/y/w/h and every
+        ; backend makes it a scissor, which is axis-aligned; the rotation
+        ; that moved the pixels cannot move the rectangle with them. The
+        ; two then disagree, and a turned frame clipped away the very
+        ; thing it contains — a quarter-turned arrow on a FigJam board drew
+        ; nothing at all, its content sent a hundred pixels above a scissor
+        ; that stayed where the layout put it.
+        ;
+        ; So the clip is dropped rather than applied wrongly, which is the
+        ; same choice `cullThroughTransform` already makes for a rotation:
+        ; content that overflows a turned frame is drawn instead of being
+        ; cut in the wrong place. Anything else needs a stencil, and that is
+        ; a list format every backend would have to follow.
+        if (turnedDepth > 0) {
+            clips = false
+        }
         ; A clip that can scroll is a layer — see `refreshLayers`.
         def scrolls:boolean false
         if ((clips && culling) && ((w > 0.0) && (h > 0.0))) {
