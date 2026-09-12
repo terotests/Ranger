@@ -232,6 +232,9 @@ class DocxA11y {
                 if (b.kind == (DocBlockKind.chart())) {
                     DocxA11y.addChart(t b.chart)
                 }
+                if (b.kind == (DocBlockKind.drawing())) {
+                    DocxA11y.addDrawing(t b.drawing)
+                }
             }
             bi = (bi + 1)
         }
@@ -414,6 +417,22 @@ class DocxA11y {
             n.description = ch.note
         }
         t.place(n 0 0 ch.widthPx ch.heightPx)
+    }
+
+    ; A drawing is a picture to a reader too. Its name says what it is —
+    ; "Mermaid diagram" — and its alt text, when the maker wrote one, says
+    ; what is in it; the note is why nothing could be drawn, when nothing
+    ; could.
+    sfn addDrawing:void (t:EVGA11yTree dr:DocDrawing) {
+        def n:EVGA11yNode (t.node(("doc/drawing:" + (to_string dr.id)) "doc/body" (EVGA11yRole.image())))
+        n.name = dr.name
+        if ((strlen dr.altText) > 0) {
+            n.description = dr.altText
+        }
+        if ((strlen dr.note) > 0) {
+            n.description = dr.note
+        }
+        t.place(n 0 0 dr.widthPx dr.heightPx)
     }
 
     ; Headers and footers, outside the body. They repeat on every page; met in

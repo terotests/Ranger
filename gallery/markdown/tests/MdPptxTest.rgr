@@ -1159,6 +1159,17 @@ digraph { a -> b; }
         c.ok("…and the labels that are in it"
             ((MdPptxTest.hasSub(dg.altText "a")) && (MdPptxTest.hasSub(dg.altText "b"))))
         c.eqInt("and nothing was dropped" maker.result.dropped 0)
+
+        ; …and it is the SIZE it was laid out at. `PptxFromEvg` scales a
+        ; display list by 0.75 unless told otherwise, and this deck is placed
+        ; in the layout's own units 1:1, so the default shrank every diagram
+        ; to three quarters of its column and left the rest of the slide
+        ; empty beside it. The scene's own extent is the number to hold.
+        def emb:MdEmbedEntry (maker.layout.embeds.entryAt(0))
+        c.ok("the drawing is as wide as the diagram was laid out"
+            ((dg.width >= (emb.width - 2.0)) && (dg.width <= (emb.width + 2.0))))
+        c.ok("…and as tall"
+            ((dg.height >= (emb.height - 2.0)) && (dg.height <= (emb.height + 2.0))))
     }
 
     sfn noted:boolean (m:MdToPptx maker:string) {

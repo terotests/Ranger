@@ -396,6 +396,23 @@ moving the caret scrolls the drawing. **continuous** is one column as tall as
 the document; **paged** is A4 sheets with the breaks the PDF will have, so a
 reader can see where page four starts before printing it.
 
+**Four tabs over the drawing.** *Preview* is the markdown, laid out; *PDF* is
+the same markdown as the sheets `⬇ PDF` prints, with a page pill to move
+between them. *PPTX* and *DOCX* are the other two documents this page can make
+from the markdown — and they are **the editors this repository already has**,
+not pictures of them: the PPTX tab is `PptxWeb`, the slide editor the
+[pptx page](https://terotests.github.io/Ranger/pptx/) runs, with its strip,
+its slide panel, its selection handles and its caret; the DOCX tab is
+`DocxWeb`, the Word editor the docx page runs, with its strip and its ruler.
+The page attaches the same browser-side modules those pages attach
+(`gallery/pptx/web/host/pptx-host.mjs`, `gallery/docx_viewer/web/host/docx-host.mjs`)
+to the same engines, so what a drag, a keystroke or Ctrl+Z means on a slide
+is decided in one place for all three pages, and a fix there reaches all
+three. A diagram reaches both editors as geometry — the deck as one group of
+shapes, the Word document as a `DocDrawing` block laid out and painted by
+`DocxView` — and the page pill over an editor is that editor's own page or
+slide. [`../PLAN_DOCUMENT_MODES.md`](../PLAN_DOCUMENT_MODES.md) §3 and Stage N.
+
 **The PDF is built in the tab**, from the same layout the canvas is showing,
 with the faces the reader's own browser fetched embedded in it. Not the
 browser's print dialog: a canvas is one page as far as `window.print()` is
@@ -497,19 +514,10 @@ shipped a PNG would also have draw commands.
 The design these are measured against is [`PLAN.md`](PLAN.md), and the WYSIWYG
 half is [`PLAN_WYSIWYG.md`](PLAN_WYSIWYG.md).
 
-**Open, and planned rather than built:** who owns the document once a reader
-edits the PREVIEW. Today the markdown file is the only truth and every gesture
-on the right is translated into a patch on it — which works until a gesture
-markdown cannot hold is translated anyway. Selecting three list items and
-pressing bold writes one marker pair around the lot, and CommonMark reads that
-as four literal asterisks rather than as emphasis.
-
-The answer is not a better filter on those gestures. It is one explicit,
-one-way switch: the preview is read-only until a reader turns editing on, and
-from that moment the preview is the truth and the source pane is read-only
-provenance. After the switch nothing has to be refused for markdown's sake,
-which is the whole payoff — and behind it stand the PowerPoint and Word editors
-this repository already has, rather than a third one.
+**Who owns the document once a reader edits it** is settled by the tabs above:
+the Preview follows the `.md` and takes keystrokes; the PPTX and DOCX tabs are
+their own documents from the first edit, owned by the PowerPoint and Word
+editors this repository already has rather than by a third one written here.
 [`../PLAN_DOCUMENT_MODES.md`](../PLAN_DOCUMENT_MODES.md) has the modes and the
 staging; the bytes a picture or a background image needs are in
 [`../vfs/PLAN_VFS.md`](../vfs/PLAN_VFS.md).

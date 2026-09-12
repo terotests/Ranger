@@ -14,6 +14,7 @@ Import "../../game_engine/ui/UITextRenderer.rgr"
 
 ; kind: 0=text 1=image 2=tableCellBg 3=tableBorder 4=headerText 5=footerText
 ;        6=chart (chartId names the DocChart; the picture is rendered at paint)
+;        7=drawing (drawingId names the DocDrawing; laid out and drawn at paint)
 ; ------------------------------------------------------------------------------
 ; What a laid-out line draws.
 ;
@@ -57,6 +58,11 @@ class LaidLineKind {
         return 6
     }
 
+    ; A drawing, laid out from its element tree at paint time.
+    sfn drawing:int () {
+        return 7
+    }
+
     ; Is this a line of body text — something a click can land in and the caret
     ; can walk? A header and a footer are text and are drawn as text, and they
     ; are deliberately NOT this: the body is what the document editor edits.
@@ -89,6 +95,8 @@ class LaidLine {
     ; Which DocChart this line draws, by id rather than by index — an edit may
     ; add or remove charts between layout and paint.
     def chartId:int 0
+    ; …and which DocDrawing, on the same terms.
+    def drawingId:int 0
     def bold:boolean false
     def italic:boolean false
     def underline:boolean false
@@ -305,6 +313,52 @@ class DocxLayout {
                 cl.boxW = cw
                 push curPage.lines cl
                 y = ((y + chh) + 10)
+            }
+            if (b.kind == (DocBlockKind.drawing())) {
+                def dr:DocDrawing b.drawing
+                def dw:int dr.widthPx
+                def dh:int dr.heightPx
+                ; Narrower than the column: the whole drawing, at the width
+                ; there is. A chart re-renders at a narrower width; a drawing
+                ; is geometry made at one size, so its height follows.
+                if (dw > contentW) {
+                    if (dw > 0) {
+                        dh = (to_int (((to_double dh) * (to_double contentW)) / (to_double dw)))
+                    }
+                    dw = contentW
+                }
+                if (dw < 1) { dw = 1 }
+                if (dh < 1) { dh = 1 }
+                ; Whole or not at all, as a chart is: half a diagram is not a
+                ; diagram.
+                if ((y + dh) > curMaxY) {
+                    this.paintChrome(curPage curSec)
+                    curPage = (this.newPage(curSec curSecIdx))
+                    ml = (curSec.marginLeftPx())
+                    mt = (curSec.marginTopPx())
+                    mb = (curSec.marginBottomPx())
+                    headerH = (this.measureHeaderFooter(curSec.headerParas contentW))
+                    footerH = (this.measureHeaderFooter(curSec.footerParas contentW))
+                    y = mt
+                    if (headerH > 0) {
+                        y = (mt + headerH + 8)
+                    }
+                    curMaxY = ((curPage.height - mb) - footerH)
+                    if (footerH > 0) {
+                        curMaxY = (curMaxY - 8)
+                    }
+                }
+                def dl (new LaidLine)
+                dl.kind = (LaidLineKind.drawing())
+                dl.drawingId = dr.id
+                dl.x = ml
+                dl.y = y
+                dl.width = dw
+                dl.height = dh
+                dl.boxX = ml
+                dl.boxW = dw
+                push curPage.lines dl
+                y = ((y + dh) + 10)
             }
             if (b.kind == (DocBlockKind.table())) {
                 def tbl:DocumentTable b.table

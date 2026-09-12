@@ -914,12 +914,7 @@ class MdToPptx {
     ; notations — so it goes through the same table the parser and the
     ; renderer read.
     sfn notationWord:string (kind:string) {
-        def n:string (MdEmbedKinds.notationOf(kind))
-        if (n == "mermaid") { return "Mermaid" }
-        if (n == "plantuml") { return "PlantUML" }
-        if (n == "graphviz") { return "Graphviz" }
-        if (n == "d2") { return "D2" }
-        return "Drawing"
+        return (MdEmbedKinds.notationWord(kind))
     }
 
     ; What the drawing SAYS, for a reader who cannot see it.
@@ -998,6 +993,14 @@ class MdToPptx {
         def dl (new EVGDisplayList())
         dl.build(root)
         def conv (new PptxFromEvg())
+        ; One unit, not three quarters of one. `PptxFromEvg` defaults to
+        ; 0.75 because a display list is usually CSS pixels and a slide is
+        ; points; this deck is the LAYOUT's own units all the way through —
+        ; `d.setSize(pageWidth pageHeight)` and every text box beside the
+        ; drawing are placed 1:1 — so the default shrank every diagram to
+        ; three quarters of the column it was laid out to fill, and left a
+        ; quarter of the slide empty beside it.
+        conv.unit = 1.0
         def group:PptxShape (conv.build(dl x y))
 
         ; The group is an OBJECT, so it says what it is.

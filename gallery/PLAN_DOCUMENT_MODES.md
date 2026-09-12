@@ -664,6 +664,59 @@ Two things that came out of looking at it on screen:
   nothing and said nothing, which is the worst kind of refusal. It is now the
   same selector under the name a CSS author reaches for first.
 
+### Stage N — the editors themselves, not pieces of them — ✅ done
+
+Stage H said the deck would be `PptxEditor`'s and the page would keep only
+its chrome, and Stage K said the same of `DocxEditController`. What was built
+took the MODEL and the OPERATIONS from each editor and left the rest here:
+the page drew a slide through `PptxToEvg.slideToEvg`, the element-tree road,
+which cannot draw a custom path — so every diagram on the deck came out as
+the bounding boxes of its edges, at the top-left of an A4-shaped list, with a
+click that selected and nothing that could drag, resize, type or undo. The
+Word tab drew a bare page with no strip, no ruler, and — through a call to a
+`docAddFace` that did not exist, swallowed by a `try` — no fonts. A reader
+comparing either tab with the pptx and docx pages found two different
+programs, and every fix to those pages missed these. That is the pattern seam
+[`PLAN_EDITOR_KERNEL.md`](PLAN_EDITOR_KERNEL.md) §2 describes, arrived at by
+taking too little rather than by writing too much.
+
+So the page holds `PptxWeb` and `DocxWeb` — the seams the two pages run on —
+and attaches a presentation and a document to them (`attachPresentation`,
+`attachDocument`) rather than a file. The frames are theirs: strip, slide
+panel, properties, notes, selection handles, caret, ruler, status line. The
+pointer and the keyboard go through the same browser modules those pages
+attach, `pptx-host.mjs` and a `docx-host.mjs` extracted from the docx page for
+the purpose, so a press means one thing on every page that has a slide. The
+markdown page keeps the canvas, the fonts, the tabs and a page pill that asks
+each editor for its own page or slide.
+
+Three things came with it, each the same shape — one road, and the one the
+editors already take:
+
+- **A diagram is geometry in the Word document.** `RichDocument` grew a
+  `DocDrawing` — the diagram's own element tree with its notation and source
+  — laid out whole like a chart and painted by `DocxView` through
+  `EVGDisplayList.scaleBy` and `offsetBy`, so `MdToDocx` carries a fence the
+  way `MdToPptx` does instead of writing its name.
+- **The deck's drawing is the size it was laid out at.** `PptxFromEvg`
+  defaults to 0.75 points per unit, right for a CSS-pixel list and wrong for
+  this deck, which is placed in the layout's own units 1:1; every diagram was
+  three quarters of its column.
+- **A page keeps its labels.** RangerFlow does not draw a word under five
+  SCREEN pixels, and applied that to a page fit: a gantt fitted into an A4
+  column lost every label, in the PDF and on the slide. `labelFloorPx` is
+  now a screen rule that `buildForPage` and `buildForExport` turn off.
+
+*The check:* the page's own, driving the tabs — the deck frame has PATHS in
+it and its title sits in from the corner; a press through the host module
+selects a shape; the Word frame has the strip in it, draws a diagram's edges
+as paths and its labels as text, takes a typed word, and an edited document
+does not follow the `.md` until `↻ override from .md`. Plus `MdDocxTest` on
+the drawing block, the laid-out line and the marks inside its box;
+`MdPptxTest` on the group's size against the scene's own; and
+`MarkdownTest.narrowLabels` on a gantt at a width that forces the fit under
+the old floor.
+
 ---
 
 ## 11. What is left
@@ -686,6 +739,12 @@ Two things that came out of looking at it on screen:
   question from whether markdown can express it.
 - **A table in a Word document.** `RichDocument` has tables; `MdToDocx` writes
   the rows as tab-separated paragraphs and says so.
+- **The Word page's size.** `MdToDocx` states the section in twips from the
+  layout's units, which are CSS pixels read as points, so the Word page is
+  four thirds of the markdown's and wider than the pane it is shown in. The
+  deck has the same reading in the other direction. Consistent, and named.
+- **Deleting a drawing.** A `DocDrawing` lays out, paints and reads aloud;
+  the edit controller does not yet delete one the way it deletes a chart.
 - **Font embedding in a deck** — `p:embeddedFontLst` and an `fntdata` part.
   Named in `MdToPptx` as the cost it is: a deck names its faces and carries
   none, so a reader without them substitutes and the text reflows inside its

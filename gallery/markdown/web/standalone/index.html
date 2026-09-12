@@ -58,6 +58,10 @@
   #toolbar .b { font-weight: 700; }
   #toolbar .i { font-style: italic; }
   #toolbar .m { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  /* Over the PPTX and DOCX tabs the editor draws its own strip in the frame,
+     so the markdown's formatting row steps aside; what stays is the one
+     button about the view itself. */
+  #toolbar.app [data-cmd], #toolbar.app .sep { display: none; }
 
   main { display: flex; flex: 1; min-height: 0; }
   #sourcePane {
@@ -135,7 +139,7 @@
      window is the document and the number belongs on it, the way a reader's
      thumb marks a place. It follows the scroll, and it is also how you jump. */
   #pagebar {
-    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    position: absolute; top: 44px; left: 50%; transform: translateX(-50%);
     display: none; align-items: center; gap: 2px; z-index: 2;
     padding: 3px 4px; border-radius: 999px;
     background: rgba(255, 255, 255, 0.92); border: 1px solid var(--line);
@@ -143,6 +147,9 @@
     backdrop-filter: blur(6px);
   }
   #pagebar.on { display: flex; }
+  /* Over an editor the strip is at the top of the frame, so the page pill
+     sits low instead, just above the editor's own status line. */
+  #pagebar.low { top: auto; bottom: 30px; }
   #pagebar button {
     border: 0; background: transparent; padding: 2px 7px; border-radius: 999px;
     color: var(--muted); line-height: 1;
@@ -170,7 +177,12 @@
   /* The canvas fills what is LEFT of the pane once the view tabs have taken
      their strip — `inset: 0` put it over them, and a tab under a canvas is a
      tab nobody can press. */
-  #screen { position: absolute; inset: 34px 0 0; width: 100%; display: block; }
+  /* Width AND height stated. A canvas is a replaced element with an intrinsic
+     2:1 size, and with only its width set it took its height from that ratio
+     — a canvas half as tall as the pane, with the pane's own grey under it,
+     which nobody saw while the markdown scrolled and everybody saw once an
+     editor drew a frame that stopped half way down. */
+  #screen { position: absolute; top: 34px; left: 0; width: 100%; height: calc(100% - 34px); display: block; }
   #screen:focus { outline: none; }
 
   #hint {
@@ -266,6 +278,7 @@
     <div id="viewPane">
       <div id="viewTabs" role="tablist" aria-label="Which document">
         <button id="viewMd" role="tab" type="button" aria-selected="true">Preview</button>
+        <button id="viewPdf" role="tab" type="button" aria-selected="false" title="The sheets the PDF will have, with the breaks it will have">PDF</button>
         <button id="viewDeck" role="tab" type="button" aria-selected="false">PPTX</button>
         <button id="viewDoc" role="tab" type="button" aria-selected="false">DOCX</button>
         <span id="viewNote"></span>

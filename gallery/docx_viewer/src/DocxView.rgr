@@ -19,6 +19,7 @@ Import "WordNumbering.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
+Import "../../evg/EVGLayout.rgr"
 Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
 Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
 Import "../../text_editor/src/TextEditCore.rgr"
@@ -404,6 +405,9 @@ class DocxView {
             if (line.kind == (LaidLineKind.chart())) {
                 this.paintChartLine(line lx ly)
             }
+            if (line.kind == (LaidLineKind.drawing())) {
+                this.paintDrawingLine(line lx ly)
+            }
             if (((line.kind == (LaidLineKind.text())) || (line.kind == (LaidLineKind.header()))) || (line.kind == (LaidLineKind.footer()))) {
                 this.paintStyledLine(line lx ly)
             }
@@ -447,6 +451,54 @@ class DocxView {
             ; drawn after, so it never ends up in an exported picture.
             def mark:EVGColor (EVGColor.rgb(40 100 210))
             ink.strokeRect((lx - 3) (ly - 3) (line.width + 6) (line.height + 6) 2 mark)
+        }
+    }
+
+    ; A drawing, drawn where the layout put it. The document carries an
+    ; element tree made at one size; this lays it out at that size, turns it
+    ; into draw commands, and scales and moves the commands into the box the
+    ; layout gave it. Scaling the LIST rather than laying the tree out at the
+    ; new size, because a diagram's children are placed absolutely and a tree
+    ; laid out narrower simply overflows.
+    ;
+    ; The same road a chart takes: on the display-list path the commands join
+    ; the page's, on the canvas path the shared painter rasterizes them.
+    fn paintDrawingLine:void (line:LaidLine lx:int ly:int) {
+        def dr:DocDrawing (docRef.drawingById(line.drawingId))
+        if (! (dr.hasRoot())) {
+            ink.rect(lx ly line.width line.height (EVGColor.rgb(240 242 246)))
+            def why:string dr.note
+            if ((strlen why) == 0) { why = "nothing to draw" }
+            ink.text((("[" + dr.name) + ": " + why + "]") (lx + 8) (ly + 8) 12.0 inkColor false)
+            return
+        }
+        def root:EVGElement (unwrap dr.root)
+        def nw:double dr.naturalW
+        def nh:double dr.naturalH
+        if (nw <= 0.0) { nw = (to_double line.width) }
+        if (nh <= 0.0) { nh = (to_double line.height) }
+        ; At the origin, at its own size. The tree is shared with whoever
+        ; else draws it — a preview places it on its page, a slide at its
+        ; box — so where it sits is stated here rather than assumed.
+        root.position = "absolute"
+        root.left = (EVGUnit.px(0.0))
+        root.top = (EVGUnit.px(0.0))
+        root.width = (EVGUnit.px(nw))
+        root.height = (EVGUnit.px(nh))
+        root.backgroundColor = (EVGColor.noColor())
+        def le (new EVGLayout())
+        le.setPageSize(nw nh)
+        le.layout(root)
+        def dl (new EVGDisplayList)
+        dl.build(root)
+        def s:double ((to_double line.width) / nw)
+        dl.scaleBy(s)
+        dl.offsetBy((to_double lx) (to_double ly))
+        if ink.toList {
+            ink.append(dl)
+        } {
+            chartInk.attach(canvas ctx (new GridImages) (canvas.getWidth()) (canvas.getHeight()))
+            chartInk.draw(dl)
         }
     }
 

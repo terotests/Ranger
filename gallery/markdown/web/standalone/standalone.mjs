@@ -27,10 +27,24 @@
  * would look like a bug in the line breaker.
  */
 import { prepareDisplayList, setFontFallback, fontSpec, verbatim } from "./gl/evg-webgl.js";
+// The other two editors' own browser halves — what a press, a drag and a
+// keystroke mean to a slide and to a Word page. The SAME modules the pptx and
+// docx pages attach, attached here to the same engines: this page wires
+// nothing of its own to either, so a fix to dragging a shape or selecting a
+// sentence reaches all three pages at once.
+import { attachPointer as attachDeckPointer, attachKeys as attachDeckKeys } from "./host/pptx-host.mjs";
+import { attachPointer as attachDocPointer, attachKeys as attachDocKeys } from "./host/docx-host.mjs";
 
 // If the import above 404s, nothing below runs and the only evidence is a
 // line in the network panel. The page watches for this instead.
 window.__pageStarted = true;
+// Anything thrown out of an event handler lands in the console and nowhere
+// else — a tab click whose handler threw looks, from the outside, like a tab
+// that did nothing. Kept, so the page's own checks can say "and nothing
+// threw" rather than pass on a silence.
+const uncaught = [];
+window.addEventListener("error", (ev) => uncaught.push(String(ev.message || ev.error || "error")));
+window.addEventListener("unhandledrejection", (ev) => uncaught.push(String(ev.reason && ev.reason.message || ev.reason || "rejection")));
 
 const canvas = document.getElementById("screen");
 const sourceEl = document.getElementById("source");
@@ -45,6 +59,7 @@ const pptxBtn = document.getElementById("pptx");
 const styleEl = document.getElementById("styleSource");
 const rebuildBtn = document.getElementById("rebuild");
 const viewMdTab = document.getElementById("viewMd");
+const viewPdfTab = document.getElementById("viewPdf");
 const viewDeckTab = document.getElementById("viewDeck");
 const viewDocTab = document.getElementById("viewDoc");
 const viewNoteEl = document.getElementById("viewNote");
@@ -436,16 +451,29 @@ app.setEditMode(true);
 // a view a reader has not touched is still a picture of the markdown and is
 // re-made from it. The only thing that discards their work is `↻ override
 // from .md`, which is a thing they went and clicked.
+// The PDF tab is the markdown laid out as the SHEETS the PDF will have — the
+// same layout `⬇ PDF` prints, so a reader can see where page four starts
+// before printing it. It is not a fourth document: it is the Preview in paged
+// mode, and the tab is how a reader reaches that without knowing the word.
+function pdfTabOn() {
+  return app.currentView() === "md" && modeEl.value === "paged";
+}
+
 function refreshViewTabs() {
   const v = app.currentView();
-  viewMdTab.setAttribute("aria-selected", String(v === "md"));
+  const pdf = pdfTabOn();
+  viewMdTab.setAttribute("aria-selected", String(v === "md" && !pdf));
+  viewPdfTab.setAttribute("aria-selected", String(pdf));
   viewDeckTab.setAttribute("aria-selected", String(v === "deck"));
   viewDocTab.setAttribute("aria-selected", String(v === "doc"));
   const edited = v === "deck" ? app.deckEdited() : v === "doc" ? app.docEdited() : false;
   rebuildBtn.hidden = v === "md";
   rebuildBtn.disabled = !edited;
+  // The formatting buttons are the markdown's. An editor brings its own
+  // strip, drawn in the frame, so over one the page's row steps aside.
+  toolbarEl.classList.toggle("app", v !== "md");
   if (v === "md") {
-    viewNoteEl.textContent = "follows the .md";
+    viewNoteEl.textContent = pdf ? "the sheets ⬇ PDF prints — follows the .md" : "follows the .md";
   } else if (edited) {
     viewNoteEl.textContent = "edited here — the .md no longer feeds it";
   } else {
@@ -458,6 +486,31 @@ function refreshViewTabs() {
 }
 
 function showView(which) {
+  // Preview and PDF are one document in two layouts; the mode is the
+  // difference, and the dropdown follows so the two controls never disagree.
+  if (which === "pdf" || which === "md") {
+    const wantPaged = which === "pdf";
+    const changed = app.setView("md");
+    if (wantPaged && modeEl.value !== "paged") {
+      modeEl.value = "paged";
+      app.setPageSize(shapeEl.value);
+      app.setMode("paged");
+      app.scrollTo(0);
+    } else if (!wantPaged && modeEl.value === "paged") {
+      modeEl.value = "scroll";
+      app.setMode("continuous");
+      app.scrollTo(0);
+    } else if (!changed) {
+      refreshViewTabs();
+      return;
+    }
+    showStatus("");
+    bindEditorHost("md");
+    refreshViewTabs();
+    refreshPagebar();
+    needsPaint = true;
+    return;
+  }
   if (!app.setView(which)) {
     refreshViewTabs();
     return;
@@ -465,11 +518,69 @@ function showView(which) {
   if (which === "deck") showStatus("PPTX — " + app.deckSlideCount() + " slide(s), " + app.pptxReport());
   else if (which === "doc") showStatus("DOCX — " + app.docReport());
   else showStatus("");
+  bindEditorHost(which);
   refreshViewTabs();
   refreshPagebar();
   needsPaint = true;
 }
+
+// ---- the editors' own input ------------------------------------------------
+//
+// Over the PPTX tab the canvas IS the slide editor, and over DOCX it is the
+// Word editor: the pointer and the keyboard go to the engine's own seam
+// through the host module that page uses, and this file only says when.
+// Attached on the way into a view and detached on the way out, so two of
+// them never argue over one canvas — and the markdown's own handlers, further
+// down, step aside while an editor is on screen.
+let editorHost = null;
+function unbindEditorHost() {
+  if (!editorHost) return;
+  for (const h of editorHost) h.detach();
+  editorHost = null;
+}
+// After anything an editor handled: the frame has to be built again, and
+// the page's furniture — undo buttons, the status line — re-read.
+async function editorDraw() {
+  app.touch();
+  needsPaint = true;
+  refreshToolbar();
+  // A click on a thumbnail or a PageDown moved the editor to another page,
+  // and the pill over the frame has to say so.
+  refreshPagebar();
+}
+function keepKeyboard() {
+  // The hidden field is where the keyboard points on this page; an editor
+  // that focused the canvas instead would take it away.
+  keyCatcher.focus({ preventScroll: true });
+}
+function bindEditorHost(which) {
+  unbindEditorHost();
+  const sceneSize = () => ({ width: canvas.clientWidth, height: canvas.clientHeight });
+  if (which === "deck") {
+    const web = app.deckHost();
+    editorHost = [
+      attachDeckPointer({ canvas, web, sceneSize, draw: editorDraw, afterInput: keepKeyboard, keepsFocus: () => true }),
+      attachDeckKeys({
+        web, draw: editorDraw, afterInput: keepKeyboard, target: keyCatcher,
+        enabled: () => active === "canvas" && app.currentView() === "deck",
+        onSave: () => pptxBtn.click(),
+      }),
+    ];
+  } else if (which === "doc") {
+    const web = app.docHost();
+    editorHost = [
+      attachDocPointer({ canvas, web, sceneSize, draw: editorDraw, afterInput: keepKeyboard, keepsFocus: () => true }),
+      attachDocKeys({
+        web, draw: editorDraw, afterInput: keepKeyboard, target: keyCatcher,
+        enabled: () => active === "canvas" && app.currentView() === "doc",
+        onCopy: (text) => navigator.clipboard?.writeText(text).catch(() => {}),
+        onCut: (text) => navigator.clipboard?.writeText(text).catch(() => {}),
+      }),
+    ];
+  }
+}
 viewMdTab.addEventListener("click", () => showView("md"));
+viewPdfTab.addEventListener("click", () => showView("pdf"));
 viewDeckTab.addEventListener("click", () => showView("deck"));
 viewDocTab.addEventListener("click", () => showView("doc"));
 
@@ -592,7 +703,23 @@ canvas.addEventListener(
   "wheel",
   (ev) => {
     ev.preventDefault();
-    const step = ev.deltaMode === 1 ? 18 : 1;
+    const step = ev.deltaMode === 1 ? 18 : ev.deltaMode === 2 ? 400 : 1;
+    const view = app.currentView();
+    if (view === "deck") {
+      // The deck scrolls its panel of thumbnails, in pixels of travel, at
+      // the point the wheel is over — the app decides which strip it lands on.
+      const [x, y] = viewPoint(ev);
+      app.deckHost().scrollPixels2(Math.round(x), Math.round(y), Math.round(ev.deltaX * step), Math.round(ev.deltaY * step));
+      app.touch();
+      needsPaint = true;
+      return;
+    }
+    if (view === "doc") {
+      app.docHost().frameWheel(Math.round(ev.deltaY * step));
+      app.touch();
+      needsPaint = true;
+      return;
+    }
     app.scrollBy(ev.deltaY * step);
     needsPaint = true;
     refreshPagebar();
@@ -605,6 +732,12 @@ canvas.addEventListener(
 // drag has to mean "select", the way it does everywhere else.
 let selecting = false;
 canvas.addEventListener("pointerdown", (ev) => {
+  // Over an editor the press is the editor's, through its host module; this
+  // page only makes sure the keyboard is pointed at the canvas.
+  if (app.currentView() !== "md") {
+    focusCanvas();
+    return;
+  }
   ev.preventDefault();
   // Throws `NotFoundError` for a pointer the browser does not have down —
   // which a synthetic event never is, and a real one sometimes is not either.
@@ -621,7 +754,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   afterEdit();
 });
 canvas.addEventListener("pointermove", (ev) => {
-  if (!selecting) return;
+  if (!selecting || app.currentView() !== "md") return;
   const [x, y] = viewPoint(ev);
   app.dragTo(x, y);
   needsPaint = true;
@@ -649,6 +782,8 @@ const KEYS = {
 };
 
 keyCatcher.addEventListener("keydown", (ev) => {
+  // An editor's keys are its host module's, attached to this same field.
+  if (app.currentView() !== "md") return;
   const mod = ev.ctrlKey || ev.metaKey;
   let name = KEYS[ev.key];
   if (!name && mod && ev.key.length === 1) name = ev.key.toLowerCase();
@@ -714,13 +849,32 @@ keyCatcher.addEventListener("blur", () => {
 // scroll, and is also how you jump: typing a number in it goes there. All
 // three are one control because they are one question — "where am I" and
 // "take me there" are the same widget in every reader.
-function refreshPagebar() {
+// One pill for every view: the sheet of the markdown, the slide of the deck,
+// the page of the Word document. Each editor answers for its own — the pill
+// asks the deck which slide it is on rather than remembering — and over an
+// editor it sits low, above the editor's status line, because the strip owns
+// the top of the frame.
+function pageState() {
+  const v = app.currentView();
+  if (v === "deck") {
+    const total = app.deckSlideCount();
+    return { on: total > 0, total, at: (app.deckHost().slideIndex() | 0) + 1 };
+  }
+  if (v === "doc") {
+    const total = app.docHost().pageCount() | 0;
+    return { on: total > 0, total, at: (app.docHost().page() | 0) + 1 };
+  }
   const on = modeEl.value === "paged" || modeEl.value === "slides";
+  return { on, total: on ? app.pageCountNow() : 1, at: on ? app.pageAt() + 1 : 1 };
+}
+
+function refreshPagebar() {
+  const v = app.currentView();
+  const { on, total, at } = pageState();
   pagebarEl.classList.toggle("on", on);
-  shapeEl.disabled = !on;
+  pagebarEl.classList.toggle("low", v !== "md");
+  shapeEl.disabled = !(v === "md" && on);
   if (!on) return;
-  const total = app.pageCountNow();
-  const at = app.pageAt() + 1;
   pagetotalEl.textContent = String(total);
   if (document.activeElement !== pagenumEl) pagenumEl.value = String(at);
   pageprevEl.disabled = at <= 1;
@@ -728,13 +882,21 @@ function refreshPagebar() {
 }
 
 function goToPage(n) {
-  app.scrollToPage(n - 1);
+  const v = app.currentView();
+  if (v === "deck") {
+    app.deckGoTo(n - 1);
+  } else if (v === "doc") {
+    app.docHost().goToPage(n - 1);
+    app.touch();
+  } else {
+    app.scrollToPage(n - 1);
+  }
   needsPaint = true;
   refreshPagebar();
 }
 
-pageprevEl.addEventListener("click", () => goToPage(app.pageAt()));
-pagenextEl.addEventListener("click", () => goToPage(app.pageAt() + 2));
+pageprevEl.addEventListener("click", () => goToPage(pageState().at - 1));
+pagenextEl.addEventListener("click", () => goToPage(pageState().at + 1));
 pagenumEl.addEventListener("change", () => {
   const n = parseInt(pagenumEl.value, 10);
   if (Number.isFinite(n)) goToPage(n);
@@ -904,6 +1066,18 @@ async function load(text) {
 async function start() {
   resize();
   window.addEventListener("resize", resize);
+  // The pane changes size without the window doing so — the header wraps
+  // onto two lines, the hint goes, a phone's keyboard rises — and an editor
+  // frame built for the old size then stops short of the canvas's bottom.
+  // The canvas's own size is what the frame is built for, so that is what is
+  // watched.
+  if (typeof ResizeObserver === "function") {
+    const watcher = new ResizeObserver(() => {
+      const [w, h] = viewSize();
+      if (w !== canvas.width / dpr || h !== canvas.height / dpr) resize();
+    });
+    watcher.observe(canvas);
+  }
 
   // The faces, into the engine AND into the browser: the first pair measures
   // the layout, the second pair paints it.
@@ -945,17 +1119,20 @@ async function start() {
   setFontFallback(loaded);
   loadedFaces = loaded;
 
-  // …and the same faces to the Word document's own measurer.
-  //
-  // `DocxView.init` loads TTFs from a DIRECTORY, which a browser does not
-  // have. `BookApp` solved this the same way: the host already fetched the
-  // faces, so it hands the bytes over. Without them a Word document lays out
-  // against no metrics at all.
-  for (let i = 0; i < FACES.length; i++) {
-    if (!got[i] || !faceBytes[i]) continue;
-    try {
-      app.docAddFace(asRangerBuffer(faceBytes[i].slice(0)));
-    } catch (_) { /* the document still converts; it measures worse */ }
+  // The faces reached the two editors' own text renderers through
+  // `attachFont` above — one call, three measurers. This page used to make a
+  // second call here to a `docAddFace` that did not exist, swallow the
+  // error, and lay the Word document out against no metrics at all.
+
+  // The 187 preset shape geometries, for the deck — the same file the pptx
+  // page fetches. Without it a rounded box or a diamond drawn on a slide
+  // falls back to the hand-written table and every shape nobody typed in
+  // comes out as a rectangle.
+  try {
+    const res = await fetch("./presets.txt");
+    if (res.ok) app.loadPresets(await res.text());
+  } catch (e) {
+    console.warn("preset shapes unavailable:", e);
   }
 
   // The templates, into the same store. A theme is a FILE, and a reader who
@@ -1031,6 +1208,14 @@ async function start() {
   if (wanted && SAMPLES[wanted]) {
     sampleEl.value = wanted;
     sampleEl.dispatchEvent(new Event("change"));
+  }
+  // `?view=deck`, `?view=doc` or `?view=pdf` opens the document on one of
+  // the other tabs, so a screenshot of an editor can be taken without
+  // clicking.
+  const wantedView = q.get("view");
+  if (wantedView === "deck" || wantedView === "doc" || wantedView === "pdf") {
+    // After the sample it may have asked for has arrived.
+    setTimeout(() => showView(wantedView), 0);
   }
   if (q.has("selftest")) {
     try {
@@ -2186,24 +2371,50 @@ function selftest() {
     const deckCmds = screenCmds(JSON.parse(app.frame()));
     const titled = deckCmds.some((c) => c.k === 3 && (c.text || "").indexOf("Yksi") >= 0);
     say("the canvas draws the deck", titled, deckCmds.length + " commands");
+    // …through the slide editor's OWN frame. The proofs are nouns only that
+    // frame has: the diagram's edges as PATHS (the element-tree road this
+    // page used to draw through could not make one, so a flowchart came out
+    // as the boxes around its edges), and a slide that sits in from the
+    // corner, on a desk, with the strip above it.
+    say("…with the diagram's edges as geometry",
+        deckCmds.some((c) => c.k === 6 || c.k === 7),
+        deckCmds.filter((c) => c.k === 6 || c.k === 7).length + " paths");
+    // A text command carries its font size as `h`; the slide's title is set
+    // large and the thumbnail's copy of it small.
+    const largest = deckCmds.filter((c) => c.k === 3 && (c.text || "").indexOf("Yksi") >= 0)
+      .sort((a, b) => b.h - a.h)[0];
+    say("the page pill counts the deck's slides", pagebarEl.classList.contains("on") && pagetotalEl.textContent === String(app.deckSlideCount()),
+        pagetotalEl.textContent + " of " + app.deckSlideCount());
+    say("…and the slide placed on the desk, not in the corner", !!largest && largest.x > 40 && largest.y > 40,
+        largest ? Math.round(largest.x) + "," + Math.round(largest.y) : "no title");
 
     // A click selects a SHAPE, which is `PptxEditor`'s answer and must not
-    // have a second one in this page.
-    const run = deckCmds.find((c) => c.k === 3 && (c.text || "").indexOf("Yksi") >= 0);
+    // have a second one in this page. The largest "Yksi" is the slide's;
+    // the panel draws a small one on the thumbnail beside it.
+    const run = largest;
     say("nothing is selected to begin with", app.deckSelection() === 0);
     if (run) {
       app.click(run.x + 2, run.y + 2, false);
       say("a click on a shape selects it", app.deckSelection() === 1, app.deckSelection() + " selected");
       say("…and moving it is the editor's move", app.deckMove(12, 0));
       say("…which is one undo like any other", app.run("edit.undo", ""));
+      // …and the page's own pointer road is the pptx page's: a press and a
+      // release through the SAME host module, on the same shape.
+      const web = app.deckHost();
+      web.pointerAt(Math.round(run.x + 2), Math.round(run.y + 2), true, true, false);
+      web.pointerAt(Math.round(run.x + 2), Math.round(run.y + 2), false, false, true);
+      say("the host module's press lands on the editor", app.deckSelection() === 1);
+      web.keyMod("escape", false, false);
     }
 
     // A DRAWING on the deck can be read back and drawn again — the round trip
     // the source in `p:cNvPr/a:extLst` was carried for. Not a new editor: the
     // readers that draw a diagram are the ones that already draw it.
     {
+      app.touch();
       const cmds2 = screenCmds(JSON.parse(app.frame()));
-      const label = cmds2.find((c) => c.k === 3 && (c.text || "").indexOf("saapuu") >= 0);
+      const label = cmds2.filter((c) => c.k === 3 && (c.text || "").indexOf("saapuu") >= 0)
+        .sort((a, b) => b.h - a.h)[0];
       say("a drawing is on the slide", !!label);
       if (label) {
         app.click(label.x + 2, label.y + 2, false);
@@ -2273,22 +2484,74 @@ function selftest() {
     const docCmds = JSON.parse(app.frame()).list.cmds;
     say("…and the canvas draws it",
         docCmds.some((c) => c.k === 3 && (c.text || "").indexOf("Toinen") >= 0),
-        docCmds.length + " commands");
+        docCmds.length + " commands; " + docCmds.filter((c) => c.k === 3).map((c) => c.text).slice(0, 8).join("/"));
+    // Through the Word editor's own frame — the strip is in the picture —
+    // and with the diagram as geometry, which this view used to write as the
+    // words "[dot diagram]". The markdown changes while the reader is on
+    // DOCX; a document nobody has touched is re-made from it on request.
+    // `rebuildFromSource` directly, because the button is disabled for a
+    // view that has no edits to throw away — there is nothing to override.
+    say("the strip is drawn in the frame", docCmds.some((c) => c.k === 3 && (c.text || "") === "B"));
+    say("…and the page pill counts the Word document's pages",
+        pagebarEl.classList.contains("on") && pagetotalEl.textContent === String(app.docHost().pageCount() | 0),
+        pagetotalEl.textContent);
+    app.setSource("# Kaavio\n\n```dot\ndigraph { saapuu -> tarkista; }\n```\n\nTeksti.\n");
+    say("an untouched view has nothing to override", rebuildBtn.disabled);
+    say("…and is re-made on request", app.rebuildFromSource());
+    const docCmds2 = JSON.parse(app.frame()).list.cmds;
+    say("the Word document draws a diagram as geometry",
+        docCmds2.some((c) => c.k === 6 || c.k === 7),
+        docCmds2.filter((c) => c.k === 6 || c.k === 7).length + " paths");
+    say("…with its labels", docCmds2.some((c) => c.k === 3 && (c.text || "").indexOf("tarkista") >= 0));
+    say("…and not as its name", !docCmds2.some((c) => c.k === 3 && (c.text || "").indexOf("[dot diagram]") >= 0));
+    // Typing lands in the Word editor: a click on the heading — at the top
+    // of the page, so it is inside the window whatever size the window is —
+    // a word, and the word is on the page. From then on the view is its own
+    // document.
+    const para = docCmds2.find((c) => c.k === 3 && (c.text || "").indexOf("Kaavio") >= 0);
+    if (para) {
+      app.click(para.x + 4, para.y + 4, false);
+      app.typeText("Lisays");
+      const typed = JSON.parse(app.frame()).list.cmds.some((c) => c.k === 3 && (c.text || "").indexOf("Lisays") >= 0);
+      say("typing on the DOCX tab edits the Word document", typed,
+          "click " + Math.round(para.x) + "," + Math.round(para.y) + " canvas " + canvas.clientWidth + "x" + canvas.clientHeight
+          + " edit " + app.docHost().editMode() + " caret " + app.docHost().caretJson());
+      say("…and the view knows it has been edited", app.docEdited());
+      refreshViewTabs();
+      say("…so there is now something to override", !rebuildBtn.disabled);
+    } else {
+      say("typing on the DOCX tab edits the Word document", false, "no paragraph to click");
+    }
 
-    // …and the same round trip out of the Word document. The markdown changes
-    // while the reader is in DOCX; leaving shows the new markdown and coming
-    // back shows the Word document, which never heard about it.
+    // …and the same round trip out of the Word document as the deck's: the
+    // markdown changes while the reader is on DOCX; leaving shows the new
+    // markdown and coming back shows the EDITED Word document, which never
+    // heard about it — until the reader asks for it by name.
     app.setSource("# Kolmas otsikko\n\nViela eri teksti.\n");
     viewMdTab.click();
     say("leaving DOCX draws the markdown again",
         JSON.parse(app.frame()).list.cmds
           .some((c) => c.k === 3 && (c.text || "").indexOf("Kolmas") >= 0));
     viewDocTab.click();
-    say("…and the Word document did not follow the .md",
-        !JSON.parse(app.frame()).list.cmds
+    say("…and the edited Word document did not follow the .md",
+        JSON.parse(app.frame()).list.cmds
+          .some((c) => c.k === 3 && (c.text || "").indexOf("Lisays") >= 0));
+    rebuildBtn.click();
+    say("…until override from .md builds it again",
+        JSON.parse(app.frame()).list.cmds
           .some((c) => c.k === 3 && (c.text || "").indexOf("Kolmas") >= 0));
     viewMdTab.click();
+
+    // The PDF tab: the same markdown, as sheets, with the page pill on it.
+    viewPdfTab.click();
+    say("the PDF tab is the preview in pages", app.currentView() === "md" && modeEl.value === "paged");
+    say("…with the page pill on", pagebarEl.classList.contains("on") && pagetotalEl.textContent === String(app.pageCountNow()));
+    say("…and sheets on the canvas", JSON.parse(app.frame()).list.cmds.length > 0);
+    viewMdTab.click();
+    say("Preview is one column again", modeEl.value === "scroll" && app.currentView() === "md");
   }
+
+  say("and nothing threw out of a handler", uncaught.length === 0, uncaught.slice(0, 3).join("; "));
 
   const el = document.createElement("div");
   el.id = "selftest-result";

@@ -48,6 +48,21 @@ class MdEmbedKinds {
         return ""
     }
 
+    ; The notation's own name, for a reader: "Mermaid", "PlantUML",
+    ; "Graphviz", "D2" — and "Drawing" for a word this table does not know,
+    ; which is what a group that came from nowhere in particular is called.
+    ; One table, because the deck names its groups from it and the Word
+    ; document names its drawings from it, and a reader who moves between
+    ; the two should meet the same name.
+    sfn notationWord:string (word:string) {
+        def n:string (MdEmbedKinds.notationOf(word))
+        if (n == "mermaid") { return "Mermaid" }
+        if (n == "plantuml") { return "PlantUML" }
+        if (n == "graphviz") { return "Graphviz" }
+        if (n == "d2") { return "D2" }
+        return "Drawing"
+    }
+
     sfn isDrawing:boolean (word:string) {
         def n:string (MdEmbedKinds.notationOf(word))
         return ((strlen n) > 0)
