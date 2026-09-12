@@ -1153,6 +1153,51 @@ level at a time: the inner nodes belong to the inner frame, the inner frame to
 the outer one, and the outer box is grown over the inner frame's own padding
 and title band so it is drawn round its child rather than through it.
 
+### What a route is stored as, and what that cost
+
+Two things made this router take **eighty-two seconds** on a 28-node DOT
+diagram — an honest one, a Finnish incident-handling flowchart with two
+clusters and thirty-five edges — and neither was the search.
+
+**A route is corners, not grid vertices.** The Dijkstra walks the grid one
+vertex at a time and hands all of them back, and what tidied the result was
+`EdgeRouter.dropCollinear`, which despite its name drops *repeated* points
+rather than collinear ones. So a route across a dense grid was stored as two
+hundred and forty corners of which three were corners. The drawing was right —
+`EdgeRouter.cornersFor` merges the runs again before anything is painted — but
+every pass that *reads* a route paid for the fat twice: `evalRoute` charges
+`bendCost` once per stored point, so a straight run was priced as two hundred
+bends, and `simplify` walks every PAIR of corners, so it walked forty thousand
+pairs of a line that has three. The runs are collapsed where the route is
+built, by `ReadableRouter.mergeInterior` — the *interior* runs: `pts[0..1]` is
+the exit stub and `pts[n-2..n-1]` the entry stub, both addressed by index by
+`stubsIntact`, by `simplify`'s bounds and by `evalRoute`'s halo check, and
+merging a stub into the run after it hides a long segment behind an exemption
+meant for a twenty-pixel one.
+
+**A segment's neighbours are local.** `segmentExtra` and `pointNearSegments`
+ask the same two questions of every segment already drawn, and both answers are
+local: a crossing needs the other segment to lie across this one's own span,
+and everything else — running parallel too close, turning on somebody's line —
+has a radius of a dozen pixels. Asking all of them made fifteen thousand
+million segment comparisons on that diagram. The segments are now binned along
+the one coordinate each is constant in — a vertical by its x, a horizontal by
+its y — by a counting sort cheap enough to redo after every small edit, and a
+query visits only the bins its answer can be in. The predicates are unchanged
+and every candidate is still tested exactly, so this narrows what is asked,
+never what is charged.
+
+| | route | place labels | simplify | total |
+| --- | ---: | ---: | ---: | ---: |
+| before | 5.5 s | 0.3 s | 72.6 s | **82.2 s** |
+| segments binned | 0.9 s | 0.3 s | 9.2 s | 10.9 s |
+| …and runs collapsed | 1.3 s | 0.02 s | **0.006 s** | **1.5 s** |
+
+The drawing came out *better*, not merely faster: on `order_flow.gv` the bend
+count is what it was, nothing is drawn through a node where nothing was before,
+and the nearest parallel gap went from 65 px to 88. Every fixture in the
+quality table is byte-identical, and the three parity scores are unchanged.
+
 The edges are drawn by `ReadableRouter`, the router that can see every other
 edge — and the choice is measured rather than assumed. On a diagram of ordinary
 size it puts parallel lines 65 px apart where the older pass stack managed 16,
