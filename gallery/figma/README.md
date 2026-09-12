@@ -320,6 +320,18 @@ nothing says how to paint. Reading that block as the whole connector's
 painted the box too, and every divider drawn with a connector came out with
 a coloured square sitting on one end of it.
 
+A clip inside a turn is not a clip. It crosses the display list as x/y/w/h
+and every backend makes it a scissor, which is axis-aligned; the rotation
+that moves the pixels cannot move the rectangle with them, so the two end
+up describing different places. Applied anyway, a turned frame clips away
+the very thing it contains — a quarter-turned arrow on a board drew nothing
+at all, its content sent a hundred pixels above a scissor that stayed where
+the layout put it. `EVGDisplayList` drops the clip instead, which is the
+same choice it already makes for culling under a rotation: content that
+overflows a turned frame is drawn rather than cut in the wrong place.
+Anything better needs a stencil, and that is a list format every backend
+would have to follow.
+
 ## Moving around
 
 Drag with any button to pan, scroll to zoom, pinch with two fingers, or use

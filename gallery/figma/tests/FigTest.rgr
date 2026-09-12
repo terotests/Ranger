@@ -404,6 +404,13 @@ class FigTest {
         ; The change the designer made inside the instance. Reading the
         ; component but not this is what leaves a whole file showing
         ; placeholder text — the component's own "Title text" everywhere.
+        ; A path inside a turn is turned with it: the rotation is on the
+        ; box, the path carries none of its own, and the only way it lands
+        ; where the picture shows it is for the box's turn to reach it.
+        def turnedBox:SceneNode (shapes.childNamed("TurnedBox"))
+        this.check("the box is turned" turnedBox.hasXf)
+        this.eqInt("and holds the path" (array_length turnedBox.children) 1)
+
         ; An image fill on something that is not a rectangle is still the
         ; picture. A FigJam stamp is a container by type, and a container
         ; with an image fill got the grey box that stands for a picture

@@ -636,6 +636,86 @@ class EVGTimingTest {
         c.ok("the box and its text are both turned" (found >= 2))
     }
 
+    ; A CLIP INSIDE A TURN IS NOT A CLIP. It crosses the list as x/y/w/h
+    ; and every backend makes it a scissor, which is axis-aligned; the
+    ; rotation that moves the pixels cannot move the rectangle with them,
+    ; so the two end up describing different places. Applied anyway, a
+    ; turned frame clips away the very thing it contains — a quarter-turned
+    ; arrow on a FigJam board drew nothing at all, its content sent a
+    ; hundred pixels above a scissor that stayed where the layout put it.
+    ; The clip is dropped instead, which is the same choice culling already
+    ; makes for a rotation.
+    sfn checkClipInsideTurn:void (c:TimingCheck) {
+        def page (new EVGElement())
+        page.setAttribute("width" "200")
+        page.setAttribute("height" "200")
+        def turn (new EVGElement())
+        turn.setAttribute("width" "100")
+        turn.setAttribute("height" "100")
+        turn.setAttribute("transform" "rotate(90deg)")
+        page.addChild(turn)
+        def box (new EVGElement())
+        box.setAttribute("width" "80")
+        box.setAttribute("height" "80")
+        box.setAttribute("overflow" "hidden")
+        turn.addChild(box)
+        def ink (new EVGElement())
+        ink.setAttribute("width" "40")
+        ink.setAttribute("height" "40")
+        ink.setAttribute("background-color" "rgb(10,20,30)")
+        box.addChild(ink)
+        def layout (new EVGLayout())
+        layout.layout(page)
+        def dl (new EVGDisplayList())
+        dl.build(page)
+        def clips:int 0
+        def inked:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 4) {
+                clips = (clips + 1)
+            }
+            if ((cmd.kind == 0) && (cmd.w > 30.0)) {
+                inked = (inked + 1)
+            }
+            i = (i + 1)
+        }
+        c.ok("no clip is written inside a turn" (clips == 0))
+        c.ok("and what it held is still drawn" (inked > 0))
+    }
+
+    ; A clip outside one is still a clip.
+    sfn checkClipWithoutTurn:void (c:TimingCheck) {
+        def page (new EVGElement())
+        page.setAttribute("width" "200")
+        page.setAttribute("height" "200")
+        def box (new EVGElement())
+        box.setAttribute("width" "80")
+        box.setAttribute("height" "80")
+        box.setAttribute("overflow" "hidden")
+        page.addChild(box)
+        def ink (new EVGElement())
+        ink.setAttribute("width" "40")
+        ink.setAttribute("height" "40")
+        ink.setAttribute("background-color" "rgb(10,20,30)")
+        box.addChild(ink)
+        def layout (new EVGLayout())
+        layout.layout(page)
+        def dl (new EVGDisplayList())
+        dl.build(page)
+        def clips:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 4) {
+                clips = (clips + 1)
+            }
+            i = (i + 1)
+        }
+        c.ok("a clip with no turn over it is written" (clips > 0))
+    }
+
     ; A scaled subtree keeps its proportions, type included.
     sfn checkTransformScale:void (c:TimingCheck) {
         def page (new EVGElement())
@@ -1039,6 +1119,8 @@ class EVGTimingTest {
         EVGTimingTest.checkTransformParsing(c)
         EVGTimingTest.checkTransformOrigin(c)
         EVGTimingTest.checkTransformScale(c)
+        EVGTimingTest.checkClipInsideTurn(c)
+        EVGTimingTest.checkClipWithoutTurn(c)
         EVGTimingTest.checkTransformTransition(c)
         EVGTimingTest.checkOriginResolution(c)
         EVGTimingTest.checkOriginTurnsTheBox(c)

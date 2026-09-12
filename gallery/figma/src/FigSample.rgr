@@ -1157,6 +1157,19 @@ class FigSample {
         stampish.put("fillPaints" (FigSample.imagePaint("abc123")))
         nodes.pushItem(stampish)
 
+        ; A turned box with a path inside it. The rotation is on the box;
+        ; the path is a child and carries none of its own, so the only way
+        ; it can land where the picture shows it is for the box's turn to
+        ; reach it.
+        def turned:KiwiValue (FigSample.node(3 84 "FRAME" "TurnedBox" 0 3 "f1" 100.0 100.0 2580.0 1760.0))
+        turned.put("transform" (FigSample.xformRot(2580.0 1760.0 0.0 1.0)))
+        turned.put("fillPaints" (FigSample.paints(0.9 0.9 0.95)))
+        nodes.pushItem(turned)
+        def turnedPath:KiwiValue (FigSample.node(3 85 "VECTOR" "TurnedPath" 3 84 "!" 60.0 60.0 20.0 20.0))
+        turnedPath.put("fillPaints" (FigSample.paints(0.1 0.1 0.1)))
+        turnedPath.put("fillGeometry" (FigSample.geomBlob(0)))
+        nodes.pushItem(turnedPath)
+
         ; A component out of a library: the copy carries new guids and the
         ; override paths still name the old ones, which every node keeps in
         ; `overrideKey`. And two lists — what the designer typed, and what
