@@ -91,6 +91,7 @@ SUITES=(
   markdown:css:test
   markdown:slides:test
   markdown:pptx:test
+  markdown:docx:test
   markdown:edit:test
   markdown:semantic:test
   # …and the same three properties over the specification's own 652 examples,

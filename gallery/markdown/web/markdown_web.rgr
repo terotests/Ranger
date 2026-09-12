@@ -45,6 +45,9 @@ Import "../../vfs/src/Vfs.rgr"
 Import "../../pptx/src/PptxEdit.rgr"
 Import "../../pptx/src/PptxToEvg.rgr"
 Import "../src/MdDeckDiagram.rgr"
+Import "../src/MdToDocx.rgr"
+Import "../../docx_viewer/src/DocxView.rgr"
+Import "../../docx_viewer/src/DocxEditController.rgr"
 Import "../src/MdToPptx.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
@@ -281,6 +284,16 @@ class MarkdownWeb {
     def deckEditor:PptxEditor (new PptxEditor())
     def deckOn:boolean false
     def deckSlide:int 0
+    ; …and the other destination. `RichDocument` is the model
+    ; `DocxEditController` edits and `DocxView` draws — the Word editor this
+    ; repository already has, rather than a second one in this page.
+    def docEditor:DocxEditController (new DocxEditController())
+    def docView:DocxView (new DocxView())
+    def docModel:RichDocument (new RichDocument())
+    def docNumbering:WordNumbering (new WordNumbering())
+    def docOn:boolean false
+    def docPage:int 0
+    def docSummary:string ""
     def owner:string "source"
     def ownerRefusal:string ""
     def pptxSummary:string ""
@@ -476,6 +489,14 @@ class MarkdownWeb {
     ; act of saving it.
     fn convertToDeck:boolean () {
         if deckOn { return false }
+        ; The two destinations are exclusive. Both are one-way, so a document
+        ; that became a deck cannot also become a Word document, and offering
+        ; it would be offering a conversion from a model that no longer holds
+        ; the markdown's own structure.
+        if docOn {
+            ownerRefusal = "this is a Word document now; a deck is made from the markdown, which it no longer is"
+            return false
+        }
         if (owner != "preview") {
             ownerRefusal = "choose \"edit the preview\" first: a deck is made from the document the preview owns"
             return false
@@ -492,6 +513,69 @@ class MarkdownWeb {
 
     fn deckOwns:boolean () {
         return deckOn
+    }
+
+    ; ----------------------------------------------------------------------
+    ; …or a Word document
+    ; ----------------------------------------------------------------------
+    ;
+    ; The same shape as `convertToDeck`, for the destination the reader asked
+    ; about first. One-way, for the same reason: a `RichDocument` holds things
+    ; markdown cannot say, and a mode that promised to come back would have to
+    ; refuse them.
+    fn convertToDoc:boolean () {
+        if docOn { return false }
+        if deckOn {
+            ownerRefusal = "this is a deck now; a Word document is made from the markdown, which it no longer is"
+            return false
+        }
+        if (owner != "preview") {
+            ownerRefusal = "choose \"edit the preview\" first: a document is made from the document the preview owns"
+            return false
+        }
+        def x (new MdToDocx())
+        docModel = (x.build(edit.doc edit.layout.style))
+        docSummary = (x.result.describe())
+        docEditor.bindDocument(docModel)
+        docEditor.setEnabled(true)
+        docOn = true
+        docPage = 0
+        built = false
+        ownerRefusal = ""
+        return true
+    }
+
+    fn docOwns:boolean () {
+        return docOn
+    }
+
+    ; A face for the Word document's own measurer.
+    ;
+    ; `DocxView.init` loads TTFs from a DIRECTORY, which a browser does not
+    ; have. `BookApp` solved the same problem the same way: the host already
+    ; fetched the faces for the markdown layout, and hands the bytes over.
+    ; Without this the document lays out against no metrics at all.
+    fn docAddFace:boolean (data:buffer) {
+        def ok:boolean (docView.ctx.tr.addFaceBytes(data))
+        built = false
+        return ok
+    }
+
+    fn docReport:string () {
+        return docSummary
+    }
+
+    fn docParagraphCount:int () {
+        if (! docOn) { return 0 }
+        return (array_length docModel.paragraphs)
+    }
+
+    ; The Word document, drawn. `DocxView` is the docx module's own painter —
+    ; the same marks its canvas path makes, through `DocxInk` in list mode —
+    ; so what this page draws is what that viewer would have drawn and not a
+    ; second opinion about it.
+    fn wordList:EVGDisplayList () {
+        return (docView.buildDisplayList(docModel docPage docNumbering docEditor true))
     }
 
     fn deckSlideCount:int () {
@@ -673,6 +757,15 @@ class MarkdownWeb {
         ; stayed on the canvas exactly as it was. The model changed and the
         ; page did not, which is the worst shape a bug can take: the reader
         ; is told it worked.
+        if docOn {
+            if (! built) {
+                docList = (this.wordList())
+                listRev = (listRev + 1)
+                built = true
+                this.setStatus()
+            }
+            return
+        }
         if deckOn {
             if (! built) {
                 docList = (this.deckList())
@@ -698,6 +791,10 @@ class MarkdownWeb {
         ; markdown is still parsed and laid out above — it is where the deck
         ; came from and the pane still shows it — but nothing on the canvas
         ; comes from it any more.
+        if docOn {
+            docList = (this.wordList())
+            return
+        }
         if deckOn {
             docList = (this.deckList())
             return

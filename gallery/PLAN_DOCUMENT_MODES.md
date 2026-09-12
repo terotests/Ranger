@@ -541,10 +541,37 @@ Asserting only that the group changed would pass on a redraw that lost
 everything. Driven from the page's own commands as well as the model's, and
 followed through the file.
 
-### Stage K — DOC: `MdToDocx`, then `DocxEditController` — not started
+### Stage K — DOC: `MdToDocx`, then `DocxEditController` — ✅ done
 
-The destination the reader actually asked about. Needs a converter that does
-not exist. Behind the switch built in Stage B and proved in Stage H.
+`MdToDocx` builds a `RichDocument` — the model `DocxEditController` edits and
+`DocxView` draws. Smaller than `MdToPptx`, because a Word document is a stream
+of paragraphs rather than a canvas: one road, and the only question is which
+paragraph a block becomes. Lossier in a different place for the same reason — a
+diagram is a paragraph with its name in it, because a `RichDocument` has no
+shapes — and the costs are counted the way the deck's are.
+
+Two things that only showed up by drawing it. `DocxView.init` loads faces from
+a DIRECTORY, which a browser does not have; `BookApp` had solved the same
+problem the same way, so the host hands the bytes it already fetched. And
+`DocxLayout.layoutIfNeeded` compares its own `laidRevision` against the
+document's, so a document built and never touched sits at revision zero — which
+a fresh layout also does, so it decided it had already laid the document out and
+produced NO PAGES. A blank canvas from a model that was entirely correct.
+
+**The two destinations are exclusive**, and that is not a limitation to fix: a
+document that became a deck is no longer the markdown, and the conversion is
+from the markdown. Both doors say so by name.
+
+*Not done:* writing a `.docx` FILE. This repository reads Word documents and has
+no WordprocessingML writer — `DocxPackage` is read-only. The model is editable
+and drawable; saving it as a file is its own piece of work.
+
+*The check:* the model's SHAPE, because "it produced something" is not the
+claim — paragraphs with spans, the list kinds Word understands, a hyperlink
+where the document had a link, and a bold span covering the WORD that was bold
+rather than the sentence. Then `DocxView.buildDisplayList`, the function the
+page calls, producing a page of TEXT RUNS. And on the page: that taking one
+door closes the other, by name.
 
 ### Stage L — MD + CSS as its own command set — not started
 

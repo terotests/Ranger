@@ -44,6 +44,7 @@ const htmlBtn = document.getElementById("html");
 const pptxBtn = document.getElementById("pptx");
 const takeoverBtn = document.getElementById("takeover");
 const toDeckBtn = document.getElementById("todeck");
+const toDocBtn = document.getElementById("todoc");
 const openBtn = document.getElementById("openFile");
 const filePick = document.getElementById("filepick");
 const keyCatcher = document.getElementById("keys");
@@ -413,7 +414,15 @@ app.setEditMode(true);
 let takeoverArmed = false;
 function refreshOwner() {
   const deck = app.deckOwns();
-  toDeckBtn.disabled = deck;
+  const word = app.docOwns();
+  toDocBtn.disabled = word || deck;
+  toDeckBtn.disabled = deck || word;
+  if (word) {
+    toDocBtn.textContent = "📄 a document";
+    toDocBtn.title = "This is a Word document, edited as one.";
+  } else if (!docArmed) {
+    toDocBtn.textContent = "📄 make a document";
+  }
   if (deck) {
     toDeckBtn.textContent = "▦ a deck";
     toDeckBtn.title = "This is a presentation, edited as one.";
@@ -440,6 +449,30 @@ function refreshOwner() {
 // "this is a presentation now, and what it can hold is what PowerPoint can
 // hold". Staged apart because a reader may want the first and not the second.
 let deckArmed = false;
+let docArmed = false;
+// The two destinations are exclusive, and both one-way. A document that became
+// a deck cannot also become a Word document: the conversion is from the
+// MARKDOWN, which it no longer is.
+toDocBtn.addEventListener("click", () => {
+  if (app.docOwns()) return;
+  if (!docArmed) {
+    docArmed = true;
+    toDocBtn.textContent = "📄 again to confirm";
+    showStatus("From here this is a Word document, edited as one. The markdown will not be rebuilt from it.");
+    return;
+  }
+  if (!app.convertToDoc()) {
+    docArmed = false;
+    refreshOwner();
+    showStatus(app.refusal());
+    return;
+  }
+  docArmed = false;
+  refreshOwner();
+  needsPaint = true;
+  showStatus("this is a Word document now — " + app.docReport());
+});
+
 toDeckBtn.addEventListener("click", () => {
   if (app.deckOwns()) return;
   if (!deckArmed) {
@@ -839,10 +872,14 @@ async function start() {
   // The faces, into the engine AND into the browser: the first pair measures
   // the layout, the second pair paints it.
   const got = new Array(FACES.length).fill(false);
+  // Kept, because a second reader of the same faces needs the bytes again and
+  // fetching them twice would be a second download of the same file.
+  const faceBytes = new Array(FACES.length).fill(null);
   await Promise.all(
     FACES.map(async ([name, file], i) => {
       try {
         const bytes = await bytesOf("./fonts/" + file);
+        faceBytes[i] = bytes;
         const ok = app.attachFont(name, asRangerBuffer(bytes.slice(0)));
         const face = new FontFace(name, bytes);
         await face.load();
@@ -871,6 +908,19 @@ async function start() {
   // right — a huge space in the middle of a sentence.
   setFontFallback(loaded);
   loadedFaces = loaded;
+
+  // …and the same faces to the Word document's own measurer.
+  //
+  // `DocxView.init` loads TTFs from a DIRECTORY, which a browser does not
+  // have. `BookApp` solved this the same way: the host already fetched the
+  // faces, so it hands the bytes over. Without them a Word document lays out
+  // against no metrics at all.
+  for (let i = 0; i < FACES.length; i++) {
+    if (!got[i] || !faceBytes[i]) continue;
+    try {
+      app.docAddFace(asRangerBuffer(faceBytes[i].slice(0)));
+    } catch (_) { /* the document still converts; it measures worse */ }
+  }
 
   // The sample picture, into the byte store the layout reads.
   //
@@ -2041,6 +2091,10 @@ function selftest() {
   {
     app.setSource("# Yksi\n\nKappale tassa.\n\n```dot\ndigraph { saapuu -> tarkista; }\n```\n");
     app.setMode("slides");
+    // Both destinations are open until one is taken, and neither is taken
+    // without asking.
+    say("neither destination is taken yet",
+        app.deckOwns() === false && app.docOwns() === false);
     say("the deck does not own the document yet", app.deckOwns() === false);
     say("…and nothing asks it how many slides it has", app.deckSlideCount() === 0);
 
@@ -2105,6 +2159,11 @@ function selftest() {
         say("…and the drawing is untouched", still);
       }
     }
+
+    // …and the other door is closed now. Both are one-way, and the conversion
+    // is from the MARKDOWN — which this no longer is.
+    say("a deck cannot also become a Word document", app.convertToDoc() === false);
+    say("…and says why", app.refusal().indexOf("no longer") > 0, app.refusal());
 
     // …and saving writes what the READER edited, not the markdown converted
     // again. The bytes are the proof: a second conversion would produce a

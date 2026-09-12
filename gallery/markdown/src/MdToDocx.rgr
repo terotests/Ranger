@@ -1,0 +1,344 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdToDocx.rgr — a markdown document, as a Word document.
+; ============================================================================
+;
+; The other destination of `../PLAN_DOCUMENT_MODES.md` §5. `MdToPptx` builds a
+; deck; this builds a `RichDocument`, which is the model `DocxEditController`
+; edits and `DocxView` draws — the Word editor this repository already has,
+; with its own suites, rather than a second one inside the markdown page.
+;
+;   markdown ──► MdToDocx ──► RichDocument ──► DocxEditController owns it
+;
+; **Paragraphs, not boxes.** The deck exporter has two roads — a text box a
+; reader can edit, or a drawing — because a slide is a canvas. A Word document
+; is a stream of paragraphs, so there is one road and the question is only
+; which paragraph a block becomes. That makes this smaller than `MdToPptx` and
+; it also makes it lossier in a different place: a diagram is a paragraph with
+; its alt text in it, because a `RichDocument` has no shapes.
+;
+; **What it costs is counted, not hidden.** The same rule the deck exporter is
+; written to: a document that quietly lost its table is worse than one that
+; says it could not carry it.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdStyle.rgr"
+Import "MdEmbedKinds.rgr"
+Import "../../docx_viewer/src/RichDocument.rgr"
+
+class MdDocResult {
+    def paragraphs:int 0
+    def headings:int 0
+    def listItems:int 0
+    def codeBlocks:int 0
+    def quotes:int 0
+    ; Blocks a stream of paragraphs has no shape for. Named rather than
+    ; dropped: a `RichDocument` has tables, and this does not build them yet,
+    ; and a reader who cannot see that has lost a table without being told.
+    def tablesAsText:int 0
+    def drawingsAsText:int 0
+    def notes:[string]
+
+    Constructor () {
+    }
+
+    fn note:void (m:string) {
+        push notes m
+    }
+
+    fn noteCount:int () {
+        return (array_length notes)
+    }
+
+    fn noteAt:string (i:int) {
+        return (itemAt notes i)
+    }
+
+    fn describe:string () {
+        def out:string ((to_string paragraphs) + " paragraph(s), " + (to_string headings) + " heading(s)")
+        out = (out + ", " + (to_string listItems) + " list item(s)")
+        if (codeBlocks > 0) {
+            out = (out + ", " + (to_string codeBlocks) + " code block(s)")
+        }
+        if (quotes > 0) {
+            out = (out + ", " + (to_string quotes) + " quote(s)")
+        }
+        if (tablesAsText > 0) {
+            out = (out + " — " + (to_string tablesAsText) + " table(s) as text")
+        }
+        if (drawingsAsText > 0) {
+            out = (out + " — " + (to_string drawingsAsText) + " drawing(s) as their alt text")
+        }
+        return out
+    }
+}
+
+class MdToDocx {
+    def style:MdStyle (new MdStyle())
+    def result:MdDocResult (new MdDocResult())
+    def doc:RichDocument (new RichDocument())
+
+    Constructor () {
+    }
+
+    fn build:RichDocument (root:MdNode s:MdStyle) {
+        style = s
+        result = (new MdDocResult())
+        doc = (new RichDocument())
+        doc.title = s.title
+        ; The page the markdown was laid out for, in the units Word keeps.
+        ; Without this a document keeps `RichDocument`'s Letter default and a
+        ; reader who set A4 in their template gets a different page.
+        def sec:DocSection doc.section
+        sec.pageWTwips = (to_int (s.pageWidth * 20.0))
+        sec.pageHTwips = (to_int (s.pageHeight * 20.0))
+        def m:int (to_int (s.margin * 20.0))
+        sec.marginTopTwips = m
+        sec.marginRightTwips = m
+        sec.marginBottomTwips = m
+        sec.marginLeftTwips = m
+
+        this.blocks(root 0 0)
+        ; …and say that something changed.
+        ;
+        ; `DocxLayout.layoutIfNeeded` compares its own `laidRevision` with the
+        ; document's, and a document built and never touched sits at revision
+        ; zero — which a fresh layout also does, so it decided it had already
+        ; laid this document out and produced NO PAGES. A blank canvas, from a
+        ; model that was entirely correct.
+        doc.touch()
+        return doc
+    }
+
+    fn blocks:void (parent:MdNode listKind:int level:int) {
+        def i:int 0
+        def n:int (parent.childCount())
+        while (i < n) {
+            def c:MdNode (parent.childAt(i))
+            this.block(c listKind level)
+            i = (i + 1)
+        }
+    }
+
+    fn block:void (node:MdNode listKind:int level:int) {
+        def kind:string node.kind
+        if (kind == "front_matter") { return }
+        if (kind == "heading") {
+            def p:Paragraph (doc.addParagraph())
+            p.styleId = ("Heading" + (to_string node.level))
+            p.spaceBeforePt = style.headingSpaceBefore
+            p.spaceAfterPt = style.headingSpaceAfter
+            def base:TextSpan (this.spanFor(false false false ""))
+            base.fontFamily = style.headingFamily
+            base.fontSizePt = (style.headingSize(node.level))
+            base.bold = true
+            this.inline(node p base)
+            result.headings = (result.headings + 1)
+            return
+        }
+        if (kind == "paragraph") {
+            def p:Paragraph (doc.addParagraph())
+            p.spaceAfterPt = style.paraSpacing
+            p.lineSpacing = style.lineHeight
+            if (listKind > 0) {
+                p.listKind = listKind
+                p.listLevel = level
+                p.listNumId = 1
+                p.indentLeftPt = (style.listIndent * (to_double (level + 1)))
+                p.spaceAfterPt = style.listTightSpacing
+                result.listItems = (result.listItems + 1)
+            } {
+                result.paragraphs = (result.paragraphs + 1)
+            }
+            def base:TextSpan (this.spanFor(false false false ""))
+            this.inline(node p base)
+            return
+        }
+        if (kind == "list") {
+            def ordered:int 1
+            if node.listOrdered { ordered = 2 }
+            ; A list INSIDE an item is one level deeper. Markdown nests a list
+            ; under an item; Word has no nesting and says the depth on the
+            ; paragraph instead, so the depth has to be carried down rather
+            ; than read back off the tree.
+            def deeper:int level
+            if (listKind > 0) { deeper = (level + 1) }
+            this.blocks(node ordered deeper)
+            return
+        }
+        if (kind == "item") {
+            this.blocks(node listKind level)
+            return
+        }
+        if (kind == "block_quote") {
+            ; A quote is an indented paragraph, which is what Word means by
+            ; one. The bar down the side is a border and is a cost this does
+            ; not pay yet.
+            def before:int result.paragraphs
+            this.blocks(node 0 level)
+            def made:int (result.paragraphs - before)
+            def qi:int 0
+            def total:int (array_length doc.paragraphs)
+            while (qi < made) {
+                def qp:Paragraph (itemAt doc.paragraphs ((total - made) + qi))
+                qp.indentLeftPt = (qp.indentLeftPt + style.quoteIndent)
+                qp.styleId = "Quote"
+                qi = (qi + 1)
+            }
+            result.quotes = (result.quotes + 1)
+            return
+        }
+        if ((kind == "code_block") || (kind == "html_block")) {
+            def lines:[string] (strsplit node.literal "\n")
+            def li:int 0
+            def ln:int (array_length lines)
+            ; A trailing newline is not an empty last line of code.
+            if (ln > 1) {
+                if ((strlen (itemAt lines (ln - 1))) == 0) { ln = (ln - 1) }
+            }
+            while (li < ln) {
+                def cp:Paragraph (doc.addParagraph())
+                cp.styleId = "Code"
+                cp.spaceAfterPt = 0.0
+                cp.lineSpacing = style.codeLineHeight
+                def cs:TextSpan (this.spanFor(false false true ""))
+                cp.appendText((itemAt lines li) cs)
+                li = (li + 1)
+            }
+            result.codeBlocks = (result.codeBlocks + 1)
+            return
+        }
+        if (kind == "table") {
+            ; A `RichDocument` has tables and this does not build one yet, so
+            ; the rows go in as tab-separated paragraphs and the cost is said
+            ; out loud. A table silently flattened is a table a reader finds
+            ; missing later.
+            def r:int 0
+            while (r < (node.childCount())) {
+                def row:MdNode (node.childAt(r))
+                def rp:Paragraph (doc.addParagraph())
+                rp.spaceAfterPt = 0.0
+                def cIdx:int 0
+                while (cIdx < (row.childCount())) {
+                    def cell:MdNode (row.childAt(cIdx))
+                    if (cIdx > 0) {
+                        def tabSpan:TextSpan (this.spanFor(false false false ""))
+                        rp.appendText("\t" tabSpan)
+                    }
+                    def cellSpan:TextSpan (this.spanFor(row.isHeader false false ""))
+                    def txt:string (cell.plainText())
+                    rp.appendText(txt cellSpan)
+                    cIdx = (cIdx + 1)
+                }
+                r = (r + 1)
+            }
+            result.tablesAsText = (result.tablesAsText + 1)
+            result.note("a table went in as tab-separated paragraphs: this converter does not build a Word table yet")
+            return
+        }
+        if (kind == "embed") {
+            def word:string (MdEmbedKinds.firstWord(node.info))
+            def dp:Paragraph (doc.addParagraph())
+            def ds:TextSpan (this.spanFor(false true false ""))
+            ds.colorHex = "57606A"
+            dp.appendText((("[" + word) + " diagram]") ds)
+            result.drawingsAsText = (result.drawingsAsText + 1)
+            result.note((("a " + word) + " diagram went in as its name: a Word document is a stream of paragraphs and has no shapes"))
+            return
+        }
+        if (kind == "thematic_break") {
+            def hp:Paragraph (doc.addParagraph())
+            def hs:TextSpan (this.spanFor(false false false ""))
+            hp.appendText("———" hs)
+            result.paragraphs = (result.paragraphs + 1)
+            return
+        }
+        ; Anything with children and no rule of its own: walk into it.
+        if ((node.childCount()) > 0) {
+            this.blocks(node listKind level)
+        }
+    }
+
+    ; The inline tree, flattened into spans. One span per run of one format,
+    ; which `Paragraph.appendText` merges for itself when two neighbours
+    ; agree.
+    fn inline:void (node:MdNode p:Paragraph base:TextSpan) {
+        def i:int 0
+        def n:int (node.childCount())
+        while (i < n) {
+            def c:MdNode (node.childAt(i))
+            def kind:string c.kind
+            if (kind == "text") {
+                p.appendText(c.literal base)
+            }
+            if (kind == "code") {
+                def cs:TextSpan (base.copy())
+                cs.fontFamily = style.monoFamily
+                p.appendText(c.literal cs)
+            }
+            if ((kind == "softbreak") || (kind == "linebreak")) {
+                p.appendText(" " base)
+            }
+            if (kind == "strong") {
+                def bs:TextSpan (base.copy())
+                bs.bold = true
+                this.inline(c p bs)
+            }
+            if (kind == "emph") {
+                def is:TextSpan (base.copy())
+                is.italic = true
+                this.inline(c p is)
+            }
+            if (kind == "strike") {
+                def ss:TextSpan (base.copy())
+                ss.colorHex = "57606A"
+                this.inline(c p ss)
+            }
+            if (kind == "link") {
+                def ls:TextSpan (base.copy())
+                ls.hyperlink = c.destination
+                ls.underline = true
+                ls.colorHex = "0969DA"
+                this.inline(c p ls)
+            }
+            if (kind == "image") {
+                def ims:TextSpan (base.copy())
+                ims.italic = true
+                ims.colorHex = "57606A"
+                def alt:string (c.plainText())
+                p.appendText((("[" + alt) + "]") ims)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn spanFor:TextSpan (bold:boolean italic:boolean mono:boolean link:string) {
+        def s (new TextSpan())
+        s.bold = bold
+        s.italic = italic
+        s.fontFamily = style.bodyFamily
+        s.fontSizePt = style.bodySize
+        if mono {
+            s.fontFamily = style.monoFamily
+            s.fontSizePt = style.codeSize
+        }
+        s.colorHex = (MdToDocx.hexOf(style.textColor))
+        if ((strlen link) > 0) {
+            s.hyperlink = link
+            s.underline = true
+        }
+        return s
+    }
+
+    ; `#1f2328` → `1F2328`. A `RichDocument` colour has no hash on it, and a
+    ; hash that survived would be drawn as a character by a reader that did
+    ; not strip it.
+    sfn hexOf:string (c:string) {
+        def v:string (trim c)
+        if ((strlen v) == 0) { return "000000" }
+        if ((charAt v 0) == 35) { return (substring v 1 (strlen v)) }
+        return v
+    }
+}
