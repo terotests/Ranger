@@ -94,10 +94,10 @@ if (hc.some((c) => c.k === 3)) {
   console.error("health.fig: a text command slipped through beside the outlines");
   process.exit(1);
 }
-// Nothing in this export is drawn wrong. The one thing not drawn at all is
-// the shadow under its two buttons: read, carried to a native host through
-// EVGHostTree, and absent from the display list the browser painter reads.
-const warns = JSON.parse(web.warnings()).filter((w) => !/drop shadow/.test(w.feature || ""));
+// Nothing in this export is drawn wrong and nothing is left undrawn — the
+// shadow under its two buttons reaches the painter now, so the list is read
+// with no exceptions carved out of it.
+const warns = JSON.parse(web.warnings());
 if (warns.length) {
   console.error("health.fig: unexpected warnings", warns);
   process.exit(1);

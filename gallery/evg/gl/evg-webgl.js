@@ -70,7 +70,10 @@ const KIND = {
 // run's colour gives a solid disc in the text colour. COLORTEXT samples the
 // atlas's own pixels instead. Which one a run gets is decided by looking at
 // what the browser actually drew — see `atlasIsColored`.
-const MODE = { SHAPE: 0, TEXT: 1, IMAGE: 2, COLORTEXT: 3 };
+// SHADOW is the same rounded box as SHAPE, drawn softly and BEFORE it: the
+// quad is grown by the blur radius so the falloff has somewhere to go, and
+// the shader measures the box back down from it.
+const MODE = { SHAPE: 0, TEXT: 1, IMAGE: 2, COLORTEXT: 3, SHADOW: 4 };
 
 const VERT = `#version 300 es
 in vec2 aCorner;          // unit quad, 0..1
@@ -178,6 +181,27 @@ float boxCoverage(out float d) {
 }
 
 void main() {
+  if (vMode > 3.5) {
+    // A drop shadow. The quad was grown by the blur on every side, so the
+    // box it belongs to is that much smaller than the quad, and the same
+    // corner radii still describe it. The falloff spans one blur radius
+    // centred on the edge, which is what CSS means by a blur radius and what
+    // the software canvas draws.
+    //
+    // No backticks in this comment: the shader is a JS template literal.
+    float b = max(vThickness, 0.0);
+    vec2 hb = max(vHalf - vec2(b), vec2(0.01));
+    float lim = min(hb.x, hb.y);
+    vec4 rr = min(vRadii, vec4(lim));
+    float sd = sdRoundedBox(vLocal, hb, rr);
+    // A shadow with no blur is a hard offset copy, and smoothstep over a
+    // zero-wide band is undefined; one pixel of antialiasing stands in.
+    float soft = max(b * 0.5, clamp(fwidth(sd), 0.35, 1.5));
+    float sa = smoothstep(soft, -soft, sd);
+    if (sa <= 0.002) discard;
+    outColor = vec4(vColor.rgb, vColor.a * sa);
+    return;
+  }
   if (vMode > 2.5) {
     // Text the browser drew in colours of its own — a colour emoji. The atlas
     // holds the finished pixels, so they are sampled rather than reduced to a
@@ -1789,6 +1813,24 @@ function buildFrame(gl, doc, opts = {}) {
       shapes.push(0, 0, s.colored ? MODE.COLORTEXT : MODE.TEXT);
       radii.push(0, 0, 0, 0);
     } else {
+      // The drop shadow goes in FIRST, as its own instance: the box is drawn
+      // over it in the same run, in array order, which is the order the
+      // painter draws. A board of FigJam stickies is 154 of these, and
+      // without them every note sits flat on the page.
+      if (c.sh && c.k === KIND.RECT) {
+        const b = Math.max(c.sh.blur || 0, 0);
+        const sc = c.sh.c || [0, 0, 0, 0.35];
+        rects.push(c.x + (c.sh.x || 0) - b, c.y + (c.sh.y || 0) - b, c.w + 2 * b, c.h + 2 * b);
+        uvs.push(0, 0, 0, 0);
+        shapes.push(c.r || 0, b, MODE.SHADOW);
+        pushRadii(c);
+        // The shadow turns with the box it belongs to, about the same pivot.
+        rots.push(((c.rot || 0) * Math.PI) / 180);
+        origins.push(c.rox || 0, c.roy || 0, c.rox === undefined ? 0 : 1);
+        colors.push(sc[0] / 255, sc[1] / 255, sc[2] / 255, sc[3]);
+        colors2.push(sc[0] / 255, sc[1] / 255, sc[2] / 255, sc[3]);
+        grads.push(0);
+      }
       rects.push(c.x, c.y, c.w, c.h);
       uvs.push(0, 0, 0, 0);
       shapes.push(c.r || 0, c.k === KIND.BORDER ? (c.t || 1) : 0, MODE.SHAPE);

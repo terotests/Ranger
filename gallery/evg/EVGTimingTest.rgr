@@ -716,6 +716,60 @@ class EVGTimingTest {
         return false
     }
 
+    ; A SHADOW NOTHING EVER WROTE. `hasShadow` and binary slots 31-35 have
+    ; been on the command since the office exporters needed them, and the
+    ; tree walk never set one from an element: the fields were there, the
+    ; bridge carried them, and a page built from a document had none. A board
+    ; of FigJam stickies is 154 shadows, and every note sat flat on it.
+    sfn checkShadowFromElement:void (c:TimingCheck) {
+        def page (new EVGElement())
+        page.setAttribute("width" "200")
+        page.setAttribute("height" "200")
+        def card (new EVGElement())
+        card.setAttribute("width" "100")
+        card.setAttribute("height" "40")
+        card.setAttribute("background-color" "rgb(255,255,255)")
+        card.setAttribute("shadow-offset-x" "0px")
+        card.setAttribute("shadow-offset-y" "2px")
+        card.setAttribute("shadow-radius" "8px")
+        card.setAttribute("shadow-color" "#0000001a")
+        page.addChild(card)
+        ; A box with no shadow named must not grow one.
+        def plain (new EVGElement())
+        plain.setAttribute("width" "100")
+        plain.setAttribute("height" "40")
+        plain.setAttribute("background-color" "rgb(0,0,255)")
+        page.addChild(plain)
+        def layout (new EVGLayout())
+        layout.layout(page)
+        def dl (new EVGDisplayList())
+        dl.build(page)
+        def lit:int 0
+        def dark:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 0) {
+                if cmd.hasShadow {
+                    lit = (lit + 1)
+                    c.near("it falls two pixels down" cmd.shadowY 2.0)
+                    c.near("and none sideways" cmd.shadowX 0.0)
+                    c.near("softened by eight" cmd.shadowBlur 8.0)
+                    ; The alpha is the whole point. A sticky's shadow is
+                    ; black at a tenth; at one it is a slab under the note.
+                    c.near("and translucent, as the colour said" cmd.shadowA 0.1019)
+                } {
+                    dark = (dark + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        c.ok("the card's shadow reaches the list" (lit == 1))
+        c.ok("and the plain box grew none" (dark >= 1))
+        def json:string (dl.toJson())
+        c.ok("and the JSON carries it, as the binary always did" (EVGTimingTest.hasSub(json "\"sh\":{\"x\":0.00,\"y\":2.00,\"blur\":8.00")))
+    }
+
     sfn checkImageCrop:void (c:TimingCheck) {
         def page (new EVGElement())
         page.setAttribute("width" "200")
@@ -1245,6 +1299,7 @@ class EVGTimingTest {
         EVGTimingTest.checkTransformOrigin(c)
         EVGTimingTest.checkTransformScale(c)
         EVGTimingTest.checkMirroredBox(c)
+        EVGTimingTest.checkShadowFromElement(c)
         EVGTimingTest.checkImageCrop(c)
         EVGTimingTest.checkClipInsideTurn(c)
         EVGTimingTest.checkClipWithoutTurn(c)

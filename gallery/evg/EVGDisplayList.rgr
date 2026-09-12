@@ -2192,6 +2192,53 @@ class EVGDisplayList {
         return v
     }
 
+    ; The element's drop shadow onto the command that carries its box.
+    ; `hasShadow` and slots 31-35 have been on the command and in the binary
+    ; all along and NOTHING EVER WROTE ONE FROM AN ELEMENT — the same gap a
+    ; gradient had. A board of FigJam stickies is 154 shadows, and every one
+    ; of them was a note sitting flat on the page.
+    ;
+    ; A shadow with no colour is not a shadow. An offset of zero with a
+    ; radius is, though — that is the soft halo under a sticky — so the test
+    ; is the colour and the radius, never the offset.
+    sfn applyShadow:void (c:EVGDrawCmd el:EVGElement) {
+        def col:EVGColor el.shadowColor
+        if (col.isSet == false) {
+            return
+        }
+        if ((col.alpha()) <= 0.0) {
+            return
+        }
+        def blur:double 0.0
+        if el.shadowRadius.isSet {
+            blur = el.shadowRadius.pixels
+        }
+        def dx:double 0.0
+        if el.shadowOffsetX.isSet {
+            dx = el.shadowOffsetX.pixels
+        }
+        def dy:double 0.0
+        if el.shadowOffsetY.isSet {
+            dy = el.shadowOffsetY.pixels
+        }
+        if (blur < 0.0) {
+            blur = 0.0
+        }
+        ; Nothing offset and nothing to soften draws exactly under the box it
+        ; would be hidden by, so it is not written at all.
+        if (((blur == 0.0) && (dx == 0.0)) && (dy == 0.0)) {
+            return
+        }
+        c.hasShadow = true
+        c.shadowX = dx
+        c.shadowY = dy
+        c.shadowBlur = blur
+        c.shadowR = (col.red())
+        c.shadowG = (col.green())
+        c.shadowB = (col.blue())
+        c.shadowA = (col.alpha())
+    }
+
     sfn hasLinearGradient:boolean (el:EVGElement) {
         ; The RGU1 pair — `gradient-from` / `gradient-to` / `gradient-dir` — is
         ; already this list's own vocabulary: a direction and two colours, with
@@ -2499,10 +2546,41 @@ class EVGDisplayList {
                 EVGDisplayList.applyGradient(c el)
             }
             c.backdropBlur = el.backdropBlur
+            EVGDisplayList.applyShadow(c el)
             this.addCmd(c)
             painted = true
         }
         if (painted == false) {
+            ; A SHADOW UNDER SOMETHING WITH NO BACKGROUND. A FigJam sticky is
+            ; a container that paints nothing itself — its body arrives as a
+            ; child path — and the shadow is on the container. Gated on the
+            ; background, the shadow of every sticky on a board was dropped.
+            ;
+            ; The rectangle is the element's own box, fully transparent, and
+            ; carries only the shadow: the same shape the content fills, and
+            ; a backend that cannot draw shadows draws nothing, which is
+            ; what it did before this existed.
+            def probe (new EVGDrawCmd())
+            EVGDisplayList.applyShadow(probe el)
+            if (probe.hasShadow && (el.backdropBlur <= 0.0)) {
+                def cs (new EVGDrawCmd())
+                cs.kind = 0
+                cs.x = x
+                cs.y = y
+                cs.w = w
+                cs.h = h
+                cs.radius = radius
+                cs.perCorner = perCorner
+                if perCorner {
+                    cs.radius = rTL
+                    cs.radiusTR = rTR
+                    cs.radiusBR = rBR
+                    cs.radiusBL = rBL
+                }
+                cs.a = 0.0
+                EVGDisplayList.applyShadow(cs el)
+                this.addCmd(cs)
+            }
             if (el.backdropBlur > 0.0) {
                 def cb (new EVGDrawCmd())
                 cb.kind = 0
@@ -2523,6 +2601,7 @@ class EVGDisplayList {
                 ; exactly right.
                 cb.a = 0.0
                 cb.backdropBlur = el.backdropBlur
+                EVGDisplayList.applyShadow(cb el)
                 this.addCmd(cb)
             }
         }
@@ -3310,6 +3389,17 @@ class EVGDisplayList {
             }
             if (c.backdropBlur > 0.0) {
                 out = out + ",\"bb\":" + (EVGDisplayList.num(c.backdropBlur))
+            }
+            ; The drop shadow, in the shape both painters read it: an offset,
+            ; a blur and a colour. The binary bridge has carried this since
+            ; slot 31; the JSON never did, so the two bridges disagreed about
+            ; a frame and only one of them was right.
+            if c.hasShadow {
+                out = out + ",\"sh\":{\"x\":" + (EVGDisplayList.num(c.shadowX))
+                out = out + ",\"y\":" + (EVGDisplayList.num(c.shadowY))
+                out = out + ",\"blur\":" + (EVGDisplayList.num(c.shadowBlur))
+                out = out + ",\"c\":[" + (to_string c.shadowR) + "," + (to_string c.shadowG)
+                out = out + "," + (to_string c.shadowB) + "," + (EVGDisplayList.num(c.shadowA)) + "]}"
             }
             ; The GEOMETRY decides whether there is a path, not the ring list:
             ; a command built by hand — and there are several, in this gallery

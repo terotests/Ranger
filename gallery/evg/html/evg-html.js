@@ -388,6 +388,25 @@ export function renderDisplayList(target, doc, opts = {}) {
         }
         if (c.bb > 0) body.push(backdrop(c));
         const r = radiiOf(c);
+        // The drop shadow, under the box: the same rounded rectangle, moved
+        // and softened. A Gaussian of sigma = blur/2 is what CSS means by a
+        // blur radius, and the GL shader's falloff spans the same width.
+        if (c.sh) {
+          const b = Math.max(c.sh.blur || 0, 0);
+          const sx = c.x + (c.sh.x || 0), sy = c.y + (c.sh.y || 0);
+          let attrs = "";
+          if (b > 0) {
+            const id = `evgshadow${uid++}`;
+            // The filter region has to be wide enough for the kernel or the
+            // blur is clipped square at the edge of the shape's own box.
+            defs.push(`<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%">` +
+                      `<feGaussianBlur stdDeviation="${n(b / 2)}"/></filter>`);
+            attrs = ` filter="url(#${id})"`;
+          }
+          body.push(uniform(r)
+            ? `<rect x="${n(sx)}" y="${n(sy)}" width="${n(c.w)}" height="${n(c.h)}"${r[0] ? ` rx="${n(r[0])}"` : ""} fill="${rgba(c.sh.c)}"${attrs}${rotAttr(c)}/>`
+            : `<path d="${roundedPath(sx, sy, c.w, c.h, r)}" fill="${rgba(c.sh.c)}"${attrs}${rotAttr(c)}/>`);
+        }
         body.push(uniform(r)
           ? `<rect x="${n(c.x)}" y="${n(c.y)}" width="${n(c.w)}" height="${n(c.h)}"${r[0] ? ` rx="${n(r[0])}"` : ""} fill="${fill}"${rotAttr(c)}/>`
           : `<path d="${roundedPath(c.x, c.y, c.w, c.h, r)}" fill="${fill}"${rotAttr(c)}/>`);

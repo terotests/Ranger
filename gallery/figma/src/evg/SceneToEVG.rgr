@@ -404,7 +404,10 @@ class SceneToEVG {
         }
         def e:SceneEffect (n.firstShadow())
         el.setAttribute("shadow-radius" (to_string e.blur))
-        el.setAttribute("shadow-color" (SceneFill.rgbHex(e.r e.g e.b)))
+        ; WITH ITS ALPHA. A FigJam sticky's shadow is black at a tenth, and
+        ; written as #000000 it is black at one — a note with a slab under it
+        ; rather than a note lifted off the page.
+        el.setAttribute("shadow-color" (SceneFill.rgbaHex(e.r e.g e.b e.a)))
         el.setAttribute("shadow-offset-x" (to_string e.x))
         el.setAttribute("shadow-offset-y" (to_string e.y))
     }

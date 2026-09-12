@@ -899,12 +899,20 @@ class FigTest {
         this.check("viewport painted in the canvas colour" (FigTest.hasSub(dump "background=\"#F5F5F5\"")))
         this.check("no text spans" ((FigTest.hasSub(dump "<span")) == false))
         this.check("no text background" ((FigTest.hasSub(dump "fill=\"#F7F5F0\" d=\"M")) == true))
-        ; Nothing here is drawn wrong, and the only thing not drawn at all
-        ; is the shadow under the two cards — read, carried to a native
-        ; host, and absent on this page.
-        def hw:string (app.warningsJson())
-        this.eqInt("only the shadows are reported" (array_length app.sceneDoc.warnings) 2)
-        this.check("and that is what they say" (FigTest.hasSub(hw "drop shadow")))
+        ; Nothing here is drawn wrong and nothing is left undrawn: the
+        ; shadow under the two cards reaches the painter now, with its own
+        ; alpha. A sticky's shadow is black at a tenth, and written without
+        ; the alpha it is black at one — a slab under the note instead of a
+        ; note lifted off the page.
+        this.eqInt("nothing is reported as undrawn" (array_length app.sceneDoc.warnings) 0)
+        def sceneJson:string (app.sceneJson())
+        this.check("the shadow reaches the display list" (FigTest.hasSub(sceneJson "\"sh\":{")))
+        ; And it is translucent where the file said so. A sticky's shadow is
+        ; black at a tenth; written as #000000 it is black at one, a slab
+        ; under the note instead of a note lifted off the page. The list
+        ; carries the alpha as the fourth channel of the shadow colour, so
+        ; anything but 1.00 there is the file's own number arriving.
+        this.check("with the alpha the file gave it" (FigTest.hasSub(sceneJson "\"c\":[0,0,0,0.10]}")))
     }
 
     ; A paste from Figma: fig-kiwi bytes with no ZIP, and only the copied

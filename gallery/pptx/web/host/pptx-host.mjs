@@ -148,6 +148,17 @@ export function decodeScene(bin) {
     if (flags & 8) c.fy = true;
     const rot = recs[b + 14];
     if (rot !== 0) c.rot = rot / 100;
+    // The drop shadow, slots 31 to 35. Read only when the record is wide
+    // enough to have them: this decoder's floor is 23 fields, and a deck
+    // built by an older engine simply has no shadow to read. Skipping it
+    // while the JSON path carried one made the two bridges describe
+    // different slides — which `scene-binary-check.mjs` is here to catch.
+    if (stride > 35 && flags & 128) {
+      c.sh = {
+        x: recs[b + 31] / 100, y: recs[b + 32] / 100, blur: recs[b + 33] / 100,
+        c: [(recs[b + 34] >> 16) & 255, (recs[b + 34] >> 8) & 255, recs[b + 34] & 255, recs[b + 35] / 100],
+      };
+    }
     const pCount = recs[b + 20];
     if (pCount > 0) {
       const pAt = recs[b + 19];

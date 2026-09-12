@@ -116,7 +116,12 @@ ok("and its shifts are readable beside the record", Array.isArray(shiftsOf(dl)))
   box.setAttribute("height", "40px");
   box.setAttribute("background-color", "#336699");
   box.setAttribute("border-radius", "8px 8px 0px 8px");
-  box.setAttribute("box-shadow", "2px 3px 6px #00000055");
+  // The tree walk reads the shadow off these four, which is what the Figma
+  // reader writes; `box-shadow` as one CSS shorthand is not parsed.
+  box.setAttribute("shadow-offset-x", "2px");
+  box.setAttribute("shadow-offset-y", "3px");
+  box.setAttribute("shadow-radius", "6px");
+  box.setAttribute("shadow-color", "#00000055");
   root.addChild(box);
   const lay = new M.EVGLayout();
   lay.setPageSize(200, 120);
@@ -124,9 +129,9 @@ ok("and its shifts are readable beside the record", Array.isArray(shiftsOf(dl)))
   const dl = new M.EVGDisplayList();
   dl.setTextEngine(lay.getTextEngine());
   dl.build(root);
-  // The tree walk does not emit shadows yet (`hasShadow` is written only by
-  // hand-built commands), so the one here is built by hand, as the office
-  // exporters build theirs.
+  // The walked box above carries a shadow of its own now. This second one is
+  // built by hand, the way the office exporters build theirs, so both paths
+  // into `hasShadow` are held against the bridge.
   const sh = new M.EVGDrawCmd();
   sh.kind = 0; sh.x = 10; sh.y = 60; sh.w = 80; sh.h = 30; sh.r = 20; sh.g = 30; sh.b = 40;
   sh.hasShadow = true; sh.shadowX = 2; sh.shadowY = 3; sh.shadowBlur = 6;

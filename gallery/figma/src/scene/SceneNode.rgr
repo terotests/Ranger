@@ -53,6 +53,21 @@ class SceneFill {
         return ((this.hex()) + (SceneFill.hex2(ai)))
     }
 
+    ; Any colour and alpha as #rrggbbaa. An effect's colour is not a fill's
+    ; and has no paint to ask, so it comes through here.
+    sfn rgbaHex:string (cr:double cg:double cb:double ca:double) {
+        def base:string (SceneFill.rgbHex(cr cg cb))
+        if (ca >= 0.999) {
+            return base
+        }
+        def alpha:double ca
+        if (alpha < 0.0) {
+            alpha = 0.0
+        }
+        def ai:int (to_int ((alpha * 255.0) + 0.5))
+        return (base + (SceneFill.hex2(ai)))
+    }
+
     ; The same for the far end of a gradient. Its stop carries an alpha of
     ; its own and the pair is what a translucent gradient IS: a tint over
     ; what is behind it, not a solid band of the same hue.
