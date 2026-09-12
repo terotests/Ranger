@@ -3220,8 +3220,8 @@ class EVGDisplayList {
         ; when there is one, so a list with no view is the string it always
         ; was — which is what every golden file in this repository compares.
         if hasView {
-            out = (out + "\"view\":[" + (EVGDisplayList.num(viewX)) + ",")
-            out = (out + (EVGDisplayList.num(viewY)) + "," + (EVGDisplayList.num(viewScale)) + "],")
+            out = (out + "\"view\":[" + (EVGDisplayList.fine(viewX)) + ",")
+            out = (out + (EVGDisplayList.fine(viewY)) + "," + (EVGDisplayList.fine(viewScale)) + "],")
         }
         out = (out + "\"cmds\":[")
         def i:int 0
@@ -3367,6 +3367,58 @@ class EVGDisplayList {
     }
 
     ; Two decimals is plenty for a pixel and keeps the payload small.
+    ; SIX decimals, for the handful of numbers where two is not enough: the
+    ; camera. Two is right for a coordinate — nothing is drawn to a hundredth
+    ; of a pixel and the payload halves — but a SCALE is multiplied into every
+    ; coordinate in the list. A zoom of 0.4053 written as "0.41" draws the whole
+    ; diagram 1.2% too large: the picture stops matching where the pointer
+    ; thinks it is, and it is invisible at zoom 1, which is where every check
+    ; was looking. Measured on the rangerflow board, as an 8-pixel slip at the
+    ; bottom of the canvas.
+    sfn fine:string (v:double) {
+        def limit:double 2000000000.0
+        def x:double 0.0
+        if (v > 0.0) {
+            x = v
+        }
+        if (v < 0.0) {
+            x = v
+        }
+        if (x > limit) {
+            x = limit
+        }
+        if (x < (0.0 - limit)) {
+            x = (0.0 - limit)
+        }
+        def neg:boolean (x < 0.0)
+        def av:double x
+        if neg {
+            av = (0.0 - x)
+        }
+        ; The whole and the fraction are scaled separately: a pan of 30,000
+        ; pixels times a million overflows the 32-bit integer the divide below
+        ; truncates to, and the number would come back wrapped rather than
+        ; merely rounded.
+        def whole:int (to_int av)
+        def rest:double (av - (to_double whole))
+        def frac:int (to_int ((rest * 1000000.0) + 0.5))
+        if (frac >= 1000000) {
+            whole = (whole + 1)
+            frac = 0
+        }
+        def fs:string (to_string frac)
+        while ((strlen fs) < 6) {
+            fs = ("0" + fs)
+        }
+        def out:string ((to_string whole) + "." + fs)
+        if neg {
+            if ((whole > 0) || (frac > 0)) {
+                out = ("-" + out)
+            }
+        }
+        return out
+    }
+
     sfn num:string (v:double) {
         ; WHATEVER COMES IN, A JSON NUMBER GOES OUT. This is the only writer of
         ; every coordinate, size, radius and colour in the list, so a value it

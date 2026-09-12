@@ -95,6 +95,50 @@ class FlowView {
     def showEdgeEnds:boolean true
     def edgeEndRadius:double 4.5
     def culling:boolean true
+    ; --- the camera, or the camera baked in (S2) -------------------------------
+    ;
+    ; `false` is what this view always did: `sx`/`sy`/`sl` multiply the zoom and
+    ; add the pan, so the scene comes out in SCREEN coordinates and a pan means
+    ; building it again. `true` leaves the scene in FLOW coordinates and hands
+    ; the camera to the painter beside it (`EVGDisplayList.setView`), which
+    ; multiplies it in the vertex shader — so a pan, and a zoom inside the
+    ; band, cost three numbers rather than a walk over the graph
+    ; (`gallery/evg/PLAN_VIEW_TRANSFORM.md` S2).
+    ;
+    ; Two things then need saying out loud rather than falling out of the
+    ; arithmetic, and they are what `drawn` and `hair` below are for:
+    ;
+    ;   WHETHER A THING IS WORTH DRAWING is a question about SCREEN size — a
+    ;   label at 1.2 pixels is mush whatever the model says — so every
+    ;   level-of-detail test asks `drawn(len)`, never the emitted length.
+    ;
+    ;   A HAIRLINE IS A PIXEL, not a flow unit. A one-pixel rule, a two-pixel
+    ;   pad, a minimum nobody may go under: those come through `hair(px)`,
+    ;   which divides by the zoom the frame is built at so the ink lands the
+    ;   same width it always did.
+    ;
+    ; Everything else — a node's border, a table's row height, a label's size —
+    ; is a flow length that SHOULD scale with the zoom, and those already went
+    ; through `sl` before any of this existed.
+    def camera:boolean false
+    ; How much scene beyond the window a camera build covers, in windows. The
+    ; frame stays good while the window is inside it, so this is how far a pan
+    ; travels before the graph is walked again.
+    def overscan:double 1.0
+    ; THE GRID IS PERIODIC, AND THAT IS WHAT MAKES IT CHEAP. It is anchored to
+    ; flow space but its dots are a fixed number of PIXELS across, so it is
+    ; neither the picture nor the chrome: it is a pattern, and a pattern shifted
+    ; by one of its own periods is itself. So it is built once, one period
+    ; beyond every edge (`gridPad`), and a pan slides it by `gridOffsetX` /
+    ; `gridOffsetY` — which stay inside one period whatever the pan is.
+    ;
+    ; Built the naive way, into the camera list, the same grid would cost NINE
+    ; TIMES as many dots (the region is three windows across) and be rebuilt on
+    ; every click: 1.2 MB of display list for one PlantUML diagram, measured.
+    def gridPad:boolean false
+    ; Does the build lay down the paper? Off for a comparison against a build
+    ; that is only the diagram, and for an export over something else.
+    def showPaper:boolean true
     ; Where two lines cross, one hops over the other. Off for a diagram with
     ; no crossings to speak of costs nothing; on, it is the only honest answer
     ; to a crossing the router could not remove — two lines meeting at a point
@@ -154,16 +198,77 @@ class FlowView {
     }
 
     ; --------------------------------------------------------- transforms ----
+    ; Flow to the coordinates the scene is EMITTED in: the screen, or flow
+    ; itself when the list carries the camera. See `camera` above.
     fn sx:double (fx:double) {
+        if camera {
+            return fx
+        }
         return (viewport.toScreenX(fx))
     }
 
     fn sy:double (fy:double) {
+        if camera {
+            return fy
+        }
         return (viewport.toScreenY(fy))
     }
 
     fn sl:double (len:double) {
+        if camera {
+            return len
+        }
         return (len * viewport.zoom)
+    }
+
+    ; How big an emitted length ends up on the SCREEN. The length itself while
+    ; the camera is baked into it; times the zoom when the painter will apply
+    ; the camera. Every "is this big enough to be worth drawing" test goes
+    ; through here, because that question is about pixels.
+    fn drawn:double (len:double) {
+        if camera {
+            return (len * viewport.zoom)
+        }
+        return len
+    }
+
+    ; The emitted length that DRAWS as `px` screen pixels: a hairline, a pad,
+    ; a minimum. The other direction of `drawn`.
+    fn hair:double (px:double) {
+        if camera {
+            if (viewport.zoom > 0.0) {
+                return (px / viewport.zoom)
+            }
+        }
+        return px
+    }
+
+    ; The rectangle a build covers, in the coordinates it emits: the canvas
+    ; while the camera is baked, and the window grown by the overscan when it
+    ; is not. Culling asks about it, and so does everything drawn to the edges
+    ; — the paper and the grid.
+    fn buildRegion:FlowRect () {
+        def r (new FlowRect)
+        if (camera == false) {
+            r.x = 0.0
+            r.y = 0.0
+            r.w = width
+            r.h = height
+            r.valid = true
+            return r
+        }
+        def z:double viewport.zoom
+        if (z <= 0.0) { z = 1.0 }
+        def vw:double (width / z)
+        def vh:double (height / z)
+        def gx:double (vw * overscan)
+        def gy:double (vh * overscan)
+        r.x = ((viewport.toFlowX(0.0)) - gx)
+        r.y = ((viewport.toFlowY(0.0)) - gy)
+        r.w = (vw + (gx * 2.0))
+        r.h = (vh + (gy * 2.0))
+        r.valid = true
+        return r
     }
 
     ; --------------------------------------------------------------- text ----
@@ -502,18 +607,65 @@ class FlowView {
         sc.theme = theme
         sc.worldW = width
         sc.worldH = height
-        drawnNodes = 0
-        culledNodes = 0
-        drawnEdges = 0
+        this.paintPaper(sc)
+        this.paintGrid(sc)
+        this.paintDiagram(sc)
+        this.paintOverlay(sc)
+        return sc
+    }
+
+    ; ---- the four things a build is made of ---------------------------------
+    ;
+    ; One scene, drawn in one pass, is what `build` has always been and what
+    ; every exporter still asks for. A camera splits it into frames that are
+    ; rebuilt at different rates, and these are the seams:
+    ;
+    ;   THE PAPER and THE GRID are a screen pattern. Built once, slid by a pan
+    ;   (see `gridPad`), rebuilt when the zoom or the window changes.
+    ;   THE DIAGRAM is the picture. Built in flow coordinates and moved by the
+    ;   camera, so a pan and a zoom within the band cost a uniform.
+    ;   THE OVERLAY is anchored to the screen — rulers, minimap, ports,
+    ;   buttons — and is rebuilt every frame because all of it moves when the
+    ;   view does. It is small.
+    fn paintPaper:void (sc:FlowScene) {
+        if (showPaper == false) {
+            return
+        }
+        if gridPad {
+            ; Padded with the grid it is drawn beside, so sliding the pair by a
+            ; period cannot uncover a corner of the canvas.
+            def gap:double (this.gridGap())
+            def pad:double (gap * 2.0)
+            sc.rect((0.0 - pad) (0.0 - pad) (width + (pad * 2.0)) (height + (pad * 2.0)) theme.background)
+            return
+        }
         sc.rect(0.0 0.0 width height theme.background)
+    }
+
+    fn paintGrid:void (sc:FlowScene) {
         if showBackground {
             this.paintBackground(sc)
         }
+    }
+
+    fn paintDiagram:void (sc:FlowScene) {
+        drawnNodes = 0
+        culledNodes = 0
+        drawnEdges = 0
         ; Lanes and frames are the paper the diagram is drawn on, so they go
         ; down before the edges rather than after them.
         this.paintNodes(sc true)
         this.paintEdges(sc)
         this.paintNodes(sc false)
+    }
+
+    ; EVERYTHING ANCHORED TO THE SCREEN. A ruler is 18 pixels wide at every
+    ; zoom, a minimap sits in the corner, a port dot is six pixels across
+    ; wherever its node is, and the controls are buttons. None of it belongs to
+    ; the picture, so none of it may pan or scale with one: it is the half a
+    ; camera must NOT be applied to, and the reason the two are separate lists
+    ; when they are drawn through one (`buildScene` / `buildChrome`).
+    fn paintOverlay:void (sc:FlowScene) {
         if showPorts {
             this.paintPorts(sc)
         }
@@ -541,6 +693,57 @@ class FlowView {
         }
         this.paintTooltip(sc)
         this.paintMenu(sc)
+    }
+
+    ; The diagram in ITS OWN coordinates, with the camera stamped beside it
+    ; instead of multiplied into it (S2). What a host draws again at a new pan
+    ; or a new zoom without walking the graph.
+    fn buildScene:FlowScene () {
+        def saved:boolean camera
+        camera = true
+        def sc (new FlowScene)
+        sc.theme = theme
+        sc.worldW = width
+        sc.worldH = height
+        this.paintDiagram(sc)
+        camera = saved
+        sc.viewX = viewport.x
+        sc.viewY = viewport.y
+        sc.viewZoom = viewport.zoom
+        sc.hasView = true
+        return sc
+    }
+
+    ; The paper and the grid, padded so a pan slides them. Drawn first and
+    ; rebuilt only when the zoom or the window changes — the offsets to slide
+    ; it by are `gridOffsetX` / `gridOffsetY`.
+    fn buildGrid:FlowScene () {
+        def savedCam:boolean camera
+        def savedPad:boolean gridPad
+        camera = false
+        gridPad = true
+        def sc (new FlowScene)
+        sc.theme = theme
+        sc.worldW = width
+        sc.worldH = height
+        this.paintPaper(sc)
+        this.paintGrid(sc)
+        camera = savedCam
+        gridPad = savedPad
+        return sc
+    }
+
+    ; The screen-anchored half, in screen pixels and carrying no camera. Built
+    ; every frame: it is small, and all of it moves when the view does.
+    fn buildChrome:FlowScene () {
+        def saved:boolean camera
+        camera = false
+        def sc (new FlowScene)
+        sc.theme = theme
+        sc.worldW = width
+        sc.worldH = height
+        this.paintOverlay(sc)
+        camera = saved
         return sc
     }
 
@@ -881,6 +1084,41 @@ class FlowView {
         return (r - gap)
     }
 
+    ; The grid's period ON THE SCREEN, or zero when there is no grid to draw:
+    ; no variant, or a spacing so tight it would read as a grey wash.
+    fn gridGap:double () {
+        if (showBackground == false) {
+            return 0.0
+        }
+        if (theme.backgroundVariant == 0) {
+            return 0.0
+        }
+        def gap:double (theme.backgroundGap * viewport.zoom)
+        if (gap < 6.0) {
+            return 0.0
+        }
+        return gap
+    }
+
+    ; How far the pattern has slid from where it was built, within one period.
+    ; A pan of exactly one gap leaves the grid where it was, which is the whole
+    ; point: the offset is the pan modulo the period.
+    fn gridOffsetX:double () {
+        def gap:double (this.gridGap())
+        if (gap <= 0.0) {
+            return 0.0
+        }
+        return (FlowView.wrapTo(viewport.x gap))
+    }
+
+    fn gridOffsetY:double () {
+        def gap:double (this.gridGap())
+        if (gap <= 0.0) {
+            return 0.0
+        }
+        return (FlowView.wrapTo(viewport.y gap))
+    }
+
     ; A fixed page: the diagram scaled to fit `pageW` x `pageH` with a margin,
     ; centred. This is the shape a PDF wants — one page at a known size, rather
     ; than a page as large as the graph happens to be.
@@ -936,7 +1174,14 @@ class FlowView {
         if (theme.backgroundVariant == 0) {
             return
         }
-        def gap:double (this.sl(theme.backgroundGap))
+        ; THE GRID IS ALWAYS IN SCREEN PIXELS, even when the diagram beside it
+        ; is not: its dots are a pixel and a half across at every zoom, which is
+        ; what makes it a pattern rather than part of the picture. `gridPad`
+        ; builds it two periods beyond the canvas so a pan can slide it instead
+        ; of rebuilding it — see the note on `gridPad`.
+        def gap:double (theme.backgroundGap * viewport.zoom)
+        ; A grid whose lines are six pixels apart is a grey wash, so below that
+        ; there is no grid. `gridGap` is the same test, for the host.
         if (gap < 6.0) {
             return
         }
@@ -945,12 +1190,25 @@ class FlowView {
         ; rather than crawling with it.
         def startX:double (FlowView.wrapTo(viewport.x gap))
         def startY:double (FlowView.wrapTo(viewport.y gap))
+        def endX:double width
+        def endY:double height
+        def left:double 0.0
+        def top:double 0.0
+        if gridPad {
+            startX = (startX - (gap * 2.0))
+            startY = (startY - (gap * 2.0))
+            endX = (width + (gap * 2.0))
+            endY = (height + (gap * 2.0))
+            left = (0.0 - (gap * 2.0))
+            top = (0.0 - (gap * 2.0))
+        }
+        def thin:double 1.0
         if (theme.backgroundVariant == 1) {
             def size:double theme.backgroundDotSize
             def y:double startY
-            while (y < height) {
+            while (y < endY) {
                 def x:double startX
-                while (x < width) {
+                while (x < endX) {
                     sc.rect(x y size size theme.dotColor)
                     x = (x + gap)
                 }
@@ -959,14 +1217,16 @@ class FlowView {
             return
         }
         if (theme.backgroundVariant == 2) {
+            def gw:double (endX - left)
+            def gh:double (endY - top)
             def yl:double startY
-            while (yl < height) {
-                sc.rect(0.0 yl width 1.0 theme.gridColor)
+            while (yl < endY) {
+                sc.rect(left yl gw thin theme.gridColor)
                 yl = (yl + gap)
             }
             def xl:double startX
-            while (xl < width) {
-                sc.rect(xl 0.0 1.0 height theme.gridColor)
+            while (xl < endX) {
+                sc.rect(xl top thin gh theme.gridColor)
                 xl = (xl + gap)
             }
             return
@@ -974,11 +1234,11 @@ class FlowView {
         ; cross
         def arm:double 3.0
         def yc:double startY
-        while (yc < height) {
+        while (yc < endY) {
             def xc:double startX
-            while (xc < width) {
-                sc.rect((xc - arm) yc (arm * 2.0) 1.0 theme.gridColor)
-                sc.rect(xc (yc - arm) 1.0 (arm * 2.0) theme.gridColor)
+            while (xc < endX) {
+                sc.rect((xc - arm) yc (arm * 2.0) thin theme.gridColor)
+                sc.rect(xc (yc - arm) thin (arm * 2.0) theme.gridColor)
                 xc = (xc + gap)
             }
             yc = (yc + gap)
@@ -1097,7 +1357,8 @@ class FlowView {
         def markerEnd:string (this.markerName(e false))
         def markerStart:string (this.markerName(e true))
         def size:double (this.sl(theme.markerSize))
-        if (size < 4.0) { size = 4.0 }
+        def markerFloor:double (this.hair(4.0))
+        if (size < markerFloor) { size = markerFloor }
         if ((strlen markerEnd) > 0) {
             def ex:double (this.sx((path.px((n - 1)))))
             def ey:double (this.sy((path.py((n - 1)))))
@@ -1159,7 +1420,7 @@ class FlowView {
         ; anyone had written down, and the cost of the disagreement was that a
         ; flowchart zoomed to fit lost its `kyllä` and `ei` — the one thing on
         ; a decision that cannot be inferred from the shape.
-        if (size < 5.0) {
+        if ((this.drawn(size)) < 5.0) {
             return
         }
         def tag:string ("edge:" + e.id)
@@ -1170,7 +1431,7 @@ class FlowView {
         def lay:FlowTextLayout (this.layoutText(raw size (this.sl(160.0)) 0.0 2))
         def mx:double (this.sx(((path.midX()) + e.labelDX)))
         def my:double (this.sy(((path.midY()) + e.labelDY)))
-        def pad:double 4.0
+        def pad:double (this.hair(4.0))
         def bw:double (lay.width + (pad * 2.0))
         def bh:double (lay.height + pad)
         def fill:string theme.edgeLabelFill
@@ -1178,7 +1439,7 @@ class FlowView {
             fill = theme.editFill
         }
         def box:SceneItem (sc.rect((mx - (bw * 0.5)) (my - (bh * 0.5)) bw bh fill))
-        box.radius = 3.0
+        box.radius = (this.hair(3.0))
         if (this.isEditing(tag)) {
             box.stroke = theme.editBorder
             box.strokeWidth = (this.sl(1.0))
@@ -1221,11 +1482,24 @@ class FlowView {
         }
     }
 
+    ; Is this box inside what the build covers? In the coordinates the build
+    ; emits, so the same test serves both spaces: the canvas when the camera is
+    ; baked in, and the overscanned window when it is not — a frame drawn at a
+    ; view it was not built at shows scene the walk never considered, which is
+    ; what the overscan is for.
     fn onScreen:boolean (x:double y:double w:double h:double) {
-        if ((x + w) < 0.0) { return false }
-        if ((y + h) < 0.0) { return false }
-        if (x > width) { return false }
-        if (y > height) { return false }
+        if (camera == false) {
+            if ((x + w) < 0.0) { return false }
+            if ((y + h) < 0.0) { return false }
+            if (x > width) { return false }
+            if (y > height) { return false }
+            return true
+        }
+        def r:FlowRect (this.buildRegion())
+        if ((x + w) < r.x) { return false }
+        if ((y + h) < r.y) { return false }
+        if (x > (r.x + r.w)) { return false }
+        if (y > (r.y + r.h)) { return false }
         return true
     }
 
@@ -1400,7 +1674,7 @@ class FlowView {
             def a:FlowAnnotation (n.annotationAt(i))
             if ((strlen a.text) > 0) {
                 def size:double (this.sl(a.fontSize))
-                if (size >= 5.0) {
+                if ((this.drawn(size)) >= 5.0) {
                     def cx:double (x + (w * a.offsetX))
                     def cy:double (y + (h * a.offsetY))
                     def room:double (this.annotationRoom(x w cx))
@@ -1448,7 +1722,7 @@ class FlowView {
             def a:FlowAnnotation (e.annotationAt(i))
             if ((strlen a.text) > 0) {
                 def size:double (this.sl(a.fontSize))
-                if (size >= 5.0) {
+                if ((this.drawn(size)) >= 5.0) {
                     def at:int (FlowView.indexAlong(n a.offsetX))
                     def px:double (itemAt flat (at * 2))
                     def py:double (itemAt flat ((at * 2) + 1))
@@ -1520,7 +1794,7 @@ class FlowView {
         def bar:SceneItem (sc.rect(x y barW h theme.headerFill))
         bar.tag = tag
         def size:double (this.sl(theme.headerFontSize))
-        if (size < 5.0) {
+        if ((this.drawn(size)) < 5.0) {
             return
         }
         ; No rotated text in the display list, so the name is set across the
@@ -1547,7 +1821,7 @@ class FlowView {
     ; the sloping sides.
     fn paintShapeLabel:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string) {
         def size:double (this.sl((theme.headerFontSize * n.fontScale)))
-        if (size < 5.0) {
+        if ((this.drawn(size)) < 5.0) {
             return
         }
         ; How much of the box the shape actually leaves to write in, and where
@@ -1636,7 +1910,7 @@ class FlowView {
 
     fn paintPlainLabel:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string) {
         def size:double (this.sl(theme.headerFontSize))
-        if (size < 5.0) {
+        if ((this.drawn(size)) < 5.0) {
             return
         }
         def room:double (w - (this.sl(14.0)))
@@ -1681,7 +1955,7 @@ class FlowView {
         headBottom.tag = tag
         def accent:SceneItem (sc.rect(x y (this.sl(3.0)) headerH theme.headerAccent))
         accent.tag = tag
-        if (headSize >= 5.0) {
+        if ((this.drawn(headSize)) >= 5.0) {
             def room:double (w - (pad * 2.0))
             def raw:string (this.textFor(tag n.label))
             ; One line: a table's name broken over two lines in a list of nine
@@ -1711,7 +1985,7 @@ class FlowView {
                 cursor = (cursor + (this.sl(n.sectionGap)))
             }
             if ((strlen sec.title) > 0) {
-                if (rowSize >= 5.0) {
+                if ((this.drawn(rowSize)) >= 5.0) {
                     def st:SceneItem (sc.text(sec.title (x + pad) (cursor + ((rowH - (rowSize * 1.2)) * 0.5)) (w - (pad * 2.0)) rowSize theme.nodeMutedText))
                     st.fontFamily = theme.fontFamily
                     st.italic = true
@@ -1744,7 +2018,7 @@ class FlowView {
                 alt.tag = tag
             }
         }
-        if (size < 5.0) {
+        if ((this.drawn(size)) < 5.0) {
             return
         }
         def ty:double (y + ((rowH - (size * 1.2)) * 0.5))
@@ -1797,7 +2071,7 @@ class FlowView {
         }
         def nameX:double ((x + pad) + badgeW)
         def avail:double (((right - trailW) - detailW) - nameX)
-        if (avail < 8.0) {
+        if ((this.drawn(avail)) < 8.0) {
             return
         }
         def nameCol:string theme.nodeText

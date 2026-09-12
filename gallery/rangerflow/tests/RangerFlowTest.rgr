@@ -199,6 +199,7 @@ class RangerFlowTest {
         RangerFlowTest.testConnectOnClick(c)
         RangerFlowTest.testEditor(c)
         RangerFlowTest.testScene(c)
+        RangerFlowTest.testCamera(c)
         RangerFlowTest.testSql(c)
         RangerFlowTest.testUml(c)
         RangerFlowTest.testExport(c)
@@ -6999,6 +7000,303 @@ class RangerFlowTest {
         v.build()
         c.eqInt("all culled" v.drawnNodes 0)
         c.eqInt("culled counted" v.culledNodes 2)
+    }
+
+    ; ------------------------------------------------------- the camera -----
+    ; The claim of `gallery/evg/PLAN_VIEW_TRANSFORM.md` S2, as arithmetic: the
+    ; graph built in FLOW coordinates with the camera handed to the painter is
+    ; the same picture as the graph built with the camera multiplied in — so a
+    ; pan, and a zoom inside the band, can redraw the frame instead of walking
+    ; the graph again.
+    ;
+    ; Command for command, point for point, at several views. What that catches
+    ; is everything a screenshot would not: a level-of-detail test that asks
+    ; about flow units instead of pixels draws a label nobody can read at a
+    ; tenth of a zoom (or drops one at four times), and a hairline written as a
+    ; flow length comes out a tenth of a pixel wide. Both are invisible in a
+    ; count of commands and obvious in this comparison.
+    sfn testCamera:void (c:Checker) {
+        c.section("the camera as a uniform")
+        def g (new FlowGraph)
+        ; A table, because its rows are the densest thing the view draws.
+        def t:FlowNode (g.node("t" "customers" 0.0 0.0))
+        def sec:FlowSection (t.addSection(""))
+        def r0:FlowRow (FlowRow.create("pk" "id" "INTEGER" ""))
+        sec.addRow(r0)
+        def r1:FlowRow (FlowRow.create("" "email" "TEXT" "UQ"))
+        sec.addRow(r1)
+        t.layoutCompartments()
+        ; A plain box with a label, and one with an annotation under it.
+        def p:FlowNode (g.node("p" "Process step" 320.0 40.0))
+        p.width = 160.0
+        p.height = 64.0
+        def q:FlowNode (g.node("q" "Decision" 320.0 200.0))
+        q.shape = "diamond"
+        q.width = 150.0
+        q.height = 90.0
+        def ann:FlowAnnotation (q.addAnnotation("SLA 24 h" 0.5 1.15))
+        ; A lane, which is the one node type drawn as paper rather than as a box.
+        def lane:FlowNode (g.node("l" "Sales" (0.0 - 40.0) (0.0 - 60.0)))
+        lane.nodeType = "group"
+        lane.width = 620.0
+        lane.height = 420.0
+        g.reindex()
+        def e1:FlowEdge (FlowEdge.create("e1" "t" "p"))
+        e1.label = "reads"
+        e1.sourceCardinality = "1"
+        e1.targetCardinality = "*"
+        g.addEdge(e1)
+        def e2:FlowEdge (FlowEdge.create("e2" "p" "q"))
+        e2.dash = 6.0
+        g.addEdge(e2)
+        g.reindex()
+
+        def v:FlowView (FlowView.of(g))
+        v.width = 900.0
+        v.height = 600.0
+        ; Everything anchored to the screen is off, so `build()` IS the graph
+        ; and the two roads to it can be compared command for command.
+        v.showMinimap = false
+        v.showControls = false
+        v.showRulers = false
+        v.showPorts = false
+        v.showNodeTools = false
+        v.showTooltips = false
+        ; The paper and the grid are a screen pattern with frames of their own
+        ; (`buildGrid`), so the comparison here is the DIAGRAM against the
+        ; diagram. The grid gets its own checks at the end.
+        v.showPaper = false
+        v.showBackground = false
+        ; NO OVERSCAN for the comparison, so both roads cover exactly the same
+        ; scene. A camera build normally covers the window grown by a window in
+        ; every direction — nine times the area, and nine times the grid dots —
+        ; which is the whole point of it and would make a command-for-command
+        ; comparison meaningless. What the overscan does is checked on its own
+        ; further down.
+        v.overscan = 0.0
+
+        ; --- at rest ---------------------------------------------------------
+        def bakedSc:FlowScene (v.build())
+        def baked:EVGDisplayList (bakedSc.toDisplayList())
+        def camSc:FlowScene (v.buildScene())
+        def cam:EVGDisplayList (camSc.toDisplayList())
+        c.ok("the scene is not empty" ((baked.count()) > 40))
+        c.eqInt("the same commands either way" (cam.count()) (baked.count())) 
+        c.ok("the scene carries the camera" camSc.hasView)
+        c.near("and it is the viewport's zoom" camSc.viewZoom 1.0 0.0)
+        def d0:double (RangerFlowTest.camDiff(baked cam 0.0 0.0 1.0))
+        c.near("every command lands where it did" d0 0.0 0.000001)
+
+        ; --- panned ----------------------------------------------------------
+        ; A pan is EXACT: nothing in a built scene depends on where it is.
+        v.viewport.x = (0.0 - 137.0)
+        v.viewport.y = 64.0
+        def bakedP:EVGDisplayList ((v.build()).toDisplayList())
+        def camP:EVGDisplayList ((v.buildScene()).toDisplayList())
+        c.eqInt("a pan draws the same commands" (camP.count()) (bakedP.count()))
+        def dP:double (RangerFlowTest.camDiff(bakedP camP (0.0 - 137.0) 64.0 1.0))
+        c.near("and puts them in the same places" dP 0.0 0.000001)
+
+        ; --- zoomed ----------------------------------------------------------
+        ; A zoom is where the two could disagree, and this is the check that
+        ; says they do not: every length that should scale does, and every
+        ; length that should NOT — a pixel of rule, a four-pixel floor under an
+        ; arrowhead — comes out the same width it was.
+        v.viewport.zoom = 0.6
+        def bakedZ:EVGDisplayList ((v.build()).toDisplayList())
+        def camZ:EVGDisplayList ((v.buildScene()).toDisplayList())
+        c.eqInt("a zoom out draws the same commands" (camZ.count()) (bakedZ.count()))
+        def dZ:double (RangerFlowTest.camDiff(bakedZ camZ (0.0 - 137.0) 64.0 0.6))
+        c.near("zoomed out, in the same places" dZ 0.0 0.002)
+        v.viewport.zoom = 1.8
+        def bakedZ2:EVGDisplayList ((v.build()).toDisplayList())
+        def camZ2:EVGDisplayList ((v.buildScene()).toDisplayList())
+        c.eqInt("a zoom in draws the same commands" (camZ2.count()) (bakedZ2.count()))
+        def dZ2:double (RangerFlowTest.camDiff(bakedZ2 camZ2 (0.0 - 137.0) 64.0 1.8))
+        c.near("zoomed in, in the same places" dZ2 0.0 0.002)
+
+        ; --- the detail that is dropped -------------------------------------
+        ; At a tenth of a zoom the labels are a pixel high and neither road
+        ; draws them. A camera build that asked about flow units would draw
+        ; every one of them, into mush.
+        v.viewport.zoom = 0.1
+        def bakedL:EVGDisplayList ((v.build()).toDisplayList())
+        def camL:EVGDisplayList ((v.buildScene()).toDisplayList())
+        def bakedText:int (RangerFlowTest.countKind(bakedL 3))
+        def camText:int (RangerFlowTest.countKind(camL 3))
+        c.eqInt("the same text survives a zoom out" camText bakedText)
+        v.viewport.zoom = 1.0
+        def fullL:EVGDisplayList ((v.buildScene()).toDisplayList())
+        def fullText:int (RangerFlowTest.countKind(fullL 3))
+        c.ok("and there was text to lose" (fullText > camText))
+
+        ; --- the region a camera build covers --------------------------------
+        v.viewport.x = 0.0
+        v.viewport.y = 0.0
+        v.overscan = 1.0
+        v.camera = true
+        def reg:FlowRect (v.buildRegion())
+        c.near("one window of overscan is three windows across" reg.w 2700.0 0.001)
+        c.near("centred on the window" reg.x (0.0 - 900.0) 0.001)
+        v.camera = false
+        ; A node one window away is BUILT, because the frame has to survive a
+        ; pan that far; five windows away it is not.
+        def far:FlowNode (g.node("far" "over here" 1200.0 0.0))
+        g.reindex()
+        v.buildScene()
+        def nearDrawn:int v.drawnNodes
+        def farNode:FlowNode (g.nodeById("far"))
+        farNode.x = 9000.0
+        g.reindex()
+        v.buildScene()
+        c.eqInt("a node a window away is built" nearDrawn 5)
+        c.eqInt("one five windows away is not" v.drawnNodes 4)
+        farNode.hidden = true
+        g.reindex()
+
+        ; --- the three lists are the whole scene -----------------------------
+        ; Back to no overscan and with the paper on, so the parts and the whole
+        ; cover the same scene and the counts can be added up. What this says is
+        ; that the split is EXHAUSTIVE: nothing is drawn twice and nothing was
+        ; dropped between the three frames.
+        v.overscan = 0.0
+        v.showPaper = true
+        v.showBackground = true
+        v.viewport.zoom = 1.0
+        v.viewport.x = 0.0
+        v.viewport.y = 0.0
+        v.showMinimap = true
+        v.showControls = true
+        v.showRulers = true
+        v.showPorts = true
+        v.showNodeTools = true
+        def whole:FlowScene (v.build())
+        def gridSc:FlowScene (v.buildGrid())
+        def part1:FlowScene (v.buildScene())
+        def part2:FlowScene (v.buildChrome())
+        def parts:int (((part1.count()) + (part2.count())) + (gridSc.count()))
+        ; The grid is built two periods wider than the canvas so it can be slid,
+        ; so the parts come to MORE than the whole — by the rows and columns
+        ; outside it, and by nothing else.
+        c.ok("the three lists are the whole scene and its margin" (parts > (whole.count())))
+        v.showBackground = false
+        v.showPaper = false
+        def whole2:FlowScene (v.build())
+        def part3:FlowScene (v.buildScene())
+        def part4:FlowScene (v.buildChrome())
+        def parts2:int ((part3.count()) + (part4.count()))
+        c.eqInt("without the pattern they are exactly it" parts2 (whole2.count()))
+        c.ok("and the chrome carries no camera" (part2.hasView == false))
+        ; The chrome is in SCREEN pixels, which is the point of keeping it out:
+        ; a ruler 18 units wide would be two pixels at a tenth of a zoom. It is
+        ; also the half that is rebuilt every frame, so what matters is that it
+        ; is SMALL: a few hundred commands against a diagram's thousands.
+        c.ok("the chrome is a few hundred commands" ((part2.count()) < 400))
+
+        ; --- the grid slides rather than being rebuilt ------------------------
+        ; The pattern is periodic, so the offset a host slides it by must be
+        ; periodic too: a pan of exactly one gap leaves it where it was. If that
+        ; is ever false the grid crawls away from the diagram under a long pan.
+        v.showBackground = true
+        v.showPaper = true
+        v.viewport.zoom = 1.0
+        v.viewport.x = 0.0
+        v.viewport.y = 0.0
+        def gap0:double (v.gridGap())
+        c.near("the grid's period is the gap times the zoom" gap0 v.theme.backgroundGap 0.0001)
+        def off0:double (v.gridOffsetX())
+        v.viewport.x = (0.0 - (gap0 * 4.0))
+        def off4:double (v.gridOffsetX())
+        c.near("four gaps of pan leave the pattern where it was" off4 off0 0.000001)
+        v.viewport.x = (0.0 - (gap0 * 0.5))
+        def offHalf:double (v.gridOffsetX())
+        c.ok("half a gap of pan slides it" ((fabs (offHalf - off0)) > 0.0001))
+        c.ok("and never by more than a period" ((fabs (offHalf - off0)) <= gap0)) 
+        ; At a tenth of a zoom there is no grid at all rather than a grey wash,
+        ; and a host asking for its period is told so.
+        v.viewport.zoom = 0.1
+        c.near("no grid when it would be a wash" (v.gridGap()) 0.0 0.0)
+        def gridOff:FlowScene (v.buildGrid())
+        c.eqInt("and the only thing in its frame is the paper" (gridOff.count()) 1)
+        v.viewport.zoom = 1.0
+        v.viewport.x = 0.0
+    }
+
+    ; The worst difference between a baked list and a camera list drawn through
+    ; `(vx vy vz)`. Every field that is a length or a place, including the
+    ; points of a path — which is where a shape's own arithmetic would show.
+    sfn camDiff:double (baked:EVGDisplayList cam:EVGDisplayList vx:double vy:double vz:double) {
+        def n:int (baked.count())
+        if ((cam.count()) != n) {
+            return 1000000.0
+        }
+        def worst:double 0.0
+        def i:int 0
+        while (i < n) {
+            def a:EVGDrawCmd (baked.at(i))
+            def b:EVGDrawCmd (cam.at(i))
+            if (a.kind != b.kind) {
+                return 999999.0
+            }
+            if (a.text != b.text) {
+                return 888888.0
+            }
+            if (a.r != b.r) {
+                return 777777.0
+            }
+            ; A clip POP carries no geometry — it is "the clip before this one"
+            ; and its zeroes are not a place, so a camera has nothing to do to
+            ; it. Comparing them would report the pan as an error.
+            if (a.kind != 5) {
+                def bx:double ((b.x * vz) + vx)
+                def by:double ((b.y * vz) + vy)
+                worst = (RangerFlowTest.worstOf(worst a.x bx))
+                worst = (RangerFlowTest.worstOf(worst a.y by))
+                worst = (RangerFlowTest.worstOf(worst a.w (b.w * vz)))
+                worst = (RangerFlowTest.worstOf(worst a.h (b.h * vz)))
+                worst = (RangerFlowTest.worstOf(worst a.radius (b.radius * vz)))
+                worst = (RangerFlowTest.worstOf(worst a.thickness (b.thickness * vz)))
+                worst = (RangerFlowTest.worstOf(worst a.fontSize (b.fontSize * vz)))
+            }
+            def an:int (array_length a.pts)
+            if (an != (array_length b.pts)) {
+                return 666666.0
+            }
+            def k:int 0
+            while (k < an) {
+                def av:double (itemAt a.pts k)
+                def raw:double (itemAt b.pts k)
+                def bv:double ((raw * vz) + vx)
+                if ((k % 2) == 1) {
+                    bv = ((raw * vz) + vy)
+                }
+                worst = (RangerFlowTest.worstOf(worst av bv))
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return worst
+    }
+
+    sfn worstOf:double (worst:double a:double b:double) {
+        def d:double (fabs (a - b))
+        if (d > worst) {
+            return d
+        }
+        return worst
+    }
+
+    sfn countKind:int (dl:EVGDisplayList kind:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (dl.count())) {
+            def cmd:EVGDrawCmd (dl.at(i))
+            if (cmd.kind == kind) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
     }
 
     sfn hasKind:boolean (dl:EVGDisplayList kind:int) {

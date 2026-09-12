@@ -6,11 +6,10 @@ They do not have to be. The painter already applies a translate in the vertex
 shader — `uShift`, what a scroll layer moves by — and a *view* is that with a
 scale and no layer. Keep the frame, change two uniforms.
 
-Status: **S0, S1 and S3 are built** (§11 says what each one is and what gate
-it passed); S2 is blocked on something this design did not anticipate, and the
-blocker is written down beside it. Every number in the design was measured on
-this repository as it stood when it was written, on the machine it was written
-on, and the measurement is named beside it.
+Status: **S0 through S3 are built** (§11 says what each one is and what gate it
+passed); S4 is not started. Every number in the design was measured on this
+repository as it stood when it was written, on the machine it was written on,
+and the measurement is named beside it.
 
 Related: [`gl/README.md`](gl/README.md) (the display list as a GPU input),
 [`README.md`](README.md) (the pipeline and the seam),
@@ -267,20 +266,56 @@ through `FlowView`'s painting in rangerflow.
 | --- | --- | --- | --- |
 | **S0** | `setView` on `EVGDisplayList`, carried by `toJson`/`toBinary`; `uView` in the two WebGL shaders; `frame.draw(shifts, view)` | every existing consumer byte-identical (identity view); a kept frame drawn at a new view matches a rebuilt list pixel for pixel (`evg:binary:check` gains the view; a pixel diff on the figma board) | **done** — `evg:view:check`, 31 checks, worst channel difference 0 |
 | **S1** | the keep/rebuild policy as a host helper in `gl/` — region, band, and "rebuild now" — with the figma viewer on it | a headless check of the policy alone (no browser), and the board's pan frame at ~18 ms with the same pixels | **done** — `gl/evg-view.js` and `evg:view:policy` (30 checks); the figma viewer pans on a kept frame |
-| **S2** | rangerflow on it: `FlowView` builds in world space, the camera leaves its painting code | its smoke test, and the minimap (which draws the *same* scene at another view — a second view, free) | **blocked**, see below |
+| **S2** | rangerflow on it: `FlowView` builds in world space, the camera leaves its painting code | its smoke test, and the minimap (which draws the *same* scene at another view — a second view, free) | **done** — in three frames rather than one, see below |
 | **S3** | markdown's scroll on it: `frame()` stops copying and offsetting the document list | `markdown:web:test`, and the caret still lands where it is clicked | **done** — and the caret is now a list of its own |
 | **S4** | layer shifts expressed as views; the native painters (Apple, Android, SDL) take a CTM | `rt:scroll` and `rt:frame` on both hosts | not started |
 
-**S2's blocker: one scene, two coordinate systems.** `FlowScene` holds the
-graph *and* the chrome — the minimap, the rulers, the buttons — and the chrome
-is tagged rather than separated (`tag = "chrome"`, 21 places). A camera applies
-to a whole list, so putting the graph in scene space with a view puts the
-rulers in scene space too: they would pan with the graph and scale with the
-zoom, which is the opposite of what chrome is. The fix is two lists rather than
-one tag, and the 104 `sx`/`sy`/`sl` call sites that map flow to screen are the
-size of it. S3 builds that same pattern in the small — markdown's caret and
-selection are now their own list, drawn on top with `clear: false` — so S2 is
-the same change on a canvas with twenty times the chrome.
+**S2 came out as THREE frames, not one.** The design assumed a canvas is a
+scene with a camera on it. RangerFlow is three things at three different rates,
+and the split is the interesting part of the stage:
+
+| | what | in | rebuilt when |
+| --- | --- | --- | --- |
+| the pattern | the paper and the dot grid | screen pixels | the zoom or the window changes — a pan SLIDES it, because a pattern moved by one of its own periods is itself |
+| the diagram | lanes, edges, nodes, labels | flow units, with the camera beside them | the graph changes, or the view leaves the band or the region |
+| the chrome | rulers, minimap, ports, grips, buttons | screen pixels | every frame; it is a few dozen commands and all of it moves when the view does |
+
+Two things had to be said out loud that the baked walk got for free, and they
+are `FlowView.drawn` and `FlowView.hair`: **whether a thing is worth drawing is
+a question about screen size** (a label at 1.2 pixels is mush whatever the model
+says, so every level-of-detail test asks `drawn(len)`), and **a hairline is a
+pixel, not a flow unit** (`hair(px)` divides by the zoom the frame is built at).
+Everything else — a border, a row height, a font size — was already a flow
+length going through `sl`, and those needed no change at all.
+
+The grid is the reason for the third frame. Built into the diagram's list it
+would cover the region rather than the window: nine times the dots, rebuilt on
+every click — 1.2 MB of display list for one PlantUML diagram, measured. As its
+own periodic frame it costs what it always did and a pan does not touch it.
+
+Not done in S2: **the minimap is still drawn the long way**, as its own dots
+rather than as the diagram's frame at a second view. The frames are there now,
+so it is a small change, but it is a change to the minimap rather than to the
+camera and nothing depends on it.
+
+**Two bugs only a pixel could find**, both caught by the page's own
+camera-against-baked comparison and both fixed here:
+
+* **A camera written to two decimals.** `EVGDisplayList.toJson` wrote the view
+  through `num`, which rounds to a hundredth — right for a coordinate, wrong
+  for a SCALE that multiplies every coordinate in the list. A zoom of 0.4053
+  came out as 0.41 and drew the diagram 1.2% too large: eight pixels of slip at
+  the bottom of the canvas, and invisible at zoom 1, which is where every check
+  had been looking. `EVGDisplayList.fine` writes six decimals, and the view is
+  the only thing that uses it. (The binary bridge was never affected: it carries
+  doubles.)
+* **A hairline floor measured in the wrong space.** The painter widens a stroke
+  to three quarters of a PIXEL so a thin line does not fall between samples —
+  but it applied that floor to the list's own units, and a list with a camera is
+  in scene units. A 1.5-unit edge on a diagram at 0.17 is a quarter of a pixel:
+  the floor never applied, and every line came out a third as dark as the same
+  diagram drawn without a camera. `strokeTriangles` now takes the scale the
+  frame is built at.
 
 S0 is the only stage that touches the engine's contract, and it is additive.
 S1 is where the frames come from. Everything after it is a host choosing to

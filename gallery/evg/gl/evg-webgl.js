@@ -377,8 +377,17 @@ export function parseDash(text) {
     .filter((v) => Number.isFinite(v) && v >= 0);
 }
 
-export function strokeTriangles(rings, width, cap, join) {
-  const half = Math.max(width, 0.75) / 2;
+export function strokeTriangles(rings, width, cap, join, scale = 1) {
+  // A HAIRLINE IS THREE QUARTERS OF A PIXEL, and a pixel is a screen thing.
+  // The floor stops a thin line from disappearing into the gaps between
+  // samples, so it has to be measured where the line will be DRAWN: a list
+  // with a camera is in scene units, and a 1.5-unit stroke on a board at 0.17
+  // is a quarter of a pixel. Left as a floor on the list's own units it never
+  // applied there, and every line in a zoomed-out diagram came out a third as
+  // dark as the same diagram drawn without a camera \u2014 which is what the
+  // rangerflow page showed the first time the two were compared.
+  const s = scale || 1;
+  const half = Math.max(width, 0.75 / s) / 2;
   const miterLimit = 4;
   const tris = [];
   for (const ring of rings) {
@@ -1681,7 +1690,11 @@ function buildFrame(gl, doc, opts = {}) {
   // figma board did the first time it was drawn this way. Everything the
   // slot reports is divided by the same number, so the quad stays in scene
   // units and the shader's scale puts the ink back at 1:1.
-  const textDpr = dpr * (viewVec(viewOfDoc)[0] || 1);
+  // The scale this frame is BUILT at. Everything that has to be measured in
+  // pixels while the list is in scene units divides by it: the atlas below,
+  // and the hairline floor under a stroke.
+  const viewScaleOfFrame = viewVec(viewOfDoc)[0] || 1;
+  const textDpr = dpr * viewScaleOfFrame;
   const { tex: atlas, slots, rebuilt: atlasRebuilt, added: atlasAdded } = atlasFor(gl, cmds, textDpr, { w: doc.width, h: doc.height });
 
   // One texture per distinct source, uploaded ONCE — not once per frame. This
@@ -1792,7 +1805,7 @@ function buildFrame(gl, doc, opts = {}) {
         // caps and all — which is what puts a round end on each dash.
         const pat = parseDash(c.dash);
         const dashed = pat.length ? dashRings(rings, pat, c.dashoff || 0) : rings;
-        const tris = strokeTriangles(dashed, c.t || 1, c.cap | 0, c.join | 0);
+        const tris = strokeTriangles(dashed, c.t || 1, c.cap | 0, c.join | 0, viewScaleOfFrame);
         if (tris.length) pushPath({ kind: "tris", verts: new Float32Array(tris), color: rgba });
       } else {
         pushPath({ kind: "fill", rings: rings.map((r) => new Float32Array(r)),

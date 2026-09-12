@@ -170,6 +170,16 @@ class FlowScene {
     def worldY:double 0.0
     def worldW:double 0.0
     def worldH:double 0.0
+    ; The CAMERA this scene is looked at through, when its coordinates are the
+    ; graph's own rather than the screen's (`FlowView.camera`, S2). The display
+    ; list carries it to the painter, which multiplies it in the vertex shader,
+    ; so the same built scene can be drawn at another pan or another zoom
+    ; without being walked again. A scene built the old way has none of this and
+    ; is in screen coordinates already.
+    def viewX:double 0.0
+    def viewY:double 0.0
+    def viewZoom:double 1.0
+    def hasView:boolean false
 
     Constructor () {
     }
@@ -375,6 +385,9 @@ class FlowScene {
     ; transform while building — a GPU backend has no tree to transform.
     fn toDisplayList:EVGDisplayList () {
         def dl (new EVGDisplayList)
+        if hasView {
+            dl.setView(viewX viewY viewZoom)
+        }
         this.emitInto(dl)
         return dl
     }
@@ -787,6 +800,13 @@ class FlowScene {
     fn sceneJson:string (width:double height:double) {
         def dl:EVGDisplayList (this.toDisplayList())
         def body:string (dl.toJson())
-        return ("{\"width\":" + (EVGDisplayList.num(width)) + ",\"height\":" + (EVGDisplayList.num(height)) + ",\"list\":" + body + "}")
+        def out:string ("{\"width\":" + (EVGDisplayList.num(width)) + ",\"height\":" + (EVGDisplayList.num(height)))
+        ; The camera at the top level as well as inside the list, so a host can
+        ; read it without unpacking the commands — it is what a kept frame is
+        ; redrawn with.
+        if hasView {
+            out = (out + ",\"view\":[" + (EVGDisplayList.fine(viewX)) + "," + (EVGDisplayList.fine(viewY)) + "," + (EVGDisplayList.fine(viewZoom)) + "]")
+        }
+        return (out + ",\"list\":" + body + "}")
     }
 }

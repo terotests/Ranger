@@ -79,6 +79,10 @@ cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 mkdir -p "$OUT/gl" "$OUT/fonts"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+# The keep-or-build policy for a frame drawn at a view it was not built at:
+# the band and the region, as arithmetic on plain numbers. See
+# gallery/evg/PLAN_VIEW_TRANSFORM.md.
+cp gallery/evg/gl/evg-view.js "$OUT/gl/evg-view.js"
 # The module half of the head this build writes, shared with every other
 # gallery page: it picks up the responses the head started.
 mkdir -p "$OUT/evg"
@@ -97,7 +101,7 @@ cp gallery/rangerflow/fixtures/ecommerce.sql "$OUT/ecommerce.sql"
 STAMP=$(node -e "
   const fs = require('fs'), crypto = require('crypto');
   const h = crypto.createHash('sha1');
-  for (const f of ['$OUT/rangerflow_web.js', '$OUT/standalone.mjs', '$OUT/gl/evg-webgl.js']) {
+  for (const f of ['$OUT/rangerflow_web.js', '$OUT/standalone.mjs', '$OUT/gl/evg-webgl.js', '$OUT/gl/evg-view.js']) {
     h.update(fs.readFileSync(f));
   }
   process.stdout.write(h.digest('hex').slice(0, 10));
@@ -108,7 +112,8 @@ node -e "
   const html = fs.readFileSync('$OUT/index.html', 'utf8').split('__BUILD__').join(stamp);
   fs.writeFileSync('$OUT/index.html', html);
   const mjs = fs.readFileSync('$OUT/standalone.mjs', 'utf8')
-    .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp);
+    .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp)
+    .replace('./gl/evg-view.js', './gl/evg-view.js?v=' + stamp);
   fs.writeFileSync('$OUT/standalone.mjs', mjs);
 " || exit 1
 # Minified when there is a minifier, and a head that starts the one asset this
@@ -119,7 +124,7 @@ node gallery/evg/web/tools/minify.mjs --file "$OUT/rangerflow_web.js" --keep Ran
 node gallery/evg/web/tools/inline-assets.mjs \
   --html "$OUT/index.html" \
   --start "ecommerce.sql" \
-  --preload-stamped "standalone.mjs,gl/evg-webgl.js" \
+  --preload-stamped "standalone.mjs,gl/evg-webgl.js,gl/evg-view.js" \
   --preload "evg/assets-client.mjs" \
   --stamp "$STAMP" || exit 1
 
