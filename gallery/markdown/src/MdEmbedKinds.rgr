@@ -53,6 +53,49 @@ class MdEmbedKinds {
         return ((strlen n) > 0)
     }
 
+    ; A diagram drawn narrower than the column it lands in, because the
+    ; document said so:
+    ;
+    ; ````markdown
+    ; ```mermaid
+    ; flowchart LR
+    ;   A --> B
+    ; ```
+    ; {width=360}
+    ; ````
+    ;
+    ; Both the RENDERER and the LAYOUT have to arrive at the same number. The
+    ; embed cache is keyed by the width a diagram was prepared at, so a
+    ; disagreement of one point is a diagram prepared at one width and asked
+    ; for at another — a slot with an apology in it rather than a drawing. One
+    ; function, two callers, the same reason `notationOf` lives here.
+    ;
+    ; Never WIDER than the column. A diagram that overflowed its column would
+    ; draw across the margin, and `{width=2000}` is a typo far more often than
+    ; it is a wish. Anything that is not a plain number is the column width,
+    ; because refusing to draw over a unit nobody parsed helps no one.
+    sfn widthOf:double (want:string avail:double) {
+        def n:int (strlen want)
+        if (n == 0) { return avail }
+        def v:int 0
+        def digits:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt want i)
+            if (c < 48) { return avail }
+            if (c > 57) { return avail }
+            v = ((v * 10) + (c - 48))
+            digits = (digits + 1)
+            if (digits > 5) { return avail }
+            i = (i + 1)
+        }
+        if (digits == 0) { return avail }
+        def out:double (to_double v)
+        if (out <= 0.0) { return avail }
+        if (out > avail) { return avail }
+        return out
+    }
+
     ; The first whitespace-delimited word of an info string — `mermaid` out of
     ; "mermaid theme=dark".
     sfn firstWord:string (info:string) {

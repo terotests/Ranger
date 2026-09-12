@@ -1,0 +1,306 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; VfsCore.rgr — one place a document engine gets its bytes.
+; ============================================================================
+;
+;   npm run vfs:test
+;
+; Four engines in this repository need bytes they do not have: `MdLayout`
+; draws `![alt](src)` as its alt text, `MdCss` has no `background-image`,
+; `PptxWriter` writes a slide background as a solid fill only, and the PDF and
+; HTML writers each have their own idea of where a picture comes from. Left
+; alone, each grows its own loader — several implementations of one idea, a
+; PATTERN SEAM in the sense of `../PLAN_EDITOR_KERNEL.md` §2, where a fix to
+; any of them reaches none of the others.
+;
+; The shape is Node's experimental `node:vfs`: a provider indirection,
+; capability flags, POSIX absolute paths, and mount. Where this differs it
+; differs for a reason found in this repository, and `PLAN_VFS.md` §2 has the
+; list. The two that shape the code:
+;
+;   - **Reads are SYNCHRONOUS.** `D2Flow` already refuses to call `D2Imports`
+;     from itself on the grounds that one file read makes every caller
+;     asynchronous on the web target — "including the editor's own self test".
+;     A document layout runs inside a keystroke and cannot await anything. So
+;     loading is a separate, explicit step that fills the store, and reading
+;     is synchronous. No callback triad, no promises.
+;
+;   - **Blobs are content addressed under the name tree.** A logo on twelve
+;     slides is one blob and twelve names. OOXML wants exactly that — one
+;     media part, many relationships — and a writer that cannot tell two
+;     identical pictures apart writes the file twice.
+;
+; Six calls: `exists`, `stat`, `read`, `list`, `put`, `remove`. Every call a
+; document engine does not need is one that cannot be got wrong on five
+; compilation targets, so there are no symlinks, no watching, no streams, no
+; permissions and no network.
+; ============================================================================
+
+Import "../../zip/CRC32.rgr"
+
+; What a blob IS: bytes, what they are, and — for a picture — how big, so a
+; layout can size it without decoding it in the middle of a keystroke. The
+; decode happens once, on the way in, where it is allowed to be slow.
+class VfsBlob {
+    def bytes:buffer (buffer_alloc 0)
+    def contentType:string ""
+    def pixelW:int 0
+    def pixelH:int 0
+
+    Constructor () {
+    }
+
+    fn size:int () {
+        return (buffer_length bytes)
+    }
+}
+
+; The answer to "what is at this path". `found` is false for everything else,
+; rather than a null a caller can forget to check.
+class VfsStat {
+    def path:string ""
+    def found:boolean false
+    def isFolder:boolean false
+    def size:int 0
+    def contentType:string ""
+    def pixelW:int 0
+    def pixelH:int 0
+
+    Constructor () {
+    }
+}
+
+; The base every backend is. A provider that answers nothing is the honest
+; default: a subclass overrides what it can do, and `readonly` says what it
+; will not.
+class VfsProvider {
+    def readonly:boolean false
+
+    Constructor () {
+    }
+
+    fn exists:boolean (path:string) {
+        return false
+    }
+
+    fn stat:VfsStat (path:string) {
+        return (new VfsStat())
+    }
+
+    fn read:buffer (path:string) {
+        return (buffer_alloc 0)
+    }
+
+    fn list:[string] (path:string) {
+        def out:[string]
+        return out
+    }
+
+    fn put:boolean (path:string b:VfsBlob) {
+        return false
+    }
+
+    fn remove:boolean (path:string) {
+        return false
+    }
+}
+
+; In memory, which is what a suite and a browser demo use — and, through
+; `put`, what a reader's upload becomes. The upload path and the bootstrap
+; path are one path, which is the test of the design.
+class VfsMemory extends VfsProvider {
+    ; name -> the key of the blob it holds
+    def names:[string:string]
+    ; key -> blob. The key is a CRC32 and a length, and a hit is CONFIRMED by
+    ; comparing the bytes: a CRC is a dedupe index and not a digest, and a
+    ; collision that silently returned the wrong picture would be a worse bug
+    ; than storing it twice.
+    def blobs:[string:VfsBlob]
+    def order:[string]
+
+    Constructor () {
+    }
+
+    fn exists:boolean (path:string) {
+        return (has names path)
+    }
+
+    fn stat:VfsStat (path:string) {
+        def out (new VfsStat())
+        out.path = path
+        if (! (has names path)) {
+            ; A folder is not stored; it is implied by the names under it.
+            if (VfsMemory.isRoot(path)) {
+                out.found = true
+                out.isFolder = true
+                return out
+            }
+            def prefix:string (path + "/")
+            def i:int 0
+            while (i < (array_length order)) {
+                def nm:string (itemAt order i)
+                if (VfsMemory.startsAt(nm prefix)) {
+                    out.found = true
+                    out.isFolder = true
+                    return out
+                }
+                i = (i + 1)
+            }
+            return out
+        }
+        def key:string (unwrap (get names path))
+        if (! (has blobs key)) { return out }
+        def b:VfsBlob (unwrap (get blobs key))
+        out.found = true
+        out.size = (b.size())
+        out.contentType = b.contentType
+        out.pixelW = b.pixelW
+        out.pixelH = b.pixelH
+        return out
+    }
+
+    fn read:buffer (path:string) {
+        if (! (has names path)) { return (buffer_alloc 0) }
+        def key:string (unwrap (get names path))
+        if (! (has blobs key)) { return (buffer_alloc 0) }
+        def b:VfsBlob (unwrap (get blobs key))
+        return b.bytes
+    }
+
+    ; The names directly under a folder, in the order they were put. Not
+    ; recursive: a caller that wants the tree walks it.
+    fn list:[string] (path:string) {
+        def out:[string]
+        def prefix:string "/"
+        if (! (VfsMemory.isRoot(path))) { prefix = (path + "/") }
+        def plen:int (strlen prefix)
+        def i:int 0
+        while (i < (array_length order)) {
+            def nm:string (itemAt order i)
+            if (VfsMemory.startsAt(nm prefix)) {
+                def rest:string (substring nm plen (strlen nm))
+                def cut:int (VfsMemory.slashAt(rest))
+                def leaf:string rest
+                if (cut >= 0) { leaf = (substring rest 0 cut) }
+                if (! (VfsMemory.holds(out leaf))) { push out leaf }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn put:boolean (path:string b:VfsBlob) {
+        if readonly { return false }
+        def key:string (VfsMemory.keyOf(b.bytes))
+        if (has blobs key) {
+            def had:VfsBlob (unwrap (get blobs key))
+            if (! (VfsMemory.sameBytes(had.bytes b.bytes))) {
+                ; Two different files with one index. Store the newcomer under
+                ; a key of its own rather than hand back the wrong bytes.
+                key = (key + ("#" + (to_string (array_length order))))
+                set blobs key b
+            }
+        } {
+            set blobs key b
+        }
+        if (! (has names path)) { push order path }
+        set names path key
+        return true
+    }
+
+    ; Ranger has `map_clear` and no way to drop ONE key, so the map is rebuilt
+    ; from the names that survive. The blobs are rebuilt with it rather than
+    ; left behind: a store whose blob count kept climbing after a remove would
+    ; make `blobCount` — the number the content addressing is about — a number
+    ; that means nothing.
+    fn remove:boolean (path:string) {
+        if readonly { return false }
+        if (! (has names path)) { return false }
+        def kept:[string]
+        def keptNames:[string:string]
+        def keptBlobs:[string:VfsBlob]
+        def i:int 0
+        while (i < (array_length order)) {
+            def nm:string (itemAt order i)
+            if (nm != path) {
+                push kept nm
+                def key:string (unwrap (get names nm))
+                set keptNames nm key
+                if (has blobs key) {
+                    def b:VfsBlob (unwrap (get blobs key))
+                    set keptBlobs key b
+                }
+            }
+            i = (i + 1)
+        }
+        order = kept
+        names = keptNames
+        blobs = keptBlobs
+        return true
+    }
+
+    ; How many distinct BLOBS are held, which is the number the content
+    ; addressing is about. `names` counts paths and would not notice.
+    fn blobCount:int () {
+        def k:[string] (keys blobs)
+        return (array_length k)
+    }
+
+    fn nameCount:int () {
+        return (array_length order)
+    }
+
+    fn setReadOnly:void () {
+        readonly = true
+    }
+
+    ; ----------------------------------------------------------------------
+    sfn keyOf:string (bytes:buffer) {
+        def util (new CRC32())
+        def crc:int (util.compute(bytes))
+        return ((to_string crc) + ("-" + (to_string (buffer_length bytes))))
+    }
+
+    sfn sameBytes:boolean (a:buffer b:buffer) {
+        def n:int (buffer_length a)
+        if (n != (buffer_length b)) { return false }
+        def i:int 0
+        while (i < n) {
+            if ((buffer_get a i) != (buffer_get b i)) { return false }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    sfn isRoot:boolean (path:string) {
+        if (path == "/") { return true }
+        if ((strlen path) == 0) { return true }
+        return false
+    }
+
+    sfn startsAt:boolean (s:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen s) < n) { return false }
+        return ((substring s 0 n) == prefix)
+    }
+
+    sfn slashAt:int (s:string) {
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            if ((charAt s i) == 47) { return i }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    sfn holds:boolean (list:[string] want:string) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == want) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+}

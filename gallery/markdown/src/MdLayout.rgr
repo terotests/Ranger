@@ -37,6 +37,8 @@ Import "MdNode.rgr"
 Import "MdStyle.rgr"
 Import "MdChar.rgr"
 Import "MdEmbed.rgr"
+Import "MdEmbedKinds.rgr"
+Import "../../vfs/src/Vfs.rgr"
 Import "MdCodeHighlight.rgr"
 Import "MdFrontMatter.rgr"
 Import "MdCss.rgr"
@@ -144,6 +146,14 @@ class MdBox {
     ; the source of an embed, for whoever can draw it
     def embedKind:string ""
     def embedSource:string ""
+    ; A PICTURE (kind 4): where its bytes are in the byte store, and how big
+    ; they are in their own pixels. The layout names the picture and does not
+    ; carry it, exactly as a display list does — whoever draws it asks the
+    ; same `Vfs` the layout asked.
+    def imagePath:string ""
+    def imageAlt:string ""
+    def imageNaturalW:int 0
+    def imageNaturalH:int 0
     def page:int 0
     ; The character this box's block began at, in the source text. Stamped by
     ; the layout, not by the author: it is what lets a click on a drawing find
@@ -179,6 +189,10 @@ class MdBox {
         b.link = link
         b.embedKind = embedKind
         b.embedSource = embedSource
+        b.imagePath = imagePath
+        b.imageAlt = imageAlt
+        b.imageNaturalW = imageNaturalW
+        b.imageNaturalH = imageNaturalH
         b.page = page
         b.srcStart = srcStart
         b.segSrc = segSrc
@@ -369,6 +383,18 @@ class MdLayout {
     ; unless somebody filled it: the layout can lay a document out without
     ; one, and leaves a labelled slot where a diagram would have gone.
     def embeds:MdEmbedCache (new MdEmbedCache())
+    ; Where a picture's bytes come from, and which folder the document is in.
+    ;
+    ; Empty by default and that is the honest default: `![alt](src)` draws as
+    ; its ALT TEXT when nobody has the bytes, which is the most truthful thing
+    ; to draw, and is what this did for every document before there was a byte
+    ; store at all.
+    def images:Vfs (new Vfs())
+    def haveImages:boolean false
+    def docDir:string "/"
+    ; Pictures the document names and this layout could not find. Counted
+    ; rather than hidden, like every other cost in this file.
+    def missingImages:int 0
 
     ; The height the document turned out to be, in continuous mode.
     def documentHeight:double 0.0
@@ -438,6 +464,15 @@ class MdLayout {
     ; The template, as text. Parsed once here rather than on every layout.
     ; The DOCUMENT-level properties are applied by the caller, before this —
     ; see `MarkdownEdit.ensureLayout` for the order and why it is that order.
+    ; Where pictures come from. Handed the store and the folder the document
+    ; lives in, because `![](logo.png)` means "beside this document".
+    fn setImages:void (v:Vfs dir:string) {
+        images = v
+        docDir = dir
+        haveImages = true
+        this.disarmCache()
+    }
+
     fn setStyleSheet:void (css:string) {
         sheetText = css
         sheet = (new MdCss())
@@ -1016,13 +1051,48 @@ class MdLayout {
     fn keepWithNext:void (child:MdNode i:int n:int doc:MdNode) {
         if (child.kind != "heading") { return }
         if ((i + 1) >= n) { return }
+        def next:MdNode (doc.childAt(i + 1))
         def size:double (style.headingSize(child.level))
-        def need:double (((style.headingSpaceBefore + (size * style.lineHeight)) + style.headingSpaceAfter) + (style.bodySize * style.lineHeight))
+        def head:double ((style.headingSpaceBefore + (size * style.lineHeight)) + style.headingSpaceAfter)
+        def need:double (head + (this.keepRoom(next)))
         if ((cursorY + need) > contentBottom) {
             if ((cursorY - contentTop) > 0.5) {
                 this.nextSlide()
             }
         }
+    }
+
+    ; How much of the next block has to fit beside the heading for the pair to
+    ; count as together.
+    ;
+    ; One body line is right for PROSE: a paragraph that starts under its
+    ; heading and runs onto the next slide still reads as one thing. It is
+    ; wrong for a block that cannot be cut. A diagram is laid out whole or not
+    ; at all, so a heading with one line of room under it takes the heading
+    ; and leaves the diagram on the next slide — which is the reader's
+    ; complaint, in as many words: the heading on one slide and the diagram on
+    ; the next.
+    ;
+    ; The diagram's height is already known: `MdDiagram.prepare` measured it
+    ; before layout began, which is the whole reason that pass exists. Capped
+    ; at the room a slide has, because a diagram taller than any slide would
+    ; otherwise push every heading forward for ever and still not fit.
+    ;
+    ; A TABLE is the other unsplittable-ish block and still gets one line. Its
+    ; height is not known without laying its rows out, and doing that here
+    ; would be a second table algorithm beside `tableWidths`. Named rather
+    ; than left as an oversight.
+    fn keepRoom:double (next:MdNode) {
+        def line:double (style.bodySize * style.lineHeight)
+        if (next.kind != "embed") { return line }
+        def kind:string (MdLayout.firstWord(next.info))
+        def want:string (next.attrValue("width"))
+        def useW:double (MdEmbedKinds.widthOf(want contentW))
+        def known:double (embeds.heightFor(kind next.literal useW))
+        if (known <= 0.0) { return line }
+        def room:double (contentBottom - contentTop)
+        if (known > room) { return room }
+        return known
     }
 
     fn nextSlide:void () {
@@ -1387,6 +1457,7 @@ class MdLayout {
     fn blockPlain:void (node:MdNode x:double w:double) {
         def kind:string node.kind
         if (kind == "paragraph") {
+            if (this.pictureBlock(node x w)) { return }
             def runs:[MdRun] (this.inlineRuns(node (this.baseRun())))
             this.paragraph(runs x w)
             def gap:double style.paraSpacing
@@ -1707,7 +1778,14 @@ class MdLayout {
     ; them less.
     fn embed:void (node:MdNode x:double w:double) {
         def kind:string (MdLayout.firstWord(node.info))
-        def known:double (embeds.heightFor(kind node.literal w))
+        ; `{width=360}` under the fence, clamped to the column. `MdDiagram`
+        ; works the same number out of the same attribute before layout
+        ; begins, and it has to be the same number: the cache is keyed by the
+        ; width the diagram was prepared at, so one point of disagreement is a
+        ; slot with an apology in it instead of a drawing.
+        def want:string (node.attrValue("width"))
+        def useW:double (MdEmbedKinds.widthOf(want w))
+        def known:double (embeds.heightFor(kind node.literal useW))
         def drawn:boolean (known > 0.0)
         def h:double 64.0
         if drawn { h = known }
@@ -1716,7 +1794,7 @@ class MdLayout {
         b.kind = 3
         b.x = x
         b.y = y
-        b.w = w
+        b.w = useW
         b.h = h
         b.embedKind = kind
         b.embedSource = node.literal
@@ -1724,10 +1802,10 @@ class MdLayout {
         if (! drawn) {
             b.stroke = style.codeBorder
             b.strokeWidth = 1.0
-            def note:string (embeds.noteFor(kind node.literal w))
+            def note:string (embeds.noteFor(kind node.literal useW))
             def nlen:int (strlen note)
             if (nlen == 0) { note = (kind + " — no handler prepared this one") }
-            def label:MdBox (MdBox.text(note (x + style.codePadding) (y + style.codePadding) (w - (style.codePadding * 2.0)) (style.bodySize * style.lineHeight)))
+            def label:MdBox (MdBox.text(note (x + style.codePadding) (y + style.codePadding) (useW - (style.codePadding * 2.0)) (style.bodySize * style.lineHeight)))
             label.family = style.bodyFamily
             label.size = style.bodySize
             label.italic = true
@@ -2403,6 +2481,102 @@ class MdLayout {
         cursorY = (cursorY + style.paraSpacing)
     }
 
+    ; ----------------------------------------------------------------------
+    ; A picture
+    ; ----------------------------------------------------------------------
+    ;
+    ; `![alt](logo.png)` on a paragraph of its own becomes a picture; anywhere
+    ; else it stays ALT TEXT.
+    ;
+    ; That split is deliberate rather than a first step. A picture in the
+    ; middle of a sentence has to sit on a text baseline, which is a different
+    ; question from putting a block on a page and one markdown almost never
+    ; asks — every `![]()` in this repository's own documents is on a line of
+    ; its own. A block picture is the case that exists, and it is the one that
+    ; reaches a deck, a PDF and a slide.
+    ;
+    ; A picture nobody can find stays alt text too. That is not a fallback
+    ; that hides a problem: it is exactly what the reader sees in the preview,
+    ; so the preview and the export are missing the same picture rather than
+    ; disagreeing about it. `missingImages` counts them.
+    fn pictureBlock:boolean (node:MdNode x:double w:double) {
+        if (! haveImages) { return false }
+        def img:MdNode (MdLayout.loneImage(node))
+        if (img.kind != "image") { return false }
+        def path:string (images.resolve(img.destination docDir))
+        if ((strlen path) == 0) {
+            missingImages = (missingImages + 1)
+            return false
+        }
+        def st:VfsStat (images.stat(path))
+        if (! st.found) {
+            missingImages = (missingImages + 1)
+            return false
+        }
+
+        ; Its own size, never scaled UP — a 64pt icon in a 468pt column is a
+        ; 64pt icon — and fitted down when it is wider than the column.
+        def natW:double (to_double st.pixelW)
+        def natH:double (to_double st.pixelH)
+        def useW:double natW
+        def useH:double natH
+        if (natW <= 0.0) {
+            useW = w
+            useH = (w * 0.5)
+        }
+        def wantAttr:string (node.attrValue("width"))
+        def asked:double (MdEmbedKinds.widthOf(wantAttr w))
+        if (asked < useW) {
+            if (useW > 0.0) {
+                useH = (useH * (asked / useW))
+                useW = asked
+            }
+        }
+        if (useW > w) {
+            useH = (useH * (w / useW))
+            useW = w
+        }
+
+        def y:double (this.reserve(useH))
+        def b:MdBox (new MdBox())
+        b.kind = 4
+        b.x = x
+        b.y = y
+        b.w = useW
+        b.h = useH
+        b.imagePath = path
+        b.imageAlt = (img.plainText())
+        b.imageNaturalW = st.pixelW
+        b.imageNaturalH = st.pixelH
+        this.emit(b)
+        cursorY = ((y + useH) + style.paraSpacing)
+        return true
+    }
+
+    ; The one image a paragraph holds, when that is ALL it holds. A caption
+    ; beside the picture makes it a sentence with a picture in it, and a
+    ; sentence is laid out as a sentence.
+    sfn loneImage:MdNode (node:MdNode) {
+        def found:MdNode (new MdNode())
+        def i:int 0
+        def n:int (node.childCount())
+        while (i < n) {
+            def c:MdNode (node.childAt(i))
+            if (c.kind == "image") {
+                if (found.kind == "image") { return (new MdNode()) }
+                found = c
+            } {
+                if (c.kind == "text") {
+                    if ((strlen (trim c.literal)) > 0) { return (new MdNode()) }
+                } {
+                    if (c.kind != "softbreak") { return (new MdNode()) }
+                }
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
     ; How wide each column is, in the space the table has.
     ;
     ; Split out of `table` so that the DECK can ask it: `MdToPptx` builds a
@@ -2595,6 +2769,16 @@ class MdLayout {
                             tx = (((cx + style.cellPadX) + (free / 2.0)) + seg.x)
                         }
                         def b:MdBox (MdBox.text(seg.text tx ty seg.w ln.height))
+                        ; The cell's own source range, the same way a
+                        ; paragraph's segments carry theirs. Without it
+                        ; `emit` left every box in the table pointing at the
+                        ; TABLE's start, so a click anywhere in the grid put
+                        ; the caret on the first pipe and typing landed
+                        ; there — which is why a cell could not be edited in
+                        ; place. A cell is a source range like any other;
+                        ; typing in one is an ordinary patch.
+                        b.segSrc = seg.srcStart
+                        b.segLen = seg.srcLen
                         b.family = seg.family
                         b.size = seg.size
                         b.bold = seg.bold

@@ -664,6 +664,19 @@ class MdEditController {
         return (this.intent(op))
     }
 
+    ; Where a slide starts, and where one must not. Both are a class on the
+    ; block at the caret, so both are one patch and one undo.
+    fn toggleBlockClass:boolean (cls:string) {
+        this.ensureLayout()
+        lastRefusal = ""
+        def op:MdEditOp (MdSemanticEdit.toggleBlockClass(source doc focus cls))
+        if (op.isEmpty()) {
+            lastRefusal = "put the caret in the block the break belongs to"
+            return false
+        }
+        return (this.intent(op))
+    }
+
     ; "bullet" | "ordered" | "quote", over every line the selection touches.
     fn toggleLinePrefix:boolean (what:string) {
         this.ensureLayout()

@@ -292,6 +292,207 @@ class MdSemanticTest {
             ((MdSemanticTest.hasKind(e4.doc "table")) > 0))
     }
 
+
+    ; ----------------------------------------------------------------------
+    ; The invariant, over a corpus
+    ; ----------------------------------------------------------------------
+    ;
+    ; Two bugs in this module had the same shape and were found the same way —
+    ; by a reader. A space typed at the inside edge of `**bold**` left
+    ; `** bold**`, and bold over three list items wrote one marker pair around
+    ; the lot. Both produced markdown that no longer PARSES as what was asked
+    ; for, and both showed up as asterisks in the preview, which is the parser
+    ; being correct about a document that is wrong.
+    ;
+    ; Two instances of one shape is a missing invariant rather than two bugs:
+    ;
+    ;   apply an intent, REPARSE, and the intended node covers the intended
+    ;   range — in every block the selection touched.
+    ;
+    ; The strongest property here is the cheapest one. Adding or removing
+    ; emphasis must not change the document's PLAIN TEXT: a marker that lands
+    ; where it is not a delimiter stops being markup and becomes a character,
+    ; so it turns up in the plain text and nowhere else. That one comparison
+    ; catches the whole family, including instances nobody has thought of.
+    ;
+    ; The value is in the corpus, not in the assertions. Every case below is a
+    ; selection SHAPE — inside one block, across two, across three, over a
+    ; block's own marker, onto a heading — rather than another example of a
+    ; case that already passes.
+    fn corpus:void (c:SemCheck) {
+        print "-- an intent, reparsed: the tree, not the patch --"
+
+        def list3:string "- Verkkokauppa kasvoi 18 %\n- Jalleenmyynti pysyi ennallaan\n- Lisenssit laskivat 4 %\n"
+        this.intentCase(c "three list items, bold" list3 "Verkkokauppa" "4 %" "bold" 3)
+        this.intentCase(c "three list items, italic" list3 "Verkkokauppa" "4 %" "italic" 3)
+        this.intentCase(c "two of three items" list3 "Jalleenmyynti" "4 %" "bold" 2)
+        this.intentCase(c "one item, whole" list3 "Verkkokauppa" "18 %" "bold" 1)
+        this.intentCase(c "one item, one word" list3 "Verkkokauppa" "Verkkokauppa" "bold" 1)
+
+        def paras:string "Ensimmainen kappale tassa.\n\nToinen kappale tassa.\n\nKolmas kappale.\n"
+        this.intentCase(c "two paragraphs" paras "Ensimmainen" "Toinen kappale tassa." "bold" 2)
+        this.intentCase(c "three paragraphs" paras "Ensimmainen" "Kolmas kappale." "bold" 3)
+
+        def head:string "## Otsikko tassa\n\nKappale otsikon alla.\n"
+        this.intentCase(c "a heading and the paragraph under it" head "Otsikko" "alla." "bold" 2)
+        this.intentCase(c "a heading on its own" head "Otsikko" "tassa" "bold" 1)
+
+        def tbl:string "| Alue | Tulos |\n| --- | --- |\n| Verkkokauppa | 18 |\n"
+        this.intentCase(c "two cells of one row" tbl "Verkkokauppa" "18" "bold" 2)
+
+        ; A selection that ran past the end of a line and stopped on the next
+        ; line's own marker. The block whose share is only whitespace and
+        ; markup contributes nothing, and the list stays a list.
+        def sloppy:MdNode (MdBlock.parseText(list3))
+        def sa:int (MdSemanticTest.offsetOf(list3 "Verkkokauppa"))
+        def sb:int ((MdSemanticTest.offsetOf(list3 "- Jalleenmyynti")) + 2)
+        def sop:MdEditOp (MdSemanticEdit.toggleWrap(list3 sloppy "bold" sa sb))
+        def sout:string (MdEdit.applyTo(list3 sop))
+        c.eqStr("a selection stopping on the next marker bolds only the first item"
+            sout "- **Verkkokauppa kasvoi 18 %**\n- Jalleenmyynti pysyi ennallaan\n- Lisenssit laskivat 4 %\n")
+
+        ; A selection where the middle item is ALREADY bold. Pressing bold
+        ; means "make them all bold", so the one that is stays as it is —
+        ; `****x****` is not more bold, it is two empty delimiter runs.
+        def mixed:string "- Yksi\n- **Kaksi**\n- Kolme\n"
+        this.intentCaseR(c "one item already bold" mixed "Yksi" "Kolme" "bold" 3 false)
+        def md:MdNode (MdBlock.parseText(mixed))
+        def ma:int (MdSemanticTest.offsetOf(mixed "Yksi"))
+        def mb:int ((MdSemanticTest.offsetOf(mixed "Kolme")) + 5)
+        def mop:MdEditOp (MdSemanticEdit.toggleWrap(mixed md "bold" ma mb))
+        def mout:string (MdEdit.applyTo(mixed mop))
+        c.ok("and no empty delimiter run is written" ((MdSemanticTest.offsetOf(mout "****")) < 0))
+    }
+
+
+    ; ----------------------------------------------------------------------
+    ; A slide break a reader can move
+    ; ----------------------------------------------------------------------
+    ;
+    ; `MdLayout` has known two rules all along — `{.slide}` starts a slide,
+    ; `{.no-break}` forbids one — and a reader had no way to say either, so a
+    ; heading stranded from its diagram had to be fixed by hand every time.
+    ; The break is a class on a block, which makes it an ordinary patch: it
+    ; lives in the file, survives a reload, travels with the document, and
+    ; comes off with the same undo as everything else.
+    fn breaks:void (c:SemCheck) {
+        print "-- a break is a class on a block --"
+        def src:string "# Yksi\n\nKappale tassa.\n\n## Kaksi\n\nToinen kappale.\n"
+
+        def e:MdEditController (MdSemanticTest.on(src))
+        e.setCaret((MdSemanticTest.offsetOf(src "Kappale tassa.")))
+        c.ok("a break goes on" (e.toggleBlockClass("slide")))
+        c.eqStr("…on a line of its own after the block"
+            (e.text()) "# Yksi\n\nKappale tassa.\n{.slide}\n\n## Kaksi\n\nToinen kappale.\n")
+
+        ; …and the LAYOUT sees it, which is the half a byte comparison cannot
+        ; show: an attribute the parser folds onto the wrong block writes the
+        ; same bytes and breaks the wrong slide.
+        def doc:MdNode (MdBlock.parseText((e.text())))
+        def para:MdNode (doc.childAt(1))
+        c.ok("and the block it lands on is the one the caret was in" (para.hasClass("slide")))
+
+        c.ok("…and comes off again" (e.toggleBlockClass("slide")))
+        c.eqStr("…byte for byte" (e.text()) src)
+
+        ; One undo, like every other intent.
+        def e2:MdEditController (MdSemanticTest.on(src))
+        e2.setCaret((MdSemanticTest.offsetOf(src "Kappale tassa.")))
+        e2.toggleBlockClass("slide")
+        e2.undo()
+        c.eqStr("one undo takes the break off" (e2.text()) src)
+
+        ; On a heading, where the attribute could also have been written
+        ; trailing. One code path: Goldmark's attributes attach to the block
+        ; BEFORE them, so a line of its own works for every kind.
+        def e3:MdEditController (MdSemanticTest.on(src))
+        e3.setCaret((MdSemanticTest.offsetOf(src "## Kaksi")))
+        c.ok("a break goes on a heading too" (e3.toggleBlockClass("slide")))
+        def doc3:MdNode (MdBlock.parseText((e3.text())))
+        def h3:MdNode (doc3.childAt(2))
+        c.ok("…and it is the heading that carries it" (h3.hasClass("slide")))
+
+        ; Two classes on one block: the second joins the first rather than
+        ; replacing it or opening a second attribute block.
+        def e4:MdEditController (MdSemanticTest.on(src))
+        e4.setCaret((MdSemanticTest.offsetOf(src "Kappale tassa.")))
+        e4.toggleBlockClass("slide")
+        e4.toggleBlockClass("no-break")
+        c.eqStr("two classes share one attribute block"
+            (e4.text()) "# Yksi\n\nKappale tassa.\n{.slide .no-break}\n\n## Kaksi\n\nToinen kappale.\n")
+        e4.toggleBlockClass("slide")
+        c.eqStr("…and taking one off leaves the other"
+            (e4.text()) "# Yksi\n\nKappale tassa.\n{.no-break}\n\n## Kaksi\n\nToinen kappale.\n")
+        e4.toggleBlockClass("no-break")
+        c.eqStr("…and taking the last one off takes the line with it" (e4.text()) src)
+
+        ; A width attribute a reader put there by hand is not a break, and the
+        ; break must not eat it.
+        def wsrc:string "# Yksi\n\n```mermaid\nflowchart LR\n  A --> B\n```\n{width=360}\n"
+        def e5:MdEditController (MdSemanticTest.on(wsrc))
+        e5.setCaret((MdSemanticTest.offsetOf(wsrc "flowchart")))
+        e5.toggleBlockClass("slide")
+        c.eqStr("a break joins an attribute that was already there"
+            (e5.text()) "# Yksi\n\n```mermaid\nflowchart LR\n  A --> B\n```\n{width=360 .slide}\n")
+        e5.toggleBlockClass("slide")
+        c.eqStr("…and leaves it behind when it goes" (e5.text()) wsrc)
+    }
+
+    ; One case: select from the first occurrence of `fromW` to the end of
+    ; `toW`, apply `what`, and ask the REPARSED tree three questions.
+    fn intentCase:void (c:SemCheck name:string src:string fromW:string toW:string what:string wantNodes:int) {
+        this.intentCaseR(c name src fromW toW what wantNodes true)
+    }
+
+    ; `roundTrips` is false where the input was NOT uniform: turning bold on
+    ; over a selection with one item already bold makes all three bold, and
+    ; turning it off again makes all three plain. That is a word processor's
+    ; behaviour and it is not a byte-for-byte round trip, so the case says so
+    ; rather than the harness pretending it is one.
+    fn intentCaseR:void (c:SemCheck name:string src:string fromW:string toW:string what:string wantNodes:int roundTrips:boolean) {
+        def kind:string (MdSemanticEdit.kindFor(what))
+        def a:int (MdSemanticTest.offsetOf(src fromW))
+        def b:int ((MdSemanticTest.offsetOf(src toW)) + (strlen toW))
+        def doc:MdNode (MdBlock.parseText(src))
+        def before:string (doc.plainText())
+        def op:MdEditOp (MdSemanticEdit.toggleWrap(src doc what a b))
+        if (op.isEmpty()) {
+            c.ok((name + ": the intent produced a patch") false)
+            return
+        }
+        def out:string (MdEdit.applyTo(src op))
+        def doc2:MdNode (MdBlock.parseText(out))
+
+        ; 1. the intent is present, once per block the selection touched.
+        def got:int (MdSemanticTest.hasKind(doc2 kind))
+        if (got == wantNodes) {
+            c.passed = (c.passed + 1)
+        } {
+            c.failed = (c.failed + 1)
+            print ("  FAIL " + name + ": " + (to_string got) + " " + kind + " nodes, wanted " + (to_string wantNodes))
+            print ("    [" + out + "]")
+        }
+
+        ; 2. nothing else changed. A marker that is not a delimiter is a
+        ; CHARACTER, and a character shows up here and nowhere else.
+        c.eqStr((name + ": the plain text is untouched") (doc2.plainText()) before)
+
+        ; 3. it is a toggle: off again is the bytes that went in.
+        def doc3:MdNode (MdBlock.parseText(out))
+        def back:MdEditOp (MdSemanticEdit.toggleWrap(out doc3 what op.selAfterA op.selAfterB))
+        if (back.isEmpty()) {
+            c.ok((name + ": turning it off produced a patch") false)
+            return
+        }
+        def off:string (MdEdit.applyTo(out back))
+        def doc4:MdNode (MdBlock.parseText(off))
+        c.eqStr((name + ": off again leaves the plain text alone") (doc4.plainText()) before)
+        c.ok((name + ": off again leaves no " + kind) ((MdSemanticTest.hasKind(doc4 kind)) == 0))
+        if roundTrips {
+            c.eqStr((name + ": off again is the original bytes") off src)
+        }
+    }
+
     sfn hasKind:int (n:MdNode kind:string) {
         def c:int 0
         if (n.kind == kind) { c = 1 }
@@ -421,6 +622,8 @@ class MdSemanticTest {
         this.tables(c)
         this.undoable(c)
         this.typing(c)
+        this.corpus(c)
+        this.breaks(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {

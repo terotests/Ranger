@@ -712,6 +712,21 @@ class PptxShape {
     ; back out as nothing, so a deck whose author had written proper alt text
     ; lost it the first time it was edited here.
     def altText:string ""
+    ; What this shape was GENERATED FROM, when something generated it.
+    ;
+    ; A diagram written as a ```mermaid fence reaches a slide as a group of
+    ; paths and text runs. Nothing can read that back: a class diagram and a
+    ; sequence diagram draw the same rectangles, so intent cannot be
+    ; reconstructed from strokes. Without the source, a deck can be moved and
+    ; resized and never edited again.
+    ;
+    ; Carried in `p:cNvPr/a:extLst`, which is the place OOXML sets aside for
+    ; exactly this: an application's own data, which other applications are
+    ; required to preserve rather than understand. Alt text was the other
+    ; candidate and is the wrong one — it is the accessibility field, and a
+    ; screen reader would read a Mermaid source aloud.
+    def embedNotation:string ""
+    def embedSource:string ""
     ; `p:cNvPr/@id`, which is the name the slide's own timing tree uses to say
     ; which shape an animation is about.
     def shapeId:int 0
@@ -997,6 +1012,15 @@ class PptxSlide {
     def sldHead:[PptxOpaque]
     def sldTail:[PptxOpaque]
     def bg:PptxColor (new PptxColor())
+    ; A PICTURE behind the slide, rather than a colour. Bytes and not a name:
+    ; a slide background is a package part like any other picture, and a name
+    ; would be a second thing for the writer to resolve at save time.
+    ;
+    ; A background image is the property readers ask for first and the one a
+    ; company template is mostly made of, and until now this model could only
+    ; say a colour.
+    def bgImage:buffer (buffer_alloc 0)
+    def bgImageName:string ""
     def layoutPart:string ""
     def masterPart:string ""
     ; The speaker's notes, as a shape rather than a string: everything that
@@ -1037,6 +1061,11 @@ class PptxSheet {
     ; source spans so a rewrite puts them back rather than dropping them.
     def opaque:[PptxOpaque]
     def bg:PptxColor (new PptxColor())
+    ; …and a picture, the same as a slide's. A layout or a master is where a
+    ; company template usually puts one, so a reader that could only see a
+    ; colour here saw a blank deck.
+    def bgImage:buffer (buffer_alloc 0)
+    def bgImageName:string ""
     ; `p:txStyles` — the master's own typography, in three list styles. A
     ; placeholder with no formatting of its own gets everything from here, and
     ; that is most placeholders in most decks.

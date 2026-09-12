@@ -136,6 +136,7 @@
     <select id="sample" title="Open a document">
       <option value="mermaid">with diagrams</option>
       <option value="diagrams">four notations</option>
+      <option value="picture">with a picture</option>
       <option value="deck">a company deck</option>
       <option value="sample">a bit of everything</option>
       <option value="readme">this repository's README</option>
@@ -186,6 +187,13 @@
     <span class="sep"></span>
     <button type="button" data-cmd="edit.undo" title="Undo (Ctrl+Z)">↶</button>
     <button type="button" data-cmd="edit.redo" title="Redo (Ctrl+Y)">↷</button>
+    <span class="sep"></span>
+    <button type="button" data-cmd="slide.break" title="Start a slide here (writes {.slide})">⤓ slide</button>
+    <button type="button" data-cmd="slide.keep" title="Never break here (writes {.no-break})">⛓ keep</button>
+    <span class="sep"></span>
+    <button id="takeover" type="button" title="Hand the document to the preview. One way.">✎ edit the preview</button>
+    <button id="todeck" type="button" title="Make this a presentation. One way.">▦ make a deck</button>
+    <button id="todoc" type="button" title="Make this a Word document. One way.">📄 make a document</button>
   </div>
   <main>
     <div id="sourcePane">

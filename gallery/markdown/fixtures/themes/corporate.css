@@ -7,7 +7,7 @@
    list and for which properties this layout can honour.
    --------------------------------------------------------------------------- */
 
-page      { width: 13.333in; height: 7.5in; padding: 0.7in }
+page      { width: 13.333in; height: 7.5in; padding: 0.7in; background-color: #ffffff }
 deck      { split-level: 2; overflow: split; aspect-ratio: 16 / 9 }
 
 document  { font-family: Open Sans; font-size: 15pt; line-height: 1.4; color: #16202c }

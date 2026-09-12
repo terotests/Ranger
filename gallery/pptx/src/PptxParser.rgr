@@ -1262,6 +1262,36 @@ class PptxParser {
                 shape.altText = (cn.attr("descr"))
                 def sid@(optional):int (str2int (cn.attr("id")))
                 shape.shapeId = (?? sid 0)
+                ; …and what the group was GENERATED FROM, when something
+                ; generated it. See `PptxShape.embedSource`: without this a
+                ; drawing can be moved and resized and never edited again,
+                ; because a class diagram and a sequence diagram draw the same
+                ; rectangles.
+                def extLst@(optional):XmlNode (cn.firstChild("extLst"))
+                if (!null? extLst) {
+                    def el:XmlNode (unwrap extLst)
+                    def ext@(optional):XmlNode (el.firstChild("ext"))
+                    if (!null? ext) {
+                        def ex:XmlNode (unwrap ext)
+                        def emb@(optional):XmlNode (ex.firstChild("embed"))
+                        if (!null? emb) {
+                            def em:XmlNode (unwrap emb)
+                            shape.embedNotation = (em.attr("notation"))
+                            ; The source is element CONTENT, and `XmlCore`
+                            ; puts content in TEXT CHILDREN rather than on the
+                            ; element — so `em.text` is empty here and always
+                            ; would be.
+                            def tx:string ""
+                            def ti:int 0
+                            while (ti < (array_length em.children)) {
+                                def tc:XmlNode (itemAt em.children ti)
+                                if tc.isText { tx = (tx + tc.text) }
+                                ti = (ti + 1)
+                            }
+                            shape.embedSource = tx
+                        }
+                    }
+                }
             }
         }
         def grpSpPr@(optional):XmlNode (grp.firstChild("grpSpPr"))
@@ -1722,9 +1752,29 @@ class PptxParser {
                 def bgNode:XmlNode (unwrap bg)
                 def bgPr@(optional):XmlNode (bgNode.firstChild("bgPr"))
                 if (!null? bgPr) {
-                    def col@(optional):PptxColor (this.parseColor((unwrap bgPr)))
+                    def bp:XmlNode (unwrap bgPr)
+                    def col@(optional):PptxColor (this.parseColor(bp))
                     if (!null? col) {
                         sheet.bg = (unwrap col)
+                    }
+                    ; …and a PICTURE behind the slide, which is what a company
+                    ; template is mostly made of and what this used to read
+                    ; past on its way to the colour.
+                    def bf@(optional):XmlNode (bp.firstChild("blipFill"))
+                    if (!null? bf) {
+                        def bfn:XmlNode (unwrap bf)
+                        def blip@(optional):XmlNode (bfn.firstChild("blip"))
+                        if (!null? blip) {
+                            def bl:XmlNode (unwrap blip)
+                            def rid:string (bl.attr("r:embed"))
+                            if ((strlen rid) > 0) {
+                                def part:string (pkg.resolveRelationship(partPath rid))
+                                if ((strlen part) > 0) {
+                                    sheet.bgImageName = part
+                                    sheet.bgImage = (pkg.readBinary(part))
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1890,9 +1940,28 @@ class PptxParser {
                 def bgNode:XmlNode (unwrap bg)
                 def bgPr@(optional):XmlNode (bgNode.firstChild("bgPr"))
                 if (!null? bgPr) {
-                    def col@(optional):PptxColor (this.parseColor((unwrap bgPr)))
+                    def bp:XmlNode (unwrap bgPr)
+                    def col@(optional):PptxColor (this.parseColor(bp))
                     if (!null? col) {
                         slide.bg = (unwrap col)
+                    }
+                    ; …and the picture, which is what this read past on its
+                    ; way to the colour.
+                    def bf@(optional):XmlNode (bp.firstChild("blipFill"))
+                    if (!null? bf) {
+                        def bfn:XmlNode (unwrap bf)
+                        def blip@(optional):XmlNode (bfn.firstChild("blip"))
+                        if (!null? blip) {
+                            def bl:XmlNode (unwrap blip)
+                            def rid:string (bl.attr("r:embed"))
+                            if ((strlen rid) > 0) {
+                                def part:string (pkg.resolveRelationship(partPath rid))
+                                if ((strlen part) > 0) {
+                                    slide.bgImageName = part
+                                    slide.bgImage = (pkg.readBinary(part))
+                                }
+                            }
+                        }
                     }
                 }
             }

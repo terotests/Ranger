@@ -38,6 +38,7 @@
 ; ==============================================================================
 
 Import "PptxModel.rgr"
+Import "../../vfs/src/Vfs.rgr"
 Import "PptxShapeInk.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 
@@ -61,8 +62,20 @@ class PptxFromEvg {
     ; names them by `src` rather than carrying the bytes. Counted so a caller
     ; knows the slide is missing them.
     def unresolvedImages:int 0
+    ; …unless somebody hands over the store the list was built against, in
+    ; which case they are resolved rather than counted. Empty by default,
+    ; because most callers of this file are drawing a diagram and a diagram
+    ; has no pictures in it.
+    def images:Vfs (new Vfs())
+    def haveImages:boolean false
+    def placedImages:int 0
 
     Constructor () {
+    }
+
+    fn setImages:void (v:Vfs) {
+        images = v
+        haveImages = true
     }
 
     ; The whole list as one group, placed at (x, y) in points.
@@ -137,8 +150,10 @@ class PptxFromEvg {
         }
         if (c.kind == 2) {
             ; A display list names a picture; it does not carry it. The bytes
-            ; belong to whoever built the list, so this counts what it cannot
-            ; place rather than inventing an empty frame.
+            ; belong to whoever built the list — so with the store that built
+            ; it, this places the picture, and without one it counts what it
+            ; cannot place rather than inventing an empty frame.
+            if (this.emitPicture(group c ox oy)) { return }
             unresolvedImages = (unresolvedImages + 1)
             return
         }
@@ -300,6 +315,36 @@ class PptxFromEvg {
     ; before reading the display list, `textAlign == "italic"` is how a slanted
     ; run is marked. So the baseline word handed to `PptxShapeInk.label` is
     ; "top", and the alignment is read out separately.
+    ; A picture, when the bytes can be found. `false` means they could not,
+    ; and the caller counts it.
+    fn emitPicture:boolean (group:PptxShape c:EVGDrawCmd ox:double oy:double) {
+        if (! haveImages) { return false }
+        if ((strlen c.src) == 0) { return false }
+        def bytes:buffer (images.read(c.src))
+        if ((buffer_length bytes) == 0) { return false }
+        def st:VfsStat (images.stat(c.src))
+        def pic (new PptxShape())
+        pic.kind = (PptxShapeKind.picture())
+        pic.name = ("Picture " + (to_string ((array_length group.children) + 1)))
+        pic.hasXfrm = true
+        pic.x = (ox + (c.x * unit))
+        pic.y = (oy + (c.y * unit))
+        pic.width = (c.w * unit)
+        pic.height = (c.h * unit)
+        pic.imageBytes = bytes
+        pic.imagePart = c.src
+        pic.imageOk = true
+        ; Alt text, because a picture is the one shape where the pixels tell a
+        ; screen reader nothing — `PptxA11y` says "No alt text" for exactly
+        ; this case, and a deck built from a document that HAD alt text should
+        ; not be the one that loses it.
+        pic.altText = c.text
+        push group.children pic
+        shapeCount = (shapeCount + 1)
+        placedImages = (placedImages + 1)
+        return true
+    }
+
     fn emitText:void (group:PptxShape c:EVGDrawCmd ox:double oy:double) {
         def body:string c.text
         if ((strlen body) == 0) {
