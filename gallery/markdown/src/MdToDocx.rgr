@@ -27,6 +27,7 @@ Import "MdNode.rgr"
 Import "MdStyle.rgr"
 Import "MdEmbedKinds.rgr"
 Import "../../docx_viewer/src/RichDocument.rgr"
+Import "../../vfs/src/Vfs.rgr"
 
 class MdDocResult {
     def paragraphs:int 0
@@ -39,6 +40,12 @@ class MdDocResult {
     ; and a reader who cannot see that has lost a table without being told.
     def tablesAsText:int 0
     def drawingsAsText:int 0
+    ; Pictures carried as pictures, and pictures that stayed alt text because
+    ; the byte store had nothing under that name. The same two numbers the
+    ; deck exporter keeps, for the same reason: a picture that silently
+    ; became italic text is a picture the reader lost without being told.
+    def pictures:int 0
+    def missedPictures:int 0
     def notes:[string]
 
     Constructor () {
@@ -71,6 +78,12 @@ class MdDocResult {
         if (drawingsAsText > 0) {
             out = (out + " — " + (to_string drawingsAsText) + " drawing(s) as their alt text")
         }
+        if (pictures > 0) {
+            out = (out + " — " + (to_string pictures) + " picture(s) placed")
+        }
+        if (missedPictures > 0) {
+            out = (out + " — " + (to_string missedPictures) + " picture(s) named but not carried")
+        }
         return out
     }
 }
@@ -80,7 +93,21 @@ class MdToDocx {
     def result:MdDocResult (new MdDocResult())
     def doc:RichDocument (new RichDocument())
 
+    ; The bytes behind `![alt](src)`. The same store the layout reads, so the
+    ; preview and the Word document cannot be missing DIFFERENT pictures —
+    ; `MdLayout.pictureBlock` asks these same three questions and a picture it
+    ; drew is a picture this carries.
+    def images:Vfs (new Vfs())
+    def haveImages:boolean false
+    def docDir:string "/"
+
     Constructor () {
+    }
+
+    fn setImages:void (v:Vfs dir:string) {
+        images = v
+        haveImages = true
+        docDir = dir
     }
 
     fn build:RichDocument (root:MdNode s:MdStyle) {
@@ -304,14 +331,63 @@ class MdToDocx {
                 this.inline(c p ls)
             }
             if (kind == "image") {
-                def ims:TextSpan (base.copy())
-                ims.italic = true
-                ims.colorHex = "57606A"
                 def alt:string (c.plainText())
-                p.appendText((("[" + alt) + "]") ims)
+                def carried:boolean (this.picture(c p alt))
+                if (! carried) {
+                    def ims:TextSpan (base.copy())
+                    ims.italic = true
+                    ims.colorHex = "57606A"
+                    p.appendText((("[" + alt) + "]") ims)
+                }
             }
             i = (i + 1)
         }
+    }
+
+    ; A picture, as a picture. `DocImage` is what a Word document holds and
+    ; `DocxLayout` already lays one out, so this only has to NAME the part and
+    ; say how big it is — the bytes ride along for a writer that needs them,
+    ; and the display-list painter fetches the part by name exactly as it does
+    ; for the preview.
+    ;
+    ; Sizes: the store says PIXELS, the markdown layout draws those as POINTS,
+    ; and `DocxLayout` works in CSS pixels at 96/inch. Converting 72→96 here
+    ; is what makes the picture the same FRACTION of the page in both views,
+    ; which is the thing a reader compares.
+    fn picture:boolean (img:MdNode p:Paragraph alt:string) {
+        if (! haveImages) { return false }
+        def path:string (images.resolve(img.destination docDir))
+        if ((strlen path) == 0) {
+            result.missedPictures = (result.missedPictures + 1)
+            return false
+        }
+        def st:VfsStat (images.stat(path))
+        if (! st.found) {
+            result.missedPictures = (result.missedPictures + 1)
+            return false
+        }
+        if (st.pixelW < 1) {
+            result.missedPictures = (result.missedPictures + 1)
+            return false
+        }
+        def di:DocImage (new DocImage())
+        di.relId = path
+        di.partPath = path
+        di.altText = alt
+        di.bytes = (images.read(path))
+        di.format = st.contentType
+        def wpx:double (((to_double st.pixelW) * 96.0) / 72.0)
+        def hpx:double (((to_double st.pixelH) * 96.0) / 72.0)
+        di.widthPx = (to_int (wpx + 0.5))
+        di.heightPx = (to_int (hpx + 0.5))
+        if (di.widthPx < 1) { di.widthPx = 1 }
+        if (di.heightPx < 1) { di.heightPx = 1 }
+        di.widthEmu = (di.widthPx * 9525)
+        di.heightEmu = (di.heightPx * 9525)
+        di.ok = true
+        push p.images di
+        result.pictures = (result.pictures + 1)
+        return true
     }
 
     fn spanFor:TextSpan (bold:boolean italic:boolean mono:boolean link:string) {

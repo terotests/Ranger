@@ -42,9 +42,16 @@ const themeEl = document.getElementById("theme");
 const pdfBtn = document.getElementById("pdf");
 const htmlBtn = document.getElementById("html");
 const pptxBtn = document.getElementById("pptx");
-const takeoverBtn = document.getElementById("takeover");
-const toDeckBtn = document.getElementById("todeck");
-const toDocBtn = document.getElementById("todoc");
+const styleEl = document.getElementById("styleSource");
+const rebuildBtn = document.getElementById("rebuild");
+const viewMdTab = document.getElementById("viewMd");
+const viewDeckTab = document.getElementById("viewDeck");
+const viewDocTab = document.getElementById("viewDoc");
+const viewNoteEl = document.getElementById("viewNote");
+const fileListEl = document.getElementById("fileList");
+const tabDoc = document.getElementById("tabDoc");
+const tabCss = document.getElementById("tabCss");
+const tabFiles = document.getElementById("tabFiles");
 const openBtn = document.getElementById("openFile");
 const filePick = document.getElementById("filepick");
 const keyCatcher = document.getElementById("keys");
@@ -199,6 +206,28 @@ function dropFrame() {
   docRev = -1;
 }
 
+// ---- the pictures the painter needs ---------------------------------------
+//
+// A display list NAMES a picture and does not carry it: `src` is a path in the
+// byte store, and the backend needs a decoded image bound as a texture. The
+// EVG backend says as much — "the browser host keys a blob URL by it" — and
+// this page is that host.
+//
+// Keyed by the SAME string the command carries, so the store's path and the
+// painter's key are one name. A second naming scheme here would be a picture
+// that is in the document and not on the screen, which is what it was.
+const pictures = new Map();
+
+async function registerPicture(path, bytes, type) {
+  const url = URL.createObjectURL(new Blob([bytes], { type }));
+  await new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => { pictures.set(path, img); resolve(); };
+    img.onerror = () => { pictures.set(path, null); resolve(); };
+    img.src = url;
+  });
+}
+
 function paintOnce() {
   const tick = JSON.parse(app.viewFrame());
   // A frame is good for another draw unless the document itself was built
@@ -210,7 +239,7 @@ function paintOnce() {
   if (stale) {
     dropFrame();
     const doc = JSON.parse(app.frame());
-    docFrame = prepareDisplayList(gl, doc, { dpr });
+    docFrame = prepareDisplayList(gl, doc, { dpr, images: pictures });
     docRev = tick.rev;
     docDpr = dpr;
     docW = tick.width;
@@ -391,135 +420,72 @@ app.setEditMode(true);
 // who glances down finds their next word going into the left pane instead.
 // The bug looked like "focus jumps"; it was two editors both believing they
 // were active.
-// ---- who owns the document ------------------------------------------------
+// ---- three documents, three tabs -----------------------------------------
 //
-// `PLAN_DOCUMENT_MODES.md` §3. Two different questions live here and used to
-// be one:
+// `PLAN_DOCUMENT_MODES.md` §4, arrived at from the other side. The plan put
+// the destinations behind a deliberate one-way switch with a warning on it,
+// and a reader using it found three buttons, two confirmations, and no way to
+// look at a deck without committing to one.
 //
-//   FOCUS — which pane the keyboard is pointed at. Changes freely, every
-//           click, and is about where the next keystroke lands.
-//   OWNERSHIP — which artefact IS the document. Chosen once, deliberately,
-//           and never given back.
+//   Preview  the markdown file, laid out. It always follows the .md.
+//   PPTX     a presentation, made when you go to it. Its own from the first
+//            edit, and never overwritten from the .md again.
+//   DOCX     a Word document, the same way.
 //
-// Until the switch is thrown the markdown file is the document and the
-// preview is a view of it: clicking, selecting and copying there all work,
-// writing there does not. The module refuses the write rather than the page
-// declining to send it, because the page can forget and the document cannot.
-//
-// After the switch the preview is the document and the markdown pane is a
-// record of where it came from. There is no way back, which is the point: the
-// reason to hand the preview the document is that markdown cannot express
-// what editing it means, and a mode that promised to come back would have to
-// refuse everything that made it worth entering.
-let takeoverArmed = false;
-function refreshOwner() {
-  const deck = app.deckOwns();
-  const word = app.docOwns();
-  toDocBtn.disabled = word || deck;
-  toDeckBtn.disabled = deck || word;
-  if (word) {
-    toDocBtn.textContent = "📄 a document";
-    toDocBtn.title = "This is a Word document, edited as one.";
-  } else if (!docArmed) {
-    toDocBtn.textContent = "📄 make a document";
-  }
-  if (deck) {
-    toDeckBtn.textContent = "▦ a deck";
-    toDeckBtn.title = "This is a presentation, edited as one.";
-  } else if (!deckArmed) {
-    toDeckBtn.textContent = "▦ make a deck";
-  }
-  const owns = app.previewOwns();
-  if (owns) {
-    takeoverBtn.textContent = "✎ editing the preview";
-    takeoverBtn.disabled = true;
-    takeoverBtn.title = "The preview is the document. The markdown is a record of where it came from.";
-    sourceEl.readOnly = true;
-    sourceEl.classList.add("readonly");
-  } else if (takeoverArmed) {
-    takeoverBtn.textContent = "✎ again to confirm";
-    takeoverBtn.title = app.takeoverWarning();
+// Nothing is confirmed on the way in, because nothing is lost on the way in:
+// a view a reader has not touched is still a picture of the markdown and is
+// re-made from it. The only thing that discards their work is `↻ override
+// from .md`, which is a thing they went and clicked.
+function refreshViewTabs() {
+  const v = app.currentView();
+  viewMdTab.setAttribute("aria-selected", String(v === "md"));
+  viewDeckTab.setAttribute("aria-selected", String(v === "deck"));
+  viewDocTab.setAttribute("aria-selected", String(v === "doc"));
+  const edited = v === "deck" ? app.deckEdited() : v === "doc" ? app.docEdited() : false;
+  rebuildBtn.hidden = v === "md";
+  rebuildBtn.disabled = !edited;
+  if (v === "md") {
+    viewNoteEl.textContent = "follows the .md";
+  } else if (edited) {
+    viewNoteEl.textContent = "edited here — the .md no longer feeds it";
   } else {
-    takeoverBtn.textContent = "✎ edit the preview";
-    takeoverBtn.title = "Hand the document to the preview. One way.";
+    viewNoteEl.textContent = "made from the .md just now";
   }
+  // The markdown pane is the .md's, whichever view is on screen: the other
+  // two are separate documents and are simply not affected by it.
+  sourceEl.readOnly = active !== "source";
+  sourceEl.classList.toggle("readonly", active !== "source");
 }
-// …and the second step, which is a different promise: handing the preview the
-// document says "the markdown is no longer where you edit"; making a deck says
-// "this is a presentation now, and what it can hold is what PowerPoint can
-// hold". Staged apart because a reader may want the first and not the second.
-let deckArmed = false;
-let docArmed = false;
-// The two destinations are exclusive, and both one-way. A document that became
-// a deck cannot also become a Word document: the conversion is from the
-// MARKDOWN, which it no longer is.
-toDocBtn.addEventListener("click", () => {
-  if (app.docOwns()) return;
-  if (!docArmed) {
-    docArmed = true;
-    toDocBtn.textContent = "📄 again to confirm";
-    showStatus("From here this is a Word document, edited as one. The markdown will not be rebuilt from it.");
-    return;
-  }
-  if (!app.convertToDoc()) {
-    docArmed = false;
-    refreshOwner();
-    showStatus(app.refusal());
-    return;
-  }
-  docArmed = false;
-  refreshOwner();
-  needsPaint = true;
-  showStatus("this is a Word document now — " + app.docReport());
-});
 
-toDeckBtn.addEventListener("click", () => {
-  if (app.deckOwns()) return;
-  if (!deckArmed) {
-    deckArmed = true;
-    toDeckBtn.textContent = "▦ again to confirm";
-    showStatus("From here this is a presentation, edited as one. The markdown will not be rebuilt from it.");
+function showView(which) {
+  if (!app.setView(which)) {
+    refreshViewTabs();
     return;
   }
-  if (!app.convertToDeck()) {
-    deckArmed = false;
-    refreshOwner();
-    showStatus(app.refusal());
-    return;
-  }
-  deckArmed = false;
-  modeEl.value = "slides";
-  refreshOwner();
+  if (which === "deck") showStatus("PPTX — " + app.deckSlideCount() + " slide(s), " + app.pptxReport());
+  else if (which === "doc") showStatus("DOCX — " + app.docReport());
+  else showStatus("");
+  refreshViewTabs();
+  refreshPagebar();
   needsPaint = true;
-  showStatus("this is a deck now — " + app.deckSlideCount() + " slide(s)");
-});
+}
+viewMdTab.addEventListener("click", () => showView("md"));
+viewDeckTab.addEventListener("click", () => showView("deck"));
+viewDocTab.addEventListener("click", () => showView("doc"));
 
-takeoverBtn.addEventListener("click", () => {
-  if (app.previewOwns()) return;
-  // Said BEFORE the switch, not after — and said in the page rather than in a
-  // dialog, so that a check can read it and a reader cannot dismiss it by
-  // reflex.
-  if (!takeoverArmed) {
-    takeoverArmed = true;
-    refreshOwner();
-    showStatus(app.takeoverWarning());
-    return;
-  }
-  app.takeOverInPreview();
-  takeoverArmed = false;
-  refreshOwner();
-  focusCanvas();
-  showStatus("the preview is the document now");
+rebuildBtn.addEventListener("click", () => {
+  if (!app.rebuildFromSource()) return;
+  showStatus("built from the .md again");
+  refreshViewTabs();
+  needsPaint = true;
 });
 
 let active = "source";
 function setActive(which) {
   if (active === which) return;
   active = which;
-  // Focus never un-locks a pane ownership has locked.
-  const locked = app.previewOwns();
-  sourceEl.readOnly = locked || which !== "source";
-  sourceEl.classList.toggle("readonly", locked || which !== "source");
+  sourceEl.readOnly = which !== "source";
+  sourceEl.classList.toggle("readonly", which !== "source");
   if (which === "canvas") {
     keyCatcher.focus({ preventScroll: true });
     restartBlink();
@@ -531,6 +497,66 @@ function setActive(which) {
 }
 sourceEl.addEventListener("focus", () => setActive("source"));
 sourceEl.addEventListener("pointerdown", () => setActive("source"));
+
+// ---- the pane holds three things ------------------------------------------
+//
+// The document, the stylesheet that dresses it, and the files both of them
+// read. All three are FILES: `style.css` lives in the byte store beside
+// `logo.png`, which is what makes the stylesheet a thing a reader can SEE
+// rather than a string the page happens to be holding.
+//
+// The stylesheet is edited as text — `MdCssEdit` explains why not by parsing
+// and printing — so this pane is a plain textarea and the page is laid out
+// again from what is in it.
+const STYLE_PATH = "/style.css";
+let pane = "doc";
+
+function setPane(which) {
+  pane = which;
+  sourceEl.hidden = which !== "doc";
+  styleEl.hidden = which !== "css";
+  fileListEl.hidden = which !== "files";
+  tabDoc.setAttribute("aria-selected", String(which === "doc"));
+  tabCss.setAttribute("aria-selected", String(which === "css"));
+  tabFiles.setAttribute("aria-selected", String(which === "files"));
+  if (which === "css") styleEl.value = app.styleText();
+  if (which === "files") drawFiles();
+}
+tabDoc.addEventListener("click", () => setPane("doc"));
+tabCss.addEventListener("click", () => setPane("css"));
+tabFiles.addEventListener("click", () => setPane("files"));
+
+// Typing in the stylesheet re-dresses the document AND writes the file back,
+// so what the files tab shows is what the page is actually using. A sheet
+// that drifted from its file would be the same bug as two byte stores.
+styleEl.addEventListener("input", () => {
+  const t0 = performance.now();
+  app.setStyleSheet(styleEl.value);
+  app.addTextFile(STYLE_PATH, styleEl.value);
+  needsPaint = true;
+  showStatus(Math.round(performance.now() - t0) + " ms — " + app.sheetReport());
+});
+
+function drawFiles() {
+  const rows = app.fileList().split("\n").filter(Boolean);
+  const blobs = app.fileBlobCount();
+  const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  let html = "<h4>the byte store</h4>";
+  for (const row of rows) {
+    const [name, size, type, dim] = row.split("\t");
+    const meta = [size + " B", type, dim].filter(Boolean).join(" · ");
+    html += '<div class="row"><span class="name">' + esc(name) + "</span>" +
+            '<span class="meta">' + esc(meta) + "</span></div>";
+  }
+  // The number content addressing is about. Twelve names over one blob is the
+  // same picture twelve times, stored once — and a listing that only counted
+  // names could not say so.
+  html += "<p>" + rows.length + " name(s) over " + blobs + " blob(s). " +
+          "A stylesheet and a picture are the same kind of thing here: bytes " +
+          "under a name, read synchronously, because a layout runs inside a " +
+          "keystroke and cannot await anything.</p>";
+  fileListEl.innerHTML = html;
+}
 
 function viewPoint(ev) {
   const r = canvas.getBoundingClientRect();
@@ -735,7 +761,7 @@ function refreshToolbar() {
   const r = toolbarEl.querySelector('[data-cmd="edit.redo"]');
   if (u) u.disabled = !app.canUndo();
   if (r) r.disabled = !app.canRedo();
-  refreshOwner();
+  refreshViewTabs();
 }
 
 toolbarEl.addEventListener("click", (ev) => {
@@ -825,8 +851,18 @@ async function useTheme(key) {
     return;
   }
   try {
-    const res = await fetch(THEMES[key]);
-    app.setStyleSheet(await res.text());
+    // Out of the STORE, not off the network: the template was put there at
+    // startup and the file pane lists it, so picking one and opening it in the
+    // next tab are the same file. A second fetch here would be a second copy,
+    // and the copy a reader edits would not be the copy the page is using.
+    let text = app.readTextFile("/themes/" + key + ".css");
+    if (!text) {
+      text = await (await fetch(THEMES[key])).text();
+      app.addTextFile("/themes/" + key + ".css", text);
+    }
+    app.setStyleSheet(text);
+    app.addTextFile(STYLE_PATH, text);
+    if (pane === "css") styleEl.value = text;
     const left = app.styleSheetReport();
     showStatus(left ? key + ".css — not honoured: " + left : key + ".css");
   } catch (e) {
@@ -922,6 +958,16 @@ async function start() {
     } catch (_) { /* the document still converts; it measures worse */ }
   }
 
+  // The templates, into the same store. A theme is a FILE, and a reader who
+  // picks one from the dropdown should be able to open it in the next tab and
+  // see what it says — which is only true if it is actually in there.
+  for (const [name, url] of Object.entries(THEMES)) {
+    try {
+      const text = await (await fetch(url)).text();
+      app.addTextFile("/themes/" + name + ".css", text);
+    } catch (_) { /* the theme dropdown still works; the file pane shows one fewer */ }
+  }
+
   // The sample picture, into the byte store the layout reads.
   //
   // Fetched here rather than resolved at layout time on purpose: a document
@@ -933,6 +979,9 @@ async function start() {
     const ab = await bytesOf("./samples/logo.png");
     const [pw, ph] = pngSize(ab);
     app.addImage("/logo.png", asRangerBuffer(ab.slice(0)), "image/png", pw, ph);
+    // …and to the PAINTER, under the same name. The store answers the layout;
+    // this answers the texture bind.
+    await registerPicture("/logo.png", ab, "image/png");
   } catch (_) {
     // No picture: every document still draws, with alt text where the
     // picture would be. That is the behaviour this had for years.
@@ -1004,6 +1053,14 @@ async function start() {
       app.setMode(q.get("demo") === "slides" ? "slides" : "paged");
       app.scrollTo(0);
       refreshPagebar();
+      needsPaint = true;
+      return;
+    }
+    // The tabs, shown holding what they hold: a stylesheet being edited on
+    // top of the byte store, or the store itself.
+    if (q.get("demo") === "css" || q.get("demo") === "files") {
+      setPane(q.get("demo") === "css" ? "css" : "files");
+      app.setCaretOn(false);
       needsPaint = true;
       return;
     }
@@ -1135,66 +1192,36 @@ function selftest() {
     app.setSource(kept);
   }
 
-  // ---- who owns the document, and the switch that moves it ---------------
+  // ---- the Preview view follows the .md ----------------------------------
   //
-  // `PLAN_DOCUMENT_MODES.md` §3 and Stage B. Both directions are checked,
-  // because a pane that is read-only and still accepts input is the failure
-  // worth catching, and it is the one a screenshot cannot see: the document
-  // changes and the pane looks exactly as it did.
-  //
-  // This block ends with the preview owning the document, so it runs late —
-  // the switch is one-way on purpose and nothing after it can type into the
-  // source pane again.
+  // `PLAN_DOCUMENT_MODES.md` §4, as three views rather than as a one-way
+  // switch. This one is the markdown's own: both panes edit the same file and
+  // neither is refused for the other's sake.
   {
     const before = "one two three\n";
     app.setSource(before);
-    say("the markdown pane owns the document to begin with", app.documentOwner() === "source");
-    say("…so the preview does not", app.previewOwns() === false);
+    say("the preview is the view on screen to begin with", app.currentView() === "md");
 
-    // Reading the preview is not writing it. A read-only preview is one a
-    // reader can still navigate and copy out of, which is what the source map
-    // was built for.
+    // A click in the preview names a character, which is what the source map
+    // is for, and typing there edits the file.
     const rr = JSON.parse(app.frame()).list.cmds.find((c) => c.k === 3 && (c.text || "").indexOf("one") === 0);
     if (rr) {
       app.click(rr.x + 1, rr.y + 2, false);
-      say("…and a click in it still moves the caret", JSON.parse(app.caretJson()).offset >= 0);
+      say("a click in it moves the caret", JSON.parse(app.caretJson()).offset >= 0);
     }
-    say("…and the selection still comes out", app.copySelection().length >= 0);
-
-    // Writing it does not work, and says why.
+    app.setSelection(3, 3);
     app.typeText("X");
-    say("typing in the preview writes nothing", app.sourceText() === before, app.sourceText().trim());
-    say("…and says why rather than vanishing", app.refusal().indexOf("edit the preview") > 0, app.refusal());
-    say("backspace in the preview does nothing either", app.key("backspace", false, false) === false);
-    say("…and the file is still the file", app.sourceText() === before);
+    say("typing in the preview edits the markdown", app.sourceText() === "oneX two three\n", app.sourceText().trim());
+    app.undo();
+    say("…and undo takes it out", app.sourceText() === before);
 
-    // The markdown pane's own edit arrives as a patch on the same undo stack,
-    // and it works — while the markdown pane owns the document.
+    // …and so does an edit from the markdown pane, on the same undo stack.
     app.setSource("hello\n");
     app.applyPatch(5, 5, " world");
     say("a patch from the markdown pane lands", app.sourceText() === "hello world\n", app.sourceText().trim());
     app.undo();
     say("and is one undo like any other", app.sourceText() === "hello\n");
     app.setSource(before);
-
-    // The switch is ARMED before it is thrown: the cost is said first.
-    takeoverBtn.click();
-    say("one press arms the switch and says the cost", app.previewOwns() === false);
-    say("…which is that the markdown stops being the document",
-        app.takeoverWarning().indexOf("record of where it came from") > 0);
-    takeoverBtn.click();
-    say("a second press throws it", app.previewOwns());
-    say("…and it is one-way", app.takeOverInPreview() === false);
-
-    // …and now the two panes have swapped.
-    app.typeText("X");
-    say("typing in the preview lands now", app.sourceText() === "Xone two three\n", app.sourceText().trim());
-    app.applyPatch(0, 1, "");
-    say("an edit from the markdown pane writes nothing", app.sourceText() === "Xone two three\n", app.sourceText().trim());
-    say("…and says the preview owns it", app.refusal().indexOf("owns this document") > 0, app.refusal());
-    say("…and the pane itself is read-only", sourceEl.readOnly);
-    app.key("backspace", false, false);
-    say("and the preview's own backspace works", app.sourceText() === "one two three\n");
   }
 
   // A space typed at the inside edge of bold used to un-write it: a
@@ -1801,13 +1828,21 @@ function selftest() {
   {
     const kept = app.sourceText();
     say("the picture sample was fetched", selftestPicture.length > 100);
-    say("…and the store has the picture in it", app.imageCount() === 1, app.imageCount() + " image(s)");
+    // The store holds the picture AND the two templates: a stylesheet is a
+    // file here, beside `logo.png`, which is what makes it a thing a reader
+    // can open in the next tab.
+    say("…and the store has the picture in it", app.fileList().indexOf("/logo.png") >= 0,
+        app.imageCount() + " file(s) over " + app.fileBlobCount() + " blob(s)");
     app.setSource(selftestPicture);
     const cmds = JSON.parse(app.frame()).list.cmds;
     const pics = cmds.filter((c) => c.k === 2);
     say("the page draws one picture", pics.length === 1, pics.length + " picture commands");
     if (pics.length === 1) {
       say("…naming the file it came from", pics[0].src === "/logo.png", pics[0].src);
+      // …and the PAINTER has an image under that name. A command naming a
+      // picture nobody gave the backend draws nothing, and the page looks
+      // exactly like one where the picture is missing from the document.
+      say("…and the painter has a texture for it", !!pictures.get(pics[0].src));
       // Sized from the PNG's own header — 240x120 — rather than stretched to
       // the column, and never scaled up.
       const ratio = pics[0].w / pics[0].h;
@@ -1940,13 +1975,11 @@ function selftest() {
   app.undo();
   say("…and one undo takes the whole table", app.sourceText() === "before\n");
 
-  // …and the markdown pane cannot write here, because the switch above gave
-  // the document to the preview. Checked again at this distance from the
-  // switch on purpose: an ownership that lapses after a few operations is
-  // worse than one that was never claimed.
+  // …and the markdown pane still writes, this far into the run. The Preview
+  // view is the markdown's own and nothing takes it away.
   app.setSource("hello\n");
   app.applyPatch(5, 5, " world");
-  say("the markdown pane still cannot write", app.sourceText() === "hello\n", app.sourceText().trim());
+  say("the markdown pane writes the markdown", app.sourceText() === "hello world\n", app.sourceText().trim());
 
   // ---- the page's own wiring, driven with REAL events ----------------------
   //
@@ -2019,18 +2052,15 @@ function selftest() {
     say("and a click lands in it", caret().offset >= end - 21, caret().offset + " of " + end);
   }
 
-  // Focus and ownership are different questions, and this is where that shows.
-  // Clicking the markdown pane used to hand it the keyboard and make it
-  // writable again; now the preview owns the document, so the click moves the
-  // FOCUS and the pane stays read-only. A pane that unlocked itself on a click
-  // would give the document two writers again, which is the bug the switch
-  // exists to remove.
+  // One editor at a time is still a MODE — the pane last clicked owns the
+  // keyboard — and it is about focus, not about which document is the truth.
+  // Both panes edit the same markdown in this view.
   sourceEl.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerId: 2 }));
-  say("clicking the markdown pane does not unlock it", sourceEl.readOnly);
+  say("clicking the markdown pane gives it the keyboard", !sourceEl.readOnly);
   canvas.dispatchEvent(new PointerEvent("pointerdown", {
     bubbles: true, cancelable: true, pointerId: 3, detail: 1, clientX: 10, clientY: 10,
   }));
-  say("…and the drawing still has the keyboard", sourceEl.readOnly);
+  say("…and the drawing takes it back", sourceEl.readOnly);
 
   // The buttons. Both were broken by a deleted helper and nothing said so.
   try {
@@ -2132,21 +2162,18 @@ function selftest() {
   // `PptxEditor`'s, and this page keeps only the chrome it already had — the
   // canvas, the font manager, the scroll.
   //
-  // LAST in the run, because it is one-way and nothing after it can go back to
-  // editing markdown.
+  // A view is entered, not committed to: no confirmation, because nothing is
+  // lost on the way in. The tab is driven, not the module, because the tab is
+  // what a reader presses.
   {
     app.setSource("# Yksi\n\nKappale tassa.\n\n```dot\ndigraph { saapuu -> tarkista; }\n```\n");
     app.setMode("slides");
-    // Both destinations are open until one is taken, and neither is taken
-    // without asking.
-    say("neither destination is taken yet",
-        app.deckOwns() === false && app.docOwns() === false);
-    say("the deck does not own the document yet", app.deckOwns() === false);
-    say("…and nothing asks it how many slides it has", app.deckSlideCount() === 0);
+    say("the preview is on screen to begin with", app.currentView() === "md");
+    say("…and nothing has built a deck yet", app.deckSlideCount() === 0);
 
-    say("converting hands the document to the deck", app.convertToDeck());
-    say("…and it is one-way too", app.convertToDeck() === false);
-    say("…and the deck has the slides the layout made", app.deckSlideCount() >= 1,
+    viewDeckTab.click();
+    say("pressing PPTX makes one and shows it", app.currentView() === "deck");
+    say("…and it has the slides the layout made", app.deckSlideCount() >= 1,
         app.deckSlideCount() + " slides");
     say("…each with shapes on it", app.deckShapeCount() > 0, app.deckShapeCount() + " shapes");
 
@@ -2174,9 +2201,6 @@ function selftest() {
     // A DRAWING on the deck can be read back and drawn again — the round trip
     // the source in `p:cNvPr/a:extLst` was carried for. Not a new editor: the
     // readers that draw a diagram are the ones that already draw it.
-    //
-    // Once the deck owns the document the markdown pane has nothing to edit;
-    // selecting a drawing gives it something again.
     {
       const cmds2 = screenCmds(JSON.parse(app.frame()));
       const label = cmds2.find((c) => c.k === 3 && (c.text || "").indexOf("saapuu") >= 0);
@@ -2206,16 +2230,64 @@ function selftest() {
       }
     }
 
-    // …and the other door is closed now. Both are one-way, and the conversion
-    // is from the MARKDOWN — which this no longer is.
-    say("a deck cannot also become a Word document", app.convertToDoc() === false);
-    say("…and says why", app.refusal().indexOf("no longer") > 0, app.refusal());
-
     // …and saving writes what the READER edited, not the markdown converted
     // again. The bytes are the proof: a second conversion would produce a
     // valid deck with the reader's work missing.
     const saved = app.pptx();
     say("the deck saves what the editor holds", saved.byteLength > 1000, saved.byteLength + " bytes");
+
+    // An edited view is its OWN document. Going back to the markdown, changing
+    // it, and coming back must not throw the reader's work away — that is the
+    // whole of what "independently" means, and it is the promise no
+    // confirmation dialog can make on its own.
+    say("the deck knows it has been edited", app.deckEdited());
+    viewMdTab.click();
+    say("…and the preview is back, following the .md", app.currentView() === "md");
+    app.setSource("# Toinen kokonaan\n\nEri teksti.\n");
+    // The canvas has to come BACK, not just the tab: a view that exists is
+    // not the same question as a view that is on screen, and drawing off the
+    // first alone left the deck up under a Preview tab.
+    say("…and the canvas draws the markdown again, not the deck",
+        JSON.parse(app.frame()).list.cmds
+          .some((c) => c.k === 3 && (c.text || "").indexOf("Toinen") >= 0));
+    viewDeckTab.click();
+    const kept = screenCmds(JSON.parse(app.frame()))
+      .some((c) => c.k === 3 && (c.text || "").indexOf("Yksi") >= 0);
+    say("coming back shows the deck that was edited, not a new one", kept);
+    say("…and the markdown that changed did not touch it",
+        !JSON.parse(app.frame()).list.cmds.some((c) => c.k === 3 && (c.text || "").indexOf("Toinen") >= 0));
+
+    // …until the reader asks for it by name. The one thing that discards
+    // their work is a thing they went and clicked.
+    rebuildBtn.click();
+    const fresh = screenCmds(JSON.parse(app.frame()))
+      .some((c) => c.k === 3 && (c.text || "").indexOf("Toinen") >= 0);
+    say("override from .md builds it again from the markdown", fresh);
+    say("…and it is no longer an edited document", app.deckEdited() === false);
+
+    // The third view is the same shape, and made the same way.
+    viewDocTab.click();
+    say("pressing DOCX makes a Word document", app.currentView() === "doc");
+    say("…with the paragraphs the markdown had", app.docParagraphCount() > 1,
+        app.docParagraphCount() + " paragraphs");
+    const docCmds = JSON.parse(app.frame()).list.cmds;
+    say("…and the canvas draws it",
+        docCmds.some((c) => c.k === 3 && (c.text || "").indexOf("Toinen") >= 0),
+        docCmds.length + " commands");
+
+    // …and the same round trip out of the Word document. The markdown changes
+    // while the reader is in DOCX; leaving shows the new markdown and coming
+    // back shows the Word document, which never heard about it.
+    app.setSource("# Kolmas otsikko\n\nViela eri teksti.\n");
+    viewMdTab.click();
+    say("leaving DOCX draws the markdown again",
+        JSON.parse(app.frame()).list.cmds
+          .some((c) => c.k === 3 && (c.text || "").indexOf("Kolmas") >= 0));
+    viewDocTab.click();
+    say("…and the Word document did not follow the .md",
+        !JSON.parse(app.frame()).list.cmds
+          .some((c) => c.k === 3 && (c.text || "").indexOf("Kolmas") >= 0));
+    viewMdTab.click();
   }
 
   const el = document.createElement("div");

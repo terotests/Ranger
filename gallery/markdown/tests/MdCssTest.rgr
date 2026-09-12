@@ -220,6 +220,16 @@ class MdCssTest {
         c.eqNum("a bare line-height is a ratio" body.lineHeight 1.3)
         c.eqStr("and a colour comes back as one" (MdChar.lower(body.textColor)) "#112233")
 
+        ; `body` is the same selector under the name a CSS author reaches for
+        ; first. A sheet that says it and changed nothing is the worst kind of
+        ; refusal: silent.
+        def alias:MdStyle (MdCssTest.styled("body { font-size: 17pt; color: #e6edf3 }"))
+        c.eqNum("`body` sizes the text like `document`" alias.bodySize 17.0)
+        c.eqStr("…and colours it" (MdChar.lower(alias.textColor)) "#e6edf3")
+        def both:MdStyle (MdCssTest.styled("document { color: #111111 } body { color: #222222 }"))
+        c.eqStr("…and where a sheet says both, the later one wins"
+            (MdChar.lower(both.textColor)) "#222222")
+
         def h:MdStyle (MdCssTest.styled("heading { font-family: Fira; margin-top: 30pt; margin-bottom: 10pt } h1 { font-size: 42pt } h2 { font-size: 28pt } h6 { font-size: 12pt }"))
         c.eqStr("the heading face" h.headingFamily "Fira")
         c.eqNum("the space above one" h.headingSpaceBefore 30.0)

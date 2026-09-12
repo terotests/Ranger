@@ -19,6 +19,7 @@
 Import "../src/MdBlock.rgr"
 Import "../src/MdToDocx.rgr"
 Import "../../docx_viewer/src/DocxView.rgr"
+Import "../../vfs/src/Vfs.rgr"
 
 class DocCheck {
     def passed:int 0
@@ -72,6 +73,14 @@ class MdDocxTest {
         return (maker.build(node st))
     }
 
+    fn makeWith:RichDocument (src:string v:Vfs) {
+        def node:MdNode (MdBlock.parseText(src))
+        maker = (new MdToDocx())
+        maker.setImages(v "/")
+        def st (new MdStyle())
+        return (maker.build(node st))
+    }
+
     fn run:void () {
         def c (new DocCheck())
         print "== MdDocxTest =="
@@ -80,6 +89,7 @@ class MdDocxTest {
         this.lists(c)
         this.costs(c)
         this.drawn(c)
+        this.pictures(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
@@ -251,6 +261,107 @@ class MdDocxTest {
         c.ok("…drawn as text runs" (texts > 3))
         c.ok("…saying what the document says"
             ((MdDocxTest.hasSub(said "Otsikko")) && (MdDocxTest.hasSub(said "yksi"))))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A picture is bytes here too
+    ; ----------------------------------------------------------------------
+    ;
+    ; The deck already carries pictures; this view drew `![alt](src)` as
+    ; italic alt text, so the same markdown lost its picture depending on
+    ; which TAB the reader was on. The store is the same `Vfs` the layout and
+    ; the deck read, so the three views cannot be missing different pictures.
+    fn pictures:void (c:DocCheck) {
+        print "-- a picture is bytes in the Word document too --"
+        def v (new Vfs())
+        def mem (new VfsMemory())
+        def blob (new VfsBlob())
+        def raw:string "PNGBYTESHERE"
+        def buf:buffer (buffer_alloc (strlen raw))
+        def bi:int 0
+        while (bi < (strlen raw)) {
+            buffer_set buf bi (charAt raw bi)
+            bi = (bi + 1)
+        }
+        blob.bytes = buf
+        blob.contentType = "image/png"
+        blob.pixelW = 240
+        blob.pixelH = 120
+        mem.put("/logo.png" blob)
+        v.mount("/" mem)
+
+        def src:string "# Otsikko\n\n![Yhtion logo](logo.png)\n\nTeksti kuvan alla.\n"
+
+        ; Without a store: alt text, exactly as before, and counted.
+        def plain:RichDocument (this.make(src))
+        c.eqInt("with no store no picture is carried" maker.result.pictures 0)
+        c.ok("…and the alt text is what the paragraph says"
+            (MdDocxTest.hasSub((MdDocxTest.allText(plain)) "[Yhtion logo]")))
+
+        ; With one: a `DocImage`, which is what a Word document holds.
+        def d:RichDocument (this.makeWith(src v))
+        c.eqInt("with a store one picture is carried" maker.result.pictures 1)
+        def img:DocImage (MdDocxTest.firstImage(d))
+        c.eqStr("…named by the path the store knows" img.partPath "/logo.png")
+        c.eqStr("…with the alt text the document gave it" img.altText "Yhtion logo")
+        c.eqInt("…and its bytes" (buffer_length img.bytes) (strlen raw))
+        ; 240pt in the preview is 320 CSS px on a page `DocxLayout` measures in
+        ; px — the same FRACTION of the page, which is the thing a reader
+        ; compares between the two tabs.
+        c.eqInt("…sized for the page the Word view measures" img.widthPx 320)
+        c.ok("…and the alt text is NOT also written out"
+            (! (MdDocxTest.hasSub((MdDocxTest.allText(d)) "[Yhtion logo]"))))
+
+        ; …and the VIEWER draws it: a picture in the model that never reaches
+        ; the page is the bug this whole check is about.
+        def view (new DocxView())
+        view.init("gallery/pdf_writer/assets/fonts")
+        def nums (new WordNumbering())
+        def ed (new DocxEditController())
+        ed.bindDocument(d)
+        def dl:EVGDisplayList (view.buildDisplayList(d 0 nums ed true))
+        def drawn:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 2) {
+                if (cmd.src == "/logo.png") { drawn = (drawn + 1) }
+            }
+            i = (i + 1)
+        }
+        c.eqInt("the Word view draws it, by the name the store answers to" drawn 1)
+
+        ; A picture nobody has is alt text again — the same answer the preview
+        ; and the deck give, rather than a third one.
+        def gone:string "# Otsikko\n\n![Poissa](nope.png)\n"
+        def g:RichDocument (this.makeWith(gone v))
+        c.eqInt("a picture nobody has is not carried" maker.result.pictures 0)
+        c.eqInt("…and it is counted as missed" maker.result.missedPictures 1)
+        c.ok("…and it is alt text on the page"
+            (MdDocxTest.hasSub((MdDocxTest.allText(g)) "[Poissa]")))
+    }
+
+    sfn firstImage:DocImage (d:RichDocument) {
+        def i:int 0
+        while (i < (array_length d.paragraphs)) {
+            def p:Paragraph (itemAt d.paragraphs i)
+            if ((array_length p.images) > 0) {
+                return (itemAt p.images 0)
+            }
+            i = (i + 1)
+        }
+        return (new DocImage())
+    }
+
+    sfn allText:string (d:RichDocument) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length d.paragraphs)) {
+            def p:Paragraph (itemAt d.paragraphs i)
+            out = ((out + (p.plainText())) + "|")
+            i = (i + 1)
+        }
+        return out
     }
 
     sfn anySpan:boolean (p:Paragraph what:string) {
