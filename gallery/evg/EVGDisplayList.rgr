@@ -1079,6 +1079,16 @@ class EVGDisplayList {
             cf.g = (fillColor.green())
             cf.b = (fillColor.blue())
             cf.a = (fillColor.alpha())
+            ; A GRADIENT ON A SHAPE THAT IS NOT ITS BOX. `hasGrad` was
+            ; written for rectangles only, so a vector filled with a ramp
+            ; kept its outline and lost the shading — or, flattened to the
+            ; average of its two ends, kept the shading and lost the ramp.
+            ; The command carries both: the rings say what shape it is, the
+            ; two stops and the direction say how it is shaded, and the box
+            ; the stops run across is the command's own x/y/w/h.
+            if (EVGDisplayList.hasLinearGradient(el)) {
+                EVGDisplayList.applyGradient(cf el)
+            }
             this.copyRings(cf rings)
             this.addCmd(cf)
         }

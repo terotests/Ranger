@@ -499,10 +499,22 @@ export function renderDisplayList(target, doc, opts = {}) {
       case KIND.PATH: {
         const d = ringsPath(c, true);
         if (!d) break;
-        // A gradient under a polygon is drawn in its first colour, which is
-        // what every other backend does with one — matching them matters more
-        // here than being prettier than them.
-        body.push(`<path d="${d}" fill="${rgba(c.c)}"${c.eo ? ` fill-rule="evenodd"` : ""}${rotAttr(c)}/>`);
+        // A gradient on a shape that is not its box. The stops run across the
+        // command's own rectangle, which is what the GL side hands its path
+        // shader as a uniform; `userSpaceOnUse` is how SVG says the same.
+        let pfill = rgba(c.c);
+        if (c.c2) {
+          const id = `evgpgrad${uid++}`;
+          const across = c.gd === 1;
+          const x0 = c.x, y0 = c.y, x1 = c.x + (across ? c.w : 0), y1 = c.y + (across ? 0 : c.h);
+          defs.push(
+            `<linearGradient id="${id}" gradientUnits="userSpaceOnUse"` +
+            ` x1="${n(x0)}" y1="${n(y0)}" x2="${n(x1)}" y2="${n(y1)}">` +
+            `<stop offset="0" stop-color="${rgba(c.c)}"/><stop offset="1" stop-color="${rgba(c.c2)}"/>` +
+            `</linearGradient>`);
+          pfill = `url(#${id})`;
+        }
+        body.push(`<path d="${d}" fill="${pfill}"${c.eo ? ` fill-rule="evenodd"` : ""}${rotAttr(c)}/>`);
         paths += 1;
         drawn += 1;
         break;

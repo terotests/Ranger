@@ -344,17 +344,6 @@ class FigToScene {
                 }
             }
         }
-        ; A gradient on a vector keeps the shape and loses the ramp — the
-        ; display list carries a gradient as a box, and a vector is not its
-        ; box. Said here rather than left to be noticed.
-        if ((array_length sn.fills) > 0) {
-            def gf:SceneFill (sn.firstFill())
-            if (gf.kind == "gradient") {
-                if ((sn.kind == "path") || ((sn.kind == "ellipse") || (sn.kind == "line"))) {
-                    sn.warn("gradient on a vector (drawn as one flat colour)")
-                }
-            }
-        }
         return sn
     }
 
