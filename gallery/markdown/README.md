@@ -487,4 +487,16 @@ shipped a PNG would also have draw commands.
   can be wrong. Swapping in `gallery/text_editor` on the same canvas is the
   next step there.
 
-The design these are measured against is [`PLAN.md`](PLAN.md).
+The design these are measured against is [`PLAN.md`](PLAN.md), and the WYSIWYG
+half is [`PLAN_WYSIWYG.md`](PLAN_WYSIWYG.md).
+
+**Open, and planned rather than built:** who owns the document once a reader
+edits the PREVIEW. Today the markdown file is the only truth and every gesture
+on the right is translated into a patch on it — which works until a gesture
+markdown cannot hold is translated anyway. Selecting three list items and
+pressing bold writes one marker pair around the lot, and CommonMark reads that
+as four literal asterisks rather than as emphasis. The four modes that answer
+it — MD, MD + CSS, and one-way doors into the real PowerPoint and Word editors
+this repository already has — and the staging for them are in
+[`../PLAN_DOCUMENT_MODES.md`](../PLAN_DOCUMENT_MODES.md). The bytes a picture
+or a background image needs are in [`../vfs/PLAN_VFS.md`](../vfs/PLAN_VFS.md).

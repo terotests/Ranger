@@ -521,6 +521,14 @@ Images, tables and mermaid fences, in that order.
 - A click on a diagram puts the caret in its fence. Direct manipulation of
   diagram geometry is not in this plan.
 
+**A larger question this plan does not answer:** it assumes throughout that the
+markdown file is the truth and the preview is a view of it. A reader who edits
+the preview expects the opposite, and a gesture markdown cannot hold — bold
+across three list items — is translated anyway, into markdown that reparses as
+literal asterisks. [`../PLAN_DOCUMENT_MODES.md`](../PLAN_DOCUMENT_MODES.md)
+takes that up: four modes, two of them lossless, two of them one-way doors into
+the PowerPoint and Word editors already in this repository.
+
 *Still open:* the `EVGSelectChrome` handles themselves, and the drag that
 turns one into a width. The width they would write is already honoured, so
 what is left is chrome on top of a seam that works — and none of it is needed
