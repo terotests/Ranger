@@ -484,12 +484,28 @@ class FigTest {
         ; TAIL. Matched on the prefix instead, every cell's text lands in
         ; the first cell.
         def table:SceneNode (shapes.childNamed("Table"))
-        this.eqInt("the table drew a layer per cell" (array_length table.children) 3)
+        this.eqInt("the table drew a layer per cell" (array_length table.children) 5)
         if ((array_length table.children) > 2) {
             def cellText:SceneNode (itemAt table.children 2)
             this.eqStr("the cell text is text" cellText.text.characters "Cell two")
             this.close("and it is in the second cell" cellText.x 110.0)
             this.close("at the cell's own inset" cellText.y 10.0)
+        }
+        ; What every cell has in common is not repeated on each of them: a
+        ; table ships a block for the cell and one for the cell's text,
+        ; keyed by a layer guid with no geometry, and a per-cell entry says
+        ; only what differs. Read the per-cell entries alone and a table is
+        ; a slab with no grid and nothing written in it.
+        if ((array_length table.children) > 4) {
+            def plain:SceneNode (itemAt table.children 3)
+            def plainFill:SceneFill (plain.firstFill())
+            this.eqStr("a cell with no style of its own is the default cell" (plainFill.hex()) "#ffffff")
+            this.check("with the rule that draws the grid" ((array_length plain.strokes) > 0))
+            def plainText:SceneNode (itemAt table.children 4)
+            this.eqStr("and its text is text, not a box" plainText.kind "text")
+            def plainInk:SceneFill (plainText.firstFill())
+            this.eqStr("in the ink the default gives it" (plainInk.hex()) "#1a1a1a")
+            this.close("and that size" plainText.text.fontSize 14.0)
         }
         ; A connector ships three layers and the file styles one of them:
         ; the line. The other two are its label — the text and the rounded
@@ -648,6 +664,22 @@ class FigTest {
         def fade:SceneNode (gradFrame.childNamed("Fade"))
         def fadeFill:SceneFill (fade.firstFill())
         this.eqStr("gradient fill" fadeFill.kind "gradient")
+        ; A display list carries two stops, so a gradient authored with
+        ; more keeps its ENDS — taking the first two instead ended a
+        ; red-amber-green scale at amber. And each end keeps its own
+        ; alpha: a track at 16% red over white is a tint, and dropped it
+        ; came out in poster red.
+        def tint:SceneNode (gradFrame.childNamed("Tint"))
+        def tintFill:SceneFill (tint.firstFill())
+        this.eqStr("the tint is a gradient" tintFill.kind "gradient")
+        this.close("it starts at the first stop" tintFill.r 0.949)
+        this.close("and ends at the last, not the second" tintFill.gradG 0.663)
+        this.close("the near end keeps its alpha" tintFill.a 0.16)
+        this.close("and the far end its own" tintFill.gradA 0.16)
+        def tintHex:string (tintFill.hexA())
+        def tintFar:string (tintFill.gradHexA())
+        this.check("so the colour carries it" (FigTest.hasSub(tintHex "29")))
+        this.check("at both ends" (FigTest.hasSub(tintFar "29")))
         app.setFrame(0)
         def dump:string (app.evgText())
         this.check("fixture evg abs" (FigTest.hasSub(dump "position=\"absolute\"")))

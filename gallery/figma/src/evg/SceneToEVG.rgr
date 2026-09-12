@@ -205,8 +205,8 @@ class SceneToEVG {
             return
         }
         if (f.kind == "gradient") {
-            el.setAttribute("gradient-from" (f.hex()))
-            el.setAttribute("gradient-to" (SceneFill.rgbHex(f.gradR f.gradG f.gradB)))
+            el.setAttribute("gradient-from" (f.hexA()))
+            el.setAttribute("gradient-to" (f.gradHexA()))
             el.setAttribute("gradient-dir" (to_string f.gradDir))
             return
         }

@@ -52,7 +52,7 @@ JavaScript.
 | font | yes — family / size / weight; `text-align`; `line-height` |
 | image | yes — `createImg()` + `src` + `object-fit` |
 | SVG path | yes — `createPath()` + `d`; `fill` / `stroke-width` |
-| gradient | yes — 2-stop linear `gradient-from` / `gradient-to` / `gradient-dir` |
+| gradient | yes — 2-stop linear `gradient-from` / `gradient-to` / `gradient-dir`, each end with its own alpha |
 | shadow | yes — `shadow-radius` / `shadow-color` / `shadow-offset-x/y` |
 | flex row/column | yes — Auto Layout only |
 | gap | yes |
@@ -77,6 +77,15 @@ either font. Strokes paint from `strokeGeometry`, which already carries
 alignment, per-side weights, caps and dashes; a CSS border is the fallback
 for a file without it. A translucent paint goes into its colour, not into
 the element's opacity, so a bar inside a 15% track stays solid.
+
+A gradient keeps its ENDS and its alpha. The display list carries two
+stops, so a gradient authored with more loses what is between them — but
+it was keeping the first two instead of the first and the last, which
+ended a red-amber-green scale at amber. Each end also keeps the alpha of
+its own stop, the way a solid paint does: a gradient is as often a tint as
+a band of colour — a track at 16% red over white, a caption fading out —
+and with the alpha dropped those came out as the full colour, an alignment
+scale in poster red and a white label on a black slab.
 
 An underline comes from the same block as the glyphs. Which characters
 carry one is per-character styling — `textDecoration` on an entry of the
@@ -251,6 +260,18 @@ path *tail* and not a prefix — `40000000:0/601:5/601:7` and
 `40000000:1/601:5/601:7` — so a layer is placed against the first entry
 with the same tail. That is what puts the third cell's text in the third
 cell rather than 20 pixels from the table's corner.
+
+A table does not repeat what every cell has in common. It ships two more
+style blocks, each keyed by a layer guid with no geometry of its own: the
+cell — white, with the 20% black rule that IS the grid — and the cell's
+text, with its font and its ink. A per-cell entry then carries only what
+differs, so read on their own those entries name a font and no colour at
+all, and five tables drew as grey slabs with nothing written in them.
+Which block is which is what it carries, not where it sits: the one with
+text in it is the text. And which layers want which is the LAYER's, not
+the entry's — every `40000000:1/…` in a table is the text of some cell, so
+a cell that says nothing still takes the text default rather than being
+painted white as a box.
 
 A connector ships three layers — the line, and the text and rounded box
 its label is made of — and one style block, which is the line's: its caps

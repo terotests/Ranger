@@ -43,6 +43,22 @@ class SceneFill {
         return ((this.hex()) + (SceneFill.hex2(ai)))
     }
 
+    ; The same for the far end of a gradient. Its stop carries an alpha of
+    ; its own and the pair is what a translucent gradient IS: a tint over
+    ; what is behind it, not a solid band of the same hue.
+    fn gradHexA:string () {
+        def alpha:double (gradA * opacity)
+        def base:string (SceneFill.rgbHex(gradR gradG gradB))
+        if (alpha >= 0.999) {
+            return base
+        }
+        if (alpha < 0.0) {
+            alpha = 0.0
+        }
+        def ai:int (to_int ((alpha * 255.0) + 0.5))
+        return (base + (SceneFill.hex2(ai)))
+    }
+
     sfn rgbHex:string (cr:double cg:double cb:double) {
         def ri:int (to_int ((cr * 255.0) + 0.5))
         def gi:int (to_int ((cg * 255.0) + 0.5))
