@@ -213,9 +213,22 @@ class SceneMatrix {
         }
         def a:double 0.0
         if (absR < 1.0) {
+            ; Odd in r already, so the sign rides along.
             a = (r / (1.0 + (0.28 * r * r)))
         } {
-            a = (1.5707963267948966 - (r / ((r * r) + 0.28)))
+            ; AND SO IS THIS ONE, once it is given |r|. The formula is
+            ; pi/2 - r/(r*r + 0.28), and it holds for r >= 1 only: fed a
+            ; negative r it returns something past pi/2, and negating THAT —
+            ; which the line below does, correctly, for an odd function — put
+            ; the answer a quarter turn away. atan(-1) came back as -134.76
+            ; degrees instead of -45, and every angle steeper than 45 to the
+            ; other side was wrong by up to 89.76 of them.
+            ;
+            ; A layer turned -45 was drawn turned -135, and since Figma turns
+            ; a layer about its own origin, the extra quarter turn swung it
+            ; off its own box: an image landing far up and to the left of the
+            ; rectangle the editor draws around it.
+            a = (1.5707963267948966 - (absR / ((absR * absR) + 0.28)))
             if (r < 0.0) {
                 a = (0.0 - a)
             }
