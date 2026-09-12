@@ -315,6 +315,13 @@ class SceneNode {
     ; second.
     def ow:double 0.0
     def oh:double 0.0
+    ; The box `pathData` was AUTHORED in. It is the node's own size when the
+    ; outline is made and stops being it the moment the node is resized —
+    ; and the difference is the whole of a stretch: the outline is mapped
+    ; from this box into the node's, so making the node wider makes the
+    ; shape wider rather than letterboxing it in a bigger frame.
+    def pathW:double 0.0
+    def pathH:double 0.0
     def opacity:double 1.0
     def visible:boolean true
     def clip:boolean false
@@ -351,6 +358,13 @@ class SceneNode {
     ; drawn as nothing, and the empty fill this used to hand back read as
     ; visible, opaque black: a FigJam board came out with a black box over
     ; every icon whose frame carried a hidden fill.
+    ; The box an outline was made in, kept beside it. A zero box means "the
+    ; node's own", which is what every path starts as.
+    fn setPathBox:void (w:double h:double) {
+        pathW = w
+        pathH = h
+    }
+
     fn firstFill:SceneFill () {
         def i:int 0
         while (i < (array_length fills)) {

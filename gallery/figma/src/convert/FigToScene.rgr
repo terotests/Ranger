@@ -264,13 +264,16 @@ class FigToScene {
         this.copyPath(nd sn)
         if ((t == "LINE") && ((strlen sn.pathData) == 0)) {
             sn.pathData = ("M0 0L" + (to_string nd.w) + " 0")
+            sn.setPathBox(nd.w nd.h)
         }
         if ((t == "ELLIPSE") && ((strlen sn.pathData) == 0)) {
             def arc:KiwiValue (nd.raw.child("arcData"))
             if (arc.isObject()) {
                 sn.pathData = (FigToScene.arcPath(nd.w nd.h arc))
+                sn.setPathBox(nd.w nd.h)
             } {
                 sn.pathData = (FigToScene.ellipsePath(nd.w nd.h))
+                sn.setPathBox(nd.w nd.h)
             }
         }
         ; A union or a subtract is drawn from the outline Figma flattened
@@ -954,6 +957,7 @@ class FigToScene {
         outline.w = nd.w
         outline.h = nd.h
         outline.pathData = d
+        outline.setPathBox(nd.w nd.h)
         outline.evenOdd = nd.strokeEvenOdd
         def f (new SceneFill())
         f.kind = "solid"
@@ -1678,6 +1682,7 @@ class FigToScene {
         }
         if ((strlen d) > 0) {
             sn.pathData = d
+            sn.setPathBox(sn.w sn.h)
             if (sn.kind == "rect") {
                 sn.kind = "path"
             }

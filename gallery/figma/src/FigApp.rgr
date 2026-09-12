@@ -1327,13 +1327,57 @@ class FigApp {
         }
         n.x = x
         n.y = y
+        ; WHAT IS INSIDE GOES WITH IT. A layer's box is not a frame drawn
+        ; around its content — it IS the content's extent, and a sticky whose
+        ; box was made wider while its body stayed the old width came out as
+        ; a selection ring with a white wedge inside it. Figma resizes the
+        ; subtree; so does this, in proportion.
+        ;
+        ; In proportion and not by constraints: a file carries a constraint
+        ; per layer (pin left, stretch, scale) and none of them is read here,
+        ; so the honest approximation is the one that treats every child the
+        ; same. A layer pinned to the right will move when Figma would have
+        ; held it.
+        def kx:double 1.0
+        def ky:double 1.0
+        if ((w >= 0.0) && (n.w > 0.000001)) {
+            kx = (w / n.w)
+        }
+        if ((h >= 0.0) && (n.h > 0.000001)) {
+            ky = (h / n.h)
+        }
         if (w >= 0.0) {
             n.w = w
         }
         if (h >= 0.0) {
             n.h = h
         }
+        def moved:double ((fabs (kx - 1.0)) + (fabs (ky - 1.0)))
+        if (moved > 0.000001) {
+            def i:int 0
+            while (i < (array_length n.children)) {
+                FigApp.scaleSubtree((itemAt n.children i) kx ky)
+                i = (i + 1)
+            }
+        }
         this.afterEdit()
+    }
+
+    ; Every layer under this one, by the same two factors. A path is fitted
+    ; into its own box through a viewBox, so its outline follows the box and
+    ; does not have to be rewritten; text keeps its size, because a bigger
+    ; box is somewhere for a line to be longer rather than a reason for it to
+    ; be bigger.
+    sfn scaleSubtree:void (n:SceneNode kx:double ky:double) {
+        n.x = (n.x * kx)
+        n.y = (n.y * ky)
+        n.w = (n.w * kx)
+        n.h = (n.h * ky)
+        def i:int 0
+        while (i < (array_length n.children)) {
+            FigApp.scaleSubtree((itemAt n.children i) kx ky)
+            i = (i + 1)
+        }
     }
 
     fn editOpacity:void (v:double) {
@@ -1606,6 +1650,27 @@ class FigApp {
                 sc = 1.0
             }
         }
+        ; WHERE THE MIDDLE WAS. The file's matrix turns a layer about its own
+        ; ORIGIN — its top-left corner — and that is the number written back.
+        ; But a hand turning a thing turns it about its MIDDLE: about the
+        ; corner, a half turn sends a layer its own height up the page and
+        ; its own width to the left, which is the layer leaving the place it
+        ; was being turned in. So the middle is held and the origin is moved
+        ; to wherever the new angle puts it.
+        def hw:double (n.w * 0.5)
+        def hh:double (n.h * 0.5)
+        ; THE LINEAR PART AND NOT THE MATRIX. `applyX` adds the matrix's own
+        ; translation, and for a layer read from a file that translation is
+        ; the same number `n.x` already holds — the file writes where a layer
+        ; is into m02/m12 and the reader keeps it in both places. Counted
+        ; twice, the middle came out a whole position away and the first turn
+        ; threw the layer across the board.
+        def cx:double (n.x + (FigApp.linX(n.xf hw hh)))
+        def cy:double (n.y + (FigApp.linY(n.xf hw hh)))
+        if (n.hasXf == false) {
+            cx = (n.x + hw)
+            cy = (n.y + hh)
+        }
         n.xf.a = (co * sc)
         n.xf.b = (si * sc)
         if mirror {
@@ -1616,6 +1681,10 @@ class FigApp {
             n.xf.d = (co * sc)
         }
         n.hasXf = true
+        ; The matrix's own translation is not the layer's position — x and y
+        ; are — so the middle is put back by moving those.
+        n.x = (cx - (FigApp.linX(n.xf hw hh)))
+        n.y = (cy - (FigApp.linY(n.xf hw hh)))
         this.afterEdit()
     }
 
@@ -1630,9 +1699,26 @@ class FigApp {
             n.xf = (SceneMatrix.ident())
             n.hasXf = true
         }
+        ; About the middle, for the same reason a turn is.
+        def hw:double (n.w * 0.5)
+        def hh:double (n.h * 0.5)
+        def cx:double (n.x + (FigApp.linX(n.xf hw hh)))
+        def cy:double (n.y + (FigApp.linY(n.xf hw hh)))
         n.xf.c = (0.0 - n.xf.c)
         n.xf.d = (0.0 - n.xf.d)
+        n.x = (cx - (FigApp.linX(n.xf hw hh)))
+        n.y = (cy - (FigApp.linY(n.xf hw hh)))
         this.afterEdit()
+    }
+
+    ; A point through a matrix's TURN and SCALE, with its translation left
+    ; out. What a layer's matrix does to an offset, which is all a centre is.
+    sfn linX:double (m:SceneMatrix x:double y:double) {
+        return ((m.a * x) + (m.c * y))
+    }
+
+    sfn linY:double (m:SceneMatrix x:double y:double) {
+        return ((m.b * x) + (m.d * y))
     }
 
     fn editClip:void (on:boolean) {

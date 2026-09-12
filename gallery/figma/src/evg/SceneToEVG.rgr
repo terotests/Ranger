@@ -203,15 +203,40 @@ class SceneToEVG {
             ; A path is fitted into its box through a viewBox. With none
             ; declared, EVG synthesises one from the path's own bounds, which
             ; stretches an icon to the node and centres a zero-height line
-            ; into nothing. The node's own size as the viewBox makes the
-            ; path's user units the node's pixels, one to one.
+            ; into nothing. The box the outline was AUTHORED in makes the
+            ; path's user units the pixels it was written in, one to one.
+            ;
+            ; Which is the node's own size until the node is resized, and
+            ; then it is not — and that difference is a stretch: the outline
+            ; is mapped from the box it was drawn in into the box the node
+            ; now has. Fitted with `meet` it would keep its shape and sit
+            ; letterboxed in the bigger frame, which is a sticky made wider
+            ; with a white wedge down one side of it.
+            def vbw:double n.pathW
+            def vbh:double n.pathH
+            if (vbw < 0.000001) {
+                vbw = w
+            }
+            if (vbh < 0.000001) {
+                vbh = h
+            }
             if (w < 1.0) {
                 w = 1.0
             }
             if (h < 1.0) {
                 h = 1.0
             }
-            el.setAttribute("viewBox" ("0 0 " + (to_string w) + " " + (to_string h)))
+            if (vbw < 1.0) {
+                vbw = 1.0
+            }
+            if (vbh < 1.0) {
+                vbh = 1.0
+            }
+            el.setAttribute("viewBox" ("0 0 " + (to_string vbw) + " " + (to_string vbh)))
+            def off:double ((fabs (vbw - w)) + (fabs (vbh - h)))
+            if (off > 0.01) {
+                el.setAttribute("preserve-aspect-ratio" "none")
+            }
         }
         if (w > 0.0) {
             el.setAttribute("width" ((to_string w) + "px"))
