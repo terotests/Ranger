@@ -200,6 +200,76 @@ class DocxAppTest {
         DocxAppTest.click(p (tt.x + (idiv tt.w 2)) (tt.y + (idiv tt.h 2)))
         c.eqInt("the next-page button turned it" p.viewer.currentPage 1)
 
+        print "-- a drawing is resized by its corners --"
+        ; A document with a drawing in it, made here: the drawing has no
+        ; tree, which is the placeholder box, and the box is all a resize
+        ; needs. The frame a selected drawing gets has a handle on each
+        ; corner, and a drag on one is the size — the height following the
+        ; width, so a diagram is never stretched out of its own shape.
+        def rd (new RichDocument)
+        def hp:Paragraph (rd.addParagraph())
+        hp.appendText("A drawing below" (TextSpan.create(0 0)))
+        def drw:DocDrawing (rd.addDrawing())
+        drw.name = "box"
+        drw.widthPx = 300
+        drw.heightPx = 150
+        def tp:Paragraph (rd.addParagraph())
+        tp.appendText("And text after it" (TextSpan.create(0 0)))
+        def da:DocxApp (new DocxApp)
+        da.init()
+        da.resize(900 700)
+        da.viewer.attachDocument(rd)
+        def ln:LaidLine (da.viewer.drawingLine(drw.id))
+        c.ok("the drawing is laid out on the first page" (ln.drawingId == drw.id))
+        c.eqInt("at its own width" ln.width 300)
+        def fx0:int (da.pageX + ln.x)
+        def fy0:int ((da.pageFrameY(0)) + ln.y)
+        c.eqInt("nothing is selected before a click" (da.viewer.selectedDrawing()) 0)
+        c.eqInt("and there is no handle to press" (da.viewer.drawingHandleAt((ln.x + 150) (ln.y + 75))) 0)
+        DocxAppTest.click(da (fx0 + 150) (fy0 + 75))
+        c.eqInt("a click on the drawing selects it" (da.viewer.selectedDrawing()) drw.id)
+        c.eqInt("and its bottom-right corner is a handle" (da.viewer.drawingHandleAt((ln.x + 303) (ln.y + 153))) 4)
+        c.eqInt("the top-left one too" (da.viewer.drawingHandleAt((ln.x - 3) (ln.y - 3))) 1)
+        c.eqInt("but the middle of it is not" (da.viewer.drawingHandleAt((ln.x + 150) (ln.y + 75))) 0)
+        ; The drag: press on the corner, move, let go.
+        def hx:int ((fx0 + 300) + 3)
+        def hy:int ((fy0 + 150) + 3)
+        da.pointer(hx hy true true false false)
+        c.ok("a press on the handle starts a drag" (da.viewer.draggingDrawing()))
+        da.pointer((hx + 60) (hy + 30) false true false false)
+        c.eqInt("moving the pointer sets the width" drw.widthPx 360)
+        c.eqInt("and the height follows in proportion" drw.heightPx 180)
+        da.pointer((hx + 60) (hy + 30) false false true false)
+        c.ok("letting go ends the drag" ((da.viewer.draggingDrawing()) == false))
+        c.eqInt("and keeps the size" drw.widthPx 360)
+        c.eqInt("the drawing is still selected" (da.viewer.selectedDrawing()) drw.id)
+        c.ok("and the document knows it changed" (rd.revision > 0))
+        ; The same handle, dragged back in: smaller. Straight up, which is a
+        ; drag along the other axis, and it still counts.
+        def ln2:LaidLine (da.viewer.drawingLine(drw.id))
+        def hx2:int ((da.pageX + ln2.x + ln2.width) + 3)
+        def hy2:int (((da.pageFrameY(0)) + ln2.y + ln2.height) + 3)
+        da.pointer(hx2 hy2 true true false false)
+        da.pointer(hx2 (hy2 - 90) false true false false)
+        da.pointer(hx2 (hy2 - 90) false false true false)
+        c.eqInt("a drag straight up shrinks it by the same proportion" drw.widthPx 180)
+        c.eqInt("…and the height with it" drw.heightPx 90)
+        ; A drag out past the column stops at the column: the width the
+        ; drawing has is the width it is drawn at.
+        def ln3:LaidLine (da.viewer.drawingLine(drw.id))
+        def hx3:int ((da.pageX + ln3.x + ln3.width) + 3)
+        def hy3:int (((da.pageFrameY(0)) + ln3.y + ln3.height) + 3)
+        da.pointer(hx3 hy3 true true false false)
+        da.pointer((hx3 + 2000) hy3 false true false false)
+        da.pointer((hx3 + 2000) hy3 false false true false)
+        def ln4:LaidLine (da.viewer.drawingLine(drw.id))
+        c.ok("a drag past the margin stops at the column" (ln4.width <= 800))
+        c.eqInt("and the drawing's own width is what was drawn" drw.widthPx ln4.width)
+        ; A press on the text under the drawing, off its handles, is a caret
+        ; as before — and the drawing is no longer the selection.
+        DocxAppTest.click(da (fx0 + 150) (((da.pageFrameY(0)) + ln4.y + ln4.height) + 16))
+        c.eqInt("a click on the text below drops the selection" (da.viewer.selectedDrawing()) 0)
+
         print "-- and the whole frame draws --"
         def d:DocxApp (DocxAppTest.build())
         d.runCommand("format.color" "")
