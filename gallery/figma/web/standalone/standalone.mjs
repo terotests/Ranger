@@ -26,8 +26,21 @@ const ofmsEl = document.getElementById("ofms");
 const treeEl = document.getElementById("tree");
 const propsEl = document.getElementById("props");
 const inspEl = document.getElementById("inspector");
-const pageEl = document.getElementById("page");
+const pageListEl = document.getElementById("pagelist");
+const pageCountEl = document.getElementById("pagecount");
 const frameEl = document.getElementById("frame");
+const fileNameEl = document.getElementById("filename");
+const assetsEl = document.getElementById("assets");
+const assetCountEl = document.getElementById("assetcount");
+const rawEl = document.getElementById("raw");
+const zoomReadEl = document.getElementById("zoomread");
+const rulerTopEl = document.getElementById("rulertop");
+const rulerLeftEl = document.getElementById("rulerleft");
+const sizeBadgeEl = document.getElementById("sizebadge");
+const boardEl = document.getElementById("board");
+const toolMoveEl = document.getElementById("toolmove");
+const toolHandEl = document.getElementById("toolhand");
+const debugBtnEl = document.getElementById("debugbtn");
 const fileEl = document.getElementById("file");
 const sampleEl = document.getElementById("sample");
 const fitEl = document.getElementById("fit");
@@ -152,6 +165,7 @@ async function draw() {
   else keeper.reset();
   cmdsEl.textContent = String(doc.list?.cmds?.length || 0);
   window.__figDoc = doc;
+  refreshOverlays();
 }
 
 /**
@@ -210,6 +224,10 @@ const MAX_ZOOM = 16;
 function setViewSoon(x, y, sc) {
   pendingView = { x, y, sc: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, sc)) };
   showZoom(pendingView.sc);
+  // The rulers and the badge come from the VIEW, not from the board, so they
+  // move with the hand rather than with the next paint. A ruler a frame
+  // behind the thing it measures is worse than no ruler.
+  refreshOverlays();
   scheduleFrame();
 }
 
@@ -406,12 +424,19 @@ function renderLayers() {
     pick.type = "button";
     pick.className = "pick";
     pick.title = node.id;
+    // ONE GLYPH FOR THE TYPE, not the word. "STROKE_GEOMETRY" in front of
+    // every name is sixteen characters of column that the name then has to
+    // share, and at the fourth level of a tree the name is what is left out.
+    // The shape is what a reader is after anyway — Figma draws an icon here
+    // for the same reason.
     const ty = document.createElement("span");
     ty.className = "ty";
-    ty.textContent = node.type;
+    ty.textContent = typeGlyph(node.type);
+    ty.title = node.type;
     const nm = document.createElement("span");
     nm.className = "nm";
     nm.textContent = node.name || node.id;
+    if (node.type === "INSTANCE" || node.type === "SYMBOL") pick.classList.add("inst");
     pick.append(ty, nm);
     pick.addEventListener("click", () => {
       // Picking IN the tree selects and no more: rooting the pane at every
@@ -448,6 +473,26 @@ function renderLayers() {
     treeEl.append(more);
   }
   if (selectedRow) selectedRow.scrollIntoView({ block: "nearest" });
+}
+
+/** A node type as one character. Kept as a table rather than guessed from
+ *  the name, because the interesting ones are the ones that do not read like
+ *  their shape: a STICKY is a note, a SECTION is the board's own furniture,
+ *  and STROKE_GEOMETRY is an outline the file brought rather than a layer
+ *  anybody drew. Anything unlisted falls through to a neutral mark, which is
+ *  honest: the tooltip still carries the word. */
+const TYPE_GLYPHS = {
+  DOCUMENT: "▣", CANVAS: "▤", PAGE: "▤",
+  FRAME: "▢", GROUP: "▢", SECTION: "▥",
+  INSTANCE: "◈", SYMBOL: "◈", COMPONENT: "◈", COMPONENT_SET: "◈",
+  TEXT: "T", STICKY: "▧", SHAPE_WITH_TEXT: "▧",
+  VECTOR: "✧", BOOLEAN_OPERATION: "✧", STAR: "✦", LINE: "╱", CONNECTOR: "↗",
+  RECTANGLE: "▭", ROUNDED_RECTANGLE: "▭", ELLIPSE: "◯", REGULAR_POLYGON: "△",
+  STAMP: "◍", WIDGET: "⬡", MEDIA: "▶", TABLE: "▦", CODE_BLOCK: "⌗",
+  STROKE_GEOMETRY: "◌", EMOJI: "☺",
+};
+function typeGlyph(t) {
+  return TYPE_GLYPHS[t] || "·";
 }
 
 /** Warnings from the last conversion, grouped by what was unsupported.
@@ -567,10 +612,11 @@ function refreshChrome() {
     : ((stats.file || "file") + " · " + (stats.prelude || "") + " v" + (stats.version ?? ""));
   nodesEl.textContent = String(stats.nodes ?? 0);
   msEl.textContent = stats.ms ? Number(stats.ms.total).toFixed(1) : "–";
+  // The file's name goes where a design tool puts it: the top of the rail,
+  // not the middle of a status line.
+  if (fileNameEl) fileNameEl.textContent = stats.file || "Ranger Fig";
   try {
-    const pages = JSON.parse(web.pages());
-    fillSelect(pageEl, pages);
-    pageEl.value = pages[web.pageIndex()]?.id || pageEl.value;
+    renderPages(JSON.parse(web.pages()), web.pageIndex());
   } catch { /* keep */ }
   try {
     // The option's value is the frame's INDEX, which is what `setFrame`
@@ -613,7 +659,6 @@ let inspectedId = null;
 function refreshInspector() {
   let d = null;
   try { d = JSON.parse(web.inspect()); } catch { d = null; }
-  const debug = typeof web.debug === "function" ? web.debug() : false;
   if (!d || !d.id) {
     inspectedId = null;
     inspEl.hidden = true;
@@ -621,13 +666,10 @@ function refreshInspector() {
     if (!propsEl.textContent) propsEl.textContent = "click a layer or the canvas";
     return;
   }
-  propsEl.hidden = !debug;
-  if (debug) {
-    try {
-      const props = JSON.parse(web.props());
-      propsEl.textContent = JSON.stringify({ figma: props.figma, scene: props.scene }, null, 2);
-    } catch { /* keep */ }
-  }
+  // The raw node has a tab of its own now; the panel keeps the hint line for
+  // when nothing is selected and is otherwise the inspector alone.
+  propsEl.hidden = true;
+  renderRaw();
   inspEl.hidden = false;
   // Rebuilt only when the selection changes: a field must not be torn out
   // from under the caret on its own keystroke.
@@ -936,13 +978,38 @@ if (zoomlabEl) {
 }
 if (debugEl) debugEl.addEventListener("change", () => { web.setDebug(debugEl.checked); refreshChrome(); draw(); });
 
-pageEl.addEventListener("change", () => {
-  const pages = JSON.parse(web.pages());
-  const i = pages.findIndex((p) => p.id === pageEl.value);
-  if (i >= 0) web.setPage(i);
-  refreshChrome();
-  draw();
-});
+/** The file's pages, as a list. A <select> hides all but one of them behind
+ *  a click, and which page you are on is the first thing a reader of a file
+ *  needs to know — Figma puts them in the rail for the same reason. */
+function renderPages(pages, current) {
+  pageListEl.textContent = "";
+  pageCountEl.textContent = pages.length > 1 ? String(pages.length) : "";
+  for (let i = 0; i < pages.length; i += 1) {
+    const p = pages[i];
+    const b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("aria-current", i === current ? "true" : "false");
+    const ic = document.createElement("span");
+    ic.className = "ic";
+    ic.textContent = "▤";
+    const nm = document.createElement("span");
+    nm.className = "nm";
+    nm.textContent = p.name || p.id;
+    b.append(ic, nm);
+    b.title = p.id;
+    b.addEventListener("click", () => {
+      if (i === web.pageIndex()) return;
+      web.setPage(i);
+      // A page is a different board: the layers pane has to start again at
+      // its root rather than stay rooted at a layer that is not on it.
+      scopeId = null;
+      folded.clear();
+      refreshChrome();
+      draw();
+    });
+    pageListEl.append(b);
+  }
+}
 
 frameEl.addEventListener("change", () => {
   web.setFrame(parseInt(frameEl.value, 10));
@@ -950,7 +1017,223 @@ frameEl.addEventListener("change", () => {
   draw();
 });
 
+/* ---------------------------------------------------------------------------
+ * The rails' tabs, the rulers, the size badge and the tools.
+ *
+ * Chrome, all of it — but chrome that says something the board cannot. The
+ * rulers give the board its own coordinates back (a layer at x=11073 is at
+ * 11073, not "somewhere right"), the badge gives the selection its size where
+ * the eye already is, and the hand tool is the one gesture the board could not
+ * express: drag WITHOUT the click at the end of it selecting something.
+ * ------------------------------------------------------------------------- */
+
+function wireTabs(barId, panes) {
+  const bar = document.getElementById(barId);
+  if (!bar) return;
+  bar.addEventListener("click", (ev) => {
+    const b = ev.target.closest("button[data-pane]");
+    if (!b) return;
+    for (const other of bar.querySelectorAll("button[data-pane]")) {
+      other.setAttribute("aria-selected", other === b ? "true" : "false");
+    }
+    for (const [name, el] of Object.entries(panes)) {
+      if (el) el.hidden = name !== b.dataset.pane;
+    }
+    if (b.dataset.pane === "assets") renderAssets();
+    if (b.dataset.pane === "raw") renderRaw();
+  });
+}
+wireTabs("lefttabs", {
+  file: document.getElementById("filepane"),
+  assets: document.getElementById("assetspane"),
+});
+wireTabs("righttabs", {
+  design: document.getElementById("designpane"),
+  raw: document.getElementById("rawpane"),
+});
+
+/** The images the file carries. The only thing in a .fig that is an asset in
+ *  Figma's sense, and the one list that says whether a picture drew as grey
+ *  because the bytes are missing or because the reader lost them. */
+let assetUrls = [];
+function renderAssets() {
+  for (const u of assetUrls) URL.revokeObjectURL(u);
+  assetUrls = [];
+  assetsEl.textContent = "";
+  let n = 0;
+  try { n = web.imageCount() | 0; } catch { n = 0; }
+  assetCountEl.textContent = n ? String(n) : "";
+  if (!n) {
+    const p = document.createElement("p");
+    p.className = "empty";
+    p.textContent = "this file carries no images";
+    assetsEl.append(p);
+    return;
+  }
+  for (let i = 0; i < n; i += 1) {
+    const name = web.imageName(i);
+    const fig = document.createElement("figure");
+    const thumb = document.createElement("div");
+    thumb.className = "thumb";
+    try {
+      const bytes = web.imageBytes(name);
+      if (bytes && bytes.byteLength) {
+        const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+        assetUrls.push(url);
+        thumb.style.backgroundImage = `url("${url}")`;
+      }
+    } catch { /* a hash with no bytes stays an empty tile, which is the fact */ }
+    const cap = document.createElement("figcaption");
+    cap.textContent = name.length > 12 ? name.slice(0, 10) + "…" : name;
+    cap.title = name;
+    fig.append(thumb, cap);
+    assetsEl.append(fig);
+  }
+}
+
+/** The raw node beside the layer it became — the pane the Debug checkbox used
+ *  to push into the middle of the inspector. */
+function renderRaw() {
+  try {
+    const props = JSON.parse(web.props());
+    rawEl.textContent = JSON.stringify({ figma: props.figma, scene: props.scene }, null, 2);
+  } catch {
+    rawEl.textContent = "select a layer to see the node the file carries and the layer it became";
+  }
+}
+
+/* Rulers. Ticks every 1, 2, 5 × 10^n board units, whichever lands between 60
+ * and 220 pixels apart at the current zoom — the same ladder a chart axis
+ * climbs, for the same reason: a tick you cannot read the label of is a line. */
+function niceStep(minPx, scale) {
+  const raw = minPx / Math.max(scale, 1e-6);
+  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+  for (const m of [1, 2, 5, 10]) {
+    if (pow * m >= raw) return pow * m;
+  }
+  return pow * 10;
+}
+
+function drawRulers() {
+  if (!rulerTopEl || !rulerLeftEl) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const v = viewNow();
+  const css = getComputedStyle(document.body);
+  const ink = css.getPropertyValue("--faint").trim() || "#999";
+  const line = css.getPropertyValue("--line").trim() || "#ddd";
+  const face = css.getPropertyValue("--rail").trim() || "#fff";
+  const step = niceStep(90, v.sc);
+  const label = (n) => (Math.abs(n) >= 10000 ? (n / 1000).toFixed(1) + "k" : String(Math.round(n)));
+
+  const each = (el, horizontal) => {
+    const r = el.getBoundingClientRect();
+    const w = Math.max(1, Math.round(r.width * dpr));
+    const h = Math.max(1, Math.round(r.height * dpr));
+    if (el.width !== w || el.height !== h) { el.width = w; el.height = h; }
+    const c = el.getContext("2d");
+    if (!c) return;
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, r.width, r.height);
+    c.fillStyle = face;
+    c.fillRect(0, 0, r.width, r.height);
+    c.font = '9px ui-monospace, Menlo, Consolas, monospace';
+    c.textBaseline = "middle";
+    // The span of board the ruler covers, from the view the board is drawn
+    // with: screen = board * sc + offset, so board = (screen - offset) / sc.
+    const span = horizontal ? r.width : r.height;
+    const off = horizontal ? v.x : v.y;
+    const from = Math.floor((0 - off) / v.sc / step) * step;
+    const to = (span - off) / v.sc;
+    for (let n = from; n <= to; n += step) {
+      const p = n * v.sc + off;
+      if (p < -40 || p > span + 40) continue;
+      c.strokeStyle = line;
+      c.beginPath();
+      if (horizontal) { c.moveTo(Math.round(p) + 0.5, 13); c.lineTo(Math.round(p) + 0.5, 20); }
+      else { c.moveTo(13, Math.round(p) + 0.5); c.lineTo(20, Math.round(p) + 0.5); }
+      c.stroke();
+      c.fillStyle = ink;
+      if (horizontal) {
+        c.textAlign = "left";
+        c.fillText(label(n), Math.round(p) + 3, 7);
+      } else {
+        // Down the left edge, turned a quarter so the digits read upward
+        // like Figma's — a horizontal number in a 20px column is two digits
+        // and an ellipsis.
+        c.save();
+        c.translate(8, Math.round(p) + 3);
+        c.rotate(-Math.PI / 2);
+        c.textAlign = "left";
+        c.fillText(label(n), 0, 0);
+        c.restore();
+      }
+    }
+  };
+  each(rulerTopEl, true);
+  each(rulerLeftEl, false);
+}
+
+/** The selection's size, under it, where Figma puts it. Placed from the same
+ *  view the board is drawn with, so it follows a pan without a repaint. */
+function placeSizeBadge() {
+  if (!sizeBadgeEl) return;
+  let d = null;
+  try { d = JSON.parse(web.inspect()); } catch { d = null; }
+  if (!d || !d.id || !(d.w > 0) || !(d.h > 0)) { sizeBadgeEl.hidden = true; return; }
+  const v = viewNow();
+  const r = boardEl.getBoundingClientRect();
+  const x = (d.pageX + d.w / 2) * v.sc + v.x;
+  const y = (d.pageY + d.h) * v.sc + v.y;
+  if (x < -80 || y < -40 || x > r.width + 80 || y > r.height + 40) { sizeBadgeEl.hidden = true; return; }
+  sizeBadgeEl.hidden = false;
+  sizeBadgeEl.style.left = x + "px";
+  sizeBadgeEl.style.top = (y + 7) + "px";
+  sizeBadgeEl.textContent = `${round(d.w)} × ${round(d.h)}`;
+}
+
+/** Everything that follows the view rather than the document. Called on every
+ *  paint and on every pan, which is why it touches no engine state. */
+function refreshOverlays() {
+  drawRulers();
+  placeSizeBadge();
+  const pct = Math.round(web.viewScale() * 100) + "%";
+  if (zoomReadEl) zoomReadEl.textContent = pct;
+}
+
+// The hand tool. The board already pans on a drag; what this changes is the
+// tap at the end of one — with the hand down, a click moves nothing and
+// selects nothing, which is what makes it possible to drag FROM a layer.
+let handTool = false;
+function setTool(hand) {
+  handTool = hand;
+  if (toolMoveEl) toolMoveEl.setAttribute("aria-pressed", hand ? "false" : "true");
+  if (toolHandEl) toolHandEl.setAttribute("aria-pressed", hand ? "true" : "false");
+  boardEl.classList.toggle("hand", hand);
+}
+if (toolMoveEl) toolMoveEl.addEventListener("click", () => setTool(false));
+if (toolHandEl) toolHandEl.addEventListener("click", () => setTool(true));
+window.addEventListener("keydown", (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+  if (e.key === "v" || e.key === "V") setTool(false);
+  if (e.key === "h" || e.key === "H") setTool(true);
+});
+
+// The debug toggle is a button in the toolbar now; the checkbox stays as the
+// thing that holds the state, so nothing that reads it has to change.
+if (debugBtnEl && debugEl) {
+  debugBtnEl.addEventListener("click", () => {
+    debugEl.checked = !debugEl.checked;
+    debugBtnEl.setAttribute("aria-pressed", debugEl.checked ? "true" : "false");
+    web.setDebug(debugEl.checked);
+    refreshChrome();
+    draw();
+  });
+}
+
 function selectAt(clientX, clientY) {
+  if (handTool) return;
   const r = canvas.getBoundingClientRect();
   const doc = window.__figDoc || {};
   const sw = doc.width || 1200;
@@ -992,7 +1275,7 @@ window.addEventListener("drop", async (e) => {
   if (f) await openBuffer(await f.arrayBuffer(), f.name);
 });
 
-window.addEventListener("resize", () => draw());
+window.addEventListener("resize", () => { draw(); refreshOverlays(); });
 
 // ⌘V / Ctrl+V straight from Figma: the copied nodes arrive as fig-kiwi bytes
 // inside text/html, and a .fig file copied from the desktop comes as a file.

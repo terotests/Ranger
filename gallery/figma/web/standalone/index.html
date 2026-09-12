@@ -9,176 +9,385 @@
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <meta name="description" content="Read a Figma .fig or .deck. It is parsed in this tab (ZIP → kiwi → node tree) and drawn with EVG. Nothing is uploaded." />
     <style>
+      /* ---------------------------------------------------------------------
+       * The editor's chrome.
+       *
+       * Three rails and a stage, the shape every design tool has settled on,
+       * because the shape is not arbitrary: the tree on the left is WHERE a
+       * layer is, the panel on the right is WHAT it is, and neither belongs
+       * in the other. What was here before was a toolbar of browser controls
+       * over three scrolling boxes — every control the app has, all at once,
+       * with no answer to "which of these is about the thing I clicked".
+       *
+       * Light by default because a design file is, and the page around the
+       * board should not fight it; the dark palette is the same tokens under
+       * `prefers-color-scheme`.
+       * ------------------------------------------------------------------ */
       :root {
-        --bg: #12141a;
-        --panel: #1b1f28;
-        --ink: #e8ecf2;
-        --muted: #8b97a8;
-        --line: #2c3340;
-        --accent: #3b82f6;
-        --good: #34d399;
+        --bg: #f5f5f5;          /* the desk the board sits on */
+        --panel: #ffffff;
+        --rail: #ffffff;
+        --ink: #1a1d21;
+        --muted: #7b8190;
+        --faint: #aab0bb;
+        --line: #e7e9ee;
+        --line-soft: #f0f1f4;
+        --hover: #f2f4f8;
+        --sel: #e8f1fe;
+        --accent: #0d6efd;      /* selection, focus */
+        --instance: #7b61ff;    /* a component instance, as Figma marks one */
+        --good: #16a34a;
+        --warn: #b45309;
+        --field: #f6f7f9;
+        --shadow: 0 1px 2px rgba(16, 22, 32, 0.06), 0 8px 24px rgba(16, 22, 32, 0.08);
       }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0d1014;
+          --panel: #171a20;
+          --rail: #14171c;
+          --ink: #e8ecf2;
+          --muted: #8b97a8;
+          --faint: #6b7585;
+          --line: #262b34;
+          --line-soft: #1e222a;
+          --hover: #1e242e;
+          --sel: #1b2a44;
+          --accent: #4d9bff;
+          --instance: #9d86ff;
+          --good: #34d399;
+          --warn: #fbbf24;
+          --field: #1b1f27;
+          --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+        }
+      }
+
       * { box-sizing: border-box; }
-      html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
-        font: 14px/1.45 "IBM Plex Sans", "Segoe UI", sans-serif; }
-      body { display: grid; grid-template-rows: auto 1fr auto; min-height: 100dvh; }
-      header { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
-        padding: 10px 14px; border-bottom: 1px solid var(--line); background: #161920; }
-      header h1 { margin: 0; font-size: 1.05rem; font-weight: 650; }
-      header p { margin: 0; color: var(--muted); font-size: 0.85rem; }
-      .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-      button, select, input[type="file"] {
-        background: #252b36; color: var(--ink); border: 1px solid #3a4250;
-        border-radius: 6px; padding: 6px 10px; font: inherit;
+      html, body { margin: 0; height: 100%; }
+      body {
+        background: var(--bg); color: var(--ink);
+        font: 13px/1.45 "Inter", "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+        display: grid; grid-template-rows: 1fr auto; min-height: 100dvh;
+        -webkit-font-smoothing: antialiased;
       }
-      button { cursor: pointer; }
-      /* One control, three buttons: the readout is the reset. */
-      .zoom { display: inline-flex; align-items: stretch; }
-      .zoom button { border-radius: 0; margin: 0; }
-      .zoom button:first-child { border-radius: 6px 0 0 6px; }
-      .zoom button:last-child { border-radius: 0 6px 6px 0; }
-      .zoom button + button { border-left: 0; }
-      #zoomlab { min-width: 4.5em; font-variant-numeric: tabular-nums; }
-      button:hover { border-color: var(--accent); }
-      button.primary { background: #1d4ed8; border-color: #2563eb; }
-      main { display: grid; grid-template-columns: 260px 1fr 300px; min-height: 0; }
-      .pane { overflow: auto; border-right: 1px solid var(--line); padding: 8px; }
-      .pane:last-child { border-right: 0; border-left: 1px solid var(--line); }
-      .stage { min-width: 0; min-height: 0; background: #0d1014; display: grid; place-items: stretch; }
-      canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
-      /* The layers tree: one root at a time, rows that fold, and crumbs
-         back out. A row is a fold, a name and a way into it — nothing else
-         earns the width. */
-      .tree { font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; }
-      .tree .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 3px;
-        padding: 2px 4px 8px; color: var(--muted); font-size: 11px; }
+      a { color: var(--accent); }
+
+      /* The three rails. Fixed side widths, because a panel that resizes with
+         the window is a panel whose rows reflow while you read them. */
+      main { display: grid; grid-template-columns: 244px 1fr 272px; min-height: 0; }
+      main.drop { outline: 2px dashed var(--accent); outline-offset: -10px; }
+
+      .rail { background: var(--rail); display: flex; flex-direction: column;
+        min-height: 0; min-width: 0; }
+      .rail.left { border-right: 1px solid var(--line); }
+      .rail.right { border-left: 1px solid var(--line); }
+      .rail .scroll { overflow: auto; min-height: 0; flex: 1; }
+
+      /* A rail's head: the file on the left, the tabs on the right. One row
+         high, so the panes below start where the eye expects them. */
+      .railhead { display: flex; align-items: center; gap: 8px; height: 40px;
+        padding: 0 10px; border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+      .railhead .title { font-weight: 600; font-size: 12.5px; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+      .railhead .dot { width: 16px; height: 16px; border-radius: 4px; flex: 0 0 auto;
+        background: linear-gradient(135deg, var(--instance), var(--accent)); }
+
+      /* Tabs. The underline is the state; a filled pill here would compete
+         with the selection colour, which has to stay the loudest thing. */
+      .tabs { display: flex; gap: 2px; flex: 0 0 auto; }
+      .tabs button { appearance: none; background: transparent; border: 0;
+        border-bottom: 2px solid transparent; color: var(--muted); cursor: pointer;
+        font-weight: 600; font-size: 12px; line-height: 1; padding: 9px 8px 7px; border-radius: 0; }
+      .tabs button:hover { color: var(--ink); }
+      .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+
+      .tabrow { display: flex; align-items: center; gap: 2px; padding: 0 6px;
+        border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+      .tabrow .zoomread { margin-left: auto; color: var(--muted); font-size: 11.5px;
+        font-variant-numeric: tabular-nums; padding-right: 4px; }
+
+      /* A section in a rail: a quiet caption and its rows. */
+      .cap { display: flex; align-items: center; gap: 6px; padding: 10px 10px 4px;
+        color: var(--faint); font-weight: 600; font-size: 10px; line-height: 1; letter-spacing: 0.09em;
+        text-transform: uppercase; }
+      .cap .n { margin-left: auto; letter-spacing: 0; font-weight: 500; }
+
+      /* Pages. A list and not a <select>: a file's pages are the first thing
+         you navigate and the last thing that should be behind a click. */
+      .pages { padding: 0 6px 6px; border-bottom: 1px solid var(--line-soft); flex: 0 0 auto;
+        max-height: 30vh; overflow: auto; }
+      .pages button { display: flex; align-items: center; gap: 7px; width: 100%;
+        background: transparent; border: 0; border-radius: 5px; cursor: pointer;
+        color: var(--ink); font: inherit; padding: 5px 7px; text-align: left; }
+      .pages button:hover { background: var(--hover); }
+      .pages button[aria-current="true"] { background: var(--sel); font-weight: 600; }
+      .pages .ic { color: var(--faint); flex: 0 0 auto; }
+      .pages .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+      /* The frame picker, which is a real narrowing of the board and not a
+         page: it sits with the layers it scopes. */
+      .framepick { display: flex; align-items: center; gap: 6px; padding: 4px 10px 8px; }
+      .framepick select { flex: 1; min-width: 0; background: var(--field); color: var(--ink);
+        border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font: inherit;
+        font-size: 12px; }
+      .framepick select:focus { outline: none; border-color: var(--accent); }
+
+      /* The layers tree. One root at a time, rows that fold, crumbs back out. */
+      .tree { padding: 0 6px 10px; font-size: 12px; line-height: 1.4; }
+      .tree .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px;
+        padding: 2px 4px 6px; color: var(--faint); font-size: 11px; }
       .tree .crumbs button { background: transparent; border: 0; padding: 1px 3px;
-        border-radius: 4px; color: var(--muted); font: inherit; }
-      .tree .crumbs button:hover { color: var(--ink); background: #243044; }
+        border-radius: 4px; color: var(--faint); font: inherit; cursor: pointer; }
+      .tree .crumbs button:hover { color: var(--ink); background: var(--hover); }
       .tree .crumbs button.here { color: var(--ink); }
-      .tree .row { display: flex; align-items: center; gap: 2px; border-radius: 4px; }
-      .tree .row:hover { background: #1e2836; }
-      .tree .row.on { background: #243044; }
-      .tree .fold { flex: 0 0 auto; width: 14px; padding: 0; background: transparent;
-        border: 0; color: var(--muted); font-size: 9px; line-height: 1; }
+      .tree .row { display: flex; align-items: center; gap: 1px; border-radius: 5px; }
+      .tree .row:hover { background: var(--hover); }
+      .tree .row.on { background: var(--sel); }
+      .tree .fold { flex: 0 0 auto; width: 15px; padding: 0; background: transparent;
+        border: 0; color: var(--faint); font-size: 9px; line-height: 1; cursor: pointer; }
       .tree .fold:hover:enabled { color: var(--ink); }
-      .tree .fold:disabled { opacity: 0; }
-      .tree .pick { flex: 1 1 auto; min-width: 0; display: flex; gap: 6px; align-items: baseline;
-        text-align: left; background: transparent; border: 0; padding: 3px 2px; color: var(--ink); }
-      .tree .pick .ty { flex: 0 0 auto; color: var(--muted); font-size: 10px;
-        letter-spacing: 0.02em; }
+      .tree .fold:disabled { opacity: 0; cursor: default; }
+      .tree .pick { flex: 1 1 auto; min-width: 0; display: flex; gap: 6px; align-items: center;
+        text-align: left; background: transparent; border: 0; padding: 4px 2px;
+        color: var(--ink); cursor: pointer; font: inherit; }
+      /* The type is an ICON, not a word. Eleven characters of "ROUNDED_RECT"
+         in front of every name is the name pushed out of the pane. */
+      .tree .pick .ty { flex: 0 0 auto; width: 13px; text-align: center; color: var(--faint);
+        font-size: 11px; line-height: 1; }
+      .tree .row.on .pick .ty, .tree .row.on .pick .nm { color: var(--ink); }
       .tree .pick .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .tree .into { flex: 0 0 auto; background: transparent; border: 0; color: var(--muted);
-        padding: 0 4px; opacity: 0; }
+      /* An instance is purple wherever it appears, which is the one colour
+         Figma users already read as "this came from a component". */
+      .tree .pick.inst .ty, .tree .pick.inst .nm { color: var(--instance); }
+      .tree .into { flex: 0 0 auto; background: transparent; border: 0; color: var(--faint);
+        padding: 0 4px; opacity: 0; cursor: pointer; font: inherit; }
       .tree .row:hover .into { opacity: 1; }
       .tree .into:hover { color: var(--ink); }
-      .tree .more { color: var(--muted); font-size: 11px; margin: 8px 6px 0; }
-      .props { font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap;
-        color: #c9d4e4; margin: 0; }
+      .tree .more { color: var(--faint); font-size: 11px; margin: 8px 6px 0; }
 
-      /* The inspector. Figma's panel is a grid of boxes; this is a column
-         of quiet rows that only draw a box where you can type. A value you
-         cannot change is text, not a disabled field. */
-      .insp { display: flex; flex-direction: column; gap: 2px; }
+      /* Assets: the images the file carries, which is the only thing in it
+         that is an asset in Figma's sense. Empty is said, not left blank. */
+      .assets { padding: 8px 10px 12px; display: grid; gap: 8px;
+        grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); }
+      .assets figure { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+      .assets .thumb { aspect-ratio: 1; border: 1px solid var(--line); border-radius: 6px;
+        background: var(--field) center/contain no-repeat; }
+      .assets figcaption { font: 10px/1.2 ui-monospace, Menlo, Consolas, monospace;
+        color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .empty { color: var(--faint); font-size: 12px; padding: 12px 10px; }
+
+      /* ---- the stage ---------------------------------------------------- */
+      /* Rulers along two edges and the board between them. They are drawn from
+         the same view transform the board is, so a tick is where the board
+         says it is rather than where the page happens to have scrolled. */
+      .stage { position: relative; min-width: 0; min-height: 0; background: var(--bg);
+        display: grid; grid-template-columns: 20px 1fr; grid-template-rows: 20px 1fr; }
+      .corner { background: var(--rail); border-right: 1px solid var(--line);
+        border-bottom: 1px solid var(--line); }
+      #rulertop { display: block; width: 100%; height: 100%; background: var(--rail);
+        border-bottom: 1px solid var(--line); }
+      #rulerleft { display: block; width: 100%; height: 100%; background: var(--rail);
+        border-right: 1px solid var(--line); }
+      .board { position: relative; min-width: 0; min-height: 0; }
+      canvas#screen { width: 100%; height: 100%; display: block; touch-action: none; cursor: default; }
+      .board.panning canvas#screen { cursor: grabbing; }
+      .board.hand canvas#screen { cursor: grab; }
+
+      /* The size badge under the selection, where Figma puts it. It is the
+         one number you want while dragging and the one the panel is furthest
+         from. */
+      #sizebadge { position: absolute; transform: translate(-50%, 0); background: var(--accent);
+        color: #fff; font: 600 10.5px/1 ui-monospace, Menlo, Consolas, monospace;
+        padding: 3px 6px; border-radius: 4px; pointer-events: none; white-space: nowrap;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); }
+      #sizebadge[hidden] { display: none; }
+
+      /* The toolbar floats over the board rather than sitting in a strip of
+         its own: the board is the thing, and a strip would take a row of it
+         on every window. */
+      .toolbar { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+        display: flex; align-items: center; gap: 2px; padding: 5px;
+        background: var(--panel); border: 1px solid var(--line); border-radius: 11px;
+        box-shadow: var(--shadow); }
+      .toolbar .sep { width: 1px; height: 20px; background: var(--line); margin: 0 4px; }
+      .toolbar button { appearance: none; background: transparent; border: 0; border-radius: 7px;
+        color: var(--muted); cursor: pointer; font: inherit; padding: 6px 9px; line-height: 1; }
+      .toolbar button:hover { background: var(--hover); color: var(--ink); }
+      .toolbar button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+      .toolbar #zoomlab { min-width: 4.2em; font-variant-numeric: tabular-nums;
+        font-size: 12px; color: var(--ink); }
+      .toolbar svg { display: block; width: 15px; height: 15px; }
+
+      /* The open controls. A design tool keeps these in a menu; this one has
+         three and a keyboard shortcut, so they are a row that gets out of the
+         way rather than a menu that has to be found. */
+      .opener { display: flex; align-items: center; gap: 6px; padding: 8px 10px;
+        border-bottom: 1px solid var(--line-soft); flex: 0 0 auto; }
+      .opener button, .opener label.filebtn {
+        background: var(--field); color: var(--ink); border: 1px solid var(--line);
+        border-radius: 7px; padding: 5px 9px; font: inherit; font-size: 12px; cursor: pointer; }
+      .opener button:hover, .opener label.filebtn:hover { border-color: var(--accent); }
+      .opener input[type="file"] { display: none; }
+
+      /* ---- the inspector ------------------------------------------------ */
+      /* Figma's panel is a grid of boxes; this is a column of quiet rows that
+         draw a box only where you can type. A value you cannot change is
+         text, not a disabled field. */
+      .insp { display: flex; flex-direction: column; }
       .insp[hidden] { display: none; }
-      .insp .head { display: flex; align-items: center; gap: 8px; padding: 2px 4px 10px; }
-      .insp .head .nm { font-weight: 600; font-size: 0.95rem; overflow: hidden;
-        text-overflow: ellipsis; white-space: nowrap; }
-      .insp .chip { font: 11px/1 ui-monospace, Menlo, Consolas, monospace; color: var(--muted);
-        border: 1px solid var(--line); border-radius: 999px; padding: 3px 7px; white-space: nowrap; }
-      .insp .eye { margin-left: auto; background: transparent; border: 0; color: var(--muted);
-        padding: 2px 6px; border-radius: 6px; font-size: 0.95rem; }
-      .insp .eye:hover { color: var(--ink); background: #243044; }
-      .insp .eye.off { color: #6b7585; }
-      .insp section { border-top: 1px solid var(--line); padding: 9px 4px; }
-      .insp h3 { margin: 0 0 7px; font: 500 0.68rem/1 "IBM Plex Sans", sans-serif;
-        letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-      .insp .fields { display: flex; flex-wrap: wrap; gap: 6px; }
-      .insp .f { display: flex; align-items: center; gap: 6px; background: #171b23;
-        border: 1px solid transparent; border-radius: 7px; padding: 3px 8px; flex: 1 1 40%;
-        min-width: 96px; }
-      .insp .f.wide { flex: 1 1 100%; }
-      .insp .f:focus-within { border-color: var(--accent); background: #1b2130; }
-      .insp .f label { color: var(--muted); font-size: 0.72rem; cursor: ew-resize;
-        user-select: none; letter-spacing: 0.04em; }
+      .insp .head { display: flex; align-items: center; gap: 8px; padding: 10px 10px 9px; }
+      .insp .head .kindlab { color: var(--instance); font-weight: 600; font-size: 10px; line-height: 1;
+        letter-spacing: 0.09em; text-transform: uppercase; flex: 0 0 auto; }
+      .insp .head .nm { font-weight: 600; font-size: 12.5px; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+      .insp .head .eye { margin-left: auto; background: transparent; border: 0;
+        color: var(--muted); padding: 2px 5px; border-radius: 6px; cursor: pointer;
+        font-size: 14px; line-height: 1; flex: 0 0 auto; }
+      .insp .head .eye:hover { color: var(--ink); background: var(--hover); }
+      .insp .head .eye.off { color: var(--faint); }
+      .insp section { border-top: 1px solid var(--line); padding: 9px 10px 11px; }
+      .insp h3 { margin: 0 0 8px; font-weight: 600; font-size: 10px; line-height: 1; letter-spacing: 0.09em;
+        text-transform: uppercase; color: var(--faint); }
+      .insp .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+      .insp .f { display: flex; align-items: center; gap: 6px; background: var(--field);
+        border: 1px solid transparent; border-radius: 7px; padding: 4px 8px; min-width: 0; }
+      .insp .f.wide { grid-column: 1 / -1; }
+      .insp .f:focus-within { border-color: var(--accent); background: var(--panel); }
+      .insp .f label { color: var(--faint); font-size: 11px; cursor: ew-resize;
+        user-select: none; flex: 0 0 auto; }
       .insp .f input { flex: 1; min-width: 0; width: 100%; background: transparent; border: 0;
         color: var(--ink); font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace;
         font-variant-numeric: tabular-nums; padding: 0; }
       .insp .f input:focus { outline: none; }
-      .insp .note { color: var(--muted); font-size: 0.72rem; margin: 6px 2px 0; }
-      .insp .swatch { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line);
-        border-radius: 50%; background: transparent; cursor: pointer; overflow: hidden; }
+      .insp .note { color: var(--faint); font-size: 11px; margin: 7px 1px 0; }
+      .insp .chip { font: 11px/1 ui-monospace, Menlo, Consolas, monospace; color: var(--muted);
+        border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; white-space: nowrap; }
       .insp input[type="color"] { -webkit-appearance: none; appearance: none; border: 0;
-        flex: 0 0 auto; width: 18px; height: 18px; padding: 0; background: transparent;
+        flex: 0 0 auto; width: 17px; height: 17px; padding: 0; background: transparent;
         cursor: pointer; }
       .insp input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
       .insp input[type="color"]::-webkit-color-swatch { border: 1px solid var(--line);
-        border-radius: 50%; }
+        border-radius: 4px; }
       .insp input[type="range"] { -webkit-appearance: none; appearance: none; flex: 1;
-        height: 3px; border-radius: 3px; background: #2c3340; }
+        height: 3px; border-radius: 3px; background: var(--line); }
       .insp input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none;
         width: 12px; height: 12px; border-radius: 50%; background: var(--ink); border: 0; }
       .insp input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%;
         background: var(--ink); border: 0; }
-      .insp textarea { width: 100%; resize: vertical; min-height: 54px; background: #171b23;
+      .insp textarea { width: 100%; resize: vertical; min-height: 56px; background: var(--field);
         border: 1px solid transparent; border-radius: 7px; color: var(--ink); padding: 6px 8px;
         font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; }
       .insp textarea:focus { outline: none; border-color: var(--accent); }
       .insp .facts { display: flex; flex-wrap: wrap; gap: 6px; }
-      .insp .warn { color: #fbbf24; font-size: 0.76rem; margin: 3px 2px 0; }
-      .insp .foot { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line);
-        padding: 9px 4px 2px; }
-      .insp .foot code { color: var(--muted); font-size: 0.72rem; }
-      .insp .foot button { margin-left: auto; padding: 4px 9px; font-size: 0.78rem; }
-      .insp .foot button:disabled { opacity: 0.4; cursor: default; border-color: #3a4250; }
-      .k { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em;
-        margin: 8px 4px 4px; }
-      footer { display: flex; flex-wrap: wrap; gap: 12px 20px; padding: 6px 14px;
-        border-top: 1px solid var(--line); color: var(--muted); font-size: 0.8rem; background: #161920; }
-      footer b { color: var(--good); font-weight: 600; }
-      a { color: #93c5fd; }
-      .drop { outline: 2px dashed var(--accent); outline-offset: -8px; }
-      @media (max-width: 900px) {
-        main { grid-template-columns: 1fr; grid-template-rows: 180px 1fr 220px; }
-        .pane { border-right: 0; border-bottom: 1px solid var(--line); }
+      .insp .warn { color: var(--warn); font-size: 11.5px; margin: 4px 1px 0; }
+      .insp .foot { display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+        border-top: 1px solid var(--line); padding: 10px; }
+      .insp .foot code { color: var(--faint); font-size: 11px; flex: 1 1 100%; }
+      .insp .foot button { padding: 5px 9px; font: inherit; font-size: 12px;
+        background: var(--field); color: var(--ink); border: 1px solid var(--line);
+        border-radius: 7px; cursor: pointer; }
+      .insp .foot button:hover:enabled { border-color: var(--accent); }
+      .insp .foot button:disabled { opacity: 0.45; cursor: default; }
+
+      .props { font: 11.5px/1.45 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap;
+        color: var(--muted); margin: 0; padding: 12px 10px; }
+
+      /* ---- the status strip --------------------------------------------- */
+      footer { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px;
+        padding: 5px 12px; border-top: 1px solid var(--line); background: var(--rail);
+        color: var(--muted); font-size: 11.5px; }
+      footer b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+      footer .sp { margin-left: auto; }
+      footer #status { color: var(--ink); }
+
+      @media (max-width: 980px) {
+        main { grid-template-columns: 1fr; grid-template-rows: 200px 1fr 240px; }
+        .rail.left { border-right: 0; border-bottom: 1px solid var(--line); }
+        .rail.right { border-left: 0; border-top: 1px solid var(--line); }
+        .stage { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+        .corner, #rulertop, #rulerleft { display: none; }
       }
     </style>
   </head>
   <body>
-    <header>
-      <div>
-        <h1>Ranger Fig</h1>
-        <p>Opens on a Figma export. Read your own <code>.fig</code> / <code>.deck</code> in this tab, or copy layers in Figma and paste them here (⌘V). ZIP → kiwi → scene graph → EVG. Nothing is uploaded.</p>
-      </div>
-      <div class="row">
-        <input id="file" type="file" accept=".fig,.deck,.jam,application/zip" />
-        <button id="sample" type="button" title="The deck Ranger builds in memory, with no file to read">Open sample</button>
-        <button id="paste" type="button" title="Read layers copied in Figma from the clipboard (or press ⌘V / Ctrl+V anywhere on the page)">Paste</button>
-        <label>Page <select id="page"></select></label>
-        <label>Frame <select id="frame"></select></label>
-        <button id="fit" type="button">Fit</button>
-        <span class="zoom">
-          <button id="zoomout" type="button" title="Zoom out (or scroll on the canvas)">&minus;</button>
-          <button id="zoomlab" type="button" title="Back to 100%">100%</button>
-          <button id="zoomin" type="button" title="Zoom in (or scroll on the canvas)">+</button>
-        </span>
-        <label><input id="debug" type="checkbox" /> Debug</label>
-      </div>
-    </header>
     <main>
-      <aside class="pane">
-        <div class="k">Layers</div>
-        <div id="tree" class="tree"></div>
+      <aside class="rail left">
+        <div class="railhead">
+          <span class="dot" aria-hidden="true"></span>
+          <span class="title" id="filename">Ranger Fig</span>
+        </div>
+        <div class="tabrow">
+          <div class="tabs" id="lefttabs">
+            <button type="button" data-pane="file" aria-selected="true">File</button>
+            <button type="button" data-pane="assets" aria-selected="false">Assets</button>
+          </div>
+        </div>
+        <div class="opener">
+          <label class="filebtn" title="Read a .fig / .deck / .jam from this machine">Open…
+            <input id="file" type="file" accept=".fig,.deck,.jam,application/zip" />
+          </label>
+          <button id="sample" type="button" title="The deck Ranger builds in memory, with no file to read">Sample</button>
+          <button id="paste" type="button" title="Read layers copied in Figma from the clipboard (⌘V / Ctrl+V anywhere)">Paste</button>
+        </div>
+        <div class="scroll" id="filepane">
+          <div class="cap">Pages <span class="n" id="pagecount"></span></div>
+          <div class="pages" id="pagelist"></div>
+          <div class="cap">Layers</div>
+          <div class="framepick">
+            <select id="frame" title="Draw one frame instead of the whole page"></select>
+          </div>
+          <div id="tree" class="tree"></div>
+        </div>
+        <div class="scroll" id="assetspane" hidden>
+          <div class="cap">Images in the file <span class="n" id="assetcount"></span></div>
+          <div class="assets" id="assets"></div>
+        </div>
       </aside>
+
       <section class="stage">
-        <canvas id="screen"></canvas>
+        <div class="corner"></div>
+        <canvas id="rulertop"></canvas>
+        <canvas id="rulerleft"></canvas>
+        <div class="board" id="board">
+          <canvas id="screen"></canvas>
+          <div id="sizebadge" hidden></div>
+          <div class="toolbar">
+            <button id="toolmove" type="button" aria-pressed="true" title="Select (V) — click a layer, drag to pan">
+              <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 1.6 12.6 8 8.4 9 6.6 13z"/></svg>
+            </button>
+            <button id="toolhand" type="button" aria-pressed="false" title="Hand (H) — drag to pan, clicks do not select">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M5 8V3.4a1 1 0 1 1 2 0V7m0-.6V2.6a1 1 0 1 1 2 0V7m0-.4V3.4a1 1 0 1 1 2 0V8m0-.6a1 1 0 1 1 2 0v3.1c0 2-1.6 3.5-3.5 3.5h-1c-1.2 0-2.3-.7-2.9-1.8L4 11.2c-.4-.7-.2-1.5.5-1.9.5-.3 1.2-.2 1.6.3l.9 1"/></svg>
+            </button>
+            <span class="sep"></span>
+            <button id="zoomout" type="button" title="Zoom out (or scroll on the board)">&minus;</button>
+            <button id="zoomlab" type="button" title="Back to 100%">100%</button>
+            <button id="zoomin" type="button" title="Zoom in (or scroll on the board)">+</button>
+            <button id="fit" type="button" title="Fit the page in the window">Fit</button>
+            <span class="sep"></span>
+            <button id="debugbtn" type="button" aria-pressed="false" title="Outline every layer and show the raw node beside the panel">Debug</button>
+            <label style="display:none"><input id="debug" type="checkbox" /></label>
+          </div>
+        </div>
       </section>
-      <aside class="pane">
-        <div class="k">Selected</div>
-        <div id="inspector" class="insp" hidden></div>
-        <pre id="props" class="props">click a layer or the canvas · drag to pan · scroll or +/&minus; to zoom</pre>
+
+      <aside class="rail right">
+        <div class="tabrow">
+          <div class="tabs" id="righttabs">
+            <button type="button" data-pane="design" aria-selected="true">Design</button>
+            <button type="button" data-pane="raw" aria-selected="false">Raw</button>
+          </div>
+          <span class="zoomread" id="zoomread">100%</span>
+        </div>
+        <div class="scroll" id="designpane">
+          <div id="inspector" class="insp" hidden></div>
+          <pre id="props" class="props">click a layer or the board · drag to pan · scroll or +/&minus; to zoom</pre>
+        </div>
+        <div class="scroll" id="rawpane" hidden>
+          <pre id="raw" class="props">select a layer to see the node the file carries and the layer it became</pre>
+        </div>
       </aside>
     </main>
+
     <footer>
       <span id="status">loading…</span>
       <span>nodes <b id="nodes">0</b></span>
@@ -186,12 +395,13 @@
       <span>frames <b id="kept">0 kept / 0 built</b></span>
       <span title="Nodes the reader could not draw fully. Click for the list."><a href="#" id="warnlink">unsupported</a> <b id="warns">0</b></span>
       <span title="Layers that put nothing on the canvas. Click for the scene by node type, and for the fields this file carries that the reader never looks at."><a href="#" id="unreadlink">draw nothing</a> <b id="unread">0</b></span>
-      <span>Ranger parse <b id="ms">–</b> ms</span>
+      <span class="sp">Ranger parse <b id="ms">–</b> ms</span>
       <span>OpenFig parse <b id="ofms">–</b> ms</span>
       <span>build __BUILD__</span>
       <span><a href="https://terotests.github.io/Ranger/">Ranger</a> ·
         <a href="https://github.com/OpenFig-org/openfig-cli">OpenFig</a></span>
     </footer>
+
     <script src="./fig_web.js?v=__BUILD__"></script>
     <script type="module" src="./standalone.mjs?v=__BUILD__"></script>
   </body>
