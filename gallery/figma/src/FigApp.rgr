@@ -439,7 +439,24 @@ class FigApp {
     ; twenty pixels into a card three thousand pixels across the board drew
     ; its ring at 20,16 — in the page's top-left corner, nowhere near the
     ; layer it was pointing at.
+    ; Whether the ENGINE draws the selection ring. A host that draws its own
+    ; — one with a DOM overlay over the board — turns this off, because the
+    ; ring it draws is better than the one here can be: in camera mode this
+    ; one's thickness is 2/zoom SCENE units, chosen when the frame is built,
+    ; and a kept frame moved to another zoom carries the band it was built
+    ; with. Fit a board and then zoom to 160% and the ring is thirty pixels
+    ; wide. An overlay follows the view instead of being baked into it.
+    def ring:boolean true
+
+    fn setRing:void (on:boolean) {
+        ring = on
+        this.rebuild()
+    }
+
     fn paintSelect:void () {
+        if (ring == false) {
+            return
+        }
         def n:SceneNode (this.absBox(selected))
         if ((strlen n.id) == 0) {
             return

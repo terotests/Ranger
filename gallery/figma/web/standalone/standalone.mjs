@@ -1457,8 +1457,14 @@ function selectionScreenBox() {
     ow = (p.w || d.w) * k;
     oh = (p.h || d.h) * k;
   }
+  // The angle the layer is drawn at, which is every turn above it composed
+  // with its own — the first column of the placement matrix says it.
+  let deg = d.rotation || 0;
+  if (p && p.own) deg = (Math.atan2(p.own.b, p.own.a) * 180) / Math.PI;
   return {
     d,
+    deg,
+    place: p,
     x: ox * v.sc + v.x,
     y: oy * v.sc + v.y,
     w: ow * v.sc,
@@ -1482,7 +1488,11 @@ function placeHandles() {
   }
   const { group, body, hs, rot } = buildHandles();
   handlesEl.hidden = false;
-  const deg = b.d.rotation || 0;
+  // THE ACCUMULATED ANGLE, not the layer's own. `rotation` on the pane is the
+  // turn the layer carries; what it looks like on the page is that turn AND
+  // every one above it. Turned by its own, a layer inside a turned frame got
+  // handles that leaned one way while the ring it belongs to leaned another.
+  const deg = b.deg;
   group.style.transformOrigin = b.x + "px " + b.y + "px";
   group.style.transform = deg ? `rotate(${deg}deg)` : "";
   body.style.left = b.x + "px";
@@ -1983,6 +1993,9 @@ async function openUrl(url, page, frame) {
 }
 window.__openUrl = openUrl;
 // One paint, on demand: what a bench times and what a test waits for.
+// The overlay draws the ring, so the engine does not — see `FigApp.setRing`.
+if (typeof web.setRing === "function") web.setRing(false);
+
 window.__draw = draw;
 // The chrome, for a test that selects without clicking.
 window.__refresh = refreshChrome;

@@ -820,6 +820,26 @@ class FigTest {
         app.editClip(true)
         this.check("a container can be told to cut its children off" (FigTest.hasSub((app.inspectJson()) "\"clip\":true")))
 
+        ; AN ID OF ITS OWN FOR EVERY COPY. A component's layers are drawn
+        ; under every instance of it, and each copy used to carry the
+        ; COMPONENT's id — so an arrow used three times was three layers all
+        ; called `2:143`. Everything that looks a layer up walks the page and
+        ; takes the FIRST match, so clicking the third arrow selected the
+        ; first: the ring, the panel's numbers and the handles all described
+        ; a layer somewhere else on the board. The outer layers were right
+        ; because a top-level node appears once — the page was right and its
+        ; insides were not.
+        def seen:[string:int]
+        def dups:int 0
+        def count:int 0
+        def pgs:[SceneNode] app.sceneDoc.pages
+        def pi:int 0
+        while (pi < (array_length pgs)) {
+            dups = (dups + (FigTest.countDupIds((itemAt pgs pi) seen)))
+            pi = (pi + 1)
+        }
+        this.eqInt("no layer on the page shares an id with another" dups 0)
+
         ; THE BOXES A DRAG CAN LINE UP WITH. A hand puts a layer where it
         ; looks right, and what "right" means is the edges of what is beside
         ; it — so the host is handed the siblings and the parent, in page
@@ -1077,6 +1097,23 @@ class FigTest {
         this.eqInt("same pages" (again.pageCount()) (whole.pageCount()))
         def bad (new FigApp())
         this.check("garbage refused" ((bad.openBytes((buffer_alloc 40) "junk")) == false))
+    }
+
+    ; Every id in the subtree, counted. Returns how many were already there.
+    sfn countDupIds:int (n:SceneNode seen:[string:int]) {
+        def dups:int 0
+        def had@(optional):int (get seen n.id)
+        if (null? had) {
+            set seen n.id 1
+        } {
+            dups = 1
+        }
+        def i:int 0
+        while (i < (array_length n.children)) {
+            dups = (dups + (FigTest.countDupIds((itemAt n.children i) seen)))
+            i = (i + 1)
+        }
+        return dups
     }
 
     sfn hasSub:boolean (s:string needle:string) {

@@ -213,7 +213,14 @@
       #handles { position: absolute; inset: 0; pointer-events: none; }
       #handles[hidden] { display: none; }
       #handles .grp { position: absolute; inset: 0; pointer-events: none; }
-      #handles .body { position: absolute; pointer-events: auto; cursor: move; }
+      /* THE RING ITSELF, not just something to grab. The engine can draw one
+         too, but in camera mode its thickness is chosen when the frame is
+         built and a kept frame moved to another zoom carries the band it was
+         built with — fit a board, zoom to 160%, and the ring is thirty pixels
+         wide. This one is a border on an element that follows the view, so it
+         is 1.5 pixels at every zoom and leans with the layer. */
+      #handles .body { position: absolute; pointer-events: auto; cursor: move;
+        border: 1.5px solid var(--accent); }
       #handles .h { position: absolute; width: 9px; height: 9px; margin: -5px 0 0 -5px;
         background: var(--panel); border: 1.5px solid var(--accent); border-radius: 2px;
         pointer-events: auto; box-shadow: 0 1px 2px rgba(16, 22, 32, 0.2); }
