@@ -47,6 +47,9 @@ class FigApp {
     def zoom:double 1.0
     def debug:boolean false
     def cmdCount:int 0
+    ; What the hit walk found, and how good a match it was.
+    def hitId:string ""
+    def hitScore:int 0
     def pageW:double 1200.0
     def pageH:double 800.0
 
@@ -379,30 +382,78 @@ class FigApp {
         if ((strlen id) == 0) {
             return box
         }
-        def found:boolean (this.absWalk((this.viewRoot()) 0.0 0.0 id box))
+        def found:boolean (this.absWalk((this.viewRoot()) (SceneMatrix.ident()) id box))
         return box
     }
 
-    fn absWalk:boolean (n:SceneNode ox:double oy:double id:string box:SceneNode) {
-        def nx:double (ox + n.x)
-        def ny:double (oy + n.y)
+    ; The walk carries the transform, not an offset: a rotated layer is
+    ; drawn through its matrix, so its corners are where the matrix puts
+    ; them and a ring drawn at x/y hung in the air beside it. The ring
+    ; itself stays square — the list draws axis-aligned frames — so what a
+    ; turned layer gets is the box that CONTAINS it, which points at the
+    ; right thing where the old one did not.
+    fn absWalk:boolean (n:SceneNode m:SceneMatrix id:string box:SceneNode) {
+        def here:SceneMatrix (m.mul((SceneMatrix.translate(n.x n.y))))
+        if n.hasXf {
+            here = (here.mul((n.xf.rotOnly())))
+        }
         if (n.id == id) {
+            def x0:double (here.applyX(0.0 0.0))
+            def y0:double (here.applyY(0.0 0.0))
+            def x1:double (here.applyX(n.w 0.0))
+            def y1:double (here.applyY(n.w 0.0))
+            def x2:double (here.applyX(n.w n.h))
+            def y2:double (here.applyY(n.w n.h))
+            def x3:double (here.applyX(0.0 n.h))
+            def y3:double (here.applyY(0.0 n.h))
+            def minX:double (FigApp.least4(x0 x1 x2 x3))
+            def minY:double (FigApp.least4(y0 y1 y2 y3))
+            def maxX:double (FigApp.most4(x0 x1 x2 x3))
+            def maxY:double (FigApp.most4(y0 y1 y2 y3))
             box.id = n.id
-            box.x = nx
-            box.y = ny
-            box.w = n.w
-            box.h = n.h
+            box.x = minX
+            box.y = minY
+            box.w = (maxX - minX)
+            box.h = (maxY - minY)
             return true
         }
         def i:int 0
         while (i < (array_length n.children)) {
             def ch:SceneNode (itemAt n.children i)
-            if (this.absWalk(ch nx ny id box)) {
+            if (this.absWalk(ch here id box)) {
                 return true
             }
             i = (i + 1)
         }
         return false
+    }
+
+    sfn least4:double (a:double b:double c:double d:double) {
+        def m:double a
+        if (b < m) {
+            m = b
+        }
+        if (c < m) {
+            m = c
+        }
+        if (d < m) {
+            m = d
+        }
+        return m
+    }
+
+    sfn most4:double (a:double b:double c:double d:double) {
+        def m:double a
+        if (b > m) {
+            m = b
+        }
+        if (c > m) {
+            m = c
+        }
+        if (d > m) {
+            m = d
+        }
+        return m
     }
 
     fn findScene:SceneNode (id:string) {
@@ -456,38 +507,85 @@ class FigApp {
         return evgDump
     }
 
+    ; What is under the pointer. Three things decide it, and each of them
+    ; was picking the wrong layer.
+    ;
+    ; THE POINT TRAVELS INTO EACH LAYER'S OWN SPACE. A rotated layer is
+    ; drawn through its transform and the hit test was made against the
+    ; unrotated box, so a tilted card answered for the space beside it and
+    ; never for itself — and the more a thing was turned, the further away
+    ; you had to click. The point is moved into the child's space on the
+    ; way down, the same way the renderer moves the pixels.
+    ;
+    ; A CHILD IS LOOKED AT WHETHER OR NOT ITS PARENT CONTAINS THE POINT.
+    ; Only a layer that CLIPS can keep its children from being picked.
+    ; Gating the walk on the parent's box made anything hanging out of its
+    ; frame unselectable — a sticker over a section's corner, an icon past
+    ; the edge of its button — and a group whose own box is empty, which a
+    ; FigJam frame often is, hid everything inside it.
+    ;
+    ; WHAT DRAWS WINS OVER WHAT DOES NOT, AND THE DEEPER OF TWO WINS. The
+    ; walk used to answer with the last layer it happened to be inside, so
+    ; a click landed on whatever container was drawn last rather than on
+    ; the thing you were pointing at. A layer that puts ink on the canvas
+    ; outranks the boxes it sits in, the deepest of those outranks its
+    ; parents, and between two of the same rank the one painted later wins
+    ; — which is the one on top.
     fn hit:string (x:double y:double) {
         def sx:double ((x - panX) / zoom)
         def sy:double ((y - panY) / zoom)
-        def root:SceneNode (this.viewRoot())
-        if (root.sourceType == "CANVAS") {
-            return (this.hitWalk(root 0.0 0.0 sx sy ""))
-        }
-        return (this.hitWalk(root 0.0 0.0 sx sy ""))
+        hitId = ""
+        hitScore = (0 - 1)
+        this.hitWalk((this.viewRoot()) sx sy 0)
+        return hitId
     }
 
-    fn hitWalk:string (n:SceneNode ox:double oy:double x:double y:double best:string) {
-        def nx:double (ox + n.x)
-        def ny:double (oy + n.y)
+    fn hitWalk:void (n:SceneNode x:double y:double depth:int) {
         def inside:boolean false
-        if ((((x >= nx) && (x <= (nx + n.w))) && (y >= ny)) && (y <= (ny + n.h))) {
+        if ((((x >= 0.0) && (x <= n.w)) && (y >= 0.0)) && (y <= n.h)) {
             inside = true
         }
         if (n.sourceType == "CANVAS") {
             inside = true
         }
         if inside {
-            if ((n.sourceType != "CANVAS") && ((strlen n.id) > 0)) {
-                best = n.id
-            }
-            def i:int 0
-            while (i < (array_length n.children)) {
-                def ch:SceneNode (itemAt n.children i)
-                best = (this.hitWalk(ch nx ny x y best))
-                i = (i + 1)
+            ; The stroke outline is not a layer anyone drew: it is the one
+            ; this reader emits to paint a layer's own stroke, and it sits
+            ; UNDER that layer, so it is deeper than the thing beside it
+            ; and was answering for it — a click on a table's heading came
+            ; back with the cell's rule.
+            if ((n.sourceType != "CANVAS") && ((strlen n.id) > 0) && (n.sourceType != "STROKE_GEOMETRY")) {
+                def score:int depth
+                if ((FigToScene.drawsNothing(n)) == false) {
+                    score = (score + 100000)
+                }
+                if (score >= hitScore) {
+                    hitScore = score
+                    hitId = n.id
+                }
             }
         }
-        return best
+        ; A clip is the one thing that stops the walk: outside it, nothing
+        ; inside it is drawn, so nothing inside it can be picked either.
+        if n.clip {
+            if (inside == false) {
+                return
+            }
+        }
+        def i:int 0
+        while (i < (array_length n.children)) {
+            def ch:SceneNode (itemAt n.children i)
+            def lx:double (x - ch.x)
+            def ly:double (y - ch.y)
+            if ch.hasXf {
+                def rx:double (ch.xf.unrotX(lx ly))
+                def ry:double (ch.xf.unrotY(lx ly))
+                lx = rx
+                ly = ry
+            }
+            this.hitWalk(ch lx ly (depth + 1))
+            i = (i + 1)
+        }
     }
 
     fn statsJson:string () {

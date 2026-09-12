@@ -544,6 +544,22 @@ class FigTest {
         def under:SceneNode (shapes.childNamed("Underlined"))
         this.check("the text kept the glyphs it was shaped into" (under.text.hasOutline()))
         this.check("and carries the underline the file computed" (FigTest.hasSub(under.text.outline "M10 30L130 30L130 33L10 33Z")))
+        ; Picking a layer. The point is moved into each layer's own space
+        ; on the way down, so a turned layer answers where it is DRAWN:
+        ; Tilt is 80x48 at 50,50 inside a frame at 40,600, turned 15
+        ; degrees about its own origin, and the part of it the turn puts at
+        ; 146,710 is well outside the square box the test used to be made
+        ; against — while 165,655 is inside that box and outside the layer.
+        app.setView(0.0 0.0 1.0)
+        this.eqStr("a turned layer is picked where it is drawn" (app.hit(146.0 710.0)) "3:31")
+        this.eqStr("and not where its square box was" (app.hit(165.0 655.0)) "3:13")
+        ; And a layer is picked whether or not its parent's box holds the
+        ; point: the sticker hangs 40 pixels above the section it is in,
+        ; and gating the walk on the parent left that half unselectable.
+        this.eqStr("a layer outside its parent is still picked" (app.hit(2980.0 1240.0)) "3:79")
+        ; The deepest thing that puts ink on the canvas wins, so a click on
+        ; a cell's text is the text and not the box it sits in.
+        this.eqStr("the deepest drawn layer wins" (app.hit(3000.0 818.0)) "3:61#40000000:1/9:2")
         ; A component out of a library keeps its identity in overrideKey,
         ; and the override path names that and not the guid the copy was
         ; given. The text is in what the designer typed; the size is in

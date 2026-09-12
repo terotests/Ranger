@@ -1063,6 +1063,9 @@ class FigSample {
         sect.put("strokePaints" (FigSample.paints(0.6 0.9 0.72)))
         sect.put("strokeWeight" (KiwiValue.fromDouble(1.0)))
         sect.put("strokeGeometry" (FigSample.geomBlob(0)))
+        ; A FigJam section does not clip what is on it, and says so the way
+        ; a real one does.
+        sect.put("frameMaskDisabled" (KiwiValue.fromBool(true)))
         nodes.pushItem(sect)
         def sticker:KiwiValue (FigSample.node(3 79 "ROUNDED_RECTANGLE" "Sticker" 3 78 "a" 80.0 80.0 360.0 (0.0 - 40.0)))
         sticker.put("fillPaints" (FigSample.paints(0.1 0.1 0.1)))

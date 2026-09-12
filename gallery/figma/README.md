@@ -343,6 +343,26 @@ its parent, so a title twenty pixels into a card three thousand pixels
 across the board is not at 20,16 — where the ring used to be drawn, in the
 corner of the page and nowhere near what it was pointing at.
 
+**What the click lands on.** Three things decide it, and each of them used
+to pick the wrong layer. The point travels into each layer's own space on
+the way down, the same way the renderer moves the pixels — a rotated layer
+was being tested against its unrotated box, so it answered for the space
+beside it and the more it was turned the further away you had to click. A
+child is looked at whether or not its parent's box holds the point; only a
+layer that CLIPS can keep its children from being picked, where gating the
+walk on the parent made anything hanging out of its frame unselectable and
+a group whose own box is empty — which a FigJam frame often is — hid
+everything inside it. And what draws wins over what does not, the deeper of
+two wins, and between two of the same rank the one painted later does: the
+walk used to answer with whatever container it happened to be inside last.
+The stroke outline this reader emits to paint a layer's own stroke is not a
+layer anyone drew, so it is not offered — it sits under the layer it
+belongs to and was answering for the one beside it.
+
+The ring follows the same walk, so a turned layer gets the box that
+contains it rather than one hanging in the air beside it. The ring itself
+stays square: the display list draws axis-aligned frames.
+
 The pane is not a list of facts about the layer. The numbers on it ARE the
 layer: type one and the page is painted again. Figma answers this with a
 grid of boxes; here only what you can change looks like a field and
