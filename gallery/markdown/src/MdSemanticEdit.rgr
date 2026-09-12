@@ -306,6 +306,134 @@ class MdSemanticEdit {
 
     ; The node kind each marker produces, so "is it already on" is asked of
     ; the tree rather than of the characters.
+    ; ----------------------------------------------------------------------
+    ; Which blocks a selection touches
+    ; ----------------------------------------------------------------------
+    ;
+    ; Emphasis is an INLINE construct: a `**` run cannot cross a block
+    ; boundary. Wrapping a selection that spans three list items in one marker
+    ; pair therefore produces a document with no emphasis in it at all — four
+    ; literal asterisks — which is what a reader saw when they selected a list
+    ; and pressed bold. The markers did not "leak" from the preview to the
+    ; source: the source IS the document, the patch was applied to it, and the
+    ; preview was the parser being correct about a document that was wrong.
+    ;
+    ; So the unit of a wrap is the BLOCK, not the selection. These two
+    ; functions find the blocks, and `toggleWrap` puts one marker pair inside
+    ; each of them.
+    sfn isInlineBlock:boolean (kind:string) {
+        if (kind == "paragraph") { return true }
+        if (kind == "heading") { return true }
+        if (kind == "table_cell") { return true }
+        return false
+    }
+
+    ; Every such block OVERLAPPING [a,b), in document order, flattened as
+    ; start/end pairs.
+    ;
+    ; The list is RETURNED rather than grown through the parameter: `push` onto
+    ; an array parameter lands on a copy on the Go target, which is a bug that
+    ; has already cost this repository an empty routing grid once.
+    sfn collectBlocks:[int] (out:[int] n:MdNode a:int b:int) {
+        def res:[int] out
+        if (MdSemanticEdit.isInlineBlock(n.kind)) {
+            if (n.srcStart >= 0) {
+                if ((n.srcStart < b) && (n.srcEnd > a)) {
+                    push res n.srcStart
+                    push res n.srcEnd
+                }
+            }
+            ; Not deeper: the children of a paragraph are inline nodes, and an
+            ; inline node is not a block a marker pair goes inside.
+            return res
+        }
+        def i:int 0
+        def cnt:int (n.childCount())
+        while (i < cnt) {
+            def k:MdNode (n.childAt(i))
+            res = (MdSemanticEdit.collectBlocks(res k a b))
+            i = (i + 1)
+        }
+        return res
+    }
+
+    ; The selection, cut up by block and tightened: what each block actually
+    ; contributes. Two ints per clip.
+    ;
+    ; Used by `toggleWrap` to place the markers and by `refusalFor` to decide
+    ; whether the answer is defined. One function for both, because a refusal
+    ; computed over a different set of ranges from the edit is a refusal that
+    ; does not describe the edit.
+    sfn clipsOf:[int] (src:string doc:MdNode a:int b:int) {
+        def clips:[int]
+        def blocks:[int]
+        blocks = (MdSemanticEdit.collectBlocks(blocks doc a b))
+        def nb:int (to_int ((array_length blocks) / 2))
+        def i:int 0
+        while (i < nb) {
+            def bs:int (itemAt blocks (i * 2))
+            def be:int (itemAt blocks ((i * 2) + 1))
+            def s:int bs
+            def e:int be
+            if (a > s) { s = a }
+            if (b < e) { e = b }
+            if (e > s) {
+                def t:[int] (MdSemanticEdit.tighten(src s e))
+                def ts:int (itemAt t 0)
+                if (ts >= 0) {
+                    push clips ts
+                    push clips (itemAt t 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return clips
+    }
+
+    ; [s,e) with whitespace taken off both ends. A marker next to a space is
+    ; not a delimiter — `** bold**` is two asterisks and a word — which is the
+    ; same rule `guardWhitespace` above enforces from the other direction.
+    ; Returns a start of -1 when nothing is left.
+    sfn tighten:[int] (src:string s:int e:int) {
+        def out:[int]
+        def a:int s
+        def b:int e
+        while (a < b) {
+            if (MdSemanticEdit.isEdgeSpace((charAt src a))) {
+                a = (a + 1)
+            } {
+                break
+            }
+        }
+        while (b > a) {
+            if (MdSemanticEdit.isEdgeSpace((charAt src (b - 1)))) {
+                b = (b - 1)
+            } {
+                break
+            }
+        }
+        if (b <= a) {
+            push out -1
+            push out -1
+            return out
+        }
+        push out a
+        push out b
+        return out
+    }
+
+    ; Whitespace for the purpose of an EDGE. A newline counts here and does
+    ; not in `isSpaceCode`, which asks a different question: that one is about
+    ; a character a reader typed next to a marker, this one is about a
+    ; selection that ran past the end of a line on its way to the next block.
+    sfn isEdgeSpace:boolean (c:int) {
+        if (c == 32) { return true }
+        if (c == 9) { return true }
+        if (c == 10) { return true }
+        if (c == 13) { return true }
+        return false
+    }
+
     sfn kindFor:string (what:string) {
         if (what == "bold") { return "strong" }
         if (what == "italic") { return "emph" }
@@ -329,11 +457,40 @@ class MdSemanticEdit {
     sfn refusalFor:string (src:string doc:MdNode what:string a:int b:int) {
         def kind:string (MdSemanticEdit.kindFor(what))
         if ((strlen kind) == 0) { return "no such intent" }
+
+        ; Asked PER BLOCK, over the same clips `toggleWrap` will write into.
+        ;
+        ; Asked over the whole selection it refuses the ordinary case: a
+        ; selection covering three bolded items half-straddles the first
+        ; item's own `**` run, because that run does not reach the end of the
+        ; selection — it reaches the end of its block, which is all a run can
+        ; do. Half in and half out is a fact about one block, and this is the
+        ; range in which it is a fact.
+        def clips:[int] (MdSemanticEdit.clipsOf(src doc a b))
+        def nc:int (to_int ((array_length clips) / 2))
+        def i:int 0
+        while (i < nc) {
+            def cs:int (itemAt clips (i * 2))
+            def ce:int (itemAt clips ((i * 2) + 1))
+            if (MdSemanticEdit.straddles(doc kind cs ce)) {
+                return ("the selection is half inside " + (kind + " and half outside it"))
+            }
+            ; A selection that runs across a code span has no bold either: the
+            ; markers would land inside the code and be drawn as characters.
+            if (what != "code") {
+                if (MdSemanticEdit.straddles(doc "code" cs ce)) {
+                    return "the selection crosses the edge of a code span"
+                }
+            }
+            i = (i + 1)
+        }
+        if (nc > 0) { return "" }
+
+        ; No block at all — a selection in the margin, or over a fence. The
+        ; whole-selection question is the only one left to ask.
         if (MdSemanticEdit.straddles(doc kind a b)) {
             return ("the selection is half inside " + (kind + " and half outside it"))
         }
-        ; A selection that runs across a code span has no bold either: the
-        ; markers would land inside the code and be drawn as characters.
         if (what != "code") {
             if (MdSemanticEdit.straddles(doc "code" a b)) {
                 return "the selection crosses the edge of a code span"
@@ -367,12 +524,106 @@ class MdSemanticEdit {
             return op
         }
 
-        ; Off, then. The selection, wrapped.
-        def sel:string ""
-        if (b > a) { sel = (substring src a b) }
-        def op2:MdEditOp (MdEdit.patch(src a b ((marker + sel) + marker)))
-        op2.selAfterA = (a + mlen)
-        op2.selAfterB = ((a + mlen) + (strlen sel))
+        ; Off, then — one marker pair INSIDE each block the selection touches.
+        ;
+        ; One pair around the whole selection is what this did, and across a
+        ; block boundary it produces a document with no emphasis in it. See
+        ; `collectBlocks` above for why the block is the unit.
+        def clips:[int] (MdSemanticEdit.clipsOf(src doc a b))
+        def nc:int (to_int ((array_length clips) / 2))
+        if (nc == 0) { return none }
+
+        ; Which clips ALREADY carry this emphasis, and over what span. Asked
+        ; once, because the answer decides the whole operation: every block on
+        ; means turn them off, anything else means turn them all on. That is
+        ; what a word processor does with a mixed selection, and the reader
+        ; who presses bold on one means "make these bold" rather than "invert
+        ; each of these".
+        def encS:[int]
+        def encE:[int]
+        def allOn:boolean true
+        def k:int 0
+        while (k < nc) {
+            def cs0:int (itemAt clips (k * 2))
+            def ce0:int (itemAt clips ((k * 2) + 1))
+            def found2:[MdNode]
+            if ((MdSemanticEdit.enclosing(found2 doc kind cs0 ce0)) > 0) {
+                def nd:MdNode (itemAt found2 0)
+                push encS nd.srcStart
+                push encE nd.srcEnd
+            } {
+                push encS -1
+                push encE -1
+                allOn = false
+            }
+            k = (k + 1)
+        }
+
+        if allOn {
+            ; Off, across every block: each node's own span replaced by what
+            ; is inside it, which is why the node carries one.
+            def rlo:int (itemAt encS 0)
+            def rhi:int (itemAt encE (nc - 1))
+            def rtext:string ""
+            def cur:int rlo
+            def m2:int 0
+            while (m2 < nc) {
+                def ns:int (itemAt encS m2)
+                def ne:int (itemAt encE m2)
+                if (ns > cur) { rtext = (rtext + (substring src cur ns)) }
+                def innerFrom:int (ns + mlen)
+                def innerTo:int (ne - mlen)
+                if (innerTo > innerFrom) {
+                    rtext = (rtext + (substring src innerFrom innerTo))
+                }
+                cur = ne
+                m2 = (m2 + 1)
+            }
+            def rop:MdEditOp (MdEdit.patch(src rlo rhi rtext))
+            rop.selAfterA = rlo
+            rop.selAfterB = (rlo + (strlen rtext))
+            return rop
+        }
+
+        def lo:int (itemAt clips 0)
+        def hi:int (itemAt clips ((nc * 2) - 1))
+        def outText:string ""
+        def cursor:int lo
+        ; Whether the FIRST and the LAST clip actually got markers, so the
+        ; selection can be put back on the text rather than around the
+        ; delimiters — a reader who bolds a word expects the word still
+        ; selected, not the word and two asterisks.
+        def firstWrapped:boolean false
+        def lastWrapped:boolean false
+        def j:int 0
+        while (j < nc) {
+            def cs:int (itemAt clips (j * 2))
+            def ce:int (itemAt clips ((j * 2) + 1))
+            if (cs > cursor) {
+                outText = (outText + (substring src cursor cs))
+            }
+            def body:string (substring src cs ce)
+            ; A block already carrying this emphasis is left alone rather than
+            ; wrapped again: `****x****` is not "more bold", it is two empty
+            ; delimiter runs.
+            def already:boolean ((itemAt encS j) >= 0)
+            if already {
+                outText = (outText + body)
+            } {
+                outText = ((outText + marker) + body) + marker
+            }
+            if (j == 0) { firstWrapped = (! already) }
+            if (j == (nc - 1)) { lastWrapped = (! already) }
+            cursor = ce
+            j = (j + 1)
+        }
+        def op2:MdEditOp (MdEdit.patch(src lo hi outText))
+        def selA:int lo
+        if firstWrapped { selA = (lo + mlen) }
+        def selB:int (lo + (strlen outText))
+        if lastWrapped { selB = (selB - mlen) }
+        op2.selAfterA = selA
+        op2.selAfterB = selB
         return op2
     }
 

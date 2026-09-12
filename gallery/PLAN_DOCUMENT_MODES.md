@@ -271,15 +271,31 @@ Ordered by value ÷ risk, with the live bug first. Each stage names the check
 that would catch its failure, because a stage without one gets reported as done
 twice.
 
-### Stage A — the invariant, and the bug it catches — not started
+### Stage A — the invariant, and the bug it catches — ✅ done
 
 `toggleWrap` splits at block boundaries: one marker pair per block the
-selection touches. The corpus harness of §2 lands with it, because the fix
-without the harness is the third instance of this family waiting to happen.
-Needed whatever §3 does, because the same command runs over a source selection.
+selection touches, by way of `collectBlocks` and `clipsOf`. A block already
+carrying the emphasis is left alone rather than wrapped again, and turning it
+off works across blocks too — every block on means turn them off, anything else
+means turn them all on, which is what a word processor does with a mixed
+selection.
 
-*The check:* the corpus, asserting the TREE after a reparse — and a case whose
-selection spans three list items asserting three emphasis nodes, not one.
+`refusalFor` moved to the same clips. Asked over the whole selection it refused
+the ordinary case: a selection covering three bolded items half-straddles the
+first item's `**` run, because that run stops at the end of its block, which is
+all a run can do. Half in and half out is a fact about ONE BLOCK, and the clip
+is the range in which it is a fact. Both the edit and the refusal read the same
+`clipsOf`, because a refusal computed over different ranges from the edit is a
+refusal that does not describe the edit.
+
+*The check:* the corpus in `MdSemanticTest.corpus` — eleven selection SHAPES,
+each asking the reparsed tree three questions. The cheapest of the three turned
+out to be the strongest: **adding or removing emphasis must not change the
+document's plain text**, because a marker that lands where it is not a
+delimiter stops being markup and becomes a character, and a character shows up
+there and nowhere else. Plus the page's own check driving `app.run` — the
+toolbar a reader actually presses — asserting three BOLD RUNS on the page and
+no asterisk drawn as a character, since four literal asterisks would draw too.
 
 ### Stage B — the switch, with markdown still behind it — not started
 

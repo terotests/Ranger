@@ -1326,6 +1326,39 @@ function selftest() {
   app.undo();
   say("and undone too", app.sourceText() === "one two three\n");
 
+  // Bold over a LIST — the gesture that made a reader look at the source and
+  // find four asterisks in it. Emphasis is inline and cannot cross a block
+  // boundary, so one marker pair around three items is a document with no
+  // emphasis in it at all. One pair per item is what markdown means.
+  //
+  // Checked through `app.run` rather than through `MdSemanticEdit`, because
+  // the toolbar is the seam a reader actually presses.
+  {
+    const list3 = "- Verkkokauppa kasvoi 18 %\n- Jalleenmyynti pysyi ennallaan\n- Lisenssit laskivat 4 %\n";
+    app.setSource(list3);
+    app.setSelection(list3.indexOf("Verkkokauppa"), list3.indexOf("4 %") + 3);
+    say("bold over three list items ran", app.run("format.bold", ""));
+    const bolded = app.sourceText();
+    say(
+      "…and each item got its own markers",
+      bolded === "- **Verkkokauppa kasvoi 18 %**\n- **Jalleenmyynti pysyi ennallaan**\n- **Lisenssit laskivat 4 %**\n",
+      bolded.split("\n")[0]
+    );
+    // The proof that it MEANS bold, rather than merely looking like it in the
+    // source: three bold runs on the page. Four literal asterisks would draw
+    // too, which is why the source alone is not the check.
+    const boldRuns = JSON.parse(app.frame()).list.cmds.filter(
+      (c) => c.k === 3 && c.font && c.font.endsWith("-Bold") && (c.text || "").length > 4
+    );
+    say("…and the page draws three bold runs", boldRuns.length === 3, boldRuns.length + " runs");
+    const stars = JSON.parse(app.frame()).list.cmds.filter(
+      (c) => c.k === 3 && (c.text || "").indexOf("*") >= 0
+    );
+    say("…and no asterisk is drawn as a character", stars.length === 0, stars.length + " runs with a star");
+    say("bold again ran", app.run("format.bold", ""));
+    say("…and gave back the file byte for byte", app.sourceText() === list3);
+  }
+
   // A refusal says why rather than writing markdown nobody typed.
   app.setSource("a **bold** b\n");
   app.setSelection(6, 12);
