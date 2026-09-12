@@ -522,12 +522,14 @@ Images, tables and mermaid fences, in that order.
   diagram geometry is not in this plan.
 
 **A larger question this plan does not answer:** it assumes throughout that the
-markdown file is the truth and the preview is a view of it. A reader who edits
-the preview expects the opposite, and a gesture markdown cannot hold — bold
-across three list items — is translated anyway, into markdown that reparses as
-literal asterisks. [`../PLAN_DOCUMENT_MODES.md`](../PLAN_DOCUMENT_MODES.md)
-takes that up: four modes, two of them lossless, two of them one-way doors into
-the PowerPoint and Word editors already in this repository.
+markdown file is the truth and the preview is a view of it, and that a gesture
+on the preview can always be translated back. It cannot — markdown holds
+neither a text box nor a colour nor a run of 14pt semibold, and a gesture it
+cannot hold is translated anyway today: bold across three list items becomes
+four literal asterisks. [`../PLAN_DOCUMENT_MODES.md`](../PLAN_DOCUMENT_MODES.md)
+takes that up, and its answer inverts the assumption above: the preview is
+read-only until a reader explicitly turns editing on, and from that moment the
+preview is the truth and this pane is read-only provenance.
 
 *Still open:* the `EVGSelectChrome` handles themselves, and the drag that
 turns one into a width. The width they would write is already honoured, so

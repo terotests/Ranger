@@ -495,8 +495,14 @@ edits the PREVIEW. Today the markdown file is the only truth and every gesture
 on the right is translated into a patch on it — which works until a gesture
 markdown cannot hold is translated anyway. Selecting three list items and
 pressing bold writes one marker pair around the lot, and CommonMark reads that
-as four literal asterisks rather than as emphasis. The four modes that answer
-it — MD, MD + CSS, and one-way doors into the real PowerPoint and Word editors
-this repository already has — and the staging for them are in
-[`../PLAN_DOCUMENT_MODES.md`](../PLAN_DOCUMENT_MODES.md). The bytes a picture
-or a background image needs are in [`../vfs/PLAN_VFS.md`](../vfs/PLAN_VFS.md).
+as four literal asterisks rather than as emphasis.
+
+The answer is not a better filter on those gestures. It is one explicit,
+one-way switch: the preview is read-only until a reader turns editing on, and
+from that moment the preview is the truth and the source pane is read-only
+provenance. After the switch nothing has to be refused for markdown's sake,
+which is the whole payoff — and behind it stand the PowerPoint and Word editors
+this repository already has, rather than a third one.
+[`../PLAN_DOCUMENT_MODES.md`](../PLAN_DOCUMENT_MODES.md) has the modes and the
+staging; the bytes a picture or a background image needs are in
+[`../vfs/PLAN_VFS.md`](../vfs/PLAN_VFS.md).
