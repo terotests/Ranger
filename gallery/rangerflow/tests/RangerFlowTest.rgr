@@ -4464,6 +4464,51 @@ class RangerFlowTest {
             inside = false
         }
         c.ok("a node in no cluster stands outside the frame" (inside == false))
+
+        ; The frame has to ADOPT what it was drawn around, or dragging the
+        ; cluster leaves its nodes behind and the box means nothing.
+        ; `FlowEditor.beginDrag` takes every node whose ancestor is selected,
+        ; and `parentId` is the whole of what tells it so.
+        c.eqStr("a node in the cluster belongs to its frame" x.parentId "__cluster_cluster_a")
+        def y:FlowNode (g.nodeById("y"))
+        c.eqStr("and so does the other one" y.parentId "__cluster_cluster_a")
+        c.eqStr("a node in no cluster belongs to nothing" z.parentId "")
+        def ed:FlowEditor (FlowEditor.of(g))
+        frame.selected = true
+        ed.beginDrag()
+        c.eqInt("dragging the cluster takes it and its two nodes" (array_length ed.dragIds) 3)
+        frame.selected = false
+
+        ; A cluster inside a cluster: the inner nodes belong to the INNER
+        ; frame, the inner frame belongs to the outer one, and the outer box
+        ; is drawn round the inner box rather than through it.
+        def nsrc:string "digraph {\n"
+        nsrc = (nsrc + "  subgraph cluster_out {\n")
+        nsrc = (nsrc + "    label=\"out\";\n")
+        nsrc = (nsrc + "    p;\n")
+        nsrc = (nsrc + "    subgraph cluster_in { label=\"in\"; q; r }\n")
+        nsrc = (nsrc + "  }\n")
+        nsrc = (nsrc + "  p -> q;\n")
+        nsrc = (nsrc + "  q -> r;\n")
+        nsrc = (nsrc + "}\n")
+        def nd:DotGraph (DotReader.parse(nsrc))
+        def nstyle (new FlowStyle)
+        def ng:FlowGraph (DotFlow.build(nd nstyle))
+        def outer:FlowNode (ng.nodeById("__cluster_cluster_out"))
+        def innerF:FlowNode (ng.nodeById("__cluster_cluster_in"))
+        def q:FlowNode (ng.nodeById("q"))
+        def pn:FlowNode (ng.nodeById("p"))
+        c.eqStr("a node in the inner cluster belongs to the inner frame" q.parentId "__cluster_cluster_in")
+        c.eqStr("the inner frame belongs to the outer one" innerF.parentId "__cluster_cluster_out")
+        c.eqStr("and a node of the outer cluster alone belongs to it" pn.parentId "__cluster_cluster_out")
+        c.ok("the outer box starts above the inner one" (outer.y <= innerF.y))
+        c.ok("and ends below it" (((outer.y + outer.height)) >= ((innerF.y + innerF.height))))
+        c.ok("it starts left of it" (outer.x <= innerF.x))
+        c.ok("and ends right of it" (((outer.x + outer.width)) >= ((innerF.x + innerF.width))))
+        def ed2:FlowEditor (FlowEditor.of(ng))
+        outer.selected = true
+        ed2.beginDrag()
+        c.eqInt("dragging the outer cluster takes the whole nest" (array_length ed2.dragIds) 5)
     }
 
     ; A record label is a box language, an HTML label is a table, and both are

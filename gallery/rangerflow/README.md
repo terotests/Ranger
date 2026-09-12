@@ -1146,7 +1146,12 @@ attribute defaults that are the subtlest part of the language — `node
 [shape=box]` reaches forward, not back, and not into a sibling subgraph.
 `DotFlow` hands the result to the layered layout, and from there it is the same
 road a Mermaid flowchart takes. A cluster is drawn as a band, not a bounding
-box, for the reason the PlantUML packages needed it.
+box, for the reason the PlantUML packages needed it — and the frame **adopts**
+what it was drawn around (`FlowNode.parentId`), which is the whole of what
+makes dragging a cluster bring its nodes with it. A nest of clusters adopts one
+level at a time: the inner nodes belong to the inner frame, the inner frame to
+the outer one, and the outer box is grown over the inner frame's own padding
+and title band so it is drawn round its child rather than through it.
 
 The edges are drawn by `ReadableRouter`, the router that can see every other
 edge — and the choice is measured rather than assumed. On a diagram of ordinary
