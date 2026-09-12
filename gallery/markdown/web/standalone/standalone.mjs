@@ -2039,7 +2039,7 @@ function selftest() {
   // LAST in the run, because it is one-way and nothing after it can go back to
   // editing markdown.
   {
-    app.setSource("# Yksi\n\nKappale tassa.\n\n## Kaksi\n\nToinen kappale.\n");
+    app.setSource("# Yksi\n\nKappale tassa.\n\n```dot\ndigraph { saapuu -> tarkista; }\n```\n");
     app.setMode("slides");
     say("the deck does not own the document yet", app.deckOwns() === false);
     say("…and nothing asks it how many slides it has", app.deckSlideCount() === 0);
@@ -2069,6 +2069,41 @@ function selftest() {
       say("a click on a shape selects it", app.deckSelection() === 1, app.deckSelection() + " selected");
       say("…and moving it is the editor's move", app.deckMove(12, 0));
       say("…which is one undo like any other", app.run("edit.undo", ""));
+    }
+
+    // A DRAWING on the deck can be read back and drawn again — the round trip
+    // the source in `p:cNvPr/a:extLst` was carried for. Not a new editor: the
+    // readers that draw a diagram are the ones that already draw it.
+    //
+    // Once the deck owns the document the markdown pane has nothing to edit;
+    // selecting a drawing gives it something again.
+    {
+      const cmds2 = screenCmds(JSON.parse(app.frame()));
+      const label = cmds2.find((c) => c.k === 3 && (c.text || "").indexOf("saapuu") >= 0);
+      say("a drawing is on the slide", !!label);
+      if (label) {
+        app.click(label.x + 2, label.y + 2, false);
+        const dsrc = app.deckDiagramSource();
+        say("selecting it gives back its own source", dsrc.indexOf("digraph") >= 0, JSON.stringify(dsrc));
+        say("…in the notation it was written in", app.deckDiagramNotation() === "graphviz",
+            app.deckDiagramNotation());
+
+        const before = JSON.parse(app.frame()).list.cmds
+          .some((c) => c.k === 3 && (c.text || "").indexOf("laskuta") >= 0);
+        say("the node about to be added is not on the slide yet", !before);
+        say("drawing it again from new text runs",
+            app.deckRedrawDiagram("digraph { saapuu -> tarkista; tarkista -> laskuta; }"));
+        // The noun the change is about: a node ADDED has to appear. Asserting
+        // only that something changed would pass on a redraw that lost
+        // everything.
+        const after = JSON.parse(app.frame()).list.cmds
+          .some((c) => c.k === 3 && (c.text || "").indexOf("laskuta") >= 0);
+        say("…and the added node is drawn", after);
+        say("half-typed text is refused", app.deckRedrawDiagram("digraph {") === false);
+        const still = JSON.parse(app.frame()).list.cmds
+          .some((c) => c.k === 3 && (c.text || "").indexOf("laskuta") >= 0);
+        say("…and the drawing is untouched", still);
+      }
     }
 
     // …and saving writes what the READER edited, not the markdown converted

@@ -30,6 +30,8 @@ Import "../src/MdDiagram.rgr"
 Import "../src/MdThemes.rgr"
 Import "../../pptx/src/PptxA11y.rgr"
 Import "../../vfs/src/Vfs.rgr"
+Import "../../pptx/src/PptxEdit.rgr"
+Import "../src/MdDeckDiagram.rgr"
 
 
 class DeckCheck {
@@ -305,6 +307,151 @@ class MdPptxTest {
             ((buffer_length bmodel.bgImage) == (strlen raw)))
         c.ok("…and it is the picture the template named"
             ((strlen bmodel.bgImageName) > 0))
+    }
+
+
+    ; ----------------------------------------------------------------------
+    ; A drawing is an object a reader handles
+    ; ----------------------------------------------------------------------
+    ;
+    ; The reader's words: the PPTX renderer has to embed diagrams as objects
+    ; that can be MOVED, and at minimum their size has to be changeable.
+    ;
+    ; Most of that is `PptxEditor` already working on a group, and this is the
+    ; check that it does — through the editor and not through the model, so a
+    ; drawing is handled by the same code every other shape is. What needs
+    ; deciding is what a RESIZE means, and the honest answer is that it
+    ; scales: PowerPoint scales a group's child space, and re-laying a diagram
+    ; out at its new size would need something running inside PowerPoint. The
+    ; markdown side's `{width=360}` is the way to re-flow one.
+    fn drawingObject:void (c:DeckCheck) {
+        print "-- a drawing is moved and resized like any other shape --"
+        def src:string "# Title\n\n```dot\ndigraph { a -> b; }\n```\n"
+        def css:string "page { width: 720pt; height: 405pt; padding: 36pt }"
+        def d:PptxDeck (this.build(src css))
+
+        def ed (new PptxEditor())
+        ed.attach(d.pres)
+        def sl0:PptxSlideRef (d.slideAt(0))
+        def g:PptxShape (MdPptxTest.firstGroup(sl0))
+        c.ok("there is a drawing to handle" (g.kind == 2))
+        if (g.kind != 2) { return }
+        def wasX:double g.x
+        def wasY:double g.y
+        def wasW:double g.width
+        def wasH:double g.height
+
+        ; Selected the way a click selects it, from the middle of the group.
+        def midX:double (g.x + (g.width / 2.0))
+        def midY:double (g.y + (g.height / 2.0))
+        c.ok("a click inside it selects it" (ed.selectAt(midX midY false)))
+        c.eqInt("…and selects exactly one thing" (array_length ed.selection) 1)
+
+        c.ok("it moves" (ed.moveSelection(24.0 12.0)))
+        c.ok("…and the move is on the shape" (((g.x - wasX) > 23.0) && ((g.y - wasY) > 11.0)))
+
+        ; …and it is STILL one group afterwards. A move that flattened a
+        ; drawing into loose shapes would look identical on the slide and be
+        ; unusable the next time a reader touched it.
+        def after:PptxShape (MdPptxTest.firstGroup(sl0))
+        c.ok("…and it is still one group" (after.kind == 2))
+        c.eqInt("…with the same children in it" (array_length after.children) (array_length g.children))
+
+        c.ok("one undo puts it back" (ed.undo()))
+        def back:PptxShape (MdPptxTest.firstGroup(sl0))
+        c.ok("…exactly where it was" (((fabs (back.x - wasX)) < 0.01) && ((fabs (back.y - wasY)) < 0.01)))
+
+        ; …and the size, which is the half the reader asked for by name.
+        ed.selectAt(midX midY false)
+        c.ok("it resizes" (ed.resizeSelection(4 40.0 20.0)))
+        def sized:PptxShape (MdPptxTest.firstGroup(sl0))
+        c.ok("…and the extent changed" ((fabs (sized.width - wasW)) > 1.0))
+
+        ; The trip that proves it: out through the writer and back.
+        def outDeck:PptxDeck (this.reopened(d))
+        def rsl:PptxSlideRef (outDeck.slideAt(0))
+        def r:PptxShape (MdPptxTest.firstGroup(rsl))
+        c.ok("the drawing came back as one group" (r.kind == 2))
+        c.ok("…at the size it was left at" ((fabs (r.width - sized.width)) < 1.0))
+        c.ok("…and still knowing what it is" (MdPptxTest.hasSub(r.name "Graphviz")))
+        c.ok("…and still carrying its source" ((strlen r.embedSource) > 0))
+    }
+
+
+    ; ----------------------------------------------------------------------
+    ; …and it can be edited, with the readers that drew it
+    ; ----------------------------------------------------------------------
+    ;
+    ; The round trip the source was carried for. Not a new editor: the readers
+    ; that draw a diagram are the ones that already draw it, and the drawing is
+    ; `PptxFromEvg`'s. What is new is the REPLACE — same slide, same position,
+    ; same identity, new geometry.
+    ;
+    ; The check counts the noun the change is about: a node ADDED to the source
+    ; has to appear as a label on the slide. Asserting only that the group
+    ; changed would pass on a redraw that lost everything.
+    fn drawingEdit:void (c:DeckCheck) {
+        print "-- a drawing on a slide can be read back and drawn again --"
+        def src:string "# Title\n\n```dot\ndigraph { saapuu -> tarkista; }\n```\n"
+        def css:string "page { width: 720pt; height: 405pt; padding: 36pt }"
+        def d:PptxDeck (this.build(src css))
+        def sl:PptxSlideRef (d.slideAt(0))
+        def g:PptxShape (MdPptxTest.firstGroup(sl))
+        c.ok("the slide has a drawing on it" (MdDeckDiagram.isDrawing(g)))
+        if (! (MdDeckDiagram.isDrawing(g))) { return }
+
+        def sl0:PptxSlide (sl.model())
+        def found:[PptxShape] (MdDeckDiagram.drawingsOn(sl0))
+        c.eqInt("…and it is found by asking the slide" (array_length found) 1)
+        c.eqStr("its source is the fence a reader wrote"
+            (MdDeckDiagram.sourceOf(g)) "digraph { saapuu -> tarkista; }\n")
+        c.eqStr("…in the notation it was written in" (MdDeckDiagram.notationOf(g)) "graphviz")
+
+        ; Where the reader left it, and how big.
+        def wasX:double g.x
+        def wasY:double g.y
+        def hadLaskuta:boolean (MdPptxTest.groupHasLabel(g "laskuta"))
+        c.ok("the node that is about to be added is not there yet" (! hadLaskuta))
+
+        def better:string "digraph { saapuu -> tarkista; tarkista -> laskuta; }"
+        c.ok("the drawing is drawn again from new text" (MdDeckDiagram.redraw(g better "default")))
+        c.ok("…and the node that was added is on the slide" (MdPptxTest.groupHasLabel(g "laskuta")))
+        c.ok("…and the ones that were there still are" (MdPptxTest.groupHasLabel(g "saapuu")))
+        c.ok("…without moving it" (((fabs (g.x - wasX)) < 0.01) && ((fabs (g.y - wasY)) < 0.01)))
+        c.ok("…and it is still one group" (g.kind == 2))
+        c.eqStr("…now carrying the new source" (MdDeckDiagram.sourceOf(g)) better)
+        c.ok("…and describing what is in it now" (MdPptxTest.hasSub(g.altText "laskuta")))
+
+        ; Text that is not a diagram leaves the drawing exactly as it was. A
+        ; reader halfway through typing a node has a source that does not
+        ; parse, and blanking their slide at every keystroke would be worse
+        ; than useless.
+        def wasW:double g.width
+        c.ok("half-typed text is refused" (! (MdDeckDiagram.redraw(g "digraph {" "default"))))
+        c.ok("…and the drawing is untouched" ((fabs (g.width - wasW)) < 0.01))
+        c.ok("…and still says what it says" (MdPptxTest.groupHasLabel(g "laskuta")))
+
+        ; …and it survives the file it is written into.
+        def back:PptxDeck (this.reopened(d))
+        def rsl:PptxSlideRef (back.slideAt(0))
+        def r:PptxShape (MdPptxTest.firstGroup(rsl))
+        c.eqStr("the new source came back out of the file" (MdDeckDiagram.sourceOf(r)) better)
+        c.ok("…and so did the node that was added" (MdPptxTest.groupHasLabel(r "laskuta")))
+    }
+
+    ; Does any text anywhere inside this group say `want`?
+    sfn groupHasLabel:boolean (sh:PptxShape want:string) {
+        if sh.hasText {
+            def t:string (sh.text.plainText())
+            if (MdPptxTest.hasSub(t want)) { return true }
+        }
+        def i:int 0
+        while (i < (array_length sh.children)) {
+            def k:PptxShape (itemAt sh.children i)
+            if (MdPptxTest.groupHasLabel(k want)) { return true }
+            i = (i + 1)
+        }
+        return false
     }
 
     sfn pictureBoxes:int (l:MdLayout) {
@@ -1088,6 +1235,8 @@ prose
         this.cost(c)
         this.paper(c)
         this.pictures(c)
+        this.drawingObject(c)
+        this.drawingEdit(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {

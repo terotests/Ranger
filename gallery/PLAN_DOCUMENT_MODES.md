@@ -505,28 +505,41 @@ has), click a shape and assert the editor selected one, move it, undo it, and
 save. The click goes through `screenCmds` — canvas coordinates, because that is
 what a click arrives in.
 
-### Stage I — a drawing, moved and resized on the slide — not started
+### Stage I — a drawing, moved and resized on the slide — ✅ done
 
-With the deck editable, a diagram is an object the reader handles like any
-other shape: select, move, resize. Most of this is `PptxEdit` already working
-on a group; what needs deciding is what a resize MEANS — §7's scale-versus-
-re-layout — and the honest first answer is that it scales, with the width
-attribute on the markdown side remaining the way to re-flow.
+Most of it was `PptxEditor` already working on a group, and the stage is the
+check that it does — through the editor, so a drawing is handled by the same
+code every other shape is. A resize SCALES: PowerPoint scales a group's child
+space, and re-laying a diagram out at its new size would need something running
+inside PowerPoint. `{width=360}` on the markdown side is the way to re-flow one.
 
-*The check:* a group moved and resized, saved, reopened, and its position and
-extent asserted from the FILE — plus the drawing still being one group
-afterwards rather than a loose pile of shapes.
+*The check:* selected by a click in the middle of the group, moved, undone,
+resized — then out through the writer and back, with the extent and the
+identity read off the FILE. And that it is STILL ONE GROUP afterwards: a move
+that flattened a drawing into loose shapes would look identical on the slide
+and be unusable the next time a reader touched it.
 
-### Stage J — editing a drawing, through RangerFlow — not started
+### Stage J — editing a drawing, through RangerFlow — ✅ done
 
-Read the source back out of the carrier Stage D wrote, edit it with RangerFlow's
-own editing surface, redraw, and replace the group on the slide. The round trip
-the reader asked for by name. Needs D for the source and H for the app.
+`MdDeckDiagram`: the group's source out of `p:cNvPr/a:extLst`, through the
+reader that already draws that notation, and back onto the slide IN PLACE —
+same position, same identity, new geometry. No new editor; the only new thing
+is the replace.
 
-*The check:* open a deck, add one node to a diagram's source through that
-surface, and assert the redrawn group contains the NEW NODE's label — a node
-added is a node drawn. Asserting only that the group changed would pass on a
-redraw that lost everything.
+Text that does not read as a diagram is refused and the old drawing is left
+exactly as it was. A reader halfway through typing a node has a source that
+does not parse, and blanking their slide at every keystroke would be worse than
+useless.
+
+One bug worth recording: a deck edit does not make the MARKDOWN stale, so
+`sync` never rebuilt the list and a redrawn diagram stayed on the canvas
+exactly as it was. The model changed and the page did not, which is the worst
+shape a bug can take — the reader is told it worked.
+
+*The check:* a node ADDED to the source appearing as a label on the slide.
+Asserting only that the group changed would pass on a redraw that lost
+everything. Driven from the page's own commands as well as the model's, and
+followed through the file.
 
 ### Stage K — DOC: `MdToDocx`, then `DocxEditController` — not started
 

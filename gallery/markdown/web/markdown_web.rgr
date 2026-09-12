@@ -44,6 +44,7 @@ Import "../src/MdThemes.rgr"
 Import "../../vfs/src/Vfs.rgr"
 Import "../../pptx/src/PptxEdit.rgr"
 Import "../../pptx/src/PptxToEvg.rgr"
+Import "../src/MdDeckDiagram.rgr"
 Import "../src/MdToPptx.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
@@ -666,6 +667,21 @@ class MarkdownWeb {
     ; Everything that reads geometry goes through here first, so a keystroke
     ; that has not been laid out yet cannot be drawn from a stale box list.
     fn sync:void () {
+        ; A DECK edit does not make the markdown stale — the markdown is a
+        ; record of where the deck came from and nothing edits it any more —
+        ; so `stale` alone never rebuilt the list and a redrawn diagram
+        ; stayed on the canvas exactly as it was. The model changed and the
+        ; page did not, which is the worst shape a bug can take: the reader
+        ; is told it worked.
+        if deckOn {
+            if (! built) {
+                docList = (this.deckList())
+                listRev = (listRev + 1)
+                built = true
+                this.setStatus()
+            }
+            return
+        }
         if edit.stale {
             this.rebuild()
         }
@@ -930,6 +946,50 @@ class MarkdownWeb {
         if (! deckOn) { return false }
         def ok:boolean (deckEditor.moveSelection(dx dy))
         if ok { built = false }
+        return ok
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A drawing on the deck, read back and drawn again
+    ; ----------------------------------------------------------------------
+    ;
+    ; Once the deck owns the document the markdown pane has nothing to edit —
+    ; it is a record of where the deck came from. Selecting a DRAWING gives it
+    ; something again: the diagram's own source, which is a thing a reader
+    ; edits and which redraws in place.
+    ;
+    ; The readers are the ones that already draw a diagram and the drawing is
+    ; `PptxFromEvg`'s; see `MdDeckDiagram`. Nothing about a notation is known
+    ; in this file.
+    fn deckDiagramSource:string () {
+        def sh@(optional):PptxShape (deckEditor.firstSelected())
+        if (null? sh) { return "" }
+        def s:PptxShape (unwrap sh)
+        if (! (MdDeckDiagram.isDrawing(s))) { return "" }
+        return (MdDeckDiagram.sourceOf(s))
+    }
+
+    fn deckDiagramNotation:string () {
+        def sh@(optional):PptxShape (deckEditor.firstSelected())
+        if (null? sh) { return "" }
+        def s:PptxShape (unwrap sh)
+        if (! (MdDeckDiagram.isDrawing(s))) { return "" }
+        return (MdDeckDiagram.notationOf(s))
+    }
+
+    ; `false` when the text does not read as a diagram, and the drawing is
+    ; then exactly as it was — a reader halfway through typing a node has a
+    ; source that does not parse, and blanking their slide at every keystroke
+    ; would be worse than useless.
+    fn deckRedrawDiagram:boolean (source:string) {
+        def sh@(optional):PptxShape (deckEditor.firstSelected())
+        if (null? sh) { return false }
+        def s:PptxShape (unwrap sh)
+        def ok:boolean (MdDeckDiagram.redraw(s source styleName))
+        if ok {
+            deckEditor.touchSlide((itemAt deckEditor.doc.slides deckSlide))
+            built = false
+        }
         return ok
     }
 
