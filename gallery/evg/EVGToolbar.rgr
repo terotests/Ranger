@@ -618,6 +618,39 @@ class EVGToolbar {
         if (at >= (array_length items)) {
             push out t
         }
+        ; The TABS have to move too. Each owns a half-open range of `items`,
+        ; and an entry inserted into the middle of the array pushes every
+        ; item after it along by one: the tab the owner is on has one more
+        ; item, and every tab after it starts one later. Without this the
+        ; ranges stayed where they were, so the last button on the owner's
+        ; page fell off it and the next page began one button early — the
+        ; strip's font chooser fills itself this way at start-up, and Home's
+        ; last button was never drawn on any page that had one.
+        def ti:int 0
+        while (ti < (array_length tabs)) {
+            def tab:ToolTab (itemAt tabs ti)
+            if (at <= tab.first) {
+                ; Not the owner's tab: an insertion at a later tab's first
+                ; index belongs to the tab BEFORE it (the owner is there), so
+                ; that tab moves along rather than growing.
+                if (owner < tab.first) {
+                    tab.first = (tab.first + 1)
+                } {
+                    tab.count = (tab.count + 1)
+                }
+            } {
+                if (at < (tab.first + tab.count)) {
+                    tab.count = (tab.count + 1)
+                } {
+                    ; `at` is exactly the end of this tab's range: the entry
+                    ; joins it when its owner is on it.
+                    if ((at == (tab.first + tab.count)) && (owner >= tab.first) && (owner < (tab.first + tab.count))) {
+                        tab.count = (tab.count + 1)
+                    }
+                }
+            }
+            ti = (ti + 1)
+        }
         this.reindex(out)
         return t
     }

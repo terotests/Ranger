@@ -87,6 +87,11 @@ class EVGFace {
 }
 
 class EVGToolbarView {
+    ; Whether a large button's picture sits BESIDE its name rather than over
+    ; it. A strip that lays its band out as one row of one height sets this;
+    ; the stacked placement is for the painter that gives a large button a
+    ; taller box of its own.
+    def largeInline:boolean false
     def ctx:UIContext (new UIContext)
     def theme:EVGToolbarTheme (new EVGToolbarTheme)
     ; The face the labels are drawn in, so a host that ships one family and a
@@ -582,9 +587,17 @@ class EVGToolbarView {
         ; A big button centres its picture over its name rather than beside
         ; it, which is the whole difference between "one of these commands"
         ; and "the command this page is for".
+        ;
+        ; UNLESS the strip laid it out in a row. The tree-built strip
+        ; (`PptxStripUi`) has one band height and puts a large button's word
+        ; beside its picture like any labelled one; painting the picture
+        ; stacked over a word the layout put beside it drew the glyph through
+        ; the letters — "T[A]xt Box". The strip that lays out says so.
         if t.isLarge {
-            cx = (t.x + (idiv t.w 2))
-            cy = ((t.y + 4) + (idiv (glyphSize) 2))
+            if (largeInline == false) {
+                cx = (t.x + (idiv t.w 2))
+                cy = ((t.y + 4) + (idiv (glyphSize) 2))
+            }
         }
         def ink:EVGColor theme.glyphInk
         def dim:EVGColor theme.dim

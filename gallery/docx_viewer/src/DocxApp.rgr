@@ -52,36 +52,52 @@ class DocxToolbar extends EVGToolbar {
     fn build:void () {
         clear items
         clear tabs
-        this.addTab("Home")
-        ; The four a beginner reaches for first carry their names. The rest
-        ; stay pictures — a band where everything is labelled is as unreadable
-        ; as one where nothing is.
+        ; File is what you do to the DOCUMENT; Home is what you do to the
+        ; words. Every suite draws that line, and the file buttons at the
+        ; head of the formatting row made the row read as a list of things
+        ; that happened to be next to each other.
+        this.addTab("File")
         this.addLabeled("file.save" "" "Save" (ToolIcon.save()))
         this.addLabeled("file.print" "" "Print" (ToolIcon.printDoc()))
+
+        this.addTab("Home")
+        ; The order a reader scans a formatting row in, which is the order
+        ; every suite from Docs to Writer settled on: undo, then the face,
+        ; then its size, then weight and slant, then colour, then the
+        ; paragraph. A group is a separator; a separator is a group.
         this.add("edit.undo" "" "Undo" (ToolIcon.undo()))
         this.add("edit.redo" "" "Redo" (ToolIcon.redo()))
+        this.addSeparator()
+        this.addText("format.font" "" "Font" 96)
+        this.addSeparator()
+        this.add("format.size.down" "" "Smaller text" (ToolIcon.sizeDown()))
+        this.addText("format.size.pick" "" "11" 44)
+        this.add("format.size.up" "" "Bigger text" (ToolIcon.sizeUp()))
         this.addSeparator()
         this.addToggle("format.bold" "" "Bold" (ToolIcon.bold()) "bold" "")
         this.addToggle("format.italic" "" "Italic" (ToolIcon.italic()) "italic" "")
         this.addToggle("format.underline" "" "Underline" (ToolIcon.underline()) "underline" "")
-        this.addSeparator()
-        this.addText("format.font" "" "Font" 96)
-        this.addText("format.size.pick" "" "11" 52)
-        this.add("format.size.up" "" "Bigger text" (ToolIcon.sizeUp()))
-        this.add("format.size.down" "" "Smaller text" (ToolIcon.sizeDown()))
         this.add("format.color" "" "Text colour" (ToolIcon.textColor()))
+        this.addSeparator()
+        this.add("text.outdent" "" "Outdent the list item" (ToolIcon.indentLess()))
+        this.add("text.indent" "" "Indent the list item" (ToolIcon.indentMore()))
         this.addSeparator()
         ; Edit mode stays on Home. It is not one command among many — it is
         ; the switch that decides whether any of the others do anything, and a
         ; reader who has to find a page before they can start typing has been
-        ; given a filing system instead of a document.
-        this.add("edit.mode" "" "Edit the document" (ToolIcon.editMode()))
+        ; given a filing system instead of a document. It says its name,
+        ; because a pen with no word beside it is a drawing tool.
+        this.addLabeled("edit.mode" "" "Editing" (ToolIcon.editMode()))
 
         this.addTab("View")
         this.add("page.prev" "" "Previous page" (ToolIcon.navPrev()))
         this.add("page.next" "" "Next page" (ToolIcon.navNext()))
         this.addSeparator()
         this.add("view.rtl" "" "Right-to-left layout" (ToolIcon.textRtl()))
+
+        ; Home is the page a document opens on. File is first because that
+        ; is where every suite puts it, and not the page anyone works on.
+        this.selectTab((this.tabNamed("Home")))
     }
 
     ; What the strip is about to draw. The strip cannot work this out: "is
@@ -173,8 +189,185 @@ class DocxApp {
     ; button was still down, and dragging across text only ever moved the
     ; caret to wherever the press had been.
     def pageDrag:boolean false
+    ; --- the pages, as a reader of paged documents expects them ---------------
+    ;
+    ; One page at a time is what `DocxViewer` does, and it is right for a
+    ; window that fits a page. In a pane that does not, the reader scrolls a
+    ; page, reaches its foot, and the next page replaces it in place — nothing
+    ; on screen says a page ended, which is what a reader of a PDF viewer sees
+    ; at once as a gap between two sheets. `continuous` stacks every page down
+    ; the frame with a gap between them, and `docScroll` is how far down that
+    ; stack the window is looking. The viewer's own `scrollY` stays at zero:
+    ; scrolling is the frame's here, and page-turning by gesture is not needed
+    ; when every page is already there.
+    def continuous:boolean false
+    def docScroll:int 0
+    def pageGap:int 24
+    ; The top of each page in the stack, in zoomed frame pixels from the top
+    ; of the first, and the height of the whole stack. Refreshed by
+    ; `syncPages` from the layout, which is the only thing that knows how tall
+    ; a page is.
+    def pageTops:[int]
+    def pageHeights:[int]
+    def stackH:int 0
+    ; How big the paper is drawn. 1.0 is the layout's own pixel; a pinch or a
+    ; Ctrl+wheel moves it, and everything that maps a press back onto the
+    ; paper divides by it.
+    def zoom:double 1.0
 
     Constructor () {
+    }
+
+    fn setContinuous:void (on:boolean) {
+        continuous = on
+        docScroll = 0
+        viewer.scrollY = 0
+    }
+
+    ; Zoom by a factor about the top of the window, keeping the same point
+    ; of the stack under it. Clamped: a page a quarter its size is a
+    ; thumbnail, four times is a magnifier, and either end past that is a
+    ; frame with nothing legible in it.
+    fn zoomBy:boolean (factor:double) {
+        if (factor <= 0.0) {
+            return false
+        }
+        def next:double (zoom * factor)
+        if (next < 0.25) { next = 0.25 }
+        if (next > 4.0) { next = 4.0 }
+        if (next == zoom) {
+            return false
+        }
+        docScroll = (to_int (((to_double docScroll) * next) / zoom))
+        zoom = next
+        return true
+    }
+
+    fn zoomLevel:double () {
+        return zoom
+    }
+
+    ; The stack's geometry, from the layout. Cheap when nothing changed:
+    ; `layoutIfNeeded` returns at once and the loop is one pass over the page
+    ; count.
+    fn syncPages:void () {
+        viewer.view.layout.layoutIfNeeded(viewer.doc viewer.view.ctx.tr viewer.numbering)
+        clear pageTops
+        clear pageHeights
+        def n:int (viewer.view.layout.pageCount())
+        def y:int 0
+        def i:int 0
+        while (i < n) {
+            def pg:LaidPage (viewer.view.layout.pageAt(i))
+            def h:int (to_int (((to_double pg.height) * zoom) + 0.5))
+            push pageTops y
+            push pageHeights h
+            y = (y + h)
+            if (i < (n - 1)) {
+                y = (y + pageGap)
+            }
+            i = (i + 1)
+        }
+        stackH = y
+        def room:int (this.pageAreaH())
+        def maxScroll:int (stackH - room)
+        if (maxScroll < 0) { maxScroll = 0 }
+        if (docScroll > maxScroll) { docScroll = maxScroll }
+        if (docScroll < 0) { docScroll = 0 }
+    }
+
+    ; Which page of the stack a frame y lands on, or -1 for the gap or the
+    ; desk. In continuous mode only; a single page answers itself.
+    fn pageAtFrameY:int (py:int) {
+        def yy:int ((py - (this.pageTop())) + docScroll)
+        def i:int 0
+        while (i < (array_length pageTops)) {
+            def top:int (itemAt pageTops i)
+            def h:int (itemAt pageHeights i)
+            if ((yy >= top) && (yy < (top + h))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Where page i's top-left corner is drawn in the frame.
+    fn pageFrameY:int (i:int) {
+        if (continuous == false) {
+            return pageY
+        }
+        if ((i < 0) || (i >= (array_length pageTops))) {
+            return pageY
+        }
+        return (((this.pageTop()) + (itemAt pageTops i)) - docScroll)
+    }
+
+    ; The page the window is looking at: the one under its top third, which
+    ; is where a reader's eye is. Told to the viewer so the status line and
+    ; the host's page pill say the page the reader sees rather than the one
+    ; the caret was last on.
+    fn adoptScrolledPage:void () {
+        def probe:int (docScroll + (idiv (this.pageAreaH()) 3))
+        def i:int 0
+        def hit:int 0
+        while (i < (array_length pageTops)) {
+            if (probe >= (itemAt pageTops i)) {
+                hit = i
+            }
+            i = (i + 1)
+        }
+        if (hit != viewer.currentPage) {
+            viewer.currentPage = hit
+            viewer.view.pageIndex = hit
+        }
+    }
+
+    ; Scroll the stack so the page is at the top of the window.
+    fn scrollToPage:void (i:int) {
+        this.syncPages()
+        if ((i < 0) || (i >= (array_length pageTops))) {
+            return
+        }
+        docScroll = (itemAt pageTops i)
+        this.syncPages()
+    }
+
+    ; After a key or a keystroke: the caret's page and line have to be in
+    ; the window. The viewer already turned its own page to the caret's
+    ; (`followCaret`); the stack has to scroll to the same place, and no
+    ; further than it takes — a caret that walks down a page should not make
+    ; the page jump.
+    fn followCaretInStack:void () {
+        if (continuous == false) {
+            return
+        }
+        this.syncPages()
+        def p:int viewer.currentPage
+        if ((p < 0) || (p >= (array_length pageTops))) {
+            return
+        }
+        def room:int (this.pageAreaH())
+        if ((viewer.edit.isActive()) == false) {
+            ; Reading: PageDown turned the page, so show it from the top.
+            docScroll = (itemAt pageTops p)
+            this.syncPages()
+            return
+        }
+        def cy:int (viewer.edit.caretPixelY(viewer.view.layout p))
+        def ch:int (viewer.edit.caretHeight(viewer.view.layout p))
+        if (cy < 0) {
+            return
+        }
+        def top:int ((itemAt pageTops p) + (to_int ((to_double cy) * zoom)))
+        def bottom:int (top + (to_int ((to_double ch) * zoom)))
+        if (top < (docScroll + 8)) {
+            docScroll = (top - 8)
+        }
+        if (bottom > ((docScroll + room) - 8)) {
+            docScroll = ((bottom - room) + 8)
+        }
+        this.syncPages()
     }
 
     fn init:void () {
@@ -221,6 +414,8 @@ class DocxApp {
         commands.addArg("format.size.pick" "Font size…" "Format" "")
         commands.add("format.size.up" "Bigger text" "Format" "")
         commands.add("format.size.down" "Smaller text" "Format" "")
+        commands.add("text.indent" "Indent the list item" "Format" "Tab")
+        commands.add("text.outdent" "Outdent the list item" "Format" "Shift+Tab")
         commands.addArg("format.color" "Text colour" "Format" "")
         commands.add("page.next" "Next page" "View" "PageDown")
         commands.add("page.prev" "Previous page" "View" "PageUp")
@@ -384,17 +579,44 @@ class DocxApp {
             return true
         }
         if (id == "page.next") {
-            return (viewer.turnPage(1))
+            def turned:boolean (viewer.turnPage(1))
+            if continuous { this.scrollToPage(viewer.currentPage) }
+            return turned
         }
         if (id == "page.prev") {
-            return (viewer.turnPage(-1))
+            def turnedBack:boolean (viewer.turnPage(-1))
+            if continuous { this.scrollToPage(viewer.currentPage) }
+            return turnedBack
         }
         if (id == "page.goto") {
             def want@(optional):int (to_int arg)
             if (!null? want) {
-                return (viewer.goToPage((unwrap want)))
+                def went:boolean (viewer.goToPage((unwrap want)))
+                if continuous { this.scrollToPage(viewer.currentPage) }
+                return went
             }
             return false
+        }
+        ; The two size buttons act on a selected DRAWING when there is one:
+        ; a diagram has no run to make bigger, and a tenth at a time is the
+        ; step a reader expects from the same two buttons.
+        ; Tab and Shift+Tab, as buttons: what the keys do to a list item,
+        ; reachable by somebody who does not know the keys do it.
+        if (id == "text.indent") {
+            return (viewer.keyTab(false))
+        }
+        if (id == "text.outdent") {
+            return (viewer.keyTab(true))
+        }
+        if (id == "format.size.up") {
+            if ((viewer.selectedDrawing()) != 0) {
+                return (viewer.resizeDrawing(1.1))
+            }
+        }
+        if (id == "format.size.down") {
+            if ((viewer.selectedDrawing()) != 0) {
+                return (viewer.resizeDrawing((1.0 / 1.1)))
+            }
         }
         ; Everything below changes text, which means it needs an editor.
         if ((viewer.editMode()) == false) {
@@ -684,7 +906,31 @@ class DocxApp {
             }
             if (py >= (this.pageTop())) {
                 if (py < (H - statusH)) {
-                    viewer.clickAt((px - pageX) (py - pageY) extend)
+                    if continuous {
+                        ; The page under the press becomes the viewer's page
+                        ; first, because the viewer's hit test only knows the
+                        ; page it is on. A press on the gap between two pages
+                        ; is a press on the desk.
+                        this.syncPages()
+                        def hit:int (this.pageAtFrameY(py))
+                        if (hit < 0) {
+                            pageDrag = false
+                            return true
+                        }
+                        if (hit != viewer.currentPage) {
+                            viewer.goToPage(hit)
+                        }
+                    }
+                    def lx:int (this.paperX(px))
+                    def ly:int (this.paperY(py))
+                    ; A chart or a drawing takes the click before the caret
+                    ; does — it is an object on the page rather than a place
+                    ; in the text.
+                    if ((viewer.clickChart(lx ly)) == false) {
+                        if ((viewer.clickDrawing(lx ly)) == false) {
+                            viewer.clickAt(lx ly extend)
+                        }
+                    }
                     ; The press is the anchor; every move until the button
                     ; comes up drags the other end of the selection.
                     pageDrag = true
@@ -696,7 +942,7 @@ class DocxApp {
         }
         if released {
             if pageDrag {
-                viewer.dragTo((px - pageX) (py - pageY))
+                viewer.dragTo((this.paperX(px)) (this.paperY(py)))
                 pageDrag = false
                 return true
             }
@@ -708,18 +954,49 @@ class DocxApp {
         ; fallback in `hitTest` is already for.
         if down {
             if pageDrag {
-                viewer.dragTo((px - pageX) (py - pageY))
+                viewer.dragTo((this.paperX(px)) (this.paperY(py)))
                 return true
             }
         }
         return false
     }
 
+    ; A frame coordinate, on the paper of the page the viewer is on, in the
+    ; layout's own pixels: through the zoom, and in a stack through the page's
+    ; place in it.
+    fn paperX:int (px:int) {
+        return (to_int ((to_double (px - pageX)) / zoom))
+    }
+
+    fn paperY:int (py:int) {
+        def top:int (this.pageFrameY(viewer.currentPage))
+        return (to_int ((to_double (py - top)) / zoom))
+    }
+
     fn wheel:boolean (dy:int) {
-        return (viewer.scrollBy(dy))
+        if continuous {
+            if (dy == 0) {
+                return false
+            }
+            this.syncPages()
+            def before:int docScroll
+            docScroll = (docScroll + dy)
+            this.syncPages()
+            this.adoptScrolledPage()
+            return (docScroll != before)
+        }
+        return (viewer.scrollBy((to_int ((to_double dy) / zoom))))
     }
 
     fn key:boolean (name:string shift:boolean ctrl:boolean) {
+        def took:boolean (this.keyInner(name shift ctrl))
+        if took {
+            this.followCaretInStack()
+        }
+        return took
+    }
+
+    fn keyInner:boolean (name:string shift:boolean ctrl:boolean) {
         if ctrl {
             if (name == "b") { return (this.runCommand("format.bold" "")) }
             if (name == "i") { return (this.runCommand("format.italic" "")) }
@@ -752,36 +1029,20 @@ class DocxApp {
 
     fn text:void (s:string) {
         viewer.typeText(s)
+        this.followCaretInStack()
     }
 
     ; --- the picture ----------------------------------------------------------
     ; The page, the strip above it, the status line under it, and whatever
     ; windows are open on top. One display list, as everything here is.
     fn buildDisplayList:EVGDisplayList () {
-        def dl:EVGDisplayList (viewer.pageDisplayList(viewer.currentPage))
-        ; The page came out at the origin; move it under the strip and centre
-        ; it in the room that is left.
-        ;
-        ; `sceneWidth`, not `pageWidth`: the second is the SoftCanvas the page
-        ; was last rasterized onto, which a host drawing display lists never
-        ; allocates. It answers zero there, and a zero-wide page centres itself
-        ; half a window to the right of where the paper is.
-        def pw:int (viewer.view.sceneWidth())
-        pageX = (idiv (W - pw) 2)
-        if (pageX < 0) {
-            pageX = 0
-        }
-        ; How far down the page the window is looking. Clicks already subtract
-        ; `pageY`, so the caret lands where the glyphs are without anything
-        ; else being told about scrolling.
-        viewer.viewportH = (this.pageAreaH())
-        pageY = ((this.pageTop()) - viewer.scrollY)
-        this.syncRuler(pw)
-        DocxApp.offsetList(dl pageX pageY)
-
         def framed:EVGDisplayList (new EVGDisplayList)
         framed.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(228 232 238)))
-        DocxApp.appendList(framed dl)
+        if continuous {
+            this.paintStack(framed)
+        } {
+            this.paintOnePage(framed)
+        }
 
         toolbarView.attach(viewer.view.ctx "Open Sans")
         toolbarView.theme = theme
@@ -824,6 +1085,72 @@ class DocxApp {
             wi = (wi + 1)
         }
         return framed
+    }
+
+    ; One page, the way the viewer shows it: the current page, scrolled
+    ; within itself, centred under the strip.
+    fn paintOnePage:void (framed:EVGDisplayList) {
+        def dl:EVGDisplayList (viewer.pageDisplayList(viewer.currentPage))
+        ; The page came out at the origin; move it under the strip and centre
+        ; it in the room that is left.
+        ;
+        ; `sceneWidth`, not `pageWidth`: the second is the SoftCanvas the page
+        ; was last rasterized onto, which a host drawing display lists never
+        ; allocates. It answers zero there, and a zero-wide page centres itself
+        ; half a window to the right of where the paper is.
+        def pw:int (to_int (((to_double (viewer.view.sceneWidth())) * zoom) + 0.5))
+        pageX = (idiv (W - pw) 2)
+        if (pageX < 0) {
+            pageX = 0
+        }
+        ; How far down the page the window is looking, in the page's own
+        ; pixels. Clicks already subtract `pageY` and divide by the zoom, so
+        ; the caret lands where the glyphs are without anything else being
+        ; told about scrolling.
+        viewer.viewportH = (to_int ((to_double (this.pageAreaH())) / zoom))
+        pageY = ((this.pageTop()) - (to_int (((to_double viewer.scrollY) * zoom) + 0.5)))
+        this.syncRuler(pw)
+        dl.scaleBy(zoom)
+        DocxApp.offsetList(dl pageX pageY)
+        DocxApp.appendList(framed dl)
+    }
+
+    ; Every page, stacked down the frame with a gap between them, the way a
+    ; PDF viewer shows a document. Only the pages that touch the window are
+    ; built — a hundred-page document has a hundred pages and one of them is
+    ; being looked at.
+    fn paintStack:void (framed:EVGDisplayList) {
+        this.syncPages()
+        viewer.scrollY = 0
+        viewer.viewportH = (this.pageAreaH())
+        def n:int (array_length pageTops)
+        def pw:int 0
+        if (n > 0) {
+            def first:LaidPage (viewer.view.layout.pageAt(0))
+            pw = (to_int (((to_double first.width) * zoom) + 0.5))
+        }
+        pageX = (idiv (W - pw) 2)
+        if (pageX < 0) {
+            pageX = 0
+        }
+        pageY = (this.pageTop())
+        this.syncRuler(pw)
+        def keep:int viewer.currentPage
+        def i:int 0
+        while (i < n) {
+            def top:int (this.pageFrameY(i))
+            def h:int (itemAt pageHeights i)
+            if (((top + h) >= (this.pageTop())) && (top < (H - statusH))) {
+                def dl:EVGDisplayList (viewer.view.buildDisplayList(viewer.doc i viewer.numbering viewer.edit (viewer.edit.isEnabled())))
+                dl.scaleBy(zoom)
+                DocxApp.offsetList(dl pageX top)
+                DocxApp.appendList(framed dl)
+            }
+            i = (i + 1)
+        }
+        ; `buildDisplayList` moved the view's page index as it went; the
+        ; viewer's page is the one the reader is on, not the last one drawn.
+        viewer.view.pageIndex = keep
     }
 
     ; Everything in `src` moved by (dx, dy). A clip carries its rectangle too,

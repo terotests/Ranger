@@ -717,6 +717,86 @@ the drawing block, the laid-out line and the marks inside its box;
 `MarkdownTest.narrowLabels` on a gantt at a width that forces the fit under
 the old floor.
 
+### Stage O — what a reader met on the two tabs — ✅ done
+
+Nine things from the first hour with Stage N on screen, each small and each
+the kind that only shows up in use:
+
+- **A caret a word away from its keys.** The page registered its faces by
+  the layout's names — `Open Sans-Bold` — and the editors ask the browser
+  for `Open Sans` at weight 700, which it had not got, so it synthesised a
+  bold from the regular face, wider than the one Ranger measured. The same
+  bytes are registered under the plain family with a weight and a style too.
+- **Pages that end where a reader can see them.** `DocxApp` has a
+  `continuous` frame: every page down it with a gap, `docScroll` for where
+  the window looks, the caret followed into the stack, a press mapped to the
+  page under it. The docx page keeps one page that turns; the markdown page
+  stacks. And `zoom`: a pinch on the canvas (two fingers, in
+  `docx-host.mjs`) or Ctrl+wheel, the paper drawn bigger through the same
+  `scaleBy` the drawing uses.
+- **A strip that reads.** The Text Box button's picture was painted stacked
+  over a word the tree strip had laid beside it; `EVGToolbarView.largeInline`
+  says which layout the strip made. Bold, italic, size and colour moved to
+  Home beside the font, where a reader on a slide reaches for them, with
+  `text.size.up` / `text.size.down` as two-point steps on the selection.
+- **A deck that is a deck.** `MarkdownWeb.deckDefaults`: an A4 landscape
+  sheet and a 20-point body under whatever the template and the front
+  matter say — and NOT the page's sheet dropdown, which is the markdown's
+  paper. Its own `⬇ PDF`, every slide a page, through the road
+  `PptxRenderApi.toPdfDeck` takes; and the strip's Save and Print reach the
+  page through `onFileRequest`, which the page had not passed.
+- **Override, always offered, asked first.** The button is live on an
+  untouched view — a reader may want the deck the markdown makes NOW — and
+  confirms only when it would cost edits.
+- **A drawing is an object on the Word page too.** Click selects it, the
+  size buttons scale it, and its source opens in the left pane's `diagram`
+  tab on either tab — `MdDeckDiagram.redraw` for the deck,
+  `DocxViewer.replaceDrawing` for the page — so a fence is edited where it
+  is drawn. Not RangerFlow's own surface yet: that editor runs on this same
+  engine and the round trip is the same source in and the same tree out, so
+  it is a pane away rather than a project away.
+
+*The check:* the page's own, again — a landscape slide, a title set at 40pt
+made 42 by one press, a `%PDF` from the deck, `save` back from the strip,
+an override refused and then taken, a drawing selected by a click with its
+source in the pane, drawn again with a node added and refused half-typed,
+grown by a press, a sixty-paragraph document whose last page is what the
+frame shows after the pill, and letters twice the size at zoom 2.
+
+### Stage P — the strips, in the order every suite settled on — ✅ done
+
+Stage O put the text buttons on Home; the row was still a wall. Both strips
+are now grouped the way Docs and Syncfusion draw theirs, and the way a
+reader scans a formatting row: undo, face, size, weight, colour, paragraph.
+
+- **The deck.** *File* is what you do to the deck — Open, Save, Print, Show.
+  *Home* is one row that fits a pane: undo and redo; Font, A−, A+; B, I and
+  a colour dropdown of six inks; alignment and list as two dropdowns rather
+  than seven buttons; the editing switch; and Previous and Next at the tail,
+  where a pane too narrow clips a pair the page has another way to do.
+  *Insert* keeps the large Text Box beside the shapes and the picture.
+  *Arrange* is what is done to shapes — copy, paste, duplicate, delete, the
+  format painter, front and back, group, lock, flip, line up — and the
+  Format tab is gone, because it was the same text buttons a second time.
+  *Slides* is the deck: add, duplicate, delete, First and Last, notes,
+  properties, outline, palette, direction.
+- **The page.** *File* is Save and Print. *Home* is undo and redo; the face
+  in a text field, A−, the size, A+; B, I, U as toggles and the colour;
+  outdent and indent, which `DocxApp` now has as `text.outdent` and
+  `text.indent` (the Tab the viewer already answered, given a button); and
+  the Editing switch, labelled. *View* is the two page buttons and the
+  direction. Nothing was invented for it: the Word model has no paragraph
+  alignment or list commands yet, so the strip does not show them.
+- **The strip itself.** `EVGToolbar.addUnderMenu` inserted a dropdown's
+  entries into the list without moving the tab ranges after them, so a
+  font list filled in later took the last button off Home. Fixed where it
+  was wrong, and `PptxFrameTest` asks of the blank deck only that the panel
+  is its own list — the Home strip alone is now half that frame.
+
+*The check:* every pptx and docx suite, the toolbar suite, and both pages'
+smoke runs; and the row itself at the markdown page's pane width, where
+the tail button is inside the pane rather than cut by it.
+
 ---
 
 ## 11. What is left

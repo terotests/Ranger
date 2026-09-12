@@ -101,7 +101,10 @@ function runChrome(bin, args) {
       },
     });
     let out = "", err = "";
-    const kill = setTimeout(() => child.kill("SIGKILL"), 180000);
+    // The page's own checks drive three editors, print a deck and lay a
+    // sixty-paragraph document out at two zooms, on a software GPU: three
+    // minutes was a hang's worth of budget once and is a run's worth now.
+    const kill = setTimeout(() => child.kill("SIGKILL"), 420000);
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
     child.on("close", (status) => { clearTimeout(kill); resolve({ stdout: out, stderr: err, status }); });

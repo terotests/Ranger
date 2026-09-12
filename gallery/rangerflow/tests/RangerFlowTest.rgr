@@ -2568,6 +2568,42 @@ class RangerFlowTest {
         c.near("and that vertex is at the middle height" (FlowShapes.anchorY("diamond" 10.0 20.0 140.0 80.0 3)) 60.0 0.001)
         def wave:double (FlowShapes.waveDepth(80.0))
         c.near("a document's bottom handle sits on the paper, not below it" (FlowShapes.anchorY("document" 10.0 20.0 140.0 80.0 2)) (100.0 - wave) 0.001)
+        ; A second edge out of the same side is fanned along it, and the
+        ; fanned point has to be on the shape too. Twenty down from the
+        ; right-hand vertex of a 140x80 diamond, the outline is 35 in from
+        ; the box: the slope is w/h = 1.75 per unit of height.
+        c.near("a fanned edge on a rectangle stays on the box" (FlowShapes.edgeCrossX("rect" 10.0 20.0 140.0 80.0 1 20.0)) 150.0 0.001)
+        c.near("a fanned edge on a diamond is pulled in to the outline" (FlowShapes.edgeCrossX("diamond" 10.0 20.0 140.0 80.0 1 20.0)) 115.0 0.001)
+        c.near("and its Y is where the fan put it" (FlowShapes.edgeCrossY("diamond" 10.0 20.0 140.0 80.0 1 20.0)) 80.0 0.001)
+        c.near("the left side the same, the other way" (FlowShapes.edgeCrossX("diamond" 10.0 20.0 140.0 80.0 3 -20.0)) 45.0 0.001)
+        c.near("a fanned edge out of the bottom drops to the outline" (FlowShapes.edgeCrossY("diamond" 10.0 20.0 140.0 80.0 2 35.0)) 80.0 0.001)
+        c.near("no fan is the anchor, exactly" (FlowShapes.edgeCrossX("diamond" 10.0 20.0 140.0 80.0 1 0.0)) 150.0 0.001)
+        ; And through the graph: two edges out of one diamond's right side,
+        ; fanned by the lanes, both start on the diamond.
+        def fg (new FlowGraph)
+        def q:FlowNode (FlowNode.create("q" "Render?" 100.0 100.0))
+        q.shape = (FlowShape.diamond())
+        q.width = 140.0
+        q.height = 80.0
+        q.sourcePosition = 1
+        fg.addNode(q)
+        def yes:FlowNode (FlowNode.create("yes" "Print" 400.0 20.0))
+        yes.targetPosition = 3
+        fg.addNode(yes)
+        def no:FlowNode (FlowNode.create("no" "Edit" 400.0 220.0))
+        no.targetPosition = 3
+        fg.addNode(no)
+        def eYes:FlowEdge (FlowEdge.create("e1" "q" "yes"))
+        def eNo:FlowEdge (FlowEdge.create("e2" "q" "no"))
+        eYes.edgeType = "smoothstep"
+        eNo.edgeType = "smoothstep"
+        fg.addEdge(eYes)
+        fg.addEdge(eNo)
+        EdgeLanes.assign(fg)
+        c.ok("the two edges leave at different heights" ((fabs ((fg.endpointY(eYes true)) - (fg.endpointY(eNo true)))) > 1.0))
+        c.ok("the yes branch starts on the diamond" (q.holdsPoint(((fg.endpointX(eYes true)) - 0.5) (fg.endpointY(eYes true)))))
+        c.ok("and so does the no branch" (q.holdsPoint(((fg.endpointX(eNo true)) - 0.5) (fg.endpointY(eNo true)))))
+        c.ok("neither starts on the empty box beside it" ((fg.endpointX(eNo true)) < 239.9))
 
         ; …and the editor has to agree with the drawing.
         def g (new FlowGraph)

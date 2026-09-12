@@ -63,6 +63,19 @@ export function attachPointer({ canvas, web, sceneSize, draw, afterInput, keepsF
   // across text selected nothing.
   let buttonDown = false;
 
+  // Two fingers are a pinch, not two drags. The fingers on the canvas are
+  // kept by pointer id; while there are two of them their distance is what
+  // the gesture means, and the editor is asked to zoom by the ratio of one
+  // move to the last rather than told about either finger. The first finger
+  // may already have started a drag — the press is released where it is, so
+  // a pinch never leaves a selection half painted.
+  const fingers = new Map();
+  let pinchDist = 0;
+  const fingerDistance = () => {
+    const [a, b] = [...fingers.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+
   function coords(ev) {
     const rect = canvas.getBoundingClientRect();
     const { width, height } = sceneSize();
@@ -75,6 +88,17 @@ export function attachPointer({ canvas, web, sceneSize, draw, afterInput, keepsF
   const onDown = async (ev) => {
     if (!keepsFocus || !keepsFocus()) canvas.focus();
     const { x, y } = coords(ev);
+    if (ev.pointerType === "touch") {
+      fingers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (fingers.size === 2) {
+        pinchDist = fingerDistance();
+        if (buttonDown) {
+          buttonDown = false;
+          web.framePointer(x, y, false, false, true, false);
+        }
+        return;
+      }
+    }
     buttonDown = true;
     // Captured, so a drag that leaves the canvas keeps arriving here —
     // letting go outside the window otherwise leaves the app believing the
@@ -88,12 +112,28 @@ export function attachPointer({ canvas, web, sceneSize, draw, afterInput, keepsF
   };
 
   const onMove = async (ev) => {
+    if (fingers.has(ev.pointerId)) {
+      fingers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (fingers.size >= 2) {
+        const d = fingerDistance();
+        if (pinchDist > 0 && d > 0 && typeof web.zoomBy === "function") {
+          if (web.zoomBy(d / pinchDist)) await redraw();
+        }
+        pinchDist = d;
+        return;
+      }
+    }
     const { x, y } = coords(ev);
     if (web.framePointer(x, y, false, buttonDown, false, false)) await redraw();
   };
 
   const onUp = async (ev) => {
     const { x, y } = coords(ev);
+    if (fingers.has(ev.pointerId)) {
+      fingers.delete(ev.pointerId);
+      if (fingers.size < 2) pinchDist = 0;
+      if (!buttonDown) return;
+    }
     buttonDown = false;
     if (canvas.releasePointerCapture) {
       try { canvas.releasePointerCapture(ev.pointerId); } catch (_) { /* not captured */ }
@@ -107,6 +147,8 @@ export function attachPointer({ canvas, web, sceneSize, draw, afterInput, keepsF
   // too, or the next move paints a selection nobody is dragging.
   const onCancel = async (ev) => {
     const { x, y } = coords(ev);
+    fingers.delete(ev.pointerId);
+    if (fingers.size < 2) pinchDist = 0;
     buttonDown = false;
     web.framePointer(x, y, false, false, true, false);
     await redraw();
