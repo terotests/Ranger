@@ -632,6 +632,14 @@ class EVGDisplayList {
     }
 
     fn addFrame:void (x:double y:double w:double h:double thickness:double col:EVGColor) {
+        this.addTurnedFrame(x y w h thickness col 0.0 0.0 0.0)
+    }
+
+    ; The same, turned about a point of its own. A selection ring around a
+    ; layer that is not upright has to lean the way the layer does or it says
+    ; the wrong thing about it — an axis-aligned box around a turned shape
+    ; reads as "this is straight and bigger than it looks".
+    fn addTurnedFrame:void (x:double y:double w:double h:double thickness:double col:EVGColor deg:double ox:double oy:double) {
         def c:EVGDrawCmd (new EVGDrawCmd)
         c.kind = 1
         c.x = x
@@ -643,6 +651,12 @@ class EVGDisplayList {
         c.g = (col.green())
         c.b = (col.blue())
         c.a = (col.alpha())
+        if ((deg > 0.001) || (deg < (0.0 - 0.001))) {
+            c.rotate = deg
+            c.rotOriginX = ox
+            c.rotOriginY = oy
+            c.hasRotOrigin = true
+        }
         this.addCmd(c)
     }
 

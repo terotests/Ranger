@@ -309,6 +309,12 @@ class SceneNode {
     def strokeIsGeometry:boolean false
     def xf:SceneMatrix (new SceneMatrix())
     def hasXf:boolean false
+    ; Only on the box `FigApp.absBox` hands back: the layer's OWN size, beside
+    ; the size of the rectangle that contains it. The two differ the moment a
+    ; layer is turned, and a ring wants the first while a hit test wants the
+    ; second.
+    def ow:double 0.0
+    def oh:double 0.0
     def opacity:double 1.0
     def visible:boolean true
     def clip:boolean false

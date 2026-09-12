@@ -138,6 +138,12 @@ class FigWeb {
         return (app.snapBoxesJson())
     }
 
+    ; The matrix that puts the selected layer on the page, and the one its own
+    ; x/y are written in. A host that drags it needs the inverse of each.
+    fn placement:string () {
+        return (app.placementJson())
+    }
+
     fn revertEdits:void () {
         app.revertEdits()
     }

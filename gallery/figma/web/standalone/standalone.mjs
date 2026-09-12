@@ -1341,6 +1341,8 @@ function placeSizeBadge() {
   if (!d || !d.id || !(d.w > 0) || !(d.h > 0)) { sizeBadgeEl.hidden = true; return; }
   const v = viewNow();
   const r = boardEl.getBoundingClientRect();
+  // Under the box that CONTAINS the layer, which for a turned one is below
+  // its lowest corner rather than inside it.
   const x = (d.pageX + d.w / 2) * v.sc + v.x;
   const y = (d.pageY + d.h) * v.sc + v.y;
   if (x < -80 || y < -40 || x > r.width + 80 || y > r.height + 40) { sizeBadgeEl.hidden = true; return; }
@@ -1370,6 +1372,33 @@ function placeSizeBadge() {
  * ------------------------------------------------------------------------- */
 
 const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+
+/* A POINTER TRAVELS IN PAGE PIXELS AND A LAYER DOES NOT.
+ *
+ * "Wider" means along the LAYER's own axes, and where the layer's x and y are
+ * written means along its PARENT's — and on a board something above a layer
+ * is usually turned, so neither is the page's. The engine hands over both
+ * matrices (`placement`); this turns a travel in page units into a travel in
+ * one of those frames, which is the inverse of the matrix's linear part.
+ *
+ * The translation is dropped on purpose: a DELTA has no origin.
+ */
+function unmap(m, dx, dy) {
+  if (!m) return { x: dx, y: dy };
+  const det = m.a * m.d - m.c * m.b;
+  if (!det || Math.abs(det) < 1e-12) return { x: dx, y: dy };
+  return {
+    x: (m.d * dx - m.c * dy) / det,
+    y: (m.a * dy - m.b * dx) / det,
+  };
+}
+
+/** Is this matrix upright and unscaled? Then the frames agree and a snap in
+ *  page units means something. */
+function isUpright(m) {
+  if (!m) return true;
+  return Math.abs(m.b) < 1e-6 && Math.abs(m.c) < 1e-6 && m.a > 0 && m.d > 0;
+}
 const SNAP_PX = 6;          // how near, in SCREEN pixels, counts as lined up
 
 let handleEls = null;
@@ -1401,18 +1430,39 @@ function buildHandles() {
 }
 
 /** Where the selection's box is on the screen, from the same view the board
- *  is drawn with. Null when there is nothing selected or it is off-screen. */
+ *  is drawn with. Null when there is nothing selected or it is off-screen.
+ *
+ * THE LAYER'S OWN BOX AND NOT THE ONE THAT CONTAINS IT. `pageX/pageY` are the
+ * top-left of the rectangle a turned layer FITS IN, which is what a hit test
+ * wants and is neither the layer's corner nor its size: handles placed there
+ * and then turned landed on a box half again too big, scattered around the
+ * shape. The placement matrix carries the corner it actually has.
+ */
 function selectionScreenBox() {
   let d = null;
   try { d = JSON.parse(web.inspect()); } catch { d = null; }
   if (!d || !d.id || !(d.w > 0) || !(d.h > 0)) return null;
   const v = viewNow();
+  const p = placementNow();
+  let ox = d.pageX;
+  let oy = d.pageY;
+  let ow = d.w;
+  let oh = d.h;
+  if (p && p.own) {
+    ox = p.own.tx;
+    oy = p.own.ty;
+    // The matrix may carry a scale as well as a turn; the box on the screen
+    // is the layer's size THROUGH it.
+    const k = Math.hypot(p.own.a, p.own.b) || 1;
+    ow = (p.w || d.w) * k;
+    oh = (p.h || d.h) * k;
+  }
   return {
     d,
-    x: d.pageX * v.sc + v.x,
-    y: d.pageY * v.sc + v.y,
-    w: d.w * v.sc,
-    h: d.h * v.sc,
+    x: ox * v.sc + v.x,
+    y: oy * v.sc + v.y,
+    w: ow * v.sc,
+    h: oh * v.sc,
     sc: v.sc,
   };
 }
@@ -1478,6 +1528,17 @@ function showGuides(lines) {
 
 /** The edges and centres of what the selection sits beside, in PAGE units.
  *  Read once when a drag starts: the board does not change under it. */
+/** The two matrices a drag has to map through. Read once when a drag starts:
+ *  the board does not change under it. */
+function placementNow() {
+  try {
+    const p = JSON.parse(web.placement());
+    return p && p.own ? p : null;
+  } catch {
+    return null;
+  }
+}
+
 function snapSources() {
   try {
     const boxes = JSON.parse(web.snapBoxes());
@@ -1527,6 +1588,7 @@ function startDrag(ev, mode) {
     sc: v.sc,
     centre: { x: b.x + b.w / 2, y: b.y + b.h / 2 },
     snap: snapSources(),
+    place: placementNow(),
     moved: false,
   };
   ev.target.addEventListener("pointermove", onDragMove);
@@ -1557,33 +1619,35 @@ function onDragMove(ev) {
     return;
   }
 
-  // Screen pixels into board units: one is the other divided by the zoom.
-  let dx = px / g.sc;
-  let dy = py / g.sc;
-  // A TURNED LAYER IS RESIZED IN ITS OWN FRAME. The handle the hand is on
-  // points along the layer's axes, not the page's, so the pointer's travel
-  // is turned back by the layer's angle before it is read as a width.
-  if (g.mode !== "move" && g.rot0) {
-    const r = (-g.rot0 * Math.PI) / 180;
-    const c = Math.cos(r), sn = Math.sin(r);
-    const ux = dx * c - dy * sn;
-    const uy = dx * sn + dy * c;
-    dx = ux;
-    dy = uy;
-  }
-  // …and its edges are then not the page's edges either, so there is nothing
-  // for them to line up with. Snapping is for boxes that share a frame.
-  const canSnap = !g.rot0;
+  // Screen pixels into PAGE units: one is the other divided by the zoom.
+  const pgx = px / g.sc;
+  const pgy = py / g.sc;
+  // …and page units into the frame the edit is written in. A resize is along
+  // the LAYER's axes; a move is in the frame its x and y live in, which is
+  // its PARENT's. Both are the inverse of a matrix the engine handed over,
+  // and neither is the page's the moment anything above the layer is turned.
+  const frame = g.mode === "move" ? g.place?.parent : g.place?.own;
+  const d = unmap(frame, pgx, pgy);
+  let dx = d.x;
+  let dy = d.y;
+  // Snapping compares edges in PAGE units, which only means something while
+  // the layer's edges are the page's edges. A turned layer lines up with
+  // nothing, because lining up is for boxes that share a frame.
+  const canSnap = isUpright(g.place?.own);
   const tol = SNAP_PX / g.sc;
   const lines = [];
 
   if (g.mode === "move") {
-    const ex = [g.pageFrom.x + dx, g.pageFrom.x + g.from.w / 2 + dx, g.pageFrom.x + g.from.w + dx];
-    const ey = [g.pageFrom.y + dy, g.pageFrom.y + g.from.h / 2 + dy, g.pageFrom.y + g.from.h + dy];
+    // The snap is computed on the PAGE's edges and the nudge it returns is in
+    // page units, so it goes back through the same inverse before it is added
+    // to a delta that is not.
+    const ex = [g.pageFrom.x + pgx, g.pageFrom.x + g.from.w / 2 + pgx, g.pageFrom.x + g.from.w + pgx];
+    const ey = [g.pageFrom.y + pgy, g.pageFrom.y + g.from.h / 2 + pgy, g.pageFrom.y + g.from.h + pgy];
     const sx = canSnap ? nearestSnap(ex, g.snap.xs, tol) : { by: 0, at: null };
     const sy = canSnap ? nearestSnap(ey, g.snap.ys, tol) : { by: 0, at: null };
-    dx += sx.by;
-    dy += sy.by;
+    const nudge = unmap(g.place?.parent, sx.by, sy.by);
+    dx += nudge.x;
+    dy += nudge.y;
     const v = viewNow();
     if (sx.at != null) lines.push({ axis: "x", at: sx.at * v.sc + v.x });
     if (sy.at != null) lines.push({ axis: "y", at: sy.at * v.sc + v.y });
@@ -1599,13 +1663,13 @@ function onDragMove(ev) {
     const south = k.startsWith("s");
     const v = viewNow();
     if (west || east) {
-      const edge = west ? g.pageFrom.x + dx : g.pageFrom.x + g.from.w + dx;
+      const edge = west ? g.pageFrom.x + pgx : g.pageFrom.x + g.from.w + pgx;
       const s = canSnap ? nearestSnap([edge], g.snap.xs, tol) : { by: 0, at: null };
       dx += s.by;
       if (s.at != null) lines.push({ axis: "x", at: s.at * v.sc + v.x });
     }
     if (north || south) {
-      const edge = north ? g.pageFrom.y + dy : g.pageFrom.y + g.from.h + dy;
+      const edge = north ? g.pageFrom.y + pgy : g.pageFrom.y + g.from.h + pgy;
       const s = canSnap ? nearestSnap([edge], g.snap.ys, tol) : { by: 0, at: null };
       dy += s.by;
       if (s.at != null) lines.push({ axis: "y", at: s.at * v.sc + v.y });

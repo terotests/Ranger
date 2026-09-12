@@ -444,19 +444,48 @@ class FigApp {
         if ((strlen n.id) == 0) {
             return
         }
+        ; THE RING LEANS THE WAY THE LAYER DOES. Drawn on the containing box
+        ; it was an upright rectangle around a turned shape, which says the
+        ; layer is straight and half again as big as it is — and on a board
+        ; where a layer can be turned it is the one thing the ring is for.
+        ; So the ring is the layer's OWN box at its own angle, and the
+        ; containing box is only the fallback for a matrix that is not a
+        ; turn at all.
+        def deg:double 0.0
+        def ox:double 0.0
+        def oy:double 0.0
+        def bx:double n.x
+        def by:double n.y
+        def bw:double n.w
+        def bh:double n.h
+        if n.hasXf {
+            if (n.xf.isSimilarity()) {
+                deg = (n.xf.rotationDeg())
+                bx = n.xf.tx
+                by = n.xf.ty
+                bw = (n.ow * (n.xf.uniformScale()))
+                bh = (n.oh * (n.xf.uniformScale()))
+                ox = bx
+                oy = by
+            }
+        }
         ; In the coordinates the LIST is written in: page pixels with the
         ; view baked, scene units with a camera. The ring is a command like
         ; any other, so it has to be in the same space as the rest of them.
-        def x:double ((n.x * zoom) + panX)
-        def y:double ((n.y * zoom) + panY)
-        def w:double (n.w * zoom)
-        def h:double (n.h * zoom)
+        def x:double ((bx * zoom) + panX)
+        def y:double ((by * zoom) + panY)
+        def w:double (bw * zoom)
+        def h:double (bh * zoom)
+        ox = ((ox * zoom) + panX)
+        oy = ((oy * zoom) + panY)
         def ringW:double 2.0
         if camera {
-            x = n.x
-            y = n.y
-            w = n.w
-            h = n.h
+            x = bx
+            y = by
+            w = bw
+            h = bh
+            ox = bx
+            oy = by
             ; …and a ring that is 2 px on the page is 2/zoom in the scene,
             ; because the camera will multiply it. A kept frame drawn at
             ; another scale carries the ring it was built with, which is why
@@ -473,7 +502,7 @@ class FigApp {
         if (h < 2.0) {
             h = 2.0
         }
-        list.addFrame(x y w h ringW (EVGColor.rgb(59 130 246)))
+        list.addTurnedFrame(x y w h ringW (EVGColor.rgb(59 130 246)) deg ox oy)
         cmdCount = (array_length list.cmds)
     }
 
@@ -517,6 +546,14 @@ class FigApp {
             box.y = minY
             box.w = (maxX - minX)
             box.h = (maxY - minY)
+            ; …and HOW it is placed, beside where it ends up. The box above
+            ; is the rectangle that CONTAINS a turned layer, which is what a
+            ; hit test and a snap want; a ring wants the layer's own box and
+            ; the angle it leans at, and both are in this matrix.
+            box.xf = here
+            box.hasXf = true
+            box.ow = n.w
+            box.oh = n.h
             return true
         }
         def i:int 0
@@ -1472,6 +1509,34 @@ class FigApp {
             i = (i + 1)
         }
         return (new SceneNode())
+    }
+
+    ; HOW THE LAYER IS PLACED, as the matrix that puts it on the page —
+    ; every ancestor's offset and turn, composed. The host needs its INVERSE
+    ; and not its angle: a pointer travels in page pixels, and what a resize
+    ; means by "wider" is along the LAYER's own axes. One angle is enough
+    ; only while nothing above the layer is turned, and on a board something
+    ; usually is.
+    fn placementJson:string () {
+        if ((strlen selected) == 0) {
+            return "{}"
+        }
+        def box:SceneNode (this.absBox(selected))
+        if (box.hasXf == false) {
+            return "{}"
+        }
+        def o:string ("{\"own\":" + (box.xf.asJson()))
+        o = (o + ",\"w\":" + (to_string box.ow) + ",\"h\":" + (to_string box.oh))
+        ; And the frame the layer's own x/y are written in, which is the one
+        ; a MOVE is in: `editRect` writes into the parent's coordinates.
+        def par:SceneNode (this.parentScene(selected))
+        if ((strlen par.id) > 0) {
+            def pb:SceneNode (this.absBox(par.id))
+            if pb.hasXf {
+                o = (o + ",\"parent\":" + (pb.xf.asJson()))
+            }
+        }
+        return (o + "}")
     }
 
     ; THE BOXES A DRAG CAN LINE UP WITH: what the selected layer sits
