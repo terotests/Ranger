@@ -670,10 +670,18 @@ class FigToScene {
             def style:KiwiValue (KiwiValue.nilVal())
             def hit@(optional):KiwiValue (get styleByKey key)
             if (null? hit) {
-                ; A connector keeps one style block for the whole thing —
-                ; the line, its caps and its label are all drawn in it.
+                ; A connector keeps one style block for its line, and the
+                ; line's caps are drawn in it. The block is the line's,
+                ; though, and not every layer's: a connector also ships a
+                ; label — the text and the rounded box behind it — and
+                ; those layers are styled only when there is a label to
+                ; draw. Lending them the line's paint filled that box
+                ; instead, so a divider drawn with a connector came out
+                ; with a green square sitting on one end of it.
                 if ((styles.itemCount()) == 1) {
-                    style = (styles.item(0))
+                    if (((part.child("strokeGeometry")).itemCount()) > 0) {
+                        style = (styles.item(0))
+                    }
                 }
             } {
                 style = (unwrap hit)
@@ -773,7 +781,7 @@ class FigToScene {
     ; is exact, where a CSS border is a guess — and a stroke-only vector (a
     ; chart line, a ring) has no fill geometry at all, so without this it
     ; did not paint. Emitted as the LAST child, the way Figma paints a
-    ; frame's stroke over its content.
+    ; frame's stroke over its content — a section's goes under it instead.
     fn strokeFromGeometry:void (nd:FigNode sn:SceneNode) {
         if ((array_length nd.strokeBlobs) == 0) {
             return
@@ -814,7 +822,23 @@ class FigToScene {
         f.a = st.a
         f.opacity = st.opacity
         push outline.fills f
-        push sn.children outline
+        ; A frame paints its stroke over its content, so the outline is the
+        ; last child. A section does not: it is the board's own furniture,
+        ; and what is on it is drawn over its edge — a sticker straddling a
+        ; section's corner is whole in Figma, and was cut by a green line
+        ; here.
+        if (nd.typeName == "SECTION") {
+            def first:[SceneNode]
+            push first outline
+            def k:int 0
+            while (k < (array_length sn.children)) {
+                push first (itemAt sn.children k)
+                k = (k + 1)
+            }
+            sn.children = first
+        } {
+            push sn.children outline
+        }
         ; The geometry replaces the stroke; keeping both would paint it twice.
         def none:[SceneStroke]
         sn.strokes = none
@@ -1215,7 +1239,14 @@ class FigToScene {
             sn.text.letterSpacing = (raw.childDouble("letterSpacing" 0.0))
         }
         sn.text.paragraphSpacing = (raw.childDouble("paragraphSpacing" 0.0))
-        sn.text.outline = (this.glyphOutline(nd))
+        def shaped:string (this.glyphOutline(nd))
+        if ((strlen shaped) > 0) {
+            ; The decorations belong to the shaped text, so they go on only
+            ; where it does: a run's underline with no glyphs under it is a
+            ; line drawn across nothing.
+            shaped = (shaped + (this.decorationOutline(nd)))
+        }
+        sn.text.outline = shaped
     }
 
     ; One SVG path for every glyph the editor laid out, in node pixels.
@@ -1239,6 +1270,44 @@ class FigToScene {
             def py:double (pos.childDouble("y" 0.0))
             if ((idx >= 0) && (idx < (array_length doc.blobs))) {
                 d = (d + (FigPath.toSvgXf((itemAt doc.blobs idx) fs (0.0 - fs) px py)))
+            }
+            i = (i + 1)
+        }
+        return d
+    }
+
+    ; The line under an underlined run, and the one through a struck one.
+    ; Underlining is per-character styling — `textDecoration` on an entry of
+    ; the text's style table, over the characters that name it — so where
+    ; the line goes depends on the font's metrics and on where the run was
+    ; laid out, neither of which the node itself says. Figma has already
+    ; worked it out: `derivedTextData.decorations` is a rectangle per run,
+    ; in the node pixels the glyphs are laid out in. Painted as part of the
+    ; same path, so a decoration takes the text's own ink and needs nothing
+    ; taught to the renderer.
+    fn decorationOutline:string (nd:FigNode) {
+        def derived:KiwiValue (nd.raw.child("derivedTextData"))
+        def decs:KiwiValue (derived.child("decorations"))
+        def n:int (decs.itemCount())
+        def d:string ""
+        def i:int 0
+        while (i < n) {
+            def rects:KiwiValue ((decs.item(i)).child("rects"))
+            def m:int (rects.itemCount())
+            def j:int 0
+            while (j < m) {
+                def r:KiwiValue (rects.item(j))
+                def x:double (r.childDouble("x" 0.0))
+                def y:double (r.childDouble("y" 0.0))
+                def w:double (r.childDouble("w" 0.0))
+                def h:double (r.childDouble("h" 0.0))
+                if ((w > 0.0) && (h > 0.0)) {
+                    d = (d + "M" + (to_string x) + " " + (to_string y))
+                    d = (d + "L" + (to_string (x + w)) + " " + (to_string y))
+                    d = (d + "L" + (to_string (x + w)) + " " + (to_string (y + h)))
+                    d = (d + "L" + (to_string x) + " " + (to_string (y + h)) + "Z")
+                }
+                j = (j + 1)
             }
             i = (i + 1)
         }

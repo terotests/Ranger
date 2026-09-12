@@ -491,6 +491,43 @@ class FigTest {
             this.close("and it is in the second cell" cellText.x 110.0)
             this.close("at the cell's own inset" cellText.y 10.0)
         }
+        ; A connector ships three layers and the file styles one of them:
+        ; the line. The other two are its label — the text and the rounded
+        ; box behind it — and with no label there is nothing to paint them
+        ; with. Handed the line's block anyway, that box was filled, which
+        ; put a coloured square on the end of a divider drawn this way.
+        def conn:SceneNode (shapes.childNamed("Connector line"))
+        this.eqInt("the connector drew its layers" (array_length conn.children) 3)
+        if ((array_length conn.children) > 2) {
+            def line:SceneNode (itemAt conn.children 0)
+            this.eqInt("the line is its stroke outline" (array_length line.children) 1)
+            if ((array_length line.children) > 0) {
+                def ink:SceneNode (itemAt line.children 0)
+                this.check("painted in the colour the file gives the line" ((array_length ink.fills) > 0))
+            }
+            def chip:SceneNode (itemAt conn.children 2)
+            this.check("the empty label box is not filled" ((array_length chip.fills) == 0))
+            this.check("and not stroked either" ((array_length chip.strokes) == 0))
+        }
+        ; A frame paints its stroke over its content; a section does not.
+        ; What is on a board is drawn over the section's edge, so a sticker
+        ; left across a corner is whole — with the stroke last it was cut
+        ; by a green line at the section's boundary.
+        def sect:SceneNode (shapes.childNamed("Board section"))
+        this.eqInt("the section drew its stroke and its sticker" (array_length sect.children) 2)
+        if ((array_length sect.children) > 1) {
+            def edge:SceneNode (itemAt sect.children 0)
+            this.eqStr("the stroke is under what sits on the section" edge.sourceType "STROKE_GEOMETRY")
+            def sticker:SceneNode (itemAt sect.children 1)
+            this.eqStr("and the sticker over it" sticker.name "Sticker")
+        }
+        ; An underline is per-character styling: which characters carry it
+        ; is in the text's style table, and where the line goes is the
+        ; font's business, so Figma works it out and the file carries the
+        ; rectangle. Read the glyphs and not that, and the line is missing.
+        def under:SceneNode (shapes.childNamed("Underlined"))
+        this.check("the text kept the glyphs it was shaped into" (under.text.hasOutline()))
+        this.check("and carries the underline the file computed" (FigTest.hasSub(under.text.outline "M10 30L130 30L130 33L10 33Z")))
         ; A component out of a library keeps its identity in overrideKey,
         ; and the override path names that and not the guid the copy was
         ; given. The text is in what the designer typed; the size is in
