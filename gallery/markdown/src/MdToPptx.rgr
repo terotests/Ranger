@@ -896,6 +896,18 @@ class MdToPptx {
         group.name = ((word + " diagram ") + (to_string (result.drawn + 1)))
         group.altText = (MdToPptx.describeDrawing(word group))
 
+        ; …and what it was generated FROM, so that it can be read back.
+        ;
+        ; Nothing can reconstruct a diagram from the shapes it drew: a class
+        ; diagram and a sequence diagram draw the same rectangles. Without the
+        ; fence's own text a deck can be moved and resized and never edited
+        ; again — and the decks being written now are the ones that will still
+        ; be around. It rides in `p:cNvPr/a:extLst`, which OOXML sets aside
+        ; for an application's own data and requires other applications to
+        ; preserve.
+        group.embedNotation = (MdEmbedKinds.notationOf(kind))
+        group.embedSource = node.literal
+
         def model:PptxSlide (slide.model())
         push model.shapes group
         result.drawn = (result.drawn + 1)

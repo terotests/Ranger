@@ -301,6 +301,15 @@ class MdPptxTest {
         def said:string (PptxA11y.shapeName(gsh))
         c.eqStr("a screen reader is told what the drawing is" said galt)
 
+        ; …and the source it was generated from came back BYTE FOR BYTE, which
+        ; is the only form of it worth carrying. A diagram cannot be
+        ; reconstructed from the shapes it drew — a class diagram and a
+        ; sequence diagram draw the same rectangles — so a deck written
+        ; without this can be moved and resized and never edited again.
+        c.eqStr("the notation came back" gsh.embedNotation "graphviz")
+        def fence:string "digraph {\n  rankdir=LR;\n  node [shape=box];\n  saapuu -> tarkista;\n  tarkista -> laskuta [label=\"ok\"];\n  tarkista -> hylkaa [label=\"ei\"];\n}\n"
+        c.eqStr("…and the fence's own text, byte for byte" gsh.embedSource fence)
+
         c.eqInt("the exporter counted it" maker.result.drawn 1)
         c.eqInt("…and dropped nothing" maker.result.dropped 0)
         c.ok("…and said what it did" ((maker.result.noteCount()) > 0))

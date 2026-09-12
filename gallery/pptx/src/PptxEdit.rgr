@@ -250,6 +250,11 @@ class PptxClone {
         s.imageOk = src.imageOk
         s.locked = src.locked
         s.altText = src.altText
+        ; Provenance travels with the shape. A copy that dropped it would turn
+        ; an editable diagram into ink the first time a reader duplicated a
+        ; slide.
+        s.embedNotation = src.embedNotation
+        s.embedSource = src.embedSource
         s.hasStyle = src.hasStyle
         s.fontRef = src.fontRef
         s.styleFillSig = src.styleFillSig

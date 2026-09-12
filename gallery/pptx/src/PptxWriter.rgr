@@ -779,6 +779,38 @@ class PptxWriter {
     ; picture, and a writer that leaves it out does not merely fail to add
     ; accessibility — it DELETES the author's, the first time the deck is
     ; edited here. That is worse than never having read it.
+    ; `p:cNvPr`, which is either a self-closing tag or one with an extension
+    ; list inside it.
+    ;
+    ; `a:extLst` is the place OOXML sets aside for an application's own data.
+    ; A consumer that does not know the URI is required to PRESERVE the
+    ; extension rather than understand it, which is what makes it the right
+    ; carrier for a diagram's source: PowerPoint round-trips it untouched and
+    ; this reader can pick it back up.
+    ;
+    ; The source is element CONTENT and not an attribute, and that is not a
+    ; style choice: XML attribute-value normalisation turns every newline into
+    ; a space, so a Mermaid diagram written into an attribute comes back as
+    ; one line and no longer parses.
+    sfn cNvPrXml:string (id:int name:string shape:PptxShape) {
+        def head:string ((("<p:cNvPr id=\"" + (to_string id)) + "\" name=\"") + (PptxWriter.esc(name))) + "\"" + (PptxWriter.descrAttr(shape))
+        if ((strlen shape.embedSource) == 0) {
+            return (head + "/>")
+        }
+        def uri:string (PptxWriter.embedUri())
+        def ext:string (("<a:extLst><a:ext uri=\"" + uri) + "\">")
+        ; `xml:space="preserve"`, because a reader that trims the content
+        ; gives back a diagram whose first line lost its indentation — and a
+        ; source that is nearly right is worse than one that is missing.
+        ext = (ext + "<rgr:embed xmlns:rgr=\"urn:ranger:embed\" xml:space=\"preserve\" notation=\"" + (PptxWriter.esc(shape.embedNotation)) + "\">")
+        ext = ((ext + (PptxWriter.esc(shape.embedSource))) + "</rgr:embed></a:ext></a:extLst>")
+        return ((head + ">") + ext) + "</p:cNvPr>"
+    }
+
+    sfn embedUri:string () {
+        return "{7A1B9C40-0B9E-4C2E-9E7E-5F2B6D3A1E11}"
+    }
+
     sfn descrAttr:string (shape:PptxShape) {
         if ((strlen shape.altText) == 0) {
             return ""
@@ -1076,7 +1108,7 @@ class PptxWriter {
         if ((strlen name) == 0) {
             name = ("Group " + (to_string id))
         }
-        def out:string ("<p:grpSp><p:nvGrpSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"" + (PptxWriter.descrAttr(shape)) + "/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>")
+        def out:string ("<p:grpSp><p:nvGrpSpPr>" + (PptxWriter.cNvPrXml(id name shape)) + "<p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>")
         out = (out + "<p:grpSpPr>" + (PptxWriter.xfrmXml(shape "a:xfrm" true)) + "</p:grpSpPr>")
         def i:int 0
         while (i < (array_length shape.children)) {

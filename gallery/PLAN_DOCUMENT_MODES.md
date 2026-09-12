@@ -390,19 +390,32 @@ description read back off the FILE — plus `PptxA11y.shapeName` on the recovere
 group returning the description, which is where it lands for the reader it is
 for.
 
-### Stage D2 — and carries its source — not started
+### Stage D2 — and carries its source — ✅ done
 
-The carrier §7 weighs. A survey of the writer says the honest cost: a new part
-type touches `contentTypesXml`, the per-slide relationships, both save paths
-(the fresh write and the edit-and-save), the parser, and the re-association
-from a shape back to its part — roughly what `notesSlide` costs, which is
-threaded through ten places. That is a stage, not an afternoon, and it is the
-half that makes Stage J possible: a deck written without provenance can never
-be edited afterwards.
+The carrier turned out to be neither of the two §7 weighed. A package part
+costs what `notesSlide` costs — a content type, the per-slide relationships,
+both save paths, the parser, and the re-association from a shape back to its
+part, threaded through ten places. Alt text costs a blind reader having a
+Mermaid source read aloud to them. `p:cNvPr/a:extLst` costs neither: it is the
+place OOXML sets aside for an application's own data, and a consumer that does
+not know the URI is **required to preserve** the extension rather than
+understand it. PowerPoint round-trips it untouched.
 
-*The check:* a deck written, re-opened, and the recovered SOURCE compared byte
-for byte with the fence it came from. Counting the group would pass with the
-source missing, which is the whole failure.
+Two details that are not style choices. The source is element CONTENT and not
+an attribute, because XML attribute-value normalisation turns every newline
+into a space and a Mermaid diagram written into an attribute comes back as one
+line and no longer parses. And `xml:space="preserve"`, because a reader that
+trims the content gives back a diagram whose first line lost its indentation —
+a source that is nearly right is worse than one that is missing.
+
+`PptxEdit`'s shape copier carries the fields too: a copy that dropped them
+would turn an editable diagram into ink the first time a reader duplicated a
+slide.
+
+*The check:* the deck written, re-opened through `PptxParser`, and the source
+compared BYTE FOR BYTE with the fence it came from — the only form of it worth
+carrying. Counting the group would pass with the source missing, which is the
+whole failure.
 
 ### Stage E — `gallery/vfs`, in memory — not started
 

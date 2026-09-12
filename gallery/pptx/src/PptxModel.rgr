@@ -712,6 +712,21 @@ class PptxShape {
     ; back out as nothing, so a deck whose author had written proper alt text
     ; lost it the first time it was edited here.
     def altText:string ""
+    ; What this shape was GENERATED FROM, when something generated it.
+    ;
+    ; A diagram written as a ```mermaid fence reaches a slide as a group of
+    ; paths and text runs. Nothing can read that back: a class diagram and a
+    ; sequence diagram draw the same rectangles, so intent cannot be
+    ; reconstructed from strokes. Without the source, a deck can be moved and
+    ; resized and never edited again.
+    ;
+    ; Carried in `p:cNvPr/a:extLst`, which is the place OOXML sets aside for
+    ; exactly this: an application's own data, which other applications are
+    ; required to preserve rather than understand. Alt text was the other
+    ; candidate and is the wrong one — it is the accessibility field, and a
+    ; screen reader would read a Mermaid source aloud.
+    def embedNotation:string ""
+    def embedSource:string ""
     ; `p:cNvPr/@id`, which is the name the slide's own timing tree uses to say
     ; which shape an animation is about.
     def shapeId:int 0
