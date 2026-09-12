@@ -159,6 +159,38 @@ class SceneMatrix {
         return (((a * d) - (c * b)) < 0.0)
     }
 
+    ; Whether this matrix is a SIMILARITY: a turn, one factor, and maybe a
+    ; mirror. That is all an angle and a factor can say, and it is all the
+    ; renderer applies — so a matrix that is anything else is drawn as the
+    ; nearest turn, which is a different picture. Two columns of the same
+    ; length, at right angles to each other, is the test.
+    fn isSimilarity:boolean () {
+        def l1:double (sqrt ((a * a) + (b * b)))
+        def l2:double (sqrt ((c * c) + (d * d)))
+        ; A matrix that collapses to nothing is not a skew — it is a layer
+        ; with no area, and it draws nothing either way. Reported as a skew
+        ; it is noise in a count that is meant to be read.
+        if ((l1 < 0.000001) || (l2 < 0.000001)) {
+            return true
+        }
+        def ratio:double (l1 / l2)
+        if ((fabs (ratio - 1.0)) > 0.01) {
+            return false
+        }
+        ; The dot product of the two columns, as a fraction of their size —
+        ; the cosine of the angle between them, so the tolerance is an angle
+        ; too. A hundredth is about half a degree, which is the rounding a
+        ; file's own floats carry: a rotation written to seven places has a
+        ; dot of a few thousandths and is not a skew.
+        def dot:double (((a * c) + (b * d)) / (l1 * l2))
+        return ((fabs dot) < 0.01)
+    }
+
+    ; The factor the turn is written with — the length of a column.
+    fn uniformScale:double () {
+        return (sqrt ((a * a) + (b * b)))
+    }
+
     fn rotationDeg:double () {
         def ang:double (SceneMatrix.atan2Approx(b a))
         return ((ang * 180.0) / 3.141592653589793)

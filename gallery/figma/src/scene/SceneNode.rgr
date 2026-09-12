@@ -15,6 +15,10 @@ class SceneFill {
     def visible:boolean true
     def imageRef:string ""
     def imageFit:string "fill"
+    ; The picture's own turn inside the box, and whether the box shows only
+    ; part of it. Neither is the node's transform and neither is drawn.
+    def imageRotation:double 0.0
+    def imageCropped:boolean false
     def gradR:double 0.0
     def gradG:double 0.0
     def gradB:double 0.0

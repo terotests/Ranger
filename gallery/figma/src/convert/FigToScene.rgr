@@ -210,6 +210,14 @@ class FigToScene {
             sn.hasXf = false
         } {
             sn.hasXf = true
+            ; A turn, one factor and a mirror is all an angle can say. A
+            ; matrix that is anything else — a skew, or a scale that differs
+            ; by axis — is drawn as the nearest turn, which is a different
+            ; picture and not a soft one: said here rather than left to be
+            ; puzzled over.
+            if ((sn.xf.isSimilarity()) == false) {
+                sn.warn("a skew or a per-axis scale (drawn as the nearest turn)")
+            }
         }
         this.copyFills(nd sn)
         if (t == "CANVAS") {
@@ -323,6 +331,23 @@ class FigToScene {
             this.expandImmutableFrame(nd sn)
         }
         this.strokeFromGeometry(nd sn)
+        ; What a picture does INSIDE its box is the paint's business, not the
+        ; node's: Figma keeps a turn and a matrix on the image fill — where
+        ; the picture is cropped and panned within the shape — and neither
+        ; is the node's transform. The list draws a picture upright and
+        ; whole into the element's box, so both are lost, and a photo that
+        ; should be a detail of itself comes out as the whole frame.
+        if ((array_length sn.fills) > 0) {
+            def imf:SceneFill (sn.firstFill())
+            if (imf.kind == "image") {
+                if ((imf.imageRotation > 0.01) || (imf.imageRotation < (0.0 - 0.01))) {
+                    sn.warn("an image turned inside its box (drawn upright)")
+                }
+                if imf.imageCropped {
+                    sn.warn("an image cropped or panned inside its box (drawn whole)")
+                }
+            }
+        }
         ; A gradient on a vector keeps the shape and loses the ramp — the
         ; display list carries a gradient as a box, and a vector is not its
         ; box. Said here rather than left to be noticed.
@@ -1047,6 +1072,8 @@ class FigToScene {
                 f.kind = "image"
                 f.imageRef = p.imageHash
                 f.imageFit = (FigToScene.scaleFit(p.scaleMode))
+                f.imageRotation = p.imageRotation
+                f.imageCropped = p.imageCropped
             }
             if (p.kind == "GRADIENT_LINEAR") {
                 f.kind = "gradient"
