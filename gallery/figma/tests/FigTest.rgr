@@ -67,6 +67,7 @@ class FigTest {
         this.testPerSideStroke()
         this.testTracking()
         this.testDashAndCaps()
+        this.testRotationAngle()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -922,6 +923,43 @@ class FigTest {
 
     ; A paste from Figma: fig-kiwi bytes with no ZIP, and only the copied
     ; nodes, each pointing at a page that did not come along.
+    ; THE ANGLE A MATRIX IS TURNED BY, over the whole circle. Every layer
+    ; that is not upright is placed by this number, and Figma turns a layer
+    ; about its OWN ORIGIN — so an angle that is wrong does not merely tilt
+    ; the layer, it swings it off its own box. An image came out a quarter
+    ; turn further left than the file said and well above the rectangle the
+    ; editor draws around it, from one term of an arctangent approximation.
+    fn testRotationAngle:void () {
+        print "--- rotation angle ---"
+        ; The matrix from the board, to seven places: a plain -45 degree
+        ; turn, no mirror and no scale. It read as -134.76, which is the
+        ; approximation's answer for atan(-1) and a quarter turn out.
+        def m:SceneMatrix (SceneMatrix.fromFigma(0.7071068 0.7071068 521.0 (0.0 - 0.7071068) 0.7071068 463.0))
+        def got45:double (m.rotationDeg())
+        ; Within half a degree, not exact: this is an approximation and the
+        ; test is here to catch a QUARTER TURN, not a rounding.
+        this.check(("an eighth turn anticlockwise reads as -45, not -135 (got " + (to_string got45) + ")") ((fabs (got45 + 45.0)) < 0.5))
+        this.check("and is not mirrored" ((m.isMirrored()) == false))
+        this.check("nor a skew" (m.isSimilarity()))
+        ; And the whole circle, against the angle each matrix was built from.
+        ; The approximation is good to about a third of a degree; the bug it
+        ; replaces was out by up to 89.76, and only on one side, which is why
+        ; half the board looked right.
+        def worst:double 0.0
+        def deg:int (0 - 179)
+        while (deg <= 180) {
+            def t:double (((to_double deg) * 3.141592653589793) / 180.0)
+            def mm:SceneMatrix (SceneMatrix.fromFigma((cos t) (0.0 - (sin t)) 0.0 (sin t) (cos t) 0.0))
+            def got:double (mm.rotationDeg())
+            def err:double (fabs (got - (to_double deg)))
+            if (err > worst) {
+                worst = err
+            }
+            deg = (deg + 1)
+        }
+        this.check(("every angle on the circle is within a third of a degree (worst " + (to_string worst) + ")") (worst < 0.34))
+    }
+
     fn testPaste:void () {
         print "--- paste ---"
         def app (new FigApp())
