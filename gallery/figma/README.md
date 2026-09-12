@@ -237,9 +237,14 @@ path *tail* and not a prefix — `40000000:0/601:5/601:7` and
 with the same tail. That is what puts the third cell's text in the third
 cell rather than 20 pixels from the table's corner.
 
-A connector keeps one style block for the line, its caps and its label,
-and its arrow head is a filled path in the line's colour — the only colour
-the file gives it.
+A connector ships three layers — the line, and the text and rounded box
+its label is made of — and one style block, which is the line's: its caps
+and its arrow head are drawn in it, the head as a filled path in the line's
+colour, the only colour the file gives it. The label layers are styled only
+when there is a label, so a connector without one carries a 100x100 box
+nothing says how to paint. Reading that block as the whole connector's
+painted the box too, and every divider drawn with a connector came out with
+a coloured square sitting on one end of it.
 
 ## Moving around
 

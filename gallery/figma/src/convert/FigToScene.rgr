@@ -670,10 +670,18 @@ class FigToScene {
             def style:KiwiValue (KiwiValue.nilVal())
             def hit@(optional):KiwiValue (get styleByKey key)
             if (null? hit) {
-                ; A connector keeps one style block for the whole thing —
-                ; the line, its caps and its label are all drawn in it.
+                ; A connector keeps one style block for its line, and the
+                ; line's caps are drawn in it. The block is the line's,
+                ; though, and not every layer's: a connector also ships a
+                ; label — the text and the rounded box behind it — and
+                ; those layers are styled only when there is a label to
+                ; draw. Lending them the line's paint filled that box
+                ; instead, so a divider drawn with a connector came out
+                ; with a green square sitting on one end of it.
                 if ((styles.itemCount()) == 1) {
-                    style = (styles.item(0))
+                    if (((part.child("strokeGeometry")).itemCount()) > 0) {
+                        style = (styles.item(0))
+                    }
                 }
             } {
                 style = (unwrap hit)

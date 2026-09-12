@@ -491,6 +491,24 @@ class FigTest {
             this.close("and it is in the second cell" cellText.x 110.0)
             this.close("at the cell's own inset" cellText.y 10.0)
         }
+        ; A connector ships three layers and the file styles one of them:
+        ; the line. The other two are its label — the text and the rounded
+        ; box behind it — and with no label there is nothing to paint them
+        ; with. Handed the line's block anyway, that box was filled, which
+        ; put a coloured square on the end of a divider drawn this way.
+        def conn:SceneNode (shapes.childNamed("Connector line"))
+        this.eqInt("the connector drew its layers" (array_length conn.children) 3)
+        if ((array_length conn.children) > 2) {
+            def line:SceneNode (itemAt conn.children 0)
+            this.eqInt("the line is its stroke outline" (array_length line.children) 1)
+            if ((array_length line.children) > 0) {
+                def ink:SceneNode (itemAt line.children 0)
+                this.check("painted in the colour the file gives the line" ((array_length ink.fills) > 0))
+            }
+            def chip:SceneNode (itemAt conn.children 2)
+            this.check("the empty label box is not filled" ((array_length chip.fills) == 0))
+            this.check("and not stroked either" ((array_length chip.strokes) == 0))
+        }
         ; A component out of a library keeps its identity in overrideKey,
         ; and the override path names that and not the guid the copy was
         ; given. The text is in what the designer typed; the size is in

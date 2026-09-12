@@ -33,6 +33,7 @@ class FigSample {
         s.addEnumMember(nt "RECTANGLE" 12)
         s.addEnumMember(nt "STICKY" 13)
         s.addEnumMember(nt "TABLE" 14)
+        s.addEnumMember(nt "CONNECTOR" 15)
         def guid:KiwiDef (s.addStruct("GUID"))
         s.addField(guid "sessionID" "uint" 0 false)
         s.addField(guid "localID" "uint" 1 false)
@@ -922,6 +923,45 @@ class FigSample {
         tbGen.put("overrides" tbStyles)
         table.put("nodeGenerationData" tbGen)
         nodes.pushItem(table)
+
+        ; A connector, which ships three layers and styles one of them: the
+        ; line, and behind it the two the label is made of — the text and
+        ; the rounded box it sits in. With no label there is nothing to
+        ; style them with, and the one block the file does carry belongs to
+        ; the line. Handed to the box as well it filled it, which is how a
+        ; divider drawn with a connector grew a coloured square on one end.
+        def conn:KiwiValue (FigSample.node(3 77 "CONNECTOR" "Connector line" 0 3 "eV" 300.0 0.0 2580.0 1120.0))
+        def cnGeom:KiwiValue (KiwiValue.fromArray())
+        def cnLine:KiwiValue (KiwiValue.fromObject())
+        cnLine.put("guidPath" (FigSample.path1(40000000 0)))
+        cnLine.put("size" (FigSample.vec(300.0 0.0)))
+        cnLine.put("transform" (FigSample.xform(0.0 0.0)))
+        cnLine.put("strokeGeometry" (FigSample.geomBlob(0)))
+        cnGeom.pushItem(cnLine)
+        def cnLabel:KiwiValue (KiwiValue.fromObject())
+        cnLabel.put("guidPath" (FigSample.path1(40000000 1)))
+        cnLabel.put("size" (FigSample.vec(0.0 0.0)))
+        cnLabel.put("transform" (FigSample.xform(0.0 0.0)))
+        cnGeom.pushItem(cnLabel)
+        def cnChip:KiwiValue (KiwiValue.fromObject())
+        cnChip.put("guidPath" (FigSample.path1(40000000 2)))
+        cnChip.put("size" (FigSample.vec(100.0 100.0)))
+        cnChip.put("transform" (FigSample.xform(0.0 0.0)))
+        cnChip.put("fillGeometry" (FigSample.geomBlob(0)))
+        cnGeom.pushItem(cnChip)
+        def cnFrame:KiwiValue (KiwiValue.fromObject())
+        cnFrame.put("overrides" cnGeom)
+        conn.put("derivedImmutableFrameData" cnFrame)
+        def cnStyles:KiwiValue (KiwiValue.fromArray())
+        def cnLineStyle:KiwiValue (KiwiValue.fromObject())
+        cnLineStyle.put("guidPath" (FigSample.path1(40000000 0)))
+        cnLineStyle.put("strokePaints" (FigSample.paints(0.078 0.682 0.361)))
+        cnLineStyle.put("strokeWeight" (KiwiValue.fromDouble(3.0)))
+        cnStyles.pushItem(cnLineStyle)
+        def cnGen:KiwiValue (KiwiValue.fromObject())
+        cnGen.put("overrides" cnStyles)
+        conn.put("nodeGenerationData" cnGen)
+        nodes.pushItem(conn)
 
         ; A component out of a library: the copy carries new guids and the
         ; override paths still name the old ones, which every node keeps in
