@@ -823,8 +823,8 @@ class EVGElement {
     ; Resolved LATE, in the display list, where the laid-out box is known.
     ; Resolving at parse time would need a size nobody has yet, and resolving
     ; when the stylesheet is applied would use the previous frame's box.
-    def transformOriginX:EVGUnit (new EVGUnit())
-    def transformOriginY:EVGUnit (new EVGUnit())
+    def transformOriginX:EVGUnit (EVGUnit.unset())
+    def transformOriginY:EVGUnit (EVGUnit.unset())
     def transformOriginSpec:string ""
     
     ; Shadow
@@ -1154,6 +1154,28 @@ class EVGElement {
         scrollbarThumb = (EVGColor.noColor())
         scrollbarTrack = (EVGColor.noColor())
         strokeColor = (EVGColor.noColor())
+
+        ; The per-side box fields the stylesheet writes when it has a value.
+        ; They used to be left undefined until then, which gave an element a
+        ; different hidden class depending on which of them had ever been
+        ; set, and made every layout read of them polymorphic. Every field
+        ; is now present from birth, at no cost: the defaults are shared.
+        marginTop = (EVGUnit.unset())
+        marginRight = (EVGUnit.unset())
+        marginBottom = (EVGUnit.unset())
+        marginLeft = (EVGUnit.unset())
+        paddingTop = (EVGUnit.unset())
+        paddingRight = (EVGUnit.unset())
+        paddingBottom = (EVGUnit.unset())
+        paddingLeft = (EVGUnit.unset())
+        borderWidth = (EVGUnit.unset())
+        borderTopWidth = (EVGUnit.unset())
+        borderRightWidth = (EVGUnit.unset())
+        borderBottomWidth = (EVGUnit.unset())
+        borderLeftWidth = (EVGUnit.unset())
+        borderColor = (EVGColor.noColor())
+        gradientFrom = (EVGColor.noColor())
+        gradientTo = (EVGColor.noColor())
     }
     
     sfn createDiv:EVGElement () {
