@@ -285,6 +285,13 @@ width of the column it lands in — a printed diagram is laid out at the
 printed width rather than scaled up from a screen, which is the whole reason
 to keep it as geometry.
 
+A diagram reaches the deck as ONE `p:grpSp`, so it is already a single object
+a reader can select, move and scale in PowerPoint. What it is not yet is an
+object with a NAME and a source behind it — which is what would let it be
+edited later rather than only moved.
+[`../PLAN_DOCUMENT_MODES.md`](../PLAN_DOCUMENT_MODES.md) §7 has the carrier
+question and the round trip through RangerFlow's own editing surface.
+
 **A diagram is drawn at the width the document asks for.** `{width=360}` under
 a fence narrows it; anything wider than the column, or anything that is not a
 plain number, is the column width, because a diagram that overflowed would

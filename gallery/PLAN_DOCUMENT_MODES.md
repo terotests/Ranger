@@ -155,13 +155,19 @@ markdown ──► MdToPptx ──► PptxPresentation ──► PptxEdit / Pptx
 The markdown page keeps the chrome it already has — the canvas, the font
 manager, the scroll, the page furniture — and stops owning the model.
 
-**DECK comes first, and DOC is what the reader asked about.** That tension is
-real and worth naming rather than resolving quietly: `MdToPptx` exists and is
-tested, so the switch can be proved end to end cheaply on the deck; `MdToDocx`
-does not exist at all and is the larger half of the row. The recommendation is
-to build the SWITCH on the deck, where the destination is already there, and
-then add the Word destination behind the same switch — rather than build the
-switch and the Word converter at once and find out which of the two is wrong.
+**DECK comes first — decided.** `MdToPptx` exists and is tested, so the switch
+can be proved end to end cheaply; `MdToDocx` does not exist at all and is the
+larger half of the row. Build the switch where the destination is already
+there, then add the Word destination behind the same switch, rather than build
+both at once and find out which of the two was wrong. DOC is still what the
+reader asked about and is Stage K, not a stage that fell off.
+
+**PDF comes along for most of it.** The PDF writer draws the same display list
+the deck is built from, so the layout, the page size, the stylesheet and a
+diagram's width already govern both, and work on any of them reaches both. What
+PDF does not share is §7: a PDF has no notion of an object a reader selects
+later. The HTML exporter shares less again — it cannot draw a scene's paths at
+all, which is a known limit rather than a gap this plan closes.
 
 ## 6. Page breaks — and why they stay on the markdown side
 
@@ -180,7 +186,60 @@ at all.
 After the switch, moving a block between slides is a deck operation and
 `PptxEdit` owns it. Both answers exist because both modes exist.
 
-## 7. CSS in the deck and document modes
+## 7. An embedded drawing is an object, not ink
+
+A fenced diagram already arrives in the deck as ONE `p:grpSp`:
+`PptxFromEvg.build` makes a group, `fitTo` sizes it to the union of what was
+drawn, and `MdToPptx.drawn` pushes it onto the slide. So a reader can already
+select it, move it and scale it in PowerPoint — further along than the note the
+exporter prints about it, which says only that it "is drawn as shapes, not as
+text — it cannot be edited in PowerPoint".
+
+What is missing is everything that makes it an OBJECT rather than a pile of
+ink:
+
+- **It has no identity.** Every group is named `Drawing`, whatever notation it
+  came from. A reader who finds it in PowerPoint's selection pane learns
+  nothing about it.
+- **It has no provenance.** The fence's text is not carried, so nothing can
+  re-read the diagram later. An editor would have to reconstruct intent from
+  strokes, which is not possible — a class diagram and a sequence diagram can
+  draw the same rectangles.
+- **A resize scales it; it does not re-lay it out.** PowerPoint scales a
+  group's child space, so labels stretch with boxes. The markdown side already
+  re-lays out at a given width (`{width=360}` → `MdEmbedKinds.widthOf`), and
+  the two are genuinely different operations. "At minimum the size can be
+  changed" is satisfied today; "it re-flows at its new size" is not, and cannot
+  be without something running inside PowerPoint.
+- **Nothing can edit it**, which is what carrying the source is for.
+
+Where the source goes is a decision, not an obvious answer:
+
+| carrier | survives other tools | cost |
+| --- | --- | --- |
+| `p:cNvPr/@descr` (alt text) | yes, widely | it is the ACCESSIBILITY field — a screen reader would read a Mermaid source aloud |
+| `a:extLst` / `p:custDataLst` | in PowerPoint; stripped by some converters | invisible, which is also the point |
+| a package part plus a relationship | correct OPC; ignored by tools that do not know the rel type | needs a content type and a rel type of its own |
+
+The recommendation: **alt text carries a human description** — that is what the
+field is for, and `PptxShape.altText` already reads it — and **a package part
+carries the source**, with the group referencing it. That keeps accessibility
+honest and keeps the source lossless and arbitrarily long. It is a
+recommendation rather than a conclusion because it costs a content type and a
+rel type, and Stage D is where that is weighed against putting a short source
+in `extLst` and nothing in the package.
+
+**Editing it later is a round trip, not a new editor.** Read the source back
+out of the carrier; hand it to the reader that already draws it —
+`MermaidRender`, `PlantUmlRender`, `DotRender`, `D2Render` — and to RangerFlow's
+own editing surface, which is the tooling the reader asked for by name; then
+rebuild the group and replace it on the slide. Everything in that sentence
+exists except the carrier and the replace. That is why it is Stage J and not a
+research project, and why Stage D — the carrier — is early even though the
+editing is late: a deck written without provenance can never be edited, and
+decks written this year are the ones a reader will still have next year.
+
+## 8. CSS in the deck and document modes
 
 `MdCss` is the third binding of `gallery/css/CssCore.rgr`, so the cascade is
 already shared. What is missing is not machinery but properties:
@@ -191,12 +250,12 @@ already shared. What is missing is not machinery but properties:
   It already writes `<p:blipFill>` for a picture shape, so the XML side of a
   background IMAGE is a short reach from what is there.
 - Whether a Word section background is expressible at the fidelity a reader
-  expects is **not established** and is a question for Stage G, not an
+  expects is **not established** and is a question for Stage K, not an
   assumption here.
 
 All of it needs the same thing first: a picture the engine can reach.
 
-## 8. The bytes have to come from somewhere
+## 9. The bytes have to come from somewhere
 
 `![alt](src)` draws as its ALT TEXT today, in the muted colour, because the
 markdown layout has no bytes for a picture. That is honest, and it is the
@@ -206,7 +265,7 @@ a virtual filesystem as its own shared project:
 
 ---
 
-## 9. The stages
+## 10. The stages
 
 Ordered by value ÷ risk, with the live bug first. Each stage names the check
 that would catch its failure, because a stage without one gets reported as done
@@ -233,7 +292,7 @@ that exists today — and that is honest rather than a placeholder, because the
 truth really has moved: the document is what the preview shows, markdown is its
 hidden serialization, and the reader can no longer edit it behind the preview's
 back. What is limited at this stage is the CAPABILITY of that truth, and the
-switch says which gestures are not yet there. Stage G replaces the backing
+switch says which gestures are not yet there. Stage H replaces the backing
 model and the limitation lifts without the reader's mental model changing.
 
 This is also the stage that makes today's bug unreachable from the preview:
@@ -254,7 +313,20 @@ representable.
 asserting which slide each block landed on — by counting the BLOCKS per slide,
 not by counting slides.
 
-### Stage D — `gallery/vfs`, in memory — not started
+### Stage D — a drawing is an object in the deck — not started
+
+The group is named for the notation and the diagram's own title rather than
+`Drawing`; alt text says what it is; the source is carried, by the mechanism
+§7 weighs. Nothing here depends on the switch or on the VFS, and it improves
+the export a reader already uses — which is why it is this early. A deck
+written without provenance can never be edited later, and the decks being
+written now are the ones that will still be around.
+
+*The check:* a deck written, re-opened through `PptxParser`, and the recovered
+SOURCE compared byte for byte with the fence it came from. Counting the group
+would pass with the source missing, which is the whole failure.
+
+### Stage E — `gallery/vfs`, in memory — not started
 
 The new project, memory provider only, with the fixture tree a suite and a demo
 bootstrap from. See [`vfs/PLAN_VFS.md`](vfs/PLAN_VFS.md) stages V1–V3.
@@ -262,7 +334,7 @@ bootstrap from. See [`vfs/PLAN_VFS.md`](vfs/PLAN_VFS.md) stages V1–V3.
 *The check:* that plan's own suite; plus every existing markdown and pptx suite
 still passing, because a VFS nobody reads yet must change nothing.
 
-### Stage E — a picture is bytes — not started
+### Stage F — a picture is bytes — not started
 
 `![alt](src)` resolves through the VFS and becomes a real picture: sized at
 layout time from the stat, drawn in the preview, carried into the PDF, the HTML
@@ -273,16 +345,16 @@ for markdown and removes the "the deck carries no pictures" note from
 *The check:* one document, four outputs, the same picture in all four — counted
 as bytes present in each, not as a box of the right size.
 
-### Stage F — backgrounds, and CSS that reaches them — not started
+### Stage G — backgrounds, and CSS that reaches them — not started
 
 `background-image: url(...)` in `MdCss`; a slide background as
-`<p:bg><p:bgPr><a:blipFill>`; the same rect in the preview.
+`<p:bg><p:bgPr><a:blipFill>`; the same rect in the preview and in the PDF.
 
 *The check:* a themed deck opened back through `PptxParser`, asserting the
 background part is present and referenced — the black-on-black theme bug is the
 reason to check the FILE rather than the preview.
 
-### Stage G — DECK: the real editor behind the switch — not started
+### Stage H — DECK: the real editor behind the switch — not started
 
 `PptxApp` owns the model. The markdown page keeps the canvas and stops owning
 the document. The largest stage, and the one that pays for §3.
@@ -293,12 +365,35 @@ the document. The largest stage, and the one that pays for §3.
 has worked here — plus a gesture markdown cannot express (a coloured text box)
 surviving a save and a reopen.
 
-### Stage H — DOC: `MdToDocx`, then `DocxEditController` — not started
+### Stage I — a drawing, moved and resized on the slide — not started
+
+With the deck editable, a diagram is an object the reader handles like any
+other shape: select, move, resize. Most of this is `PptxEdit` already working
+on a group; what needs deciding is what a resize MEANS — §7's scale-versus-
+re-layout — and the honest first answer is that it scales, with the width
+attribute on the markdown side remaining the way to re-flow.
+
+*The check:* a group moved and resized, saved, reopened, and its position and
+extent asserted from the FILE — plus the drawing still being one group
+afterwards rather than a loose pile of shapes.
+
+### Stage J — editing a drawing, through RangerFlow — not started
+
+Read the source back out of the carrier Stage D wrote, edit it with RangerFlow's
+own editing surface, redraw, and replace the group on the slide. The round trip
+the reader asked for by name. Needs D for the source and H for the app.
+
+*The check:* open a deck, add one node to a diagram's source through that
+surface, and assert the redrawn group contains the NEW NODE's label — a node
+added is a node drawn. Asserting only that the group changed would pass on a
+redraw that lost everything.
+
+### Stage K — DOC: `MdToDocx`, then `DocxEditController` — not started
 
 The destination the reader actually asked about. Needs a converter that does
-not exist. Behind the switch built in Stage B and proved in Stage G.
+not exist. Behind the switch built in Stage B and proved in Stage H.
 
-### Stage I — MD + CSS as its own command set — not started
+### Stage L — MD + CSS as its own command set — not started
 
 The lossless mode. An enumerated allowlist in which every command names the
 file it writes. Nothing here may touch an in-memory rich model, which is the
@@ -306,7 +401,7 @@ whole reason it can promise a byte-for-byte `.md` on the way out.
 
 ---
 
-## 10. The riskiest assumptions
+## 11. The riskiest assumptions
 
 - **That a read-only preview is acceptable in MD mode.** It is what was asked
   for, and it is the largest visible change: the preview stops taking
@@ -320,7 +415,7 @@ whole reason it can promise a byte-for-byte `.md` on the way out.
   explicitly rather than let the loop decide it by accident.
 - **That `MdToPptx` is a good enough conversion to hand off from.** It reports
   what it had to DRAW rather than write, so a deck entered through it starts
-  with those blocks already lossy. Stage G has to decide whether that is a
+  with those blocks already lossy. Stage H has to decide whether that is a
   starting point or a reason to improve the conversion first.
 - **That the VFS stays small.** Every filesystem grows. §8 of the VFS plan is
   the list of things it must not become, and it exists to be enforced.
