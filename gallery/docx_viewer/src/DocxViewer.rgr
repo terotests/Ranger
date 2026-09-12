@@ -801,6 +801,154 @@ class DocxViewer {
         return true
     }
 
+    ; --- resizing a drawing by its corners ------------------------------------
+    ; The frame the selected drawing gets has a handle on each corner, and a
+    ; press on one starts a drag that sets the drawing's width — the height
+    ; follows, because a diagram stretched out of proportion is a different
+    ; diagram. `drawingHandleAt` says which corner, if any, is under a point;
+    ; the app routes the press, the moves and the release here.
+    def dragDrawingId:int 0
+    def dragCorner:int 0
+    def dragStartW:int 0
+    def dragStartH:int 0
+    def dragStartX:int 0
+    def dragStartY:int 0
+
+    ; The laid-out line of a drawing on the page the viewer is on, or a line
+    ; with no drawing in it when the drawing is on another page.
+    fn drawingLine:LaidLine (id:int) {
+        def pg:LaidPage (view.layout.pageAt(view.pageIndex))
+        def i:int 0
+        while (i < (array_length pg.lines)) {
+            def line:LaidLine (itemAt pg.lines i)
+            if (line.kind == (LaidLineKind.drawing())) {
+                if (line.drawingId == id) {
+                    return line
+                }
+            }
+            i = (i + 1)
+        }
+        return (new LaidLine)
+    }
+
+    ; Which corner handle of the selected drawing's frame is under the point:
+    ; 1 top-left, 2 top-right, 3 bottom-left, 4 bottom-right, 0 for none. A
+    ; handle is eight pixels square and takes a press from two more around
+    ; it, which is what makes the corner of a drawing something a pointer
+    ; can find.
+    ; How far apart two integers are. Ranger has `fabs` for doubles and
+    ; nothing for ints, and a hit test on pixels wants ints.
+    sfn away:int (a:int b:int) {
+        if (a < b) { return (b - a) }
+        return (a - b)
+    }
+
+    fn drawingHandleAt:int (x:int y:int) {
+        if (view.selectedDrawingId == 0) {
+            return 0
+        }
+        def line:LaidLine (this.drawingLine(view.selectedDrawingId))
+        if (line.drawingId == 0) {
+            return 0
+        }
+        def k:int 1
+        while (k <= 4) {
+            def hx:int (DocxView.handleX(line k))
+            def hy:int (DocxView.handleY(line k))
+            if ((DocxViewer.away(x hx)) <= 6) {
+                if ((DocxViewer.away(y hy)) <= 6) {
+                    return k
+                }
+            }
+            k = (k + 1)
+        }
+        return 0
+    }
+
+    ; A press on a handle: remember where the drag starts from, so every
+    ; move sets the size from the press rather than from the move before it
+    ; and a jittery hand does not accumulate.
+    fn beginDrawingDrag:boolean (x:int y:int) {
+        def k:int (this.drawingHandleAt(x y))
+        if (k == 0) {
+            return false
+        }
+        def line:LaidLine (this.drawingLine(view.selectedDrawingId))
+        dragDrawingId = view.selectedDrawingId
+        dragCorner = k
+        dragStartW = line.width
+        dragStartH = line.height
+        dragStartX = x
+        dragStartY = y
+        return true
+    }
+
+    fn draggingDrawing:boolean () {
+        return (dragDrawingId != 0)
+    }
+
+    ; The pointer moved with a handle held. Whichever axis the hand moved
+    ; further along decides the new width — a drag straight down on the
+    ; bottom-right corner grows the drawing too — and the height follows the
+    ; drawing's own proportion. The left-hand corners grow it leftwards,
+    ; which on a drawing that starts at the margin means the same thing.
+    fn dragDrawingTo:boolean (x:int y:int) {
+        if (dragDrawingId == 0) {
+            return false
+        }
+        if (dragStartW <= 0) {
+            return false
+        }
+        def dx:int (x - dragStartX)
+        def dy:int (y - dragStartY)
+        if ((dragCorner == 1) || (dragCorner == 3)) { dx = (0 - dx) }
+        if ((dragCorner == 1) || (dragCorner == 2)) { dy = (0 - dy) }
+        def fromX:int (dragStartW + dx)
+        def fromY:int dragStartW
+        if (dragStartH > 0) {
+            fromY = (to_int (((to_double (dragStartH + dy)) * (to_double dragStartW)) / (to_double dragStartH)))
+        }
+        def w:int fromX
+        if ((DocxViewer.away(fromY dragStartW)) > (DocxViewer.away(fromX dragStartW))) {
+            w = fromY
+        }
+        if (w < 24) { w = 24 }
+        def dr:DocDrawing (doc.drawingById(dragDrawingId))
+        if (dr.id != dragDrawingId) {
+            return false
+        }
+        def h:int (to_int (((to_double w) * (to_double dragStartH)) / (to_double dragStartW)))
+        if (h < 12) { h = 12 }
+        if ((dr.widthPx == w) && (dr.heightPx == h)) {
+            return false
+        }
+        dr.widthPx = w
+        dr.heightPx = h
+        doc.touch()
+        view.layout.invalidate()
+        this.renderPage(currentPage)
+        ; The layout will not let a drawing past the column; what it drew is
+        ; the size the drawing has, so a drag out over the margin does not
+        ; leave a width nobody can see behind for the next press to fight.
+        def laid:LaidLine (this.drawingLine(dragDrawingId))
+        if (laid.drawingId == dragDrawingId) {
+            if (laid.width < dr.widthPx) {
+                dr.widthPx = laid.width
+                dr.heightPx = laid.height
+            }
+        }
+        return true
+    }
+
+    fn endDrawingDrag:boolean () {
+        if (dragDrawingId == 0) {
+            return false
+        }
+        dragDrawingId = 0
+        dragCorner = 0
+        return true
+    }
+
     ; The selected drawing, scaled: 1.1 is a tenth bigger, 0.9 a tenth
     ; smaller. The natural size is untouched — the painter scales the marks
     ; between the two — so growing and shrinking are each other's inverse

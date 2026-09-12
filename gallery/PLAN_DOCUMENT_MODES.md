@@ -797,6 +797,30 @@ reader scans a formatting row: undo, face, size, weight, colour, paragraph.
 smoke runs; and the row itself at the markdown page's pane width, where
 the tail button is inside the pane rather than cut by it.
 
+### Stage Q — a drawing by its corners, and a preview that holds still — ✅ done
+
+- **Corner handles.** The frame a selected drawing gets on the Word page
+  has a handle on each corner (`DocxView.handleX/Y`), and a press on one
+  is a drag (`DocxViewer.beginDrawingDrag` / `dragDrawingTo` /
+  `endDrawingDrag`, routed by `DocxApp` before the caret gets the press).
+  The drag sets the width from whichever axis the hand moved further
+  along; the height follows the drawing's own proportion; a drag past the
+  column stops at the column, and the drawing's own width is what was
+  drawn. The A− / A+ buttons still scale a selected drawing too.
+- **A press in the source scrolls the drawing only when it has to.** The
+  page put the caret's line 24px under the top of the window on every
+  press, so a press on the first paragraph scrolled the heading above it
+  out of view on a page that had been showing both. Now a line the
+  drawing already shows leaves it where it is.
+- **Edges start on the shape.** Two edges leaving one side of a diamond
+  are fanned along it, and the fanned point was on the box beside the
+  vertex; `FlowShapes.edgeCrossX/Y` pull it in to the outline.
+
+*The check:* `DocxAppTest` drags a placeholder drawing's bottom-right
+corner out, straight up, and past the margin; the page's own selftest
+presses a line in view and one out of it; `RangerFlowTest` fans two
+edges off one diamond and finds both on it.
+
 ---
 
 ## 11. What is left

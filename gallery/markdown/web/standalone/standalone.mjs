@@ -406,7 +406,14 @@ function syncFromCaret() {
   const b = sourceEl.selectionEnd | 0;
   app.setSelection(a, b);
   const y = app.offsetToY(a);
-  app.scrollTo(y - 24);
+  // Scroll only when the line is out of view. A press on a line the drawing
+  // already shows leaves the drawing where it is: scrolling to the line
+  // regardless put a paragraph's line 24px under the top of the window and
+  // the heading above it out of the window, on a page that had been showing
+  // both — a title gone missing for no reason a reader could see.
+  const top = app.scrollPosition();
+  const h = canvas.clientHeight || 0;
+  if (y < top + 8 || y > top + h - 40) app.scrollTo(y - 24);
   needsPaint = true;
   refreshToolbar();
   refreshPagebar();
@@ -1982,6 +1989,21 @@ function selftest() {
   // ever disagree the caret lands a scroll's worth away from the letter the
   // reader pressed, which is the one failure this change could cause and the
   // one a screenshot of a stationary page would never show.
+  // A press in the source on a line the drawing already shows must not move
+  // the drawing; one on a line it does not show must.
+  {
+    setActive("source");
+    const at = "first paragraph\n\n".length + 2;
+    sourceEl.selectionStart = sourceEl.selectionEnd = at;
+    sourceEl.dispatchEvent(new Event("click"));
+    say("a press on a line in view leaves the drawing where it is", app.scrollPosition() === 0,
+        "scrolled to " + app.scrollPosition().toFixed(0));
+    app.scrollTo(400);
+    sourceEl.dispatchEvent(new Event("click"));
+    say("\u2026and one on a line scrolled out of view brings it back",
+        app.scrollPosition() < 100, "scrolled to " + app.scrollPosition().toFixed(0));
+  }
+
   app.scrollTo(137);
   const scrolledRuns = secondRuns(JSON.parse(app.frame()));
   say("the paragraph is still drawn after a scroll", scrolledRuns.length > 0,

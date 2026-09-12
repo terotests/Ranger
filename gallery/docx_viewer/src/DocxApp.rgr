@@ -189,6 +189,9 @@ class DocxApp {
     ; button was still down, and dragging across text only ever moved the
     ; caret to wherever the press had been.
     def pageDrag:boolean false
+    ; The button went down on a corner handle of the selected drawing, and
+    ; every move until it comes up is that drawing's size, not a selection.
+    def drawingDrag:boolean false
     ; --- the pages, as a reader of paged documents expects them ---------------
     ;
     ; One page at a time is what `DocxViewer` does, and it is right for a
@@ -923,6 +926,14 @@ class DocxApp {
                     }
                     def lx:int (this.paperX(px))
                     def ly:int (this.paperY(py))
+                    ; A handle on the selected drawing's frame takes the
+                    ; press before anything: it sits just outside the
+                    ; drawing, on what would otherwise be the text beside it.
+                    if (viewer.beginDrawingDrag(lx ly)) {
+                        drawingDrag = true
+                        pageDrag = false
+                        return true
+                    }
                     ; A chart or a drawing takes the click before the caret
                     ; does — it is an object on the page rather than a place
                     ; in the text.
@@ -941,6 +952,12 @@ class DocxApp {
             return false
         }
         if released {
+            if drawingDrag {
+                viewer.dragDrawingTo((this.paperX(px)) (this.paperY(py)))
+                viewer.endDrawingDrag()
+                drawingDrag = false
+                return true
+            }
             if pageDrag {
                 viewer.dragTo((this.paperX(px)) (this.paperY(py)))
                 pageDrag = false
@@ -953,6 +970,10 @@ class DocxApp {
         ; pointing, which is what every editor does and what the nearest-line
         ; fallback in `hitTest` is already for.
         if down {
+            if drawingDrag {
+                viewer.dragDrawingTo((this.paperX(px)) (this.paperY(py)))
+                return true
+            }
             if pageDrag {
                 viewer.dragTo((this.paperX(px)) (this.paperY(py)))
                 return true

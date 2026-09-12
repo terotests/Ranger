@@ -507,7 +507,34 @@ class DocxView {
             ; never in an exported picture — the same frame a chart gets.
             def mark:EVGColor (EVGColor.rgb(40 100 210))
             ink.strokeRect((lx - 3) (ly - 3) (line.width + 6) (line.height + 6) 2 mark)
+            ; And a handle on each corner, which is what says the frame can
+            ; be dragged: a frame alone says "selected" and nothing more,
+            ; and a reader who wanted the drawing smaller had no way to ask.
+            ; `DocxViewer.drawingHandleAt` uses the same four corners.
+            def k:int 1
+            while (k <= 4) {
+                def hx:int (DocxView.handleX(line k))
+                def hy:int (DocxView.handleY(line k))
+                ink.rect((hx - 5) (hy - 5) 10 10 (EVGColor.rgb(255 255 255)))
+                ink.rect((hx - 4) (hy - 4) 8 8 mark)
+                k = (k + 1)
+            }
         }
+    }
+
+    ; The four corners of a drawing's selection frame, in the page's own
+    ; pixels: 1 top-left, 2 top-right, 3 bottom-left, 4 bottom-right. The
+    ; frame sits three pixels outside the drawing, so the handles do too.
+    sfn handleX:int (line:LaidLine corner:int) {
+        if (corner == 2) { return ((line.x + line.width) + 3) }
+        if (corner == 4) { return ((line.x + line.width) + 3) }
+        return (line.x - 3)
+    }
+
+    sfn handleY:int (line:LaidLine corner:int) {
+        if (corner == 3) { return ((line.y + line.height) + 3) }
+        if (corner == 4) { return ((line.y + line.height) + 3) }
+        return (line.y - 3)
     }
 
     ; Paint a visual line using paragraph TextSpan runs (bold/color/underline).
