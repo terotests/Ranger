@@ -592,6 +592,31 @@ class EVGTimingTest {
             (EVGElement.transformProblem("scale(2, 2)") == "") "true")
         c.eqStr("and the supported set is accepted"
             (EVGElement.transformProblem("rotate(9deg) scale(1.1) translate(1px, 2px)") == "") "true")
+
+        ; A MIRROR is still a similarity: same magnitude on both axes, one
+        ; sign apart. Figma writes a mirrored layer exactly this way — its
+        ; matrix has a negative determinant — and read as a plain rotation
+        ; the layer comes out backwards, an arrow with its head where its
+        ; tail belongs.
+        c.eqStr("a sign apart is not a non-uniform scale"
+            (EVGElement.transformProblem("scale(1, -1)") == "") "true")
+        el.setAttribute("transform" "scale(1, -1)")
+        c.eqStr("and it is read as a flip" el.flipY "true")
+        c.near("with the factor it was written with" el.scale 1.0)
+        el.setAttribute("transform" "scale(-1, 1)")
+        c.eqStr("the other axis is the same flip the other way up" el.flipY "true")
+        c.near("carried in the sign of the factor" el.scale (0.0 - 1.0))
+        el.setAttribute("transform" "scale(-1, -1)")
+        c.eqStr("and both signs together are a half turn, not a flip" el.flipY "false")
+        el.setAttribute("transform" "none")
+        c.eqStr("none clears the flip" el.flipY "false")
+        ; A flip turns what follows it around: F·R(b) = R(-b)·F. Both orders
+        ; are mirrored, and an implementation that sets the fields
+        ; independently gets the angle of one of them backwards.
+        el.setAttribute("transform" "rotate(30deg) scale(1, -1)")
+        c.near("a turn before a flip keeps its angle" el.rotate 30.0)
+        el.setAttribute("transform" "scale(1, -1) rotate(30deg)")
+        c.near("a turn after one is the other way" el.rotate (0.0 - 30.0))
     }
 
     ; The pivot, measured: Chromium reports `transform-origin: 50px 20px` for a
@@ -634,6 +659,40 @@ class EVGTimingTest {
         ; own centre is nowhere near the box's, and that is the case a
         ; per-command pivot gets visibly wrong.
         c.ok("the box and its text are both turned" (found >= 2))
+    }
+
+    ; A mirrored box is drawn on the other side of its origin, and comes out
+    ; the right way up: a rectangle has no negative side, so the flip moves
+    ; the box rather than leaving a negative height for a painter to puzzle
+    ; over.
+    sfn checkMirroredBox:void (c:TimingCheck) {
+        def page (new EVGElement())
+        page.setAttribute("width" "200")
+        page.setAttribute("height" "200")
+        def kid (new EVGElement())
+        kid.setAttribute("width" "100")
+        kid.setAttribute("height" "40")
+        kid.setAttribute("background-color" "rgb(10,20,30)")
+        kid.setAttribute("transform-origin" "0 0")
+        kid.setAttribute("transform" "scale(1, -1)")
+        page.addChild(kid)
+        def layout (new EVGLayout())
+        layout.layout(page)
+        def dl (new EVGDisplayList())
+        dl.build(page)
+        def seen:boolean false
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if ((cmd.kind == 0) && ((fabs (cmd.w - 100.0)) < 0.001)) {
+                seen = true
+                c.near("the flipped box is above the origin" cmd.y (0.0 - 40.0))
+                c.near("and is still forty high, not minus forty" cmd.h 40.0)
+                c.near("and did not move sideways" cmd.x 0.0)
+            }
+            i = (i + 1)
+        }
+        c.ok("the flipped box was drawn" seen)
     }
 
     ; A CLIP INSIDE A TURN IS NOT A CLIP. It crosses the list as x/y/w/h
@@ -1119,6 +1178,7 @@ class EVGTimingTest {
         EVGTimingTest.checkTransformParsing(c)
         EVGTimingTest.checkTransformOrigin(c)
         EVGTimingTest.checkTransformScale(c)
+        EVGTimingTest.checkMirroredBox(c)
         EVGTimingTest.checkClipInsideTurn(c)
         EVGTimingTest.checkClipWithoutTurn(c)
         EVGTimingTest.checkTransformTransition(c)

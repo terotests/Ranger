@@ -2024,11 +2024,20 @@ class EVGDisplayList {
         def sc:double el.scale
         def tx:double el.translateX
         def ty:double el.translateY
+        def flips:boolean el.flipY
         def turns:boolean (deg != 0.0)
-        def scales:boolean ((fabs (sc - 1.0)) > 0.000001)
+        def scales:boolean (((fabs (sc - 1.0)) > 0.000001) || flips)
         def shifts:boolean ((tx != 0.0) || (ty != 0.0))
         if (((turns == false) && (scales == false)) && (shifts == false)) {
             return
+        }
+        ; The y axis carries the reflection. A mirrored layer is a similarity
+        ; still — a turn, a factor and a flip — and read as a turn alone it
+        ; comes out backwards: a mirrored arrow on a board pointed the other
+        ; way, its head where its tail belonged.
+        def scy:double sc
+        if flips {
+            scy = (0.0 - sc)
         }
         ; What it turns about. `transform-origin` decides, and its default is
         ; 50% 50% — the element's own centre. Measured against a browser rather
@@ -2047,18 +2056,49 @@ class EVGDisplayList {
         while (i < n) {
             def c:EVGDrawCmd (itemAt cmds i)
             if ((array_length c.pts) > 0) {
-                this.mapPoints(c ox oy sc cs sn tx ty)
+                this.mapPoints(c ox oy sc scy cs sn tx ty)
             } {
                 if scales {
                     c.x = (ox + ((c.x - ox) * sc))
-                    c.y = (oy + ((c.y - oy) * sc))
+                    c.y = (oy + ((c.y - oy) * scy))
                     c.w = (c.w * sc)
-                    c.h = (c.h * sc)
-                    c.radius = (c.radius * sc)
-                    c.thickness = (c.thickness * sc)
+                    c.h = (c.h * scy)
+                    c.radius = ((fabs c.radius) * (fabs sc))
+                    c.thickness = ((fabs c.thickness) * (fabs sc))
                     ; Type scales with the box. A button that grows on hover
                     ; and keeps its old type size looks like a rendering fault.
-                    c.fontSize = (c.fontSize * sc)
+                    c.fontSize = ((fabs c.fontSize) * (fabs sc))
+                    ; A box has no negative side. The flip put the top edge
+                    ; below the bottom one, so the rectangle is turned the
+                    ; right way up and its corners follow: what was rounded
+                    ; at the top is rounded at the bottom now. An image is
+                    ; sampled the other way instead of moved.
+                    if (c.h < 0.0) {
+                        c.y = (c.y + c.h)
+                        c.h = (0.0 - c.h)
+                        if c.perCorner {
+                            def swTL:double c.radius
+                            c.radius = c.radiusBL
+                            c.radiusBL = swTL
+                            def swTR:double c.radiusTR
+                            c.radiusTR = c.radiusBR
+                            c.radiusBR = swTR
+                        }
+                        c.flipV = (c.flipV == false)
+                    }
+                    if (c.w < 0.0) {
+                        c.x = (c.x + c.w)
+                        c.w = (0.0 - c.w)
+                        if c.perCorner {
+                            def swTL2:double c.radius
+                            c.radius = c.radiusTR
+                            c.radiusTR = swTL2
+                            def swBL2:double c.radiusBL
+                            c.radiusBL = c.radiusBR
+                            c.radiusBR = swBL2
+                        }
+                        c.flipH = (c.flipH == false)
+                    }
                 }
                 if turns {
                     ; A command already carrying its own rotation — a sideways
@@ -2094,7 +2134,7 @@ class EVGDisplayList {
     ; The whole similarity applied to a path's points. Rebuilt rather than
     ; written in place: the array has no element assignment, and a fresh list
     ; pushed back is clearer than an index dance anyway.
-    fn mapPoints:void (c:EVGDrawCmd ox:double oy:double sc:double cs:double sn:double tx:double ty:double) {
+    fn mapPoints:void (c:EVGDrawCmd ox:double oy:double sc:double scy:double cs:double sn:double tx:double ty:double) {
         def moved:[double]
         def i:int 0
         def n:int (array_length c.pts)
@@ -2102,7 +2142,7 @@ class EVGDisplayList {
             def px:double ((itemAt c.pts i) - ox)
             def py:double ((itemAt c.pts (i + 1)) - oy)
             def sx:double (px * sc)
-            def sy:double (py * sc)
+            def sy:double (py * scy)
             push moved (((ox + ((sx * cs) - (sy * sn))) + tx))
             push moved (((oy + ((sx * sn) + (sy * cs))) + ty))
             i = (i + 2)

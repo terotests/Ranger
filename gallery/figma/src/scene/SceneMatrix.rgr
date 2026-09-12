@@ -138,6 +138,15 @@ class SceneMatrix {
         return m
     }
 
+    ; A MIRROR, not a turn. A matrix whose determinant is negative reverses
+    ; handedness, and no rotation does that: read as one, a mirrored layer
+    ; comes out backwards — an arrow with its head where its tail belongs.
+    ; What is left once the mirror is taken out IS a rotation, and it is the
+    ; same angle `rotationDeg` already answers: M = R(theta) · diag(1, -1).
+    fn isMirrored:boolean () {
+        return (((a * d) - (c * b)) < 0.0)
+    }
+
     fn rotationDeg:double () {
         def ang:double (SceneMatrix.atan2Approx(b a))
         return ((ang * 180.0) / 3.141592653589793)

@@ -328,6 +328,16 @@ nothing says how to paint. Reading that block as the whole connector's
 painted the box too, and every divider drawn with a connector came out with
 a coloured square sitting on one end of it.
 
+A mirrored layer is a mirror, not a turn. Figma writes one as a matrix
+whose determinant is negative — handedness reversed, which no angle can do
+— and `rotationDeg` answers an angle for it happily: an arrow drawn that
+way came out backwards, its head where its tail belongs. What is left once
+the mirror is taken out IS that angle, since `M = R(theta) · diag(1, -1)`,
+so the flip is written beside it and `EVGElement` carries it as one: two
+scale arguments of the same magnitude and opposite sign are a similarity
+still — a turn, a factor and a flip — where two of different magnitudes are
+the non-uniform scale the display list refuses.
+
 A clip inside a turn is not a clip. It crosses the display list as x/y/w/h
 and every backend makes it a scissor, which is axis-aligned; the rotation
 that moves the pixels cannot move the rectangle with them, so the two end
