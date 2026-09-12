@@ -828,6 +828,8 @@ class MarkdownWeb {
         if (id == "block.bullet")  { return (edit.toggleLinePrefix("bullet")) }
         if (id == "block.ordered") { return (edit.toggleLinePrefix("ordered")) }
         if (id == "block.quote")   { return (edit.toggleLinePrefix("quote")) }
+        if (id == "slide.break")   { return (edit.toggleBlockClass("slide")) }
+        if (id == "slide.keep")    { return (edit.toggleBlockClass("no-break")) }
         if (id == "edit.undo")     { edit.undo() return true }
         if (id == "edit.redo")     { edit.redo() return true }
         if (id == "edit.selectAll") { edit.selectAll() return true }

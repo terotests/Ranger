@@ -1017,13 +1017,48 @@ class MdLayout {
     fn keepWithNext:void (child:MdNode i:int n:int doc:MdNode) {
         if (child.kind != "heading") { return }
         if ((i + 1) >= n) { return }
+        def next:MdNode (doc.childAt(i + 1))
         def size:double (style.headingSize(child.level))
-        def need:double (((style.headingSpaceBefore + (size * style.lineHeight)) + style.headingSpaceAfter) + (style.bodySize * style.lineHeight))
+        def head:double ((style.headingSpaceBefore + (size * style.lineHeight)) + style.headingSpaceAfter)
+        def need:double (head + (this.keepRoom(next)))
         if ((cursorY + need) > contentBottom) {
             if ((cursorY - contentTop) > 0.5) {
                 this.nextSlide()
             }
         }
+    }
+
+    ; How much of the next block has to fit beside the heading for the pair to
+    ; count as together.
+    ;
+    ; One body line is right for PROSE: a paragraph that starts under its
+    ; heading and runs onto the next slide still reads as one thing. It is
+    ; wrong for a block that cannot be cut. A diagram is laid out whole or not
+    ; at all, so a heading with one line of room under it takes the heading
+    ; and leaves the diagram on the next slide — which is the reader's
+    ; complaint, in as many words: the heading on one slide and the diagram on
+    ; the next.
+    ;
+    ; The diagram's height is already known: `MdDiagram.prepare` measured it
+    ; before layout began, which is the whole reason that pass exists. Capped
+    ; at the room a slide has, because a diagram taller than any slide would
+    ; otherwise push every heading forward for ever and still not fit.
+    ;
+    ; A TABLE is the other unsplittable-ish block and still gets one line. Its
+    ; height is not known without laying its rows out, and doing that here
+    ; would be a second table algorithm beside `tableWidths`. Named rather
+    ; than left as an oversight.
+    fn keepRoom:double (next:MdNode) {
+        def line:double (style.bodySize * style.lineHeight)
+        if (next.kind != "embed") { return line }
+        def kind:string (MdLayout.firstWord(next.info))
+        def want:string (next.attrValue("width"))
+        def useW:double (MdEmbedKinds.widthOf(want contentW))
+        def known:double (embeds.heightFor(kind next.literal useW))
+        if (known <= 0.0) { return line }
+        def room:double (contentBottom - contentTop)
+        if (known > room) { return room }
+        return known
     }
 
     fn nextSlide:void () {

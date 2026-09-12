@@ -434,6 +434,142 @@ class MdSemanticEdit {
         return false
     }
 
+    ; ----------------------------------------------------------------------
+    ; A slide break a reader can put where they want it
+    ; ----------------------------------------------------------------------
+    ;
+    ; `MdLayout` already knows two rules — `{.slide}` starts a slide,
+    ; `{.no-break}` forbids one — and a reader had no way to SAY either. These
+    ; put the class on the block at the caret and take it off again, which is
+    ; an ordinary patch like every other edit: the break lives in the file,
+    ; survives a reload, travels with the document, and is undone by the same
+    ; undo as everything else.
+    ;
+    ; Goldmark's block attributes attach to the PREVIOUS block, so the class
+    ; goes on a line of its own after it. That works for every block kind
+    ; including a heading, which is why there is one code path rather than one
+    ; per kind.
+    sfn toggleBlockClass:MdEditOp (src:string doc:MdNode off:int cls:string) {
+        def none:MdEditOp (new MdEditOp())
+        def idx:int (MdSemanticEdit.topBlockAt(doc off))
+        if (idx < 0) { return none }
+        def node:MdNode (doc.childAt(idx))
+        if (node.srcStart < 0) { return none }
+
+        def total:int (strlen src)
+        def a:int node.srcStart
+        def b:int node.srcEnd
+        if (b > total) { b = total }
+        if (b <= a) { return none }
+
+        ; The block's last real character, and any attribute block already
+        ; sitting at its end.
+        def last:int b
+        while (last > a) {
+            if (MdSemanticEdit.isEdgeSpace((charAt src (last - 1)))) {
+                last = (last - 1)
+            } {
+                break
+            }
+        }
+        if (last <= a) { return none }
+
+        def attrsAt:int -1
+        if ((charAt src (last - 1)) == 125) {
+            def scan:int (last - 1)
+            while (scan > a) {
+                if ((charAt src (scan - 1)) == 123) {
+                    attrsAt = (scan - 1)
+                    break
+                }
+                scan = (scan - 1)
+            }
+        }
+
+        if (attrsAt < 0) {
+            ; Nothing there yet. A line of its own after the block.
+            if (node.hasClass(cls)) { return none }
+            def add:MdEditOp (MdEdit.patch(src last last (("\n{." + cls) + "}")))
+            add.selAfterA = off
+            add.selAfterB = off
+            return add
+        }
+
+        def inside:string (substring src (attrsAt + 1) (last - 1))
+        def rebuilt:string (MdSemanticEdit.classToggled(inside cls))
+        if ((strlen (trim rebuilt)) == 0) {
+            ; The class was the only thing in there, so the whole block goes —
+            ; and the newline that put it on its own line with it, or the
+            ; document grows a blank line every time a reader changes their
+            ; mind.
+            def from:int attrsAt
+            if (from > a) {
+                if ((charAt src (from - 1)) == 10) { from = (from - 1) }
+            }
+            def cut:MdEditOp (MdEdit.patch(src from last ""))
+            cut.selAfterA = off
+            cut.selAfterB = off
+            return cut
+        }
+        def put:MdEditOp (MdEdit.patch(src (attrsAt + 1) (last - 1) rebuilt))
+        put.selAfterA = off
+        put.selAfterB = off
+        return put
+    }
+
+    ; The inside of an attribute block with `.cls` added or taken away.
+    sfn classToggled:string (inside:string cls:string) {
+        def want:string ("." + cls)
+        def out:string ""
+        def found:boolean false
+        def n:int (strlen inside)
+        def i:int 0
+        def cur:string ""
+        while (i <= n) {
+            def atEnd:boolean (i == n)
+            def c:int 32
+            if (! atEnd) { c = (charAt inside i) }
+            if (atEnd || (MdSemanticEdit.isEdgeSpace(c))) {
+                if ((strlen cur) > 0) {
+                    if (cur == want) {
+                        found = true
+                    } {
+                        if ((strlen out) > 0) { out = (out + " ") }
+                        out = (out + cur)
+                    }
+                    cur = ""
+                }
+            } {
+                cur = (cur + (substring inside i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        if (! found) {
+            if ((strlen out) > 0) { out = (out + " ") }
+            out = (out + want)
+        }
+        return out
+    }
+
+    ; Which TOP-LEVEL block an offset is in. A slide break happens between
+    ; top-level blocks, so a caret inside a list item names the list.
+    sfn topBlockAt:int (doc:MdNode off:int) {
+        def best:int -1
+        def i:int 0
+        def n:int (doc.childCount())
+        while (i < n) {
+            def k:MdNode (doc.childAt(i))
+            if (k.srcStart >= 0) {
+                if (k.srcStart <= off) {
+                    best = i
+                    if (k.srcEnd > off) { return i }
+                }
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
     sfn kindFor:string (what:string) {
         if (what == "bold") { return "strong" }
         if (what == "italic") { return "emph" }

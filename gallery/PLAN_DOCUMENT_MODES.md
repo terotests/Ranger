@@ -334,15 +334,37 @@ exactly as it did. The markdown pane's write is refused again much later in the
 run, on purpose: an ownership that lapses after a few operations is worse than
 one that was never claimed.
 
-### Stage C — the slide break a reader can move — not started
+### Stage C — the slide break a reader can move — ✅ done
 
-"Break here", a drawn break line, and a drag that moves it. `keepWithNext` for
-a heading whose next block is a diagram or a table. MD mode, because a break is
-representable.
+`MdLayout` has known `{.slide}` and `{.no-break}` all along; a reader had no
+way to say either. `MdSemanticEdit.toggleBlockClass` puts the class on the
+block at the caret and takes it off again, as one patch and one undo. Goldmark
+attributes attach to the block BEFORE them, so the class goes on a line of its
+own after it — one code path for every block kind, headings included. Two
+classes share one attribute block, taking one off leaves the other, and taking
+the last one off takes the line with it, or the document grows a blank line
+every time a reader changes their mind.
 
-*The check:* a deck whose heading and diagram are split, then the break moved,
-asserting which slide each block landed on — by counting the BLOCKS per slide,
-not by counting slides.
+`keepWithNext` learned `keepRoom`. One body line is right for PROSE — a
+paragraph that starts under its heading and runs on still reads as one thing —
+and wrong for a block that cannot be cut. A diagram is laid out whole or not at
+all, so a heading with one line of room under it takes the heading and leaves
+the diagram on the next slide, which is the reader's complaint in as many
+words. The diagram's height is already known: `MdDiagram.prepare` measured it
+before layout began, which is the whole reason that pass exists. Capped at the
+room a slide has, or a diagram taller than any slide would push every heading
+forward for ever and still not fit. A TABLE still gets one line — its height is
+not known without laying its rows out, and doing that inside the rule would be
+a second table algorithm beside `tableWidths`. Named rather than left as an
+oversight.
+
+*The check:* a deck sized so the rule must fire AND can — a 200pt diagram in a
+slide with 260pt of room. Without `keepRoom` the heading lands on slide 0 and
+the diagram on slide 1; with it, both are on slide 1. Verified by disabling the
+fix and watching the check fail, because a case where the pair happens to fit
+anyway counts nothing. Plus the page's own checks driving `app.run` for both
+commands, asserting a slide MORE than there was rather than only the bytes: an
+attribute the parser folds onto the wrong block writes exactly the same bytes.
 
 ### Stage D1 — a drawing says what it is — ✅ done
 

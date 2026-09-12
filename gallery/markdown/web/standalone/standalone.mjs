@@ -1480,6 +1480,40 @@ function selftest() {
     say("…and gave back the file byte for byte", app.sourceText() === list3);
   }
 
+  // ---- a slide break a reader can move ------------------------------------
+  //
+  // `MdLayout` has known `{.slide}` and `{.no-break}` all along and a reader
+  // had no way to say either, so a heading stranded from its diagram had to be
+  // fixed by hand. A break is a class on a block, which makes it an ordinary
+  // patch: it lives in the file, survives a reload, and comes off with the
+  // same undo as everything else.
+  {
+    const deck = "# Yksi\n\nKappale tassa.\n\n## Kaksi\n\nToinen kappale.\n";
+    app.setSource(deck);
+    app.setMode("slides");
+    const before = app.pageCountNow();
+    app.setSelection(deck.indexOf("Kappale tassa.") + 2, deck.indexOf("Kappale tassa.") + 2);
+    say("the break command ran", app.run("slide.break", ""));
+    say("…and wrote it into the file",
+        app.sourceText().indexOf("\n{.slide}") > 0, app.sourceText().replace(/\n/g, "⏎"));
+    // The half a byte comparison cannot show: the break has to land on the
+    // block the caret was in, and an attribute the parser folds onto the
+    // wrong block writes exactly the same bytes. So: a slide more than there
+    // was.
+    say("…and the deck has a slide more than it had",
+        app.pageCountNow() === before + 1, before + " → " + app.pageCountNow() + " slides");
+    app.undo();
+    say("one undo takes the break off", app.sourceText() === deck);
+
+    // …and the other rule, which is the one that keeps a pair together.
+    app.setSelection(deck.indexOf("Kappale tassa.") + 2, deck.indexOf("Kappale tassa.") + 2);
+    say("the keep command ran", app.run("slide.keep", ""));
+    say("…and wrote that one instead", app.sourceText().indexOf("\n{.no-break}") > 0);
+    app.undo();
+    say("…and it undoes the same way", app.sourceText() === deck);
+    app.setMode("continuous");
+  }
+
   // A refusal says why rather than writing markdown nobody typed.
   app.setSource("a **bold** b\n");
   app.setSelection(6, 12);

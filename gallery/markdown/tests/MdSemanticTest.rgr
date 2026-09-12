@@ -364,6 +364,80 @@ class MdSemanticTest {
         c.ok("and no empty delimiter run is written" ((MdSemanticTest.offsetOf(mout "****")) < 0))
     }
 
+
+    ; ----------------------------------------------------------------------
+    ; A slide break a reader can move
+    ; ----------------------------------------------------------------------
+    ;
+    ; `MdLayout` has known two rules all along — `{.slide}` starts a slide,
+    ; `{.no-break}` forbids one — and a reader had no way to say either, so a
+    ; heading stranded from its diagram had to be fixed by hand every time.
+    ; The break is a class on a block, which makes it an ordinary patch: it
+    ; lives in the file, survives a reload, travels with the document, and
+    ; comes off with the same undo as everything else.
+    fn breaks:void (c:SemCheck) {
+        print "-- a break is a class on a block --"
+        def src:string "# Yksi\n\nKappale tassa.\n\n## Kaksi\n\nToinen kappale.\n"
+
+        def e:MdEditController (MdSemanticTest.on(src))
+        e.setCaret((MdSemanticTest.offsetOf(src "Kappale tassa.")))
+        c.ok("a break goes on" (e.toggleBlockClass("slide")))
+        c.eqStr("…on a line of its own after the block"
+            (e.text()) "# Yksi\n\nKappale tassa.\n{.slide}\n\n## Kaksi\n\nToinen kappale.\n")
+
+        ; …and the LAYOUT sees it, which is the half a byte comparison cannot
+        ; show: an attribute the parser folds onto the wrong block writes the
+        ; same bytes and breaks the wrong slide.
+        def doc:MdNode (MdBlock.parseText((e.text())))
+        def para:MdNode (doc.childAt(1))
+        c.ok("and the block it lands on is the one the caret was in" (para.hasClass("slide")))
+
+        c.ok("…and comes off again" (e.toggleBlockClass("slide")))
+        c.eqStr("…byte for byte" (e.text()) src)
+
+        ; One undo, like every other intent.
+        def e2:MdEditController (MdSemanticTest.on(src))
+        e2.setCaret((MdSemanticTest.offsetOf(src "Kappale tassa.")))
+        e2.toggleBlockClass("slide")
+        e2.undo()
+        c.eqStr("one undo takes the break off" (e2.text()) src)
+
+        ; On a heading, where the attribute could also have been written
+        ; trailing. One code path: Goldmark's attributes attach to the block
+        ; BEFORE them, so a line of its own works for every kind.
+        def e3:MdEditController (MdSemanticTest.on(src))
+        e3.setCaret((MdSemanticTest.offsetOf(src "## Kaksi")))
+        c.ok("a break goes on a heading too" (e3.toggleBlockClass("slide")))
+        def doc3:MdNode (MdBlock.parseText((e3.text())))
+        def h3:MdNode (doc3.childAt(2))
+        c.ok("…and it is the heading that carries it" (h3.hasClass("slide")))
+
+        ; Two classes on one block: the second joins the first rather than
+        ; replacing it or opening a second attribute block.
+        def e4:MdEditController (MdSemanticTest.on(src))
+        e4.setCaret((MdSemanticTest.offsetOf(src "Kappale tassa.")))
+        e4.toggleBlockClass("slide")
+        e4.toggleBlockClass("no-break")
+        c.eqStr("two classes share one attribute block"
+            (e4.text()) "# Yksi\n\nKappale tassa.\n{.slide .no-break}\n\n## Kaksi\n\nToinen kappale.\n")
+        e4.toggleBlockClass("slide")
+        c.eqStr("…and taking one off leaves the other"
+            (e4.text()) "# Yksi\n\nKappale tassa.\n{.no-break}\n\n## Kaksi\n\nToinen kappale.\n")
+        e4.toggleBlockClass("no-break")
+        c.eqStr("…and taking the last one off takes the line with it" (e4.text()) src)
+
+        ; A width attribute a reader put there by hand is not a break, and the
+        ; break must not eat it.
+        def wsrc:string "# Yksi\n\n```mermaid\nflowchart LR\n  A --> B\n```\n{width=360}\n"
+        def e5:MdEditController (MdSemanticTest.on(wsrc))
+        e5.setCaret((MdSemanticTest.offsetOf(wsrc "flowchart")))
+        e5.toggleBlockClass("slide")
+        c.eqStr("a break joins an attribute that was already there"
+            (e5.text()) "# Yksi\n\n```mermaid\nflowchart LR\n  A --> B\n```\n{width=360 .slide}\n")
+        e5.toggleBlockClass("slide")
+        c.eqStr("…and leaves it behind when it goes" (e5.text()) wsrc)
+    }
+
     ; One case: select from the first occurrence of `fromW` to the end of
     ; `toW`, apply `what`, and ask the REPARSED tree three questions.
     fn intentCase:void (c:SemCheck name:string src:string fromW:string toW:string what:string wantNodes:int) {
@@ -549,6 +623,7 @@ class MdSemanticTest {
         this.undoable(c)
         this.typing(c)
         this.corpus(c)
+        this.breaks(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
