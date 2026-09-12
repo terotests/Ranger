@@ -763,6 +763,40 @@ source in the pane, drawn again with a node added and refused half-typed,
 grown by a press, a sixty-paragraph document whose last page is what the
 frame shows after the pill, and letters twice the size at zoom 2.
 
+### Stage P — the strips, in the order every suite settled on — ✅ done
+
+Stage O put the text buttons on Home; the row was still a wall. Both strips
+are now grouped the way Docs and Syncfusion draw theirs, and the way a
+reader scans a formatting row: undo, face, size, weight, colour, paragraph.
+
+- **The deck.** *File* is what you do to the deck — Open, Save, Print, Show.
+  *Home* is one row that fits a pane: undo and redo; Font, A−, A+; B, I and
+  a colour dropdown of six inks; alignment and list as two dropdowns rather
+  than seven buttons; the editing switch; and Previous and Next at the tail,
+  where a pane too narrow clips a pair the page has another way to do.
+  *Insert* keeps the large Text Box beside the shapes and the picture.
+  *Arrange* is what is done to shapes — copy, paste, duplicate, delete, the
+  format painter, front and back, group, lock, flip, line up — and the
+  Format tab is gone, because it was the same text buttons a second time.
+  *Slides* is the deck: add, duplicate, delete, First and Last, notes,
+  properties, outline, palette, direction.
+- **The page.** *File* is Save and Print. *Home* is undo and redo; the face
+  in a text field, A−, the size, A+; B, I, U as toggles and the colour;
+  outdent and indent, which `DocxApp` now has as `text.outdent` and
+  `text.indent` (the Tab the viewer already answered, given a button); and
+  the Editing switch, labelled. *View* is the two page buttons and the
+  direction. Nothing was invented for it: the Word model has no paragraph
+  alignment or list commands yet, so the strip does not show them.
+- **The strip itself.** `EVGToolbar.addUnderMenu` inserted a dropdown's
+  entries into the list without moving the tab ranges after them, so a
+  font list filled in later took the last button off Home. Fixed where it
+  was wrong, and `PptxFrameTest` asks of the blank deck only that the panel
+  is its own list — the Home strip alone is now half that frame.
+
+*The check:* every pptx and docx suite, the toolbar suite, and both pages'
+smoke runs; and the row itself at the markdown page's pane width, where
+the tail button is inside the pane rather than cut by it.
+
 ---
 
 ## 11. What is left

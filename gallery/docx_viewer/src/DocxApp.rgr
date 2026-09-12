@@ -52,36 +52,52 @@ class DocxToolbar extends EVGToolbar {
     fn build:void () {
         clear items
         clear tabs
-        this.addTab("Home")
-        ; The four a beginner reaches for first carry their names. The rest
-        ; stay pictures — a band where everything is labelled is as unreadable
-        ; as one where nothing is.
+        ; File is what you do to the DOCUMENT; Home is what you do to the
+        ; words. Every suite draws that line, and the file buttons at the
+        ; head of the formatting row made the row read as a list of things
+        ; that happened to be next to each other.
+        this.addTab("File")
         this.addLabeled("file.save" "" "Save" (ToolIcon.save()))
         this.addLabeled("file.print" "" "Print" (ToolIcon.printDoc()))
+
+        this.addTab("Home")
+        ; The order a reader scans a formatting row in, which is the order
+        ; every suite from Docs to Writer settled on: undo, then the face,
+        ; then its size, then weight and slant, then colour, then the
+        ; paragraph. A group is a separator; a separator is a group.
         this.add("edit.undo" "" "Undo" (ToolIcon.undo()))
         this.add("edit.redo" "" "Redo" (ToolIcon.redo()))
+        this.addSeparator()
+        this.addText("format.font" "" "Font" 96)
+        this.addSeparator()
+        this.add("format.size.down" "" "Smaller text" (ToolIcon.sizeDown()))
+        this.addText("format.size.pick" "" "11" 44)
+        this.add("format.size.up" "" "Bigger text" (ToolIcon.sizeUp()))
         this.addSeparator()
         this.addToggle("format.bold" "" "Bold" (ToolIcon.bold()) "bold" "")
         this.addToggle("format.italic" "" "Italic" (ToolIcon.italic()) "italic" "")
         this.addToggle("format.underline" "" "Underline" (ToolIcon.underline()) "underline" "")
-        this.addSeparator()
-        this.addText("format.font" "" "Font" 96)
-        this.addText("format.size.pick" "" "11" 52)
-        this.add("format.size.up" "" "Bigger text" (ToolIcon.sizeUp()))
-        this.add("format.size.down" "" "Smaller text" (ToolIcon.sizeDown()))
         this.add("format.color" "" "Text colour" (ToolIcon.textColor()))
+        this.addSeparator()
+        this.add("text.outdent" "" "Outdent the list item" (ToolIcon.indentLess()))
+        this.add("text.indent" "" "Indent the list item" (ToolIcon.indentMore()))
         this.addSeparator()
         ; Edit mode stays on Home. It is not one command among many — it is
         ; the switch that decides whether any of the others do anything, and a
         ; reader who has to find a page before they can start typing has been
-        ; given a filing system instead of a document.
-        this.add("edit.mode" "" "Edit the document" (ToolIcon.editMode()))
+        ; given a filing system instead of a document. It says its name,
+        ; because a pen with no word beside it is a drawing tool.
+        this.addLabeled("edit.mode" "" "Editing" (ToolIcon.editMode()))
 
         this.addTab("View")
         this.add("page.prev" "" "Previous page" (ToolIcon.navPrev()))
         this.add("page.next" "" "Next page" (ToolIcon.navNext()))
         this.addSeparator()
         this.add("view.rtl" "" "Right-to-left layout" (ToolIcon.textRtl()))
+
+        ; Home is the page a document opens on. File is first because that
+        ; is where every suite puts it, and not the page anyone works on.
+        this.selectTab((this.tabNamed("Home")))
     }
 
     ; What the strip is about to draw. The strip cannot work this out: "is
@@ -398,6 +414,8 @@ class DocxApp {
         commands.addArg("format.size.pick" "Font size…" "Format" "")
         commands.add("format.size.up" "Bigger text" "Format" "")
         commands.add("format.size.down" "Smaller text" "Format" "")
+        commands.add("text.indent" "Indent the list item" "Format" "Tab")
+        commands.add("text.outdent" "Outdent the list item" "Format" "Shift+Tab")
         commands.addArg("format.color" "Text colour" "Format" "")
         commands.add("page.next" "Next page" "View" "PageDown")
         commands.add("page.prev" "Previous page" "View" "PageUp")
@@ -582,6 +600,14 @@ class DocxApp {
         ; The two size buttons act on a selected DRAWING when there is one:
         ; a diagram has no run to make bigger, and a tenth at a time is the
         ; step a reader expects from the same two buttons.
+        ; Tab and Shift+Tab, as buttons: what the keys do to a list item,
+        ; reachable by somebody who does not know the keys do it.
+        if (id == "text.indent") {
+            return (viewer.keyTab(false))
+        }
+        if (id == "text.outdent") {
+            return (viewer.keyTab(true))
+        }
         if (id == "format.size.up") {
             if ((viewer.selectedDrawing()) != 0) {
                 return (viewer.resizeDrawing(1.1))
