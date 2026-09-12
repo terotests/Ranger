@@ -783,6 +783,21 @@ function buildInspector(d) {
 
   const foot = el("div", "foot");
   foot.append(el("code", null, d.id));
+  // What the file gave this layer, what the reader made of it, and which of
+  // the two is missing the colour — to the console, where it can be read and
+  // pasted. A page that draws wrong in a file nobody can send anywhere is
+  // otherwise only describable in gestures.
+  const why = el("button", null, "Selection debug");
+  why.type = "button";
+  why.title = "Print everything about this layer to the console";
+  why.addEventListener("click", () => {
+    const text = web.selectionDebug();
+    window.__selectionDebug = text;
+    console.log(text);
+    statusEl.textContent = "selection debug printed to the console (also window.__selectionDebug)";
+    if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
+  });
+  foot.append(why);
   const revert = el("button", null, "Revert edits");
   revert.type = "button";
   revert.disabled = !d.edits;

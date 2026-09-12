@@ -564,6 +564,20 @@ class FigTest {
         this.check("and the layer draws its own border again" (exact.strokeIsGeometry == false))
         app.revertEdits()
 
+        ; The selection report: what the file gave ONE layer, what the
+        ; reader made of it, and which of the two is missing the colour. A
+        ; page that draws wrong in a file nobody can send anywhere is
+        ; otherwise only describable in gestures.
+        def why:string (app.layerDebug("3:82"))
+        this.check("the report says where the layer sits" (FigTest.hasSub(why "StyledFill")))
+        this.check("and that it draws nothing" (FigTest.hasSub(why "NOTHING")))
+        this.check("and names the style its colour is left to" (FigTest.hasSub(why "named style 9:99")))
+        this.check("and that the file does not carry it" (FigTest.hasSub(why "NOT IN FILE")))
+        this.check("and that the colour is therefore nowhere" (FigTest.hasSub(why "nothing can recover")))
+        def whyText:string (app.layerDebug("3:60#40000000:1"))
+        this.check("a layer Figma built is reported as one" (FigTest.hasSub(whyText "Figma built")))
+        this.check("and the report reads it as text" (FigTest.hasSub(whyText "Sticky text")))
+
         ; Picking a layer. The point is moved into each layer's own space
         ; on the way down, so a turned layer answers where it is DRAWN:
         ; Tilt is 80x48 at 50,50 inside a frame at 40,600, turned 15

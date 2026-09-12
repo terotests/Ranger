@@ -181,6 +181,13 @@ class FigSample {
         s.addField(dtd "glyphs" "Glyph" 1 true)
         s.addField(dtd "decorations" "Decoration" 2 true)
         s.addField(node "derivedTextData" "DerivedTextData" 56 false)
+        ; A layer can leave its colour to a named style instead of carrying
+        ; it. Nothing here reads the style; the selection report says so,
+        ; which is the difference between a colour that is missing and one
+        ; that was never in the file.
+        def sid:KiwiDef (s.addMessage("StyleId"))
+        s.addField(sid "guid" "GUID" 1 false)
+        s.addField(node "styleIdForFill" "StyleId" 57 false)
         def blob:KiwiDef (s.addMessage("Blob"))
         s.addField(blob "bytes" "byte" 1 true)
         def msg:KiwiDef (s.addMessage("Message"))
@@ -1102,6 +1109,16 @@ class FigSample {
         dtd.put("decorations" decos)
         under.put("derivedTextData" dtd)
         nodes.pushItem(under)
+
+        ; A layer whose colour is a named style the file does not carry —
+        ; and no paint of its own. There is nothing here to draw it with,
+        ; and the selection report is what says so rather than leaving a
+        ; blank rectangle to be puzzled over.
+        def styled:KiwiValue (FigSample.node(3 82 "RECTANGLE" "StyledFill" 0 3 "eZ" 120.0 60.0 2580.0 1560.0))
+        def sidv:KiwiValue (KiwiValue.fromObject())
+        sidv.put("guid" (FigSample.guid(9 99)))
+        styled.put("styleIdForFill" sidv)
+        nodes.pushItem(styled)
 
         ; A component out of a library: the copy carries new guids and the
         ; override paths still name the old ones, which every node keeps in

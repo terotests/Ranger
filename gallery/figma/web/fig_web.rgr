@@ -79,6 +79,14 @@ class FigWeb {
         return (app.inspectJson())
     }
 
+    ; Everything about the selected layer that decides how it came out, as
+    ; plain text: what the file gave it, what the reader made of it, and
+    ; which of the two is missing the colour. For a page that draws wrong
+    ; in a file nobody can send anywhere.
+    fn selectionDebug:string () {
+        return (app.layerDebug(app.selected))
+    }
+
     ; Editing the scene graph. Nothing is written back to the file.
     fn editRect:void (x:double y:double w:double h:double) {
         app.editRect(x y w h)

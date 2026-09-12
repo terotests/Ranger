@@ -460,6 +460,27 @@ and taking the camera out of the coordinates is designed in
 [`../evg/PLAN_VIEW_TRANSFORM.md`](../evg/PLAN_VIEW_TRANSFORM.md), which
 would put a pan of this board at the draw alone.
 
+## Selection debug
+
+**Selection debug** in the Selected pane prints everything about ONE layer
+to the console — and to the clipboard, and to `window.__selectionDebug`.
+The reports below answer for a whole file, which is where to start when you
+do not know what is wrong; this is for when you are pointing at the thing.
+
+It reads the layer AND the node it came from, because most of what goes
+wrong is the difference between the two: where the layer sits, named from
+the page down; what it puts on the canvas, paint by paint, with the alpha
+folded in and a paint the file switches off marked as off; whether its text
+carries the glyphs the editor shaped or is being laid out here in whatever
+font this machine has, which is where a box or a tofu square comes from;
+whether an image's bytes are in the file; whether an instance's component
+is; what the reader could not draw; and, for a colour left to a named
+style, whether that style is in the file at all — a layer that carries no
+paint of its own and names a style the file does not have is a colour
+nothing can recover, which is a different problem from one being drawn
+wrong. Last, the fields this node carries that the converter never looks
+at, with the plain-language note where there is one.
+
 ## When the page looks wrong and nothing is reported
 
 A warning can only name a case someone thought of, so when a page comes

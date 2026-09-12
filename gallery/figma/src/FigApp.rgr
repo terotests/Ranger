@@ -716,6 +716,292 @@ class FigApp {
         return (o + "}")
     }
 
+    ; --- selection debug -------------------------------------------------
+    ;
+    ; Everything about ONE layer that decides how it came out, as plain
+    ; text you can read or paste somewhere. The reports beside this one
+    ; answer for the whole file — how many of each type drew nothing, which
+    ; fields nobody reads — and a file is where you start when you do not
+    ; know what is wrong. This is for when you are pointing at the thing:
+    ; it says what the file gave this layer, what the reader made of it,
+    ; and which of the two is missing the colour.
+    ;
+    ; It reads the layer AND the node it came from, because most of what
+    ; goes wrong is the difference between them: a fill that names a style
+    ; the file does not carry, an instance whose component is not here, an
+    ; image whose bytes are not, text whose glyphs the file never shaped.
+    fn layerDebug:string (id:string) {
+        if ((strlen id) == 0) {
+            return "nothing selected"
+        }
+        def n:SceneNode (this.findScene(id))
+        if ((strlen n.id) == 0) {
+            return ("no layer " + id)
+        }
+        def o:string ("layer  " + id)
+        def base:string (FigApp.baseId(id))
+        if (base != id) {
+            o = (o + "\n       a layer of " + base + " that Figma built, not a node of its own")
+        }
+        def nd:FigNode (doc.nodeById(base))
+        o = (o + "\npath   " + (this.layerPath(id)))
+        o = (o + "\nscene  " + n.kind + "  from " + n.sourceType)
+        if ((strlen n.name) > 0) {
+            o = (o + "  \"" + n.name + "\"")
+        }
+        def box:SceneNode (this.absBox(id))
+        o = (o + "\nbox    " + (to_string n.w) + " x " + (to_string n.h))
+        o = (o + "  at " + (to_string n.x) + "," + (to_string n.y) + " in its parent")
+        o = (o + "  (" + (to_string box.x) + "," + (to_string box.y) + " on the page)")
+        if n.hasXf {
+            o = (o + "\nturned " + (to_string (n.xf.rotationDeg())) + " degrees")
+        }
+        if (n.visible == false) {
+            o = (o + "\nHIDDEN the file says this layer is not visible")
+        }
+        if (n.opacity < 0.999) {
+            o = (o + "\nopacity " + (to_string n.opacity))
+        }
+        if n.clip {
+            o = (o + "\nclips  what is inside it is cut to this box")
+        }
+
+        ; What it puts on the canvas, and what it was given to put there.
+        o = (o + "\n\nWHAT IT DRAWS")
+        if (FigToScene.drawsNothing(n)) {
+            o = (o + "\n  NOTHING — no fill, no stroke, no path, no image, no text")
+        }
+        o = (o + "\n  fills " + (to_string (array_length n.fills)))
+        def fi:int 0
+        while (fi < (array_length n.fills)) {
+            def f:SceneFill (itemAt n.fills fi)
+            o = (o + "\n    " + f.kind + " " + (f.hexA()))
+            if (f.kind == "gradient") {
+                o = (o + " to " + (f.gradHexA()))
+            }
+            if (f.visible == false) {
+                o = (o + "  OFF — the file switches this paint off")
+            }
+            if ((strlen f.imageRef) > 0) {
+                o = (o + "  image " + f.imageRef)
+                if (assets.hasImage(f.imageRef)) {
+                    o = (o + " (bytes are in the file)")
+                } {
+                    o = (o + "  MISSING — the bytes are not in the file, so it paints grey")
+                }
+            }
+            fi = (fi + 1)
+        }
+        o = (o + "\n  strokes " + (to_string (array_length n.strokes)))
+        if ((array_length n.strokes) > 0) {
+            def st:SceneStroke (n.firstStroke())
+            o = (o + "\n    " + (st.hex()) + "  weight " + (to_string st.weight) + "  " + st.align)
+            if (st.visible == false) {
+                o = (o + "  OFF")
+            }
+            if n.strokeIsGeometry {
+                o = (o + "\n    painted by the outline the file brought, as a child of this layer")
+            }
+        }
+        if ((strlen n.pathData) > 0) {
+            o = (o + "\n  path  " + (to_string (strlen n.pathData)) + " characters of outline")
+        }
+        if (n.kind == "text") {
+            o = (o + "\n  text  \"" + n.text.characters + "\"")
+            o = (o + "\n        " + n.text.fontFamily + " " + n.text.fontWeight + " " + (to_string n.text.fontSize) + "px")
+            if (n.text.hasOutline()) {
+                o = (o + "\n        drawn as the glyphs the editor shaped — the font on this machine does not matter")
+            } {
+                o = (o + "\n        NO GLYPHS in the file, so it is laid out here in whatever font this machine has:")
+                o = (o + "\n        a missing family is where a box or a tofu square comes from")
+            }
+        }
+        o = (o + "\n  children " + (to_string (array_length n.children)))
+        def ci:int 0
+        while (ci < (array_length n.children)) {
+            def ch:SceneNode (itemAt n.children ci)
+            if (ci < 8) {
+                o = (o + "\n    " + ch.kind + " " + ch.sourceType + " " + ch.id)
+            }
+            ci = (ci + 1)
+        }
+        if ((array_length n.children) > 8) {
+            o = (o + "\n    … and " + (to_string ((array_length n.children) - 8)) + " more")
+        }
+        if ((array_length n.warnings) > 0) {
+            o = (o + "\n  the reader could not draw:")
+            def wi:int 0
+            while (wi < (array_length n.warnings)) {
+                def w:SceneWarn (itemAt n.warnings wi)
+                o = (o + "\n    " + w.feature)
+                wi = (wi + 1)
+            }
+        }
+
+        ; And the node the file actually carries.
+        if ((strlen nd.id) == 0) {
+            o = (o + "\n\nWHAT THE FILE SAYS\n  no node " + base + " in the file")
+            return o
+        }
+        o = (o + "\n\nWHAT THE FILE SAYS")
+        o = (o + "\n  " + nd.typeName + "  \"" + nd.name + "\"")
+        o = (o + (this.paintDebug(nd.raw "fillPaints" "styleIdForFill" "fill")))
+        o = (o + (this.paintDebug(nd.raw "strokePaints" "styleIdForStrokeFill" "stroke")))
+        if ((strlen nd.symbolId) > 0) {
+            o = (o + "\n  instance of " + nd.symbolId)
+            def comp:FigNode (doc.nodeById(nd.symbolId))
+            if ((strlen comp.id) > 0) {
+                o = (o + " — the component is in the file")
+            } {
+                o = (o + "  NOT IN FILE — a library component that was never copied in, so there is nothing to draw")
+            }
+        } {
+            if (nd.hadSymbolData) {
+                o = (o + "\n  an instance whose symbolData names no component")
+            }
+        }
+        o = (o + (this.unreadDebug(nd)))
+        return o
+    }
+
+    ; A node's paints, and the style it may be leaving them to. A layer
+    ; coloured by a named style usually still carries the colour itself;
+    ; when it does not, and the style is not in the file either, the colour
+    ; is nowhere to be read and the layer draws bare.
+    fn paintDebug:string (raw:KiwiValue field:string styleField:string label:string) {
+        def o:string ""
+        def paints:KiwiValue (raw.child(field))
+        def n:int (paints.itemCount())
+        o = (o + "\n  " + label + "Paints " + (to_string n))
+        def i:int 0
+        while (i < n) {
+            def p:KiwiValue (paints.item(i))
+            def kind:string (p.childString("type" "SOLID"))
+            o = (o + "\n    " + kind)
+            def col:KiwiValue (p.child("color"))
+            if (col.isObject()) {
+                o = (o + "  rgba " + (to_string (col.childDouble("r" 0.0))) + " " + (to_string (col.childDouble("g" 0.0))) + " " + (to_string (col.childDouble("b" 0.0))) + " " + (to_string (col.childDouble("a" 1.0))))
+            }
+            o = (o + "  opacity " + (to_string (p.childDouble("opacity" 1.0))))
+            if ((p.childBool("visible" true)) == false) {
+                o = (o + "  OFF")
+            }
+            i = (i + 1)
+        }
+        def sid:KiwiValue ((raw.child(styleField)).child("guid"))
+        if (sid.isObject()) {
+            def sess:int (sid.childInt("sessionID" (0 - 1)))
+            def loc:int (sid.childInt("localID" (0 - 1)))
+            if ((sess >= 0) && (loc >= 0)) {
+                def styleId:string ((to_string sess) + ":" + (to_string loc))
+                o = (o + "\n    " + label + " comes from the named style " + styleId)
+                def sn:FigNode (doc.nodeById(styleId))
+                if ((strlen sn.id) > 0) {
+                    o = (o + " — that style IS in the file (the reader does not read it; the paints above are what it draws)")
+                } {
+                    o = (o + " — NOT IN FILE")
+                    if (n == 0) {
+                        o = (o + ", and the layer carries no paint of its own: THIS is a colour nothing can recover")
+                    } {
+                        o = (o + ", but the layer carries the colour itself, so nothing is lost")
+                    }
+                }
+            }
+        }
+        return o
+    }
+
+    ; The fields this node carries that the converter never looks at, with
+    ; the plain-language note where there is one. The same list the whole
+    ; file gets, cut to one layer.
+    fn unreadDebug:string (nd:FigNode) {
+        def known:[string] (FigFieldReport.known())
+        def named:string ""
+        def plain:string ""
+        def i:int 0
+        while (i < (array_length nd.raw.fieldNames)) {
+            def name:string (itemAt nd.raw.fieldNames i)
+            if (FigFieldReport.isKnown(name known)) {
+            } {
+                def note:string (FigFieldReport.noteFor(name))
+                if ((strlen note) > 0) {
+                    named = (named + "\n    " + name + " — " + note)
+                } {
+                    if ((strlen plain) > 0) {
+                        plain = (plain + ", ")
+                    }
+                    plain = (plain + name)
+                }
+            }
+            i = (i + 1)
+        }
+        def o:string ""
+        if ((strlen named) > 0) {
+            o = (o + "\n  fields here that change what you see and are not read:" + named)
+        }
+        if ((strlen plain) > 0) {
+            o = (o + "\n  other fields not read: " + plain)
+        }
+        return o
+    }
+
+    ; Where the layer sits, named from the page down. "I do not know which
+    ; element it is" is most of what makes a wrong-looking page hard to
+    ; report, and a path answers it.
+    fn layerPath:string (id:string) {
+        def trail:[string]
+        def i:int 0
+        while (i < (array_length sceneDoc.pages)) {
+            if (this.pathWalk((itemAt sceneDoc.pages i) id trail)) {
+                def o:string ""
+                def j:int ((array_length trail) - 1)
+                while (j >= 0) {
+                    if ((strlen o) > 0) {
+                        o = (o + " > ")
+                    }
+                    o = (o + (itemAt trail j))
+                    j = (j - 1)
+                }
+                return o
+            }
+            i = (i + 1)
+        }
+        return "?"
+    }
+
+    fn pathWalk:boolean (n:SceneNode id:string trail:[string]) {
+        def label:string n.sourceType
+        if ((strlen n.name) > 0) {
+            label = (label + " \"" + n.name + "\"")
+        }
+        if (n.id == id) {
+            push trail label
+            return true
+        }
+        def i:int 0
+        while (i < (array_length n.children)) {
+            if (this.pathWalk((itemAt n.children i) id trail)) {
+                push trail label
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; "13709:3736#40000000:0" → "13709:3736": the node a built layer is of.
+    sfn baseId:string (id:string) {
+        def n:int (strlen id)
+        def i:int 0
+        while (i < n) {
+            if ((charAt id i) == 35) {
+                return (substring id 0 i)
+            }
+            i = (i + 1)
+        }
+        return id
+    }
+
     ; --- the inspector ---------------------------------------------------
     ;
     ; What the right-hand pane shows about the selected layer, and the
