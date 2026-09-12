@@ -633,6 +633,14 @@ class FigTest {
         app.setView(0.0 0.0 1.0)
         this.eqStr("a turned layer is picked where it is drawn" (app.hit(146.0 710.0)) "3:31")
         this.eqStr("and not where its square box was" (app.hit(165.0 655.0)) "3:13")
+        ; The rule that fills a ring and not its hole. A fig file spells it
+        ; "ODD" and the reader tested for the CSS spelling, so it NEVER
+        ; matched: every even-odd path was filled non-zero and an outline
+        ; swallowed its own middle — a hand icon came out as a black blob,
+        ; and this board has 171 paths that ask for the rule.
+        def ring:SceneNode (shapes.childNamed("RingPath"))
+        this.check("the file's own spelling of even-odd is read" ring.evenOdd)
+
         ; A mirrored layer answers where it is DRAWN too. MirrorBox is 80x40
         ; at 2900,1860 with a horizontal flip, so the file puts it to the
         ; LEFT of that origin — read as the half turn its angle looks like,

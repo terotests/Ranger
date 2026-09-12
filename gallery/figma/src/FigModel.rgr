@@ -321,6 +321,19 @@ class FigModel {
         return p
     }
 
+    ; Every spelling of the rule that fills a ring and not its hole. The
+    ; file writes "ODD"; "EVENODD" is what CSS and SVG call it, and both are
+    ; taken so a REST import or another writer's file reads the same.
+    sfn isEvenOdd:boolean (rule:string) {
+        if (rule == "ODD") {
+            return true
+        }
+        if (rule == "EVENODD") {
+            return true
+        }
+        return (rule == "EVEN_ODD")
+    }
+
     sfn hexOf:string (b:buffer) {
         def digits:string "0123456789abcdef"
         def out:string ""
@@ -454,8 +467,13 @@ class FigModel {
             if (bid >= 0) {
                 push nd.fillBlobs bid
             }
+            ; A FIG FILE SPELLS IT "ODD". The enum in the schema has two
+            ; members, NONZERO and ODD, and the test here was for the CSS
+            ; spelling — so it never matched and every even-odd path was
+            ; filled non-zero: an outline, which is a ring, filled its own
+            ; hole. The hand icon in a tip card came out as a black blob.
             def wr:string (gitem.childString("windingRule" ""))
-            if (wr == "EVENODD") {
+            if (FigModel.isEvenOdd(wr)) {
                 nd.evenOdd = true
             }
             gi = (gi + 1)
@@ -468,7 +486,7 @@ class FigModel {
             if (sbid >= 0) {
                 push nd.strokeBlobs sbid
             }
-            if ((sitem.childString("windingRule" "")) == "EVENODD") {
+            if (FigModel.isEvenOdd((sitem.childString("windingRule" "")))) {
                 nd.strokeEvenOdd = true
             }
             si = (si + 1)

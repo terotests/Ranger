@@ -328,6 +328,14 @@ nothing says how to paint. Reading that block as the whole connector's
 painted the box too, and every divider drawn with a connector came out with
 a coloured square sitting on one end of it.
 
+A FIG FILE SPELLS THE WINDING RULE "ODD". The enum in the schema has two
+members, `NONZERO` and `ODD`, and the reader tested for `EVENODD` — the CSS
+and SVG spelling — so it never matched and every even-odd path was filled
+non-zero. An outline shape is a ring, and filled that way it swallows its
+own hole: a hand icon in a tip card came out as a black blob, and the board
+this was found on has 171 paths that ask for the rule. Both spellings are
+taken now, so a REST import reads the same.
+
 A turn, one factor and a mirror is all a matrix here can say, and it is all
 the renderer applies. A matrix that is anything else — a skew, or a scale
 that differs by axis — is drawn as the NEAREST TURN, which is a different

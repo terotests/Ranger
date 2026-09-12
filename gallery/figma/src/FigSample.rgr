@@ -241,6 +241,18 @@ class FigSample {
         return a
     }
 
+    ; The same, with the rule that fills a ring and not its hole. A fig
+    ; file spells it "ODD"; an outline shape is a ring, and filled non-zero
+    ; it swallows its own middle.
+    sfn geomBlobOdd:KiwiValue (index:int) {
+        def g:KiwiValue (KiwiValue.fromObject())
+        g.put("commandsBlob" (KiwiValue.fromInt(index)))
+        g.put("windingRule" (KiwiValue.fromString("ODD")))
+        def a:KiwiValue (KiwiValue.fromArray())
+        a.pushItem(g)
+        return a
+    }
+
     sfn vec:KiwiValue (x:double y:double) {
         def o:KiwiValue (KiwiValue.fromObject())
         o.put("x" (KiwiValue.fromDouble(x)))
@@ -1191,6 +1203,14 @@ class FigSample {
         mirror.put("transform" mtf)
         mirror.put("fillPaints" (FigSample.paints(0.2 0.5 0.9)))
         nodes.pushItem(mirror)
+
+        ; An outline shape — a ring — whose rule is the file's own spelling
+        ; of even-odd. Filled non-zero it fills its own hole, which is how
+        ; a hand icon in a tip card came out as a black blob.
+        def ring:KiwiValue (FigSample.node(3 88 "VECTOR" "RingPath" 0 3 "f3" 60.0 60.0 3020.0 1860.0))
+        ring.put("fillPaints" (FigSample.paints(0.0 0.0 0.0)))
+        ring.put("fillGeometry" (FigSample.geomBlobOdd(0)))
+        nodes.pushItem(ring)
 
         ; A component out of a library: the copy carries new guids and the
         ; override paths still name the old ones, which every node keeps in
