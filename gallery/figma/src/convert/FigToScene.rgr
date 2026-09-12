@@ -323,6 +323,17 @@ class FigToScene {
             this.expandImmutableFrame(nd sn)
         }
         this.strokeFromGeometry(nd sn)
+        ; A gradient on a vector keeps the shape and loses the ramp — the
+        ; display list carries a gradient as a box, and a vector is not its
+        ; box. Said here rather than left to be noticed.
+        if ((array_length sn.fills) > 0) {
+            def gf:SceneFill (sn.firstFill())
+            if (gf.kind == "gradient") {
+                if ((sn.kind == "path") || ((sn.kind == "ellipse") || (sn.kind == "line"))) {
+                    sn.warn("gradient on a vector (drawn as one flat colour)")
+                }
+            }
+        }
         return sn
     }
 
@@ -1603,6 +1614,13 @@ class FigToScene {
                 kind = ""
             }
             if ((kind == "DROP_SHADOW") || (kind == "drop-shadow")) {
+                ; Read and carried — `EVGHostTree` hands it to a native
+                ; host — but the display list the browser painter reads
+                ; does not carry a shadow, so on this page it does not
+                ; draw. Said rather than left to be noticed: a board of
+                ; stickies is a board of shadows, and their absence is the
+                ; kind of difference that reads as "it just looks flat".
+                sn.warn("drop shadow (not drawn by the web painter)")
                 def s (new SceneEffect())
                 s.kind = "drop-shadow"
                 s.x = (e.childDouble("offset.x" (e.child("offset").childDouble("x" 0.0))))

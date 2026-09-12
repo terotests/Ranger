@@ -244,6 +244,16 @@ class SceneToEVG {
             return
         }
         if (f.kind == "gradient") {
+            ; A gradient crosses the list as a BOX: two colours and a
+            ; direction on the element's rectangle. A vector is not its
+            ; rectangle, so painting one there put a grey square where a
+            ; rounded pill should be — the shading kept and the shape lost,
+            ; which is the wrong half to keep. A path takes the two ends
+            ; mixed into one colour and stays the shape it is.
+            if (this.isPathKind(n.kind)) {
+                el.setAttribute("fill" (f.gradFlatHexA()))
+                return
+            }
             el.setAttribute("gradient-from" (f.hexA()))
             el.setAttribute("gradient-to" (f.gradHexA()))
             el.setAttribute("gradient-dir" (to_string f.gradDir))
@@ -449,11 +459,19 @@ class SceneToEVG {
             return
         }
         def deg:double (n.xf.rotationDeg())
-        if ((deg > 0.05) || (deg < (0.0 - 0.05))) {
+        def mirrored:boolean (n.xf.isMirrored())
+        if ((((deg > 0.05) || (deg < (0.0 - 0.05)))) || mirrored) {
             ; Figma rotates about the node's own origin, and the translation
             ; it stored is where that origin landed.
             el.setAttribute("transform-origin" "0 0")
-            el.setAttribute("transform" ("rotate(" + (to_string deg) + "deg)"))
+            ; A mirrored layer is a turn AND a flip — its matrix reverses
+            ; handedness, which no angle can. Written the way the two
+            ; compose, the flip first: M = R(theta) · diag(1, -1).
+            def spec:string ("rotate(" + (to_string deg) + "deg)")
+            if mirrored {
+                spec = (spec + " scale(1, -1)")
+            }
+            el.setAttribute("transform" spec)
         }
     }
 

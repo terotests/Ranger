@@ -793,6 +793,13 @@ class EVGElement {
     ;
     def rotate:double 0.0
     def scale:double 1.0
+    ; A REFLECTION, which a rotation and a factor cannot say between them.
+    ; `scale(1, -1)` and `scale(-1, 1)` have the same magnitude on both axes
+    ; and differ only in sign, so the similarity survives — it is a turn, a
+    ; factor and a flip, not a non-uniform scale. Figma writes a mirrored
+    ; layer exactly this way (its matrix has a negative determinant), and
+    ; read as a plain rotation a mirrored arrow points the wrong way.
+    def flipY:boolean false
     def translateX:double 0.0
     def translateY:double 0.0
     ; Kept verbatim so the transform survives a round trip and so a reader can
@@ -1442,6 +1449,9 @@ class EVGElement {
         if (rotate != 0.0) {
             return true
         }
+        if flipY {
+            return true
+        }
         if ((fabs (scale - 1.0)) > 0.000001) {
             return true
         }
@@ -1884,6 +1894,7 @@ class EVGElement {
         transformSpec = (trim value)
         rotate = 0.0
         scale = 1.0
+        flipY = false
         translateX = 0.0
         translateY = 0.0
         if ((transformSpec == "none") || ((strlen transformSpec) == 0)) {
@@ -1892,6 +1903,7 @@ class EVGElement {
         def parts:[string] (EVGElement.splitWords(transformSpec))
         def a:double 0.0
         def sc:double 1.0
+        def flip:boolean false
         def tx:double 0.0
         def ty:double 0.0
         def i:int 0
@@ -1899,6 +1911,7 @@ class EVGElement {
             def one:string (trim (itemAt parts i))
             def b:double 0.0
             def s2:double 1.0
+            def f2:boolean false
             def ux:double 0.0
             def uy:double 0.0
             def args:string (EVGElement.callArgs(one "rotate"))
@@ -1910,6 +1923,14 @@ class EVGElement {
                     def nums:[double] (EVGElement.numberList(sargs))
                     if ((array_length nums) > 0) {
                         s2 = (itemAt nums 0)
+                    }
+                    ; Two arguments of the same magnitude and opposite sign
+                    ; are `s · diag(1, -1)`: the factor is the first of them
+                    ; and the rest is a flip.
+                    if ((array_length nums) > 1) {
+                        if (((itemAt nums 0) * (itemAt nums 1)) < 0.0) {
+                            f2 = true
+                        }
                     }
                 } {
                     def targs:string (EVGElement.callArgs(one "translate"))
@@ -1943,14 +1964,31 @@ class EVGElement {
             def rad:double ((a * 3.14159265358979) / 180.0)
             def cs:double (cos rad)
             def sn:double (sin rad)
-            tx = (tx + (sc * ((ux * cs) - (uy * sn))))
-            ty = (ty + (sc * ((ux * sn) + (uy * cs))))
-            a = (a + b)
+            ; A flip already in force turns the pieces after it around: the
+            ; offset is mirrored before it is rotated, and the angle of a
+            ; rotation the other side of a mirror is its negative.
+            ;   F·R(b) = R(-b)·F
+            ; which is what keeps `scale(1,-1) rotate(30deg)` different from
+            ; `rotate(30deg) scale(1,-1)`, the way the order already matters
+            ; for a translate.
+            def uyf:double uy
+            def bf:double b
+            if flip {
+                uyf = (0.0 - uy)
+                bf = (0.0 - b)
+            }
+            tx = (tx + (sc * ((ux * cs) - (uyf * sn))))
+            ty = (ty + (sc * ((ux * sn) + (uyf * cs))))
+            a = (a + bf)
             sc = (sc * s2)
+            if f2 {
+                flip = (flip == false)
+            }
             i = (i + 1)
         }
         rotate = a
         scale = sc
+        flipY = flip
         translateX = tx
         translateY = ty
     }
@@ -2064,13 +2102,15 @@ class EVGElement {
                 return ("Unsupported transform (rotate, scale, translate, translateX, translateY): " + one)
             }
             ; A non-uniform scale is not a similarity, so the display list
-            ; cannot carry it as an angle and a factor. Two arguments that
-            ; differ is exactly that case.
+            ; cannot carry it as an angle and a factor. Two arguments whose
+            ; MAGNITUDES differ is exactly that case — a difference of sign
+            ; alone is a reflection, which is still a similarity and is
+            ; carried as a flip beside the angle and the factor.
             def sargs:string (EVGElement.callArgs(one "scale"))
             if ((strlen sargs) > 0) {
                 def nums:[double] (EVGElement.numberList(sargs))
                 if ((array_length nums) > 1) {
-                    if ((fabs ((itemAt nums 0) - (itemAt nums 1))) > 0.0001) {
+                    if ((fabs ((fabs (itemAt nums 0)) - (fabs (itemAt nums 1)))) > 0.0001) {
                         return ("Only a uniform scale is supported: " + one)
                     }
                 }
@@ -2788,6 +2828,7 @@ class EVGElement {
         maxImageSize = other.maxImageSize
         rotate = other.rotate
         scale = other.scale
+        flipY = other.flipY
         translateX = other.translateX
         translateY = other.translateY
         transformSpec = other.transformSpec

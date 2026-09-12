@@ -633,6 +633,13 @@ class FigTest {
         app.setView(0.0 0.0 1.0)
         this.eqStr("a turned layer is picked where it is drawn" (app.hit(146.0 710.0)) "3:31")
         this.eqStr("and not where its square box was" (app.hit(165.0 655.0)) "3:13")
+        ; A mirrored layer answers where it is DRAWN too. MirrorBox is 80x40
+        ; at 2900,1860 with a horizontal flip, so the file puts it to the
+        ; LEFT of that origin — read as the half turn its angle looks like,
+        ; it would sit above it instead, which is how an icon "turned 180
+        ; degrees" ended up forty pixels up the page.
+        this.eqStr("a mirrored layer is picked where it is drawn" (app.hit(2860.0 1880.0)) "3:87")
+        this.eqStr("and not where a half turn would have put it" (app.hit(2860.0 1840.0)) "")
         ; And a layer is picked whether or not its parent's box holds the
         ; point: the sticker hangs 40 pixels above the section it is in,
         ; and gating the walk on the parent left that half unselectable.
@@ -772,6 +779,15 @@ class FigTest {
         this.close("and ends at the last, not the second" tintFill.gradG 0.663)
         this.close("the near end keeps its alpha" tintFill.a 0.16)
         this.close("and the far end its own" tintFill.gradA 0.16)
+        ; The same ramp on a vector keeps the SHAPE and loses the ramp: a
+        ; gradient crosses the list as a box, and painting one on a vector
+        ; drew a grey square where a rounded pill should be.
+        def gvec:SceneNode (gradFrame.childNamed("GradientVector"))
+        this.eqStr("a vector with a gradient is still a path" gvec.kind "path")
+        def gvFill:SceneFill (gvec.firstFill())
+        def gvFlat:string (gvFill.gradFlatHexA())
+        this.check("and takes the two ends mixed into one colour" (FigTest.hasSub(gvFlat "#")))
+        this.check("the reader says the ramp was lost" (FigTest.hasSub((app.warningsJson()) "gradient on a vector")))
         def tintHex:string (tintFill.hexA())
         def tintFar:string (tintFill.gradHexA())
         this.check("so the colour carries it" (FigTest.hasSub(tintHex "29")))
@@ -853,7 +869,12 @@ class FigTest {
         this.check("viewport painted in the canvas colour" (FigTest.hasSub(dump "background=\"#F5F5F5\"")))
         this.check("no text spans" ((FigTest.hasSub(dump "<span")) == false))
         this.check("no text background" ((FigTest.hasSub(dump "fill=\"#F7F5F0\" d=\"M")) == true))
-        this.eqInt("no warnings" (array_length app.sceneDoc.warnings) 0)
+        ; Nothing here is drawn wrong, and the only thing not drawn at all
+        ; is the shadow under the two cards — read, carried to a native
+        ; host, and absent on this page.
+        def hw:string (app.warningsJson())
+        this.eqInt("only the shadows are reported" (array_length app.sceneDoc.warnings) 2)
+        this.check("and that is what they say" (FigTest.hasSub(hw "drop shadow")))
     }
 
     ; A paste from Figma: fig-kiwi bytes with no ZIP, and only the copied

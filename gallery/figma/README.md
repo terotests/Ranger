@@ -53,7 +53,7 @@ JavaScript.
 | image | yes — `createImg()` + `src` + `object-fit` |
 | SVG path | yes — `createPath()` + `d`; `fill` / `stroke-width` |
 | gradient | yes — 2-stop linear `gradient-from` / `gradient-to` / `gradient-dir`, each end with its own alpha |
-| shadow | yes — `shadow-radius` / `shadow-color` / `shadow-offset-x/y` |
+| shadow | read and carried, **not drawn here** — the element takes `shadow-radius` / `shadow-color` / `shadow-offset-x/y` and `EVGHostTree` hands them to a native host, but the display list the browser painter reads never carries them. Counted as not drawn. |
 | flex row/column | yes — Auto Layout only |
 | gap | yes |
 | padding | yes |
@@ -88,6 +88,14 @@ the old weight already drawn and there is nothing here to re-flatten it
 with, so the outline is dropped and the CSS border takes over at the weight
 asked for — a guess at the right weight beats an exact picture of the wrong
 one.
+
+A gradient on a VECTOR keeps the shape and loses the ramp. The display
+list carries a gradient as a box — two colours and a direction on the
+element's rectangle — and a vector is not its rectangle: painted there it
+was a grey square where a rounded pill should be, the shading kept and the
+shape lost, which is the wrong half to keep. A path takes the two ends
+mixed into one colour, stays the shape it is, and says so in the count of
+what could not be drawn.
 
 A gradient keeps its ENDS and its alpha. The display list carries two
 stops, so a gradient authored with more loses what is between them — but
@@ -319,6 +327,16 @@ when there is a label, so a connector without one carries a 100x100 box
 nothing says how to paint. Reading that block as the whole connector's
 painted the box too, and every divider drawn with a connector came out with
 a coloured square sitting on one end of it.
+
+A mirrored layer is a mirror, not a turn. Figma writes one as a matrix
+whose determinant is negative — handedness reversed, which no angle can do
+— and `rotationDeg` answers an angle for it happily: an arrow drawn that
+way came out backwards, its head where its tail belongs. What is left once
+the mirror is taken out IS that angle, since `M = R(theta) · diag(1, -1)`,
+so the flip is written beside it and `EVGElement` carries it as one: two
+scale arguments of the same magnitude and opposite sign are a similarity
+still — a turn, a factor and a flip — where two of different magnitudes are
+the non-uniform scale the display list refuses.
 
 A clip inside a turn is not a clip. It crosses the display list as x/y/w/h
 and every backend makes it a scissor, which is axis-aligned; the rotation

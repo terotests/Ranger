@@ -59,6 +59,26 @@ class SceneFill {
         return (base + (SceneFill.hex2(ai)))
     }
 
+    ; The two ends of a gradient mixed into one colour. A gradient crosses
+    ; the display list as a BOX — two colours and a direction on a
+    ; rectangle — and a vector is not its rectangle, so a path keeps its
+    ; outline and loses the ramp rather than the other way round.
+    fn gradFlatHexA:string () {
+        def mr:double ((r + gradR) * 0.5)
+        def mg:double ((g + gradG) * 0.5)
+        def mb:double ((b + gradB) * 0.5)
+        def alpha:double ((((a + gradA) * 0.5) * opacity))
+        def base:string (SceneFill.rgbHex(mr mg mb))
+        if (alpha >= 0.999) {
+            return base
+        }
+        if (alpha < 0.0) {
+            alpha = 0.0
+        }
+        def ai:int (to_int ((alpha * 255.0) + 0.5))
+        return (base + (SceneFill.hex2(ai)))
+    }
+
     sfn rgbHex:string (cr:double cg:double cb:double) {
         def ri:int (to_int ((cr * 255.0) + 0.5))
         def gi:int (to_int ((cg * 255.0) + 0.5))
