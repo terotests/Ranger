@@ -95,6 +95,49 @@ class SceneMatrix {
         return (((b * x) + (d * y)) + ty)
     }
 
+    ; The point put back into the space this matrix rotated out of. The
+    ; renderer applies the ROTATION and nothing else (`SceneToEVG.applyXf`),
+    ; so the first column is normalised before it is undone: a matrix that
+    ; also carries a scale would otherwise send the hit test somewhere the
+    ; picture is not. For a plain rotation the inverse is the transpose,
+    ; which is what this is.
+    fn unrotX:double (x:double y:double) {
+        def len:double (sqrt ((a * a) + (b * b)))
+        if (len < 0.000001) {
+            return x
+        }
+        def co:double (a / len)
+        def si:double (b / len)
+        return ((co * x) + (si * y))
+    }
+
+    fn unrotY:double (x:double y:double) {
+        def len:double (sqrt ((a * a) + (b * b)))
+        if (len < 0.000001) {
+            return y
+        }
+        def co:double (a / len)
+        def si:double (b / len)
+        return (((0.0 - si) * x) + (co * y))
+    }
+
+    ; Just the turn, with any scale taken back out of it — which is the
+    ; part of the matrix the renderer applies.
+    fn rotOnly:SceneMatrix () {
+        def m (new SceneMatrix())
+        def len:double (sqrt ((a * a) + (b * b)))
+        if (len < 0.000001) {
+            return m
+        }
+        def co:double (a / len)
+        def si:double (b / len)
+        m.a = co
+        m.b = si
+        m.c = (0.0 - si)
+        m.d = co
+        return m
+    }
+
     fn rotationDeg:double () {
         def ang:double (SceneMatrix.atan2Approx(b a))
         return ((ang * 180.0) / 3.141592653589793)

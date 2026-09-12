@@ -52,7 +52,7 @@ JavaScript.
 | font | yes — family / size / weight; `text-align`; `line-height` |
 | image | yes — `createImg()` + `src` + `object-fit` |
 | SVG path | yes — `createPath()` + `d`; `fill` / `stroke-width` |
-| gradient | yes — 2-stop linear `gradient-from` / `gradient-to` / `gradient-dir` |
+| gradient | yes — 2-stop linear `gradient-from` / `gradient-to` / `gradient-dir`, each end with its own alpha |
 | shadow | yes — `shadow-radius` / `shadow-color` / `shadow-offset-x/y` |
 | flex row/column | yes — Auto Layout only |
 | gap | yes |
@@ -77,6 +77,26 @@ either font. Strokes paint from `strokeGeometry`, which already carries
 alignment, per-side weights, caps and dashes; a CSS border is the fallback
 for a file without it. A translucent paint goes into its colour, not into
 the element's opacity, so a bar inside a 15% track stays solid.
+
+The layer keeps saying what its edge is even when the outline paints it.
+Emptying its stroke was how the renderer was kept from drawing a border on
+top of the outline — it is told directly now — and the cost of that was a
+layer that said nothing about its own edge: the pane showed no stroke to
+read and an edit to the border colour moved a number nothing paints. A
+recolour now reaches the outline. A new WEIGHT cannot, since the outline is
+the old weight already drawn and there is nothing here to re-flatten it
+with, so the outline is dropped and the CSS border takes over at the weight
+asked for — a guess at the right weight beats an exact picture of the wrong
+one.
+
+A gradient keeps its ENDS and its alpha. The display list carries two
+stops, so a gradient authored with more loses what is between them — but
+it was keeping the first two instead of the first and the last, which
+ended a red-amber-green scale at amber. Each end also keeps the alpha of
+its own stop, the way a solid paint does: a gradient is as often a tint as
+a band of colour — a track at 16% red over white, a caption fading out —
+and with the alpha dropped those came out as the full colour, an alignment
+scale in poster red and a white label on a black slab.
 
 An underline comes from the same block as the glyphs. Which characters
 carry one is per-character styling — `textDecoration` on an entry of the
@@ -252,6 +272,18 @@ path *tail* and not a prefix — `40000000:0/601:5/601:7` and
 with the same tail. That is what puts the third cell's text in the third
 cell rather than 20 pixels from the table's corner.
 
+A table does not repeat what every cell has in common. It ships two more
+style blocks, each keyed by a layer guid with no geometry of its own: the
+cell — white, with the 20% black rule that IS the grid — and the cell's
+text, with its font and its ink. A per-cell entry then carries only what
+differs, so read on their own those entries name a font and no colour at
+all, and five tables drew as grey slabs with nothing written in them.
+Which block is which is what it carries, not where it sits: the one with
+text in it is the text. And which layers want which is the LAYER's, not
+the entry's — every `40000000:1/…` in a table is the text of some cell, so
+a cell that says nothing still takes the text default rather than being
+painted white as a box.
+
 A connector ships three layers — the line, and the text and rounded box
 its label is made of — and one style block, which is the line's: its caps
 and its arrow head are drawn in it, the head as a filled path in the line's
@@ -321,6 +353,26 @@ the page, which has to be walked to: `x`/`y` on a node is an offset from
 its parent, so a title twenty pixels into a card three thousand pixels
 across the board is not at 20,16 — where the ring used to be drawn, in the
 corner of the page and nowhere near what it was pointing at.
+
+**What the click lands on.** Three things decide it, and each of them used
+to pick the wrong layer. The point travels into each layer's own space on
+the way down, the same way the renderer moves the pixels — a rotated layer
+was being tested against its unrotated box, so it answered for the space
+beside it and the more it was turned the further away you had to click. A
+child is looked at whether or not its parent's box holds the point; only a
+layer that CLIPS can keep its children from being picked, where gating the
+walk on the parent made anything hanging out of its frame unselectable and
+a group whose own box is empty — which a FigJam frame often is — hid
+everything inside it. And what draws wins over what does not, the deeper of
+two wins, and between two of the same rank the one painted later does: the
+walk used to answer with whatever container it happened to be inside last.
+The stroke outline this reader emits to paint a layer's own stroke is not a
+layer anyone drew, so it is not offered — it sits under the layer it
+belongs to and was answering for the one beside it.
+
+The ring follows the same walk, so a turned layer gets the box that
+contains it rather than one hanging in the air beside it. The ring itself
+stays square: the display list draws axis-aligned frames.
 
 The pane is not a list of facts about the layer. The numbers on it ARE the
 layer: type one and the page is painted again. Figma answers this with a
@@ -407,6 +459,27 @@ work a pan does not need — the scene has not changed, only the camera has —
 and taking the camera out of the coordinates is designed in
 [`../evg/PLAN_VIEW_TRANSFORM.md`](../evg/PLAN_VIEW_TRANSFORM.md), which
 would put a pan of this board at the draw alone.
+
+## Selection debug
+
+**Selection debug** in the Selected pane prints everything about ONE layer
+to the console — and to the clipboard, and to `window.__selectionDebug`.
+The reports below answer for a whole file, which is where to start when you
+do not know what is wrong; this is for when you are pointing at the thing.
+
+It reads the layer AND the node it came from, because most of what goes
+wrong is the difference between the two: where the layer sits, named from
+the page down; what it puts on the canvas, paint by paint, with the alpha
+folded in and a paint the file switches off marked as off; whether its text
+carries the glyphs the editor shaped or is being laid out here in whatever
+font this machine has, which is where a box or a tofu square comes from;
+whether an image's bytes are in the file; whether an instance's component
+is; what the reader could not draw; and, for a colour left to a named
+style, whether that style is in the file at all — a layer that carries no
+paint of its own and names a style the file does not have is a colour
+nothing can recover, which is a different problem from one being drawn
+wrong. Last, the fields this node carries that the converter never looks
+at, with the plain-language note where there is one.
 
 ## When the page looks wrong and nothing is reported
 

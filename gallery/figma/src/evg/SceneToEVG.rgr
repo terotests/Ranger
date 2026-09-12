@@ -244,8 +244,8 @@ class SceneToEVG {
             return
         }
         if (f.kind == "gradient") {
-            el.setAttribute("gradient-from" (f.hex()))
-            el.setAttribute("gradient-to" (SceneFill.rgbHex(f.gradR f.gradG f.gradB)))
+            el.setAttribute("gradient-from" (f.hexA()))
+            el.setAttribute("gradient-to" (f.gradHexA()))
             el.setAttribute("gradient-dir" (to_string f.gradDir))
             return
         }
@@ -287,6 +287,12 @@ class SceneToEVG {
 
     fn applyStroke:void (el:EVGElement n:SceneNode) {
         if ((array_length n.strokes) == 0) {
+            return
+        }
+        ; The outline the file brought is a child of this element and is
+        ; already the stroke, drawn exactly. A border here would be a
+        ; second one.
+        if n.strokeIsGeometry {
             return
         }
         def s:SceneStroke (n.firstStroke())
@@ -340,6 +346,9 @@ class SceneToEVG {
     fn sideBars:[EVGElement] (n:SceneNode) {
         def out:[EVGElement]
         if ((array_length n.strokes) == 0) {
+            return out
+        }
+        if n.strokeIsGeometry {
             return out
         }
         def s:SceneStroke (n.firstStroke())

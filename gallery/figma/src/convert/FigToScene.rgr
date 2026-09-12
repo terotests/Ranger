@@ -610,6 +610,59 @@ class FigToScene {
             }
             si = (si + 1)
         }
+        ; What every layer of a kind has in common is not repeated on each
+        ; of them. A table ships two more style blocks, each keyed by a
+        ; layer guid with no geometry of its own: the cell — white, with
+        ; the 20% black rule that IS the grid — and the cell's text, with
+        ; its font and its ink. A per-cell entry then carries only what
+        ; differs, so read alone the entry for a heading says "Bold 24" and
+        ; names no colour at all: 5 tables drew as grey slabs with nothing
+        ; written in them and no grid. Which block is which is what it
+        ; carries, not where it sits — the one with text in it is the text.
+        def geomKeys:[string:boolean]
+        def gi:int 0
+        while (gi < n) {
+            set geomKeys (FigToScene.overridePath((parts.item(gi)))) true
+            gi = (gi + 1)
+        }
+        def boxDefault:KiwiValue (KiwiValue.nilVal())
+        def textDefault:KiwiValue (KiwiValue.nilVal())
+        ; A layer draws text if anything drawn under its guid does.
+        def textHeads:[string:boolean]
+        def ti:int 0
+        while (ti < n) {
+            def tp:KiwiValue (parts.item(ti))
+            def tkey:string (FigToScene.overridePath(tp))
+            def said:boolean ((tp.child("derivedTextData")).isObject())
+            if (said) {
+            } {
+                def ts@(optional):KiwiValue (get styleByKey tkey)
+                if (null? ts) {
+                } {
+                    said = (((unwrap ts).child("textData")).isObject())
+                }
+            }
+            if said {
+                set textHeads (FigToScene.pathHead(tkey)) true
+            }
+            ti = (ti + 1)
+        }
+        def di:int 0
+        while (di < (styles.itemCount())) {
+            def dst:KiwiValue (styles.item(di))
+            def dkey:string (FigToScene.overridePath(dst))
+            def drawn@(optional):boolean (get geomKeys dkey)
+            if (null? drawn) {
+                if ((FigToScene.pathTail(dkey)) == "") {
+                    if ((dst.child("textData")).isObject()) {
+                        textDefault = dst
+                    } {
+                        boxDefault = dst
+                    }
+                }
+            }
+            di = (di + 1)
+        }
         ; The layer a node path was first drawn in. Its transform is where
         ; that node sits in the frame, and the layers after it are drawn
         ; against it rather than against the frame.
@@ -686,7 +739,23 @@ class FigToScene {
             } {
                 style = (unwrap hit)
             }
-            def merged:KiwiValue (FigToScene.mergeOverride(style part))
+            def own:KiwiValue (FigToScene.mergeOverride(style part))
+            ; Under the layer's own fields, the default for its kind. Which
+            ; kind is the LAYER's, not this entry's: every `40000000:1/…`
+            ; in a table is the text of some cell, so a cell whose own
+            ; entry says nothing still takes the text default, where asking
+            ; the entry alone would have made it a box and painted it white.
+            def merged:KiwiValue own
+            def isText@(optional):boolean (get textHeads (FigToScene.pathHead(key)))
+            if (null? isText) {
+                if (boxDefault.isObject()) {
+                    merged = (FigToScene.mergeOverride(boxDefault own))
+                }
+            } {
+                if (textDefault.isObject()) {
+                    merged = (FigToScene.mergeOverride(textDefault own))
+                }
+            }
             def tf (KiwiValue.fromObject())
             tf.put("m00" (KiwiValue.fromDouble((own.childDouble("m00" 1.0)))))
             tf.put("m01" (KiwiValue.fromDouble((own.childDouble("m01" 0.0)))))
@@ -757,6 +826,19 @@ class FigToScene {
             i = (i + 1)
         }
         return ""
+    }
+
+    ; "40000000:1/601:5/601:6" → "40000000:1": the layer the path is in.
+    sfn pathHead:string (path:string) {
+        def n:int (strlen path)
+        def i:int 0
+        while (i < n) {
+            if ((charAt path i) == 47) {
+                return (substring path 0 i)
+            }
+            i = (i + 1)
+        }
+        return path
     }
 
     sfn pathParent:string (path:string) {
@@ -839,9 +921,11 @@ class FigToScene {
         } {
             push sn.children outline
         }
-        ; The geometry replaces the stroke; keeping both would paint it twice.
-        def none:[SceneStroke]
-        sn.strokes = none
+        ; The geometry paints the stroke; the renderer is told not to draw a
+        ; border as well. The stroke stays on the node — emptying it left
+        ; the layer saying nothing about its own edge, so the pane showed
+        ; no stroke at all and an edit to it changed a field nothing paints.
+        sn.strokeIsGeometry = true
         sn.warnings = (this.dropStrokeWarnings(sn.warnings))
     }
 
@@ -918,7 +1002,7 @@ class FigToScene {
             if (p.kind == "GRADIENT_LINEAR") {
                 f.kind = "gradient"
                 f.gradDir = 1
-                this.copyGradient(nd.raw f)
+                this.copyGradient(nd.raw i f)
             }
             push sn.fills f
             i = (i + 1)
@@ -949,19 +1033,34 @@ class FigToScene {
         push sn.fills f
     }
 
-    fn copyGradient:void (raw:KiwiValue f:SceneFill) {
+    ; The two ends of the gradient, from the paint being converted — a node
+    ; can carry a flat fill with a gradient over it, and reading the first
+    ; paint every time gave the second one the first one's stops.
+    ;
+    ; The FIRST stop and the LAST. A display list carries two, so a gradient
+    ; authored with more keeps its ends and loses what is between them;
+    ; taking the first two instead ended the gradient where its second stop
+    ; was, and a red-amber-green scale stopped at amber.
+    ;
+    ; Each end keeps its own alpha. A gradient is as often a tint as a band
+    ; of colour — a track at 16% red over white, a caption fading out — and
+    ; dropped, those come out as the full colour: an alignment scale drawn
+    ; in poster red, and a white label on a black slab.
+    fn copyGradient:void (raw:KiwiValue index:int f:SceneFill) {
         def paints:KiwiValue (raw.child("fillPaints"))
-        if ((paints.itemCount()) == 0) {
+        if (index >= (paints.itemCount())) {
             return
         }
-        def p0:KiwiValue (paints.item(0))
+        def p0:KiwiValue (paints.item(index))
         def stops:KiwiValue (p0.child("stops"))
-        if ((stops.itemCount()) >= 2) {
+        def n:int (stops.itemCount())
+        if (n >= 2) {
             def a:KiwiValue ((stops.item(0)).child("color"))
-            def b:KiwiValue ((stops.item(1)).child("color"))
+            def b:KiwiValue ((stops.item(n - 1)).child("color"))
             f.r = (a.childDouble("r" f.r))
             f.g = (a.childDouble("g" f.g))
             f.b = (a.childDouble("b" f.b))
+            f.a = (a.childDouble("a" 1.0))
             f.gradR = (b.childDouble("r" f.r))
             f.gradG = (b.childDouble("g" f.g))
             f.gradB = (b.childDouble("b" f.b))
