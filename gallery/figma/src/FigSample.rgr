@@ -161,6 +161,26 @@ class FigSample {
         s.addField(node "strokeJoin" "string" 54 false)
         s.addField(node "dashPattern" "float" 55 true)
         s.addField(node "arcData" "ArcData" 46 false)
+        ; What the editor shaped: a glyph per character, and the rectangles
+        ; of whatever the text is underlined or struck through with — where
+        ; either goes depends on the font's metrics, so Figma works it out
+        ; and the file carries the answer.
+        def glyph:KiwiDef (s.addMessage("Glyph"))
+        s.addField(glyph "commandsBlob" "uint" 1 false)
+        s.addField(glyph "position" "Vector" 2 false)
+        s.addField(glyph "fontSize" "float" 3 false)
+        def drect:KiwiDef (s.addMessage("DecorationRect"))
+        s.addField(drect "x" "float" 1 false)
+        s.addField(drect "y" "float" 2 false)
+        s.addField(drect "w" "float" 3 false)
+        s.addField(drect "h" "float" 4 false)
+        def deco:KiwiDef (s.addMessage("Decoration"))
+        s.addField(deco "rects" "DecorationRect" 1 true)
+        s.addField(deco "styleID" "uint" 2 false)
+        def dtd:KiwiDef (s.addMessage("DerivedTextData"))
+        s.addField(dtd "glyphs" "Glyph" 1 true)
+        s.addField(dtd "decorations" "Decoration" 2 true)
+        s.addField(node "derivedTextData" "DerivedTextData" 56 false)
         def blob:KiwiDef (s.addMessage("Blob"))
         s.addField(blob "bytes" "byte" 1 true)
         def msg:KiwiDef (s.addMessage("Message"))
@@ -962,6 +982,52 @@ class FigSample {
         cnGen.put("overrides" cnStyles)
         conn.put("nodeGenerationData" cnGen)
         nodes.pushItem(conn)
+
+        ; A section, and a sticker left across its top-right corner. A
+        ; frame paints its stroke over what is inside it; a section does
+        ; not, and the sticker is whole in Figma where a green line used to
+        ; cut it here.
+        def sect:KiwiValue (FigSample.node(3 78 "SECTION" "Board section" 0 3 "eX" 400.0 200.0 2580.0 1260.0))
+        sect.put("fillPaints" (FigSample.paints(0.94 0.99 0.96)))
+        sect.put("strokePaints" (FigSample.paints(0.6 0.9 0.72)))
+        sect.put("strokeWeight" (KiwiValue.fromDouble(1.0)))
+        sect.put("strokeGeometry" (FigSample.geomBlob(0)))
+        nodes.pushItem(sect)
+        def sticker:KiwiValue (FigSample.node(3 79 "ROUNDED_RECTANGLE" "Sticker" 3 78 "a" 80.0 80.0 360.0 (0.0 - 40.0)))
+        sticker.put("fillPaints" (FigSample.paints(0.1 0.1 0.1)))
+        nodes.pushItem(sticker)
+
+        ; Text with a run underlined. Underlining is per-character styling
+        ; and where the line goes is the font's business, so Figma works it
+        ; out and the file carries the rectangle. Read the glyphs and not
+        ; that, and the underline is simply missing.
+        def under:KiwiValue (FigSample.node(3 80 "TEXT" "Underlined" 0 3 "eY" 300.0 40.0 2580.0 1500.0))
+        under.put("textData" (FigSample.chars("Underlined run")))
+        under.put("fontSize" (KiwiValue.fromDouble(24.0)))
+        under.put("fillPaints" (FigSample.paints(0.1 0.1 0.1)))
+        def dtd:KiwiValue (KiwiValue.fromObject())
+        def glyphs:KiwiValue (KiwiValue.fromArray())
+        def gl0:KiwiValue (KiwiValue.fromObject())
+        gl0.put("commandsBlob" (KiwiValue.fromInt(0)))
+        gl0.put("position" (FigSample.vec(0.0 24.0)))
+        gl0.put("fontSize" (KiwiValue.fromDouble(24.0)))
+        glyphs.pushItem(gl0)
+        dtd.put("glyphs" glyphs)
+        def decos:KiwiValue (KiwiValue.fromArray())
+        def deco0:KiwiValue (KiwiValue.fromObject())
+        def drects:KiwiValue (KiwiValue.fromArray())
+        def dr0:KiwiValue (KiwiValue.fromObject())
+        dr0.put("x" (KiwiValue.fromDouble(10.0)))
+        dr0.put("y" (KiwiValue.fromDouble(30.0)))
+        dr0.put("w" (KiwiValue.fromDouble(120.0)))
+        dr0.put("h" (KiwiValue.fromDouble(3.0)))
+        drects.pushItem(dr0)
+        deco0.put("rects" drects)
+        deco0.put("styleID" (KiwiValue.fromInt(18)))
+        decos.pushItem(deco0)
+        dtd.put("decorations" decos)
+        under.put("derivedTextData" dtd)
+        nodes.pushItem(under)
 
         ; A component out of a library: the copy carries new guids and the
         ; override paths still name the old ones, which every node keeps in
