@@ -1534,6 +1534,7 @@ nobody replaces.
 | Routing | `layout/EdgeLanes.rgr` | channel routing: a track per edge through each corridor, and a fan per shared port |
 | | `layout/LayeredLayout.rgr` | dummy-vertex chains, so long edges are ordered, given room, and drawn round what is between their ends |
 | | `layout/OrthoRouter.rgr` | an orthogonal visibility grid and a bend-charging Dijkstra, run as a repair pass for whatever the layout never saw |
+| | `layout/EdgeFacing.rgr` | which SIDE each end leaves by, worked out again from where the boxes now are — the repair for a diagram the reader has rearranged |
 | | `layout/ReadableRouter.rgr` | one router for every edge: halos, staggered departure lanes, and a search charged for crossings, shared corridors and labels against every route already drawn — see [`docs/PLAN_READABLE_ROUTING.md`](docs/PLAN_READABLE_ROUTING.md) |
 | | `layout/TreeLayouts.rgr` | the radial tree and the mind map: measure a subtree, then hand it the share it earned |
 | Parity | `harness/`, `tools/parity.mjs`, `tests/ParityDump.rgr` | React Flow and d3, asked the same questions and compared |
@@ -1804,6 +1805,71 @@ The two are the same table dropped into a gap barely wider than itself, where
 the edges that have to cross the gap have nowhere else to be. The suite runs a
 smaller version of the same sweep, so a change that breaks this fails a test
 rather than a screenshot.
+
+### The side an edge leaves by, after the boxes have moved
+
+The router above is obliged to leave by the side it is given, so the better it
+gets, the longer the detour it draws round a box the edge should never have
+pointed at. Every domain picks those sides in a `faceEdges` — the flowchart's
+(down the page, sideways for a branch), the ERD's (the foreign key leaves by
+the side the other table is on), the layered layout's `faceAlongRoute` — and
+every one of them runs **once**, while the layout that justified it is still
+true. Nothing ran again afterwards, so a box dragged past the thing it points
+at kept the side it was given when it was somewhere else:
+
+```text
+   as laid out                     after "backups" is dragged above
+
+                                    ┌─ backups ───────┐
+                                    │  nightly.dump   │
+                                    └────────▲────────┘
+   ┌─ db server ─────┐                       ┊
+   │     orders      │              ┌─ db ser┊er ─────┐
+   └────────┬────────┘              │     or┌┴ers     │   ← the line leaves a
+            ┊                       └───────┴─────────┘     DOWNWARD port and
+   ┌─ backups ───────┐                      ┊                travels up, back
+   │  nightly.dump   │                      └┄┄┘              across its own box
+   └─────────────────┘
+```
+
+`layout/EdgeFacing.rgr` is the pass that notices, and it runs on pointer-up
+before the tracks and the obstacles:
+
+- **Only what points backwards.** `EdgeFacing.repairAll` rewrites an end whose
+  outward normal has a negative component along the way the edge has to go.
+  An end that merely *could* be slightly better is left exactly where the
+  reader last saw it — a diagram must not rearrange itself around somebody who
+  dragged one box. `EdgeFacing.refaceAll` is the unconditional version, and it
+  is what "reroute this" means when it is asked for by name.
+- **It restores as well as repairs.** An end the pass takes over remembers the
+  side it had. When the box goes back to where that side made sense the side is
+  given back and the pass lets go, so a drag and its undo leave no trace.
+- **Frames decide, when there are frames.** The box an end has to get clear of
+  is not always the node's: an end inside a package or a deployment node has to
+  leave that frame, so two ends in different frames are compared as the frames
+  — grown up to, but never past, a frame they share. Two classes in one package
+  are compared as themselves.
+- **What it may not touch.** A hand-placed route (`pinnedRoute`), an end the
+  reader dragged onto a handle themselves (`pinnedEnds`), and any end naming a
+  port that is a *place* rather than a side. A centred side handle is not a
+  place, and nor is a table row's port, which is one of a pair — the row gets a
+  handle on each side precisely so an edge can arrive from whichever side the
+  other table is on, and the pass moves between them.
+
+The same sweep measures it. `EdgeFacing.backwardEnds(g)` counts the ends
+pointing the wrong way, and `npm run rangerflow:drag` reports it per drop —
+including a third sweep that drags a **deployment diagram by its frames**,
+which is the gesture that produced the picture above:
+
+| | drops | ends pointing away | edges needing obstacle repair |
+| --- | ---: | ---: | ---: |
+| e-commerce schema | 1332 | 1526 → **0** | 1008 → **739** |
+| UML class diagram | 682 | 492 → **0** | 201 → **162** |
+| deployment, dragged by its frames | 182 | 122 → **0** | — |
+
+Edge crossings over the same sweeps are unchanged (9.28 → 9.42 and 0.163 →
+0.164 per drop): the pass is not buying readability at their expense, it is
+removing work the obstacle router was doing to get round a wrong decision.
 
 ### …and what a drawn line is measured by
 

@@ -66,6 +66,7 @@ Import "../layout/LayeredLayout.rgr"
 Import "../layout/ForceLayout.rgr"
 Import "../layout/EdgeLanes.rgr"
 Import "../layout/OrthoRouter.rgr"
+Import "../layout/EdgeFacing.rgr"
 
 class RangerFlowWeb {
     def graph:FlowGraph (new FlowGraph)
@@ -152,6 +153,14 @@ class RangerFlowWeb {
             editor.onGraphChanged = false
             if (simRunning == false) {
                 EdgeLanes.reset(graph)
+                ; Which SIDE each end leaves by, before which track it takes.
+                ; The layout chose those sides against the layout, and a box
+                ; dragged past the thing it points at leaves an end facing
+                ; backwards — a line that goes up out of a downward handle,
+                ; back through its own box. Only the backwards ones are
+                ; rewritten, so an arrangement the reader is happy with is not
+                ; rearranged under them.
+                def refaced:int (EdgeFacing.repairAll(graph))
                 EdgeLanes.assign(graph)
                 ; Whatever the drag put in somebody's way, routed round. Only
                 ; the broken edges are touched, so this costs a Dijkstra or two

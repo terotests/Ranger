@@ -1,0 +1,523 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; EdgeFacing.rgr — which side an edge leaves by, worked out again after a move
+; ============================================================================
+;
+; Every domain has a `faceEdges`: the flowchart's (down the page, sideways for
+; a branch), the ERD's (the foreign key leaves by the side the other table is
+; on), the layered layout's `faceAlongRoute`. They all run ONCE, while the
+; layout that justified them is still true, and nothing runs again afterwards.
+;
+; So a box dragged to the other side of the diagram keeps the side it was
+; given when it was somewhere else:
+;
+;      as laid out                     after "backups" is dragged above
+;
+;                                       ┌─ backups ───────┐
+;                                       │  nightly.dump   │
+;                                       └────────▲────────┘
+;      ┌─ db server ─────┐                       ┊
+;      │     orders      │              ┌─ db ser┊er ─────┐
+;      └────────┬────────┘              │     or┌┴ers     │   ← the line goes
+;               ┊                       └───────┴─────────┘     UP from a
+;      ┌─ backups ───────┐                      ┊                DOWNWARD port,
+;      │  nightly.dump   │                      └┄┄┘              back through
+;      └─────────────────┘                                        its own box
+;
+; The route is right for the ports it was given. The ports are wrong. No
+; amount of obstacle avoidance fixes that — `OrthoRouter` is obliged to leave
+; by the side it is told to leave by, so the better it is, the longer the
+; detour it draws round the box the edge should never have pointed at.
+;
+; This pass is the missing half. Given the geometry as it now is, it works out
+; which side each end SHOULD use, and:
+;
+;   * `repairAll` rewrites only the ends that are pointing backwards — the
+;     outward normal has a negative component along the way the edge has to
+;     go. That is the "obviously wrong" case above, and it is cheap and quiet
+;     enough to run on every pointer-up: an end that merely could be slightly
+;     better is left exactly where the reader last saw it.
+;   * `refaceAll` rewrites every end it is allowed to touch, which is what
+;     "reroute this" should mean when it is asked for by name.
+;
+; **Frames.** The rectangle that decides the side is not always the node's. An
+; end inside a package, a deployment node or any other sub-flow frame has to
+; get OUT of that frame, so when the two ends sit in different frames it is
+; the frames that are compared — grown up to, but never past, a frame they
+; share. Two classes in one package are compared as themselves.
+;
+; **What it may not touch.** A hand-placed route (`pinnedRoute`), an end the
+; reader dragged onto a handle themselves (`pinnedEnds`), and any end that
+; names a port which is a PLACE rather than a side — the third row of a table,
+; the `<cust>` field of a record. A centred side handle (`FlowPort.centred`)
+; is not a place: it is the middle of a side, and the four of them are the
+; same four sides a bare handle index names, so an end on one is moved to its
+; sibling on the better side.
+; ============================================================================
+
+Import "../core/GraphModel.rgr"
+
+class EdgeFacing {
+    ; How far up a parent chain to walk before deciding it is a cycle.
+    def maxDepth@(mutable):int 16
+
+    Constructor () {
+    }
+
+    ; The two entry points. Both return how many ENDS were moved.
+    sfn repairAll:int (g:FlowGraph) {
+        def f (new EdgeFacing)
+        return (f.run(g true))
+    }
+
+    sfn refaceAll:int (g:FlowGraph) {
+        def f (new EdgeFacing)
+        return (f.run(g false))
+    }
+
+    ; One edge, re-faced whether or not it was pointing backwards. What the
+    ; editor's "reroute this" asks for, edge by edge.
+    sfn reface:int (g:FlowGraph e:FlowEdge) {
+        def f (new EdgeFacing)
+        return (f.refaceEdge(g e false))
+    }
+
+    ; What the pass is for, as a number: ends whose outward normal points away
+    ; from where the edge has to go. A line that leaves a downward handle and
+    ; travels upward is drawn back across the box it came from, and no amount
+    ; of obstacle avoidance can help it — the router is obliged to leave by the
+    ; side it is given. Counted, changing nothing, so a harness can say whether
+    ; a change made it better.
+    sfn backwardEnds:int (g:FlowGraph) {
+        def f (new EdgeFacing)
+        def n:int 0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            n = (n + (f.backwardsOn(g e)))
+            k = (k + 1)
+        }
+        return n
+    }
+
+    fn backwardsOn:int (g:FlowGraph e:FlowEdge) {
+        if ((this.mayTouch(g e)) == false) {
+            return 0
+        }
+        def a:FlowNode (g.nodeAt(e.sourceIndex))
+        def b:FlowNode (g.nodeAt(e.targetIndex))
+        def ra:FlowRect (this.escapeRect(g a b))
+        def rb:FlowRect (this.escapeRect(g b a))
+        def dx:double (EdgeFacing.sepX(ra rb))
+        def dy:double (EdgeFacing.sepY(ra rb))
+        if (dx == 0.0) {
+            if (dy == 0.0) {
+                dx = ((b.centerX()) - (a.centerX()))
+                dy = ((b.centerY()) - (a.centerY()))
+            }
+        }
+        def n:int 0
+        if (EdgeFacing.pointsAway((g.edgeSide(e true)) dx dy)) {
+            n = (n + 1)
+        }
+        if (EdgeFacing.pointsAway((g.edgeSide(e false)) (0.0 - dx) (0.0 - dy))) {
+            n = (n + 1)
+        }
+        return n
+    }
+
+    sfn pointsAway:boolean (side:int dx:double dy:double) {
+        def along:double (((FlowPosition.normalX(side)) * dx) + ((FlowPosition.normalY(side)) * dy))
+        return (along < 0.0)
+    }
+
+    fn run:int (g:FlowGraph onlyBackwards:boolean) {
+        def moved:int 0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            moved = (moved + (this.refaceEdge(g e onlyBackwards)))
+            k = (k + 1)
+        }
+        return moved
+    }
+
+    ; ------------------------------------------------------------- one edge --
+    fn refaceEdge:int (g:FlowGraph e:FlowEdge onlyBackwards:boolean) {
+        if (this.mayTouch(g e) == false) {
+            return 0
+        }
+        def a:FlowNode (g.nodeAt(e.sourceIndex))
+        def b:FlowNode (g.nodeAt(e.targetIndex))
+        def ra:FlowRect (this.escapeRect(g a b))
+        def rb:FlowRect (this.escapeRect(g b a))
+        def dx:double (EdgeFacing.sepX(ra rb))
+        def dy:double (EdgeFacing.sepY(ra rb))
+        ; Frames that overlap on both axes say nothing about which way to
+        ; leave; the two boxes themselves still do.
+        if (dx == 0.0) {
+            if (dy == 0.0) {
+                dx = ((b.centerX()) - (a.centerX()))
+                dy = ((b.centerY()) - (a.centerY()))
+            }
+        }
+        if (dx == 0.0) {
+            if (dy == 0.0) {
+                return 0
+            }
+        }
+        def moved:int 0
+        moved = (moved + (this.refaceEnd(g e true dx dy onlyBackwards)))
+        moved = (moved + (this.refaceEnd(g e false (0.0 - dx) (0.0 - dy) onlyBackwards)))
+        if (moved > 0) {
+            ; The corners were worked out for the side the end used to be on.
+            clear e.waypoints
+            e.hasLaneX = false
+            e.hasLaneY = false
+        }
+        return moved
+    }
+
+    ; `dx, dy` is the way THIS end has to travel to reach the other one.
+    ;
+    ; Three states, and the whole behaviour of the pass is in them:
+    ;
+    ;   * nobody owns the end — leave it alone unless it points backwards, and
+    ;     if it does, remember the side it had and take it over;
+    ;   * the pass owns it and the remembered side would be fine again — give
+    ;     that side back and let go. A drag and its undo leave no trace;
+    ;   * the pass owns it and the remembered side is still wrong — give it
+    ;     the side the geometry asks for.
+    fn refaceEnd:int (g:FlowGraph e:FlowEdge atSource:boolean dx:double dy:double onlyBackwards:boolean) {
+        def now:int (g.edgeSide(e atSource))
+        def home:int e.homeTargetSide
+        if atSource {
+            home = e.homeSourceSide
+        }
+        if onlyBackwards {
+            if (home < 0) {
+                if ((EdgeFacing.pointsAway(now dx dy)) == false) {
+                    ; A side that leaves perpendicular to the way the edge goes
+                    ; is ordinary, and not worth disturbing a reader over.
+                    return 0
+                }
+                home = now
+            } {
+                if ((EdgeFacing.pointsAway(home dx dy)) == false) {
+                    def back:int 0
+                    if (home != now) {
+                        if (this.setSide(g e atSource home)) {
+                            back = 1
+                        }
+                    }
+                    this.release(e atSource)
+                    return back
+                }
+            }
+        }
+        def want:int (this.wantedSide(g e atSource dx dy))
+        if (want == now) {
+            ; Already where it wants to be — but if this pass is the reason,
+            ; the end stays owned so it is given back when the box moves home.
+            if onlyBackwards {
+                this.own(e atSource home)
+            }
+            return 0
+        }
+        if ((this.setSide(g e atSource want)) == false) {
+            return 0
+        }
+        if onlyBackwards {
+            this.own(e atSource home)
+        } {
+            ; An explicit re-face is the reader asking for the geometric answer
+            ; to become the new baseline, so there is nothing left to restore.
+            this.release(e atSource)
+        }
+        return 1
+    }
+
+    fn own:void (e:FlowEdge atSource:boolean home:int) {
+        if atSource {
+            e.homeSourceSide = home
+        } {
+            e.homeTargetSide = home
+        }
+    }
+
+    fn release:void (e:FlowEdge atSource:boolean) {
+        if atSource {
+            e.homeSourceSide = -1
+        } {
+            e.homeTargetSide = -1
+        }
+    }
+
+    ; Which side this end should leave by. A free end may use any of the four;
+    ; an end on a row's port pair may only use the two the pair offers, so a
+    ; foreign key that wants to go downwards still leaves by whichever of left
+    ; and right is on the way rather than staying on the wrong one.
+    fn wantedSide:int (g:FlowGraph e:FlowEdge atSource:boolean dx:double dy:double) {
+        def portId:string e.sourcePort
+        if (atSource == false) {
+            portId = e.targetPort
+        }
+        if ((strlen portId) > 0) {
+            if (g.hasPort(portId)) {
+                def p:FlowPort (g.portRef(portId))
+                if (p.centred == false) {
+                    if ((strlen p.mirrorId) > 0) {
+                        if (g.hasPort(p.mirrorId)) {
+                            def m:FlowPort (g.portRef(p.mirrorId))
+                            return (EdgeFacing.sideOfPair(p.side m.side dx dy))
+                        }
+                    }
+                }
+            }
+        }
+        return (EdgeFacing.sideFor(dx dy))
+    }
+
+    ; Two sides are all this end has. They are opposite by construction — a
+    ; row gets a left and a right — so the axis is fixed and only the sign is
+    ; in question.
+    sfn sideOfPair:int (a:int b:int dx:double dy:double) {
+        def horizontal:boolean false
+        if (a == 1) { horizontal = true }
+        if (a == 3) { horizontal = true }
+        def other:boolean false
+        if (b == 1) { other = true }
+        if (b == 3) { other = true }
+        if (horizontal != other) {
+            ; Not a plain pair; leave the axis to the geometry.
+            return (EdgeFacing.sideFor(dx dy))
+        }
+        if horizontal {
+            if (dx > 0.0) {
+                return 1
+            }
+            return 3
+        }
+        if (dy > 0.0) {
+            return 2
+        }
+        return 0
+    }
+
+    ; Put the end on `side`. An end on a centred side handle moves to that
+    ; node's handle for the side it wants; an end on a row port moves to the
+    ; row's port on that side, which is the other half of the pair the row was
+    ; given; an end with no port at all just takes the handle override.
+    fn setSide:boolean (g:FlowGraph e:FlowEdge atSource:boolean side:int) {
+        def portId:string e.targetPort
+        if atSource {
+            portId = e.sourcePort
+        }
+        if ((strlen portId) > 0) {
+            def want:string (this.portOn(g e atSource side))
+            if ((strlen want) == 0) {
+                return false
+            }
+            if atSource {
+                e.sourcePort = want
+                e.sourceHandle = side
+            } {
+                e.targetPort = want
+                e.targetHandle = side
+            }
+            return true
+        }
+        if atSource {
+            e.sourceHandle = side
+        } {
+            e.targetHandle = side
+        }
+        return true
+    }
+
+    ; The port this end should be on to leave by `side`, or "" when the node
+    ; has no such port and the end therefore stays where it is.
+    fn portOn:string (g:FlowGraph e:FlowEdge atSource:boolean side:int) {
+        def portId:string e.targetPort
+        def nodeId:string e.target
+        if atSource {
+            portId = e.sourcePort
+            nodeId = e.source
+        }
+        if ((g.hasPort(portId)) == false) {
+            return ""
+        }
+        def p:FlowPort (g.portRef(portId))
+        if p.centred {
+            return (EdgeFacing.centredPortOn(g nodeId side))
+        }
+        ; A row's pair: the same place on the node, reached from the other
+        ; side. Anything else is a port that means a PLACE and does not move.
+        if ((strlen p.mirrorId) == 0) {
+            return ""
+        }
+        if ((g.hasPort(p.mirrorId)) == false) {
+            return ""
+        }
+        def m:FlowPort (g.portRef(p.mirrorId))
+        if (m.side != side) {
+            return ""
+        }
+        return m.id
+    }
+
+    ; ---------------------------------------------------------- eligibility --
+    fn mayTouch:boolean (g:FlowGraph e:FlowEdge) {
+        if e.hidden { return false }
+        if e.pinnedRoute { return false }
+        if e.pinnedEnds { return false }
+        if (e.sourceIndex < 0) { return false }
+        if (e.targetIndex < 0) { return false }
+        ; A self-loop is drawn as a loop, not as a line between two places.
+        if (e.sourceIndex == e.targetIndex) { return false }
+        if ((this.sidedEnd(g e true)) == false) { return false }
+        if ((this.sidedEnd(g e false)) == false) { return false }
+        ; An edge to the frame you are standing in has no outside to leave by.
+        def a:FlowNode (g.nodeAt(e.sourceIndex))
+        def b:FlowNode (g.nodeAt(e.targetIndex))
+        if (this.isAncestor(g a.id b.id)) { return false }
+        if (this.isAncestor(g b.id a.id)) { return false }
+        return true
+    }
+
+    ; True when this end's side is a SIDE and not a place on the node.
+    fn sidedEnd:boolean (g:FlowGraph e:FlowEdge atSource:boolean) {
+        def portId:string e.targetPort
+        if atSource {
+            portId = e.sourcePort
+        }
+        if ((strlen portId) == 0) {
+            return true
+        }
+        if ((g.hasPort(portId)) == false) {
+            return true
+        }
+        def p:FlowPort (g.portRef(portId))
+        if p.centred {
+            return true
+        }
+        ; A row with a port on each side is an end that has a side to choose.
+        return ((strlen p.mirrorId) > 0)
+    }
+
+    sfn centredPortOn:string (g:FlowGraph nodeId:string side:int) {
+        if ((g.hasNode(nodeId)) == false) {
+            return ""
+        }
+        def n:FlowNode (g.nodeById(nodeId))
+        def k:int 0
+        while (k < (array_length n.ports)) {
+            def p:FlowPort (itemAt n.ports k)
+            if p.centred {
+                if (p.side == side) {
+                    if (p.hidden == false) {
+                        return p.id
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return ""
+    }
+
+    ; ------------------------------------------------------------- geometry --
+    ; The box this end has to get clear of: the node, grown to the outermost
+    ; frame around it that does NOT also contain the other end.
+    fn escapeRect:FlowRect (g:FlowGraph n:FlowNode other:FlowNode) {
+        def cur:FlowNode n
+        def steps:int 0
+        while (steps < maxDepth) {
+            steps = (steps + 1)
+            def up:string cur.parentId
+            if ((strlen up) == 0) {
+                return (cur.rect())
+            }
+            if ((g.hasNode(up)) == false) {
+                return (cur.rect())
+            }
+            ; A frame the other end is inside too is a frame this edge stays
+            ; within, so it is not what has to be escaped.
+            if (up == other.id) {
+                return (cur.rect())
+            }
+            if (this.isAncestor(g up other.id)) {
+                return (cur.rect())
+            }
+            cur = (g.nodeById(up))
+        }
+        return (cur.rect())
+    }
+
+    ; Is `ancestorId` the id of a frame `nodeId` sits inside (at any depth)?
+    fn isAncestor:boolean (g:FlowGraph ancestorId:string nodeId:string) {
+        if ((strlen ancestorId) == 0) {
+            return false
+        }
+        if ((g.hasNode(nodeId)) == false) {
+            return false
+        }
+        def cur:FlowNode (g.nodeById(nodeId))
+        def steps:int 0
+        while (steps < maxDepth) {
+            steps = (steps + 1)
+            def up:string cur.parentId
+            if ((strlen up) == 0) {
+                return false
+            }
+            if (up == ancestorId) {
+                return true
+            }
+            if ((g.hasNode(up)) == false) {
+                return false
+            }
+            cur = (g.nodeById(up))
+        }
+        return false
+    }
+
+    ; How far apart two boxes are along x, signed the way b lies from a, and
+    ; zero when they overlap on that axis. A separation is a better guide than
+    ; a centre delta: two tall boxes side by side have almost no centre delta
+    ; on y and a clear one on x, which is exactly the answer wanted.
+    sfn sepX:double (a:FlowRect b:FlowRect) {
+        if (b.x > (a.x + a.w)) {
+            return (b.x - (a.x + a.w))
+        }
+        if ((b.x + b.w) < a.x) {
+            return ((b.x + b.w) - a.x)
+        }
+        return 0.0
+    }
+
+    sfn sepY:double (a:FlowRect b:FlowRect) {
+        if (b.y > (a.y + a.h)) {
+            return (b.y - (a.y + a.h))
+        }
+        if ((b.y + b.h) < a.y) {
+            return ((b.y + b.h) - a.y)
+        }
+        return 0.0
+    }
+
+    ; The side an end travelling `(dx, dy)` should leave by: the dominant axis,
+    ; and the sign along it. Ties go to the vertical, which is the way a
+    ; diagram is read.
+    sfn sideFor:int (dx:double dy:double) {
+        if ((fabs dx) > (fabs dy)) {
+            if (dx > 0.0) {
+                return 1
+            }
+            return 3
+        }
+        if (dy > 0.0) {
+            return 2
+        }
+        return 0
+    }
+}
