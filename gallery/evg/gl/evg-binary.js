@@ -45,6 +45,20 @@ export function binaryStride(bin) {
 
 const rgb = (packed) => [(packed >> 16) & 255, (packed >> 8) & 255, packed & 255];
 
+/**
+ * The camera on the envelope, or null when the list carried none.
+ *
+ * It is three numbers beside the page size rather than a field per command,
+ * which is why the record stride above is untouched by it: a reader that
+ * knows nothing about views reads this buffer exactly as it always did, and
+ * draws the scene unpanned — which is the right answer for a list whose host
+ * never asked for a camera.
+ */
+export function viewOfBinary(bin) {
+  if (!bin || !bin.hasView) return null;
+  return { x: bin.viewX || 0, y: bin.viewY || 0, scale: bin.viewScale === undefined ? 1 : bin.viewScale };
+}
+
 /** The commands, in the shape `evg-list.js`'s `cmdsOf` gives them. */
 export function cmdsOfBinary(bin) {
   const n = bin.count | 0;

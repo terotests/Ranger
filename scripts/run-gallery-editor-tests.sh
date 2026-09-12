@@ -41,6 +41,10 @@ if [ -n "$SHARD" ] && { [ "$SHARD" -lt 1 ] || [ "$SHARDS" -lt 1 ] || [ "$SHARD" 
 fi
 
 SUITES=(
+  # The shared byte store. Nothing reads it yet, which is exactly why it is
+  # wired in now: a module that joins the gate on the day its first consumer
+  # lands is one whose first consumer breaks it silently.
+  vfs:test
   book:test
   book:editor:test
   book:slides:test
@@ -87,6 +91,7 @@ SUITES=(
   markdown:css:test
   markdown:slides:test
   markdown:pptx:test
+  markdown:docx:test
   markdown:edit:test
   markdown:semantic:test
   # …and the same three properties over the specification's own 652 examples,
@@ -166,6 +171,17 @@ SUITES=(
   # all. The corners and the ends are measured here by area, because that is
   # the kind of wrong that is invisible to a test that counts commands.
   evg:stroke:check
+  # The camera against the coordinates it replaces: the same picture drawn
+  # once with the view multiplied into the list and once with it on the
+  # shader, read back as pixels. A radius that did not scale, a border that
+  # stayed one pixel, a scissor left where the camera moved away from — each
+  # is a plausible drawing that is wrong and none changes a command count.
+  evg:view:check
+  # And the arithmetic in front of it: keep the frame in hand or walk the
+  # board again. No browser and no GPU — a policy that keeps a frame it
+  # should have rebuilt shows stale pixels, which is the failure nobody
+  # notices in a profile.
+  evg:view:policy
   # A scroll moves the painter's kept frame with a uniform rather than
   # rebuilding it, so a draw that forgets the uniform paints where the frame
   # was BUILT. Needs a GPU to see and there is no oracle for it; this reads

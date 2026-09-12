@@ -285,6 +285,24 @@ width of the column it lands in — a printed diagram is laid out at the
 printed width rather than scaled up from a screen, which is the whole reason
 to keep it as geometry.
 
+A diagram reaches the deck as ONE `p:grpSp`, so it is already a single object
+a reader can select, move and scale in PowerPoint. What it is not yet is an
+object with a NAME and a source behind it — which is what would let it be
+edited later rather than only moved.
+[`../PLAN_DOCUMENT_MODES.md`](../PLAN_DOCUMENT_MODES.md) §7 has the carrier
+question and the round trip through RangerFlow's own editing surface.
+
+**A diagram is drawn at the width the document asks for.** `{width=360}` under
+a fence narrows it; anything wider than the column, or anything that is not a
+plain number, is the column width, because a diagram that overflowed would
+draw across the margin. The number is worked out by `MdEmbedKinds.widthOf`
+and by nothing else: the embed cache is keyed by the width a diagram was
+prepared at, so a second copy of that arithmetic is a diagram prepared at one
+width and asked for at another — an apology in a correctly sized hole. This is
+also the seam a resize handle needs ([`PLAN_WYSIWYG.md`](PLAN_WYSIWYG.md) §5
+Stage H): with the source able to say how wide a diagram is, dragging a corner
+is a patch like any other edit rather than a second way to size a drawing.
+
 **Four notations, one branch.** Each has exactly one door on the RangerFlow
 side — text and a width in, a `FlowScene` out, no editor — and the dispatch
 between a notation's own dialects happens behind that door:
@@ -476,4 +494,22 @@ shipped a PNG would also have draw commands.
   can be wrong. Swapping in `gallery/text_editor` on the same canvas is the
   next step there.
 
-The design these are measured against is [`PLAN.md`](PLAN.md).
+The design these are measured against is [`PLAN.md`](PLAN.md), and the WYSIWYG
+half is [`PLAN_WYSIWYG.md`](PLAN_WYSIWYG.md).
+
+**Open, and planned rather than built:** who owns the document once a reader
+edits the PREVIEW. Today the markdown file is the only truth and every gesture
+on the right is translated into a patch on it — which works until a gesture
+markdown cannot hold is translated anyway. Selecting three list items and
+pressing bold writes one marker pair around the lot, and CommonMark reads that
+as four literal asterisks rather than as emphasis.
+
+The answer is not a better filter on those gestures. It is one explicit,
+one-way switch: the preview is read-only until a reader turns editing on, and
+from that moment the preview is the truth and the source pane is read-only
+provenance. After the switch nothing has to be refused for markdown's sake,
+which is the whole payoff — and behind it stand the PowerPoint and Word editors
+this repository already has, rather than a third one.
+[`../PLAN_DOCUMENT_MODES.md`](../PLAN_DOCUMENT_MODES.md) has the modes and the
+staging; the bytes a picture or a background image needs are in
+[`../vfs/PLAN_VFS.md`](../vfs/PLAN_VFS.md).

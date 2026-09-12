@@ -136,6 +136,12 @@ class MdCss {
         asked = 0
         this.page(style (this.forTag("page")))
         this.body(style (this.forTag("document")))
+        ; `body` says the same thing, because that is what somebody who has
+        ; written CSS before types — and a rule that is silently ignored is
+        ; worse than one that is refused by name: the page simply looks
+        ; unchanged and there is nothing to read about why. Second, so it
+        ; wins where a sheet says both.
+        this.body(style (this.forTag("body")))
         this.para(style (this.forTag("p")))
         this.headings(style)
         this.code(style (this.forTag("code")))
@@ -201,7 +207,34 @@ class MdCss {
         style.pageWidth = (this.len(got "width" style.pageWidth))
         style.pageHeight = (this.len(got "height" style.pageHeight))
         style.margin = (this.len(got "padding" style.margin))
-        this.rest(got "width,height,padding")
+        style.pageBackground = (this.color(got "background-color" style.pageBackground))
+        ; `url(logo.png)` — the name of a picture in the byte store, not a
+        ; path on anybody's disk. `Vfs.resolve` decides what it means, the
+        ; same function that answers for `![](x)` and `r:embed`, because four
+        ; copies of that arithmetic would be four answers to what `../` means.
+        style.pageBackgroundImage = (MdCss.urlOf((this.raw(got "background-image"))))
+        this.rest(got "width,height,padding,background-color,background-image")
+    }
+
+    ; The inside of a `url(...)`, unquoted. Anything else is left alone: a
+    ; gradient or a `none` is not a picture and is better ignored than
+    ; half-understood.
+    sfn urlOf:string (value:string) {
+        def v:string (trim value)
+        def n:int (strlen v)
+        if (n < 6) { return "" }
+        if ((substring v 0 4) != "url(") { return "" }
+        if ((charAt v (n - 1)) != 41) { return "" }
+        def inner:string (trim (substring v 4 (n - 1)))
+        def m:int (strlen inner)
+        if (m < 2) { return "" }
+        def q:int (charAt inner 0)
+        if ((q == 34) || (q == 39)) {
+            if ((charAt inner (m - 1)) == q) {
+                return (substring inner 1 (m - 1))
+            }
+        }
+        return inner
     }
 
     fn body:void (style:MdStyle got:CssComputed) {
@@ -353,6 +386,15 @@ class MdCss {
         if ((strlen f) == 0) { return fallback }
         applied = (applied + 1)
         return f
+    }
+
+    ; The declaration as it was WRITTEN, for the properties this file has to
+    ; read itself. Everything else goes through `CssValue`, which knows about
+    ; lengths and colours and nothing about `url(...)`.
+    fn raw:string (got:CssComputed name:string) {
+        if (! (got.has(name))) { return "" }
+        applied = (applied + 1)
+        return (got.get(name))
     }
 
     fn color:string (got:CssComputed name:string fallback:string) {

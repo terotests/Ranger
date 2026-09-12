@@ -250,6 +250,13 @@ class EVGSceneBinary {
     def count:int 0
     def width:double 0.0
     def height:double 0.0
+    ; The camera, beside the page size rather than inside the record: three
+    ; numbers on the envelope leave the per-command stride alone, so a reader
+    ; that knows nothing about views reads this buffer exactly as before.
+    def viewX:double 0.0
+    def viewY:double 0.0
+    def viewScale:double 1.0
+    def hasView:boolean false
 
     Constructor () {
         def s:[string]
@@ -275,7 +282,81 @@ class EVGDisplayList {
     ; the disagreement between measure and paint this engine exists to avoid.
     def textEngine:EVGTextEngine (new EVGTextEngine())
 
+    ; THE CAMERA, and not an element property.
+    ;
+    ; A display list is written in the coordinates its commands are drawn at,
+    ; and a host that pans or zooms has always done that by putting a
+    ; transform on a world element — which means the tree changes when the
+    ; view does, so the walk runs, the layout runs, and every path is
+    ; flattened again for a move that changed no geometry at all.
+    ;
+    ; With a view, the list is in SCENE coordinates and carries the camera
+    ; beside them: a painter multiplies at the last moment, so a frame
+    ; already built can be drawn somewhere else for the cost of a uniform.
+    ; See PLAN_VIEW_TRANSFORM.md.
+    ;
+    ; NO VIEW IS AN IDENTITY VIEW, which is exactly the list every consumer
+    ; gets today — a PDF, a PNG, an SVG export and every golden test see
+    ; byte-identical output unless a host asks for a camera. `hasView` is
+    ; what keeps it byte-identical: the numbers are written only when they
+    ; are not the identity.
+    def viewX:double 0.0
+    def viewY:double 0.0
+    def viewScale:double 1.0
+    def hasView:boolean false
+    ; See `setRegion`.
+    def regionLeft:double 0.0
+    def regionTop:double 0.0
+    def regionRight:double 0.0
+    def regionBottom:double 0.0
+    def hasRegion:boolean false
+
     Constructor () {
+    }
+
+    ; The camera for this list. Scene coordinates times `scale` plus (x, y)
+    ; land on the page. A rotating camera would want a matrix here; nothing
+    ; asks for one, and a rotation that belongs to the PICTURE is an element
+    ; transform and is baked as it always was.
+    fn setView:void (x:double y:double scale:double) {
+        viewX = x
+        viewY = y
+        viewScale = scale
+        hasView = (((x != 0.0) || (y != 0.0)) || (scale != 1.0))
+    }
+
+    ; THE REGION THIS LIST IS BUILT FOR, in scene coordinates.
+    ;
+    ; Culling asks "is this inside the clip", and the outermost clip has
+    ; always been the page — the right question while the list is in page
+    ; coordinates. A list with a camera is not: the scene is the whole board
+    ; and the page is a window onto it, so the question becomes "is this
+    ; inside the part of the scene this frame was built to show".
+    ;
+    ; That part is the viewport mapped back through the camera and grown by
+    ; an overscan, so a pan has somewhere to go before the frame has to be
+    ; built again — the same trick the scroll layers already play in one
+    ; dimension (`setOverscan`), in two.
+    ;
+    ; Unset is what every caller had: culling starts off and the first clip
+    ; turns it on.
+    fn setRegion:void (l:double t:double r:double b:double) {
+        regionLeft = l
+        regionTop = t
+        regionRight = r
+        regionBottom = b
+        hasRegion = true
+    }
+
+    fn clearRegion:void () {
+        hasRegion = false
+    }
+
+    fn clearView:void () {
+        viewX = 0.0
+        viewY = 0.0
+        viewScale = 1.0
+        hasView = false
     }
 
     fn setTextEngine:void (e:EVGTextEngine) {
@@ -1964,6 +2045,16 @@ class EVGDisplayList {
         fragHits = 0
         fragMisses = 0
         cullOn = false
+        if hasRegion {
+            ; The walk starts inside the region rather than outside every
+            ; clip. A clip met on the way down still narrows it, which is
+            ; what `walk` already does with a nested one.
+            cullOn = true
+            cullLeft = regionLeft
+            cullTop = regionTop
+            cullRight = regionRight
+            cullBottom = regionBottom
+        }
         drawScale = 1.0
         effectKind = ""
         def noX:[double]
@@ -3015,6 +3106,10 @@ class EVGDisplayList {
         def out (new EVGSceneBinary())
         def n:int (array_length cmds)
         out.count = n
+        out.viewX = viewX
+        out.viewY = viewY
+        out.viewScale = viewScale
+        out.hasView = hasView
         def stride:int (EVGDisplayList.stride())
         def totalPts:int 0
         def totalEnds:int 0
@@ -3314,6 +3409,13 @@ class EVGDisplayList {
                 (EVGDisplayList.num(effectLightZ)) + "]")
             out = (out + "},")
         }
+        ; The camera on the envelope, not a field per command. Written only
+        ; when there is one, so a list with no view is the string it always
+        ; was — which is what every golden file in this repository compares.
+        if hasView {
+            out = (out + "\"view\":[" + (EVGDisplayList.fine(viewX)) + ",")
+            out = (out + (EVGDisplayList.fine(viewY)) + "," + (EVGDisplayList.fine(viewScale)) + "],")
+        }
         out = (out + "\"cmds\":[")
         def i:int 0
         while (i < (array_length cmds)) {
@@ -3475,6 +3577,58 @@ class EVGDisplayList {
     }
 
     ; Two decimals is plenty for a pixel and keeps the payload small.
+    ; SIX decimals, for the handful of numbers where two is not enough: the
+    ; camera. Two is right for a coordinate — nothing is drawn to a hundredth
+    ; of a pixel and the payload halves — but a SCALE is multiplied into every
+    ; coordinate in the list. A zoom of 0.4053 written as "0.41" draws the whole
+    ; diagram 1.2% too large: the picture stops matching where the pointer
+    ; thinks it is, and it is invisible at zoom 1, which is where every check
+    ; was looking. Measured on the rangerflow board, as an 8-pixel slip at the
+    ; bottom of the canvas.
+    sfn fine:string (v:double) {
+        def limit:double 2000000000.0
+        def x:double 0.0
+        if (v > 0.0) {
+            x = v
+        }
+        if (v < 0.0) {
+            x = v
+        }
+        if (x > limit) {
+            x = limit
+        }
+        if (x < (0.0 - limit)) {
+            x = (0.0 - limit)
+        }
+        def neg:boolean (x < 0.0)
+        def av:double x
+        if neg {
+            av = (0.0 - x)
+        }
+        ; The whole and the fraction are scaled separately: a pan of 30,000
+        ; pixels times a million overflows the 32-bit integer the divide below
+        ; truncates to, and the number would come back wrapped rather than
+        ; merely rounded.
+        def whole:int (to_int av)
+        def rest:double (av - (to_double whole))
+        def frac:int (to_int ((rest * 1000000.0) + 0.5))
+        if (frac >= 1000000) {
+            whole = (whole + 1)
+            frac = 0
+        }
+        def fs:string (to_string frac)
+        while ((strlen fs) < 6) {
+            fs = ("0" + fs)
+        }
+        def out:string ((to_string whole) + "." + fs)
+        if neg {
+            if ((whole > 0) || (frac > 0)) {
+                out = ("-" + out)
+            }
+        }
+        return out
+    }
+
     sfn num:string (v:double) {
         ; WHATEVER COMES IN, A JSON NUMBER GOES OUT. This is the only writer of
         ; every coordinate, size, radius and colour in the list, so a value it

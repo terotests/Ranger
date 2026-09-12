@@ -74,6 +74,62 @@
   /* The pane that does not own the keyboard says so. Both show the same
      document; only one is being typed into. */
   #source.readonly { background: #fafbfc; color: var(--muted); }
+  /* The pane holds three things now: the document, the stylesheet that dresses
+     it, and the files both of them read. All three are FILES — the stylesheet
+     and the pictures live in the byte store (`gallery/vfs`) beside each other
+     — so they are tabs on one pane rather than three panes. */
+  #paneTabs {
+    display: flex; gap: 2px; padding: 4px 6px 0;
+    border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  #paneTabs button {
+    font: 500 11px/1.4 var(--ui); padding: 5px 10px; border: 1px solid transparent;
+    border-bottom: 0; border-radius: 5px 5px 0 0; background: transparent;
+    color: var(--muted); cursor: pointer;
+  }
+  #paneTabs button:hover { color: var(--ink); background: #eef1f5; }
+  #paneTabs button[aria-selected="true"] {
+    background: var(--bg); color: var(--ink); border-color: var(--line);
+    margin-bottom: -1px; padding-bottom: 6px;
+  }
+  #styleSource {
+    flex: 1; width: 100%; resize: none; border: 0; outline: none;
+    padding: 12px 14px; background: transparent; color: var(--ink);
+    font: 12px/1.65 var(--mono); tab-size: 2;
+  }
+  #fileList {
+    flex: 1; overflow: auto; padding: 10px 14px;
+    font: 12px/1.7 var(--mono); color: var(--ink);
+  }
+  #fileList .row { display: flex; gap: 10px; align-items: baseline; }
+  #fileList .row + .row { border-top: 1px dotted var(--line); }
+  #fileList .name { flex: 1; }
+  #fileList .meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
+  #fileList h4 {
+    margin: 0 0 6px; font: 600 11px/1.4 var(--ui); color: var(--muted);
+    text-transform: uppercase; letter-spacing: .04em;
+  }
+  #fileList p { margin: 10px 0 0; font: 11px/1.6 var(--ui); color: var(--muted); }
+  /* Three documents, not three steps. The preview follows the .md; the other
+     two are made when you go to them and are their own from the first edit. */
+  #viewTabs {
+    display: flex; align-items: center; gap: 2px; padding: 5px 8px 0;
+    border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  #viewTabs button {
+    font: 600 12px/1.4 var(--ui); padding: 6px 14px; border: 1px solid transparent;
+    border-bottom: 0; border-radius: 6px 6px 0 0; background: transparent;
+    color: var(--muted); cursor: pointer;
+  }
+  #viewTabs button:hover { color: var(--ink); background: #eef1f5; }
+  #viewTabs button[aria-selected="true"] {
+    background: var(--bg); color: var(--ink); border-color: var(--line);
+    margin-bottom: -1px; padding-bottom: 7px;
+  }
+  #viewNote {
+    margin-left: auto; padding-right: 6px;
+    font: 11px/1.4 var(--ui); color: var(--muted);
+  }
 
   /* Which page a reader is on, over the paper rather than beside it: the
      window is the document and the number belongs on it, the way a reader's
@@ -111,7 +167,10 @@
     padding: 0; border: 0; outline: none; opacity: 0; resize: none;
     overflow: hidden; white-space: pre; z-index: 1;
   }
-  #screen { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  /* The canvas fills what is LEFT of the pane once the view tabs have taken
+     their strip — `inset: 0` put it over them, and a tab under a canvas is a
+     tab nobody can press. */
+  #screen { position: absolute; inset: 34px 0 0; width: 100%; display: block; }
   #screen:focus { outline: none; }
 
   #hint {
@@ -136,6 +195,7 @@
     <select id="sample" title="Open a document">
       <option value="mermaid">with diagrams</option>
       <option value="diagrams">four notations</option>
+      <option value="picture">with a picture</option>
       <option value="deck">a company deck</option>
       <option value="sample">a bit of everything</option>
       <option value="readme">this repository's README</option>
@@ -186,12 +246,30 @@
     <span class="sep"></span>
     <button type="button" data-cmd="edit.undo" title="Undo (Ctrl+Z)">↶</button>
     <button type="button" data-cmd="edit.redo" title="Redo (Ctrl+Y)">↷</button>
+    <span class="sep"></span>
+    <button type="button" data-cmd="slide.break" title="Start a slide here (writes {.slide})">⤓ slide</button>
+    <button type="button" data-cmd="slide.keep" title="Never break here (writes {.no-break})">⛓ keep</button>
+    <span class="sep"></span>
+    <button id="rebuild" type="button" title="Throw away this view's edits and build it from the markdown again">↻ override from .md</button>
   </div>
   <main>
     <div id="sourcePane">
+      <div id="paneTabs" role="tablist" aria-label="What this pane holds">
+        <button id="tabDoc" role="tab" type="button" aria-selected="true">document.md</button>
+        <button id="tabCss" role="tab" type="button" aria-selected="false">style.css</button>
+        <button id="tabFiles" role="tab" type="button" aria-selected="false">files</button>
+      </div>
       <textarea id="source" spellcheck="false" aria-label="Markdown source"></textarea>
+      <textarea id="styleSource" spellcheck="false" aria-label="The stylesheet" hidden></textarea>
+      <div id="fileList" aria-label="What the byte store holds" hidden></div>
     </div>
     <div id="viewPane">
+      <div id="viewTabs" role="tablist" aria-label="Which document">
+        <button id="viewMd" role="tab" type="button" aria-selected="true">Preview</button>
+        <button id="viewDeck" role="tab" type="button" aria-selected="false">PPTX</button>
+        <button id="viewDoc" role="tab" type="button" aria-selected="false">DOCX</button>
+        <span id="viewNote"></span>
+      </div>
       <canvas id="screen" aria-label="The document, drawn"></canvas>
       <textarea id="keys" spellcheck="false" autocapitalize="off" autocomplete="off"
                 aria-label="The document — type here to edit it"></textarea>

@@ -32,12 +32,41 @@ class SceneToEVG {
     ; `page` is the node being viewed — a whole page, or one frame on it.
     ; `canvas` is the page it belongs to, whose background colour fills the
     ; viewport behind either, as it does in the editor.
+    ; The page with the view on the WORLD ELEMENT: the list comes out in page
+    ; coordinates, which is what every consumer had before a camera existed.
     fn buildPage:EVGElement (page:SceneNode canvas:SceneNode panX:double panY:double zoom:double) {
+        return (this.buildPageIn(page canvas panX panY zoom false 0.0 0.0 0.0 0.0))
+    }
+
+    ; The page in SCENE coordinates, for a list that carries a camera.
+    ;
+    ; Two things the page-space version does have to move with it. The PAPER
+    ; is the root's own background, and a root the size of the viewport would
+    ; be a small patch of colour once the camera has multiplied it — so in
+    ; scene space the root is the REGION, which is what the list was built to
+    ; cover and therefore the most paper a pan can reach. And the CLIP: the
+    ; root clips to the viewport, and a clip is a command like any other, so
+    ; the camera would carry it away from the window it is supposed to be.
+    ; The canvas clips anyway, so in scene space the root does not.
+    fn buildPageScene:EVGElement (page:SceneNode canvas:SceneNode l:double t:double r:double b:double) {
+        return (this.buildPageIn(page canvas 0.0 0.0 1.0 true l t r b))
+    }
+
+    fn buildPageIn:EVGElement (page:SceneNode canvas:SceneNode panX:double panY:double zoom:double scene:boolean l:double t:double r:double b:double) {
         def root (EVGElement.createDiv())
         root.setAttribute("position" "relative")
-        root.setAttribute("width" "100%")
-        root.setAttribute("height" "100%")
-        root.setAttribute("overflow" "hidden")
+        if scene {
+            root.setAttribute("position" "absolute")
+            root.setAttribute("left" ((to_string l) + "px"))
+            root.setAttribute("top" ((to_string t) + "px"))
+            root.setAttribute("width" ((to_string (r - l)) + "px"))
+            root.setAttribute("height" ((to_string (b - t)) + "px"))
+            root.setAttribute("overflow" "visible")
+        } {
+            root.setAttribute("width" "100%")
+            root.setAttribute("height" "100%")
+            root.setAttribute("overflow" "hidden")
+        }
         def paper:string "#f5f5f5"
         if ((array_length canvas.fills) > 0) {
             def bg:SceneFill (canvas.firstFill())
@@ -52,12 +81,22 @@ class SceneToEVG {
         ; viewport and cut every frame off at the same line.
         def world (EVGElement.createDiv())
         world.setAttribute("position" "absolute")
-        world.setAttribute("left" "0px")
-        world.setAttribute("top" "0px")
-        world.setAttribute("width" "100%")
-        world.setAttribute("height" "100%")
         world.setAttribute("transform-origin" "0 0")
-        world.setAttribute("transform" (SceneToEVG.viewTransform(panX panY zoom)))
+        if scene {
+            ; The scene's own origin, wherever the region starts. No
+            ; transform: the camera on the list is the view now.
+            world.setAttribute("left" ((to_string (0.0 - l)) + "px"))
+            world.setAttribute("top" ((to_string (0.0 - t)) + "px"))
+            world.setAttribute("width" "1px")
+            world.setAttribute("height" "1px")
+            world.setAttribute("overflow" "visible")
+        } {
+            world.setAttribute("left" "0px")
+            world.setAttribute("top" "0px")
+            world.setAttribute("width" "100%")
+            world.setAttribute("height" "100%")
+            world.setAttribute("transform" (SceneToEVG.viewTransform(panX panY zoom)))
+        }
         def kids:[EVGElement]
         if (page.sourceType == "CANVAS") {
             kids = (this.emitKids(page))

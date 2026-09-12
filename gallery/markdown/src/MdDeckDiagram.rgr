@@ -1,0 +1,123 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdDeckDiagram.rgr — a drawing on a slide, re-read and drawn again.
+; ============================================================================
+;
+; A fenced diagram reaches a slide as one `p:grpSp` of paths and text runs, and
+; nothing can read that back: a class diagram and a sequence diagram draw the
+; same rectangles, so intent cannot be reconstructed from strokes. That is why
+; the group carries the fence's own text in `p:cNvPr/a:extLst` — and this file
+; is what that was for.
+;
+;   the group ──► its source ──► <notation>Render ──► a scene ──► a new group
+;
+; The round trip is the point, and so is what it is NOT: no new editor. The
+; readers that draw a diagram are the ones that already draw it —
+; `MermaidRender`, `PlantUmlRender`, `DotRender`, `D2Render`, through
+; `MdDiagram.sceneFor` — and the drawing is `PptxFromEvg`'s. What is here is
+; the replace: same slide, same position, same identity, new geometry.
+;
+; **In place, not add-and-remove.** The group keeps its own x and y, so a
+; diagram a reader moved stays where they put it; and it keeps its name and
+; its alt text unless the new drawing changes what they should say. A redraw
+; that appended a shape and deleted another would lose the reader's placement
+; and reorder the slide.
+; ============================================================================
+
+Import "MdDiagram.rgr"
+Import "MdEmbedKinds.rgr"
+Import "MdToPptx.rgr"
+Import "../../pptx/src/PptxFromEvg.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+
+class MdDeckDiagram {
+    ; Is this shape a drawing something generated, rather than a group a
+    ; reader made by grouping two boxes? The SOURCE is the answer: a group
+    ; with no provenance cannot be re-read whatever it looks like.
+    sfn isDrawing:boolean (shape:PptxShape) {
+        if (shape.kind != (PptxShapeKind.group())) { return false }
+        return ((strlen shape.embedSource) > 0)
+    }
+
+    ; Every drawing on a slide, in z-order.
+    sfn drawingsOn:[PptxShape] (slide:PptxSlide) {
+        def out:[PptxShape]
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            def sh:PptxShape (itemAt slide.shapes i)
+            if (MdDeckDiagram.isDrawing(sh)) { push out sh }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The source a reader would edit, and the notation it is written in.
+    sfn sourceOf:string (shape:PptxShape) {
+        return shape.embedSource
+    }
+
+    sfn notationOf:string (shape:PptxShape) {
+        return shape.embedNotation
+    }
+
+    ; Draw it again from new text, in place.
+    ;
+    ; `false` means the text did not read as a diagram — and the old drawing
+    ; is left exactly as it was, which is the only safe answer: a reader
+    ; halfway through typing a new node has a source that does not parse, and
+    ; blanking their slide at every keystroke would be worse than useless.
+    sfn redraw:boolean (shape:PptxShape source:string styleName:string) {
+        if (! (MdDeckDiagram.isDrawing(shape))) { return false }
+        def notation:string shape.embedNotation
+        if ((strlen notation) == 0) { return false }
+        if ((strlen (trim source)) == 0) { return false }
+
+        ; At the width the reader left it, so a redraw does not undo a resize.
+        def w:double shape.width
+        if (w <= 1.0) { w = 480.0 }
+        def pad:double (MdDiagram.padding())
+        def sc:FlowScene (MdDiagram.sceneFor(notation source styleName w pad))
+        if (sc.worldW <= 0.0) { return false }
+
+        def root:EVGElement (sc.toEvgTree())
+        MdToEvg.put(root 0.0 0.0 sc.worldW sc.worldH)
+        root.backgroundColor = (EVGColor.noColor())
+        def le (new EVGLayout())
+        le.setPageSize(sc.worldW sc.worldH)
+        le.layout(root)
+        def dl (new EVGDisplayList())
+        dl.build(root)
+        def conv (new PptxFromEvg())
+        def built:PptxShape (conv.build(dl shape.x shape.y))
+
+        ; In place: the children and the extent are new, everything that says
+        ; WHERE it is and WHAT it is stays.
+        shape.children = built.children
+        shape.width = built.width
+        shape.height = built.height
+        shape.chX = built.chX
+        shape.chY = built.chY
+        shape.chW = built.chW
+        shape.chH = built.chH
+        shape.embedSource = source
+        ; …and the description, because it is built from the labels and the
+        ; labels are what just changed. A stale alt text is worse than none:
+        ; it describes a drawing that is no longer there.
+        def word:string (MdDeckDiagram.wordFor(notation))
+        shape.altText = (MdToPptx.describeDrawing(word shape))
+        return true
+    }
+
+    ; The notation as a reader would name it. `MdToPptx.notationWord` answers
+    ; for a FENCE WORD; this one answers for a notation, which is what the
+    ; group carries.
+    sfn wordFor:string (notation:string) {
+        if (notation == "mermaid") { return "Mermaid" }
+        if (notation == "plantuml") { return "PlantUML" }
+        if (notation == "graphviz") { return "Graphviz" }
+        if (notation == "d2") { return "D2" }
+        return "Drawing"
+    }
+}

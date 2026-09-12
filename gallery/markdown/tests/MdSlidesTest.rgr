@@ -24,6 +24,7 @@
 Import "../src/MdBlock.rgr"
 Import "../src/MdLayout.rgr"
 Import "../src/MdCss.rgr"
+Import "../src/MdDiagram.rgr"
 
 class SlideCheck {
     def passed:int 0
@@ -257,6 +258,62 @@ class MdSlidesTest {
 
         ; The noun the failure is about: a slide whose LAST box is a heading.
         c.eqInt("no slide ends on a heading" (MdSlidesTest.slidesEndingOnAHeading(l)) 0)
+
+        ; …and the case a reader actually reported: the heading on one slide
+        ; and its DIAGRAM on the next.
+        ;
+        ; One body line of room under a heading is enough for prose, because a
+        ; paragraph that starts under its heading and runs on still reads as
+        ; one thing. It is not enough for a block that cannot be cut: the
+        ; heading fits, the diagram does not, and the pair comes apart. The
+        ; diagram's height was measured before layout began — that is what the
+        ; prepare pass is for — so the rule can ask for the real number.
+        ; Sized so the rule has to fire and CAN: the diagram is 200pt in a
+        ; slide with 260pt of room, so the pair fits once the heading moves —
+        ; and does not fit where the heading would otherwise have stayed.
+        ; Without `keepRoom` the heading lands on slide 0 and the diagram on
+        ; slide 1, which is the reader's complaint in two numbers.
+        def dcss:string "deck { split-level: 1 } page { width: 720pt; height: 300pt; padding: 20pt }"
+        def dsrc:string "# Title\n\nFiller one.\n\n### Kaavio\n\n```mermaid\nflowchart TD\n  A[Kirjoita jotain] --> B[Renderoi se]\n```\n"
+        def dl:MdLayout (MdSlidesTest.asSlidesWithDiagrams(dsrc dcss))
+        def dh:int (MdSlidesTest.slideOf(dl "Kaavio"))
+        def dd:int (MdSlidesTest.slideOfEmbed(dl))
+        c.ok("the heading with a diagram under it was reached" (dh >= 0))
+        c.ok("…and the diagram was drawn" (dd >= 0))
+        c.eqInt("a heading and its diagram are on the same slide" dd dh)
+    }
+
+    ; The first embed slot's slide, or -1. A diagram is not a text box, so
+    ; `slideOf` cannot see it — and the whole failure is about where the
+    ; diagram went.
+    sfn slideOfEmbed:int (l:MdLayout) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 3) { return b.page }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; As `asSlides`, with the diagrams measured first — which is the order the
+    ; editor uses and the only order in which `keepRoom` has a number to ask
+    ; for.
+    sfn asSlidesWithDiagrams:MdLayout (src:string css:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        def c:MdCss (new MdCss())
+        c.addStyleSheet(css)
+        c.applyTo(l.style)
+        l.setStyleSheet(css)
+        l.applyMeta(doc)
+        l.applySlideMeta(doc)
+        l.setDocSource(src)
+        def cw:double (l.style.pageWidth - (l.style.margin * 2.0))
+        MdDiagram.prepare(doc l.embeds cw "default")
+        l.layoutSlides(doc)
+        return l
     }
 
     ; How many slides have a heading as the lowest thing on them.

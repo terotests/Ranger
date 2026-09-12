@@ -83,16 +83,25 @@ class MdToEvg {
         def out:EVGDisplayList (new EVGDisplayList())
         def ph:double layout.style.pageHeight
         ; The paper. One sheet in continuous mode, one per page otherwise.
+        ; The page's own ground. Stated by the template when it says so, and
+        ; white when it does not — which is what this did for every document
+        ; before `page { background-color }` existed.
+        def paper:string "#ffffff"
+        if ((strlen layout.style.pageBackground) > 0) {
+            paper = layout.style.pageBackground
+        }
         if paged {
             this.rect(out 0.0 0.0 width total "#eef0f4")
             def p:int 0
             while (p < layout.pageCount) {
                 def dy:double (gap + ((to_double p) * (ph + gap)))
-                this.rect(out 0.0 dy width ph "#ffffff")
+                this.rect(out 0.0 dy width ph paper)
+                this.paper(out layout 0.0 dy width ph)
                 p = (p + 1)
             }
         } {
-            this.rect(out 0.0 0.0 width total "#ffffff")
+            this.rect(out 0.0 0.0 width total paper)
+            this.paper(out layout 0.0 0.0 width total)
         }
         def i:int 0
         def n:int (array_length layout.boxes)
@@ -106,6 +115,28 @@ class MdToEvg {
             i = (i + 1)
         }
         return out
+    }
+
+    ; A picture behind the page, when the template names one and the store has
+    ; it. Never a reason for a page to have nothing on it: a background the
+    ; store does not have is simply not drawn, and the text is where it was.
+    fn paper:void (out:EVGDisplayList layout:MdLayout x:double y:double w:double h:double) {
+        def name:string layout.style.pageBackgroundImage
+        if ((strlen name) == 0) { return }
+        if (! layout.haveImages) { return }
+        def path:string (layout.images.resolve(name layout.docDir))
+        if ((strlen path) == 0) { return }
+        def st:VfsStat (layout.images.stat(path))
+        if (! st.found) { return }
+        def c:EVGDrawCmd (new EVGDrawCmd())
+        c.kind = 2
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.src = path
+        c.a = 1.0
+        push out.cmds c
     }
 
     fn paintBox:void (out:EVGDisplayList layout:MdLayout box:MdBox dy:double) {
@@ -124,6 +155,23 @@ class MdToEvg {
             c.thickness = box.strokeWidth
             this.tint(c box.stroke)
             push out.cmds c
+            return
+        }
+        if (box.kind == 4) {
+            ; A picture. The command NAMES it and does not carry it, which is
+            ; what a display list does with every picture: the browser host
+            ; keys a blob URL by the name, the PDF renderer opens it, and
+            ; `PptxFromEvg` asks the byte store the list was built against.
+            def p:EVGDrawCmd (new EVGDrawCmd())
+            p.kind = 2
+            p.x = box.x
+            p.y = y
+            p.w = box.w
+            p.h = box.h
+            p.src = box.imagePath
+            p.text = box.imageAlt
+            p.a = 1.0
+            push out.cmds p
             return
         }
         if (box.kind == 0) {
@@ -378,6 +426,22 @@ class MdToEvg {
             MdToEvg.place(o b yOffset)
             MdToEvg.border(o b.stroke b.strokeWidth)
             return o
+        }
+        if (b.kind == 4) {
+            ; A picture. The element NAMES it and does not carry it, exactly
+            ; as the display list below will: whoever draws it asks the same
+            ; byte store the layout asked.
+            def img:EVGElement (EVGElement.createImg())
+            MdToEvg.place(img b yOffset)
+            img.src = b.imagePath
+            img.alt = b.imageAlt
+            ; `contain`, not the default `cover`: the box was sized from the
+            ; picture's own proportions, so there is nothing to crop — and a
+            ; `cover` that cropped a diagram's edge would be silent.
+            img.objectFit = "contain"
+            img.sourceWidth = (to_double b.imageNaturalW)
+            img.sourceHeight = (to_double b.imageNaturalH)
+            return img
         }
         ; an embed's slot: the outline, and what it was going to be
         def slot:EVGElement (EVGElement.createDiv())

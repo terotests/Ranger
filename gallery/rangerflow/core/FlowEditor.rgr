@@ -3356,4 +3356,76 @@ class FlowEditor {
         def sc:FlowScene (view.build())
         return (sc.sceneJson(view.width view.height))
     }
+
+    ; --- the camera as a uniform (S2) -----------------------------------------
+    ;
+    ; The same picture as `sceneJson`, in two lists and a camera instead of one
+    ; list with the camera multiplied into it: `{width, height, view, chrome,
+    ; list}`. `list` is the graph in FLOW coordinates and `view` says where it
+    ; is looked at from, so a host can draw the frame it already built at a new
+    ; pan or a new zoom; `chrome` is the screen-anchored half — rulers,
+    ; minimap, ports, buttons — which carries no camera and is built every
+    ; frame because all of it moves when the view does.
+    ;
+    ; `viewFrameJson` is this WITHOUT the graph, which is what a pan needs: the
+    ; camera and a caret's worth of chrome rather than every command in the
+    ; diagram (`gallery/evg/PLAN_VIEW_TRANSFORM.md` S2).
+    fn frameJson:string () {
+        def sc:FlowScene (view.buildScene())
+        def dl:EVGDisplayList (sc.toDisplayList())
+        def head:string (this.frameHead())
+        return ((head + ",\"list\":") + (dl.toJson()) + "}")
+    }
+
+    fn viewFrameJson:string () {
+        return ((this.frameHead()) + "}")
+    }
+
+    fn frameHead:string () {
+        def ch:FlowScene (view.buildChrome())
+        def cdl:EVGDisplayList (ch.toDisplayList())
+        def w:string (EVGDisplayList.num(view.width))
+        def h:string (EVGDisplayList.num(view.height))
+        def vx:string (EVGDisplayList.fine(view.viewport.x))
+        def vy:string (EVGDisplayList.fine(view.viewport.y))
+        def vz:string (EVGDisplayList.fine(view.viewport.zoom))
+        def out:string ((("{\"width\":" + w) + ",\"height\":") + h)
+        out = ((((out + ",\"view\":[") + vx) + ",") + vy)
+        out = (((out + ",") + vz) + "]")
+        ; Where the background pattern has slid to, and its period. A host
+        ; keeps the grid it built and draws it at this offset; when the period
+        ; changes — which only a zoom or a resize can do — it builds it again.
+        def offX:double (view.gridOffsetX())
+        def offY:double (view.gridOffsetY())
+        def period:double (view.gridGap())
+        def gx:string (EVGDisplayList.fine(offX))
+        def gy:string (EVGDisplayList.fine(offY))
+        def gp:string (EVGDisplayList.fine(period))
+        out = ((((out + ",\"grid\":[") + gx) + ",") + gy)
+        out = (((out + ",") + gp) + "]")
+        out = ((out + ",\"chrome\":") + (cdl.toJson()))
+        return out
+    }
+
+    ; The paper and the background pattern, padded so a pan slides them rather
+    ; than rebuilding them. `{width, height, list}` — no camera: the host
+    ; supplies the offset from `grid` above.
+    fn gridFrameJson:string () {
+        def sc:FlowScene (view.buildGrid())
+        return (sc.sceneJson(view.width view.height))
+    }
+
+    ; Is the gesture in progress a pure VIEW change — a pan of the canvas, or
+    ; steering from the minimap — with nothing in the graph touched? A host
+    ; that keeps its built frame asks before deciding that a pointer move it
+    ; just delivered cannot have changed the picture.
+    fn viewGesture:boolean () {
+        if (mode == 1) {
+            return true
+        }
+        if (mode == 9) {
+            return true
+        }
+        return false
+    }
 }

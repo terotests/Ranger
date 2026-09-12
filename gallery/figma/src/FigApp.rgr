@@ -45,6 +45,21 @@ class FigApp {
     def panX:double 40.0
     def panY:double 40.0
     def zoom:double 1.0
+    ; THE VIEW AS A CAMERA rather than as a transform on the world element.
+    ;
+    ; With it off — which is what every caller had — a pan writes the
+    ; transform and walks the tree again: 3,565 nodes, every path flattened,
+    ; 37 ms before the page has seen anything. With it on the list is in
+    ; SCENE coordinates and carries the camera beside it, so a pan is three
+    ; numbers and the painter's uniform, and the walk happens only when the
+    ; view leaves the region the list was built for. See
+    ; gallery/evg/PLAN_VIEW_TRANSFORM.md and gl/evg-view.js, which is where
+    ; the host's keep-or-build arithmetic lives.
+    def camera:boolean false
+    ; How far past the viewport to build, in viewports. One each way is nine
+    ; times the area at worst and much less in practice — a board at 8x has
+    ; almost nothing on it — and it is what a pan spends before a rebuild.
+    def overscan:double 1.0
     def debug:boolean false
     def cmdCount:int 0
     ; What the hit walk found, and how good a match it was.
@@ -274,6 +289,21 @@ class FigApp {
         this.applyView()
     }
 
+    fn setCamera:void (on:boolean) {
+        if (camera == on) {
+            return
+        }
+        camera = on
+        ; The element tree is built differently either way — with the view on
+        ; the world element or without it — so this is a rebuild, once.
+        laidOut = false
+        this.rebuild()
+    }
+
+    fn setOverscan:void (v:double) {
+        overscan = v
+    }
+
     fn setView:void (x:double y:double sc:double) {
         panX = x
         panY = y
@@ -297,13 +327,57 @@ class FigApp {
         emitter.setDebug(debug)
         emitter.setAssets(assets)
         def root:SceneNode (this.viewRoot())
-        evgRoot = (emitter.buildPage(root (this.currentPage()) panX panY zoom))
+        ; With a camera the world element carries NO transform: the list is
+        ; in scene coordinates and the view rides on the list instead. A
+        ; transform here would be applied twice.
+        if camera {
+            def sc:double zoom
+            if (sc < 0.000001) {
+                sc = 0.000001
+            }
+            def vw:double (pageW / sc)
+            def vh:double (pageH / sc)
+            def rl:double (((0.0 - panX) / sc) - (vw * overscan))
+            def rt:double (((0.0 - panY) / sc) - (vh * overscan))
+            def rr:double ((rl + vw) + ((vw * overscan) * 2.0))
+            def rb:double ((rt + vh) + ((vh * overscan) * 2.0))
+            evgRoot = (emitter.buildPageScene(root (this.currentPage()) rl rt rr rb))
+        } {
+            evgRoot = (emitter.buildPage(root (this.currentPage()) panX panY zoom))
+        }
         dumpStale = true
         layout = (new EVGLayout())
         layout.setPageSize(pageW pageH)
         layout.layout(evgRoot)
         laidOut = true
         this.repaint()
+    }
+
+    ; The camera and the region, onto a list about to be built. With the
+    ; camera off this does nothing and the list is the one it always was.
+    ;
+    ; THE REGION IS WHY THIS IS BEFORE THE BUILD. Culling asks what is inside
+    ; the outermost clip, and with the view on the world element that clip was
+    ; the page — so the walk already dropped everything off screen. Take the
+    ; transform away and the page is a window onto a board thousands of units
+    ; across, and there is nothing left to cull against; the region says what
+    ; to cull against instead, and its overscan is what a pan spends.
+    fn aimList:void () {
+        if (camera == false) {
+            return
+        }
+        list.setView(panX panY zoom)
+        def sc:double zoom
+        if (sc < 0.000001) {
+            sc = 0.000001
+        }
+        def vw:double (pageW / sc)
+        def vh:double (pageH / sc)
+        def l:double (((0.0 - panX) / sc) - (vw * overscan))
+        def t:double (((0.0 - panY) / sc) - (vh * overscan))
+        def r:double ((l + vw) + ((vw * overscan) * 2.0))
+        def b:double ((t + vh) + ((vh * overscan) * 2.0))
+        list.setRegion(l t r b)
     }
 
     ; The walk, and only the walk. A selection ring or a new view changes
@@ -320,6 +394,7 @@ class FigApp {
         }
         list = (new EVGDisplayList())
         list.setTextEngine((layout.getTextEngine()))
+        this.aimList()
         list.build(evgRoot)
         cmdCount = (array_length list.cmds)
         if ((strlen selected) > 0) {
@@ -337,6 +412,16 @@ class FigApp {
         }
         if (laidOut == false) {
             this.rebuild()
+            return
+        }
+        ; With a camera the list does not change when the view does: the
+        ; commands are in scene coordinates and the painter multiplies. This
+        ; is the whole gain — no tree walk, no flatten, no second layout —
+        ; and the host decides when the view has moved far enough that the
+        ; list has to be walked for a new region (`gl/evg-view.js`).
+        if camera {
+            list.setView(panX panY zoom)
+            dumpStale = true
             return
         }
         if ((evgRoot.getChildCount()) == 0) {
@@ -359,10 +444,27 @@ class FigApp {
         if ((strlen n.id) == 0) {
             return
         }
+        ; In the coordinates the LIST is written in: page pixels with the
+        ; view baked, scene units with a camera. The ring is a command like
+        ; any other, so it has to be in the same space as the rest of them.
         def x:double ((n.x * zoom) + panX)
         def y:double ((n.y * zoom) + panY)
         def w:double (n.w * zoom)
         def h:double (n.h * zoom)
+        def ringW:double 2.0
+        if camera {
+            x = n.x
+            y = n.y
+            w = n.w
+            h = n.h
+            ; …and a ring that is 2 px on the page is 2/zoom in the scene,
+            ; because the camera will multiply it. A kept frame drawn at
+            ; another scale carries the ring it was built with, which is why
+            ; the band is worth keeping narrow enough that nobody sees it.
+            if (zoom > 0.000001) {
+                ringW = (2.0 / zoom)
+            }
+        }
         ; A divider is a line: zero high, and a ring of no height is not a
         ; selection anyone can see.
         if (w < 2.0) {
@@ -371,7 +473,7 @@ class FigApp {
         if (h < 2.0) {
             h = 2.0
         }
-        list.addFrame(x y w h 2.0 (EVGColor.rgb(59 130 246)))
+        list.addFrame(x y w h ringW (EVGColor.rgb(59 130 246)))
         cmdCount = (array_length list.cmds)
     }
 

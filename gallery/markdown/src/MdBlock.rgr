@@ -1613,16 +1613,31 @@ class MdBlock {
         def headCount:int (array_length headCells)
         if (headCount != cols) { return }
 
+        ; Where each line begins inside the paragraph's own literal, so that
+        ; a cell can be turned back into a place in the FILE. Computed before
+        ; `para.literal` is cleared below; the map `srcOfLiteral` reads is in
+        ; its own arrays and survives that.
+        def lineAt:[int]
+        def acc:int 0
+        def li:int 0
+        while (li < n) {
+            push lineAt acc
+            acc = ((acc + (strlen (itemAt lines li))) + 1)
+            li = (li + 1)
+        }
+
         para.kind = "table"
         para.literal = ""
         def head:MdNode (MdNode.create("table_row"))
         head.isHeader = true
+        def headSpans:[int] (MdBlock.rowSpans(header))
         def i:int 0
         while (i < cols) {
             def cell:MdNode (MdNode.create("table_cell"))
             cell.isHeader = true
             cell.align = (itemAt aligns i)
             cell.literal = (trim (itemAt headCells i))
+            MdBlock.stampCell(cell para headSpans i (itemAt lineAt 0))
             head.add(cell)
             i = (i + 1)
         }
@@ -1631,6 +1646,7 @@ class MdBlock {
         while (r < n) {
             def rowText:string (itemAt lines r)
             def cells:[string] (MdBlock.splitRow(rowText))
+            def spans:[int] (MdBlock.rowSpans(rowText))
             def row:MdNode (MdNode.create("table_row"))
             def c:int 0
             while (c < cols) {
@@ -1642,12 +1658,132 @@ class MdBlock {
                 } {
                     cell2.literal = ""
                 }
+                MdBlock.stampCell(cell2 para spans c (itemAt lineAt r))
                 row.add(cell2)
                 c = (c + 1)
             }
             para.add(row)
             r = (r + 1)
         }
+    }
+
+    ; One cell, given the place in the FILE its text came from.
+    ;
+    ; The piece is the whole cell: `literal` is the trimmed cell text and the
+    ; span says where exactly those characters are, so the map is one piece at
+    ; literal offset 0. Everything downstream — `MdInline.srcAt`, the layout's
+    ; `segSrc`, a click — is then the ordinary path a paragraph already takes.
+    sfn stampCell:void (cell:MdNode para:MdNode spans:[int] index:int lineOff:int) {
+        def at:int (index * 2)
+        if ((at + 1) >= (array_length spans)) { return }
+        def off:int (itemAt spans at)
+        if (off < 0) { return }
+        def len:int (itemAt spans (at + 1))
+        if (len <= 0) { return }
+        if (len != (strlen cell.literal)) { return }
+        def src:int (para.srcOfLiteral(lineOff + off))
+        if (src < 0) { return }
+        cell.srcStart = src
+        cell.srcEnd = (src + len)
+        cell.srcKnown = true
+        cell.addMapPiece(0 src len)
+    }
+
+    ; The same split `splitRow` does, in OFFSETS rather than in strings: two
+    ; ints per cell — where the cell's trimmed text begins in `raw`, and how
+    ; long it is.
+    ;
+    ; A table cell had no source range at all. `maybeTable` gave every cell a
+    ; `literal` and no map, so `srcOfLiteral` answered -1 for every character
+    ; in the grid, the inline nodes under it were unstamped, and the layout
+    ; stamped each cell's boxes with the TABLE's own start. A click anywhere
+    ; in a table therefore put the caret on the opening pipe — which is why
+    ; `PLAN_WYSIWYG.md` §5 Stage H listed "editing a table cell in place" as
+    ; open. It is a source range like any other; it only had to say so.
+    ;
+    ; A cell that contains a `\` gets a start of -1 and stays unmapped:
+    ; `splitRow` collapses `\|` to `|`, so the string it returns is shorter
+    ; than the source it came from and there is no one-to-one map to write.
+    ; Better one cell a click cannot reach than a whole table pointing one
+    ; character out from there on.
+    sfn rowSpans:[int] (raw:string) {
+        def out:[int]
+        def t:string (trim raw)
+        def n:int (strlen t)
+        if (n == 0) { return out }
+        def start:int 0
+        def end:int n
+        if ((charAt t 0) == 124) { start = 1 }
+        if (n > 1) {
+            def lastCh:int (charAt t (n - 1))
+            def prev:int (charAt t (n - 2))
+            if ((lastCh == 124) && (prev != 92)) { end = (n - 1) }
+        }
+        if (start >= end) { return out }
+
+        ; Where the unescaped pipes are, plus the end of the row.
+        def cuts:[int]
+        def i:int start
+        while (i < end) {
+            def c:int (charAt t i)
+            if (c == 92) {
+                i = (i + 2)
+            } {
+                if (c == 124) { push cuts i }
+                i = (i + 1)
+            }
+        }
+        push cuts end
+
+        def lead:int (MdBlock.leadTrim(raw))
+        def from:int start
+        def k:int 0
+        def cn:int (array_length cuts)
+        while (k < cn) {
+            def to:int (itemAt cuts k)
+            def a:int from
+            def b:int to
+            while (a < b) {
+                def ca:int (charAt t a)
+                if (ca == 32) {
+                    a = (a + 1)
+                } {
+                    if (ca == 9) {
+                        a = (a + 1)
+                    } {
+                        break
+                    }
+                }
+            }
+            while (b > a) {
+                def cb:int (charAt t (b - 1))
+                if (cb == 32) {
+                    b = (b - 1)
+                } {
+                    if (cb == 9) {
+                        b = (b - 1)
+                    } {
+                        break
+                    }
+                }
+            }
+            def esc:boolean false
+            def e:int a
+            while (e < b) {
+                if ((charAt t e) == 92) { esc = true }
+                e = (e + 1)
+            }
+            if esc {
+                push out -1
+                push out 0
+            } {
+                push out (a + lead)
+                push out (b - a)
+            }
+            from = (to + 1)
+            k = (k + 1)
+        }
+        return out
     }
 
     ; `| --- | :-: |` → the alignments, or an empty list when the line is not

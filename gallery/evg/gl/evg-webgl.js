@@ -91,6 +91,19 @@ uniform vec2 uPage;
 // buffers were built. Zero for everything outside a layer, and for a frame
 // drawn the moment it was built; a fling is this changing, and nothing else.
 uniform vec2 uShift;
+// THE CAMERA: (sx, sy, tx, ty). Scene coordinates times the scale plus the
+// translate land on the page, and the identity (1, 1, 0, 0) is the list every
+// consumer drew before a view existed. It is here rather than baked into the
+// coordinates so that a frame already built can be drawn somewhere else — a
+// pan without a rebuild. See PLAN_VIEW_TRANSFORM.md. (No backticks in this
+// comment: the shader is a JS template literal and one would end it.)
+//
+// The scale is uniform in every caller: setView takes one number. A
+// non-uniform one would stretch the box correctly and the corner radii and
+// the border wrongly, since a circle under it is an ellipse and the distance
+// field below measures a circle. Nothing asks for one; a rotating camera
+// would want a mat3 here and nothing asks for that either.
+uniform vec4 uView;
 out vec4 vColor;
 out vec4 vColor2;
 out float vGrad;
@@ -102,6 +115,10 @@ out float vThickness;
 out float vMode;
 out vec2 vUV;
 void main() {
+  // In SCENE units until the last line of this block: the rotation, the pivot
+  // and the shift are all properties of the picture, and the camera is applied
+  // to the result. Rotating after the scale would be the same thing only for a
+  // uniform one, and doing it before is one fewer thing to be careful about.
   vec2 p = aRect.xy + uShift + aCorner * aRect.zw;
   // A rotated element turns about its own centre, which is what the PDF matrix
   // and the raster transform both do — an axis title on its side has to land in
@@ -121,6 +138,7 @@ void main() {
     vec2 d = p - c;
     p = c + vec2(d.x * co - d.y * s, d.x * s + d.y * co);
   }
+  p = p * uView.xy + uView.zw;
   // Page space is y-down like every 2D layout engine; clip space is y-up.
   vec2 ndc = vec2((p.x / uPage.x) * 2.0 - 1.0, 1.0 - (p.y / uPage.y) * 2.0);
   gl_Position = vec4(ndc, 0.0, 1.0);
@@ -128,10 +146,14 @@ void main() {
   vColor2 = aColor2;
   vGrad = aGrad;
   vT = aCorner;
-  vHalf = aRect.zw * 0.5;
-  vLocal = (aCorner - 0.5) * aRect.zw;
-  vRadii = aRadii;
-  vThickness = aShape.y;
+  // These four are what the fragment shader measures in PAGE pixels, so the
+  // camera applies to them as much as to the position: a box drawn at twice
+  // the scale has twice the corner radius and twice the border, or it is a
+  // different box rather than the same one nearer.
+  vHalf = aRect.zw * 0.5 * uView.xy;
+  vLocal = (aCorner - 0.5) * aRect.zw * uView.xy;
+  vRadii = aRadii * uView.x;
+  vThickness = aShape.y * uView.x;
   vMode = aShape.z;
   vUV = mix(aUV.xy, aUV.zw, aCorner);
 }`;
@@ -258,10 +280,16 @@ const PATH_VERT = `#version 300 es
 in vec2 aPos;
 uniform vec2 uPage;
 uniform vec2 uShift;
+uniform vec4 uView;
 out vec2 vPage;
 void main() {
-  vec2 p = aPos + uShift;
-  vPage = p;
+  // BEFORE the view transform. The gradient box the fragment shader mixes
+  // across arrives as a uniform in the display list's own coordinates, so
+  // the position compared against it has to be in those too — panned and
+  // zoomed, the ramp would otherwise slide across the shape.
+  vec2 q = aPos + uShift;
+  vPage = q;
+  vec2 p = q * uView.xy + uView.zw;
   vec2 ndc = vec2((p.x / uPage.x) * 2.0 - 1.0, 1.0 - (p.y / uPage.y) * 2.0);
   gl_Position = vec4(ndc, 0.0, 1.0);
 }`;
@@ -397,8 +425,17 @@ export function parseDash(text) {
     .filter((v) => Number.isFinite(v) && v >= 0);
 }
 
-export function strokeTriangles(rings, width, cap, join) {
-  const half = Math.max(width, 0.75) / 2;
+export function strokeTriangles(rings, width, cap, join, scale = 1) {
+  // A HAIRLINE IS THREE QUARTERS OF A PIXEL, and a pixel is a screen thing.
+  // The floor stops a thin line from disappearing into the gaps between
+  // samples, so it has to be measured where the line will be DRAWN: a list
+  // with a camera is in scene units, and a 1.5-unit stroke on a board at 0.17
+  // is a quarter of a pixel. Left as a floor on the list's own units it never
+  // applied there, and every line in a zoomed-out diagram came out a third as
+  // dark as the same diagram drawn without a camera \u2014 which is what the
+  // rangerflow page showed the first time the two were compared.
+  const s = scale || 1;
+  const half = Math.max(width, 0.75 / s) / 2;
   const miterLimit = 4;
   const tris = [];
   for (const ring of rings) {
@@ -1565,11 +1602,13 @@ function programsFor(gl) {
     cornerLoc: gl.getAttribLocation(prog, "aCorner"),
     uPage: gl.getUniformLocation(prog, "uPage"),
     uShift: gl.getUniformLocation(prog, "uShift"),
+    uView: gl.getUniformLocation(prog, "uView"),
     uAtlas: gl.getUniformLocation(prog, "uAtlas"),
     uImage: gl.getUniformLocation(prog, "uImage"),
     pathPosLoc: gl.getAttribLocation(pathProg, "aPos"),
     pathPageLoc: gl.getUniformLocation(pathProg, "uPage"),
     pathShiftLoc: gl.getUniformLocation(pathProg, "uShift"),
+    pathViewLoc: gl.getUniformLocation(pathProg, "uView"),
     pathColorLoc: gl.getUniformLocation(pathProg, "uColor"),
     pathColor2Loc: gl.getUniformLocation(pathProg, "uColor2"),
     pathGradLoc: gl.getUniformLocation(pathProg, "uGrad"),
@@ -1629,11 +1668,45 @@ function programsFor(gl) {
  * page scrolled this way stops stuttering where one rebuilt every frame
  * did not.
  *
+ * And what it is ALSO for is a PAN. A list may carry a camera (`view`, see
+ * PLAN_VIEW_TRANSFORM.md), and `draw` takes one too: the same frame drawn at
+ * a different view is the same picture somewhere else, for the cost of a
+ * uniform. A zoom is not as free — the glyph atlas was rasterised at a size
+ * and the curves were flattened for one — so a host that moves the scale far
+ * builds again; `viewBand` below says how far is far.
+ *
  * `renderDisplayList` below is build, draw once, dispose: what a page that
  * does not keep its list wants, and what every caller had before.
  */
 export function prepareDisplayList(gl, doc, opts = {}) {
   return buildFrame(gl, doc, opts);
+}
+
+/** The camera as the shaders want it: (sx, sy, tx, ty). */
+export function viewVec(v) {
+  if (!v) return [1, 1, 0, 0];
+  if (Array.isArray(v)) return v.length >= 4 ? v : [v[2] ?? 1, v[2] ?? 1, v[0] ?? 0, v[1] ?? 0];
+  const s = v.scale === undefined || v.scale === null ? 1 : v.scale;
+  return [s, s, v.x || 0, v.y || 0];
+}
+
+/**
+ * How far a frame built at one view may be drawn at another.
+ *
+ * A PAN is exact: nothing in a built frame depends on where it is. A ZOOM is
+ * not — the atlas is a rasterisation at a size and a curve was flattened for
+ * one — so past a band the frame has to be built again. √2 either way is
+ * about three notches of a pinch, and a viewer that would rather have sharp
+ * text than frames passes a tighter one.
+ */
+export const VIEW_BAND = Math.SQRT2;
+
+/** Can a frame built at `built` be drawn at `now` without building again? */
+export function viewWithinBand(built, now, band = VIEW_BAND) {
+  const a = viewVec(built)[0] || 1;
+  const b = viewVec(now)[0] || 1;
+  const r = b / a;
+  return r <= band && r >= 1 / band;
 }
 
 export function renderDisplayList(gl, doc, opts = {}) {
@@ -1647,6 +1720,10 @@ function buildFrame(gl, doc, opts = {}) {
   const dpr = opts.dpr || 1;
   const images = opts.images || new Map();
   const cmds = doc.list.cmds;
+  // The camera the LIST carried, if it carried one. A list with no view is in
+  // page coordinates already, which is every list written before this existed
+  // and every export that has no camera to speak of.
+  const viewOfDoc = doc.view || (doc.list && doc.list.view) || null;
 
   const built = programsFor(gl);
   const prog = built.prog;
@@ -1656,7 +1733,20 @@ function buildFrame(gl, doc, opts = {}) {
   // out every run on a 2-D canvas and uploading the result — and the runs are
   // the same from one frame to the next almost always, because a frame that
   // differs by a moved shape has not changed a single letter.
-  const { tex: atlas, slots, rebuilt: atlasRebuilt, added: atlasAdded } = atlasFor(gl, cmds, dpr, { w: doc.width, h: doc.height });
+  // THE ATLAS IS RASTERISED AT THE SIZE THE RUNS WILL BE DRAWN AT, which is
+  // the page's device ratio times the scale the frame is built at. A list
+  // with a camera is in scene units, so a 12-unit run on a board at 10% is
+  // 1.2 device pixels: rasterising it at 12 and letting the card shrink it
+  // costs a hundred times the atlas and comes out soft, which is what the
+  // figma board did the first time it was drawn this way. Everything the
+  // slot reports is divided by the same number, so the quad stays in scene
+  // units and the shader's scale puts the ink back at 1:1.
+  // The scale this frame is BUILT at. Everything that has to be measured in
+  // pixels while the list is in scene units divides by it: the atlas below,
+  // and the hairline floor under a stroke.
+  const viewScaleOfFrame = viewVec(viewOfDoc)[0] || 1;
+  const textDpr = dpr * viewScaleOfFrame;
+  const { tex: atlas, slots, rebuilt: atlasRebuilt, added: atlasAdded } = atlasFor(gl, cmds, textDpr, { w: doc.width, h: doc.height });
 
   // One texture per distinct source, uploaded ONCE — not once per frame. This
   // used to make a new GL texture for every picture on every frame and never
@@ -1766,7 +1856,7 @@ function buildFrame(gl, doc, opts = {}) {
         // caps and all — which is what puts a round end on each dash.
         const pat = parseDash(c.dash);
         const dashed = pat.length ? dashRings(rings, pat, c.dashoff || 0) : rings;
-        const tris = strokeTriangles(dashed, c.t || 1, c.cap | 0, c.join | 0);
+        const tris = strokeTriangles(dashed, c.t || 1, c.cap | 0, c.join | 0, viewScaleOfFrame);
         if (tris.length) pushPath({ kind: "tris", verts: new Float32Array(tris), color: rgba });
       } else {
         // A vector filled with a gradient keeps BOTH now: the rings say what
@@ -1814,7 +1904,7 @@ function buildFrame(gl, doc, opts = {}) {
       continue;
     }
     if (c.k === KIND.TEXT) {
-      const s = slots.get(runKey(c, dpr));
+      const s = slots.get(runKey(c, textDpr));
       if (!s) continue;
       // EVG's y is the top of the LINE BOX and c.h is its height, so the
       // baseline is the CSS half-leading below the top plus one face ascent:
@@ -1985,9 +2075,26 @@ function buildFrame(gl, doc, opts = {}) {
   // What the build made, reported by the first draw and not again: a frame
   // drawn a second time added nothing to the atlas and uploaded nothing.
   let fresh = true;
-  frame.draw = (shiftsNow) => {
+  // The camera this frame was BUILT at — the one the list carried. A draw
+  // that names no view of its own uses it, which is every caller that had no
+  // camera and every frame drawn the moment it was built.
+  frame.view = viewOfDoc;
+  // `shiftsNow` first, not the view, because every host that exists already
+  // calls `draw(shifts)` and a second argument does not move the first.
+  //
+  // `opts.clear === false` draws ON TOP of what is already there instead of
+  // starting from an empty canvas. A page with two frames — a document built
+  // once and a caret built every blink — needs the second one to keep the
+  // first: the clear below is unconditional otherwise, so the caret frame
+  // erased the document and the canvas came out with a caret on it and nothing
+  // else.
+  frame.draw = (shiftsNow, viewNow, drawOpts) => {
+  const clearFirst = !(drawOpts && drawOpts.clear === false);
   const madeNow = fresh;
   fresh = false;
+  // The camera in force for THIS draw, as the shaders take it.
+  const view = viewVec(viewNow === undefined || viewNow === null ? viewOfDoc : viewNow);
+  const vsx = view[0], vsy = view[1], vtx = view[2], vty = view[3];
   // The move a layer has made since this frame was built: what the shaders
   // add. A frame drawn as it was built, or a run outside any layer, adds 0.
   const shiftOf = (l) => {
@@ -2002,6 +2109,7 @@ function buildFrame(gl, doc, opts = {}) {
   gl.bindVertexArray(vao);
   gl.uniform2f(built.uPage, doc.width, doc.height);
   gl.uniform2f(built.uShift, 0, 0);
+  gl.uniform4f(built.uView, vsx, vsy, vtx, vty);
   gl.uniform1i(built.uAtlas, 0);
   gl.uniform1i(built.uImage, 1);
 
@@ -2040,8 +2148,10 @@ function buildFrame(gl, doc, opts = {}) {
   gl.disable(gl.DEPTH_TEST);
   gl.enable(gl.BLEND);
   gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-  gl.clearColor(0, 0, 0, 0);
-  gl.clear(gl.COLOR_BUFFER_BIT);
+  if (clearFirst) {
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
 
   const hasStencil = gl.getContextAttributes().stencil === true;
   let paths = 0, skippedFills = 0;
@@ -2067,6 +2177,7 @@ function buildFrame(gl, doc, opts = {}) {
     gl.useProgram(pathProg);
     gl.uniform2f(pathPageLoc, doc.width, doc.height);
     gl.uniform2f(built.pathShiftLoc, curShift[0], curShift[1]);
+    gl.uniform4f(built.pathViewLoc, vsx, vsy, vtx, vty);
     setPathPaint(op, color);
     gl.bindBuffer(gl.ARRAY_BUFFER, pathBuf);
     gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STREAM_DRAW);
@@ -2092,6 +2203,7 @@ function buildFrame(gl, doc, opts = {}) {
     // both draws below — the rings into the stencil and the quad that covers
     // them — because it is one uniform on `pathProg`.
     gl.uniform2f(built.pathShiftLoc, curShift[0], curShift[1]);
+    gl.uniform4f(built.pathViewLoc, vsx, vsy, vtx, vty);
     gl.bindBuffer(gl.ARRAY_BUFFER, pathBuf);
 
     gl.enable(gl.STENCIL_TEST);
@@ -2146,10 +2258,18 @@ function buildFrame(gl, doc, opts = {}) {
       const x1 = Math.min(r.x + r.w, b.x + b.w), y1 = Math.min(r.y + r.h, b.y + b.h);
       r = { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) };
     }
-    const x = Math.round(r.x * sxScale);
-    const y = Math.round((doc.height - (r.y + r.h)) * syScale);
-    const w = Math.max(0, Math.round(r.w * sxScale));
-    const h = Math.max(0, Math.round(r.h * syScale));
+    // Through the camera and then into framebuffer pixels. A clip is scene
+    // geometry like everything else in the list, and a scissor is not a thing
+    // the shader can apply — so this is the one place the view is multiplied
+    // by hand rather than by the card.
+    const px = r.x * vsx + vtx;
+    const py = r.y * vsy + vty;
+    const pw = r.w * vsx;
+    const ph = r.h * vsy;
+    const x = Math.round(px * sxScale);
+    const y = Math.round((doc.height - (py + ph)) * syScale);
+    const w = Math.max(0, Math.round(pw * sxScale));
+    const h = Math.max(0, Math.round(ph * syScale));
     gl.scissor(x, y, w, h);
   };
 
@@ -2161,13 +2281,15 @@ function buildFrame(gl, doc, opts = {}) {
   // the solid shapes use.
   let backdrops = 0;
   const drawBackdrop = (c) => {
-    const sigma = c.bb * dpr;
+    // The softening grows with the picture: a blur that stayed the same
+    // number of pixels while the box doubled is a different blur.
+    const sigma = c.bb * dpr * vsx;
     // The element's box in framebuffer pixels, measured from the bottom the
-    // way GL counts.
-    const bx = Math.round((c.x + curShift[0]) * sxScale);
-    const by = Math.round((doc.height - (c.y + curShift[1] + c.h)) * syScale);
-    const bw = Math.max(1, Math.round(c.w * sxScale));
-    const bh = Math.max(1, Math.round(c.h * syScale));
+    // way GL counts — through the camera first, as the scissor is.
+    const bx = Math.round(((c.x + curShift[0]) * vsx + vtx) * sxScale);
+    const by = Math.round((doc.height - ((c.y + curShift[1] + c.h) * vsy + vty)) * syScale);
+    const bw = Math.max(1, Math.round(c.w * vsx * sxScale));
+    const bh = Math.max(1, Math.round(c.h * vsy * syScale));
     // EXACTLY the box, and no padding. What a browser blurs is the rectangle
     // under the element with its edges clamped, not the page around it — see
     // the note on BLUR_FRAG, where getting this wrong is the mistake a flat

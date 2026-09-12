@@ -195,3 +195,11 @@ gallery/statechart/bin/statechart_viz.js
 # Compiled Ranger bundles for the zstd decoder — rebuilt by npm run zstd:test.
 gallery/zstd/bin/
 .firesim-build/
+
+# Compiled suite output for gallery/vfs, like every other module's
+gallery/vfs/bin/
+
+# …except the markdown editor's own picture fixture, which is an INPUT rather
+# than an output: `picture.md` names it, the page's self test reads its size
+# out of the PNG header, and the deployed sample needs it beside the document.
+!gallery/markdown/fixtures/logo.png

@@ -41,6 +41,14 @@ Import "../src/MdToHtml.rgr"
 Import "../src/MdDiagram.rgr"
 Import "../src/MdCss.rgr"
 Import "../src/MdThemes.rgr"
+Import "../../vfs/src/Vfs.rgr"
+Import "../../pptx/src/PptxEdit.rgr"
+Import "../../pptx/src/PptxToEvg.rgr"
+Import "../src/MdDeckDiagram.rgr"
+Import "../src/MdToDocx.rgr"
+Import "../src/MdCssEdit.rgr"
+Import "../../docx_viewer/src/DocxView.rgr"
+Import "../../docx_viewer/src/DocxEditController.rgr"
 Import "../src/MdToPptx.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
@@ -153,6 +161,75 @@ class MarkdownEdit {
         return (viewWidth - (m * 2.0))
     }
 
+    ; ----------------------------------------------------------------------
+    ; Pictures
+    ; ----------------------------------------------------------------------
+    ;
+    ; The page hands over bytes; the layout and the deck ask the same store.
+    ; `![alt](logo.png)` draws as its alt text until something is put here
+    ; under that name, which is what it did for every document before there
+    ; was a store at all.
+    ;
+    ; On the EDITOR rather than on `MarkdownWeb`, because the layout is here
+    ; and a store one class away from its only reader is a store that gets
+    ; handed over in the wrong order once.
+    def imageStore:Vfs (new Vfs())
+    def imageMemory:VfsMemory (new VfsMemory())
+    def haveImages:boolean false
+
+    ; A TEXT file in the same store the pictures are in.
+    ;
+    ; A stylesheet is a file. It was a string handed across the bridge, which
+    ; worked and left a reader with no way to see that the thing dressing
+    ; their document was a file at all — or where it was, or what else was
+    ; beside it. One store, and `style.css` sits next to `logo.png`.
+    fn addTextFile:boolean (name:string text:string) {
+        if (! haveImages) { imageStore.mount("/" imageMemory) }
+        def n:int (strlen text)
+        def buf:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set buf i (charAt text i)
+            i = (i + 1)
+        }
+        def b (new VfsBlob())
+        b.bytes = buf
+        b.contentType = "text/css"
+        def ok:boolean (imageStore.put(name b))
+        if ok {
+            haveImages = true
+            stale = true
+        }
+        return ok
+    }
+
+    fn readTextFile:string (name:string) {
+        if (! haveImages) { return "" }
+        def bytes:buffer (imageStore.read(name))
+        def out:string ""
+        def i:int 0
+        while (i < (buffer_length bytes)) {
+            out = (out + (strfromcode (buffer_get bytes i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn addImage:boolean (name:string data:buffer contentType:string w:int h:int) {
+        if (! haveImages) { imageStore.mount("/" imageMemory) }
+        def b (new VfsBlob())
+        b.bytes = data
+        b.contentType = contentType
+        b.pixelW = w
+        b.pixelH = h
+        def ok:boolean (imageStore.put(name b))
+        if ok {
+            haveImages = true
+            stale = true
+        }
+        return ok
+    }
+
     fn ensureLayout:void () {
         if (! stale) {
             return
@@ -177,6 +254,7 @@ class MarkdownEdit {
         ; block's own `{.classes}` — which is what columns are.
         def sheetText:string (sheet.text())
         layout.setStyleSheet(sheetText)
+        if haveImages { layout.setImages(imageStore "/") }
         layout.applyMeta(doc)
         if ((strlen pageSize) > 0) {
             def pw:double layout.style.pageWidth
@@ -222,19 +300,64 @@ class MarkdownWeb {
     def wantPageSize:string ""
     ; "continuous" | "paged" | "slides".
     def mode:string "continuous"
+    ; Who owns the document. `PLAN_DOCUMENT_MODES.md` §3.
+    ;
+    ;   "source"  — the markdown file is the truth and the preview is a
+    ;               read-only view of it. Clicking, selecting and copying in
+    ;               the preview all work; writing there does not.
+    ;   "preview" — the reader has said the preview is the truth, and the
+    ;               markdown pane is a record of where it came from.
+    ;
+    ; One way, and chosen rather than fallen into. The design it replaces kept
+    ; markdown as the truth forever and translated every preview gesture into
+    ; a patch on it — which works until a gesture markdown cannot hold is
+    ; translated anyway, and bold across three list items was one of those.
+    ; The deck, once the reader has handed the preview the document.
+    ;
+    ; `PLAN_DOCUMENT_MODES.md` §5: the editors exist, each with its own suite,
+    ; and a second slide editor inside this page would be a PATTERN SEAM —
+    ; two implementations of one idea, where a fix to either reaches neither.
+    ; So the model is a `PptxPresentation`, the operations are `PptxEditor`'s,
+    ; and this page keeps only the chrome it already had: the canvas, the font
+    ; manager, the scroll.
+    def deckEditor:PptxEditor (new PptxEditor())
+    def deckOn:boolean false
+    def deckSlide:int 0
+    ; …and the other destination. `RichDocument` is the model
+    ; `DocxEditController` edits and `DocxView` draws — the Word editor this
+    ; repository already has, rather than a second one in this page.
+    def docEditor:DocxEditController (new DocxEditController())
+    def docView:DocxView (new DocxView())
+    def docModel:RichDocument (new RichDocument())
+    def docNumbering:WordNumbering (new WordNumbering())
+    def docOn:boolean false
+    def docPage:int 0
+    def docSummary:string ""
+    ; Which view is on screen, and what each was built from. A view still
+    ; showing the markdown it was made from is re-made when that markdown
+    ; changes; one a reader has edited is not.
+    def view:string "md"
+    def deckFrom:string ""
+    def docFrom:string ""
+    def docTouched:boolean false
+    def ownerRefusal:string ""
     def pptxSummary:string ""
     def pptxNotes:string ""
+    ; The document, in DOCUMENT coordinates, and it stays there. Where the
+    ; reader is looking is a camera on it — `setView(sheetLeft -scrollY 1)`,
+    ; which the painter multiplies in the shader — so a scroll moves three
+    ; numbers rather than every command in the list, and the host can draw the
+    ; frame it already built (`gallery/evg/PLAN_VIEW_TRANSFORM.md` S3). The list
+    ; used to be walked and rewritten on every scroll instead.
+    ;
+    ; A sheet narrower than the window sits in the MIDDLE of it, the way a page
+    ; does in every reader, rather than against the left edge with the paper
+    ; stopping half way across; that is the camera's x.
     def docList:EVGDisplayList (new EVGDisplayList())
-    ; Where `docList` currently sits. The list is moved to the scroll position
-    ; rather than copied there: `appendFrom` shares its commands, so a copy
-    ; would alias the original and the second scroll would move it twice.
-    def listOffset:double 0.0
-    ; …and how far right it is. A sheet narrower than the window sits in the
-    ; MIDDLE of it, the way a page does in every reader, rather than against
-    ; the left edge with the paper stopping half way across. Kept as a number
-    ; rather than baked into the layout because a click arrives in view
-    ; coordinates and has to come back out of them.
-    def listOffsetX:double 0.0
+    ; Which BUILD of the document this is. A host keeps its built frame while
+    ; this is unchanged — a scroll, a blink, a click all leave it alone — and
+    ; builds again when a keystroke or a style change moves it on.
+    def listRev:int 0
 
     def fontManager:FontManager (new FontManager())
     def faceCount:int 0
@@ -260,6 +383,13 @@ class MarkdownWeb {
     def pages:int 1
     def built:boolean false
 
+    ; Which view the list on the canvas was built for. `built` says the list
+    ; is up to date with the DOCUMENT; this says it is the right document at
+    ; all. Without it, laying the markdown out again while the reader was in
+    ; DOCX left `built` true over a Word list, and the tab came back to
+    ; Preview with the Word page still on the canvas.
+    def listFor:string "md"
+
     Constructor () {
     }
 
@@ -277,6 +407,95 @@ class MarkdownWeb {
     ; carries the variant instead of a weight flag, because that is the one
     ; spelling the measurer, the font manager and a `@font-face` rule all
     ; resolve the same way.
+    ; Pictures. The store lives on the EDITOR, beside the layout that reads
+    ; it — see `MarkdownEdit.addImage`.
+    fn addImage:boolean (name:string data:buffer contentType:string w:int h:int) {
+        def ok:boolean (edit.addImage(name data contentType w h))
+        if ok { built = false }
+        return ok
+    }
+
+    fn imageCount:int () {
+        return (edit.imageMemory.nameCount())
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The byte store, as a reader can see it
+    ; ----------------------------------------------------------------------
+    ;
+    ; A store nobody can look into is a store a reader has to take on trust.
+    ; These three are what a file pane needs and nothing more: what is in
+    ; there, how big each one is, and what it is.
+    fn addTextFile:boolean (name:string text:string) {
+        def ok:boolean (edit.addTextFile(name text))
+        if ok { built = false }
+        return ok
+    }
+
+    fn readTextFile:string (name:string) {
+        return (edit.readTextFile(name))
+    }
+
+    ; `path\tbytes\tcontent-type\tWxH` per file, newline separated. One
+    ; string, because that is what crosses the bridge without a wrapper on
+    ; either side — the same reason `setStyleSheet` takes one.
+    fn fileList:string () {
+        def out:string ""
+        def names:[string] (edit.imageMemory.order)
+        def i:int 0
+        while (i < (array_length names)) {
+            def nm:string (itemAt names i)
+            def st:VfsStat (edit.imageMemory.stat(nm))
+            if (i > 0) { out = (out + "\n") }
+            out = (((out + nm) + "\t") + (to_string st.size)) + "\t" + st.contentType
+            if (st.pixelW > 0) {
+                out = ((((out + "\t") + (to_string st.pixelW)) + "x") + (to_string st.pixelH))
+            } {
+                out = (out + "\t")
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; How many distinct BLOBS the store holds, against how many names point at
+    ; them. The number content addressing is about, and the one a file pane
+    ; can show a reader: twelve names and one blob is the same picture twelve
+    ; times, stored once.
+    fn fileBlobCount:int () {
+        return (edit.imageMemory.blobCount())
+    }
+
+    ; What the template said that this layout cannot do — the editor's own
+    ; report, reachable from the page so the stylesheet pane can show it while
+    ; a reader is typing into it. A property that went nowhere silently is a
+    ; template that looks broken to whoever wrote it.
+    fn sheetReport:string () {
+        return (edit.sheetReport())
+    }
+
+    ; Whether the LAYOUT has the store — not whether the page handed one over.
+    ; Two different questions, and the gap between them is where a picture
+    ; goes missing.
+    fn imagesInLayout:boolean () {
+        return edit.layout.haveImages
+    }
+
+    fn missingImages:int () {
+        return edit.layout.missingImages
+    }
+
+    fn pictureBoxes:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length edit.layout.boxes)) {
+            def b:MdBox (itemAt edit.layout.boxes i)
+            if (b.kind == 4) { n = (n + 1) }
+            i = (i + 1)
+        }
+        return n
+    }
+
     fn attachFont:boolean (name:string data:buffer) {
         def ok:boolean (fontManager.loadFontBuffer(name data))
         if ok {
@@ -333,6 +552,209 @@ class MarkdownWeb {
 
     fn currentMode:string () {
         return mode
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Three views, three documents
+    ; ----------------------------------------------------------------------
+    ;
+    ; `PLAN_DOCUMENT_MODES.md` §4, arrived at from the other side. The plan
+    ; put the destinations behind a deliberate one-way switch with a warning
+    ; on it, and a reader using it found three buttons, two confirmations and
+    ; no way to look at a deck without committing to one.
+    ;
+    ; So: three VIEWS, and each is its own document.
+    ;
+    ;   md    the markdown file, laid out. `MdEditController` edits it.
+    ;   deck  a `PptxPresentation`, with the slide layout already on it.
+    ;         `PptxEditor` edits it.
+    ;   doc   a `RichDocument`. `DocxEditController` edits it.
+    ;
+    ; Converted on the way IN, and re-converted on the way in again only while
+    ; nothing has been edited there. The moment a reader changes something in a
+    ; view, that view is its own document and the markdown stops feeding it —
+    ; which needs no confirmation to say, because it is what "editing" means.
+    ; Carrying changes back into the `.md` is out of scope and always was.
+    ;
+    ; Nothing is refused for another view's sake. That is the whole reason the
+    ; switch existed, and it is still true: a deck may hold what a deck holds.
+    fn setView:boolean (name:string) {
+        if (name == view) { return false }
+        if (name == "md") {
+            view = "md"
+            built = false
+            return true
+        }
+        if (name == "deck") {
+            this.ensureDeck()
+            view = "deck"
+            built = false
+            return true
+        }
+        if (name == "doc") {
+            this.ensureDoc()
+            view = "doc"
+            built = false
+            return true
+        }
+        return false
+    }
+
+    fn currentView:string () {
+        return view
+    }
+
+    fn deckOwns:boolean () {
+        return (view == "deck")
+    }
+
+    fn docOwns:boolean () {
+        return (view == "doc")
+    }
+
+    ; Is that view what the CANVAS is drawing? `deckOn` and `docOn` say a
+    ; document EXISTS — it was built when the reader went there and it keeps
+    ; their edits while they are away — and `view` says which one is on
+    ; screen. Drawing off the first alone is what made the DOCX page stay up
+    ; after a click back on Preview: the document was still there, so the
+    ; canvas still drew it.
+    fn showsDeck:boolean () {
+        if (! deckOn) { return false }
+        return (view == "deck")
+    }
+
+    fn showsDoc:boolean () {
+        if (! docOn) { return false }
+        return (view == "doc")
+    }
+
+    ; Has this view been edited? A view nobody has touched is still a picture
+    ; of the markdown and is rebuilt from it; one that has been is not.
+    fn deckEdited:boolean () {
+        return deckEditor.dirty
+    }
+
+    fn docEdited:boolean () {
+        return docTouched
+    }
+
+    ; The deck, built from the markdown as it is now — unless the reader has
+    ; been editing the one that is already there.
+    fn ensureDeck:void () {
+        this.sync()
+        if deckOn {
+            if deckEditor.dirty { return }
+            if (deckFrom == edit.source) { return }
+        }
+        def d:PptxDeck (this.buildDeck())
+        deckEditor.attach(d.pres)
+        deckOn = true
+        deckSlide = 0
+        deckFrom = edit.source
+    }
+
+    ; …and the one way a view that HAS been edited goes back to following the
+    ; markdown: the reader asks for it by name.
+    ;
+    ; Deliberate rather than automatic, and the other way round from a
+    ; confirmation: nothing is guarded on the way in, and the only thing that
+    ; discards a reader's work is a thing they went and clicked.
+    fn rebuildFromSource:boolean () {
+        if (view == "deck") {
+            this.sync()
+            def d:PptxDeck (this.buildDeck())
+            deckEditor.attach(d.pres)
+            deckOn = true
+            deckSlide = 0
+            deckFrom = edit.source
+            built = false
+            return true
+        }
+        if (view == "doc") {
+            this.sync()
+            def x (new MdToDocx())
+            if edit.haveImages { x.setImages(edit.imageStore "/") }
+            docModel = (x.build(edit.doc edit.layout.style))
+            docSummary = (x.result.describe())
+            docEditor.bindDocument(docModel)
+            docEditor.setEnabled(true)
+            docOn = true
+            docPage = 0
+            docTouched = false
+            docFrom = edit.source
+            built = false
+            return true
+        }
+        return false
+    }
+
+    fn ensureDoc:void () {
+        this.sync()
+        if docOn {
+            if docTouched { return }
+            if (docFrom == edit.source) { return }
+        }
+        def x (new MdToDocx())
+        if edit.haveImages { x.setImages(edit.imageStore "/") }
+        docModel = (x.build(edit.doc edit.layout.style))
+        docSummary = (x.result.describe())
+        docEditor.bindDocument(docModel)
+        docEditor.setEnabled(true)
+        docOn = true
+        docPage = 0
+        docTouched = false
+        docFrom = edit.source
+    }
+
+    fn docReport:string () {
+        return docSummary
+    }
+
+    fn docParagraphCount:int () {
+        if (! docOn) { return 0 }
+        return (array_length docModel.paragraphs)
+    }
+
+    ; The Word document, drawn. `DocxView` is the docx module's own painter —
+    ; the same marks its canvas path makes, through `DocxInk` in list mode —
+    ; so what this page draws is what that viewer would have drawn and not a
+    ; second opinion about it.
+    fn wordList:EVGDisplayList () {
+        return (docView.buildDisplayList(docModel docPage docNumbering docEditor true))
+    }
+
+    fn deckSlideCount:int () {
+        if (! deckOn) { return 0 }
+        return (array_length deckEditor.doc.slides)
+    }
+
+    fn deckShapeCount:int () {
+        if (! deckOn) { return 0 }
+        def n:int (array_length deckEditor.doc.slides)
+        if (deckSlide >= n) { return 0 }
+        def sl:PptxSlide (itemAt deckEditor.doc.slides deckSlide)
+        return (array_length sl.shapes)
+    }
+
+    fn deckSelection:int () {
+        if (! deckOn) { return 0 }
+        return (array_length deckEditor.selection)
+    }
+
+    ; The deck, drawn. `PptxToEvg` is the pptx module's own bridge: this page
+    ; does not know how a slide is laid out and must not learn.
+    fn deckList:EVGDisplayList () {
+        def out (new EVGDisplayList())
+        def n:int (array_length deckEditor.doc.slides)
+        if (deckSlide >= n) { return out }
+        def sl:PptxSlide (itemAt deckEditor.doc.slides deckSlide)
+        def conv (new PptxToEvg())
+        def root:EVGElement (conv.slideToEvg(sl))
+        def le (new EVGLayout())
+        le.setPageSize(sl.width sl.height)
+        le.layout(root)
+        out.build(root)
+        return out
     }
 
     ; How many blocks a slide had to be cut in half for, and what the deck
@@ -474,8 +896,41 @@ class MarkdownWeb {
     ; Everything that reads geometry goes through here first, so a keystroke
     ; that has not been laid out yet cannot be drawn from a stale box list.
     fn sync:void () {
+        ; A DECK edit does not make the markdown stale — the markdown is a
+        ; record of where the deck came from and nothing edits it any more —
+        ; so `stale` alone never rebuilt the list and a redrawn diagram
+        ; stayed on the canvas exactly as it was. The model changed and the
+        ; page did not, which is the worst shape a bug can take: the reader
+        ; is told it worked.
+        if (this.showsDoc()) {
+            def fresh:boolean (listFor == "doc")
+            if ((! built) || (! fresh)) {
+                this.buildList()
+                built = true
+                this.setStatus()
+            }
+            return
+        }
+        if (this.showsDeck()) {
+            def deckFresh:boolean (listFor == "deck")
+            if ((! built) || (! deckFresh)) {
+                this.buildList()
+                built = true
+                this.setStatus()
+            }
+            return
+        }
         if edit.stale {
             this.rebuild()
+            return
+        }
+        ; The markdown is laid out and did not change — but the list on the
+        ; canvas may still be the deck's or the Word document's, because those
+        ; were built while the reader was over there.
+        if (! (listFor == "md")) {
+            this.buildList()
+            built = true
+            this.setStatus()
         }
     }
 
@@ -485,8 +940,22 @@ class MarkdownWeb {
     ; document shows what will be printed — the same call, the same breaks,
     ; and the reader can see where page four starts before they print it.
     fn buildList:void () {
-        listOffset = 0.0
-        listOffsetX = 0.0
+        listRev = (listRev + 1)
+        ; Once the deck owns the document, the deck is what is drawn. The
+        ; markdown is still parsed and laid out above — it is where the deck
+        ; came from and the pane still shows it — but nothing on the canvas
+        ; comes from it any more.
+        if (this.showsDoc()) {
+            docList = (this.wordList())
+            listFor = "doc"
+            return
+        }
+        if (this.showsDeck()) {
+            docList = (this.deckList())
+            listFor = "deck"
+            return
+        }
+        listFor = "md"
         ; Straight to the commands: the canvas never wanted an element tree,
         ; and building one only to walk it back was 133 ms of a 342 ms
         ; document. `MarkdownTest.presized` holds the two roads to the same
@@ -544,43 +1013,67 @@ class MarkdownWeb {
         this.scrollTo(y)
     }
 
-    ; The commands for what is on screen, in screen coordinates, in the
-    ; envelope the WebGL painter reads: `{width, height, list}`. The list
+    ; The whole document plus where it is looked at from, in the envelope the
+    ; WebGL painter reads: `{width, height, view, list, chrome, rev}`. The list
     ; alone is what `toJson` gives, and the painter reaches for `doc.list.cmds`
     ; — handing it the bare list is a page that draws nothing and says
     ; "cannot read properties of undefined".
+    ;
+    ; THE DOCUMENT AND THE CHROME ARE TWO LISTS. The document is in document
+    ; coordinates and `view` says where the window on it is; the caret and the
+    ; selection are in screen coordinates and carry no camera, because they are
+    ; the same 1.6 points wide wherever the document is. That is what lets a
+    ; host build the document once and redraw a blink without it: a caret
+    ; blinks and moves without a character changing, and serialising a
+    ; forty-page document to draw a two-point rectangle is the difference
+    ; between an editor that types and one that stutters.
+    ;
+    ; `viewFrame` is this without the document, which is what a scroll needs.
     fn frame:string () {
         this.sync()
-        def want:double (0.0 - scrollY)
-        def delta:double (want - listOffset)
-        def wantX:double (this.sheetLeft())
-        def deltaX:double (wantX - listOffsetX)
-        if ((delta != 0.0) || (deltaX != 0.0)) {
-            docList.offsetBy(deltaX delta)
-            listOffset = want
-            listOffsetX = wantX
-        }
-        ; The document, then the caret and the selection on top of it. The
-        ; chrome is built fresh every frame and the document is not: a caret
-        ; blinks and moves without a character changing, and relaying out a
-        ; document to draw a two-point rectangle is the difference between an
-        ; editor that types and one that stutters.
-        def out:EVGDisplayList (new EVGDisplayList())
-        out.appendFrom(docList)
-        this.paintChrome(out)
-        def body:string (out.toJson())
+        def vdx:double (this.sheetLeft())
+        docList.setView(vdx (0.0 - scrollY) 1.0)
+        def body:string (docList.toJson())
+        def head:string (this.frameHead())
+        return (((head + ",\"list\":") + body) + "}")
+    }
+
+    ; A frame with no document in it: the camera, the chrome and the build
+    ; number. A host that already holds the built document draws it again from
+    ; these three — so a scroll or a blink costs a caret's worth of JSON
+    ; rather than the document's, and nothing walks the commands at all.
+    fn viewFrame:string () {
+        this.sync()
+        return ((this.frameHead()) + "}")
+    }
+
+    ; What both share: the canvas, the camera, the chrome and the build number.
+    ; The camera is written out whatever it is, including the identity one at
+    ; the top of a continuous document — a host reading `doc.view` should not
+    ; have to know that the list drops a camera that does nothing.
+    fn frameHead:string () {
+        def chrome:EVGDisplayList (new EVGDisplayList())
+        this.paintChrome(chrome)
         def w:string (EVGDisplayList.num(viewW))
         def h:string (EVGDisplayList.num(viewH))
-        return ((((("{\"width\":" + w) + ",\"height\":") + h) + ",\"list\":") + body) + "}"
+        def dx:double (this.sheetLeft())
+        def dy:double (0.0 - scrollY)
+        def vx:string (EVGDisplayList.fine(dx))
+        def vy:string (EVGDisplayList.fine(dy))
+        def out:string (((("{\"width\":" + w) + ",\"height\":") + h) + ",\"view\":[")
+        out = ((((out + vx) + ",") + vy) + ",1]")
+        out = ((out + ",\"rev\":") + (to_string listRev))
+        out = ((out + ",\"chrome\":") + (chrome.toJson()))
+        return out
     }
 
     ; ----------------------------------------------------------------------
     ; The caret, and the band behind a selection
     ; ----------------------------------------------------------------------
     ;
-    ; Drawn as ordinary rectangles into the same display list as the document,
-    ; so every painter that can draw the document can draw the caret and none
-    ; of them learns what a caret is. That is the data seam
+    ; Drawn as ordinary rectangles into a display list — its own, beside the
+    ; document's — so every painter that can draw the document can draw the
+    ; caret and none of them learns what a caret is. That is the data seam
     ; `gallery/PLAN_EDITOR_KERNEL.md` §2 prefers, and here it means the SDL
     ; host and the WebGL one get an editor without being told.
     fn paintChrome:void (out:EVGDisplayList) {
@@ -690,7 +1183,77 @@ class MarkdownWeb {
 
     fn click:void (x:double y:double extend:boolean) {
         this.sync()
+        if (this.showsDeck()) {
+            ; A click on a deck selects a SHAPE. `PptxEditor` answers, because
+            ; hit testing a slide is its job and there must not be a second
+            ; answer to it in this file.
+            deckEditor.selectAt((x - (this.sheetLeft())) (y + scrollY) extend)
+            built = false
+            return
+        }
         edit.clickAt((x - (this.sheetLeft())) (y + scrollY) extend)
+    }
+
+    ; Moving what is selected, in points. The page owns the gesture; the deck
+    ; owns what it means.
+    fn deckMove:boolean (dx:double dy:double) {
+        if (! (this.showsDeck())) { return false }
+        def ok:boolean (deckEditor.moveSelection(dx dy))
+        if ok { built = false }
+        return ok
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A drawing on the deck, read back and drawn again
+    ; ----------------------------------------------------------------------
+    ;
+    ; Once the deck owns the document the markdown pane has nothing to edit —
+    ; it is a record of where the deck came from. Selecting a DRAWING gives it
+    ; something again: the diagram's own source, which is a thing a reader
+    ; edits and which redraws in place.
+    ;
+    ; The readers are the ones that already draw a diagram and the drawing is
+    ; `PptxFromEvg`'s; see `MdDeckDiagram`. Nothing about a notation is known
+    ; in this file.
+    fn deckDiagramSource:string () {
+        def sh@(optional):PptxShape (deckEditor.firstSelected())
+        if (null? sh) { return "" }
+        def s:PptxShape (unwrap sh)
+        if (! (MdDeckDiagram.isDrawing(s))) { return "" }
+        return (MdDeckDiagram.sourceOf(s))
+    }
+
+    fn deckDiagramNotation:string () {
+        def sh@(optional):PptxShape (deckEditor.firstSelected())
+        if (null? sh) { return "" }
+        def s:PptxShape (unwrap sh)
+        if (! (MdDeckDiagram.isDrawing(s))) { return "" }
+        return (MdDeckDiagram.notationOf(s))
+    }
+
+    ; `false` when the text does not read as a diagram, and the drawing is
+    ; then exactly as it was — a reader halfway through typing a node has a
+    ; source that does not parse, and blanking their slide at every keystroke
+    ; would be worse than useless.
+    fn deckRedrawDiagram:boolean (source:string) {
+        def sh@(optional):PptxShape (deckEditor.firstSelected())
+        if (null? sh) { return false }
+        def s:PptxShape (unwrap sh)
+        def ok:boolean (MdDeckDiagram.redraw(s source styleName))
+        if ok {
+            deckEditor.touchSlide((itemAt deckEditor.doc.slides deckSlide))
+            built = false
+        }
+        return ok
+    }
+
+    fn deckGoTo:void (i:int) {
+        if (! (this.showsDeck())) { return }
+        def n:int (array_length deckEditor.doc.slides)
+        if (i < 0) { return }
+        if (i >= n) { return }
+        deckSlide = i
+        built = false
     }
 
     ; A drag, and a double-click. Separate from `click` because a page can
@@ -706,14 +1269,52 @@ class MarkdownWeb {
         edit.selectWord()
     }
 
+    ; A keystroke on the PREVIEW. Refused while the markdown pane owns the
+    ; document — and refused by name, because a keystroke that vanishes and a
+    ; keystroke that was declined look the same on the page and completely
+    ; different to a reader.
     fn typeText:void (v:string) {
+        if (view == "doc") {
+            docEditor.insertText(v)
+            docTouched = true
+            built = false
+            return
+        }
+        if (view == "deck") { return }
+        if (! (this.mayWriteInPreview())) { return }
         edit.insertText(v)
+    }
+
+    ; A keystroke on the canvas. It edits whatever the view on screen is: the
+    ; markdown in `md`, and in the other two the view has its own editor and
+    ; never reaches here at all.
+    fn mayWriteInPreview:boolean () {
+        ownerRefusal = ""
+        return true
+    }
+
+    ; …and the same question from the other side. A pane that is read-only and
+    ; still accepts input is the failure worth catching, so the refusal is
+    ; here rather than in the page's event handlers: the page can forget, the
+    ; document cannot.
+    ; …and an edit from the markdown pane, which is always the markdown's own
+    ; and is therefore always allowed. A deck or a document a reader has built
+    ; from it is a separate document and is simply not affected.
+    fn mayWriteInSource:boolean () {
+        ownerRefusal = ""
+        return true
     }
 
     ; The keys that are not characters. `name` is the page's own spelling —
     ; the same set `docx_web` takes.
     fn key:boolean (name:string shift:boolean ctrl:boolean) {
         this.sync()
+        ; Moving and selecting are not writing: a read-only preview is one a
+        ; reader can still navigate and copy out of, which is what the source
+        ; map was built for.
+        if (MarkdownWeb.isWritingKey(name ctrl)) {
+            if (! (this.mayWriteInPreview())) { return false }
+        }
         if ctrl {
             if (name == "b") { return (this.run("format.bold" "")) }
             if (name == "i") { return (this.run("format.italic" "")) }
@@ -753,15 +1354,141 @@ class MarkdownWeb {
         if (id == "block.bullet")  { return (edit.toggleLinePrefix("bullet")) }
         if (id == "block.ordered") { return (edit.toggleLinePrefix("ordered")) }
         if (id == "block.quote")   { return (edit.toggleLinePrefix("quote")) }
-        if (id == "edit.undo")     { edit.undo() return true }
-        if (id == "edit.redo")     { edit.redo() return true }
+        if (id == "slide.break")   { return (edit.toggleBlockClass("slide")) }
+        if (id == "slide.keep")    { return (edit.toggleBlockClass("no-break")) }
+        if (id == "edit.undo")     {
+            if (this.showsDeck()) {
+                def u:boolean (deckEditor.undo())
+                if u { built = false }
+                return u
+            }
+            edit.undo()
+            return true
+        }
+        if (id == "edit.redo")     {
+            if (this.showsDeck()) {
+                def r:boolean (deckEditor.redo())
+                if r { built = false }
+                return r
+            }
+            edit.redo()
+            return true
+        }
         if (id == "edit.selectAll") { edit.selectAll() return true }
         return false
     }
 
     ; Why the last command did nothing, or "". A refusal and a no-op look the
     ; same to a document and completely different to a reader.
+    ; ----------------------------------------------------------------------
+    ; MD + CSS: an allowlist, not a gate
+    ; ----------------------------------------------------------------------
+    ;
+    ; `PLAN_DOCUMENT_MODES.md` §4. The lossless mode is not "anything, minus
+    ; what we thought to refuse" — that is the design §3 rejects, and today's
+    ; bug is a gate with one hole in it. It is an ENUMERATED list in which
+    ; every command names the file it writes.
+    ;
+    ; So there are two questions a caller can ask, and both are answerable
+    ; without trying anything: what may I do, and which file does it touch.
+    ; A command that is not on the list does not exist.
+    fn styleCommands:string () {
+        def out:string ""
+        out = (out + "page.width:css:page/width|")
+        out = (out + "page.height:css:page/height|")
+        out = (out + "page.margin:css:page/padding|")
+        out = (out + "page.background:css:page/background-color|")
+        out = (out + "page.backgroundImage:css:page/background-image|")
+        out = (out + "text.family:css:document/font-family|")
+        out = (out + "text.size:css:document/font-size|")
+        out = (out + "text.color:css:document/color|")
+        out = (out + "text.lineHeight:css:document/line-height|")
+        out = (out + "heading.family:css:h1/font-family|")
+        out = (out + "link.color:css:link/color|")
+        out = (out + "code.background:css:code/background-color|")
+        out = (out + "table.border:css:table/border-color|")
+        out = (out + "deck.splitLevel:css:deck/split-level|")
+        return out
+    }
+
+    ; Which file a command writes: "css", "markdown", or "" when there is no
+    ; such command. The question a reader is entitled to have answered BEFORE
+    ; they press anything.
+    fn commandTarget:string (id:string) {
+        def all:string (this.styleCommands())
+        def hit:int (indexOf all (id + ":css:"))
+        if (hit >= 0) { return "css" }
+        if (id == "format.bold") { return "markdown" }
+        if (id == "format.italic") { return "markdown" }
+        if (id == "format.code") { return "markdown" }
+        if (id == "format.strike") { return "markdown" }
+        if (id == "format.link") { return "markdown" }
+        if (id == "block.heading") { return "markdown" }
+        if (id == "block.bullet") { return "markdown" }
+        if (id == "block.ordered") { return "markdown" }
+        if (id == "block.quote") { return "markdown" }
+        if (id == "slide.break") { return "markdown" }
+        if (id == "slide.keep") { return "markdown" }
+        return ""
+    }
+
+    ; One style command. The sheet is rewritten as TEXT — see `MdCssEdit` for
+    ; why not by parsing and printing — and the page is laid out again with
+    ; what came out, so the reader sees the sheet they now have rather than the
+    ; one they asked for.
+    fn runStyle:boolean (id:string value:string) {
+        if (this.commandTarget(id) != "css") {
+            ownerRefusal = ("there is no style command called " + id)
+            return false
+        }
+        def target:string (this.targetOf(id))
+        def slash:int (indexOf target "/")
+        if (slash < 0) { return false }
+        def sel:string (substring target 0 slash)
+        def prop:string (substring target (slash + 1) (strlen target))
+        def before:string (edit.sheet.text())
+        def after:string (MdCssEdit.setProperty(before sel prop value))
+        if (after == before) {
+            ownerRefusal = "that changed nothing"
+            return false
+        }
+        this.setStyleSheet(after)
+        ownerRefusal = ""
+        return true
+    }
+
+    ; What the sheet says for a command right now, so a control can be shown
+    ; holding the value it is about to change.
+    fn styleValue:string (id:string) {
+        def target:string (this.targetOf(id))
+        def slash:int (indexOf target "/")
+        if (slash < 0) { return "" }
+        def sel:string (substring target 0 slash)
+        def prop:string (substring target (slash + 1) (strlen target))
+        def text:string (edit.sheet.text())
+        return (MdCssEdit.getProperty(text sel prop))
+    }
+
+    fn targetOf:string (id:string) {
+        def all:string (this.styleCommands())
+        def key:string (id + ":css:")
+        def at:int (indexOf all key)
+        if (at < 0) { return "" }
+        def from:int (at + (strlen key))
+        def i:int from
+        while (i < (strlen all)) {
+            if ((charAt all i) == 124) { return (substring all from i) }
+            i = (i + 1)
+        }
+        return (substring all from (strlen all))
+    }
+
+    fn styleText:string () {
+        return (edit.sheet.text())
+    }
+
     fn refusal:string () {
+        if ((strlen ownerRefusal) > 0) { return ownerRefusal }
         return (edit.refusal())
     }
 
@@ -843,10 +1570,29 @@ class MarkdownWeb {
     ; which is a common prefix and a common suffix and is fifteen lines of
     ; JavaScript. It is not a diff algorithm and does not need to be: a
     ; textarea reports one contiguous change at a time.
+    ; An edit from the MARKDOWN pane. Refused once the preview owns the
+    ; document.
     fn applyPatch:void (start:int end:int text:string) {
+        if (! (this.mayWriteInSource())) { return }
         this.sync()
         edit.setRange(start end)
         edit.insertText(text)
+    }
+
+    ; Which key names change the document. Everything else moves a caret.
+    sfn isWritingKey:boolean (name:string ctrl:boolean) {
+        if ctrl {
+            if (name == "b") { return true }
+            if (name == "i") { return true }
+            if (name == "e") { return true }
+            if (name == "z") { return true }
+            if (name == "y") { return true }
+            return false
+        }
+        if (name == "backspace") { return true }
+        if (name == "delete") { return true }
+        if (name == "enter") { return true }
+        return false
     }
 
     ; The drawn lines, as the caret navigates them: `[start,end]` per line, in
@@ -898,7 +1644,14 @@ class MarkdownWeb {
     ; table go out as text PowerPoint can reflow; a diagram goes out as
     ; shapes. What did not go out as text is counted, and `pptxReport` says
     ; so — see `PLAN_SLIDES.md` §2 for why that is the whole design.
-    fn pptx:buffer () {
+    ; The deck, as a MODEL rather than as a file.
+    ;
+    ; Split out of `pptx()` so that the switch in §5 of
+    ; `PLAN_DOCUMENT_MODES.md` can hand the presentation to the real editor
+    ; instead of a byte string — and so that saving an EDITED deck is the same
+    ; call as saving a fresh one, with nothing rebuilt behind the reader's
+    ; back.
+    fn buildDeck:PptxDeck () {
         def deck:MdLayout (new MdLayout())
         if (!null? measurer) {
             deck.setMeasurer((unwrap measurer))
@@ -906,6 +1659,11 @@ class MarkdownWeb {
         deck.style = (new MdStyle())
         edit.sheet.applyTo(deck.style)
         deck.setStyleSheet(edit.styleCss)
+        ; The same byte store the PREVIEW reads. This layout is built fresh —
+        ; a deck has its own page size and its own breaks — and a fresh layout
+        ; with no store is a deck missing pictures the reader can see on the
+        ; page in front of them.
+        if edit.haveImages { deck.setImages(edit.imageStore "/") }
         deck.applyMeta(edit.doc)
         if ((strlen wantPageSize) > 0) {
             def pw:double deck.style.pageWidth
@@ -927,6 +1685,22 @@ class MarkdownWeb {
             pptxNotes = (pptxNotes + (x.result.noteAt(i)))
             i = (i + 1)
         }
+        return d
+    }
+
+    ; The deck as a file. Once the preview owns the document, this saves what
+    ; the READER has edited rather than converting the markdown again — the
+    ; markdown is a record of where the deck came from, and converting it a
+    ; second time would quietly throw the reader's work away.
+    fn pptx:buffer () {
+        if deckOn {
+            ; The presentation the READER has been editing, written straight
+            ; out. `PptxDeck` is a facade over the same model and there is no
+            ; reason to go back through it.
+            def w (new PptxWriter())
+            return (w.toBuffer(deckEditor.doc))
+        }
+        def d:PptxDeck (this.buildDeck())
         return (d.save())
     }
 
@@ -964,6 +1738,7 @@ class MarkdownWeb {
         print.style = (new MdStyle())
         edit.sheet.applyTo(print.style)
         print.setStyleSheet(edit.styleCss)
+        if edit.haveImages { print.setImages(edit.imageStore "/") }
         print.applyMeta(edit.doc)
         if ((strlen wantPageSize) > 0) {
             def pw:double print.style.pageWidth

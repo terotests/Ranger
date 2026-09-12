@@ -2,9 +2,11 @@
  * Ranger Fig host: file bytes in, EVG display list out, WebGL on the canvas.
  * OpenFig-core is loaded only for the live parse-time comparison.
  */
-import { renderDisplayList, loadImages } from "./gl/evg-webgl.js";
+import { prepareDisplayList, loadImages } from "./gl/evg-webgl.js";
 // The frame crosses as typed arrays, not as text — see `draw`.
-import { cmdsOfBinary } from "./gl/evg-binary.js";
+import { cmdsOfBinary, viewOfBinary } from "./gl/evg-binary.js";
+// Keep the frame or walk the board again — see `draw` and `moveView`.
+import { createViewKeeper } from "./gl/evg-view.js";
 import { attachViewGestures } from "./gl/evg-gestures.js";
 // The file this page's head started fetching before the body was parsed.
 import { responseFor } from "./evg/assets-client.mjs";
@@ -16,6 +18,9 @@ const canvas = document.getElementById("screen");
 const statusEl = document.getElementById("status");
 const nodesEl = document.getElementById("nodes");
 const cmdsEl = document.getElementById("cmds");
+// How many view changes were served from the frame in hand rather than by
+// walking the board again. The number IS the feature.
+const keptEl = document.getElementById("kept");
 const msEl = document.getElementById("ms");
 const ofmsEl = document.getElementById("ofms");
 const treeEl = document.getElementById("tree");
@@ -57,6 +62,10 @@ function engine() {
 }
 
 const web = engine();
+// The view as a CAMERA on the list rather than a transform on the element
+// tree. A pan is then three numbers, the frame in hand and a uniform,
+// instead of a walk of the whole board: see `moveView` below.
+web.setCamera(true);
 window.__fig = web;
 
 const imageUrls = new Map();
@@ -103,6 +112,16 @@ function resize() {
   return dpr;
 }
 
+// THE FRAME IN HAND, and the arithmetic that says whether it is still the
+// right one. A pan inside the region the list was built for, at a scale
+// inside the band its glyphs and curves were built for, is the same frame
+// drawn somewhere else: one uniform, no walk of the board, no upload. Past
+// either, the scene is walked again for a new region. See
+// gallery/evg/PLAN_VIEW_TRANSFORM.md and gl/evg-view.js.
+let frame = null;
+let frameDpr = 0;
+const keeper = createViewKeeper({ overscan: 1 });
+
 async function draw() {
   const dpr = resize();
   let doc;
@@ -115,16 +134,56 @@ async function draw() {
     // garbage they made another 33%. `scene()` still answers in JSON for
     // anything that wants to read a frame.
     const bin = web.sceneBin();
-    doc = { width: bin.width, height: bin.height, list: { cmds: cmdsOfBinary(bin) } };
+    doc = { width: bin.width, height: bin.height, view: viewOfBinary(bin), list: { cmds: cmdsOfBinary(bin) } };
   } catch (e) {
     statusEl.textContent = "scene failed: " + e.message;
     return;
   }
   doc = rewriteImages(doc);
   const images = await loadImages(doc, { base: "" });
-  renderDisplayList(gl, doc, { dpr, images });
+  if (frame) frame.dispose();
+  frame = prepareDisplayList(gl, doc, { dpr, images });
+  frameDpr = dpr;
+  frame.draw(null, doc.view);
+  // Only a list that CARRIES a camera may be drawn at another view. Without
+  // one the view is already multiplied into the coordinates, so redrawing it
+  // somewhere else would move the picture twice.
+  if (doc.view) keeper.built(doc.view, canvas.clientWidth, canvas.clientHeight);
+  else keeper.reset();
   cmdsEl.textContent = String(doc.list?.cmds?.length || 0);
   window.__figDoc = doc;
+}
+
+/**
+ * The view moved. Draw the frame in hand if it still covers where we are,
+ * else walk the board again.
+ *
+ * This is the whole of S1: the expensive path is the one it does NOT take.
+ * A pan used to be `setView` — which wrote a transform and walked 3,565
+ * nodes — then a serialise, a decode, an atlas and an upload. Inside the
+ * region and the band it is now a uniform and a draw call.
+ */
+async function moveView(v) {
+  const view = { x: v.x, y: v.y, scale: v.sc };
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  const fit = frame && frameDpr === (window.devicePixelRatio || 1) ? keeper.fits(view, w, h) : { keep: false };
+  // Ranger keeps the numbers either way: the hit test, the selection ring
+  // and the inspector all read the view, and they must agree with the
+  // picture whether the frame was kept or built.
+  web.setView(view.x, view.y, view.scale);
+  if (fit.keep) {
+    frame.draw(null, view);
+    showKept(keeper.counts);
+    return;
+  }
+  await draw();
+  showKept(keeper.counts);
+}
+
+function showKept(counts) {
+  if (!keptEl) return;
+  keptEl.textContent = counts.kept + " kept / " + counts.builds + " built";
 }
 
 // Interactive input arrives faster than a frame, and a frame is not cheap:
@@ -159,19 +218,22 @@ function scheduleFrame() {
   framePending = true;
   requestAnimationFrame(async () => {
     framePending = false;
-    if (pendingView) {
-      web.setView(pendingView.x, pendingView.y, pendingView.sc);
-      pendingView = null;
-    }
+    const moving = pendingView;
+    pendingView = null;
     if (painting) {
       // A paint is still in flight; come back after it rather than
       // starting a second one over the same GL context.
+      if (moving) pendingView = moving;
       repaintWanted = true;
       return;
     }
     painting = true;
     try {
-      await draw();
+      if (moving) {
+        await moveView(moving);
+      } else {
+        await draw();
+      }
     } finally {
       painting = false;
       if (repaintWanted) {
@@ -1094,6 +1156,14 @@ async function openUrl(url, page, frame) {
 window.__openUrl = openUrl;
 // One paint, on demand: what a bench times and what a test waits for.
 window.__draw = draw;
+// The view as the gestures move it, for a benchmark or a driver: it goes
+// through the same coalescing an interactive pan does.
+window.__setViewSoon = setViewSoon;
+window.__frames = () => keeper.counts;
+// One view change, start to finish, for a benchmark: the same path a pan
+// takes, without the animation frame in front of it.
+window.__moveView = (x, y, sc) => moveView({ x, y, sc });
+window.__redraw = (x, y, sc) => { if (frame) frame.draw(null, { x, y, scale: sc }); };
 
 const params = new URL(location.href).searchParams;
 const intParam = (k) => (params.has(k) ? parseInt(params.get(k), 10) : NaN);

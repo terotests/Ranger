@@ -495,11 +495,25 @@ writing down because it looks like a hack and is the only way.
 Images, tables and mermaid fences, in that order.
 
 - An image or diagram box gets `EVGSelectChrome` handles; a resize writes a
-  width back into the source (an HTML `<img width>` for an image; an attribute
-  comment for a diagram), which is the only lossless place to put it.
-- A table cell is a source range: typing in it is an ordinary patch. Column
-  re-alignment is an explicit command, never automatic — a hand-aligned table
-  is a thing someone did on purpose.
+  width back into the source (an HTML `<img width>` for an image; a
+  `{width=360}` block attribute for a diagram), which is the only lossless
+  place to put it. **The seam is built**: the source can say how wide a
+  diagram is and the layout honours it — `MdEmbedKinds.widthOf`, read by both
+  `MdDiagram` and `MdLayout`, because the embed cache is keyed by that width
+  and two copies of the arithmetic would prepare a diagram at one width and
+  ask for it at another. What is left is the chrome and the drag.
+- ~~A table cell is a source range: typing in it is an ordinary patch.~~
+  **Done.** It was not one: `maybeTable` gave each cell a `literal` and no
+  source map, so every character in the grid answered -1 and the layout fell
+  back to stamping each cell's boxes with the TABLE's start — a click anywhere
+  in a table put the caret on the opening pipe. `MdBlock.rowSpans` now says
+  where each cell's text is in the file and `stampCell` writes it onto the
+  cell, after which everything downstream is the path a paragraph already
+  took. A cell containing a `\|` escape stays unmapped on purpose: `splitRow`
+  collapses the escape, so no one-to-one map exists and one unreachable cell
+  is better than a whole table off by a character. Column re-alignment is
+  still an explicit command, never automatic — a hand-aligned table is a
+  thing someone did on purpose.
 - ~~`ClipboardTable` turns a pasted spreadsheet range into a GFM table.~~
   **Done.** It imports nothing, so this was one import and a formatter rather
   than a second tolerant HTML scanner. Columns are padded to line up and a
@@ -507,10 +521,22 @@ Images, tables and mermaid fences, in that order.
 - A click on a diagram puts the caret in its fence. Direct manipulation of
   diagram geometry is not in this plan.
 
-*Still open:* the `EVGSelectChrome` handles on an image or a diagram, and
-editing a table cell in place. Both are ordinary work on top of what is
-built — a resize is a patch like everything else — and neither is needed for
-the preview to be an editor.
+**A larger question this plan does not answer:** it assumes throughout that the
+markdown file is the truth and the preview is a view of it, and that a gesture
+on the preview can always be translated back. It cannot — markdown holds
+neither a text box nor a colour nor a run of 14pt semibold, and a gesture it
+cannot hold is translated anyway today: bold across three list items becomes
+four literal asterisks. [`../PLAN_DOCUMENT_MODES.md`](../PLAN_DOCUMENT_MODES.md)
+takes that up, and its answer inverts the assumption above: the preview is
+read-only until a reader explicitly turns editing on, and from that moment the
+preview is the truth and this pane is read-only provenance.
+
+*Still open:* the `EVGSelectChrome` handles themselves, and the drag that
+turns one into a width. The width they would write is already honoured, so
+what is left is chrome on top of a seam that works — and none of it is needed
+for the preview to be an editor. An image handle waits on Stage B0 besides:
+until a picture has bytes, `![alt](src)` draws as its alt text and there is
+nothing to resize.
 
 ---
 

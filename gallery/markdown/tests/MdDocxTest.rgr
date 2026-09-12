@@ -1,0 +1,403 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdDocxTest.rgr — a markdown document, as a Word document.
+; ============================================================================
+;
+;   npm run markdown:docx:test
+;
+; `MdToDocx` builds the model `DocxEditController` edits and `DocxView` draws —
+; the Word editor this repository already has. So the claim is not "it produced
+; something"; it is that what came out is the SHAPE that editor expects:
+; paragraphs with spans, list kinds Word understands, and a hyperlink where the
+; document had a link.
+;
+; And the costs, counted. A document that quietly lost its table is worse than
+; one that says it could not carry it.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdToDocx.rgr"
+Import "../../docx_viewer/src/DocxView.rgr"
+Import "../../vfs/src/Vfs.rgr"
+
+class DocCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print (("  FAIL " + name) + ("  got " + (to_string got)) + ("  want " + (to_string want)))
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+}
+
+class MdDocxTest {
+    def maker:MdToDocx (new MdToDocx())
+
+    sfn main:void () {
+        def t (new MdDocxTest())
+        t.run()
+    }
+
+    fn make:RichDocument (src:string) {
+        def node:MdNode (MdBlock.parseText(src))
+        maker = (new MdToDocx())
+        def st (new MdStyle())
+        return (maker.build(node st))
+    }
+
+    fn makeWith:RichDocument (src:string v:Vfs) {
+        def node:MdNode (MdBlock.parseText(src))
+        maker = (new MdToDocx())
+        maker.setImages(v "/")
+        def st (new MdStyle())
+        return (maker.build(node st))
+    }
+
+    fn run:void () {
+        def c (new DocCheck())
+        print "== MdDocxTest =="
+        this.shape(c)
+        this.formatting(c)
+        this.lists(c)
+        this.costs(c)
+        this.drawn(c)
+        this.pictures(c)
+        print ""
+        print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    fn shape:void (c:DocCheck) {
+        print "-- a stream of paragraphs, which is what Word is --"
+        def src:string "# Otsikko\n\nEnsimmainen kappale.\n\nToinen kappale.\n"
+        def d:RichDocument (this.make(src))
+        c.eqInt("three paragraphs came out" (array_length d.paragraphs) 3)
+        c.eqInt("…one of them a heading" maker.result.headings 1)
+        c.eqInt("…and two of them prose" maker.result.paragraphs 2)
+
+        def h:Paragraph (itemAt d.paragraphs 0)
+        c.eqStr("the heading carries Word's own style name" h.styleId "Heading1")
+        c.eqStr("…and its text" (h.plainText()) "Otsikko")
+        def p1:Paragraph (itemAt d.paragraphs 1)
+        c.eqStr("the first paragraph is the first paragraph" (p1.plainText()) "Ensimmainen kappale.")
+
+        ; Every paragraph has an ID, because that is how `DocxEditController`
+        ; names one. A document of paragraphs with no ids is one the editor
+        ; cannot put a caret in.
+        def ids:boolean true
+        def i:int 0
+        while (i < (array_length d.paragraphs)) {
+            def p:Paragraph (itemAt d.paragraphs i)
+            if (p.id <= 0) { ids = false }
+            i = (i + 1)
+        }
+        c.ok("and every paragraph has an id the editor can name it by" ids)
+    }
+
+    ; ----------------------------------------------------------------------
+    fn formatting:void (c:DocCheck) {
+        print "-- bold, italic, code and a link are spans --"
+        def src:string "Tama on **lihava** ja *kursiivi* ja `koodi` ja [linkki](https://example.com).\n"
+        def d:RichDocument (this.make(src))
+        c.eqInt("one paragraph" (array_length d.paragraphs) 1)
+        def p:Paragraph (itemAt d.paragraphs 0)
+
+        ; The plain text is the sentence without any markers in it: a marker
+        ; that survived into the text would be drawn as a character.
+        c.eqStr("the text is the sentence, with no markers in it"
+            (p.plainText()) "Tama on lihava ja kursiivi ja koodi ja linkki.")
+
+        c.ok("a span is bold" (MdDocxTest.anySpan(p "bold")))
+        c.ok("…another is italic" (MdDocxTest.anySpan(p "italic")))
+        c.ok("…another is underlined, because it is a link" (MdDocxTest.anySpan(p "underline")))
+        c.ok("and the link carries where it goes"
+            (MdDocxTest.hasLink(p "https://example.com")))
+
+        ; The bold span covers the WORD and not the sentence. A span that
+        ; covered everything would still be "a bold span" and would be wrong.
+        def b:TextSpan (MdDocxTest.spanOf(p "bold"))
+        def word:string (substring (p.plainText()) b.start b.end)
+        c.eqStr("…and the bold span covers the word that was bold" word "lihava")
+    }
+
+    ; ----------------------------------------------------------------------
+    fn lists:void (c:DocCheck) {
+        print "-- a list item is a paragraph Word knows is one --"
+        def src:string "- yksi\n- kaksi\n\n1. eka\n2. toka\n"
+        def d:RichDocument (this.make(src))
+        c.eqInt("four items" maker.result.listItems 4)
+        def bullets:int 0
+        def numbers:int 0
+        def i:int 0
+        while (i < (array_length d.paragraphs)) {
+            def p:Paragraph (itemAt d.paragraphs i)
+            if (p.listKind == 1) { bullets = (bullets + 1) }
+            if (p.listKind == 2) { numbers = (numbers + 1) }
+            i = (i + 1)
+        }
+        ; The KIND, not the count: a numbered list that came out as bullets
+        ; has the right number of paragraphs and the wrong document.
+        c.eqInt("two of them are bullets" bullets 2)
+        c.eqInt("…and two are numbered" numbers 2)
+
+        ; Nesting is a level, not a second list.
+        def nested:string "- ulko\n  - sisa\n"
+        def nd:RichDocument (this.make(nested))
+        c.eqInt("a nested item is still an item" maker.result.listItems 2)
+        def deep:int 0
+        def j:int 0
+        while (j < (array_length nd.paragraphs)) {
+            def np:Paragraph (itemAt nd.paragraphs j)
+            if (np.listLevel > 0) { deep = (deep + 1) }
+            j = (j + 1)
+        }
+        c.eqInt("…one level deeper" deep 1)
+    }
+
+    ; ----------------------------------------------------------------------
+    fn costs:void (c:DocCheck) {
+        print "-- and what it could not carry, said out loud --"
+        def src:string "| A | B |\n| --- | --- |\n| 1 | 2 |\n\n```mermaid\nflowchart LR\n  A --> B\n```\n"
+        def d:RichDocument (this.make(src))
+        c.eqInt("the table went in as text" maker.result.tablesAsText 1)
+        c.eqInt("…and the diagram as its name" maker.result.drawingsAsText 1)
+        c.ok("…and both were said out loud" ((maker.result.noteCount()) >= 2))
+        c.ok("…and the summary says so too"
+            (MdDocxTest.hasSub((maker.result.describe()) "table(s) as text")))
+
+        ; The table's words are still in the document, tab separated. Lost
+        ; formatting is a cost; lost CONTENT would be a bug.
+        def all:string ""
+        def i:int 0
+        while (i < (array_length d.paragraphs)) {
+            def p:Paragraph (itemAt d.paragraphs i)
+            all = ((all + (p.plainText())) + "|")
+            i = (i + 1)
+        }
+        c.ok("the table's words are all still there"
+            ((MdDocxTest.hasSub(all "A")) && (MdDocxTest.hasSub(all "2"))))
+
+        def codeSrc:string "```js\nconst a = 1;\nconst b = 2;\n```\n"
+        def cd:RichDocument (this.make(codeSrc))
+        c.eqInt("a fenced block is one code block" maker.result.codeBlocks 1)
+        c.eqInt("…of one paragraph per line" (array_length cd.paragraphs) 2)
+        def c0:Paragraph (itemAt cd.paragraphs 0)
+        c.eqStr("…with the line in it" (c0.plainText()) "const a = 1;")
+    }
+
+    ; ----------------------------------------------------------------------
+
+    ; ----------------------------------------------------------------------
+    ; …and the Word viewer draws it
+    ; ----------------------------------------------------------------------
+    ;
+    ; A model the editor accepts is half the claim. The other half is that
+    ; `DocxView` — the docx module's OWN painter, the same marks its canvas
+    ; path makes, through `DocxInk` in list mode — produces a page from it.
+    ;
+    ; This is the function the markdown page calls, so a model that laid out to
+    ; nothing would show up here rather than as a blank canvas in a browser.
+    fn drawn:void (c:DocCheck) {
+        print "-- and the Word viewer draws it --"
+        def src:string "# Otsikko\n\nEnsimmainen kappale, pitka tarpeeksi rivittymaan tassa leveydessa.\n\n- yksi\n- kaksi\n"
+        def d:RichDocument (this.make(src))
+
+        def view (new DocxView())
+        view.init("gallery/pdf_writer/assets/fonts")
+        def nums (new WordNumbering())
+        def ed (new DocxEditController())
+        ed.bindDocument(d)
+        def dl:EVGDisplayList (view.buildDisplayList(d 0 nums ed false))
+        c.eqInt("one page came out of it" (view.layout.pageCount()) 1)
+        c.ok("…with marks on it" ((array_length dl.cmds) > 5) )
+
+        def texts:int 0
+        def said:string ""
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 3) {
+                texts = (texts + 1)
+                said = ((said + cmd.text) + "|")
+            }
+            i = (i + 1)
+        }
+        ; TEXT RUNS, not just marks: a page of rectangles would also "have
+        ; commands", which is the same distinction the markdown page's own
+        ; check makes about itself.
+        c.ok("…drawn as text runs" (texts > 3))
+        c.ok("…saying what the document says"
+            ((MdDocxTest.hasSub(said "Otsikko")) && (MdDocxTest.hasSub(said "yksi"))))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A picture is bytes here too
+    ; ----------------------------------------------------------------------
+    ;
+    ; The deck already carries pictures; this view drew `![alt](src)` as
+    ; italic alt text, so the same markdown lost its picture depending on
+    ; which TAB the reader was on. The store is the same `Vfs` the layout and
+    ; the deck read, so the three views cannot be missing different pictures.
+    fn pictures:void (c:DocCheck) {
+        print "-- a picture is bytes in the Word document too --"
+        def v (new Vfs())
+        def mem (new VfsMemory())
+        def blob (new VfsBlob())
+        def raw:string "PNGBYTESHERE"
+        def buf:buffer (buffer_alloc (strlen raw))
+        def bi:int 0
+        while (bi < (strlen raw)) {
+            buffer_set buf bi (charAt raw bi)
+            bi = (bi + 1)
+        }
+        blob.bytes = buf
+        blob.contentType = "image/png"
+        blob.pixelW = 240
+        blob.pixelH = 120
+        mem.put("/logo.png" blob)
+        v.mount("/" mem)
+
+        def src:string "# Otsikko\n\n![Yhtion logo](logo.png)\n\nTeksti kuvan alla.\n"
+
+        ; Without a store: alt text, exactly as before, and counted.
+        def plain:RichDocument (this.make(src))
+        c.eqInt("with no store no picture is carried" maker.result.pictures 0)
+        c.ok("…and the alt text is what the paragraph says"
+            (MdDocxTest.hasSub((MdDocxTest.allText(plain)) "[Yhtion logo]")))
+
+        ; With one: a `DocImage`, which is what a Word document holds.
+        def d:RichDocument (this.makeWith(src v))
+        c.eqInt("with a store one picture is carried" maker.result.pictures 1)
+        def img:DocImage (MdDocxTest.firstImage(d))
+        c.eqStr("…named by the path the store knows" img.partPath "/logo.png")
+        c.eqStr("…with the alt text the document gave it" img.altText "Yhtion logo")
+        c.eqInt("…and its bytes" (buffer_length img.bytes) (strlen raw))
+        ; 240pt in the preview is 320 CSS px on a page `DocxLayout` measures in
+        ; px — the same FRACTION of the page, which is the thing a reader
+        ; compares between the two tabs.
+        c.eqInt("…sized for the page the Word view measures" img.widthPx 320)
+        c.ok("…and the alt text is NOT also written out"
+            (! (MdDocxTest.hasSub((MdDocxTest.allText(d)) "[Yhtion logo]"))))
+
+        ; …and the VIEWER draws it: a picture in the model that never reaches
+        ; the page is the bug this whole check is about.
+        def view (new DocxView())
+        view.init("gallery/pdf_writer/assets/fonts")
+        def nums (new WordNumbering())
+        def ed (new DocxEditController())
+        ed.bindDocument(d)
+        def dl:EVGDisplayList (view.buildDisplayList(d 0 nums ed true))
+        def drawn:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 2) {
+                if (cmd.src == "/logo.png") { drawn = (drawn + 1) }
+            }
+            i = (i + 1)
+        }
+        c.eqInt("the Word view draws it, by the name the store answers to" drawn 1)
+
+        ; A picture nobody has is alt text again — the same answer the preview
+        ; and the deck give, rather than a third one.
+        def gone:string "# Otsikko\n\n![Poissa](nope.png)\n"
+        def g:RichDocument (this.makeWith(gone v))
+        c.eqInt("a picture nobody has is not carried" maker.result.pictures 0)
+        c.eqInt("…and it is counted as missed" maker.result.missedPictures 1)
+        c.ok("…and it is alt text on the page"
+            (MdDocxTest.hasSub((MdDocxTest.allText(g)) "[Poissa]")))
+    }
+
+    sfn firstImage:DocImage (d:RichDocument) {
+        def i:int 0
+        while (i < (array_length d.paragraphs)) {
+            def p:Paragraph (itemAt d.paragraphs i)
+            if ((array_length p.images) > 0) {
+                return (itemAt p.images 0)
+            }
+            i = (i + 1)
+        }
+        return (new DocImage())
+    }
+
+    sfn allText:string (d:RichDocument) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length d.paragraphs)) {
+            def p:Paragraph (itemAt d.paragraphs i)
+            out = ((out + (p.plainText())) + "|")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn anySpan:boolean (p:Paragraph what:string) {
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            def s:TextSpan (itemAt p.spans i)
+            if (what == "bold") { if s.bold { return true } }
+            if (what == "italic") { if s.italic { return true } }
+            if (what == "underline") { if s.underline { return true } }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn spanOf:TextSpan (p:Paragraph what:string) {
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            def s:TextSpan (itemAt p.spans i)
+            if (what == "bold") { if s.bold { return s } }
+            if (what == "italic") { if s.italic { return s } }
+            i = (i + 1)
+        }
+        return (new TextSpan())
+    }
+
+    sfn hasLink:boolean (p:Paragraph url:string) {
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            def s:TextSpan (itemAt p.spans i)
+            if (s.hyperlink == url) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn hasSub:boolean (hay:string needle:string) {
+        return ((indexOf hay needle) >= 0)
+    }
+}

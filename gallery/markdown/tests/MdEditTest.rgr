@@ -83,6 +83,7 @@ class MdEditTest {
         this.motion(c)
         this.vertical(c)
         this.roundTrip(c)
+        this.tableCells(c)
         this.cacheHolds(c)
 
         print ""
@@ -335,6 +336,82 @@ class MdEditTest {
     ; offset — and this drives it over a document with one of everything in
     ; it, editing in each of the ways that move a block: inside one, across
     ; two, at the very start, and a paste that makes new ones.
+
+    ; ----------------------------------------------------------------------
+    ; A table cell is a source range
+    ; ----------------------------------------------------------------------
+    ;
+    ; `PLAN_WYSIWYG.md` §5 Stage H: "a table cell is a source range: typing in
+    ; it is an ordinary patch". It was not one. Every box a table produced was
+    ; stamped by `emit` with the TABLE's own start and nothing finer, because
+    ; the cell path never set `segSrc` the way the paragraph path does — so a
+    ; click anywhere in the grid put the caret on the opening pipe and the
+    ; next keystroke landed there, in the markup rather than in the cell.
+    ;
+    ; The noun this counts is the OFFSET, not the box: a cell that draws in
+    ; the right place and points at the wrong character looks perfect and
+    ; cannot be edited. So the check clicks a cell, reads where the caret went
+    ; in the SOURCE, types, and compares the whole file.
+    fn tableCells:void (c:EditCheck) {
+        print "-- a table cell is a source range --"
+        def src:string "| Alue | Tulos |\n| --- | --- |\n| Verkkokauppa | 18 |\n| Lisenssit | -4 |\n"
+        def e:MdEditController (MdEditTest.fresh(src))
+        e.ensureLayout()
+
+        def bi:int (MdEditTest.boxOf(e "Verkkokauppa"))
+        c.ok("the cell's word is drawn" (bi >= 0))
+        if (bi < 0) { return }
+        def b:MdBox (itemAt e.layout.boxes bi)
+
+        def want:int (indexOf src "Verkkokauppa")
+        c.eqInt("and the box points at the word, not at the table" b.segSrc want)
+        c.eqInt("…for exactly as many characters as it drew" b.segLen (strlen "Verkkokauppa"))
+
+        ; A click a third of the way into the cell is inside that word, and
+        ; nowhere near the pipe the caret used to go to.
+        def cx:double (b.x + (b.w / 3.0))
+        def cy:double (b.y + (b.h / 2.0))
+        e.clickAt(cx cy false)
+        def at:int (e.caret())
+        c.ok("a click in the cell lands inside the cell" ((at >= want) && (at <= (want + 12))))
+
+        ; …and typing there is an ordinary patch: one word changes and the
+        ; rest of the file is byte for byte what it was.
+        e.setCaret((want + 12))
+        e.insertText("X")
+        def after:string (e.text())
+        c.eqStr("typing in a cell edits that cell" after "| Alue | Tulos |\n| --- | --- |\n| VerkkokauppaX | 18 |\n| Lisenssit | -4 |\n")
+        e.undo()
+        c.eqStr("and undo gives the table back byte for byte" (e.text()) src)
+
+        ; The header row is a cell too, and so is the LAST row — a stamp that
+        ; only reached the first row would pass every check above.
+        def hi:int (MdEditTest.boxOf(e "Tulos"))
+        def li:int (MdEditTest.boxOf(e "Lisenssit"))
+        c.ok("the header cell has its own range" (hi >= 0))
+        c.ok("and so does the last row" (li >= 0))
+        if (hi < 0) { return }
+        if (li < 0) { return }
+        def hb:MdBox (itemAt e.layout.boxes hi)
+        def lb:MdBox (itemAt e.layout.boxes li)
+        c.eqInt("the header cell points at the header" hb.segSrc (indexOf src "Tulos"))
+        c.eqInt("the last row points at the last row" lb.segSrc (indexOf src "Lisenssit"))
+    }
+
+    ; The first text box drawing exactly this string, or -1.
+    sfn boxOf:int (e:MdEditController t:string) {
+        def i:int 0
+        def n:int (array_length e.layout.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt e.layout.boxes i)
+            if (b.kind == 0) {
+                if (b.text == t) { return i }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
     fn cacheHolds:void (c:EditCheck) {
         print "-- the layout cache agrees with the layout --"
         def src:string "# Title\n\nSome **prose** with `code` and [a link](x).\n\n- one\n- two\n\n> quoted\n\n```\nfenced\n```\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\nlast\n"

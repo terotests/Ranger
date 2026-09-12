@@ -28,6 +28,11 @@ Import "../src/MdBlock.rgr"
 Import "../src/MdCss.rgr"
 Import "../src/MdDiagram.rgr"
 Import "../src/MdThemes.rgr"
+Import "../../pptx/src/PptxA11y.rgr"
+Import "../../vfs/src/Vfs.rgr"
+Import "../../pptx/src/PptxEdit.rgr"
+Import "../src/MdDeckDiagram.rgr"
+
 
 class DeckCheck {
     def passed:int 0
@@ -87,6 +92,26 @@ class MdPptxTest {
         l.setStyleSheet(css)
         l.applyMeta(doc)
         l.applySlideMeta(doc)
+        def cw:double (l.style.pageWidth - (l.style.margin * 2.0))
+        MdDiagram.prepare(doc l.embeds cw "default")
+        l.setDocSource(src)
+        l.layoutSlides(doc)
+        maker = (new MdToPptx())
+        return (maker.deck(doc l))
+    }
+
+    ; The same road with a byte store under it.
+    fn buildWithImages:PptxDeck (src:string css:string v:Vfs) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        def c:MdCss (new MdCss())
+        c.addStyleSheet(css)
+        c.applyTo(l.style)
+        l.setStyleSheet(css)
+        l.applyMeta(doc)
+        l.applySlideMeta(doc)
+        l.setImages(v "/")
         def cw:double (l.style.pageWidth - (l.style.margin * 2.0))
         MdDiagram.prepare(doc l.embeds cw "default")
         l.setDocSource(src)
@@ -188,6 +213,285 @@ class MdPptxTest {
     ; How many shapes are GROUPS, which is what a drawing comes out as. The
     ; whole point of Stage E is that this is the exception rather than every
     ; shape on every slide.
+    ; The first group on a slide, or an empty shape when there is none.
+
+    ; ----------------------------------------------------------------------
+    ; A picture is bytes
+    ; ----------------------------------------------------------------------
+    ;
+    ; `![alt](logo.png)` drew as its ALT TEXT for as long as this module has
+    ; existed, because a markdown layout had no bytes for a picture. That was
+    ; honest and it was the blocker under images, background images and every
+    ; CSS `url(...)`.
+    ;
+    ; The check is that ONE store answers both: the layout that sized the
+    ; picture and the deck that carries it ask the same `Vfs`, so the preview
+    ; and the file cannot be missing different pictures. Two stores would look
+    ; identical here and fail the first time a reader uploaded something.
+    fn pictures:void (c:DeckCheck) {
+        print "-- a picture is bytes, not alt text --"
+        def v (new Vfs())
+        def mem (new VfsMemory())
+        ; A 1x1 PNG is all this needs: the claim is about the BYTES arriving,
+        ; not about what they decode to.
+        def blob (new VfsBlob())
+        def raw:string "PNGBYTESHERE"
+        def buf:buffer (buffer_alloc (strlen raw))
+        def bi:int 0
+        while (bi < (strlen raw)) {
+            buffer_set buf bi (charAt raw bi)
+            bi = (bi + 1)
+        }
+        blob.bytes = buf
+        blob.contentType = "image/png"
+        blob.pixelW = 240
+        blob.pixelH = 120
+        mem.put("/logo.png" blob)
+        v.mount("/" mem)
+
+        def src:string "# Title\n\n![Yhtion logo](logo.png)\n\nTeksti kuvan alla.\n"
+        def css:string "page { width: 720pt; height: 405pt; padding: 36pt }"
+
+        ; Without a store: alt text, and the deck says so. The old behaviour,
+        ; kept as a check rather than as a memory.
+        def plain:PptxDeck (this.build(src css))
+        c.eqInt("with no store the picture is counted as missing" maker.result.images 1)
+        c.eqInt("…and none was placed" maker.result.placed 0)
+
+        ; With one: a picture, in the layout and in the file.
+        def d:PptxDeck (this.buildWithImages(src css v))
+        c.eqInt("with a store, one picture is placed" maker.result.placed 1)
+        c.eqInt("…and none is reported missing" maker.result.images 0)
+
+        ; The LAYOUT drew a picture box, which is what the preview shows.
+        c.eqInt("the layout drew it as a picture" (MdPptxTest.pictureBoxes(maker.layout)) 1)
+
+        ; …and the bytes are in the FILE, not just in the model.
+        def back:PptxDeck (this.reopened(d))
+        def got:PptxShape (MdPptxTest.firstPicture(back))
+        c.ok("the picture came back out of the file" (got.kind == 1))
+        c.eqInt("…with its bytes" (buffer_length got.imageBytes) (strlen raw))
+        c.eqStr("…and the alt text the document gave it" got.altText "Yhtion logo")
+
+        ; A picture nobody can find is alt text again — and the preview and
+        ; the deck are missing the SAME one, which is the whole reason they
+        ; share a store.
+        def gone:string "# Title\n\n![Poissa](nope.png)\n"
+        def g:PptxDeck (this.buildWithImages(gone css v))
+        c.eqInt("a picture nobody has is not placed" maker.result.placed 0)
+        c.eqInt("…and the layout did not draw one either" (MdPptxTest.pictureBoxes(maker.layout)) 0)
+        c.eqInt("…and the layout counted it as missing" maker.layout.missingImages 1)
+
+        ; ------------------------------------------------------------------
+        ; A background is a picture too
+        ; ------------------------------------------------------------------
+        ;
+        ; The property readers ask for first, and the one a company template
+        ; is mostly made of. `PptxWriter` could say a slide's ground was a
+        ; COLOUR and nothing else, and `MdCss` had `background-color` three
+        ; times — for code, for a table head, for a blockquote — and none for
+        ; the page.
+        ;
+        ; Checked through the FILE, because the black-on-black theme bug is
+        ; the reason not to trust a preview about a background.
+        def bgCss:string "page { width: 720pt; height: 405pt; padding: 36pt; background-color: #102040; background-image: url(logo.png) }"
+        def bgSrc:string "# Title\n\nTeksti.\n"
+        def bd:PptxDeck (this.buildWithImages(bgSrc bgCss v))
+        c.eqInt("every slide got the template's background" maker.result.backgrounds 1)
+        c.eqStr("…and the page colour reached the style" maker.layout.style.pageBackground "#102040")
+
+        def bback:PptxDeck (this.reopened(bd))
+        def bsl:PptxSlideRef (bback.slideAt(0))
+        def bmodel:PptxSlide (bsl.model())
+        c.ok("the background picture came back out of the file"
+            ((buffer_length bmodel.bgImage) == (strlen raw)))
+        c.ok("…and it is the picture the template named"
+            ((strlen bmodel.bgImageName) > 0))
+    }
+
+
+    ; ----------------------------------------------------------------------
+    ; A drawing is an object a reader handles
+    ; ----------------------------------------------------------------------
+    ;
+    ; The reader's words: the PPTX renderer has to embed diagrams as objects
+    ; that can be MOVED, and at minimum their size has to be changeable.
+    ;
+    ; Most of that is `PptxEditor` already working on a group, and this is the
+    ; check that it does — through the editor and not through the model, so a
+    ; drawing is handled by the same code every other shape is. What needs
+    ; deciding is what a RESIZE means, and the honest answer is that it
+    ; scales: PowerPoint scales a group's child space, and re-laying a diagram
+    ; out at its new size would need something running inside PowerPoint. The
+    ; markdown side's `{width=360}` is the way to re-flow one.
+    fn drawingObject:void (c:DeckCheck) {
+        print "-- a drawing is moved and resized like any other shape --"
+        def src:string "# Title\n\n```dot\ndigraph { a -> b; }\n```\n"
+        def css:string "page { width: 720pt; height: 405pt; padding: 36pt }"
+        def d:PptxDeck (this.build(src css))
+
+        def ed (new PptxEditor())
+        ed.attach(d.pres)
+        def sl0:PptxSlideRef (d.slideAt(0))
+        def g:PptxShape (MdPptxTest.firstGroup(sl0))
+        c.ok("there is a drawing to handle" (g.kind == 2))
+        if (g.kind != 2) { return }
+        def wasX:double g.x
+        def wasY:double g.y
+        def wasW:double g.width
+        def wasH:double g.height
+
+        ; Selected the way a click selects it, from the middle of the group.
+        def midX:double (g.x + (g.width / 2.0))
+        def midY:double (g.y + (g.height / 2.0))
+        c.ok("a click inside it selects it" (ed.selectAt(midX midY false)))
+        c.eqInt("…and selects exactly one thing" (array_length ed.selection) 1)
+
+        c.ok("it moves" (ed.moveSelection(24.0 12.0)))
+        c.ok("…and the move is on the shape" (((g.x - wasX) > 23.0) && ((g.y - wasY) > 11.0)))
+
+        ; …and it is STILL one group afterwards. A move that flattened a
+        ; drawing into loose shapes would look identical on the slide and be
+        ; unusable the next time a reader touched it.
+        def after:PptxShape (MdPptxTest.firstGroup(sl0))
+        c.ok("…and it is still one group" (after.kind == 2))
+        c.eqInt("…with the same children in it" (array_length after.children) (array_length g.children))
+
+        c.ok("one undo puts it back" (ed.undo()))
+        def back:PptxShape (MdPptxTest.firstGroup(sl0))
+        c.ok("…exactly where it was" (((fabs (back.x - wasX)) < 0.01) && ((fabs (back.y - wasY)) < 0.01)))
+
+        ; …and the size, which is the half the reader asked for by name.
+        ed.selectAt(midX midY false)
+        c.ok("it resizes" (ed.resizeSelection(4 40.0 20.0)))
+        def sized:PptxShape (MdPptxTest.firstGroup(sl0))
+        c.ok("…and the extent changed" ((fabs (sized.width - wasW)) > 1.0))
+
+        ; The trip that proves it: out through the writer and back.
+        def outDeck:PptxDeck (this.reopened(d))
+        def rsl:PptxSlideRef (outDeck.slideAt(0))
+        def r:PptxShape (MdPptxTest.firstGroup(rsl))
+        c.ok("the drawing came back as one group" (r.kind == 2))
+        c.ok("…at the size it was left at" ((fabs (r.width - sized.width)) < 1.0))
+        c.ok("…and still knowing what it is" (MdPptxTest.hasSub(r.name "Graphviz")))
+        c.ok("…and still carrying its source" ((strlen r.embedSource) > 0))
+    }
+
+
+    ; ----------------------------------------------------------------------
+    ; …and it can be edited, with the readers that drew it
+    ; ----------------------------------------------------------------------
+    ;
+    ; The round trip the source was carried for. Not a new editor: the readers
+    ; that draw a diagram are the ones that already draw it, and the drawing is
+    ; `PptxFromEvg`'s. What is new is the REPLACE — same slide, same position,
+    ; same identity, new geometry.
+    ;
+    ; The check counts the noun the change is about: a node ADDED to the source
+    ; has to appear as a label on the slide. Asserting only that the group
+    ; changed would pass on a redraw that lost everything.
+    fn drawingEdit:void (c:DeckCheck) {
+        print "-- a drawing on a slide can be read back and drawn again --"
+        def src:string "# Title\n\n```dot\ndigraph { saapuu -> tarkista; }\n```\n"
+        def css:string "page { width: 720pt; height: 405pt; padding: 36pt }"
+        def d:PptxDeck (this.build(src css))
+        def sl:PptxSlideRef (d.slideAt(0))
+        def g:PptxShape (MdPptxTest.firstGroup(sl))
+        c.ok("the slide has a drawing on it" (MdDeckDiagram.isDrawing(g)))
+        if (! (MdDeckDiagram.isDrawing(g))) { return }
+
+        def sl0:PptxSlide (sl.model())
+        def found:[PptxShape] (MdDeckDiagram.drawingsOn(sl0))
+        c.eqInt("…and it is found by asking the slide" (array_length found) 1)
+        c.eqStr("its source is the fence a reader wrote"
+            (MdDeckDiagram.sourceOf(g)) "digraph { saapuu -> tarkista; }\n")
+        c.eqStr("…in the notation it was written in" (MdDeckDiagram.notationOf(g)) "graphviz")
+
+        ; Where the reader left it, and how big.
+        def wasX:double g.x
+        def wasY:double g.y
+        def hadLaskuta:boolean (MdPptxTest.groupHasLabel(g "laskuta"))
+        c.ok("the node that is about to be added is not there yet" (! hadLaskuta))
+
+        def better:string "digraph { saapuu -> tarkista; tarkista -> laskuta; }"
+        c.ok("the drawing is drawn again from new text" (MdDeckDiagram.redraw(g better "default")))
+        c.ok("…and the node that was added is on the slide" (MdPptxTest.groupHasLabel(g "laskuta")))
+        c.ok("…and the ones that were there still are" (MdPptxTest.groupHasLabel(g "saapuu")))
+        c.ok("…without moving it" (((fabs (g.x - wasX)) < 0.01) && ((fabs (g.y - wasY)) < 0.01)))
+        c.ok("…and it is still one group" (g.kind == 2))
+        c.eqStr("…now carrying the new source" (MdDeckDiagram.sourceOf(g)) better)
+        c.ok("…and describing what is in it now" (MdPptxTest.hasSub(g.altText "laskuta")))
+
+        ; Text that is not a diagram leaves the drawing exactly as it was. A
+        ; reader halfway through typing a node has a source that does not
+        ; parse, and blanking their slide at every keystroke would be worse
+        ; than useless.
+        def wasW:double g.width
+        c.ok("half-typed text is refused" (! (MdDeckDiagram.redraw(g "digraph {" "default"))))
+        c.ok("…and the drawing is untouched" ((fabs (g.width - wasW)) < 0.01))
+        c.ok("…and still says what it says" (MdPptxTest.groupHasLabel(g "laskuta")))
+
+        ; …and it survives the file it is written into.
+        def back:PptxDeck (this.reopened(d))
+        def rsl:PptxSlideRef (back.slideAt(0))
+        def r:PptxShape (MdPptxTest.firstGroup(rsl))
+        c.eqStr("the new source came back out of the file" (MdDeckDiagram.sourceOf(r)) better)
+        c.ok("…and so did the node that was added" (MdPptxTest.groupHasLabel(r "laskuta")))
+    }
+
+    ; Does any text anywhere inside this group say `want`?
+    sfn groupHasLabel:boolean (sh:PptxShape want:string) {
+        if sh.hasText {
+            def t:string (sh.text.plainText())
+            if (MdPptxTest.hasSub(t want)) { return true }
+        }
+        def i:int 0
+        while (i < (array_length sh.children)) {
+            def k:PptxShape (itemAt sh.children i)
+            if (MdPptxTest.groupHasLabel(k want)) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn pictureBoxes:int (l:MdLayout) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 4) { n = (n + 1) }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn firstPicture:PptxShape (d:PptxDeck) {
+        def s:int 0
+        while (s < (d.slideCount())) {
+            def sl:PptxSlideRef (d.slideAt(s))
+            def k:int 0
+            while (k < (sl.shapeCount())) {
+                def sh:PptxShapeRef (sl.shapeAt(k))
+                def m:PptxShape (sh.model())
+                if (m.kind == 1) { return m }
+                k = (k + 1)
+            }
+            s = (s + 1)
+        }
+        return (new PptxShape())
+    }
+
+    sfn firstGroup:PptxShape (sl:PptxSlideRef) {
+        def k:int 0
+        while (k < (sl.shapeCount())) {
+            def sh:PptxShapeRef (sl.shapeAt(k))
+            def m:PptxShape (sh.model())
+            if (m.kind == 2) { return m }
+            k = (k + 1)
+        }
+        return (new PptxShape())
+    }
+
     sfn groups:int (d:PptxDeck) {
         def c:int 0
         def s:int 0
@@ -247,6 +551,55 @@ class MdPptxTest {
         ; the one thing on the deck that is a drawing.
         c.eqInt("one drawing, drawn" (MdPptxTest.groups(made)) 1)
         c.eqInt("…and it survived the file too" (MdPptxTest.groups(back)) 1)
+        ; …and it came back as an OBJECT, not as an anonymous pile of shapes.
+        ; Checked on the deck that went through the writer and the reader,
+        ; because a name and a description that live only in memory are not
+        ; what a reader opens next year. `descr` is the carrier; `PptxA11y`
+        ; already prefers it over every other way of naming a shape.
+        def gname:string ""
+        def galt:string ""
+        def gs:int 0
+        while (gs < (back.slideCount())) {
+            def gsl:PptxSlideRef (back.slideAt(gs))
+            def gg:PptxShape (MdPptxTest.firstGroup(gsl))
+            if (gg.kind == 2) {
+                gname = gg.name
+                galt = gg.altText
+            }
+            gs = (gs + 1)
+        }
+        c.eqStr("the drawing came back named for its notation" gname "Graphviz diagram 1")
+        c.ok("…and with the description it was given" ((strlen galt) > 0))
+        c.ok("…which names the notation" (MdPptxTest.hasSub(galt "Graphviz diagram")))
+        c.ok("…and says what is drawn in it" (MdPptxTest.hasSub(galt "tarkista")))
+
+        ; And this is where it lands for a reader who cannot see the slide.
+        ; No change was needed in the pptx module for that: `shapeName` has
+        ; always preferred `descr` over every other way of naming a shape, and
+        ; the writer and the parser have always carried it. What was missing
+        ; was anything to carry — this exporter left the field empty, so a
+        ; drawing reached a screen reader as the word "Drawing" at best.
+        def sl0:PptxSlideRef (back.slideAt(0))
+        def gsh:PptxShape (MdPptxTest.firstGroup(sl0))
+        def gs2:int 1
+        while (gs2 < (back.slideCount())) {
+            def sln:PptxSlideRef (back.slideAt(gs2))
+            def cand:PptxShape (MdPptxTest.firstGroup(sln))
+            if (cand.kind == 2) { gsh = cand }
+            gs2 = (gs2 + 1)
+        }
+        def said:string (PptxA11y.shapeName(gsh))
+        c.eqStr("a screen reader is told what the drawing is" said galt)
+
+        ; …and the source it was generated from came back BYTE FOR BYTE, which
+        ; is the only form of it worth carrying. A diagram cannot be
+        ; reconstructed from the shapes it drew — a class diagram and a
+        ; sequence diagram draw the same rectangles — so a deck written
+        ; without this can be moved and resized and never edited again.
+        c.eqStr("the notation came back" gsh.embedNotation "graphviz")
+        def fence:string "digraph {\n  rankdir=LR;\n  node [shape=box];\n  saapuu -> tarkista;\n  tarkista -> laskuta [label=\"ok\"];\n  tarkista -> hylkaa [label=\"ei\"];\n}\n"
+        c.eqStr("…and the fence's own text, byte for byte" gsh.embedSource fence)
+
         c.eqInt("the exporter counted it" maker.result.drawn 1)
         c.eqInt("…and dropped nothing" maker.result.dropped 0)
         c.ok("…and said what it did" ((maker.result.noteCount()) > 0))
@@ -779,17 +1132,32 @@ Just prose.
         c.eqInt("no picture, no count" maker.result.images 0)
         c.ok("…and nothing in the summary" (! (MdPptxTest.hasSub((maker.result.describe()) "picture"))))
 
-        ; A diagram is drawn rather than written, and says so — the one thing
-        ; on a deck from here that a reader cannot edit.
+        ; A diagram is drawn rather than written, and says so. It is still the
+        ; one thing on a deck from here that a reader cannot EDIT — but it is
+        ; an object they can move and resize, which is a different sentence
+        ; from the one this note used to print.
         def withDiagram:string "# Title
 
 ```dot
 digraph { a -> b; }
 ```
 "
-        this.build(withDiagram css)
+        def deck:PptxDeck (this.build(withDiagram css))
         c.eqInt("the diagram took the other road" maker.result.drawn 1)
-        c.ok("…and says it cannot be edited" (MdPptxTest.noted(maker "cannot be edited")))
+        c.ok("…and says what a reader can and cannot do with it"
+            (MdPptxTest.noted(maker "moved and resized, and not yet edited")))
+
+        ; …and it is an OBJECT: named for what it is, and described for a
+        ; reader who cannot see it. `PptxFromEvg` calls every group it builds
+        ; `Drawing`, which is all a display list can tell it; the notation and
+        ; the labels are known here and nowhere else.
+        def dslide:PptxSlideRef (deck.slideAt(0))
+        def dg:PptxShape (MdPptxTest.firstGroup(dslide))
+        c.eqStr("the group says which notation it came from" dg.name "Graphviz diagram 1")
+        c.ok("…and its description names the notation"
+            (MdPptxTest.hasSub(dg.altText "Graphviz diagram")))
+        c.ok("…and the labels that are in it"
+            ((MdPptxTest.hasSub(dg.altText "a")) && (MdPptxTest.hasSub(dg.altText "b"))))
         c.eqInt("and nothing was dropped" maker.result.dropped 0)
     }
 
@@ -866,6 +1234,9 @@ prose
         this.named(c)
         this.cost(c)
         this.paper(c)
+        this.pictures(c)
+        this.drawingObject(c)
+        this.drawingEdit(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
