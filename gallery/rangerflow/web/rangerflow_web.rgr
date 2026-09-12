@@ -2750,22 +2750,56 @@ class RangerFlowWeb {
     ; ---------------------------------------------------------------- frame --
     ; One tick of the simulation per frame when it is running, then the scene.
     fn frame:string () {
-        if simRunning {
-            if ((sim.isSettled()) == false) {
-                sim.tick()
-                SchemaToGraph.faceEdges(graph)
-                ; A force layout starts as a dot at the origin and grows to
-                ; several thousand units across. Fitting once at load and never
-                ; again left the demo at 4x zoom looking at the inside of one
-                ; node, so it follows the graph while it settles — and stops
-                ; the moment the viewer touches anything, because a viewport
-                ; that moves under your hand is worse than a bad first frame.
-                if (userMoved == false) {
-                    editor.fitView()
-                }
-            }
-        }
+        this.tick()
         return (editor.sceneJson())
+    }
+
+    ; One step of the force layout, if one is running. True when it moved
+    ; something — which is a host's cue that the frame it is holding is out of
+    ; date, since a settling graph changes every frame and a settled one does
+    ; not change at all.
+    fn tick:boolean () {
+        if (simRunning == false) {
+            return false
+        }
+        if (sim.isSettled()) {
+            return false
+        }
+        sim.tick()
+        SchemaToGraph.faceEdges(graph)
+        ; A force layout starts as a dot at the origin and grows to several
+        ; thousand units across. Fitting once at load and never again left the
+        ; demo at 4x zoom looking at the inside of one node, so it follows the
+        ; graph while it settles — and stops the moment the viewer touches
+        ; anything, because a viewport that moves under your hand is worse than
+        ; a bad first frame.
+        if (userMoved == false) {
+            editor.fitView()
+        }
+        return true
+    }
+
+    ; --- the camera as a uniform (S2) ------------------------------------------
+    ; The graph and its camera, and the camera on its own. Neither ticks the
+    ; simulation: a frame calls `tick` once and then asks for what it needs, so
+    ; asking for both does not run the physics twice.
+    fn frameScene:string () {
+        return (editor.frameJson())
+    }
+
+    fn frameView:string () {
+        return (editor.viewFrameJson())
+    }
+
+    ; The paper and the grid, built to be slid. See `FlowView.gridPad`.
+    fn frameGrid:string () {
+        return (editor.gridFrameJson())
+    }
+
+    ; Is the gesture in progress a pan or a minimap steer — a view change with
+    ; nothing in the graph touched?
+    fn viewGesture:boolean () {
+        return (editor.viewGesture())
     }
 
     fn sceneJson:string () {
