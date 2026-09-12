@@ -133,6 +133,15 @@ class EVGDrawCmd {
     ; transform of the quad.
     def flipH:boolean false
     def flipV:boolean false
+    ; The window into the source, in the bitmap's own 0..1 space, when the
+    ; picture is shown cropped rather than whole. `hasCrop` is what says the
+    ; four numbers mean anything: 0,0,1,1 is a legal window and is also what
+    ; an uncropped command leaves behind, so the flag cannot be inferred.
+    def hasCrop:boolean false
+    def cropX:double 0.0
+    def cropY:double 0.0
+    def cropW:double 1.0
+    def cropH:double 1.0
     ; PATH / STROKE. The rings are already flattened and already in page
     ; coordinates: a GPU backend should not have to carry a path parser, and
     ; the curve subdivision belongs where the drawn size is known. `ringEnds`
@@ -2572,6 +2581,13 @@ class EVGDisplayList {
                 c3.radiusBL = rBL
             }
             c3.src = el.src
+            if el.imageViewBoxSet {
+                c3.hasCrop = true
+                c3.cropX = el.imageViewBoxX
+                c3.cropY = el.imageViewBoxY
+                c3.cropW = el.imageViewBoxW
+                c3.cropH = el.imageViewBoxH
+            }
             this.addCmd(c3)
         }
 
@@ -2879,7 +2895,7 @@ class EVGDisplayList {
     }
 
     sfn stride:int () {
-        return 41
+        return 45
     }
 
     ; A value in hundredths, which is the precision `num` writes and therefore
@@ -2973,6 +2989,10 @@ class EVGDisplayList {
             if c2.hasShadow {
                 flags = (flags + 128)
             }
+            ; Slots 41-44 mean something: the crop window into the source.
+            if c2.hasCrop {
+                flags = (flags + 256)
+            }
             int_buffer_set recs (base + 9) flags
             int_buffer_set recs (base + 10) c2.gradDir
             int_buffer_set recs (base + 11) (EVGDisplayList.packRgb(c2.r2 c2.g2 c2.b2))
@@ -3022,6 +3042,14 @@ class EVGDisplayList {
             }
             int_buffer_set recs (base + 39) dashIdx
             int_buffer_set recs (base + 40) (EVGDisplayList.fixed(c2.strokeDashOffset))
+            ; 41-44: the crop window, in TEN-THOUSANDTHS. Every other slot is
+            ; hundredths because that is what `num` writes for a pixel; this
+            ; one is a fraction of a bitmap, where a hundredth is a whole
+            ; percent of the picture. `frac4` writes the JSON to match.
+            int_buffer_set recs (base + 41) (EVGDisplayList.fixed(c2.cropX * 100.0))
+            int_buffer_set recs (base + 42) (EVGDisplayList.fixed(c2.cropY * 100.0))
+            int_buffer_set recs (base + 43) (EVGDisplayList.fixed((c2.cropX + c2.cropW) * 100.0))
+            int_buffer_set recs (base + 44) (EVGDisplayList.fixed((c2.cropY + c2.cropH) * 100.0))
             ; A command with no text names none of the three text strings, and
             ; `toJson` writes none of them either — so the reader must be able
             ; to tell "no text" from "empty text", which -1 says and 0 would
@@ -3267,6 +3295,12 @@ class EVGDisplayList {
             if c.flipV {
                 out = out + ",\"fy\":true"
             }
+            ; Only when there IS a crop, so a list built without one is the
+            ; same bytes it was before this field existed.
+            if c.hasCrop {
+                out = out + ",\"cu\":[" + (EVGDisplayList.frac4(c.cropX)) + "," + (EVGDisplayList.frac4(c.cropY))
+                out = out + "," + (EVGDisplayList.frac4(c.cropX + c.cropW)) + "," + (EVGDisplayList.frac4(c.cropY + c.cropH)) + "]"
+            }
             if (c.rotate != 0.0) {
                 out = out + ",\"rot\":" + (EVGDisplayList.num(c.rotate))
                 if c.hasRotOrigin {
@@ -3407,6 +3441,47 @@ class EVGDisplayList {
         return out
     }
 
+
+    ; Four decimals, for a value that lives between 0 and 1. `num` writes
+    ; hundredths, which is right for a coordinate in pixels and far too
+    ; coarse for a fraction of a bitmap: a crop window rounded to 0.01 moves
+    ; by a full percent of the picture, sixteen pixels on a wide screenshot.
+    ; The binary bridge stores the same value as ten-thousandths, so the two
+    ; carry the same number to the same place.
+    sfn frac4:string (v:double) {
+        def x:double 0.0
+        if (v > 0.0) {
+            x = v
+        }
+        if (v < 0.0) {
+            x = v
+        }
+        if (x > 1000.0) {
+            x = 1000.0
+        }
+        if (x < (0.0 - 1000.0)) {
+            x = (0.0 - 1000.0)
+        }
+        def neg:boolean (x < 0.0)
+        def av:double x
+        if neg {
+            av = (0.0 - x)
+        }
+        def scaled:int (to_int ((av * 10000.0) + 0.5))
+        def whole:int (idiv scaled 10000)
+        def frac:int (scaled - (whole * 10000))
+        def fs:string (to_string frac)
+        while ((strlen fs) < 4) {
+            fs = ("0" + fs)
+        }
+        def out:string ((to_string whole) + "." + fs)
+        if neg {
+            if (scaled > 0) {
+                out = ("-" + out)
+            }
+        }
+        return out
+    }
 
     sfn jsonString:string (v:string) {
         def out:string "\""

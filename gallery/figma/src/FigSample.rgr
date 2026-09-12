@@ -63,6 +63,10 @@ class FigSample {
         s.addField(paint "imageHash" "string" 5 false)
         s.addField(paint "scaleMode" "string" 6 false)
         s.addField(paint "stops" "ColorStop" 7 true)
+        ; The crop window, as a real export writes it: a matrix of the
+        ; paint's own, beside the bitmap and not the node's transform.
+        s.addField(paint "imageScaleMode" "string" 8 false)
+        s.addField(paint "transform" "Transform" 9 false)
         def fx:KiwiDef (s.addMessage("Effect"))
         s.addField(fx "type" "string" 1 false)
         s.addField(fx "offset" "Vector" 2 false)
@@ -315,6 +319,25 @@ class FigSample {
         o.put("visible" (KiwiValue.fromBool(true)))
         def a:KiwiValue (KiwiValue.fromArray())
         a.pushItem(o)
+        return a
+    }
+
+    ; The same paint with a crop window on it: the box shows the part of the
+    ; bitmap from (x,y) to (x+w,y+h) in the image's own 0..1 space, stretched
+    ; to fill. This is Figma's own CROP — `imageScaleMode: STRETCH` with a
+    ; matrix whose m02/m12 are the window's corner and m00/m11 its size.
+    sfn croppedImagePaint:KiwiValue (hash:string x:double y:double w:double h:double) {
+        def a:KiwiValue (FigSample.imagePaint(hash))
+        def o:KiwiValue (a.item(0))
+        o.put("imageScaleMode" (KiwiValue.fromString("STRETCH")))
+        def t:KiwiValue (KiwiValue.fromObject())
+        t.put("m00" (KiwiValue.fromDouble(w)))
+        t.put("m01" (KiwiValue.fromDouble(0.0)))
+        t.put("m02" (KiwiValue.fromDouble(x)))
+        t.put("m10" (KiwiValue.fromDouble(0.0)))
+        t.put("m11" (KiwiValue.fromDouble(h)))
+        t.put("m12" (KiwiValue.fromDouble(y)))
+        o.put("transform" t)
         return a
     }
 
@@ -1175,6 +1198,15 @@ class FigSample {
         def stampish:KiwiValue (FigSample.node(3 83 "FRAME" "PhotoFrame" 0 3 "f0" 80.0 80.0 2580.0 1660.0))
         stampish.put("fillPaints" (FigSample.imagePaint("abc123")))
         nodes.pushItem(stampish)
+
+        ; The same picture again, cropped: the box shows the middle of the
+        ; bitmap and not the whole of it. Two boxes of one screenshot,
+        ; cropped to two halves, are the same size and the same bytes and
+        ; differ ONLY in this matrix — drop it and the board shows the same
+        ; picture twice.
+        def cropped:KiwiValue (FigSample.node(3 89 "RECTANGLE" "CroppedPhoto" 0 3 "f05" 80.0 80.0 2700.0 1660.0))
+        cropped.put("fillPaints" (FigSample.croppedImagePaint("abc123" 0.25 0.5 0.5 0.25)))
+        nodes.pushItem(cropped)
 
         ; A turned box with a path inside it. The rotation is on the box;
         ; the path is a child and carries none of its own, so the only way

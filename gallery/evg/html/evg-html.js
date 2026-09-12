@@ -419,8 +419,17 @@ export function renderDisplayList(target, doc, opts = {}) {
         // crop the overflow, centred, rather than distort the picture. The GL
         // backend computes the same crop as a UV rectangle because a quad has
         // nowhere else to put it.
-        let attrs = `x="${n(c.x)}" y="${n(c.y)}" width="${n(c.w)}" height="${n(c.h)}"` +
-                    ` preserveAspectRatio="xMidYMid slice" href="${esc(img.src)}"`;
+        // A crop window (`cu`, in the bitmap's own 0..1 space) is drawn by
+        // placing the WHOLE picture on the larger rectangle that puts that
+        // window over the box, and clipping to the box. `none` because the
+        // window is stretched to fill the box exactly — Figma's crop tool
+        // already keeps it the shape of the frame, so nothing is distorted.
+        const cu = c.cu;
+        const cw = cu ? cu[2] - cu[0] : 1, chh = cu ? cu[3] - cu[1] : 1;
+        const dw = cu ? c.w / cw : c.w, dh = cu ? c.h / chh : c.h;
+        const dx = cu ? c.x - cu[0] * dw : c.x, dy = cu ? c.y - cu[1] * dh : c.y;
+        let attrs = `x="${n(dx)}" y="${n(dy)}" width="${n(dw)}" height="${n(dh)}"` +
+                    ` preserveAspectRatio="${cu ? "none" : "xMidYMid slice"}" href="${esc(img.src)}"`;
         const transforms = [];
         if (c.rot) {
           const cx = c.rox === undefined ? c.x + c.w / 2 : c.rox;
@@ -435,10 +444,12 @@ export function renderDisplayList(target, doc, opts = {}) {
         }
         if (transforms.length) attrs += ` transform="${transforms.join(" ")}"`;
         const r = radiiOf(c);
-        if (r.some((v) => v > 0)) {
+        if (r.some((v) => v > 0) || cu) {
           // A photo in a rounded box is clipped by the same shape the box is
           // drawn with — the GL backend runs it through the same distance
-          // field for the same reason.
+          // field for the same reason. A cropped one is clipped to the box
+          // whatever its corners: the picture is drawn larger than the box
+          // on purpose and the rest of it must not show.
           const id = `evgimgclip${uid++}`;
           defs.push(`<clipPath id="${id}"><path d="${roundedPath(c.x, c.y, c.w, c.h, r)}"/></clipPath>`);
           body.push(`<g clip-path="url(#${id})"><image ${attrs}/></g>`);

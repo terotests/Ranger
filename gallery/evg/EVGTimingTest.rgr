@@ -695,6 +695,72 @@ class EVGTimingTest {
         c.ok("the flipped box was drawn" seen)
     }
 
+    ; A PICTURE IS NOT ALWAYS SHOWN WHOLE. Figma keeps a crop window on the
+    ; paint, and a list that drops it draws the whole frame where a detail
+    ; belongs: on a board where two boxes show two halves of one screenshot,
+    ; the boxes are the same size and the same bytes and differ ONLY in that
+    ; window, so dropping it drew the same picture twice. The window is in
+    ; the SOURCE's own 0..1 space, so no page transform touches it, and it
+    ; may reach past the bitmap — a crop zoomed out past the picture leaves
+    ; a margin the picture does not cover.
+    sfn hasSub:boolean (s:string needle:string) {
+        def m:int (strlen needle)
+        def n:int (strlen s)
+        def i:int 0
+        while (i <= (n - m)) {
+            if ((substring s i (i + m)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn checkImageCrop:void (c:TimingCheck) {
+        def page (new EVGElement())
+        page.setAttribute("width" "200")
+        page.setAttribute("height" "200")
+        def img (new EVGElement())
+        img.setAttribute("width" "100")
+        img.setAttribute("height" "50")
+        img.src = "photo.png"
+        img.setAttribute("image-view-box" "0.25 0.5 0.5 0.25")
+        page.addChild(img)
+        def plain (new EVGElement())
+        plain.setAttribute("width" "100")
+        plain.setAttribute("height" "50")
+        plain.src = "photo.png"
+        page.addChild(plain)
+        def layout (new EVGLayout())
+        layout.layout(page)
+        def dl (new EVGDisplayList())
+        dl.build(page)
+        def cropped:int 0
+        def whole:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 2) {
+                if cmd.hasCrop {
+                    cropped = (cropped + 1)
+                    c.near("the window starts a quarter across" cmd.cropX 0.25)
+                    c.near("and halfway down" cmd.cropY 0.5)
+                    c.near("and is half the width" cmd.cropW 0.5)
+                    c.near("and a quarter of the height" cmd.cropH 0.25)
+                } {
+                    whole = (whole + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        c.ok("the cropped picture carries its window" (cropped == 1))
+        ; An uncropped picture has to stay uncropped: 0,0,1,1 is a legal
+        ; window, so the flag is what separates them and not the numbers.
+        c.ok("and the uncropped one carries none" (whole == 1))
+        def json:string (dl.toJson())
+        c.ok("the window reaches the painter as a UV rectangle" (EVGTimingTest.hasSub(json "\"cu\":[0.2500,0.5000,0.7500,0.7500]")))
+    }
+
     ; A CLIP INSIDE A TURN IS NOT A CLIP. It crosses the list as x/y/w/h
     ; and every backend makes it a scissor, which is axis-aligned; the
     ; rotation that moves the pixels cannot move the rectangle with them,
@@ -1179,6 +1245,7 @@ class EVGTimingTest {
         EVGTimingTest.checkTransformOrigin(c)
         EVGTimingTest.checkTransformScale(c)
         EVGTimingTest.checkMirroredBox(c)
+        EVGTimingTest.checkImageCrop(c)
         EVGTimingTest.checkClipInsideTurn(c)
         EVGTimingTest.checkClipWithoutTurn(c)
         EVGTimingTest.checkTransformTransition(c)

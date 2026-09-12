@@ -20,6 +20,18 @@ class FigPaint {
     ; the shape — beside the bitmap, and neither is the node's transform.
     def imageRotation:double 0.0
     def imageCropped:boolean false
+    ; The part of the bitmap the box shows, in the image's own 0..1 space:
+    ; x from cropX to cropX+cropW, y from cropY to cropY+cropH, stretched to
+    ; fill the box. This is the paint matrix read straight — m02/m12 are the
+    ; corner and m00/m11 the size — and it is the reading the file itself
+    ; confirms: in every cropped paint of a real board, (m00*imgW)/(m11*imgH)
+    ; equals the box's own aspect, because Figma's crop tool keeps the crop
+    ; rectangle the shape of the frame. A region may reach outside 0..1; the
+    ; picture then does not cover the whole box and the rest stays empty.
+    def cropX:double 0.0
+    def cropY:double 0.0
+    def cropW:double 1.0
+    def cropH:double 1.0
 
     Constructor () {
     }
@@ -316,6 +328,14 @@ class FigModel {
             def off:double (((fabs (dm00 - 1.0)) + (fabs (dm11 - 1.0))) + (((fabs dm01) + (fabs dm10)) + ((fabs dm02) + (fabs dm12))))
             if (off > 0.001) {
                 p.imageCropped = true
+                if ((fabs dm00) > 0.0001) {
+                    p.cropW = dm00
+                    p.cropX = dm02
+                }
+                if ((fabs dm11) > 0.0001) {
+                    p.cropH = dm11
+                    p.cropY = dm12
+                }
             }
         }
         return p

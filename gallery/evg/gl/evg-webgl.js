@@ -191,6 +191,10 @@ void main() {
     // Image: the UV rectangle already carries the object-fit crop, so this is
     // a plain sample. The radius still applies — a photo in a rounded box is
     // clipped by the same distance field the box itself is drawn with.
+    // A crop window may reach past the bitmap — Figma stores one whenever the
+    // picture is zoomed out inside its frame. CLAMP_TO_EDGE would smear the
+    // edge pixel across that margin; the picture simply does not cover there.
+    if (vUV.x < -0.001 || vUV.x > 1.001 || vUV.y < -0.001 || vUV.y > 1.001) discard;
     vec4 tex = texture(uImage, vUV);
     float d;
     float cov = boxCoverage(d);
@@ -1734,7 +1738,11 @@ function buildFrame(gl, doc, opts = {}) {
       // Everything queued so far has to be drawn BEFORE this photo, or the
       // page paints out of order.
       flush();
-      const uv = coverUV(t.w, t.h, c.w, c.h);
+      // A crop is a UV rectangle the command brought with it, in the
+      // bitmap's own 0..1 space; cover is the one computed here when it did
+      // not. Either way the quad is the box and only the sampling changes,
+      // so a cropped photo costs nothing extra.
+      const uv = c.cu ? c.cu : coverUV(t.w, t.h, c.w, c.h);
       // Mirrored is the same quad read the other way round: aUV is
       // (u0,v0,u1,v1) and the fragment mixes between them, so swapping the
       // ends flips the picture without touching the geometry.

@@ -224,6 +224,7 @@ class SceneToEVG {
             if (n.kind == "image") {
                 el.src = (assets.resolveImage(f.imageRef))
                 el.setAttribute("object-fit" (this.fitOf(f.imageFit)))
+                this.applyCrop(el f)
             } {
                 el.setAttribute("background-color" "#cccccc")
             }
@@ -505,6 +506,26 @@ class SceneToEVG {
             el.src = (assets.resolveImage(ref))
         }
         el.setAttribute("object-fit" (this.fitOf(n.imageFit)))
+        if ((array_length n.fills) > 0) {
+            def cf:SceneFill (n.firstFill())
+            if (cf.kind == "image") {
+                this.applyCrop(el cf)
+            }
+        }
+    }
+
+    ; The paint's crop rectangle, as the window the element shows. Figma
+    ; keeps it on the fill and it is not the node's transform: two boxes of
+    ; one screenshot, cropped to its two halves, are the same bitmap and the
+    ; same size and differ only here. Dropping it drew the same picture
+    ; twice.
+    fn applyCrop:void (el:EVGElement f:SceneFill) {
+        if (f.imageCropped == false) {
+            return
+        }
+        def v:string ((to_string f.cropX) + " " + (to_string f.cropY))
+        v = (v + " " + (to_string f.cropW) + " " + (to_string f.cropH))
+        el.setAttribute("image-view-box" v)
     }
 
     fn applyPath:void (el:EVGElement n:SceneNode) {

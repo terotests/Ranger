@@ -334,17 +334,13 @@ class FigToScene {
         ; What a picture does INSIDE its box is the paint's business, not the
         ; node's: Figma keeps a turn and a matrix on the image fill — where
         ; the picture is cropped and panned within the shape — and neither
-        ; is the node's transform. The list draws a picture upright and
-        ; whole into the element's box, so both are lost, and a photo that
-        ; should be a detail of itself comes out as the whole frame.
+        ; is the node's transform. The crop now crosses to the list; the
+        ; turn still does not.
         if ((array_length sn.fills) > 0) {
             def imf:SceneFill (sn.firstFill())
             if (imf.kind == "image") {
                 if ((imf.imageRotation > 0.01) || (imf.imageRotation < (0.0 - 0.01))) {
                     sn.warn("an image turned inside its box (drawn upright)")
-                }
-                if imf.imageCropped {
-                    sn.warn("an image cropped or panned inside its box (drawn whole)")
                 }
             }
         }
@@ -1074,6 +1070,10 @@ class FigToScene {
                 f.imageFit = (FigToScene.scaleFit(p.scaleMode))
                 f.imageRotation = p.imageRotation
                 f.imageCropped = p.imageCropped
+                f.cropX = p.cropX
+                f.cropY = p.cropY
+                f.cropW = p.cropW
+                f.cropH = p.cropH
             }
             if (p.kind == "GRADIENT_LINEAR") {
                 f.kind = "gradient"

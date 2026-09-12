@@ -419,6 +419,28 @@ class FigTest {
         this.eqStr("a container whose fill is a picture IS the picture" photo.kind "image")
         this.eqStr("and it names the image" photo.imageRef "abc123")
 
+        ; A picture is not always shown whole. Figma keeps the crop window on
+        ; the PAINT — a matrix beside the bitmap, not the node's transform —
+        ; and a reader that drops it draws the whole frame where a detail
+        ; belongs. On a board where two boxes show two halves of one
+        ; screenshot, the two boxes are the same size and the same bytes and
+        ; differ only here, so dropping it drew the same picture twice.
+        def crop:SceneNode (shapes.childNamed("CroppedPhoto"))
+        this.eqStr("a cropped picture is still the picture" crop.kind "image")
+        if ((array_length crop.fills) > 0) {
+            def cf:SceneFill (crop.firstFill())
+            this.check("the crop is read off the paint" cf.imageCropped)
+            this.close("the window starts a quarter across" cf.cropX 0.25)
+            this.close("and halfway down" cf.cropY 0.5)
+            this.close("and is half the width" cf.cropW 0.5)
+            this.close("and a quarter of the height" cf.cropH 0.25)
+        }
+        def toEvg (new SceneToEVG())
+        def cropEl:EVGElement (toEvg.emit(crop))
+        this.check("and crosses to the element as a window" cropEl.imageViewBoxSet)
+        this.close("starting where the paint said" cropEl.imageViewBoxX 0.25)
+        this.close("and as wide as the paint said" cropEl.imageViewBoxW 0.5)
+
         ; A nested instance carries entries for the same nodes as the one
         ; outside it, saying what the component laid out rather than what
         ; this instance of it did. Replacing the outer table with them drew

@@ -19,6 +19,12 @@ class SceneFill {
     ; part of it. Neither is the node's transform and neither is drawn.
     def imageRotation:double 0.0
     def imageCropped:boolean false
+    ; The visible part of the bitmap, in the image's own 0..1 space. See
+    ; FigPaint: x from cropX to cropX+cropW stretched across the box.
+    def cropX:double 0.0
+    def cropY:double 0.0
+    def cropW:double 1.0
+    def cropH:double 1.0
     def gradR:double 0.0
     def gradG:double 0.0
     def gradB:double 0.0

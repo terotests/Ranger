@@ -809,7 +809,8 @@ class FigApp {
                     o = (o + ", turned " + (to_string f.imageRotation) + " degrees INSIDE the box — not drawn")
                 }
                 if f.imageCropped {
-                    o = (o + ", and cropped or panned inside the box — not drawn, it goes in whole")
+                    o = (o + ", showing the part of it from " + (to_string f.cropX) + "," + (to_string f.cropY))
+                    o = (o + " and " + (to_string f.cropW) + " by " + (to_string f.cropH) + " of the bitmap")
                 }
             }
             fi = (fi + 1)
