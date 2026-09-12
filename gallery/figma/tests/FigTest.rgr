@@ -862,7 +862,12 @@ class FigTest {
         this.check("viewport painted in the canvas colour" (FigTest.hasSub(dump "background=\"#F5F5F5\"")))
         this.check("no text spans" ((FigTest.hasSub(dump "<span")) == false))
         this.check("no text background" ((FigTest.hasSub(dump "fill=\"#F7F5F0\" d=\"M")) == true))
-        this.eqInt("no warnings" (array_length app.sceneDoc.warnings) 0)
+        ; Nothing here is drawn wrong, and the only thing not drawn at all
+        ; is the shadow under the two cards — read, carried to a native
+        ; host, and absent on this page.
+        def hw:string (app.warningsJson())
+        this.eqInt("only the shadows are reported" (array_length app.sceneDoc.warnings) 2)
+        this.check("and that is what they say" (FigTest.hasSub(hw "drop shadow")))
     }
 
     ; A paste from Figma: fig-kiwi bytes with no ZIP, and only the copied

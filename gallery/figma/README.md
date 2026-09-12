@@ -53,7 +53,7 @@ JavaScript.
 | image | yes — `createImg()` + `src` + `object-fit` |
 | SVG path | yes — `createPath()` + `d`; `fill` / `stroke-width` |
 | gradient | yes — 2-stop linear `gradient-from` / `gradient-to` / `gradient-dir`, each end with its own alpha |
-| shadow | yes — `shadow-radius` / `shadow-color` / `shadow-offset-x/y` |
+| shadow | read and carried, **not drawn here** — the element takes `shadow-radius` / `shadow-color` / `shadow-offset-x/y` and `EVGHostTree` hands them to a native host, but the display list the browser painter reads never carries them. Counted as not drawn. |
 | flex row/column | yes — Auto Layout only |
 | gap | yes |
 | padding | yes |

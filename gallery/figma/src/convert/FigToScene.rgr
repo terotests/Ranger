@@ -1614,6 +1614,13 @@ class FigToScene {
                 kind = ""
             }
             if ((kind == "DROP_SHADOW") || (kind == "drop-shadow")) {
+                ; Read and carried — `EVGHostTree` hands it to a native
+                ; host — but the display list the browser painter reads
+                ; does not carry a shadow, so on this page it does not
+                ; draw. Said rather than left to be noticed: a board of
+                ; stickies is a board of shadows, and their absence is the
+                ; kind of difference that reads as "it just looks flat".
+                sn.warn("drop shadow (not drawn by the web painter)")
                 def s (new SceneEffect())
                 s.kind = "drop-shadow"
                 s.x = (e.childDouble("offset.x" (e.child("offset").childDouble("x" 0.0))))
