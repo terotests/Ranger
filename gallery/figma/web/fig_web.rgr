@@ -132,6 +132,12 @@ class FigWeb {
         app.editClip(on)
     }
 
+    ; The boxes a drag can line up with — siblings and the parent, in page
+    ; coordinates. See `FigApp.snapBoxesJson`.
+    fn snapBoxes:string () {
+        return (app.snapBoxesJson())
+    }
+
     fn revertEdits:void () {
         app.revertEdits()
     }

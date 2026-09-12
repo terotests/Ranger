@@ -813,8 +813,14 @@ class FigApp {
         o = (o + ",\"x\":" + (to_string nd.m02) + ",\"y\":" + (to_string nd.m12))
         o = (o + ",\"w\":" + (to_string nd.w) + ",\"h\":" + (to_string nd.h))
         o = (o + "}")
-        o = (o + ",\"scene\":" + (sn.toJson()))
-        o = (o + ",\"evg\":\"" + (this.esc((this.evgText()))) + "\"")
+        ; THE SELECTED LAYER, not the page around it. This used to carry
+        ; `evgText()` — the WHOLE page's element tree, escaped a character at
+        ; a time — beside a scene walk 24 levels deep. Nothing read the
+        ; element tree and nobody can read twelve megabytes of JSON, and
+        ; building it was 2.8 seconds of a 5-second profile of clicking a
+        ; layer. Four levels is what a reader is actually checking: this
+        ; layer, and what it is made of.
+        o = (o + ",\"scene\":" + (sn.toJsonDepth(20)))
         return (o + "}")
     }
 
@@ -1466,6 +1472,52 @@ class FigApp {
             i = (i + 1)
         }
         return (new SceneNode())
+    }
+
+    ; THE BOXES A DRAG CAN LINE UP WITH: what the selected layer sits
+    ; beside, and the box it sits in. In PAGE coordinates, because that is
+    ; the frame the host drags in and the only one in which two layers from
+    ; different parents can be said to line up at all.
+    ;
+    ; Siblings and the parent, and nothing further: a board is thousands of
+    ; layers and a guide to one on the other side of it is a guide to
+    ; nothing. What a hand is actually trying to line up with is next to it.
+    fn snapBoxesJson:string () {
+        if ((strlen selected) == 0) {
+            return "[]"
+        }
+        def par:SceneNode (this.parentScene(selected))
+        if ((strlen par.id) == 0) {
+            return "[]"
+        }
+        def out:string "["
+        def first:boolean true
+        def pb:SceneNode (this.absBox(par.id))
+        if (pb.w > 0.0) {
+            out = (out + (FigApp.boxJson(pb)))
+            first = false
+        }
+        def i:int 0
+        while (i < (array_length par.children)) {
+            def ch:SceneNode (itemAt par.children i)
+            if ((ch.id != selected) && ch.visible) {
+                def b:SceneNode (this.absBox(ch.id))
+                if ((b.w > 0.0) && (b.h > 0.0)) {
+                    if (first == false) {
+                        out = (out + ",")
+                    }
+                    out = (out + (FigApp.boxJson(b)))
+                    first = false
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
+    sfn boxJson:string (b:SceneNode) {
+        return ("{\"x\":" + (to_string b.x) + ",\"y\":" + (to_string b.y)
+            + ",\"w\":" + (to_string b.w) + ",\"h\":" + (to_string b.h) + "}")
     }
 
     ; THE TURN, as an angle about the layer's own origin — which is where

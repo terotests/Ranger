@@ -36,6 +36,8 @@ const rulerTopEl = document.getElementById("rulertop");
 const rulerLeftEl = document.getElementById("rulerleft");
 const sizeBadgeEl = document.getElementById("sizebadge");
 const boardEl = document.getElementById("board");
+const handlesEl = document.getElementById("handles");
+const guidesEl = document.getElementById("guides");
 const toolMoveEl = document.getElementById("toolmove");
 const toolHandEl = document.getElementById("toolhand");
 const debugBtnEl = document.getElementById("debugbtn");
@@ -1240,8 +1242,17 @@ function renderAssets() {
 }
 
 /** The raw node beside the layer it became — the pane the Debug checkbox used
- *  to push into the middle of the inspector. */
+ *  to push into the middle of the inspector.
+ *
+ * ONLY WHEN THE TAB IS SHOWING. `props()` serialises the selected node's whole
+ * raw subtree AND the scene it became; on a board's section that is twelve
+ * megabytes of JSON, built in Ranger, escaped a character at a time and parsed
+ * back. Called on every selection change it was the selection change: 2.8
+ * seconds of a 5-second profile, under `jsonEscape`, for a pane nobody was
+ * looking at. A hidden pane costs nothing now, and switching to it builds it.
+ */
 function renderRaw() {
+  if (!rawEl || rawEl.parentElement?.hidden) return;
   try {
     const props = JSON.parse(web.props());
     rawEl.textContent = JSON.stringify({ figma: props.figma, scene: props.scene }, null, 2);
@@ -1339,11 +1350,332 @@ function placeSizeBadge() {
   sizeBadgeEl.textContent = `${round(d.w)} × ${round(d.h)}`;
 }
 
+
+/* ---------------------------------------------------------------------------
+ * The selection, as something you can take hold of.
+ *
+ * The panel could always move a layer — type a number into X. What it could
+ * not do is the thing a hand does: put the layer where it looks right. So the
+ * selection gets a body to drag, eight handles to resize by, a ring to turn
+ * it with, and a snap that lines it up with what is beside it.
+ *
+ * All of it is DOM over the board rather than commands in the display list. A
+ * handle has to stay 9 pixels whatever the zoom — in the list it would grow
+ * with the board — and a drag on one must NOT reach the gesture handler
+ * underneath, which would pan instead. An element that stops the event is the
+ * whole of that second problem solved.
+ *
+ * Every drag ends in `editRect` or `editRotation`, the same two calls the
+ * fields in the panel make. Nothing is written back to the file.
+ * ------------------------------------------------------------------------- */
+
+const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+const SNAP_PX = 6;          // how near, in SCREEN pixels, counts as lined up
+
+let handleEls = null;
+let dragging = null;
+
+function buildHandles() {
+  if (handleEls) return handleEls;
+  handlesEl.textContent = "";
+  // One group, so a turned layer's handles turn with it: they are placed on
+  // the layer's UNTURNED box and the group carries the angle, about the same
+  // origin Figma turns a layer about — its own top-left corner.
+  const group = el("div", "grp");
+  handlesEl.append(group);
+  const body = el("div", "body");
+  group.append(body);
+  const hs = {};
+  for (const k of HANDLES) {
+    const h = el("div", "h " + k);
+    group.append(h);
+    hs[k] = h;
+  }
+  const rot = el("div", "rot");
+  group.append(rot);
+  handleEls = { group, body, hs, rot };
+  body.addEventListener("pointerdown", (e) => startDrag(e, "move"));
+  for (const k of HANDLES) hs[k].addEventListener("pointerdown", (e) => startDrag(e, k));
+  rot.addEventListener("pointerdown", (e) => startDrag(e, "rotate"));
+  return handleEls;
+}
+
+/** Where the selection's box is on the screen, from the same view the board
+ *  is drawn with. Null when there is nothing selected or it is off-screen. */
+function selectionScreenBox() {
+  let d = null;
+  try { d = JSON.parse(web.inspect()); } catch { d = null; }
+  if (!d || !d.id || !(d.w > 0) || !(d.h > 0)) return null;
+  const v = viewNow();
+  return {
+    d,
+    x: d.pageX * v.sc + v.x,
+    y: d.pageY * v.sc + v.y,
+    w: d.w * v.sc,
+    h: d.h * v.sc,
+    sc: v.sc,
+  };
+}
+
+/** The handles, placed. Called on every paint and every pan, like the badge:
+ *  they follow the view rather than the document. */
+function placeHandles() {
+  if (!handlesEl) return;
+  // Mid-drag the box is being rewritten on every move; placing it again from
+  // the engine is what keeps the handle under the finger.
+  const b = selectionScreenBox();
+  if (!b || handTool) { handlesEl.hidden = true; return; }
+  const r = boardEl.getBoundingClientRect();
+  if (b.x > r.width || b.y > r.height || b.x + b.w < 0 || b.y + b.h < 0) {
+    handlesEl.hidden = true;
+    return;
+  }
+  const { group, body, hs, rot } = buildHandles();
+  handlesEl.hidden = false;
+  const deg = b.d.rotation || 0;
+  group.style.transformOrigin = b.x + "px " + b.y + "px";
+  group.style.transform = deg ? `rotate(${deg}deg)` : "";
+  body.style.left = b.x + "px";
+  body.style.top = b.y + "px";
+  body.style.width = b.w + "px";
+  body.style.height = b.h + "px";
+  const at = { nw: [0, 0], n: [0.5, 0], ne: [1, 0], e: [1, 0.5],
+               se: [1, 1], s: [0.5, 1], sw: [0, 1], w: [0, 0.5] };
+  // A box too small to hold them would be all handle and no box: below that
+  // the corners stay and the edges go.
+  const tight = b.w < 34 || b.h < 34;
+  for (const k of HANDLES) {
+    const [fx, fy] = at[k];
+    hs[k].style.left = (b.x + b.w * fx) + "px";
+    hs[k].style.top = (b.y + b.h * fy) + "px";
+    hs[k].hidden = tight && k.length === 1;
+  }
+  rot.style.left = (b.x + b.w / 2) + "px";
+  rot.style.top = (b.y - 22) + "px";
+}
+
+/** The lines the selection is currently lined up with. */
+function showGuides(lines) {
+  if (!guidesEl) return;
+  guidesEl.textContent = "";
+  const r = boardEl.getBoundingClientRect();
+  for (const g of lines) {
+    const d = el("div");
+    if (g.axis === "x") {
+      d.style.left = g.at + "px";
+      d.style.top = "0";
+      d.style.width = "1px";
+      d.style.height = r.height + "px";
+    } else {
+      d.style.left = "0";
+      d.style.top = g.at + "px";
+      d.style.width = r.width + "px";
+      d.style.height = "1px";
+    }
+    guidesEl.append(d);
+  }
+}
+
+/** The edges and centres of what the selection sits beside, in PAGE units.
+ *  Read once when a drag starts: the board does not change under it. */
+function snapSources() {
+  try {
+    const boxes = JSON.parse(web.snapBoxes());
+    const xs = [];
+    const ys = [];
+    for (const b of boxes) {
+      xs.push(b.x, b.x + b.w / 2, b.x + b.w);
+      ys.push(b.y, b.y + b.h / 2, b.y + b.h);
+    }
+    return { xs, ys };
+  } catch {
+    return { xs: [], ys: [] };
+  }
+}
+
+/** The nudge that lines `edges` up with one of `lines`, or 0. The delta is
+ *  ADJUSTED, never replaced: a layer never jumps to a guide it was not
+ *  already beside — the same rule the slide editor snaps by. */
+function nearestSnap(edges, lines, tol) {
+  let best = 0;
+  let bestGap = tol;
+  let hit = null;
+  for (const e of edges) {
+    for (const L of lines) {
+      const gap = Math.abs(L - e);
+      if (gap < bestGap) { bestGap = gap; best = L - e; hit = L; }
+    }
+  }
+  return { by: best, at: hit };
+}
+
+function startDrag(ev, mode) {
+  const b = selectionScreenBox();
+  if (!b) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  ev.target.setPointerCapture(ev.pointerId);
+  const v = viewNow();
+  dragging = {
+    mode,
+    id: b.d.id,
+    from: { x: b.d.x, y: b.d.y, w: b.d.w, h: b.d.h },
+    pageFrom: { x: b.d.pageX, y: b.d.pageY },
+    rot0: b.d.rotation || 0,
+    startX: ev.clientX,
+    startY: ev.clientY,
+    sc: v.sc,
+    centre: { x: b.x + b.w / 2, y: b.y + b.h / 2 },
+    snap: snapSources(),
+    moved: false,
+  };
+  ev.target.addEventListener("pointermove", onDragMove);
+  ev.target.addEventListener("pointerup", endDrag);
+  ev.target.addEventListener("pointercancel", endDrag);
+}
+
+function onDragMove(ev) {
+  if (!dragging) return;
+  const g = dragging;
+  const px = ev.clientX - g.startX;
+  const py = ev.clientY - g.startY;
+  if (Math.abs(px) > 2 || Math.abs(py) > 2) g.moved = true;
+  if (!g.moved) return;
+
+  if (g.mode === "rotate") {
+    const r = boardEl.getBoundingClientRect();
+    const cx = ev.clientX - r.left - g.centre.x;
+    const cy = ev.clientY - r.top - g.centre.y;
+    let deg = (Math.atan2(cy, cx) * 180) / Math.PI + 90;
+    // Shift steps by fifteen, which is where a turn is usually wanted and
+    // never quite where a hand stops.
+    if (ev.shiftKey) deg = Math.round(deg / 15) * 15;
+    while (deg > 180) deg -= 360;
+    while (deg < -180) deg += 360;
+    web.editRotation(deg);
+    afterDragEdit();
+    return;
+  }
+
+  // Screen pixels into board units: one is the other divided by the zoom.
+  let dx = px / g.sc;
+  let dy = py / g.sc;
+  // A TURNED LAYER IS RESIZED IN ITS OWN FRAME. The handle the hand is on
+  // points along the layer's axes, not the page's, so the pointer's travel
+  // is turned back by the layer's angle before it is read as a width.
+  if (g.mode !== "move" && g.rot0) {
+    const r = (-g.rot0 * Math.PI) / 180;
+    const c = Math.cos(r), sn = Math.sin(r);
+    const ux = dx * c - dy * sn;
+    const uy = dx * sn + dy * c;
+    dx = ux;
+    dy = uy;
+  }
+  // …and its edges are then not the page's edges either, so there is nothing
+  // for them to line up with. Snapping is for boxes that share a frame.
+  const canSnap = !g.rot0;
+  const tol = SNAP_PX / g.sc;
+  const lines = [];
+
+  if (g.mode === "move") {
+    const ex = [g.pageFrom.x + dx, g.pageFrom.x + g.from.w / 2 + dx, g.pageFrom.x + g.from.w + dx];
+    const ey = [g.pageFrom.y + dy, g.pageFrom.y + g.from.h / 2 + dy, g.pageFrom.y + g.from.h + dy];
+    const sx = canSnap ? nearestSnap(ex, g.snap.xs, tol) : { by: 0, at: null };
+    const sy = canSnap ? nearestSnap(ey, g.snap.ys, tol) : { by: 0, at: null };
+    dx += sx.by;
+    dy += sy.by;
+    const v = viewNow();
+    if (sx.at != null) lines.push({ axis: "x", at: sx.at * v.sc + v.x });
+    if (sy.at != null) lines.push({ axis: "y", at: sy.at * v.sc + v.y });
+    web.editRect(g.from.x + dx, g.from.y + dy, g.from.w, g.from.h);
+  } else {
+    // A handle moves the edges it is ON and no others — the right-hand one
+    // cannot line the left edge up with anything, and offering to is how a
+    // resize ends up dragging the far side of the box about.
+    const k = g.mode;
+    const west = k.includes("w");
+    const east = k.includes("e");
+    const north = k.startsWith("n");
+    const south = k.startsWith("s");
+    const v = viewNow();
+    if (west || east) {
+      const edge = west ? g.pageFrom.x + dx : g.pageFrom.x + g.from.w + dx;
+      const s = canSnap ? nearestSnap([edge], g.snap.xs, tol) : { by: 0, at: null };
+      dx += s.by;
+      if (s.at != null) lines.push({ axis: "x", at: s.at * v.sc + v.x });
+    }
+    if (north || south) {
+      const edge = north ? g.pageFrom.y + dy : g.pageFrom.y + g.from.h + dy;
+      const s = canSnap ? nearestSnap([edge], g.snap.ys, tol) : { by: 0, at: null };
+      dy += s.by;
+      if (s.at != null) lines.push({ axis: "y", at: s.at * v.sc + v.y });
+    }
+    let { x, y, w, h } = g.from;
+    if (west) { x += dx; w -= dx; }
+    if (east) { w += dx; }
+    if (north) { y += dy; h -= dy; }
+    if (south) { h += dy; }
+    // Shift keeps the shape: a corner takes the larger of the two changes
+    // and applies it to both, which is what "do not distort this" means.
+    if (ev.shiftKey && (west || east) && (north || south) && g.from.w > 0 && g.from.h > 0) {
+      const k2 = Math.max(w / g.from.w, h / g.from.h);
+      const nw2 = g.from.w * k2;
+      const nh2 = g.from.h * k2;
+      if (west) x = g.from.x + g.from.w - nw2;
+      if (north) y = g.from.y + g.from.h - nh2;
+      w = nw2;
+      h = nh2;
+    }
+    // A box cannot be turned inside out by dragging past its far edge.
+    if (w < 1) { w = 1; if (west) x = g.from.x + g.from.w - 1; }
+    if (h < 1) { h = 1; if (north) y = g.from.y + g.from.h - 1; }
+    web.editRect(x, y, w, h);
+  }
+  showGuides(lines);
+  afterDragEdit();
+}
+
+/** A drag paints, and it does NOT rebuild the panel: the fields would be torn
+ *  out from under the hand on every pointermove. The panel catches up when
+ *  the drag ends. */
+function afterDragEdit() {
+  scheduleFrame();
+  placeHandles();
+  placeSizeBadge();
+}
+
+function endDrag(ev) {
+  if (!dragging) return;
+  const g = dragging;
+  const t = ev.target;
+  t.removeEventListener("pointermove", onDragMove);
+  t.removeEventListener("pointerup", endDrag);
+  t.removeEventListener("pointercancel", endDrag);
+  try { t.releasePointerCapture(ev.pointerId); } catch { /* already gone */ }
+  dragging = null;
+  showGuides([]);
+  // A PRESS THAT DID NOT TRAVEL IS A CLICK, and a click on the body should
+  // pick what is under it rather than keep what happens to be selected —
+  // otherwise a big section, once selected, swallows every click inside it.
+  if (!g.moved && g.mode === "move") {
+    selectAt(ev.clientX, ev.clientY);
+    return;
+  }
+  if (g.moved) {
+    inspectedId = null;       // the panel re-reads the numbers the drag wrote
+    refreshInspector();
+    const revert = inspEl.querySelector(".foot button + button");
+    if (revert) revert.disabled = false;
+    draw();
+  }
+}
+
 /** Everything that follows the view rather than the document. Called on every
  *  paint and on every pan, which is why it touches no engine state. */
 function refreshOverlays() {
   drawRulers();
   placeSizeBadge();
+  placeHandles();
   const pct = Math.round(web.viewScale() * 100) + "%";
   if (zoomReadEl) zoomReadEl.textContent = pct;
 }
@@ -1357,6 +1689,7 @@ function setTool(hand) {
   if (toolMoveEl) toolMoveEl.setAttribute("aria-pressed", hand ? "false" : "true");
   if (toolHandEl) toolHandEl.setAttribute("aria-pressed", hand ? "true" : "false");
   boardEl.classList.toggle("hand", hand);
+  placeHandles();
 }
 if (toolMoveEl) toolMoveEl.addEventListener("click", () => setTool(false));
 if (toolHandEl) toolHandEl.addEventListener("click", () => setTool(true));

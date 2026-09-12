@@ -780,6 +780,18 @@ class FigTest {
         this.check("and an alignment" (FigTest.hasSub(styled "\"align\":\"center\"")))
         app.editClip(true)
         this.check("a container can be told to cut its children off" (FigTest.hasSub((app.inspectJson()) "\"clip\":true")))
+
+        ; THE BOXES A DRAG CAN LINE UP WITH. A hand puts a layer where it
+        ; looks right, and what "right" means is the edges of what is beside
+        ; it — so the host is handed the siblings and the parent, in page
+        ; coordinates, and nothing further: a guide to a layer on the other
+        ; side of a board is a guide to nothing.
+        def snaps:string (app.snapBoxesJson())
+        this.check("the drag is given boxes to line up with" (FigTest.hasSub(snaps "\"x\":")))
+        this.check("with their sizes, so centres and far edges count too" (FigTest.hasSub(snaps "\"w\":")))
+        app.select("")
+        this.eqStr("and nothing selected lines up with nothing" (app.snapBoxesJson()) "[]")
+        app.select("3:47")
         app.revertEdits()
 
         ; A layer nobody selected has no pane.
