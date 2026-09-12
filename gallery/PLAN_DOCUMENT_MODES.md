@@ -1,6 +1,7 @@
 # Who owns the document — the switch, and what is behind it
 
-*A plan. Nothing here is built yet; the status line on each stage says so.*
+*Every stage below is built. The status line on each says so, and §11 is the
+list of assumptions that turned out to be worth writing down.*
 
 The rule this plan exists to implement, as the reader stated it:
 
@@ -609,7 +610,24 @@ message.
 
 ---
 
-## 11. The riskiest assumptions
+## 11. What is left
+
+- **A `.docx` FILE.** The model is built, editable and drawable; this
+  repository has no WordprocessingML writer. Stage K says so.
+- **`VfsOpc` and `VfsReal`** — [`vfs/PLAN_VFS.md`](vfs/PLAN_VFS.md) V4 and V5.
+  Neither has a consumer yet, and a provider written before its consumer is a
+  provider written against a guess.
+- **An inline picture.** `![](x)` on a paragraph of its own is a picture;
+  anywhere else it is alt text, because a picture on a text baseline is a
+  different question and one markdown almost never asks.
+- **A table in a Word document.** `RichDocument` has tables; `MdToDocx` writes
+  the rows as tab-separated paragraphs and says so.
+- **Font embedding in a deck** — `p:embeddedFontLst` and an `fntdata` part.
+  Named in `MdToPptx` as the cost it is: a deck names its faces and carries
+  none, so a reader without them substitutes and the text reflows inside its
+  boxes.
+
+## 12. The riskiest assumptions
 
 - **That a read-only preview is acceptable in MD mode.** It is what was asked
   for, and it is the largest visible change: the preview stops taking

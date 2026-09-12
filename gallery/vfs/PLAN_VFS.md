@@ -124,7 +124,7 @@ provider it is talking to, the provider indirection has failed.
 
 ## 6. Stages
 
-### Stage V1 — the store, in memory — not started
+### Stage V1 — the store, in memory — ✅ done
 
 `VfsBlob`, `VfsStat`, `VfsProvider`, `VfsMemory`, `Vfs` with mount and the six
 reads. No consumers.
@@ -133,14 +133,14 @@ reads. No consumers.
 bytes under two names and assert one blob; and a `readonly` provider refusing a
 `put` by name rather than silently dropping it.
 
-### Stage V2 — resolution — not started
+### Stage V2 — resolution — ✅ done
 
 `Vfs.resolve`, all four syntaxes, with the http refusal.
 
 *The check:* a table of (ref, base) → resolved path, including the ones that
 must fail; `../` escaping the mount root is a refusal, not a host path.
 
-### Stage V3 — the fixture tree, and a demo that boots from it — not started
+### Stage V3 — the fixture tree, and a demo that boots from it — ✅ done
 
 The build step, and an upload through `put`.
 
@@ -148,14 +148,28 @@ The build step, and an upload through `put`.
 existing `smoke.mjs` pattern, because the page proving it itself is the only
 evidence that survives a different machine.
 
-### Stage V4 — `VfsOpc` and `VfsOverlay` — not started
+### Stage V4 — `VfsOpc` and `VfsOverlay` — ⚠️ half done
 
-A `.pptx`'s own media mounted as a folder; uploads over samples.
+`VfsOverlay` turned out not to need a class of its own: `Vfs` searches its
+mounts from the LAST backwards, so mounting samples low and uploads over them is
+the overlay, and a dropped file simply wins. Done, and checked by mounting a
+read-only sample provider under a writable one.
 
-*The check:* a picture read out of a real deck through the VFS and compared
-byte for byte with `OpcPackage.readBinary` on the same part.
+`VfsOpc` — a `.pptx`'s own media mounted as a folder — is not built. Nothing
+needs it yet: the deck exporter reads pictures out of the store the layout was
+given, and the deck READER already has `OpcPackage.readBinary`. It earns its
+place the day something wants to open a deck and treat its media as files.
+
+*The check, when it is built:* a picture read out of a real deck through the VFS
+and compared byte for byte with `OpcPackage.readBinary` on the same part.
 
 ### Stage V5 — `VfsReal`, and the CLI tools mounting it — not started
+
+Deliberately last and still open: every consumer so far is a browser page or a
+suite, and both want memory. A tool that wanted the host's disk would be the
+thing that justifies it — and the provider indirection is already proved by the
+mounts suite, which mounts one provider twice and reads the same bytes through
+both paths.
 
 *The check:* one tool run twice, once over `VfsReal` and once over a
 `VfsMemory` loaded with the same files, asserting identical output.
