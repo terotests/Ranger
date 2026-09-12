@@ -116,6 +116,22 @@ class FigWeb {
         app.editText(text)
     }
 
+    fn editTextStyle:void (size:double lineHeight:double tracking:double align:string) {
+        app.editTextStyle(size lineHeight tracking align)
+    }
+
+    fn editRotation:void (deg:double) {
+        app.editRotation(deg)
+    }
+
+    fn editFlip:void () {
+        app.editFlip()
+    }
+
+    fn editClip:void (on:boolean) {
+        app.editClip(on)
+    }
+
     fn revertEdits:void () {
         app.revertEdits()
     }
