@@ -1869,6 +1869,62 @@ class RangerFlowTest {
         p3.flatten(24)
         c.near("a label's anchor does not move with the flattening (x)" (p3.midX()) coarseX 1.5)
         c.near("a label's anchor does not move with the flattening (y)" (p3.midY()) coarseY 1.5)
+
+        ; A stored route is CORNERS. The search walks the grid one vertex at a
+        ; time and hands all of them back; keeping them made a straight run
+        ; look like two hundred bends to every pass that reads a route, and
+        ; `simplify` — which walks every pair of corners — went quadratic in
+        ; the density of the grid rather than in the shape of the line. The
+        ; two stubs are the exception and are kept whole on purpose: they are
+        ; addressed by index, and merging one into the run after it hid a long
+        ; segment behind an exemption meant for a twenty-pixel one.
+        def straights:int 0
+        def sk:int 0
+        while (sk < (g.edgeCount())) {
+            def se:FlowEdge (g.edgeAt(sk))
+            straights = (straights + (RangerFlowTest.collinearCorners(se.waypoints)))
+            sk = (sk + 1)
+        }
+        c.eqInt("no route is stored with a corner that does not turn" straights 0)
+    }
+
+    ; Interior points that continue straight — the ones the grid emits and a
+    ; route has no business keeping. The first and last two points are the
+    ; stubs and are not counted.
+    sfn collinearCorners:int (pts:[double]) {
+        def n:int (idiv (array_length pts) 2)
+        if (n < 5) {
+            return 0
+        }
+        def bad:int 0
+        def i:int 2
+        while (i <= (n - 3)) {
+            def px:double (itemAt pts ((i - 1) * 2))
+            def pyAt:int (((i - 1) * 2) + 1)
+            def py:double (itemAt pts pyAt)
+            def cx:double (itemAt pts (i * 2))
+            def cyAt:int ((i * 2) + 1)
+            def cy:double (itemAt pts cyAt)
+            def nx:double (itemAt pts ((i + 1) * 2))
+            def nyAt:int (((i + 1) * 2) + 1)
+            def ny:double (itemAt pts nyAt)
+            def turns:boolean true
+            if ((fabs (cx - px)) < 0.01) {
+                if ((fabs (nx - cx)) < 0.01) {
+                    turns = false
+                }
+            }
+            if ((fabs (cy - py)) < 0.01) {
+                if ((fabs (ny - cy)) < 0.01) {
+                    turns = false
+                }
+            }
+            if (turns == false) {
+                bad = (bad + 1)
+            }
+            i = (i + 1)
+        }
+        return bad
     }
 
     ; exists — so the grid router repairs what is broken and leaves the rest.
@@ -4500,6 +4556,51 @@ class RangerFlowTest {
             inside = false
         }
         c.ok("a node in no cluster stands outside the frame" (inside == false))
+
+        ; The frame has to ADOPT what it was drawn around, or dragging the
+        ; cluster leaves its nodes behind and the box means nothing.
+        ; `FlowEditor.beginDrag` takes every node whose ancestor is selected,
+        ; and `parentId` is the whole of what tells it so.
+        c.eqStr("a node in the cluster belongs to its frame" x.parentId "__cluster_cluster_a")
+        def y:FlowNode (g.nodeById("y"))
+        c.eqStr("and so does the other one" y.parentId "__cluster_cluster_a")
+        c.eqStr("a node in no cluster belongs to nothing" z.parentId "")
+        def ed:FlowEditor (FlowEditor.of(g))
+        frame.selected = true
+        ed.beginDrag()
+        c.eqInt("dragging the cluster takes it and its two nodes" (array_length ed.dragIds) 3)
+        frame.selected = false
+
+        ; A cluster inside a cluster: the inner nodes belong to the INNER
+        ; frame, the inner frame belongs to the outer one, and the outer box
+        ; is drawn round the inner box rather than through it.
+        def nsrc:string "digraph {\n"
+        nsrc = (nsrc + "  subgraph cluster_out {\n")
+        nsrc = (nsrc + "    label=\"out\";\n")
+        nsrc = (nsrc + "    p;\n")
+        nsrc = (nsrc + "    subgraph cluster_in { label=\"in\"; q; r }\n")
+        nsrc = (nsrc + "  }\n")
+        nsrc = (nsrc + "  p -> q;\n")
+        nsrc = (nsrc + "  q -> r;\n")
+        nsrc = (nsrc + "}\n")
+        def nd:DotGraph (DotReader.parse(nsrc))
+        def nstyle (new FlowStyle)
+        def ng:FlowGraph (DotFlow.build(nd nstyle))
+        def outer:FlowNode (ng.nodeById("__cluster_cluster_out"))
+        def innerF:FlowNode (ng.nodeById("__cluster_cluster_in"))
+        def q:FlowNode (ng.nodeById("q"))
+        def pn:FlowNode (ng.nodeById("p"))
+        c.eqStr("a node in the inner cluster belongs to the inner frame" q.parentId "__cluster_cluster_in")
+        c.eqStr("the inner frame belongs to the outer one" innerF.parentId "__cluster_cluster_out")
+        c.eqStr("and a node of the outer cluster alone belongs to it" pn.parentId "__cluster_cluster_out")
+        c.ok("the outer box starts above the inner one" (outer.y <= innerF.y))
+        c.ok("and ends below it" (((outer.y + outer.height)) >= ((innerF.y + innerF.height))))
+        c.ok("it starts left of it" (outer.x <= innerF.x))
+        c.ok("and ends right of it" (((outer.x + outer.width)) >= ((innerF.x + innerF.width))))
+        def ed2:FlowEditor (FlowEditor.of(ng))
+        outer.selected = true
+        ed2.beginDrag()
+        c.eqInt("dragging the outer cluster takes the whole nest" (array_length ed2.dragIds) 5)
     }
 
     ; A record label is a box language, an HTML label is a table, and both are
