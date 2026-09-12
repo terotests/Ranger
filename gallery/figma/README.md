@@ -629,7 +629,13 @@ Same Figma bytes → same Scene JSON → same EVG dump.
 
 ## Benchmark
 
-`npm run figma:bench` writes `gallery/figma/bench/out/last.json`.
+`npm run figma:bench` times Ranger against `openfig-core` on `sample.fig`
+and `health.fig` (or on a path you pass) and writes
+`gallery/figma/bench/out/last.json`.
+
+Two clocks: **parse** is ZIP + kiwi + node tree on both sides; **viewer**
+is Ranger's extra walk (scene graph + EVG display list). OpenFig does not
+paint, so there is no counterpart for the second number.
 
 Install `openfig-core` in the repo (or globally) to fill the OpenFig column.
 The sample is stored-deflate so both sides skip zstd; a Figma export hits
