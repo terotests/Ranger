@@ -635,7 +635,9 @@ and `health.fig` (or on a path you pass) and writes
 
 Two clocks: **parse** is ZIP + kiwi + node tree on both sides; **viewer**
 is Ranger's extra walk (scene graph + EVG display list). OpenFig does not
-paint, so there is no counterpart for the second number.
+paint, so there is no counterpart for the second number. The same run also
+prints JS sizes (raw and gzip-9): Ranger `fig_cli` / `fig_web` against an
+esbuild bundle of `parseFig`, when `openfig-core` and `esbuild` are present.
 
 Install `openfig-core` in the repo (or globally) to fill the OpenFig column.
 The sample is stored-deflate so both sides skip zstd; a Figma export hits
