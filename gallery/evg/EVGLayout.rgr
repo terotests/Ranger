@@ -6,6 +6,7 @@ Import "EVGElement.rgr"
 Import "EVGTextMeasurer.rgr"
 Import "EVGImageMeasurer.rgr"
 Import "EVGGrid.rgr"
+Import "EVGReject.rgr"
 Import "EVGTextEngine.rgr"
 
 class EVGLayout {
@@ -162,7 +163,35 @@ class EVGLayout {
         ; one.
         this.measurePaintBounds(root)
 
+        ; Everything `setAttribute` could not read, folded into the same list a
+        ; build already fails on. It is drained here rather than reported at
+        ; the point of parse because a parse has no idea whether anyone will
+        ; ever lay the tree out, and a warning nobody collects is the silence
+        ; this was written to end.
+        ;
+        ; The collector de-duplicates and caps itself, so this loop is bounded
+        ; by the number of DISTINCT bad declarations in the document — four,
+        ; typically, and never more than sixty-four.
+        this.drainRejects()
+
         this.log("EVGLayout: Layout complete")
+    }
+
+    ; Move `EVGReject`'s entries into the layout's own warnings, once.
+    fn drainRejects:void () {
+        def n:int (EVGReject.noteCount())
+        if (n == 0) {
+            return
+        }
+        def i:int 0
+        while (i < n) {
+            this.warn((EVGReject.noteAt(i)))
+            i = (i + 1)
+        }
+        def total:int (EVGReject.noteTotal())
+        if (total > n) {
+            this.warn((((("… " + (to_string total)) + " rejected declarations in all, ") + (to_string n)) + " distinct"))
+        }
     }
 
     ; The union of an element's own box and every box beneath it, bottom-up.
@@ -488,15 +517,17 @@ class EVGLayout {
             }
         }
         
-        ; Apply min/max constraints
-        if element.minWidth.isSet {
-            if (width < element.minWidth.pixels) {
-                width = element.minWidth.pixels
-            }
-        }
+        ; Apply min/max constraints — MAX FIRST, so a min that contradicts it
+        ; wins. See `clampMain`; this is the same rule for a box that is not a
+        ; flex item, and it used to be the other way round here too.
         if element.maxWidth.isSet {
             if (width > element.maxWidth.pixels) {
                 width = element.maxWidth.pixels
+            }
+        }
+        if element.minWidth.isSet {
+            if (width < element.minWidth.pixels) {
+                width = element.minWidth.pixels
             }
         }
         
@@ -647,15 +678,16 @@ class EVGLayout {
             width = hChrome
         }
 
-        ; Apply min/max height constraints
-        if element.minHeight.isSet {
-            if (height < element.minHeight.pixels) {
-                height = element.minHeight.pixels
-            }
-        }
+        ; Apply min/max height constraints — max first, min second, for the
+        ; reason given on the width above.
         if element.maxHeight.isSet {
             if (height > element.maxHeight.pixels) {
                 height = element.maxHeight.pixels
+            }
+        }
+        if element.minHeight.isSet {
+            if (height < element.minHeight.pixels) {
+                height = element.minHeight.pixels
             }
         }
         
@@ -958,6 +990,69 @@ class EVGLayout {
         }
     }
 
+    ; What a flex item starts from on the main axis before it grows or shrinks.
+    ; A stated `flex-basis` REPLACES `width` here, which is what CSS says and
+    ; what lets `flex: 0 0 120px` mean the same as `width: 120px` — see the
+    ; note in the basis branch of the row pass.
+    fn hasBaseMain:boolean (c:EVGElement) {
+        return (c.flexBasis.isSet || c.width.isSet)
+    }
+
+    fn baseMain:double (c:EVGElement) {
+        if c.flexBasis.isSet {
+            return c.flexBasis.pixels
+        }
+        return c.width.pixels
+    }
+
+    ; The cross-axis alignment that applies to ONE item: its own `align-self`
+    ; when it stated one, otherwise the container's `align-items`.
+    ;
+    ; `realtrainer.css` has been writing `align-self` since before the property
+    ; existed here, which is the usual way a gap gets found: somebody assumed
+    ; the CSS they know, and the declaration went nowhere.
+    fn crossAlignOf:string (child:EVGElement parentAlign:string) {
+        if ((strlen child.alignSelf) > 0) {
+            return child.alignSelf
+        }
+        return parentAlign
+    }
+
+    ; A main-axis size, clamped the way CSS clamps it.
+    ;
+    ; THE ORDER IS THE WHOLE POINT. `max-width` is applied first and
+    ; `min-width` second, so when the two conflict the MINIMUM wins:
+    ; `width: 50px; min-width: 200px; max-width: 100px` is 200 in every
+    ; browser. This engine applied them the other way round and got 100 — a
+    ; box that obeyed a maximum it was told to ignore, which shows up as a
+    ; panel that will not open to the size its own rule demands.
+    ;
+    ; `min-width: auto` on a flex item is NOT zero: it is the item's
+    ; min-content size, and that is what the `else` branch computes. The
+    ; exception is a clipping box, which is a statement that the content need
+    ; not fit — see the long note in the grow loop, which this replaced.
+    fn clampMain:double (c:EVGElement w:double) {
+        def out:double w
+        if c.maxWidth.isSet {
+            if (out > c.maxWidth.pixels) {
+                out = c.maxWidth.pixels
+            }
+        }
+        if c.minWidth.isSet {
+            if (out < c.minWidth.pixels) {
+                out = c.minWidth.pixels
+            }
+        } {
+            if ((c.clipsContent()) == false) {
+                def autoMin:double (this.minIntrinsicWidthOf(c))
+                if (out < autoMin) {
+                    out = autoMin
+                }
+            }
+        }
+        return out
+    }
+
     fn layoutChildren:double (parent:EVGElement) {
         ; Layout all children using flow algorithm
         ; Returns total content height
@@ -997,18 +1092,61 @@ class EVGLayout {
         ; Check layout direction using flexDirection (CSS standard)
         def isColumn:boolean (parent.flexDirection == "column")
 
-        ; Main-axis `gap` between children (CSS gap). Resolve against the inner
-        ; main-axis extent; px is idempotent, percent recomputes each layout.
+        ; The two gaps, on the two axes.
+        ;
+        ; `gap` is the shorthand and `row-gap` / `column-gap` are the longhands
+        ; that override it — and which longhand belongs to which axis depends
+        ; on the direction, not on the name: in a ROW the space BETWEEN items
+        ; is `column-gap` (they are in different columns) and the space between
+        ; wrapped LINES is `row-gap`. A column swaps them.
+        ;
+        ; Both longhands parsed before this and neither did anything: a flex
+        ; container with `row-gap: 30px; column-gap: 5px` laid out as though it
+        ; had no gaps at all, because only `parent.gap` was ever read. And the
+        ; cross gap did not exist even for the shorthand, so `gap: 10px` on a
+        ; wrapping row put ten pixels between the items and nothing between the
+        ; lines.
+        def rowGapUnit:EVGUnit parent.gap
+        if parent.rowGap.isSet {
+            rowGapUnit = parent.rowGap
+        }
+        def colGapUnit:EVGUnit parent.gap
+        if parent.columnGap.isSet {
+            colGapUnit = parent.columnGap
+        }
+        def mainGapUnit:EVGUnit colGapUnit
+        def crossGapUnit:EVGUnit rowGapUnit
+        if isColumn {
+            mainGapUnit = rowGapUnit
+            crossGapUnit = colGapUnit
+        }
+
+        ; Percentages resolve against the inner extent of the axis they space;
+        ; px is idempotent, so re-resolving every layout costs nothing.
         def gapPx:double 0.0
-        if parent.gap.isSet {
+        if mainGapUnit.isSet {
+            mainGapUnit.rootFontSize = parent.rootFontSize
             if isColumn {
-                parent.gap.rootFontSize = parent.rootFontSize
-                parent.gap.resolve(innerHeight parent.inheritedFontSize)
+                mainGapUnit.resolve(innerHeight parent.inheritedFontSize)
             } {
-                parent.gap.rootFontSize = parent.rootFontSize
-                parent.gap.resolve(innerWidth parent.inheritedFontSize)
+                mainGapUnit.resolve(innerWidth parent.inheritedFontSize)
             }
-            gapPx = parent.gap.pixels
+            gapPx = mainGapUnit.pixels
+        }
+        ; The cross gap is only ever read at a wrap, so a container that
+        ; cannot wrap does not pay for resolving it. Most of them cannot: the
+        ; benchmark fixtures say `flex-wrap: nowrap` on every row, and
+        ; resolving a unit nobody reads showed up as a few per cent.
+        def crossGapPx:double 0.0
+        def canWrap:boolean ((isColumn == false) && (parent.flexWrap != "nowrap"))
+        if (canWrap && crossGapUnit.isSet) {
+            crossGapUnit.rootFontSize = parent.rootFontSize
+            if isColumn {
+                crossGapUnit.resolve(innerWidth parent.inheritedFontSize)
+            } {
+                crossGapUnit.resolve(innerHeight parent.inheritedFontSize)
+            }
+            crossGapPx = crossGapUnit.pixels
         }
         
         ; For row layout with flex items, we need to calculate available space first
@@ -1032,6 +1170,26 @@ class EVGLayout {
                     totalFlex = totalFlex + c.flex
                     fixedWidth = ((fixedWidth + c.flexBasis.pixels) + c.box.marginLeftPx) + c.box.marginRightPx
                 } {
+                    ; A BASIS ON AN ITEM THAT DOES NOT GROW IS STILL ITS SIZE.
+                    ; This branch did not exist: `flex-basis: 120px` with no
+                    ; `flex-grow` fell past every test below into the
+                    ; content-estimate case, the item was laid out with no
+                    ; width at all and so filled the row, and the growing
+                    ; sibling beside it was left with nothing —
+                    ;
+                    ;   width:120px      + flex-grow:1  ->  120 | 480   right
+                    ;   flex-basis:120px + flex-grow:1  ->  600 |   0   wrong
+                    ;
+                    ; which is a fixed rail beside a flexible panel, the most
+                    ; ordinary two-box layout there is. CSS says a definite
+                    ; basis REPLACES the width as the item's starting main
+                    ; size, so it is checked before `width` and not after.
+                    if hasBasis {
+                        def baseW:double (this.clampMain(c c.flexBasis.pixels))
+                        c.calculatedFlexWidth = baseW
+                        c.hasFlexWidth = true
+                        fixedWidth = ((fixedWidth + baseW) + c.box.marginLeftPx) + c.box.marginRightPx
+                    } {
                     if c.width.isSet {
                         fixedWidth = fixedWidth + c.width.pixels + c.box.marginLeftPx + c.box.marginRightPx
                     } {
@@ -1045,6 +1203,7 @@ class EVGLayout {
                             def estW:double (this.estimateChildWidth(c avail true))
                             fixedWidth = fixedWidth + estW + c.box.marginLeftPx + c.box.marginRightPx
                         }
+                    }
                     }
                 }
                 }
@@ -1103,51 +1262,13 @@ class EVGLayout {
                             }
                             ; Clamp, and if the clamp bit, freeze here and give
                             ; the difference back to the remaining items.
-                            def clampedW:double sizeW
-                            if c.minWidth.isSet {
-                                if (clampedW < c.minWidth.pixels) {
-                                    clampedW = c.minWidth.pixels
-                                }
-                            } {
-                                ; THE AUTOMATIC MINIMUM SIZE. A flex item's
-                                ; `min-width` computes to `auto`, and `auto` on
-                                ; a flex item is not zero — it is the item's
-                                ; min-content size. Without this a row squashes
-                                ; its items to whatever share is left, which no
-                                ; browser does; measured in `flexmin.json`,
-                                ; where a nowrap line of words in a row too
-                                ; narrow for it keeps its full 137.28 rather
-                                ; than taking the 80 on offer.
-                                ;
-                                ; IT DOES NOT MAKE THE CONTENT FIT, and that is
-                                ; worth saying because the name suggests it
-                                ; does. The item stops shrinking and then hangs
-                                ; out of the row instead — 17.28 past it, in
-                                ; that same row. Keeping what will not fit
-                                ; inside a box is `overflow`'s job and nothing
-                                ; else's.
-                                ;
-                                ; Which is the other half of the rule: the
-                                ; automatic minimum applies only while the item
-                                ; is NOT a clipping box. Give it `overflow:
-                                ; hidden` and the minimum is zero again and the
-                                ; item shrinks freely — the oracle records 80
-                                ; for exactly the row that keeps 137.28 without
-                                ; it. A resizable panel depends on this: it
-                                ; clips, so it must still shrink to whatever
-                                ; the splitter asks of it.
-                                if (c.clipsContent() == false) {
-                                    def autoMin:double (this.minIntrinsicWidthOf(c))
-                                    if (clampedW < autoMin) {
-                                        clampedW = autoMin
-                                    }
-                                }
-                            }
-                            if c.maxWidth.isSet {
-                                if (clampedW > c.maxWidth.pixels) {
-                                    clampedW = c.maxWidth.pixels
-                                }
-                            }
+                            ;
+                            ; `clampMain` is shared with the basis pass above
+                            ; and with the shrink pass below, which is how the
+                            ; three of them stopped disagreeing about which of
+                            ; min and max wins. The long note about the
+                            ; automatic minimum lives there now.
+                            def clampedW:double (this.clampMain(c sizeW))
                             if (clampedW != sizeW) {
                                 set frozen j true
                                 poolSpace = ((poolSpace - clampedW) + basisW)
@@ -1283,8 +1404,8 @@ class EVGLayout {
                     def c:EVGElement (parent.getChild(jr))
                     if (c.isAbsolute == false) {
                         flowCount2 = (flowCount2 + 1)
-                        if c.width.isSet {
-                            fixedW2 = (fixedW2 + c.width.pixels + c.box.marginLeftPx + c.box.marginRightPx)
+                        if (this.hasBaseMain(c)) {
+                            fixedW2 = (fixedW2 + (this.baseMain(c)) + c.box.marginLeftPx + c.box.marginRightPx)
                         } {
                             if (c.flex > 0.0) { totalFlex2 = (totalFlex2 + c.flex) }
                         }
@@ -1301,32 +1422,130 @@ class EVGLayout {
                     overflowW = 0.0
                 }
                 if ((totalFlex2 == 0.0) && (overflowW > 0.0) && (fixedW2 > 0.0)) {
-                    ; Weighted by (flex-shrink x width), so flex-shrink: 0 keeps
-                    ; its size and its siblings absorb the whole overflow.
-                    def weightedW:double 0.0
-                    def jz:int 0
-                    while (jz < childCount) {
-                        def c:EVGElement (parent.getChild(jz))
-                        if ((c.isAbsolute == false) && c.width.isSet) {
-                            weightedW = (weightedW + (c.flexShrink * c.width.pixels))
-                        }
-                        jz = (jz + 1)
-                    }
-                    if (weightedW > 0.0) {
-                        def jw:int 0
-                        while (jw < childCount) {
-                            def c:EVGElement (parent.getChild(jw))
-                            if ((c.isAbsolute == false) && c.width.isSet) {
-                                def cutW:double ((overflowW * (c.flexShrink * c.width.pixels)) / weightedW)
-                                def finalW:double (c.width.pixels - cutW)
-                                if (finalW < 0.0) {
-                                    finalW = 0.0
-                                }
-                                c.calculatedFlexWidth = finalW
-                                c.hasFlexWidth = true
+                    ; SHRINKING IS THE SAME LOOP AS GROWING, AND IT WAS NOT.
+                    ;
+                    ; This used to be one weighted pass with no minimum in it
+                    ; at all: each item gave up (flex-shrink x its size) of the
+                    ; overflow and that was the answer. An item that could not
+                    ; shrink that far — because it has a `min-width`, or
+                    ; because its own content will not go narrower — was
+                    ; clamped afterwards by `layoutElement`, and the space it
+                    ; refused to give up was never asked of anyone else. Two
+                    ; 300px items in a 300px row, the first with
+                    ; `min-width: 200px`, came out 200 | 150: three hundred and
+                    ; fifty pixels in a three-hundred pixel row.
+                    ;
+                    ; So it is CSS's freeze-and-repeat, the same shape as the
+                    ; grow loop above: distribute, clamp, freeze whoever
+                    ; clamped, hand what they did not take to the rest, repeat.
+                    ; Bounded by the child count because every pass freezes at
+                    ; least one item.
+                    ;
+                    ; THE MINIMUMS ARE MEASURED ONCE, not once per pass. The
+                    ; automatic minimum is an intrinsic measurement of the
+                    ; item's whole subtree, and asking for it inside the loop
+                    ; would make an overflowing row quadratic in its own depth.
+                    def minsW:[double]
+                    def basesW:[double]
+                    def shrinkable:[boolean]
+                    def jm:int 0
+                    while (jm < childCount) {
+                        def c:EVGElement (parent.getChild(jm))
+                        def canShrink:boolean ((c.isAbsolute == false) && (this.hasBaseMain(c)))
+                        push shrinkable canShrink
+                        if canShrink {
+                            push basesW (this.baseMain(c))
+                            ; ONLY AN EXPLICIT `min-width` FLOORS THIS PASS.
+                            ;
+                            ; The automatic minimum is tempting here and it is
+                            ; wrong: `minIntrinsicWidthOf` answers with the
+                            ; item's DEFINITE WIDTH when it has one — a
+                            ; definite width is both its min- and its
+                            ; max-content size — and every item in this pass
+                            ; has one by construction, so using it would floor
+                            ; each item at the size it is being asked to give
+                            ; up and nothing would shrink at all. CSS agrees:
+                            ; the content-based minimum is the SMALLER of the
+                            ; content suggestion and the specified size, so an
+                            ; empty 300px box may shrink to nothing.
+                            ;
+                            ; What is left out is the item whose CONTENT will
+                            ; not go narrower than its box — a run of text at
+                            ; `width: 300px` should stop at its min-content
+                            ; width, and here it does not. That needs an
+                            ; intrinsic measurement that ignores the element's
+                            ; own width, which this engine cannot ask for yet.
+                            ; It is also not a regression: this pass had no
+                            ; minimum of any kind before.
+                            if c.minWidth.isSet {
+                                push minsW c.minWidth.pixels
+                            } {
+                                push minsW 0.0
                             }
-                            jw = (jw + 1)
+                        } {
+                            push basesW 0.0
+                            push minsW 0.0
                         }
+                        jm = (jm + 1)
+                    }
+
+                    def frozenS:[boolean]
+                    def jf2:int 0
+                    while (jf2 < childCount) {
+                        push frozenS false
+                        jf2 = (jf2 + 1)
+                    }
+
+                    def toCut:double overflowW
+                    def passS:int 0
+                    def settledS:boolean false
+                    while ((passS < childCount) && (settledS == false)) {
+                        settledS = true
+                        def weightedW:double 0.0
+                        def jz:int 0
+                        while (jz < childCount) {
+                            def c:EVGElement (parent.getChild(jz))
+                            if ((itemAt shrinkable jz) && ((itemAt frozenS jz) == false)) {
+                                weightedW = (weightedW + (c.flexShrink * (itemAt basesW jz)))
+                            }
+                            jz = (jz + 1)
+                        }
+                        if (weightedW > 0.0) {
+                            def jw:int 0
+                            while (jw < childCount) {
+                                def c:EVGElement (parent.getChild(jw))
+                                if ((itemAt shrinkable jw) && ((itemAt frozenS jw) == false)) {
+                                    def baseW:double (itemAt basesW jw)
+                                    def cutW:double ((toCut * (c.flexShrink * baseW)) / weightedW)
+                                    def wantW:double (baseW - cutW)
+                                    if (wantW < 0.0) {
+                                        wantW = 0.0
+                                    }
+                                    def finalW:double wantW
+                                    if c.maxWidth.isSet {
+                                        if (finalW > c.maxWidth.pixels) {
+                                            finalW = c.maxWidth.pixels
+                                        }
+                                    }
+                                    def floorW:double (itemAt minsW jw)
+                                    if (finalW < floorW) {
+                                        finalW = floorW
+                                    }
+                                    if (finalW != wantW) {
+                                        set frozenS jw true
+                                        toCut = (toCut - (baseW - finalW))
+                                        if (toCut < 0.0) {
+                                            toCut = 0.0
+                                        }
+                                        settledS = false
+                                    }
+                                    c.calculatedFlexWidth = finalW
+                                    c.hasFlexWidth = true
+                                }
+                                jw = (jw + 1)
+                            }
+                        }
+                        passS = (passS + 1)
                     }
                 }
             }
@@ -1437,7 +1656,7 @@ class EVGLayout {
             ; row alignItems:stretch — a child with no explicit height fills the
             ; parent's cross (height) extent.
             if (isColumn == false) {
-                if (parent.alignItems == "stretch") {
+                if ((this.crossAlignOf(child parent.alignItems)) == "stretch") {
                     if (child.height.isSet == false) {
                         child.calculatedFlexHeight = innerHeight
                     }
@@ -1492,8 +1711,8 @@ class EVGLayout {
                     ; Wrap to next row
                     this.alignRow(rowElements parent rowHeight startX innerWidth)
                     this.recordLine(lineMembers lineCounts lineHeights rowElements rowHeight)
-                    currentY = currentY + rowHeight
-                    totalHeight = totalHeight + rowHeight
+                    currentY = ((currentY + rowHeight) + crossGapPx)
+                    totalHeight = ((totalHeight + rowHeight) + crossGapPx)
                     currentX = startX
                     rowHeight = 0.0
                     clear rowElements
@@ -1544,8 +1763,8 @@ class EVGLayout {
                 if (isColumn == false) {
                     this.alignRow(rowElements parent rowHeight startX innerWidth)
                     this.recordLine(lineMembers lineCounts lineHeights rowElements rowHeight)
-                    currentY = currentY + rowHeight
-                    totalHeight = totalHeight + rowHeight
+                    currentY = ((currentY + rowHeight) + crossGapPx)
+                    totalHeight = ((totalHeight + rowHeight) + crossGapPx)
                     currentX = startX
                     rowHeight = 0.0
                     clear rowElements
@@ -1565,7 +1784,7 @@ class EVGLayout {
         ; Wrapped-line post-passes, in CSS order: wrap-reverse flips the cross
         ; axis first, then align-content distributes the lines along it.
         if (isColumn == false) {
-            this.applyWrapReverse(parent lineMembers lineCounts lineHeights totalHeight)
+            this.applyWrapReverse(parent lineMembers lineCounts lineHeights totalHeight crossGapPx)
             this.applyAlignContent(parent lineMembers lineCounts lineHeights totalHeight innerHeight)
         }
 
@@ -1602,7 +1821,7 @@ class EVGLayout {
     ; flex-wrap: wrap-reverse — the lines stack from the far edge of the cross
     ; axis instead of the near one, so the first line ends up at the bottom.
     ; The wrap POINTS are unchanged; only where each finished line sits moves.
-    fn applyWrapReverse:void (parent:EVGElement members:[EVGElement] counts:[int] heights:[double] contentHeight:double) {
+    fn applyWrapReverse:void (parent:EVGElement members:[EVGElement] counts:[int] heights:[double] contentHeight:double gapPx:double) {
         if (parent.flexWrap != "wrap-reverse") {
             return
         }
@@ -1629,7 +1848,9 @@ class EVGLayout {
                 k = (k + 1)
             }
             idx = (idx + n)
-            offset = (offset + h)
+            ; A line's own position includes the gaps before it, or the mirror
+            ; puts every line back one gap short of where it belongs.
+            offset = ((offset + h) + gapPx)
             li = (li + 1)
         }
     }
@@ -1829,14 +2050,17 @@ class EVGLayout {
                 }
                 flowIndex = (flowIndex + 1)
                 
-                ; Apply horizontal alignment (alignItems)
+                ; Apply horizontal alignment (alignItems, or the child's own
+                ; align-self where it has one — in a column the cross axis is
+                ; the horizontal one).
+                def childAlign:string (this.crossAlignOf(child horizontalAlign))
                 def childTotalWidth:double (child.calculatedWidth + child.box.marginLeftPx + child.box.marginRightPx)
                 def offsetX:double 0.0
                 
-                if (horizontalAlign == "center") {
+                if (childAlign == "center") {
                     offsetX = ((innerWidth - childTotalWidth) / 2.0)
                 }
-                if ((horizontalAlign == "flex-end") || (horizontalAlign == "end")) {
+                if ((childAlign == "flex-end") || (childAlign == "end")) {
                     offsetX = (innerWidth - childTotalWidth)
                 }
                 
@@ -2042,18 +2266,26 @@ class EVGLayout {
                 this.propagateOffsetToChildren(el elemOffsetX 0.0)
             }
             
-            ; Vertical alignment within row
+            ; Vertical alignment within row. `align-self` on the item wins
+            ; over the container's `align-items`; the row's own baseline pass
+            ; is only for the items that did not opt out of it.
             def childTotalHeight:double (el.calculatedHeight + el.box.marginTopPx + el.box.marginBottomPx)
             def offsetY:double 0.0
+            def elAlign:string verticalAlignVal
+            if (isColumn == false) {
+                elAlign = (this.crossAlignOf(el verticalAlignVal))
+            }
             
-            if (verticalAlignVal == "center") {
+            if (elAlign == "center") {
                 offsetY = ((effectiveRowHeight - childTotalHeight) / 2.0)
             }
-            if ((verticalAlignVal == "flex-end") || (verticalAlignVal == "bottom")) {
+            if ((elAlign == "flex-end") || (elAlign == "bottom")) {
                 offsetY = (effectiveRowHeight - childTotalHeight)
             }
-            if useBaseline {
-                offsetY = (maxBaseline - (this.baselineOffsetOf(el)))
+            if (elAlign == "baseline") {
+                if useBaseline {
+                    offsetY = (maxBaseline - (this.baselineOffsetOf(el)))
+                }
             }
             
             if (offsetY != 0.0) {

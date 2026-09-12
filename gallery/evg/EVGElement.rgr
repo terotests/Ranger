@@ -3,6 +3,7 @@
 ; EVGElement.rgr - Base element class for EVG layout
 
 Import "EVGUnit.rgr"
+Import "EVGReject.rgr"
 Import "EVGColor.rgr"
 Import "EVGEasing.rgr"
 Import "EVGBox.rgr"
@@ -600,6 +601,10 @@ class EVGElement {
     def flexDirection:string "column"
     def justifyContent:string "flex-start"
     def alignItems:string "flex-start"
+    ; The item's own answer to its container's `align-items`. Empty means "did
+    ; not say" — CSS spells that `auto`, and both are accepted — so an item
+    ; that never mentions it costs one string comparison and nothing else.
+    def alignSelf:string ""
     ; align-content: how WRAPPED LINES are distributed along the cross axis,
     ; as opposed to alignItems which positions children within one line. Only
     ; meaningful when the content wraps and the container has room to spare.
@@ -2776,6 +2781,7 @@ class EVGElement {
         flexDirection = other.flexDirection
         justifyContent = other.justifyContent
         alignItems = other.alignItems
+        alignSelf = other.alignSelf
         alignContent = other.alignContent
         flexWrap = other.flexWrap
         gap = other.gap
@@ -3019,10 +3025,30 @@ class EVGElement {
         }
     }
 
+    ; Parse a length, and SAY SO when it could not be parsed.
+    ;
+    ; `EVGUnit` deliberately leaves an unrecognised value unset, which is what
+    ; a browser does with a declaration it cannot read — but a browser then
+    ; shows you the struck-through line in its inspector, and this engine used
+    ; to show you nothing. An unset width is not neutral here either: in a row
+    ; it fills the parent, so `width: calc(100% - 40px)` did not fail to apply,
+    ; it applied as `width: 100%`.
+    ;
+    ; The cost is one `isSet` test on a path that already parsed a string.
+    fn unitOf:EVGUnit (name:string value:string) {
+        def u:EVGUnit (EVGUnit.parse(value))
+        if (u.isSet == false) {
+            if ((EVGReject.isAbsent(value)) == false) {
+                EVGReject.note("unsupported length" name value)
+            }
+        }
+        return u
+    }
+
     fn setAttribute:void (name:string value:string) {
         ; Set attribute by name (for parser)
 
-        if (name == "className") {
+        if ((name == "className") || (name == "class-name")) {
             className = value
             return
         }
@@ -3032,6 +3058,18 @@ class EVGElement {
         }
         if (name == "id") {
             id = value
+            return
+        }
+        ; `src` and `alt` are set directly by the JSX layer AND forwarded here,
+        ; so they have to mean something here too or every image on the page
+        ; reports an unknown property. They are also the right home for them:
+        ; an element built without a JSX layer should be able to say `src`.
+        if (name == "src") {
+            src = value
+            return
+        }
+        if (name == "alt") {
+            alt = value
             return
         }
         if (name == "href") {
@@ -3069,27 +3107,27 @@ class EVGElement {
         
         ; Dimensions
         if (name == "width") {
-            width = (EVGUnit.parse(value))
+            width = (this.unitOf(name value))
             return
         }
         if (name == "height") {
-            height = (EVGUnit.parse(value))
+            height = (this.unitOf(name value))
             return
         }
         if ((name == "min-width") || (name == "minWidth")) {
-            minWidth = (EVGUnit.parse(value))
+            minWidth = (this.unitOf(name value))
             return
         }
         if ((name == "min-height") || (name == "minHeight")) {
-            minHeight = (EVGUnit.parse(value))
+            minHeight = (this.unitOf(name value))
             return
         }
         if ((name == "max-width") || (name == "maxWidth")) {
-            maxWidth = (EVGUnit.parse(value))
+            maxWidth = (this.unitOf(name value))
             return
         }
         if ((name == "max-height") || (name == "maxHeight")) {
-            maxHeight = (EVGUnit.parse(value))
+            maxHeight = (this.unitOf(name value))
             return
         }
         
@@ -3231,27 +3269,27 @@ class EVGElement {
 
         ; Position
         if (name == "left") {
-            left = (EVGUnit.parse(value))
+            left = (this.unitOf(name value))
             return
         }
         if (name == "top") {
-            top = (EVGUnit.parse(value))
+            top = (this.unitOf(name value))
             return
         }
         if (name == "right") {
-            right = (EVGUnit.parse(value))
+            right = (this.unitOf(name value))
             return
         }
         if (name == "bottom") {
-            bottom = (EVGUnit.parse(value))
+            bottom = (this.unitOf(name value))
             return
         }
         if (name == "x") {
-            x = (EVGUnit.parse(value))
+            x = (this.unitOf(name value))
             return
         }
         if (name == "y") {
-            y = (EVGUnit.parse(value))
+            y = (this.unitOf(name value))
             return
         }
         
@@ -3264,19 +3302,19 @@ class EVGElement {
             return
         }
         if ((name == "margin-left") || (name == "marginLeft")) {
-            box.marginLeft = (EVGUnit.parse(value))
+            box.marginLeft = (this.unitOf(name value))
             return
         }
         if ((name == "margin-right") || (name == "marginRight")) {
-            box.marginRight = (EVGUnit.parse(value))
+            box.marginRight = (this.unitOf(name value))
             return
         }
         if ((name == "margin-top") || (name == "marginTop")) {
-            box.marginTop = (EVGUnit.parse(value))
+            box.marginTop = (this.unitOf(name value))
             return
         }
         if ((name == "margin-bottom") || (name == "marginBottom")) {
-            box.marginBottom = (EVGUnit.parse(value))
+            box.marginBottom = (this.unitOf(name value))
             return
         }
         
@@ -3289,19 +3327,19 @@ class EVGElement {
             return
         }
         if ((name == "padding-left") || (name == "paddingLeft")) {
-            box.paddingLeft = (EVGUnit.parse(value))
+            box.paddingLeft = (this.unitOf(name value))
             return
         }
         if ((name == "padding-right") || (name == "paddingRight")) {
-            box.paddingRight = (EVGUnit.parse(value))
+            box.paddingRight = (this.unitOf(name value))
             return
         }
         if ((name == "padding-top") || (name == "paddingTop")) {
-            box.paddingTop = (EVGUnit.parse(value))
+            box.paddingTop = (this.unitOf(name value))
             return
         }
         if ((name == "padding-bottom") || (name == "paddingBottom")) {
-            box.paddingBottom = (EVGUnit.parse(value))
+            box.paddingBottom = (this.unitOf(name value))
             return
         }
         
@@ -3334,7 +3372,7 @@ class EVGElement {
             return
         }
         if ((name == "border-width") || (name == "borderWidth")) {
-            box.borderWidth = (EVGUnit.parse(value))
+            box.borderWidth = (this.unitOf(name value))
             return
         }
         if ((name == "border-color") || (name == "borderColor")) {
@@ -3350,7 +3388,7 @@ class EVGElement {
             def parts:[string] (EVGElement.splitWords(value))
             def n:int (array_length parts)
             if (n < 2) {
-                box.borderRadius = (EVGUnit.parse(value))
+                box.borderRadius = (this.unitOf(name value))
                 box.borderRadiusTL = (EVGUnit.unset())
                 box.borderRadiusTR = (EVGUnit.unset())
                 box.borderRadiusBR = (EVGUnit.unset())
@@ -3469,11 +3507,11 @@ class EVGElement {
             return
         }
         if ((name == "image-offset-x") || (name == "imageOffsetX")) {
-            imageOffsetX = (EVGUnit.parse(value))
+            imageOffsetX = (this.unitOf(name value))
             return
         }
         if ((name == "image-offset-y") || (name == "imageOffsetY")) {
-            imageOffsetY = (EVGUnit.parse(value))
+            imageOffsetY = (this.unitOf(name value))
             return
         }
         
@@ -3510,14 +3548,14 @@ class EVGElement {
                 letterSpacing = 0.0
                 return
             }
-            def lsu:EVGUnit (EVGUnit.parse(value))
+            def lsu:EVGUnit (this.unitOf(name value))
             if lsu.isSet {
                 letterSpacing = lsu.pixels
             }
             return
         }
         if ((name == "paragraph-spacing") || (name == "paragraphSpacing")) {
-            def psu:EVGUnit (EVGUnit.parse(value))
+            def psu:EVGUnit (this.unitOf(name value))
             if psu.isSet {
                 paragraphSpacing = psu.pixels
             }
@@ -3643,6 +3681,14 @@ class EVGElement {
         }
         if ((name == "flex-direction") || (name == "flexDirection")) {
             flexDirection = value
+            ; The reversed directions PARSE and then do nothing: the layout
+            ; branches on `== "column"` and lays every other value out as a
+            ; forward row. A value that is accepted and then ignored is the
+            ; same silence as one that is rejected, and worse, because the
+            ; property looks supported.
+            if ((value == "row-reverse") || (value == "column-reverse")) {
+                EVGReject.note("unsupported value" name value)
+            }
             return
         }
         if ((name == "flex-wrap") || (name == "flexWrap")) {
@@ -3713,7 +3759,7 @@ class EVGElement {
             return
         }
         if ((name == "flex-basis") || (name == "flexBasis")) {
-            flexBasis = (EVGUnit.parse(value))
+            flexBasis = (this.unitOf(name value))
             return
         }
         if (name == "flex") {
@@ -3721,15 +3767,15 @@ class EVGElement {
             return
         }
         if (name == "gap") {
-            gap = (EVGUnit.parse(value))
+            gap = (this.unitOf(name value))
             return
         }
         if ((name == "row-gap") || (name == "rowGap")) {
-            rowGap = (EVGUnit.parse(value))
+            rowGap = (this.unitOf(name value))
             return
         }
         if ((name == "column-gap") || (name == "columnGap")) {
-            columnGap = (EVGUnit.parse(value))
+            columnGap = (this.unitOf(name value))
             return
         }
         if ((name == "grid-template-columns") || (name == "gridTemplateColumns")) {
@@ -3772,6 +3818,14 @@ class EVGElement {
             alignContent = value
             return
         }
+        if ((name == "align-self") || (name == "alignSelf")) {
+            if (value == "auto") {
+                alignSelf = ""
+            } {
+                alignSelf = value
+            }
+            return
+        }
         if ((name == "align-items") || (name == "alignItems")) {
             alignItems = value
             return
@@ -3779,7 +3833,7 @@ class EVGElement {
         
         ; Typography
         if ((name == "font-size") || (name == "fontSize")) {
-            fontSize = (EVGUnit.parse(value))
+            fontSize = (this.unitOf(name value))
             fontSizeInherited = false
             return
         }
@@ -3860,7 +3914,7 @@ class EVGElement {
         
         ; Shadow
         if ((name == "shadow-radius") || (name == "shadowRadius")) {
-            shadowRadius = (EVGUnit.parse(value))
+            shadowRadius = (this.unitOf(name value))
             return
         }
         if ((name == "shadow-color") || (name == "shadowColor")) {
@@ -3868,11 +3922,11 @@ class EVGElement {
             return
         }
         if ((name == "shadow-offset-x") || (name == "shadowOffsetX")) {
-            shadowOffsetX = (EVGUnit.parse(value))
+            shadowOffsetX = (this.unitOf(name value))
             return
         }
         if ((name == "shadow-offset-y") || (name == "shadowOffsetY")) {
-            shadowOffsetY = (EVGUnit.parse(value))
+            shadowOffsetY = (this.unitOf(name value))
             return
         }
         
@@ -3911,7 +3965,7 @@ class EVGElement {
             svgSource = value
             return
         }
-        if (name == "viewBox") {
+        if ((name == "viewBox") || (name == "view-box")) {
             viewBox = value
             return
         }
@@ -3949,6 +4003,66 @@ class EVGElement {
             }
             return
         }
+        ; Nothing above claimed it. A property this engine does not implement
+        ; is the other half of the silence problem: `align-self` and
+        ; `aspect-ratio` used to fall off the end of this chain and change
+        ; nothing, with no way to tell that from a property that had been
+        ; applied and made no difference.
+        if ((EVGElement.isHostProp(name)) == false) {
+            EVGReject.note("unknown property" name value)
+        }
+    }
+
+    ; Names that reach `setAttribute` from an authoring layer and are NOT
+    ; styling: React-shaped handlers, the tree factory's own bookkeeping, and
+    ; the `data-` namespace an application owns. Rejecting these would bury the
+    ; real complaints in noise from every button on the page.
+    sfn isHostProp:boolean (name:string) {
+        def n:int (strlen name)
+        if (n == 0) {
+            return true
+        }
+        if (n > 2) {
+            def c0:int (charAt name 0)
+            def c1:int (charAt name 1)
+            def c2:int (charAt name 2)
+            ; onClick, onPress, onChange … — "on" then a capital, so `opacity`
+            ; and `order` are not swept up with them.
+            if (((c0 == 111) && (c1 == 110)) && ((c2 >= 65) && (c2 <= 90))) {
+                return true
+            }
+        }
+        if (n > 5) {
+            if ((EVGElement.startsWithStr(name "data-")) ) {
+                return true
+            }
+        }
+        if (name == "children") { return true }
+        if (name == "style") { return true }
+        if (name == "ref") { return true }
+        if (name == "tag") { return true }
+        if (name == "tagName") { return true }
+        if (name == "text") { return true }
+        if (name == "textContent") { return true }
+        if (name == "elementType") { return true }
+        if (name == "test-id") { return true }
+        if (name == "testId") { return true }
+        return false
+    }
+
+    sfn startsWithStr:boolean (s:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen s) < n) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            if ((charAt s i) != (charAt prefix i)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
     }
     
     fn getCalculatedBounds:string () {
