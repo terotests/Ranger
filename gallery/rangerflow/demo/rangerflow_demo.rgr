@@ -76,6 +76,7 @@ Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
 Import "../layout/EdgeLanes.rgr"
 Import "../layout/OrthoRouter.rgr"
+Import "../layout/EdgeFacing.rgr"
 Import "../layout/ForceLayout.rgr"
 
 class RangerFlowDemo {
@@ -1701,6 +1702,112 @@ class RangerFlowDemo {
         lay2.routeLongEdges()
         EdgeLanes.assign(uml)
         this.dragSweep(uml "UML class diagram")
+
+        this.frameSweep()
+    }
+
+    ; The same question for a diagram made of FRAMES — a deployment diagram,
+    ; where every box the reader can grab brings a package of nodes with it.
+    ; Dragging one of those across the page is what turns an edge's ends round,
+    ; and until `EdgeFacing` existed nothing turned them back: the line kept
+    ; leaving by the side the layout chose, which by then pointed at nothing.
+    fn frameSweep:void () {
+        def srcOpt:string (?? (read_file "." "gallery/rangerflow/fixtures/plantuml/06_deployment.puml") "")
+        if ((strlen srcOpt) == 0) {
+            print "  could not read gallery/rangerflow/fixtures/plantuml/06_deployment.puml"
+            return
+        }
+        def d:PlantUmlEntityModel (PlantUmlEntityReader.parse(srcOpt))
+        def style (new FlowStyle)
+        def g:FlowGraph (PlantUmlEntityFlow.build(d style))
+        def bounds:FlowRect (g.bounds())
+        def step:double 90.0
+        def drops:int 0
+        def backwards:int 0
+        def refaced:int 0
+        def dirty:int 0
+        def t0:double (wall_clock_ms)
+        def ni:int 0
+        while (ni < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(ni))
+            if (n.nodeType != "group") {
+                ni = (ni + 1)
+                continue
+            }
+            def homeX:double n.x
+            def homeY:double n.y
+            def gy:double (bounds.y - 120.0)
+            while (gy < ((bounds.y + bounds.h) + 120.0)) {
+                def gx:double (bounds.x - 120.0)
+                while (gx < ((bounds.x + bounds.w) + 120.0)) {
+                    this.moveFrame(g n.id (gx - n.x) (gy - n.y))
+                    if ((this.frameClear(g n.id)) == false) {
+                        EdgeLanes.reset(g)
+                        backwards = (backwards + (EdgeFacing.backwardEnds(g)))
+                        refaced = (refaced + (EdgeFacing.repairAll(g)))
+                        EdgeLanes.assign(g)
+                        OrthoRouter.repairAll(g)
+                        drops = (drops + 1)
+                        def left:int (EdgeFacing.backwardEnds(g))
+                        if (left > 0) {
+                            dirty = (dirty + 1)
+                        }
+                    }
+                    gx = (gx + step)
+                }
+                gy = (gy + step)
+            }
+            this.moveFrame(g n.id (homeX - n.x) (homeY - n.y))
+            EdgeLanes.reset(g)
+            def back:int (EdgeFacing.repairAll(g))
+            EdgeLanes.assign(g)
+            OrthoRouter.repairAll(g)
+            ni = (ni + 1)
+        }
+        def t1:double (wall_clock_ms)
+        print "  PlantUML deployment diagram, dragged by its frames"
+        print ("    " + (to_string drops) + " drops, " + (to_string (to_int (t1 - t0))) + " ms")
+        print ("    ends found leaving by a side that points away: " + (to_string backwards))
+        print ("    ends re-faced: " + (to_string refaced))
+        print ("    drops still leaving an end pointing away: " + (to_string dirty))
+    }
+
+    ; A frame dropped on top of another frame is not a routing failure, and a
+    ; frame standing on its own children is the normal state of affairs — so
+    ; only the outermost boxes are compared with each other.
+    fn frameClear:boolean (g:FlowGraph frameId:string) {
+        def me:FlowNode (g.nodeById(frameId))
+        def a:FlowRect (me.rect())
+        def k:int 0
+        while (k < (g.nodeCount())) {
+            def other:FlowNode (g.nodeAt(k))
+            if (other.id != frameId) {
+                if ((strlen other.parentId) == 0) {
+                    def b:FlowRect (other.rect())
+                    if ((a.overlapArea(b)) > 0.0) {
+                        return true
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    ; A frame and everything it holds, the way `FlowEditor.beginDrag` moves it.
+    fn moveFrame:void (g:FlowGraph frameId:string dx:double dy:double) {
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            def hit:boolean (n.id == frameId)
+            if (n.parentId == frameId) { hit = true }
+            if hit {
+                n.x = (n.x + dx)
+                n.y = (n.y + dy)
+                n.syncFromModel()
+            }
+            i = (i + 1)
+        }
     }
 
     fn dragSweep:void (g:FlowGraph label:string) {
@@ -1714,6 +1821,8 @@ class RangerFlowDemo {
         def stuck:int 0
         def gaveUp:int 0
         def tangled:int 0
+        def refaced:int 0
+        def backwards:int 0
         def t0:double (wall_clock_ms)
         def ni:int 0
         while (ni < (g.nodeCount())) {
@@ -1729,6 +1838,10 @@ class RangerFlowDemo {
                     n.syncFromModel()
                     if ((this.overlapsAnother(g ni)) == false) {
                         EdgeLanes.reset(g)
+                        ; The same order the browser uses on pointer up: which
+                        ; side each end leaves by first, then the tracks, then
+                        ; the obstacles.
+                        refaced = (refaced + (EdgeFacing.repairAll(g)))
                         EdgeLanes.assign(g)
                         def rt (new OrthoRouter)
                         def fixed:int (rt.applyBroken(g))
@@ -1736,6 +1849,7 @@ class RangerFlowDemo {
                         noPath = (noPath + rt.noPath)
                         stuck = (stuck + rt.stillCrossing)
                         gaveUp = (gaveUp + rt.refused)
+                        backwards = (backwards + (EdgeFacing.backwardEnds(g)))
                         def left:int (EdgeOverlap.nodeCrossings(g))
                         tangled = (tangled + (EdgeOverlap.edgeCrossings(g)))
                         drops = (drops + 1)
@@ -1755,6 +1869,7 @@ class RangerFlowDemo {
             n.y = homeY
             n.syncFromModel()
             EdgeLanes.reset(g)
+            def back:int (EdgeFacing.repairAll(g))
             EdgeLanes.assign(g)
             OrthoRouter.repairAll(g)
             ni = (ni + 1)
@@ -1772,6 +1887,8 @@ class RangerFlowDemo {
             perDrop = ((to_double tangled) / (to_double drops))
         }
         print ("    edges crossing each other, averaged over the drops: " + (to_string perDrop))
+        print ("    ends re-faced (the side an edge leaves by): " + (to_string refaced))
+        print ("    ends still leaving by a side that points away: " + (to_string backwards))
         print ("    why: no route found " + (to_string noPath) + ", route found but no better " + (to_string stuck) + ", grid too big " + (to_string gaveUp))
     }
 

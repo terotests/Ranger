@@ -18,6 +18,7 @@ Import "../layout/LayeredLayout.rgr"
 Import "../layout/EdgeLanes.rgr"
 Import "../layout/RouteQuality.rgr"
 Import "../layout/OrthoRouter.rgr"
+Import "../layout/EdgeFacing.rgr"
 Import "../layout/ReadableRouter.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../domains/erd/SqlSchemaReader.rgr"
@@ -121,6 +122,7 @@ class RangerFlowTest {
         RangerFlowTest.testEdgeLanes(c)
         RangerFlowTest.testLongEdgeRouting(c)
         RangerFlowTest.testObstacleRepair(c)
+        RangerFlowTest.testEdgeFacing(c)
         RangerFlowTest.testReadableRouter(c)
         RangerFlowTest.testLaneOrdering(c)
         RangerFlowTest.testDragSweep(c)
@@ -1870,6 +1872,195 @@ class RangerFlowTest {
     }
 
     ; exists — so the grid router repairs what is broken and leaves the rest.
+    ; ----------------------------------------------------------------------
+    ; Which side an edge leaves by, after the boxes have moved. The layout
+    ; chose those sides while its own arrangement was still true; a box
+    ; dragged past the thing it points at leaves an end facing backwards, and
+    ; the router is obliged to leave by the side it is given, so the line is
+    ; drawn back across the box it came from. `EdgeFacing` is the pass that
+    ; notices.
+    sfn testEdgeFacing:void (c:Checker) {
+        c.section("edge facing")
+        def g (new FlowGraph)
+        def a:FlowNode (g.node("a" "a" 0.0 0.0))
+        def b:FlowNode (g.node("b" "b" 0.0 300.0))
+        a.width = 120.0
+        a.height = 60.0
+        b.width = 120.0
+        b.height = 60.0
+        def e:FlowEdge (g.connect("a" "b"))
+        e.sourceHandle = 2
+        e.targetHandle = 0
+        g.reindex()
+        c.eqInt("a side that already points the right way is left alone" (EdgeFacing.repairAll(g)) 0)
+
+        ; The same drag the reader makes: b goes above a. The edge still leaves
+        ; a downwards and arrives from above — backwards at both ends.
+        b.y = -300.0
+        b.syncFromModel()
+        c.eqInt("both ends now point away" (EdgeFacing.backwardEnds(g)) 2)
+        c.eqInt("and both are re-faced" (EdgeFacing.repairAll(g)) 2)
+        c.eqInt("the source leaves by the top" (g.edgeSide(e true)) 0)
+        c.eqInt("the target is arrived at from below" (g.edgeSide(e false)) 2)
+        c.eqInt("nothing points away any more" (EdgeFacing.backwardEnds(g)) 0)
+        c.eqInt("a second pass finds nothing to do" (EdgeFacing.repairAll(g)) 0)
+
+        ; Undo the drag. The sides the layout chose come back — a pass that
+        ; repairs but cannot restore leaves the diagram drifting.
+        b.y = 300.0
+        b.syncFromModel()
+        c.eqInt("moving the box home moves both ends home" (EdgeFacing.repairAll(g)) 2)
+        c.eqInt("the source leaves by the bottom again" (g.edgeSide(e true)) 2)
+        c.eqInt("and the target from the top" (g.edgeSide(e false)) 0)
+        c.eqInt("and the pass has let go of the source" e.homeSourceSide -1)
+        c.eqInt("and of the target" e.homeTargetSide -1)
+
+        ; Sideways. Two boxes level with each other and far apart across the
+        ; page: the ends should be left and right, not top and bottom.
+        def g2 (new FlowGraph)
+        def p:FlowNode (g2.node("p" "p" 0.0 0.0))
+        def q:FlowNode (g2.node("q" "q" 600.0 10.0))
+        p.width = 120.0
+        p.height = 60.0
+        q.width = 120.0
+        q.height = 60.0
+        def e2:FlowEdge (g2.connect("p" "q"))
+        e2.sourceHandle = 3
+        e2.targetHandle = 1
+        g2.reindex()
+        c.eqInt("a left-hand exit towards a box on the right points away" (EdgeFacing.backwardEnds(g2)) 2)
+        def moved2:int (EdgeFacing.repairAll(g2))
+        c.eqInt("it leaves by the right" (g2.edgeSide(e2 true)) 1)
+        c.eqInt("and arrives on the left" (g2.edgeSide(e2 false)) 3)
+
+        ; A hand-dropped end is not the pass's to move.
+        def g3 (new FlowGraph)
+        def r:FlowNode (g3.node("r" "r" 0.0 0.0))
+        def t:FlowNode (g3.node("t" "t" 0.0 -300.0))
+        r.width = 120.0
+        r.height = 60.0
+        t.width = 120.0
+        t.height = 60.0
+        def e3:FlowEdge (g3.connect("r" "t"))
+        e3.sourceHandle = 2
+        e3.targetHandle = 0
+        e3.pinnedEnds = true
+        g3.reindex()
+        c.eqInt("an end the reader placed is left where they placed it" (EdgeFacing.repairAll(g3)) 0)
+        c.eqInt("even though it points away" (g3.edgeSide(e3 true)) 2)
+        e3.pinnedEnds = false
+        c.eqInt("unpinned, it is repaired" (EdgeFacing.repairAll(g3)) 2)
+
+        ; Frames. The box that decides the side is the one the edge has to get
+        ; OUT of. These two frames are stacked and overlap right across the
+        ; page, so the only way from one to the other is down — even though
+        ; the two NODES in them are further apart across the page than down
+        ; it, and would be faced sideways if they were asked on their own.
+        def g4 (new FlowGraph)
+        def fa:FlowNode (g4.node("fa" "upper frame" 0.0 0.0))
+        fa.nodeType = "group"
+        fa.width = 600.0
+        fa.height = 200.0
+        def fb:FlowNode (g4.node("fb" "lower frame" 0.0 400.0))
+        fb.nodeType = "group"
+        fb.width = 600.0
+        fb.height = 200.0
+        def ca:FlowNode (g4.node("ca" "in a" 20.0 20.0))
+        ca.width = 100.0
+        ca.height = 60.0
+        ca.parentId = "fa"
+        def cb:FlowNode (g4.node("cb" "in b" 480.0 420.0))
+        cb.width = 100.0
+        cb.height = 60.0
+        cb.parentId = "fb"
+        def e4:FlowEdge (g4.connect("ca" "cb"))
+        e4.sourceHandle = 0
+        e4.targetHandle = 2
+        g4.reindex()
+        c.eqInt("an upward exit towards a frame below points away" (EdgeFacing.backwardEnds(g4)) 2)
+        c.eqInt("both ends are re-faced" (EdgeFacing.repairAll(g4)) 2)
+        c.eqInt("out by the bottom, which is the way out of the frame" (g4.edgeSide(e4 true)) 2)
+        c.eqInt("in by the top of the other" (g4.edgeSide(e4 false)) 0)
+
+        ; Side by side, and the edge leaves downwards: not backwards, merely
+        ; not the shortest way round, so the quiet pass leaves it alone and
+        ; only an explicit re-facing moves it.
+        def g7 (new FlowGraph)
+        def ga:FlowNode (g7.node("ga" "left" 0.0 0.0))
+        ga.width = 120.0
+        ga.height = 60.0
+        def gb:FlowNode (g7.node("gb" "right" 500.0 10.0))
+        gb.width = 120.0
+        gb.height = 60.0
+        def e7:FlowEdge (g7.connect("ga" "gb"))
+        e7.sourceHandle = 2
+        e7.targetHandle = 0
+        g7.reindex()
+        c.eqInt("a sideways exit is not backwards" (EdgeFacing.backwardEnds(g7)) 0)
+        c.eqInt("so nothing is disturbed" (EdgeFacing.repairAll(g7)) 0)
+        c.eqInt("asked outright, both ends move" (EdgeFacing.refaceAll(g7)) 2)
+        c.eqInt("out by the right" (g7.edgeSide(e7 true)) 1)
+        c.eqInt("in by the left" (g7.edgeSide(e7 false)) 3)
+
+        ; Two nodes inside the SAME frame are faced as themselves — the frame
+        ; is not something either of them has to leave.
+        def g5 (new FlowGraph)
+        def f5:FlowNode (g5.node("f5" "one frame" 0.0 0.0))
+        f5.nodeType = "group"
+        f5.width = 400.0
+        f5.height = 400.0
+        def u:FlowNode (g5.node("u" "upper" 20.0 20.0))
+        u.width = 100.0
+        u.height = 60.0
+        u.parentId = "f5"
+        def d:FlowNode (g5.node("d" "lower" 20.0 300.0))
+        d.width = 100.0
+        d.height = 60.0
+        d.parentId = "f5"
+        def e5:FlowEdge (g5.connect("u" "d"))
+        e5.sourceHandle = 2
+        e5.targetHandle = 0
+        g5.reindex()
+        c.eqInt("inside one frame the nodes speak for themselves" (EdgeFacing.repairAll(g5)) 0)
+
+        ; A row with a port on each side is an end that has a side to choose:
+        ; the foreign key leaves by whichever of them the other table is on.
+        def g6 (new FlowGraph)
+        def t1:FlowNode (g6.node("t1" "orders" 0.0 0.0))
+        t1.width = 180.0
+        t1.height = 120.0
+        def sec1:FlowSection (t1.addSection(""))
+        def row1:FlowRow (FlowRow.create("fk" "customer_id" "" ""))
+        row1.portId = "t1.customer_id"
+        def added1:FlowRow (sec1.addRow(row1))
+        def t2:FlowNode (g6.node("t2" "customers" 500.0 0.0))
+        t2.width = 180.0
+        t2.height = 120.0
+        def sec2:FlowSection (t2.addSection(""))
+        def row2:FlowRow (FlowRow.create("pk" "id" "" ""))
+        row2.portId = "t2.id"
+        def added2:FlowRow (sec2.addRow(row2))
+        t1.syncFromModel()
+        t2.syncFromModel()
+        t1.placeRowPorts()
+        t2.placeRowPorts()
+        def e6:FlowEdge (g6.connect("t1" "t2"))
+        ; As the schema reader leaves it when customers was on the LEFT.
+        e6.sourcePort = "t1.customer_id:l"
+        e6.targetPort = "t2.id:r"
+        e6.sourceHandle = 3
+        e6.targetHandle = 1
+        g6.reindex()
+        def leftPort:FlowPort (g6.portRef("t1.customer_id:l"))
+        c.eqStr("the row ports know each other" leftPort.mirrorId "t1.customer_id:r")
+        c.eqInt("both row ends point away" (EdgeFacing.backwardEnds(g6)) 2)
+        c.eqInt("both are moved to the row's other port" (EdgeFacing.repairAll(g6)) 2)
+        c.eqStr("the key leaves by the right of its row" e6.sourcePort "t1.customer_id:r")
+        c.eqStr("and arrives at the left of the other" e6.targetPort "t2.id:l")
+        c.eqInt("the source side follows the port" (g6.edgeSide(e6 true)) 1)
+        c.eqInt("and so does the target's" (g6.edgeSide(e6 false)) 3)
+    }
+
     sfn testObstacleRepair:void (c:Checker) {
         def g (new FlowGraph)
         def a:FlowNode (g.node("a" "a" 0.0 0.0))

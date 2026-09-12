@@ -28,6 +28,7 @@
 Import "GraphModel.rgr"
 Import "FlowView.rgr"
 Import "EdgeRouter.rgr"
+Import "../layout/EdgeFacing.rgr"
 
 ; What the platform fills in. Levels, not edges: the editor derives the edges,
 ; so a host that can only report "the button is down" still works.
@@ -182,6 +183,7 @@ class FlowUndo {
                         ed.targetHandle = side
                     }
                     ed.pinnedRoute = false
+                    ed.pinnedEnds = true
                     clear ed.waypoints
                     g.reindex()
                 } {
@@ -196,6 +198,7 @@ class FlowUndo {
                             ed.targetHandle = side
                         }
                         ed.pinnedRoute = false
+                        ed.pinnedEnds = true
                         clear ed.waypoints
                         g.reindex()
                     }
@@ -2141,6 +2144,9 @@ class FlowEditor {
                     ; end used to be.
                     e.pinnedRoute = false
                     clear e.waypoints
+                    ; The SIDE, though, was chosen by hand just now, so no
+                    ; later re-facing pass may move it off that handle.
+                    e.pinnedEnds = true
                     graph.reindex()
                     undo.record(entry)
                     onGraphChanged = true
@@ -2584,9 +2590,15 @@ class FlowEditor {
                 if b.selected { touched = true }
             }
             if touched {
-                if (e.pinnedRoute || ((array_length e.waypoints) > 0)) {
-                    e.pinnedRoute = false
-                    clear e.waypoints
+                def was:boolean (e.pinnedRoute || ((array_length e.waypoints) > 0))
+                ; The sides go back to the router too. "Reroute this" on an
+                ; edge whose box has been dragged across the diagram means the
+                ; side it leaves by as much as the corners it turns at — an
+                ; end held on a handle the reader chose is still held.
+                e.pinnedRoute = false
+                clear e.waypoints
+                def faced:int (EdgeFacing.reface(graph e))
+                if (was || (faced > 0)) {
                     n = (n + 1)
                 }
             }

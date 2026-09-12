@@ -259,6 +259,13 @@ class FlowPort {
     ; its offset; a handle on a diamond is "the left-hand point of the diamond"
     ; and has to move when the shape does.
     def centred:boolean false
+    ; The port on the OTHER side that is the same place on the node — the
+    ; right-hand handle of the row whose left-hand handle this is. A row gets
+    ; one port per side precisely so an edge can arrive from whichever side
+    ; the other table is on (see `FlowNode.placeRowPorts`), and this is what
+    ; lets a pass move an edge between the two without knowing how the ids
+    ; were spelled. Empty when the port is the only one at its place.
+    def mirrorId:string ""
 
     Constructor () {
     }
@@ -599,6 +606,8 @@ class FlowNode {
                         pl.offset = cy
                         def pr:FlowPort (this.ensurePort((row.portId + ":r") 1))
                         pr.offset = cy
+                        pl.mirrorId = pr.id
+                        pr.mirrorId = pl.id
                     }
                 }
                 k = (k + 1)
@@ -1048,6 +1057,23 @@ class FlowEdge {
     ; route is not a suggestion: no later pass may move it, and nor may the
     ; obstacle repair, because "that line goes there" is the whole point.
     def pinnedRoute:boolean false
+
+    ; The same promise for the two ENDS. `EdgeFacing` works out which side an
+    ; edge should leave by from where the boxes now are, and rewrites the ones
+    ; that point the wrong way after a drag; an end the reader dragged onto a
+    ; handle themselves is not one of those. The route may still be recomputed
+    ; — only the sides are held.
+    def pinnedEnds:boolean false
+
+    ; The side an end had before `EdgeFacing` took it over, or -1 while nobody
+    ; has. Until an end has been obviously wrong once, the side a layout chose
+    ; for it is left alone even when a slightly better one exists — a diagram
+    ; should not rearrange itself around a reader who dragged one box. Once it
+    ; HAS been wrong the pass owns the end and tracks the geometry; and when
+    ; the box goes back to where the old side made sense, that side is given
+    ; back, so a drag and its undo leave the diagram exactly as it was.
+    def homeSourceSide:int -1
+    def homeTargetSide:int -1
 
     ; The corners of a route somebody else worked out — the layered layout,
     ; when the edge spans more than one layer and has to be taken around what
