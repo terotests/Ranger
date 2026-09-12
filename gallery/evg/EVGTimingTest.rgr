@@ -695,6 +695,183 @@ class EVGTimingTest {
         c.ok("the flipped box was drawn" seen)
     }
 
+    ; A PICTURE IS NOT ALWAYS SHOWN WHOLE. Figma keeps a crop window on the
+    ; paint, and a list that drops it draws the whole frame where a detail
+    ; belongs: on a board where two boxes show two halves of one screenshot,
+    ; the boxes are the same size and the same bytes and differ ONLY in that
+    ; window, so dropping it drew the same picture twice. The window is in
+    ; the SOURCE's own 0..1 space, so no page transform touches it, and it
+    ; may reach past the bitmap — a crop zoomed out past the picture leaves
+    ; a margin the picture does not cover.
+    sfn hasSub:boolean (s:string needle:string) {
+        def m:int (strlen needle)
+        def n:int (strlen s)
+        def i:int 0
+        while (i <= (n - m)) {
+            if ((substring s i (i + m)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; A SHADOW NOTHING EVER WROTE. `hasShadow` and binary slots 31-35 have
+    ; been on the command since the office exporters needed them, and the
+    ; tree walk never set one from an element: the fields were there, the
+    ; bridge carried them, and a page built from a document had none. A board
+    ; of FigJam stickies is 154 shadows, and every note sat flat on it.
+    ; A GRADIENT ON A SHAPE THAT IS NOT ITS BOX. `hasGrad` was written for
+    ; rectangles only, so a vector filled with a ramp had to choose between
+    ; the shading and its own outline: painted as a box it drew a grey square
+    ; where a rounded pill should be, and flattened to the average of its two
+    ; ends it kept the pill and lost the shading. The command carries the
+    ; rings AND the stops, so neither is given up.
+    sfn checkPathGradient:void (c:TimingCheck) {
+        def page (new EVGElement())
+        page.setAttribute("width" "200")
+        page.setAttribute("height" "200")
+        def pill (EVGElement.createPath())
+        pill.setAttribute("width" "100")
+        pill.setAttribute("height" "40")
+        pill.setAttribute("viewBox" "0 0 100 40")
+        pill.setAttribute("d" "M0 0L100 0L100 40L0 40Z")
+        pill.setAttribute("fill" "#ff0000")
+        pill.setAttribute("gradient-from" "#ff0000")
+        pill.setAttribute("gradient-to" "#0000ff")
+        pill.setAttribute("gradient-dir" "1")
+        page.addChild(pill)
+        def layout (new EVGLayout())
+        layout.layout(page)
+        def dl (new EVGDisplayList())
+        dl.build(page)
+        def shaded:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if ((cmd.kind == 6) && cmd.hasGrad) {
+                shaded = (shaded + 1)
+                c.ok("the near stop is the first colour" ((cmd.r == 255) && (cmd.b == 0)))
+                c.ok("and the far stop the second" ((cmd.r2 == 0) && (cmd.b2 == 255)))
+                ; And the shape is still there: a gradient that cost the
+                ; rings would be the old bug the other way round.
+                c.ok("with the rings it was drawn from" ((array_length cmd.pts) > 0))
+            }
+            i = (i + 1)
+        }
+        c.ok("the shaded vector is one PATH command, shaded" (shaded == 1))
+        ; ONE command, not two. A path is not its box, so the paint goes on
+        ; the path and a background rectangle beside it draws the box the
+        ; shape is not: the shaded pill came out sitting on a shaded
+        ; rectangle, grey leaking past its own rounded corner.
+        def boxes:int 0
+        def k:int 0
+        while (k < (array_length dl.cmds)) {
+            def bc:EVGDrawCmd (itemAt dl.cmds k)
+            if (bc.kind == 0) {
+                boxes = (boxes + 1)
+            }
+            k = (k + 1)
+        }
+        c.ok("and no rectangle is drawn under it" (boxes == 0))
+        def json:string (dl.toJson())
+        c.ok("and both stops reach the painter" (EVGTimingTest.hasSub(json "\"c2\":[0,0,255,1.00]")))
+    }
+
+    sfn checkShadowFromElement:void (c:TimingCheck) {
+        def page (new EVGElement())
+        page.setAttribute("width" "200")
+        page.setAttribute("height" "200")
+        def card (new EVGElement())
+        card.setAttribute("width" "100")
+        card.setAttribute("height" "40")
+        card.setAttribute("background-color" "rgb(255,255,255)")
+        card.setAttribute("shadow-offset-x" "0px")
+        card.setAttribute("shadow-offset-y" "2px")
+        card.setAttribute("shadow-radius" "8px")
+        card.setAttribute("shadow-color" "#0000001a")
+        page.addChild(card)
+        ; A box with no shadow named must not grow one.
+        def plain (new EVGElement())
+        plain.setAttribute("width" "100")
+        plain.setAttribute("height" "40")
+        plain.setAttribute("background-color" "rgb(0,0,255)")
+        page.addChild(plain)
+        def layout (new EVGLayout())
+        layout.layout(page)
+        def dl (new EVGDisplayList())
+        dl.build(page)
+        def lit:int 0
+        def dark:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 0) {
+                if cmd.hasShadow {
+                    lit = (lit + 1)
+                    c.near("it falls two pixels down" cmd.shadowY 2.0)
+                    c.near("and none sideways" cmd.shadowX 0.0)
+                    c.near("softened by eight" cmd.shadowBlur 8.0)
+                    ; The alpha is the whole point. A sticky's shadow is
+                    ; black at a tenth; at one it is a slab under the note.
+                    c.near("and translucent, as the colour said" cmd.shadowA 0.1019)
+                } {
+                    dark = (dark + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        c.ok("the card's shadow reaches the list" (lit == 1))
+        c.ok("and the plain box grew none" (dark >= 1))
+        def json:string (dl.toJson())
+        c.ok("and the JSON carries it, as the binary always did" (EVGTimingTest.hasSub(json "\"sh\":{\"x\":0.00,\"y\":2.00,\"blur\":8.00")))
+    }
+
+    sfn checkImageCrop:void (c:TimingCheck) {
+        def page (new EVGElement())
+        page.setAttribute("width" "200")
+        page.setAttribute("height" "200")
+        def img (new EVGElement())
+        img.setAttribute("width" "100")
+        img.setAttribute("height" "50")
+        img.src = "photo.png"
+        img.setAttribute("image-view-box" "0.25 0.5 0.5 0.25")
+        page.addChild(img)
+        def plain (new EVGElement())
+        plain.setAttribute("width" "100")
+        plain.setAttribute("height" "50")
+        plain.src = "photo.png"
+        page.addChild(plain)
+        def layout (new EVGLayout())
+        layout.layout(page)
+        def dl (new EVGDisplayList())
+        dl.build(page)
+        def cropped:int 0
+        def whole:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 2) {
+                if cmd.hasCrop {
+                    cropped = (cropped + 1)
+                    c.near("the window starts a quarter across" cmd.cropX 0.25)
+                    c.near("and halfway down" cmd.cropY 0.5)
+                    c.near("and is half the width" cmd.cropW 0.5)
+                    c.near("and a quarter of the height" cmd.cropH 0.25)
+                } {
+                    whole = (whole + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        c.ok("the cropped picture carries its window" (cropped == 1))
+        ; An uncropped picture has to stay uncropped: 0,0,1,1 is a legal
+        ; window, so the flag is what separates them and not the numbers.
+        c.ok("and the uncropped one carries none" (whole == 1))
+        def json:string (dl.toJson())
+        c.ok("the window reaches the painter as a UV rectangle" (EVGTimingTest.hasSub(json "\"cu\":[0.2500,0.5000,0.7500,0.7500]")))
+    }
+
     ; A CLIP INSIDE A TURN IS NOT A CLIP. It crosses the list as x/y/w/h
     ; and every backend makes it a scissor, which is axis-aligned; the
     ; rotation that moves the pixels cannot move the rectangle with them,
@@ -1179,6 +1356,9 @@ class EVGTimingTest {
         EVGTimingTest.checkTransformOrigin(c)
         EVGTimingTest.checkTransformScale(c)
         EVGTimingTest.checkMirroredBox(c)
+        EVGTimingTest.checkPathGradient(c)
+        EVGTimingTest.checkShadowFromElement(c)
+        EVGTimingTest.checkImageCrop(c)
         EVGTimingTest.checkClipInsideTurn(c)
         EVGTimingTest.checkClipWithoutTurn(c)
         EVGTimingTest.checkTransformTransition(c)

@@ -676,9 +676,15 @@ class EVGElement {
     ; Image properties
     def src:string ""
     def alt:string ""
-    ; Image viewBox for cropping/zooming: "x% y% w% h%" or "x y w h" (pixels)
+    ; The part of the SOURCE the box shows: "x y w h" as fractions of the
+    ; bitmap, or the same four as percentages. It is the window, not the
+    ; destination: "0 0 0.5 1" shows the left half of the picture stretched
+    ; across the whole box. Numbers outside 0..1 are legal and mean the
+    ; window reaches past the bitmap — the picture then does not cover the
+    ; box and the rest of it stays empty, which is what a Figma crop zoomed
+    ; out past the image does.
     def imageViewBox:string ""
-    ; Parsed image viewBox values (0-1 range for percentages)
+    ; Parsed image viewBox values, as fractions of the source
     def imageViewBoxX:double 0.0
     def imageViewBoxY:double 0.0
     def imageViewBoxW:double 1.0
@@ -2306,6 +2312,49 @@ class EVGElement {
     ; does not understand. Called by `setStyle`, and separately by the style
     ; sheet's validator so an unsupported filter function is REPORTED — see
     ; `blurProblem`.
+    ; "x y w h", four numbers or four percentages, into the element's four
+    ; fractions. Anything else leaves them alone and says so, so a typo is a
+    ; picture drawn whole rather than a picture drawn nowhere.
+    sfn parseViewBox:boolean (value:string el:EVGElement) {
+        def v:string (trim value)
+        if ((strlen v) == 0) {
+            return false
+        }
+        def words:[string] (EVGElement.splitWords(v))
+        if ((array_length words) != 4) {
+            return false
+        }
+        def got:[double]
+        def i:int 0
+        while (i < 4) {
+            def w:string (itemAt words i)
+            def u:EVGUnit (EVGUnit.parse(w))
+            if (u.isSet == false) {
+                return false
+            }
+            def n:double u.value
+            if (u.isPercent()) {
+                n = (n / 100.0)
+            }
+            push got n
+            i = (i + 1)
+        }
+        def cw:double (itemAt got 2)
+        def ch:double (itemAt got 3)
+        ; A window with no width shows nothing; that is a typo, not a crop.
+        if ((fabs cw) < 0.000001) {
+            return false
+        }
+        if ((fabs ch) < 0.000001) {
+            return false
+        }
+        el.imageViewBoxX = (itemAt got 0)
+        el.imageViewBoxY = (itemAt got 1)
+        el.imageViewBoxW = cw
+        el.imageViewBoxH = ch
+        return true
+    }
+
     sfn blurRadiusOf:double (value:string) {
         def v:string (trim value)
         if (v == "none") {
@@ -3407,6 +3456,16 @@ class EVGElement {
         ; Image properties
         if ((name == "object-fit") || (name == "objectFit")) {
             objectFit = value
+            return
+        }
+        ; The crop window into the source. A picture is not always shown
+        ; whole: Figma keeps a crop rectangle on the paint, and a backend
+        ; that drops it draws the whole frame where a detail belongs — two
+        ; boxes showing two halves of one screenshot come out as the same
+        ; picture twice.
+        if ((name == "image-view-box") || (name == "imageViewBox")) {
+            imageViewBox = value
+            imageViewBoxSet = (EVGElement.parseViewBox(value this))
             return
         }
         if ((name == "image-offset-x") || (name == "imageOffsetX")) {

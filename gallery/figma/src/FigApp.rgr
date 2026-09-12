@@ -857,6 +857,21 @@ class FigApp {
         o = (o + "  (" + (to_string box.x) + "," + (to_string box.y) + " on the page)")
         if n.hasXf {
             o = (o + "\nturned " + (to_string (n.xf.rotationDeg())) + " degrees")
+            if (n.xf.isMirrored()) {
+                o = (o + ", and MIRRORED — the matrix reverses handedness")
+            }
+            def mscale:double (n.xf.uniformScale())
+            if ((fabs (mscale - 1.0)) > 0.001) {
+                o = (o + "\n       scaled by " + (to_string mscale) + " as well")
+            }
+            o = (o + "\nmatrix " + (to_string n.xf.a) + " " + (to_string n.xf.c) + " " + (to_string n.xf.tx))
+            o = (o + "\n       " + (to_string n.xf.b) + " " + (to_string n.xf.d) + " " + (to_string n.xf.ty))
+            if ((n.xf.isSimilarity()) == false) {
+                o = (o + "\n       NOT A SIMILARITY — its two columns are not the same length or")
+                o = (o + "\n       not at right angles, so it is a skew or a scale that differs by")
+                o = (o + "\n       axis. A turn and one factor cannot say that, and the layer is")
+                o = (o + "\n       drawn as the nearest turn: the picture is wrong, not just soft.")
+            }
         }
         if (n.visible == false) {
             o = (o + "\nHIDDEN the file says this layer is not visible")
@@ -890,6 +905,14 @@ class FigApp {
                     o = (o + " (bytes are in the file)")
                 } {
                     o = (o + "  MISSING — the bytes are not in the file, so it paints grey")
+                }
+                o = (o + "\n      fit " + f.imageFit)
+                if ((f.imageRotation > 0.01) || (f.imageRotation < (0.0 - 0.01))) {
+                    o = (o + ", turned " + (to_string f.imageRotation) + " degrees INSIDE the box — not drawn")
+                }
+                if f.imageCropped {
+                    o = (o + ", showing the part of it from " + (to_string f.cropX) + "," + (to_string f.cropY))
+                    o = (o + " and " + (to_string f.cropW) + " by " + (to_string f.cropH) + " of the bitmap")
                 }
             }
             fi = (fi + 1)

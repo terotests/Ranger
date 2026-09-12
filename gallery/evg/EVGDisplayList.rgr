@@ -133,6 +133,15 @@ class EVGDrawCmd {
     ; transform of the quad.
     def flipH:boolean false
     def flipV:boolean false
+    ; The window into the source, in the bitmap's own 0..1 space, when the
+    ; picture is shown cropped rather than whole. `hasCrop` is what says the
+    ; four numbers mean anything: 0,0,1,1 is a legal window and is also what
+    ; an uncropped command leaves behind, so the flag cannot be inferred.
+    def hasCrop:boolean false
+    def cropX:double 0.0
+    def cropY:double 0.0
+    def cropW:double 1.0
+    def cropH:double 1.0
     ; PATH / STROKE. The rings are already flattened and already in page
     ; coordinates: a GPU backend should not have to carry a path parser, and
     ; the curve subdivision belongs where the drawn size is known. `ringEnds`
@@ -1151,6 +1160,16 @@ class EVGDisplayList {
             cf.g = (fillColor.green())
             cf.b = (fillColor.blue())
             cf.a = (fillColor.alpha())
+            ; A GRADIENT ON A SHAPE THAT IS NOT ITS BOX. `hasGrad` was
+            ; written for rectangles only, so a vector filled with a ramp
+            ; kept its outline and lost the shading — or, flattened to the
+            ; average of its two ends, kept the shading and lost the ramp.
+            ; The command carries both: the rings say what shape it is, the
+            ; two stops and the direction say how it is shaded, and the box
+            ; the stops run across is the command's own x/y/w/h.
+            if (EVGDisplayList.hasLinearGradient(el)) {
+                EVGDisplayList.applyGradient(cf el)
+            }
             this.copyRings(cf rings)
             this.addCmd(cf)
         }
@@ -2274,6 +2293,53 @@ class EVGDisplayList {
         return v
     }
 
+    ; The element's drop shadow onto the command that carries its box.
+    ; `hasShadow` and slots 31-35 have been on the command and in the binary
+    ; all along and NOTHING EVER WROTE ONE FROM AN ELEMENT — the same gap a
+    ; gradient had. A board of FigJam stickies is 154 shadows, and every one
+    ; of them was a note sitting flat on the page.
+    ;
+    ; A shadow with no colour is not a shadow. An offset of zero with a
+    ; radius is, though — that is the soft halo under a sticky — so the test
+    ; is the colour and the radius, never the offset.
+    sfn applyShadow:void (c:EVGDrawCmd el:EVGElement) {
+        def col:EVGColor el.shadowColor
+        if (col.isSet == false) {
+            return
+        }
+        if ((col.alpha()) <= 0.0) {
+            return
+        }
+        def blur:double 0.0
+        if el.shadowRadius.isSet {
+            blur = el.shadowRadius.pixels
+        }
+        def dx:double 0.0
+        if el.shadowOffsetX.isSet {
+            dx = el.shadowOffsetX.pixels
+        }
+        def dy:double 0.0
+        if el.shadowOffsetY.isSet {
+            dy = el.shadowOffsetY.pixels
+        }
+        if (blur < 0.0) {
+            blur = 0.0
+        }
+        ; Nothing offset and nothing to soften draws exactly under the box it
+        ; would be hidden by, so it is not written at all.
+        if (((blur == 0.0) && (dx == 0.0)) && (dy == 0.0)) {
+            return
+        }
+        c.hasShadow = true
+        c.shadowX = dx
+        c.shadowY = dy
+        c.shadowBlur = blur
+        c.shadowR = (col.red())
+        c.shadowG = (col.green())
+        c.shadowB = (col.blue())
+        c.shadowA = (col.alpha())
+    }
+
     sfn hasLinearGradient:boolean (el:EVGElement) {
         ; The RGU1 pair — `gradient-from` / `gradient-to` / `gradient-dir` — is
         ; already this list's own vocabulary: a direction and two colours, with
@@ -2554,7 +2620,15 @@ class EVGDisplayList {
         ; `background-color` beside it emitted no rectangle at all, and with
         ; one it was painted flat.
         def gradOk:boolean (EVGDisplayList.hasLinearGradient(el))
-        if (bgSet || gradOk) {
+        ; A PATH IS NOT ITS BOX. Its paint belongs on the path command, where
+        ; `walkPath` puts it, and a background rectangle beside it draws the
+        ; box the shape is not: a shaded pill came out sitting on a shaded
+        ; rectangle, grey leaking past its own rounded corner. The same is
+        ; true of a flat colour and always was — a path element carries it as
+        ; `fill` and never as `background-color`, so nothing noticed until a
+        ; gradient could be on both.
+        def paintsItsBox:boolean (el.tagName != "path")
+        if ((bgSet || gradOk) && paintsItsBox) {
             def c (new EVGDrawCmd())
             c.kind = 0
             c.x = x
@@ -2581,10 +2655,41 @@ class EVGDisplayList {
                 EVGDisplayList.applyGradient(c el)
             }
             c.backdropBlur = el.backdropBlur
+            EVGDisplayList.applyShadow(c el)
             this.addCmd(c)
             painted = true
         }
         if (painted == false) {
+            ; A SHADOW UNDER SOMETHING WITH NO BACKGROUND. A FigJam sticky is
+            ; a container that paints nothing itself — its body arrives as a
+            ; child path — and the shadow is on the container. Gated on the
+            ; background, the shadow of every sticky on a board was dropped.
+            ;
+            ; The rectangle is the element's own box, fully transparent, and
+            ; carries only the shadow: the same shape the content fills, and
+            ; a backend that cannot draw shadows draws nothing, which is
+            ; what it did before this existed.
+            def probe (new EVGDrawCmd())
+            EVGDisplayList.applyShadow(probe el)
+            if ((probe.hasShadow && (el.backdropBlur <= 0.0)) && paintsItsBox) {
+                def cs (new EVGDrawCmd())
+                cs.kind = 0
+                cs.x = x
+                cs.y = y
+                cs.w = w
+                cs.h = h
+                cs.radius = radius
+                cs.perCorner = perCorner
+                if perCorner {
+                    cs.radius = rTL
+                    cs.radiusTR = rTR
+                    cs.radiusBR = rBR
+                    cs.radiusBL = rBL
+                }
+                cs.a = 0.0
+                EVGDisplayList.applyShadow(cs el)
+                this.addCmd(cs)
+            }
             if (el.backdropBlur > 0.0) {
                 def cb (new EVGDrawCmd())
                 cb.kind = 0
@@ -2605,6 +2710,7 @@ class EVGDisplayList {
                 ; exactly right.
                 cb.a = 0.0
                 cb.backdropBlur = el.backdropBlur
+                EVGDisplayList.applyShadow(cb el)
                 this.addCmd(cb)
             }
         }
@@ -2663,6 +2769,13 @@ class EVGDisplayList {
                 c3.radiusBL = rBL
             }
             c3.src = el.src
+            if el.imageViewBoxSet {
+                c3.hasCrop = true
+                c3.cropX = el.imageViewBoxX
+                c3.cropY = el.imageViewBoxY
+                c3.cropW = el.imageViewBoxW
+                c3.cropH = el.imageViewBoxH
+            }
             this.addCmd(c3)
         }
 
@@ -2970,7 +3083,7 @@ class EVGDisplayList {
     }
 
     sfn stride:int () {
-        return 41
+        return 45
     }
 
     ; A value in hundredths, which is the precision `num` writes and therefore
@@ -3068,6 +3181,10 @@ class EVGDisplayList {
             if c2.hasShadow {
                 flags = (flags + 128)
             }
+            ; Slots 41-44 mean something: the crop window into the source.
+            if c2.hasCrop {
+                flags = (flags + 256)
+            }
             int_buffer_set recs (base + 9) flags
             int_buffer_set recs (base + 10) c2.gradDir
             int_buffer_set recs (base + 11) (EVGDisplayList.packRgb(c2.r2 c2.g2 c2.b2))
@@ -3117,6 +3234,14 @@ class EVGDisplayList {
             }
             int_buffer_set recs (base + 39) dashIdx
             int_buffer_set recs (base + 40) (EVGDisplayList.fixed(c2.strokeDashOffset))
+            ; 41-44: the crop window, in TEN-THOUSANDTHS. Every other slot is
+            ; hundredths because that is what `num` writes for a pixel; this
+            ; one is a fraction of a bitmap, where a hundredth is a whole
+            ; percent of the picture. `frac4` writes the JSON to match.
+            int_buffer_set recs (base + 41) (EVGDisplayList.fixed(c2.cropX * 100.0))
+            int_buffer_set recs (base + 42) (EVGDisplayList.fixed(c2.cropY * 100.0))
+            int_buffer_set recs (base + 43) (EVGDisplayList.fixed((c2.cropX + c2.cropW) * 100.0))
+            int_buffer_set recs (base + 44) (EVGDisplayList.fixed((c2.cropY + c2.cropH) * 100.0))
             ; A command with no text names none of the three text strings, and
             ; `toJson` writes none of them either — so the reader must be able
             ; to tell "no text" from "empty text", which -1 says and 0 would
@@ -3369,6 +3494,12 @@ class EVGDisplayList {
             if c.flipV {
                 out = out + ",\"fy\":true"
             }
+            ; Only when there IS a crop, so a list built without one is the
+            ; same bytes it was before this field existed.
+            if c.hasCrop {
+                out = out + ",\"cu\":[" + (EVGDisplayList.frac4(c.cropX)) + "," + (EVGDisplayList.frac4(c.cropY))
+                out = out + "," + (EVGDisplayList.frac4(c.cropX + c.cropW)) + "," + (EVGDisplayList.frac4(c.cropY + c.cropH)) + "]"
+            }
             if (c.rotate != 0.0) {
                 out = out + ",\"rot\":" + (EVGDisplayList.num(c.rotate))
                 if c.hasRotOrigin {
@@ -3378,6 +3509,17 @@ class EVGDisplayList {
             }
             if (c.backdropBlur > 0.0) {
                 out = out + ",\"bb\":" + (EVGDisplayList.num(c.backdropBlur))
+            }
+            ; The drop shadow, in the shape both painters read it: an offset,
+            ; a blur and a colour. The binary bridge has carried this since
+            ; slot 31; the JSON never did, so the two bridges disagreed about
+            ; a frame and only one of them was right.
+            if c.hasShadow {
+                out = out + ",\"sh\":{\"x\":" + (EVGDisplayList.num(c.shadowX))
+                out = out + ",\"y\":" + (EVGDisplayList.num(c.shadowY))
+                out = out + ",\"blur\":" + (EVGDisplayList.num(c.shadowBlur))
+                out = out + ",\"c\":[" + (to_string c.shadowR) + "," + (to_string c.shadowG)
+                out = out + "," + (to_string c.shadowB) + "," + (EVGDisplayList.num(c.shadowA)) + "]}"
             }
             ; The GEOMETRY decides whether there is a path, not the ring list:
             ; a command built by hand — and there are several, in this gallery
@@ -3561,6 +3703,47 @@ class EVGDisplayList {
         return out
     }
 
+
+    ; Four decimals, for a value that lives between 0 and 1. `num` writes
+    ; hundredths, which is right for a coordinate in pixels and far too
+    ; coarse for a fraction of a bitmap: a crop window rounded to 0.01 moves
+    ; by a full percent of the picture, sixteen pixels on a wide screenshot.
+    ; The binary bridge stores the same value as ten-thousandths, so the two
+    ; carry the same number to the same place.
+    sfn frac4:string (v:double) {
+        def x:double 0.0
+        if (v > 0.0) {
+            x = v
+        }
+        if (v < 0.0) {
+            x = v
+        }
+        if (x > 1000.0) {
+            x = 1000.0
+        }
+        if (x < (0.0 - 1000.0)) {
+            x = (0.0 - 1000.0)
+        }
+        def neg:boolean (x < 0.0)
+        def av:double x
+        if neg {
+            av = (0.0 - x)
+        }
+        def scaled:int (to_int ((av * 10000.0) + 0.5))
+        def whole:int (idiv scaled 10000)
+        def frac:int (scaled - (whole * 10000))
+        def fs:string (to_string frac)
+        while ((strlen fs) < 4) {
+            fs = ("0" + fs)
+        }
+        def out:string ((to_string whole) + "." + fs)
+        if neg {
+            if (scaled > 0) {
+                out = ("-" + out)
+            }
+        }
+        return out
+    }
 
     sfn jsonString:string (v:string) {
         def out:string "\""

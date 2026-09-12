@@ -116,6 +116,12 @@ export function cmdsOfBinary(bin) {
     if (src >= 0) o.src = pool[src];
     if (flags & 4) o.fx = true;
     if (flags & 8) o.fy = true;
+    // The crop window into the source, when the picture is not shown whole.
+    // Ten-thousandths, not hundredths: a hundredth of a fraction is a whole
+    // percent of the bitmap, sixteen pixels on a wide screenshot.
+    if (stride > 44 && flags & 256) {
+      o.cu = [r[b + 41] / 10000, r[b + 42] / 10000, r[b + 43] / 10000, r[b + 44] / 10000];
+    }
     const rot = r[b + 14] / 100;
     if (rot !== 0) {
       o.rot = rot;

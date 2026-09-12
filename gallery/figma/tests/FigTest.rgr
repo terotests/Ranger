@@ -419,6 +419,28 @@ class FigTest {
         this.eqStr("a container whose fill is a picture IS the picture" photo.kind "image")
         this.eqStr("and it names the image" photo.imageRef "abc123")
 
+        ; A picture is not always shown whole. Figma keeps the crop window on
+        ; the PAINT — a matrix beside the bitmap, not the node's transform —
+        ; and a reader that drops it draws the whole frame where a detail
+        ; belongs. On a board where two boxes show two halves of one
+        ; screenshot, the two boxes are the same size and the same bytes and
+        ; differ only here, so dropping it drew the same picture twice.
+        def crop:SceneNode (shapes.childNamed("CroppedPhoto"))
+        this.eqStr("a cropped picture is still the picture" crop.kind "image")
+        if ((array_length crop.fills) > 0) {
+            def cf:SceneFill (crop.firstFill())
+            this.check("the crop is read off the paint" cf.imageCropped)
+            this.close("the window starts a quarter across" cf.cropX 0.25)
+            this.close("and halfway down" cf.cropY 0.5)
+            this.close("and is half the width" cf.cropW 0.5)
+            this.close("and a quarter of the height" cf.cropH 0.25)
+        }
+        def toEvg (new SceneToEVG())
+        def cropEl:EVGElement (toEvg.emit(crop))
+        this.check("and crosses to the element as a window" cropEl.imageViewBoxSet)
+        this.close("starting where the paint said" cropEl.imageViewBoxX 0.25)
+        this.close("and as wide as the paint said" cropEl.imageViewBoxW 0.5)
+
         ; A nested instance carries entries for the same nodes as the one
         ; outside it, saying what the component laid out rather than what
         ; this instance of it did. Replacing the outer table with them drew
@@ -633,6 +655,14 @@ class FigTest {
         app.setView(0.0 0.0 1.0)
         this.eqStr("a turned layer is picked where it is drawn" (app.hit(146.0 710.0)) "3:31")
         this.eqStr("and not where its square box was" (app.hit(165.0 655.0)) "3:13")
+        ; The rule that fills a ring and not its hole. A fig file spells it
+        ; "ODD" and the reader tested for the CSS spelling, so it NEVER
+        ; matched: every even-odd path was filled non-zero and an outline
+        ; swallowed its own middle — a hand icon came out as a black blob,
+        ; and this board has 171 paths that ask for the rule.
+        def ring:SceneNode (shapes.childNamed("RingPath"))
+        this.check("the file's own spelling of even-odd is read" ring.evenOdd)
+
         ; A mirrored layer answers where it is DRAWN too. MirrorBox is 80x40
         ; at 2900,1860 with a horizontal flip, so the file puts it to the
         ; LEFT of that origin — read as the half turn its angle looks like,
@@ -779,15 +809,20 @@ class FigTest {
         this.close("and ends at the last, not the second" tintFill.gradG 0.663)
         this.close("the near end keeps its alpha" tintFill.a 0.16)
         this.close("and the far end its own" tintFill.gradA 0.16)
-        ; The same ramp on a vector keeps the SHAPE and loses the ramp: a
-        ; gradient crosses the list as a box, and painting one on a vector
-        ; drew a grey square where a rounded pill should be.
+        ; The same ramp on a vector keeps BOTH now. A gradient used to cross
+        ; the list as a BOX, so a vector had to choose: painted as a box it
+        ; drew a grey square where a rounded pill should be, and flattened
+        ; to one colour it kept the pill and lost the shading. The command
+        ; carries the rings and the two stops together, so neither is given
+        ; up and nothing is left to report.
         def gvec:SceneNode (gradFrame.childNamed("GradientVector"))
         this.eqStr("a vector with a gradient is still a path" gvec.kind "path")
-        def gvFill:SceneFill (gvec.firstFill())
-        def gvFlat:string (gvFill.gradFlatHexA())
-        this.check("and takes the two ends mixed into one colour" (FigTest.hasSub(gvFlat "#")))
-        this.check("the reader says the ramp was lost" (FigTest.hasSub((app.warningsJson()) "gradient on a vector")))
+        def gvConv (new SceneToEVG())
+        def gvEl:EVGElement (gvConv.emit(gvec))
+        this.check("and it carries both stops" gvEl.gradientSet)
+        def gvJson:string (app.sceneJson())
+        this.check("which reach the painter on a PATH command" (FigTest.hasSub(gvJson "\"k\":6")))
+        this.check("no longer reported as lost" ((FigTest.hasSub((app.warningsJson()) "gradient on a vector")) == false))
         def tintHex:string (tintFill.hexA())
         def tintFar:string (tintFill.gradHexA())
         this.check("so the colour carries it" (FigTest.hasSub(tintHex "29")))
@@ -869,12 +904,20 @@ class FigTest {
         this.check("viewport painted in the canvas colour" (FigTest.hasSub(dump "background=\"#F5F5F5\"")))
         this.check("no text spans" ((FigTest.hasSub(dump "<span")) == false))
         this.check("no text background" ((FigTest.hasSub(dump "fill=\"#F7F5F0\" d=\"M")) == true))
-        ; Nothing here is drawn wrong, and the only thing not drawn at all
-        ; is the shadow under the two cards — read, carried to a native
-        ; host, and absent on this page.
-        def hw:string (app.warningsJson())
-        this.eqInt("only the shadows are reported" (array_length app.sceneDoc.warnings) 2)
-        this.check("and that is what they say" (FigTest.hasSub(hw "drop shadow")))
+        ; Nothing here is drawn wrong and nothing is left undrawn: the
+        ; shadow under the two cards reaches the painter now, with its own
+        ; alpha. A sticky's shadow is black at a tenth, and written without
+        ; the alpha it is black at one — a slab under the note instead of a
+        ; note lifted off the page.
+        this.eqInt("nothing is reported as undrawn" (array_length app.sceneDoc.warnings) 0)
+        def sceneJson:string (app.sceneJson())
+        this.check("the shadow reaches the display list" (FigTest.hasSub(sceneJson "\"sh\":{")))
+        ; And it is translucent where the file said so. A sticky's shadow is
+        ; black at a tenth; written as #000000 it is black at one, a slab
+        ; under the note instead of a note lifted off the page. The list
+        ; carries the alpha as the fourth channel of the shadow colour, so
+        ; anything but 1.00 there is the file's own number arriving.
+        this.check("with the alpha the file gave it" (FigTest.hasSub(sceneJson "\"c\":[0,0,0,0.10]}")))
     }
 
     ; A paste from Figma: fig-kiwi bytes with no ZIP, and only the copied

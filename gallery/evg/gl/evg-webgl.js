@@ -70,7 +70,10 @@ const KIND = {
 // run's colour gives a solid disc in the text colour. COLORTEXT samples the
 // atlas's own pixels instead. Which one a run gets is decided by looking at
 // what the browser actually drew — see `atlasIsColored`.
-const MODE = { SHAPE: 0, TEXT: 1, IMAGE: 2, COLORTEXT: 3 };
+// SHADOW is the same rounded box as SHAPE, drawn softly and BEFORE it: the
+// quad is grown by the blur radius so the falloff has somewhere to go, and
+// the shader measures the box back down from it.
+const MODE = { SHAPE: 0, TEXT: 1, IMAGE: 2, COLORTEXT: 3, SHADOW: 4 };
 
 const VERT = `#version 300 es
 in vec2 aCorner;          // unit quad, 0..1
@@ -200,6 +203,27 @@ float boxCoverage(out float d) {
 }
 
 void main() {
+  if (vMode > 3.5) {
+    // A drop shadow. The quad was grown by the blur on every side, so the
+    // box it belongs to is that much smaller than the quad, and the same
+    // corner radii still describe it. The falloff spans one blur radius
+    // centred on the edge, which is what CSS means by a blur radius and what
+    // the software canvas draws.
+    //
+    // No backticks in this comment: the shader is a JS template literal.
+    float b = max(vThickness, 0.0);
+    vec2 hb = max(vHalf - vec2(b), vec2(0.01));
+    float lim = min(hb.x, hb.y);
+    vec4 rr = min(vRadii, vec4(lim));
+    float sd = sdRoundedBox(vLocal, hb, rr);
+    // A shadow with no blur is a hard offset copy, and smoothstep over a
+    // zero-wide band is undefined; one pixel of antialiasing stands in.
+    float soft = max(b * 0.5, clamp(fwidth(sd), 0.35, 1.5));
+    float sa = smoothstep(soft, -soft, sd);
+    if (sa <= 0.002) discard;
+    outColor = vec4(vColor.rgb, vColor.a * sa);
+    return;
+  }
   if (vMode > 2.5) {
     // Text the browser drew in colours of its own — a colour emoji. The atlas
     // holds the finished pixels, so they are sampled rather than reduced to a
@@ -213,6 +237,10 @@ void main() {
     // Image: the UV rectangle already carries the object-fit crop, so this is
     // a plain sample. The radius still applies — a photo in a rounded box is
     // clipped by the same distance field the box itself is drawn with.
+    // A crop window may reach past the bitmap — Figma stores one whenever the
+    // picture is zoomed out inside its frame. CLAMP_TO_EDGE would smear the
+    // edge pixel across that margin; the picture simply does not cover there.
+    if (vUV.x < -0.001 || vUV.x > 1.001 || vUV.y < -0.001 || vUV.y > 1.001) discard;
     vec4 tex = texture(uImage, vUV);
     float d;
     float cov = boxCoverage(d);
@@ -253,17 +281,37 @@ in vec2 aPos;
 uniform vec2 uPage;
 uniform vec2 uShift;
 uniform vec4 uView;
+out vec2 vPage;
 void main() {
-  vec2 p = (aPos + uShift) * uView.xy + uView.zw;
+  // BEFORE the view transform. The gradient box the fragment shader mixes
+  // across arrives as a uniform in the display list's own coordinates, so
+  // the position compared against it has to be in those too — panned and
+  // zoomed, the ramp would otherwise slide across the shape.
+  vec2 q = aPos + uShift;
+  vPage = q;
+  vec2 p = q * uView.xy + uView.zw;
   vec2 ndc = vec2((p.x / uPage.x) * 2.0 - 1.0, 1.0 - (p.y / uPage.y) * 2.0);
   gl_Position = vec4(ndc, 0.0, 1.0);
 }`;
 
+// One colour per draw, or two. A vector filled with a gradient is not its own
+// bounding box, so the ramp cannot ride on a quad the way a rectangle's does:
+// the triangles are the shape and the box the stops run across comes in as a
+// uniform. uGrad is 0 for flat, 1 for down the box and 2 for across it, which
+// is what the display list's own `gd` means.
 const PATH_FRAG = `#version 300 es
 precision highp float;
 uniform vec4 uColor;
+uniform vec4 uColor2;
+uniform float uGrad;
+uniform vec4 uBox;
+in vec2 vPage;
 out vec4 outColor;
-void main() { outColor = uColor; }`;
+void main() {
+  if (uGrad < 0.5) { outColor = uColor; return; }
+  vec2 t = (vPage - uBox.xy) / max(uBox.zw, vec2(0.001));
+  outColor = mix(uColor, uColor2, clamp(uGrad > 1.5 ? t.x : t.y, 0.0, 1.0));
+}`;
 
 /** The rings of a path command, as flat [x,y,…] arrays. */
 function ringsOf(c) {
@@ -1562,6 +1610,9 @@ function programsFor(gl) {
     pathShiftLoc: gl.getUniformLocation(pathProg, "uShift"),
     pathViewLoc: gl.getUniformLocation(pathProg, "uView"),
     pathColorLoc: gl.getUniformLocation(pathProg, "uColor"),
+    pathColor2Loc: gl.getUniformLocation(pathProg, "uColor2"),
+    pathGradLoc: gl.getUniformLocation(pathProg, "uGrad"),
+    pathBoxLoc: gl.getUniformLocation(pathProg, "uBox"),
     blurProg,
     blurCornerLoc: gl.getAttribLocation(blurProg, "aCorner"),
     blurSrc: gl.getUniformLocation(blurProg, "uSrc"),
@@ -1808,8 +1859,15 @@ function buildFrame(gl, doc, opts = {}) {
         const tris = strokeTriangles(dashed, c.t || 1, c.cap | 0, c.join | 0, viewScaleOfFrame);
         if (tris.length) pushPath({ kind: "tris", verts: new Float32Array(tris), color: rgba });
       } else {
+        // A vector filled with a gradient keeps BOTH now: the rings say what
+        // shape it is, `c2` and `gd` how it is shaded. Flattened to one
+        // colour it kept the shape and lost the ramp, which was the right
+        // half to keep and only half of it.
+        const far = c.c2 || col;
         pushPath({ kind: "fill", rings: rings.map((r) => new Float32Array(r)),
-                   bounds: boundsOf(rings), evenOdd: !!c.eo, color: rgba });
+                   bounds: boundsOf(rings), evenOdd: !!c.eo, color: rgba,
+                   grad: c.c2 ? (c.gd === 1 ? 2 : 1) : 0,
+                   color2: [far[0] / 255, far[1] / 255, far[2] / 255, far[3]] });
       }
       continue;
     }
@@ -1819,7 +1877,11 @@ function buildFrame(gl, doc, opts = {}) {
       // Everything queued so far has to be drawn BEFORE this photo, or the
       // page paints out of order.
       flush();
-      const uv = coverUV(t.w, t.h, c.w, c.h);
+      // A crop is a UV rectangle the command brought with it, in the
+      // bitmap's own 0..1 space; cover is the one computed here when it did
+      // not. Either way the quad is the box and only the sampling changes,
+      // so a cropped photo costs nothing extra.
+      const uv = c.cu ? c.cu : coverUV(t.w, t.h, c.w, c.h);
       // Mirrored is the same quad read the other way round: aUV is
       // (u0,v0,u1,v1) and the fragment mixes between them, so swapping the
       // ends flips the picture without touching the geometry.
@@ -1866,6 +1928,24 @@ function buildFrame(gl, doc, opts = {}) {
       shapes.push(0, 0, s.colored ? MODE.COLORTEXT : MODE.TEXT);
       radii.push(0, 0, 0, 0);
     } else {
+      // The drop shadow goes in FIRST, as its own instance: the box is drawn
+      // over it in the same run, in array order, which is the order the
+      // painter draws. A board of FigJam stickies is 154 of these, and
+      // without them every note sits flat on the page.
+      if (c.sh && c.k === KIND.RECT) {
+        const b = Math.max(c.sh.blur || 0, 0);
+        const sc = c.sh.c || [0, 0, 0, 0.35];
+        rects.push(c.x + (c.sh.x || 0) - b, c.y + (c.sh.y || 0) - b, c.w + 2 * b, c.h + 2 * b);
+        uvs.push(0, 0, 0, 0);
+        shapes.push(c.r || 0, b, MODE.SHADOW);
+        pushRadii(c);
+        // The shadow turns with the box it belongs to, about the same pivot.
+        rots.push(((c.rot || 0) * Math.PI) / 180);
+        origins.push(c.rox || 0, c.roy || 0, c.rox === undefined ? 0 : 1);
+        colors.push(sc[0] / 255, sc[1] / 255, sc[2] / 255, sc[3]);
+        colors2.push(sc[0] / 255, sc[1] / 255, sc[2] / 255, sc[3]);
+        grads.push(0);
+      }
       rects.push(c.x, c.y, c.w, c.h);
       uvs.push(0, 0, 0, 0);
       shapes.push(c.r || 0, c.k === KIND.BORDER ? (c.t || 1) : 0, MODE.SHAPE);
@@ -2076,13 +2156,29 @@ function buildFrame(gl, doc, opts = {}) {
   const hasStencil = gl.getContextAttributes().stencil === true;
   let paths = 0, skippedFills = 0;
 
-  const drawTris = (verts, color) => {
+  // The two stops and the box they run across, or nothing. Set on every path
+  // draw, not only the gradient ones: the uniform is program state and a
+  // flat path after a shaded one would otherwise keep the ramp.
+  const setPathPaint = (op, color) => {
+    gl.uniform4f(pathColorLoc, color[0], color[1], color[2], color[3]);
+    if (op && op.grad) {
+      const c2 = op.color2 || color;
+      const [x0, y0, x1, y1] = op.bounds || [0, 0, 1, 1];
+      gl.uniform4f(built.pathColor2Loc, c2[0], c2[1], c2[2], c2[3]);
+      gl.uniform4f(built.pathBoxLoc, x0, y0, x1 - x0, y1 - y0);
+      gl.uniform1f(built.pathGradLoc, op.grad);
+    } else {
+      gl.uniform1f(built.pathGradLoc, 0);
+    }
+  };
+
+  const drawTris = (verts, color, op) => {
     gl.bindVertexArray(pathVao);
     gl.useProgram(pathProg);
     gl.uniform2f(pathPageLoc, doc.width, doc.height);
     gl.uniform2f(built.pathShiftLoc, curShift[0], curShift[1]);
     gl.uniform4f(built.pathViewLoc, vsx, vsy, vtx, vty);
-    gl.uniform4f(pathColorLoc, color[0], color[1], color[2], color[3]);
+    setPathPaint(op, color);
     gl.bindBuffer(gl.ARRAY_BUFFER, pathBuf);
     gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STREAM_DRAW);
     gl.drawArrays(gl.TRIANGLES, 0, verts.length / 2);
@@ -2130,7 +2226,7 @@ function buildFrame(gl, doc, opts = {}) {
     gl.colorMask(true, true, true, true);
     gl.stencilFunc(gl.NOTEQUAL, 0, op.evenOdd ? 0x01 : 0xff);
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);
-    gl.uniform4f(pathColorLoc, op.color[0], op.color[1], op.color[2], op.color[3]);
+    setPathPaint(op, op.color);
     const [x0, y0, x1, y1] = op.bounds;
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
       x0, y0, x1, y0, x1, y1,
@@ -2290,7 +2386,7 @@ function buildFrame(gl, doc, opts = {}) {
     applyClip(run.clip);
     if (run.kind === "backdrop") { drawBackdrop(run.cmd); continue; }
     if (run.kind === "fill") { drawFill(run); paths += 1; continue; }
-    if (run.kind === "tris") { drawTris(run.verts, run.color); paths += 1; continue; }
+    if (run.kind === "tris") { drawTris(run.verts, run.color, run); paths += 1; continue; }
     gl.useProgram(prog);
     gl.bindVertexArray(vao);
     gl.uniform2f(built.uShift, curShift[0], curShift[1]);

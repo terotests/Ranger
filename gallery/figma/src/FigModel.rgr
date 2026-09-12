@@ -15,6 +15,23 @@ class FigPaint {
     def visible:boolean true
     def imageHash:string ""
     def scaleMode:string "FILL"
+    ; What the picture does INSIDE the box. Figma keeps a paint's own turn
+    ; and its own matrix — where the picture is cropped and panned within
+    ; the shape — beside the bitmap, and neither is the node's transform.
+    def imageRotation:double 0.0
+    def imageCropped:boolean false
+    ; The part of the bitmap the box shows, in the image's own 0..1 space:
+    ; x from cropX to cropX+cropW, y from cropY to cropY+cropH, stretched to
+    ; fill the box. This is the paint matrix read straight — m02/m12 are the
+    ; corner and m00/m11 the size — and it is the reading the file itself
+    ; confirms: in every cropped paint of a real board, (m00*imgW)/(m11*imgH)
+    ; equals the box's own aspect, because Figma's crop tool keeps the crop
+    ; rectangle the shape of the frame. A region may reach outside 0..1; the
+    ; picture then does not cover the whole box and the rest stays empty.
+    def cropX:double 0.0
+    def cropY:double 0.0
+    def cropW:double 1.0
+    def cropH:double 1.0
 
     Constructor () {
     }
@@ -299,7 +316,42 @@ class FigModel {
             p.imageHash = (v.childString("imageHash" ""))
         }
         p.scaleMode = (v.childString("imageScaleMode" (v.childString("scaleMode" "FILL"))))
+        p.imageRotation = (v.childDouble("rotation" 0.0))
+        def ixf:KiwiValue (v.child("transform"))
+        if (ixf.isObject()) {
+            def dm00:double (ixf.childDouble("m00" 1.0))
+            def dm11:double (ixf.childDouble("m11" 1.0))
+            def dm01:double (ixf.childDouble("m01" 0.0))
+            def dm10:double (ixf.childDouble("m10" 0.0))
+            def dm02:double (ixf.childDouble("m02" 0.0))
+            def dm12:double (ixf.childDouble("m12" 0.0))
+            def off:double (((fabs (dm00 - 1.0)) + (fabs (dm11 - 1.0))) + (((fabs dm01) + (fabs dm10)) + ((fabs dm02) + (fabs dm12))))
+            if (off > 0.001) {
+                p.imageCropped = true
+                if ((fabs dm00) > 0.0001) {
+                    p.cropW = dm00
+                    p.cropX = dm02
+                }
+                if ((fabs dm11) > 0.0001) {
+                    p.cropH = dm11
+                    p.cropY = dm12
+                }
+            }
+        }
         return p
+    }
+
+    ; Every spelling of the rule that fills a ring and not its hole. The
+    ; file writes "ODD"; "EVENODD" is what CSS and SVG call it, and both are
+    ; taken so a REST import or another writer's file reads the same.
+    sfn isEvenOdd:boolean (rule:string) {
+        if (rule == "ODD") {
+            return true
+        }
+        if (rule == "EVENODD") {
+            return true
+        }
+        return (rule == "EVEN_ODD")
     }
 
     sfn hexOf:string (b:buffer) {
@@ -435,8 +487,13 @@ class FigModel {
             if (bid >= 0) {
                 push nd.fillBlobs bid
             }
+            ; A FIG FILE SPELLS IT "ODD". The enum in the schema has two
+            ; members, NONZERO and ODD, and the test here was for the CSS
+            ; spelling — so it never matched and every even-odd path was
+            ; filled non-zero: an outline, which is a ring, filled its own
+            ; hole. The hand icon in a tip card came out as a black blob.
             def wr:string (gitem.childString("windingRule" ""))
-            if (wr == "EVENODD") {
+            if (FigModel.isEvenOdd(wr)) {
                 nd.evenOdd = true
             }
             gi = (gi + 1)
@@ -449,7 +506,7 @@ class FigModel {
             if (sbid >= 0) {
                 push nd.strokeBlobs sbid
             }
-            if ((sitem.childString("windingRule" "")) == "EVENODD") {
+            if (FigModel.isEvenOdd((sitem.childString("windingRule" "")))) {
                 nd.strokeEvenOdd = true
             }
             si = (si + 1)

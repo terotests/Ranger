@@ -388,6 +388,25 @@ export function renderDisplayList(target, doc, opts = {}) {
         }
         if (c.bb > 0) body.push(backdrop(c));
         const r = radiiOf(c);
+        // The drop shadow, under the box: the same rounded rectangle, moved
+        // and softened. A Gaussian of sigma = blur/2 is what CSS means by a
+        // blur radius, and the GL shader's falloff spans the same width.
+        if (c.sh) {
+          const b = Math.max(c.sh.blur || 0, 0);
+          const sx = c.x + (c.sh.x || 0), sy = c.y + (c.sh.y || 0);
+          let attrs = "";
+          if (b > 0) {
+            const id = `evgshadow${uid++}`;
+            // The filter region has to be wide enough for the kernel or the
+            // blur is clipped square at the edge of the shape's own box.
+            defs.push(`<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%">` +
+                      `<feGaussianBlur stdDeviation="${n(b / 2)}"/></filter>`);
+            attrs = ` filter="url(#${id})"`;
+          }
+          body.push(uniform(r)
+            ? `<rect x="${n(sx)}" y="${n(sy)}" width="${n(c.w)}" height="${n(c.h)}"${r[0] ? ` rx="${n(r[0])}"` : ""} fill="${rgba(c.sh.c)}"${attrs}${rotAttr(c)}/>`
+            : `<path d="${roundedPath(sx, sy, c.w, c.h, r)}" fill="${rgba(c.sh.c)}"${attrs}${rotAttr(c)}/>`);
+        }
         body.push(uniform(r)
           ? `<rect x="${n(c.x)}" y="${n(c.y)}" width="${n(c.w)}" height="${n(c.h)}"${r[0] ? ` rx="${n(r[0])}"` : ""} fill="${fill}"${rotAttr(c)}/>`
           : `<path d="${roundedPath(c.x, c.y, c.w, c.h, r)}" fill="${fill}"${rotAttr(c)}/>`);
@@ -419,8 +438,17 @@ export function renderDisplayList(target, doc, opts = {}) {
         // crop the overflow, centred, rather than distort the picture. The GL
         // backend computes the same crop as a UV rectangle because a quad has
         // nowhere else to put it.
-        let attrs = `x="${n(c.x)}" y="${n(c.y)}" width="${n(c.w)}" height="${n(c.h)}"` +
-                    ` preserveAspectRatio="xMidYMid slice" href="${esc(img.src)}"`;
+        // A crop window (`cu`, in the bitmap's own 0..1 space) is drawn by
+        // placing the WHOLE picture on the larger rectangle that puts that
+        // window over the box, and clipping to the box. `none` because the
+        // window is stretched to fill the box exactly — Figma's crop tool
+        // already keeps it the shape of the frame, so nothing is distorted.
+        const cu = c.cu;
+        const cw = cu ? cu[2] - cu[0] : 1, chh = cu ? cu[3] - cu[1] : 1;
+        const dw = cu ? c.w / cw : c.w, dh = cu ? c.h / chh : c.h;
+        const dx = cu ? c.x - cu[0] * dw : c.x, dy = cu ? c.y - cu[1] * dh : c.y;
+        let attrs = `x="${n(dx)}" y="${n(dy)}" width="${n(dw)}" height="${n(dh)}"` +
+                    ` preserveAspectRatio="${cu ? "none" : "xMidYMid slice"}" href="${esc(img.src)}"`;
         const transforms = [];
         if (c.rot) {
           const cx = c.rox === undefined ? c.x + c.w / 2 : c.rox;
@@ -435,10 +463,12 @@ export function renderDisplayList(target, doc, opts = {}) {
         }
         if (transforms.length) attrs += ` transform="${transforms.join(" ")}"`;
         const r = radiiOf(c);
-        if (r.some((v) => v > 0)) {
+        if (r.some((v) => v > 0) || cu) {
           // A photo in a rounded box is clipped by the same shape the box is
           // drawn with — the GL backend runs it through the same distance
-          // field for the same reason.
+          // field for the same reason. A cropped one is clipped to the box
+          // whatever its corners: the picture is drawn larger than the box
+          // on purpose and the rest of it must not show.
           const id = `evgimgclip${uid++}`;
           defs.push(`<clipPath id="${id}"><path d="${roundedPath(c.x, c.y, c.w, c.h, r)}"/></clipPath>`);
           body.push(`<g clip-path="url(#${id})"><image ${attrs}/></g>`);
@@ -469,10 +499,22 @@ export function renderDisplayList(target, doc, opts = {}) {
       case KIND.PATH: {
         const d = ringsPath(c, true);
         if (!d) break;
-        // A gradient under a polygon is drawn in its first colour, which is
-        // what every other backend does with one — matching them matters more
-        // here than being prettier than them.
-        body.push(`<path d="${d}" fill="${rgba(c.c)}"${c.eo ? ` fill-rule="evenodd"` : ""}${rotAttr(c)}/>`);
+        // A gradient on a shape that is not its box. The stops run across the
+        // command's own rectangle, which is what the GL side hands its path
+        // shader as a uniform; `userSpaceOnUse` is how SVG says the same.
+        let pfill = rgba(c.c);
+        if (c.c2) {
+          const id = `evgpgrad${uid++}`;
+          const across = c.gd === 1;
+          const x0 = c.x, y0 = c.y, x1 = c.x + (across ? c.w : 0), y1 = c.y + (across ? 0 : c.h);
+          defs.push(
+            `<linearGradient id="${id}" gradientUnits="userSpaceOnUse"` +
+            ` x1="${n(x0)}" y1="${n(y0)}" x2="${n(x1)}" y2="${n(y1)}">` +
+            `<stop offset="0" stop-color="${rgba(c.c)}"/><stop offset="1" stop-color="${rgba(c.c2)}"/>` +
+            `</linearGradient>`);
+          pfill = `url(#${id})`;
+        }
+        body.push(`<path d="${d}" fill="${pfill}"${c.eo ? ` fill-rule="evenodd"` : ""}${rotAttr(c)}/>`);
         paths += 1;
         drawn += 1;
         break;

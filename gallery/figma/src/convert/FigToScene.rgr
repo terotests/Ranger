@@ -210,6 +210,14 @@ class FigToScene {
             sn.hasXf = false
         } {
             sn.hasXf = true
+            ; A turn, one factor and a mirror is all an angle can say. A
+            ; matrix that is anything else — a skew, or a scale that differs
+            ; by axis — is drawn as the nearest turn, which is a different
+            ; picture and not a soft one: said here rather than left to be
+            ; puzzled over.
+            if ((sn.xf.isSimilarity()) == false) {
+                sn.warn("a skew or a per-axis scale (drawn as the nearest turn)")
+            }
         }
         this.copyFills(nd sn)
         if (t == "CANVAS") {
@@ -323,14 +331,16 @@ class FigToScene {
             this.expandImmutableFrame(nd sn)
         }
         this.strokeFromGeometry(nd sn)
-        ; A gradient on a vector keeps the shape and loses the ramp — the
-        ; display list carries a gradient as a box, and a vector is not its
-        ; box. Said here rather than left to be noticed.
+        ; What a picture does INSIDE its box is the paint's business, not the
+        ; node's: Figma keeps a turn and a matrix on the image fill — where
+        ; the picture is cropped and panned within the shape — and neither
+        ; is the node's transform. The crop now crosses to the list; the
+        ; turn still does not.
         if ((array_length sn.fills) > 0) {
-            def gf:SceneFill (sn.firstFill())
-            if (gf.kind == "gradient") {
-                if ((sn.kind == "path") || ((sn.kind == "ellipse") || (sn.kind == "line"))) {
-                    sn.warn("gradient on a vector (drawn as one flat colour)")
+            def imf:SceneFill (sn.firstFill())
+            if (imf.kind == "image") {
+                if ((imf.imageRotation > 0.01) || (imf.imageRotation < (0.0 - 0.01))) {
+                    sn.warn("an image turned inside its box (drawn upright)")
                 }
             }
         }
@@ -1047,6 +1057,12 @@ class FigToScene {
                 f.kind = "image"
                 f.imageRef = p.imageHash
                 f.imageFit = (FigToScene.scaleFit(p.scaleMode))
+                f.imageRotation = p.imageRotation
+                f.imageCropped = p.imageCropped
+                f.cropX = p.cropX
+                f.cropY = p.cropY
+                f.cropW = p.cropW
+                f.cropH = p.cropH
             }
             if (p.kind == "GRADIENT_LINEAR") {
                 f.kind = "gradient"
@@ -1614,13 +1630,6 @@ class FigToScene {
                 kind = ""
             }
             if ((kind == "DROP_SHADOW") || (kind == "drop-shadow")) {
-                ; Read and carried — `EVGHostTree` hands it to a native
-                ; host — but the display list the browser painter reads
-                ; does not carry a shadow, so on this page it does not
-                ; draw. Said rather than left to be noticed: a board of
-                ; stickies is a board of shadows, and their absence is the
-                ; kind of difference that reads as "it just looks flat".
-                sn.warn("drop shadow (not drawn by the web painter)")
                 def s (new SceneEffect())
                 s.kind = "drop-shadow"
                 s.x = (e.childDouble("offset.x" (e.child("offset").childDouble("x" 0.0))))

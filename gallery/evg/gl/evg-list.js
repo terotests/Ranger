@@ -65,6 +65,10 @@ export function cmdsOf(dl) {
     if (c.src.length > 0) o.src = c.src;
     if (c.flipH) o.fx = true;
     if (c.flipV) o.fy = true;
+    // The crop window into the source: a picture is not always shown whole,
+    // and a reader that drops this draws the whole frame where a detail
+    // belongs.
+    if (c.hasCrop) o.cu = [c.cropX, c.cropY, c.cropX + c.cropW, c.cropY + c.cropH];
     if (c.rotate !== 0) {
       o.rot = c.rotate;
       if (c.hasRotOrigin) {
