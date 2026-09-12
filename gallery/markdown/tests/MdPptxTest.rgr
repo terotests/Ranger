@@ -28,6 +28,8 @@ Import "../src/MdBlock.rgr"
 Import "../src/MdCss.rgr"
 Import "../src/MdDiagram.rgr"
 Import "../src/MdThemes.rgr"
+Import "../../pptx/src/PptxA11y.rgr"
+
 
 class DeckCheck {
     def passed:int 0
@@ -188,6 +190,18 @@ class MdPptxTest {
     ; How many shapes are GROUPS, which is what a drawing comes out as. The
     ; whole point of Stage E is that this is the exception rather than every
     ; shape on every slide.
+    ; The first group on a slide, or an empty shape when there is none.
+    sfn firstGroup:PptxShape (sl:PptxSlideRef) {
+        def k:int 0
+        while (k < (sl.shapeCount())) {
+            def sh:PptxShapeRef (sl.shapeAt(k))
+            def m:PptxShape (sh.model())
+            if (m.kind == 2) { return m }
+            k = (k + 1)
+        }
+        return (new PptxShape())
+    }
+
     sfn groups:int (d:PptxDeck) {
         def c:int 0
         def s:int 0
@@ -247,6 +261,46 @@ class MdPptxTest {
         ; the one thing on the deck that is a drawing.
         c.eqInt("one drawing, drawn" (MdPptxTest.groups(made)) 1)
         c.eqInt("…and it survived the file too" (MdPptxTest.groups(back)) 1)
+        ; …and it came back as an OBJECT, not as an anonymous pile of shapes.
+        ; Checked on the deck that went through the writer and the reader,
+        ; because a name and a description that live only in memory are not
+        ; what a reader opens next year. `descr` is the carrier; `PptxA11y`
+        ; already prefers it over every other way of naming a shape.
+        def gname:string ""
+        def galt:string ""
+        def gs:int 0
+        while (gs < (back.slideCount())) {
+            def gsl:PptxSlideRef (back.slideAt(gs))
+            def gg:PptxShape (MdPptxTest.firstGroup(gsl))
+            if (gg.kind == 2) {
+                gname = gg.name
+                galt = gg.altText
+            }
+            gs = (gs + 1)
+        }
+        c.eqStr("the drawing came back named for its notation" gname "Graphviz diagram 1")
+        c.ok("…and with the description it was given" ((strlen galt) > 0))
+        c.ok("…which names the notation" (MdPptxTest.hasSub(galt "Graphviz diagram")))
+        c.ok("…and says what is drawn in it" (MdPptxTest.hasSub(galt "tarkista")))
+
+        ; And this is where it lands for a reader who cannot see the slide.
+        ; No change was needed in the pptx module for that: `shapeName` has
+        ; always preferred `descr` over every other way of naming a shape, and
+        ; the writer and the parser have always carried it. What was missing
+        ; was anything to carry — this exporter left the field empty, so a
+        ; drawing reached a screen reader as the word "Drawing" at best.
+        def sl0:PptxSlideRef (back.slideAt(0))
+        def gsh:PptxShape (MdPptxTest.firstGroup(sl0))
+        def gs2:int 1
+        while (gs2 < (back.slideCount())) {
+            def sln:PptxSlideRef (back.slideAt(gs2))
+            def cand:PptxShape (MdPptxTest.firstGroup(sln))
+            if (cand.kind == 2) { gsh = cand }
+            gs2 = (gs2 + 1)
+        }
+        def said:string (PptxA11y.shapeName(gsh))
+        c.eqStr("a screen reader is told what the drawing is" said galt)
+
         c.eqInt("the exporter counted it" maker.result.drawn 1)
         c.eqInt("…and dropped nothing" maker.result.dropped 0)
         c.ok("…and said what it did" ((maker.result.noteCount()) > 0))
@@ -779,17 +833,32 @@ Just prose.
         c.eqInt("no picture, no count" maker.result.images 0)
         c.ok("…and nothing in the summary" (! (MdPptxTest.hasSub((maker.result.describe()) "picture"))))
 
-        ; A diagram is drawn rather than written, and says so — the one thing
-        ; on a deck from here that a reader cannot edit.
+        ; A diagram is drawn rather than written, and says so. It is still the
+        ; one thing on a deck from here that a reader cannot EDIT — but it is
+        ; an object they can move and resize, which is a different sentence
+        ; from the one this note used to print.
         def withDiagram:string "# Title
 
 ```dot
 digraph { a -> b; }
 ```
 "
-        this.build(withDiagram css)
+        def deck:PptxDeck (this.build(withDiagram css))
         c.eqInt("the diagram took the other road" maker.result.drawn 1)
-        c.ok("…and says it cannot be edited" (MdPptxTest.noted(maker "cannot be edited")))
+        c.ok("…and says what a reader can and cannot do with it"
+            (MdPptxTest.noted(maker "moved and resized, and not yet edited")))
+
+        ; …and it is an OBJECT: named for what it is, and described for a
+        ; reader who cannot see it. `PptxFromEvg` calls every group it builds
+        ; `Drawing`, which is all a display list can tell it; the notation and
+        ; the labels are known here and nowhere else.
+        def dslide:PptxSlideRef (deck.slideAt(0))
+        def dg:PptxShape (MdPptxTest.firstGroup(dslide))
+        c.eqStr("the group says which notation it came from" dg.name "Graphviz diagram 1")
+        c.ok("…and its description names the notation"
+            (MdPptxTest.hasSub(dg.altText "Graphviz diagram")))
+        c.ok("…and the labels that are in it"
+            ((MdPptxTest.hasSub(dg.altText "a")) && (MdPptxTest.hasSub(dg.altText "b"))))
         c.eqInt("and nothing was dropped" maker.result.dropped 0)
     }
 

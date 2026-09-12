@@ -42,6 +42,7 @@
 Import "MdNode.rgr"
 Import "MdLayout.rgr"
 Import "MdToEvg.rgr"
+Import "MdEmbedKinds.rgr"
 Import "../../pptx/api/PptxApi.rgr"
 Import "../../pptx/src/PptxFromEvg.rgr"
 Import "../../evg/EVGDisplayList.rgr"
@@ -790,6 +791,63 @@ class MdToPptx {
     ; The drawing is already an `EVGElement` in the embed cache, laid out at
     ; the width of the column it lands in. From there it is the road
     ; `BookToPptx` proved: display list in, DrawingML shapes out.
+    ; The fence word, as a reader would write the notation's name.
+    ; `kind` here is the FENCE WORD — `dot` and `puml` are spellings, not
+    ; notations — so it goes through the same table the parser and the
+    ; renderer read.
+    sfn notationWord:string (kind:string) {
+        def n:string (MdEmbedKinds.notationOf(kind))
+        if (n == "mermaid") { return "Mermaid" }
+        if (n == "plantuml") { return "PlantUML" }
+        if (n == "graphviz") { return "Graphviz" }
+        if (n == "d2") { return "D2" }
+        return "Drawing"
+    }
+
+    ; What the drawing SAYS, for a reader who cannot see it.
+    ;
+    ; The pixels tell a screen reader nothing, and a diagram's group is the
+    ; case `PptxA11y` calls "No alt text" for a picture. The labels are what
+    ; the diagram is about, so they are the description — capped, because a
+    ; forty-node graph read out in draw order helps nobody either.
+    sfn describeDrawing:string (word:string group:PptxShape) {
+        def labels:[string]
+        labels = (MdToPptx.labelsOf(labels group))
+        def n:int (array_length labels)
+        def head:string (word + " diagram")
+        if (n == 0) { return head }
+        def out:string (head + ": ")
+        def i:int 0
+        while (i < n) {
+            if (i >= 8) {
+                return ((out + ", and ") + (to_string (n - 8))) + " more"
+            }
+            if (i > 0) { out = (out + ", ") }
+            out = (out + (itemAt labels i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Every piece of text inside a shape and its children, in draw order. The
+    ; list is RETURNED rather than grown through the parameter: `push` onto an
+    ; array parameter lands on a copy on the Go target.
+    sfn labelsOf:[string] (out:[string] sh:PptxShape) {
+        def res:[string] out
+        if sh.hasText {
+            def t:string (trim (sh.text.plainText()))
+            if ((strlen t) > 0) { push res t }
+        }
+        def i:int 0
+        def n:int (array_length sh.children)
+        while (i < n) {
+            def c:PptxShape (itemAt sh.children i)
+            res = (MdToPptx.labelsOf(res c))
+            i = (i + 1)
+        }
+        return res
+    }
+
     fn drawn:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {
         def kind:string (MdLayout.firstWord(node.info))
         def idx:int (layout.embeds.find(kind node.literal w))
@@ -823,10 +881,25 @@ class MdToPptx {
         dl.build(root)
         def conv (new PptxFromEvg())
         def group:PptxShape (conv.build(dl x y))
+
+        ; The group is an OBJECT, so it says what it is.
+        ;
+        ; `PptxFromEvg` names every group it builds `Drawing`, which is all it
+        ; can know — it is handed a display list and nothing else. This file
+        ; knows the notation and has just read the labels, so it is the one
+        ; place that can answer. A reader who finds this in PowerPoint's
+        ; selection pane now reads "Mermaid diagram 1" rather than "Drawing",
+        ; and a screen reader gets the labels rather than silence: `descr`
+        ; round-trips through the writer and the parser already, and
+        ; `PptxA11y.shapeName` prefers it over everything else.
+        def word:string (MdToPptx.notationWord(kind))
+        group.name = ((word + " diagram ") + (to_string (result.drawn + 1)))
+        group.altText = (MdToPptx.describeDrawing(word group))
+
         def model:PptxSlide (slide.model())
         push model.shapes group
         result.drawn = (result.drawn + 1)
-        result.note((("slide " + (to_string ((this.pageOf(node)) + 1))) + ": the ") + kind + " diagram is drawn as shapes, not as text — it cannot be edited in PowerPoint")
+        result.note((("slide " + (to_string ((this.pageOf(node)) + 1))) + ": the ") + kind + " diagram is drawn as shapes, not as text — it can be moved and resized, and not yet edited")
         if (conv.unresolvedImages > 0) {
             result.images = (result.images + conv.unresolvedImages)
             result.note((("slide " + (to_string ((this.pageOf(node)) + 1))) + ": ") + (to_string conv.unresolvedImages) + " picture(s) in it could not be carried")

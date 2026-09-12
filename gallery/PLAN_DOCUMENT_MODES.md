@@ -329,18 +329,43 @@ representable.
 asserting which slide each block landed on — by counting the BLOCKS per slide,
 not by counting slides.
 
-### Stage D — a drawing is an object in the deck — not started
+### Stage D1 — a drawing says what it is — ✅ done
 
-The group is named for the notation and the diagram's own title rather than
-`Drawing`; alt text says what it is; the source is carried, by the mechanism
-§7 weighs. Nothing here depends on the switch or on the VFS, and it improves
-the export a reader already uses — which is why it is this early. A deck
-written without provenance can never be edited later, and the decks being
-written now are the ones that will still be around.
+The group is named for its notation (`Graphviz diagram 1`) rather than
+`Drawing`, and carries a description built from the labels it actually drew.
+`PptxFromEvg` cannot do either — it is handed a display list and nothing else —
+so `MdToPptx` does it, which is the only place that knows the notation.
 
-*The check:* a deck written, re-opened through `PptxParser`, and the recovered
-SOURCE compared byte for byte with the fence it came from. Counting the group
-would pass with the source missing, which is the whole failure.
+**This needed no change in the pptx module at all**, which is the useful
+finding. `descr` already round-trips through `PptxWriter.descrAttr` and the
+parser, and `PptxA11y.shapeName` already prefers it over every other way of
+naming a shape. The seam was right; there was simply nothing being put into it,
+so a drawing reached a screen reader as the word "Drawing" at best. Every deck
+this exporter has written is affected, and every one it writes from now on
+carries the description.
+
+The exporter's note changed with it: a drawing "can be moved and resized, and
+not yet edited" is a different sentence from "it cannot be edited in
+PowerPoint", and the first one is true.
+
+*The check:* the deck written, re-opened through `PptxParser`, and the name and
+description read back off the FILE — plus `PptxA11y.shapeName` on the recovered
+group returning the description, which is where it lands for the reader it is
+for.
+
+### Stage D2 — and carries its source — not started
+
+The carrier §7 weighs. A survey of the writer says the honest cost: a new part
+type touches `contentTypesXml`, the per-slide relationships, both save paths
+(the fresh write and the edit-and-save), the parser, and the re-association
+from a shape back to its part — roughly what `notesSlide` costs, which is
+threaded through ten places. That is a stage, not an afternoon, and it is the
+half that makes Stage J possible: a deck written without provenance can never
+be edited afterwards.
+
+*The check:* a deck written, re-opened, and the recovered SOURCE compared byte
+for byte with the fence it came from. Counting the group would pass with the
+source missing, which is the whole failure.
 
 ### Stage E — `gallery/vfs`, in memory — not started
 
