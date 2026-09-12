@@ -42,6 +42,8 @@ Import "../src/MdDiagram.rgr"
 Import "../src/MdCss.rgr"
 Import "../src/MdThemes.rgr"
 Import "../../vfs/src/Vfs.rgr"
+Import "../../pptx/src/PptxEdit.rgr"
+Import "../../pptx/src/PptxToEvg.rgr"
 Import "../src/MdToPptx.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
@@ -267,6 +269,17 @@ class MarkdownWeb {
     ; markdown as the truth forever and translated every preview gesture into
     ; a patch on it — which works until a gesture markdown cannot hold is
     ; translated anyway, and bold across three list items was one of those.
+    ; The deck, once the reader has handed the preview the document.
+    ;
+    ; `PLAN_DOCUMENT_MODES.md` §5: the editors exist, each with its own suite,
+    ; and a second slide editor inside this page would be a PATTERN SEAM —
+    ; two implementations of one idea, where a fix to either reaches neither.
+    ; So the model is a `PptxPresentation`, the operations are `PptxEditor`'s,
+    ; and this page keeps only the chrome it already had: the canvas, the font
+    ; manager, the scroll.
+    def deckEditor:PptxEditor (new PptxEditor())
+    def deckOn:boolean false
+    def deckSlide:int 0
     def owner:string "source"
     def ownerRefusal:string ""
     def pptxSummary:string ""
@@ -448,6 +461,72 @@ class MarkdownWeb {
         return true
     }
 
+    ; …and the second step, which is a different promise.
+    ;
+    ; Handing the preview the document says "the markdown is no longer where
+    ; you edit". Converting to a DECK says "this is a presentation now, and
+    ; what it can hold is what PowerPoint can hold". They are staged apart
+    ; because a reader may want the first and not the second — and because a
+    ; page that did both on one press could not tell them which one it had
+    ; done.
+    ;
+    ; Converted once. `pptx()` then saves what the editor holds rather than
+    ; re-running `MdToPptx`, or the reader's work would be thrown away by the
+    ; act of saving it.
+    fn convertToDeck:boolean () {
+        if deckOn { return false }
+        if (owner != "preview") {
+            ownerRefusal = "choose \"edit the preview\" first: a deck is made from the document the preview owns"
+            return false
+        }
+        def d:PptxDeck (this.buildDeck())
+        deckEditor.attach(d.pres)
+        deckOn = true
+        deckSlide = 0
+        paged = true
+        built = false
+        ownerRefusal = ""
+        return true
+    }
+
+    fn deckOwns:boolean () {
+        return deckOn
+    }
+
+    fn deckSlideCount:int () {
+        if (! deckOn) { return 0 }
+        return (array_length deckEditor.doc.slides)
+    }
+
+    fn deckShapeCount:int () {
+        if (! deckOn) { return 0 }
+        def n:int (array_length deckEditor.doc.slides)
+        if (deckSlide >= n) { return 0 }
+        def sl:PptxSlide (itemAt deckEditor.doc.slides deckSlide)
+        return (array_length sl.shapes)
+    }
+
+    fn deckSelection:int () {
+        if (! deckOn) { return 0 }
+        return (array_length deckEditor.selection)
+    }
+
+    ; The deck, drawn. `PptxToEvg` is the pptx module's own bridge: this page
+    ; does not know how a slide is laid out and must not learn.
+    fn deckList:EVGDisplayList () {
+        def out (new EVGDisplayList())
+        def n:int (array_length deckEditor.doc.slides)
+        if (deckSlide >= n) { return out }
+        def sl:PptxSlide (itemAt deckEditor.doc.slides deckSlide)
+        def conv (new PptxToEvg())
+        def root:EVGElement (conv.slideToEvg(sl))
+        def le (new EVGLayout())
+        le.setPageSize(sl.width sl.height)
+        le.layout(root)
+        out.build(root)
+        return out
+    }
+
     ; How many blocks a slide had to be cut in half for, and what the deck
     ; said should happen when one is. Nothing else prints this, and a deck
     ; that silently loses the third bullet is worse than one that says so.
@@ -599,6 +678,14 @@ class MarkdownWeb {
     ; and the reader can see where page four starts before they print it.
     fn buildList:void () {
         listRev = (listRev + 1)
+        ; Once the deck owns the document, the deck is what is drawn. The
+        ; markdown is still parsed and laid out above — it is where the deck
+        ; came from and the pane still shows it — but nothing on the canvas
+        ; comes from it any more.
+        if deckOn {
+            docList = (this.deckList())
+            return
+        }
         ; Straight to the commands: the canvas never wanted an element tree,
         ; and building one only to walk it back was 133 ms of a 342 ms
         ; document. `MarkdownTest.presized` holds the two roads to the same
@@ -826,7 +913,33 @@ class MarkdownWeb {
 
     fn click:void (x:double y:double extend:boolean) {
         this.sync()
+        if deckOn {
+            ; A click on a deck selects a SHAPE. `PptxEditor` answers, because
+            ; hit testing a slide is its job and there must not be a second
+            ; answer to it in this file.
+            deckEditor.selectAt((x - (this.sheetLeft())) (y + scrollY) extend)
+            built = false
+            return
+        }
         edit.clickAt((x - (this.sheetLeft())) (y + scrollY) extend)
+    }
+
+    ; Moving what is selected, in points. The page owns the gesture; the deck
+    ; owns what it means.
+    fn deckMove:boolean (dx:double dy:double) {
+        if (! deckOn) { return false }
+        def ok:boolean (deckEditor.moveSelection(dx dy))
+        if ok { built = false }
+        return ok
+    }
+
+    fn deckGoTo:void (i:int) {
+        if (! deckOn) { return }
+        def n:int (array_length deckEditor.doc.slides)
+        if (i < 0) { return }
+        if (i >= n) { return }
+        deckSlide = i
+        built = false
     }
 
     ; A drag, and a double-click. Separate from `click` because a page can
@@ -924,8 +1037,24 @@ class MarkdownWeb {
         if (id == "block.quote")   { return (edit.toggleLinePrefix("quote")) }
         if (id == "slide.break")   { return (edit.toggleBlockClass("slide")) }
         if (id == "slide.keep")    { return (edit.toggleBlockClass("no-break")) }
-        if (id == "edit.undo")     { edit.undo() return true }
-        if (id == "edit.redo")     { edit.redo() return true }
+        if (id == "edit.undo")     {
+            if deckOn {
+                def u:boolean (deckEditor.undo())
+                if u { built = false }
+                return u
+            }
+            edit.undo()
+            return true
+        }
+        if (id == "edit.redo")     {
+            if deckOn {
+                def r:boolean (deckEditor.redo())
+                if r { built = false }
+                return r
+            }
+            edit.redo()
+            return true
+        }
         if (id == "edit.selectAll") { edit.selectAll() return true }
         return false
     }
@@ -1089,7 +1218,14 @@ class MarkdownWeb {
     ; table go out as text PowerPoint can reflow; a diagram goes out as
     ; shapes. What did not go out as text is counted, and `pptxReport` says
     ; so — see `PLAN_SLIDES.md` §2 for why that is the whole design.
-    fn pptx:buffer () {
+    ; The deck, as a MODEL rather than as a file.
+    ;
+    ; Split out of `pptx()` so that the switch in §5 of
+    ; `PLAN_DOCUMENT_MODES.md` can hand the presentation to the real editor
+    ; instead of a byte string — and so that saving an EDITED deck is the same
+    ; call as saving a fresh one, with nothing rebuilt behind the reader's
+    ; back.
+    fn buildDeck:PptxDeck () {
         def deck:MdLayout (new MdLayout())
         if (!null? measurer) {
             deck.setMeasurer((unwrap measurer))
@@ -1123,6 +1259,22 @@ class MarkdownWeb {
             pptxNotes = (pptxNotes + (x.result.noteAt(i)))
             i = (i + 1)
         }
+        return d
+    }
+
+    ; The deck as a file. Once the preview owns the document, this saves what
+    ; the READER has edited rather than converting the markdown again — the
+    ; markdown is a record of where the deck came from, and converting it a
+    ; second time would quietly throw the reader's work away.
+    fn pptx:buffer () {
+        if deckOn {
+            ; The presentation the READER has been editing, written straight
+            ; out. `PptxDeck` is a facade over the same model and there is no
+            ; reason to go back through it.
+            def w (new PptxWriter())
+            return (w.toBuffer(deckEditor.doc))
+        }
+        def d:PptxDeck (this.buildDeck())
         return (d.save())
     }
 

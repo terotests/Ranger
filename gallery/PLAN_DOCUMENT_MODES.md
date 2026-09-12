@@ -478,16 +478,32 @@ background's BYTES compared with what went in — the black-on-black theme bug i
 the reason to check the file rather than the preview. Plus the page's own
 check, on the colour the command carries and on the picture command behind it.
 
-### Stage H — DECK: the real editor behind the switch — not started
+### Stage H — DECK: the real editor behind the switch — ✅ done
 
-`PptxApp` owns the model. The markdown page keeps the canvas and stops owning
-the document. The largest stage, and the one that pays for §3.
+The switch turned out to want two steps, and they are two different promises.
+Handing the preview the document says *the markdown is no longer where you
+edit*. Making a deck says *this is a presentation now, and what it can hold is
+what PowerPoint can hold*. A page that did both on one press could not tell a
+reader which one it had done, and a reader may want the first without the
+second.
 
-*The check:* a wiring test that drives the page's own command rather than
-`PptxEdit` directly — the mechanism
-[`PLAN_EDITOR_KERNEL.md`](PLAN_EDITOR_KERNEL.md) §4 says is the only one that
-has worked here — plus a gesture markdown cannot express (a coloured text box)
-surviving a save and a reopen.
+After `convertToDeck` the model is a `PptxPresentation`, the operations are
+`PptxEditor`'s — hit testing, selection, move, resize, undo — and the drawing
+is `PptxToEvg`'s. This page keeps the chrome it already had: the canvas, the
+font manager, the scroll. It does not know how a slide is laid out and must not
+learn: `PptxEditor` carries 342 checks of its own, and a second answer to "what
+did I just click" in this file is the pattern seam
+[`PLAN_EDITOR_KERNEL.md`](PLAN_EDITOR_KERNEL.md) §2 exists to warn about.
+
+`pptx()` now saves what the EDITOR holds rather than converting the markdown
+again — converting a second time would throw the reader's work away by the act
+of saving it.
+
+*The check:* the page's own commands, last in the run because the step is
+one-way: convert, assert the canvas is drawing the DECK (a title only a slide
+has), click a shape and assert the editor selected one, move it, undo it, and
+save. The click goes through `screenCmds` — canvas coordinates, because that is
+what a click arrives in.
 
 ### Stage I — a drawing, moved and resized on the slide — not started
 

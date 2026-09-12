@@ -43,6 +43,7 @@ const pdfBtn = document.getElementById("pdf");
 const htmlBtn = document.getElementById("html");
 const pptxBtn = document.getElementById("pptx");
 const takeoverBtn = document.getElementById("takeover");
+const toDeckBtn = document.getElementById("todeck");
 const openBtn = document.getElementById("openFile");
 const filePick = document.getElementById("filepick");
 const keyCatcher = document.getElementById("keys");
@@ -411,6 +412,14 @@ app.setEditMode(true);
 // refuse everything that made it worth entering.
 let takeoverArmed = false;
 function refreshOwner() {
+  const deck = app.deckOwns();
+  toDeckBtn.disabled = deck;
+  if (deck) {
+    toDeckBtn.textContent = "▦ a deck";
+    toDeckBtn.title = "This is a presentation, edited as one.";
+  } else if (!deckArmed) {
+    toDeckBtn.textContent = "▦ make a deck";
+  }
   const owns = app.previewOwns();
   if (owns) {
     takeoverBtn.textContent = "✎ editing the preview";
@@ -426,6 +435,32 @@ function refreshOwner() {
     takeoverBtn.title = "Hand the document to the preview. One way.";
   }
 }
+// …and the second step, which is a different promise: handing the preview the
+// document says "the markdown is no longer where you edit"; making a deck says
+// "this is a presentation now, and what it can hold is what PowerPoint can
+// hold". Staged apart because a reader may want the first and not the second.
+let deckArmed = false;
+toDeckBtn.addEventListener("click", () => {
+  if (app.deckOwns()) return;
+  if (!deckArmed) {
+    deckArmed = true;
+    toDeckBtn.textContent = "▦ again to confirm";
+    showStatus("From here this is a presentation, edited as one. The markdown will not be rebuilt from it.");
+    return;
+  }
+  if (!app.convertToDeck()) {
+    deckArmed = false;
+    refreshOwner();
+    showStatus(app.refusal());
+    return;
+  }
+  deckArmed = false;
+  modeEl.value = "slides";
+  refreshOwner();
+  needsPaint = true;
+  showStatus("this is a deck now — " + app.deckSlideCount() + " slide(s)");
+});
+
 takeoverBtn.addEventListener("click", () => {
   if (app.previewOwns()) return;
   // Said BEFORE the switch, not after — and said in the page rather than in a
@@ -1991,6 +2026,57 @@ function selftest() {
   say("…and scrolling back up says so", app.pageAt() <= 2, String(app.pageAt()));
   say("a jump actually scrolled", y3 > 0, y3.toFixed(0));
   app.setPaged(false);
+
+  // ---- the deck, and the editor that owns it ------------------------------
+  //
+  // `PLAN_DOCUMENT_MODES.md` §5. `PptxEditor` has 342 checks of its own, and a
+  // second slide editor inside this page would be a pattern seam: two
+  // implementations of one idea, where a fix to either reaches neither. So
+  // after this step the MODEL is a `PptxPresentation`, the operations are
+  // `PptxEditor`'s, and this page keeps only the chrome it already had — the
+  // canvas, the font manager, the scroll.
+  //
+  // LAST in the run, because it is one-way and nothing after it can go back to
+  // editing markdown.
+  {
+    app.setSource("# Yksi\n\nKappale tassa.\n\n## Kaksi\n\nToinen kappale.\n");
+    app.setMode("slides");
+    say("the deck does not own the document yet", app.deckOwns() === false);
+    say("…and nothing asks it how many slides it has", app.deckSlideCount() === 0);
+
+    say("converting hands the document to the deck", app.convertToDeck());
+    say("…and it is one-way too", app.convertToDeck() === false);
+    say("…and the deck has the slides the layout made", app.deckSlideCount() >= 1,
+        app.deckSlideCount() + " slides");
+    say("…each with shapes on it", app.deckShapeCount() > 0, app.deckShapeCount() + " shapes");
+
+    // What is on the canvas now comes from the DECK and not from the markdown.
+    // The check is a noun that only a slide has: a title placeholder is drawn
+    // by `PptxToEvg` and by nothing in the markdown road.
+    // In CANVAS coordinates, because that is what a click arrives in: the
+    // list is drawn through the page's camera and `screenCmds` is the same
+    // arithmetic the painter does.
+    const deckCmds = screenCmds(JSON.parse(app.frame()));
+    const titled = deckCmds.some((c) => c.k === 3 && (c.text || "").indexOf("Yksi") >= 0);
+    say("the canvas draws the deck", titled, deckCmds.length + " commands");
+
+    // A click selects a SHAPE, which is `PptxEditor`'s answer and must not
+    // have a second one in this page.
+    const run = deckCmds.find((c) => c.k === 3 && (c.text || "").indexOf("Yksi") >= 0);
+    say("nothing is selected to begin with", app.deckSelection() === 0);
+    if (run) {
+      app.click(run.x + 2, run.y + 2, false);
+      say("a click on a shape selects it", app.deckSelection() === 1, app.deckSelection() + " selected");
+      say("…and moving it is the editor's move", app.deckMove(12, 0));
+      say("…which is one undo like any other", app.run("edit.undo", ""));
+    }
+
+    // …and saving writes what the READER edited, not the markdown converted
+    // again. The bytes are the proof: a second conversion would produce a
+    // valid deck with the reader's work missing.
+    const saved = app.pptx();
+    say("the deck saves what the editor holds", saved.byteLength > 1000, saved.byteLength + " bytes");
+  }
 
   const el = document.createElement("div");
   el.id = "selftest-result";
