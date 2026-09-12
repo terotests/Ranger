@@ -19,6 +19,8 @@
 Import "../src/MdBlock.rgr"
 Import "../src/MdToDocx.rgr"
 Import "../../docx_viewer/src/DocxView.rgr"
+Import "../src/MdDiagram.rgr"
+Import "../../docx_viewer/src/DocxA11y.rgr"
 Import "../../vfs/src/Vfs.rgr"
 
 class DocCheck {
@@ -89,6 +91,7 @@ class MdDocxTest {
         this.lists(c)
         this.costs(c)
         this.drawn(c)
+        this.drawings(c)
         this.pictures(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
@@ -261,6 +264,109 @@ class MdDocxTest {
         c.ok("…drawn as text runs" (texts > 3))
         c.ok("…saying what the document says"
             ((MdDocxTest.hasSub(said "Otsikko")) && (MdDocxTest.hasSub(said "yksi"))))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A diagram is geometry here too
+    ; ----------------------------------------------------------------------
+    ;
+    ; The Word view drew a ```mermaid fence as the words "[mermaid diagram]"
+    ; while the preview beside it drew the flowchart and the deck carried it
+    ; as shapes — the same document, missing its picture on one tab. The tree
+    ; the layout prepared is handed over and becomes a DRAWING, and the claim
+    ; is checked where it lands: the block, the laid-out line, and the marks
+    ; on the page — PATHS, because a page of rectangles would also "have
+    ; commands" and a diagram's edges are what a rasterized copy loses.
+    fn drawings:void (c:DocCheck) {
+        print "-- a diagram is geometry in the Word document too --"
+        def src:string "# Kaavio\n\n```dot\ndigraph { saapuu -> tarkista; tarkista -> laskuta; }\n```\n\nJa teksti sen alla.\n"
+        def node:MdNode (MdBlock.parseText(src))
+        def cache (new MdEmbedCache())
+        MdDiagram.prepare(node cache 600.0 "default")
+        c.eqInt("the layout drew the fence" (cache.count()) 1)
+        maker = (new MdToDocx())
+        maker.setEmbeds(cache)
+        def st (new MdStyle())
+        def d:RichDocument (maker.build(node st))
+        c.eqInt("the diagram went in as a drawing" maker.result.drawings 1)
+        c.eqInt("…and not as its name" maker.result.drawingsAsText 0)
+        c.eqInt("…one drawing on the document" (d.drawingCount()) 1)
+        def dr:DocDrawing (itemAt d.drawings 0)
+        c.ok("…with its tree behind it" (dr.hasRoot()))
+        c.eqStr("…named for its notation" dr.name "Graphviz diagram")
+        c.eqStr("…and carrying its source" dr.source "digraph { saapuu -> tarkista; tarkista -> laskuta; }\n")
+        c.ok("…sized from what was drawn" ((dr.widthPx > 10) && (dr.heightPx > 10)))
+        c.ok("…in the summary" (MdDocxTest.hasSub((maker.result.describe()) "drawing(s) placed")))
+        ; The block sits between the heading and the paragraph, where the
+        ; fence was: a drawing appended at the end would be a drawing in the
+        ; wrong place.
+        c.eqInt("the document has three blocks" (array_length d.blocks) 3)
+        def b1:DocBlock (itemAt d.blocks 1)
+        c.eqInt("…and the middle one is the drawing" b1.kind (DocBlockKind.drawing()))
+
+        ; …and the Word viewer draws it: a line for the drawing, and paths
+        ; inside its box.
+        def view (new DocxView())
+        view.init("gallery/pdf_writer/assets/fonts")
+        def nums (new WordNumbering())
+        def ed (new DocxEditController())
+        ed.bindDocument(d)
+        def dl:EVGDisplayList (view.buildDisplayList(d 0 nums ed false))
+        def pg:LaidPage (view.layout.pageAt(0))
+        def drawnLine:int -1
+        def li:int 0
+        while (li < (array_length pg.lines)) {
+            def ln:LaidLine (itemAt pg.lines li)
+            if (ln.kind == (LaidLineKind.drawing())) { drawnLine = li }
+            li = (li + 1)
+        }
+        c.ok("the layout made a line for it" (drawnLine >= 0))
+        if (drawnLine >= 0) {
+            def ln:LaidLine (itemAt pg.lines drawnLine)
+            c.ok("…no wider than the column" (ln.width <= pg.contentW))
+            def paths:int 0
+            def labels:int 0
+            def inside:int 0
+            def i:int 0
+            while (i < (array_length dl.cmds)) {
+                def cmd:EVGDrawCmd (itemAt dl.cmds i)
+                if ((cmd.kind == 6) || (cmd.kind == 7)) { paths = (paths + 1) }
+                if (cmd.kind == 3) {
+                    if (cmd.text == "laskuta") {
+                        labels = (labels + 1)
+                        def lx:double (to_double ln.x)
+                        def ly:double (to_double ln.y)
+                        def lw:double (to_double ln.width)
+                        def lh:double (to_double ln.height)
+                        if ((((cmd.x >= lx) && (cmd.y >= ly)) && (cmd.x <= (lx + lw))) && (cmd.y <= (ly + lh))) {
+                            inside = (inside + 1)
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+            c.ok("…the page has the diagram's edges as paths" (paths >= 2))
+            c.eqInt("…and its labels as text" labels 1)
+            c.eqInt("…inside the box the layout gave it" inside 1)
+        }
+
+        ; A reader who cannot see it is told what it is.
+        def tree:EVGA11yTree (DocxA11y.build(d 0 0 0 0 true))
+        def named:boolean false
+        def ni:int 0
+        while (ni < (array_length tree.nodes)) {
+            def an:EVGA11yNode (itemAt tree.nodes ni)
+            if (an.name == "Graphviz diagram") { named = true }
+            ni = (ni + 1)
+        }
+        c.ok("…and the accessibility tree names it" named)
+
+        ; Without a cache the fence is still its name, and still counted:
+        ; the Go and Python suites build documents with no diagram reader
+        ; behind them and must not lose the words.
+        def plain:RichDocument (this.make(src))
+        c.eqInt("with nothing drawn, the fence is its name" maker.result.drawingsAsText 1)
+        c.eqInt("…and no drawing" (plain.drawingCount()) 0)
     }
 
     ; ----------------------------------------------------------------------

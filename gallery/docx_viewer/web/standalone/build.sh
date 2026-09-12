@@ -74,6 +74,10 @@ node --input-type=module -e "
 
 cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
+# The browser half of the editor — pointer and keys — shared with the
+# markdown page's DOCX tab.
+mkdir -p "$OUT/host"
+cp "$WEB/../host/docx-host.mjs" "$OUT/host/docx-host.mjs"
 
 # Minified when there is a minifier — see the tool for what that is worth and
 # why `DocxWeb` is the string it checks survived.
@@ -143,7 +147,7 @@ node --input-type=module -e "
 STAMP=$(node -e "
   const fs = require('fs'), crypto = require('crypto');
   const h = crypto.createHash('sha1');
-  for (const f of ['$OUT/docx_web.js', '$OUT/standalone.mjs', '$OUT/gl/evg-webgl.js']) h.update(fs.readFileSync(f));
+  for (const f of ['$OUT/docx_web.js', '$OUT/standalone.mjs', '$OUT/gl/evg-webgl.js', '$OUT/host/docx-host.mjs']) h.update(fs.readFileSync(f));
   process.stdout.write(h.digest('hex').slice(0, 10));
 ")
 node -e "
@@ -153,13 +157,14 @@ node -e "
     fs.readFileSync('$OUT/index.html', 'utf8').split('__BUILD__').join(stamp));
   fs.writeFileSync('$OUT/standalone.mjs',
     fs.readFileSync('$OUT/standalone.mjs', 'utf8')
-      .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp));
+      .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp)
+      .replace('./host/docx-host.mjs', './host/docx-host.mjs?v=' + stamp));
 " || exit 1
 # The head that starts every asset before the body is parsed.
 node gallery/evg/web/tools/inline-assets.mjs \
   --html "$OUT/index.html" \
   --start "${ASSETS#,}" \
-  --preload-stamped "standalone.mjs,gl/evg-webgl.js" \
+  --preload-stamped "standalone.mjs,gl/evg-webgl.js,host/docx-host.mjs" \
   --preload "evg/assets-client.mjs" \
   --stamp "$STAMP" || exit 1
 

@@ -3613,6 +3613,51 @@ class EVGDisplayList {
         }
     }
 
+    ; Scale every command by `s` about the origin. The other half of what a
+    ; host needs to PLACE a list built in its own coordinates: a drawing made
+    ; at one size and shown at another, a page laid out in one unit and drawn
+    ; in a second. Everything that is a length scales — the box, the points,
+    ; the stroke, the type size, a corner radius, a shadow's offset — and
+    ; nothing that is not: colours, text, a dash pattern's text (which is in
+    ; user units and rides on the stroke), and a clip's absence of geometry.
+    ;
+    ; A camera (`setView`) is the cheaper way to draw the WHOLE list at a
+    ; scale; this is for one list inside another, where a camera cannot say
+    ; "this part and not the rest".
+    fn scaleBy:void (s:double) {
+        if (s == 1.0) { return }
+        def i:int 0
+        while (i < (array_length cmds)) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            if (c.kind != 5) {
+                c.x = (c.x * s)
+                c.y = (c.y * s)
+                c.w = (c.w * s)
+                c.h = (c.h * s)
+                c.radius = (c.radius * s)
+                c.radiusTR = (c.radiusTR * s)
+                c.radiusBR = (c.radiusBR * s)
+                c.radiusBL = (c.radiusBL * s)
+                c.thickness = (c.thickness * s)
+                c.fontSize = (c.fontSize * s)
+                c.letterSpacing = (c.letterSpacing * s)
+                c.maxWidth = (c.maxWidth * s)
+                c.shadowX = (c.shadowX * s)
+                c.shadowY = (c.shadowY * s)
+                c.shadowBlur = (c.shadowBlur * s)
+                c.strokeDashOffset = (c.strokeDashOffset * s)
+                c.rotOriginX = (c.rotOriginX * s)
+                c.rotOriginY = (c.rotOriginY * s)
+                def pi:int 0
+                while (pi < (array_length c.pts)) {
+                    set_at c.pts pi ((itemAt c.pts pi) * s)
+                    pi = (pi + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
     ; Append another list's commands to this one, in order. The commands are
     ; shared rather than copied - the source list is finished with by the time
     ; a caller does this, and copying a page of text would not be free.

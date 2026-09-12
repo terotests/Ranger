@@ -15,8 +15,12 @@
 ; reader can edit, or a drawing — because a slide is a canvas. A Word document
 ; is a stream of paragraphs, so there is one road and the question is only
 ; which paragraph a block becomes. That makes this smaller than `MdToPptx` and
-; it also makes it lossier in a different place: a diagram is a paragraph with
-; its alt text in it, because a `RichDocument` has no shapes.
+; and it used to make it lossier in a different place: a diagram was a
+; paragraph with its name in it, because a `RichDocument` had no shapes. It
+; has a DRAWING now — the diagram's own element tree, the same one the
+; preview draws and the slide is built from — so the picture is geometry here
+; too. A fence nothing has drawn yet still goes in as its name, and is
+; counted.
 ;
 ; **What it costs is counted, not hidden.** The same rule the deck exporter is
 ; written to: a document that quietly lost its table is worse than one that
@@ -26,6 +30,7 @@
 Import "MdNode.rgr"
 Import "MdStyle.rgr"
 Import "MdEmbedKinds.rgr"
+Import "MdEmbed.rgr"
 Import "../../docx_viewer/src/RichDocument.rgr"
 Import "../../vfs/src/Vfs.rgr"
 
@@ -40,6 +45,9 @@ class MdDocResult {
     ; and a reader who cannot see that has lost a table without being told.
     def tablesAsText:int 0
     def drawingsAsText:int 0
+    ; Diagrams carried as drawings — geometry, the same tree the preview
+    ; draws.
+    def drawings:int 0
     ; Pictures carried as pictures, and pictures that stayed alt text because
     ; the byte store had nothing under that name. The same two numbers the
     ; deck exporter keeps, for the same reason: a picture that silently
@@ -75,8 +83,11 @@ class MdDocResult {
         if (tablesAsText > 0) {
             out = (out + " — " + (to_string tablesAsText) + " table(s) as text")
         }
+        if (drawings > 0) {
+            out = (out + " — " + (to_string drawings) + " drawing(s) placed")
+        }
         if (drawingsAsText > 0) {
-            out = (out + " — " + (to_string drawingsAsText) + " drawing(s) as their alt text")
+            out = (out + " — " + (to_string drawingsAsText) + " drawing(s) as their name")
         }
         if (pictures > 0) {
             out = (out + " — " + (to_string pictures) + " picture(s) placed")
@@ -100,6 +111,13 @@ class MdToDocx {
     def images:Vfs (new Vfs())
     def haveImages:boolean false
     def docDir:string "/"
+    ; The diagrams, already drawn. The layout prepared every fenced diagram
+    ; before it laid the page out (`MdDiagram.prepare`), and the cache it
+    ; filled is what this reads — the same trees the preview paints and the
+    ; deck exporter turns into shapes, so the three views cannot disagree
+    ; about what a fence looks like. Without one, a fence is its name.
+    def embeds:MdEmbedCache (new MdEmbedCache())
+    def haveEmbeds:boolean false
 
     Constructor () {
     }
@@ -108,6 +126,11 @@ class MdToDocx {
         images = v
         haveImages = true
         docDir = dir
+    }
+
+    fn setEmbeds:void (cache:MdEmbedCache) {
+        embeds = cache
+        haveEmbeds = true
     }
 
     fn build:RichDocument (root:MdNode s:MdStyle) {
@@ -267,6 +290,7 @@ class MdToDocx {
         }
         if (kind == "embed") {
             def word:string (MdEmbedKinds.firstWord(node.info))
+            if (this.drawing(node word)) { return }
             def dp:Paragraph (doc.addParagraph())
             def ds:TextSpan (this.spanFor(false true false ""))
             ds.colorHex = "57606A"
@@ -342,6 +366,56 @@ class MdToDocx {
             }
             i = (i + 1)
         }
+    }
+
+    ; A diagram, as a drawing. The tree comes out of the embed cache the
+    ; layout filled, at whatever width it was drawn — the Word page has its
+    ; own column and `DocxLayout` fits the drawing to it, height following.
+    ;
+    ; Sizes: the same 72→96 the picture road does, so a diagram is the same
+    ; FRACTION of the page here as in the preview, which is what a reader
+    ; compares.
+    ;
+    ; `false` when nothing has drawn this fence — no cache, or a fence the
+    ; reader refused — and the caller writes the name instead and counts it.
+    fn drawing:boolean (node:MdNode word:string) {
+        if (! haveEmbeds) { return false }
+        def idx:int (this.embedAtAnyWidth(word node.literal))
+        if (idx < 0) { return false }
+        def e:MdEmbedEntry (embeds.entryAt(idx))
+        if (! e.ok) { return false }
+        if (null? e.root) { return false }
+        if ((e.width <= 0.0) || (e.height <= 0.0)) { return false }
+        def dr:DocDrawing (doc.addDrawing())
+        dr.root = e.root
+        dr.naturalW = e.width
+        dr.naturalH = e.height
+        def wpx:double ((e.width * 96.0) / 72.0)
+        def hpx:double ((e.height * 96.0) / 72.0)
+        dr.widthPx = (to_int (wpx + 0.5))
+        dr.heightPx = (to_int (hpx + 0.5))
+        if (dr.widthPx < 1) { dr.widthPx = 1 }
+        if (dr.heightPx < 1) { dr.heightPx = 1 }
+        dr.notation = (MdEmbedKinds.notationOf(word))
+        dr.source = node.literal
+        dr.name = ((MdToDocx.notationWord(word)) + " diagram")
+        dr.altText = dr.name
+        result.drawings = (result.drawings + 1)
+        return true
+    }
+
+    fn embedAtAnyWidth:int (kind:string source:string) {
+        def i:int 0
+        while (i < (embeds.count())) {
+            def e:MdEmbedEntry (embeds.entryAt(i))
+            if ((e.kind == kind) && (e.source == source)) { return i }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn notationWord:string (word:string) {
+        return (MdEmbedKinds.notationWord(word))
     }
 
     ; A picture, as a picture. `DocImage` is what a Word document holds and

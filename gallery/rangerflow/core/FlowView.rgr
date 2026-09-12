@@ -95,6 +95,16 @@ class FlowView {
     def showEdgeEnds:boolean true
     def edgeEndRadius:double 4.5
     def culling:boolean true
+    ; The size below which a label is not drawn, in SCREEN pixels. Five is
+    ; the floor on a screen: a word set smaller than that is a smudge, and
+    ; the pixels are better spent on the shape it names. It is a rule about
+    ; a screen, and it was applied to a page too — a diagram fitted into a
+    ; narrow column for print came out with every label box and none of the
+    ; labels, because at that fit they would have drawn at three or four
+    ; points. A page is vector: a three-point word is small and legible, and
+    ; the reader can zoom in. `buildForPage` and `buildForExport` turn the
+    ; floor off for their duration; the interactive view keeps it.
+    def labelFloorPx:double 5.0
     ; --- the camera, or the camera baked in (S2) -------------------------------
     ;
     ; `false` is what this view always did: `sx`/`sy`/`sl` multiply the zoom and
@@ -1055,6 +1065,8 @@ class FlowView {
         showMinimap = false
         showControls = false
         showPorts = false
+        def savedFloor:double labelFloorPx
+        labelFloorPx = 0.0
         culling = false
         def sc:FlowScene (this.build())
         sc.worldX = 0.0
@@ -1069,6 +1081,7 @@ class FlowView {
         showMinimap = savedMini
         showControls = savedCtl
         showPorts = savedPorts
+        labelFloorPx = savedFloor
         culling = savedCull
         return sc
     }
@@ -1137,6 +1150,8 @@ class FlowView {
         showMinimap = false
         showControls = false
         showPorts = false
+        def savedFloor:double labelFloorPx
+        labelFloorPx = 0.0
         culling = false
         def r:FlowRect (graph.bounds())
         if (r.valid == false) {
@@ -1165,6 +1180,7 @@ class FlowView {
         showMinimap = savedMini
         showControls = savedCtl
         showPorts = savedPorts
+        labelFloorPx = savedFloor
         culling = savedCull
         return sc
     }
@@ -1420,7 +1436,7 @@ class FlowView {
         ; anyone had written down, and the cost of the disagreement was that a
         ; flowchart zoomed to fit lost its `kyllä` and `ei` — the one thing on
         ; a decision that cannot be inferred from the shape.
-        if ((this.drawn(size)) < 5.0) {
+        if ((this.drawn(size)) < labelFloorPx) {
             return
         }
         def tag:string ("edge:" + e.id)
@@ -1674,7 +1690,7 @@ class FlowView {
             def a:FlowAnnotation (n.annotationAt(i))
             if ((strlen a.text) > 0) {
                 def size:double (this.sl(a.fontSize))
-                if ((this.drawn(size)) >= 5.0) {
+                if ((this.drawn(size)) >= labelFloorPx) {
                     def cx:double (x + (w * a.offsetX))
                     def cy:double (y + (h * a.offsetY))
                     def room:double (this.annotationRoom(x w cx))
@@ -1722,7 +1738,7 @@ class FlowView {
             def a:FlowAnnotation (e.annotationAt(i))
             if ((strlen a.text) > 0) {
                 def size:double (this.sl(a.fontSize))
-                if ((this.drawn(size)) >= 5.0) {
+                if ((this.drawn(size)) >= labelFloorPx) {
                     def at:int (FlowView.indexAlong(n a.offsetX))
                     def px:double (itemAt flat (at * 2))
                     def py:double (itemAt flat ((at * 2) + 1))
@@ -1799,7 +1815,7 @@ class FlowView {
         def bar:SceneItem (sc.rect(x y barW h theme.headerFill))
         bar.tag = tag
         def size:double (this.sl(theme.headerFontSize))
-        if ((this.drawn(size)) < 5.0) {
+        if ((this.drawn(size)) < labelFloorPx) {
             return
         }
         ; No rotated text in the display list, so the name is set across the
@@ -1826,7 +1842,7 @@ class FlowView {
     ; the sloping sides.
     fn paintShapeLabel:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string) {
         def size:double (this.sl((theme.headerFontSize * n.fontScale)))
-        if ((this.drawn(size)) < 5.0) {
+        if ((this.drawn(size)) < labelFloorPx) {
             return
         }
         ; How much of the box the shape actually leaves to write in, and where
@@ -1915,7 +1931,7 @@ class FlowView {
 
     fn paintPlainLabel:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string) {
         def size:double (this.sl(theme.headerFontSize))
-        if ((this.drawn(size)) < 5.0) {
+        if ((this.drawn(size)) < labelFloorPx) {
             return
         }
         def room:double (w - (this.sl(14.0)))
@@ -1960,7 +1976,7 @@ class FlowView {
         headBottom.tag = tag
         def accent:SceneItem (sc.rect(x y (this.sl(3.0)) headerH theme.headerAccent))
         accent.tag = tag
-        if ((this.drawn(headSize)) >= 5.0) {
+        if ((this.drawn(headSize)) >= labelFloorPx) {
             def room:double (w - (pad * 2.0))
             def raw:string (this.textFor(tag n.label))
             ; One line: a table's name broken over two lines in a list of nine
@@ -1990,7 +2006,7 @@ class FlowView {
                 cursor = (cursor + (this.sl(n.sectionGap)))
             }
             if ((strlen sec.title) > 0) {
-                if ((this.drawn(rowSize)) >= 5.0) {
+                if ((this.drawn(rowSize)) >= labelFloorPx) {
                     def st:SceneItem (sc.text(sec.title (x + pad) (cursor + ((rowH - (rowSize * 1.2)) * 0.5)) (w - (pad * 2.0)) rowSize theme.nodeMutedText))
                     st.fontFamily = theme.fontFamily
                     st.italic = true
@@ -2023,7 +2039,7 @@ class FlowView {
                 alt.tag = tag
             }
         }
-        if ((this.drawn(size)) < 5.0) {
+        if ((this.drawn(size)) < labelFloorPx) {
             return
         }
         def ty:double (y + ((rowH - (size * 1.2)) * 0.5))
@@ -2076,7 +2092,7 @@ class FlowView {
         }
         def nameX:double ((x + pad) + badgeW)
         def avail:double (((right - trailW) - detailW) - nameX)
-        if ((this.drawn(avail)) < 8.0) {
+        if ((this.drawn(avail)) < (labelFloorPx * 1.6)) {
             return
         }
         def nameCol:string theme.nodeText

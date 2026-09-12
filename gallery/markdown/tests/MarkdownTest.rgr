@@ -90,6 +90,7 @@ class MarkdownTest {
         this.mermaid()
         this.notations()
         this.diagramWidth()
+        this.narrowLabels()
         this.pictureProbe()
         this.highlight()
         this.frontMatter()
@@ -634,6 +635,58 @@ class MarkdownTest {
         def junk:MdLayout (MarkdownTest.laidOut(((("```mermaid\n" + mer) + "\n```\n") + "{width=40em}\n")))
         def jb:MdBox (MarkdownTest.firstOfKind(junk 3))
         this.eqInt("a unit nobody parsed is the column width" (to_int jb.w) (to_int wb.w))
+    }
+
+    ; A diagram fitted into a narrow column keeps its LABELS.
+    ;
+    ; RangerFlow does not draw a word that would land under five screen
+    ; pixels — right on a screen, where the word is a smudge — and that rule
+    ; was applied to a page fit too. A gantt with a long axis, fitted into an
+    ; A4 column, came out as every label box and none of the labels: the PDF
+    ; showed grey pills where the words were, and nothing said why. A page is
+    ; vector; a small word on it is still a word. The check is the tree the
+    ; page and the PDF are built from, at a width that forces the fit below
+    ; that floor.
+    fn narrowLabels:void () {
+        def src:string "```mermaid\ngantt\n  title Julkaisu\n  dateFormat YYYY-MM-DD\n  section Suunnittelu\n  Vaatimusten maarittely :a1, 2026-01-05, 5d\n  Tekninen suunnittelu :a2, after a1, 4d\n  section Kehitys\n  Backend-kehitys :b1, 2026-01-14, 12d\n  Frontend-kehitys :b2, 2026-01-16, 10d\n```\n"
+        def node:MdNode (MdBlock.parseText(src))
+        def wide (new MdEmbedCache())
+        MdDiagram.prepare(node wide 1400.0 "default")
+        def thin (new MdEmbedCache())
+        MdDiagram.prepare(node thin 300.0 "default")
+        this.eqInt("the gantt was drawn at a wide column" (wide.count()) 1)
+        this.eqInt("…and at a narrow one" (thin.count()) 1)
+        def we:MdEmbedEntry (wide.entryAt(0))
+        def te:MdEmbedEntry (thin.entryAt(0))
+        this.ok("both have a drawing" (we.ok && te.ok))
+        this.ok("the narrow one was fitted, not drawn full size" (te.width < we.width))
+        def wideLabels:int (MarkdownTest.textsIn((unwrap we.root) "Suunnittelu"))
+        def thinLabels:int (MarkdownTest.textsIn((unwrap te.root) "Suunnittelu"))
+        this.ok("the wide drawing names its section" (wideLabels > 0))
+        this.eqInt("…and so does the narrow one, however small it draws" thinLabels wideLabels)
+        this.eqInt("…with every label the wide one has"
+            (MarkdownTest.textsIn((unwrap te.root) "")) (MarkdownTest.textsIn((unwrap we.root) "")))
+    }
+
+    ; How many text elements under `el` carry `needle` — every non-empty
+    ; one when the needle is empty.
+    sfn textsIn:int (el:EVGElement needle:string) {
+        def n:int 0
+        if (el.tagName == "text") {
+            if ((strlen el.textContent) > 0) {
+                if ((strlen needle) == 0) {
+                    n = (n + 1)
+                } {
+                    if ((indexOf el.textContent needle) >= 0) { n = (n + 1) }
+                }
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            n = (n + (MarkdownTest.textsIn((el.getChild(i)) needle)))
+            i = (i + 1)
+        }
+        return n
     }
 
     ; A picture reaches the DISPLAY LIST, which is the only place a renderer

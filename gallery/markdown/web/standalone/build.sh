@@ -85,8 +85,16 @@ fi
 cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 
-mkdir -p "$OUT/gl" "$OUT/fonts" "$OUT/samples"
+mkdir -p "$OUT/gl" "$OUT/fonts" "$OUT/samples" "$OUT/host"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+# The other two editors' browser halves — the SAME files the pptx and docx
+# pages load. The PPTX and DOCX tabs are those editors, so what a press or a
+# keystroke means there is their module's business, not this page's.
+cp gallery/pptx/web/host/pptx-host.mjs "$OUT/host/pptx-host.mjs"
+cp gallery/docx_viewer/web/host/docx-host.mjs "$OUT/host/docx-host.mjs"
+# The 187 preset shape geometries, for the deck; without them every shape
+# nobody typed in comes out as a rectangle.
+cp gallery/office/geom/assets/presets.txt "$OUT/presets.txt"
 
 # The faces, under the names the LAYOUT asks for. The variant is part of the
 # family name rather than a weight flag, because that is the one spelling the
@@ -123,7 +131,7 @@ cp README.md "$OUT/samples/README.md"
 STAMP=$(node -e "
   const fs = require('fs'), crypto = require('crypto');
   const h = crypto.createHash('sha1');
-  for (const f of ['$OUT/markdown_web.js', '$OUT/standalone.mjs', '$OUT/gl/evg-webgl.js']) h.update(fs.readFileSync(f));
+  for (const f of ['$OUT/markdown_web.js', '$OUT/standalone.mjs', '$OUT/gl/evg-webgl.js', '$OUT/host/pptx-host.mjs', '$OUT/host/docx-host.mjs']) h.update(fs.readFileSync(f));
   process.stdout.write(h.digest('hex').slice(0, 10));
 ")
 node -e "
@@ -133,7 +141,9 @@ node -e "
     fs.readFileSync('$OUT/index.html', 'utf8').split('__BUILD__').join(stamp));
   fs.writeFileSync('$OUT/standalone.mjs',
     fs.readFileSync('$OUT/standalone.mjs', 'utf8')
-      .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp));
+      .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp)
+      .replace('./host/pptx-host.mjs', './host/pptx-host.mjs?v=' + stamp)
+      .replace('./host/docx-host.mjs', './host/docx-host.mjs?v=' + stamp));
 " || exit 1
 if grep -q "__BUILD__" "$OUT/index.html"; then
   echo "the build stamp was not written into $OUT/index.html" >&2

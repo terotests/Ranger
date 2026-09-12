@@ -12,6 +12,10 @@ import { renderDisplayList, loadImages, setFontFallback } from "./gl/evg-webgl.j
 // The assets this page's head started fetching before the body was parsed —
 // see gallery/evg/web/tools/inline-assets.mjs, which writes that head.
 import { bytesOf, asRangerBuffer } from "./evg/assets-client.mjs";
+// What a press, a drag and a keystroke mean to the Word editor — shared with
+// the markdown page's DOCX tab, which runs the same engine and attaches the
+// same module, so a fix to selecting a sentence reaches both pages at once.
+import { attachPointer, attachKeys } from "./host/docx-host.mjs";
 
 // The page watches for this: if the imports above fail, nothing below runs
 // and the only evidence anywhere is a 404 in the network panel.
@@ -212,74 +216,11 @@ async function draw(force) {
   window.__docxDoc = doc;
 }
 
-function coords(ev) {
-  const rect = canvas.getBoundingClientRect();
-  return {
-    x: Math.max(0, Math.min(sceneW - 1, Math.floor((ev.clientX - rect.left) * (sceneW / Math.max(1, rect.width))))),
-    y: Math.max(0, Math.min(sceneH - 1, Math.floor((ev.clientY - rect.top) * (sceneH / Math.max(1, rect.height))))),
-  };
-}
-
-// Whether the button is still down. A move with nothing held is a hover; a
-// move with the button held is a DRAG, and the app cannot tell the two apart
-// unless this file says which one it is. It used to always say "not held", so
-// dragging across text selected nothing.
-let buttonDown = false;
-
-canvas.addEventListener("pointerdown", async (ev) => {
-  canvas.focus();
-  const { x, y } = coords(ev);
-  buttonDown = true;
-  // The pointer is captured so that a drag which leaves the canvas keeps
-  // arriving here — letting go outside the window otherwise leaves the app
-  // believing the button is still down forever.
-  if (canvas.setPointerCapture) {
-    try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* not captured */ }
-  }
-  // Through the frame, so a press lands on a window, then the toolbar, then
-  // the paper — in that order, decided by the app rather than by this file.
-  web.framePointer(x, y, true, true, false, ev.shiftKey);
-  page = web.page() | 0;
-  await draw(true);
-});
-
-canvas.addEventListener("pointermove", async (ev) => {
-  const { x, y } = coords(ev);
-  if (web.framePointer(x, y, false, buttonDown, false, false)) await draw(true);
-});
-
-canvas.addEventListener("pointerup", async (ev) => {
-  const { x, y } = coords(ev);
-  buttonDown = false;
-  if (canvas.releasePointerCapture) {
-    try { canvas.releasePointerCapture(ev.pointerId); } catch (_) { /* not captured */ }
-  }
-  web.framePointer(x, y, false, false, true, ev.shiftKey);
-  await draw(true);
-});
-
-// A pointer that is cancelled (the browser took the gesture) ends the drag too.
-canvas.addEventListener("pointercancel", async (ev) => {
-  const { x, y } = coords(ev);
-  buttonDown = false;
-  web.framePointer(x, y, false, false, true, false);
-  await draw(true);
-});
-
-const KEYS = {
-  Backspace: "backspace",
-  Delete: "delete",
-  Enter: "enter",
-  Tab: "tab",
-  ArrowLeft: "left",
-  ArrowRight: "right",
-  ArrowUp: "up",
-  ArrowDown: "down",
-  Home: "home",
-  End: "end",
-  PageUp: "pageUp",
-  PageDown: "pageDown",
-};
+// Pointer and keyboard both come from the shared host module. Whether the
+// button is still down, the pointer capture that keeps a drag alive off the
+// canvas, and which key means what all live there, once.
+const sceneSize = () => ({ width: sceneW, height: sceneH });
+attachPointer({ canvas, web, sceneSize, draw: () => draw(true) });
 
 // The wheel and a one-finger swipe are the same question — how far did it
 // travel — and the app decides when that adds up to a page.
@@ -336,44 +277,10 @@ canvas.addEventListener("touchend", () => {
   touching = false;
 });
 
-canvas.addEventListener("keydown", async (ev) => {
-  if (ev.ctrlKey || ev.metaKey) {
-    const k = ev.key.toLowerCase();
-    if (k === "v") return; // the paste event below carries the clipboard
-    if (k === "a") { ev.preventDefault(); web.key("selectAll", false, true); await draw(true); return; }
-    if (k === "z") { ev.preventDefault(); web.key("undo", false, true); await draw(true); return; }
-    if (k === "y") { ev.preventDefault(); web.key("redo", false, true); await draw(true); return; }
-    if (k === "b") { ev.preventDefault(); web.key("bold", false, true); await draw(true); return; }
-    if (k === "c" || k === "x") {
-      ev.preventDefault();
-      const text = k === "c" ? web.copySelection() : web.cutSelection();
-      try {
-        await navigator.clipboard.writeText(text);
-      } catch (_) {
-        /* a page without permission still edits */
-      }
-      await draw(true);
-      return;
-    }
-    return;
-  }
-  const name = KEYS[ev.key];
-  if (name) {
-    ev.preventDefault();
-    web.key(name, ev.shiftKey, false);
-    // The app owns the page number: in view mode these keys TURN the page,
-    // and in edit mode the caret can walk onto another one. Either way, what
-    // this page thinks it is showing comes back from the app rather than
-    // being guessed here.
-    page = web.page() | 0;
-    await draw(true);
-    return;
-  }
-  if (ev.key.length === 1 && web.editMode()) {
-    ev.preventDefault();
-    web.typeText(ev.key);
-    await draw(true);
-  }
+attachKeys({
+  web, target: canvas, draw: () => draw(true),
+  onCopy: (text) => navigator.clipboard?.writeText(text).catch(() => { /* a page without permission still edits */ }),
+  onCut: (text) => navigator.clipboard?.writeText(text).catch(() => { /* a page without permission still edits */ }),
 });
 
 window.addEventListener("paste", async (ev) => {

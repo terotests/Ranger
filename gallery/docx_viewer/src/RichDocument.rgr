@@ -12,6 +12,7 @@
 ; ==============================================================================
 
 Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../evg/EVGElement.rgr"
 
 class TextSpan {
     def start:int 0
@@ -251,6 +252,43 @@ class DocChart {
     }
 }
 
+; A drawing in the document: a diagram, or anything else that arrives as
+; laid-out GEOMETRY rather than as a picture of it. Not a chart, because a
+; chart is its data and re-renders from a specification; and not a picture,
+; because nothing here is pixels. It is an element tree the engine can lay
+; out and turn into draw commands at any size — the same seam a diagram takes
+; onto a slide (`PptxFromEvg` reads the same list) and into a PDF.
+;
+; `root` is laid out at `naturalW` x `naturalH`, the size it was made at,
+; and `widthPx` x `heightPx` is the box it is shown in; the painter scales the
+; commands between the two rather than laying the tree out again, because
+; the tree's children are placed absolutely and would not follow.
+;
+; `notation` and `source` are provenance — "mermaid" and the fence's own text
+; — so what drew it can draw it again later. The same reason a slide carries
+; them in `p:cNvPr/a:extLst`.
+class DocDrawing {
+    def id:int 0
+    def name:string "Drawing"
+    def altText:string ""
+    def notation:string ""
+    def source:string ""
+    def widthPx:int 320
+    def heightPx:int 200
+    def naturalW:double 0.0
+    def naturalH:double 0.0
+    def root@(optional):EVGElement
+    ; Why nothing could be drawn, when nothing could.
+    def note:string ""
+
+    Constructor () {
+    }
+
+    fn hasRoot:boolean () {
+        return (!null? root)
+    }
+}
+
 class DocSection {
     def pageWTwips:int 12240
     def pageHTwips:int 15840
@@ -400,6 +438,11 @@ class DocBlockKind {
     sfn chart:int () {
         return 4
     }
+
+    ; A drawing, on the same terms as a chart: whole, never split.
+    sfn drawing:int () {
+        return 5
+    }
 }
 
 class DocBlock {
@@ -407,6 +450,7 @@ class DocBlock {
     def paragraph:Paragraph (new Paragraph)
     def table:DocumentTable (new DocumentTable)
     def chart:DocChart (new DocChart)
+    def drawing:DocDrawing (new DocDrawing)
     def sectionIndex:int 0
 
     Constructor () {
@@ -416,6 +460,13 @@ class DocBlock {
         def b:DocBlock (new DocBlock)
         b.kind = (DocBlockKind.chart())
         b.chart = c
+        return b
+    }
+
+    sfn drawingBlock:DocBlock (d:DocDrawing) {
+        def b:DocBlock (new DocBlock)
+        b.kind = (DocBlockKind.drawing())
+        b.drawing = d
         return b
     }
 
@@ -455,9 +506,11 @@ class RichDocument {
     def sections:[DocSection]
     def section:DocSection (new DocSection)
     def charts:[DocChart]
+    def drawings:[DocDrawing]
     def nextParaId:int 1
     def nextTableId:int 1
     def nextChartId:int 1
+    def nextDrawingId:int 1
     ; Bumped by every edit, and never reused, so anything that keeps a picture
     ; of this document — a laid-out page, a thumbnail, a cached measurement —
     ; can tell whether it is looking at the same document it built from. The
@@ -577,6 +630,33 @@ class RichDocument {
             i = (i + 1)
         }
         return (new DocChart)
+    }
+
+    ; A drawing, appended. Ids come from their own counter and are never
+    ; reused, for the reason a chart's are not.
+    fn addDrawing:DocDrawing () {
+        def d:DocDrawing (new DocDrawing)
+        d.id = nextDrawingId
+        nextDrawingId = (nextDrawingId + 1)
+        push drawings d
+        push blocks (DocBlock.drawingBlock(d))
+        return d
+    }
+
+    fn drawingCount:int () {
+        return (array_length drawings)
+    }
+
+    fn drawingById:DocDrawing (id:int) {
+        def i:int 0
+        while (i < (array_length drawings)) {
+            def d:DocDrawing (itemAt drawings i)
+            if (d.id == id) {
+                return d
+            }
+            i = (i + 1)
+        }
+        return (new DocDrawing)
     }
 
     fn addPageBreak:void () {

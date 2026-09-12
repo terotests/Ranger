@@ -439,6 +439,9 @@ jobs:
           test -s "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
           test -s "$GITHUB_WORKSPACE/_site/markdown/standalone.mjs"
           test -s "$GITHUB_WORKSPACE/_site/markdown/gl/evg-webgl.js"
+          test -s "$GITHUB_WORKSPACE/_site/markdown/host/pptx-host.mjs"
+          test -s "$GITHUB_WORKSPACE/_site/markdown/host/docx-host.mjs"
+          test -s "$GITHUB_WORKSPACE/_site/markdown/presets.txt"
           # The page fetches these itself on load, so a missing one is a blank
           # canvas rather than a 404 anyone would notice.
           test -s "$GITHUB_WORKSPACE/_site/markdown/fonts/OpenSans-Regular.ttf"

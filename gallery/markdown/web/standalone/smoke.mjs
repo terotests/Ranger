@@ -136,8 +136,11 @@ async function main() {
   console.log(`serving ${DIST} on http://127.0.0.1:${PORT}`);
 
   const url = `http://127.0.0.1:${PORT}/index.html?selftest=1`;
+  // A window a reader would have. Headless Chrome's default is 800x600, which
+  // leaves this page a drawing pane 240 pixels tall — and a Word page's first
+  // heading below the bottom of it, where no click can land.
   const run = await runChrome(chrome, [
-    ...CHROME_FLAGS, "--virtual-time-budget=40000", "--dump-dom", url,
+    ...CHROME_FLAGS, "--window-size=1280,900", "--virtual-time-budget=40000", "--dump-dom", url,
   ]);
   const dom = run.stdout || "";
   if (process.env.SMOKE_DEBUG) {

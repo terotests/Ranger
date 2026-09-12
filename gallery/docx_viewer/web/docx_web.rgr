@@ -118,6 +118,15 @@ class DocxWeb {
         return ok
     }
 
+    ; A document the host already has, rather than one read from a package:
+    ; the markdown page builds a `RichDocument` from a `.md` and hands it to
+    ; this same frame, so the Word editor it gets is this one and not a second
+    ; one written beside it.
+    fn attachDocument:void (d:RichDocument) {
+        viewer.attachDocument(d)
+        note = ""
+    }
+
     ; --- the picture ----------------------------------------------------------
     fn scene:string (page:int) {
         return (viewer.sceneJson(page))
