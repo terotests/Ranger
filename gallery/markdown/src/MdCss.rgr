@@ -136,6 +136,12 @@ class MdCss {
         asked = 0
         this.page(style (this.forTag("page")))
         this.body(style (this.forTag("document")))
+        ; `body` says the same thing, because that is what somebody who has
+        ; written CSS before types — and a rule that is silently ignored is
+        ; worse than one that is refused by name: the page simply looks
+        ; unchanged and there is nothing to read about why. Second, so it
+        ; wins where a sheet says both.
+        this.body(style (this.forTag("body")))
         this.para(style (this.forTag("p")))
         this.headings(style)
         this.code(style (this.forTag("code")))

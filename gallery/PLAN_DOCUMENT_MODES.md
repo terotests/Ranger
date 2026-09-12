@@ -1,4 +1,4 @@
-# Who owns the document — the switch, and what is behind it
+# Who owns the document — three views, and what is behind them
 
 *Every stage below is built. The status line on each says so, and §11 is the
 list of assumptions that turned out to be worth writing down.*
@@ -72,7 +72,7 @@ Where an intent cannot honestly be served the answer is a **named refusal**,
 and the harness asserts the refusal text too. `refusal()` exists and the page
 already shows it.
 
-## 3. The switch, and why it is a switch rather than a gate
+## 3. Three views, and why not a gate
 
 The design that is NOT being built is the obvious one: keep markdown as the
 truth forever, let the preview be edited, and translate each gesture into a
@@ -87,41 +87,52 @@ has to be exhaustively RIGHT: today's bug is a gate with one hole in it, and
 the hole was invisible until a reader found it. The next hole will be found the
 same way.
 
-So instead: **one explicit switch, one direction.**
+So instead: **three views, each of which is its own document.**
 
 ```
-        markdown is the truth                 the document is the truth
-        preview is a read-only view   ──────► preview is the editor
-        source pane is editable        switch  source pane is read-only
-                                               — provenance, not input
+   ┌─ Preview ─────────┐  ┌─ PPTX ──────────────┐  ┌─ DOCX ──────────────┐
+   │ the .md, laid out │  │ a PptxPresentation  │  │ a RichDocument      │
+   │ always follows it │  │ made when you go    │  │ made when you go    │
+   │                   │  │ there; its own from │  │ there; its own from │
+   │                   │  │ the first edit      │  │ the first edit      │
+   └───────────────────┘  └─────────────────────┘  └─────────────────────┘
+                                     ▲  ↻ override from .md
+                            the ONE thing that discards a view's edits
 ```
 
-What must be true of the switch:
+What must be true of the three:
 
-- **It is chosen, never fallen into.** No gesture in the preview turns it on by
-  accident. Clicking, selecting and copying in a read-only preview stay
-  available — the source map already supports all three — and none of them is
-  an edit.
-- **It says what it costs before it is thrown**, not after. "From here the
-  markdown is a record of where this came from. Changes will not go back into
-  it." A reader who wants to keep editing markdown answers no.
-- **It is one-way.** There is no "and also keep the `.md` in step". That promise
-  is the thing nobody can keep, and offering it is how the four bugs above got
-  written.
-- **After it, nothing is refused for markdown's sake.** That is the entire
-  payoff. The rich side does not have to ask whether a gesture round-trips,
-  because nothing round-trips.
+- **Preview always follows the `.md`.** It is the markdown file, laid out. It
+  is never a second document and there is nothing to lose in it.
+- **PPTX and DOCX are made on the way in, and only while they are untouched.**
+  Going there again re-converts the markdown — so a reader who has not edited
+  anything always sees their current document — and the FIRST edit ends that
+  for good. That needs no confirmation to say, because it is what "editing"
+  means.
+- **Nothing is confirmed on the way in, because nothing is lost on the way
+  in.** An earlier shape of this plan had one explicit, one-way switch with a
+  confirmation on it. It was built, and it read as a wizard — "make a deck",
+  "edit the preview", "again to confirm" — for three documents that are simply
+  three tabs. The confirmation guarded the wrong door: entering a view costs
+  nothing, and what actually discards work is `↻ override from .md`, which is
+  a button a reader goes and clicks.
+- **The markdown pane stays the `.md`'s, whichever view is on screen.** The
+  other two are separate documents and are not fed by it; carrying changes
+  back into the `.md` is out of scope and always was.
+- **Nothing is refused for markdown's sake** inside PPTX or DOCX. That is the
+  entire payoff. The rich side does not have to ask whether a gesture
+  round-trips, because nothing round-trips.
 
-## 4. Four modes
+## 4. Three views and a stylesheet
 
-| mode | the truth | source pane | preview | lossless |
+| view | the truth | left pane | right pane | lossless |
 | --- | --- | --- | --- | --- |
-| **MD** | the markdown file | editable | read-only view | yes, by construction |
-| **MD + CSS** | markdown + a stylesheet | editable | read-only view | yes |
-| **DOC** | a `RichDocument` | read-only provenance | the editor | no — one-way |
-| **DECK** | a `PptxPresentation` | read-only provenance | the editor | no — one-way |
+| **Preview** | the markdown file | `document.md`, editable | the .md laid out, always | yes, by construction |
+| **Preview + `style.css`** | markdown + a stylesheet | `style.css`, editable | re-dressed as you type | yes — both are files |
+| **PPTX** | a `PptxPresentation` | the .md, as provenance | the deck editor | no — its own document |
+| **DOCX** | a `RichDocument` | the .md, as provenance | the Word editor | no — its own document |
 
-MD + CSS is the answer to "I want it to look like that AND stay a `.md` file":
+`style.css` is the answer to "I want it to look like that AND stay a `.md` file":
 content in markdown, appearance in a stylesheet, both of them files. Its
 editing surface is an **allowlist, not a gate** — an enumerated command set in
 which every command names the file it writes, markdown or CSS. That is the
@@ -299,6 +310,14 @@ toolbar a reader actually presses — asserting three BOLD RUNS on the page and
 no asterisk drawn as a character, since four literal asterisks would draw too.
 
 ### Stage B — the switch, with markdown still behind it — ✅ done
+
+> **Superseded by Stage L.** The switch and its warning were built and shipped
+> as described here, and then replaced by the three view tabs of §3 after a
+> reader met them: the confirmations read as a wizard around what are three
+> tabs. What survived is everything below about FOCUS versus OWNERSHIP and
+> about the refusal living in `MarkdownWeb` rather than in the page — the view
+> is now what decides, and it decides in one place.
+
 
 The preview becomes read-only by default. "Edit the preview" is an explicit
 choice; throwing it makes the source pane read-only and the preview the truth,
@@ -608,6 +627,43 @@ command wrote.
 own, and a parameter called that fails with an internal error rather than a
 message.
 
+### Stage M — three views instead of a switch — ✅ done
+
+The switch of Stage B, met by a reader, read as a wizard: "make a deck", "edit
+the preview", "again to confirm", for what are three tabs. Replaced by the
+shape §3 now describes — **Preview / PPTX / DOCX**, edited independently, with
+one `↻ override from .md` as the only thing that discards a view's work.
+
+`view` is the single variable that says which document is on screen; `deckOn`
+and `docOn` now say only that a view EXISTS and keeps its edits while the
+reader is elsewhere. Drawing off the second alone was a bug of exactly the kind
+this plan is about: clicking back to Preview showed the Preview tab selected
+with the Word page still painted under it, because the Word document was still
+there. `showsDeck` / `showsDoc` are the two questions kept apart, and `listFor`
+records which view the display list on the canvas was built for — `built` says
+the list is up to date with the DOCUMENT, which is not the same as it being the
+right document.
+
+*The check:* the page's own, driving the tabs. Edit the deck, go to Preview,
+change the markdown, come back: the edited deck is still there and the new
+markdown did not touch it; `↻ override from .md` rebuilds it. And in both
+directions, the canvas — leaving DOCX draws the markdown again, and coming back
+draws the Word document that never heard about it. Asserting the TAB alone
+passed with the bug in.
+
+Two things that came out of looking at it on screen:
+
+- **A picture is bytes in the Word document too.** `MdToDocx` drew
+  `![alt](src)` as italic alt text, so the same markdown lost its picture
+  depending on which tab the reader was on. It now carries a `DocImage` from
+  the same `Vfs` the layout and the deck read — 240pt in the preview is 320 CSS
+  px on a page `DocxLayout` measures in px, which is the same fraction of the
+  page, the thing a reader compares. A picture nobody has is alt text in all
+  three, and counted.
+- **`body` is `document`.** A sheet that says `body { color: … }` changed
+  nothing and said nothing, which is the worst kind of refusal. It is now the
+  same selector under the name a CSS author reaches for first.
+
 ---
 
 ## 11. What is left
@@ -620,6 +676,14 @@ message.
 - **An inline picture.** `![](x)` on a paragraph of its own is a picture;
   anywhere else it is alt text, because a picture on a text baseline is a
   different question and one markdown almost never asks.
+- **A heading colour.** `h1 { color: … }` is refused by name: `MdStyle` has one
+  text colour and headings take it. A dark template wants a second, and it
+  wants it in the layout, the deck and the Word document at once.
+- **`style.css` in the three views.** The stylesheet dresses the Preview and
+  the documents CONVERTED from it; editing the sheet after a view is its own
+  document does not re-dress that view, because nothing feeds it any more.
+  Whether a sheet should be a live thing on the rich side is a separate
+  question from whether markdown can express it.
 - **A table in a Word document.** `RichDocument` has tables; `MdToDocx` writes
   the rows as tab-separated paragraphs and says so.
 - **Font embedding in a deck** — `p:embeddedFontLst` and an `fntdata` part.
@@ -629,12 +693,13 @@ message.
 
 ## 12. The riskiest assumptions
 
-- **That a read-only preview is acceptable in MD mode.** It is what was asked
-  for, and it is the largest visible change: the preview stops taking
-  keystrokes until the switch is thrown. The machinery built for those
-  keystrokes is not wasted — the layout, the caret, click-to-offset and the
-  selection are what the rich editor will sit on, and `MdSemanticEdit` becomes
-  the toolbar over the source pane — but a reader will notice on day one.
+- ~~**That a read-only preview is acceptable in MD mode.**~~ **Settled by
+  Stage M, the other way.** It was built and it was wrong: the Preview view
+  follows the `.md` and takes keystrokes, and the two rich views are separate
+  documents with their own editors, so there is no second writer to guard
+  against and nothing to make read-only. The machinery is not wasted — the
+  layout, the caret, click-to-offset and the selection are what the rich
+  editors sit on.
 - **That per-block emphasis is what a reader wants.** It is what markdown
   means. For a selection covering half of one item and half of the next, three
   pairs is arguably wrong and a refusal is right; Stage A must decide that case
