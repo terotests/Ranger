@@ -1,6 +1,5 @@
 /**
  * Ranger Fig host: file bytes in, EVG display list out, WebGL on the canvas.
- * OpenFig-core is loaded only for the live parse-time comparison.
  */
 import { prepareDisplayList, loadImages } from "./gl/evg-webgl.js";
 // The frame crosses as typed arrays, not as text — see `draw`.
@@ -22,7 +21,6 @@ const cmdsEl = document.getElementById("cmds");
 // walking the board again. The number IS the feature.
 const keptEl = document.getElementById("kept");
 const msEl = document.getElementById("ms");
-const ofmsEl = document.getElementById("ofms");
 const treeEl = document.getElementById("tree");
 const propsEl = document.getElementById("props");
 const inspEl = document.getElementById("inspector");
@@ -773,11 +771,27 @@ function afterEdit() {
   if (revert) revert.disabled = false;
 }
 
+/* What a layer IS decides what the panel shows.
+ *
+ * Everything used to get every section: a radius field on a line, a fill on
+ * a text layer whose colour is set somewhere else, "Auto layout" on a sticky.
+ * A panel that shows a control for something the layer cannot have teaches
+ * the reader to stop reading it. So the sections are picked by kind, and each
+ * one is only built when the layer actually has the thing.
+ */
+
+/** Kinds that are placed as a rectangle and can be rounded. A path carries
+ *  its own corners in its outline and a text layer has none. */
+const BOXY = new Set(["container", "image", "sticky"]);
+
 function buildInspector(d) {
   inspEl.textContent = "";
 
+  const isInstance = d.source === "INSTANCE" || d.source === "SYMBOL" || !!d.componentId;
   const head = el("div", "head");
-  head.append(el("span", "nm", d.name || d.id), el("span", "chip", d.source || d.kind));
+  head.append(el("span", "kindlab", isInstance ? "Instance" : (d.source || d.kind)));
+  if (!isInstance) head.lastChild.style.color = "var(--faint)";
+  head.append(el("span", "nm", d.name || d.id));
   const eye = el("button", "eye" + (d.visible ? "" : " off"), d.visible ? "◉" : "◌");
   eye.type = "button";
   eye.title = "Show or hide this layer";
@@ -791,20 +805,148 @@ function buildInspector(d) {
   head.append(eye);
   inspEl.append(head);
 
-  const geom = section("Position and size");
+  // --- the component an instance came from ---------------------------------
+  // The reader already follows this to draw the instance; the panel saying so
+  // is what turns the word INSTANCE into somewhere to go.
+  if (d.componentId) {
+    const c = section("Component");
+    const go = el("button", null, d.componentName || d.componentId);
+    go.type = "button";
+    go.className = "linkbtn";
+    go.title = "Select the component this instance is of";
+    go.addEventListener("click", () => {
+      web.select(d.componentId);
+      const scope = scopeFor(d.componentId);
+      if (scope) { scopeId = scope; folded.clear(); }
+      refreshChrome();
+      draw();
+    });
+    c.append(go);
+    c.append(el("p", "note", "an instance is drawn from this component's layers"));
+    inspEl.append(c);
+  }
+
+  // --- position -------------------------------------------------------------
+  const geom = section("Position");
   const rect = { x: d.x, y: d.y, w: d.w, h: d.h };
   const push = () => { web.editRect(rect.x, rect.y, rect.w, rect.h); afterEdit(); };
+
+  // ALIGN IN THE PARENT, which is arithmetic on two rectangles — and the
+  // panel has only ever had one of them. `inspect` carries the parent's box
+  // now, so these six are real moves and not decoration.
+  if (d.parentW > 0 && d.parentH > 0) {
+    const bar = el("div", "alignbar");
+    const move = (nx, ny) => {
+      if (nx != null) rect.x = nx;
+      if (ny != null) rect.y = ny;
+      push();
+      inspectedId = null;   // the fields have to re-read the numbers
+      refreshInspector();
+    };
+    const mk = (title, glyph, fn) => {
+      const b = el("button", null, glyph);
+      b.type = "button";
+      b.title = title;
+      b.addEventListener("click", fn);
+      bar.append(b);
+    };
+    mk("Align left in " + (d.parentName || "the parent"), "⇤", () => move(0, null));
+    mk("Centre horizontally", "↔", () => move((d.parentW - d.w) / 2, null));
+    mk("Align right", "⇥", () => move(d.parentW - d.w, null));
+    mk("Align top", "⤒", () => move(null, 0));
+    mk("Centre vertically", "↕", () => move(null, (d.parentH - d.h) / 2));
+    mk("Align bottom", "⤓", () => move(null, d.parentH - d.h));
+    geom.append(bar);
+  }
+
   geom.append(fieldRow(
     numField("X", d.x, (v) => { rect.x = v; push(); }),
     numField("Y", d.y, (v) => { rect.y = v; push(); }),
-    numField("W", d.w, (v) => { rect.w = v; push(); }, { min: 0 }),
-    numField("H", d.h, (v) => { rect.h = v; push(); }, { min: 0 }),
   ));
+
+  // The turn, and the mirror beside it. A mirror is not a turn — no angle
+  // reverses handedness — so it is its own switch and not a rotation of 180.
+  const turn = el("div", "fields");
+  turn.append(numField("∠", d.rotation || 0, (v) => { web.editRotation(v); afterEdit(); }, { step: 1 }));
+  const flip = el("button", "flipbtn" + (d.mirrored ? " on" : ""), d.mirrored ? "⇋ flipped" : "⇋ flip");
+  flip.type = "button";
+  flip.title = "Mirror this layer. A mirror reverses handedness, which no angle does.";
+  flip.addEventListener("click", () => { web.editFlip(); afterEdit(); inspectedId = null; refreshInspector(); });
+  turn.append(flip);
+  geom.append(turn);
   geom.append(el("p", "note", `on the page  ${round(d.pageX)}, ${round(d.pageY)}`));
   inspEl.append(geom);
 
+  // --- size -----------------------------------------------------------------
+  const size = section("Layout");
+  size.append(fieldRow(
+    numField("W", d.w, (v) => { rect.w = v; push(); }, { min: 0 }),
+    numField("H", d.h, (v) => { rect.h = v; push(); }, { min: 0 }),
+  ));
+  if (d.layout) {
+    const facts = el("div", "facts");
+    facts.append(
+      el("span", "chip", d.layout.mode),
+      el("span", "chip", "gap " + round(d.layout.gap)),
+      el("span", "chip", "padding " + d.layout.padding.map(round).join(" ")),
+      el("span", "chip", d.layout.justify + " · " + d.layout.align),
+    );
+    size.append(facts);
+    size.append(el("p", "note", "auto layout as the file exported it — every layer is drawn where Figma put it"));
+  }
+  // A container is the only thing that can cut its children off at its edge.
+  if (d.kind === "container" || d.children > 0) {
+    size.append(check("Clip content", d.clip, (on) => { web.editClip(on); afterEdit(); }));
+  }
+  inspEl.append(size);
+
+  // --- text ------------------------------------------------------------------
+  if (d.text) {
+    const t = section("Text");
+    const area = el("textarea");
+    area.value = d.text.chars;
+    area.spellcheck = false;
+    let typing = null;
+    area.addEventListener("input", () => {
+      clearTimeout(typing);
+      typing = setTimeout(() => { web.editText(area.value); afterEdit(); }, 120);
+    });
+    t.append(area);
+    const style = { size: d.text.size, lh: d.text.lineHeight, ls: d.text.letterSpacing, al: d.text.align };
+    const pushStyle = () => { web.editTextStyle(style.size, style.lh, style.ls, style.al); afterEdit(); };
+    t.append(fieldRow(
+      numField("Size", d.text.size, (v) => { style.size = v; pushStyle(); }, { min: 1 }),
+      numField("Line", d.text.lineHeight, (v) => { style.lh = v; pushStyle(); }, { min: 0, step: 0.1 }),
+      numField("Track", d.text.letterSpacing, (v) => { style.ls = v; pushStyle(); }, { step: 0.1 }),
+    ));
+    t.append(pick("Align", ["left", "center", "right"], d.text.align, (v) => { style.al = v; pushStyle(); }));
+    const facts = el("div", "facts");
+    facts.append(el("span", "chip", `${d.text.family} ${d.text.weight}`));
+    t.append(facts);
+    t.append(el("p", "note", d.text.outline
+      ? "drawn as the outlines the editor shaped — changing any of these lays the line out here instead, in the font this machine has"
+      : "drawn as text, in the font this machine has"));
+    inspEl.append(t);
+  }
+
+  // --- the picture ------------------------------------------------------------
+  if (d.image) {
+    const im = section("Image");
+    const facts = el("div", "facts");
+    facts.append(el("span", "chip", d.imageFit || "cover"));
+    if (d.crop) facts.append(el("span", "chip", "cropped"));
+    im.append(facts);
+    if (d.crop) {
+      im.append(el("p", "note",
+        `showing ${(d.crop[2] * 100).toFixed(0)}% × ${(d.crop[3] * 100).toFixed(0)}% of the bitmap, from ${(d.crop[0] * 100).toFixed(1)}%, ${(d.crop[1] * 100).toFixed(1)}%`));
+    }
+    im.append(el("p", "note", "bytes  " + d.image));
+    inspEl.append(im);
+  }
+
+  // --- what it is painted with -------------------------------------------------
   const look = section("Appearance");
-  const opacity = el("div", "f");
+  const opacity = el("div", "f wide");
   const opLab = el("label", null, "Opacity");
   opLab.style.cursor = "default";
   const slider = el("input");
@@ -819,62 +961,49 @@ function buildInspector(d) {
   });
   opacity.append(opLab, slider, pct);
   look.append(fieldRow(opacity));
-  const row = [];
-  if (d.fill) row.push(colorField("Fill", d.fill.hex, (v) => { web.editFill(v); afterEdit(); }));
+  // A COLOUR SWATCH FOR A PICTURE IS A LIE. An image paint has no colour —
+  // `hex` is whatever the solid fields happened to hold — and the Image
+  // section above already says what it is painted with.
+  const paintIsImage = d.fill && d.fill.kind === "image";
+  if (d.fill && !paintIsImage) {
+    look.append(fieldRow(colorField("Fill", d.fill.hex, (v) => { web.editFill(v); afterEdit(); })));
+  }
   if (d.stroke) {
-    row.push(colorField("Stroke", d.stroke.hex, (v) => { web.editStroke(v, d.stroke.weight); afterEdit(); }));
-    row.push(numField("Weight", d.stroke.weight, (v) => { web.editStroke(d.stroke.hex, v); afterEdit(); }, { min: 0, step: 0.5 }));
+    look.append(fieldRow(colorField("Stroke", d.stroke.hex, (v) => { web.editStroke(v, d.stroke.weight); afterEdit(); })));
+    look.append(fieldRow(
+      numField("Weight", d.stroke.weight, (v) => { web.editStroke(d.stroke.hex, v); afterEdit(); }, { min: 0, step: 0.5 }),
+      el("div", "f", d.stroke.align),
+    ));
+    look.lastChild.lastChild.title = "which side of the edge the stroke sits on";
   }
-  row.push(numField("Radius", d.radius, (v) => { web.editRadius(v); afterEdit(); }, { min: 0 }));
-  look.append(fieldRow(...row));
-  if (d.fill && d.fill.kind !== "solid") {
-    look.append(el("p", "note", `the paint is a ${d.fill.kind}; a colour here makes it solid`));
+  // A RADIUS ONLY WHERE THERE CAN BE ONE. A path carries its corners in its
+  // own outline and a text layer has none, so the field was a number that
+  // went nowhere on both.
+  if (BOXY.has(d.kind)) {
+    look.append(fieldRow(numField("Radius", d.radius, (v) => { web.editRadius(v); afterEdit(); }, { min: 0 })));
+    if (!d.radiusUniform) look.append(el("p", "note", "the four corners differ; one number here sets them all"));
   }
-  if (d.image) look.append(el("p", "note", "image  " + d.image));
+  if (d.fill && d.fill.kind === "gradient") {
+    look.append(el("p", "note", "the paint is a gradient; a colour here makes it solid"));
+  }
   inspEl.append(look);
 
-  if (d.text) {
-    const t = section("Text");
+  // --- the outline, where there is one ------------------------------------------
+  if (d.hasPath) {
+    const pth = section("Path");
     const facts = el("div", "facts");
-    facts.append(
-      el("span", "chip", `${d.text.family} ${d.text.weight}`),
-      el("span", "chip", `${round(d.text.size)}px`),
-      el("span", "chip", d.text.align),
-    );
-    t.append(facts);
-    const area = el("textarea");
-    area.value = d.text.chars;
-    area.spellcheck = false;
-    let typing = null;
-    area.addEventListener("input", () => {
-      clearTimeout(typing);
-      typing = setTimeout(() => { web.editText(area.value); afterEdit(); }, 120);
-    });
-    t.append(area);
-    t.append(el("p", "note", d.text.outline
-      ? "drawn as the outlines the editor shaped — retyping drops them for the font this machine has"
-      : "drawn as text, in the font this machine has"));
-    inspEl.append(t);
+    facts.append(el("span", "chip", d.evenOdd ? "even-odd" : "non-zero"));
+    pth.append(facts);
+    pth.append(el("p", "note", d.evenOdd
+      ? "a ring inside a ring is a hole — the rule the file wrote"
+      : "overlapping rings fill; a hole needs the winding to run the other way"));
+    inspEl.append(pth);
   }
 
-  if (d.layout) {
-    const l = section("Auto layout");
-    const facts = el("div", "facts");
-    facts.append(
-      el("span", "chip", d.layout.mode),
-      el("span", "chip", "gap " + round(d.layout.gap)),
-      el("span", "chip", "padding " + d.layout.padding.map(round).join(" ")),
-      el("span", "chip", d.layout.justify + " · " + d.layout.align),
-    );
-    l.append(facts);
-    l.append(el("p", "note", "read from the file; every layer is drawn where it was exported"));
-    inspEl.append(l);
-  }
-
+  // --- everything else worth saying ----------------------------------------------
   const facts = [];
   if (d.children) facts.push(`${d.children} ${d.children === 1 ? "child" : "children"}`);
-  if (d.hasPath) facts.push("vector path");
-  if (d.clip) facts.push("clips its content");
+  if (d.parentId) facts.push("in " + (d.parentName || d.parentId));
   for (const fx of d.effects || []) facts.push(`${fx.kind} ${round(fx.blur)}px`);
   if (facts.length || (d.warnings || []).length) {
     const more = section("Also");
@@ -916,15 +1045,36 @@ function buildInspector(d) {
   inspEl.append(foot);
 }
 
-async function compareOpenFig(bytes) {
-  ofmsEl.textContent = "…";
-  try {
-    const mod = await import("./openfig-compare.mjs");
-    const ms = await mod.timeParse(bytes);
-    ofmsEl.textContent = ms == null ? "n/a" : Number(ms).toFixed(1);
-  } catch {
-    ofmsEl.textContent = "n/a";
+/** A checkbox that reads like the rows around it. */
+function check(label, on, apply) {
+  const wrap = el("label", "chk");
+  const box = el("input");
+  box.type = "checkbox";
+  box.checked = !!on;
+  box.addEventListener("change", () => apply(box.checked));
+  wrap.append(box, el("span", null, label));
+  return wrap;
+}
+
+/** One of a few, as a segmented row — three buttons beat a <select> when
+ *  there are three answers and each is one word. */
+function pick(label, options, value, apply) {
+  const wrap = el("div", "seg");
+  wrap.append(el("span", "segl", label));
+  const group = el("div", "segb");
+  for (const o of options) {
+    const b = el("button", null, o);
+    b.type = "button";
+    b.setAttribute("aria-pressed", o === value ? "true" : "false");
+    b.addEventListener("click", () => {
+      for (const other of group.children) other.setAttribute("aria-pressed", "false");
+      b.setAttribute("aria-pressed", "true");
+      apply(o);
+    });
+    group.append(b);
   }
+  wrap.append(group);
+  return wrap;
 }
 
 async function openBuffer(ab, name) {
@@ -942,7 +1092,6 @@ async function openBuffer(ab, name) {
   reportWarnings();
   msEl.textContent = rangerMs.toFixed(1);
   await draw();
-  compareOpenFig(ab);
 }
 
 async function openSample() {
@@ -957,7 +1106,6 @@ async function openSample() {
   refreshChrome();
   reportWarnings();
   await draw();
-  ofmsEl.textContent = "–";
 }
 
 fileEl.addEventListener("change", async () => {
@@ -1439,6 +1587,8 @@ async function openUrl(url, page, frame) {
 window.__openUrl = openUrl;
 // One paint, on demand: what a bench times and what a test waits for.
 window.__draw = draw;
+// The chrome, for a test that selects without clicking.
+window.__refresh = refreshChrome;
 // The view as the gestures move it, for a benchmark or a driver: it goes
 // through the same coalescing an interactive pan does.
 window.__setViewSoon = setViewSoon;

@@ -1211,6 +1211,46 @@ class FigApp {
             w = (w + 1)
         }
         o = (o + "]")
+        ; THE TURN. A layer that is not upright is placed by this number and
+        ; by nothing else the panel shows, so leaving it out left the one
+        ; field that explains a layer being somewhere unexpected off the one
+        ; place you would look for it.
+        if n.hasXf {
+            o = (o + ",\"rotation\":" + (to_string (n.xf.rotationDeg())))
+            o = (o + ",\"mirrored\":" + (FigApp.jsonBool((n.xf.isMirrored()))))
+        } {
+            o = (o + ",\"rotation\":0,\"mirrored\":false")
+        }
+        ; The box this layer is placed INSIDE. Aligning to a parent is
+        ; arithmetic on two rectangles, and the panel has only ever had one
+        ; of them.
+        def par:SceneNode (this.parentScene(selected))
+        if ((strlen par.id) > 0) {
+            o = (o + ",\"parentId\":\"" + (this.esc(par.id)) + "\"")
+            o = (o + ",\"parentName\":\"" + (this.esc(par.name)) + "\"")
+            o = (o + ",\"parentW\":" + (to_string par.w) + ",\"parentH\":" + (to_string par.h))
+        }
+        ; Which component an instance is OF. The reader already follows this
+        ; to draw the instance; saying so is what turns "INSTANCE" from a
+        ; label into somewhere to go.
+        if ((strlen nd.symbolId) > 0) {
+            o = (o + ",\"componentId\":\"" + (this.esc(nd.symbolId)) + "\"")
+            def mas:FigNode (doc.nodeById(nd.symbolId))
+            o = (o + ",\"componentName\":\"" + (this.esc(mas.name)) + "\"")
+        }
+        if ((strlen n.imageRef) > 0) {
+            o = (o + ",\"imageFit\":\"" + (this.esc(n.imageFit)) + "\"")
+        }
+        if ((array_length n.fills) > 0) {
+            def cf:SceneFill (n.firstFill())
+            if ((cf.kind == "image") && cf.imageCropped) {
+                o = (o + ",\"crop\":[" + (to_string cf.cropX) + "," + (to_string cf.cropY))
+                o = (o + "," + (to_string cf.cropW) + "," + (to_string cf.cropH) + "]")
+            }
+        }
+        if ((strlen n.pathData) > 0) {
+            o = (o + ",\"evenOdd\":" + (FigApp.jsonBool(n.evenOdd)))
+        }
         ; What the file says about this node, for the fields the scene
         ; graph has no place for.
         o = (o + ",\"figma\":{\"type\":\"" + (this.esc(nd.typeName)) + "\"")
@@ -1392,6 +1432,122 @@ class FigApp {
             return
         }
         n.text.characters = text
+        n.text.outline = ""
+        this.afterEdit()
+    }
+
+    ; The layer this one sits in, or an empty node at the top of the page.
+    ; Walked rather than stored: the scene is rebuilt on every edit and a
+    ; parent pointer would be one more thing to keep true.
+    fn parentScene:SceneNode (id:string) {
+        def pages:[SceneNode] sceneDoc.pages
+        def i:int 0
+        while (i < (array_length pages)) {
+            def hit:SceneNode (FigApp.parentWalk((itemAt pages i) id))
+            if ((strlen hit.id) > 0) {
+                return hit
+            }
+            i = (i + 1)
+        }
+        return (new SceneNode())
+    }
+
+    sfn parentWalk:SceneNode (n:SceneNode id:string) {
+        def i:int 0
+        while (i < (array_length n.children)) {
+            def ch:SceneNode (itemAt n.children i)
+            if (ch.id == id) {
+                return n
+            }
+            def deep:SceneNode (FigApp.parentWalk(ch id))
+            if ((strlen deep.id) > 0) {
+                return deep
+            }
+            i = (i + 1)
+        }
+        return (new SceneNode())
+    }
+
+    ; THE TURN, as an angle about the layer's own origin — which is where
+    ; Figma turns one. The mirror is kept: a flipped layer that is given an
+    ; angle stays flipped, because the two are different things and the
+    ; panel has a switch for each.
+    fn editRotation:void (deg:double) {
+        def n:SceneNode (this.editNode())
+        if ((strlen n.id) == 0) {
+            return
+        }
+        def rad:double ((deg * 3.141592653589793) / 180.0)
+        def co:double (cos rad)
+        def si:double (sin rad)
+        def sc:double 1.0
+        def mirror:boolean false
+        if n.hasXf {
+            sc = (n.xf.uniformScale())
+            mirror = (n.xf.isMirrored())
+            if (sc < 0.000001) {
+                sc = 1.0
+            }
+        }
+        n.xf.a = (co * sc)
+        n.xf.b = (si * sc)
+        if mirror {
+            n.xf.c = (si * sc)
+            n.xf.d = ((0.0 - co) * sc)
+        } {
+            n.xf.c = ((0.0 - si) * sc)
+            n.xf.d = (co * sc)
+        }
+        n.hasXf = true
+        this.afterEdit()
+    }
+
+    ; A MIRROR is not a turn — no angle reverses handedness — so this is its
+    ; own switch and not a rotation of 180.
+    fn editFlip:void () {
+        def n:SceneNode (this.editNode())
+        if ((strlen n.id) == 0) {
+            return
+        }
+        if (n.hasXf == false) {
+            n.xf = (SceneMatrix.ident())
+            n.hasXf = true
+        }
+        n.xf.c = (0.0 - n.xf.c)
+        n.xf.d = (0.0 - n.xf.d)
+        this.afterEdit()
+    }
+
+    fn editClip:void (on:boolean) {
+        def n:SceneNode (this.editNode())
+        if ((strlen n.id) == 0) {
+            return
+        }
+        n.clip = on
+        this.afterEdit()
+    }
+
+    ; The text's own numbers. Its CHARACTERS already had a field; the size
+    ; and the alignment that decide where they land did not, so a line that
+    ; came out at the wrong size could be seen and not tried.
+    fn editTextStyle:void (size:double lineHeight:double tracking:double align:string) {
+        def n:SceneNode (this.editNode())
+        if ((strlen n.id) == 0) {
+            return
+        }
+        if (size > 0.0) {
+            n.text.fontSize = size
+        }
+        if (lineHeight > 0.0) {
+            n.text.lineHeight = lineHeight
+        }
+        n.text.letterSpacing = tracking
+        if ((strlen align) > 0) {
+            n.text.align = align
+        }
+        ; The glyphs the editor shaped were shaped at the OLD size. Kept,
+        ; they would draw the old line at the old size and ignore every
+        ; number just typed; dropped, the line is laid out here.
         n.text.outline = ""
         this.afterEdit()
     }

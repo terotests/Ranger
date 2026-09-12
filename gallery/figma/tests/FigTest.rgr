@@ -743,6 +743,45 @@ class FigTest {
         this.check("revert reads the layer back from the file" (FigTest.hasSub(back "\"chars\":\"Title text\"")))
         this.check("with its own colour" ((FigTest.hasSub(back "\"hex\":\"#ff0000\"")) == false))
         this.eqInt("and no edits left" (app.editCount()) 0)
+        ; THE PANEL IS ABOUT WHAT IS SELECTED, so the pane carries the
+        ; things that decide that: the turn that places the layer, the box it
+        ; is placed inside, and the component an instance came from. Each was
+        ; missing, and each is a control the panel could not offer without it.
+        app.select("3:47")
+        def rich:string (app.inspectJson())
+        this.check("the turn is on the pane" (FigTest.hasSub(rich "\"rotation\":")))
+        this.check("and whether the layer is mirrored" (FigTest.hasSub(rich "\"mirrored\":")))
+        this.check("the parent's box, which is what aligning needs" (FigTest.hasSub(rich "\"parentW\":")))
+        this.check("and its name, to say where the layer sits" (FigTest.hasSub(rich "\"parentName\":")))
+
+        ; A TURN AND A MIRROR ARE DIFFERENT THINGS. No angle reverses
+        ; handedness, so flipping is its own switch — and a layer given an
+        ; angle after being flipped stays flipped.
+        ; Read back within half a degree, not exactly: the angle comes back
+        ; through `rotationDeg`, which is an approximation good to a third of
+        ; one (see `testRotationAngle`). Half a degree catches an axis swapped
+        ; or a sign lost and lets the arithmetic be what it is.
+        app.editRotation(30.0)
+        def turned:SceneNode (app.findScene("3:47"))
+        this.check("a layer takes the angle it is given" ((fabs ((turned.xf.rotationDeg()) - 30.0)) < 0.5))
+        app.editFlip()
+        def flipped:SceneNode (app.findScene("3:47"))
+        this.check("and a flip is a mirror, not a half turn" (flipped.xf.isMirrored()))
+        this.check("which leaves the angle where it was" ((fabs ((flipped.xf.rotationDeg()) - 30.0)) < 0.5))
+        app.editRotation((0.0 - 45.0))
+        def again:SceneNode (app.findScene("3:47"))
+        this.check("turning a mirrored layer keeps the mirror" (again.xf.isMirrored()))
+        this.check("at the new angle" ((fabs ((again.xf.rotationDeg()) + 45.0)) < 0.5))
+
+        ; The text's own numbers, which could be seen and not tried.
+        app.editTextStyle(28.0 1.2 0.0 "center")
+        def styled:string (app.inspectJson())
+        this.check("a text layer takes a size" (FigTest.hasSub(styled "\"size\":28")))
+        this.check("and an alignment" (FigTest.hasSub(styled "\"align\":\"center\"")))
+        app.editClip(true)
+        this.check("a container can be told to cut its children off" (FigTest.hasSub((app.inspectJson()) "\"clip\":true")))
+        app.revertEdits()
+
         ; A layer nobody selected has no pane.
         app.select("")
         this.eqStr("nothing selected, nothing shown" (app.inspectJson()) "{}")
