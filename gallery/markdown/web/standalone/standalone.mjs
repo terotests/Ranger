@@ -91,6 +91,7 @@ const FACES = [
 // Fetched before the selftest runs, because the selftest is synchronous —
 // the smoke harness reads `window.__selftest` off the DOM and an async one
 // would have to be waited for on the other side of the bridge.
+let selftestPicture = "";
 let selftestDeck = "";
 let selftestTheme = "";
 let selftestTheme2 = "";
@@ -103,6 +104,7 @@ const THEMES = {
 const SAMPLES = {
   mermaid: "./samples/mermaid.md",
   diagrams: "./samples/diagrams.md",
+  picture: "./samples/picture.md",
   deck: "./samples/deck.md",
   sample: "./samples/sample.md",
   readme: "./samples/README.md",
@@ -112,6 +114,19 @@ const SAMPLES = {
 function asRangerBuffer(ab) {
   ab._view = new DataView(ab);
   return ab;
+}
+
+/** A PNG's own size, out of its IHDR — 16 bytes in, big-endian.
+ *
+ *  The layout needs it to size the box BEFORE anything decodes the picture,
+ *  which is the whole reason `VfsStat` carries a pixel size: a decode in the
+ *  middle of a keystroke is a decode too late.
+ */
+function pngSize(ab) {
+  const d = new DataView(ab);
+  if (d.byteLength < 24) return [0, 0];
+  if (d.getUint32(0) !== 0x89504e47) return [0, 0];
+  return [d.getUint32(16), d.getUint32(20)];
 }
 
 async function bytesOf(url) {
@@ -821,6 +836,22 @@ async function start() {
   // right — a huge space in the middle of a sentence.
   setFontFallback(loaded);
   loadedFaces = loaded;
+
+  // The sample picture, into the byte store the layout reads.
+  //
+  // Fetched here rather than resolved at layout time on purpose: a document
+  // layout runs inside a keystroke and cannot await anything, which is why
+  // `gallery/vfs` reads synchronously and loading is a separate step. This IS
+  // that step. The size comes out of the PNG header so that the box can be
+  // sized before anything decodes the picture.
+  try {
+    const ab = await bytesOf("./samples/logo.png");
+    const [pw, ph] = pngSize(ab);
+    app.addImage("/logo.png", asRangerBuffer(ab.slice(0)), "image/png", pw, ph);
+  } catch (_) {
+    // No picture: every document still draws, with alt text where the
+    // picture would be. That is the behaviour this had for years.
+  }
   if (loaded.length === 0) {
     showStatus("no fonts — measuring with a guessed table");
   }
@@ -872,6 +903,7 @@ async function start() {
       selftestDeck = await (await fetch(SAMPLES.deck)).text();
       selftestTheme = await (await fetch(THEMES.corporate)).text();
       selftestTheme2 = await (await fetch(THEMES.editorial)).text();
+      selftestPicture = await (await fetch(SAMPLES.picture)).text();
     } catch (e) {
       selftestDeck = "";
     }
@@ -1670,6 +1702,53 @@ function selftest() {
     app.undo();
     say("…and it undoes the same way", app.sourceText() === deck);
     app.setMode("continuous");
+  }
+
+  // ---- a picture is bytes ------------------------------------------------
+  //
+  // `![alt](logo.png)` drew as its ALT TEXT for as long as this editor has
+  // existed, because a markdown layout had no bytes for a picture.
+  //
+  // The claim is not "a box of the right size appeared" — alt text also
+  // appears. It is that the PICTURE COMMAND is on the page, naming the file
+  // it came from, and that the one the store does not have is still alt text.
+  // Both in one document, so the two answers cannot be a mode.
+  {
+    const kept = app.sourceText();
+    say("the picture sample was fetched", selftestPicture.length > 100);
+    say("…and the store has the picture in it", app.imageCount() === 1, app.imageCount() + " image(s)");
+    app.setSource(selftestPicture);
+    const cmds = JSON.parse(app.frame()).list.cmds;
+    const pics = cmds.filter((c) => c.k === 2);
+    say("the page draws one picture", pics.length === 1, pics.length + " picture commands");
+    if (pics.length === 1) {
+      say("…naming the file it came from", pics[0].src === "/logo.png", pics[0].src);
+      // Sized from the PNG's own header — 240x120 — rather than stretched to
+      // the column, and never scaled up.
+      const ratio = pics[0].w / pics[0].h;
+      say("…at its own proportions", Math.abs(ratio - 2) < 0.05, ratio.toFixed(3));
+    }
+    // …and the one nobody has is alt text, in the same document.
+    const alt = cmds.some((c) => c.k === 3 && (c.text || "").indexOf("Tätä ei ole") >= 0);
+    say("a picture nobody has is still its alt text", alt);
+
+    // The deck asks the SAME store, so it cannot be missing a picture the
+    // preview had. This is the whole reason there is one store and not two.
+    app.setMode("slides");
+    const bytes = app.pptx();
+    say("the deck built with a picture in it", bytes.byteLength > 1000, bytes.byteLength + " bytes");
+    // The deck builds a layout of its OWN — its own page size, its own breaks
+    // — and a fresh layout with no store is a deck missing a picture the
+    // reader can see on the page in front of them. So the report has to say
+    // one was carried and one was not, which is what the document holds.
+    say("…and it carried the picture it had", app.pptxReport().indexOf("1 picture(s) placed") > 0,
+        app.pptxReport());
+    // …and said, in the same breath, which one it did not. A deck that is
+    // quietly short of a picture the document names is what this accounting
+    // exists to prevent.
+    say("…and said which one it could not", app.pptxReport().indexOf("1 picture(s) named but not carried") > 0);
+    app.setMode("continuous");
+    app.setSource(kept);
   }
 
   // A refusal says why rather than writing markdown nobody typed.

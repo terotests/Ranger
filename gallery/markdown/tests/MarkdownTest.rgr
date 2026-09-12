@@ -90,6 +90,7 @@ class MarkdownTest {
         this.mermaid()
         this.notations()
         this.diagramWidth()
+        this.pictureProbe()
         this.highlight()
         this.frontMatter()
         this.furniture()
@@ -633,6 +634,54 @@ class MarkdownTest {
         def junk:MdLayout (MarkdownTest.laidOut(((("```mermaid\n" + mer) + "\n```\n") + "{width=40em}\n")))
         def jb:MdBox (MarkdownTest.firstOfKind(junk 3))
         this.eqInt("a unit nobody parsed is the column width" (to_int jb.w) (to_int wb.w))
+    }
+
+    ; A picture reaches the DISPLAY LIST, which is the only place a renderer
+    ; looks. A box in the layout that no command comes out of is a picture
+    ; that is on the page in the model and nowhere on the page.
+    fn pictureProbe:void () {
+        def v (new Vfs())
+        def mem (new VfsMemory())
+        def blob (new VfsBlob())
+        def raw:string "PNGBYTES"
+        def buf:buffer (buffer_alloc (strlen raw))
+        def bi:int 0
+        while (bi < (strlen raw)) {
+            buffer_set buf bi (charAt raw bi)
+            bi = (bi + 1)
+        }
+        blob.bytes = buf
+        blob.contentType = "image/png"
+        blob.pixelW = 240
+        blob.pixelH = 120
+        mem.put("/logo.png" blob)
+        v.mount("/" mem)
+
+        def src:string "# T\n\n![Logo](logo.png)\n\nAfter.\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.setImages(v "/")
+        l.layoutContinuous(doc 700.0)
+        def boxes:int 0
+        def bj:int 0
+        while (bj < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes bj)
+            if (b.kind == 4) { boxes = (boxes + 1) }
+            bj = (bj + 1)
+        }
+        this.eqInt("the layout drew one picture box" boxes 1)
+
+        def root:EVGElement (MdToEvg.buildPage(l 700.0))
+        def dl (new EVGDisplayList())
+        dl.build(root)
+        def pics:int 0
+        def ci:int 0
+        while (ci < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds ci)
+            if (c.kind == 2) { pics = (pics + 1) }
+            ci = (ci + 1)
+        }
+        this.eqInt("…and one picture command came out of it" pics 1)
     }
 
     ; A document, with its diagrams prepared, laid out at 700pt.

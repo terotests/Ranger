@@ -41,6 +41,7 @@ Import "../src/MdToHtml.rgr"
 Import "../src/MdDiagram.rgr"
 Import "../src/MdCss.rgr"
 Import "../src/MdThemes.rgr"
+Import "../../vfs/src/Vfs.rgr"
 Import "../src/MdToPptx.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
@@ -153,6 +154,37 @@ class MarkdownEdit {
         return (viewWidth - (m * 2.0))
     }
 
+    ; ----------------------------------------------------------------------
+    ; Pictures
+    ; ----------------------------------------------------------------------
+    ;
+    ; The page hands over bytes; the layout and the deck ask the same store.
+    ; `![alt](logo.png)` draws as its alt text until something is put here
+    ; under that name, which is what it did for every document before there
+    ; was a store at all.
+    ;
+    ; On the EDITOR rather than on `MarkdownWeb`, because the layout is here
+    ; and a store one class away from its only reader is a store that gets
+    ; handed over in the wrong order once.
+    def imageStore:Vfs (new Vfs())
+    def imageMemory:VfsMemory (new VfsMemory())
+    def haveImages:boolean false
+
+    fn addImage:boolean (name:string data:buffer contentType:string w:int h:int) {
+        if (! haveImages) { imageStore.mount("/" imageMemory) }
+        def b (new VfsBlob())
+        b.bytes = data
+        b.contentType = contentType
+        b.pixelW = w
+        b.pixelH = h
+        def ok:boolean (imageStore.put(name b))
+        if ok {
+            haveImages = true
+            stale = true
+        }
+        return ok
+    }
+
     fn ensureLayout:void () {
         if (! stale) {
             return
@@ -177,6 +209,7 @@ class MarkdownEdit {
         ; block's own `{.classes}` — which is what columns are.
         def sheetText:string (sheet.text())
         layout.setStyleSheet(sheetText)
+        if haveImages { layout.setImages(imageStore "/") }
         layout.applyMeta(doc)
         if ((strlen pageSize) > 0) {
             def pw:double layout.style.pageWidth
@@ -295,6 +328,40 @@ class MarkdownWeb {
     ; carries the variant instead of a weight flag, because that is the one
     ; spelling the measurer, the font manager and a `@font-face` rule all
     ; resolve the same way.
+    ; Pictures. The store lives on the EDITOR, beside the layout that reads
+    ; it — see `MarkdownEdit.addImage`.
+    fn addImage:boolean (name:string data:buffer contentType:string w:int h:int) {
+        def ok:boolean (edit.addImage(name data contentType w h))
+        if ok { built = false }
+        return ok
+    }
+
+    fn imageCount:int () {
+        return (edit.imageMemory.nameCount())
+    }
+
+    ; Whether the LAYOUT has the store — not whether the page handed one over.
+    ; Two different questions, and the gap between them is where a picture
+    ; goes missing.
+    fn imagesInLayout:boolean () {
+        return edit.layout.haveImages
+    }
+
+    fn missingImages:int () {
+        return edit.layout.missingImages
+    }
+
+    fn pictureBoxes:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length edit.layout.boxes)) {
+            def b:MdBox (itemAt edit.layout.boxes i)
+            if (b.kind == 4) { n = (n + 1) }
+            i = (i + 1)
+        }
+        return n
+    }
+
     fn attachFont:boolean (name:string data:buffer) {
         def ok:boolean (fontManager.loadFontBuffer(name data))
         if ok {
@@ -1030,6 +1097,11 @@ class MarkdownWeb {
         deck.style = (new MdStyle())
         edit.sheet.applyTo(deck.style)
         deck.setStyleSheet(edit.styleCss)
+        ; The same byte store the PREVIEW reads. This layout is built fresh —
+        ; a deck has its own page size and its own breaks — and a fresh layout
+        ; with no store is a deck missing pictures the reader can see on the
+        ; page in front of them.
+        if edit.haveImages { deck.setImages(edit.imageStore "/") }
         deck.applyMeta(edit.doc)
         if ((strlen wantPageSize) > 0) {
             def pw:double deck.style.pageWidth
@@ -1088,6 +1160,7 @@ class MarkdownWeb {
         print.style = (new MdStyle())
         edit.sheet.applyTo(print.style)
         print.setStyleSheet(edit.styleCss)
+        if edit.haveImages { print.setImages(edit.imageStore "/") }
         print.applyMeta(edit.doc)
         if ((strlen wantPageSize) > 0) {
             def pw:double print.style.pageWidth

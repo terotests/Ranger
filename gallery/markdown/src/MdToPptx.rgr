@@ -43,6 +43,7 @@ Import "MdNode.rgr"
 Import "MdLayout.rgr"
 Import "MdToEvg.rgr"
 Import "MdEmbedKinds.rgr"
+Import "../../vfs/src/Vfs.rgr"
 Import "../../pptx/api/PptxApi.rgr"
 Import "../../pptx/src/PptxFromEvg.rgr"
 Import "../../evg/EVGDisplayList.rgr"
@@ -66,6 +67,10 @@ class MdDeckResult {
     ; `MdToPptx.images` for why there are none, which is a fact about the
     ; markdown LAYOUT and not about this file.
     def images:int 0
+    ; …and the ones that ARE in it, as pictures. `images` counts what was
+    ; lost; without this there is no number for what was carried, and a deck
+    ; of alt text and a deck of pictures both report zero losses.
+    def placed:int 0
     ; Clips `PptxFromEvg` could not express, inside the drawings. A drawing
     ; that relied on one to hide something comes out showing it.
     def clipped:int 0
@@ -118,6 +123,9 @@ class MdDeckResult {
         if (drawn > 0) {
             out = (out + " — " + (to_string drawn) + " block(s) drawn rather than written")
         }
+        if (placed > 0) {
+            out = (out + ", " + (to_string placed) + " picture(s) placed")
+        }
         if (images > 0) {
             out = (out + ", " + (to_string images) + " picture(s) named but not carried")
         }
@@ -165,6 +173,11 @@ class MdToPptx {
     def layout:MdLayout (new MdLayout())
     def result:MdDeckResult (new MdDeckResult())
     def images:int 0
+    ; Where a picture's bytes come from. The SAME store the layout was given,
+    ; handed over by `setImages`, so the deck and the preview cannot be
+    ; missing different pictures.
+    def imageStore:Vfs (new Vfs())
+    def haveImages:boolean false
 
     Constructor () {
     }
@@ -175,6 +188,13 @@ class MdToPptx {
     fn deck:PptxDeck (doc:MdNode l:MdLayout) {
         layout = l
         result = (new MdDeckResult())
+        ; The layout was given a byte store, so this has one: two stores would
+        ; be two answers to where a picture is, and the reader would find the
+        ; deck missing a picture the preview had.
+        if l.haveImages {
+            imageStore = l.images
+            haveImages = true
+        }
         ; `PptxApi.create` and not `PptxDeck.create`: the facade is the
         ; published entry point and the one the API test drives.
         def d:PptxDeck (PptxApi.create())
@@ -258,8 +278,28 @@ class MdToPptx {
         def n:int (MdToPptx.countImages(doc))
         if (n == 0) { return }
         images = n
-        result.images = n
-        result.note(((to_string n) + " picture(s) are in the deck as their alt text: a markdown layout has no bytes for an image, so neither the preview nor this has one"))
+        if (! haveImages) {
+            result.images = n
+            result.note(((to_string n) + " picture(s) are in the deck as their alt text: nobody handed this a byte store, so neither the preview nor this has one"))
+            return
+        }
+        ; With a store, the ones that went missing are the LAYOUT's count: a
+        ; picture the layout could not find never became a box, so this file
+        ; never sees it — and a deck that silently had fewer pictures than the
+        ; document names is the thing this whole accounting exists to prevent.
+        def lost:int layout.missingImages
+        if (lost > 0) {
+            result.images = (result.images + lost)
+            result.note(((to_string lost) + " picture(s) are in the deck as their alt text: the store does not have them, so neither the preview nor this does"))
+        }
+    }
+
+    ; One picture the store did not have. Counted here rather than at the top,
+    ; because with a store the question is asked per picture: a deck can carry
+    ; one and miss another, and a single number at the start cannot say that.
+    fn missedPicture:void (node:MdNode name:string) {
+        result.images = (result.images + 1)
+        result.note((("slide " + (to_string ((this.pageOf(node)) + 1))) + ": a picture named ") + name + " is not in the store, so the deck has its alt text")
     }
 
     sfn countImages:int (node:MdNode) {
@@ -272,6 +312,46 @@ class MdToPptx {
             i = (i + 1)
         }
         return c
+    }
+
+    ; A picture, when the layout drew one for this block.
+    ;
+    ; The bytes come from the same store the layout asked, so the deck and the
+    ; preview cannot be missing different pictures. Alt text goes on the shape
+    ; because a picture is the one place where the pixels tell a screen reader
+    ; nothing.
+    fn picture:boolean (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {
+        if (! haveImages) { return false }
+        def box:MdBox (this.pictureBoxOf(node))
+        if (box.kind != 4) { return false }
+        def bytes:buffer (imageStore.read(box.imagePath))
+        if ((buffer_length bytes) == 0) {
+            this.missedPicture(node box.imagePath)
+            return false
+        }
+        def pic:PptxShapeRef (slide.addShape("rect" x y box.w box.h))
+        def sh:PptxShape (pic.model())
+        sh.kind = (PptxShapeKind.picture())
+        sh.imageBytes = bytes
+        sh.imagePart = box.imagePath
+        sh.imageOk = true
+        sh.altText = box.imageAlt
+        sh.name = ("Picture " + (to_string (result.placed + 1)))
+        result.placed = (result.placed + 1)
+        return true
+    }
+
+    ; The layout's own picture box for a block, or an empty one.
+    fn pictureBoxOf:MdBox (node:MdNode) {
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if (b.kind == 4) {
+                if (b.srcStart == node.srcStart) { return b }
+            }
+            i = (i + 1)
+        }
+        return (new MdBox())
     }
 
     ; ----------------------------------------------------------------------
@@ -300,6 +380,11 @@ class MdToPptx {
             return
         }
         if (kind == "paragraph") {
+            ; A paragraph the layout turned into a PICTURE is a picture here
+            ; too, and the check is the layout's own box rather than a second
+            ; reading of the tree: two answers to "is this a picture" is two
+            ; answers, and the one that matters is the one the reader sees.
+            if (this.picture(slide node x y w h)) { return }
             this.paragraph(slide node x y w h)
             return
         }

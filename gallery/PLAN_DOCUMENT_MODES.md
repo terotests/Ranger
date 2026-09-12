@@ -417,7 +417,7 @@ compared BYTE FOR BYTE with the fence it came from — the only form of it worth
 carrying. Counting the group would pass with the source missing, which is the
 whole failure.
 
-### Stage E — `gallery/vfs`, in memory — not started
+### Stage E — `gallery/vfs`, in memory — ✅ done
 
 The new project, memory provider only, with the fixture tree a suite and a demo
 bootstrap from. See [`vfs/PLAN_VFS.md`](vfs/PLAN_VFS.md) stages V1–V3.
@@ -425,16 +425,33 @@ bootstrap from. See [`vfs/PLAN_VFS.md`](vfs/PLAN_VFS.md) stages V1–V3.
 *The check:* that plan's own suite; plus every existing markdown and pptx suite
 still passing, because a VFS nobody reads yet must change nothing.
 
-### Stage F — a picture is bytes — not started
+### Stage F — a picture is bytes — ✅ done
 
-`![alt](src)` resolves through the VFS and becomes a real picture: sized at
-layout time from the stat, drawn in the preview, carried into the PDF, the HTML
-and the deck. Closes [`PLAN_EDITOR_KERNEL.md`](PLAN_EDITOR_KERNEL.md) Stage B0
-for markdown and removes the "the deck carries no pictures" note from
-`MdToPptx`.
+`![alt](src)` on a paragraph of its own resolves through the VFS and becomes a
+picture: sized from the stat, drawn in the preview, carried into the deck.
+Anywhere else it stays ALT TEXT, and that split is deliberate rather than a
+first step — a picture in the middle of a sentence has to sit on a text
+baseline, a different question markdown almost never asks.
 
-*The check:* one document, four outputs, the same picture in all four — counted
-as bytes present in each, not as a box of the right size.
+ONE store answers for all of it. The preview, the deck exporter and the PDF
+each build their own layout, and each is handed the store the editor holds, so
+they cannot be missing different pictures. A picture nobody has is alt text in
+all of them, and the export says which it carried and which it did not — a deck
+quietly short of a picture the document names is what that accounting exists to
+prevent.
+
+The bug worth recording: the page does not draw through the element tree. It
+paints straight from the boxes — "the canvas never wanted an element tree, and
+building one only to walk it back was 133 ms of a 342 ms document". So a
+picture added to `MdToEvg.element` alone appeared in the tests and nowhere on
+the page. Both roads now paint it, which is what `MarkdownTest.presized`
+exists to hold.
+
+*The check:* the layout's picture BOX and the display list's picture COMMAND,
+because a box no command comes out of is a picture that is on the page in the
+model and nowhere on the page. Then the deck, re-opened through `PptxParser`,
+with the bytes and the alt text read back off the file — and, in one document,
+a picture the store does not have still drawing as its alt text.
 
 ### Stage G — backgrounds, and CSS that reaches them — not started
 

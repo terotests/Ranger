@@ -126,6 +126,23 @@ class MdToEvg {
             push out.cmds c
             return
         }
+        if (box.kind == 4) {
+            ; A picture. The command NAMES it and does not carry it, which is
+            ; what a display list does with every picture: the browser host
+            ; keys a blob URL by the name, the PDF renderer opens it, and
+            ; `PptxFromEvg` asks the byte store the list was built against.
+            def p:EVGDrawCmd (new EVGDrawCmd())
+            p.kind = 2
+            p.x = box.x
+            p.y = y
+            p.w = box.w
+            p.h = box.h
+            p.src = box.imagePath
+            p.text = box.imageAlt
+            p.a = 1.0
+            push out.cmds p
+            return
+        }
         if (box.kind == 0) {
             def t:EVGDrawCmd (new EVGDrawCmd())
             t.kind = 3
@@ -378,6 +395,22 @@ class MdToEvg {
             MdToEvg.place(o b yOffset)
             MdToEvg.border(o b.stroke b.strokeWidth)
             return o
+        }
+        if (b.kind == 4) {
+            ; A picture. The element NAMES it and does not carry it, exactly
+            ; as the display list below will: whoever draws it asks the same
+            ; byte store the layout asked.
+            def img:EVGElement (EVGElement.createImg())
+            MdToEvg.place(img b yOffset)
+            img.src = b.imagePath
+            img.alt = b.imageAlt
+            ; `contain`, not the default `cover`: the box was sized from the
+            ; picture's own proportions, so there is nothing to crop — and a
+            ; `cover` that cropped a diagram's edge would be silent.
+            img.objectFit = "contain"
+            img.sourceWidth = (to_double b.imageNaturalW)
+            img.sourceHeight = (to_double b.imageNaturalH)
+            return img
         }
         ; an embed's slot: the outline, and what it was going to be
         def slot:EVGElement (EVGElement.createDiv())

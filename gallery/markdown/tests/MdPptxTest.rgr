@@ -29,6 +29,7 @@ Import "../src/MdCss.rgr"
 Import "../src/MdDiagram.rgr"
 Import "../src/MdThemes.rgr"
 Import "../../pptx/src/PptxA11y.rgr"
+Import "../../vfs/src/Vfs.rgr"
 
 
 class DeckCheck {
@@ -89,6 +90,26 @@ class MdPptxTest {
         l.setStyleSheet(css)
         l.applyMeta(doc)
         l.applySlideMeta(doc)
+        def cw:double (l.style.pageWidth - (l.style.margin * 2.0))
+        MdDiagram.prepare(doc l.embeds cw "default")
+        l.setDocSource(src)
+        l.layoutSlides(doc)
+        maker = (new MdToPptx())
+        return (maker.deck(doc l))
+    }
+
+    ; The same road with a byte store under it.
+    fn buildWithImages:PptxDeck (src:string css:string v:Vfs) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        def c:MdCss (new MdCss())
+        c.addStyleSheet(css)
+        c.applyTo(l.style)
+        l.setStyleSheet(css)
+        l.applyMeta(doc)
+        l.applySlideMeta(doc)
+        l.setImages(v "/")
         def cw:double (l.style.pageWidth - (l.style.margin * 2.0))
         MdDiagram.prepare(doc l.embeds cw "default")
         l.setDocSource(src)
@@ -191,6 +212,102 @@ class MdPptxTest {
     ; whole point of Stage E is that this is the exception rather than every
     ; shape on every slide.
     ; The first group on a slide, or an empty shape when there is none.
+
+    ; ----------------------------------------------------------------------
+    ; A picture is bytes
+    ; ----------------------------------------------------------------------
+    ;
+    ; `![alt](logo.png)` drew as its ALT TEXT for as long as this module has
+    ; existed, because a markdown layout had no bytes for a picture. That was
+    ; honest and it was the blocker under images, background images and every
+    ; CSS `url(...)`.
+    ;
+    ; The check is that ONE store answers both: the layout that sized the
+    ; picture and the deck that carries it ask the same `Vfs`, so the preview
+    ; and the file cannot be missing different pictures. Two stores would look
+    ; identical here and fail the first time a reader uploaded something.
+    fn pictures:void (c:DeckCheck) {
+        print "-- a picture is bytes, not alt text --"
+        def v (new Vfs())
+        def mem (new VfsMemory())
+        ; A 1x1 PNG is all this needs: the claim is about the BYTES arriving,
+        ; not about what they decode to.
+        def blob (new VfsBlob())
+        def raw:string "PNGBYTESHERE"
+        def buf:buffer (buffer_alloc (strlen raw))
+        def bi:int 0
+        while (bi < (strlen raw)) {
+            buffer_set buf bi (charAt raw bi)
+            bi = (bi + 1)
+        }
+        blob.bytes = buf
+        blob.contentType = "image/png"
+        blob.pixelW = 240
+        blob.pixelH = 120
+        mem.put("/logo.png" blob)
+        v.mount("/" mem)
+
+        def src:string "# Title\n\n![Yhtion logo](logo.png)\n\nTeksti kuvan alla.\n"
+        def css:string "page { width: 720pt; height: 405pt; padding: 36pt }"
+
+        ; Without a store: alt text, and the deck says so. The old behaviour,
+        ; kept as a check rather than as a memory.
+        def plain:PptxDeck (this.build(src css))
+        c.eqInt("with no store the picture is counted as missing" maker.result.images 1)
+        c.eqInt("…and none was placed" maker.result.placed 0)
+
+        ; With one: a picture, in the layout and in the file.
+        def d:PptxDeck (this.buildWithImages(src css v))
+        c.eqInt("with a store, one picture is placed" maker.result.placed 1)
+        c.eqInt("…and none is reported missing" maker.result.images 0)
+
+        ; The LAYOUT drew a picture box, which is what the preview shows.
+        c.eqInt("the layout drew it as a picture" (MdPptxTest.pictureBoxes(maker.layout)) 1)
+
+        ; …and the bytes are in the FILE, not just in the model.
+        def back:PptxDeck (this.reopened(d))
+        def got:PptxShape (MdPptxTest.firstPicture(back))
+        c.ok("the picture came back out of the file" (got.kind == 1))
+        c.eqInt("…with its bytes" (buffer_length got.imageBytes) (strlen raw))
+        c.eqStr("…and the alt text the document gave it" got.altText "Yhtion logo")
+
+        ; A picture nobody can find is alt text again — and the preview and
+        ; the deck are missing the SAME one, which is the whole reason they
+        ; share a store.
+        def gone:string "# Title\n\n![Poissa](nope.png)\n"
+        def g:PptxDeck (this.buildWithImages(gone css v))
+        c.eqInt("a picture nobody has is not placed" maker.result.placed 0)
+        c.eqInt("…and the layout did not draw one either" (MdPptxTest.pictureBoxes(maker.layout)) 0)
+        c.eqInt("…and the layout counted it as missing" maker.layout.missingImages 1)
+    }
+
+    sfn pictureBoxes:int (l:MdLayout) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 4) { n = (n + 1) }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn firstPicture:PptxShape (d:PptxDeck) {
+        def s:int 0
+        while (s < (d.slideCount())) {
+            def sl:PptxSlideRef (d.slideAt(s))
+            def k:int 0
+            while (k < (sl.shapeCount())) {
+                def sh:PptxShapeRef (sl.shapeAt(k))
+                def m:PptxShape (sh.model())
+                if (m.kind == 1) { return m }
+                k = (k + 1)
+            }
+            s = (s + 1)
+        }
+        return (new PptxShape())
+    }
+
     sfn firstGroup:PptxShape (sl:PptxSlideRef) {
         def k:int 0
         while (k < (sl.shapeCount())) {
@@ -944,6 +1061,7 @@ prose
         this.named(c)
         this.cost(c)
         this.paper(c)
+        this.pictures(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
