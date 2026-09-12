@@ -717,6 +717,52 @@ the drawing block, the laid-out line and the marks inside its box;
 `MarkdownTest.narrowLabels` on a gantt at a width that forces the fit under
 the old floor.
 
+### Stage O — what a reader met on the two tabs — ✅ done
+
+Nine things from the first hour with Stage N on screen, each small and each
+the kind that only shows up in use:
+
+- **A caret a word away from its keys.** The page registered its faces by
+  the layout's names — `Open Sans-Bold` — and the editors ask the browser
+  for `Open Sans` at weight 700, which it had not got, so it synthesised a
+  bold from the regular face, wider than the one Ranger measured. The same
+  bytes are registered under the plain family with a weight and a style too.
+- **Pages that end where a reader can see them.** `DocxApp` has a
+  `continuous` frame: every page down it with a gap, `docScroll` for where
+  the window looks, the caret followed into the stack, a press mapped to the
+  page under it. The docx page keeps one page that turns; the markdown page
+  stacks. And `zoom`: a pinch on the canvas (two fingers, in
+  `docx-host.mjs`) or Ctrl+wheel, the paper drawn bigger through the same
+  `scaleBy` the drawing uses.
+- **A strip that reads.** The Text Box button's picture was painted stacked
+  over a word the tree strip had laid beside it; `EVGToolbarView.largeInline`
+  says which layout the strip made. Bold, italic, size and colour moved to
+  Home beside the font, where a reader on a slide reaches for them, with
+  `text.size.up` / `text.size.down` as two-point steps on the selection.
+- **A deck that is a deck.** `MarkdownWeb.deckDefaults`: an A4 landscape
+  sheet and a 20-point body under whatever the template and the front
+  matter say — and NOT the page's sheet dropdown, which is the markdown's
+  paper. Its own `⬇ PDF`, every slide a page, through the road
+  `PptxRenderApi.toPdfDeck` takes; and the strip's Save and Print reach the
+  page through `onFileRequest`, which the page had not passed.
+- **Override, always offered, asked first.** The button is live on an
+  untouched view — a reader may want the deck the markdown makes NOW — and
+  confirms only when it would cost edits.
+- **A drawing is an object on the Word page too.** Click selects it, the
+  size buttons scale it, and its source opens in the left pane's `diagram`
+  tab on either tab — `MdDeckDiagram.redraw` for the deck,
+  `DocxViewer.replaceDrawing` for the page — so a fence is edited where it
+  is drawn. Not RangerFlow's own surface yet: that editor runs on this same
+  engine and the round trip is the same source in and the same tree out, so
+  it is a pane away rather than a project away.
+
+*The check:* the page's own, again — a landscape slide, a title set at 40pt
+made 42 by one press, a `%PDF` from the deck, `save` back from the strip,
+an override refused and then taken, a drawing selected by a click with its
+source in the pane, drawn again with a node added and refused half-typed,
+grown by a press, a sixty-paragraph document whose last page is what the
+frame shows after the pill, and letters twice the size at zoom 2.
+
 ---
 
 ## 11. What is left

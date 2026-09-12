@@ -38,6 +38,8 @@ class DocxView {
     ; Which chart the caret is on, or 0. Painted with a frame so the reader can
     ; see what an edit would change.
     def selectedChartId:int 0
+    ; …and which drawing, on the same terms.
+    def selectedDrawingId:int 0
     def layout:DocxLayout (new DocxLayout)
     def pageIndex:int 0
     def bg:EVGColor (EVGColor.rgb(248 248 250))
@@ -499,6 +501,12 @@ class DocxView {
         } {
             chartInk.attach(canvas ctx (new GridImages) (canvas.getWidth()) (canvas.getHeight()))
             chartInk.draw(dl)
+        }
+        if (selectedDrawingId == dr.id) {
+            ; The selection frame is chrome, drawn after the drawing so it is
+            ; never in an exported picture — the same frame a chart gets.
+            def mark:EVGColor (EVGColor.rgb(40 100 210))
+            ink.strokeRect((lx - 3) (ly - 3) (line.width + 6) (line.height + 6) 2 mark)
         }
     }
 

@@ -86,6 +86,22 @@ class PptxToolbar extends EVGToolbar {
         ; has actually loaded — a chooser offering a typeface nothing can draw
         ; would measure with one face and paint with another.
         this.addDropdown("Font" (ToolIcon.textBox()))
+        ; …and what a reader does to the text they have selected, beside the
+        ; face it is set in: weight, slant, size and colour. These were on
+        ; Format, two tabs away from the font, and a deck's text is set
+        ; large — the size is the thing a reader reaches for first on a slide
+        ; and it was nowhere on the strip at all.
+        this.add("edit.bold" "" "Bold text" (ToolIcon.bold()))
+        this.add("edit.italic" "" "Italic text" (ToolIcon.italic()))
+        this.add("text.size.up" "" "Bigger text" (ToolIcon.sizeUp()))
+        this.add("text.size.down" "" "Smaller text" (ToolIcon.sizeDown()))
+        this.addDropdown("Colour" (ToolIcon.textColor()))
+        this.addUnder("edit.textcolor" "1F2328" "Ink" (ToolIcon.textColor()))
+        this.addUnder("edit.textcolor" "FFFFFF" "White" (ToolIcon.textColor()))
+        this.addUnder("edit.textcolor" "6B7280" "Grey" (ToolIcon.textColor()))
+        this.addUnder("edit.textcolor" "B4451F" "Rust" (ToolIcon.textColor()))
+        this.addUnder("edit.textcolor" "1D4ED8" "Blue" (ToolIcon.textColor()))
+        this.addUnder("edit.textcolor" "15803D" "Green" (ToolIcon.textColor()))
         this.addSeparator()
         ; The editing half of the strip. It is always here — the buttons are
         ; live only while `edit.toggle` is pressed, which is what tells you
@@ -143,8 +159,6 @@ class PptxToolbar extends EVGToolbar {
         this.addUnder("text.align.right" "" "Right" (ToolIcon.alignRight()))
         this.add("format.copy" "" "Pick up the formatting" (ToolIcon.paint()))
         this.add("format.paste" "" "Paint it on" (ToolIcon.formatPaste()))
-        this.add("edit.bold" "" "Bold text" (ToolIcon.bold()))
-        this.add("edit.italic" "" "Italic text" (ToolIcon.italic()))
         this.add("text.bullet" "" "Bulleted list" (ToolIcon.bulletList()))
         this.add("text.number" "" "Numbered list" (ToolIcon.numberList()))
         this.add("text.outdent" "" "Outdent the list" (ToolIcon.indentLess()))
@@ -517,6 +531,9 @@ class PptxApp {
     ; `view.chromeH` is what the slide's fit-to-window scale keeps clear, so it
     ; has to be the whole frame rather than the old status band alone.
     fn initFrame:void () {
+        ; The strip lays a large button out in its one row, word beside
+        ; picture; the icon painter has to know or it stacks the two.
+        toolbarView.largeInline = true
         toolbar.build()
         toolbar.editOn = editMode
         toolbarH = (stripUi.heightFor(W))
@@ -809,6 +826,8 @@ class PptxApp {
         commands.add("edit.distribute.h" "Distribute across" "Arrange" "")
         commands.add("edit.distribute.v" "Distribute down" "Arrange" "")
         commands.add("edit.bold" "Bold text" "Format" "Ctrl+B")
+        commands.add("text.size.up" "Bigger text" "Format" "")
+        commands.add("text.size.down" "Smaller text" "Format" "")
         commands.add("edit.italic" "Italic text" "Format" "Ctrl+I")
         commands.add("text.bullet" "Bulleted list" "Format" "")
         commands.add("text.number" "Numbered list" "Format" "")
@@ -3630,6 +3649,26 @@ class PptxApp {
         return r.bold
     }
 
+    ; The size the selection's text is set in, in points — the first run of
+    ; the first selected shape, which is what the strip's face and weight
+    ; already answer from. Eighteen when nothing says: a deck's default.
+    fn selectionSizePt:double () {
+        def hit@(optional):PptxShape (editor.firstSelected())
+        if (null? hit) {
+            return 18.0
+        }
+        def sh:PptxShape (unwrap hit)
+        def run@(optional):PptxTextRun (PptxEditor.firstRun(sh.text))
+        if (null? run) {
+            return 18.0
+        }
+        def r:PptxTextRun (unwrap run)
+        if (r.fontSizePt <= 0.0) {
+            return 18.0
+        }
+        return r.fontSizePt
+    }
+
     fn selectionItalic:boolean () {
         def hit@(optional):PptxShape (editor.firstSelected())
         if (null? hit) {
@@ -4128,6 +4167,18 @@ class PptxApp {
         if (id == "edit.italic") {
             def it:boolean (this.selectionItalic())
             return (editor.setTextItalic((it == false)))
+        }
+        ; Two points at a time, between six and ninety-six: the steps a
+        ; slide's text is set in, and the range a slide can show.
+        if (id == "text.size.up") {
+            def up:double ((this.selectionSizePt()) + 2.0)
+            if (up > 96.0) { up = 96.0 }
+            return (editor.setTextSizePt(up))
+        }
+        if (id == "text.size.down") {
+            def down:double ((this.selectionSizePt()) - 2.0)
+            if (down < 6.0) { down = 6.0 }
+            return (editor.setTextSizePt(down))
         }
         ; Lists. Both toggle: asking for the list a paragraph already is turns
         ; it off, which is what every editor's list button does.

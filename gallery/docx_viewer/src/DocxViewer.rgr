@@ -753,6 +753,113 @@ class DocxViewer {
         return done
     }
 
+    ; --- drawings in the document --------------------------------------------
+    ; A drawing behaves like a chart to the pointer: click to select, and a
+    ; frame says so. What can be done to one is smaller — it is geometry made
+    ; elsewhere, so it can be made bigger or smaller, and drawn again from new
+    ; source by whoever drew it — and `DocDrawing` carries what that takes.
+    fn drawingAtPoint:int (x:int y:int) {
+        def pg:LaidPage (view.layout.pageAt(view.pageIndex))
+        def i:int 0
+        while (i < (array_length pg.lines)) {
+            def line:LaidLine (itemAt pg.lines i)
+            if (line.kind == (LaidLineKind.drawing())) {
+                if (x >= line.x) {
+                    if (x <= (line.x + line.width)) {
+                        if (y >= line.y) {
+                            if (y <= (line.y + line.height)) {
+                                return line.drawingId
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    fn selectDrawing:void (id:int) {
+        view.selectedDrawingId = id
+        this.renderPage(currentPage)
+    }
+
+    fn selectedDrawing:int () {
+        return view.selectedDrawingId
+    }
+
+    fn clickDrawing:boolean (x:int y:int) {
+        def id:int (this.drawingAtPoint(x y))
+        if (id == 0) {
+            if (view.selectedDrawingId != 0) {
+                view.selectedDrawingId = 0
+                this.renderPage(currentPage)
+            }
+            return false
+        }
+        this.selectDrawing(id)
+        return true
+    }
+
+    ; The selected drawing, scaled: 1.1 is a tenth bigger, 0.9 a tenth
+    ; smaller. The natural size is untouched — the painter scales the marks
+    ; between the two — so growing and shrinking are each other's inverse
+    ; and nothing is lost on the way.
+    fn resizeDrawing:boolean (factor:double) {
+        def id:int view.selectedDrawingId
+        if (id == 0) {
+            return false
+        }
+        if (factor <= 0.0) {
+            return false
+        }
+        def dr:DocDrawing (doc.drawingById(id))
+        if (dr.id != id) {
+            return false
+        }
+        def w:int (to_int (((to_double dr.widthPx) * factor) + 0.5))
+        def h:int (to_int (((to_double dr.heightPx) * factor) + 0.5))
+        if (w < 24) { return false }
+        if (h < 12) { return false }
+        dr.widthPx = w
+        dr.heightPx = h
+        doc.touch()
+        view.layout.invalidate()
+        this.renderPage(currentPage)
+        return true
+    }
+
+    ; The selected drawing's provenance, for a host that wants to show its
+    ; source, and the drawing itself for one that can draw it again.
+    fn selectedDrawingModel:DocDrawing () {
+        return (doc.drawingById(view.selectedDrawingId))
+    }
+
+    ; A drawing drawn again: whoever holds the reader for its notation hands
+    ; over the new tree and its natural size, and the box keeps its width so a
+    ; redraw does not undo a resize.
+    fn replaceDrawing:boolean (id:int root:EVGElement naturalW:double naturalH:double source:string) {
+        def dr:DocDrawing (doc.drawingById(id))
+        if (dr.id != id) {
+            return false
+        }
+        if ((naturalW <= 0.0) || (naturalH <= 0.0)) {
+            return false
+        }
+        dr.root = root
+        dr.naturalW = naturalW
+        dr.naturalH = naturalH
+        dr.source = source
+        dr.note = ""
+        def w:double (to_double dr.widthPx)
+        dr.heightPx = (to_int (((w * naturalH) / naturalW) + 0.5))
+        if (dr.heightPx < 12) { dr.heightPx = 12 }
+        doc.touch()
+        view.layout.invalidate()
+        this.renderPage(currentPage)
+        return true
+    }
+
     ; The chart's own document, for a host that wants to show or export it.
     fn chartJson:string (id:int) {
         def c:DocChart (doc.chartById(id))

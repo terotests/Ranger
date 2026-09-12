@@ -411,7 +411,12 @@ is decided in one place for all three pages, and a fix there reaches all
 three. A diagram reaches both editors as geometry — the deck as one group of
 shapes, the Word document as a `DocDrawing` block laid out and painted by
 `DocxView` — and the page pill over an editor is that editor's own page or
-slide. [`../PLAN_DOCUMENT_MODES.md`](../PLAN_DOCUMENT_MODES.md) §3 and Stage N.
+slide. Selecting a diagram on either tab opens its source in the left pane,
+and typing there draws it again in place; the size buttons scale a selected
+drawing. The Word page stacks its pages down the frame with a gap, zooms on a
+pinch or Ctrl+wheel, and the deck opens landscape with text set for a room,
+has its own `⬇ PDF` (every slide a page), and saves from its own strip.
+[`../PLAN_DOCUMENT_MODES.md`](../PLAN_DOCUMENT_MODES.md) §3, Stages N and O.
 
 **The PDF is built in the tab**, from the same layout the canvas is showing,
 with the faces the reader's own browser fetched embedded in it. Not the

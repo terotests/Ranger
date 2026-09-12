@@ -67,6 +67,8 @@ const fileListEl = document.getElementById("fileList");
 const tabDoc = document.getElementById("tabDoc");
 const tabCss = document.getElementById("tabCss");
 const tabFiles = document.getElementById("tabFiles");
+const tabDiagram = document.getElementById("tabDiagram");
+const diagramEl = document.getElementById("diagramSource");
 const openBtn = document.getElementById("openFile");
 const filePick = document.getElementById("filepick");
 const keyCatcher = document.getElementById("keys");
@@ -468,7 +470,13 @@ function refreshViewTabs() {
   viewDocTab.setAttribute("aria-selected", String(v === "doc"));
   const edited = v === "deck" ? app.deckEdited() : v === "doc" ? app.docEdited() : false;
   rebuildBtn.hidden = v === "md";
-  rebuildBtn.disabled = !edited;
+  // Always offered on an editor tab — a reader may want the deck the
+  // markdown makes NOW even from an untouched one — and confirmed only when
+  // it would throw edits away.
+  rebuildBtn.disabled = false;
+  rebuildBtn.title = edited
+    ? "Build this tab again from the markdown — the edits made here will be lost"
+    : "Build this tab again from the markdown";
   // The formatting buttons are the markdown's. An editor brings its own
   // strip, drawn in the frame, so over one the page's row steps aside.
   toolbarEl.classList.toggle("app", v !== "md");
@@ -547,6 +555,7 @@ async function editorDraw() {
   // A click on a thumbnail or a PageDown moved the editor to another page,
   // and the pill over the frame has to say so.
   refreshPagebar();
+  syncDiagramPane();
 }
 function keepKeyboard() {
   // The hidden field is where the keyboard points on this page; an editor
@@ -559,7 +568,15 @@ function bindEditorHost(which) {
   if (which === "deck") {
     const web = app.deckHost();
     editorHost = [
-      attachDeckPointer({ canvas, web, sceneSize, draw: editorDraw, afterInput: keepKeyboard, keepsFocus: () => true }),
+      attachDeckPointer({
+        canvas, web, sceneSize, draw: editorDraw, afterInput: keepKeyboard, keepsFocus: () => true,
+        // The strip's own Save and Print: the app asks, the page answers with
+        // the same two downloads its header buttons make.
+        onFileRequest: (want) => {
+          if (want === "saveAs" || want === "save") pptxBtn.click();
+          else if (want === "print") downloadDeckPdf();
+        },
+      }),
       attachDeckKeys({
         web, draw: editorDraw, afterInput: keepKeyboard, target: keyCatcher,
         enabled: () => active === "canvas" && app.currentView() === "deck",
@@ -584,7 +601,17 @@ viewPdfTab.addEventListener("click", () => showView("pdf"));
 viewDeckTab.addEventListener("click", () => showView("deck"));
 viewDocTab.addEventListener("click", () => showView("doc"));
 
+// The one question this page asks before doing something. Answered by the
+// reader, or by the page's own checks, which cannot press a dialog.
+function confirmOverride() {
+  if (typeof window.__autoConfirm === "boolean") return window.__autoConfirm;
+  return window.confirm("Build this tab again from the markdown?\n\nThe edits made on this tab will be lost.");
+}
+
 rebuildBtn.addEventListener("click", () => {
+  const v = app.currentView();
+  const edited = v === "deck" ? app.deckEdited() : v === "doc" ? app.docEdited() : false;
+  if (edited && !confirmOverride()) return;
   if (!app.rebuildFromSource()) return;
   showStatus("built from the .md again");
   refreshViewTabs();
@@ -627,15 +654,51 @@ function setPane(which) {
   sourceEl.hidden = which !== "doc";
   styleEl.hidden = which !== "css";
   fileListEl.hidden = which !== "files";
+  diagramEl.hidden = which !== "diagram";
   tabDoc.setAttribute("aria-selected", String(which === "doc"));
   tabCss.setAttribute("aria-selected", String(which === "css"));
   tabFiles.setAttribute("aria-selected", String(which === "files"));
+  tabDiagram.setAttribute("aria-selected", String(which === "diagram"));
   if (which === "css") styleEl.value = app.styleText();
   if (which === "files") drawFiles();
 }
 tabDoc.addEventListener("click", () => setPane("doc"));
 tabCss.addEventListener("click", () => setPane("css"));
 tabFiles.addEventListener("click", () => setPane("files"));
+tabDiagram.addEventListener("click", () => setPane("diagram"));
+
+// ---- the selected diagram's source ---------------------------------------
+//
+// A drawing on a slide or a Word page carries the fence it was drawn from.
+// Selecting one opens its source in the left pane; typing there draws it
+// again in place, through the reader that drew it — no second editor, the
+// round trip `PLAN_DOCUMENT_MODES.md` Stage J built for the deck, on both
+// tabs. Text that does not read as a diagram yet is refused by name and the
+// drawing is left as it was.
+let paneBeforeDiagram = "doc";
+function syncDiagramPane() {
+  const has = app.hasDrawingSelected();
+  tabDiagram.hidden = !has;
+  if (has) {
+    const src = app.drawingSource();
+    if (document.activeElement !== diagramEl && diagramEl.value !== src) diagramEl.value = src;
+    tabDiagram.textContent = app.drawingNotation() + " source";
+    if (pane !== "diagram") {
+      paneBeforeDiagram = pane;
+      setPane("diagram");
+    }
+  } else if (pane === "diagram") {
+    setPane(paneBeforeDiagram || "doc");
+  }
+}
+diagramEl.addEventListener("input", () => {
+  const ok = app.redrawDrawing(diagramEl.value);
+  app.touch();
+  needsPaint = true;
+  refreshToolbar();
+  showStatus(ok ? "drawn again" : "does not read as a " + app.drawingNotation() + " diagram yet — the drawing is as it was");
+});
+diagramEl.addEventListener("focus", () => setActive("source"));
 
 // Typing in the stylesheet re-dresses the document AND writes the file back,
 // so what the files tab shows is what the page is actually using. A sheet
@@ -715,9 +778,16 @@ canvas.addEventListener(
       return;
     }
     if (view === "doc") {
-      app.docHost().frameWheel(Math.round(ev.deltaY * step));
+      // Ctrl+wheel — a trackpad's pinch arrives as this too — is the paper
+      // drawn bigger or smaller; a plain wheel scrolls the stack.
+      if (ev.ctrlKey || ev.metaKey) {
+        app.docHost().zoomBy(ev.deltaY < 0 ? 1.1 : 1 / 1.1);
+      } else {
+        app.docHost().frameWheel(Math.round(ev.deltaY * step));
+      }
       app.touch();
       needsPaint = true;
+      refreshPagebar();
       return;
     }
     app.scrollBy(ev.deltaY * step);
@@ -941,7 +1011,24 @@ toolbarEl.addEventListener("click", (ev) => {
   afterEdit(Math.round(performance.now() - t0));
 });
 
+// The deck as a PDF — every slide a page, drawn by the slide editor's own
+// converter, the deck the reader has been editing. Its own export, because
+// the deck is its own document: a landscape sheet set for a room, which is
+// not the A4 page `⬇ PDF` prints from the markdown.
+function downloadDeckPdf() {
+  const t0 = performance.now();
+  const buf = app.deckPdf();
+  const ms = Math.round(performance.now() - t0);
+  const bytes = buf instanceof ArrayBuffer ? buf : buf.buffer || buf;
+  deliver(bytes, docName + "-deck.pdf", "application/pdf");
+  showStatus(app.deckSlideCount() + " slides as a PDF in " + ms + " ms");
+}
+
 pdfBtn.addEventListener("click", () => {
+  if (app.currentView() === "deck") {
+    downloadDeckPdf();
+    return;
+  }
   // Built HERE, from the same layout the canvas is showing. A canvas has one
   // page as far as `window.print()` is concerned, so the browser's own print
   // dialog would give a single clipped sheet.
@@ -1094,6 +1181,24 @@ async function start() {
         const face = new FontFace(name, bytes);
         await face.load();
         document.fonts.add(face);
+        // …and the same bytes under the PLAIN family with a weight and a
+        // style. The markdown names its faces — `Open Sans-Bold` — and the
+        // painter draws them by that name; the slide and Word editors name
+        // the family and say `bold` beside it, and a browser asked for
+        // "700 Open Sans" with only "Open Sans-Bold" registered synthesises
+        // a bold from the regular face. Its letters are wider than the ones
+        // Ranger measured, so a heading's caret sat a word away from where
+        // the keys were editing. Both spellings, one set of bytes.
+        const dash = name.indexOf("-");
+        if (dash > 0) {
+          const variant = name.slice(dash + 1);
+          const plain = new FontFace(name.slice(0, dash), bytes.slice(0), {
+            weight: variant.indexOf("Bold") >= 0 ? "700" : "400",
+            style: variant.indexOf("Italic") >= 0 ? "italic" : "normal",
+          });
+          await plain.load();
+          document.fonts.add(plain);
+        }
         got[i] = ok;
       } catch (e) {
         // A missing face is not fatal: the layout falls back to a measured
@@ -1226,7 +1331,19 @@ async function start() {
     } catch (e) {
       selftestDeck = "";
     }
-    window.__selftest = selftest();
+    // An exception half way through the checks used to leave no verdict at
+    // all, which the harness reads as "the module did not load" — a wrong
+    // diagnosis for a right failure. It is a FAIL with the stack in it.
+    try {
+      window.__selftest = selftest();
+    } catch (e) {
+      const el = document.createElement("div");
+      el.id = "selftest-result";
+      el.textContent = "SELFTEST FAILED FAIL threw: " + String(e && e.stack ? e.stack : e).split("\n").slice(0, 3).join(" / ");
+      el.style.display = "none";
+      document.body.appendChild(el);
+      window.__selftest = { ok: false, notes: [el.textContent] };
+    }
   }
   // A known editing state, for a screenshot. It drives the same seam a
   // keystroke does — there is no demo-only path into the document — so a
@@ -1265,9 +1382,22 @@ async function start() {
 
 function selftest() {
   const out = { ok: true, notes: [] };
+  // Every note goes into the DOM as it is made, not only at the end: a check
+  // that never returns — an editor that loops, a frame that never builds —
+  // then leaves a trail that says which one, where a verdict written at the
+  // end would leave nothing at all.
+  const trail = document.createElement("div");
+  trail.id = "selftest-trail";
+  trail.style.display = "none";
+  document.body.appendChild(trail);
   const say = (name, cond, detail) => {
     if (!cond) out.ok = false;
-    out.notes.push((cond ? "PASS " : "FAIL ") + name + (detail ? " (" + detail + ")" : ""));
+    const note = (cond ? "PASS " : "FAIL ") + name + (detail ? " (" + detail + ")" : "");
+    out.notes.push(note);
+    trail.textContent += note + " | ";
+    // …and to the console, which a headless run can read even from a page
+    // that never finishes.
+    console.log("selftest: " + note);
   };
 
   say("webgl2", gl instanceof WebGL2RenderingContext);
@@ -2392,6 +2522,7 @@ function selftest() {
     // have a second one in this page. The largest "Yksi" is the slide's;
     // the panel draws a small one on the thumbnail beside it.
     const run = largest;
+    const web = app.deckHost();
     say("nothing is selected to begin with", app.deckSelection() === 0);
     if (run) {
       app.click(run.x + 2, run.y + 2, false);
@@ -2400,11 +2531,29 @@ function selftest() {
       say("…which is one undo like any other", app.run("edit.undo", ""));
       // …and the page's own pointer road is the pptx page's: a press and a
       // release through the SAME host module, on the same shape.
-      const web = app.deckHost();
       web.pointerAt(Math.round(run.x + 2), Math.round(run.y + 2), true, true, false);
       web.pointerAt(Math.round(run.x + 2), Math.round(run.y + 2), false, false, true);
       say("the host module's press lands on the editor", app.deckSelection() === 1);
+      // The text controls beside the font: two points a press.
+      const before = web.app.selectionSizePt();
+      say("the title is set for a room", before >= 30, before + "pt");
+      say("Bigger text is two points bigger", app.run("text.size.up", "") && web.app.selectionSizePt() === before + 2,
+          web.app.selectionSizePt() + "pt");
+      app.run("edit.undo", "");
       web.keyMod("escape", false, false);
+    }
+    // A deck is landscape unless something says otherwise.
+    {
+      const sl = web.app.presentation.slides[0];
+      say("a slide is landscape by default", sl && sl.width > sl.height, sl ? Math.round(sl.width) + "x" + Math.round(sl.height) : "no slide");
+    }
+    // The strip's Save asks the page, and the page answers with the download.
+    say("the strip's Save reaches the page", web.run("file.save", "") && web.takeFileRequest() === "save");
+    // …and the deck's own PDF, every slide a page.
+    {
+      const pdf = new Uint8Array(app.deckPdf());
+      say("the deck has its own PDF", pdf.length > 1000 && pdf[0] === 0x25 && pdf[1] === 0x50 && pdf[2] === 0x44 && pdf[3] === 0x46,
+          pdf.length + " bytes");
     }
 
     // A DRAWING on the deck can be read back and drawn again — the round trip
@@ -2469,8 +2618,14 @@ function selftest() {
         !JSON.parse(app.frame()).list.cmds.some((c) => c.k === 3 && (c.text || "").indexOf("Toinen") >= 0));
 
     // …until the reader asks for it by name. The one thing that discards
-    // their work is a thing they went and clicked.
+    // their work is a thing they went and clicked — and is asked first,
+    // because it costs them their edits.
+    window.__autoConfirm = false;
     rebuildBtn.click();
+    say("override asks before throwing edits away", app.deckEdited());
+    window.__autoConfirm = true;
+    rebuildBtn.click();
+    delete window.__autoConfirm;
     const fresh = screenCmds(JSON.parse(app.frame()))
       .some((c) => c.k === 3 && (c.text || "").indexOf("Toinen") >= 0);
     say("override from .md builds it again from the markdown", fresh);
@@ -2496,8 +2651,8 @@ function selftest() {
         pagebarEl.classList.contains("on") && pagetotalEl.textContent === String(app.docHost().pageCount() | 0),
         pagetotalEl.textContent);
     app.setSource("# Kaavio\n\n```dot\ndigraph { saapuu -> tarkista; }\n```\n\nTeksti.\n");
-    say("an untouched view has nothing to override", rebuildBtn.disabled);
-    say("…and is re-made on request", app.rebuildFromSource());
+    say("override is offered on an untouched view too", !rebuildBtn.disabled);
+    say("…and re-makes it on request", app.rebuildFromSource());
     const docCmds2 = JSON.parse(app.frame()).list.cmds;
     say("the Word document draws a diagram as geometry",
         docCmds2.some((c) => c.k === 6 || c.k === 7),
@@ -2513,6 +2668,24 @@ function selftest() {
       app.click(para.x + 4, para.y + 4, false);
       app.typeText("Lisays");
       const typed = JSON.parse(app.frame()).list.cmds.some((c) => c.k === 3 && (c.text || "").indexOf("Lisays") >= 0);
+      // A drawing on the page: click selects it, its source opens in the
+      // left pane, new text draws it again, and the size buttons scale it.
+      const lab = docCmds2.filter((c) => c.k === 3 && (c.text || "").indexOf("saapuu") >= 0).sort((a, b) => b.h - a.h)[0];
+      if (lab) {
+        app.click(lab.x + 2, lab.y + 2, false);
+        syncDiagramPane();
+        say("a click on a drawing selects it", app.docHost().selectedDrawing() > 0);
+        say("…and its source opens in the left pane", !tabDiagram.hidden && pane === "diagram" && diagramEl.value.indexOf("digraph") >= 0);
+        const wBefore = app.docHost().viewer.selectedDrawingModel().widthPx;
+        say("Bigger text makes a selected drawing bigger", app.run("format.size.up", "") && app.docHost().viewer.selectedDrawingModel().widthPx > wBefore,
+            wBefore + " → " + app.docHost().viewer.selectedDrawingModel().widthPx);
+        say("drawing it again from new text", app.redrawDrawing("digraph { saapuu -> tarkista; tarkista -> laskuta; }"));
+        app.touch();
+        say("…and the added node is on the page", JSON.parse(app.frame()).list.cmds.some((c) => c.k === 3 && (c.text || "").indexOf("laskuta") >= 0));
+        say("half-typed text is refused", app.redrawDrawing("digraph {") === false);
+      } else {
+        say("a click on a drawing selects it", false, "no label to click");
+      }
       say("typing on the DOCX tab edits the Word document", typed,
           "click " + Math.round(para.x) + "," + Math.round(para.y) + " canvas " + canvas.clientWidth + "x" + canvas.clientHeight
           + " edit " + app.docHost().editMode() + " caret " + app.docHost().caretJson());
@@ -2521,6 +2694,47 @@ function selftest() {
       say("…so there is now something to override", !rebuildBtn.disabled);
     } else {
       say("typing on the DOCX tab edits the Word document", false, "no paragraph to click");
+    }
+
+    // Pages stack down the frame with a gap, so a page ends where a reader
+    // can see it end; and the paper zooms.
+    {
+      let long = "# Pitka\n\n";
+      for (let i = 0; i < 60; i++) long += "Kappale " + i + " on tarpeeksi pitka rivittymaan ja tayttamaan sivua sana sanalta.\n\n";
+      app.setSource(long);
+      window.__autoConfirm = true;
+      rebuildBtn.click();
+      delete window.__autoConfirm;
+      const pages = app.docHost().pageCount() | 0;
+      say("a long document has more than one page", pages > 1, pages + " pages");
+      const stack = JSON.parse(app.frame()).list.cmds;
+      const h0 = stack.find((c) => c.k === 3 && (c.text || "").indexOf("Kappale 0") >= 0);
+      say("the first page is in the frame at the top", !!h0);
+      // Scrolled to the last page, the frame shows THAT page and not the
+      // first: the pages are stacked, not turned in place.
+      goToPage(pages);
+      const tail = JSON.parse(app.frame()).list.cmds;
+      say("…and the pages stack down the frame",
+          !tail.some((c) => c.k === 3 && (c.text || "").indexOf("Pitka") >= 0)
+            && tail.some((c) => c.k === 3 && (c.text || "").indexOf("Kappale 59") >= 0));
+      goToPage(1);
+      say("Ctrl+wheel zooms the paper", app.docHost().zoomBy(2) && app.docHost().zoomLevel() === 2);
+      app.touch();
+      const h1 = JSON.parse(app.frame()).list.cmds.find((c) => c.k === 3 && (c.text || "").indexOf("Kappale 0") >= 0);
+      say("…and the letters are twice the size", !!h0 && !!h1 && Math.abs(h1.h - h0.h * 2) < 0.6, h0 && h1 ? h0.h + " → " + h1.h : "no run");
+      app.docHost().zoomBy(0.5);
+      app.touch();
+      goToPage(pages);
+      say("the page pill reaches the last page", (app.docHost().page() | 0) === pages - 1, "on " + ((app.docHost().page() | 0) + 1));
+      goToPage(1);
+    }
+    app.setSource("# Kaavio\n\n```dot\ndigraph { saapuu -> tarkista; }\n```\n\nTeksti.\n");
+    window.__autoConfirm = true;
+    rebuildBtn.click();
+    delete window.__autoConfirm;
+    {
+      const h = JSON.parse(app.frame()).list.cmds.find((c) => c.k === 3 && (c.text || "").indexOf("Kaavio") >= 0);
+      if (h) { app.click(h.x + 4, h.y + 4, false); app.typeText("Lisays"); }
     }
 
     // …and the same round trip out of the Word document as the deck's: the
@@ -2536,7 +2750,9 @@ function selftest() {
     say("…and the edited Word document did not follow the .md",
         JSON.parse(app.frame()).list.cmds
           .some((c) => c.k === 3 && (c.text || "").indexOf("Lisays") >= 0));
+    window.__autoConfirm = true;
     rebuildBtn.click();
+    delete window.__autoConfirm;
     say("…until override from .md builds it again",
         JSON.parse(app.frame()).list.cmds
           .some((c) => c.k === 3 && (c.text || "").indexOf("Kolmas") >= 0));

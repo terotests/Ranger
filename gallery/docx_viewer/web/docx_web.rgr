@@ -69,6 +69,30 @@ class DocxWeb {
         return (app.wheel(dy))
     }
 
+    ; Every page down the frame with a gap between them, rather than one page
+    ; that turns — what a pane that does not fit a page wants.
+    fn setContinuous:void (on:boolean) {
+        app.setContinuous(on)
+    }
+
+    ; A pinch or a Ctrl+wheel: the paper drawn bigger or smaller by a factor.
+    fn zoomBy:boolean (factor:double) {
+        return (app.zoomBy(factor))
+    }
+
+    fn zoomLevel:double () {
+        return (app.zoomLevel())
+    }
+
+    ; --- drawings in the document ---------------------------------------------
+    fn selectedDrawing:int () {
+        return (viewer.selectedDrawing())
+    }
+
+    fn resizeDrawing:boolean (factor:double) {
+        return (viewer.resizeDrawing(factor))
+    }
+
     fn frameKey:boolean (name:string shift:boolean ctrl:boolean) {
         return (app.key(name shift ctrl))
     }
@@ -146,7 +170,10 @@ class DocxWeb {
     ; mode started turning pages here. There is one page number now and this
     ; is it; a host reads it back after anything that might have moved it.
     fn goToPage:boolean (p:int) {
-        return (viewer.goToPage(p))
+        ; Through the app, not straight to the viewer: in the stacked frame
+        ; going to a page is scrolling the stack to it, and only the app
+        ; knows where in the stack a page is.
+        return (app.runCommand("page.goto" (to_string p)))
     }
 
     ; A wheel notch or a swipe, in scene pixels, positive downwards.
