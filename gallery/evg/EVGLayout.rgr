@@ -1595,9 +1595,14 @@ class EVGLayout {
                     child.calculatedInnerWidth = (child.box.getInnerWidth(child.calculatedWidth))
                     child.calculatedInnerHeight = (child.box.getInnerHeight(child.calculatedHeight))
                     
-                    ; Ensure height.isSet is true for alignment calculations
-                    child.height.isSet = true
-                    child.height.pixels = child.calculatedHeight
+                    ; Ensure height.isSet is true for alignment calculations.
+                    ; Replace the unit rather than flipping the one that is
+                    ; there: an unset height is the shared unset unit.
+                    if child.height.isSet {
+                        child.height.pixels = child.calculatedHeight
+                    } {
+                        child.height = (EVGUnit.px(child.calculatedHeight))
+                    }
                     
                     this.layoutAbsolute(child parent.calculatedWidth parent.calculatedHeight)
                     ; Layer positions relative to parent's edge (0,0), not content area

@@ -44,6 +44,25 @@
 ; 7 = VIEWPORT_WIDTH (vw, % of the layout's page width)
 ; 8 = VIEWPORT_HEIGHT (vh, % of the layout's page height)
 
+; The one unset unit every element shares.
+;
+; An element has 39 unit-valued fields and a fresh box 14 more, and nearly all
+; of them are "nothing was said". Allocating a separate object to say nothing
+; 53 times per element was, measured, most of the element's memory (6.7 kB of
+; which 4.4 kB was sub-objects) and most of its construction time. So there is
+; ONE unset unit, and `EVGUnit.unset()` hands it out.
+;
+; That is only sound if nobody writes into it, and the unit has exactly two
+; in-place mutators: `setContext` and the `resolve` family. Both now do
+; nothing for an unset unit — an unset unit resolves to 0 whatever its
+; context is, so there was never anything to write. A caller that wants to
+; SET a unit assigns a new one to the field (`el.width = EVGUnit.px(..)`);
+; it must not flip `isSet` on the object it found there, because that object
+; may be this one.
+class EVGUnitDefaults @singleton(true) {
+    def unset:EVGUnit (new EVGUnit())
+}
+
 class EVGUnit {
     def value:double 0.0
     def unitType:int 0
@@ -71,6 +90,11 @@ class EVGUnit {
     ; three assignments at every site, because the three travel together and a
     ; site that set two of them would be a bug nothing announces.
     fn setContext:void (rfs:double vw:double vh:double) {
+        ; An unset unit resolves to 0 in any context, and it may be the
+        ; shared one: nothing to record.
+        if (isSet == false) {
+            return
+        }
         rootFontSize = rfs
         viewportW = vw
         viewportH = vh
@@ -176,10 +200,9 @@ class EVGUnit {
         return (EVGUnit.create(100.0 4))
     }
     
+    ; The shared unset unit. Read-only by convention — see EVGUnitDefaults.
     sfn unset:EVGUnit () {
-        def unit (new EVGUnit())
-        unit.isSet = false
-        return unit
+        return ((EVGUnitDefaults.__singleton()).unset)
     }
     
     sfn parse:EVGUnit (str:string) {
@@ -362,7 +385,12 @@ class EVGUnit {
     fn resolve:void (parentSize:double fontSize:double) {
         ; Resolve unit to actual pixel value
         if (isSet == false) {
-            pixels = 0.0
+            ; Only a unit that WAS set and was then unset in place can have a
+            ; stale pixel value; the shared unset unit never does, and is not
+            ; written to.
+            if (pixels != 0.0) {
+                pixels = 0.0
+            }
             return
         }
         
@@ -421,7 +449,9 @@ class EVGUnit {
     fn resolveForHeight:void (parentWidth:double parentHeight:double fontSize:double) {
         ; Resolve unit for HEIGHT property - percent uses parentHeight
         if (isSet == false) {
-            pixels = 0.0
+            if (pixels != 0.0) {
+                pixels = 0.0
+            }
             return
         }
         
@@ -444,7 +474,9 @@ class EVGUnit {
     fn resolveWithHeight:void (parentWidth:double parentHeight:double fontSize:double) {
         ; Resolve unit using width as primary (for width property)
         if (isSet == false) {
-            pixels = 0.0
+            if (pixels != 0.0) {
+                pixels = 0.0
+            }
             return
         }
         
