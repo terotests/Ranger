@@ -1988,7 +1988,15 @@ function buildFrame(gl, doc, opts = {}) {
   frame.view = viewOfDoc;
   // `shiftsNow` first, not the view, because every host that exists already
   // calls `draw(shifts)` and a second argument does not move the first.
-  frame.draw = (shiftsNow, viewNow) => {
+  //
+  // `opts.clear === false` draws ON TOP of what is already there instead of
+  // starting from an empty canvas. A page with two frames — a document built
+  // once and a caret built every blink — needs the second one to keep the
+  // first: the clear below is unconditional otherwise, so the caret frame
+  // erased the document and the canvas came out with a caret on it and nothing
+  // else.
+  frame.draw = (shiftsNow, viewNow, drawOpts) => {
+  const clearFirst = !(drawOpts && drawOpts.clear === false);
   const madeNow = fresh;
   fresh = false;
   // The camera in force for THIS draw, as the shaders take it.
@@ -2047,8 +2055,10 @@ function buildFrame(gl, doc, opts = {}) {
   gl.disable(gl.DEPTH_TEST);
   gl.enable(gl.BLEND);
   gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-  gl.clearColor(0, 0, 0, 0);
-  gl.clear(gl.COLOR_BUFFER_BIT);
+  if (clearFirst) {
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
 
   const hasStencil = gl.getContextAttributes().stencil === true;
   let paths = 0, skippedFills = 0;

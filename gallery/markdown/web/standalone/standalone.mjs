@@ -26,7 +26,7 @@
  * "Open Sans" and let the system answer, the three would disagree and it
  * would look like a bug in the line breaker.
  */
-import { renderDisplayList, setFontFallback, fontSpec, verbatim } from "./gl/evg-webgl.js";
+import { prepareDisplayList, setFontFallback, fontSpec, verbatim } from "./gl/evg-webgl.js";
 
 // If the import above 404s, nothing below runs and the only evidence is a
 // line in the network panel. The page watches for this instead.
@@ -156,16 +156,92 @@ function resize() {
 // A document is not an animation. The canvas is repainted when something
 // changed — a keystroke, a scroll, a resize — and sits still otherwise, which
 // is why a 38-page document does not keep a laptop's fan running.
+//
+// THE DOCUMENT IS BUILT ONCE AND SCROLLED WITH A CAMERA. `viewFrame()` is the
+// camera, the caret and a build number; `frame()` is all of that with the
+// document's commands as well, and it is asked for only when the build number
+// moves — a keystroke, a style, a page size. A scroll therefore serialises a
+// caret rather than a forty-page document, and on the GPU side it is one
+// uniform rather than a fresh atlas, fresh buffers and a walk over every
+// command (`gallery/evg/PLAN_VIEW_TRANSFORM.md` S3).
+//
+// The caret and the selection are their own small frame, drawn on top with
+// `clear: false`. They move without the document changing, which is exactly
+// why they are not in it.
+let docFrame = null;
+let docRev = -1;
+let docDpr = 0;
+let docW = 0;
+let docH = 0;
+const frameCounts = { builds: 0, kept: 0 };
+
+function dropFrame() {
+  if (docFrame) docFrame.dispose();
+  docFrame = null;
+  docRev = -1;
+}
+
+function paintOnce() {
+  const tick = JSON.parse(app.viewFrame());
+  // A frame is good for another draw unless the document itself was built
+  // again, or the canvas it was built for changed shape or ratio — the page
+  // size is a uniform in the shader, so a resize that keeps the layout still
+  // needs the frame back.
+  const stale =
+    !docFrame || tick.rev !== docRev || dpr !== docDpr || tick.width !== docW || tick.height !== docH;
+  if (stale) {
+    dropFrame();
+    const doc = JSON.parse(app.frame());
+    docFrame = prepareDisplayList(gl, doc, { dpr });
+    docRev = tick.rev;
+    docDpr = dpr;
+    docW = tick.width;
+    docH = tick.height;
+    lastCommands = doc.list.cmds.length;
+    frameCounts.builds += 1;
+  } else {
+    frameCounts.kept += 1;
+  }
+  const stats = docFrame.draw(null, tick.view);
+  if (stats && typeof stats.commands === "number") lastCommands = stats.commands;
+  const chrome = tick.chrome;
+  if (chrome && chrome.cmds && chrome.cmds.length > 0) {
+    const cf = prepareDisplayList(gl, { width: tick.width, height: tick.height, list: chrome }, { dpr });
+    cf.draw(null, null, { clear: false });
+    cf.dispose();
+  }
+}
+
 function paint() {
   if (needsPaint) {
     needsPaint = false;
-    const doc = JSON.parse(app.frame());
-    const stats = renderDisplayList(gl, doc, { dpr });
-    lastCommands = doc.list.cmds.length;
-    if (stats && typeof stats.commands === "number") lastCommands = stats.commands;
+    paintOnce();
   }
   requestAnimationFrame(paint);
 }
+
+// The document list is in DOCUMENT coordinates and the frame carries the
+// camera, so a check about where ink LANDS on the canvas has to look through
+// it. Before S3 the two were the same thing, because the list was rewritten on
+// every scroll — which is the cost that went away.
+function screenCmds(doc) {
+  const v = doc.view || (doc.list && doc.list.view) || [0, 0, 1];
+  const s = v[2] || 1;
+  return doc.list.cmds.map((c) => ({
+    ...c,
+    x: c.x * s + v[0],
+    y: c.y * s + v[1],
+    w: c.w * s,
+    h: c.h * s,
+  }));
+}
+
+// What the page's own checks read: that a scroll kept the frame it had.
+window.__frames = frameCounts;
+window.__redraw = () => {
+  needsPaint = false;
+  paintOnce();
+};
 
 function showStatus(extra) {
   const base = app.status();
@@ -1109,16 +1185,55 @@ function selftest() {
   app.setSource(sourceEl.value + "\n\n## A heading the test typed\n\nand a line under it, with [a link](https://example.com/typed) in it.\n");
   say("typing redraws", app.commandCount() > before, before + " → " + app.commandCount());
 
-  // Scrolling moves it.
+  // Scrolling moves it — on the canvas.
   app.scrollTo(0);
   const top = JSON.parse(app.frame());
   app.scrollTo(200);
   const lower = JSON.parse(app.frame());
   const firstY = (l) => {
-    const c = l.list.cmds[0];
+    const c = screenCmds(l)[0];
     return c ? c.y : 0;
   };
-  say("scrolling moves it", Math.abs(firstY(top) - firstY(lower)) > 100);
+  say("scrolling moves it", Math.abs(firstY(top) - firstY(lower)) > 100,
+      firstY(top).toFixed(0) + " → " + firstY(lower).toFixed(0));
+  // …by moving the CAMERA and not the commands. That is S3: the list is built
+  // once in document coordinates and a scroll is three numbers, so what the
+  // painter holds stays good. The old frame() walked and rewrote every
+  // command on every scroll instead.
+  const rawY = (l) => (l.list.cmds[0] ? l.list.cmds[0].y : 0);
+  say("…the camera, not the commands",
+      rawY(top) === rawY(lower) && Math.abs(lower.view[1] + 200) < 0.01,
+      "y " + rawY(top).toFixed(1) + ", view " + JSON.stringify(lower.view));
+
+  // And the frame the GPU holds survives the scroll, which is what the camera
+  // is for. A build is an atlas, a set of buffers and a walk over every
+  // command; a kept frame is one uniform.
+  window.__redraw();
+  const buildsBefore = window.__frames.builds;
+  for (let i = 0; i < 5; i += 1) {
+    app.scrollBy(60);
+    window.__redraw();
+  }
+  say("five scrolls cost no rebuild", window.__frames.builds === buildsBefore,
+      buildsBefore + " → " + window.__frames.builds + " builds");
+  // …but an edit does cost one, or the canvas would show the document that
+  // was there before the keystroke.
+  app.setSource(app.sourceText() + "\nand one more line.\n");
+  window.__redraw();
+  say("an edit builds it again", window.__frames.builds === buildsBefore + 1,
+      window.__frames.builds + " builds");
+
+  // What a scroll costs now, as bytes rather than as milliseconds: a
+  // millisecond on a software rasteriser says nothing, and these two numbers
+  // are the same on every machine. The document's JSON is what every scroll
+  // used to write — and the commands in it are what the painter used to walk,
+  // upload and re-rasterise — while a scroll now writes the camera and the
+  // caret.
+  const bigFrame = app.frame().length;
+  const tickFrame = app.viewFrame().length;
+  say("a scroll's payload is a caret, not a document", tickFrame * 10 < bigFrame,
+      tickFrame + " vs " + bigFrame + " bytes, for " + app.commandCount() + " commands kept");
+  app.scrollTo(0);
 
   // Paged mode is the same layout with the breaks the PDF will have, so the
   // reader can see where page four starts before they print it.
@@ -1213,11 +1328,15 @@ function selftest() {
   // and the measurer here has the four real faces attached; the layout-level
   // version of the same round trip runs against the estimate tables in
   // `markdown:srcmap:test`.
-  app.setSource("first paragraph\n\nsecond paragraph with several words in it\n");
-  app.scrollTo(0);
-  const mapped = JSON.parse(app.frame()).list.cmds.filter(
-    (c) => c.k === 3 && c.text && c.text.indexOf("second") === 0
+  // Long enough to scroll: the second half of this check presses the same
+  // letter with the camera moved.
+  app.setSource(
+    "first paragraph\n\nsecond paragraph with several words in it\n\n" + "filler line\n\n".repeat(80)
   );
+  app.scrollTo(0);
+  const secondRuns = (d) =>
+    screenCmds(d).filter((c) => c.k === 3 && c.text && c.text.indexOf("second") === 0);
+  const mapped = secondRuns(JSON.parse(app.frame()));
   say("the second paragraph is on the page", mapped.length > 0, mapped.length + " runs");
   if (mapped.length > 0) {
     const run = mapped[0];
@@ -1237,6 +1356,26 @@ function selftest() {
         y.toFixed(1) + " vs " + run.y.toFixed(1));
   }
 
+  // THE SAME CLICK, WITH THE CAMERA MOVED. The scroll is a uniform in the
+  // shader now and the click mapping adds the scroll back itself; if the two
+  // ever disagree the caret lands a scroll's worth away from the letter the
+  // reader pressed, which is the one failure this change could cause and the
+  // one a screenshot of a stationary page would never show.
+  app.scrollTo(137);
+  const scrolledRuns = secondRuns(JSON.parse(app.frame()));
+  say("the paragraph is still drawn after a scroll", scrolledRuns.length > 0,
+      "scrolled to " + app.scrollPosition().toFixed(0));
+  if (scrolledRuns.length > 0) {
+    const run = scrolledRuns[0];
+    const wantStart = "first paragraph\n\n".length;
+    const hit = app.sourceOffsetAt(run.x + 1, run.y);
+    say("a click lands on the same letter after a scroll", hit === wantStart,
+        hit + " wanted " + wantStart);
+    say("\u2026and the run moved up by the scroll", Math.abs((mapped[0].y - run.y) - 137) < 1.5,
+        (mapped[0].y - run.y).toFixed(1) + " of 137");
+  }
+  app.scrollTo(0);
+
   // ---- the canvas is an editor ---------------------------------------------
   //
   // Everything above this line is about a document being DRAWN. These are
@@ -1252,16 +1391,32 @@ function selftest() {
   app.setEditMode(true);
   app.setCaretOn(true);
 
-  const chromeCount = () => JSON.parse(app.frame()).list.cmds.length;
+  // The caret and the selection are a list of their own, in screen
+  // coordinates, so the document can be built once and a blink costs a
+  // rectangle. Counting them means counting THAT list.
+  const chromeCount = () => JSON.parse(app.viewFrame()).chrome.cmds.length;
   app.setSelection(0, 0);
   const bare = chromeCount();
+  const docBefore = app.commandCount();
   app.setSelection(0, 7);
   say("a selection is drawn", chromeCount() > bare, bare + " → " + chromeCount());
+  say("…and the document list is untouched by it", app.commandCount() === docBefore,
+      docBefore + " commands");
   app.setCaretOn(false);
   const noCaret = chromeCount();
   app.setSelection(0, 0);
   app.setCaretOn(true);
   say("and so is the caret", chromeCount() > noCaret - 1);
+  // A blink does not build the document again, which is why the caret is a
+  // list of its own rather than two rectangles appended to the page.
+  window.__redraw();
+  const blinkBuilds = window.__frames.builds;
+  app.setCaretOn(false);
+  window.__redraw();
+  app.setCaretOn(true);
+  window.__redraw();
+  say("a blink keeps the built frame", window.__frames.builds === blinkBuilds,
+      blinkBuilds + " → " + window.__frames.builds + " builds");
 
   // Typing changes the FILE, not just the picture.
   app.setSelection(3, 3);
@@ -1297,7 +1452,7 @@ function selftest() {
 
   // A click on the drawing moves the caret, and the caret has a place on it.
   app.setSource("alpha beta gamma\n");
-  const run2 = JSON.parse(app.frame()).list.cmds.find((c) => c.k === 3 && c.text && c.text.indexOf("alpha") === 0);
+  const run2 = screenCmds(JSON.parse(app.frame())).find((c) => c.k === 3 && c.text && c.text.indexOf("alpha") === 0);
   if (run2) {
     app.click(run2.x + run2.w - 1, run2.y, false);
     const c2 = JSON.parse(app.caretJson());
@@ -1345,7 +1500,7 @@ function selftest() {
   app.setSource("alpha beta\n\nsecond line here\n\nthird line\n");
   app.setEditMode(true);
   // A click on the drawing is what makes the canvas the active editor.
-  const firstRun = JSON.parse(app.frame()).list.cmds.find(
+  const firstRun = screenCmds(JSON.parse(app.frame())).find(
     (c) => c.k === 3 && c.text && c.text.indexOf("alpha") === 0
   );
   if (firstRun) {
@@ -1390,7 +1545,7 @@ function selftest() {
       " lines=" + app.linesJson());
 
   // …and by clicking it, which is how a reader actually gets there.
-  const newRun = JSON.parse(app.frame()).list.cmds.find(
+  const newRun = screenCmds(JSON.parse(app.frame())).find(
     (c) => c.k === 3 && c.text && c.text.indexOf("write something") === 0
   );
   say("the new line is on the page", !!newRun, newRun ? newRun.text : "not drawn");
@@ -1470,7 +1625,7 @@ function selftest() {
   // under `c`, which is how the display list carries one.
   const isWhite = (c) => c.c && c.c[0] === 255 && c.c[1] === 255 && c.c[2] === 255;
   const sheetOf = (l) =>
-    l.list.cmds.find((cmd) => cmd.k === 0 && cmd.w > 100 && cmd.h > 100 && isWhite(cmd));
+    screenCmds(l).find((cmd) => cmd.k === 0 && cmd.w > 100 && cmd.h > 100 && isWhite(cmd));
   const sheet = sheetOf(JSON.parse(app.frame()));
   say("the sheet is drawn", !!sheet, sheet ? sheet.w.toFixed(0) + "x" + sheet.h.toFixed(0) : "none");
   if (sheet) {

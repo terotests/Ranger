@@ -6,9 +6,11 @@ They do not have to be. The painter already applies a translate in the vertex
 shader — `uShift`, what a scroll layer moves by — and a *view* is that with a
 scale and no layer. Keep the frame, change two uniforms.
 
-Status: **design**. Nothing here is built. Every number in it is measured on
-this repository as it stands, on the machine this was written on, and the
-measurement is named beside it.
+Status: **S0, S1 and S3 are built** (§11 says what each one is and what gate
+it passed); S2 is blocked on something this design did not anticipate, and the
+blocker is written down beside it. Every number in the design was measured on
+this repository as it stood when it was written, on the machine it was written
+on, and the measurement is named beside it.
 
 Related: [`gl/README.md`](gl/README.md) (the display list as a GPU input),
 [`README.md`](README.md) (the pipeline and the seam),
@@ -261,13 +263,24 @@ through `FlowView`'s painting in rangerflow.
 
 ## 11. Stages
 
-| | what | gate |
-| --- | --- | --- |
-| **S0** | `setView` on `EVGDisplayList`, carried by `toJson`/`toBinary`; `uView` in the two WebGL shaders; `frame.draw(view, shifts)` | every existing consumer byte-identical (identity view); a kept frame drawn at a new view matches a rebuilt list pixel for pixel (`evg:binary:check` gains the view; a pixel diff on the figma board) |
-| **S1** | the keep/rebuild policy as a host helper in `gl/` — region, band, and "rebuild now" — with the figma viewer on it | a headless check of the policy alone (no browser), and the board's pan frame at ~18 ms with the same pixels |
-| **S2** | rangerflow on it: `FlowView` builds in world space, the camera leaves its painting code | its smoke test, and the minimap (which draws the *same* scene at another view — a second view, free) |
-| **S3** | markdown's scroll on it: `frame()` stops copying and offsetting the document list | `markdown:web:test`, and the caret still lands where it is clicked |
-| **S4** | layer shifts expressed as views; the native painters (Apple, Android, SDL) take a CTM | `rt:scroll` and `rt:frame` on both hosts |
+| | what | gate | state |
+| --- | --- | --- | --- |
+| **S0** | `setView` on `EVGDisplayList`, carried by `toJson`/`toBinary`; `uView` in the two WebGL shaders; `frame.draw(shifts, view)` | every existing consumer byte-identical (identity view); a kept frame drawn at a new view matches a rebuilt list pixel for pixel (`evg:binary:check` gains the view; a pixel diff on the figma board) | **done** — `evg:view:check`, 31 checks, worst channel difference 0 |
+| **S1** | the keep/rebuild policy as a host helper in `gl/` — region, band, and "rebuild now" — with the figma viewer on it | a headless check of the policy alone (no browser), and the board's pan frame at ~18 ms with the same pixels | **done** — `gl/evg-view.js` and `evg:view:policy` (30 checks); the figma viewer pans on a kept frame |
+| **S2** | rangerflow on it: `FlowView` builds in world space, the camera leaves its painting code | its smoke test, and the minimap (which draws the *same* scene at another view — a second view, free) | **blocked**, see below |
+| **S3** | markdown's scroll on it: `frame()` stops copying and offsetting the document list | `markdown:web:test`, and the caret still lands where it is clicked | **done** — and the caret is now a list of its own |
+| **S4** | layer shifts expressed as views; the native painters (Apple, Android, SDL) take a CTM | `rt:scroll` and `rt:frame` on both hosts | not started |
+
+**S2's blocker: one scene, two coordinate systems.** `FlowScene` holds the
+graph *and* the chrome — the minimap, the rulers, the buttons — and the chrome
+is tagged rather than separated (`tag = "chrome"`, 21 places). A camera applies
+to a whole list, so putting the graph in scene space with a view puts the
+rulers in scene space too: they would pan with the graph and scale with the
+zoom, which is the opposite of what chrome is. The fix is two lists rather than
+one tag, and the 104 `sx`/`sy`/`sl` call sites that map flow to screen are the
+size of it. S3 builds that same pattern in the small — markdown's caret and
+selection are now their own list, drawn on top with `clear: false` — so S2 is
+the same change on a canvas with twenty times the chrome.
 
 S0 is the only stage that touches the engine's contract, and it is additive.
 S1 is where the frames come from. Everything after it is a host choosing to
