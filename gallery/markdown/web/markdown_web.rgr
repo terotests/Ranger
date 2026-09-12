@@ -222,6 +222,20 @@ class MarkdownWeb {
     def wantPageSize:string ""
     ; "continuous" | "paged" | "slides".
     def mode:string "continuous"
+    ; Who owns the document. `PLAN_DOCUMENT_MODES.md` §3.
+    ;
+    ;   "source"  — the markdown file is the truth and the preview is a
+    ;               read-only view of it. Clicking, selecting and copying in
+    ;               the preview all work; writing there does not.
+    ;   "preview" — the reader has said the preview is the truth, and the
+    ;               markdown pane is a record of where it came from.
+    ;
+    ; One way, and chosen rather than fallen into. The design it replaces kept
+    ; markdown as the truth forever and translated every preview gesture into
+    ; a patch on it — which works until a gesture markdown cannot hold is
+    ; translated anyway, and bold across three list items was one of those.
+    def owner:string "source"
+    def ownerRefusal:string ""
     def pptxSummary:string ""
     def pptxNotes:string ""
     def docList:EVGDisplayList (new EVGDisplayList())
@@ -333,6 +347,34 @@ class MarkdownWeb {
 
     fn currentMode:string () {
         return mode
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Who owns the document
+    ; ----------------------------------------------------------------------
+    fn documentOwner:string () {
+        return owner
+    }
+
+    fn previewOwns:boolean () {
+        return (owner == "preview")
+    }
+
+    ; What a reader is told BEFORE the switch is thrown, not after. A promise
+    ; that the markdown will be kept in step is the one nobody can keep.
+    fn takeoverWarning:string () {
+        return "From here the preview is the document and the markdown is a record of where it came from. Changes will not go back into it, and this cannot be undone."
+    }
+
+    ; Thrown once. There is no way back on purpose: the reason to hand the
+    ; preview the document is that markdown cannot express what editing it
+    ; means, and a mode that promised to come back would have to refuse
+    ; everything that made it worth entering.
+    fn takeOverInPreview:boolean () {
+        if (owner == "preview") { return false }
+        owner = "preview"
+        ownerRefusal = ""
+        return true
     }
 
     ; How many blocks a slide had to be cut in half for, and what the deck
@@ -706,14 +748,47 @@ class MarkdownWeb {
         edit.selectWord()
     }
 
+    ; A keystroke on the PREVIEW. Refused while the markdown pane owns the
+    ; document — and refused by name, because a keystroke that vanishes and a
+    ; keystroke that was declined look the same on the page and completely
+    ; different to a reader.
     fn typeText:void (v:string) {
+        if (! (this.mayWriteInPreview())) { return }
         edit.insertText(v)
+    }
+
+    fn mayWriteInPreview:boolean () {
+        if (owner == "preview") {
+            ownerRefusal = ""
+            return true
+        }
+        ownerRefusal = "the preview is a view of the markdown — choose \"edit the preview\" to write here"
+        return false
+    }
+
+    ; …and the same question from the other side. A pane that is read-only and
+    ; still accepts input is the failure worth catching, so the refusal is
+    ; here rather than in the page's event handlers: the page can forget, the
+    ; document cannot.
+    fn mayWriteInSource:boolean () {
+        if (owner == "source") {
+            ownerRefusal = ""
+            return true
+        }
+        ownerRefusal = "the preview owns this document now — the markdown is a record of where it came from"
+        return false
     }
 
     ; The keys that are not characters. `name` is the page's own spelling —
     ; the same set `docx_web` takes.
     fn key:boolean (name:string shift:boolean ctrl:boolean) {
         this.sync()
+        ; Moving and selecting are not writing: a read-only preview is one a
+        ; reader can still navigate and copy out of, which is what the source
+        ; map was built for.
+        if (MarkdownWeb.isWritingKey(name ctrl)) {
+            if (! (this.mayWriteInPreview())) { return false }
+        }
         if ctrl {
             if (name == "b") { return (this.run("format.bold" "")) }
             if (name == "i") { return (this.run("format.italic" "")) }
@@ -762,6 +837,7 @@ class MarkdownWeb {
     ; Why the last command did nothing, or "". A refusal and a no-op look the
     ; same to a document and completely different to a reader.
     fn refusal:string () {
+        if ((strlen ownerRefusal) > 0) { return ownerRefusal }
         return (edit.refusal())
     }
 
@@ -843,10 +919,29 @@ class MarkdownWeb {
     ; which is a common prefix and a common suffix and is fifteen lines of
     ; JavaScript. It is not a diff algorithm and does not need to be: a
     ; textarea reports one contiguous change at a time.
+    ; An edit from the MARKDOWN pane. Refused once the preview owns the
+    ; document.
     fn applyPatch:void (start:int end:int text:string) {
+        if (! (this.mayWriteInSource())) { return }
         this.sync()
         edit.setRange(start end)
         edit.insertText(text)
+    }
+
+    ; Which key names change the document. Everything else moves a caret.
+    sfn isWritingKey:boolean (name:string ctrl:boolean) {
+        if ctrl {
+            if (name == "b") { return true }
+            if (name == "i") { return true }
+            if (name == "e") { return true }
+            if (name == "z") { return true }
+            if (name == "y") { return true }
+            return false
+        }
+        if (name == "backspace") { return true }
+        if (name == "delete") { return true }
+        if (name == "enter") { return true }
+        return false
     }
 
     ; The drawn lines, as the caret navigates them: `[start,end]` per line, in

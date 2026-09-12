@@ -297,7 +297,7 @@ there and nowhere else. Plus the page's own check driving `app.run` — the
 toolbar a reader actually presses — asserting three BOLD RUNS on the page and
 no asterisk drawn as a character, since four literal asterisks would draw too.
 
-### Stage B — the switch, with markdown still behind it — not started
+### Stage B — the switch, with markdown still behind it — ✅ done
 
 The preview becomes read-only by default. "Edit the preview" is an explicit
 choice; throwing it makes the source pane read-only and the preview the truth,
@@ -314,10 +314,25 @@ model and the limitation lifts without the reader's mental model changing.
 This is also the stage that makes today's bug unreachable from the preview:
 with the source pane read-only, there is no second writer.
 
-*The check:* a wiring test that drives the page's own switch, asserting that a
-keystroke into the source pane after the switch changes nothing, and that a
-preview edit before the switch changes nothing. Both directions, because a
-read-only pane that still accepts input is the failure worth catching.
+Two questions lived in one variable and are now separate. FOCUS is which pane
+the keyboard points at; it changes on every click. OWNERSHIP is which artefact
+IS the document; it is chosen once. Clicking the markdown pane used to hand it
+the keyboard and make it writable again — which, after the switch, would give
+the document two writers, the exact bug the switch exists to remove.
+
+The refusal lives in `MarkdownWeb`, not in the page's event handlers: the page
+can forget to check and the document cannot. `typeText` and the writing keys go
+through `mayWriteInPreview`, `applyPatch` through `mayWriteInSource`, and
+`refusal()` carries the reason. Moving and selecting are not writing, so a
+read-only preview is still one a reader can navigate and copy out of — which is
+what the source map was built for.
+
+*The check:* the page's own switch, driven end to end, in both directions —
+because a read-only pane that still accepts input is the failure worth catching
+and the one a screenshot cannot see: the document changes and the pane looks
+exactly as it did. The markdown pane's write is refused again much later in the
+run, on purpose: an ownership that lapses after a few operations is worse than
+one that was never claimed.
 
 ### Stage C — the slide break a reader can move — not started
 

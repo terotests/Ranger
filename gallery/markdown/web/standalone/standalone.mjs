@@ -42,6 +42,7 @@ const themeEl = document.getElementById("theme");
 const pdfBtn = document.getElementById("pdf");
 const htmlBtn = document.getElementById("html");
 const pptxBtn = document.getElementById("pptx");
+const takeoverBtn = document.getElementById("takeover");
 const openBtn = document.getElementById("openFile");
 const filePick = document.getElementById("filepick");
 const keyCatcher = document.getElementById("keys");
@@ -297,12 +298,69 @@ app.setEditMode(true);
 // who glances down finds their next word going into the left pane instead.
 // The bug looked like "focus jumps"; it was two editors both believing they
 // were active.
+// ---- who owns the document ------------------------------------------------
+//
+// `PLAN_DOCUMENT_MODES.md` §3. Two different questions live here and used to
+// be one:
+//
+//   FOCUS — which pane the keyboard is pointed at. Changes freely, every
+//           click, and is about where the next keystroke lands.
+//   OWNERSHIP — which artefact IS the document. Chosen once, deliberately,
+//           and never given back.
+//
+// Until the switch is thrown the markdown file is the document and the
+// preview is a view of it: clicking, selecting and copying there all work,
+// writing there does not. The module refuses the write rather than the page
+// declining to send it, because the page can forget and the document cannot.
+//
+// After the switch the preview is the document and the markdown pane is a
+// record of where it came from. There is no way back, which is the point: the
+// reason to hand the preview the document is that markdown cannot express
+// what editing it means, and a mode that promised to come back would have to
+// refuse everything that made it worth entering.
+let takeoverArmed = false;
+function refreshOwner() {
+  const owns = app.previewOwns();
+  if (owns) {
+    takeoverBtn.textContent = "✎ editing the preview";
+    takeoverBtn.disabled = true;
+    takeoverBtn.title = "The preview is the document. The markdown is a record of where it came from.";
+    sourceEl.readOnly = true;
+    sourceEl.classList.add("readonly");
+  } else if (takeoverArmed) {
+    takeoverBtn.textContent = "✎ again to confirm";
+    takeoverBtn.title = app.takeoverWarning();
+  } else {
+    takeoverBtn.textContent = "✎ edit the preview";
+    takeoverBtn.title = "Hand the document to the preview. One way.";
+  }
+}
+takeoverBtn.addEventListener("click", () => {
+  if (app.previewOwns()) return;
+  // Said BEFORE the switch, not after — and said in the page rather than in a
+  // dialog, so that a check can read it and a reader cannot dismiss it by
+  // reflex.
+  if (!takeoverArmed) {
+    takeoverArmed = true;
+    refreshOwner();
+    showStatus(app.takeoverWarning());
+    return;
+  }
+  app.takeOverInPreview();
+  takeoverArmed = false;
+  refreshOwner();
+  focusCanvas();
+  showStatus("the preview is the document now");
+});
+
 let active = "source";
 function setActive(which) {
   if (active === which) return;
   active = which;
-  sourceEl.readOnly = which !== "source";
-  sourceEl.classList.toggle("readonly", which !== "source");
+  // Focus never un-locks a pane ownership has locked.
+  const locked = app.previewOwns();
+  sourceEl.readOnly = locked || which !== "source";
+  sourceEl.classList.toggle("readonly", locked || which !== "source");
   if (which === "canvas") {
     keyCatcher.focus({ preventScroll: true });
     restartBlink();
@@ -518,6 +576,7 @@ function refreshToolbar() {
   const r = toolbarEl.querySelector('[data-cmd="edit.redo"]');
   if (u) u.disabled = !app.canUndo();
   if (r) r.disabled = !app.canRedo();
+  refreshOwner();
 }
 
 toolbarEl.addEventListener("click", (ev) => {
@@ -878,6 +937,68 @@ function selftest() {
     app.setPaged(false);
     say("…and none on the way back", notes() === 0);
     app.setSource(kept);
+  }
+
+  // ---- who owns the document, and the switch that moves it ---------------
+  //
+  // `PLAN_DOCUMENT_MODES.md` §3 and Stage B. Both directions are checked,
+  // because a pane that is read-only and still accepts input is the failure
+  // worth catching, and it is the one a screenshot cannot see: the document
+  // changes and the pane looks exactly as it did.
+  //
+  // This block ends with the preview owning the document, so it runs late —
+  // the switch is one-way on purpose and nothing after it can type into the
+  // source pane again.
+  {
+    const before = "one two three\n";
+    app.setSource(before);
+    say("the markdown pane owns the document to begin with", app.documentOwner() === "source");
+    say("…so the preview does not", app.previewOwns() === false);
+
+    // Reading the preview is not writing it. A read-only preview is one a
+    // reader can still navigate and copy out of, which is what the source map
+    // was built for.
+    const rr = JSON.parse(app.frame()).list.cmds.find((c) => c.k === 3 && (c.text || "").indexOf("one") === 0);
+    if (rr) {
+      app.click(rr.x + 1, rr.y + 2, false);
+      say("…and a click in it still moves the caret", JSON.parse(app.caretJson()).offset >= 0);
+    }
+    say("…and the selection still comes out", app.copySelection().length >= 0);
+
+    // Writing it does not work, and says why.
+    app.typeText("X");
+    say("typing in the preview writes nothing", app.sourceText() === before, app.sourceText().trim());
+    say("…and says why rather than vanishing", app.refusal().indexOf("edit the preview") > 0, app.refusal());
+    say("backspace in the preview does nothing either", app.key("backspace", false, false) === false);
+    say("…and the file is still the file", app.sourceText() === before);
+
+    // The markdown pane's own edit arrives as a patch on the same undo stack,
+    // and it works — while the markdown pane owns the document.
+    app.setSource("hello\n");
+    app.applyPatch(5, 5, " world");
+    say("a patch from the markdown pane lands", app.sourceText() === "hello world\n", app.sourceText().trim());
+    app.undo();
+    say("and is one undo like any other", app.sourceText() === "hello\n");
+    app.setSource(before);
+
+    // The switch is ARMED before it is thrown: the cost is said first.
+    takeoverBtn.click();
+    say("one press arms the switch and says the cost", app.previewOwns() === false);
+    say("…which is that the markdown stops being the document",
+        app.takeoverWarning().indexOf("record of where it came from") > 0);
+    takeoverBtn.click();
+    say("a second press throws it", app.previewOwns());
+    say("…and it is one-way", app.takeOverInPreview() === false);
+
+    // …and now the two panes have swapped.
+    app.typeText("X");
+    say("typing in the preview lands now", app.sourceText() === "Xone two three\n", app.sourceText().trim());
+    app.applyPatch(0, 1, "");
+    say("an edit from the markdown pane writes nothing", app.sourceText() === "Xone two three\n", app.sourceText().trim());
+    say("…and says the preview owns it", app.refusal().indexOf("owns this document") > 0, app.refusal());
+    say("…and the pane itself is read-only", sourceEl.readOnly);
+    app.key("backspace", false, false);
+    say("and the preview's own backspace works", app.sourceText() === "one two three\n");
   }
 
   // A space typed at the inside edge of bold used to un-write it: a
@@ -1392,12 +1513,13 @@ function selftest() {
   app.undo();
   say("…and one undo takes the whole table", app.sourceText() === "before\n");
 
-  // The other pane's edit arrives as a patch on the same stack.
+  // …and the markdown pane cannot write here, because the switch above gave
+  // the document to the preview. Checked again at this distance from the
+  // switch on purpose: an ownership that lapses after a few operations is
+  // worse than one that was never claimed.
   app.setSource("hello\n");
   app.applyPatch(5, 5, " world");
-  say("a patch from the source pane lands", app.sourceText() === "hello world\n", app.sourceText().trim());
-  app.undo();
-  say("and is one undo like any other", app.sourceText() === "hello\n");
+  say("the markdown pane still cannot write", app.sourceText() === "hello\n", app.sourceText().trim());
 
   // ---- the page's own wiring, driven with REAL events ----------------------
   //
@@ -1470,14 +1592,18 @@ function selftest() {
     say("and a click lands in it", caret().offset >= end - 21, caret().offset + " of " + end);
   }
 
-  // The source pane takes the keyboard back when it is clicked, and gives it
-  // up again — the mode, both ways.
+  // Focus and ownership are different questions, and this is where that shows.
+  // Clicking the markdown pane used to hand it the keyboard and make it
+  // writable again; now the preview owns the document, so the click moves the
+  // FOCUS and the pane stays read-only. A pane that unlocked itself on a click
+  // would give the document two writers again, which is the bug the switch
+  // exists to remove.
   sourceEl.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerId: 2 }));
-  say("clicking the source pane takes the keyboard back", !sourceEl.readOnly);
+  say("clicking the markdown pane does not unlock it", sourceEl.readOnly);
   canvas.dispatchEvent(new PointerEvent("pointerdown", {
     bubbles: true, cancelable: true, pointerId: 3, detail: 1, clientX: 10, clientY: 10,
   }));
-  say("…and the drawing takes it again", sourceEl.readOnly);
+  say("…and the drawing still has the keyboard", sourceEl.readOnly);
 
   // The buttons. Both were broken by a deleted helper and nothing said so.
   try {
