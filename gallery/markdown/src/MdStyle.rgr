@@ -57,6 +57,15 @@ class MdStyle {
     def highlightCode:boolean true
 
     def textColor:string "#1f2328"
+    ; The page's own ground, and a picture on it.
+    ;
+    ; `background-color` was already here three times — for code, for a table
+    ; head, for a blockquote — and nowhere for the PAGE, which is the one a
+    ; reader notices first and the one a company template is mostly made of.
+    ; `background-image` names a picture in the byte store; it is drawn behind
+    ; everything and is never the reason a page has no text on it.
+    def pageBackground:string ""
+    def pageBackgroundImage:string ""
     def mutedColor:string "#57606a"
     def linkColor:string "#0969da"
     def ruleColor:string "#d8dee4"
@@ -163,6 +172,7 @@ class MdStyle {
         out = ((((out + "/") + (to_string cellPadX)) + "/") + (to_string cellPadY))
         out = ((((out + " page ") + (to_string pageWidth)) + "/") + (to_string pageHeight))
         out = ((out + "/") + (to_string margin))
+        out = ((((out + "/") + pageBackground) + "/") + pageBackgroundImage)
         out = ((((out + " furniture ") + title) + "/") + runningHead)
         out = ((out + "/") + pageNumbers)
         if wantToc { out = (out + "/toc") }

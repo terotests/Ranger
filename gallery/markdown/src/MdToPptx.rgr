@@ -71,6 +71,10 @@ class MdDeckResult {
     ; lost; without this there is no number for what was carried, and a deck
     ; of alt text and a deck of pictures both report zero losses.
     def placed:int 0
+    ; Slides given the template's background PICTURE. Counted because a deck
+    ; whose template named one and whose slides came out plain is the failure
+    ; a screenshot of the first slide would not show.
+    def backgrounds:int 0
     ; Clips `PptxFromEvg` could not express, inside the drawings. A drawing
     ; that relied on one to hide something comes out showing it.
     def clipped:int 0
@@ -125,6 +129,9 @@ class MdDeckResult {
         }
         if (placed > 0) {
             out = (out + ", " + (to_string placed) + " picture(s) placed")
+        }
+        if (backgrounds > 0) {
+            out = (out + ", " + (to_string backgrounds) + " slide(s) with the template's background")
         }
         if (images > 0) {
             out = (out + ", " + (to_string images) + " picture(s) named but not carried")
@@ -217,8 +224,19 @@ class MdToPptx {
             ; theme whose `lt1` a reader may resolve to anything. Saying it
             ; here costs one element per slide and makes the deck's paper a
             ; fact about the deck rather than about the reader. A markdown
-            ; page is white; when `MdStyle` grows a page colour this reads it.
-            ref.background("#ffffff")
+            ; page is white unless the template says otherwise — which it now
+            ; can, and this reads it.
+            def paper:string "#ffffff"
+            if ((strlen l.style.pageBackground) > 0) {
+                paper = l.style.pageBackground
+            }
+            ref.background(paper)
+            ; …and a PICTURE behind it, which is what a company template is
+            ; mostly made of. Bytes rather than a name: the deck is a package
+            ; and a picture in it is a part, and the store the layout read is
+            ; the store this reads, so the slide and the preview cannot have
+            ; different backgrounds.
+            this.slidePaper(ref l)
             s = (s + 1)
         }
         result.slides = slides
@@ -312,6 +330,21 @@ class MdToPptx {
             i = (i + 1)
         }
         return c
+    }
+
+    ; The template's background picture, onto one slide.
+    fn slidePaper:void (ref:PptxSlideRef l:MdLayout) {
+        if (! haveImages) { return }
+        def name:string l.style.pageBackgroundImage
+        if ((strlen name) == 0) { return }
+        def path:string (imageStore.resolve(name l.docDir))
+        if ((strlen path) == 0) { return }
+        def bytes:buffer (imageStore.read(path))
+        if ((buffer_length bytes) == 0) { return }
+        def model:PptxSlide (ref.model())
+        model.bgImageName = path
+        model.bgImage = bytes
+        result.backgrounds = (result.backgrounds + 1)
     }
 
     ; A picture, when the layout drew one for this block.

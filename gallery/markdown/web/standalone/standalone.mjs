@@ -1748,6 +1748,31 @@ function selftest() {
     // exists to prevent.
     say("…and said which one it could not", app.pptxReport().indexOf("1 picture(s) named but not carried") > 0);
     app.setMode("continuous");
+
+    // ---- and a background is a picture too --------------------------------
+    //
+    // The property readers ask for first and the one a company template is
+    // mostly made of. `MdCss` had `background-color` three times — for code,
+    // for a table head, for a blockquote — and none for the PAGE, and
+    // `PptxWriter` could say a slide's ground was a colour and nothing else.
+    app.setStyleSheet(
+      "page { width: 720pt; height: 405pt; padding: 36pt; background-color: #102040; background-image: url(logo.png) }"
+    );
+    app.setSource("# Title\n\nTeksti.\n");
+    const bgCmds = JSON.parse(app.frame()).list.cmds;
+    // `c` is the command's colour, as [r, g, b, a].
+    const paper = bgCmds.filter((c) => c.k === 0 && c.c);
+    say("the page is painted in the colour the template named",
+        paper.some((c) => c.c[0] === 16 && c.c[1] === 32 && c.c[2] === 64),
+        paper.slice(0, 3).map((c) => c.c.join(",")).join(" | "));
+    say("…and the background picture is drawn behind it",
+        bgCmds.some((c) => c.k === 2 && c.src === "/logo.png"));
+    app.setMode("slides");
+    app.pptx();
+    say("…and every slide in the deck carries it",
+        app.pptxReport().indexOf("slide(s) with the template's background") > 0, app.pptxReport());
+    app.setMode("continuous");
+    app.setStyleSheet("");
     app.setSource(kept);
   }
 

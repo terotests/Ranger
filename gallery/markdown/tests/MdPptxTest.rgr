@@ -279,6 +279,32 @@ class MdPptxTest {
         c.eqInt("a picture nobody has is not placed" maker.result.placed 0)
         c.eqInt("…and the layout did not draw one either" (MdPptxTest.pictureBoxes(maker.layout)) 0)
         c.eqInt("…and the layout counted it as missing" maker.layout.missingImages 1)
+
+        ; ------------------------------------------------------------------
+        ; A background is a picture too
+        ; ------------------------------------------------------------------
+        ;
+        ; The property readers ask for first, and the one a company template
+        ; is mostly made of. `PptxWriter` could say a slide's ground was a
+        ; COLOUR and nothing else, and `MdCss` had `background-color` three
+        ; times — for code, for a table head, for a blockquote — and none for
+        ; the page.
+        ;
+        ; Checked through the FILE, because the black-on-black theme bug is
+        ; the reason not to trust a preview about a background.
+        def bgCss:string "page { width: 720pt; height: 405pt; padding: 36pt; background-color: #102040; background-image: url(logo.png) }"
+        def bgSrc:string "# Title\n\nTeksti.\n"
+        def bd:PptxDeck (this.buildWithImages(bgSrc bgCss v))
+        c.eqInt("every slide got the template's background" maker.result.backgrounds 1)
+        c.eqStr("…and the page colour reached the style" maker.layout.style.pageBackground "#102040")
+
+        def bback:PptxDeck (this.reopened(bd))
+        def bsl:PptxSlideRef (bback.slideAt(0))
+        def bmodel:PptxSlide (bsl.model())
+        c.ok("the background picture came back out of the file"
+            ((buffer_length bmodel.bgImage) == (strlen raw)))
+        c.ok("…and it is the picture the template named"
+            ((strlen bmodel.bgImageName) > 0))
     }
 
     sfn pictureBoxes:int (l:MdLayout) {

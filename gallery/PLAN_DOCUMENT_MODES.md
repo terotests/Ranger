@@ -453,14 +453,30 @@ model and nowhere on the page. Then the deck, re-opened through `PptxParser`,
 with the bytes and the alt text read back off the file — and, in one document,
 a picture the store does not have still drawing as its alt text.
 
-### Stage G — backgrounds, and CSS that reaches them — not started
+### Stage G — backgrounds, and CSS that reaches them — ✅ done
 
-`background-image: url(...)` in `MdCss`; a slide background as
-`<p:bg><p:bgPr><a:blipFill>`; the same rect in the preview and in the PDF.
+`page { background-color; background-image: url(...) }` in `MdCss`, painted in
+the preview, written as `<p:bg><p:bgPr><a:blipFill>` on every slide, and read
+back. `MdStyle` had `background-color` three times — for code, for a table
+head, for a blockquote — and none for the PAGE, which is the one a reader
+notices first and the one a company template is mostly made of.
 
-*The check:* a themed deck opened back through `PptxParser`, asserting the
-background part is present and referenced — the black-on-black theme bug is the
-reason to check the FILE rather than the preview.
+`url(...)` goes through `Vfs.resolve`, the same function that answers for
+`![](x)` and `r:embed`, because four copies of that arithmetic would be four
+answers to what `../` means. A gradient or a `none` is left alone: not a
+picture, and better ignored than half-understood. A background the store does
+not have is simply not drawn — never a reason for a page to have nothing on it.
+
+Two bugs found by writing the file and reading it back. `PptxWriter` needed the
+same `noteMediaUse` every picture makes, or the relationship is never written
+and the part is invalid. And `PptxParser` read `attr("embed")` where the
+attribute is `r:embed` — the picture parser beside it had it right, which is
+how it was found.
+
+*The check:* the deck written, re-opened through `PptxParser`, and the
+background's BYTES compared with what went in — the black-on-black theme bug is
+the reason to check the file rather than the preview. Plus the page's own
+check, on the colour the command carries and on the picture command behind it.
 
 ### Stage H — DECK: the real editor behind the switch — not started
 

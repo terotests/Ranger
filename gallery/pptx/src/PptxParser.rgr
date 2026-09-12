@@ -1752,9 +1752,29 @@ class PptxParser {
                 def bgNode:XmlNode (unwrap bg)
                 def bgPr@(optional):XmlNode (bgNode.firstChild("bgPr"))
                 if (!null? bgPr) {
-                    def col@(optional):PptxColor (this.parseColor((unwrap bgPr)))
+                    def bp:XmlNode (unwrap bgPr)
+                    def col@(optional):PptxColor (this.parseColor(bp))
                     if (!null? col) {
                         sheet.bg = (unwrap col)
+                    }
+                    ; …and a PICTURE behind the slide, which is what a company
+                    ; template is mostly made of and what this used to read
+                    ; past on its way to the colour.
+                    def bf@(optional):XmlNode (bp.firstChild("blipFill"))
+                    if (!null? bf) {
+                        def bfn:XmlNode (unwrap bf)
+                        def blip@(optional):XmlNode (bfn.firstChild("blip"))
+                        if (!null? blip) {
+                            def bl:XmlNode (unwrap blip)
+                            def rid:string (bl.attr("r:embed"))
+                            if ((strlen rid) > 0) {
+                                def part:string (pkg.resolveRelationship(partPath rid))
+                                if ((strlen part) > 0) {
+                                    sheet.bgImageName = part
+                                    sheet.bgImage = (pkg.readBinary(part))
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1920,9 +1940,28 @@ class PptxParser {
                 def bgNode:XmlNode (unwrap bg)
                 def bgPr@(optional):XmlNode (bgNode.firstChild("bgPr"))
                 if (!null? bgPr) {
-                    def col@(optional):PptxColor (this.parseColor((unwrap bgPr)))
+                    def bp:XmlNode (unwrap bgPr)
+                    def col@(optional):PptxColor (this.parseColor(bp))
                     if (!null? col) {
                         slide.bg = (unwrap col)
+                    }
+                    ; …and the picture, which is what this read past on its
+                    ; way to the colour.
+                    def bf@(optional):XmlNode (bp.firstChild("blipFill"))
+                    if (!null? bf) {
+                        def bfn:XmlNode (unwrap bf)
+                        def blip@(optional):XmlNode (bfn.firstChild("blip"))
+                        if (!null? blip) {
+                            def bl:XmlNode (unwrap blip)
+                            def rid:string (bl.attr("r:embed"))
+                            if ((strlen rid) > 0) {
+                                def part:string (pkg.resolveRelationship(partPath rid))
+                                if ((strlen part) > 0) {
+                                    slide.bgImageName = part
+                                    slide.bgImage = (pkg.readBinary(part))
+                                }
+                            }
+                        }
                     }
                 }
             }

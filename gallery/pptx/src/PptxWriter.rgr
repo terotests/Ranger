@@ -1471,8 +1471,19 @@ class PptxWriter {
                 ownBg = false
             }
         }
-        if ownBg {
-            out = (out + "<p:bg><p:bgPr><a:solidFill>" + (PptxWriter.colorXml(slide.bg)) + "</a:solidFill><a:effectLst/></p:bgPr></p:bg>")
+        ; A picture behind the slide outranks a colour, the way
+        ; `background-image` is painted over `background-color` in a browser.
+        if ((buffer_length slide.bgImage) > 0) {
+            def bgIdx:int (this.mediaIndexFor(slide.bgImageName slide.bgImage))
+            ; The same note every picture makes, or the relationship it needs
+            ; is never written and PowerPoint refuses the part.
+            this.noteMediaUse(bgIdx)
+            def bgRid:string ("rIdImg" + (to_string (bgIdx + 1)))
+            out = (out + "<p:bg><p:bgPr><a:blipFill><a:blip r:embed=\"" + bgRid + "\"/><a:stretch><a:fillRect/></a:stretch></a:blipFill><a:effectLst/></p:bgPr></p:bg>")
+        } {
+            if ownBg {
+                out = (out + "<p:bg><p:bgPr><a:solidFill>" + (PptxWriter.colorXml(slide.bg)) + "</a:solidFill><a:effectLst/></p:bgPr></p:bg>")
+            }
         }
         out = (out + (PptxWriter.spTreeOpen()))
         ; `skipInherited` is also what makes the opaque slots line up: it is on
