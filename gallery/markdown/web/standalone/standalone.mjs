@@ -1861,6 +1861,52 @@ function selftest() {
     app.setSource(kept);
   }
 
+  // ---- MD + CSS: an allowlist, not a gate --------------------------------
+  //
+  // `PLAN_DOCUMENT_MODES.md` §4. The lossless mode is not "anything, minus
+  // what we thought to refuse" — that is the design §3 rejects, and the
+  // bold-across-list-items bug is a gate with one hole in it. It is an
+  // ENUMERATED list in which every command names the file it writes, so both
+  // questions are answerable before anything is pressed: what may I do, and
+  // which file does it touch.
+  {
+    const kept = app.sourceText();
+    app.setStyleSheet("/* a reader's own */\npage { width: 720pt; height: 405pt }\n");
+    app.setSource("# Title\n\nTeksti.\n");
+
+    const cmds = app.styleCommands().split("|").filter(Boolean);
+    say("there is a list of style commands", cmds.length > 8, cmds.length + " commands");
+    say("…and every one of them names the file it writes",
+        cmds.every((c) => c.split(":")[1] === "css"));
+    say("a markdown command says markdown", app.commandTarget("format.bold") === "markdown");
+    say("…and a style command says css", app.commandTarget("page.background") === "css");
+    // A command that is not on the list does not exist. That is the whole
+    // difference from a gate: there is nothing to have forgotten to refuse.
+    say("…and one that is on neither list says nothing",
+        app.commandTarget("format.rainbow") === "");
+    say("running one that does not exist is refused",
+        app.runStyle("format.rainbow", "#ff0000") === false);
+    say("…by name", app.refusal().indexOf("no style command") >= 0, app.refusal());
+
+    say("the sheet says what it says", app.styleValue("page.width") === "720pt",
+        app.styleValue("page.width"));
+    say("a style command runs", app.runStyle("page.background", "#102040"));
+    say("…and the sheet now says it", app.styleValue("page.background") === "#102040");
+    // The bytes, not the rules: a reader who changed one colour should not
+    // find their template reformatted. The comment is the witness.
+    say("…and the reader's own comment is still there",
+        app.styleText().indexOf("/* a reader's own */") === 0, JSON.stringify(app.styleText()));
+    say("…and the width they wrote is untouched", app.styleValue("page.width") === "720pt");
+    // …and the PAGE is painted in it, which is the point of writing it.
+    const painted = JSON.parse(app.frame()).list.cmds
+      .filter((c) => c.k === 0 && c.c)
+      .some((c) => c.c[0] === 16 && c.c[1] === 32 && c.c[2] === 64);
+    say("…and the page is drawn in it", painted);
+
+    app.setStyleSheet("");
+    app.setSource(kept);
+  }
+
   // A refusal says why rather than writing markdown nobody typed.
   app.setSource("a **bold** b\n");
   app.setSelection(6, 12);

@@ -46,6 +46,7 @@ Import "../../pptx/src/PptxEdit.rgr"
 Import "../../pptx/src/PptxToEvg.rgr"
 Import "../src/MdDeckDiagram.rgr"
 Import "../src/MdToDocx.rgr"
+Import "../src/MdCssEdit.rgr"
 Import "../../docx_viewer/src/DocxView.rgr"
 Import "../../docx_viewer/src/DocxEditController.rgr"
 Import "../src/MdToPptx.rgr"
@@ -1218,6 +1219,113 @@ class MarkdownWeb {
 
     ; Why the last command did nothing, or "". A refusal and a no-op look the
     ; same to a document and completely different to a reader.
+    ; ----------------------------------------------------------------------
+    ; MD + CSS: an allowlist, not a gate
+    ; ----------------------------------------------------------------------
+    ;
+    ; `PLAN_DOCUMENT_MODES.md` §4. The lossless mode is not "anything, minus
+    ; what we thought to refuse" — that is the design §3 rejects, and today's
+    ; bug is a gate with one hole in it. It is an ENUMERATED list in which
+    ; every command names the file it writes.
+    ;
+    ; So there are two questions a caller can ask, and both are answerable
+    ; without trying anything: what may I do, and which file does it touch.
+    ; A command that is not on the list does not exist.
+    fn styleCommands:string () {
+        def out:string ""
+        out = (out + "page.width:css:page/width|")
+        out = (out + "page.height:css:page/height|")
+        out = (out + "page.margin:css:page/padding|")
+        out = (out + "page.background:css:page/background-color|")
+        out = (out + "page.backgroundImage:css:page/background-image|")
+        out = (out + "text.family:css:document/font-family|")
+        out = (out + "text.size:css:document/font-size|")
+        out = (out + "text.color:css:document/color|")
+        out = (out + "text.lineHeight:css:document/line-height|")
+        out = (out + "heading.family:css:h1/font-family|")
+        out = (out + "link.color:css:link/color|")
+        out = (out + "code.background:css:code/background-color|")
+        out = (out + "table.border:css:table/border-color|")
+        out = (out + "deck.splitLevel:css:deck/split-level|")
+        return out
+    }
+
+    ; Which file a command writes: "css", "markdown", or "" when there is no
+    ; such command. The question a reader is entitled to have answered BEFORE
+    ; they press anything.
+    fn commandTarget:string (id:string) {
+        def all:string (this.styleCommands())
+        def hit:int (indexOf all (id + ":css:"))
+        if (hit >= 0) { return "css" }
+        if (id == "format.bold") { return "markdown" }
+        if (id == "format.italic") { return "markdown" }
+        if (id == "format.code") { return "markdown" }
+        if (id == "format.strike") { return "markdown" }
+        if (id == "format.link") { return "markdown" }
+        if (id == "block.heading") { return "markdown" }
+        if (id == "block.bullet") { return "markdown" }
+        if (id == "block.ordered") { return "markdown" }
+        if (id == "block.quote") { return "markdown" }
+        if (id == "slide.break") { return "markdown" }
+        if (id == "slide.keep") { return "markdown" }
+        return ""
+    }
+
+    ; One style command. The sheet is rewritten as TEXT — see `MdCssEdit` for
+    ; why not by parsing and printing — and the page is laid out again with
+    ; what came out, so the reader sees the sheet they now have rather than the
+    ; one they asked for.
+    fn runStyle:boolean (id:string value:string) {
+        if (this.commandTarget(id) != "css") {
+            ownerRefusal = ("there is no style command called " + id)
+            return false
+        }
+        def target:string (this.targetOf(id))
+        def slash:int (indexOf target "/")
+        if (slash < 0) { return false }
+        def sel:string (substring target 0 slash)
+        def prop:string (substring target (slash + 1) (strlen target))
+        def before:string (edit.sheet.text())
+        def after:string (MdCssEdit.setProperty(before sel prop value))
+        if (after == before) {
+            ownerRefusal = "that changed nothing"
+            return false
+        }
+        this.setStyleSheet(after)
+        ownerRefusal = ""
+        return true
+    }
+
+    ; What the sheet says for a command right now, so a control can be shown
+    ; holding the value it is about to change.
+    fn styleValue:string (id:string) {
+        def target:string (this.targetOf(id))
+        def slash:int (indexOf target "/")
+        if (slash < 0) { return "" }
+        def sel:string (substring target 0 slash)
+        def prop:string (substring target (slash + 1) (strlen target))
+        def text:string (edit.sheet.text())
+        return (MdCssEdit.getProperty(text sel prop))
+    }
+
+    fn targetOf:string (id:string) {
+        def all:string (this.styleCommands())
+        def key:string (id + ":css:")
+        def at:int (indexOf all key)
+        if (at < 0) { return "" }
+        def from:int (at + (strlen key))
+        def i:int from
+        while (i < (strlen all)) {
+            if ((charAt all i) == 124) { return (substring all from i) }
+            i = (i + 1)
+        }
+        return (substring all from (strlen all))
+    }
+
+    fn styleText:string () {
+        return (edit.sheet.text())
+    }
+
     fn refusal:string () {
         if ((strlen ownerRefusal) > 0) { return ownerRefusal }
         return (edit.refusal())

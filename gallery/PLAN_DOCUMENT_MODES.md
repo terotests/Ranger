@@ -573,11 +573,39 @@ rather than the sentence. Then `DocxView.buildDisplayList`, the function the
 page calls, producing a page of TEXT RUNS. And on the page: that taking one
 door closes the other, by name.
 
-### Stage L — MD + CSS as its own command set — not started
+### Stage L — MD + CSS as its own command set — ✅ done
 
-The lossless mode. An enumerated allowlist in which every command names the
-file it writes. Nothing here may touch an in-memory rich model, which is the
-whole reason it can promise a byte-for-byte `.md` on the way out.
+Fourteen style commands, each naming the file it writes, and two questions a
+caller can answer without trying anything: `styleCommands` says what may be
+done, `commandTarget` says which file each one touches. A command that is not on
+the list does not exist — which is the whole difference from a gate: there is
+nothing to have forgotten to refuse.
+
+`MdCssEdit` rewrites the sheet as TEXT. Not by parsing and printing: `CssCore`
+could serialise a sheet back, and a round trip through rules renormalises the
+comments, the blank lines and the alignment a reader arranged by hand. That is
+the same argument [`markdown/PLAN_WYSIWYG.md`](markdown/PLAN_WYSIWYG.md) §1
+makes about markdown and it is true of CSS for the same reason. So every check
+is a byte comparison, and "it parses to the same rules" is exactly the claim
+that is not being made.
+
+Braces and colons inside comments and inside quoted strings are not structure.
+`/* } */` and `url("a{b}")` both used to be able to end a rule, and a rule
+written after a leading comment could not be found at all, because the comment
+was read as part of the selector.
+
+*The check:* the bytes, including a reader's comment surviving an edit, a
+declaration removed taking the separator on whichever side it is on, and set-
+then-unset giving back the file that went in — the same promise every markdown
+intent makes. Then the cascade READING what was written, because a text edit
+that produced something `MdCss` could not parse would pass every byte
+comparison and break the document. And on the page: the enumerated list, a
+command that is on no list answering "", and the page drawn in the colour the
+command wrote.
+
+*Recorded for the next reader:* `property` is a name the compiler treats as its
+own, and a parameter called that fails with an internal error rather than a
+message.
 
 ---
 

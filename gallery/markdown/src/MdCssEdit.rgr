@@ -1,0 +1,398 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdCssEdit.rgr — a stylesheet, edited as TEXT.
+; ============================================================================
+;
+; The lossless mode of `../PLAN_DOCUMENT_MODES.md` §4: content in markdown,
+; appearance in a stylesheet, both of them files. Which means the stylesheet
+; has to be edited the way the markdown is — as the bytes a reader wrote, with
+; their comments, their blank lines and their alignment still in it.
+;
+; **Not by parsing and printing.** `CssCore` reads a sheet into rules and
+; `MdCss` resolves them, and either could serialise one back — and a round trip
+; through an object graph renormalises everything a reader arranged by hand.
+; That is the same argument `PLAN_WYSIWYG.md` §1 makes about markdown, and it
+; is true of CSS for the same reason: a reader who changed one colour should
+; not find their whole template reformatted.
+;
+; So this is a text edit, and the checks are byte comparisons:
+;
+;   setProperty  a declaration set, changed, or removed
+;   getProperty  what the sheet currently says, or ""
+;
+; Braces and colons inside COMMENTS and inside quoted strings are not
+; structure. A `url("a{b}")` and a `/* { */` both used to be able to end a
+; rule, which is how a template with one comment in it became unparseable.
+; ============================================================================
+
+; `prop` and not `property`: the compiler treats `property` as a name of its
+; own, and a parameter called that fails to compile with an internal error
+; rather than a message. Named here so the next reader does not rediscover it.
+class MdCssEdit {
+    ; What the sheet says for `prop` inside `selector`, or "".
+    sfn getProperty:string (css:string selector:string prop:string) {
+        def block:[int] (MdCssEdit.blockOf(css selector))
+        if ((itemAt block 0) < 0) { return "" }
+        def decl:[int] (MdCssEdit.declOf(css (itemAt block 0) (itemAt block 1) prop))
+        if ((itemAt decl 0) < 0) { return "" }
+        return (trim (substring css (itemAt decl 2) (itemAt decl 1)))
+    }
+
+    ; The sheet with `selector { property: value }` set.
+    ;
+    ; An empty `value` REMOVES the declaration, and removing the last one
+    ; leaves an empty rule rather than deleting it: a reader who emptied a rule
+    ; is usually about to fill it again, and a rule that vanished from under
+    ; them is a surprise.
+    sfn setProperty:string (css:string selector:string prop:string value:string) {
+        def v:string (trim value)
+        def block:[int] (MdCssEdit.blockOf(css selector))
+        if ((itemAt block 0) < 0) {
+            if ((strlen v) == 0) { return css }
+            ; No such rule: one is added at the end, on its own lines, because
+            ; that is where a reader would have put it.
+            def tail:string css
+            def n:int (strlen tail)
+            if (n > 0) {
+                if ((charAt tail (n - 1)) != 10) { tail = (tail + "\n") }
+            }
+            def rule:string ((((tail + selector) + " { ") + prop) + ": ")
+            return ((rule + v) + " }\n")
+        }
+        def from:int (itemAt block 0)
+        def to:int (itemAt block 1)
+        def written:string ((prop + ": ") + v)
+        def spans:[int] (MdCssEdit.declOf(css from to prop))
+        def ds:int (itemAt spans 0)
+        if (ds >= 0) {
+            def de:int (itemAt spans 1)
+            if ((strlen v) == 0) {
+                ; …and the separator that went with it, on whichever side it
+                ; is on. A declaration in the middle owns the `;` AFTER it and
+                ; the one space that follows; the LAST declaration owns the
+                ; `;` before it. Taking neither leaves `{  height: 405pt }` or
+                ; `{ width: 720pt; }`, and a reader who removed one property
+                ; should not be able to see that they did.
+                def cut:int de
+                def start2:int ds
+                def tookAfter:boolean false
+                if (cut < to) {
+                    if ((charAt css cut) == 59) {
+                        cut = (cut + 1)
+                        tookAfter = true
+                        if (cut < to) {
+                            if ((charAt css cut) == 32) { cut = (cut + 1) }
+                        }
+                    }
+                }
+                if (! tookAfter) {
+                    ; The LAST declaration in a rule: `declOf` ends it at the
+                    ; closing brace, so there is no `;` after it to take and
+                    ; the one BEFORE it is the one that would be left dangling.
+                    ;
+                    ; The whitespace before that brace belongs to the RULE and
+                    ; not to the declaration — taking it too closes the rule up
+                    ; as `405pt}`, which is a reader's formatting changed by an
+                    ; edit that was not about it.
+                    while (cut > ds) {
+                        if (MdCssEdit.isSpace((charAt css (cut - 1)))) {
+                            cut = (cut - 1)
+                        } {
+                            break
+                        }
+                    }
+                    def back:int ds
+                    while (back > from) {
+                        if (MdCssEdit.isSpace((charAt css (back - 1)))) {
+                            back = (back - 1)
+                        } {
+                            break
+                        }
+                    }
+                    if (back > from) {
+                        if ((charAt css (back - 1)) == 59) {
+                            start2 = (back - 1)
+                        }
+                    }
+                }
+                return (MdCssEdit.splice(css start2 cut ""))
+            }
+            return (MdCssEdit.splice(css ds de written))
+        }
+        if ((strlen v) == 0) { return css }
+        ; The rule is there and the property is not: added just inside the
+        ; closing brace, after a separator if the rule already says anything.
+        def inner:string (trim (substring css from to))
+        def sep:string "; "
+        if ((strlen inner) == 0) { sep = "" }
+        def add:string (((sep + prop) + ": ") + v)
+        def at:int to
+        ; Sitting the insertion before the trailing whitespace keeps a rule
+        ; written over several lines looking like one.
+        while (at > from) {
+            if (MdCssEdit.isSpace((charAt css (at - 1)))) {
+                at = (at - 1)
+            } {
+                break
+            }
+        }
+        return (MdCssEdit.splice(css at at add))
+    }
+
+    ; Does the sheet have this rule at all?
+    sfn hasRule:boolean (css:string selector:string) {
+        def block:[int] (MdCssEdit.blockOf(css selector))
+        return ((itemAt block 0) >= 0)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Finding things without parsing them
+    ; ----------------------------------------------------------------------
+    ;
+    ; The INSIDE of the first rule whose selector list contains `selector`, as
+    ; [start, end). Both -1 when there is none.
+    sfn blockOf:[int] (css:string selector:string) {
+        def out:[int]
+        def want:string (trim selector)
+        def n:int (strlen css)
+        def i:int 0
+        def selStart:int 0
+        while (i < n) {
+            def c:int (charAt css i)
+            def skipped:boolean false
+            if (MdCssEdit.startsComment(css i)) {
+                i = (MdCssEdit.pastComment(css i))
+                skipped = true
+            }
+            if (! skipped) {
+                if ((c == 34) || (c == 39)) {
+                    i = (MdCssEdit.pastString(css i))
+                    skipped = true
+                }
+            }
+            if (! skipped) {
+                if (c == 123) {
+                    def raw:string (substring css selStart i)
+                    def bare:string (MdCssEdit.withoutComments(raw))
+                    def sel:string (trim bare)
+                    def close:int (MdCssEdit.matching(css i))
+                    if (MdCssEdit.selectorNames(sel want)) {
+                        push out (i + 1)
+                        push out close
+                        return out
+                    }
+                    i = (close + 1)
+                    selStart = i
+                    skipped = true
+                }
+            }
+            if (! skipped) {
+                if (c == 125) {
+                    i = (i + 1)
+                    selStart = i
+                    skipped = true
+                }
+            }
+            if (! skipped) {
+                i = (i + 1)
+            }
+        }
+        push out -1
+        push out -1
+        return out
+    }
+
+    ; Where a declaration for `prop` is, inside [from,to): its start, its
+    ; end, and where its VALUE starts. All -1 when it is not there.
+    sfn declOf:[int] (css:string from:int to:int prop:string) {
+        def out:[int]
+        def want:string (trim prop)
+        def i:int from
+        def start:int from
+        while (i <= to) {
+            def atEnd:boolean (i == to)
+            def c:int 59
+            if (! atEnd) { c = (charAt css i) }
+            def skipped:boolean false
+            if (! atEnd) {
+                if (MdCssEdit.startsComment(css i)) {
+                    i = (MdCssEdit.pastComment(css i))
+                    start = i
+                    skipped = true
+                }
+            }
+            if (! skipped) {
+                if (! atEnd) {
+                    if ((c == 34) || (c == 39)) {
+                        i = (MdCssEdit.pastString(css i))
+                        skipped = true
+                    }
+                }
+            }
+            if (! skipped) {
+            if (atEnd || (c == 59)) {
+                def piece:string (substring css start i)
+                def colon:int (MdCssEdit.colonIn(piece))
+                if (colon >= 0) {
+                    def name:string (trim (substring piece 0 colon))
+                    if (name == want) {
+                        ; The declaration's own span, without the whitespace
+                        ; that separated it from the one before.
+                        def s2:int start
+                        while (s2 < i) {
+                            if (MdCssEdit.isSpace((charAt css s2))) {
+                                s2 = (s2 + 1)
+                            } {
+                                break
+                            }
+                        }
+                        push out s2
+                        push out i
+                        push out ((start + colon) + 1)
+                        return out
+                    }
+                }
+                start = (i + 1)
+            }
+            i = (i + 1)
+            }
+        }
+        push out -1
+        push out -1
+        push out -1
+        return out
+    }
+
+    ; Is `want` one of the selectors in this comma-separated list? Whole names
+    ; only: `page` must not match `page-header`.
+    sfn selectorNames:boolean (list:string want:string) {
+        def n:int (strlen list)
+        def i:int 0
+        def start:int 0
+        while (i <= n) {
+            def atEnd:boolean (i == n)
+            def c:int 44
+            if (! atEnd) { c = (charAt list i) }
+            if (atEnd || (c == 44)) {
+                if ((trim (substring list start i)) == want) { return true }
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The `}` that closes the `{` at `open`, with comments and strings skipped.
+    sfn matching:int (css:string open:int) {
+        def n:int (strlen css)
+        def depth:int 0
+        def i:int open
+        while (i < n) {
+            def c:int (charAt css i)
+            def skipped:boolean false
+            if (MdCssEdit.startsComment(css i)) {
+                i = (MdCssEdit.pastComment(css i))
+                skipped = true
+            }
+            if (! skipped) {
+                if ((c == 34) || (c == 39)) {
+                    i = (MdCssEdit.pastString(css i))
+                    skipped = true
+                }
+            }
+            if (! skipped) {
+            if (c == 123) { depth = (depth + 1) }
+            if (c == 125) {
+                depth = (depth - 1)
+                if (depth == 0) { return i }
+            }
+            i = (i + 1)
+            }
+        }
+        return n
+    }
+
+    sfn colonIn:int (piece:string) {
+        def n:int (strlen piece)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt piece i)
+            if ((c == 34) || (c == 39)) {
+                i = (MdCssEdit.pastString(piece i))
+            } {
+                if (c == 58) { return i }
+                i = (i + 1)
+            }
+        }
+        return (0 - 1)
+    }
+
+    ; A selector list with its comments taken out. A rule written as
+    ; `/* the company's own */\npage { … }` has the comment in front of it,
+    ; and a comparison that saw the comment as part of the name matched
+    ; nothing — which is how a template with one comment at the top became a
+    ; template with no editable rules in it.
+    sfn withoutComments:string (text:string) {
+        def out:string ""
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            if (MdCssEdit.startsComment(text i)) {
+                i = (MdCssEdit.pastComment(text i))
+            } {
+                out = (out + (substring text i (i + 1)))
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    sfn startsComment:boolean (css:string i:int) {
+        if ((i + 1) >= (strlen css)) { return false }
+        if ((charAt css i) != 47) { return false }
+        return ((charAt css (i + 1)) == 42)
+    }
+
+    sfn pastComment:int (css:string i:int) {
+        def n:int (strlen css)
+        def j:int (i + 2)
+        while (j < (n - 1)) {
+            if ((charAt css j) == 42) {
+                if ((charAt css (j + 1)) == 47) { return (j + 2) }
+            }
+            j = (j + 1)
+        }
+        return n
+    }
+
+    sfn pastString:int (css:string i:int) {
+        def n:int (strlen css)
+        def q:int (charAt css i)
+        def j:int (i + 1)
+        while (j < n) {
+            def c:int (charAt css j)
+            if (c == 92) {
+                j = (j + 2)
+            } {
+                if (c == q) { return (j + 1) }
+                j = (j + 1)
+            }
+        }
+        return n
+    }
+
+    sfn isSpace:boolean (c:int) {
+        if (c == 32) { return true }
+        if (c == 9) { return true }
+        if (c == 10) { return true }
+        if (c == 13) { return true }
+        return false
+    }
+
+    sfn splice:string (css:string from:int to:int text:string) {
+        def head:string (substring css 0 from)
+        def tail:string (substring css to (strlen css))
+        return ((head + text) + tail)
+    }
+}

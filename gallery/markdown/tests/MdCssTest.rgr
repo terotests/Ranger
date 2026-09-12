@@ -25,6 +25,7 @@
 ; ============================================================================
 
 Import "../src/MdCss.rgr"
+Import "../src/MdCssEdit.rgr"
 Import "../src/MdBlock.rgr"
 Import "../src/MdLayout.rgr"
 
@@ -101,6 +102,92 @@ class MdCssTest {
     }
 
     ; ----------------------------------------------------------------------
+
+    ; ----------------------------------------------------------------------
+    ; A stylesheet edited as TEXT
+    ; ----------------------------------------------------------------------
+    ;
+    ; The lossless mode's other half. Content stays markdown; appearance is a
+    ; stylesheet, edited the way the markdown is — as the bytes a reader wrote.
+    ; Not by parsing and printing: a round trip through rules would renormalise
+    ; the comments, the blank lines and the alignment, which is the same
+    ; argument `PLAN_WYSIWYG.md` §1 makes about markdown.
+    ;
+    ; So every check here is a BYTE comparison. "It parses to the same rules"
+    ; is exactly the claim that is not being made.
+    fn editing:void (c:CssCheck) {
+        print "-- a stylesheet is edited as the bytes a reader wrote --"
+        def sheet:string "/* the company's own */\npage   { width: 720pt; height: 405pt }\n\ndocument { font-size: 11pt }\n"
+
+        c.eqStr("what the sheet says" (MdCssEdit.getProperty(sheet "page" "width")) "720pt")
+        c.eqStr("…and what it does not" (MdCssEdit.getProperty(sheet "page" "color")) "")
+        c.ok("a rule that is there" (MdCssEdit.hasRule(sheet "document")))
+        c.ok("…and one that is not" (! (MdCssEdit.hasRule(sheet "table"))))
+
+        ; Changing one declaration changes ONE declaration.
+        c.eqStr("a width is changed in place"
+            (MdCssEdit.setProperty(sheet "page" "width" "960pt"))
+            "/* the company's own */\npage   { width: 960pt; height: 405pt }\n\ndocument { font-size: 11pt }\n")
+
+        ; Adding one to a rule that exists keeps the rule's own shape.
+        c.eqStr("a new declaration joins the rule"
+            (MdCssEdit.setProperty(sheet "page" "background-color" "#102040"))
+            "/* the company's own */\npage   { width: 720pt; height: 405pt; background-color: #102040 }\n\ndocument { font-size: 11pt }\n")
+
+        ; …and a rule that does not exist is added at the end, where a reader
+        ; would have put it.
+        c.eqStr("a new rule is added at the end"
+            (MdCssEdit.setProperty(sheet "table" "border-color" "#cccccc"))
+            "/* the company's own */\npage   { width: 720pt; height: 405pt }\n\ndocument { font-size: 11pt }\ntable { border-color: #cccccc }\n")
+
+        ; An empty value removes it, with the separator that went with it.
+        c.eqStr("an empty value takes the declaration out"
+            (MdCssEdit.setProperty(sheet "page" "width" ""))
+            "/* the company's own */\npage   { height: 405pt }\n\ndocument { font-size: 11pt }\n")
+        c.eqStr("…and removing what is not there changes nothing"
+            (MdCssEdit.setProperty(sheet "page" "color" "")) sheet)
+
+        ; Set then unset is the bytes that went in — the same promise every
+        ; markdown intent makes.
+        def once:string (MdCssEdit.setProperty(sheet "page" "background-color" "#102040"))
+        c.eqStr("on then off is the original bytes"
+            (MdCssEdit.setProperty(once "page" "background-color" "")) sheet)
+
+        ; A brace inside a COMMENT is not a brace, and a brace inside a STRING
+        ; is not either. A template with one comment in it used to become
+        ; unparseable, and `url("a{b}")` used to end its own rule.
+        def tricky:string "page { /* } not a close */ width: 720pt }\ndocument { font-size: 11pt }\n"
+        c.eqStr("a brace in a comment does not end the rule"
+            (MdCssEdit.getProperty(tricky "page" "width")) "720pt")
+        c.eqStr("…and the rule after it is still found"
+            (MdCssEdit.getProperty(tricky "document" "font-size")) "11pt")
+
+        def quoted:string "page { background-image: url(\"a{b}.png\") }\ndocument { color: #111111 }\n"
+        c.eqStr("a brace in a string does not either"
+            (MdCssEdit.getProperty(quoted "page" "background-image")) "url(\"a{b}.png\")")
+        c.eqStr("…and the next rule is reachable"
+            (MdCssEdit.getProperty(quoted "document" "color")) "#111111")
+
+        ; A selector is a whole name. `page` must not find `page-header`.
+        def near:string "page-header { color: #222222 }\npage { color: #333333 }\n"
+        c.eqStr("a selector is matched whole" (MdCssEdit.getProperty(near "page" "color")) "#333333")
+
+        ; …and one of a comma-separated list still names the rule.
+        def shared:string "h1, h2 { font-family: Cinzel }\n"
+        c.eqStr("one of a list names the rule" (MdCssEdit.getProperty(shared "h2" "font-family")) "Cinzel")
+
+        ; The whole point: what comes out is READ by the cascade. A text edit
+        ; that produced something `MdCss` could not parse would pass every
+        ; comparison above and break the document.
+        def edited:string (MdCssEdit.setProperty(sheet "page" "background-color" "#102040"))
+        def st (new MdStyle())
+        def cs (new MdCss())
+        cs.addStyleSheet(edited)
+        cs.applyTo(st)
+        c.eqStr("and the cascade reads what was written" st.pageBackground "#102040")
+        c.ok("…without losing what was there" ((fabs (st.pageWidth - 720.0)) < 0.01))
+    }
+
     fn untouched:void (c:CssCheck) {
         print "-- a document with no template --"
         def plain:MdStyle (new MdStyle())
@@ -326,6 +413,7 @@ class MdCssTest {
         this.perBlock(c)
         this.deck(c)
         this.cached(c)
+        this.editing(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
