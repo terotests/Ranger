@@ -772,6 +772,15 @@ class FigTest {
         this.close("and ends at the last, not the second" tintFill.gradG 0.663)
         this.close("the near end keeps its alpha" tintFill.a 0.16)
         this.close("and the far end its own" tintFill.gradA 0.16)
+        ; The same ramp on a vector keeps the SHAPE and loses the ramp: a
+        ; gradient crosses the list as a box, and painting one on a vector
+        ; drew a grey square where a rounded pill should be.
+        def gvec:SceneNode (gradFrame.childNamed("GradientVector"))
+        this.eqStr("a vector with a gradient is still a path" gvec.kind "path")
+        def gvFill:SceneFill (gvec.firstFill())
+        def gvFlat:string (gvFill.gradFlatHexA())
+        this.check("and takes the two ends mixed into one colour" (FigTest.hasSub(gvFlat "#")))
+        this.check("the reader says the ramp was lost" (FigTest.hasSub((app.warningsJson()) "gradient on a vector")))
         def tintHex:string (tintFill.hexA())
         def tintFar:string (tintFill.gradHexA())
         this.check("so the colour carries it" (FigTest.hasSub(tintHex "29")))

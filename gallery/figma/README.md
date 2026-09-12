@@ -89,6 +89,14 @@ with, so the outline is dropped and the CSS border takes over at the weight
 asked for — a guess at the right weight beats an exact picture of the wrong
 one.
 
+A gradient on a VECTOR keeps the shape and loses the ramp. The display
+list carries a gradient as a box — two colours and a direction on the
+element's rectangle — and a vector is not its rectangle: painted there it
+was a grey square where a rounded pill should be, the shading kept and the
+shape lost, which is the wrong half to keep. A path takes the two ends
+mixed into one colour, stays the shape it is, and says so in the count of
+what could not be drawn.
+
 A gradient keeps its ENDS and its alpha. The display list carries two
 stops, so a gradient authored with more loses what is between them — but
 it was keeping the first two instead of the first and the last, which

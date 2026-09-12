@@ -666,6 +666,13 @@ class FigSample {
         def t15:KiwiValue (FigSample.node(3 81 "RECTANGLE" "Tint" 3 15 "\"" 160.0 30.0 20.0 100.0))
         t15.put("fillPaints" (FigSample.tintGradient()))
         nodes.pushItem(t15)
+        ; The same ramp on a VECTOR. A gradient crosses the display list as
+        ; a box, and a vector is not its box: painted there it is a square
+        ; where the shape should be.
+        def gv15:KiwiValue (FigSample.node(3 86 "VECTOR" "GradientVector" 3 15 "#" 80.0 30.0 20.0 10.0))
+        gv15.put("fillPaints" (FigSample.tintGradient()))
+        gv15.put("fillGeometry" (FigSample.geomBlob(0)))
+        nodes.pushItem(gv15)
         def fLine:KiwiValue (FigSample.node(3 34 "FRAME" "line-wrap" 0 3 "P" 200.0 80.0 760.0 600.0))
         fLine.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
         nodes.pushItem(fLine)

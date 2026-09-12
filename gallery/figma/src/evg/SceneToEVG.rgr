@@ -205,6 +205,16 @@ class SceneToEVG {
             return
         }
         if (f.kind == "gradient") {
+            ; A gradient crosses the list as a BOX: two colours and a
+            ; direction on the element's rectangle. A vector is not its
+            ; rectangle, so painting one there put a grey square where a
+            ; rounded pill should be — the shading kept and the shape lost,
+            ; which is the wrong half to keep. A path takes the two ends
+            ; mixed into one colour and stays the shape it is.
+            if (this.isPathKind(n.kind)) {
+                el.setAttribute("fill" (f.gradFlatHexA()))
+                return
+            }
             el.setAttribute("gradient-from" (f.hexA()))
             el.setAttribute("gradient-to" (f.gradHexA()))
             el.setAttribute("gradient-dir" (to_string f.gradDir))
