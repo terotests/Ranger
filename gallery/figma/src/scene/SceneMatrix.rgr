@@ -111,6 +111,8 @@ class SceneMatrix {
         return ((co * x) + (si * y))
     }
 
+    ; The mirror is its own inverse, so undoing `R · F` is `F` after the
+    ; turn: the y of the answer is the one that changes sign.
     fn unrotY:double (x:double y:double) {
         def len:double (sqrt ((a * a) + (b * b)))
         if (len < 0.000001) {
@@ -118,11 +120,16 @@ class SceneMatrix {
         }
         def co:double (a / len)
         def si:double (b / len)
-        return (((0.0 - si) * x) + (co * y))
+        def uy:double (((0.0 - si) * x) + (co * y))
+        if (this.isMirrored()) {
+            return (0.0 - uy)
+        }
+        return uy
     }
 
-    ; Just the turn, with any scale taken back out of it — which is the
-    ; part of the matrix the renderer applies.
+    ; The turn AND the mirror, with any scale taken back out — which is
+    ; what the renderer applies. `R(theta) · diag(1, -1)` when the matrix
+    ; reverses handedness, plain `R(theta)` when it does not.
     fn rotOnly:SceneMatrix () {
         def m (new SceneMatrix())
         def len:double (sqrt ((a * a) + (b * b)))
@@ -133,8 +140,13 @@ class SceneMatrix {
         def si:double (b / len)
         m.a = co
         m.b = si
-        m.c = (0.0 - si)
-        m.d = co
+        if (this.isMirrored()) {
+            m.c = si
+            m.d = (0.0 - co)
+        } {
+            m.c = (0.0 - si)
+            m.d = co
+        }
         return m
     }
 

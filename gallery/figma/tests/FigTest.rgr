@@ -633,6 +633,13 @@ class FigTest {
         app.setView(0.0 0.0 1.0)
         this.eqStr("a turned layer is picked where it is drawn" (app.hit(146.0 710.0)) "3:31")
         this.eqStr("and not where its square box was" (app.hit(165.0 655.0)) "3:13")
+        ; A mirrored layer answers where it is DRAWN too. MirrorBox is 80x40
+        ; at 2900,1860 with a horizontal flip, so the file puts it to the
+        ; LEFT of that origin — read as the half turn its angle looks like,
+        ; it would sit above it instead, which is how an icon "turned 180
+        ; degrees" ended up forty pixels up the page.
+        this.eqStr("a mirrored layer is picked where it is drawn" (app.hit(2860.0 1880.0)) "3:87")
+        this.eqStr("and not where a half turn would have put it" (app.hit(2860.0 1840.0)) "")
         ; And a layer is picked whether or not its parent's box holds the
         ; point: the sticker hangs 40 pixels above the section it is in,
         ; and gating the walk on the parent left that half unselectable.

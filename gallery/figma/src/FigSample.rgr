@@ -1177,6 +1177,21 @@ class FigSample {
         turnedPath.put("fillGeometry" (FigSample.geomBlob(0)))
         nodes.pushItem(turnedPath)
 
+        ; A MIRRORED layer: the matrix reverses handedness, which no angle
+        ; can, and its own angle reads as a half turn. Read as one it lands
+        ; above its origin instead of beside it.
+        def mirror:KiwiValue (FigSample.node(3 87 "RECTANGLE" "MirrorBox" 0 3 "f2" 80.0 40.0 2900.0 1860.0))
+        def mtf:KiwiValue (KiwiValue.fromObject())
+        mtf.put("m00" (KiwiValue.fromDouble(-1.0)))
+        mtf.put("m01" (KiwiValue.fromDouble(0.0)))
+        mtf.put("m02" (KiwiValue.fromDouble(2900.0)))
+        mtf.put("m10" (KiwiValue.fromDouble(0.0)))
+        mtf.put("m11" (KiwiValue.fromDouble(1.0)))
+        mtf.put("m12" (KiwiValue.fromDouble(1860.0)))
+        mirror.put("transform" mtf)
+        mirror.put("fillPaints" (FigSample.paints(0.2 0.5 0.9)))
+        nodes.pushItem(mirror)
+
         ; A component out of a library: the copy carries new guids and the
         ; override paths still name the old ones, which every node keeps in
         ; `overrideKey`. And two lists — what the designer typed, and what
