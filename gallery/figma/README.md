@@ -78,6 +78,17 @@ alignment, per-side weights, caps and dashes; a CSS border is the fallback
 for a file without it. A translucent paint goes into its colour, not into
 the element's opacity, so a bar inside a 15% track stays solid.
 
+The layer keeps saying what its edge is even when the outline paints it.
+Emptying its stroke was how the renderer was kept from drawing a border on
+top of the outline — it is told directly now — and the cost of that was a
+layer that said nothing about its own edge: the pane showed no stroke to
+read and an edit to the border colour moved a number nothing paints. A
+recolour now reaches the outline. A new WEIGHT cannot, since the outline is
+the old weight already drawn and there is nothing here to re-flatten it
+with, so the outline is dropped and the CSS border takes over at the weight
+asked for — a guess at the right weight beats an exact picture of the wrong
+one.
+
 A gradient keeps its ENDS and its alpha. The display list carries two
 stops, so a gradient authored with more loses what is between them — but
 it was keeping the first two instead of the first and the last, which

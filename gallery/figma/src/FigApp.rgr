@@ -899,6 +899,17 @@ class FigApp {
         this.afterEdit()
     }
 
+    ; A stroke a file brought as geometry is painted by a child — the
+    ; outline Figma flattened, filled in the stroke's colour — so an edit
+    ; that only touched the node's own stroke moved the number in the pane
+    ; and left the page exactly as it was.
+    ;
+    ; The colour goes to the outline as well, which is exact. A new WEIGHT
+    ; cannot: the outline IS the old weight, drawn, and there is nothing
+    ; here to re-flatten it with. So the outline is dropped and the stroke
+    ; falls back to the border this reader draws for a file that brought no
+    ; geometry — a guess at the weight you asked for beats an exact picture
+    ; of the one you did not.
     fn editStroke:void (hex:string weight:double) {
         def n:SceneNode (this.editNode())
         if ((strlen n.id) == 0) {
@@ -910,14 +921,54 @@ class FigApp {
         } {
             push n.strokes st
         }
+        def was:double st.weight
         st.visible = true
         st.r = (FigApp.hexPart(hex 1))
         st.g = (FigApp.hexPart(hex 3))
         st.b = (FigApp.hexPart(hex 5))
+        def reweighed:boolean false
         if (weight >= 0.0) {
+            def d:double (weight - was)
+            if ((d > 0.001) || (d < (0.0 - 0.001))) {
+                reweighed = true
+            }
             st.weight = weight
         }
+        if n.strokeIsGeometry {
+            this.restrokeOutline(n st reweighed)
+        }
         this.afterEdit()
+    }
+
+    ; The outline child, recoloured — or dropped, when the weight it was
+    ; flattened at is no longer the weight the layer wants.
+    fn restrokeOutline:void (n:SceneNode st:SceneStroke drop:boolean) {
+        def keep:[SceneNode]
+        def i:int 0
+        while (i < (array_length n.children)) {
+            def ch:SceneNode (itemAt n.children i)
+            if (ch.sourceType == "STROKE_GEOMETRY") {
+                if (drop) {
+                } {
+                    if ((array_length ch.fills) > 0) {
+                        def f:SceneFill (itemAt ch.fills 0)
+                        f.kind = "solid"
+                        f.visible = true
+                        f.r = st.r
+                        f.g = st.g
+                        f.b = st.b
+                    }
+                    push keep ch
+                }
+            } {
+                push keep ch
+            }
+            i = (i + 1)
+        }
+        n.children = keep
+        if drop {
+            n.strokeIsGeometry = false
+        }
     }
 
     ; Retyping a layer drops the glyph outlines the editor shaped with it:

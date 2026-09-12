@@ -921,9 +921,11 @@ class FigToScene {
         } {
             push sn.children outline
         }
-        ; The geometry replaces the stroke; keeping both would paint it twice.
-        def none:[SceneStroke]
-        sn.strokes = none
+        ; The geometry paints the stroke; the renderer is told not to draw a
+        ; border as well. The stroke stays on the node — emptying it left
+        ; the layer saying nothing about its own edge, so the pane showed
+        ; no stroke at all and an edit to it changed a field nothing paints.
+        sn.strokeIsGeometry = true
         sn.warnings = (this.dropStrokeWarnings(sn.warnings))
     }
 

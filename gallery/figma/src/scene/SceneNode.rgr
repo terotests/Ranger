@@ -257,6 +257,11 @@ class SceneNode {
     def y:double 0.0
     def w:double 0.0
     def h:double 0.0
+    ; The stroke is painted by the outline the file brought, as a child of
+    ; this node, so the renderer must not draw a border for it as well.
+    ; The stroke itself stays here: it is what the layer says about its own
+    ; edge, and a pane that cannot read it cannot show it or change it.
+    def strokeIsGeometry:boolean false
     def xf:SceneMatrix (new SceneMatrix())
     def hasXf:boolean false
     def opacity:double 1.0

@@ -544,6 +544,26 @@ class FigTest {
         def under:SceneNode (shapes.childNamed("Underlined"))
         this.check("the text kept the glyphs it was shaped into" (under.text.hasOutline()))
         this.check("and carries the underline the file computed" (FigTest.hasSub(under.text.outline "M10 30L130 30L130 33L10 33Z")))
+        ; A stroke the file brought as geometry is painted by a child, and
+        ; the layer keeps saying what its edge is — so the pane can show it
+        ; and an edit reaches the thing that draws. Recolouring used to
+        ; move the number and leave the page as it was.
+        def exact:SceneNode (shapes.childNamed("ExactStroke"))
+        this.check("the layer still says what its edge is" ((array_length exact.strokes) > 0))
+        this.check("and that the outline paints it" exact.strokeIsGeometry)
+        app.select("3:44")
+        app.editStroke("#ff00ff" (0.0 - 1.0))
+        def outline:SceneNode (exact.childNamed("stroke"))
+        def ink:SceneFill (outline.firstFill())
+        this.eqStr("recolouring reaches the outline that draws" (ink.hex()) "#ff00ff")
+        ; A new weight cannot: the outline IS the old weight, drawn. It is
+        ; dropped and the border takes over at the weight asked for.
+        app.editStroke("#ff00ff" 9.0)
+        def gone:SceneNode (exact.childNamed("stroke"))
+        this.eqInt("a new weight drops the outline it cannot re-flatten" (strlen gone.id) 0)
+        this.check("and the layer draws its own border again" (exact.strokeIsGeometry == false))
+        app.revertEdits()
+
         ; Picking a layer. The point is moved into each layer's own space
         ; on the way down, so a turned layer answers where it is DRAWN:
         ; Tilt is 80x48 at 50,50 inside a frame at 40,600, turned 15
@@ -750,10 +770,20 @@ class FigTest {
         this.eqStr("avatar ref" avatar.imageRef "aa64b7b3e303e0ea28a3bb6efa93741511acd803")
         def line:SceneNode (app.findScene("1:119"))
         this.eqStr("chart line kind" line.kind "path")
-        this.eqInt("chart line strokes moved to geometry" (array_length line.strokes) 0)
+        ; The outline paints the stroke, and the stroke stays on the layer:
+        ; it is what the layer says about its own edge, and a pane that
+        ; cannot read it can neither show it nor change it.
+        this.check("chart line keeps what it says about its edge" ((array_length line.strokes) > 0))
+        this.check("and knows the outline paints it" line.strokeIsGeometry)
         def lineStroke:SceneNode (line.childNamed("stroke"))
         this.eqStr("stroke geometry" lineStroke.sourceType "STROKE_GEOMETRY")
         this.check("stroke geometry path" ((strlen lineStroke.pathData) > 0))
+        ; And the renderer is not told to draw one as well: nothing in this
+        ; file's page carries a stroke or a border, every one of them
+        ; having come as geometry.
+        def lineEvg:string (app.evgText())
+        this.check("and no stroke is drawn on top of the outlines" ((FigTest.hasSub(lineEvg "stroke=")) == false))
+        this.check("nor a border" ((FigTest.hasSub(lineEvg "border-width=")) == false))
         def track:SceneNode (app.findScene("1:35"))
         def trackFill:SceneFill (track.firstFill())
         this.eqStr("translucent fill in the colour" (trackFill.hexA()) "#00000026")
