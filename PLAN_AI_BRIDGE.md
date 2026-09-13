@@ -276,7 +276,7 @@ capability. No Electron, no key, and a shareable URL.
 
 | Phase | Deliverable | Rough effort | Unlocks |
 | --- | --- | --- | --- |
-| **P0** | `EVGPatch.rgr` + `RangerDoc` + `npm run agent` | 3–5 d | Claude Code edits EVG / rangerflow / figma docs in this repo today |
+| **P0** ✅ | `EVGPatch.rgr` + `EVGTreeJson.rgr` + `npm run agent` | done | Claude Code edits an EVG document in this repo today |
 | **P1** | `.claude/skills/` (`evg-edit`, `rangerflow-diagram`, `ranger-lang`) + SessionStart hook | 1 d | Fewer compile-error loops; repo works in Claude Code on the web |
 | **P2** | `tools/ranger-mcp/` stdio server | 2 d | Any MCP host, any repo, terminal included |
 | **P3** | the widget bundle + `host.js` + MCP App adapter (2a) | ~1 wk | Click-to-select + prompt box inside the chat thread |
@@ -284,6 +284,31 @@ capability. No Electron, no key, and a shareable URL.
 | **P4** | Electron shell + Agent SDK (2c/3), or the Artifact route | 3–5 d | Standalone gallery apps with an agent inside |
 
 P0 is worth doing whether or not anything after it happens.
+
+### What P0 shipped, and what it did not
+
+Built: [`EVGPatch`](gallery/evg/EVGPatch.rgr) (the op language, validated by
+the engine itself and invertible by construction),
+[`EVGTreeJson`](gallery/evg/EVGTreeJson.rgr) (the document format, whose
+contents are exactly the patchable set), and
+[`evg_agent`](gallery/evg/agent/README.md) with `outline`, `query`, `patch` and
+`measure`. `npm run evg:patch:test` is 81 assertions; `npm run agent:smoke`
+drives the four verbs against fixtures, including that a rejected batch leaves
+the document untouched.
+
+Not built, and named here rather than left to be discovered:
+
+- **`render`.** The verb the layer-0 sketch lists. It needs a painter wired to
+  the CLI, and the display list already has several — this is plumbing, not
+  design, but it is not done.
+- **`diff`.** Two documents compared structurally. `outline` diffed with
+  `diff(1)` covers it well enough to not be urgent.
+- **The format adapters.** `RangerDoc` in the sketch above implies `.fig`,
+  Mermaid and Markdown reaching the same tree. Today the CLI reads `.evg.json`
+  only, and the header of `EVGTreeJson` states what a converter into it would
+  have to admit it drops.
+- **A selector engine.** `query` takes `.class`, `#id`, a tag or a path.
+  Compound selectors belong to `EVGStyleSheet`.
 
 ## 10. Licensing
 

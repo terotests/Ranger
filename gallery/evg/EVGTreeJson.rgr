@@ -172,6 +172,36 @@ class EVGTreeJson {
         return (out + "\"")
     }
 
+
+    ; One node, without its subtree — what `query` answers with.
+    ;
+    ; `EVGInspect.nodeJson` exists and is NOT what to use here. It reports
+    ; every computed property including the resolved pixels, which is right for
+    ; an inspector looking at a laid-out frame and wrong for a query: nothing
+    ; has run layout, so it would report `padding-left: 0.00px` for a document
+    ; that plainly says 16px. This answers with what the document says.
+    sfn brief:string (path:string el:EVGElement) {
+        def w (new EVGTreeJson())
+        def out:string "{\"at\":"
+        out = (out + (EVGTreeJson.str(path)))
+        out = ((out + ",\"tag\":") + (EVGTreeJson.str(el.tagName)))
+        if ((strlen el.id) > 0) {
+            out = ((out + ",\"id\":") + (EVGTreeJson.str(el.id)))
+        }
+        if ((strlen el.key) > 0) {
+            out = ((out + ",\"key\":") + (EVGTreeJson.str(el.key)))
+        }
+        if ((strlen el.textContent) > 0) {
+            out = ((out + ",\"text\":") + (EVGTreeJson.str(el.textContent)))
+        }
+        def props:string (w.props(el))
+        if ((strlen props) > 0) {
+            out = (((out + ",\"props\":{") + props) + "}")
+        }
+        out = ((out + ",\"children\":") + (to_string (array_length el.children)))
+        return (out + "}")
+    }
+
     ; --- reading --------------------------------------------------------------
 
     sfn fromText@(optional):EVGElement (text:string) {
@@ -282,6 +312,43 @@ class EVGJsonCursor {
         }
         ok = false
         return out
+    }
+
+
+    ; Numbers appear in an ops file (`index`), never in a document, so this is
+    ; small on purpose: an optional minus and digits.
+    fn readNumber:int () {
+        this.skipWs()
+        def neg:boolean false
+        if ((this.peek()) == 45) {
+            neg = true
+            at = (at + 1)
+        }
+        def v:int 0
+        def digits:int 0
+        while (at < (strlen src)) {
+            def c:int (this.peek())
+            if ((c >= 48) && (c <= 57)) {
+                v = ((v * 10) + (c - 48))
+                digits = (digits + 1)
+                at = (at + 1)
+            } {
+                if (digits == 0) {
+                    ok = false
+                }
+                if neg {
+                    return (0 - v)
+                }
+                return v
+            }
+        }
+        if (digits == 0) {
+            ok = false
+        }
+        if neg {
+            return (0 - v)
+        }
+        return v
     }
 
     ; Enough to step over a value this format does not use — a number, a
