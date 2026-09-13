@@ -43,6 +43,7 @@ Import "../FigCanvas.rgr"
 Import "../FigDeflate.rgr"
 Import "../FigSample.rgr"
 Import "FigWrite.rgr"
+Import "FigPathWrite.rgr"
 Import "../../../zip/ZipWriter.rgr"
 
 class SceneToFig {
@@ -51,6 +52,9 @@ class SceneToFig {
     ; The flat node array being built, and the id counter inside the current page.
     def nodes:KiwiValue (KiwiValue.fromArray())
     def nextLocal:int 1
+    ; Geometry lives outside the nodes: a node names a blob by index into this
+    ; list, and the list rides on the message beside them.
+    def blobs:KiwiValue (KiwiValue.fromArray())
 
     Constructor () {
         def a:[string]
@@ -105,6 +109,8 @@ class SceneToFig {
     fn message:KiwiValue (doc:SceneDocument) {
         def arr:KiwiValue (KiwiValue.fromArray())
         nodes = arr
+        def bl:KiwiValue (KiwiValue.fromArray())
+        blobs = bl
         def docNode:KiwiValue (FigWrite.placed(0 0 "DOCUMENT" "Document" (0 - 1) (0 - 1) "" 0.0 0.0 0.0 0.0))
         nodes.pushItem(docNode)
         def pages:[SceneNode] doc.pages
@@ -134,6 +140,7 @@ class SceneToFig {
         }
         def out:KiwiValue (KiwiValue.fromObject())
         out.put("nodeChanges" nodes)
+        out.put("blobs" blobs)
         return out
     }
 
@@ -161,9 +168,7 @@ class SceneToFig {
         this.putStroke(o n path)
         this.putRadius(o n)
         this.putText(o n)
-        if ((strlen n.pathData) > 0) {
-            push losses (path + ": the outline is a path, and a VECTOR's geometry blob is not written — its box is")
-        }
+        this.putGeometry(o n path)
 
         nodes.pushItem(o)
         def kids:[SceneNode] n.children
@@ -171,6 +176,45 @@ class SceneToFig {
         while (i < (array_length kids)) {
             this.emit((itemAt kids i) sid sid lid i ((path + "/") + (to_string i)))
             i = (i + 1)
+        }
+    }
+
+    ; --- geometry -------------------------------------------------------------
+    ;
+    ; The outline, written as a blob and named by index. This is what makes a
+    ; VECTOR arrive as a shape rather than as a rectangle-shaped hole.
+    fn putGeometry:void (o:KiwiValue n:SceneNode path:string) {
+        if ((strlen n.pathData) == 0) {
+            return
+        }
+        def w:double n.pathW
+        def h:double n.pathH
+        if (w <= 0.0) {
+            w = n.w
+        }
+        if (h <= 0.0) {
+            h = n.h
+        }
+        def blob:buffer (FigPathWrite.fromSvg(n.pathData))
+        if ((buffer_length blob) == 0) {
+            push losses (path + ": the outline parsed to no commands, so the node is written without geometry")
+            return
+        }
+        def entry:KiwiValue (KiwiValue.fromObject())
+        entry.put("bytes" (KiwiValue.fromBytes(blob)))
+        def index:int (blobs.itemCount())
+        blobs.pushItem(entry)
+        def g:KiwiValue (KiwiValue.fromObject())
+        g.put("commandsBlob" (KiwiValue.fromInt(index)))
+        if n.evenOdd {
+            g.put("windingRule" (KiwiValue.fromString("ODD")))
+        }
+        def arr:KiwiValue (KiwiValue.fromArray())
+        arr.pushItem(g)
+        if (n.strokeIsGeometry) {
+            o.put("strokeGeometry" arr)
+        } {
+            o.put("fillGeometry" arr)
         }
     }
 

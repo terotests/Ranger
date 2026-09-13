@@ -89,12 +89,27 @@ Reported per node rather than dropped in silence:
 
 | | |
 | --- | --- |
-| **path geometry** | a `VECTOR`'s outline lives in a commands blob, and writing one means encoding Figma's path opcodes. The box is written in its place, so a circle arrives as a rectangle-shaped hole in the picture. |
 | **images** | an `IMAGE` paint names a hash whose bytes live in the archive; a flat colour stands in |
 | **gradients** | written as their first stop |
 
 Everything else a scene carries — position, size, rotation, fills, strokes,
-corner radius, opacity, clipping, text and its font — is written.
+corner radius, opacity, clipping, text, its font, **and vector outlines** — is
+written.
+
+### Outlines are blobs, and the blob is the shape
+
+A `VECTOR` keeps its geometry outside the node, in a commands blob that
+`FigPath` decodes and `FigPathWrite` now encodes — `0x01` moveTo, `0x02` lineTo,
+`0x03` quadTo, `0x04` cubicTo, `0x00` close, coordinates as little-endian f32 in
+node space. Arcs never reach the encoder: `SVGPathParser` turns `A` into cubics
+as it reads, so a branch for it would be unreachable code claiming to handle a
+case the parser already resolved.
+
+Writing the blob was not enough on its own, and the second half is worth
+knowing: **a box is painted by `background-color`, a path by `fill`.** Reading
+the box's field for a path produced a `VECTOR` with perfect geometry and no
+paint — a shape that is there, is the right size, and draws nothing, which
+looks exactly like geometry that failed to write.
 
 ### One unit, two scales
 

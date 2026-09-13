@@ -1,0 +1,167 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; FigPathWrite — an outline, as the blob Figma keeps geometry in
+; ==============================================================================
+;
+; The exact inverse of `FigPath.decode`, and its header is the specification:
+;
+;   0x00 close   0x01 moveTo   0x02 lineTo   0x03 quadTo   0x04 cubicTo
+;
+; with coordinates as little-endian f32 in node space. Everything else about a
+; vector — its fills, its strokes, where it sits — is an ordinary field on the
+; node; only the outline lives out here, which is why a `VECTOR` written without
+; one arrived as a rectangle-shaped hole in the picture.
+;
+; --- ARCS NEVER REACH HERE ----------------------------------------------------
+;
+; `SVGPathParser` converts `A` to cubics as it reads, so the command list holds
+; only M, L, C, Q and Z. That is worth knowing rather than defending against: a
+; branch for `A` here would be unreachable code claiming to handle a case the
+; parser already resolved.
+;
+; --- NODE SPACE ---------------------------------------------------------------
+;
+; The blob's coordinates are relative to the node, not the page. An EVG path
+; carries its outline in `d` alongside a `viewBox` that says what space the `d`
+; is in, and for everything this writes those agree — a shape emitted by
+; `SceneToEVG` has a `viewBox` of its own box. A `d` in some other space would
+; need the viewBox transform applied first, and `scaleInto` is where that would
+; go; today it only reports the mismatch.
+; ==============================================================================
+
+Import "../../../evg/SVGPathParser.rgr"
+Import "../KiwiBuffer.rgr"
+
+class FigPathWrite {
+
+    sfn CLOSE:int ()  { return 0 }
+    sfn MOVE_TO:int () { return 1 }
+    sfn LINE_TO:int () { return 2 }
+    sfn QUAD_TO:int () { return 3 }
+    sfn CUBIC_TO:int () { return 4 }
+
+    ; An SVG path as a commands blob. An empty buffer means the path said
+    ; nothing this can write, and the caller reports that rather than attaching
+    ; a blob with no commands in it.
+    sfn fromSvg:buffer (d:string) {
+        def p (new SVGPathParser())
+        p.parse(d)
+        def out:[int]
+        def i:int 0
+        while (i < (array_length p.commands)) {
+            def c:PathCommand (itemAt p.commands i)
+            if (c.type == "M") {
+                push out (FigPathWrite.MOVE_TO())
+                FigPathWrite.pt(out c.x c.y)
+            }
+            if (c.type == "L") {
+                push out (FigPathWrite.LINE_TO())
+                FigPathWrite.pt(out c.x c.y)
+            }
+            if (c.type == "Q") {
+                push out (FigPathWrite.QUAD_TO())
+                FigPathWrite.pt(out c.x1 c.y1)
+                FigPathWrite.pt(out c.x c.y)
+            }
+            if (c.type == "C") {
+                push out (FigPathWrite.CUBIC_TO())
+                FigPathWrite.pt(out c.x1 c.y1)
+                FigPathWrite.pt(out c.x2 c.y2)
+                FigPathWrite.pt(out c.x c.y)
+            }
+            if (c.type == "Z") {
+                push out (FigPathWrite.CLOSE())
+            }
+            i = (i + 1)
+        }
+        return (FigPathWrite.toBuffer(out))
+    } doc {
+        description "Encodes an SVG path as a Figma geometry commands blob."
+        param d "The path data, in node space."
+        returns "The blob bytes; empty when the path held nothing writable."
+    }
+
+    ; Whether a `d` and a `viewBox` describe the same space. When they do not,
+    ; the blob would be written at the wrong scale, and saying so is better than
+    ; a shape that is silently the wrong size.
+    sfn spaceMatches:boolean (viewBox:string w:double h:double) {
+        if ((strlen viewBox) == 0) {
+            return true
+        }
+        def n:[double] (FigPathWrite.numbersIn(viewBox))
+        if ((array_length n) < 4) {
+            return true
+        }
+        def vw:double (itemAt n 2)
+        def vh:double (itemAt n 3)
+        if ((FigPathWrite.near(vw w)) == false) {
+            return false
+        }
+        return (FigPathWrite.near(vh h))
+    }
+
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d < 0.5)
+    }
+
+    sfn numbersIn:[double] (s:string) {
+        def out:[double]
+        def cur:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            def isNum:boolean (((c >= 48) && (c <= 57)) || ((c == 46) || (c == 45)))
+            if isNum {
+                cur = (cur + (substring s i (i + 1)))
+            } {
+                if ((strlen cur) > 0) {
+                    def v@(optional):double (to_double cur)
+                    if v {
+                        push out (unwrap v)
+                    }
+                    cur = ""
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            def last@(optional):double (to_double cur)
+            if last {
+                push out (unwrap last)
+            }
+        }
+        return out
+    }
+
+    ; --- bytes ----------------------------------------------------------------
+
+    sfn pt:void (out:[int] x:double y:double) {
+        FigPathWrite.f32(out x)
+        FigPathWrite.f32(out y)
+    }
+
+    ; Little-endian IEEE-754 single, through the same conversion
+    ; `KiwiBuffer.ieee32` reverses when reading.
+    sfn f32:void (out:[int] v:double) {
+        def bits:int (KiwiBuffer.floatToBits(v))
+        push out (bit_and bits 255)
+        push out (bit_and (bit_shr bits 8) 255)
+        push out (bit_and (bit_shr bits 16) 255)
+        push out (bit_and (bit_shr bits 24) 255)
+    }
+
+    sfn toBuffer:buffer (bytes:[int]) {
+        def b:buffer (buffer_alloc (array_length bytes))
+        def i:int 0
+        while (i < (array_length bytes)) {
+            buffer_set b i (itemAt bytes i)
+            i = (i + 1)
+        }
+        return b
+    }
+}

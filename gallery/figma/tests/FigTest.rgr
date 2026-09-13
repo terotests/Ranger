@@ -9,6 +9,8 @@ Import "../src/FigSample.rgr"
 Import "../src/convert/FigToScene.rgr"
 Import "../src/write/SceneToFig.rgr"
 Import "../src/write/EvgToScene.rgr"
+Import "../src/write/FigPathWrite.rgr"
+Import "../src/FigPath.rgr"
 Import "../../evg/EVGCodepoint.rgr"
 Import "../src/FigApp.rgr"
 Import "../src/FigDeflate.rgr"
@@ -171,20 +173,110 @@ class FigTest {
 
     fn testWriterReportsWhatItCannotCarry:void () {
         print "--- the writer says what it dropped ---"
+        ; Paths used to be the example here. They are carried now, so the test
+        ; moved to something that still is not: an image names bytes that live
+        ; in the archive, and the archive is not written.
+        def root:EVGElement (EVGElement.createDiv())
+        root.setAttribute("width" "200px")
+        root.setAttribute("height" "200px")
+        root.markInline("width")
+        root.markInline("height")
+        def pic:EVGElement (EVGElement.createImg())
+        pic.setAttribute("src" "photo.jpg")
+        pic.setAttribute("width" "50px")
+        pic.setAttribute("height" "50px")
+        pic.markInline("src")
+        root.addChild(pic)
+        def conv (new EvgToScene())
+        def scene:SceneNode (conv.build(root))
+        this.check("an image is reported, not dropped in silence" ((array_length conv.losses) > 0))
+
+        ; And a path is NOT reported, because nothing about it is lost.
+        def clean:EVGElement (EVGElement.createDiv())
+        clean.setAttribute("width" "200px")
+        clean.setAttribute("height" "200px")
+        clean.markInline("width")
+        clean.markInline("height")
+        def shape:EVGElement (EVGElement.createPath())
+        shape.setAttribute("d" "M 0 0 L 10 0 L 10 10 Z")
+        shape.setAttribute("width" "10px")
+        shape.setAttribute("height" "10px")
+        shape.markInline("d")
+        shape.markInline("width")
+        shape.markInline("height")
+        clean.addChild(shape)
+        def conv2 (new EvgToScene())
+        def scene2:SceneNode (conv2.build(clean))
+        this.eqInt("a carried path is not complained about" (array_length conv2.losses) 0)
+    }
+
+
+    fn testPathBlobRoundTrip:void () {
+        print "--- an outline, encoded and decoded again ---"
+        ; Straight through the reader's own decoder, which is the only check
+        ; worth making on an encoder: the bytes mean what `FigPath` says they
+        ; mean, or they do not.
+        def blob:buffer (FigPathWrite.fromSvg("M 10 20 L 110 20 L 110 70 Z"))
+        this.check("it produced bytes" ((buffer_length blob) > 0))
+        def rings:[FigPathRing]
+        FigPath.decode(blob rings)
+        this.eqInt("one ring" (array_length rings) 1)
+        def r:FigPathRing (itemAt rings 0)
+        def pts:int (idiv (array_length r.pts) 2)
+        this.check(("points " + (to_string pts)) (pts >= 3))
+        this.check("first x" (((itemAt r.pts 0) > 9.9) && ((itemAt r.pts 0) < 10.1)))
+        this.check("first y" (((itemAt r.pts 1) > 19.9) && ((itemAt r.pts 1) < 20.1)))
+
+        ; A curve has to survive too — the reader flattens it, so the test is
+        ; that it arrives as many points and ends where it was told to.
+        def curved:buffer (FigPathWrite.fromSvg("M 0 0 C 0 50 50 50 50 0"))
+        def rings2:[FigPathRing]
+        FigPath.decode(curved rings2)
+        this.eqInt("one ring for the curve" (array_length rings2) 1)
+        def r2:FigPathRing (itemAt rings2 0)
+        def pts2:int (idiv (array_length r2.pts) 2)
+        this.check(("a curve flattens to several points, got " + (to_string pts2)) (pts2 > 4))
+        def lastX:double (itemAt r2.pts ((array_length r2.pts) - 2))
+        this.check(("it ends at x=50, got " + (to_string lastX)) ((lastX > 49.0) && (lastX < 51.0)))
+
+        this.eqInt("nothing in, nothing out" (buffer_length (FigPathWrite.fromSvg(""))) 0)
+    }
+
+    fn testVectorKeepsItsShape:void () {
+        print "--- a vector written with its geometry ---"
         def root:EVGElement (EVGElement.createDiv())
         root.setAttribute("width" "200px")
         root.setAttribute("height" "200px")
         root.markInline("width")
         root.markInline("height")
         def shape:EVGElement (EVGElement.createPath())
-        shape.setAttribute("d" "M0 0 L10 0 L10 10 Z")
-        shape.setAttribute("width" "10px")
-        shape.setAttribute("height" "10px")
+        shape.setAttribute("d" "M 0 0 L 100 0 L 100 100 Z")
+        shape.setAttribute("width" "100px")
+        shape.setAttribute("height" "100px")
+        shape.setAttribute("fill" "rgb(0,128,0)")
         shape.markInline("d")
+        shape.markInline("width")
+        shape.markInline("height")
+        shape.markInline("fill")
         root.addChild(shape)
+
         def conv (new EvgToScene())
         def scene:SceneNode (conv.build(root))
-        this.check("a path is reported, not dropped in silence" ((array_length conv.losses) > 0))
+        def sn:SceneNode (itemAt scene.children 0)
+        this.eqStr("it is a vector" sn.sourceType "VECTOR")
+        this.check("the outline came across" ((strlen sn.pathData) > 0))
+        ; A path is painted by `fill`, not by `background-color`. Reading the
+        ; box's field here wrote a shape with geometry and no paint, which
+        ; renders as nothing and looks exactly like geometry that failed.
+        this.check("and so did the paint" ((array_length sn.fills) > 0))
+        def f:SceneFill (itemAt sn.fills 0)
+        this.check(("green as a fraction, got " + (to_string f.g)) ((f.g > 0.49) && (f.g < 0.51)))
+
+        def bytes:buffer (SceneToFig.writeNode(scene "vector.fig"))
+        def p (new FigParser())
+        def back:FigDoc (p.parseBytes(bytes "vector.fig"))
+        this.check(("it parsed " + back.err) back.ok)
+        this.check("the geometry blob rode along" ((array_length back.blobs) > 0))
     }
 
     fn run:void () {
@@ -210,6 +302,8 @@ class FigTest {
         this.testRewrite()
         this.testEvgToFig()
         this.testWriterReportsWhatItCannotCarry()
+        this.testPathBlobRoundTrip()
+        this.testVectorKeepsItsShape()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {

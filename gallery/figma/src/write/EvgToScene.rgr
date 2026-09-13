@@ -36,6 +36,7 @@ Import "../scene/SceneNode.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGLayout.rgr"
 Import "../../../evg/EVGColor.rgr"
+Import "FigPathWrite.rgr"
 
 class EvgToScene {
     def losses:[string]
@@ -88,8 +89,18 @@ class EvgToScene {
             if ((strlen el.svgPath) > 0) {
                 n.kind = "path"
                 n.sourceType = "VECTOR"
+                n.pathW = el.calculatedWidth
+                n.pathH = el.calculatedHeight
+                if ((FigPathWrite.spaceMatches(el.viewBox el.calculatedWidth el.calculatedHeight)) == false) {
+                    push losses ((((path + ": the outline's viewBox `") + el.viewBox) + "` is not the node's ") + ((to_string (to_int el.calculatedWidth)) + "x" + (to_string (to_int el.calculatedHeight)) + " box, so the shape is written at the wrong scale"))
+                }
                 n.pathData = el.svgPath
-                push losses ((path + ": a path's outline becomes a box — ") + "Figma keeps vector geometry in a blob this does not write yet")
+                ; No loss reported here. The outline is carried in `pathData`
+                ; and `SceneToFig` encodes it as a geometry blob; it reports
+                ; only when the path parses to no commands. An unconditional
+                ; complaint here was the same mistake the converter made
+                ; earlier — a warning that stays after the thing it warned
+                ; about was fixed teaches people to ignore the next real one.
             } {
                 if ((strlen el.src) > 0) {
                     n.kind = "image"
@@ -130,8 +141,16 @@ class EvgToScene {
         return (v / 255.0)
     }
 
+    ; A box is painted by `background-color`; a PATH is painted by `fill`, and
+    ; a stroked path by `stroke` / `stroke-width` rather than by a border.
+    ; Reading the box's field for a path wrote a VECTOR with geometry and no
+    ; paint — which is a shape that is there and draws nothing, and looks
+    ; exactly like geometry that failed to write.
     fn putFill:void (n:SceneNode el:EVGElement) {
         def c@(optional):EVGColor el.backgroundColor
+        if (n.kind == "path") {
+            c = el.fillColor
+        }
         if (null? c) {
             return
         }
@@ -150,10 +169,15 @@ class EvgToScene {
 
     fn putStroke:void (n:SceneNode el:EVGElement) {
         def bx:EVGBox el.box
-        if (bx.borderWidthPx <= 0.0) {
+        def weight:double bx.borderWidthPx
+        def c@(optional):EVGColor bx.borderColor
+        if (n.kind == "path") {
+            weight = el.strokeWidth
+            c = el.strokeColor
+        }
+        if (weight <= 0.0) {
             return
         }
-        def c@(optional):EVGColor bx.borderColor
         if (null? c) {
             return
         }
@@ -166,7 +190,7 @@ class EvgToScene {
         s.g = (EvgToScene.channel(cc.g))
         s.b = (EvgToScene.channel(cc.b))
         s.a = cc.a
-        s.weight = bx.borderWidthPx
+        s.weight = weight
         push n.strokes s
     }
 
