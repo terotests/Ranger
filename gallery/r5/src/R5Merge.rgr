@@ -1,0 +1,653 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; R5Merge — a reader's presentation edits, carried across a rebuild
+; ==============================================================================
+;
+; The slides and the Word page are BUILT from the markdown, and the engine's
+; rule for them is all or nothing: a view nobody touched is thrown away and
+; built again when the markdown changes; one the reader has edited is kept
+; and the markdown stops feeding it. That rule is right for a slide whose
+; words were rewritten in the slide editor — the markdown no longer says
+; what the slide says. It is wrong for a chart that was only made bigger, a
+; heading that was only recoloured, a paragraph that was only spaced: the
+; CONTENT still comes from the markdown, and only the LOOK is the reader's.
+;
+; So a view has two kinds of edit. An INVASIVE one changes what the view
+; says — words typed or deleted, a shape or a paragraph added or removed, a
+; slide added — and the view then stays the reader's, as before, with the
+; head offering "↻ from .md". A PRESENTATION edit changes how it looks —
+; geometry, fills, lines, fonts, colours, spacing, a drawing's size — and
+; the view keeps following the markdown: it is built again from the new
+; text, and the reader's look is put back on whatever still holds the same
+; content, or the same block where only the words moved.
+;
+; Neither editor keeps an operation log (the slide editor keeps snapshots,
+; the Word editor keeps undo hints), so this does not replay anything. It
+; compares MODELS. When a view is attached from the markdown a BASE is
+; taken: for every shape or block, a content key (what it says) and a look
+; signature (how it is dressed). Later, the edited view is held against
+; that base: the same keys in the same order means the edits were
+; presentation only; a shape whose signature moved is one the reader
+; dressed, and its look is what gets copied onto the rebuilt view's match.
+; Everything the reader did not touch takes the fresh build, so a template
+; change in the markdown still reaches the untouched shapes.
+;
+; Matching is by content first — the same words find each other wherever
+; the block moved to — and, for what did not match, by kind: a drawing in
+; the same notation whose source was edited keeps its place and its width
+; (the way `MdDeckDiagram.redraw` does for the diagram pane), and a text
+; shape or paragraph of the same role keeps its dress as a format painter
+; would apply it, since its run structure may no longer line up.
+; ==============================================================================
+
+Import "../../markdown/web/markdown_web.rgr"
+Import "../../pptx/src/PptxModel.rgr"
+Import "../../pptx/src/PptxEdit.rgr"
+Import "../../docx_viewer/src/RichDocument.rgr"
+
+; The base of a deck: per slide, its background and one key and one
+; signature per shape, in order.
+class R5DeckBase {
+    def counts:[int]
+    def bgs:[string]
+    def keys:[string]
+    def sigs:[string]
+    def from:string ""
+    def taken:boolean false
+
+    Constructor () {
+    }
+
+    fn take:void (pres:PptxPresentation source:string) {
+        clear counts
+        clear bgs
+        clear keys
+        clear sigs
+        def n:int (array_length pres.slides)
+        def i:int 0
+        while (i < n) {
+            def sl:PptxSlide (itemAt pres.slides i)
+            push counts (array_length sl.shapes)
+            push bgs (sl.bg.signature())
+            def j:int 0
+            while (j < (array_length sl.shapes)) {
+                def sh:PptxShape (itemAt sl.shapes j)
+                push keys (R5Merge.shapeKey(sh))
+                push sigs (R5Merge.shapeSig(sh))
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        from = source
+        taken = true
+    }
+
+    ; The flat index of shape `j` on slide `i`.
+    fn at:int (i:int j:int) {
+        def off:int 0
+        def k:int 0
+        while (k < i) {
+            off = (off + (itemAt counts k))
+            k = (k + 1)
+        }
+        return (off + j)
+    }
+}
+
+; The base of a Word document: one key and one signature per block.
+class R5DocBase {
+    def keys:[string]
+    def sigs:[string]
+    def from:string ""
+    def taken:boolean false
+
+    Constructor () {
+    }
+
+    fn take:void (doc:RichDocument source:string) {
+        clear keys
+        clear sigs
+        def n:int (doc.blockCount())
+        def i:int 0
+        while (i < n) {
+            def b:DocBlock (doc.blockAt(i))
+            push keys (R5Merge.blockKey(b))
+            push sigs (R5Merge.blockSig(b))
+            i = (i + 1)
+        }
+        from = source
+        taken = true
+    }
+}
+
+class R5Merge {
+    ; =========================================================================
+    ; What a shape says, and how it is dressed
+    ; =========================================================================
+    sfn isDrawing:boolean (sh:PptxShape) {
+        if (sh.kind != (PptxShapeKind.group())) { return false }
+        return ((strlen sh.embedSource) > 0)
+    }
+
+    sfn bodyText:string (body:PptxTextBody) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length body.paragraphs)) {
+            def p:PptxParagraph (itemAt body.paragraphs i)
+            if (i > 0) { str_append out "\n" }
+            def j:int 0
+            while (j < (array_length p.runs)) {
+                def r:PptxTextRun (itemAt p.runs j)
+                str_append out r.text
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn shapeKey:string (sh:PptxShape) {
+        if (R5Merge.isDrawing(sh)) {
+            return ("dr:" + sh.embedNotation + ":" + sh.embedSource)
+        }
+        if (sh.kind == (PptxShapeKind.group())) {
+            def out:string "g:"
+            def i:int 0
+            while (i < (array_length sh.children)) {
+                str_append out (R5Merge.shapeKey((itemAt sh.children i)))
+                str_append out "|"
+                i = (i + 1)
+            }
+            return out
+        }
+        if (sh.kind == (PptxShapeKind.picture())) {
+            return ("pic:" + sh.imagePart)
+        }
+        if sh.hasText {
+            return ("t:" + (to_string sh.kind) + ":" + (R5Merge.bodyText(sh.text)))
+        }
+        return ("k:" + (to_string sh.kind) + ":" + sh.name)
+    }
+
+    sfn colorSig:string (c:PptxColor) {
+        return (c.signature())
+    }
+
+    sfn runSig:string (r:PptxTextRun) {
+        def out:string r.fontFamily
+        out = (out + "/" + (EVGDisplayList.num(r.fontSizePt)) + (? r.sizeSet "s" "-"))
+        out = (out + (? r.bold "B" "b") + (? r.boldSet "S" "-"))
+        out = (out + (? r.italic "I" "i") + (? r.italicSet "S" "-"))
+        out = (out + "/" + (R5Merge.colorSig(r.color)) + (? r.colorStated "C" "-"))
+        out = (out + "/" + (R5Merge.colorSig(r.highlight)))
+        return out
+    }
+
+    sfn paragraphSig:string (p:PptxParagraph) {
+        def out:string (p.align + (? p.alignSet "A" "-"))
+        out = (out + "/" + (EVGDisplayList.num(p.spaceBeforePt)) + "," + (EVGDisplayList.num(p.spaceAfterPt)))
+        out = (out + "," + (EVGDisplayList.num(p.lineSpacingPct)))
+        out = (out + "/" + (to_string p.level) + (? p.hasBullet "*" "-") + p.bulletChar)
+        out = (out + "/" + (EVGDisplayList.num(p.marginLeftPt)) + "," + (EVGDisplayList.num(p.indentPt)))
+        def j:int 0
+        while (j < (array_length p.runs)) {
+            out = (out + "[" + (R5Merge.runSig((itemAt p.runs j))) + "]")
+            j = (j + 1)
+        }
+        return out
+    }
+
+    sfn bodySig:string (body:PptxTextBody) {
+        def out:string ""
+        if body.insetsSet {
+            out = (out + "in:" + (EVGDisplayList.num(body.insetL)) + "," + (EVGDisplayList.num(body.insetT)))
+            out = (out + "," + (EVGDisplayList.num(body.insetR)) + "," + (EVGDisplayList.num(body.insetB)))
+        }
+        out = (out + "/" + body.anchor + (? body.anchorSet "A" "-"))
+        def i:int 0
+        while (i < (array_length body.paragraphs)) {
+            out = (out + "{" + (R5Merge.paragraphSig((itemAt body.paragraphs i))) + "}")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn shadowSig:string (s:PptxShadow) {
+        if (! s.isSet) { return "-" }
+        def out:string (EVGDisplayList.num(s.offsetXPt))
+        out = (out + "," + (EVGDisplayList.num(s.offsetYPt)) + "," + (EVGDisplayList.num(s.blurPt)))
+        out = (out + "," + (R5Merge.colorSig(s.color)) + "," + (EVGDisplayList.num(s.alpha)))
+        return out
+    }
+
+    sfn shapeSig:string (sh:PptxShape) {
+        def out:string (sh.xfrmSignature())
+        if (R5Merge.isDrawing(sh)) {
+            return out
+        }
+        out = (out + "|" + (sh.fillSignature()) + "|" + (sh.lineSignature()))
+        out = (out + "|" + (EVGDisplayList.num(sh.lineWidthPt)) + "|" + (R5Merge.shadowSig(sh.shadow)))
+        if sh.hasText {
+            out = (out + "|" + (R5Merge.bodySig(sh.text)))
+        }
+        return out
+    }
+
+    sfn slideTitle:string (sl:PptxSlide) {
+        if ((array_length sl.shapes) == 0) { return "" }
+        return (R5Merge.shapeKey((itemAt sl.shapes 0)))
+    }
+
+    ; =========================================================================
+    ; The deck
+    ; =========================================================================
+    ; Did the reader change what the deck SAYS? The same slides with the same
+    ; shapes holding the same content means no; anything else means yes.
+    sfn deckInvasive:boolean (edited:PptxPresentation base:R5DeckBase) {
+        if (! base.taken) { return true }
+        def n:int (array_length edited.slides)
+        if (n != (array_length base.counts)) { return true }
+        def flat:int 0
+        def i:int 0
+        while (i < n) {
+            def sl:PptxSlide (itemAt edited.slides i)
+            if ((array_length sl.shapes) != (itemAt base.counts i)) { return true }
+            def j:int 0
+            while (j < (array_length sl.shapes)) {
+                def sh:PptxShape (itemAt sl.shapes j)
+                if ((R5Merge.shapeKey(sh)) != (itemAt base.keys flat)) { return true }
+                flat = (flat + 1)
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The reader's look, from the edited deck onto the fresh one. The base is
+    ; the edited deck's own origin, so a shape whose signature has not moved
+    ; since is left to the fresh build.
+    sfn mergeDeck:void (fresh:PptxPresentation edited:PptxPresentation base:R5DeckBase) {
+        def en:int (array_length edited.slides)
+        def usedSlide:[boolean]
+        def i:int 0
+        while (i < en) {
+            push usedSlide false
+            i = (i + 1)
+        }
+        def sameCount:boolean ((array_length fresh.slides) == en)
+        def fi:int 0
+        while (fi < (array_length fresh.slides)) {
+            def fs:PptxSlide (itemAt fresh.slides fi)
+            def title:string (R5Merge.slideTitle(fs))
+            def pick:int -1
+            if (fi < en) {
+                if ((itemAt usedSlide fi) == false) {
+                    if ((R5Merge.slideTitle((itemAt edited.slides fi))) == title) {
+                        pick = fi
+                    }
+                }
+            }
+            if (pick < 0) {
+                def k:int 0
+                while (k < en) {
+                    if ((itemAt usedSlide k) == false) {
+                        if ((R5Merge.slideTitle((itemAt edited.slides k))) == title) {
+                            pick = k
+                            break
+                        }
+                    }
+                    k = (k + 1)
+                }
+            }
+            if ((pick < 0) && sameCount) {
+                if ((itemAt usedSlide fi) == false) {
+                    pick = fi
+                }
+            }
+            if (pick >= 0) {
+                set usedSlide pick true
+                R5Merge.mergeSlide(fs (itemAt edited.slides pick) pick base)
+            }
+            fi = (fi + 1)
+        }
+    }
+
+    sfn mergeSlide:void (fresh:PptxSlide edited:PptxSlide editedIndex:int base:R5DeckBase) {
+        if ((edited.bg.signature()) != (itemAt base.bgs editedIndex)) {
+            fresh.bg = (PptxClone.color(edited.bg))
+        }
+        def en:int (array_length edited.shapes)
+        def used:[boolean]
+        def i:int 0
+        while (i < en) {
+            push used false
+            i = (i + 1)
+        }
+        def fj:int 0
+        while (fj < (array_length fresh.shapes)) {
+            def fsh:PptxShape (itemAt fresh.shapes fj)
+            def key:string (R5Merge.shapeKey(fsh))
+            def pick:int -1
+            ; The same content, wherever it went.
+            def k:int 0
+            while (k < en) {
+                if ((itemAt used k) == false) {
+                    if ((R5Merge.shapeKey((itemAt edited.shapes k))) == key) {
+                        pick = k
+                        break
+                    }
+                }
+                k = (k + 1)
+            }
+            def same:boolean (pick >= 0)
+            if (pick < 0) {
+                ; The same block, its words changed: a drawing in the same
+                ; notation, or a text shape of the same role and shape.
+                def m:int 0
+                while (m < en) {
+                    if ((itemAt used m) == false) {
+                        def esh:PptxShape (itemAt edited.shapes m)
+                        if (R5Merge.sameRole(fsh esh)) {
+                            pick = m
+                            break
+                        }
+                    }
+                    m = (m + 1)
+                }
+            }
+            if (pick >= 0) {
+                set used pick true
+                def esh2:PptxShape (itemAt edited.shapes pick)
+                def baseSig:string (itemAt base.sigs (base.at(editedIndex pick)))
+                if ((R5Merge.shapeSig(esh2)) != baseSig) {
+                    R5Merge.dress(fsh esh2 same)
+                }
+            }
+            fj = (fj + 1)
+        }
+    }
+
+    sfn sameRole:boolean (a:PptxShape b:PptxShape) {
+        if (R5Merge.isDrawing(a)) {
+            if (! (R5Merge.isDrawing(b))) { return false }
+            return (a.embedNotation == b.embedNotation)
+        }
+        if (R5Merge.isDrawing(b)) { return false }
+        if (a.kind != b.kind) { return false }
+        if (a.kind == (PptxShapeKind.picture())) { return false }
+        if (a.isPlaceholder != b.isPlaceholder) { return false }
+        if (a.phType != b.phType) { return false }
+        if (a.preset != b.preset) { return false }
+        if (a.hasText != b.hasText) { return false }
+        if a.hasText {
+            return ((array_length a.text.paragraphs) == (array_length b.text.paragraphs))
+        }
+        return true
+    }
+
+    ; The edited shape's look onto the fresh one. `same` says the content is
+    ; identical, so run structures line up and every run's style can go
+    ; across; otherwise the first run's style dresses the paragraph.
+    sfn dress:void (fresh:PptxShape edited:PptxShape same:boolean) {
+        if (R5Merge.isDrawing(fresh)) {
+            fresh.x = edited.x
+            fresh.y = edited.y
+            fresh.rotation = edited.rotation
+            if (same || (fresh.width <= 0.0)) {
+                fresh.width = edited.width
+                fresh.height = edited.height
+            } {
+                ; The reader's width, and the fresh drawing's own proportion.
+                def scale:double (edited.width / fresh.width)
+                fresh.height = (fresh.height * scale)
+                fresh.width = edited.width
+            }
+            return
+        }
+        fresh.x = edited.x
+        fresh.y = edited.y
+        fresh.width = edited.width
+        fresh.height = edited.height
+        fresh.rotation = edited.rotation
+        fresh.flipH = edited.flipH
+        fresh.flipV = edited.flipV
+        fresh.noFill = edited.noFill
+        fresh.fill = (PptxClone.color(edited.fill))
+        fresh.fillGrad = (PptxClone.gradient(edited.fillGrad))
+        fresh.noLine = edited.noLine
+        fresh.line = (PptxClone.color(edited.line))
+        fresh.lineWidthPt = edited.lineWidthPt
+        fresh.shadow = (PptxClone.shadow(edited.shadow))
+        if ((! fresh.hasText) || (! edited.hasText)) { return }
+        def fb:PptxTextBody fresh.text
+        def eb:PptxTextBody edited.text
+        if eb.insetsSet {
+            fb.insetL = eb.insetL
+            fb.insetT = eb.insetT
+            fb.insetR = eb.insetR
+            fb.insetB = eb.insetB
+            fb.insetsSet = true
+        }
+        if eb.anchorSet {
+            fb.anchor = eb.anchor
+            fb.anchorSet = true
+        }
+        def n:int (array_length fb.paragraphs)
+        if ((array_length eb.paragraphs) < n) {
+            n = (array_length eb.paragraphs)
+        }
+        def i:int 0
+        while (i < n) {
+            def fp:PptxParagraph (itemAt fb.paragraphs i)
+            def ep:PptxParagraph (itemAt eb.paragraphs i)
+            ep.copyFormatTo(fp)
+            def runsAlign:boolean same
+            if ((array_length fp.runs) != (array_length ep.runs)) {
+                runsAlign = false
+            }
+            def j:int 0
+            while (j < (array_length fp.runs)) {
+                def fr:PptxTextRun (itemAt fp.runs j)
+                def from:int (? runsAlign j 0)
+                if (from < (array_length ep.runs)) {
+                    R5Merge.dressRun(fr (itemAt ep.runs from))
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn dressRun:void (fresh:PptxTextRun edited:PptxTextRun) {
+        edited.copyStyleTo(fresh)
+        fresh.color = (PptxClone.color(edited.color))
+        fresh.colorStated = edited.colorStated
+        fresh.highlight = (PptxClone.color(edited.highlight))
+    }
+
+    ; =========================================================================
+    ; The Word document
+    ; =========================================================================
+    sfn blockKey:string (b:DocBlock) {
+        if (b.kind == (DocBlockKind.para())) {
+            def p:Paragraph b.paragraph
+            def out:string ("p:" + p.text)
+            def i:int 0
+            while (i < (array_length p.images)) {
+                def img:DocImage (itemAt p.images i)
+                out = (out + "[" + img.partPath + "]")
+                i = (i + 1)
+            }
+            return out
+        }
+        if (b.kind == (DocBlockKind.drawing())) {
+            return ("d:" + b.drawing.notation + ":" + b.drawing.source)
+        }
+        return ("k:" + (to_string b.kind))
+    }
+
+    sfn spanSig:string (s:TextSpan) {
+        def out:string ((to_string s.start) + "-" + (to_string s.end))
+        out = (out + (? s.bold "B" "b") + (? s.italic "I" "i") + (? s.underline "U" "u"))
+        out = (out + "/" + (EVGDisplayList.num(s.fontSizePt)) + "/" + s.fontFamily + "/" + s.colorHex)
+        return out
+    }
+
+    sfn blockSig:string (b:DocBlock) {
+        if (b.kind == (DocBlockKind.para())) {
+            def p:Paragraph b.paragraph
+            def out:string (p.styleId + "/" + (to_string p.align) + "/" + (to_string p.bidi))
+            out = (out + "/" + (EVGDisplayList.num(p.spaceBeforePt)) + "," + (EVGDisplayList.num(p.spaceAfterPt)))
+            out = (out + "," + (EVGDisplayList.num(p.lineSpacing)))
+            out = (out + "/" + (EVGDisplayList.num(p.indentLeftPt)) + "," + (EVGDisplayList.num(p.indentRightPt)))
+            out = (out + "," + (EVGDisplayList.num(p.indentFirstLinePt)))
+            out = (out + "/" + (to_string p.listKind) + "," + (to_string p.listLevel) + "," + (to_string p.listNumId))
+            def i:int 0
+            while (i < (array_length p.spans)) {
+                out = (out + "[" + (R5Merge.spanSig((itemAt p.spans i))) + "]")
+                i = (i + 1)
+            }
+            def k:int 0
+            while (k < (array_length p.images)) {
+                def img:DocImage (itemAt p.images k)
+                out = (out + "<" + (to_string img.widthPx) + "x" + (to_string img.heightPx) + ">")
+                k = (k + 1)
+            }
+            return out
+        }
+        if (b.kind == (DocBlockKind.drawing())) {
+            return ((to_string b.drawing.widthPx) + "x" + (to_string b.drawing.heightPx))
+        }
+        return ""
+    }
+
+    sfn docInvasive:boolean (edited:RichDocument base:R5DocBase) {
+        if (! base.taken) { return true }
+        def n:int (edited.blockCount())
+        if (n != (array_length base.keys)) { return true }
+        def i:int 0
+        while (i < n) {
+            if ((R5Merge.blockKey((edited.blockAt(i)))) != (itemAt base.keys i)) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn sameBlockRole:boolean (a:DocBlock b:DocBlock) {
+        if (a.kind != b.kind) { return false }
+        if (a.kind == (DocBlockKind.drawing())) {
+            return (a.drawing.notation == b.drawing.notation)
+        }
+        if (a.kind == (DocBlockKind.para())) {
+            if (a.paragraph.styleId != b.paragraph.styleId) { return false }
+            if (a.paragraph.listKind != b.paragraph.listKind) { return false }
+            return ((array_length a.paragraph.images) == (array_length b.paragraph.images))
+        }
+        return false
+    }
+
+    sfn mergeDoc:void (fresh:RichDocument edited:RichDocument base:R5DocBase) {
+        def en:int (edited.blockCount())
+        def used:[boolean]
+        def i:int 0
+        while (i < en) {
+            push used false
+            i = (i + 1)
+        }
+        def fi:int 0
+        while (fi < (fresh.blockCount())) {
+            def fb:DocBlock (fresh.blockAt(fi))
+            def key:string (R5Merge.blockKey(fb))
+            def pick:int -1
+            def k:int 0
+            while (k < en) {
+                if ((itemAt used k) == false) {
+                    if ((R5Merge.blockKey((edited.blockAt(k)))) == key) {
+                        pick = k
+                        break
+                    }
+                }
+                k = (k + 1)
+            }
+            def same:boolean (pick >= 0)
+            if (pick < 0) {
+                def m:int 0
+                while (m < en) {
+                    if ((itemAt used m) == false) {
+                        if (R5Merge.sameBlockRole(fb (edited.blockAt(m)))) {
+                            pick = m
+                            break
+                        }
+                    }
+                    m = (m + 1)
+                }
+            }
+            if (pick >= 0) {
+                set used pick true
+                def eb:DocBlock (edited.blockAt(pick))
+                if ((R5Merge.blockSig(eb)) != (itemAt base.sigs pick)) {
+                    R5Merge.dressBlock(fb eb same)
+                }
+            }
+            fi = (fi + 1)
+        }
+    }
+
+    sfn dressBlock:void (fresh:DocBlock edited:DocBlock same:boolean) {
+        if (fresh.kind == (DocBlockKind.drawing())) {
+            def fd:DocDrawing fresh.drawing
+            def ed:DocDrawing edited.drawing
+            if (same || (fd.widthPx <= 0)) {
+                fd.widthPx = ed.widthPx
+                fd.heightPx = ed.heightPx
+            } {
+                def w:double (to_double ed.widthPx)
+                def h:double (((to_double fd.heightPx) * w) / (to_double fd.widthPx))
+                fd.widthPx = ed.widthPx
+                fd.heightPx = (to_int (h + 0.5))
+                if (fd.heightPx < 12) { fd.heightPx = 12 }
+            }
+            return
+        }
+        if (fresh.kind != (DocBlockKind.para())) { return }
+        def fp:Paragraph fresh.paragraph
+        def ep:Paragraph edited.paragraph
+        ep.copyFormatTo(fp)
+        if same {
+            clear fp.spans
+            def i:int 0
+            while (i < (array_length ep.spans)) {
+                def s:TextSpan (itemAt ep.spans i)
+                push fp.spans (s.copy())
+                i = (i + 1)
+            }
+        } {
+            if ((array_length ep.spans) > 0) {
+                def first:TextSpan (itemAt ep.spans 0)
+                def j:int 0
+                while (j < (array_length fp.spans)) {
+                    def s2:TextSpan (itemAt fp.spans j)
+                    s2.bold = first.bold
+                    s2.italic = first.italic
+                    s2.underline = first.underline
+                    s2.fontSizePt = first.fontSizePt
+                    s2.fontFamily = first.fontFamily
+                    s2.colorHex = first.colorHex
+                    j = (j + 1)
+                }
+            }
+        }
+        def n:int (array_length fp.images)
+        if ((array_length ep.images) < n) { n = (array_length ep.images) }
+        def k:int 0
+        while (k < n) {
+            def fimg:DocImage (itemAt fp.images k)
+            def eimg:DocImage (itemAt ep.images k)
+            fimg.widthPx = eimg.widthPx
+            fimg.heightPx = eimg.heightPx
+            k = (k + 1)
+        }
+    }
+}
