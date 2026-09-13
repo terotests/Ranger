@@ -1,0 +1,876 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; MfUixHost — UIX applications, running in Ranger's own JavaScript engine
+; =============================================================================
+; Each application gets a ComponentEngine of its own, the way M-Files gives
+; each one its own context. Before the application's script, the engine loads
+; a PRELUDE — JavaScript that builds the object model the application expects:
+;
+;   uix-api.js       enums and the IVault method list, generated from the
+;                    official .d.ts files
+;   uix-core.js      events, promises, timers, console — shared by both
+;   uix2-prelude.js  UIX v2: shellUI / shellFrame / Vault, all async
+;   uix1-prelude.js  UIX v1: the same shapes, synchronous and COM-like
+;   mfgrpc.js        a subset of @m-filescorporation/uix-vault-messages
+;
+; The prelude reaches the emulator through three native functions and
+; nothing else:
+;
+;   __mf_vault(method, requestJson) → envelope   the gRPC Vault API (MfGrpc)
+;   __mf_shell(op, argsJson)        → json       the client window (MfShell)
+;   __mf_log(level, text)                        the console panel
+;
+; and the emulator reaches the application by calling three script functions:
+; `__mfHostEvent` (an event to registered handlers), `__mfResolve` (a promise
+; that was waiting for a button), `__mfTick` (timers).
+;
+; Events are QUEUED and delivered one at a time, never from inside a native
+; call: an extension that changes the selection in a SelectionChanged handler
+; must not re-enter its own engine mid-statement.
+;
+; The MODE is the emulator's, not the application's. A v1 application in v2
+; mode is refused with a sentence that says so, which is the situation a
+; developer porting an application wants to be told about.
+; =============================================================================
+
+Import "../shell/MfShell.rgr"
+Import "../vault/MfSampleVault.rgr"
+Import "../../../game_engine/v2/interp/migrate/src/ComponentEngine.rgr"
+Import "../../../game_engine/v2/interp/migrate/src/EvHandle.rgr"
+
+class MfUixApp {
+    def name:string ""
+    def guid:string ""
+    def version:int 2
+    def source:string ""
+    def engine@(optional):ComponentEngine
+    def running:boolean false
+    def error:string ""
+    def calls:int 0
+}
+
+class MfPending {
+    def appIndex:int 0
+    ; "event" | "resolve" | "tick"
+    def kind:string "event"
+    def payload:string ""
+}
+
+class MfUixBridge extends EvalNativeBridge {
+    def host@(optional):MfUixHost
+    def appIndex:int 0
+
+    fn has:boolean (name:string) {
+        if (((name == "__mf_vault") || (name == "__mf_shell")) || (name == "__mf_log")) {
+            return true
+        }
+        return false
+    }
+
+    fn invoke:EvHandle (name:string args:[EvHandle]) {
+        def h:MfUixHost (unwrap host)
+        return (h.native(appIndex name args))
+    }
+}
+
+class MfUixHost {
+    def shell:MfShell
+    def mode:int 2
+    def apiJs:string ""
+    def coreJs:string ""
+    def v1Js:string ""
+    def v2Js:string ""
+    def grpcJs:string ""
+    def apps:[MfUixApp]
+    def queue:[MfPending]
+    def pumping:boolean false
+    def nativeCalls:int 0
+    def delivered:int 0
+    def frameDashboard:string ""
+    def frameDashboardData:string ""
+
+    Constructor (s:MfShell) {
+        shell = s
+    }
+
+    sfn withSampleVault:MfUixHost () {
+        def v:MfVault (MfSampleVault.build())
+        def s (new MfShell(v))
+        return (new MfUixHost(s))
+    }
+
+    fn setScripts:void (api:string core:string v1:string v2:string grpc:string) {
+        apiJs = api
+        coreJs = core
+        v1Js = v1
+        v2Js = v2
+        grpcJs = grpc
+    }
+
+    ; =========================================================================
+    ; Applications
+    ; =========================================================================
+
+    fn addApp:int (name:string guid:string version:int source:string) {
+        def a (new MfUixApp)
+        a.name = name
+        a.guid = guid
+        a.version = version
+        a.source = source
+        push apps a
+        def index:int ((array_length apps) - 1)
+        this.startApp(index)
+        return index
+    }
+
+    fn appIndexOf:int (guid:string) {
+        def n:int (array_length apps)
+        def i:int 0
+        while (i < n) {
+            def a:MfUixApp (itemAt apps i)
+            if (a.guid == guid) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn preludeFor:string (version:int) {
+        if (version == 1) {
+            return (apiJs + "\n;\n" + coreJs + "\n;\n" + v1Js + "\n;\n")
+        }
+        return (apiJs + "\n;\n" + coreJs + "\n;\n" + v2Js + "\n;\n" + grpcJs + "\n;\n")
+    }
+
+    ; How many lines precede the application's own first line, so an error
+    ; can be reported against the file the developer wrote.
+    fn preludeLines:int (version:int) {
+        def text:string (this.preludeFor(version))
+        def parts:[string] (strsplit text "\n")
+        return ((array_length parts) - 1)
+    }
+
+    fn startApp:void (index:int) {
+        def app:MfUixApp (itemAt apps index)
+        app.error = ""
+        app.running = false
+        if (app.version != mode) {
+            app.error = ("This is a UIX v" + (to_string app.version) + " application and the emulator is in UIX v" + (to_string mode) + " mode")
+            shell.log("warn" app.name app.error)
+            return
+        }
+        def eng (new ComponentEngine)
+        eng.quiet = true
+        def br (new MfUixBridge)
+        br.host = this
+        br.appIndex = index
+        eng.setNativeBridge(br)
+        app.engine = eng
+        app.running = true
+        shell.currentApp = app.guid
+        def body:string (replace app.source "console." "__mfConsole.")
+        def src:string ((this.preludeFor(app.version)) + body + "\n;\n__mfStart();\n")
+        eng.loadScript(src)
+        if ((strlen eng.lastSyntaxError) > 0) {
+            app.error = ("Syntax error: " + eng.lastSyntaxError + " (the application starts at line " + (to_string ((this.preludeLines(app.version)) + 1)) + " of the combined script)")
+            app.running = false
+            shell.log("error" app.name app.error)
+            return
+        }
+        shell.log("info" app.name ("started in UIX v" + (to_string mode) + " mode"))
+        ; The lifecycle a real client runs, one event at a time.
+        this.enqueue(index "event" (MfUixHost.payload("shellui" 2 "[]")))
+        this.enqueue(index "event" (MfUixHost.payload("shellui" 7 "[{\"$ref\":\"shellFrame\"}]")))
+        this.enqueue(index "event" (MfUixHost.payload("shellui" 8 "[{\"$ref\":\"shellFrame\"}]")))
+        this.enqueue(index "event" (MfUixHost.payload("frame" 16 "[{\"$ref\":\"commands\"}]")))
+        this.enqueue(index "event" (MfUixHost.payload("frame" 15 "[{\"$ref\":\"listing\"}]")))
+        this.enqueue(index "event" (MfUixHost.payload("listing" 2 "[]")))
+        this.enqueue(index "event" (MfUixHost.payload("frame" 14 "[{\"$ref\":\"rightPane\"}]")))
+        this.enqueue(index "event" (MfUixHost.payload("frame" 170 "[{\"$ref\":\"leftPane\"}]")))
+        this.enqueue(index "event" (MfUixHost.payload("frame" 2 "[]")))
+        this.pump()
+    }
+
+    fn stopApp:void (index:int) {
+        def app:MfUixApp (itemAt apps index)
+        if app.running {
+            this.deliverNow(index "event" (MfUixHost.payload("shellui" 3 "[]")))
+        }
+        app.running = false
+        this.removeUiOf(app.guid)
+        def none@(optional):ComponentEngine
+        app.engine = none
+    }
+
+    fn restartApp:void (index:int) {
+        this.stopApp(index)
+        this.startApp(index)
+    }
+
+    fn removeApp:void (index:int) {
+        this.stopApp(index)
+        def app:MfUixApp (itemAt apps index)
+        app.version = -1
+    }
+
+    ; Switching mode restarts every application, as a client restart would.
+    fn setMode:void (m:int) {
+        def n:int (array_length apps)
+        def i:int 0
+        while (i < n) {
+            this.stopApp(i)
+            i = (i + 1)
+        }
+        mode = m
+        shell.log("info" "emulator" ("switched to UIX v" + (to_string m) + " mode"))
+        def j:int 0
+        while (j < n) {
+            def a:MfUixApp (itemAt apps j)
+            if (a.version > 0) {
+                this.startApp(j)
+            }
+            j = (j + 1)
+        }
+    }
+
+    fn removeUiOf:void (guid:string) {
+        def keepC:[MfCustomCommand]
+        for shell.commands c:MfCustomCommand i {
+            if (c.appId != guid) {
+                push keepC c
+            }
+        }
+        shell.commands = keepC
+        def keepM:[MfMenuItem]
+        for shell.menuItems m:MfMenuItem j {
+            if (m.appId != guid) {
+                push keepM m
+            }
+        }
+        shell.menuItems = keepM
+        def keepT:[MfPaneTab]
+        for shell.tabs t:MfPaneTab k {
+            if ((t.appId != guid) || t.builtIn) {
+                push keepT t
+            }
+        }
+        shell.tabs = keepT
+        if ((shell.hasTab(shell.selectedTab)) == false) {
+            shell.selectedTab = "_metadata"
+        }
+    }
+
+    fn runningCount:int () {
+        def n:int 0
+        for apps a:MfUixApp i {
+            if a.running {
+                n = (n + 1)
+            }
+        }
+        return n
+    }
+
+    ; =========================================================================
+    ; Delivery
+    ; =========================================================================
+
+    sfn payload:string (target:string event:int argsJson:string) {
+        return ("{\"target\":" + (MfJ.quote(target)) + ",\"event\":" + (to_string event) + ",\"args\":" + argsJson + "}")
+    }
+
+    fn enqueue:void (index:int kind:string payload:string) {
+        def p (new MfPending)
+        p.appIndex = index
+        p.kind = kind
+        p.payload = payload
+        push queue p
+    }
+
+    fn enqueueAll:void (kind:string payload:string) {
+        def n:int (array_length apps)
+        def i:int 0
+        while (i < n) {
+            def a:MfUixApp (itemAt apps i)
+            if a.running {
+                this.enqueue(i kind payload)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn pump:void () {
+        if pumping {
+            return
+        }
+        pumping = true
+        def guard:int 0
+        while (((array_length queue) > 0) && (guard < 5000)) {
+            def p:MfPending (itemAt queue 0)
+            remove_index queue 0
+            this.deliverNow(p.appIndex p.kind p.payload)
+            guard = (guard + 1)
+        }
+        if (guard >= 5000) {
+            shell.log("error" "emulator" "event storm: more than 5000 events in one turn, the rest were dropped")
+            def empty:[MfPending]
+            queue = empty
+        }
+        pumping = false
+    }
+
+    fn scriptFunction:string (kind:string) {
+        if (kind == "resolve") {
+            return "__mfResolve"
+        }
+        if (kind == "tick") {
+            return "__mfTick"
+        }
+        return "__mfHostEvent"
+    }
+
+    ; Returns what the script function returned, as text.
+    fn deliverNow:string (index:int kind:string payload:string) {
+        if ((index < 0) || (index >= (array_length apps))) {
+            return ""
+        }
+        def app:MfUixApp (itemAt apps index)
+        if ((app.running == false) || (null? app.engine)) {
+            return ""
+        }
+        def eng:ComponentEngine (unwrap app.engine)
+        shell.currentApp = app.guid
+        delivered = (delivered + 1)
+        def out:EvHandle (eng.callFunction((this.scriptFunction(kind)) (EvHandle.string(payload))))
+        eng.drainJobs()
+        return (out.toString())
+    }
+
+    ; =========================================================================
+    ; What the UI tells the applications
+    ; =========================================================================
+
+    fn notifySelection:void () {
+        this.enqueueAll("event" (MfUixHost.payload("listing" 24 "[{\"$ref\":\"selection\"}]")))
+        this.enqueueAll("event" (MfUixHost.payload("listing" 25 "[{\"$ref\":\"selection\"}]")))
+        this.pump()
+    }
+
+    fn notifyLocation:void () {
+        this.enqueueAll("event" (MfUixHost.payload("frame" 188 "[]")))
+        this.enqueueAll("event" (MfUixHost.payload("frame" 189 "[]")))
+        this.enqueueAll("event" (MfUixHost.payload("listing" 26 "[{\"$ref\":\"items\"}]")))
+        this.pump()
+    }
+
+    fn runCustomCommand:void (commandId:int) {
+        def c:MfCustomCommand (shell.command(commandId))
+        if (c.id < 0) {
+            return
+        }
+        def index:int (this.appIndexOf(c.appId))
+        this.enqueue(index "event" (MfUixHost.payload("commands" 23 ("[" + (to_string commandId) + ",null]"))))
+        this.pump()
+    }
+
+    ; A built-in command, offered to every application first. Any handler that
+    ; answers `false` cancels it — the one place a UIX event can say no.
+    fn builtinCommand:boolean (cmd:int) {
+        def allowed:boolean true
+        def n:int (array_length apps)
+        def i:int 0
+        while (i < n) {
+            def a:MfUixApp (itemAt apps i)
+            if a.running {
+                def token:string (this.deliverNow(i "event" (MfUixHost.payload("commands" 22 ("[" + (to_string cmd) + ",null]")))))
+                def eng:ComponentEngine (unwrap a.engine)
+                def res:EvHandle (eng.callFunction("__mfResult" (EvHandle.string(token))))
+                def parsed:MfJ (MfJ.parse((res.toString())))
+                def values:[MfJ] (parsed.list("values"))
+                for values v:MfJ k {
+                    if ((v.kind == 1) && (v.flag == false)) {
+                        allowed = false
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        this.pump()
+        return allowed
+    }
+
+    fn closeDialog:void (dialogId:int button:int) {
+        def d:MfDialog (shell.dialog(dialogId))
+        if (d.id == 0) {
+            return
+        }
+        shell.closeDialog(dialogId button)
+        def index:int (this.appIndexOf(d.appId))
+        def value:MfJ (MfJ.newObj())
+        if (d.kind == "message") {
+            value.putInt("selectedButton" button)
+            value.putBool("checkboxChecked" false)
+        }
+        if (d.kind == "window") {
+            value.putInt("result_code" 1)
+            value.putBool("visible" true)
+        }
+        def msg:MfJ (MfJ.newObj())
+        msg.putInt("id" dialogId)
+        msg.put("value" value)
+        this.enqueue(index "resolve" (msg.toJson()))
+        this.pump()
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def changed:boolean (shell.tick(dtMs))
+        def before:int delivered
+        this.enqueueAll("tick" (MfJ.numText(dtMs)))
+        this.pump()
+        return changed
+    }
+
+    ; =========================================================================
+    ; Native calls from the preludes
+    ; =========================================================================
+
+    sfn argText:string (args:[EvHandle] i:int) {
+        if ((array_length args) <= i) {
+            return ""
+        }
+        def v:EvHandle (itemAt args i)
+        return (v.toString())
+    }
+
+    fn native:EvHandle (index:int name:string args:[EvHandle]) {
+        nativeCalls = (nativeCalls + 1)
+        def app:MfUixApp (itemAt apps index)
+        app.calls = (app.calls + 1)
+        shell.currentApp = app.guid
+        def a0:string (MfUixHost.argText(args 0))
+        def a1:string (MfUixHost.argText(args 1))
+        if (name == "__mf_vault") {
+            def g:MfGrpc shell.grpc
+            def res:string (g.call(a0 a1))
+            return (EvHandle.string(res))
+        }
+        if (name == "__mf_log") {
+            shell.log(a0 app.name a1)
+            return (EvHandle.null())
+        }
+        if (name == "__mf_shell") {
+            def r:string (this.op(index a0 a1))
+            return (EvHandle.string(r))
+        }
+        return (EvHandle.null())
+    }
+
+    fn ok:string () {
+        return "{\"ok\":true}"
+    }
+
+    fn idJson:string (id:int) {
+        return ("{\"id\":" + (to_string id) + "}")
+    }
+
+    fn tabJson:MfJ (t:MfPaneTab) {
+        def j:MfJ (MfJ.newObj())
+        j.putStr("tabId" t.tabId)
+        j.putStr("title" t.title)
+        j.putBool("visible" t.visible)
+        j.putBool("selected" (shell.selectedTab == t.tabId))
+        j.putBool("builtIn" t.builtIn)
+        j.putStr("pane" t.pane)
+        return j
+    }
+
+    fn frameState:string () {
+        def j:MfJ (MfJ.newObj())
+        j.putStr("path" (shell.path()))
+        def v:MfVault shell.vault
+        j.putStr("url" ("m-files://view/" + v.guid + "/" + (to_string shell.viewId)))
+        j.putInt("viewId" shell.viewId)
+        j.putBool("isSearch" shell.searching)
+        j.putStr("searchText" shell.searchText)
+        j.putBool("isGroupList" (shell.isGroupList()))
+        j.putBool("isObjectLocation" false)
+        j.putBool("isFolderLocation" true)
+        return (j.toJson())
+    }
+
+    ; ObjVer / ObjID in either `obj_id` form, answered as [type, id].
+    sfn refOf:[int] (j:MfJ) {
+        if (j.has("obj_id")) {
+            return (MfGrpc.readObjId((j.field("obj_id"))))
+        }
+        return (MfGrpc.readObjId(j))
+    }
+
+    fn op:string (index:int op:string json:string) {
+        def app:MfUixApp (itemAt apps index)
+        def a:MfJ (MfJ.parse(json))
+        if ((a.isObj()) == false) {
+            a = (MfJ.newObj())
+        }
+
+        ; --- commands and menus ----------------------------------------------
+        if (op == "command.create") {
+            return (this.idJson((shell.createCommand((a.str_("name"))))))
+        }
+        if (op == "command.delete") {
+            shell.deleteCommand((a.int_("id" -1)))
+            return (this.ok())
+        }
+        if (op == "command.setState") {
+            def cs:MfCustomCommand (shell.command((a.int_("id" -1))))
+            if (cs.id >= 0) {
+                cs.state = (a.int_("state" 1))
+            }
+            return (this.ok())
+        }
+        if (op == "command.getState") {
+            def cg:MfCustomCommand (shell.command((a.int_("id" -1))))
+            def st:MfJ (MfJ.newObj())
+            st.putInt("state" cg.state)
+            return (st.toJson())
+        }
+        if (op == "command.name") {
+            def cn:MfCustomCommand (shell.command((a.int_("id" -1))))
+            def nm:MfJ (MfJ.newObj())
+            nm.putStr("name" cn.name)
+            return (nm.toJson())
+        }
+        if (op == "command.execute") {
+            def cid:int (a.int_("id" -1))
+            if (shell.hasCommand(cid)) {
+                def owner:MfCustomCommand (shell.command(cid))
+                this.enqueue((this.appIndexOf(owner.appId)) "event" (MfUixHost.payload("commands" 23 ("[" + (to_string cid) + ",null]"))))
+            } {
+                shell.log("warn" app.name ("ExecuteCommand: built-in command " + (to_string cid) + " is not emulated"))
+            }
+            return (this.ok())
+        }
+        if (op == "menu.add") {
+            return (this.idJson((shell.addToMenu((a.int_("command" -1)) (a.int_("location" 43)) (a.int_("priority" 0)) -1))))
+        }
+        if (op == "menu.sub") {
+            def parent:MfMenuItem (shell.menuItem((a.int_("parent" -1))))
+            return (this.idJson((shell.addToMenu((a.int_("command" -1)) parent.location (a.int_("priority" 0)) parent.id))))
+        }
+        if (op == "menu.remove") {
+            shell.removeMenusOf((a.int_("command" -1)) (a.int_("location" -1)))
+            return (this.ok())
+        }
+        if (op == "menu.removeItem") {
+            shell.removeMenuItem((a.int_("id" -1)))
+            return (this.ok())
+        }
+        if (op == "menu.state") {
+            def mi:MfMenuItem (shell.menuItem((a.int_("id" -1))))
+            if (mi.id >= 0) {
+                mi.state = (a.int_("state" 1))
+            }
+            return (this.ok())
+        }
+
+        ; --- dialogs and toasts ------------------------------------------------
+        if (op == "message.show") {
+            def d:MfDialog (shell.showDialog("message" (a.str_("caption")) (a.str_("message"))))
+            def buttons:[MfJ] (a.list("buttons"))
+            for buttons b:MfJ bi {
+                push d.buttons b.str
+            }
+            if ((array_length d.buttons) == 0) {
+                push d.buttons "OK"
+            }
+            return (this.idJson(d.id))
+        }
+        if (op == "popup.show") {
+            def pd:MfDialog (shell.showDialog("popup" (a.str_("title")) ""))
+            pd.dashboardId = (a.str_("dashboard"))
+            def pdata:MfJ (a.field("data"))
+            pd.dataJson = (pdata.toJson())
+            push pd.buttons "Close"
+            return (this.idJson(pd.id))
+        }
+        if (op == "popup.data") {
+            def ud:MfDialog (shell.dialog((a.int_("id" 0))))
+            def udata:MfJ (a.field("data"))
+            ud.dataJson = (udata.toJson())
+            return (this.ok())
+        }
+        if (op == "popup.title") {
+            def ut:MfDialog (shell.dialog((a.int_("id" 0))))
+            ut.caption = (a.str_("title"))
+            return (this.ok())
+        }
+        if (op == "dialog.close") {
+            this.closeDialog((a.int_("id" 0)) 0)
+            return (this.ok())
+        }
+        if (op == "object.window") {
+            def wd:MfDialog (shell.showDialog("window" (a.str_("title")) "Object windows are not emulated yet: the property form of this emulator is the metadata card on the right. Closing this dialog answers Cancel."))
+            push wd.buttons "Cancel"
+            return (this.idJson(wd.id))
+        }
+        if (op == "toast.show") {
+            shell.toast((a.str_("title")) (a.str_("message")) (a.int_("type" 0)))
+            return (this.ok())
+        }
+
+        ; --- panes ---------------------------------------------------------------
+        if (op == "pane.addTab") {
+            shell.addTab((a.str_("pane")) (a.str_("tabId")) (a.str_("title")) (a.str_("before")) app.guid)
+            return (this.ok())
+        }
+        if (op == "pane.selectedTabs") {
+            def pane:string (a.str_("pane"))
+            def arr:MfJ (MfJ.newArr())
+            def ptabs:[MfPaneTab] (shell.paneTabs(pane))
+            for ptabs pt:MfPaneTab pi {
+                if (shell.selectedTab == pt.tabId) {
+                    arr.add((this.tabJson(pt)))
+                }
+            }
+            def res:MfJ (MfJ.newObj())
+            res.put("tabs" arr)
+            return (res.toJson())
+        }
+        if (op == "tab.get") {
+            def tid:string (a.str_("tabId"))
+            if ((shell.hasTab(tid)) == false) {
+                return "{\"missing\":true}"
+            }
+            def tg:MfJ (this.tabJson((shell.tab(tid))))
+            return (tg.toJson())
+        }
+        if (op == "tab.select") {
+            def tsel:string (a.str_("tabId"))
+            if (shell.hasTab(tsel)) {
+                shell.selectedTab = tsel
+                this.enqueueAll("event" (MfUixHost.payload(("tab:" + tsel) 19 "[]")))
+            }
+            return (this.ok())
+        }
+        if (op == "tab.unselect") {
+            if (shell.selectedTab == (a.str_("tabId"))) {
+                shell.selectedTab = "_metadata"
+            }
+            return (this.ok())
+        }
+        if (op == "tab.remove") {
+            shell.removeTab((a.str_("tabId")))
+            return (this.ok())
+        }
+        if (op == "tab.visible") {
+            def tv:MfPaneTab (shell.tab((a.str_("tabId"))))
+            tv.visible = (a.bool_("visible" true))
+            return (this.ok())
+        }
+        if (op == "tab.dashboard") {
+            def td:MfPaneTab (shell.tab((a.str_("tabId"))))
+            td.dashboardId = (a.str_("dashboard"))
+            def tdata:MfJ (a.field("data"))
+            td.dataJson = (tdata.toJson())
+            return (this.ok())
+        }
+        if (op == "tab.empty") {
+            def te:MfPaneTab (shell.tab((a.str_("tabId"))))
+            te.dashboardId = ""
+            te.dataJson = ""
+            return (this.ok())
+        }
+
+        ; --- the frame and the listing -------------------------------------------
+        if (op == "frame.state") {
+            return (this.frameState())
+        }
+        if (op == "frame.parent") {
+            shell.navigateToParent()
+            this.notifyLocationQueued()
+            return (this.ok())
+        }
+        if (op == "frame.defaultContent") {
+            frameDashboard = ""
+            frameDashboardData = ""
+            return (this.ok())
+        }
+        if (op == "frame.dashboard") {
+            frameDashboard = (a.str_("dashboard"))
+            def fdata:MfJ (a.field("data"))
+            frameDashboardData = (fdata.toJson())
+            return (this.ok())
+        }
+        if (op == "frame.navigateObject") {
+            def ref:[int] (MfUixHost.refOf(a))
+            def not:int (itemAt ref 0)
+            def nid:int (itemAt ref 1)
+            def vlt:MfVault shell.vault
+            if (vlt.hasObject(not nid)) {
+                vlt.markAccessed(not nid)
+                shell.openView(14)
+                shell.select(not nid false)
+                this.notifyLocationQueued()
+                this.enqueueAll("event" (MfUixHost.payload("listing" 24 "[{\"$ref\":\"selection\"}]")))
+            }
+            return (this.ok())
+        }
+        if (op == "frame.navigateView") {
+            shell.openView((a.int_("id" 14)))
+            this.notifyLocationQueued()
+            return (this.ok())
+        }
+        if (op == "frame.views") {
+            def g2:MfGrpc shell.grpc
+            def viewsReq:string "{\"get_all_views\":true}"
+            def env:MfJ (MfJ.parse((g2.call("ViewsOperations.GetViews" viewsReq))))
+            def viewsRes:MfJ (env.field("response"))
+            return (viewsRes.toJson())
+        }
+        if (op == "listing.items") {
+            return (shell.listingJson())
+        }
+        if (op == "listing.selection") {
+            return (shell.selectionJson())
+        }
+        if (op == "listing.unselectAll") {
+            shell.clearSelection()
+            this.enqueueAll("event" (MfUixHost.payload("listing" 24 "[{\"$ref\":\"selection\"}]")))
+            return (this.ok())
+        }
+        if (op == "listing.select") {
+            if (a.bool_("clear" false)) {
+                shell.clearSelection()
+            }
+            def ovs:[MfJ] (a.list("obj_vers"))
+            def on:boolean (a.bool_("select" true))
+            for ovs ov:MfJ oi {
+                def r:[int] (MfUixHost.refOf(ov))
+                if on {
+                    shell.select((itemAt r 0) (itemAt r 1) true)
+                } {
+                    shell.unselect((itemAt r 0) (itemAt r 1))
+                }
+            }
+            this.enqueueAll("event" (MfUixHost.payload("listing" 24 "[{\"$ref\":\"selection\"}]")))
+            return (this.ok())
+        }
+        if (op == "listing.step") {
+            this.stepSelection((a.int_("delta" 1)))
+            return (this.ok())
+        }
+        if (op == "listing.refresh") {
+            shell.refresh()
+            this.enqueueAll("event" (MfUixHost.payload("listing" 26 "[{\"$ref\":\"items\"}]")))
+            return (this.ok())
+        }
+
+        ; --- storage, session, cross-application -------------------------------
+        if (op == "storage.write") {
+            shell.writeStorage((a.str_("key")) (a.str_("value")))
+            return (this.ok())
+        }
+        if (op == "storage.read") {
+            def key:string (a.str_("key"))
+            def sr:MfJ (MfJ.newObj())
+            def exists:boolean false
+            for shell.storage nv:MfNamedValue si {
+                if ((nv.ns == app.guid) && (nv.name == key)) {
+                    exists = true
+                }
+            }
+            sr.putBool("exists" exists)
+            sr.putStr("value" (shell.readStorage(key)))
+            return (sr.toJson())
+        }
+        if (op == "storage.delete") {
+            shell.deleteStorage((a.str_("key")))
+            return (this.ok())
+        }
+        if (op == "session.info") {
+            def sv:MfVault shell.vault
+            def u:MfUser (sv.user(sv.currentUser))
+            def si:MfJ (MfJ.newObj())
+            si.putInt("user_id" u.id)
+            si.putStr("account_name" u.login)
+            si.putStr("user_name" u.name)
+            si.putStr("vault_guid" sv.guid)
+            si.putStr("host_name" "emulator")
+            return (si.toJson())
+        }
+        if (op == "vault.info") {
+            def vv:MfVault shell.vault
+            def vi:MfJ (MfJ.newObj())
+            vi.putStr("GUID" vv.guid)
+            vi.putStr("Name" vv.name)
+            vi.putStr("Server" "Ranger M-Files emulator")
+            vi.putStr("AuthModel" "emulated")
+            vi.putInt("LoggedInUserId" vv.currentUser)
+            return (vi.toJson())
+        }
+        if (op == "weblink") {
+            def wr:[int] (MfUixHost.refOf((a.field("objId"))))
+            def wv:MfVault shell.vault
+            def wl:MfJ (MfJ.newObj())
+            wl.putStr("url" ("m-files://show/" + wv.guid + "/" + (to_string (itemAt wr 0)) + "-" + (to_string (itemAt wr 1))))
+            return (wl.toJson())
+        }
+        if ((op == "notify") || (op == "broadcast")) {
+            def target:string (a.str_("appGuid"))
+            def data:MfJ (a.field("data"))
+            def args:MfJ (MfJ.newArr())
+            args.add((MfJ.ofStr(app.guid)))
+            args.add((MfJ.ofStr((a.str_("msgId")))))
+            args.add(data)
+            def payload:string (MfUixHost.payload("shellui" 168 (args.toJson())))
+            def n:int (array_length apps)
+            def i:int 0
+            while (i < n) {
+                def other:MfUixApp (itemAt apps i)
+                if ((other.running && (i != index)) && ((op == "broadcast") || (other.guid == target))) {
+                    this.enqueue(i "event" payload)
+                }
+                i = (i + 1)
+            }
+            return (this.ok())
+        }
+        shell.log("warn" app.name ("the emulator has no shell operation " + op))
+        return "null"
+    }
+
+    fn notifyLocationQueued:void () {
+        this.enqueueAll("event" (MfUixHost.payload("frame" 188 "[]")))
+        this.enqueueAll("event" (MfUixHost.payload("frame" 189 "[]")))
+        this.enqueueAll("event" (MfUixHost.payload("listing" 26 "[{\"$ref\":\"items\"}]")))
+    }
+
+    fn stepSelection:void (delta:int) {
+        def n:int (array_length shell.listing)
+        if (n == 0) {
+            return
+        }
+        def at:int -1
+        if (shell.hasSelection()) {
+            def cur:MfRef (itemAt shell.selection 0)
+            def i:int 0
+            while (i < n) {
+                def o:MfObject (itemAt shell.listing i)
+                if ((o.objectType == cur.objectType) && (o.id == cur.id)) {
+                    at = i
+                }
+                i = (i + 1)
+            }
+        }
+        def next:int (at + delta)
+        if (next < 0) {
+            next = 0
+        }
+        if (next >= n) {
+            next = (n - 1)
+        }
+        def target:MfObject (itemAt shell.listing next)
+        shell.select(target.objectType target.id false)
+        this.enqueueAll("event" (MfUixHost.payload("listing" 24 "[{\"$ref\":\"selection\"}]")))
+    }
+}

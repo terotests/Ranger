@@ -1,0 +1,2376 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; MfilesApp — an M-Files client, drawn by EVG, over the emulated vault
+; =============================================================================
+; The window a UIX extension lives in, close enough to the real one that an
+; extension's commands, tabs, dialogs and toasts appear where a user would look
+; for them:
+;
+;   HEADER     brand, the current path, search, the UIX mode
+;   NAVIGATION the built-in views, the vault's views, the loaded applications
+;   LISTING    view tabs, a toolbar (built-in commands + task-pane commands
+;              that extensions added), and the objects grouped by type
+;   RIGHT PANE Metadata (read and edit, one editor per datatype), Preview, and
+;              every tab an extension added
+;   CONSOLE    what applications logged, and every gRPC call they made
+;   OVERLAYS   context menu, lookup lists, dialogs, toasts
+;
+; Everything the page does goes through a handful of doors — pointerDown,
+; doubleClick, wheel, keyWith, the text session — and ends in `press(id)`,
+; which is also what a screen reader's activation and the headless check use.
+; The state that matters lives in MfShell and MfVault; this class keeps only
+; what is about the drawing: focus, hover, scroll, the open overlay, and the
+; draft of a metadata card being edited.
+; =============================================================================
+
+Import "../src/uix/MfUixHost.rgr"
+Import "../../ui/src/InputCtl.rgr"
+Import "../../ui/src/TableCtl.rgr"
+Import "../../ui/src/UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGTextEngine.rgr"
+
+class MfilesApp {
+    def host:MfUixHost
+    def sheet@(optional):EVGStyleSheet
+    def layout@(optional):EVGLayout
+    def measurer:EVGLayout (new EVGLayout())
+    def transitions:EVGTransition (new EVGTransition())
+    def root@(optional):EVGElement
+    def dirty:boolean true
+    def pageW:double 1440.0
+    def pageH:double 860.0
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    def fontFamily:string "Arial"
+
+    def search:InputCtl (new InputCtl())
+    ; The listing's sort state: gallery/ui's TableCtl owns the three-step
+    ; cycle (first direction, other direction, back to the vault's order).
+    def table:TableCtl (new TableCtl())
+    def codeRequested:boolean false
+
+    ; the metadata card being edited
+    def editing:boolean false
+    def editType:int 0
+    def editId:int 0
+    def draft:MfObjectVersion (new MfObjectVersion)
+    def fields:[InputCtl]
+    def fieldProps:[int]
+    def editError:string ""
+
+    ; overlays
+    def menuOpen:boolean false
+    def menuX:double 0.0
+    def menuY:double 0.0
+    def dropdownPd:int -1
+    def dropX:double 0.0
+    def dropY:double 0.0
+
+    ; scrolling
+    def listScroll:double 0.0
+    def paneScroll:double 0.0
+    def logScroll:double 0.0
+    def traceScroll:double 0.0
+    def logStick:boolean true
+    def traceStick:boolean true
+    def listEl@(optional):EVGElement
+    def paneEl@(optional):EVGElement
+    def logEl@(optional):EVGElement
+    def traceEl@(optional):EVGElement
+
+    def consoleOpen:boolean true
+    def lastRevision:int -1
+    def lastLogs:int 0
+    def lastCalls:int 0
+    def lastToasts:int 0
+    def lastDialog:int 0
+    def lastX:double 0.0
+    def lastY:double 0.0
+
+    Constructor () {
+        host = (MfUixHost.withSampleVault())
+    }
+
+    fn init:void (css:string api:string core:string v1:string v2:string grpc:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+        host.setScripts(api core v1 v2 grpc)
+        search.tid = "mf-search"
+        search.name = "Search"
+        search.placeholder = "Search"
+        search.kind = "search"
+        search.boxWidth = 270.0
+        search.fontFamily = fontFamily
+        search.fontSize = 13.0
+        table.tid = "mf-table"
+        table.name = "Objects"
+        table.pageSize = 100000
+        table.addColumn("name" "Name" false true)
+        table.addColumn("class" "Class" false true)
+        table.addColumn("date" "Date" false true)
+        def v:MfVault host.shell.vault
+        lastRevision = v.revision
+        dirty = true
+    }
+
+    ; =========================================================================
+    ; Applications
+    ; =========================================================================
+
+    fn addExtension:int (name:string guid:string version:int source:string) {
+        def i:int (host.addApp(name guid version source))
+        dirty = true
+        return i
+    }
+
+    fn updateExtension:void (index:int version:int source:string) {
+        if ((index < 0) || (index >= (array_length host.apps))) {
+            return
+        }
+        def a:MfUixApp (itemAt host.apps index)
+        a.version = version
+        a.source = source
+        host.restartApp(index)
+        dirty = true
+    }
+
+    fn appCount:int () {
+        return (array_length host.apps)
+    }
+
+    fn appName:string (i:int) {
+        def a:MfUixApp (itemAt host.apps i)
+        return a.name
+    }
+
+    fn appSource:string (i:int) {
+        def a:MfUixApp (itemAt host.apps i)
+        return a.source
+    }
+
+    fn appVersion:int (i:int) {
+        def a:MfUixApp (itemAt host.apps i)
+        return a.version
+    }
+
+    fn appError:string (i:int) {
+        def a:MfUixApp (itemAt host.apps i)
+        return a.error
+    }
+
+    fn setMode:void (m:int) {
+        if (m == host.mode) {
+            return
+        }
+        this.discardEdit()
+        host.setMode(m)
+        dirty = true
+    }
+
+    fn modeNow:int () {
+        return host.mode
+    }
+
+    ; =========================================================================
+    ; Small builders
+    ; =========================================================================
+
+    sfn div:EVGElement (cls:string) {
+        def e:EVGElement (EVGElement.createDiv())
+        e.className = cls
+        return e
+    }
+
+    sfn box:EVGElement (cls:string id:string role:string label:string) {
+        def e:EVGElement (EVGElement.createDiv())
+        e.className = cls
+        e.id = id
+        e.role = role
+        e.a11yLabel = label
+        return e
+    }
+
+    sfn txt:EVGElement (cls:string s:string) {
+        def e:EVGElement (EVGElement.createDiv())
+        e.className = cls
+        e.elementType = 1
+        e.textContent = s
+        return e
+    }
+
+    sfn quiet:EVGElement (cls:string s:string) {
+        def e:EVGElement (MfilesApp.txt(cls s))
+        e.a11yHidden = true
+        return e
+    }
+
+    sfn button:EVGElement (id:string label:string cls:string txtCls:string) {
+        def b:EVGElement (MfilesApp.box(cls id "button" label))
+        b.addChild((MfilesApp.quiet(txtCls label)))
+        return b
+    }
+
+    ; EVGA11yTri: 1 no, 2 yes.
+    sfn tri:int (b:boolean) {
+        if b {
+            return 2
+        }
+        return 1
+    }
+
+    sfn hasPrefix:boolean (s:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen s) < n) {
+            return false
+        }
+        return ((substring s 0 n) == prefix)
+    }
+
+    sfn rest:string (s:string prefix:string) {
+        return (substring s (strlen prefix) (strlen s))
+    }
+
+    sfn partInt:int (s:string index:int) {
+        def parts:[string] (strsplit s "-")
+        if ((array_length parts) <= index) {
+            return -1
+        }
+        return (MfText.toIntOr((itemAt parts index) -1))
+    }
+
+    fn engine:EVGTextEngine () {
+        return (measurer.getTextEngine())
+    }
+
+    ; The page asks for the extension-code drawer through the header button;
+    ; the host polls this after every press.
+    fn takeCodeRequest:boolean () {
+        def was:boolean codeRequested
+        codeRequested = false
+        return was
+    }
+
+    ; Where the page puts its code editor: the right pane's content box while
+    ; the Extension code tab is selected, "null" otherwise.
+    fn codeRectJson:string () {
+        if (host.shell.selectedTab != "_code") {
+            return "null"
+        }
+        this.laidOut()
+        def el:EVGElement (this.findById("mf-pscroll"))
+        if (el.id != "mf-pscroll") {
+            return "null"
+        }
+        def b:MfJ (MfJ.newObj())
+        b.putInt("x" (to_int el.calculatedX))
+        b.putInt("y" (to_int el.calculatedY))
+        b.putInt("w" (to_int el.calculatedWidth))
+        b.putInt("h" (to_int el.calculatedHeight))
+        return (b.toJson())
+    }
+
+    ; Column widths follow the stylesheet's @media breakpoints, so a label can
+    ; be cut to the width it will actually get.
+    fn navWidth:double () {
+        if (pageW >= 1360.0) {
+            return 220.0
+        }
+        if (pageW >= 1100.0) {
+            return 200.0
+        }
+        return 180.0
+    }
+
+    fn paneWidth:double () {
+        if (pageW >= 1360.0) {
+            return 470.0
+        }
+        if (pageW >= 1100.0) {
+            return 400.0
+        }
+        return 340.0
+    }
+
+    fn showClass:boolean () {
+        return (pageW >= 1200.0)
+    }
+
+    fn nameWidth:double () {
+        def nw:double (this.navWidth())
+        def pw:double (this.paneWidth())
+        def w:double (((pageW - nw) - pw) - 66.0)
+        w = (w - 48.0)
+        w = (w - 170.0)
+        if (this.showClass()) {
+            w = (w - 158.0)
+        }
+        if (w < 80.0) {
+            w = 80.0
+        }
+        return w
+    }
+
+    ; One line, cut with an ellipsis where it has to be — measured with the
+    ; same engine the painter draws with.
+    fn fitText:string (text:string width:double size:double) {
+        def eng:EVGTextEngine (this.engine())
+        def full:EVGTextMetrics (eng.measureRun(text fontFamily size))
+        if (full.width <= width) {
+            return text
+        }
+        def lo:int 0
+        def hi:int (strlen text)
+        while (lo < hi) {
+            def mid:int (to_int (((lo + hi) + 1) / 2))
+            def cand:string ((substring text 0 mid) + "…")
+            def m:EVGTextMetrics (eng.measureRun(cand fontFamily size))
+            if (m.width <= width) {
+                lo = mid
+            } {
+                hi = (mid - 1)
+            }
+        }
+        return ((trim (substring text 0 lo)) + "…")
+    }
+
+    fn wrapText:[string] (text:string width:double size:double) {
+        def eng:EVGTextEngine (this.engine())
+        def out:[string]
+        def paras:[string] (strsplit text "\n")
+        for paras p:string i {
+            if ((strlen p) == 0) {
+                push out ""
+            } {
+                def words:[string] (strsplit p " ")
+                def line:string ""
+                for words w:string j {
+                    def cand:string w
+                    if ((strlen line) > 0) {
+                        cand = (line + " " + w)
+                    }
+                    def m:EVGTextMetrics (eng.measureRun(cand fontFamily size))
+                    if ((m.width > width) && ((strlen line) > 0)) {
+                        push out line
+                        line = w
+                    } {
+                        line = cand
+                    }
+                }
+                push out line
+            }
+        }
+        return out
+    }
+
+    ; =========================================================================
+    ; The page
+    ; =========================================================================
+
+    fn page:EVGElement () {
+        def pg:EVGElement (MfilesApp.div("mf-page"))
+        pg.addChild((this.header()))
+        def body:EVGElement (MfilesApp.div("mf-body"))
+        body.addChild((this.nav()))
+        body.addChild((this.center()))
+        body.addChild((this.rightPane()))
+        pg.addChild(body)
+        pg.addChild((this.consolePanel()))
+        if menuOpen {
+            pg.addChild((this.contextMenu()))
+        }
+        if (dropdownPd >= 0) {
+            pg.addChild((this.dropdown()))
+        }
+        def tst:EVGElement (this.toasts())
+        pg.addChild(tst)
+        def dlg:MfDialog (host.shell.openDialog())
+        if (dlg.id > 0) {
+            def back:EVGElement (MfilesApp.div("mf-backdrop"))
+            pg.addChild(back)
+            pg.addChild((this.dialog(dlg)))
+        }
+        return pg
+    }
+
+    ; --- header --------------------------------------------------------------
+
+    fn header:EVGElement () {
+        def head:EVGElement (MfilesApp.box("mf-header" "mf-header" "banner" "M-Files"))
+        def brand:EVGElement (MfilesApp.div("mf-brand"))
+        brand.addChild((MfilesApp.quiet("mf-brand-m" "M-")))
+        brand.addChild((MfilesApp.quiet("mf-brand-files" "Files")))
+        head.addChild(brand)
+        def pathW:double (pageW - 860.0)
+        if (pathW < 120.0) {
+            pathW = 120.0
+        }
+        def pathText:string (this.fitText((host.shell.path()) pathW 13.0))
+        head.addChild((MfilesApp.txt("mf-path" pathText)))
+        head.addChild((MfilesApp.div("mf-grow")))
+        head.addChild((this.searchBox()))
+        head.addChild((MfilesApp.button("mf-search-go" "Search" "mf-hbtn" "mf-hbtn-text")))
+        def modeLabel:string ("UIX v" + (to_string host.mode))
+        head.addChild((MfilesApp.button("mf-mode" modeLabel "mf-hbtn mf-hbtn-mode" "mf-hbtn-text")))
+        def av:EVGElement (MfilesApp.box("mf-avatar" "mf-avatar" "img" "Alex Kramer"))
+        av.addChild((MfilesApp.quiet("mf-avatar-text" "AK")))
+        head.addChild(av)
+        return head
+    }
+
+    ; A drawn text field: the text, the selection band behind it and the caret,
+    ; positioned by measurement exactly as gallery/ui's form does it.
+    fn fieldBox:EVGElement (c:InputCtl cls:string label:string lead:double) {
+        def b:EVGElement (MfilesApp.box(cls c.tid "textbox" label))
+        b.a11yValue = c.value
+        b.a11yFocusable = true
+        def eng:EVGTextEngine (this.engine())
+        def isFocused:boolean (focused == c.tid)
+        if isFocused {
+            if (c.hasSelection()) {
+                def s:double (c.caretXAt(eng (c.selStart())))
+                def e:double (c.caretXAt(eng (c.selEnd())))
+                def band:EVGElement (MfilesApp.div("mf-band"))
+                band.left = (EVGUnit.px(((lead + s) - c.scrollX)))
+                band.width = (EVGUnit.px((e - s)))
+                b.addChild(band)
+            }
+        }
+        if ((strlen c.value) == 0) {
+            b.addChild((MfilesApp.quiet("mf-input-ghost" c.placeholder)))
+        } {
+            b.addChild((MfilesApp.quiet("mf-input-text" (c.glyphText()))))
+        }
+        if isFocused {
+            def cx:double (c.caretXAt(eng c.caret))
+            def car:EVGElement (MfilesApp.div("mf-caret"))
+            car.left = (EVGUnit.px(((lead + cx) - c.scrollX)))
+            b.addChild(car)
+        }
+        return b
+    }
+
+    fn searchBox:EVGElement () {
+        return (this.fieldBox(search "mf-searchbox" "Search" 11.0))
+    }
+
+    ; --- navigation ------------------------------------------------------------
+
+    fn navHead:EVGElement (label:string) {
+        def h:EVGElement (MfilesApp.div("mf-nav-head"))
+        h.addChild((MfilesApp.txt("mf-nav-headtxt" label)))
+        return h
+    }
+
+    fn navItem:EVGElement (viewId:int label:string count:int) {
+        def v:MfVault host.shell.vault
+        def on:boolean ((host.shell.viewId == viewId) && (host.shell.searching == false))
+        def cls:string "mf-nav-item"
+        if on {
+            cls = "mf-nav-item mf-nav-on"
+        }
+        def it:EVGElement (MfilesApp.box(cls ("mf-nav-" + (to_string viewId)) "treeitem" label))
+        it.a11ySelected = (MfilesApp.tri(on))
+        def navW:double (this.navWidth())
+        def shownLabel:string (this.fitText(label (navW - 72.0) 13.0))
+        it.addChild((MfilesApp.quiet("mf-nav-txt" shownLabel)))
+        it.addChild((MfilesApp.div("mf-grow")))
+        if (count >= 0) {
+            it.addChild((MfilesApp.quiet("mf-nav-count" (to_string count))))
+        }
+        return it
+    }
+
+    fn nav:EVGElement () {
+        def v:MfVault host.shell.vault
+        def n:EVGElement (MfilesApp.box("mf-nav" "mf-nav" "navigation" "Views"))
+        n.addChild((this.navHead("GO TO")))
+        n.addChild((this.navItem(14 "Recently Accessed by Me" -1)))
+        n.addChild((this.navItem(9 "Assigned to Me" (array_length (v.viewObjects(9))))))
+        n.addChild((this.navItem(5 "Checked Out to Me" (array_length (v.viewObjects(5))))))
+        n.addChild((this.navItem(15 "Pinned" (array_length (v.viewObjects(15))))))
+        n.addChild((this.navHead("VIEWS")))
+        for v.views vw:MfView i {
+            if ((vw.builtIn == false) && (vw.parent == -1)) {
+                n.addChild((this.navItem(vw.id vw.name -1)))
+            }
+        }
+        n.addChild((this.navHead("APPLICATIONS")))
+        def count:int (array_length host.apps)
+        def k:int 0
+        while (k < count) {
+            def a:MfUixApp (itemAt host.apps k)
+            if (a.version > 0) {
+                def label:string (a.name)
+                def row:EVGElement (MfilesApp.box("mf-nav-item mf-app" ("mf-app-" + (to_string k)) "button" ("Restart " + label)))
+                def dot:string "mf-dot"
+                if a.running {
+                    dot = "mf-dot mf-dot-on"
+                }
+                if ((strlen a.error) > 0) {
+                    dot = "mf-dot mf-dot-err"
+                    if (a.version != host.mode) {
+                        dot = "mf-dot"
+                    }
+                }
+                row.addChild((MfilesApp.div(dot)))
+                def appNavW:double (this.navWidth())
+                def appLabel:string (this.fitText(label (appNavW - 52.0) 12.0))
+                row.addChild((MfilesApp.quiet("mf-nav-txt mf-app-txt" appLabel)))
+                n.addChild(row)
+                if ((strlen a.error) > 0) {
+                    def errBox:EVGElement (MfilesApp.div("mf-nav-errbox"))
+                    def errNavW:double (this.navWidth())
+                    def lines:[string] (this.wrapText(a.error (errNavW - 50.0) 10.5))
+                    def shown:int 0
+                    for lines ln:string li {
+                        if (shown < 3) {
+                            errBox.addChild((MfilesApp.txt("mf-nav-err" ln)))
+                        }
+                        shown = (shown + 1)
+                    }
+                    n.addChild(errBox)
+                }
+            }
+            k = (k + 1)
+        }
+        n.addChild((MfilesApp.div("mf-grow")))
+        def vaultName:string (v.name + " · " + (to_string (array_length v.objects)) + " objects")
+        def foot:EVGElement (MfilesApp.div("mf-nav-head"))
+        foot.addChild((MfilesApp.txt("mf-nav-foot" vaultName)))
+        n.addChild(foot)
+        return n
+    }
+
+    ; --- the listing -----------------------------------------------------------
+
+    fn centerTab:EVGElement (viewId:int label:string) {
+        def on:boolean ((host.shell.viewId == viewId) && (host.shell.searching == false))
+        def cls:string "mf-ctab"
+        def tcls:string "mf-ctab-txt"
+        if on {
+            cls = "mf-ctab mf-ctab-on"
+            tcls = "mf-ctab-txt mf-ctab-txt-on"
+        }
+        def t:EVGElement (MfilesApp.box(cls ("mf-ctab-" + (to_string viewId)) "tab" label))
+        t.a11ySelected = (MfilesApp.tri(on))
+        t.addChild((MfilesApp.quiet(tcls label)))
+        return t
+    }
+
+    fn toolButton:EVGElement (id:string label:string enabled:boolean app:boolean) {
+        def cls:string "mf-tbtn"
+        def tcls:string "mf-tbtn-txt"
+        if app {
+            cls = "mf-tbtn mf-tbtn-app"
+        }
+        if (enabled == false) {
+            cls = "mf-tbtn mf-tbtn-off"
+            tcls = "mf-tbtn-txt mf-tbtn-txt-off"
+        }
+        def b:EVGElement (MfilesApp.box(cls id "button" label))
+        b.a11yDisabled = (enabled == false)
+        b.addChild((MfilesApp.quiet(tcls label)))
+        return b
+    }
+
+    fn center:EVGElement () {
+        def shell:MfShell host.shell
+        def v:MfVault shell.vault
+        def c:EVGElement (MfilesApp.box("mf-center" "mf-center" "main" "Listing"))
+        def tabs:EVGElement (MfilesApp.box("mf-ctabs" "mf-ctabs" "tablist" "Views"))
+        tabs.addChild((this.centerTab(14 "Recent")))
+        tabs.addChild((this.centerTab(9 ("Assigned (" + (to_string (array_length (v.viewObjects(9)))) + ")"))))
+        tabs.addChild((this.centerTab(5 ("Checked out (" + (to_string (array_length (v.viewObjects(5)))) + ")"))))
+        tabs.addChild((this.centerTab(15 "Pinned")))
+        c.addChild(tabs)
+
+        def bar:EVGElement (MfilesApp.box("mf-toolbar" "mf-toolbar" "toolbar" "Commands"))
+        def sel:boolean (shell.hasSelection())
+        def mine:boolean false
+        def free:boolean false
+        if sel {
+            def o:MfObject (shell.selectedObject())
+            mine = (o.checkedOutTo == v.currentUser)
+            free = (o.checkedOutTo == 0)
+        }
+        bar.addChild((this.toolButton("mf-bi-10" "Check Out" (sel && free) false)))
+        bar.addChild((this.toolButton("mf-bi-11" "Check In" (sel && mine) false)))
+        bar.addChild((this.toolButton("mf-bi-13" "Undo Checkout" (sel && mine) false)))
+        bar.addChild((this.toolButton("mf-bi-76" "Delete" sel false)))
+        def tasks:[MfMenuItem] (shell.visibleMenu(false))
+        if ((array_length tasks) > 0) {
+            bar.addChild((MfilesApp.div("mf-tsep")))
+        }
+        for tasks m:MfMenuItem i {
+            def cmd:MfCustomCommand (shell.command(m.commandId))
+            bar.addChild((this.toolButton(("mf-cmd-" + (to_string cmd.id)) cmd.name true true)))
+        }
+        c.addChild(bar)
+
+        def list:EVGElement (MfilesApp.div("mf-list"))
+        def lh:EVGElement (MfilesApp.box("mf-lhead" "mf-table-head" "row" "Columns"))
+        def dateLabel:string "Date Modified"
+        if ((shell.viewId == 14) && (shell.searching == false)) {
+            dateLabel = "Accessed by Me"
+        }
+        lh.addChild((this.sortHeader("name" "Name" "mf-lcol mf-lcol-name")))
+        if (this.showClass()) {
+            lh.addChild((this.sortHeader("class" "Class" "mf-lcol mf-lcol-class")))
+        }
+        lh.addChild((this.sortHeader("date" dateLabel "mf-lcol mf-lcol-date")))
+        list.addChild(lh)
+        def scroll:EVGElement (MfilesApp.box("mf-lscroll" "mf-lscroll" "grid" "Objects"))
+        scroll.scrollTop = listScroll
+        listEl = scroll
+        this.fillListing(scroll)
+        list.addChild(scroll)
+        c.addChild(list)
+        return c
+    }
+
+    fn sortHeader:EVGElement (key:string label:string cls:string) {
+        def st:int (table.sortStateOf(key))
+        def h:EVGElement (MfilesApp.box(cls ("mf-sort-" + key) "columnheader" label))
+        ; aria-sort: 0 none, 1 ascending, 2 descending
+        if (st == 2) {
+            h.a11ySorted = 1
+        }
+        if (st == 3) {
+            h.a11ySorted = 2
+        }
+        h.a11yFocusable = true
+        h.addChild((MfilesApp.quiet("mf-lcol-txt" label)))
+        def glyph:string (TableCtl.sortGlyph(st))
+        if ((strlen glyph) > 0) {
+            h.addChild((MfilesApp.quiet("mf-lcol-arrow" glyph)))
+        }
+        return h
+    }
+
+    fn fileKind:string (o:MfObject) {
+        def v:MfObjectVersion (o.latest())
+        if ((array_length v.files) > 0) {
+            def f:MfObjectFile (itemAt v.files 0)
+            def ext:string (to_lowercase f.extension)
+            if ((ext == "doc") || (ext == "docx")) {
+                return "word"
+            }
+            if (ext == "pdf") {
+                return "pdf"
+            }
+            if ((ext == "xls") || (ext == "xlsx")) {
+                return "xls"
+            }
+        }
+        return "obj"
+    }
+
+    fn iconFor:EVGElement (o:MfObject) {
+        def kind:string (this.fileKind(o))
+        def letter:string "D"
+        if (kind == "word") {
+            letter = "W"
+        }
+        if (kind == "pdf") {
+            letter = "PDF"
+        }
+        if (kind == "xls") {
+            letter = "X"
+        }
+        if (kind == "obj") {
+            if (o.objectType == 101) {
+                letter = "P"
+            }
+            if (o.objectType == 102) {
+                letter = "C"
+            }
+            if (o.objectType == 103) {
+                letter = "@"
+            }
+        }
+        def ic:EVGElement (MfilesApp.div(("mf-ico mf-ico-" + kind)))
+        ic.addChild((MfilesApp.quiet("mf-ico-txt" letter)))
+        return ic
+    }
+
+    fn row:EVGElement (o:MfObject) {
+        def shell:MfShell host.shell
+        def v:MfVault shell.vault
+        def ver:MfObjectVersion (o.latest())
+        def title:string (ver.title())
+        def cls:string "mf-row"
+        def on:boolean (shell.isSelected(o.objectType o.id))
+        if on {
+            cls = "mf-row mf-row-sel"
+        }
+        def r:EVGElement (MfilesApp.box(cls ("mf-row-" + (to_string o.objectType) + "-" + (to_string o.id)) "row" title))
+        r.a11ySelected = (MfilesApp.tri(on))
+        r.addChild((this.iconFor(o)))
+        def nameW:double (this.nameWidth())
+        if (o.checkedOutTo != 0) {
+            nameW = (nameW - 84.0)
+        }
+        def shownTitle:string (this.fitText(title nameW 13.0))
+        r.addChild((MfilesApp.quiet("mf-cell-name" shownTitle)))
+        if (o.checkedOutTo != 0) {
+            r.addChild((MfilesApp.quiet("mf-cell-flag" "checked out")))
+        }
+        if (this.showClass()) {
+            def cid:int (ver.classId())
+            def klass:MfClass (v.classById(cid))
+            def className:string (this.fitText(klass.name 140.0 12.0))
+            r.addChild((MfilesApp.quiet("mf-cell-class" className)))
+        }
+        def when:string ver.modified
+        if ((shell.viewId == 14) && (shell.searching == false)) {
+            when = o.accessedByMe
+        }
+        r.addChild((MfilesApp.quiet("mf-cell-date" (MfText.displayTimestamp(when)))))
+        return r
+    }
+
+    fn fillListing:void (scroll:EVGElement) {
+        def shell:MfShell host.shell
+        def v:MfVault shell.vault
+        if (shell.isGroupList()) {
+            def view:MfView (v.view(shell.viewId))
+            def groups:[MfValueListItem] (v.groupItems(shell.viewId))
+            def gh:EVGElement (MfilesApp.div("mf-group"))
+            gh.addChild((MfilesApp.txt("mf-group-txt" (view.name + " (" + (to_string (array_length groups)) + ")"))))
+            scroll.addChild(gh)
+            for groups g:MfValueListItem i {
+                def n:int (array_length (v.groupObjects(shell.viewId g.id)))
+                def fr:EVGElement (MfilesApp.box("mf-row" ("mf-folder-" + (to_string g.id)) "row" g.name))
+                def fic:EVGElement (MfilesApp.div("mf-ico mf-ico-folder"))
+                fr.addChild(fic)
+                fr.addChild((MfilesApp.quiet("mf-cell-name" g.name)))
+                fr.addChild((MfilesApp.quiet("mf-cell-date" ((to_string n) + " objects"))))
+                scroll.addChild(fr)
+            }
+            return
+        }
+        if ((shell.groupItem >= 0) || shell.searching) {
+            def up:EVGElement (MfilesApp.box("mf-row mf-row-up" "mf-up" "button" "Back"))
+            up.addChild((MfilesApp.quiet("mf-cell-name mf-up-txt" "‹ Back")))
+            scroll.addChild(up)
+        }
+        if ((array_length shell.listing) == 0) {
+            def msg:string "Nothing here."
+            if shell.searching {
+                msg = ("No objects match \"" + shell.searchText + "\".")
+            }
+            def em:EVGElement (MfilesApp.div("mf-emptybox"))
+            em.addChild((MfilesApp.txt("mf-empty" msg)))
+            scroll.addChild(em)
+            return
+        }
+        if ((strlen table.sortKey) > 0) {
+            this.fillSorted(scroll)
+            return
+        }
+        for v.objectTypes t:MfObjectType i {
+            def members:[MfObject]
+            for shell.listing o:MfObject j {
+                if (o.objectType == t.id) {
+                    push members o
+                }
+            }
+            if ((array_length members) > 0) {
+                def gh2:EVGElement (MfilesApp.div("mf-group"))
+                gh2.addChild((MfilesApp.quiet("mf-group-caret" "⌄")))
+                gh2.addChild((MfilesApp.txt("mf-group-txt" (t.namePlural + " (" + (to_string (array_length members)) + ")"))))
+                gh2.addChild((MfilesApp.div("mf-group-line")))
+                scroll.addChild(gh2)
+                for members m:MfObject k {
+                    scroll.addChild((this.row(m)))
+                }
+            }
+        }
+    }
+
+    ; A sorted listing is one flat table: the object-type groups are an order
+    ; of their own, and sorting across them is the point of clicking a header.
+    fn fillSorted:void (scroll:EVGElement) {
+        def shell:MfShell host.shell
+        def v:MfVault shell.vault
+        def empty:[UiRecord]
+        table.records = empty
+        for shell.listing o:MfObject i {
+            def ver:MfObjectVersion (o.latest())
+            def cid:int (ver.classId())
+            def klass:MfClass (v.classById(cid))
+            def when:string ver.modified
+            if ((shell.viewId == 14) && (shell.searching == false)) {
+                when = o.accessedByMe
+            }
+            def cells:[string]
+            push cells (ver.title())
+            push cells klass.name
+            push cells when
+            def key:string ((to_string o.objectType) + "-" + (to_string o.id))
+            table.addRecord(key cells)
+        }
+        def sorted:[UiRecord] (table.sortedRecords())
+        for sorted r:UiRecord j {
+            def ot:int (MfilesApp.partInt(r.key 0))
+            def oid:int (MfilesApp.partInt(r.key 1))
+            if (v.hasObject(ot oid)) {
+                def obj:MfObject (v.object(ot oid))
+                scroll.addChild((this.row(obj)))
+            }
+        }
+    }
+
+    ; --- the right pane ----------------------------------------------------------
+
+    fn rightPane:EVGElement () {
+        def shell:MfShell host.shell
+        def p:EVGElement (MfilesApp.box("mf-pane" "mf-pane" "complementary" "Right pane"))
+        def tabs:EVGElement (MfilesApp.box("mf-ptabs" "mf-ptabs" "tablist" "Right pane tabs"))
+        def ptabs:[MfPaneTab] (shell.paneTabs("right"))
+        for ptabs t:MfPaneTab i {
+            def on:boolean (shell.selectedTab == t.tabId)
+            def cls:string "mf-ptab"
+            def tcls:string "mf-ptab-txt"
+            if on {
+                cls = "mf-ptab mf-ptab-on"
+                tcls = "mf-ptab-txt mf-ptab-txt-on"
+            }
+            if (t.builtIn == false) {
+                cls = (cls + " mf-ptab-app")
+            }
+            def tb:EVGElement (MfilesApp.box(cls ("mf-ptab-" + t.tabId) "tab" t.title))
+            tb.a11ySelected = (MfilesApp.tri(on))
+            tb.addChild((MfilesApp.quiet(tcls t.title)))
+            tabs.addChild(tb)
+        }
+        p.addChild(tabs)
+        def body:EVGElement (MfilesApp.box("mf-pscroll" "mf-pscroll" "tabpanel" "Pane content"))
+        body.scrollTop = paneScroll
+        paneEl = body
+        ; The code tab is drawn by the page: an editor is the one control this
+        ; window does not draw itself. The pane leaves the room for it.
+        if (shell.selectedTab == "_code") {
+            body.className = "mf-pscroll mf-pcode"
+            p.addChild(body)
+            return p
+        }
+        if (shell.selectedTab == "_metadata") {
+            this.metadataCard(body)
+        } {
+            if (shell.selectedTab == "_preview") {
+                this.previewCard(body)
+            } {
+                this.dashboardCard(body (shell.tab(shell.selectedTab)))
+            }
+        }
+        p.addChild(body)
+        return p
+    }
+
+    fn noSelection:void (body:EVGElement) {
+        def em:EVGElement (MfilesApp.div("mf-emptybox"))
+        em.addChild((MfilesApp.txt("mf-empty" "Select an object to see its metadata.")))
+        body.addChild(em)
+    }
+
+    fn metadataPds:[int] (ver:MfObjectVersion) {
+        def v:MfVault host.shell.vault
+        def out:[int]
+        push out 0
+        push out 100
+        def cid:int (ver.classId())
+        def cls:MfClass (v.classById(cid))
+        for cls.props a:MfAssocProp i {
+            if ((indexOf out a.propDef) < 0) {
+                push out a.propDef
+            }
+        }
+        for ver.props p:MfPropertyValue j {
+            def pdef:MfPropertyDef (v.propDef(p.propDef))
+            if ((pdef.automatic == false) && ((indexOf out p.propDef) < 0)) {
+                push out p.propDef
+            }
+        }
+        return out
+    }
+
+    fn isRequired:boolean (ver:MfObjectVersion pd:int) {
+        def v:MfVault host.shell.vault
+        def cls:MfClass (v.classById((ver.classId())))
+        for cls.props a:MfAssocProp i {
+            if ((a.propDef == pd) && a.required) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn metadataCard:void (body:EVGElement) {
+        def shell:MfShell host.shell
+        def v:MfVault shell.vault
+        if ((shell.hasSelection()) == false) {
+            this.noSelection(body)
+            return
+        }
+        def o:MfObject (shell.selectedObject())
+        def ver:MfObjectVersion (o.latest())
+        if editing {
+            ver = draft
+        }
+        def ot:MfObjectType (v.objectType(o.objectType))
+        def titlePw:double (this.paneWidth())
+        def titleFit:string (this.fitText((ver.title()) (titlePw - 44.0) 17.0))
+        body.addChild((MfilesApp.txt("mf-md-title" titleFit)))
+        def sub:string (ot.name + " · ID " + (to_string o.id) + " · Version " + (to_string ver.version))
+        body.addChild((MfilesApp.txt("mf-md-sub" sub)))
+        if (o.checkedOutTo != 0) {
+            def holder:MfUser (v.user(o.checkedOutTo))
+            def chip:EVGElement (MfilesApp.div("mf-chip"))
+            chip.addChild((MfilesApp.txt("mf-chip-txt" ("Checked out to " + holder.name))))
+            def chipRow:EVGElement (MfilesApp.div("mf-actions"))
+            chipRow.addChild(chip)
+            body.addChild(chipRow)
+        }
+        def actions:EVGElement (MfilesApp.div("mf-actions"))
+        if editing {
+            actions.addChild((MfilesApp.button("mf-save" "Save" "mf-btn mf-btn-primary" "mf-btn-txt mf-btn-txt-primary")))
+            actions.addChild((MfilesApp.button("mf-discard" "Discard" "mf-btn" "mf-btn-txt")))
+        } {
+            actions.addChild((MfilesApp.button("mf-edit" "Edit metadata" "mf-btn" "mf-btn-txt")))
+        }
+        body.addChild(actions)
+        if ((strlen editError) > 0) {
+            body.addChild((MfilesApp.txt("mf-err" editError)))
+        }
+        body.addChild((MfilesApp.div("mf-sep")))
+        def pds:[int] (this.metadataPds(ver))
+        for pds pd:int i {
+            body.addChild((this.propRow(ver pd false)))
+        }
+        body.addChild((MfilesApp.div("mf-sep")))
+        def autos:[int] ([] _:int ( 20 25 21 23 ))
+        for autos apd:int j {
+            if (ver.hasProp(apd)) {
+                body.addChild((this.propRow(ver apd true)))
+            }
+        }
+    }
+
+    fn propRow:EVGElement (ver:MfObjectVersion pd:int automatic:boolean) {
+        def v:MfVault host.shell.vault
+        def pdef:MfPropertyDef (v.propDef(pd))
+        def row:EVGElement (MfilesApp.div("mf-prop"))
+        def label:string pdef.name
+        if (editing && (this.isRequired(ver pd))) {
+            label = (label + " *")
+        }
+        row.addChild((MfilesApp.txt("mf-prop-label" label)))
+        def pv:MfPropertyValue (ver.prop(pd))
+        def shown:string ""
+        if (pv.propDef >= 0) {
+            shown = (v.valueText(pd pv.value))
+        }
+        if (editing && (automatic == false)) {
+            row.addChild((this.editorFor(ver pdef pv)))
+            return row
+        }
+        def cls:string "mf-prop-val"
+        if automatic {
+            cls = "mf-prop-val mf-prop-val-auto"
+        }
+        def val:EVGElement (MfilesApp.box(cls ("mf-prop-" + (to_string pd)) "button" (pdef.name + ": " + shown)))
+        if ((strlen shown) == 0) {
+            val.addChild((MfilesApp.quiet("mf-prop-none" "—")))
+        } {
+            def valuePw:double (this.paneWidth())
+            def lines:[string] (this.wrapText(shown (valuePw - 230.0) 13.0))
+            def col:EVGElement (MfilesApp.div("mf-col"))
+            def count:int 0
+            for lines ln:string li {
+                if (count < 6) {
+                    def tcls:string "mf-prop-txt"
+                    if automatic {
+                        tcls = "mf-prop-txt mf-prop-auto"
+                    }
+                    col.addChild((MfilesApp.quiet(tcls ln)))
+                }
+                count = (count + 1)
+            }
+            val.addChild(col)
+        }
+        row.addChild(val)
+        return row
+    }
+
+    fn fieldFor:InputCtl (pd:int) {
+        def n:int (array_length fields)
+        def i:int 0
+        while (i < n) {
+            def p:int (itemAt fieldProps i)
+            if (p == pd) {
+                def c:InputCtl (itemAt fields i)
+                return c
+            }
+            i = (i + 1)
+        }
+        def none (new InputCtl())
+        none.tid = ""
+        return none
+    }
+
+    fn editorFor:EVGElement (ver:MfObjectVersion pdef:MfPropertyDef pv:MfPropertyValue) {
+        def v:MfVault host.shell.vault
+        def dt:int pdef.datatype
+        def pd:int pdef.id
+        if (dt == 8) {
+            def opts:EVGElement (MfilesApp.div("mf-opts"))
+            def yesOn:boolean ((pv.propDef >= 0) && ((pv.value.isNull == false) && pv.value.flag))
+            def noOn:boolean ((pv.propDef >= 0) && ((pv.value.isNull == false) && (pv.value.flag == false)))
+            opts.addChild((this.optChip(("mf-bool-" + (to_string pd) + "-1") "Yes" yesOn)))
+            opts.addChild((this.optChip(("mf-bool-" + (to_string pd) + "-0") "No" noOn)))
+            return opts
+        }
+        if ((dt == 9) || (dt == 10)) {
+            def lk:EVGElement (MfilesApp.box("mf-lookup" ("mf-lookup-" + (to_string pd)) "combobox" pdef.name))
+            lk.a11yExpanded = (MfilesApp.tri((dropdownPd == pd)))
+            if (pv.propDef >= 0) {
+                for pv.value.lookups item:int i {
+                    def nm:string (v.lookupName(pdef.valueList item))
+                    def chip:EVGElement (MfilesApp.div("mf-lchip"))
+                    chip.addChild((MfilesApp.quiet("mf-lchip-txt" nm)))
+                    if (dt == 10) {
+                        def x:EVGElement (MfilesApp.box("mf-lchip-x" ("mf-chip-" + (to_string pd) + "-" + (to_string item)) "button" ("Remove " + nm)))
+                        x.addChild((MfilesApp.quiet("mf-lchip-xtxt" "×")))
+                        chip.addChild(x)
+                    }
+                    lk.addChild(chip)
+                }
+            }
+            lk.addChild((MfilesApp.div("mf-grow")))
+            lk.addChild((MfilesApp.quiet("mf-lookup-caret" "▾")))
+            return lk
+        }
+        def c:InputCtl (this.fieldFor(pd))
+        if ((strlen c.tid) == 0) {
+            return (MfilesApp.txt("mf-prop-none" "—"))
+        }
+        return (this.fieldBox(c "mf-field" pdef.name 9.0))
+    }
+
+    fn optChip:EVGElement (id:string label:string on:boolean) {
+        def cls:string "mf-opt"
+        def tcls:string "mf-opt-txt"
+        if on {
+            cls = "mf-opt mf-opt-on"
+            tcls = "mf-opt-txt mf-opt-txt-on"
+        }
+        def b:EVGElement (MfilesApp.box(cls id "radio" label))
+        b.a11yChecked = (MfilesApp.tri(on))
+        b.addChild((MfilesApp.quiet(tcls label)))
+        return b
+    }
+
+    fn previewCard:void (body:EVGElement) {
+        def shell:MfShell host.shell
+        if ((shell.hasSelection()) == false) {
+            this.noSelection(body)
+            return
+        }
+        def o:MfObject (shell.selectedObject())
+        def ver:MfObjectVersion (o.latest())
+        if ((array_length ver.files) == 0) {
+            body.addChild((MfilesApp.txt("mf-empty" "This object has no files.")))
+            return
+        }
+        def f:MfObjectFile (itemAt ver.files 0)
+        body.addChild((MfilesApp.txt("mf-preview-name" (f.fileName()))))
+        body.addChild((MfilesApp.div("mf-sep")))
+        def paper:EVGElement (MfilesApp.box("mf-paper" "mf-paper" "document" (f.fileName())))
+        def paperPw:double (this.paneWidth())
+        def lines:[string] (this.wrapText(f.content (paperPw - 90.0) 12.5))
+        for lines ln:string i {
+            if ((strlen ln) == 0) {
+                paper.addChild((MfilesApp.div("mf-gap")))
+            } {
+                paper.addChild((MfilesApp.txt("mf-line" ln)))
+            }
+        }
+        body.addChild(paper)
+    }
+
+    fn dashboardCard:void (body:EVGElement t:MfPaneTab) {
+        body.addChild((MfilesApp.txt("mf-md-title" t.title)))
+        if ((strlen t.dashboardId) == 0) {
+            body.addChild((MfilesApp.txt("mf-empty" "This tab shows no content yet.")))
+            return
+        }
+        def dashPw:double (this.paneWidth())
+        this.dashboardContent(body t.dashboardId t.dataJson (dashPw - 60.0))
+    }
+
+    ; A dashboard, as far as an emulator without a browser engine goes: its id,
+    ; and either the card an extension described in `emulatorView` or its data.
+    fn dashboardContent:void (body:EVGElement dashboardId:string dataJson:string width:double) {
+        body.addChild((MfilesApp.txt("mf-dash-id" ("dashboard " + dashboardId))))
+        def data:MfJ (MfJ.parse(dataJson))
+        def view:MfJ (data.field("emulatorView"))
+        if (view.isObj()) {
+            def title:string (view.str_("title"))
+            if ((strlen title) > 0) {
+                body.addChild((MfilesApp.txt("mf-dash-title" title)))
+            }
+            def text:string (view.str_("text"))
+            if ((strlen text) > 0) {
+                def tl:[string] (this.wrapText(text width 12.5))
+                for tl ln:string i {
+                    body.addChild((MfilesApp.txt("mf-line" ln)))
+                }
+            }
+            body.addChild((MfilesApp.div("mf-sep")))
+            def rows:[MfJ] (view.list("rows"))
+            for rows r:MfJ j {
+                def kv:EVGElement (MfilesApp.div("mf-kv"))
+                def k:MfJ (r.item(0))
+                def val:MfJ (r.item(1))
+                def keyText:string k.str
+                def valText:string val.str
+                if (val.kind != 3) {
+                    valText = (val.toJson())
+                }
+                def keyFit:string (this.fitText(keyText 180.0 12.0))
+                def valFit:string (this.fitText(valText (width - 200.0) 12.0))
+                kv.addChild((MfilesApp.txt("mf-kv-k" keyFit)))
+                kv.addChild((MfilesApp.txt("mf-kv-v" valFit)))
+                body.addChild(kv)
+            }
+            return
+        }
+        if (data.isObj()) {
+            for data.ks key:string i {
+                def fv:MfJ (data.field(key))
+                def shown:string fv.str
+                if (fv.kind != 3) {
+                    shown = (fv.toJson())
+                }
+                def kv2:EVGElement (MfilesApp.div("mf-kv"))
+                kv2.addChild((MfilesApp.txt("mf-kv-k" key)))
+                def wl:[string] (this.wrapText(shown (width - 200.0) 12.0))
+                def col:EVGElement (MfilesApp.div("mf-col"))
+                for wl ln:string j {
+                    col.addChild((MfilesApp.txt("mf-kv-v" ln)))
+                }
+                kv2.addChild(col)
+                body.addChild(kv2)
+            }
+            return
+        }
+        body.addChild((MfilesApp.txt("mf-line" (data.toJson()))))
+    }
+
+    ; --- the console -----------------------------------------------------------
+
+    fn consolePanel:EVGElement () {
+        def shell:MfShell host.shell
+        def g:MfGrpc shell.grpc
+        def con:EVGElement (MfilesApp.box("mf-console" "mf-console" "region" "Console"))
+        if (consoleOpen == false) {
+            con.className = "mf-console mf-console-min"
+        }
+        def bar:EVGElement (MfilesApp.div("mf-cbar"))
+        bar.addChild((MfilesApp.button("mf-console-toggle" "Console" "mf-cbtn" "mf-ctitle")))
+        bar.addChild((this.modeChip(1)))
+        bar.addChild((this.modeChip(2)))
+        def stat:string ((to_string g.calls) + " vault calls · " + (to_string g.errors) + " failed · " + (to_string host.nativeCalls) + " native calls · " + (to_string host.delivered) + " events · " + (to_string (host.runningCount())) + " apps running")
+        bar.addChild((MfilesApp.txt("mf-cstat" stat)))
+        bar.addChild((MfilesApp.div("mf-grow")))
+        bar.addChild((MfilesApp.button("mf-console-clear" "Clear" "mf-cbtn" "mf-cstat")))
+        con.addChild(bar)
+        if (consoleOpen == false) {
+            return con
+        }
+        def cb:EVGElement (MfilesApp.div("mf-cbody"))
+        def logs:EVGElement (MfilesApp.box("mf-clog" "mf-clog" "log" "Application console"))
+        def n:int (array_length shell.logs)
+        def start:int (n - 120)
+        if (start < 0) {
+            start = 0
+        }
+        def i:int start
+        while (i < n) {
+            def l:MfLogLine (itemAt shell.logs i)
+            def lcls:string ("mf-cline mf-cline-" + l.level)
+            logs.addChild((MfilesApp.txt(lcls ("[" + l.appId + "] " + l.text))))
+            i = (i + 1)
+        }
+        if logStick {
+            logScroll = 1000000.0
+        }
+        logs.scrollTop = logScroll
+        logEl = logs
+        cb.addChild(logs)
+        def trace:EVGElement (MfilesApp.box("mf-ctrace" "mf-ctrace" "log" "Vault calls"))
+        for g.trace line:string k {
+            def tcls:string "mf-cline mf-cline-dim"
+            if ((indexOf line "→ ok") < 0) {
+                tcls = "mf-cline mf-cline-error"
+            }
+            trace.addChild((MfilesApp.txt(tcls line)))
+        }
+        if traceStick {
+            traceScroll = 1000000.0
+        }
+        trace.scrollTop = traceScroll
+        traceEl = trace
+        cb.addChild(trace)
+        con.addChild(cb)
+        return con
+    }
+
+    fn modeChip:EVGElement (m:int) {
+        def on:boolean (host.mode == m)
+        def cls:string "mf-mchip"
+        def tcls:string "mf-mchip-txt"
+        if on {
+            cls = "mf-mchip mf-mchip-on"
+            tcls = "mf-mchip-txt mf-mchip-txt-on"
+        }
+        def label:string ("UIX v" + (to_string m))
+        def b:EVGElement (MfilesApp.box(cls ("mf-mode-" + (to_string m)) "radio" label))
+        b.a11yChecked = (MfilesApp.tri(on))
+        b.addChild((MfilesApp.quiet(tcls label)))
+        return b
+    }
+
+    ; --- overlays --------------------------------------------------------------
+
+    fn menuItem:EVGElement (id:string label:string enabled:boolean app:boolean) {
+        def cls:string "mf-mitem"
+        def tcls:string "mf-mitem-txt"
+        if app {
+            tcls = "mf-mitem-txt mf-mitem-app"
+        }
+        if (enabled == false) {
+            tcls = "mf-mitem-txt mf-mitem-off"
+        }
+        def it:EVGElement (MfilesApp.box(cls id "menuitem" label))
+        it.a11yDisabled = (enabled == false)
+        it.addChild((MfilesApp.quiet(tcls label)))
+        return it
+    }
+
+    fn contextMenu:EVGElement () {
+        def shell:MfShell host.shell
+        def v:MfVault shell.vault
+        def m:EVGElement (MfilesApp.box("mf-menu" "mf-menu" "menu" "Context menu"))
+        def x:double menuX
+        def y:double menuY
+        if ((x + 240.0) > pageW) {
+            x = (pageW - 240.0)
+        }
+        def items:[MfMenuItem] (shell.visibleMenu(true))
+        def est:double (((to_double (array_length items)) * 28.0) + 150.0)
+        if ((y + est) > pageH) {
+            y = (pageH - est)
+        }
+        m.left = (EVGUnit.px(x))
+        m.top = (EVGUnit.px(y))
+        def sel:boolean (shell.hasSelection())
+        def mine:boolean false
+        def free:boolean false
+        if sel {
+            def o:MfObject (shell.selectedObject())
+            mine = (o.checkedOutTo == v.currentUser)
+            free = (o.checkedOutTo == 0)
+        }
+        m.addChild((this.menuItem("mf-ctx-bi-10" "Check Out" (sel && free) false)))
+        m.addChild((this.menuItem("mf-ctx-bi-11" "Check In" (sel && mine) false)))
+        m.addChild((this.menuItem("mf-ctx-bi-13" "Undo Checkout" (sel && mine) false)))
+        m.addChild((this.menuItem("mf-ctx-bi-76" "Delete" sel false)))
+        m.addChild((this.menuItem("mf-ctx-props" "Properties" sel false)))
+        if ((array_length items) > 0) {
+            m.addChild((MfilesApp.div("mf-msep")))
+            def head:EVGElement (MfilesApp.div("mf-mheadbox"))
+            head.addChild((MfilesApp.txt("mf-mhead" "APPLICATIONS")))
+            m.addChild(head)
+        }
+        for items it:MfMenuItem i {
+            def cmd:MfCustomCommand (shell.command(it.commandId))
+            m.addChild((this.menuItem(("mf-ctx-" + (to_string cmd.id)) cmd.name true true)))
+        }
+        return m
+    }
+
+    fn dropdown:EVGElement () {
+        def shell:MfShell host.shell
+        def v:MfVault shell.vault
+        def pdef:MfPropertyDef (v.propDef(dropdownPd))
+        def d:EVGElement (MfilesApp.box("mf-dd" "mf-dd" "listbox" pdef.name))
+        def x:double dropX
+        def y:double dropY
+        if ((x + 290.0) > pageW) {
+            x = (pageW - 290.0)
+        }
+        def items:[MfValueListItem] (this.choicesFor(dropdownPd))
+        def est:double (((to_double (array_length items)) * 28.0) + 12.0)
+        if ((y + est) > pageH) {
+            y = (pageH - est)
+        }
+        if (y < 60.0) {
+            y = 60.0
+        }
+        d.left = (EVGUnit.px(x))
+        d.top = (EVGUnit.px(y))
+        def pv:MfPropertyValue (draft.prop(dropdownPd))
+        for items it:MfValueListItem i {
+            def on:boolean ((pv.propDef >= 0) && (pv.value.hasLookup(it.id)))
+            def cls:string "mf-ddi"
+            if on {
+                cls = "mf-ddi mf-ddi-on"
+            }
+            def row:EVGElement (MfilesApp.box(cls ("mf-dd-" + (to_string it.id)) "option" it.name))
+            row.a11ySelected = (MfilesApp.tri(on))
+            def mark:string " "
+            if on {
+                mark = "✓"
+            }
+            row.addChild((MfilesApp.quiet("mf-ddi-mark" mark)))
+            row.addChild((MfilesApp.quiet("mf-ddi-txt" it.name)))
+            d.addChild(row)
+        }
+        return d
+    }
+
+    fn choicesFor:[MfValueListItem] (pd:int) {
+        def v:MfVault host.shell.vault
+        if (pd == 100) {
+            def out:[MfValueListItem]
+            def cls:[MfClass] (v.classesOf(editType))
+            for cls c:MfClass i {
+                def it (new MfValueListItem)
+                it.valueList = 1
+                it.id = c.id
+                it.name = c.name
+                push out it
+            }
+            return out
+        }
+        def pdef:MfPropertyDef (v.propDef(pd))
+        return (v.valueListItems(pdef.valueList))
+    }
+
+    fn toasts:EVGElement () {
+        def shell:MfShell host.shell
+        def col:EVGElement (MfilesApp.box("mf-toasts" "mf-toasts" "status" "Notifications"))
+        col.left = (EVGUnit.px((pageW - 350.0)))
+        def bottom:double 230.0
+        if (consoleOpen == false) {
+            bottom = 70.0
+        }
+        def n:int (array_length shell.toasts)
+        col.top = (EVGUnit.px(((pageH - bottom) - ((to_double n) * 62.0))))
+        for shell.toasts t:MfToast i {
+            def card:EVGElement (MfilesApp.div(("mf-toast mf-toast-" + (to_string t.kind))))
+            card.addChild((MfilesApp.txt("mf-toast-title" t.title)))
+            def msgFit:string (this.fitText(t.message 300.0 12.0))
+            card.addChild((MfilesApp.txt("mf-toast-msg" msgFit)))
+            col.addChild(card)
+        }
+        return col
+    }
+
+    fn dialog:EVGElement (d:MfDialog) {
+        def card:EVGElement (MfilesApp.box("mf-dialog" ("mf-dialog-" + (to_string d.id)) "dialog" d.caption))
+        def w:double 460.0
+        def lines:[string] (this.wrapText(d.text 410.0 13.0))
+        def h:double (((to_double (array_length lines)) * 19.0) + 130.0)
+        if (d.kind == "popup") {
+            h = 360.0
+        }
+        card.left = (EVGUnit.px(((pageW - w) / 2.0)))
+        def top:double ((pageH - h) / 2.5)
+        if (top < 70.0) {
+            top = 70.0
+        }
+        card.top = (EVGUnit.px(top))
+        def caption:string d.caption
+        if ((strlen caption) == 0) {
+            caption = "M-Files"
+        }
+        card.addChild((MfilesApp.txt("mf-dlg-cap" caption)))
+        def app:string ""
+        def ai:int (host.appIndexOf(d.appId))
+        if (ai >= 0) {
+            def a:MfUixApp (itemAt host.apps ai)
+            app = a.name
+        }
+        if ((strlen app) > 0) {
+            card.addChild((MfilesApp.txt("mf-dash-id" ("from " + app))))
+        }
+        if (d.kind == "popup") {
+            this.dashboardContent(card d.dashboardId d.dataJson 410.0)
+        } {
+            def shown:int 0
+            for lines ln:string i {
+                if (shown < 22) {
+                    if ((strlen ln) == 0) {
+                        card.addChild((MfilesApp.div("mf-gap")))
+                    } {
+                        card.addChild((MfilesApp.txt("mf-dlg-line" ln)))
+                    }
+                }
+                shown = (shown + 1)
+            }
+        }
+        def btns:EVGElement (MfilesApp.div("mf-dlg-btns"))
+        def bi:int 0
+        for d.buttons b:string k {
+            def cls:string "mf-btn"
+            def tcls:string "mf-btn-txt"
+            if (bi == 0) {
+                cls = "mf-btn mf-btn-primary"
+                tcls = "mf-btn-txt mf-btn-txt-primary"
+            }
+            btns.addChild((MfilesApp.button(("mf-dlg-" + (to_string d.id) + "-" + (to_string (bi + 1))) b cls tcls)))
+            bi = (bi + 1)
+        }
+        card.addChild(btns)
+        return card
+    }
+
+    ; =========================================================================
+    ; Actions
+    ; =========================================================================
+
+    fn openView:void (viewId:int) {
+        this.discardEdit()
+        host.shell.openView(viewId)
+        listScroll = 0.0
+        host.notifyLocation()
+        host.notifySelection()
+    }
+
+    fn selectRow:void (ot:int id:int additive:boolean) {
+        if (editing && ((ot != editType) || (id != editId))) {
+            this.discardEdit()
+        }
+        host.shell.select(ot id additive)
+        host.notifySelection()
+    }
+
+    fn runSearch:void () {
+        this.discardEdit()
+        if ((strlen (trim search.value)) == 0) {
+            host.shell.openView(14)
+        } {
+            host.shell.search((trim search.value))
+        }
+        listScroll = 0.0
+        focused = ""
+        host.notifyLocation()
+        host.notifySelection()
+    }
+
+    fn builtin:void (cmd:int) {
+        def shell:MfShell host.shell
+        def v:MfVault shell.vault
+        if ((shell.hasSelection()) == false) {
+            return
+        }
+        def o:MfObject (shell.selectedObject())
+        def names:[string] ([] _:string ( "Check Out" "Check In" "Undo Checkout" "Delete" ))
+        def ids:[int] ([] _:int ( 10 11 13 76 ))
+        def label:string "command"
+        for ids x:int i {
+            if (x == cmd) {
+                label = (itemAt names i)
+            }
+        }
+        if ((host.builtinCommand(cmd)) == false) {
+            shell.log("info" "emulator" (label + " was cancelled by an application"))
+            return
+        }
+        this.discardEdit()
+        def err:string ""
+        if (cmd == 10) {
+            err = (v.checkOut(o.objectType o.id))
+        }
+        if (cmd == 11) {
+            err = (v.checkIn(o.objectType o.id))
+        }
+        if (cmd == 13) {
+            err = (v.undoCheckOut(o.objectType o.id))
+        }
+        if (cmd == 76) {
+            err = (v.deleteObject(o.objectType o.id))
+        }
+        if ((strlen err) > 0) {
+            shell.toast((label + " failed") err 3)
+        } {
+            shell.log("info" "emulator" (label + ": " + ((o.latest()).title())))
+        }
+        shell.refresh()
+        host.notifyLocation()
+        host.notifySelection()
+    }
+
+    ; --- editing ---------------------------------------------------------------
+
+    fn beginEdit:void () {
+        def shell:MfShell host.shell
+        if ((shell.hasSelection()) == false) {
+            return
+        }
+        def o:MfObject (shell.selectedObject())
+        def latest:MfObjectVersion (o.latest())
+        draft = (latest.copy())
+        editType = o.objectType
+        editId = o.id
+        editing = true
+        editError = ""
+        shell.selectedTab = "_metadata"
+        this.buildFields()
+    }
+
+    fn buildFields:void () {
+        def v:MfVault host.shell.vault
+        def keepText:[string]
+        def keepPd:[int]
+        for fields old:InputCtl i {
+            push keepText old.value
+            push keepPd (itemAt fieldProps i)
+        }
+        def nf:[InputCtl]
+        def np:[int]
+        def pds:[int] (this.metadataPds(draft))
+        for pds pd:int j {
+            def pdef:MfPropertyDef (v.propDef(pd))
+            def dt:int pdef.datatype
+            if (((dt == 1) || (dt == 13)) || (((dt == 2) || (dt == 3)) || (dt == 5))) {
+                def c (new InputCtl())
+                c.tid = ("mf-field-" + (to_string pd))
+                c.name = pdef.name
+                c.fontFamily = fontFamily
+                c.fontSize = 13.0
+                c.boxWidth = 250.0
+                def pv:MfPropertyValue (draft.prop(pd))
+                def text:string ""
+                if (pv.propDef >= 0) {
+                    text = (v.valueText(pd pv.value))
+                }
+                def kept:int (indexOf keepPd pd)
+                if (kept >= 0) {
+                    text = (itemAt keepText kept)
+                }
+                c.setValue(text)
+                if (dt == 5) {
+                    c.placeholder = "M/D/YYYY"
+                }
+                push nf c
+                push np pd
+            }
+        }
+        fields = nf
+        fieldProps = np
+    }
+
+    ; Field text into the draft. `strict` reports the first value that does not
+    ; parse; otherwise such a value is left as it was.
+    fn commitFields:string (strict:boolean) {
+        def v:MfVault host.shell.vault
+        def n:int (array_length fields)
+        def i:int 0
+        while (i < n) {
+            def c:InputCtl (itemAt fields i)
+            def pd:int (itemAt fieldProps i)
+            def pdef:MfPropertyDef (v.propDef(pd))
+            def dt:int pdef.datatype
+            def raw:string c.value
+            def t:string (trim raw)
+            def empty:boolean ((strlen t) == 0)
+            if (dt == 1) {
+                draft.setProp(pd (MfTypedValue.ofText(raw)))
+            }
+            if (dt == 13) {
+                draft.setProp(pd (MfTypedValue.ofMultiLine(raw)))
+            }
+            if (dt == 2) {
+                if empty {
+                    draft.setProp(pd (MfTypedValue.nullOf(2)))
+                } {
+                    def iv@(optional):int (str2int t)
+                    if (null? iv) {
+                        if strict {
+                            return (pdef.name + " must be a whole number")
+                        }
+                    } {
+                        draft.setProp(pd (MfTypedValue.ofInt((unwrap iv))))
+                    }
+                }
+            }
+            if (dt == 3) {
+                if empty {
+                    draft.setProp(pd (MfTypedValue.nullOf(3)))
+                } {
+                    def dv@(optional):double (str2double t)
+                    if (null? dv) {
+                        if strict {
+                            return (pdef.name + " must be a number")
+                        }
+                    } {
+                        draft.setProp(pd (MfTypedValue.ofReal((unwrap dv))))
+                    }
+                }
+            }
+            if (dt == 5) {
+                if empty {
+                    draft.setProp(pd (MfTypedValue.nullOf(5)))
+                } {
+                    def iso:string (MfText.parseDate(t))
+                    if ((strlen iso) == 0) {
+                        if strict {
+                            return (pdef.name + " is not a date (use M/D/YYYY)")
+                        }
+                    } {
+                        draft.setProp(pd (MfTypedValue.ofDate(iso)))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn saveEdit:void () {
+        def shell:MfShell host.shell
+        def v:MfVault shell.vault
+        if (editing == false) {
+            return
+        }
+        def err:string (this.commitFields(true))
+        if ((strlen err) > 0) {
+            editError = err
+            return
+        }
+        def missing:[string] (v.missingRequired(draft))
+        if ((array_length missing) > 0) {
+            editError = ("Required: " + (join missing ", "))
+            return
+        }
+        def props:[MfPropertyValue]
+        for draft.props p:MfPropertyValue i {
+            def pdef:MfPropertyDef (v.propDef(p.propDef))
+            if (pdef.automatic == false) {
+                push props p
+            }
+        }
+        def e:string (v.setProperties(editType editId props))
+        if ((strlen e) > 0) {
+            editError = e
+            return
+        }
+        def o:MfObject (v.object(editType editId))
+        def ver:MfObjectVersion (o.latest())
+        editing = false
+        editError = ""
+        focused = ""
+        dropdownPd = -1
+        def none:[InputCtl]
+        fields = none
+        def noPd:[int]
+        fieldProps = noPd
+        shell.toast("Saved" ((ver.title()) + " · version " + (to_string ver.version)) 1)
+        shell.refresh()
+        host.notifyLocation()
+        host.notifySelection()
+    }
+
+    fn discardEdit:void () {
+        if (editing == false) {
+            return
+        }
+        editing = false
+        editError = ""
+        dropdownPd = -1
+        if (MfilesApp.hasPrefix(focused "mf-field-")) {
+            focused = ""
+        }
+        def none:[InputCtl]
+        fields = none
+        def noPd:[int]
+        fieldProps = noPd
+    }
+
+    fn pickLookup:void (pd:int item:int) {
+        def v:MfVault host.shell.vault
+        def pdef:MfPropertyDef (v.propDef(pd))
+        this.commitFields(false)
+        if (pdef.datatype == 10) {
+            def pv:MfPropertyValue (draft.prop(pd))
+            def items:[int]
+            if (pv.propDef >= 0) {
+                for pv.value.lookups x:int i {
+                    if (x != item) {
+                        push items x
+                    }
+                }
+                if ((pv.value.hasLookup(item)) == false) {
+                    push items item
+                }
+            } {
+                push items item
+            }
+            draft.setProp(pd (MfTypedValue.ofMultiLookup(items)))
+            return
+        }
+        draft.setProp(pd (MfTypedValue.ofLookup(item)))
+        dropdownPd = -1
+        if (pd == 100) {
+            this.buildFields()
+        }
+    }
+
+    fn removeLookup:void (pd:int item:int) {
+        def pv:MfPropertyValue (draft.prop(pd))
+        if (pv.propDef < 0) {
+            return
+        }
+        def items:[int]
+        for pv.value.lookups x:int i {
+            if (x != item) {
+                push items x
+            }
+        }
+        draft.setProp(pd (MfTypedValue.ofMultiLookup(items)))
+    }
+
+    ; =========================================================================
+    ; Input
+    ; =========================================================================
+
+    fn press:boolean (id:string) {
+        def shell:MfShell host.shell
+        dirty = true
+        def dlg:MfDialog (shell.openDialog())
+        if (MfilesApp.hasPrefix(id "mf-dlg-")) {
+            host.closeDialog((MfilesApp.partInt(id 2)) (MfilesApp.partInt(id 3)))
+            return true
+        }
+        if (dlg.id > 0) {
+            return true
+        }
+        if (MfilesApp.hasPrefix(id "mf-ctx-")) {
+            menuOpen = false
+            if (MfilesApp.hasPrefix(id "mf-ctx-bi-")) {
+                this.builtin((MfilesApp.partInt(id 3)))
+                return true
+            }
+            if (id == "mf-ctx-props") {
+                shell.selectedTab = "_metadata"
+                return true
+            }
+            host.runCustomCommand((MfilesApp.partInt(id 2)))
+            return true
+        }
+        menuOpen = false
+        if (MfilesApp.hasPrefix(id "mf-dd-")) {
+            this.pickLookup(dropdownPd (MfilesApp.partInt(id 2)))
+            return true
+        }
+        if (MfilesApp.hasPrefix(id "mf-lookup-")) {
+            def lpd:int (MfilesApp.partInt(id 2))
+            if (dropdownPd == lpd) {
+                dropdownPd = -1
+            } {
+                dropdownPd = lpd
+                dropX = lastX
+                dropY = (lastY + 16.0)
+            }
+            focused = ""
+            return true
+        }
+        dropdownPd = -1
+        if (MfilesApp.hasPrefix(id "mf-sort-")) {
+            table.toggleSort((MfilesApp.rest(id "mf-sort-")))
+            listScroll = 0.0
+            return true
+        }
+        if (id == "mf-code") {
+            codeRequested = true
+            return true
+        }
+        if ((id == "mf-search") || (MfilesApp.hasPrefix(id "mf-field-"))) {
+            focused = id
+            return true
+        }
+        focused = ""
+        if (MfilesApp.hasPrefix(id "mf-nav-")) {
+            this.openView((MfilesApp.partInt(id 2)))
+            return true
+        }
+        if (MfilesApp.hasPrefix(id "mf-ctab-")) {
+            this.openView((MfilesApp.partInt(id 2)))
+            return true
+        }
+        if (MfilesApp.hasPrefix(id "mf-folder-")) {
+            shell.openGroup((MfilesApp.partInt(id 2)))
+            listScroll = 0.0
+            host.notifyLocation()
+            return true
+        }
+        if (id == "mf-up") {
+            shell.navigateToParent()
+            listScroll = 0.0
+            host.notifyLocation()
+            return true
+        }
+        if (MfilesApp.hasPrefix(id "mf-row-")) {
+            this.selectRow((MfilesApp.partInt(id 2)) (MfilesApp.partInt(id 3)) false)
+            return true
+        }
+        if (MfilesApp.hasPrefix(id "mf-bi-")) {
+            this.builtin((MfilesApp.partInt(id 2)))
+            return true
+        }
+        if (MfilesApp.hasPrefix(id "mf-cmd-")) {
+            host.runCustomCommand((MfilesApp.partInt(id 2)))
+            return true
+        }
+        if (MfilesApp.hasPrefix(id "mf-ptab-")) {
+            def tabId:string (MfilesApp.rest(id "mf-ptab-"))
+            shell.selectedTab = tabId
+            paneScroll = 0.0
+            host.enqueueAll("event" (MfUixHost.payload(("tab:" + tabId) 19 "[]")))
+            host.pump()
+            return true
+        }
+        if (id == "mf-edit") {
+            this.beginEdit()
+            return true
+        }
+        if (id == "mf-save") {
+            this.saveEdit()
+            return true
+        }
+        if (id == "mf-discard") {
+            this.discardEdit()
+            return true
+        }
+        if (MfilesApp.hasPrefix(id "mf-prop-")) {
+            def ppd:int (MfilesApp.partInt(id 2))
+            if (editing == false) {
+                this.beginEdit()
+            }
+            def fc:InputCtl (this.fieldFor(ppd))
+            if ((strlen fc.tid) > 0) {
+                focused = fc.tid
+                fc.selectAll()
+            }
+            return true
+        }
+        if (MfilesApp.hasPrefix(id "mf-bool-")) {
+            def bpd:int (MfilesApp.partInt(id 2))
+            def bv:int (MfilesApp.partInt(id 3))
+            this.commitFields(false)
+            draft.setProp(bpd (MfTypedValue.ofBool((bv == 1))))
+            return true
+        }
+        if (MfilesApp.hasPrefix(id "mf-chip-")) {
+            this.commitFields(false)
+            this.removeLookup((MfilesApp.partInt(id 2)) (MfilesApp.partInt(id 3)))
+            return true
+        }
+        if (id == "mf-search-go") {
+            this.runSearch()
+            return true
+        }
+        if (id == "mf-mode") {
+            if (host.mode == 2) {
+                this.setMode(1)
+            } {
+                this.setMode(2)
+            }
+            return true
+        }
+        if (MfilesApp.hasPrefix(id "mf-mode-")) {
+            this.setMode((MfilesApp.partInt(id 2)))
+            return true
+        }
+        if (MfilesApp.hasPrefix(id "mf-app-")) {
+            host.restartApp((MfilesApp.partInt(id 2)))
+            return true
+        }
+        if (id == "mf-console-toggle") {
+            consoleOpen = (consoleOpen == false)
+            return true
+        }
+        if (id == "mf-console-clear") {
+            def none:[MfLogLine]
+            shell.logs = none
+            return true
+        }
+        return false
+    }
+
+    fn pointerDown:boolean (x:double y:double button:int) {
+        lastX = x
+        lastY = y
+        def id:string (this.hitId(x y))
+        if (button == 2) {
+            dirty = true
+            if (MfilesApp.hasPrefix(id "mf-row-")) {
+                def ot:int (MfilesApp.partInt(id 2))
+                def oid:int (MfilesApp.partInt(id 3))
+                if ((host.shell.isSelected(ot oid)) == false) {
+                    this.selectRow(ot oid false)
+                }
+            }
+            dropdownPd = -1
+            menuOpen = true
+            menuX = x
+            menuY = y
+            return true
+        }
+        def took:boolean (this.press(id))
+        def field:InputCtl (this.inputFor(focused))
+        if (((strlen field.tid) > 0) && (focused == id)) {
+            def boxEl:EVGElement (this.findById(id))
+            if (boxEl.id == id) {
+                def lead:double 11.0
+                if (id != "mf-search") {
+                    lead = 9.0
+                }
+                field.pressAt((this.engine()) ((x - boxEl.calculatedX) - lead) false)
+            }
+        }
+        if ((strlen id) == 0) {
+            if (menuOpen || (dropdownPd >= 0)) {
+                menuOpen = false
+                dropdownPd = -1
+                dirty = true
+                return true
+            }
+        }
+        return took
+    }
+
+    fn doubleClick:boolean (x:double y:double) {
+        def id:string (this.hitId(x y))
+        if (MfilesApp.hasPrefix(id "mf-row-")) {
+            this.selectRow((MfilesApp.partInt(id 2)) (MfilesApp.partInt(id 3)) false)
+            host.shell.selectedTab = "_preview"
+            dirty = true
+            return true
+        }
+        if (MfilesApp.hasPrefix(id "mf-field-")) {
+            def c:InputCtl (this.inputFor(id))
+            c.selectAll()
+            dirty = true
+            return true
+        }
+        return false
+    }
+
+    fn wheel:boolean (x:double y:double dy:double) {
+        dirty = true
+        def consoleTop:double (pageH - 210.0)
+        if (consoleOpen && (y >= consoleTop)) {
+            if (x < (pageW - 440.0)) {
+                logScroll = (logScroll + dy)
+                logStick = false
+                if (logScroll < 0.0) {
+                    logScroll = 0.0
+                }
+            } {
+                traceScroll = (traceScroll + dy)
+                traceStick = false
+                if (traceScroll < 0.0) {
+                    traceScroll = 0.0
+                }
+            }
+            return true
+        }
+        def paneW:double (this.paneWidth())
+        def navW:double (this.navWidth())
+        if (x >= (pageW - paneW)) {
+            paneScroll = (paneScroll + dy)
+            if (paneScroll < 0.0) {
+                paneScroll = 0.0
+            }
+            return true
+        }
+        if (x >= navW) {
+            listScroll = (listScroll + dy)
+            if (listScroll < 0.0) {
+                listScroll = 0.0
+            }
+            return true
+        }
+        return false
+    }
+
+    fn inputFor:InputCtl (tid:string) {
+        if (tid == "mf-search") {
+            return search
+        }
+        for fields c:InputCtl i {
+            if (c.tid == tid) {
+                return c
+            }
+        }
+        def none (new InputCtl())
+        none.tid = ""
+        return none
+    }
+
+    fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
+        def shell:MfShell host.shell
+        dirty = true
+        def dlg:MfDialog (shell.openDialog())
+        if (dlg.id > 0) {
+            if (k == "Enter") {
+                host.closeDialog(dlg.id 1)
+                return true
+            }
+            if (k == "Escape") {
+                host.closeDialog(dlg.id 0)
+                return true
+            }
+            return true
+        }
+        if (k == "Escape") {
+            if (menuOpen || (dropdownPd >= 0)) {
+                menuOpen = false
+                dropdownPd = -1
+                return true
+            }
+            if editing {
+                this.discardEdit()
+                return true
+            }
+            if ((strlen focused) > 0) {
+                focused = ""
+                return true
+            }
+            return false
+        }
+        def c:InputCtl (this.inputFor(focused))
+        if ((strlen c.tid) > 0) {
+            if (k == "Enter") {
+                if (focused == "mf-search") {
+                    this.runSearch()
+                } {
+                    this.saveEdit()
+                }
+                return true
+            }
+            if (k == "Tab") {
+                def n:int (array_length fields)
+                if (n > 0) {
+                    def at:int -1
+                    def i:int 0
+                    while (i < n) {
+                        def f:InputCtl (itemAt fields i)
+                        if (f.tid == focused) {
+                            at = i
+                        }
+                        i = (i + 1)
+                    }
+                    def next:int (at + 1)
+                    if shift {
+                        next = (at - 1)
+                    }
+                    if (next < 0) {
+                        next = (n - 1)
+                    }
+                    if (next >= n) {
+                        next = 0
+                    }
+                    def nf:InputCtl (itemAt fields next)
+                    focused = nf.tid
+                    nf.selectAll()
+                }
+                return true
+            }
+            c.keyDownWith(focused k shift ctrl)
+            c.ensureCaretVisible((this.engine()))
+            return true
+        }
+        if ((k == "ArrowDown") || (k == "ArrowUp")) {
+            def delta:int 1
+            if (k == "ArrowUp") {
+                delta = -1
+            }
+            this.discardEdit()
+            host.stepSelection(delta)
+            host.pump()
+            return true
+        }
+        if (k == "Delete") {
+            this.builtin(76)
+            return true
+        }
+        if (k == "F2") {
+            this.beginEdit()
+            return true
+        }
+        if ((k == "f") && ctrl) {
+            focused = "mf-search"
+            search.selectAll()
+            return true
+        }
+        return false
+    }
+
+    ; The text session (evg-textinput.js): which field has the keyboard, what it
+    ; holds and where it is drawn, and the edits the platform made to it.
+    fn focusedField:string () {
+        def c:InputCtl (this.inputFor(focused))
+        return c.tid
+    }
+
+    fn fieldStateJson:string (tid:string) {
+        def c:InputCtl (this.inputFor(tid))
+        if ((strlen c.tid) == 0) {
+            return "null"
+        }
+        def j:MfJ (MfJ.newObj())
+        j.putStr("tid" c.tid)
+        j.putStr("value" c.value)
+        j.putInt("selStart" (c.selStart()))
+        j.putInt("selEnd" (c.selEnd()))
+        j.putStr("kind" c.kind)
+        j.putInt("maxLength" c.maxLength)
+        def boxEl:EVGElement (this.findById(tid))
+        if (boxEl.id == tid) {
+            def b:MfJ (MfJ.newObj())
+            b.putInt("x" (to_int boxEl.calculatedX))
+            b.putInt("y" (to_int boxEl.calculatedY))
+            b.putInt("w" (to_int boxEl.calculatedWidth))
+            b.putInt("h" (to_int boxEl.calculatedHeight))
+            j.put("box" b)
+        }
+        return (j.toJson())
+    }
+
+    fn applyEdit:boolean (tid:string v:string selStart:int selEnd:int) {
+        def c:InputCtl (this.inputFor(tid))
+        if ((strlen c.tid) == 0) {
+            return false
+        }
+        c.applyEdit(v selStart selEnd)
+        c.ensureCaretVisible((this.engine()))
+        dirty = true
+        return true
+    }
+
+    fn setHover:boolean (id:string) {
+        if (id == hovered) {
+            return false
+        }
+        hovered = id
+        return true
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def shell:MfShell host.shell
+        def v:MfVault shell.vault
+        host.tick(dtMs)
+        if (v.revision != lastRevision) {
+            lastRevision = v.revision
+            if (editing == false) {
+                shell.refresh()
+            }
+            dirty = true
+        }
+        def nl:int (array_length shell.logs)
+        if (nl != lastLogs) {
+            lastLogs = nl
+            dirty = true
+        }
+        def g:MfGrpc shell.grpc
+        if (g.calls != lastCalls) {
+            lastCalls = g.calls
+            dirty = true
+        }
+        def nt:int (array_length shell.toasts)
+        if (nt != lastToasts) {
+            lastToasts = nt
+            dirty = true
+        }
+        def dlg:MfDialog (shell.openDialog())
+        if (dlg.id != lastDialog) {
+            lastDialog = dlg.id
+            dirty = true
+        }
+        return dirty
+    }
+
+    ; =========================================================================
+    ; Drawing
+    ; =========================================================================
+
+    fn setPageSize:void (w:double h:double) {
+        pageW = w
+        pageH = h
+        def lay (new EVGLayout())
+        lay.setPageSize(pageW pageH)
+        layout = lay
+        dirty = true
+    }
+
+    fn rebuild:void () {
+        root = (this.page())
+        dirty = false
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.markStates((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        if (dirty || (null? root)) {
+            this.rebuild()
+        }
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        if (null? layout) {
+            def fresh (new EVGLayout())
+            fresh.setPageSize(pageW pageH)
+            layout = fresh
+        }
+        def lay:EVGLayout (unwrap layout)
+        lay.layout(r)
+        ; read back what the layout clamped, so the next wheel starts from a
+        ; position that exists
+        if listEl {
+            def le:EVGElement (unwrap listEl)
+            listScroll = le.scrollTop
+        }
+        if paneEl {
+            def pe:EVGElement (unwrap paneEl)
+            paneScroll = pe.scrollTop
+        }
+        if logEl {
+            def lg:EVGElement (unwrap logEl)
+            if ((logStick == false) && (logScroll > lg.scrollTop)) {
+                logStick = true
+            }
+            logScroll = lg.scrollTop
+        }
+        if traceEl {
+            def te:EVGElement (unwrap traceEl)
+            if ((traceStick == false) && (traceScroll > te.scrollTop)) {
+                traceStick = true
+            }
+            traceScroll = te.scrollTop
+        }
+        return lay
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        if (null? root) {
+            this.laidOut()
+        }
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "M-Files emulator" generation focusId))
+        return (t.toJson())
+    }
+
+    fn findIn:EVGElement (el:EVGElement id:string) {
+        if (el.id == id) {
+            return el
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def found:EVGElement (this.findIn((el.getChild(i)) id))
+            if (found.id == id) {
+                return found
+            }
+            i = (i + 1)
+        }
+        def none:EVGElement (EVGElement.createDiv())
+        none.id = "__none__"
+        return none
+    }
+
+    fn findById:EVGElement (id:string) {
+        if (null? root) {
+            def none:EVGElement (EVGElement.createDiv())
+            return none
+        }
+        def r:EVGElement (unwrap root)
+        return (this.findIn(r id))
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "M-Files emulator" 1 ""))
+        return (t.lint())
+    }
+}

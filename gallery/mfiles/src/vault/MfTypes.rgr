@@ -1,0 +1,628 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; MfTypes — the metadata model of an emulated M-Files vault
+; =============================================================================
+; M-Files is a metadata-first document store: an OBJECT has a type (Document,
+; Customer, Project …), a CLASS that says which PROPERTIES it should carry, and
+; a list of VERSIONS. Each version holds property values and files. Folders do
+; not exist as storage: a "view" is a saved search, optionally grouped by a
+; property, and the tree a user walks is computed from metadata.
+;
+; These classes are plain data. Every rule lives in MfVault, where the tests
+; reach it; the gRPC layer and the UI only read what is here.
+;
+; Numbering follows M-Files where M-Files fixes it (built-in property 0 is
+; Name or title, 100 is Class, object type 0 is Document, the Datatype and
+; ConditionType values match the gRPC enums), so an extension that hard-codes
+; those ids runs against the emulator unchanged.
+; =============================================================================
+
+; The gRPC `Datatype` enum, as integers.
+class MfDatatype {
+    sfn dtUninitialized:int () {
+        return 0
+    }
+    sfn dtText:int () {
+        return 1
+    }
+    sfn dtInteger:int () {
+        return 2
+    }
+    sfn dtReal:int () {
+        return 3
+    }
+    sfn dtDate:int () {
+        return 5
+    }
+    sfn dtTimestamp:int () {
+        return 7
+    }
+    sfn dtBoolean:int () {
+        return 8
+    }
+    sfn dtLookup:int () {
+        return 9
+    }
+    sfn dtMultiLookup:int () {
+        return 10
+    }
+    sfn dtMultiLineText:int () {
+        return 13
+    }
+    sfn isLookup:boolean (dt:int) {
+        return ((dt == 9) || (dt == 10))
+    }
+    sfn name:string (dt:int) {
+        if (dt == 1) {
+            return "Text"
+        }
+        if (dt == 2) {
+            return "Number (integer)"
+        }
+        if (dt == 3) {
+            return "Number (real)"
+        }
+        if (dt == 5) {
+            return "Date"
+        }
+        if (dt == 7) {
+            return "Timestamp"
+        }
+        if (dt == 8) {
+            return "Boolean (yes/no)"
+        }
+        if (dt == 9) {
+            return "Choose from list"
+        }
+        if (dt == 10) {
+            return "Choose from list (multi-select)"
+        }
+        if (dt == 13) {
+            return "Text (multi-line)"
+        }
+        return "Uninitialized"
+    }
+}
+
+; The gRPC `ConditionType` enum, as integers.
+class MfCondition {
+    sfn equal:int () {
+        return 1
+    }
+    sfn notEqual:int () {
+        return 2
+    }
+    sfn greaterThan:int () {
+        return 3
+    }
+    sfn lessThan:int () {
+        return 4
+    }
+    sfn greaterOrEqual:int () {
+        return 5
+    }
+    sfn lessOrEqual:int () {
+        return 6
+    }
+    sfn containsText:int () {
+        return 7
+    }
+    sfn doesNotContain:int () {
+        return 8
+    }
+    sfn beginsWith:int () {
+        return 9
+    }
+    sfn isMissing:int () {
+        return 13
+    }
+    sfn isNotMissing:int () {
+        return 14
+    }
+}
+
+; Built-in ids a vault always has.
+class MfBuiltIn {
+    ; object types
+    sfn otDocument:int () {
+        return 0
+    }
+    sfn otAssignment:int () {
+        return 10
+    }
+    ; value lists
+    sfn vlClasses:int () {
+        return 1
+    }
+    sfn vlUsers:int () {
+        return 6
+    }
+    sfn vlWorkflows:int () {
+        return 7
+    }
+    sfn vlStates:int () {
+        return 8
+    }
+    ; property definitions
+    sfn pdNameOrTitle:int () {
+        return 0
+    }
+    sfn pdCreated:int () {
+        return 20
+    }
+    sfn pdLastModified:int () {
+        return 21
+    }
+    sfn pdSingleFile:int () {
+        return 22
+    }
+    sfn pdLastModifiedBy:int () {
+        return 23
+    }
+    sfn pdCreatedBy:int () {
+        return 25
+    }
+    sfn pdWorkflow:int () {
+        return 38
+    }
+    sfn pdState:int () {
+        return 39
+    }
+    sfn pdAssignedTo:int () {
+        return 44
+    }
+    sfn pdClass:int () {
+        return 100
+    }
+    ; views
+    sfn viewCheckedOutToMe:int () {
+        return 5
+    }
+    sfn viewAssignedToMe:int () {
+        return 9
+    }
+    sfn viewRecentlyAccessed:int () {
+        return 14
+    }
+    sfn viewFavorites:int () {
+        return 15
+    }
+}
+
+class MfUser {
+    def id:int 0
+    def name:string ""
+    def login:string ""
+}
+
+class MfObjectType {
+    def id:int 0
+    def name:string ""
+    def namePlural:string ""
+    ; Every object type is also a value list with the same id; lookups to a
+    ; Customer point at value list 102 and are resolved to customer objects.
+    def realObject:boolean true
+    def iconKind:string "doc"
+}
+
+class MfValueList {
+    def id:int 0
+    def name:string ""
+    ; -1 when the list is not backed by objects.
+    def objectType:int -1
+    def builtIn:boolean false
+}
+
+class MfValueListItem {
+    def valueList:int 0
+    def id:int 0
+    def name:string ""
+    def deleted:boolean false
+}
+
+class MfPropertyDef {
+    def id:int 0
+    def name:string ""
+    def datatype:int 1
+    ; For lookups: the value list (or object type) the choices come from.
+    def valueList:int -1
+    def builtIn:boolean false
+    ; Set by the server, never by a user (Created, Last modified …).
+    def automatic:boolean false
+}
+
+class MfAssocProp {
+    def propDef:int 0
+    def required:boolean false
+}
+
+class MfClass {
+    def id:int 0
+    def name:string ""
+    def objectType:int 0
+    def props:[MfAssocProp]
+    def workflow:int 0
+}
+
+class MfWorkflowState {
+    def id:int 0
+    def name:string ""
+    def workflow:int 0
+}
+
+; One value, of any datatype. Exactly one of the slots is meaningful, chosen
+; by `datatype`; `isNull` is a value that is present but empty, which M-Files
+; distinguishes from a property that is missing from the object altogether.
+class MfTypedValue {
+    def datatype:int 0
+    def isNull:boolean true
+    def text:string ""
+    def num:double 0.0
+    def flag:boolean false
+    def lookups:[int]
+
+    sfn ofText:MfTypedValue (s:string) {
+        def v (new MfTypedValue)
+        v.datatype = 1
+        v.text = s
+        v.isNull = false
+        return v
+    }
+    sfn ofMultiLine:MfTypedValue (s:string) {
+        def v (new MfTypedValue)
+        v.datatype = 13
+        v.text = s
+        v.isNull = false
+        return v
+    }
+    sfn ofInt:MfTypedValue (n:int) {
+        def v (new MfTypedValue)
+        v.datatype = 2
+        v.num = (to_double n)
+        v.isNull = false
+        return v
+    }
+    sfn ofReal:MfTypedValue (n:double) {
+        def v (new MfTypedValue)
+        v.datatype = 3
+        v.num = n
+        v.isNull = false
+        return v
+    }
+    ; Dates and timestamps are ISO-8601 strings: "2023-12-27" for a date,
+    ; "2023-12-27T10:00:00Z" for a timestamp. Lexical order is time order,
+    ; which is all the search conditions need.
+    sfn ofDate:MfTypedValue (iso:string) {
+        def v (new MfTypedValue)
+        v.datatype = 5
+        v.text = iso
+        v.isNull = false
+        return v
+    }
+    sfn ofTimestamp:MfTypedValue (iso:string) {
+        def v (new MfTypedValue)
+        v.datatype = 7
+        v.text = iso
+        v.isNull = false
+        return v
+    }
+    sfn ofBool:MfTypedValue (b:boolean) {
+        def v (new MfTypedValue)
+        v.datatype = 8
+        v.flag = b
+        v.isNull = false
+        return v
+    }
+    sfn ofLookup:MfTypedValue (item:int) {
+        def v (new MfTypedValue)
+        v.datatype = 9
+        push v.lookups item
+        v.isNull = false
+        return v
+    }
+    sfn ofMultiLookup:MfTypedValue (items:[int]) {
+        def v (new MfTypedValue)
+        v.datatype = 10
+        for items it:int i {
+            push v.lookups it
+        }
+        v.isNull = ((array_length items) == 0)
+        return v
+    }
+    sfn nullOf:MfTypedValue (dt:int) {
+        def v (new MfTypedValue)
+        v.datatype = dt
+        v.isNull = true
+        return v
+    }
+
+    fn copy:MfTypedValue () {
+        def v (new MfTypedValue)
+        v.datatype = datatype
+        v.isNull = isNull
+        v.text = text
+        v.num = num
+        v.flag = flag
+        for lookups it:int i {
+            push v.lookups it
+        }
+        return v
+    }
+
+    fn firstLookup:int () {
+        if ((array_length lookups) == 0) {
+            return 0
+        }
+        return (itemAt lookups 0)
+    }
+
+    fn hasLookup:boolean (item:int) {
+        for lookups it:int i {
+            if (it == item) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn sameAs:boolean (o:MfTypedValue) {
+        if (isNull != o.isNull) {
+            return false
+        }
+        if isNull {
+            return true
+        }
+        if (text != o.text) {
+            return false
+        }
+        if (num != o.num) {
+            return false
+        }
+        if (flag != o.flag) {
+            return false
+        }
+        if ((array_length lookups) != (array_length o.lookups)) {
+            return false
+        }
+        for lookups it:int i {
+            def other:int (itemAt o.lookups i)
+            if (it != other) {
+                return false
+            }
+        }
+        return true
+    }
+}
+
+class MfPropertyValue {
+    def propDef:int 0
+    def value:MfTypedValue (new MfTypedValue)
+
+    sfn of:MfPropertyValue (pd:int v:MfTypedValue) {
+        def p (new MfPropertyValue)
+        p.propDef = pd
+        p.value = v
+        return p
+    }
+
+    fn copy:MfPropertyValue () {
+        def p (new MfPropertyValue)
+        p.propDef = propDef
+        p.value = (value.copy())
+        return p
+    }
+}
+
+class MfObjectFile {
+    def id:int 0
+    def version:int 1
+    def title:string ""
+    def extension:string ""
+    def size:int 0
+    ; What the preview pane shows. The emulator keeps text, not bytes.
+    def content:string ""
+
+    fn fileName:string () {
+        if ((strlen extension) == 0) {
+            return title
+        }
+        return (title + "." + extension)
+    }
+
+    fn copy:MfObjectFile () {
+        def f (new MfObjectFile)
+        f.id = id
+        f.version = version
+        f.title = title
+        f.extension = extension
+        f.size = size
+        f.content = content
+        return f
+    }
+}
+
+; One version of one object. Versions are immutable once checked in; a
+; checked-out object has a working copy as its newest entry.
+class MfObjectVersion {
+    def objectType:int 0
+    def id:int 0
+    def version:int 1
+    def props:[MfPropertyValue]
+    def files:[MfObjectFile]
+    def modified:string ""
+
+    fn prop:MfPropertyValue (pd:int) {
+        for props p:MfPropertyValue i {
+            if (p.propDef == pd) {
+                return p
+            }
+        }
+        def none (new MfPropertyValue)
+        none.propDef = -1
+        return none
+    }
+
+    fn hasProp:boolean (pd:int) {
+        for props p:MfPropertyValue i {
+            if (p.propDef == pd) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn title:string () {
+        def p:MfPropertyValue (this.prop(0))
+        if (p.propDef < 0) {
+            return ""
+        }
+        return p.value.text
+    }
+
+    fn classId:int () {
+        def p:MfPropertyValue (this.prop(100))
+        if (p.propDef < 0) {
+            return -1
+        }
+        return (p.value.firstLookup())
+    }
+
+    fn setProp:void (pd:int v:MfTypedValue) {
+        for props p:MfPropertyValue i {
+            if (p.propDef == pd) {
+                p.value = v
+                return
+            }
+        }
+        push props (MfPropertyValue.of(pd v))
+    }
+
+    fn removeProp:void (pd:int) {
+        def n:int (array_length props)
+        def i:int 0
+        while (i < n) {
+            def p:MfPropertyValue (itemAt props i)
+            if (p.propDef == pd) {
+                remove_index props i
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn copy:MfObjectVersion () {
+        def v (new MfObjectVersion)
+        v.objectType = objectType
+        v.id = id
+        v.version = version
+        v.modified = modified
+        for props p:MfPropertyValue i {
+            push v.props (p.copy())
+        }
+        for files f:MfObjectFile j {
+            push v.files (f.copy())
+        }
+        return v
+    }
+}
+
+class MfObject {
+    def objectType:int 0
+    def id:int 0
+    def guid:string ""
+    def versions:[MfObjectVersion]
+    ; 0 = not checked out, otherwise the user id holding it.
+    def checkedOutTo:int 0
+    def deleted:boolean false
+    def followed:boolean false
+    def favorite:boolean false
+    ; When the current user last touched it — the "Recent" tab sorts on this.
+    def accessedByMe:string ""
+
+    fn latest:MfObjectVersion () {
+        def n:int (array_length versions)
+        return (itemAt versions (n - 1))
+    }
+
+    fn versionAt:MfObjectVersion (ver:int) {
+        for versions v:MfObjectVersion i {
+            if (v.version == ver) {
+                return v
+            }
+        }
+        return (this.latest())
+    }
+
+    fn hasVersion:boolean (ver:int) {
+        for versions v:MfObjectVersion i {
+            if (v.version == ver) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
+; A saved search. Views nest: a view with `groupBy` >= 0 shows one virtual
+; folder per distinct value of that property, and the objects under each.
+class MfView {
+    def id:int 0
+    def name:string ""
+    def parent:int -1
+    def builtIn:boolean false
+    def conditions:[MfSearchCondition]
+    def groupBy:int -1
+}
+
+; One search condition. `kind` names what is compared:
+;   "property"   a property value (propDef)
+;   "objecttype" the object's type
+;   "class"      the class (same as property 100, kept for readability)
+;   "deleted"    the deleted flag (value bool)
+;   "fulltext"   title, text properties and file content (value text)
+;   "checkedout" checked out to the current user (value bool)
+;   "objectid"   the object's id
+class MfSearchCondition {
+    def kind:string "property"
+    def propDef:int 0
+    def condition:int 1
+    def value:MfTypedValue (new MfTypedValue)
+    def inverted:boolean false
+
+    sfn byProperty:MfSearchCondition (pd:int cond:int v:MfTypedValue) {
+        def c (new MfSearchCondition)
+        c.kind = "property"
+        c.propDef = pd
+        c.condition = cond
+        c.value = v
+        return c
+    }
+    sfn byObjectType:MfSearchCondition (ot:int) {
+        def c (new MfSearchCondition)
+        c.kind = "objecttype"
+        c.condition = 1
+        c.value = (MfTypedValue.ofLookup(ot))
+        return c
+    }
+    sfn notDeleted:MfSearchCondition () {
+        def c (new MfSearchCondition)
+        c.kind = "deleted"
+        c.condition = 1
+        c.value = (MfTypedValue.ofBool(false))
+        return c
+    }
+    sfn fullText:MfSearchCondition (q:string) {
+        def c (new MfSearchCondition)
+        c.kind = "fulltext"
+        c.condition = 7
+        c.value = (MfTypedValue.ofText(q))
+        return c
+    }
+}
+
+class MfNamedValue {
+    def ns:string ""
+    def name:string ""
+    def value:string ""
+}

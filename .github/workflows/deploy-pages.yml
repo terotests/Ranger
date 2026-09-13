@@ -114,6 +114,8 @@ on:
       - "gallery/realtrainer/**"
       # The firesim console at /firesim/ is built from these.
       - "gallery/firesim/**"
+      # The M-Files emulator at /mfiles/.
+      - "gallery/mfiles/**"
       - "gallery/ui/**"
       # These carry the deck editor, the API playground, and the Office
       # reference at /office/reference/ — so a change to a facade republishes
@@ -282,6 +284,19 @@ jobs:
           grep -q "FsRulesEval" "$GITHUB_WORKSPACE/_site/firesim/generated-host.js"
           test -s "$GITHUB_WORKSPACE/_site/firesim/datasets/realtrainer.json"
           test -s "$GITHUB_WORKSPACE/_site/firesim/datasets/realtrainer.rules"
+
+      # ---- the M-Files emulator at /mfiles/ ---------------------------------
+      # A vault, its gRPC API and the UIX v1/v2 extension frameworks, with each
+      # extension running in Ranger's ComponentEngine. Same no-bundler shape as
+      # the firesim page.
+      - name: Build the M-Files emulator
+        run: |
+          npm run mfiles:web:build --silent
+          node gallery/mfiles/web/build.mjs --out "$GITHUB_WORKSPACE/_site/mfiles"
+          test -s "$GITHUB_WORKSPACE/_site/mfiles/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/mfiles/evg/gl/evg-textinput.js"
+          grep -q "MfilesApp" "$GITHUB_WORKSPACE/_site/mfiles/generated-host.js"
+          grep -q "OnNewShellUI" "$GITHUB_WORKSPACE/_site/mfiles/generated.js"
 
       # ---- .pptx API playground at /office/ -------------------------------
       # The published API and the slide editor in one page: the code writes a

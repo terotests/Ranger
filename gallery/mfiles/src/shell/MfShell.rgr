@@ -1,0 +1,657 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; MfShell — what the M-Files client window is showing, as data
+; =============================================================================
+; The shell is the state a UIX extension can observe and change, kept apart
+; from how it is drawn:
+;
+;   LOCATION   the view (or grouped folder, or search) being listed
+;   LISTING    the objects in it, and which of them are selected
+;   COMMANDS   custom commands and where in the menus they are placed
+;   PANES      the right-pane tabs, built-in and added by extensions
+;   DIALOGS    messages and popups waiting for a button
+;   TOASTS     the notifications along the edge
+;   LOG        what extensions wrote to the console, and what failed
+;
+; `MfUixHost` translates extension calls into changes here; `MfilesApp`
+; draws it. Neither knows about the other, which is what lets a test drive an
+; extension and assert on this class with no pixels involved.
+; =============================================================================
+
+Import "../grpc/MfGrpc.rgr"
+
+class MfRef {
+    def objectType:int 0
+    def id:int 0
+}
+
+class MfCustomCommand {
+    def id:int 0
+    def name:string ""
+    def appId:string ""
+    ; CommandState: 1 active, 3 hidden
+    def state:int 1
+}
+
+class MfMenuItem {
+    def id:int 0
+    def commandId:int 0
+    def location:int 0
+    def priority:int 0
+    def parentId:int -1
+    def state:int 1
+    def appId:string ""
+}
+
+class MfPaneTab {
+    def tabId:string ""
+    def title:string ""
+    def pane:string "right"
+    def dashboardId:string ""
+    def dataJson:string ""
+    def visible:boolean true
+    def builtIn:boolean false
+    def appId:string ""
+}
+
+class MfDialog {
+    def id:int 0
+    ; "message" | "popup"
+    def kind:string "message"
+    def appId:string ""
+    def caption:string ""
+    def text:string ""
+    def buttons:[string]
+    def dashboardId:string ""
+    def dataJson:string ""
+    def open:boolean true
+    def result:int -1
+}
+
+class MfToast {
+    def title:string ""
+    def message:string ""
+    ; ToastType: 0 info, 1 success, 2 warning, 3 error
+    def kind:int 0
+    def remainingMs:double 5000.0
+}
+
+class MfLogLine {
+    def level:string "log"
+    def appId:string ""
+    def text:string ""
+}
+
+class MfShell {
+    def vault:MfVault
+    def grpc:MfGrpc
+    def viewId:int 14
+    ; Within a grouped view: the lookup item whose folder is open, -1 for the
+    ; list of folders itself.
+    def groupItem:int -1
+    def searchText:string ""
+    def searching:boolean false
+    def listing:[MfObject]
+    def selection:[MfRef]
+    def commands:[MfCustomCommand]
+    def menuItems:[MfMenuItem]
+    def tabs:[MfPaneTab]
+    def selectedTab:string "_metadata"
+    def dialogs:[MfDialog]
+    def toasts:[MfToast]
+    def logs:[MfLogLine]
+    def storage:[MfNamedValue]
+    def nextCommand:int 100001
+    def nextMenu:int 500001
+    def nextDialog:int 1
+    def logLimit:int 300
+    ; The app a call is currently being made for — set by the host around
+    ; every extension call so the shell can attribute what it creates.
+    def currentApp:string ""
+
+    Constructor (v:MfVault) {
+        vault = v
+        grpc = (new MfGrpc(v))
+        this.addTab("right" "_metadata" "Metadata" "" "")
+        this.addTab("right" "_preview" "Preview" "" "")
+        this.addTab("right" "_code" "Extension code" "" "")
+        def meta:MfPaneTab (this.tab("_metadata"))
+        meta.builtIn = true
+        def prev:MfPaneTab (this.tab("_preview"))
+        prev.builtIn = true
+        def code:MfPaneTab (this.tab("_code"))
+        code.builtIn = true
+        this.refresh()
+    }
+
+    ; =========================================================================
+    ; Location and listing
+    ; =========================================================================
+
+    fn refresh:void () {
+        def found:[MfObject]
+        if searching {
+            def conds:[MfSearchCondition]
+            if ((strlen searchText) > 0) {
+                push conds (MfSearchCondition.fullText(searchText))
+            }
+            def hits:[MfObject] (vault.search(conds 0))
+            found = (vault.sortByTitle(hits))
+        } {
+            def view:MfView (vault.view(viewId))
+            if (view.groupBy >= 0) {
+                if (groupItem >= 0) {
+                    found = (vault.groupObjects(viewId groupItem))
+                }
+            } {
+                found = (vault.viewObjects(viewId))
+            }
+        }
+        listing = found
+        ; Selection survives a refresh only for objects still listed.
+        def kept:[MfRef]
+        for selection r:MfRef i {
+            if (this.isListed(r.objectType r.id)) {
+                push kept r
+            }
+        }
+        selection = kept
+    }
+
+    fn isListed:boolean (ot:int id:int) {
+        for listing o:MfObject i {
+            if ((o.objectType == ot) && (o.id == id)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn openView:void (id:int) {
+        viewId = id
+        groupItem = -1
+        searching = false
+        this.clearSelection()
+        this.refresh()
+    }
+
+    fn openGroup:void (item:int) {
+        groupItem = item
+        this.clearSelection()
+        this.refresh()
+    }
+
+    fn search:void (text:string) {
+        searchText = text
+        searching = true
+        this.clearSelection()
+        this.refresh()
+    }
+
+    fn navigateToParent:void () {
+        if searching {
+            searching = false
+            this.refresh()
+            return
+        }
+        if (groupItem >= 0) {
+            groupItem = -1
+            this.refresh()
+        }
+    }
+
+    ; "Sample Vault > Documents by Class > Invoice"
+    fn path:string () {
+        if searching {
+            return (vault.name + " > Search: " + searchText)
+        }
+        def view:MfView (vault.view(viewId))
+        def p:string (vault.name + " > " + view.name)
+        if (groupItem >= 0) {
+            def pdef:MfPropertyDef (vault.propDef(view.groupBy))
+            p = (p + " > " + (vault.lookupName(pdef.valueList groupItem)))
+        }
+        return p
+    }
+
+    fn isGroupList:boolean () {
+        if searching {
+            return false
+        }
+        def view:MfView (vault.view(viewId))
+        return ((view.groupBy >= 0) && (groupItem < 0))
+    }
+
+    ; =========================================================================
+    ; Selection
+    ; =========================================================================
+
+    fn clearSelection:void () {
+        def none:[MfRef]
+        selection = none
+    }
+
+    fn isSelected:boolean (ot:int id:int) {
+        for selection r:MfRef i {
+            if ((r.objectType == ot) && (r.id == id)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn select:void (ot:int id:int additive:boolean) {
+        if (additive == false) {
+            this.clearSelection()
+        }
+        if (this.isSelected(ot id)) {
+            return
+        }
+        def r (new MfRef)
+        r.objectType = ot
+        r.id = id
+        push selection r
+        vault.markAccessed(ot id)
+    }
+
+    fn unselect:void (ot:int id:int) {
+        def n:int (array_length selection)
+        def i:int 0
+        while (i < n) {
+            def r:MfRef (itemAt selection i)
+            if ((r.objectType == ot) && (r.id == id)) {
+                remove_index selection i
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn hasSelection:boolean () {
+        return ((array_length selection) > 0)
+    }
+
+    fn selectedObject:MfObject () {
+        if ((array_length selection) == 0) {
+            return (vault.object(-1 0))
+        }
+        def r:MfRef (itemAt selection 0)
+        return (vault.object(r.objectType r.id))
+    }
+
+    fn selectedObjects:[MfObject] () {
+        def out:[MfObject]
+        for selection r:MfRef i {
+            if (vault.hasObject(r.objectType r.id)) {
+                push out (vault.object(r.objectType r.id))
+            }
+        }
+        return out
+    }
+
+    ; { objects: ObjectVersionEx[], properties: PropertyValueArray[] } — the
+    ; shape of GetObjectVersionAndPropertiesOfMultipleObjectsResponse.
+    fn itemsJson:string (list:[MfObject]) {
+        def objs:MfJ (MfJ.newArr())
+        def props:MfJ (MfJ.newArr())
+        for list o:MfObject i {
+            def v:MfObjectVersion (o.latest())
+            objs.add((grpc.objectVersionEx(o v)))
+            def pa:MfJ (MfJ.newObj())
+            pa.put("value" (grpc.propertyValues(v)))
+            props.add(pa)
+        }
+        def out:MfJ (MfJ.newObj())
+        out.put("objects" objs)
+        out.put("properties" props)
+        return (out.toJson())
+    }
+
+    fn listingJson:string () {
+        return (this.itemsJson(listing))
+    }
+
+    fn selectionJson:string () {
+        def sel:[MfObject] (this.selectedObjects())
+        return (this.itemsJson(sel))
+    }
+
+    ; =========================================================================
+    ; Commands and menus
+    ; =========================================================================
+
+    fn createCommand:int (name:string) {
+        def c (new MfCustomCommand)
+        c.id = nextCommand
+        nextCommand = (nextCommand + 1)
+        c.name = name
+        c.appId = currentApp
+        push commands c
+        return c.id
+    }
+
+    fn hasCommand:boolean (id:int) {
+        for commands c:MfCustomCommand i {
+            if (c.id == id) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn command:MfCustomCommand (id:int) {
+        for commands c:MfCustomCommand i {
+            if (c.id == id) {
+                return c
+            }
+        }
+        def none (new MfCustomCommand)
+        none.id = -1
+        return none
+    }
+
+    fn deleteCommand:void (id:int) {
+        def n:int (array_length commands)
+        def i:int 0
+        while (i < n) {
+            def c:MfCustomCommand (itemAt commands i)
+            if (c.id == id) {
+                remove_index commands i
+                i = n
+            }
+            i = (i + 1)
+        }
+        this.removeMenusOf(id -1)
+    }
+
+    fn removeMenusOf:void (commandId:int location:int) {
+        def keep:[MfMenuItem]
+        for menuItems m:MfMenuItem i {
+            def drop:boolean (m.commandId == commandId)
+            if (drop && (location >= 0)) {
+                drop = (m.location == location)
+            }
+            if (drop == false) {
+                push keep m
+            }
+        }
+        menuItems = keep
+    }
+
+    fn addToMenu:int (commandId:int location:int priority:int parentId:int) {
+        def m (new MfMenuItem)
+        m.id = nextMenu
+        nextMenu = (nextMenu + 1)
+        m.commandId = commandId
+        m.location = location
+        m.priority = priority
+        m.parentId = parentId
+        m.appId = currentApp
+        push menuItems m
+        return m.id
+    }
+
+    fn menuItem:MfMenuItem (id:int) {
+        for menuItems m:MfMenuItem i {
+            if (m.id == id) {
+                return m
+            }
+        }
+        def none (new MfMenuItem)
+        none.id = -1
+        return none
+    }
+
+    fn removeMenuItem:void (id:int) {
+        def keep:[MfMenuItem]
+        for menuItems m:MfMenuItem i {
+            if ((m.id != id) && (m.parentId != id)) {
+                push keep m
+            }
+        }
+        menuItems = keep
+    }
+
+    sfn isContextLocation:boolean (loc:int) {
+        if ((loc >= 51) && (loc <= 60)) {
+            return true
+        }
+        return ((((loc == 26) || (loc == 37)) || ((loc == 41) || (loc == 43))) || (loc == 99))
+    }
+
+    sfn isTaskLocation:boolean (loc:int) {
+        return (((loc == 47) || (loc == 48)) || ((loc == 49) || (loc == 50)))
+    }
+
+    fn visibleMenu:[MfMenuItem] (context:boolean) {
+        def out:[MfMenuItem]
+        for menuItems m:MfMenuItem i {
+            def fits:boolean (MfShell.isTaskLocation(m.location))
+            if context {
+                fits = (MfShell.isContextLocation(m.location))
+            }
+            if (fits && (m.parentId < 0)) {
+                def c:MfCustomCommand (this.command(m.commandId))
+                if (((c.id >= 0) && (c.state != 3)) && (m.state != 3)) {
+                    def n:int (array_length out)
+                    def at:int n
+                    def k:int 0
+                    while (k < n) {
+                        def other:MfMenuItem (itemAt out k)
+                        if ((at == n) && (m.priority < other.priority)) {
+                            at = k
+                        }
+                        k = (k + 1)
+                    }
+                    if (at == n) {
+                        push out m
+                    } {
+                        insert out at m
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    ; =========================================================================
+    ; Panes
+    ; =========================================================================
+
+    fn addTab:MfPaneTab (pane:string tabId:string title:string before:string appId:string) {
+        if (this.hasTab(tabId)) {
+            def existing:MfPaneTab (this.tab(tabId))
+            existing.title = title
+            return existing
+        }
+        def t (new MfPaneTab)
+        t.pane = pane
+        t.tabId = tabId
+        t.title = title
+        t.appId = appId
+        def n:int (array_length tabs)
+        def at:int n
+        def i:int 0
+        while (i < n) {
+            def other:MfPaneTab (itemAt tabs i)
+            if ((at == n) && (other.tabId == before)) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        if (at == n) {
+            push tabs t
+        } {
+            insert tabs at t
+        }
+        return t
+    }
+
+    fn hasTab:boolean (tabId:string) {
+        for tabs t:MfPaneTab i {
+            if (t.tabId == tabId) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn tab:MfPaneTab (tabId:string) {
+        for tabs t:MfPaneTab i {
+            if (t.tabId == tabId) {
+                return t
+            }
+        }
+        def none (new MfPaneTab)
+        none.tabId = ""
+        return none
+    }
+
+    fn removeTab:void (tabId:string) {
+        def n:int (array_length tabs)
+        def i:int 0
+        while (i < n) {
+            def t:MfPaneTab (itemAt tabs i)
+            if ((t.tabId == tabId) && (t.builtIn == false)) {
+                remove_index tabs i
+                if (selectedTab == tabId) {
+                    selectedTab = "_metadata"
+                }
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn paneTabs:[MfPaneTab] (pane:string) {
+        def out:[MfPaneTab]
+        for tabs t:MfPaneTab i {
+            if ((t.pane == pane) && t.visible) {
+                push out t
+            }
+        }
+        return out
+    }
+
+    ; =========================================================================
+    ; Dialogs, toasts, log, storage
+    ; =========================================================================
+
+    fn showDialog:MfDialog (kind:string caption:string text:string) {
+        def d (new MfDialog)
+        d.id = nextDialog
+        nextDialog = (nextDialog + 1)
+        d.kind = kind
+        d.caption = caption
+        d.text = text
+        d.appId = currentApp
+        push dialogs d
+        return d
+    }
+
+    fn openDialog:MfDialog () {
+        for dialogs d:MfDialog i {
+            if d.open {
+                return d
+            }
+        }
+        def none (new MfDialog)
+        none.id = 0
+        none.open = false
+        return none
+    }
+
+    fn dialog:MfDialog (id:int) {
+        for dialogs d:MfDialog i {
+            if (d.id == id) {
+                return d
+            }
+        }
+        def none (new MfDialog)
+        none.id = 0
+        none.open = false
+        return none
+    }
+
+    fn closeDialog:void (id:int result:int) {
+        def d:MfDialog (this.dialog(id))
+        if (d.id > 0) {
+            d.open = false
+            d.result = result
+        }
+    }
+
+    fn toast:void (title:string message:string kind:int) {
+        def t (new MfToast)
+        t.title = title
+        t.message = message
+        t.kind = kind
+        push toasts t
+        if ((array_length toasts) > 4) {
+            remove_index toasts 0
+        }
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def changed:boolean false
+        def keep:[MfToast]
+        for toasts t:MfToast i {
+            t.remainingMs = (t.remainingMs - dtMs)
+            if (t.remainingMs > 0.0) {
+                push keep t
+            } {
+                changed = true
+            }
+        }
+        toasts = keep
+        return changed
+    }
+
+    fn log:void (level:string appId:string text:string) {
+        def l (new MfLogLine)
+        l.level = level
+        l.appId = appId
+        l.text = text
+        push logs l
+        if ((array_length logs) > logLimit) {
+            remove_index logs 0
+        }
+    }
+
+    fn writeStorage:void (key:string value:string) {
+        for storage nv:MfNamedValue i {
+            if ((nv.ns == currentApp) && (nv.name == key)) {
+                nv.value = value
+                return
+            }
+        }
+        def n (new MfNamedValue)
+        n.ns = currentApp
+        n.name = key
+        n.value = value
+        push storage n
+    }
+
+    fn readStorage:string (key:string) {
+        for storage nv:MfNamedValue i {
+            if ((nv.ns == currentApp) && (nv.name == key)) {
+                return nv.value
+            }
+        }
+        return ""
+    }
+
+    fn deleteStorage:void (key:string) {
+        def n:int (array_length storage)
+        def i:int 0
+        while (i < n) {
+            def nv:MfNamedValue (itemAt storage i)
+            if ((nv.ns == currentApp) && (nv.name == key)) {
+                remove_index storage i
+                return
+            }
+            i = (i + 1)
+        }
+    }
+}

@@ -1,0 +1,148 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; npm run mfiles:vault:test
+
+Import "../src/vault/MfSampleVault.rgr"
+Import "../src/vault/MfJson.rgr"
+
+class VaultTest {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqS:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + "\n       got  " + got + "\n       want " + want)
+        }
+    }
+
+    fn eqI:void (name:string got:int want:int) {
+        this.eqS(name (to_string got) (to_string want))
+    }
+
+    fn titles:string (list:[MfObject]) {
+        def out:[string]
+        for list o:MfObject i {
+            def v:MfObjectVersion (o.latest())
+            push out (v.title())
+        }
+        return (join out " | ")
+    }
+
+    fn run:void () {
+        print "text"
+        this.eqS("iso roundtrip" (MfText.isoOfMinutes((MfText.minutesOf("2023-12-27T10:00:00Z")))) "2023-12-27T10:00:00Z")
+        this.eqS("leap day" (MfText.isoOfMinutes((MfText.minutesOf("2024-02-29T23:59:00Z")))) "2024-02-29T23:59:00Z")
+        this.eqS("roll over month" (MfText.isoOfMinutes(((MfText.minutesOf("2024-01-31T23:59:00Z")) + 1))) "2024-02-01T00:00:00Z")
+        this.eqS("display ts" (MfText.displayTimestamp("2023-12-27T10:00:00Z")) "12/27/2023 10:00 AM")
+        this.eqS("display pm" (MfText.displayTimestamp("2023-12-27T21:05:00Z")) "12/27/2023 9:05 PM")
+        this.eqS("parse us date" (MfText.parseDate("1/31/2024")) "2024-01-31")
+
+        print "json"
+        def j:MfJ (MfJ.parse("{\"a\":[1,2.5,\"x\\n\\\"y\\u00e4\"],\"b\":{\"c\":true,\"d\":null},\"e\":-3e2}"))
+        this.eqS("json roundtrip" (j.toJson()) "{\"a\":[1,2.5,\"x\\n\\\"yä\"],\"b\":{\"c\":true,\"d\":null},\"e\":-300}")
+        def arrA:MfJ (j.field("a"))
+        this.eqI("json count" (arrA.count()) 3)
+        def bObj:MfJ (j.field("b"))
+        this.ok("json bool" (bObj.bool_("c" false)))
+
+        print "metadata"
+        def v:MfVault (MfSampleVault.build())
+        this.eqI("object count" (array_length v.objects) 29)
+        this.eqS("class name" (v.lookupName(1 2)) "Invoice")
+        this.eqS("customer lookup" (v.lookupName(102 3)) "ESTT Corporation")
+        def custItems:[MfValueListItem] (v.valueListItems(102))
+        this.eqI("customers as list" (array_length custItems) 7)
+
+        print "views"
+        def recent:[MfObject] (v.viewObjects(14))
+        this.eqI("recent count" (array_length recent) 15)
+        def r0:MfObject (itemAt recent 0)
+        def r0v:MfObjectVersion (r0.latest())
+        this.eqS("recent first" (r0v.title()) "Job Application, Paula McEnroe")
+        def r14:MfObject (itemAt recent 14)
+        def r14v:MfObjectVersion (r14.latest())
+        this.eqS("recent last" (r14v.title()) "Invoice A113-112-33 - GNT")
+        this.eqI("assigned to me" (array_length (v.viewObjects(9))) 1)
+        def groups:[MfValueListItem] (v.groupItems(101))
+        def gnames:[string]
+        for groups g:MfValueListItem gi {
+            push gnames g.name
+        }
+        this.eqS("group by class" (join gnames ", ") "Document Template, Invoice, Job Application, Letter, Project Plan")
+        this.eqI("invoices group" (array_length (v.groupObjects(101 2))) 8)
+        this.eqS("pending invoices" (this.titles((v.viewObjects(106)))) "Invoice #1035 - Fortney Nolte Associates | Invoice #162 - ESTT | Invoice #998 - UPS | Invoice A113-112-33 - GNT | Sales Invoice 237 - City of Chicago (Planning and Development)")
+
+        print "search"
+        def conds:[MfSearchCondition]
+        push conds (MfSearchCondition.fullText("ups"))
+        push conds (MfSearchCondition.byObjectType(0))
+        this.eqI("full text ups" (array_length (v.search(conds 0))) 3)
+        def c2:[MfSearchCondition]
+        def amt:MfTypedValue (MfTypedValue.ofReal(5000.0))
+        push c2 (MfSearchCondition.byProperty(1006 3 amt))
+        this.eqS("amount > 5000" (this.titles((v.search(c2 0)))) "Invoice #2304 - CBC | Invoice #162 - ESTT | Sales Invoice 237 - City of Chicago (Planning and Development) | Invoice #1035 - Fortney Nolte Associates")
+        def c3:[MfSearchCondition]
+        def cust:MfTypedValue (MfTypedValue.ofLookup(2))
+        push c3 (MfSearchCondition.byProperty(1001 1 cust))
+        this.eqI("by customer UPS" (array_length (v.search(c3 0))) 4)
+
+        print "versions"
+        def paula:MfObject (itemAt recent 0)
+        def pv1:MfObjectVersion (paula.latest())
+        this.eqI("v1" pv1.version 1)
+        def edits:[MfPropertyValue]
+        def pos:MfTypedValue (MfTypedValue.ofText("Senior Sales Representative"))
+        push edits (MfPropertyValue.of(1015 pos))
+        this.eqS("implicit save ok" (v.setProperties(0 paula.id edits)) "")
+        def pv2:MfObjectVersion (paula.latest())
+        this.eqI("implicit save makes v2" pv2.version 2)
+        def pos2:MfPropertyValue (pv2.prop(1015))
+        this.eqS("value saved" pos2.value.text "Senior Sales Representative")
+        this.eqI("not checked out after save" paula.checkedOutTo 0)
+        this.eqS("check out" (v.checkOut(0 paula.id)) "")
+        def pw3:MfObjectVersion (paula.latest())
+        this.eqI("working copy is v3" pw3.version 3)
+        def e2:[MfPropertyValue]
+        def kw:MfTypedValue (MfTypedValue.ofText("draft"))
+        push e2 (MfPropertyValue.of(1015 kw))
+        v.setProperties(0 paula.id e2)
+        def pk3:MfObjectVersion (paula.latest())
+        this.eqI("edit while checked out keeps v3" pk3.version 3)
+        this.eqS("undo check out" (v.undoCheckOut(0 paula.id)) "")
+        def back:MfObjectVersion (paula.latest())
+        def pos3:MfPropertyValue (back.prop(1015))
+        this.eqS("undo restores" pos3.value.text "Senior Sales Representative")
+        def e3:[MfPropertyValue]
+        def empty:MfTypedValue (MfTypedValue.ofText(""))
+        push e3 (MfPropertyValue.of(1015 empty))
+        this.eqS("required refused" (v.setProperties(0 paula.id e3)) "Required property missing: Position applied for")
+        def pr2:MfObjectVersion (paula.latest())
+        this.eqI("refusal leaves no version" pr2.version 2)
+
+        print "named values"
+        v.setNamedValue("app.settings" "theme" "dark")
+        v.setNamedValue("app.settings" "theme" "light")
+        def nv:[MfNamedValue] (v.namedValues("app.settings"))
+        this.eqI("named count" (array_length nv) 1)
+
+        print ("\nvault: " + (to_string passed) + " passed, " + (to_string failed) + " failed")
+    }
+}
+
+class VaultTestMain {
+    sfn main:void () {
+        def t (new VaultTest)
+        t.run()
+    }
+}

@@ -1,0 +1,1154 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; MfVault — an M-Files vault, emulated
+; =============================================================================
+; What a client can observe of a vault, and nothing it cannot:
+;
+;   METADATA   object types, value lists, property definitions, classes
+;   OBJECTS    versions, check-out / check-in, implicit versioning on a save,
+;              deletion as a flag, the current user's "recently accessed"
+;   SEARCH     conditions on properties, type, class, deletion, full text
+;   VIEWS      saved searches, optionally grouped by a lookup property
+;   STORAGE    named values per namespace (what apps keep settings in)
+;
+; There is no permission model and no workflow engine yet: every object is
+; visible to the current user and every state may follow every other. Both are
+; stated here rather than faked, because an extension tested against a vault
+; that silently allows everything learns nothing about refusals.
+;
+; Every mutation bumps `revision`, which is how the UI and the UIX host know a
+; listing is stale without being told what changed.
+; =============================================================================
+
+Import "MfTypes.rgr"
+Import "MfText.rgr"
+
+class MfVault {
+    def name:string "Sample Vault"
+    def guid:string "{5A11B7E0-0000-4000-8000-0000000000A1}"
+    def users:[MfUser]
+    def currentUser:int 1
+    def objectTypes:[MfObjectType]
+    def valueLists:[MfValueList]
+    def listItems:[MfValueListItem]
+    def propDefs:[MfPropertyDef]
+    def classes:[MfClass]
+    def objects:[MfObject]
+    def views:[MfView]
+    def named:[MfNamedValue]
+    ; aliases, keyed by the MetadataStructureItem number as `ns`
+    def aliases:[MfNamedValue]
+    def clockMinutes:int 0
+    def revision:int 0
+    def lastError:string ""
+
+    Constructor () {
+        clockMinutes = (MfText.minutesOf("2024-01-15T09:00:00Z"))
+        this.addBuiltIns()
+    }
+
+    ; =========================================================================
+    ; Time and change
+    ; =========================================================================
+
+    fn now:string () {
+        return (MfText.isoOfMinutes(clockMinutes))
+    }
+
+    fn setNow:void (iso:string) {
+        clockMinutes = (MfText.minutesOf(iso))
+    }
+
+    ; Every write happens a minute after the previous one, so "Last modified"
+    ; orders the way the writes did.
+    fn stamp:string () {
+        clockMinutes = (clockMinutes + 1)
+        return (this.now())
+    }
+
+    fn changed:void () {
+        revision = (revision + 1)
+    }
+
+    fn fail:string (why:string) {
+        lastError = why
+        return why
+    }
+
+    ; =========================================================================
+    ; Metadata
+    ; =========================================================================
+
+    fn addBuiltIns:void () {
+        this.addValueList(1 "Classes" -1)
+        this.addValueList(6 "Users" -1)
+        this.addValueList(7 "Workflows" -1)
+        this.addValueList(8 "States" -1)
+        def names:[string] ([] _:string ( "Name or title" "Created" "Last modified" "Single file" "Last modified by" "Created by" "Workflow" "State" "Assigned to" "Class" ))
+        def ids:[int] ([] _:int ( 0 20 21 22 23 25 38 39 44 100 ))
+        def types:[int] ([] _:int ( 1 7 7 8 9 9 9 9 10 9 ))
+        def lists:[int] ([] _:int ( -1 -1 -1 -1 6 6 7 8 6 1 ))
+        for ids id:int i {
+            def nm:string (itemAt names i)
+            def dt:int (itemAt types i)
+            def vl:int (itemAt lists i)
+            def pd:MfPropertyDef (this.addPropDef(id nm dt vl))
+            pd.builtIn = true
+            if ((((id == 20) || (id == 21)) || ((id == 22) || (id == 23))) || (id == 25)) {
+                pd.automatic = true
+            }
+        }
+        def doc:MfObjectType (this.addObjectType(0 "Document" "Documents"))
+        doc.iconKind = "doc"
+        def asg:MfObjectType (this.addObjectType(10 "Assignment" "Assignments"))
+        asg.iconKind = "assignment"
+        for users u:MfUser j {
+        }
+    }
+
+    fn addUser:MfUser (id:int nm:string login:string) {
+        def u (new MfUser)
+        u.id = id
+        u.name = nm
+        u.login = login
+        push users u
+        return u
+    }
+
+    fn addObjectType:MfObjectType (id:int nm:string plural:string) {
+        def t (new MfObjectType)
+        t.id = id
+        t.name = nm
+        t.namePlural = plural
+        push objectTypes t
+        ; every object type is a value list over its own objects
+        def vl:MfValueList (this.addValueList(id plural id))
+        vl.objectType = id
+        return t
+    }
+
+    fn addValueList:MfValueList (id:int nm:string ot:int) {
+        def v (new MfValueList)
+        v.id = id
+        v.name = nm
+        v.objectType = ot
+        push valueLists v
+        return v
+    }
+
+    fn addListItem:MfValueListItem (vl:int id:int nm:string) {
+        def it (new MfValueListItem)
+        it.valueList = vl
+        it.id = id
+        it.name = nm
+        push listItems it
+        return it
+    }
+
+    fn addPropDef:MfPropertyDef (id:int nm:string dt:int vl:int) {
+        def p (new MfPropertyDef)
+        p.id = id
+        p.name = nm
+        p.datatype = dt
+        p.valueList = vl
+        push propDefs p
+        return p
+    }
+
+    fn addClass:MfClass (id:int nm:string ot:int) {
+        def c (new MfClass)
+        c.id = id
+        c.name = nm
+        c.objectType = ot
+        push classes c
+        ; Name or title is on every class, and required.
+        def title (new MfAssocProp)
+        title.propDef = 0
+        title.required = true
+        push c.props title
+        return c
+    }
+
+    fn classProp:void (classId:int pd:int required:boolean) {
+        def c:MfClass (this.classById(classId))
+        def a (new MfAssocProp)
+        a.propDef = pd
+        a.required = required
+        push c.props a
+    }
+
+    fn objectType:MfObjectType (id:int) {
+        for objectTypes t:MfObjectType i {
+            if (t.id == id) {
+                return t
+            }
+        }
+        def none (new MfObjectType)
+        none.id = -999
+        none.name = ("Object type " + (to_string id))
+        return none
+    }
+
+    fn propDef:MfPropertyDef (id:int) {
+        for propDefs p:MfPropertyDef i {
+            if (p.id == id) {
+                return p
+            }
+        }
+        def none (new MfPropertyDef)
+        none.id = -999
+        none.name = ("Property " + (to_string id))
+        return none
+    }
+
+    fn hasPropDef:boolean (id:int) {
+        for propDefs p:MfPropertyDef i {
+            if (p.id == id) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn classById:MfClass (id:int) {
+        for classes c:MfClass i {
+            if (c.id == id) {
+                return c
+            }
+        }
+        def none (new MfClass)
+        none.id = -999
+        none.name = ("Class " + (to_string id))
+        return none
+    }
+
+    fn classesOf:[MfClass] (ot:int) {
+        def out:[MfClass]
+        for classes c:MfClass i {
+            if (c.objectType == ot) {
+                push out c
+            }
+        }
+        return out
+    }
+
+    fn valueList:MfValueList (id:int) {
+        for valueLists v:MfValueList i {
+            if (v.id == id) {
+                return v
+            }
+        }
+        def none (new MfValueList)
+        none.id = -999
+        return none
+    }
+
+    fn user:MfUser (id:int) {
+        for users u:MfUser i {
+            if (u.id == id) {
+                return u
+            }
+        }
+        def none (new MfUser)
+        none.id = -999
+        none.name = ("User " + (to_string id))
+        return none
+    }
+
+    ; The choices a lookup offers, whatever backs the list: objects, classes,
+    ; users or plain items.
+    fn valueListItems:[MfValueListItem] (vl:int) {
+        def out:[MfValueListItem]
+        def list:MfValueList (this.valueList(vl))
+        if (list.objectType >= 0) {
+            for objects o:MfObject i {
+                if ((o.objectType == list.objectType) && (o.deleted == false)) {
+                    def v:MfObjectVersion (o.latest())
+                    def it (new MfValueListItem)
+                    it.valueList = vl
+                    it.id = o.id
+                    it.name = (v.title())
+                    push out it
+                }
+            }
+            return out
+        }
+        if (vl == 1) {
+            for classes c:MfClass j {
+                def ci (new MfValueListItem)
+                ci.valueList = 1
+                ci.id = c.id
+                ci.name = c.name
+                push out ci
+            }
+            return out
+        }
+        if (vl == 6) {
+            for users u:MfUser k {
+                def ui (new MfValueListItem)
+                ui.valueList = 6
+                ui.id = u.id
+                ui.name = u.name
+                push out ui
+            }
+            return out
+        }
+        for listItems li:MfValueListItem m {
+            if ((li.valueList == vl) && (li.deleted == false)) {
+                push out li
+            }
+        }
+        return out
+    }
+
+    fn lookupName:string (vl:int item:int) {
+        def list:MfValueList (this.valueList(vl))
+        if (list.objectType >= 0) {
+            if (this.hasObject(list.objectType item)) {
+                def o:MfObject (this.object(list.objectType item))
+                def v:MfObjectVersion (o.latest())
+                return (v.title())
+            }
+            return ("(deleted " + (to_string item) + ")")
+        }
+        if (vl == 1) {
+            def c:MfClass (this.classById(item))
+            return c.name
+        }
+        if (vl == 6) {
+            def u:MfUser (this.user(item))
+            return u.name
+        }
+        for listItems li:MfValueListItem i {
+            if ((li.valueList == vl) && (li.id == item)) {
+                return li.name
+            }
+        }
+        return ("#" + (to_string item))
+    }
+
+    ; A property value as the metadata card prints it.
+    fn valueText:string (pd:int v:MfTypedValue) {
+        if v.isNull {
+            return ""
+        }
+        def dt:int v.datatype
+        if ((dt == 1) || (dt == 13)) {
+            return v.text
+        }
+        if ((dt == 2) || (dt == 3)) {
+            return (MfText.numText(v.num))
+        }
+        if (dt == 5) {
+            return (MfText.displayDate(v.text))
+        }
+        if (dt == 7) {
+            return (MfText.displayTimestamp(v.text))
+        }
+        if (dt == 8) {
+            if v.flag {
+                return "Yes"
+            }
+            return "No"
+        }
+        if ((dt == 9) || (dt == 10)) {
+            def def_:MfPropertyDef (this.propDef(pd))
+            def names:[string]
+            for v.lookups it:int i {
+                push names (this.lookupName(def_.valueList it))
+            }
+            return (join names "; ")
+        }
+        return ""
+    }
+
+    ; =========================================================================
+    ; Objects
+    ; =========================================================================
+
+    fn hasObject:boolean (ot:int id:int) {
+        for objects o:MfObject i {
+            if ((o.objectType == ot) && (o.id == id)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn object:MfObject (ot:int id:int) {
+        for objects o:MfObject i {
+            if ((o.objectType == ot) && (o.id == id)) {
+                return o
+            }
+        }
+        def none (new MfObject)
+        none.objectType = ot
+        none.id = 0
+        push none.versions (new MfObjectVersion)
+        return none
+    }
+
+    fn nextId:int (ot:int) {
+        def best:int 0
+        for objects o:MfObject i {
+            if ((o.objectType == ot) && (o.id > best)) {
+                best = o.id
+            }
+        }
+        return (best + 1)
+    }
+
+    fn makeGuid:string (ot:int id:int) {
+        def a:string (to_string ot)
+        def b:string (to_string id)
+        return ("{00000000-" + a + "-4000-8000-" + b + "}")
+    }
+
+    ; The properties the server owns, written on every save.
+    fn stampVersion:void (v:MfObjectVersion at:string isNew:boolean) {
+        v.modified = at
+        def tsMod:MfTypedValue (MfTypedValue.ofTimestamp(at))
+        v.setProp(21 tsMod)
+        def byMod:MfTypedValue (MfTypedValue.ofLookup(currentUser))
+        v.setProp(23 byMod)
+        if isNew {
+            def tsNew:MfTypedValue (MfTypedValue.ofTimestamp(at))
+            v.setProp(20 tsNew)
+            def byNew:MfTypedValue (MfTypedValue.ofLookup(currentUser))
+            v.setProp(25 byNew)
+        }
+        if (v.objectType == 0) {
+            def single:MfTypedValue (MfTypedValue.ofBool(((array_length v.files) == 1)))
+            v.setProp(22 single)
+        }
+    }
+
+    fn createObject:MfObject (ot:int props:[MfPropertyValue] files:[MfObjectFile] checkIn:boolean) {
+        def o (new MfObject)
+        o.objectType = ot
+        o.id = (this.nextId(ot))
+        o.guid = (this.makeGuid(ot o.id))
+        def v (new MfObjectVersion)
+        v.objectType = ot
+        v.id = o.id
+        v.version = 1
+        for props p:MfPropertyValue i {
+            def pdef:MfPropertyDef (this.propDef(p.propDef))
+            if (pdef.automatic == false) {
+                push v.props (p.copy())
+            }
+        }
+        def fileId:int 1
+        for files f:MfObjectFile j {
+            def fc:MfObjectFile (f.copy())
+            fc.id = fileId
+            fileId = (fileId + 1)
+            push v.files fc
+        }
+        if ((v.hasProp(100)) == false) {
+            def cls:[MfClass] (this.classesOf(ot))
+            if ((array_length cls) > 0) {
+                def c0:MfClass (itemAt cls 0)
+                def cv:MfTypedValue (MfTypedValue.ofLookup(c0.id))
+                v.setProp(100 cv)
+            }
+        }
+        def at:string (this.stamp())
+        this.stampVersion(v at true)
+        push o.versions v
+        if (checkIn == false) {
+            o.checkedOutTo = currentUser
+        }
+        o.accessedByMe = at
+        push objects o
+        this.changed()
+        return o
+    }
+
+    ; The required properties a version is missing, by name.
+    fn missingRequired:[string] (v:MfObjectVersion) {
+        def out:[string]
+        def cid:int (v.classId())
+        def c:MfClass (this.classById(cid))
+        for c.props a:MfAssocProp i {
+            if a.required {
+                def pv:MfPropertyValue (v.prop(a.propDef))
+                def missing:boolean (pv.propDef < 0)
+                if (missing == false) {
+                    missing = pv.value.isNull
+                    if ((pv.value.datatype == 1) && ((strlen pv.value.text) == 0)) {
+                        missing = true
+                    }
+                }
+                if missing {
+                    def pdef:MfPropertyDef (this.propDef(a.propDef))
+                    push out pdef.name
+                }
+            }
+        }
+        return out
+    }
+
+    fn checkOut:string (ot:int id:int) {
+        lastError = ""
+        if ((this.hasObject(ot id)) == false) {
+            return (this.fail("Object not found"))
+        }
+        def o:MfObject (this.object(ot id))
+        if o.deleted {
+            return (this.fail("The object is deleted"))
+        }
+        if (o.checkedOutTo == currentUser) {
+            return ""
+        }
+        if (o.checkedOutTo != 0) {
+            def holder:MfUser (this.user(o.checkedOutTo))
+            return (this.fail(("The object is checked out to " + holder.name)))
+        }
+        def prev:MfObjectVersion (o.latest())
+        def work:MfObjectVersion (prev.copy())
+        work.version = (prev.version + 1)
+        push o.versions work
+        o.checkedOutTo = currentUser
+        o.accessedByMe = (this.now())
+        this.changed()
+        return ""
+    }
+
+    fn checkIn:string (ot:int id:int) {
+        lastError = ""
+        if ((this.hasObject(ot id)) == false) {
+            return (this.fail("Object not found"))
+        }
+        def o:MfObject (this.object(ot id))
+        if (o.checkedOutTo != currentUser) {
+            return (this.fail("The object is not checked out to you"))
+        }
+        def v:MfObjectVersion (o.latest())
+        def at:string (this.stamp())
+        this.stampVersion(v at false)
+        o.checkedOutTo = 0
+        o.accessedByMe = at
+        this.changed()
+        return ""
+    }
+
+    fn undoCheckOut:string (ot:int id:int) {
+        lastError = ""
+        if ((this.hasObject(ot id)) == false) {
+            return (this.fail("Object not found"))
+        }
+        def o:MfObject (this.object(ot id))
+        if (o.checkedOutTo != currentUser) {
+            return (this.fail("The object is not checked out to you"))
+        }
+        o.checkedOutTo = 0
+        if ((array_length o.versions) > 1) {
+            removeLast o.versions
+        } {
+            ; a new object that was never checked in: undoing it removes it
+            this.destroy(ot id)
+        }
+        this.changed()
+        return ""
+    }
+
+    ; Saving properties on a checked-in object is an implicit check-out and
+    ; check-in: one new version. On an object the user holds, it edits the
+    ; working copy and makes no version at all.
+    fn setProperties:string (ot:int id:int props:[MfPropertyValue]) {
+        lastError = ""
+        if ((this.hasObject(ot id)) == false) {
+            return (this.fail("Object not found"))
+        }
+        def o:MfObject (this.object(ot id))
+        if ((o.checkedOutTo != 0) && (o.checkedOutTo != currentUser)) {
+            def holder:MfUser (this.user(o.checkedOutTo))
+            return (this.fail(("The object is checked out to " + holder.name)))
+        }
+        def implicit:boolean (o.checkedOutTo == 0)
+        if implicit {
+            def err:string (this.checkOut(ot id))
+            if ((strlen err) > 0) {
+                return err
+            }
+        }
+        def v:MfObjectVersion (o.latest())
+        for props p:MfPropertyValue i {
+            if (this.hasPropDef(p.propDef)) {
+                def pdef:MfPropertyDef (this.propDef(p.propDef))
+                if (pdef.automatic == false) {
+                    def val:MfTypedValue (p.value.copy())
+                    v.setProp(p.propDef val)
+                }
+            }
+        }
+        if implicit {
+            def missing:[string] (this.missingRequired(v))
+            if ((array_length missing) > 0) {
+                removeLast o.versions
+                o.checkedOutTo = 0
+                return (this.fail(("Required property missing: " + (join missing ", "))))
+            }
+            return (this.checkIn(ot id))
+        }
+        v.modified = (this.now())
+        this.changed()
+        return ""
+    }
+
+    fn removeProperty:string (ot:int id:int pd:int) {
+        if ((this.hasObject(ot id)) == false) {
+            return (this.fail("Object not found"))
+        }
+        def o:MfObject (this.object(ot id))
+        def implicit:boolean (o.checkedOutTo == 0)
+        if implicit {
+            def err:string (this.checkOut(ot id))
+            if ((strlen err) > 0) {
+                return err
+            }
+        }
+        def v:MfObjectVersion (o.latest())
+        v.removeProp(pd)
+        if implicit {
+            return (this.checkIn(ot id))
+        }
+        this.changed()
+        return ""
+    }
+
+    fn deleteObject:string (ot:int id:int) {
+        if ((this.hasObject(ot id)) == false) {
+            return (this.fail("Object not found"))
+        }
+        def o:MfObject (this.object(ot id))
+        if ((o.checkedOutTo != 0) && (o.checkedOutTo != currentUser)) {
+            return (this.fail("The object is checked out to another user"))
+        }
+        o.deleted = true
+        this.changed()
+        return ""
+    }
+
+    fn undeleteObject:string (ot:int id:int) {
+        if ((this.hasObject(ot id)) == false) {
+            return (this.fail("Object not found"))
+        }
+        def o:MfObject (this.object(ot id))
+        o.deleted = false
+        this.changed()
+        return ""
+    }
+
+    fn destroy:void (ot:int id:int) {
+        def n:int (array_length objects)
+        def i:int 0
+        while (i < n) {
+            def o:MfObject (itemAt objects i)
+            if ((o.objectType == ot) && (o.id == id)) {
+                remove_index objects i
+                this.changed()
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn markAccessed:void (ot:int id:int) {
+        if (this.hasObject(ot id)) {
+            def o:MfObject (this.object(ot id))
+            o.accessedByMe = (this.stamp())
+            this.changed()
+        }
+    }
+
+    fn setFavorite:void (ot:int id:int on:boolean) {
+        if (this.hasObject(ot id)) {
+            def o:MfObject (this.object(ot id))
+            o.favorite = on
+            this.changed()
+        }
+    }
+
+    ; =========================================================================
+    ; Search
+    ; =========================================================================
+
+    fn search:[MfObject] (conds:[MfSearchCondition] limit:int) {
+        def out:[MfObject]
+        def explicitDeleted:boolean false
+        for conds c:MfSearchCondition i {
+            if (c.kind == "deleted") {
+                explicitDeleted = true
+            }
+        }
+        for objects o:MfObject j {
+            def visible:boolean true
+            if ((explicitDeleted == false) && o.deleted) {
+                visible = false
+            }
+            if visible {
+                if (this.matchesAll(o conds)) {
+                    push out o
+                    if ((limit > 0) && ((array_length out) >= limit)) {
+                        return out
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    fn matchesAll:boolean (o:MfObject conds:[MfSearchCondition]) {
+        for conds c:MfSearchCondition i {
+            if ((this.matchOne(o c)) == false) {
+                return false
+            }
+        }
+        return true
+    }
+
+    fn matchOne:boolean (o:MfObject c:MfSearchCondition) {
+        def r:boolean (this.matchRaw(o c))
+        if c.inverted {
+            return (r == false)
+        }
+        return r
+    }
+
+    sfn orderHolds:boolean (order:int cond:int) {
+        if (cond == 1) {
+            return (order == 0)
+        }
+        if (cond == 2) {
+            return (order != 0)
+        }
+        if (cond == 3) {
+            return (order > 0)
+        }
+        if (cond == 4) {
+            return (order < 0)
+        }
+        if (cond == 5) {
+            return (order >= 0)
+        }
+        if (cond == 6) {
+            return (order <= 0)
+        }
+        return false
+    }
+
+    sfn numOrder:int (a:double b:double) {
+        if (a < b) {
+            return -1
+        }
+        if (a > b) {
+            return 1
+        }
+        return 0
+    }
+
+    fn matchRaw:boolean (o:MfObject c:MfSearchCondition) {
+        def v:MfObjectVersion (o.latest())
+        if (c.kind == "objecttype") {
+            def want:double (to_double (c.value.firstLookup()))
+            if (c.value.datatype != 9) {
+                want = c.value.num
+            }
+            def ord:int (MfVault.numOrder((to_double o.objectType) want))
+            return (MfVault.orderHolds(ord c.condition))
+        }
+        if (c.kind == "objectid") {
+            def ordId:int (MfVault.numOrder((to_double o.id) c.value.num))
+            return (MfVault.orderHolds(ordId c.condition))
+        }
+        if (c.kind == "deleted") {
+            if (c.condition == 2) {
+                return (o.deleted != c.value.flag)
+            }
+            return (o.deleted == c.value.flag)
+        }
+        if (c.kind == "checkedout") {
+            def mine:boolean (o.checkedOutTo == currentUser)
+            return (mine == c.value.flag)
+        }
+        if (c.kind == "fulltext") {
+            return (this.fullTextHit(o c.value.text))
+        }
+        if (c.kind == "anylookup") {
+            for v.props ap:MfPropertyValue ai {
+                def apd:MfPropertyDef (this.propDef(ap.propDef))
+                if (((apd.datatype == 9) || (apd.datatype == 10)) && (apd.valueList == c.propDef)) {
+                    if (this.compareValue(ap.value c.condition c.value)) {
+                        return true
+                    }
+                }
+            }
+            return false
+        }
+        def pd:int c.propDef
+        if (c.kind == "class") {
+            pd = 100
+        }
+        if ((v.hasProp(pd)) == false) {
+            if (c.condition == 13) {
+                return true
+            }
+            return ((c.condition == 2) || (c.condition == 8))
+        }
+        def pv:MfPropertyValue (v.prop(pd))
+        return (this.compareValue(pv.value c.condition c.value))
+    }
+
+    fn compareValue:boolean (have:MfTypedValue cond:int want:MfTypedValue) {
+        if (cond == 13) {
+            return have.isNull
+        }
+        if (cond == 14) {
+            return (have.isNull == false)
+        }
+        if have.isNull {
+            return ((cond == 2) || (cond == 8))
+        }
+        def dt:int have.datatype
+        if ((dt == 9) || (dt == 10)) {
+            def any:boolean false
+            for want.lookups w:int i {
+                if (have.hasLookup(w)) {
+                    any = true
+                }
+            }
+            if (cond == 2) {
+                return (any == false)
+            }
+            return any
+        }
+        if ((dt == 1) || (dt == 13)) {
+            if (cond == 7) {
+                return (MfText.hasNoCase(have.text want.text))
+            }
+            if (cond == 8) {
+                return ((MfText.hasNoCase(have.text want.text)) == false)
+            }
+            if (cond == 9) {
+                return (MfText.beginsNoCase(have.text want.text))
+            }
+            def ordT:int (MfText.cmpNoCase(have.text want.text))
+            return (MfVault.orderHolds(ordT cond))
+        }
+        if ((dt == 2) || (dt == 3)) {
+            def ordN:int (MfVault.numOrder(have.num want.num))
+            return (MfVault.orderHolds(ordN cond))
+        }
+        if (dt == 8) {
+            if (cond == 2) {
+                return (have.flag != want.flag)
+            }
+            return (have.flag == want.flag)
+        }
+        if ((dt == 5) || (dt == 7)) {
+            def a:string have.text
+            def b:string want.text
+            ; a date condition against a timestamp compares the date part
+            if ((strlen b) == 10) {
+                if ((strlen a) > 10) {
+                    a = (substring a 0 10)
+                }
+            }
+            def ordD:int (MfText.cmp(a b))
+            return (MfVault.orderHolds(ordD cond))
+        }
+        return false
+    }
+
+    fn fullTextHit:boolean (o:MfObject q:string) {
+        def v:MfObjectVersion (o.latest())
+        for v.props p:MfPropertyValue i {
+            def dt:int p.value.datatype
+            if ((dt == 1) || (dt == 13)) {
+                if (MfText.hasNoCase(p.value.text q)) {
+                    return true
+                }
+            }
+            if ((dt == 9) || (dt == 10)) {
+                if (p.propDef != 100) {
+                    def shown:string (this.valueText(p.propDef p.value))
+                    if (MfText.hasNoCase(shown q)) {
+                        return true
+                    }
+                }
+            }
+        }
+        for v.files f:MfObjectFile j {
+            if (MfText.hasNoCase((f.fileName()) q)) {
+                return true
+            }
+            if (MfText.hasNoCase(f.content q)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; =========================================================================
+    ; Views
+    ; =========================================================================
+
+    fn addView:MfView (id:int nm:string parent:int) {
+        def v (new MfView)
+        v.id = id
+        v.name = nm
+        v.parent = parent
+        push views v
+        return v
+    }
+
+    fn view:MfView (id:int) {
+        for views v:MfView i {
+            if (v.id == id) {
+                return v
+            }
+        }
+        def none (new MfView)
+        none.id = -999
+        return none
+    }
+
+    fn childViews:[MfView] (parent:int) {
+        def out:[MfView]
+        for views v:MfView i {
+            if (v.parent == parent) {
+                push out v
+            }
+        }
+        return out
+    }
+
+    fn sortByAccessDesc:[MfObject] (list:[MfObject]) {
+        def out:[MfObject]
+        for list o:MfObject i {
+            def n:int (array_length out)
+            def at:int n
+            def j:int 0
+            while (j < n) {
+                def other:MfObject (itemAt out j)
+                if (at == n) {
+                    if ((MfText.cmp(o.accessedByMe other.accessedByMe)) > 0) {
+                        at = j
+                    }
+                }
+                j = (j + 1)
+            }
+            if (at == n) {
+                push out o
+            } {
+                insert out at o
+            }
+        }
+        return out
+    }
+
+    fn sortByTitle:[MfObject] (list:[MfObject]) {
+        def out:[MfObject]
+        for list o:MfObject i {
+            def vo:MfObjectVersion (o.latest())
+            def t:string (vo.title())
+            def n:int (array_length out)
+            def at:int n
+            def j:int 0
+            while (j < n) {
+                def other:MfObject (itemAt out j)
+                def vt:MfObjectVersion (other.latest())
+                if (at == n) {
+                    if ((MfText.cmpNoCase(t (vt.title()))) < 0) {
+                        at = j
+                    }
+                }
+                j = (j + 1)
+            }
+            if (at == n) {
+                push out o
+            } {
+                insert out at o
+            }
+        }
+        return out
+    }
+
+    fn viewObjects:[MfObject] (viewId:int) {
+        def out:[MfObject]
+        if (viewId == 14) {
+            for objects o:MfObject i {
+                if ((o.deleted == false) && ((strlen o.accessedByMe) > 0)) {
+                    push out o
+                }
+            }
+            return (this.sortByAccessDesc(out))
+        }
+        if (viewId == 5) {
+            for objects o2:MfObject j {
+                if ((o2.deleted == false) && (o2.checkedOutTo == currentUser)) {
+                    push out o2
+                }
+            }
+            return (this.sortByTitle(out))
+        }
+        if (viewId == 9) {
+            for objects o3:MfObject k {
+                if (o3.deleted == false) {
+                    def v3:MfObjectVersion (o3.latest())
+                    def asg:MfPropertyValue (v3.prop(44))
+                    if (asg.propDef == 44) {
+                        if (asg.value.hasLookup(currentUser)) {
+                            push out o3
+                        }
+                    }
+                }
+            }
+            return (this.sortByTitle(out))
+        }
+        if (viewId == 15) {
+            for objects o4:MfObject m {
+                if ((o4.deleted == false) && o4.favorite) {
+                    push out o4
+                }
+            }
+            return (this.sortByTitle(out))
+        }
+        def vw:MfView (this.view(viewId))
+        if (vw.id == -999) {
+            return out
+        }
+        def found:[MfObject] (this.search(vw.conditions 0))
+        return (this.sortByTitle(found))
+    }
+
+    ; The distinct lookup items a grouped view splits into, by name.
+    fn groupItems:[MfValueListItem] (viewId:int) {
+        def out:[MfValueListItem]
+        def vw:MfView (this.view(viewId))
+        if (vw.groupBy < 0) {
+            return out
+        }
+        def pdef:MfPropertyDef (this.propDef(vw.groupBy))
+        def seen:[int]
+        def objs:[MfObject] (this.viewObjects(viewId))
+        for objs o:MfObject i {
+            def v:MfObjectVersion (o.latest())
+            def pv:MfPropertyValue (v.prop(vw.groupBy))
+            if (pv.propDef >= 0) {
+                for pv.value.lookups it:int j {
+                    if ((indexOf seen it) < 0) {
+                        push seen it
+                        def gi (new MfValueListItem)
+                        gi.valueList = pdef.valueList
+                        gi.id = it
+                        gi.name = (this.lookupName(pdef.valueList it))
+                        def n:int (array_length out)
+                        def at:int n
+                        def k:int 0
+                        while (k < n) {
+                            def other:MfValueListItem (itemAt out k)
+                            if (at == n) {
+                                if ((MfText.cmpNoCase(gi.name other.name)) < 0) {
+                                    at = k
+                                }
+                            }
+                            k = (k + 1)
+                        }
+                        if (at == n) {
+                            push out gi
+                        } {
+                            insert out at gi
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    fn groupObjects:[MfObject] (viewId:int item:int) {
+        def out:[MfObject]
+        def vw:MfView (this.view(viewId))
+        def objs:[MfObject] (this.viewObjects(viewId))
+        for objs o:MfObject i {
+            def v:MfObjectVersion (o.latest())
+            def pv:MfPropertyValue (v.prop(vw.groupBy))
+            if (pv.propDef >= 0) {
+                if (pv.value.hasLookup(item)) {
+                    push out o
+                }
+            }
+        }
+        return out
+    }
+
+    ; =========================================================================
+    ; Aliases
+    ; =========================================================================
+
+    fn setAlias:void (itemType:int alias:string id:int) {
+        def a (new MfNamedValue)
+        a.ns = (to_string itemType)
+        a.name = alias
+        a.value = (to_string id)
+        push aliases a
+    }
+
+    fn aliasId:int (itemType:int alias:string) {
+        def key:string (to_string itemType)
+        for aliases a:MfNamedValue i {
+            if ((a.ns == key) && (a.name == alias)) {
+                return (MfText.toIntOr(a.value -1))
+            }
+        }
+        return -1
+    }
+
+    ; =========================================================================
+    ; Named value storage
+    ; =========================================================================
+
+    fn namedValues:[MfNamedValue] (ns:string) {
+        def out:[MfNamedValue]
+        for named nv:MfNamedValue i {
+            if (nv.ns == ns) {
+                push out nv
+            }
+        }
+        return out
+    }
+
+    fn setNamedValue:void (ns:string nm:string value:string) {
+        for named nv:MfNamedValue i {
+            if ((nv.ns == ns) && (nv.name == nm)) {
+                nv.value = value
+                this.changed()
+                return
+            }
+        }
+        def n (new MfNamedValue)
+        n.ns = ns
+        n.name = nm
+        n.value = value
+        push named n
+        this.changed()
+    }
+
+    fn removeNamedValue:void (ns:string nm:string) {
+        def n:int (array_length named)
+        def i:int 0
+        while (i < n) {
+            def nv:MfNamedValue (itemAt named i)
+            if ((nv.ns == ns) && (nv.name == nm)) {
+                remove_index named i
+                this.changed()
+                return
+            }
+            i = (i + 1)
+        }
+    }
+}
