@@ -2358,6 +2358,39 @@ class EVGDisplayList {
         c.shadowA = (col.alpha())
     }
 
+    ; The direction code as an angle — in TWO conventions, because the
+    ; painters do not share one and pretending otherwise rotates a gradient by
+    ; ninety degrees in one target and not the other.
+    ;
+    ; This list stores a direction as 0 or 1 because that is all a GPU backend
+    ; needs. `applyGradient` above is what reduces a CSS angle to that code, so
+    ; the inverses belong beside it rather than in each painter, where the two
+    ; would be free to disagree.
+    ;
+    ; `dir` 1 is the horizontal axis, 0 the vertical one, and the stops are
+    ; already in the order the axis is drawn in.
+
+    ; Screen space, y downwards, 0 degrees to the right: what the rasteriser's
+    ; `renderLinearGradient` takes, since it builds its direction vector
+    ; straight from (cos, sin).
+    sfn rasterAngleOfDir:double (dir:int) {
+        if (dir == 1) {
+            return 0.0
+        }
+        return 90.0
+    }
+
+    ; CSS, where an angle is the direction the gradient TRAVELS and 0 is to the
+    ; top: 90 runs left to right, 180 runs top to bottom. The PDF renderer
+    ; parses `linear-gradient(…deg…)` and reduces it the same way this file
+    ; does, so it wants the angle in the units it was written in.
+    sfn cssAngleOfDir:double (dir:int) {
+        if (dir == 1) {
+            return 90.0
+        }
+        return 180.0
+    }
+
     sfn hasLinearGradient:boolean (el:EVGElement) {
         ; The RGU1 pair — `gradient-from` / `gradient-to` / `gradient-dir` — is
         ; already this list's own vocabulary: a direction and two colours, with

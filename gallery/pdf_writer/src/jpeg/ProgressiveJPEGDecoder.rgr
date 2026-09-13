@@ -41,6 +41,11 @@ class CoeffBuffer {
 }
 
 class ProgressiveJPEGDecoder {
+    ; A picture is decoded because something is being DRAWN, not because
+    ; anybody asked about the JPEG — the same reason `JPEGDecoder` has this.
+    ; Twenty-four lines of narration per photograph is noise, and on a native
+    ; host it is noise on somebody's terminal.
+    def quiet:boolean false
     def data:buffer (buffer_alloc 0)
     def dataLen:int 0
     
@@ -108,10 +113,14 @@ class ProgressiveJPEGDecoder {
         
         if (sofType == 2) {
             isProgressive = true
-            print ("  Progressive JPEG: " + (to_string width) + "x" + (to_string height) + ", " + (to_string numComponents) + " components")
+            if (quiet == false) {
+                print ("  Progressive JPEG: " + (to_string width) + "x" + (to_string height) + ", " + (to_string numComponents) + " components")
+            }
         } {
             isProgressive = false
-            print ("  Baseline JPEG: " + (to_string width) + "x" + (to_string height) + ", " + (to_string numComponents) + " components")
+            if (quiet == false) {
+                print ("  Baseline JPEG: " + (to_string width) + "x" + (to_string height) + ", " + (to_string numComponents) + " components")
+            }
         }
         
         clear components
@@ -132,7 +141,9 @@ class ProgressiveJPEGDecoder {
             if (comp.vSamp > maxVSamp) { maxVSamp = comp.vSamp }
             
             push components comp
-            print ("    Component " + (to_string comp.id) + ": " + (to_string comp.hSamp) + "x" + (to_string comp.vSamp) + " sampling")
+            if (quiet == false) {
+                print ("    Component " + (to_string comp.id) + ": " + (to_string comp.hSamp) + "x" + (to_string comp.vSamp) + " sampling")
+            }
             
             offset = offset + 3
             i = i + 1
@@ -143,7 +154,9 @@ class ProgressiveJPEGDecoder {
         mcusPerRow = (to_int ((width + mcuWidth - 1) / mcuWidth))
         mcusPerCol = (to_int ((height + mcuHeight - 1) / mcuHeight))
         
-        print ("  MCU grid: " + (to_string mcusPerRow) + "x" + (to_string mcusPerCol))
+        if (quiet == false) {
+            print ("  MCU grid: " + (to_string mcusPerRow) + "x" + (to_string mcusPerCol))
+        }
         
         this.allocateCoeffBuffers()
     }
@@ -191,7 +204,9 @@ class ProgressiveJPEGDecoder {
                 i = i + 1
             }
             
-            print ("  Quantization table " + (to_string tableId))
+            if (quiet == false) {
+                print ("  Quantization table " + (to_string tableId))
+            }
         }
     }
     
@@ -251,7 +266,9 @@ class ProgressiveJPEGDecoder {
             compList = compList + (to_string (at scanComponents si))
             si = si + 1
         }
-        print ("    Scan: comps=[" + compList + "] Ss=" + (to_string scanSs) + " Se=" + (to_string scanSe) + " Ah=" + (to_string scanAh) + " Al=" + (to_string scanAl) + " (" + scanType + ")")
+        if (quiet == false) {
+            print ("    Scan: comps=[" + compList + "] Ss=" + (to_string scanSs) + " Se=" + (to_string scanSe) + " Ah=" + (to_string scanAh) + " Al=" + (to_string scanAl) + " (" + scanType + ")")
+        }
         
         ; Find scan data end
         def scanStart:int pos
@@ -718,19 +735,25 @@ class ProgressiveJPEGDecoder {
         def pos 0
         
         if (dataLen < 2) {
-            print "Error: File too small"
+            if (quiet == false) {
+                print "Error: File too small"
+            }
             return false
         }
         
         def m1:int (buffer_get data 0)
         def m2:int (buffer_get data 1)
         if ((m1 != 255) || (m2 != 216)) {
-            print "Error: Not a JPEG file"
+            if (quiet == false) {
+                print "Error: Not a JPEG file"
+            }
             return false
         }
         
         pos = 2
-        print "Parsing JPEG markers..."
+        if (quiet == false) {
+            print "Parsing JPEG markers..."
+        }
         
         while (pos < (dataLen - 1)) {
             def marker1:int (buffer_get data pos)
@@ -756,7 +779,9 @@ class ProgressiveJPEGDecoder {
                 continue
             }
             if (marker2 == 217) {
-                print "  End of Image"
+                if (quiet == false) {
+                    print "  End of Image"
+                }
                 return true
             }
             if ((marker2 >= 208) && (marker2 <= 215)) {
@@ -772,36 +797,52 @@ class ProgressiveJPEGDecoder {
             def markerDataLen:int (markerLen - 2)
             
             if (marker2 == 192) {
-                print "  SOF0 (Baseline DCT)"
+                if (quiet == false) {
+                    print "  SOF0 (Baseline DCT)"
+                }
                 this.parseSOF(dataStart markerDataLen 0)
             }
             if (marker2 == 193) {
-                print "  SOF1 (Extended Sequential)"
+                if (quiet == false) {
+                    print "  SOF1 (Extended Sequential)"
+                }
                 this.parseSOF(dataStart markerDataLen 1)
             }
             if (marker2 == 194) {
-                print "  SOF2 (Progressive DCT)"
+                if (quiet == false) {
+                    print "  SOF2 (Progressive DCT)"
+                }
                 this.parseSOF(dataStart markerDataLen 2)
             }
             if (marker2 == 196) {
-                print "  DHT (Huffman Tables)"
+                if (quiet == false) {
+                    print "  DHT (Huffman Tables)"
+                }
                 huffman.parseDHT(data dataStart markerDataLen)
             }
             if (marker2 == 219) {
-                print "  DQT (Quantization Tables)"
+                if (quiet == false) {
+                    print "  DQT (Quantization Tables)"
+                }
                 this.parseDQT(dataStart markerDataLen)
             }
             if (marker2 == 218) {
-                print "  SOS (Start of Scan)"
+                if (quiet == false) {
+                    print "  SOS (Start of Scan)"
+                }
                 def nextPos:int (this.parseSOS(dataStart markerDataLen))
                 pos = nextPos
                 continue
             }
             if (marker2 == 224) {
-                print "  APP0 (JFIF)"
+                if (quiet == false) {
+                    print "  APP0 (JFIF)"
+                }
             }
             if (marker2 == 225) {
-                print "  APP1 (EXIF)"
+                if (quiet == false) {
+                    print "  APP1 (EXIF)"
+                }
             }
             
             pos = pos + 2 + markerLen
@@ -836,14 +877,18 @@ class ProgressiveJPEGDecoder {
     
     fn buildImage:ImageBuffer () {
         if (isProgressive) {
-            print "Dequantizing coefficients..."
+            if (quiet == false) {
+                print "Dequantizing coefficients..."
+            }
             this.dequantizeCoefficients()
         }
         
         def img (new ImageBuffer())
         img.init(width height)
         
-        print "Building image..."
+        if (quiet == false) {
+            print "Building image..."
+        }
         
         def mcuY 0
         while (mcuY < mcusPerCol) {
@@ -1065,21 +1110,35 @@ class ProgressiveJPEGDecoder {
     }
     
     fn decode:ImageBuffer (dirPath:string fileName:string) {
-        data = (buffer_read_file dirPath fileName)
+        def bytes:buffer (buffer_read_file dirPath fileName)
+        if (quiet == false) {
+            print ("Decoding JPEG: " + fileName + " (" + (to_string (buffer_length bytes)) + " bytes)")
+        }
+        return (this.decodeBytes(bytes))
+    }
+
+    ; The same decode, from bytes already in hand. `EVGImageDecode` sniffs the
+    ; markers and dispatches, and it has bytes, not a path — without this it
+    ; could reach the baseline decoder and not this one, so a progressive JPEG
+    ; in a document was "some of the photos are simply missing".
+    fn decodeBytes:ImageBuffer (bytes:buffer) {
+        data = bytes
         dataLen = (buffer_length data)
-        
-        print ("Decoding JPEG: " + fileName + " (" + (to_string dataLen) + " bytes)")
         
         def ok:boolean (this.parseMarkers())
         if (ok == false) {
-            print "Error parsing JPEG markers"
+            if (quiet == false) {
+                print "Error parsing JPEG markers"
+            }
             def errImg (new ImageBuffer())
             errImg.init(1 1)
             return errImg
         }
         
         if ((width == 0) || (height == 0)) {
-            print "Error: Invalid image dimensions"
+            if (quiet == false) {
+                print "Error: Invalid image dimensions"
+            }
             def errImg (new ImageBuffer())
             errImg.init(1 1)
             return errImg
@@ -1087,7 +1146,9 @@ class ProgressiveJPEGDecoder {
         
         def img:ImageBuffer (this.buildImage())
         
-        print "Decode complete!"
+        if (quiet == false) {
+            print "Decode complete!"
+        }
         return img
     }
 }

@@ -11,6 +11,7 @@ Import "../src/write/SceneToFig.rgr"
 Import "../src/write/EvgToScene.rgr"
 Import "../src/write/FigPathWrite.rgr"
 Import "../src/FigPath.rgr"
+Import "../../evg/EVGImageDecode.rgr"
 Import "../../evg/EVGCodepoint.rgr"
 Import "../src/FigApp.rgr"
 Import "../src/FigDeflate.rgr"
@@ -348,6 +349,41 @@ class FigTest {
         return (new SceneFill())
     }
 
+
+    ; One decoder, three formats. The raster tool used to pick between the two
+    ; JPEG decoders itself and had never heard of PNG — which a Figma archive
+    ; is full of, so a converted page rendered "Not a JPEG file (missing SOI)".
+    fn testImageSniffing:void () {
+        print "--- what kind of picture is this ---"
+        def png:buffer (FigSample.png1x1())
+        def got@(optional):ImageBuffer (EVGImageDecode.decode(png))
+        this.check("a PNG decodes" ((null? got) == false))
+        if ((null? got) == false) {
+            def im:ImageBuffer (unwrap got)
+            this.check(("it has a size, got " + ((to_string im.width) + "x" + (to_string im.height))) ((im.width > 0) && (im.height > 0)))
+        }
+
+        ; The JPEG branch chooses between baseline and progressive from the SOF
+        ; marker rather than from a name. Sending a progressive file to the
+        ; baseline decoder is not an error, it is a picture that never arrives.
+        def baseline:buffer (buffer_alloc 8)
+        buffer_set baseline 0 255
+        buffer_set baseline 1 216
+        buffer_set baseline 2 255
+        buffer_set baseline 3 192
+        this.check("SOF0 reads as baseline" ((EVGImageDecode.isProgressive(baseline)) == false))
+        def prog:buffer (buffer_alloc 8)
+        buffer_set prog 0 255
+        buffer_set prog 1 216
+        buffer_set prog 2 255
+        buffer_set prog 3 194
+        this.check("SOF2 reads as progressive" (EVGImageDecode.isProgressive(prog)))
+
+        def junk:buffer (buffer_alloc 8)
+        def nothing@(optional):ImageBuffer (EVGImageDecode.decode(junk))
+        this.check("and something that is neither is refused" (null? nothing))
+    }
+
     fn run:void () {
         print "=== FigTest ==="
         this.testVarint()
@@ -374,6 +410,7 @@ class FigTest {
         this.testPathBlobRoundTrip()
         this.testVectorKeepsItsShape()
         this.testGradientSurvives()
+        this.testImageSniffing()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {

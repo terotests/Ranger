@@ -67,6 +67,28 @@ npm run --silent agent -- outline "$work/doc.json" > "$work/unchanged.txt"
 diff -q "$work/before.txt" "$work/unchanged.txt" > /dev/null \
   || fail "a rejected batch still changed the document"
 
+# a two-stop gradient, which EVG spells two ways and the painters used to know
+# only one of: `gradient-from` / `gradient-to` is what the display list, the GPU
+# backend and the Figma importer all speak, and it drew on the GPU and nowhere
+# else. A flat render means the pair is being ignored again.
+npm run --silent agent:render -- gallery/evg/agent/fixtures/gradient.evg.json "$work/grad.png" -w 400 -h 260 > /dev/null 2>&1
+[ -f "$work/grad.png" ] || fail "the gradient fixture did not render"
+distinct=$(node -e '
+const fs=require("fs"),zlib=require("zlib");
+const d=fs.readFileSync(process.argv[1]);
+// walk the IDAT chunks, inflate, and count distinct colours on one scanline
+let i=8,idat=[];
+while(i<d.length){const len=d.readUInt32BE(i);const t=d.toString("latin1",i+4,i+8);
+if(t==="IDAT")idat.push(d.subarray(i+8,i+8+len));i+=12+len;}
+const raw=zlib.inflateSync(Buffer.concat(idat));
+const w=d.readUInt32BE(16), stride=w*4+1, row=60;
+const seen=new Set();
+for(let x=30;x<170;x++){const o=row*stride+1+x*4;seen.add(raw[o]+","+raw[o+1]+","+raw[o+2]);}
+console.log(seen.size);
+' "$work/grad.png")
+[ "$distinct" -gt 20 ] || fail "the gradient rendered as $distinct colour(s) across its width — a flat fill, not a gradient"
+echo "  gradient       $distinct distinct colours across the band"
+
 # a diagram, which is a different shape of document: everything absolutely
 # positioned, every shape a path whose box is 0x0 and whose geometry is in `d`
 if [ -f gallery/rangerflow/bin/rangerflow_demo.js ]; then

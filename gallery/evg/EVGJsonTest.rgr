@@ -53,12 +53,69 @@ class EVGJsonTest {
         this.ok(what ((indexOf json needle) >= 0))
     }
 
+
+    ; --- the two angle conventions -------------------------------------------
+    ;
+    ; `gd` is a direction code because that is all a GPU backend needs, but the
+    ; raster and PDF painters draw along an ANGLE and they do not agree about
+    ; what an angle is: the rasteriser builds a vector from (cos, sin) with 0
+    ; to the right, while the PDF renderer parses CSS where 0 is to the top.
+    ; One code, two right answers, and taking the wrong one turns every
+    ; gradient a quarter turn in one target and not the other.
+    ;
+    ; So this checks the inverses against the reduction just above, on the same
+    ; axes, rather than trusting two constants to stay in step.
+    fn testGradientAngleConventions:void () {
+        print "-- a direction code, back to an angle, in both conventions"
+
+        ; The axis a CSS angle reduces to, from the same rule the list uses.
+        def across:EVGElement (EVGJsonTest.boxWith("background" "linear-gradient(90deg, #102030, #c8d2dc)"))
+        this.has("90deg is the horizontal axis" (this.listOf(across)) "\"gd\":1")
+        def down:EVGElement (EVGJsonTest.boxWith("background" "linear-gradient(180deg, #102030, #c8d2dc)"))
+        this.has("180deg is the vertical one" (this.listOf(down)) "\"gd\":0")
+
+        ; Raster: 0 to the right, 90 down.
+        this.ok("horizontal rasterises at 0" ((EVGDisplayList.rasterAngleOfDir(1)) == 0.0))
+        this.ok("vertical rasterises at 90" ((EVGDisplayList.rasterAngleOfDir(0)) == 90.0))
+
+        ; CSS: the angle it came from. A round trip has to land on the axis it
+        ; started on, which is the property worth asserting — not the number.
+        this.ok("horizontal is 90deg in CSS" ((EVGDisplayList.cssAngleOfDir(1)) == 90.0))
+        this.ok("vertical is 180deg in CSS" ((EVGDisplayList.cssAngleOfDir(0)) == 180.0))
+
+        def backAcross:EVGElement (EVGJsonTest.boxWith("background" ("linear-gradient(" + ((EVGDisplayList.num((EVGDisplayList.cssAngleOfDir(1)))) + "deg, #102030, #c8d2dc)"))))
+        this.has("and reducing it again gives the same axis" (this.listOf(backAcross)) "\"gd\":1")
+        def backDown:EVGElement (EVGJsonTest.boxWith("background" ("linear-gradient(" + ((EVGDisplayList.num((EVGDisplayList.cssAngleOfDir(0)))) + "deg, #102030, #c8d2dc)"))))
+        this.has("for the other one too" (this.listOf(backDown)) "\"gd\":0")
+    }
+
+    ; The pair a Figma import speaks, which the list has always understood and
+    ; the raster and PDF painters had not.
+    fn testTwoStopPairReachesTheList:void () {
+        print "-- gradient-from / gradient-to"
+        def el:EVGElement (EVGElement.createDiv())
+        el.setAttribute("width" "100px")
+        el.setAttribute("height" "50px")
+        el.setAttribute("gradient-from" "#102030")
+        el.setAttribute("gradient-to" "#c8d2dc")
+        el.setAttribute("gradient-dir" "1")
+        el.markInline("width")
+        el.markInline("height")
+        this.ok("the element records it" el.gradientSet)
+        def j:string (this.listOf(el))
+        this.has("the near stop" j "\"c\":[16,32,48,1.00]")
+        this.has("the far one" j "\"c2\":[200,210,220,1.00]")
+        this.has("and the axis it was given" j "\"gd\":1")
+    }
+
     fn run:void () {
         print "=== EVGDisplayList.toJson ==="
         this.testPolygonWithRings()
         this.testPolygonBuiltByHand()
         this.testGradient()
         this.testElementGradient()
+        this.testGradientAngleConventions()
+        this.testTwoStopPairReachesTheList()
         this.testFlatRectHasNoGradient()
         this.testRectAndBorder()
         this.testTextAndImage()

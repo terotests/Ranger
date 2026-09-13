@@ -741,3 +741,67 @@ and a page turn, plus the two assertions on the layer the ring declares. The
 invariant is what was missing: a delta test ("it moved by 160") passes for a
 ring that lags a frame and for one that leads one.
 
+## Issue #11: a gradient drew on the GPU and nowhere else
+
+**Status:** Resolved (September 13, 2026)
+**Component:** `evg_png_tool`, `EVGPDFRenderer`, `EVGDisplayList`
+
+EVG has two ways to say "gradient" and the painters did not agree on which one
+they read:
+
+| | `gradient-from` / `-to` / `-dir` | `background-gradient` (the CSS string) |
+| --- | --- | --- |
+| display list → WebGL, SVG, GL | **yes** | no |
+| raster (PNG) | no | **yes** |
+| PDF | no | **yes** |
+
+So a gradient written in the pair — which is the display list's own vocabulary,
+and what `SceneToEVG` emits for a Figma fill — drew on the GPU and was silently
+absent from the image and the print. That is the opposite of the claim this
+engine makes about its targets, and nothing reported it: the element laid out,
+measured and composited exactly as it should, and the fill was simply not
+painted.
+
+Found by converting a Figma page with a gradient and looking at the PNG.
+
+### The fix, and the trap inside it
+
+Both painters now take the pair. The trap is that they do not share an angle
+convention: the rasteriser builds a direction vector from `(cos, sin)` with 0 to
+the right, while the PDF renderer parses CSS where 0 is to the top. One `dir`
+code, two correct angles, and using either one in the other place turns every
+gradient a quarter turn in one target only.
+
+Both inverses therefore live in `EVGDisplayList`, beside the `applyGradient`
+that reduces an angle to the code — `rasterAngleOfDir` and `cssAngleOfDir`,
+named so the difference is visible rather than discovered. `EVGJsonTest` checks
+them against that reduction on the same axes rather than trusting two constants
+to stay in step.
+
+Cost: one boolean test per element. The GPU path is untouched, since it already
+read the right fields.
+
+## Issue #12: the rasteriser knew one image format out of three
+
+**Status:** Resolved (September 13, 2026)
+**Component:** `evg_png_tool`, `EVGImageDecode`, `ProgressiveJPEGDecoder`
+
+`evg_png_tool` chose between the baseline and progressive JPEG decoders itself
+and had never heard of PNG, so a document with one rendered
+`Not a JPEG file (missing SOI)` and stopped. A Figma archive is full of PNGs.
+
+`EVGImageDecode` already sniffed all three formats — the tool was simply not
+asking it — but it had the mirror gap: no progressive branch, because
+`ProgressiveJPEGDecoder` had only `decode(dir, name)` and the sniffing decoder
+has bytes. That one now has `decodeBytes`, and a `quiet` flag for the same
+reason `JPEGDecoder` has one: twenty-four lines of narration per photograph.
+
+### The smaller defect underneath
+
+`PNGDecoder.decodeBytes` returns a 1x1 image when it gives up, and
+`EVGImageDecode` judged success by the returned buffer. A genuine 1x1 PNG — a
+spacer, a placeholder, the thumbnail inside a `.fig` — was therefore
+indistinguishable from a failure and was rejected. It now asks the decoder what
+its header said: those dimensions stay 0 when nothing parsed, and say 1x1 when
+the file really is that.
+

@@ -18,11 +18,13 @@ Import "../../../evg/VectorStroke.rgr"
 Import "../../../evg/SvgParser.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGLayout.rgr"
+Import "../../../evg/EVGDisplayList.rgr"
 Import "../fonts/TrueTypeFont.rgr"
 Import "../fonts/FontManager.rgr"
 Import "../fonts/EVGFontSetup.rgr"
 Import "../../../evg/EVGTextEngine.rgr"
 Import "../core/EVGStyleLoader.rgr"
+Import "../../../evg/EVGImageDecode.rgr"
 Import "../jpeg/JPEGDecoder.rgr"
 Import "../jpeg/ProgressiveJPEGDecoder.rgr"
 
@@ -425,6 +427,15 @@ class EVGPNGTool {
         }
         
         ; Render background (gradient or solid color)
+        ; EVG has two ways to say "gradient" and this painter knew one of
+        ; them. `background-gradient` is the CSS string; `gradient-from` /
+        ; `gradient-to` / `gradient-dir` is the pair the display list, the GPU
+        ; backend and the Figma importer all use. A Figma page's gradient fill
+        ; therefore drew on the GPU and silently did not draw here, which is
+        ; the opposite of the claim this engine makes about its targets.
+        if el.gradientSet {
+            this.renderTwoStopGradient(el x y w h radius)
+        } {
         if (el.backgroundGradient != "") {
             this.renderGradient(el x y w h radius)
         } {
@@ -446,6 +457,7 @@ class EVGPNGTool {
                     }
                 }
             }
+        }
         }
         
         ; Render border.
@@ -864,6 +876,35 @@ class EVGPNGTool {
         return false
     }
 
+    ; The `gradient-from` / `gradient-to` pair, painted.
+    ;
+    ; `EVGDisplayList.angleOfDir` owns the direction convention — this asks it
+    ; rather than deciding, so the image and the GPU cannot disagree about
+    ; which way the gradient runs. Everything else here is the same call the
+    ; CSS path makes, so the two arrive at one gradient renderer.
+    fn renderTwoStopGradient:void (el:EVGElement x:double y:double w:double h:double radius:int) {
+        if (w <= 0.0) {
+            return
+        }
+        if (h <= 0.0) {
+            return
+        }
+        def from:EVGColor el.gradientFrom
+        def to:EVGColor el.gradientTo
+        def angle:double (EVGDisplayList.rasterAngleOfDir(el.gradientDir))
+        def r1:int (from.red())
+        def g1:int (from.green())
+        def b1:int (from.blue())
+        def r2:int (to.red())
+        def g2:int (to.green())
+        def b2:int (to.blue())
+        if (radius > 0) {
+            renderer.renderLinearGradientRoundedRect((to_int x) (to_int y) (to_int w) (to_int h) radius angle r1 g1 b1 r2 g2 b2)
+            return
+        }
+        renderer.renderLinearGradientRect((to_int x) (to_int y) (to_int w) (to_int h) angle r1 g1 b1 r2 g2 b2)
+    }
+
     fn renderGradient:void (el:EVGElement x:double y:double w:double h:double radius:int) {
         ; Use the pre-parsed gradient from EVGElement
         def grad:EVGGradient el.gradient
@@ -1014,43 +1055,29 @@ class EVGPNGTool {
             name = (substring path (slash + 1) (strlen path))
         }
 
-        ; A progressive JPEG needs the other decoder. Baseline is by far the
-        ; common case, but "some of the photos are simply missing" is a poor
-        ; way to find out which kind you have.
-        def img:ImageBuffer (this.decodeAnyJpeg(dir name))
+        ; One decoder for every format, sniffed from the bytes. This used to
+        ; choose between the two JPEG decoders itself and had never heard of
+        ; PNG — which a Figma archive is full of, so a converted page rendered
+        ; "Not a JPEG file (missing SOI)" and stopped. `EVGImageDecode` already
+        ; sniffed all three; the tool was simply not asking it.
+        def img:ImageBuffer (this.decodeAny(dir name))
         push imageCacheKeys src
         push imageCache img
         return img
     }
 
-    ; Pick the decoder from the SOF marker, the way jpeg_scaler does.
-    fn decodeAnyJpeg:ImageBuffer (dir:string name:string) {
+    ; Whatever it is, decoded once. The cache above means this runs a single
+    ; time per distinct `src`, so the sniff costs nothing that matters and the
+    ; decode is never repeated inside a page.
+    fn decodeAny:ImageBuffer (dir:string name:string) {
         def data:buffer (buffer_read_file dir name)
-        def dataLen:int (buffer_length data)
-        def isProgressive:boolean false
-        def i:int 0
-        while (i < (dataLen - 1)) {
-            if ((buffer_get data i) == 255) {
-                def marker:int (buffer_get data (i + 1))
-                if (marker == 194) {
-                    ; SOF2
-                    isProgressive = true
-                    i = dataLen
-                }
-                if (marker == 192) {
-                    ; SOF0
-                    isProgressive = false
-                    i = dataLen
-                }
-            }
-            i = (i + 1)
+        def got@(optional):ImageBuffer (EVGImageDecode.decode(data))
+        if (null? got) {
+            def empty (new ImageBuffer())
+            empty.init(1 1)
+            return empty
         }
-        if isProgressive {
-            def pdec (new ProgressiveJPEGDecoder())
-            return (pdec.decode(dir name))
-        }
-        def dec (new JPEGDecoder())
-        return (dec.decode(dir name))
+        return (unwrap got)
     }
 
     fn renderText:void (el:EVGElement x:double y:double w:double h:double padLeft:double padTop:double padRight:double) {
