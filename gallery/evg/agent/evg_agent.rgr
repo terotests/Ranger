@@ -35,6 +35,7 @@ Import "../EVGElement.rgr"
 Import "../EVGInspect.rgr"
 Import "../EVGLayout.rgr"
 Import "../EVGPatch.rgr"
+Import "../EVGUnit.rgr"
 Import "../EVGTreeJson.rgr"
 
 class EvgAgent {
@@ -340,8 +341,13 @@ class EvgAgent {
     ; --- measure --------------------------------------------------------------
 
     fn measure:void (root:EVGElement) {
-        def w:int (EvgAgent.intFlag("--width" 1200))
-        def h:int (EvgAgent.intFlag("--height" 900))
+        ; The document usually knows how big it is — a diagram exported from
+        ; RangerFlow, a page converted from `.tsx` — and measuring it against a
+        ; guessed page size reports the guess, not the document: every such
+        ; export came back "past the page width" for no reason but the default.
+        ; So the root's own size wins, and the flags override it.
+        def w:int (EvgAgent.intFlag("--width" (EvgAgent.sizeOf(root true 1200))))
+        def h:int (EvgAgent.intFlag("--height" (EvgAgent.sizeOf(root false 900))))
         def l (new EVGLayout())
         l.setPageSize((to_double w) (to_double h))
         l.layout(root)
@@ -370,7 +376,40 @@ class EvgAgent {
         print out
     }
 
+    ; The root's declared width or height in pixels, or the fallback when it
+    ; does not say. Only a px length answers: a root that is `100%` of
+    ; something has no size of its own to report.
+    sfn sizeOf:int (root:EVGElement wide:boolean fallback:int) {
+        def u@(optional):EVGUnit root.height
+        if wide {
+            u = root.width
+        }
+        if (null? u) {
+            return fallback
+        }
+        def uu:EVGUnit (unwrap u)
+        if (uu.isSet == false) {
+            return fallback
+        }
+        if (uu.unitType != 0) {
+            return fallback
+        }
+        def px:int (to_int uu.value)
+        if (px <= 0) {
+            return fallback
+        }
+        return px
+    }
+
     fn checkOffPage:void (findings:[string] path:string el:EVGElement w:double h:double) {
+        ; A `path` carries its geometry in `d` and its box is 0x0, so every
+        ; check below would pass on a shape that is nowhere near the page. A
+        ; diagram exported from RangerFlow is ALL paths, which made `measure`
+        ; silent on exactly the documents it was most wanted for.
+        if ((strlen el.svgPath) > 0) {
+            this.checkPathOffPage(findings path el w h)
+            return
+        }
         def right:double (el.calculatedX + el.calculatedWidth)
         def bottom:double (el.calculatedY + el.calculatedHeight)
         if (right > (w + 0.5)) {
@@ -381,6 +420,145 @@ class EvgAgent {
         }
         if (el.calculatedX < (0.0 - 0.5)) {
             push findings ((path + ": left edge ") + (EvgAgent.num(el.calculatedX)))
+        }
+    }
+
+    ; The outer bound of a path, from the numbers in its `d`.
+    ;
+    ; Every coordinate a curve names — its control points included — lies
+    ; outside or on the curve, so the extremes of the whole list bound the
+    ; drawn shape. That is looser than the true bounds and it is the right kind
+    ; of loose here: a shape reported as on the page is definitely on it.
+    ;
+    ; Only M, L, C, Q and Z are read. `A` mixes radii and flags in among the
+    ; coordinates, and treating those as points would invent a bound rather
+    ; than widen one, so a path using anything else is left unchecked and said
+    ; to be.
+    fn checkPathOffPage:void (findings:[string] path:string el:EVGElement w:double h:double) {
+        if (EvgAgent.hasUnreadCommand(el.svgPath)) {
+            return
+        }
+        def xs:[double]
+        def ys:[double]
+        EvgAgent.coordsOf(el.svgPath xs ys)
+        if ((array_length xs) == 0) {
+            return
+        }
+        def minX:double (itemAt xs 0)
+        def maxX:double (itemAt xs 0)
+        def i:int 1
+        while (i < (array_length xs)) {
+            def v:double (itemAt xs i)
+            if (v < minX) {
+                minX = v
+            }
+            if (v > maxX) {
+                maxX = v
+            }
+            i = (i + 1)
+        }
+        def minY:double (itemAt ys 0)
+        def maxY:double (itemAt ys 0)
+        def k:int 1
+        while (k < (array_length ys)) {
+            def v:double (itemAt ys k)
+            if (v < minY) {
+                minY = v
+            }
+            if (v > maxY) {
+                maxY = v
+            }
+            k = (k + 1)
+        }
+        if (maxX > (w + 0.5)) {
+            push findings ((((path + ": the shape reaches ") + (EvgAgent.num(maxX))) + ", past the page width ") + (EvgAgent.num(w)))
+        }
+        if (maxY > (h + 0.5)) {
+            push findings ((((path + ": the shape reaches ") + (EvgAgent.num(maxY))) + ", past the page height ") + (EvgAgent.num(h)))
+        }
+        if (minX < (0.0 - 0.5)) {
+            push findings ((path + ": the shape starts at ") + (EvgAgent.num(minX)))
+        }
+        if (minY < (0.0 - 0.5)) {
+            push findings ((path + ": the shape starts above the page, at ") + (EvgAgent.num(minY)))
+        }
+    }
+
+    sfn hasUnreadCommand:boolean (d:string) {
+        def i:int 0
+        while (i < (strlen d)) {
+            def c:int (charAt d i)
+            def isLetter:boolean (((c >= 65) && (c <= 90)) || ((c >= 97) && (c <= 122)))
+            if isLetter {
+                if ((EvgAgent.isReadCommand(c)) == false) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn isReadCommand:boolean (c:int) {
+        if ((c == 77) || (c == 109)) {
+            return true
+        }
+        if ((c == 76) || (c == 108)) {
+            return true
+        }
+        if ((c == 67) || (c == 99)) {
+            return true
+        }
+        if ((c == 81) || (c == 113)) {
+            return true
+        }
+        if ((c == 90) || (c == 122)) {
+            return true
+        }
+        return false
+    }
+
+    ; The numbers in a path, taken in pairs. A trailing odd number would mean a
+    ; malformed path, and it is dropped rather than paired with nothing.
+    sfn coordsOf:void (d:string xs:[double] ys:[double]) {
+        def nums:[double]
+        def cur:string ""
+        def i:int 0
+        while (i < (strlen d)) {
+            def c:int (charAt d i)
+            def isNum:boolean (((c >= 48) && (c <= 57)) || (((c == 46) || (c == 45)) || (c == 43)))
+            if isNum {
+                ; A minus starts a new number unless it opens this one.
+                if ((c == 45) && ((strlen cur) > 0)) {
+                    def done@(optional):double (to_double cur)
+                    if done {
+                        push nums (unwrap done)
+                    }
+                    cur = ""
+                }
+                cur = (cur + (substring d i (i + 1)))
+            } {
+                if ((strlen cur) > 0) {
+                    def v@(optional):double (to_double cur)
+                    if v {
+                        push nums (unwrap v)
+                    }
+                    cur = ""
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            def last@(optional):double (to_double cur)
+            if last {
+                push nums (unwrap last)
+            }
+        }
+        def k:int 0
+        while ((k + 1) < (array_length nums)) {
+            push xs (itemAt nums k)
+            push ys (itemAt nums (k + 1))
+            k = (k + 2)
         }
     }
 

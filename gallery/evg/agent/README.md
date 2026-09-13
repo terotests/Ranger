@@ -110,6 +110,19 @@ that clips, and two in-flow siblings on top of each other. `overflow: visible`
 is not a finding — the author meant it to spill. Absolutely positioned nodes
 are not checked for overlap; overlapping is what they are for.
 
+A `path` has no box — its geometry is the `d` string — so its page bounds are
+read from the coordinates in `d`, control points included. That bound is looser
+than the shape, which is the right way round: a shape reported as on the page
+is on it. A path using `A` is left unchecked, because arc flags among the
+coordinates would invent a bound rather than widen one.
+
+**What it does NOT check, on a diagram.** A document exported from RangerFlow
+is entirely absolute positions and paths, so the overlap and parent-overflow
+checks have nothing to work with: a label that no longer fits the shape drawn
+behind it is not a finding, because nothing in the document says the two belong
+together. Off-page is caught; fit is not. Look at a diagram before believing a
+count of zero.
+
 ## Getting a real document in, and a picture out
 
 The four verbs read `.evg.json`. Two neighbours in `gallery/pdf_writer/src/tools`

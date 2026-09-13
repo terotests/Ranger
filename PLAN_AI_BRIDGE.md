@@ -138,6 +138,14 @@ One `measure()` call replaces a screenshot round trip and is ~50× cheaper in
 tokens. **The agent looks at a PNG to judge taste; it calls `measure()` to
 judge correctness.**
 
+With one limit worth stating where the claim is made, because it applies to the
+documents this was most wanted for. A diagram is entirely absolute positions
+and paths, so overlap and parent-overflow have nothing to compare — a label
+that outgrew the shape behind it is not a finding, since nothing in the
+document says the two belong together. Off-page is caught (a path's bounds are
+read from its `d`). Fit is not. On a diagram, zero findings means "nothing left
+the page", not "this is right".
+
 ---
 
 ## 4. Layer 0 — the CLI (`npm run agent`)
@@ -323,9 +331,17 @@ Still not built, and named here rather than left to be discovered:
 
 - **`diff`.** Two documents compared structurally. `outline` diffed with
   `diff(1)` covers it well enough to not be urgent.
-- **The other adapters.** `.tsx` reaches the tree now. `.fig`, Mermaid and
-  Markdown do not yet, though each already has a reader that produces an EVG
-  tree — the work is a tool around it, not new engine code.
+- **The remaining adapters.** `.tsx` and RangerFlow reach the tree now — the
+  latter as `FlowExport.writeEvgJson`, a sibling of the PDF and HTML exporters
+  that were already handing the same tree to a renderer, so every diagram the
+  demo writes now also writes a `.evg.json` beside it. `.fig` and Markdown do
+  not yet, though each already has a reader that produces an EVG tree; the work
+  is a tool around it, not new engine code.
+
+  What a diagram export gives is a **picture of the diagram, not the diagram**:
+  boxes and text survive, the graph does not. An edit cannot move an edge with
+  the node it points at, and re-running the reader will not carry it forward.
+  The `.mmd` or the `.sql` stays the maintained thing.
 - **A selector engine.** `query` takes `.class`, `#id`, a tag or a path.
   Compound selectors belong to `EVGStyleSheet`.
 

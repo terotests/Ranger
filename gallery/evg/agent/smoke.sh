@@ -67,4 +67,25 @@ npm run --silent agent -- outline "$work/doc.json" > "$work/unchanged.txt"
 diff -q "$work/before.txt" "$work/unchanged.txt" > /dev/null \
   || fail "a rejected batch still changed the document"
 
+# a diagram, which is a different shape of document: everything absolutely
+# positioned, every shape a path whose box is 0x0 and whose geometry is in `d`
+if [ -f gallery/rangerflow/bin/rangerflow_demo.js ]; then
+  npm run --silent rangerflow:mermaid > /dev/null 2>&1 || fail "the mermaid demo did not run"
+  diagram=gallery/rangerflow/out/rangerflow-mermaid.evg.json
+  [ -f "$diagram" ] || fail "the mermaid demo wrote no editable document"
+  npm run --silent agent -- measure "$diagram" | grep -q '"count":0' \
+    || fail "measure found a defect in a diagram RangerFlow laid out itself"
+  cp "$diagram" "$work/d.json"
+  cat > "$work/dops.json" <<'JSON'
+{"ops":[{"op":"set-prop","at":"0/51","prop":"d","value":"M 1650 354 L 1732 354 L 1750 390 L 1668 390 Z"}]}
+JSON
+  npm run --silent agent -- patch "$work/d.json" "$work/dops.json" | grep -q '"applied":1' \
+    || fail "could not edit a path in a diagram"
+  npm run --silent agent -- measure "$work/d.json" | grep -q "past the page width" \
+    || fail "a shape moved off the page was not reported — path bounds are not being read"
+  echo "  diagram        measured, edited, and the off-page shape reported"
+else
+  echo "  diagram        skipped (rangerflow demo not built)"
+fi
+
 echo "ALL PASS — outline, query, measure, patch, undo, rejection"

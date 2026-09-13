@@ -82,6 +82,13 @@ other, and nodes off the page. **Use this instead of rendering a PNG to check
 correctness** — it is exact and costs a fraction of the tokens. Render only to
 judge how something looks.
 
+One exception, and it matters because it is the case you will hit with charts:
+on a **diagram** — anything exported from RangerFlow — every node is absolutely
+positioned and every shape is a path with no box, so overlap and overflow have
+nothing to compare. Off-page is still caught. A label that outgrew the shape
+behind it is not. On a diagram, `"count":0` means "nothing left the page", not
+"this looks right" — render it and look.
+
 ## Getting a real document in
 
 A `.tsx` page is not directly editable this way. Convert it first, resolving its

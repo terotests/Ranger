@@ -12,6 +12,7 @@
 ;                            ──► EVGHTMLRenderer  → HTML
 ;             ──► toSvg()                         → SVG
 ;             ──► EVGDisplayList.toJson()         → scene JSON (the GPU's food)
+;                            ──► EVGTreeJson.toText()  → an editable document
 ;
 ; So a printed diagram is the same geometry the editor drew, measured with the
 ; same text engine, and the PDF gains nothing this file had to invent.
@@ -21,6 +22,7 @@ Import "../core/FlowView.rgr"
 Import "../../vela/src/VlJson.rgr"
 Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
 Import "../../pdf_writer/src/core/EVGHTMLRenderer.rgr"
+Import "../../evg/EVGTreeJson.rgr"
 Import "../../pdf_writer/src/fonts/FontManager.rgr"
 
 class FlowExport {
@@ -93,6 +95,32 @@ class FlowExport {
     fn writePdf:boolean (view:FlowView path:string) {
         def data:buffer (this.toPdf(view))
         buffer_write_file "." path data
+        return true
+    }
+
+    ; ------------------------------------------------------- editable document --
+    ;
+    ; The same tree the PDF and HTML renderers are handed, written down instead
+    ; of drawn. That makes a diagram something `EVGPatch` can edit and
+    ; `evg_agent` can address, measure and render — so "move this node's label
+    ; left" is an op against a validated property set rather than a guess at
+    ; which line of a `.mmd` file to change.
+    ;
+    ; What comes out is a PICTURE OF THE DIAGRAM, not the diagram. The graph —
+    ; nodes, edges, ports, the layout that placed them — is gone; boxes and
+    ; text remain. Editing the document therefore cannot move an edge with the
+    ; node it points at, and re-running the reader over the source will not
+    ; carry the edit forward. Use it to adjust and to check a rendering, and
+    ; keep the `.mmd` or the `.sql` as the thing that is actually maintained.
+    fn toEvgJson:string (view:FlowView) {
+        def sc:FlowScene (this.sceneOf(view))
+        def root:EVGElement (sc.toEvgTree())
+        return (EVGTreeJson.toText(root))
+    }
+
+    fn writeEvgJson:boolean (view:FlowView path:string) {
+        def text:string (this.toEvgJson(view))
+        write_file "." path text
         return true
     }
 

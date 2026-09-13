@@ -1963,6 +1963,10 @@ class RangerFlowDemo {
         ex.writeHtml(v htmlPath title)
         print ("  wrote " + htmlPath)
 
+        def evgPath:string (outDir + "/" + stem + ".evg.json")
+        ex.writeEvgJson(v evgPath)
+        print ("  wrote " + evgPath + "   (editable: npm run agent -- outline " + evgPath + ")")
+
         def jsonPath:string (outDir + "/" + stem + ".graph.json")
         write_file "." jsonPath (FlowGraphJson.toJson(g))
         print ("  wrote " + jsonPath)
