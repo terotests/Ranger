@@ -48,6 +48,7 @@ Import "../../datagrid/src/script/ScriptEditor.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "R5MdLanguage.rgr"
+Import "R5Merge.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
@@ -112,6 +113,10 @@ class R5App {
     def root@(optional):EVGElement
     def overlayRoot@(optional):EVGElement
     def measurer@(optional):TTFTextMeasurer
+    ; What the slides and the Word page looked like when the markdown last
+    ; built them — see R5Merge.
+    def deckBase:R5DeckBase (new R5DeckBase())
+    def docBase:R5DocBase (new R5DocBase())
     ; A layout made for another size or another measurer is a layout to make again.
     def layoutStale:boolean true
     def hasOverlay:boolean false
@@ -395,8 +400,10 @@ class R5App {
     ; goes to them, and the engine leaves them alone after that. Here they
     ; FOLLOW the markdown while they are on screen: a new document, a
     ; keystroke in the editor, a template or a paper size reaches the view
-    ; being looked at. One a reader has edited by hand is kept — the head
-    ; offers "↻ from .md" for that.
+    ; being looked at. A view the reader has dressed — moved, resized,
+    ; recoloured, spaced — follows too, and keeps its dress (R5Merge). One
+    ; whose WORDS the reader changed is kept as it is; the head offers
+    ; "↻ from .md" for that.
     fn followSource:void (force:boolean) {
         def v:string (this.paneView())
         if ((v == "deck") || (v == "doc")) {
@@ -408,25 +415,91 @@ class R5App {
             }
         }
         if (v == "deck") {
-            if (md.deckEdited()) {
+            if (! (md.deckEdited())) {
+                if force {
+                    md.rebuildFromSource()
+                } {
+                    md.ensureDeck()
+                }
+                this.noteAttached()
                 return
             }
-            if force {
-                md.rebuildFromSource()
-            } {
-                md.ensureDeck()
+            if (this.deckInvasive()) {
+                ; Kept as the reader left it; the head says so.
+                this.touch()
+                return
             }
+            def edited:PptxPresentation md.deckWeb.app.presentation
+            md.attachDeck()
+            def fresh:PptxPresentation md.deckWeb.app.presentation
+            def next (new R5DeckBase())
+            next.take(fresh md.deckFrom)
+            R5Merge.mergeDeck(fresh edited deckBase)
+            deckBase = next
+            md.deckWeb.app.editor.touchAllSlides()
+            ; The dress is still the reader's: the next change comes back
+            ; through here rather than through a plain rebuild.
+            md.deckWeb.app.editor.dirty = true
+            md.built = false
         }
         if (v == "doc") {
-            if (md.docEdited()) {
+            if (! (md.docEdited())) {
+                if force {
+                    md.rebuildFromSource()
+                } {
+                    md.ensureDoc()
+                }
+                this.noteAttached()
                 return
             }
-            if force {
-                md.rebuildFromSource()
-            } {
-                md.ensureDoc()
+            if (this.docInvasive()) {
+                this.touch()
+                return
+            }
+            def editedDoc:RichDocument md.docModel
+            md.attachDoc()
+            def freshDoc:RichDocument md.docModel
+            def nextDoc (new R5DocBase())
+            nextDoc.take(freshDoc md.docFrom)
+            R5Merge.mergeDoc(freshDoc editedDoc docBase)
+            docBase = nextDoc
+            ; `touch` moves the revision past the one the attach recorded,
+            ; which is what keeps the dress the reader's for the next change.
+            freshDoc.touch()
+            md.docWeb.viewer.view.layout.invalidate()
+            md.built = false
+        }
+    }
+
+    ; The base a view is measured against: taken whenever the engine has
+    ; attached a fresh one from the markdown and nobody has touched it yet.
+    fn noteAttached:void () {
+        if md.deckOn {
+            if (! (md.deckEdited())) {
+                if ((! deckBase.taken) || (md.deckFrom != deckBase.from)) {
+                    deckBase.take(md.deckWeb.app.presentation md.deckFrom)
+                }
             }
         }
+        if md.docOn {
+            if (! (md.docEdited())) {
+                if ((! docBase.taken) || (md.docFrom != docBase.from)) {
+                    docBase.take(md.docModel md.docFrom)
+                }
+            }
+        }
+    }
+
+    ; Has the reader changed what the view SAYS? Only then does the markdown
+    ; stop feeding it.
+    fn deckInvasive:boolean () {
+        if (! (md.deckEdited())) { return false }
+        return (R5Merge.deckInvasive(md.deckWeb.app.presentation deckBase))
+    }
+
+    fn docInvasive:boolean () {
+        if (! (md.docEdited())) { return false }
+        return (R5Merge.docInvasive(md.docModel docBase))
     }
 
     ; =========================================================================
@@ -606,6 +679,7 @@ class R5App {
         if (name == "edit") {
             focus = "editor"
         }
+        this.noteAttached()
         this.touch()
     }
 
@@ -813,12 +887,12 @@ class R5App {
         if (this.paneVisible()) {
             def v:string (this.paneView())
             if (v == "deck") {
-                if (md.deckEdited()) {
+                if (this.deckInvasive()) {
                     head.addChild((this.chip("r5-rebuild" "↻ from .md" false)))
                 }
             }
             if (v == "doc") {
-                if (md.docEdited()) {
+                if (this.docInvasive()) {
                     head.addChild((this.chip("r5-rebuild" "↻ from .md" false)))
                 }
             }
@@ -1046,7 +1120,11 @@ class R5App {
     }
 
     fn exportSheet:void (sh:EVGElement) {
-        sh.addChild((this.actionRow("r5-export-pdf" "PDF — the sheets, fonts embedded")))
+        def v:string (this.paneView())
+        def pdfLabel:string "PDF — the sheets, fonts embedded"
+        if (v == "deck") { pdfLabel = "PDF — the slides, as shown" }
+        if (v == "doc") { pdfLabel = "PDF — the Word pages, as shown" }
+        sh.addChild((this.actionRow("r5-export-pdf" pdfLabel)))
         sh.addChild((this.actionRow("r5-export-html" "HTML")))
         sh.addChild((this.actionRow("r5-export-pptx" "PPTX — the slides")))
         sh.addChild((tree R5 (SheetNote "Built in this tab. Nothing is sent anywhere.")))
@@ -1134,6 +1212,7 @@ class R5App {
         }
         if (id == "r5-rebuild") {
             md.rebuildFromSource()
+            this.noteAttached()
             this.touch()
             return true
         }

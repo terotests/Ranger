@@ -41,6 +41,19 @@ drawn by EVG, and it is live at
   becomes a *patch* on the other — a common prefix and a common suffix — so
   both keep their own undo. The preview still takes the keyboard: click into
   it and type, and the editor follows.
+- **The slides and the Word page follow the markdown.** While either is on
+  screen, a new document, a keystroke in the editor, a template or a paper
+  size reaches it. A *presentation* edit made there — a chart resized, a
+  heading recoloured, a paragraph spaced, a font changed — survives that:
+  the view is built again from the markdown and the reader's look is put
+  back on the shapes and paragraphs that still say the same thing, or on the
+  same block where only the words moved ([`src/R5Merge.rgr`](src/R5Merge.rgr)).
+  An *invasive* edit — words retyped on the slide, a shape or a paragraph
+  added or removed — keeps the view as the reader left it, and the head
+  offers "↻ from .md" to build it from the markdown again.
+- **PDF of what is on screen.** *Export → PDF* prints the sheets of the
+  markdown, the slides as the reader left them, or the Word pages as the
+  reader left them; the slide and Word editors' own *Print* do the same.
 - **One canvas.** The document is drawn first, through the camera
   `MarkdownWeb` already keeps, moved to where the layout put the pane; the
   chrome is drawn over it with the canvas kept. The slide and Word editors
@@ -53,6 +66,7 @@ drawn by EVG, and it is live at
 | --- | --- |
 | [`src/R5App.rgr`](src/R5App.rgr) | The app: the tree, the sheets, the editor, the pointer, the keyboard, the two-way patch, the host's JSON seam |
 | [`src/R5MdLanguage.rgr`](src/R5MdLanguage.rgr) | Markdown as an `EditorLanguage` plugin for the code editor |
+| [`src/R5Merge.rgr`](src/R5Merge.rgr) | A reader's presentation edits on the slides or the Word page, carried across a rebuild from the markdown |
 | [`web/r5.css`](web/r5.css) | The chrome's EVG stylesheet, light, with the breakpoint |
 | [`web/main.js`](web/main.js) | The browser host: WebGL frame, pointer, hidden text field, fetches, downloads |
 | [`web/index.html`](web/index.html) | The page — a canvas, the pane's input surface, the text field |

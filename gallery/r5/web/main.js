@@ -291,6 +291,15 @@ window.__lastDownload = "";
 
 let docName = "markdown";
 
+// The PDF of whatever is on screen: the sheets of the markdown, the slides
+// as the reader left them, or the Word pages as the reader left them.
+function pdfOfView() {
+  const screen = app.currentScreen();
+  if (screen === "deck") return app.md.deckPdf();
+  if (screen === "doc") return app.md.docPdf();
+  return app.md.pdf();
+}
+
 async function openSample(key) {
   const url = SAMPLES[key];
   if (!url) return;
@@ -313,8 +322,7 @@ async function handleRequests() {
       if (r === "open-file") {
         filePick.click();
       } else if (r === "download:pdf") {
-        const bytes = app.currentScreen() === "deck" ? app.md.deckPdf() : app.md.pdf();
-        window.__lastDownload = deliver(bytes, docName + ".pdf", "application/pdf");
+        window.__lastDownload = deliver(pdfOfView(), docName + ".pdf", "application/pdf");
       } else if (r === "download:html") {
         window.__lastDownload = deliver(new TextEncoder().encode(app.md.html()), docName + ".html", "text/html");
       } else if (r === "download:pptx") {
@@ -680,6 +688,12 @@ function editorDraw() {
   app.md.touch();
   app.touch();
   needsPaint = true;
+  // The Word editor's own File menu: Print is the PDF of its pages. (There
+  // is no .docx writer, so Save has nothing to write.)
+  if (pane.view === "doc") {
+    const want = app.md.docHost().takeFileRequest();
+    if (want === "print") window.__lastDownload = deliver(app.md.docPdf(), docName + ".pdf", "application/pdf");
+  }
 }
 function keepKeyboard() {
   keys.focus({ preventScroll: true });
@@ -855,6 +869,36 @@ function selftest() {
       app.text(" Z");
       window.__redraw();
       check("a keystroke while on the slides reaches them", slideText().includes("Fresh deck title Z"));
+      // A presentation edit on the slides — a title recoloured — survives
+      // the next markdown change; a rewording of the title in the deck does
+      // not, and the head says so.
+      const pres = app.md.deckWeb.app.presentation;
+      const title = pres.slides[0].shapes[0];
+      title.noFill = false; title.fill.isSet = true; title.fill.srgb = "FF0000";
+      app.md.deckWeb.app.editor.dirty = true;
+      app.text("!");
+      window.__redraw();
+      const title2 = app.md.deckWeb.app.presentation.slides[0].shapes[0];
+      check("a recoloured slide keeps its colour when the markdown changes", slideText().includes("Fresh deck title Z!") && title2.fill.srgb === "FF0000" && !app.deckInvasive());
+      title2.text.paragraphs[0].runs[0].text = "Retyped on the slide";
+      app.md.deckWeb.app.editor.dirty = true;
+      app.text("?");
+      window.__redraw();
+      check("a slide whose words were retyped is kept, with the way back", app.deckInvasive() && texts(window.__lastChrome).includes("↻ from .md"));
+      app.press("r5-rebuild");
+      window.__redraw();
+      check("↻ from .md builds the slides from the markdown again", !app.deckInvasive() && slideText().includes("Fresh deck title Z!?"));
+      app.setScreen("doc");
+      window.__redraw();
+      const doc = app.md.docModel;
+      const para = doc.blockAt(0).paragraph;
+      para.spaceAfterPt = 44;
+      doc.touch();
+      app.text("#");
+      window.__redraw();
+      check("a spaced Word paragraph keeps its spacing when the markdown changes", app.md.docModel.blockAt(0).paragraph.spaceAfterPt === 44 && app.md.docModel.blockAt(0).paragraph.text.includes("Z!?#"));
+      const docPdf = app.md.docPdf();
+      check("the Word pages come out as a PDF", String.fromCharCode(...new Uint8Array(docPdf).slice(0, 5)) === "%PDF-", `${docPdf.byteLength} bytes`);
       app.setScreen("preview");
       app.setMode("continuous");
       // The other shape: a phone's chrome, then the desk's again.

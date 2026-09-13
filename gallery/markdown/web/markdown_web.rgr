@@ -1916,6 +1916,59 @@ class MarkdownWeb {
         return (renderer.render(root))
     }
 
+    ; The Word document as a PDF: every page a PDF page, drawn by the Word
+    ; editor's own painter — the same `DocxView.buildDisplayList` the canvas
+    ; shows, with the caret and the selection left off — through the same
+    ; road the deck takes above. The layout is in pixels at 96/inch and a PDF
+    ; unit is a point, so the list is scaled by 72/96 and the page is stated
+    ; in points. The pictures ride along by part path: the list names them,
+    ; and the model still holds their pixels.
+    fn docPdf:buffer () {
+        if (! docOn) { this.ensureDoc() }
+        def viewer:DocxViewer docWeb.viewer
+        def n:int (viewer.pageCount())
+        def empty:buffer (buffer_alloc 0)
+        if (n == 0) { return empty }
+        def first:LaidPage (viewer.view.layout.pageAt(0))
+        def pw:double ((to_double first.width) * 0.75)
+        def ph:double ((to_double first.height) * 0.75)
+        def root:EVGElement (EVGListToElements.printRoot(pw ph))
+        def section:EVGElement (EVGListToElements.sectionOf(root))
+        def keep:int viewer.view.pageIndex
+        def white:EVGColor (EVGColor.parse("#FFFFFF"))
+        def i:int 0
+        while (i < n) {
+            def dl:EVGDisplayList (viewer.view.buildDisplayList(viewer.doc i viewer.numbering viewer.edit false))
+            dl.scaleBy(0.75)
+            def pg:EVGElement (EVGListToElements.pageFrom(dl pw ph white true))
+            section.addChild(pg)
+            i = (i + 1)
+        }
+        ; `buildDisplayList` moved the view's page index as it went.
+        viewer.view.pageIndex = keep
+        def renderer (new EVGPDFRenderer())
+        renderer.init(renderer)
+        renderer.setPageSize(pw ph)
+        renderer.setFontManager(viewer.view.ctx.tr.fm)
+        def m (new TTFTextMeasurer(viewer.view.ctx.tr.fm))
+        renderer.setMeasurer(m)
+        def doc:RichDocument viewer.doc
+        def pi:int 0
+        while (pi < (doc.paragraphCount())) {
+            def para:Paragraph (doc.paragraphAt(pi))
+            def ii:int 0
+            while (ii < (array_length para.images)) {
+                def img:DocImage (itemAt para.images ii)
+                if img.ok {
+                    renderer.registerImage(img.partPath img.pixels)
+                }
+                ii = (ii + 1)
+            }
+            pi = (pi + 1)
+        }
+        return (renderer.render(root))
+    }
+
     ; --- a drawing, on whichever tab -----------------------------------------
     ;
     ; The deck's drawings and the Word document's are the same fence read by
