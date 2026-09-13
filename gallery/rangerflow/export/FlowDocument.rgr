@@ -1,0 +1,735 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; FlowDocument.rgr — a diagram as edited, as data.
+; ============================================================================
+;
+; A Mermaid source is what somebody WROTE. The drawing on screen is that plus
+; everything done to it afterwards: a box dragged out of the way, a line routed
+; by hand, a label renamed, the look switched to dark. Save the source and all
+; of that is gone the next time it is opened — which is exactly the complaint
+; about pasting a Mermaid diagram anywhere.
+;
+; So this saves the MODEL, not the text and not the picture:
+;
+;   { "rangerflow": 1,
+;     "layout": "none", "notation": "plain", "bridges": true,
+;     "theme": { …only what differs from the light theme… },
+;     "graph": { "nodes": [ … ], "edges": [ … ] } }
+;
+; The graph half is `FlowGraphJson`'s format, and `FlowGraphJson` now reads and
+; writes it through the codec below — so there is one spelling of a node, and a
+; file written before this existed still opens. What the codec adds is every
+; field that changes the picture: colours, borders, rotation, ports, the
+; routes a layout or a reader chose, annotations. A field is written only when
+; it differs from the model's own default, which keeps a shared link short.
+;
+; THE TEST OF "EVERY FIELD THAT CHANGES THE PICTURE" is not a list someone
+; keeps: `tests/FlowDocumentTest.rgr` draws every example as SVG, saves it,
+; opens the save in a fresh page, draws it again and compares the two strings.
+; A field this file forgets is a diagram that comes back different, and that
+; test says which one.
+;
+; Numbers are written at full precision. `EVGDisplayList.num` rounds to two
+; decimals, which is right for a frame and wrong for a model: a position
+; rounded on save is a route computed from a different point on open.
+; ============================================================================
+
+Import "../core/FlowView.rgr"
+Import "../../vela/src/VlJson.rgr"
+
+class FlowGraphCodec {
+    ; ------------------------------------------------------------ spelling --
+    ; A JSON number, whatever came in. NaN is not one, so it is written as
+    ; zero; an infinity is pinned rather than spelled.
+    sfn num:string (v:double) {
+        def x:double 0.0
+        if (v > 0.0) { x = v }
+        if (v < 0.0) { x = v }
+        def limit:double 1000000000.0
+        if (x > limit) { x = limit }
+        if (x < (0.0 - limit)) { x = (0.0 - limit) }
+        return (to_string x)
+    }
+
+    ; A JSON string that gives back exactly what went in. Not
+    ; `EVGDisplayList.jsonString`, which writes a control character as a
+    ; space — right for a frame, where a newline in a text run means nothing,
+    ; and wrong here: a note written on two lines came back on one, wider,
+    ; and centred somewhere else.
+    sfn str:string (v:string) {
+        def out:string "\""
+        def i:int 0
+        while (i < (strlen v)) {
+            def c:int (charAt v i)
+            if (c == 34) {
+                out = (out + "\\\"")
+            } {
+                if (c == 92) {
+                    out = (out + "\\\\")
+                } {
+                    if (c == 10) {
+                        out = (out + "\\n")
+                    } {
+                        if (c == 13) {
+                            out = (out + "\\r")
+                        } {
+                            if (c == 9) {
+                                out = (out + "\\t")
+                            } {
+                                if (c < 32) {
+                                    out = (out + "\\u00" + (FlowGraphCodec.hex2(c)))
+                                } {
+                                    out = (out + (strfromcode c))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "\"")
+    }
+
+    sfn hex2:string (c:int) {
+        def digits:string "0123456789abcdef"
+        def hi:int (to_int (c / 16))
+        def lo:int (c - (hi * 16))
+        return ((substring digits hi (hi + 1)) + (substring digits lo (lo + 1)))
+    }
+
+    sfn fd:string (key:string v:double dflt:double) {
+        if (v == dflt) { return "" }
+        return (",\"" + key + "\":" + (FlowGraphCodec.num(v)))
+    }
+
+    sfn fs:string (key:string v:string dflt:string) {
+        if (v == dflt) { return "" }
+        return (",\"" + key + "\":" + (FlowGraphCodec.str(v)))
+    }
+
+    sfn fi:string (key:string v:int dflt:int) {
+        if (v == dflt) { return "" }
+        return (",\"" + key + "\":" + (to_string v))
+    }
+
+    sfn fb:string (key:string v:boolean dflt:boolean) {
+        if (v == dflt) { return "" }
+        if v { return (",\"" + key + "\":true") }
+        return (",\"" + key + "\":false")
+    }
+
+    sfn fnums:string (key:string arr:[double]) {
+        if ((array_length arr) == 0) { return "" }
+        def out:string (",\"" + key + "\":[")
+        def i:int 0
+        while (i < (array_length arr)) {
+            if (i > 0) { out = (out + ",") }
+            def v:double (itemAt arr i)
+            out = (out + (FlowGraphCodec.num(v)))
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
+    sfn annotationsJson:string (list:[FlowAnnotation]) {
+        if ((array_length list) == 0) { return "" }
+        def out:string ",\"annotations\":["
+        def i:int 0
+        while (i < (array_length list)) {
+            def a:FlowAnnotation (itemAt list i)
+            if (i > 0) { out = (out + ",") }
+            out = (out + "{\"text\":" + (FlowGraphCodec.str(a.text)))
+            out = (out + (FlowGraphCodec.fs("id" a.id "")))
+            out = (out + (FlowGraphCodec.fd("ox" a.offsetX 0.5)))
+            out = (out + (FlowGraphCodec.fd("oy" a.offsetY 0.5)))
+            out = (out + (FlowGraphCodec.fd("away" a.away 0.0)))
+            out = (out + (FlowGraphCodec.fd("size" a.fontSize 11.0)))
+            out = (out + (FlowGraphCodec.fs("color" a.color "")))
+            out = (out + (FlowGraphCodec.fb("bold" a.bold false)))
+            out = (out + (FlowGraphCodec.fs("align" a.align "center")))
+            out = (out + (FlowGraphCodec.fd("width" a.width 0.0)) + "}")
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
+    ; ------------------------------------------------------------- writing --
+    sfn writeGraph:string (g:FlowGraph) {
+        def out:string "{\"nodes\":["
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + (FlowGraphCodec.nodeJson(n)))
+            i = (i + 1)
+        }
+        out = (out + "],\"edges\":[")
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (k > 0) {
+                out = (out + ",")
+            }
+            out = (out + (FlowGraphCodec.edgeJson(e)))
+            k = (k + 1)
+        }
+        return (out + "]}")
+    }
+
+    sfn nodeJson:string (n:FlowNode) {
+        ; The keys every version has written, always — a reader of the old
+        ; format finds what it looks for.
+        def out:string ("{\"id\":" + (FlowGraphCodec.str(n.id)))
+        out = (out + ",\"label\":" + (FlowGraphCodec.str(n.label)))
+        out = (out + ",\"type\":" + (FlowGraphCodec.str(n.nodeType)))
+        out = (out + ",\"shape\":" + (FlowGraphCodec.str(n.shape)))
+        out = (out + ",\"parent\":" + (FlowGraphCodec.str(n.parentId)))
+        out = (out + ",\"x\":" + (FlowGraphCodec.num(n.x)))
+        out = (out + ",\"y\":" + (FlowGraphCodec.num(n.y)))
+        out = (out + ",\"width\":" + (FlowGraphCodec.num(n.width)))
+        out = (out + ",\"height\":" + (FlowGraphCodec.num(n.height)))
+
+        ; Everything else only when it is not the default.
+        out = (out + (FlowGraphCodec.fd("fontScale" n.fontScale 1.0)))
+        out = (out + (FlowGraphCodec.fnums("shapePoints" n.shapePoints)))
+        out = (out + (FlowGraphCodec.fi("sourcePosition" n.sourcePosition 1)))
+        out = (out + (FlowGraphCodec.fi("targetPosition" n.targetPosition 3)))
+        out = (out + (FlowGraphCodec.fb("draggable" n.draggable true)))
+        out = (out + (FlowGraphCodec.fb("selectable" n.selectable true)))
+        out = (out + (FlowGraphCodec.fb("connectable" n.connectable true)))
+        out = (out + (FlowGraphCodec.fb("hidden" n.hidden false)))
+        out = (out + (FlowGraphCodec.fi("zIndex" n.zIndex 0)))
+        out = (out + (FlowGraphCodec.fb("resizable" n.resizable false)))
+        out = (out + (FlowGraphCodec.fd("minWidth" n.minWidth 60.0)))
+        out = (out + (FlowGraphCodec.fd("minHeight" n.minHeight 28.0)))
+        out = (out + (FlowGraphCodec.fs("fill" n.bgColor "")))
+        out = (out + (FlowGraphCodec.fs("stroke" n.borderColor "")))
+        out = (out + (FlowGraphCodec.fs("color" n.textColor "")))
+        out = (out + (FlowGraphCodec.fs("accent" n.accentColor "")))
+        out = (out + (FlowGraphCodec.fd("radius" n.borderRadius -1.0)))
+        out = (out + (FlowGraphCodec.fd("borderWidth" n.borderWidth -1.0)))
+        out = (out + (FlowGraphCodec.fs("class" n.cssClass "")))
+        out = (out + (FlowGraphCodec.fd("rotation" n.rotation 0.0)))
+        out = (out + (FlowGraphCodec.fs("tooltip" n.tooltip "")))
+        out = (out + (FlowGraphCodec.fs("highlight" n.highlight "")))
+        out = (out + (FlowGraphCodec.fd("headerHeight" n.headerHeight 26.0)))
+        out = (out + (FlowGraphCodec.fd("rowHeight" n.rowHeight 18.0)))
+        out = (out + (FlowGraphCodec.fd("sectionGap" n.sectionGap 1.0)))
+        out = (out + (FlowGraphCodec.annotationsJson(n.annotations)))
+
+        out = (out + ",\"sections\":[")
+        def si:int 0
+        while (si < (n.sectionCount())) {
+            def sec:FlowSection (n.sectionAt(si))
+            if (si > 0) {
+                out = (out + ",")
+            }
+            out = (out + "{\"title\":" + (FlowGraphCodec.str(sec.title)))
+            out = (out + (FlowGraphCodec.fb("collapsed" sec.collapsed false)) + ",\"rows\":[")
+            def ri:int 0
+            while (ri < (array_length sec.rows)) {
+                def row:FlowRow (itemAt sec.rows ri)
+                if (ri > 0) {
+                    out = (out + ",")
+                }
+                out = (out + "{\"badge\":" + (FlowGraphCodec.str(row.badge)))
+                out = (out + ",\"text\":" + (FlowGraphCodec.str(row.text)))
+                out = (out + ",\"detail\":" + (FlowGraphCodec.str(row.detail)))
+                out = (out + ",\"trailing\":" + (FlowGraphCodec.str(row.trailing)))
+                out = (out + ",\"port\":" + (FlowGraphCodec.str(row.portId)))
+                ; Emphasis is why a primary key reads as one at a glance.
+                ; It was not written once, so a saved schema came back with
+                ; every key row in the same weight as the rest.
+                out = (out + ",\"emphasis\":" + (to_string row.emphasis) + "}")
+                ri = (ri + 1)
+            }
+            out = (out + "]}")
+            si = (si + 1)
+        }
+        out = (out + "]")
+
+        ; The ports, when there are any. A row's ports can be rebuilt from its
+        ; row, but a flowchart's four side handles and a domain's own named
+        ; ports cannot, and an edge that names a port nobody rebuilt is drawn
+        ; from nowhere.
+        if ((array_length n.ports) > 0) {
+            out = (out + ",\"ports\":[")
+            def pi:int 0
+            while (pi < (array_length n.ports)) {
+                def p:FlowPort (itemAt n.ports pi)
+                if (pi > 0) {
+                    out = (out + ",")
+                }
+                out = (out + "{\"id\":" + (FlowGraphCodec.str(p.id)))
+                out = (out + ",\"side\":" + (to_string p.side))
+                out = (out + (FlowGraphCodec.fs("label" p.label "")))
+                out = (out + (FlowGraphCodec.fd("offset" p.offset 0.0)))
+                out = (out + (FlowGraphCodec.fs("role" p.role "both")))
+                out = (out + (FlowGraphCodec.fi("limit" p.connectionLimit -1)))
+                out = (out + (FlowGraphCodec.fb("hidden" p.hidden false)))
+                out = (out + (FlowGraphCodec.fb("centred" p.centred false)))
+                out = (out + (FlowGraphCodec.fs("mirror" p.mirrorId "")) + "}")
+                pi = (pi + 1)
+            }
+            out = (out + "]")
+        }
+        return (out + "}")
+    }
+
+    sfn edgeJson:string (e:FlowEdge) {
+        def out:string ("{\"id\":" + (FlowGraphCodec.str(e.id)))
+        out = (out + ",\"source\":" + (FlowGraphCodec.str(e.source)))
+        out = (out + ",\"target\":" + (FlowGraphCodec.str(e.target)))
+        out = (out + ",\"sourcePort\":" + (FlowGraphCodec.str(e.sourcePort)))
+        out = (out + ",\"targetPort\":" + (FlowGraphCodec.str(e.targetPort)))
+        out = (out + ",\"type\":" + (FlowGraphCodec.str(e.edgeType)))
+        ; The label was missing until a round-trip probe went looking for it: a
+        ; diagram saved and reopened came back with every "kyllä" gone.
+        out = (out + ",\"label\":" + (FlowGraphCodec.str(e.label)))
+        out = (out + (FlowGraphCodec.fs("sourceCardinality" e.sourceCardinality "")))
+        out = (out + (FlowGraphCodec.fs("targetCardinality" e.targetCardinality "")))
+        out = (out + (FlowGraphCodec.fb("optionalSource" e.optionalSource false)))
+        out = (out + (FlowGraphCodec.fb("optionalTarget" e.optionalTarget false)))
+        out = (out + (FlowGraphCodec.fd("labelDX" e.labelDX 0.0)))
+        out = (out + (FlowGraphCodec.fd("labelDY" e.labelDY 0.0)))
+        out = (out + (FlowGraphCodec.annotationsJson(e.annotations)))
+        out = (out + (FlowGraphCodec.fs("tooltip" e.tooltip "")))
+        out = (out + (FlowGraphCodec.fb("animated" e.animated false)))
+        out = (out + (FlowGraphCodec.fb("hidden" e.hidden false)))
+        out = (out + (FlowGraphCodec.fs("stroke" e.strokeColor "")))
+        out = (out + (FlowGraphCodec.fd("strokeWidth" e.strokeWidth 0.0)))
+        out = (out + (FlowGraphCodec.fs("markerEnd" e.markerEnd "arrowclosed")))
+        out = (out + (FlowGraphCodec.fs("markerStart" e.markerStart "")))
+        out = (out + (FlowGraphCodec.fd("dash" e.dash 0.0)))
+        out = (out + (FlowGraphCodec.fs("class" e.cssClass "")))
+        out = (out + (FlowGraphCodec.fi("sourceHandle" e.sourceHandle -1)))
+        out = (out + (FlowGraphCodec.fi("targetHandle" e.targetHandle -1)))
+        ; The route. None of this is recomputed on open: it is what the layout
+        ; or the reader decided, and a route recomputed is a route changed.
+        out = (out + (FlowGraphCodec.fd("nudgeSource" e.portNudgeSource 0.0)))
+        out = (out + (FlowGraphCodec.fd("nudgeTarget" e.portNudgeTarget 0.0)))
+        out = (out + (FlowGraphCodec.fb("pinnedRoute" e.pinnedRoute false)))
+        out = (out + (FlowGraphCodec.fb("pinnedEnds" e.pinnedEnds false)))
+        out = (out + (FlowGraphCodec.fi("homeSourceSide" e.homeSourceSide -1)))
+        out = (out + (FlowGraphCodec.fi("homeTargetSide" e.homeTargetSide -1)))
+        out = (out + (FlowGraphCodec.fnums("waypoints" e.waypoints)))
+        if e.hasLaneX {
+            out = (out + ",\"laneX\":" + (FlowGraphCodec.num(e.laneX)))
+        }
+        if e.hasLaneY {
+            out = (out + ",\"laneY\":" + (FlowGraphCodec.num(e.laneY)))
+        }
+        return (out + "}")
+    }
+
+    ; ------------------------------------------------------------- reading --
+    sfn readNums:[double] (j:VlJson key:string) {
+        def out:[double]
+        def arr:VlJson (j.get(key))
+        def i:int 0
+        while (i < (arr.count())) {
+            def v:VlJson (arr.at(i))
+            push out (v.asDouble())
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn readAnnotations:[FlowAnnotation] (j:VlJson) {
+        def out:[FlowAnnotation]
+        def arr:VlJson (j.get("annotations"))
+        def i:int 0
+        while (i < (arr.count())) {
+            def ja:VlJson (arr.at(i))
+            def a (new FlowAnnotation)
+            a.id = (ja.stringOr("id" ""))
+            a.text = (ja.stringOr("text" ""))
+            a.offsetX = (ja.doubleOr("ox" 0.5))
+            a.offsetY = (ja.doubleOr("oy" 0.5))
+            a.away = (ja.doubleOr("away" 0.0))
+            a.fontSize = (ja.doubleOr("size" 11.0))
+            a.color = (ja.stringOr("color" ""))
+            a.bold = (ja.boolOr("bold" false))
+            a.align = (ja.stringOr("align" "center"))
+            a.width = (ja.doubleOr("width" 0.0))
+            push out a
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The graph in a parsed document. Anything missing takes the model's
+    ; default, so the old format — and a hand-written file — reads too.
+    sfn readGraph:FlowGraph (doc:VlJson) {
+        def g (new FlowGraph)
+        def nodes:VlJson (doc.get("nodes"))
+        def i:int 0
+        while (i < (nodes.count())) {
+            def jn:VlJson (nodes.at(i))
+            def n:FlowNode (FlowGraphCodec.readNode(jn))
+            g.addNode(n)
+            i = (i + 1)
+        }
+        def edges:VlJson (doc.get("edges"))
+        def k:int 0
+        while (k < (edges.count())) {
+            def je:VlJson (edges.at(k))
+            def e:FlowEdge (FlowGraphCodec.readEdge(je))
+            g.addEdge(e)
+            k = (k + 1)
+        }
+        g.reindex()
+        return g
+    }
+
+    sfn readNode:FlowNode (jn:VlJson) {
+        def n (new FlowNode)
+        n.id = (jn.stringOr("id" ""))
+        n.label = (jn.stringOr("label" ""))
+        n.nodeType = (jn.stringOr("type" "default"))
+        n.shape = (jn.stringOr("shape" "rect"))
+        n.parentId = (jn.stringOr("parent" ""))
+        n.x = (jn.doubleOr("x" 0.0))
+        n.y = (jn.doubleOr("y" 0.0))
+        n.width = (jn.doubleOr("width" 150.0))
+        n.height = (jn.doubleOr("height" 40.0))
+        n.fontScale = (jn.doubleOr("fontScale" 1.0))
+        n.shapePoints = (FlowGraphCodec.readNums(jn "shapePoints"))
+        n.sourcePosition = (jn.intOr("sourcePosition" 1))
+        n.targetPosition = (jn.intOr("targetPosition" 3))
+        n.draggable = (jn.boolOr("draggable" true))
+        n.selectable = (jn.boolOr("selectable" true))
+        n.connectable = (jn.boolOr("connectable" true))
+        n.hidden = (jn.boolOr("hidden" false))
+        n.zIndex = (jn.intOr("zIndex" 0))
+        n.resizable = (jn.boolOr("resizable" false))
+        n.minWidth = (jn.doubleOr("minWidth" 60.0))
+        n.minHeight = (jn.doubleOr("minHeight" 28.0))
+        n.bgColor = (jn.stringOr("fill" ""))
+        n.borderColor = (jn.stringOr("stroke" ""))
+        n.textColor = (jn.stringOr("color" ""))
+        n.accentColor = (jn.stringOr("accent" ""))
+        n.borderRadius = (jn.doubleOr("radius" -1.0))
+        n.borderWidth = (jn.doubleOr("borderWidth" -1.0))
+        n.cssClass = (jn.stringOr("class" ""))
+        n.rotation = (jn.doubleOr("rotation" 0.0))
+        n.tooltip = (jn.stringOr("tooltip" ""))
+        n.highlight = (jn.stringOr("highlight" ""))
+        n.headerHeight = (jn.doubleOr("headerHeight" 26.0))
+        n.rowHeight = (jn.doubleOr("rowHeight" 18.0))
+        n.sectionGap = (jn.doubleOr("sectionGap" 1.0))
+        n.annotations = (FlowGraphCodec.readAnnotations(jn))
+
+        ; Ports before compartments: laying the rows out places their ports,
+        ; and it finds the saved ones by id rather than adding a second pair.
+        def ports:VlJson (jn.get("ports"))
+        def pi:int 0
+        while (pi < (ports.count())) {
+            def jp:VlJson (ports.at(pi))
+            def p (new FlowPort)
+            p.id = (jp.stringOr("id" ""))
+            p.nodeId = n.id
+            p.side = (jp.intOr("side" 1))
+            p.label = (jp.stringOr("label" ""))
+            p.offset = (jp.doubleOr("offset" 0.0))
+            p.role = (jp.stringOr("role" "both"))
+            p.connectionLimit = (jp.intOr("limit" -1))
+            p.hidden = (jp.boolOr("hidden" false))
+            p.centred = (jp.boolOr("centred" false))
+            p.mirrorId = (jp.stringOr("mirror" ""))
+            push n.ports p
+            pi = (pi + 1)
+        }
+
+        def secs:VlJson (jn.get("sections"))
+        def si:int 0
+        while (si < (secs.count())) {
+            def js:VlJson (secs.at(si))
+            def title:string (js.stringOr("title" ""))
+            def sec:FlowSection (n.addSection(title))
+            sec.collapsed = (js.boolOr("collapsed" false))
+            def rows:VlJson (js.get("rows"))
+            def ri:int 0
+            while (ri < (rows.count())) {
+                def jr:VlJson (rows.at(ri))
+                def row:FlowRow (FlowRow.create((jr.stringOr("badge" "")) (jr.stringOr("text" "")) (jr.stringOr("detail" "")) (jr.stringOr("trailing" ""))))
+                row.portId = (jr.stringOr("port" ""))
+                row.emphasis = (jr.intOr("emphasis" 0))
+                sec.addRow(row)
+                ri = (ri + 1)
+            }
+            si = (si + 1)
+        }
+        if ((n.sectionCount()) > 0) {
+            n.layoutCompartments()
+            n.placeRowPorts()
+        }
+        n.syncFromModel()
+        return n
+    }
+
+    sfn readEdge:FlowEdge (je:VlJson) {
+        def e (new FlowEdge)
+        e.id = (je.stringOr("id" ""))
+        e.source = (je.stringOr("source" ""))
+        e.target = (je.stringOr("target" ""))
+        e.sourcePort = (je.stringOr("sourcePort" ""))
+        e.targetPort = (je.stringOr("targetPort" ""))
+        e.edgeType = (je.stringOr("type" "default"))
+        e.label = (je.stringOr("label" ""))
+        e.sourceCardinality = (je.stringOr("sourceCardinality" ""))
+        e.targetCardinality = (je.stringOr("targetCardinality" ""))
+        e.optionalSource = (je.boolOr("optionalSource" false))
+        e.optionalTarget = (je.boolOr("optionalTarget" false))
+        e.labelDX = (je.doubleOr("labelDX" 0.0))
+        e.labelDY = (je.doubleOr("labelDY" 0.0))
+        e.annotations = (FlowGraphCodec.readAnnotations(je))
+        e.tooltip = (je.stringOr("tooltip" ""))
+        e.animated = (je.boolOr("animated" false))
+        e.hidden = (je.boolOr("hidden" false))
+        e.strokeColor = (je.stringOr("stroke" ""))
+        e.strokeWidth = (je.doubleOr("strokeWidth" 0.0))
+        e.markerEnd = (je.stringOr("markerEnd" "arrowclosed"))
+        e.markerStart = (je.stringOr("markerStart" ""))
+        e.dash = (je.doubleOr("dash" 0.0))
+        e.cssClass = (je.stringOr("class" ""))
+        e.sourceHandle = (je.intOr("sourceHandle" -1))
+        e.targetHandle = (je.intOr("targetHandle" -1))
+        e.portNudgeSource = (je.doubleOr("nudgeSource" 0.0))
+        e.portNudgeTarget = (je.doubleOr("nudgeTarget" 0.0))
+        e.pinnedRoute = (je.boolOr("pinnedRoute" false))
+        e.pinnedEnds = (je.boolOr("pinnedEnds" false))
+        e.homeSourceSide = (je.intOr("homeSourceSide" -1))
+        e.homeTargetSide = (je.intOr("homeTargetSide" -1))
+        e.waypoints = (FlowGraphCodec.readNums(je "waypoints"))
+        if (je.has("laneX")) {
+            e.laneX = (je.doubleOr("laneX" 0.0))
+            e.hasLaneX = true
+        }
+        if (je.has("laneY")) {
+            e.laneY = (je.doubleOr("laneY" 0.0))
+            e.hasLaneY = true
+        }
+        return e
+    }
+}
+
+; ----------------------------------------------------------------------------
+; The document: the graph and what the view needs to draw it the same way.
+; ----------------------------------------------------------------------------
+class FlowDocument {
+    def ok:boolean false
+    def error:string ""
+    def graph:FlowGraph (new FlowGraph)
+    def theme:FlowTheme (new FlowTheme)
+    def notation:string "plain"
+    def bridges:boolean true
+    ; What laid the diagram out, for information. A document always opens as
+    ; "none": its positions are part of what it says, and a layout run on
+    ; open would undo every box the reader moved.
+    def layout:string "none"
+
+    Constructor () {
+    }
+
+    ; The newest format this reader understands.
+    sfn version:int () {
+        return 1
+    }
+
+    sfn writeDocument:string (view:FlowView g:FlowGraph layout:string) {
+        def out:string ("{\"rangerflow\":" + (to_string (FlowDocument.version())))
+        out = (out + ",\"layout\":" + (FlowGraphCodec.str(layout)))
+        out = (out + ",\"notation\":" + (FlowGraphCodec.str(view.notation)))
+        if view.bridgeEdges {
+            out = (out + ",\"bridges\":true")
+        } {
+            out = (out + ",\"bridges\":false")
+        }
+        out = (out + ",\"theme\":" + (FlowDocument.themeJson(view.theme)))
+        out = (out + ",\"graph\":" + (FlowGraphCodec.writeGraph(g)) + "}")
+        return out
+    }
+
+    ; A document, or the reason it is not one. A bare graph — the shape
+    ; `FlowGraphJson` has always written — opens too, in the default look.
+    sfn readDocument:FlowDocument (text:string) {
+        def d (new FlowDocument)
+        def parser (new VlJsonParser)
+        def doc:VlJson (parser.parse(text))
+        if ((parser.ok) == false) {
+            d.error = "that is not a RangerFlow document (not JSON)"
+            return d
+        }
+        if ((doc.isObject()) == false) {
+            d.error = "that is not a RangerFlow document"
+            return d
+        }
+        def body:VlJson doc
+        if (doc.has("rangerflow")) {
+            def v:int (doc.intOr("rangerflow" 0))
+            if (v < 1) {
+                d.error = "that is not a RangerFlow document"
+                return d
+            }
+            if (v > (FlowDocument.version())) {
+                d.error = ("that diagram was saved by a newer RangerFlow (format " + (to_string v) + ")")
+                return d
+            }
+            body = (doc.get("graph"))
+            d.layout = (doc.stringOr("layout" "none"))
+            d.notation = (doc.stringOr("notation" "plain"))
+            d.bridges = (doc.boolOr("bridges" true))
+            d.theme = (FlowDocument.readTheme((doc.get("theme"))))
+        } {
+            if ((doc.has("nodes")) == false) {
+                d.error = "that is not a RangerFlow document"
+                return d
+            }
+        }
+        d.graph = (FlowGraphCodec.readGraph(body))
+        if ((d.graph.nodeCount()) == 0) {
+            d.error = "that diagram has nothing in it"
+            return d
+        }
+        d.ok = true
+        return d
+    }
+
+    ; --------------------------------------------------------------- theme --
+    ; Only what differs from the light theme, which is what every theme and
+    ; every stylesheet starts from.
+    sfn themeJson:string (t:FlowTheme) {
+        def b:FlowTheme (FlowTheme.light())
+        def out:string ("{\"name\":" + (FlowGraphCodec.str(t.name)))
+        out = (out + (FlowGraphCodec.fs("background" t.background b.background)))
+        out = (out + (FlowGraphCodec.fs("dotColor" t.dotColor b.dotColor)))
+        out = (out + (FlowGraphCodec.fs("gridColor" t.gridColor b.gridColor)))
+        out = (out + (FlowGraphCodec.fi("backgroundVariant" t.backgroundVariant b.backgroundVariant)))
+        out = (out + (FlowGraphCodec.fd("backgroundGap" t.backgroundGap b.backgroundGap)))
+        out = (out + (FlowGraphCodec.fd("backgroundDotSize" t.backgroundDotSize b.backgroundDotSize)))
+        out = (out + (FlowGraphCodec.fs("nodeFill" t.nodeFill b.nodeFill)))
+        out = (out + (FlowGraphCodec.fs("nodeBorder" t.nodeBorder b.nodeBorder)))
+        out = (out + (FlowGraphCodec.fs("nodeText" t.nodeText b.nodeText)))
+        out = (out + (FlowGraphCodec.fs("nodeMutedText" t.nodeMutedText b.nodeMutedText)))
+        out = (out + (FlowGraphCodec.fd("nodeRadius" t.nodeRadius b.nodeRadius)))
+        out = (out + (FlowGraphCodec.fd("nodeBorderWidth" t.nodeBorderWidth b.nodeBorderWidth)))
+        out = (out + (FlowGraphCodec.fb("nodeShadow" t.nodeShadow b.nodeShadow)))
+        out = (out + (FlowGraphCodec.fs("headerFill" t.headerFill b.headerFill)))
+        out = (out + (FlowGraphCodec.fs("headerText" t.headerText b.headerText)))
+        out = (out + (FlowGraphCodec.fs("headerAccent" t.headerAccent b.headerAccent)))
+        out = (out + (FlowGraphCodec.fs("sectionRule" t.sectionRule b.sectionRule)))
+        out = (out + (FlowGraphCodec.fs("rowAltFill" t.rowAltFill b.rowAltFill)))
+        out = (out + (FlowGraphCodec.fs("selectedBorder" t.selectedBorder b.selectedBorder)))
+        out = (out + (FlowGraphCodec.fs("selectedFill" t.selectedFill b.selectedFill)))
+        out = (out + (FlowGraphCodec.fs("selectionBox" t.selectionBox b.selectionBox)))
+        out = (out + (FlowGraphCodec.fs("selectionBoxFill" t.selectionBoxFill b.selectionBoxFill)))
+        out = (out + (FlowGraphCodec.fd("selectionBoxAlpha" t.selectionBoxAlpha b.selectionBoxAlpha)))
+        out = (out + (FlowGraphCodec.fs("hoverBorder" t.hoverBorder b.hoverBorder)))
+        out = (out + (FlowGraphCodec.fs("portFill" t.portFill b.portFill)))
+        out = (out + (FlowGraphCodec.fs("portBorder" t.portBorder b.portBorder)))
+        out = (out + (FlowGraphCodec.fs("portActive" t.portActive b.portActive)))
+        out = (out + (FlowGraphCodec.fd("portRadius" t.portRadius b.portRadius)))
+        out = (out + (FlowGraphCodec.fs("edgeColor" t.edgeColor b.edgeColor)))
+        out = (out + (FlowGraphCodec.fs("edgeSelected" t.edgeSelected b.edgeSelected)))
+        out = (out + (FlowGraphCodec.fd("edgeWidth" t.edgeWidth b.edgeWidth)))
+        out = (out + (FlowGraphCodec.fs("edgeLabelText" t.edgeLabelText b.edgeLabelText)))
+        out = (out + (FlowGraphCodec.fs("edgeLabelFill" t.edgeLabelFill b.edgeLabelFill)))
+        out = (out + (FlowGraphCodec.fd("markerSize" t.markerSize b.markerSize)))
+        out = (out + (FlowGraphCodec.fs("keyColor" t.keyColor b.keyColor)))
+        out = (out + (FlowGraphCodec.fs("fkColor" t.fkColor b.fkColor)))
+        out = (out + (FlowGraphCodec.fs("typeColor" t.typeColor b.typeColor)))
+        out = (out + (FlowGraphCodec.fs("panelFill" t.panelFill b.panelFill)))
+        out = (out + (FlowGraphCodec.fs("panelBorder" t.panelBorder b.panelBorder)))
+        out = (out + (FlowGraphCodec.fs("minimapNode" t.minimapNode b.minimapNode)))
+        out = (out + (FlowGraphCodec.fs("minimapView" t.minimapView b.minimapView)))
+        out = (out + (FlowGraphCodec.fs("highlightColor" t.highlightColor b.highlightColor)))
+        out = (out + (FlowGraphCodec.fs("tooltipFill" t.tooltipFill b.tooltipFill)))
+        out = (out + (FlowGraphCodec.fs("tooltipBorder" t.tooltipBorder b.tooltipBorder)))
+        out = (out + (FlowGraphCodec.fs("tooltipText" t.tooltipText b.tooltipText)))
+        out = (out + (FlowGraphCodec.fs("menuFill" t.menuFill b.menuFill)))
+        out = (out + (FlowGraphCodec.fs("menuBorder" t.menuBorder b.menuBorder)))
+        out = (out + (FlowGraphCodec.fs("menuShadow" t.menuShadow b.menuShadow)))
+        out = (out + (FlowGraphCodec.fs("menuText" t.menuText b.menuText)))
+        out = (out + (FlowGraphCodec.fs("menuDisabledText" t.menuDisabledText b.menuDisabledText)))
+        out = (out + (FlowGraphCodec.fs("menuHighlight" t.menuHighlight b.menuHighlight)))
+        out = (out + (FlowGraphCodec.fs("editFill" t.editFill b.editFill)))
+        out = (out + (FlowGraphCodec.fs("editBorder" t.editBorder b.editBorder)))
+        out = (out + (FlowGraphCodec.fs("editCaret" t.editCaret b.editCaret)))
+        out = (out + (FlowGraphCodec.fs("fontFamily" t.fontFamily b.fontFamily)))
+        out = (out + (FlowGraphCodec.fs("monoFamily" t.monoFamily b.monoFamily)))
+        out = (out + (FlowGraphCodec.fd("headerFontSize" t.headerFontSize b.headerFontSize)))
+        out = (out + (FlowGraphCodec.fd("rowFontSize" t.rowFontSize b.rowFontSize)))
+        out = (out + (FlowGraphCodec.fd("labelFontSize" t.labelFontSize b.labelFontSize)))
+        return (out + "}")
+    }
+
+    sfn readTheme:FlowTheme (j:VlJson) {
+        def t:FlowTheme (FlowTheme.light())
+        t.name = (j.stringOr("name" t.name))
+        t.background = (j.stringOr("background" t.background))
+        t.dotColor = (j.stringOr("dotColor" t.dotColor))
+        t.gridColor = (j.stringOr("gridColor" t.gridColor))
+        t.backgroundVariant = (j.intOr("backgroundVariant" t.backgroundVariant))
+        t.backgroundGap = (j.doubleOr("backgroundGap" t.backgroundGap))
+        t.backgroundDotSize = (j.doubleOr("backgroundDotSize" t.backgroundDotSize))
+        t.nodeFill = (j.stringOr("nodeFill" t.nodeFill))
+        t.nodeBorder = (j.stringOr("nodeBorder" t.nodeBorder))
+        t.nodeText = (j.stringOr("nodeText" t.nodeText))
+        t.nodeMutedText = (j.stringOr("nodeMutedText" t.nodeMutedText))
+        t.nodeRadius = (j.doubleOr("nodeRadius" t.nodeRadius))
+        t.nodeBorderWidth = (j.doubleOr("nodeBorderWidth" t.nodeBorderWidth))
+        t.nodeShadow = (j.boolOr("nodeShadow" t.nodeShadow))
+        t.headerFill = (j.stringOr("headerFill" t.headerFill))
+        t.headerText = (j.stringOr("headerText" t.headerText))
+        t.headerAccent = (j.stringOr("headerAccent" t.headerAccent))
+        t.sectionRule = (j.stringOr("sectionRule" t.sectionRule))
+        t.rowAltFill = (j.stringOr("rowAltFill" t.rowAltFill))
+        t.selectedBorder = (j.stringOr("selectedBorder" t.selectedBorder))
+        t.selectedFill = (j.stringOr("selectedFill" t.selectedFill))
+        t.selectionBox = (j.stringOr("selectionBox" t.selectionBox))
+        t.selectionBoxFill = (j.stringOr("selectionBoxFill" t.selectionBoxFill))
+        t.selectionBoxAlpha = (j.doubleOr("selectionBoxAlpha" t.selectionBoxAlpha))
+        t.hoverBorder = (j.stringOr("hoverBorder" t.hoverBorder))
+        t.portFill = (j.stringOr("portFill" t.portFill))
+        t.portBorder = (j.stringOr("portBorder" t.portBorder))
+        t.portActive = (j.stringOr("portActive" t.portActive))
+        t.portRadius = (j.doubleOr("portRadius" t.portRadius))
+        t.edgeColor = (j.stringOr("edgeColor" t.edgeColor))
+        t.edgeSelected = (j.stringOr("edgeSelected" t.edgeSelected))
+        t.edgeWidth = (j.doubleOr("edgeWidth" t.edgeWidth))
+        t.edgeLabelText = (j.stringOr("edgeLabelText" t.edgeLabelText))
+        t.edgeLabelFill = (j.stringOr("edgeLabelFill" t.edgeLabelFill))
+        t.markerSize = (j.doubleOr("markerSize" t.markerSize))
+        t.keyColor = (j.stringOr("keyColor" t.keyColor))
+        t.fkColor = (j.stringOr("fkColor" t.fkColor))
+        t.typeColor = (j.stringOr("typeColor" t.typeColor))
+        t.panelFill = (j.stringOr("panelFill" t.panelFill))
+        t.panelBorder = (j.stringOr("panelBorder" t.panelBorder))
+        t.minimapNode = (j.stringOr("minimapNode" t.minimapNode))
+        t.minimapView = (j.stringOr("minimapView" t.minimapView))
+        t.highlightColor = (j.stringOr("highlightColor" t.highlightColor))
+        t.tooltipFill = (j.stringOr("tooltipFill" t.tooltipFill))
+        t.tooltipBorder = (j.stringOr("tooltipBorder" t.tooltipBorder))
+        t.tooltipText = (j.stringOr("tooltipText" t.tooltipText))
+        t.menuFill = (j.stringOr("menuFill" t.menuFill))
+        t.menuBorder = (j.stringOr("menuBorder" t.menuBorder))
+        t.menuShadow = (j.stringOr("menuShadow" t.menuShadow))
+        t.menuText = (j.stringOr("menuText" t.menuText))
+        t.menuDisabledText = (j.stringOr("menuDisabledText" t.menuDisabledText))
+        t.menuHighlight = (j.stringOr("menuHighlight" t.menuHighlight))
+        t.editFill = (j.stringOr("editFill" t.editFill))
+        t.editBorder = (j.stringOr("editBorder" t.editBorder))
+        t.editCaret = (j.stringOr("editCaret" t.editCaret))
+        t.fontFamily = (j.stringOr("fontFamily" t.fontFamily))
+        t.monoFamily = (j.stringOr("monoFamily" t.monoFamily))
+        t.headerFontSize = (j.doubleOr("headerFontSize" t.headerFontSize))
+        t.rowFontSize = (j.doubleOr("rowFontSize" t.rowFontSize))
+        t.labelFontSize = (j.doubleOr("labelFontSize" t.labelFontSize))
+        return t
+    }
+}

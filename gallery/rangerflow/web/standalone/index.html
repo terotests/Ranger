@@ -57,6 +57,29 @@
               border-right: 0; border-bottom: 1px solid #d5dae2; }
   }
   #selftest { white-space: pre-wrap; padding: 6px 12px; color: #111; background: #ffd; }
+  /* The share panel: two links and what each is for. Fixed rather than in the
+     flow, so opening it does not resize the canvas under the diagram. */
+  #sharebox { position: fixed; top: 52px; right: 12px; z-index: 10;
+              width: min(560px, calc(100vw - 24px)); box-sizing: border-box;
+              display: flex; flex-direction: column; gap: 10px; padding: 12px 14px;
+              background: #fff; border: 1px solid #ccd3dd; border-radius: 8px;
+              box-shadow: 0 8px 24px rgba(15, 23, 42, .14); }
+  #sharebox[hidden] { display: none; }
+  #sharebox .top { display: flex; justify-content: space-between; align-items: center; }
+  #sharebox .field { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
+  #sharebox .line { display: flex; gap: 6px; }
+  #sharebox input { flex: 1; min-width: 0; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+                    padding: 4px 6px; border: 1px solid #ccd3dd; border-radius: 5px; }
+  #sharebox button { padding: 3px 9px; border: 1px solid #ccd3dd; border-radius: 5px;
+                     background: #fff; cursor: pointer; }
+  #sharebox .hint { margin: 0; color: #6b7280; font-size: 12px; }
+  /* Embedded: the diagram and one way out of the frame. */
+  body.embed header, body.embed #tools, body.embed #srcbox, body.embed footer,
+  body.embed #sharebox { display: none !important; }
+  #openfull { position: absolute; top: 8px; right: 8px; z-index: 2; padding: 4px 9px;
+              border: 1px solid #ccd3dd; border-radius: 5px; background: rgba(255, 255, 255, .92);
+              color: #1f2430; font-size: 12px; text-decoration: none; }
+  #openfull:hover { border-color: #7c93b5; }
   @media (prefers-color-scheme: dark) {
     body { background: #12151c; color: #e6e9ef; }
     header, footer { background: #1b202a; border-color: #39414f; }
@@ -67,6 +90,9 @@
     #srcbox .hint { color: #98a2b3; }
     #tools button.on { background: #2563eb; border-color: #2563eb; }
     label, footer { color: #98a2b3; }
+    #sharebox, #sharebox input, #sharebox button { background: #1b202a; border-color: #39414f; color: #e6e9ef; }
+    #sharebox .hint { color: #98a2b3; }
+    #openfull { background: rgba(27, 32, 42, .92); border-color: #39414f; color: #e6e9ef; }
   }
 </style>
 
@@ -134,8 +160,24 @@
   <label><input type="checkbox" id="bridges" checked> jumps</label>
   <button id="fit">fit</button>
   <button id="svg">download SVG</button>
+  <button id="share" title="A link that opens this diagram as it is now — edits included">share link</button>
   <label>open .sql <input type="file" id="file" accept=".sql,.txt"></label>
 </header>
+
+<div id="sharebox" hidden role="dialog" aria-label="share this diagram">
+  <div class="top">
+    <strong>Share this diagram</strong>
+    <button id="shareclose" type="button" aria-label="close">×</button>
+  </div>
+  <label class="field">Link — opens the editor on this diagram, edits included
+    <span class="line"><input id="sharelink" readonly><button type="button" data-copy="sharelink">copy</button></span>
+  </label>
+  <label class="field">Embed — view only, for an iframe or a Confluence embed
+    <span class="line"><input id="shareembed" readonly><button type="button" data-copy="shareembed">copy</button></span>
+  </label>
+  <p class="hint"><a id="sharepreview" target="_blank" rel="noopener">Open the embed view</a> · <span id="sharenote"></span></p>
+  <p class="hint">The diagram travels inside the link, after the <code>#</code>. Browsers never send that part to a server, so nothing is uploaded — and a later edit needs a new link.</p>
+</div>
 
 <div id="tools">
   <span class="group">
@@ -209,6 +251,7 @@
 
 <div id="wrap">
   <canvas id="screen"></canvas>
+  <a id="openfull" hidden target="_blank" rel="noopener" title="Open this diagram in the editor">Open in RangerFlow ↗</a>
   <!-- A real text field, invisible and one pixel wide, that takes focus while
        a label is being typed. The canvas cannot receive composed characters,
        dead keys or a phone's keyboard; this can, and its value is mirrored

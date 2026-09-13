@@ -1,0 +1,325 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; FlowDocumentTest.rgr — a diagram saved and opened is the same diagram.
+; ============================================================================
+;
+;   npm run rangerflow:doc:test
+;
+; "The same" is measured, not described: every example the page offers is
+; drawn as SVG, saved as a document, opened in a fresh page and drawn again,
+; and the two strings are compared. A field `FlowDocument` forgets is a picture
+; that comes back different, and the failure prints where the two part.
+;
+; It goes through `RangerFlowWeb` — the facade the page calls — because the
+; share link is made and opened there, and a test one layer down could pass
+; while the page loses the theme.
+; ============================================================================
+
+Import "../web/rangerflow_web.rgr"
+
+class DocChecker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn near:void (name:string got:double want:double tol:double) {
+        def d:double (fabs (got - want))
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (d <= tol))
+    }
+
+    fn report:int () {
+        print ("")
+        print (("passed " + (to_string passed)) + ", failed " + (to_string failed))
+        if (failed > 0) {
+            return 1
+        }
+        return 0
+    }
+}
+
+class FlowDocumentTest {
+    sfn main:void () {
+        def c (new DocChecker)
+        FlowDocumentTest.testSamples(c "mermaid")
+        FlowDocumentTest.testSamples(c "plantuml")
+        FlowDocumentTest.testSamples(c "graphviz")
+        FlowDocumentTest.testSamples(c "d2")
+        FlowDocumentTest.testLooks(c)
+        FlowDocumentTest.testScenarios(c)
+        FlowDocumentTest.testEdits(c)
+        FlowDocumentTest.testReadOnly(c)
+        FlowDocumentTest.testRefusals(c)
+        def code:int (c.report())
+        if (code != 0) {
+            exit 1
+        }
+    }
+
+    sfn fresh:RangerFlowWeb () {
+        def a (new RangerFlowWeb)
+        a.init(1200.0 800.0)
+        return a
+    }
+
+    ; Draw it, save it, open the save in a new page, draw that.
+    sfn roundTrip:void (c:DocChecker name:string a:RangerFlowWeb) {
+        def before:string (a.svg())
+        def doc:string (a.documentJson())
+        def b:RangerFlowWeb (FlowDocumentTest.fresh())
+        def opened:boolean (b.loadDocument(doc))
+        c.ok((name + ": the document opens") opened)
+        if (opened == false) {
+            print ("    " + b.status)
+            return
+        }
+        def after:string (b.svg())
+        c.ok((name + ": and draws the same picture") (before == after))
+        if (before != after) {
+            FlowDocumentTest.showDiff(before after)
+        }
+        ; Saved again it is the same document, from then on. Not byte-equal to
+        ; the FIRST save, and on purpose: that one names the layout that placed
+        ; the boxes, and an opened document says "none" — its positions are
+        ; data now, and no layout will run over them.
+        def again:string (b.documentJson())
+        def c3:RangerFlowWeb (FlowDocumentTest.fresh())
+        c3.loadDocument(again)
+        def third:string (c3.documentJson())
+        c.ok((name + ": and saves the same document from then on") (again == third))
+        if (again != third) {
+            FlowDocumentTest.showDiff(again third)
+        }
+    }
+
+    sfn showDiff:void (a:string b:string) {
+        def la:int (strlen a)
+        def lb:int (strlen b)
+        def i:int 0
+        def go:boolean true
+        while go {
+            if (i >= la) {
+                go = false
+            } {
+                if (i >= lb) {
+                    go = false
+                } {
+                    if ((charAt a i) == (charAt b i)) {
+                        i = (i + 1)
+                    } {
+                        go = false
+                    }
+                }
+            }
+        }
+        def from:int (i - 80)
+        if (from < 0) {
+            from = 0
+        }
+        def toA:int (i + 80)
+        if (toA > la) {
+            toA = la
+        }
+        def toB:int (i + 80)
+        if (toB > lb) {
+            toB = lb
+        }
+        print ("    first difference at " + (to_string i) + " of " + (to_string la) + "/" + (to_string lb))
+        print ("    before: " + (substring a from toA))
+        print ("    after:  " + (substring b from toB))
+    }
+
+    ; Every example in the page's gallery for one format.
+    sfn testSamples:void (c:DocChecker format:string) {
+        print ("== " + format + " examples, saved and opened")
+        def list:string (RangerFlowWeb.sampleList(format))
+        def entries:[string] (strsplit list "|")
+        def loaded:int 0
+        def i:int 0
+        while (i < (array_length entries)) {
+            def entry:string (itemAt entries i)
+            def parts:[string] (strsplit entry "\t")
+            def id:string (itemAt parts 0)
+            def text:string (RangerFlowWeb.sampleText(format id))
+            def a:RangerFlowWeb (FlowDocumentTest.fresh())
+            a.setSourceFormat(format)
+            if (a.loadDiagram(text "default")) {
+                loaded = (loaded + 1)
+                FlowDocumentTest.roundTrip(c (format + "/" + id) a)
+            }
+            i = (i + 1)
+        }
+        c.ok((format + ": there were examples to try") (loaded > 0))
+    }
+
+    ; A look is a stylesheet, and a stylesheet writes into the nodes AND the
+    ; theme — both halves have to come back.
+    sfn testLooks:void (c:DocChecker) {
+        print ("== every look, saved and opened")
+        def looks:[string]
+        push looks "forest"
+        push looks "dark"
+        push looks "neutral"
+        push looks "print"
+        def i:int 0
+        while (i < (array_length looks)) {
+            def look:string (itemAt looks i)
+            def a:RangerFlowWeb (FlowDocumentTest.fresh())
+            a.setSourceFormat("mermaid")
+            def ok:boolean (a.loadDiagram((RangerFlowWeb.sampleMermaid()) look))
+            c.ok(("the " + look + " look loads") ok)
+            if ok {
+                FlowDocumentTest.roundTrip(c ("mermaid in " + look) a)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The demos that are built rather than read: a schema, a class diagram, a
+    ; swimlane, a mind map — each its own domain with its own ports.
+    sfn testScenarios:void (c:DocChecker) {
+        print ("== the built-in demos, saved and opened")
+        def names:[string]
+        push names "erd"
+        push names "uml"
+        push names "flow"
+        push names "atk"
+        push names "org"
+        push names "process"
+        push names "mindmap"
+        push names "radial"
+        push names "activity"
+        def sql:string (?? (read_file "." "gallery/rangerflow/fixtures/ecommerce.sql") "")
+        def i:int 0
+        while (i < (array_length names)) {
+            def name:string (itemAt names i)
+            def a:RangerFlowWeb (FlowDocumentTest.fresh())
+            a.setFixtureSql(sql)
+            def ok:boolean (a.loadScenario(name))
+            c.ok(("the " + name + " demo loads") ok)
+            if ok {
+                FlowDocumentTest.roundTrip(c name a)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The point of the whole thing: what was done to a diagram after it was
+    ; read is in the document.
+    sfn testEdits:void (c:DocChecker) {
+        print ("== an edited diagram keeps its edits")
+        def a:RangerFlowWeb (FlowDocumentTest.fresh())
+        a.setSourceFormat("mermaid")
+        a.loadDiagram((RangerFlowWeb.sampleMermaid()) "default")
+        def n:FlowNode (a.graph.nodeAt(0))
+        n.x = (n.x + 37.25)
+        n.y = (n.y - 12.5)
+        n.label = "Moved\nby \"hand\""
+        n.rotation = 90.0
+        n.bgColor = "#fde68a"
+        n.addAnnotation("3 päivää" 0.5 1.2)
+        def e:FlowEdge (a.graph.edgeAt(0))
+        e.label = "kyllä"
+        e.dash = 4.0
+        a.reroute()
+        a.setNotation("uml")
+        a.setTheme("dark")
+        a.setBackgroundVariant(2)
+        a.setBridges(false)
+        FlowDocumentTest.roundTrip(c "an edited diagram" a)
+
+        def b:RangerFlowWeb (FlowDocumentTest.fresh())
+        c.ok("it opens" (b.loadDocument((a.documentJson()))))
+        def bn:FlowNode (b.graph.nodeById(n.id))
+        c.eqStr("with the new name, on two lines, quotes and all" bn.label "Moved\nby \"hand\"")
+        c.near("where the box was moved to" bn.x n.x 0.000001)
+        c.near("turned as it was turned" bn.rotation 90.0 0.000001)
+        c.eqStr("in the colour it was given" bn.bgColor "#fde68a")
+        c.eqInt("with its annotation" (bn.annotationCount()) 1)
+        ; Edges are written and read in order, so the first is the first.
+        def be:FlowEdge (b.graph.edgeAt(0))
+        c.eqStr("the line's new label" be.label "kyllä")
+        c.eqStr("in the dark theme" b.editor.view.theme.name "dark")
+        c.eqInt("on the lined paper" b.editor.view.theme.backgroundVariant 2)
+        c.eqStr("in UML notation" b.editor.view.notation "uml")
+        c.ok("without line jumps" (b.editor.view.bridgeEdges == false))
+        c.eqStr("and nothing is laid out again on open" b.layoutName "none")
+    }
+
+    ; An embedded page pans and zooms and changes nothing.
+    sfn testReadOnly:void (c:DocChecker) {
+        print ("== read-only")
+        def a:RangerFlowWeb (FlowDocumentTest.fresh())
+        a.setSourceFormat("mermaid")
+        a.loadDiagram((RangerFlowWeb.sampleMermaid()) "default")
+        def doc:string (a.documentJson())
+
+        ; First the same drag on a page that CAN edit, so the test knows its
+        ; aim is good: it moves the box.
+        def w:RangerFlowWeb (FlowDocumentTest.fresh())
+        w.loadDocument(doc)
+        w.fitView()
+        def wBefore:string (w.documentJson())
+        FlowDocumentTest.dragFirstNode(w)
+        c.ok("an editable page: dragging a box changes the diagram" ((w.documentJson()) != wBefore))
+
+        def r:RangerFlowWeb (FlowDocumentTest.fresh())
+        r.setReadOnly(true)
+        r.loadDocument(doc)
+        r.fitView()
+        def panBefore:double r.editor.view.viewport.x
+        def opened:string (r.documentJson())
+        FlowDocumentTest.dragFirstNode(r)
+        c.ok("a read-only page: the same drag changes nothing" ((r.documentJson()) == opened))
+        c.ok("it pans instead" (r.editor.view.viewport.x != panBefore))
+        c.eqInt("and the editor is idle afterwards" r.editor.mode 0)
+        c.ok("keys do nothing" ((r.keyDown("Delete" false false)) == false))
+        c.eqInt("so nothing was deleted" (r.graph.nodeCount()) (a.graph.nodeCount()))
+        c.ok("no label can be edited" ((r.beginEditAt(600.0 400.0)) == false))
+        c.ok("and there is no minimap to steer" (r.editor.view.showMinimap == false))
+    }
+
+    sfn dragFirstNode:void (a:RangerFlowWeb) {
+        def n:FlowNode (a.graph.nodeAt(0))
+        def vp:FlowViewport a.editor.view.viewport
+        def sx:double (((n.centerX()) * vp.zoom) + vp.x)
+        def sy:double (((n.centerY()) * vp.zoom) + vp.y)
+        a.pointerDown(sx sy false false)
+        a.pointerMove((sx + 20.0) (sy + 10.0) false false)
+        a.pointerMove((sx + 60.0) (sy + 40.0) false false)
+        a.pointerUp((sx + 60.0) (sy + 40.0) false false)
+    }
+
+    sfn testRefusals:void (c:DocChecker) {
+        print ("== what is not a document")
+        def a:RangerFlowWeb (FlowDocumentTest.fresh())
+        a.setSourceFormat("mermaid")
+        a.loadDiagram((RangerFlowWeb.sampleMermaid()) "default")
+        def count:int (a.graph.nodeCount())
+        c.ok("junk is refused" ((a.loadDocument("not json at all")) == false))
+        c.eqInt("and the diagram on screen stays" (a.graph.nodeCount()) count)
+        c.ok("a newer format is refused rather than half-read" ((a.loadDocument("{\"rangerflow\":99,\"graph\":{\"nodes\":[{\"id\":\"a\"}]}}")) == false))
+        c.ok("with a reason that says so" ((strlen a.status) > 0))
+        c.ok("an empty diagram is refused" ((a.loadDocument("{\"rangerflow\":1,\"graph\":{\"nodes\":[],\"edges\":[]}}")) == false))
+        ; What FlowGraphJson has always written still opens.
+        def bare:string "{\"nodes\":[{\"id\":\"a\",\"label\":\"A\",\"x\":0,\"y\":0},{\"id\":\"b\",\"label\":\"B\",\"x\":200,\"y\":0}],\"edges\":[{\"source\":\"a\",\"target\":\"b\"}]}"
+        c.ok("a bare graph opens" (a.loadDocument(bare)))
+        c.eqInt("with its nodes" (a.graph.nodeCount()) 2)
+    }
+}

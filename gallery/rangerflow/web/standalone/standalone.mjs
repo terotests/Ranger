@@ -26,6 +26,11 @@ const cmdsEl = document.getElementById("cmds");
 const fpsEl = document.getElementById("fps");
 const selfTestEl = document.getElementById("selftest");
 
+// `?embed=1` is the page inside somebody else's page — an iframe, a Confluence
+// embed. The diagram and nothing else, fitted to whatever box it is given, and
+// read-only: a change made there would be saved nowhere.
+const embedMode = new URLSearchParams(location.search).has("embed");
+
 const gl = canvas.getContext("webgl2", {
   antialias: true,
   premultipliedAlpha: false,
@@ -88,7 +93,7 @@ const VIEW_ONLY = new Set([
   "editing", "editValue", "pendingConnect", "cursorAt", "connectMode",
   "statusText", "stats", "selfTest", "selectedId", "selectedLabel",
   "selectedRowCount", "sceneJson", "svg", "frame", "frameScene", "frameView",
-  "tick", "viewGesture", "sampleText", "frameGrid",
+  "tick", "viewGesture", "sampleText", "frameGrid", "documentJson",
 ]);
 
 const rawApp = new (engineClass())();
@@ -134,6 +139,9 @@ function resize() {
   canvas.width = bw;
   canvas.height = bh;
   app.resize(w, h);
+  // An embed has no fit button and a host that may resize the frame at any
+  // time, so every new size is a new fit.
+  if (embedMode) app.fitView();
 }
 
 let sizeWatch = null;
@@ -304,6 +312,15 @@ function fitSoon() {
   requestAnimationFrame(() => requestAnimationFrame(() => app.fitView()));
 }
 bind("scenario", (e) => {
+  // Coming back to the diagram the link opened, as it was opened.
+  if (e.target.value === "shared") {
+    if (sharedJson) app.loadDocument(sharedJson);
+    showSourceBox("shared");
+    app.fitView();
+    fitSoon();
+    syncControls();
+    return;
+  }
   showSourceBox(e.target.value);
   // For the two source formats the textarea is the diagram, so it is what
   // gets drawn — otherwise the panel would show one example and the canvas
@@ -445,6 +462,145 @@ document.getElementById("svg").addEventListener("click", () => {
   a.download = "rangerflow.svg";
   a.click();
   URL.revokeObjectURL(a.href);
+});
+
+// ---- sharing ---------------------------------------------------------------
+// The diagram as edited — every move, rename and route — travels in the link
+// itself: `FlowDocument` JSON, deflated, base64url, after `#rf=`. The part of
+// a URL after `#` is never sent to a server, so a shared diagram is not
+// uploaded anywhere, GitHub Pages included. There is no backend to lose it
+// either: the link IS the diagram.
+//
+//   #rf=z<base64url(deflate-raw(json))>   when the browser can compress
+//   #rf=j<base64url(json)>                when it cannot
+const DOC_KEY = "rf";
+let sharedJson = "";
+
+function toBase64Url(bytes) {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function fromBase64Url(text) {
+  const b64 = text.replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function throughStream(bytes, transform) {
+  const stream = new Blob([bytes]).stream().pipeThrough(transform);
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function packDocument(json) {
+  const bytes = new TextEncoder().encode(json);
+  if (typeof CompressionStream === "function") {
+    return "z" + toBase64Url(await throughStream(bytes, new CompressionStream("deflate-raw")));
+  }
+  return "j" + toBase64Url(bytes);
+}
+
+async function unpackDocument(packed) {
+  const bytes = fromBase64Url(packed.slice(1));
+  if (packed[0] === "z") {
+    if (typeof DecompressionStream !== "function") {
+      throw new Error("this browser cannot decompress the link");
+    }
+    return new TextDecoder().decode(await throughStream(bytes, new DecompressionStream("deflate-raw")));
+  }
+  if (packed[0] === "j") return new TextDecoder().decode(bytes);
+  throw new Error("the link is not in a format this page knows");
+}
+
+function packedFromHash() {
+  return new URLSearchParams(location.hash.slice(1)).get(DOC_KEY);
+}
+
+const pageBase = () => location.origin + location.pathname;
+const openFull = document.getElementById("openfull");
+
+/** Open the diagram a link carries. False, with the reason in the status
+ *  line, when the link does not hold one this page can read. */
+async function openShared(packed) {
+  let json;
+  try {
+    json = await unpackDocument(packed);
+  } catch (err) {
+    statusEl.textContent = "could not read the shared diagram: " + err.message;
+    return false;
+  }
+  if (!app.loadDocument(json)) return false;
+  sharedJson = json;
+  const sel = document.getElementById("scenario");
+  let opt = sel.querySelector('option[value="shared"]');
+  if (!opt) {
+    opt = document.createElement("option");
+    opt.value = "shared";
+    opt.textContent = "shared diagram (from the link)";
+    sel.prepend(opt);
+  }
+  sel.value = "shared";
+  showSourceBox("shared");
+  openFull.href = pageBase() + location.hash;
+  syncControls();
+  app.fitView();
+  fitSoon();
+  return true;
+}
+
+window.addEventListener("hashchange", () => {
+  const packed = packedFromHash();
+  if (packed) openShared(packed);
+});
+
+const shareBox = document.getElementById("sharebox");
+const shareLink = document.getElementById("sharelink");
+const shareEmbed = document.getElementById("shareembed");
+const shareNote = document.getElementById("sharenote");
+
+document.getElementById("share").addEventListener("click", async () => {
+  const packed = await packDocument(app.documentJson());
+  const link = `${pageBase()}#${DOC_KEY}=${packed}`;
+  const embed = `${pageBase()}?embed=1#${DOC_KEY}=${packed}`;
+  shareLink.value = link;
+  shareEmbed.value = embed;
+  document.getElementById("sharepreview").href = embed;
+  // The address bar gets the link too, so a reload keeps the edits.
+  // replaceState does not fire `hashchange`, so this does not reopen it.
+  history.replaceState(null, "", link);
+  let note = `${link.length.toLocaleString()} characters`;
+  if (link.length > 8000) note += " — long: some tools cut links this size";
+  shareBox.hidden = false;
+  try {
+    await navigator.clipboard.writeText(link);
+    note += " · the link is on the clipboard";
+  } catch (_) {
+    shareLink.select();
+  }
+  shareNote.textContent = note;
+});
+
+for (const btn of shareBox.querySelectorAll("[data-copy]")) {
+  btn.addEventListener("click", async () => {
+    const field = document.getElementById(btn.dataset.copy);
+    try {
+      await navigator.clipboard.writeText(field.value);
+      btn.textContent = "copied";
+    } catch (_) {
+      field.select();
+      btn.textContent = "press ⌘/Ctrl+C";
+    }
+    setTimeout(() => { btn.textContent = "copy"; }, 1600);
+  });
+}
+document.getElementById("shareclose").addEventListener("click", () => { shareBox.hidden = true; });
+window.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && !shareBox.hidden) shareBox.hidden = true;
 });
 
 // ---- the editing toolbar -------------------------------------------------
@@ -679,32 +835,49 @@ async function boot() {
   app.setFixtureSql(await textOf("ecommerce.sql"));
 
   const params = new URLSearchParams(location.search);
-  const wanted = params.get("scenario") || "erd";
-  document.getElementById("scenario").value = wanted;
-  showSourceBox(wanted);
-  // `?example=class` opens the gallery on one of them, so a screenshot of a
-  // sample is a URL rather than two clicks.
-  const example = params.get("example");
-  if (example && FORMATS.includes(wanted)) {
-    exampleSel.value = example;
-    if (exampleSel.value === example) {
-      srcArea.value = engineClass().sampleText(wanted, example);
+  if (embedMode) {
+    document.body.classList.add("embed");
+    app.setReadOnly(true);
+    openFull.hidden = false;
+  }
+  // A link with a diagram in it opens that diagram and nothing else.
+  const packed = packedFromHash();
+  const opened = packed ? await openShared(packed) : false;
+  if (!opened) {
+    // An embed with nothing to show shows the page instead, status line and
+    // all, so the reason is on screen rather than a blank frame.
+    if (embedMode) {
+      document.body.classList.remove("embed");
+      app.setReadOnly(false);
+      openFull.hidden = true;
     }
+    const wanted = params.get("scenario") || "erd";
+    document.getElementById("scenario").value = wanted;
+    showSourceBox(wanted);
+    // `?example=class` opens the gallery on one of them, so a screenshot of a
+    // sample is a URL rather than two clicks.
+    const example = params.get("example");
+    if (example && FORMATS.includes(wanted)) {
+      exampleSel.value = example;
+      if (exampleSel.value === example) {
+        srcArea.value = engineClass().sampleText(wanted, example);
+      }
+    }
+    // `?look=dark` picks the stylesheet on load, for the same reason.
+    const look = params.get("look");
+    if (look) {
+      document.getElementById("srcstyle").value = look;
+      app.sourceStyle = look;
+    }
+    if (FORMATS.includes(wanted)) {
+      renderSource();
+    } else {
+      app.loadScenario(wanted);
+    }
+    syncControls();
+    app.fitView();
+    fitSoon();
   }
-  // `?look=dark` picks the stylesheet on load, for the same reason.
-  const look = params.get("look");
-  if (look) {
-    document.getElementById("srcstyle").value = look;
-    app.sourceStyle = look;
-  }
-  if (FORMATS.includes(wanted)) {
-    renderSource();
-  } else {
-    app.loadScenario(wanted);
-  }
-  syncControls();
-  app.fitView();
-  fitSoon();
 
   if (new URLSearchParams(location.search).has("selftest")) {
     // No browser-driver library here, so the page tests itself and writes the

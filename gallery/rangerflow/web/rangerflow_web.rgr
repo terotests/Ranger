@@ -93,6 +93,10 @@ class RangerFlowWeb {
     ; Whether the viewer has taken the wheel. Until then a running simulation
     ; is allowed to reframe itself; after that it must not move under them.
     def userMoved:boolean false
+    ; A page embedded somewhere else — a Confluence page, an iframe — shows the
+    ; diagram and lets it be looked at: pan, zoom, nothing else. The changes a
+    ; reader could make there would be saved nowhere, so they are not offered.
+    def readOnly:boolean false
 
     Constructor () {
     }
@@ -116,6 +120,16 @@ class RangerFlowWeb {
         input.ctrl = ctrl
         input.secondary = false
         userMoved = true
+        ; Read-only: every press is the start of a pan, wherever it lands.
+        if readOnly {
+            editor.pinching = false
+            editor.mode = 1
+            editor.pressX = x
+            editor.pressY = y
+            editor.lastX = x
+            editor.lastY = y
+            return
+        }
         editor.pointerDown(input)
         if simRunning {
             editor.pinWhileDragging = true
@@ -136,6 +150,10 @@ class RangerFlowWeb {
         input.y = y
         input.shift = shift
         input.ctrl = ctrl
+        if readOnly {
+            editor.mode = 0
+            return
+        }
         editor.pointerUp(input)
         ; Lanes and routes are only valid for the positions they were computed
         ; from, so a drag or a new connection invalidates both. The layout's
@@ -174,6 +192,9 @@ class RangerFlowWeb {
     ; pointerDown as everything else — the editor decides what the menu says
     ; and what a row does; the page only reports which button it was.
     fn contextDown:void (x:double y:double) {
+        if readOnly {
+            return
+        }
         input.x = x
         input.y = y
         input.shift = false
@@ -326,6 +347,9 @@ class RangerFlowWeb {
     }
 
     fn keyDown:boolean (key:string shift:boolean ctrl:boolean) {
+        if readOnly {
+            return false
+        }
         return (editor.keyDown(key shift ctrl))
     }
 
@@ -408,6 +432,53 @@ class RangerFlowWeb {
         graph = g
         editor = (FlowEditor.of(graph))
         editor.setSize(viewW viewH)
+        if readOnly {
+            this.quietView()
+        }
+    }
+
+    ; ------------------------------------------------------------- sharing --
+    ; The diagram as it stands — every move, rename and route included — as
+    ; one JSON document. The page packs it into a link; see FlowDocument.
+    fn documentJson:string () {
+        return (FlowDocument.writeDocument(editor.view graph layoutName))
+    }
+
+    ; Open a document. It opens exactly as saved: no layout runs and no route
+    ; is recomputed, because both would change what the author left.
+    fn loadDocument:boolean (text:string) {
+        def d:FlowDocument (FlowDocument.readDocument(text))
+        if (d.ok == false) {
+            status = d.error
+            return false
+        }
+        this.adopt(d.graph)
+        editor.view.theme = d.theme
+        editor.view.notation = d.notation
+        editor.view.bridgeEdges = d.bridges
+        layoutName = "none"
+        simRunning = false
+        editor.pinWhileDragging = false
+        sourceText = ""
+        status = ((to_string (graph.nodeCount())) + " nodes, " + (to_string (graph.edgeCount())) + " edges — a shared diagram")
+        return true
+    }
+
+    fn setReadOnly:void (on:boolean) {
+        readOnly = on
+        if on {
+            this.quietView()
+        }
+    }
+
+    ; What a viewer who cannot edit has no use for: the minimap, the handles,
+    ; the node tools and the grips on a line's ends.
+    fn quietView:void () {
+        editor.view.showMinimap = false
+        editor.view.showNodeTools = false
+        editor.view.showPorts = false
+        editor.view.showEdgeEnds = false
+        editor.edgeSegmentDrag = false
     }
 
     fn loadUml:boolean () {
@@ -2537,6 +2608,9 @@ class RangerFlowWeb {
     ; model, so the desktop host and the tests type through `keyDown` instead
     ; and get the same result.
     fn beginEditAt:boolean (x:double y:double) {
+        if readOnly {
+            return false
+        }
         return (editor.beginEditAt(x y))
     }
 
