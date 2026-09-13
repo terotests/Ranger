@@ -25093,6 +25093,9 @@ EVGPatch.kindOf = function(rawName) {
   if ( name == "alt" || name == "href" ) {
     return 1;
   }
+  if ( name == "svg" ) {
+    return 1;
+  }
   if ( (name == "width" || name == "height") || name == "min-width" ) {
     return 2;
   }
@@ -25112,6 +25115,9 @@ EVGPatch.kindOf = function(rawName) {
     return 3;
   }
   if ( name == "fill" || name == "stroke" ) {
+    return 3;
+  }
+  if ( name == "emoji-color" ) {
     return 3;
   }
   if ( (name == "opacity" || name == "line-height") || name == "flex-grow" ) {
@@ -25165,6 +25171,7 @@ EVGPatch.patchableNames = function() {
   a.push("transform");
   a.push("transition");
   a.push("background-gradient");
+  a.push("svg");
   a.push("d");
   a.push("view-box");
   a.push("fill-rule");
@@ -25175,6 +25182,7 @@ EVGPatch.patchableNames = function() {
   a.push("href");
   a.push("fill");
   a.push("stroke");
+  a.push("emoji-color");
   a.push("stroke-width");
   a.push("stroke-dashoffset");
   a.push("width");
@@ -25312,6 +25320,9 @@ EVGPatch.readProp = function(el, name) {
   if ( n == "background-gradient" ) {
     return el.backgroundGradient;
   }
+  if ( n == "svg" ) {
+    return el.svgSource;
+  }
   if ( n == "d" ) {
     return el.svgPath;
   }
@@ -25389,6 +25400,9 @@ EVGPatch.readProp = function(el, name) {
   }
   if ( n == "stroke" ) {
     return EVGPatch.colorText(el.strokeColor);
+  }
+  if ( n == "emoji-color" ) {
+    return EVGPatch.colorText(el.emojiColor);
   }
   if ( n == "opacity" ) {
     return EVGDisplayList.num(el.opacity);
@@ -25557,6 +25571,10 @@ EVGPatch.clearProp = function(el, name) {
     el.backgroundGradient = "";
     return true;
   }
+  if ( n == "svg" ) {
+    el.svgSource = "";
+    return true;
+  }
   if ( n == "d" ) {
     el.svgPath = "";
     return true;
@@ -25661,6 +25679,10 @@ EVGPatch.clearProp = function(el, name) {
   }
   if ( n == "stroke" ) {
     el.strokeColor = c;
+    return true;
+  }
+  if ( n == "emoji-color" ) {
+    el.emojiColor = c;
     return true;
   }
   if ( n == "opacity" ) {
