@@ -1237,6 +1237,29 @@ class FigApp {
             o = (o + ",\"fill\":{\"kind\":\"" + f.kind + "\",\"hex\":\"" + (f.hex()) + "\"")
             o = (o + ",\"alpha\":" + (to_string (f.a * f.opacity)))
             o = (o + ",\"visible\":" + (FigApp.jsonBool(f.visible)) + "}")
+            ; EVERY paint, not just the first. A layer carries a LIST of them
+            ; and the pane showed one swatch, so a card painted with a tint
+            ; over a photo was a photo as far as the panel was concerned.
+            ;
+            ; And the paint's OWN opacity beside its colour, which is how the
+            ; file writes it and how Figma shows it: a frame filled
+            ; #ff8f82 at 15% has a colour of full strength and a paint at
+            ; 0.15, and folding the two into one #rrggbbaa left the 15%
+            ; nowhere the panel could reach.
+            o = (o + ",\"fills\":[")
+            def fi:int 0
+            while (fi < (array_length n.fills)) {
+                def fx2:SceneFill (itemAt n.fills fi)
+                if (fi > 0) {
+                    o = (o + ",")
+                }
+                o = (o + "{\"kind\":\"" + fx2.kind + "\",\"hex\":\"" + (fx2.hex()) + "\"")
+                o = (o + ",\"opacity\":" + (to_string (fx2.a * fx2.opacity)))
+                o = (o + ",\"visible\":" + (FigApp.jsonBool(fx2.visible)))
+                o = (o + ",\"image\":\"" + (this.esc(fx2.imageRef)) + "\"}")
+                fi = (fi + 1)
+            }
+            o = (o + "]")
         }
         if ((array_length n.strokes) > 0) {
             def st:SceneStroke (n.firstStroke())
@@ -1465,6 +1488,70 @@ class FigApp {
         f.g = (FigApp.hexPart(hex 3))
         f.b = (FigApp.hexPart(hex 5))
         this.afterEdit()
+    }
+
+    ; ONE PAINT OF SEVERAL. `editFill` writes the first, which is the one the
+    ; pane used to show; a layer painted with a tint over a photo has two and
+    ; neither the second colour nor its strength could be reached.
+    fn editFillAt:void (i:int hex:string) {
+        def f:SceneFill (this.fillAt(i))
+        if ((strlen f.kind) == 0) {
+            return
+        }
+        f.kind = "solid"
+        f.r = (FigApp.hexPart(hex 1))
+        f.g = (FigApp.hexPart(hex 3))
+        f.b = (FigApp.hexPart(hex 5))
+        this.afterEdit()
+    }
+
+    ; HOW STRONG THE PAINT IS, which is not how opaque the LAYER is. Figma
+    ; writes the two separately — a frame at 100% filled #ff8f82 at 15% — and
+    ; `editOpacity` moves the layer and everything inside it. This moves the
+    ; paint alone.
+    ;
+    ; Written into the paint's own `opacity` and the colour's alpha reset,
+    ; because the two multiply and a file that put the strength in either one
+    ; has to come back out of the panel as the number that went in.
+    fn editFillOpacity:void (i:int v:double) {
+        def f:SceneFill (this.fillAt(i))
+        if ((strlen f.kind) == 0) {
+            return
+        }
+        def w:double v
+        if (w < 0.0) {
+            w = 0.0
+        }
+        if (w > 1.0) {
+            w = 1.0
+        }
+        f.opacity = w
+        f.a = 1.0
+        this.afterEdit()
+    }
+
+    fn editFillVisible:void (i:int on:boolean) {
+        def f:SceneFill (this.fillAt(i))
+        if ((strlen f.kind) == 0) {
+            return
+        }
+        f.visible = on
+        this.afterEdit()
+    }
+
+    ; The selected layer's nth paint, or a fill with no kind when there is
+    ; none — which every caller above reads as "nothing to write".
+    fn fillAt:SceneFill (i:int) {
+        def none (new SceneFill())
+        none.kind = ""
+        def n:SceneNode (this.editNode())
+        if ((strlen n.id) == 0) {
+            return none
+        }
+        if ((i < 0) || (i >= (array_length n.fills))) {
+            return none
+        }
+        return (itemAt n.fills i)
     }
 
     ; A stroke a file brought as geometry is painted by a child — the

@@ -108,6 +108,19 @@ class FigWeb {
         app.editFill(hex)
     }
 
+    ; One paint of several, its strength, and whether it is painted at all.
+    fn editFillAt:void (i:int hex:string) {
+        app.editFillAt(i hex)
+    }
+
+    fn editFillOpacity:void (i:int v:double) {
+        app.editFillOpacity(i v)
+    }
+
+    fn editFillVisible:void (i:int on:boolean) {
+        app.editFillVisible(i on)
+    }
+
     fn editStroke:void (hex:string weight:double) {
         app.editStroke(hex weight)
     }

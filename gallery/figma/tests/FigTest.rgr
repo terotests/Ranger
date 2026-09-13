@@ -879,6 +879,39 @@ class FigTest {
             this.close("the subtree grows with the box" kid1.w (kidW * 2.0))
         }
 
+        ; A PAINT'S OWN STRENGTH, which is not the layer's. Figma writes the
+        ; two separately — a frame at full opacity filled #ff8f82 at 15% — and
+        ; the pane carried one folded #rrggbbaa, so the 15% was somewhere no
+        ; control could reach it and `Opacity` moved the layer and everything
+        ; inside it instead.
+        app.select("3:47")
+        app.editFill("#ff8f82")
+        def pane:string (app.inspectJson())
+        this.check("every paint is on the pane, not just the first" (FigTest.hasSub(pane "\"fills\":[")))
+        this.check("with its own strength" (FigTest.hasSub(pane "\"opacity\":")))
+        app.editFillOpacity(0 0.15)
+        def faded:SceneNode (app.findScene("3:47"))
+        def p0:SceneFill (itemAt faded.fills 0)
+        this.close("a paint takes the strength it is given" (p0.a * p0.opacity) 0.15)
+        this.close("and the layer's own opacity is untouched" faded.opacity 1.0)
+        this.check("which the colour carries as alpha" (FigTest.hasSub((p0.hexA()) "26")))
+        app.editFillVisible(0 false)
+        def hidden:SceneNode (app.findScene("3:47"))
+        def p1:SceneFill (itemAt hidden.fills 0)
+        this.check("a paint can be turned off on its own" (p1.visible == false))
+        app.editFillVisible(0 true)
+        app.editFillAt(0 "#112233")
+        def recol:SceneNode (app.findScene("3:47"))
+        def p2:SceneFill (itemAt recol.fills 0)
+        this.eqStr("and recoloured by index" (p2.hex()) "#112233")
+        this.close("without losing the strength" (p2.a * p2.opacity) 0.15)
+        ; A paint that is not there is not written, and does not throw.
+        app.editFillOpacity(9 0.5)
+        app.editFillAt((0 - 1) "#000000")
+        def same:SceneNode (app.findScene("3:47"))
+        this.eqInt("an index past the end writes nothing" (array_length same.fills) 1)
+        app.editFillOpacity(0 1.0)
+
         ; The text's own numbers, which could be seen and not tried.
         app.editTextStyle(28.0 1.2 0.0 "center")
         def styled:string (app.inspectJson())
