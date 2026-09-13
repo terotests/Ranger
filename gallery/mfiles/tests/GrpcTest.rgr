@@ -1,0 +1,155 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; npm run mfiles:grpc:test
+
+Import "../src/vault/MfSampleVault.rgr"
+Import "../src/grpc/MfGrpc.rgr"
+
+class GrpcTest {
+    def passed:int 0
+    def failed:int 0
+    def api:MfGrpc
+
+    Constructor () {
+        api = (new MfGrpc((MfSampleVault.build())))
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqS:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + "\n       got  " + got + "\n       want " + want)
+        }
+    }
+
+    ; The response, or an object with `__error` when the call failed.
+    fn call:MfJ (method:string req:string) {
+        def env:MfJ (MfJ.parse((api.call(method req))))
+        if (env.bool_("ok" false)) {
+            return (env.field("response"))
+        }
+        def e:MfJ (env.field("error"))
+        def out:MfJ (MfJ.newObj())
+        out.putStr("__error" (e.str_("message")))
+        return out
+    }
+
+    fn run:void () {
+        print "metadata"
+        def ots:MfJ (this.call("ObjectTypesOperations.GetObjectTypes" "{}"))
+        def otList:MfJ (ots.field("object_types"))
+        this.eqS("object type count" (to_string (otList.count())) "5")
+        def pds:MfJ (this.call("PropertyDefsOperations.GetPropertyDefs" "{}"))
+        def pdList:[MfJ] (pds.list("property_defs"))
+        def amount:string ""
+        for pdList p:MfJ i {
+            if ((p.int_("id" 0)) == 1006) {
+                amount = (p.toJson())
+            }
+        }
+        this.ok("amount pd is real" ((indexOf amount "\"data_type\":3") > 0))
+        def items:MfJ (this.call("ValueListsOperations.GetValueListItemsWithPermissions" "{\"value_list\":111}"))
+        def itemList:MfJ (items.field("items"))
+        this.eqS("department items" (to_string (itemList.count())) "4")
+        def alias:MfJ (this.call("VaultOperations.GetMetadataStructureItemIdByAlias" "{\"item_type\":2,\"alias\":\"PD.Amount\"}"))
+        this.eqS("alias" (alias.str_("id")) "1006")
+
+        print "search"
+        def byType:string "{\"conditions\":[{\"value\":[{\"expression\":{\"type\":3,\"data\":{\"status_value\":{\"type\":6}}},\"type\":1,\"value\":{\"type\":9,\"data\":{\"lookup\":{\"value_list_item_info\":{\"obj_id\":{\"type\":0,\"item_id\":{\"internal_id\":102}}}}}}}]}]}"
+        def custs:MfJ (this.call("SearchOperations.SearchObjects" byType))
+        def custResults:MfJ (custs.field("results"))
+        this.eqS("customers found" (to_string (custResults.count())) "7")
+        def amountGt:string "{\"conditions\":[{\"value\":[{\"expression\":{\"type\":1,\"data\":{\"property_value\":{\"property_def\":1006}}},\"type\":3,\"value\":{\"type\":3,\"data\":{\"real_number\":5000}}}]}]}"
+        def big:MfJ (this.call("SearchOperations.SearchObjects" amountGt))
+        def bigResults:MfJ (big.field("results"))
+        this.eqS("amount > 5000" (to_string (bigResults.count())) "4")
+        def first:MfJ (bigResults.item(0))
+        def obj:MfJ (first.field("object"))
+        def vi:MfJ (obj.field("version_info"))
+        this.eqS("title of first" (vi.str_("title")) "Invoice #2304 - CBC")
+
+        print "folders"
+        def root:MfJ (this.call("SearchOperations.GetFolderContents" "{\"path\":[]}"))
+        def rootViews:MfJ (root.field("view_folders"))
+        this.eqS("top views" (to_string (rootViews.count())) "10")
+        def byClass:MfJ (this.call("SearchOperations.GetFolderContents" "{\"path\":[{\"type\":2,\"data\":{\"view_folder\":{\"id\":101}}}]}"))
+        def pfs:MfJ (byClass.field("property_folders"))
+        this.eqS("class folders" (to_string (pfs.count())) "5")
+        def invFolder:string "{\"path\":[{\"type\":2,\"data\":{\"view_folder\":{\"id\":101}}},{\"type\":3,\"data\":{\"property_folder\":{\"typed_value\":{\"type\":9,\"data\":{\"lookup\":{\"value_list_item_info\":{\"obj_id\":{\"type\":1,\"item_id\":{\"internal_id\":2}}}}}}}}}]}"
+        def invoices:MfJ (this.call("SearchOperations.GetFolderContents" invFolder))
+        def invObjs:MfJ (invoices.field("objects"))
+        this.eqS("invoice folder" (to_string (invObjs.count())) "8")
+
+        print "objects"
+        def paulaVer:string "{\"obj_vers\":[{\"obj_id\":{\"type\":0,\"item_id\":{\"internal_id\":1}},\"version\":{\"type\":1}}]}"
+        def data:MfJ (this.call("ObjectOperations.GetObjectDataOfMultipleObjects" paulaVer))
+        def results:MfJ (data.field("results"))
+        def r0:MfJ (results.item(0))
+        def od:MfJ (r0.field("object_data"))
+        def props:MfJ (od.field("properties"))
+        def pvals:[MfJ] (props.list("value"))
+        def cls:string ""
+        for pvals pv:MfJ k {
+            if ((pv.int_("property_def" -1)) == 100) {
+                cls = (pv.toJson())
+            }
+        }
+        this.ok("class lookup has name" ((indexOf cls "\"name\":\"Job Application\"") > 0))
+
+        def setReq:string "{\"properties\":[{\"obj_ver\":{\"obj_id\":{\"type\":0,\"item_id\":{\"internal_id\":1}},\"version\":{\"type\":1}},\"set_properties\":[{\"property_def\":1015,\"value\":{\"type\":1,\"data\":{\"text\":\"Team Lead\"}}}]}]}"
+        def refused:MfJ (this.call("ObjectOperations.SetPropertiesMultiple" setReq))
+        this.ok("checked-in object refused" ((indexOf (refused.str_("__error")) "allow_modifying_checked_in_object") >= 0))
+        def allowReq:string (replace setReq "\"set_properties\"" "\"allow_modifying_checked_in_object\":true,\"set_properties\"")
+        def saved:MfJ (this.call("ObjectOperations.SetPropertiesMultiple" allowReq))
+        def savedRes:MfJ (saved.field("results"))
+        def s0:MfJ (savedRes.item(0))
+        def lv:MfJ (s0.field("latest_version"))
+        def lvo:MfJ (lv.field("object_version"))
+        def lvi:MfJ (lvo.field("version_info"))
+        def lvv:MfJ (lvi.field("version"))
+        this.eqS("new version" (lvv.str_("internal_version")) "2")
+
+        def co:MfJ (this.call("ObjectOperations.CheckOutMultiple" "{\"obj_ids\":[{\"type\":0,\"item_id\":{\"internal_id\":2}}]}"))
+        def cov:MfJ (co.field("checked_out_versions"))
+        this.eqS("checked out one" (to_string (cov.count())) "1")
+        def again:MfJ (this.call("ObjectOperations.CheckInMultiple" "{\"obj_vers\":[{\"obj_id\":{\"type\":0,\"item_id\":{\"internal_id\":2}},\"version\":{\"type\":1}}]}"))
+        def agRes:MfJ (again.field("results"))
+        this.eqS("checked in" (to_string (agRes.count())) "1")
+
+        def addReq:string "{\"object_type_id\":102,\"properties\":[{\"property_def\":100,\"value\":{\"type\":9,\"data\":{\"lookup\":{\"value_list_item_info\":{\"obj_id\":{\"type\":1,\"item_id\":{\"internal_id\":102}}}}}}},{\"property_def\":0,\"value\":{\"type\":1,\"data\":{\"text\":\"Acme Oy\"}}}],\"check_in\":true}"
+        def added:MfJ (this.call("ObjectOperations.AddObjectWithFiles" addReq))
+        def created:MfJ (added.field("created_object"))
+        def cov2:MfJ (created.field("object_version"))
+        def cinfo:MfJ (cov2.field("object_info"))
+        def cid:MfJ (cinfo.field("obj_id"))
+        def citem:MfJ (cid.field("item_id"))
+        this.eqS("created customer id" (citem.str_("internal_id")) "8")
+
+        print "named values"
+        this.call("NamedValueStorageOperations.SetNamedValues" "{\"storage_type\":4,\"namespace_name\":\"my.app\",\"values\":[{\"key\":\"color\",\"value\":{\"type\":1,\"data\":{\"text\":\"blue\"}}}]}")
+        def nv:MfJ (this.call("NamedValueStorageOperations.GetNamedValues" "{\"storage_type\":4,\"namespace_name\":\"my.app\"}"))
+        this.ok("named value back" ((indexOf (nv.toJson()) "\"blue\"") > 0))
+
+        print "errors"
+        def nope:MfJ (this.call("ObjectOperations.PromoteUnmanagedObject" "{}"))
+        this.ok("501 names the method" ((indexOf (nope.str_("__error")) "PromoteUnmanagedObject") > 0))
+
+        print ("\ngrpc: " + (to_string passed) + " passed, " + (to_string failed) + " failed, " + (to_string api.calls) + " calls")
+    }
+}
+
+class GrpcTestMain {
+    sfn main:void () {
+        def t (new GrpcTest)
+        t.run()
+    }
+}

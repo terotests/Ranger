@@ -1,0 +1,354 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; MfSampleVault — a small vault with the shape of M-Files' "Sample Vault"
+; =============================================================================
+; Job applications, invoices, a letter template and a project schedule, a
+; handful of customers, projects and contact people to point at, and the
+; views a new user sees. Every name is invented.
+;
+; The ids are fixed so that a test — or an extension — can say "customer 3"
+; and mean the same customer every time.
+; =============================================================================
+
+Import "MfVault.rgr"
+
+class MfSampleVault {
+    def vault:MfVault (new MfVault)
+    def props:[MfPropertyValue]
+    def files:[MfObjectFile]
+
+    sfn build:MfVault () {
+        def s (new MfSampleVault)
+        s.seed()
+        return s.vault
+    }
+
+    ; --- a tiny object builder ---------------------------------------------
+
+    fn reset:void () {
+        def p:[MfPropertyValue]
+        props = p
+        def f:[MfObjectFile]
+        files = f
+    }
+    fn put:void (pd:int v:MfTypedValue) {
+        push props (MfPropertyValue.of(pd v))
+    }
+    fn title:void (s:string) {
+        def v:MfTypedValue (MfTypedValue.ofText(s))
+        this.put(0 v)
+    }
+    fn cls:void (id:int) {
+        def v:MfTypedValue (MfTypedValue.ofLookup(id))
+        this.put(100 v)
+    }
+    fn txt:void (pd:int s:string) {
+        def v:MfTypedValue (MfTypedValue.ofText(s))
+        this.put(pd v)
+    }
+    fn memo:void (pd:int s:string) {
+        def v:MfTypedValue (MfTypedValue.ofMultiLine(s))
+        this.put(pd v)
+    }
+    fn date:void (pd:int iso:string) {
+        def v:MfTypedValue (MfTypedValue.ofDate(iso))
+        this.put(pd v)
+    }
+    fn real:void (pd:int n:double) {
+        def v:MfTypedValue (MfTypedValue.ofReal(n))
+        this.put(pd v)
+    }
+    fn whole:void (pd:int n:int) {
+        def v:MfTypedValue (MfTypedValue.ofInt(n))
+        this.put(pd v)
+    }
+    fn yes:void (pd:int b:boolean) {
+        def v:MfTypedValue (MfTypedValue.ofBool(b))
+        this.put(pd v)
+    }
+    fn one:void (pd:int item:int) {
+        def v:MfTypedValue (MfTypedValue.ofLookup(item))
+        this.put(pd v)
+    }
+    fn many:void (pd:int items:[int]) {
+        def v:MfTypedValue (MfTypedValue.ofMultiLookup(items))
+        this.put(pd v)
+    }
+    fn file:void (ttl:string ext:string content:string) {
+        def f (new MfObjectFile)
+        f.title = ttl
+        f.extension = ext
+        f.content = content
+        f.size = ((strlen content) * 3) + 18000
+        push files f
+    }
+    ; `accessed` empty means the current user has never opened it.
+    fn commit:MfObject (ot:int created:string accessed:string) {
+        vault.setNow(created)
+        def o:MfObject (vault.createObject(ot props files true))
+        o.accessedByMe = accessed
+        this.reset()
+        return o
+    }
+
+    ; --- metadata ------------------------------------------------------------
+
+    fn seed:void () {
+        vault.addUser(1 "Alex Kramer" "alex")
+        vault.addUser(2 "Andy Nash" "andy")
+        vault.addUser(3 "Kimberley Miller" "kim")
+        vault.addUser(4 "Robert Brown" "robert")
+
+        def proj:MfObjectType (vault.addObjectType(101 "Project" "Projects"))
+        proj.iconKind = "project"
+        def cust:MfObjectType (vault.addObjectType(102 "Customer" "Customers"))
+        cust.iconKind = "customer"
+        def cont:MfObjectType (vault.addObjectType(103 "Contact person" "Contact persons"))
+        cont.iconKind = "person"
+
+        vault.addValueList(111 "Department" -1)
+        vault.addListItem(111 1 "Sales")
+        vault.addListItem(111 2 "Human Resources")
+        vault.addListItem(111 3 "Finance")
+        vault.addListItem(111 4 "Engineering")
+        vault.addValueList(112 "Country" -1)
+        vault.addListItem(112 1 "USA")
+        vault.addListItem(112 2 "Finland")
+        vault.addListItem(112 3 "United Kingdom")
+        vault.addListItem(112 4 "Germany")
+        vault.addListItem(7 1 "Invoice approval")
+        vault.addListItem(8 11 "Awaiting approval")
+        vault.addListItem(8 12 "Approved")
+        vault.addListItem(8 13 "Rejected")
+
+        vault.addPropDef(1001 "Customer" 10 102)
+        vault.addPropDef(1002 "Project" 10 101)
+        vault.addPropDef(1003 "Contact person" 10 103)
+        vault.addPropDef(1004 "Document date" 5 -1)
+        vault.addPropDef(1005 "Invoice number" 1 -1)
+        vault.addPropDef(1006 "Amount" 3 -1)
+        vault.addPropDef(1007 "Description" 13 -1)
+        vault.addPropDef(1008 "Department" 9 111)
+        vault.addPropDef(1009 "Approved" 8 -1)
+        vault.addPropDef(1010 "Keywords" 1 -1)
+        vault.addPropDef(1011 "Country" 9 112)
+        vault.addPropDef(1012 "Email" 1 -1)
+        vault.addPropDef(1013 "Telephone" 1 -1)
+        vault.addPropDef(1014 "Due date" 5 -1)
+        vault.addPropDef(1015 "Position applied for" 1 -1)
+        vault.addPropDef(1016 "Project manager" 9 6)
+        vault.addPropDef(1017 "Start date" 5 -1)
+        vault.addPropDef(1018 "Deadline" 5 -1)
+        vault.addPropDef(1019 "Priority" 2 -1)
+
+        vault.addClass(0 "Unclassified Document" 0)
+        vault.classProp(0 1010 false)
+        vault.addClass(1 "Job Application" 0)
+        vault.classProp(1 1015 true)
+        vault.classProp(1 1012 false)
+        vault.classProp(1 1008 false)
+        vault.classProp(1 1004 false)
+        vault.addClass(2 "Invoice" 0)
+        vault.classProp(2 1005 true)
+        vault.classProp(2 1001 true)
+        vault.classProp(2 1006 false)
+        vault.classProp(2 1014 false)
+        vault.classProp(2 1009 false)
+        vault.addClass(3 "Letter" 0)
+        vault.classProp(3 1001 false)
+        vault.classProp(3 1003 false)
+        vault.classProp(3 1004 false)
+        vault.addClass(4 "Project Plan" 0)
+        vault.classProp(4 1002 true)
+        vault.classProp(4 1007 false)
+        vault.addClass(5 "Document Template" 0)
+        vault.classProp(5 1007 false)
+        vault.addClass(101 "Project" 101)
+        vault.classProp(101 1001 false)
+        vault.classProp(101 1016 false)
+        vault.classProp(101 1017 false)
+        vault.classProp(101 1018 false)
+        vault.classProp(101 1019 false)
+        vault.classProp(101 1007 false)
+        vault.addClass(102 "Customer" 102)
+        vault.classProp(102 1011 false)
+        vault.classProp(102 1013 false)
+        vault.classProp(102 1012 false)
+        vault.addClass(103 "Contact person" 103)
+        vault.classProp(103 1001 true)
+        vault.classProp(103 1012 false)
+        vault.classProp(103 1013 false)
+
+        ; aliases (MetadataStructureItem: 1 object type, 2 property def,
+        ; 3 class, 14 value list)
+        vault.setAlias(1 "OT.Project" 101)
+        vault.setAlias(1 "OT.Customer" 102)
+        vault.setAlias(1 "OT.ContactPerson" 103)
+        vault.setAlias(2 "PD.Customer" 1001)
+        vault.setAlias(2 "PD.Project" 1002)
+        vault.setAlias(2 "PD.DocumentDate" 1004)
+        vault.setAlias(2 "PD.InvoiceNumber" 1005)
+        vault.setAlias(2 "PD.Amount" 1006)
+        vault.setAlias(2 "PD.Description" 1007)
+        vault.setAlias(2 "PD.Approved" 1009)
+        vault.setAlias(3 "CL.JobApplication" 1)
+        vault.setAlias(3 "CL.Invoice" 2)
+        vault.setAlias(3 "CL.Letter" 3)
+        vault.setAlias(14 "VL.Department" 111)
+
+        this.reset()
+        this.seedObjects()
+        this.seedViews()
+        vault.setNow("2024-01-15T09:00:00Z")
+        vault.revision = 0
+    }
+
+    fn seedObjects:void () {
+        ; customers (102)
+        def customers:[string] ([] _:string ( "CBC Company" "UPS" "ESTT Corporation" "Fortney Nolte Associates" "City of Chicago (Planning and Development)" "GNT Communications" "Quality Consultation" ))
+        def countries:[int] ([] _:int ( 3 1 3 1 1 4 1 ))
+        for customers nm:string i {
+            this.title(nm)
+            this.cls(102)
+            this.one(1011 (itemAt countries i))
+            this.commit(102 "2023-11-02T08:00:00Z" "")
+        }
+        ; projects (101)
+        this.title("Sales Strategy Development")
+        this.cls(101)
+        this.many(1001 ([] _:int ( 7 )))
+        this.one(1016 2)
+        this.date(1017 "2023-10-01")
+        this.date(1018 "2024-03-31")
+        this.whole(1019 2)
+        this.commit(101 "2023-10-01T09:00:00Z" "")
+        this.title("Office Design")
+        this.cls(101)
+        this.many(1001 ([] _:int ( 5 )))
+        this.one(1016 3)
+        this.date(1017 "2023-09-15")
+        this.whole(1019 1)
+        this.commit(101 "2023-09-15T09:00:00Z" "")
+        this.title("Hospital Expansion (Miami)")
+        this.cls(101)
+        this.many(1001 ([] _:int ( 4 )))
+        this.one(1016 4)
+        this.whole(1019 3)
+        this.commit(101 "2023-08-20T09:00:00Z" "")
+        ; contact persons (103)
+        this.title("Andy Nash")
+        this.cls(103)
+        this.many(1001 ([] _:int ( 7 )))
+        this.txt(1012 "andy.nash@example.com")
+        this.commit(103 "2023-11-03T08:00:00Z" "")
+        this.title("Tina Smith")
+        this.cls(103)
+        this.many(1001 ([] _:int ( 1 )))
+        this.txt(1012 "tina.smith@example.com")
+        this.commit(103 "2023-11-03T08:05:00Z" "")
+        this.title("Bill Richards")
+        this.cls(103)
+        this.many(1001 ([] _:int ( 2 )))
+        this.txt(1013 "(555) 010-2231")
+        this.commit(103 "2023-11-03T08:10:00Z" "")
+
+        ; documents (0), newest access first in the screenshot's order
+        this.application("Job Application, Paula McEnroe" "docx" "Paula McEnroe" "Sales Representative" "2023-12-27T10:00:00Z")
+        this.application("Job Application, Tina Cordwell" "doc" "Tina Cordwell" "Account Manager" "2023-12-27T09:03:30Z")
+        this.application("Job Application, Jim Red" "doc" "Jim Red" "Sales Representative" "2023-12-27T09:03:20Z")
+        this.invoice("Invoice #2304 - CBC" 1 "2304" 12450.0 true "2023-12-27T09:03:10Z")
+        this.title("Letter Template for Word")
+        this.cls(5)
+        this.memo(1007 "Company letterhead with address block and signature.")
+        this.file("Letter Template for Word" "doc" "[Company letterhead]\n\n<Recipient>\n<Address>\n\nDear <Name>,\n\n<Body>\n\nYours sincerely,\n<Sender>")
+        this.commit(0 "2023-06-01T08:00:00Z" "2023-12-27T09:03:05Z")
+        this.invoice("Invoice #998 - UPS" 2 "998" 480.5 false "2023-12-27T09:03:04Z")
+        this.invoice("Invoice #776 - UPS" 2 "776" 1210.0 true "2023-12-27T09:03:03Z")
+        this.invoice("Invoice #162 - ESTT" 3 "162" 7800.0 false "2023-12-27T09:03:02Z")
+        this.title("Project Schedule (Sales Strategy Development)")
+        this.cls(4)
+        this.many(1002 ([] _:int ( 1 )))
+        this.memo(1007 "Milestones: kick-off, market analysis, pricing, launch.")
+        this.file("Project Schedule (Sales Strategy Development)" "pdf" "PROJECT SCHEDULE\n\nPhase 1  Kick-off            Oct 2023\nPhase 2  Market analysis     Nov 2023\nPhase 3  Pricing model       Jan 2024\nPhase 4  Launch              Mar 2024")
+        this.commit(0 "2023-10-02T08:00:00Z" "2023-12-27T09:03:01Z")
+        this.title("Sales Invoice 237 - City of Chicago (Planning and Development)")
+        this.cls(2)
+        this.txt(1005 "237")
+        this.many(1001 ([] _:int ( 5 )))
+        this.real(1006 23900.0)
+        this.file("Sales Invoice 237 - City of Chicago (Planning and Development)" "xls" "Item\tQty\tPrice\nOffice design consulting\t40\t450.00\nSite visits\t6\t985.00")
+        this.commit(0 "2023-11-20T08:00:00Z" "2023-12-27T09:02:00Z")
+        this.invoice("Invoice #1035 - Fortney Nolte Associates" 4 "1035" 5320.0 false "2023-12-27T09:01:50Z")
+        this.application("Job Application, Thomas Westwood" "doc" "Thomas Westwood" "Engineer" "2023-12-27T09:01:40Z")
+        this.application("Job Application, Jonathan Lockhart" "doc" "Jonathan Lockhart" "Account Manager" "2023-12-27T09:01:30Z")
+        this.invoice("Invoice #811 - UPS" 2 "811" 95.0 true "2023-12-27T09:01:20Z")
+        this.invoice("Invoice A113-112-33 - GNT" 6 "A113-112-33" 3100.0 false "2023-12-27T09:01:10Z")
+
+        ; one document assigned to the current user, one they have not opened
+        this.title("Proposal - Office Design")
+        this.cls(3)
+        this.many(1001 ([] _:int ( 5 )))
+        this.many(44 ([] _:int ( 1 )))
+        this.date(1004 "2024-01-10")
+        this.file("Proposal - Office Design" "docx" "Proposal for the office design project.\n\nScope: open-plan floor, two meeting rooms, reception.")
+        this.commit(0 "2024-01-10T12:00:00Z" "")
+    }
+
+    fn application:void (ttl:string ext:string who:string position:string accessed:string) {
+        this.title(ttl)
+        this.cls(1)
+        this.txt(1015 position)
+        this.one(1008 1)
+        this.date(1004 "2023-06-13")
+        def mail:string ((to_lowercase (replace who " " ".")) + "@example.com")
+        this.txt(1012 mail)
+        def body:string ("13 June 2023\n\nAndy Nash\nQuality Consultation\n5050 Quorum Drive, Suite 600\nDallas, TX 75254, USA\n\n" + position + " position at Quality Consultation\n\nDear Mr. Nash,\n\nI am writing to apply for the " + position + " position you advertised. I enjoy working with customers, I learn products quickly, and I would welcome the chance to bring that energy to your team.\n\nMy strengths include:\n  • understanding the competition and how to sell against it\n  • building lasting relationships with new and existing customers\n  • keeping customer service consistently high\n\nI would be glad to meet for an interview at your convenience.\n\nYours sincerely,\n\n" + who + "\n" + mail)
+        this.file(ttl ext body)
+        this.commit(0 "2023-06-13T08:00:00Z" accessed)
+    }
+
+    fn invoice:void (ttl:string customer:int number:string amount:double approved:boolean accessed:string) {
+        this.title(ttl)
+        this.cls(2)
+        this.txt(1005 number)
+        this.many(1001 ([] _:int ( customer )))
+        this.real(1006 amount)
+        this.date(1014 "2024-01-31")
+        this.yes(1009 approved)
+        def body:string ("INVOICE " + number + "\n\nBill to: " + (vault.lookupName(102 customer)) + "\nAmount due: " + (MfText.numText(amount)) + " USD\nDue date: 1/31/2024")
+        this.file(ttl "pdf" body)
+        this.commit(0 "2023-12-01T08:00:00Z" accessed)
+    }
+
+    ; --- views ---------------------------------------------------------------
+
+    fn seedViews:void () {
+        def recent:MfView (vault.addView(14 "Recently Accessed by Me" -1))
+        recent.builtIn = true
+        def assigned:MfView (vault.addView(9 "Assigned to Me" -1))
+        assigned.builtIn = true
+        def checked:MfView (vault.addView(5 "Checked Out to Me" -1))
+        checked.builtIn = true
+        def fav:MfView (vault.addView(15 "Pinned" -1))
+        fav.builtIn = true
+
+        def byClass:MfView (vault.addView(101 "Documents by Class" -1))
+        push byClass.conditions (MfSearchCondition.byObjectType(0))
+        byClass.groupBy = 100
+        def byCustomer:MfView (vault.addView(102 "Documents by Customer" -1))
+        push byCustomer.conditions (MfSearchCondition.byObjectType(0))
+        byCustomer.groupBy = 1001
+        def projects:MfView (vault.addView(103 "Projects" -1))
+        push projects.conditions (MfSearchCondition.byObjectType(101))
+        def customersV:MfView (vault.addView(104 "Customers" -1))
+        push customersV.conditions (MfSearchCondition.byObjectType(102))
+        def contacts:MfView (vault.addView(105 "Contact Persons" -1))
+        push contacts.conditions (MfSearchCondition.byObjectType(103))
+        def pending:MfView (vault.addView(106 "Invoices Awaiting Approval" -1))
+        def clsV:MfTypedValue (MfTypedValue.ofLookup(2))
+        push pending.conditions (MfSearchCondition.byProperty(100 1 clsV))
+        def noV:MfTypedValue (MfTypedValue.ofBool(true))
+        push pending.conditions (MfSearchCondition.byProperty(1009 2 noV))
+    }
+}

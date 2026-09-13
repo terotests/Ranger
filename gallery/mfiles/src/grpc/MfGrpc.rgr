@@ -1,0 +1,1210 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; MfGrpc — the M-Files Vault API (gRPC, JSON form) over an emulated vault
+; =============================================================================
+; A UIX v2 application talks to the vault through `shellUI.Vault.<Group>.<Op>(
+; request)`, where both the request and the response are the JSON forms of the
+; gRPC messages declared in `@m-filescorporation/uix-extensions/vault.d.ts`.
+; This class is the server side of exactly that: a method name such as
+; "ObjectOperations.GetObjectDataOfMultipleObjects" and a request as JSON text
+; in, an envelope as JSON text out:
+;
+;   { "ok": true,  "response": { … } }
+;   { "ok": false, "error": { "code": 404, "message": "…" } }
+;
+; Field names follow vault.d.ts to the letter — `obj_id.item_id.internal_id`,
+; `TypedValue { type, is_null_value, data: { lookup | text | … } }`,
+; timestamps as `{ seconds, nanos }` — because an extension that works here
+; must work unchanged against a real server, and the fastest way to break that
+; is to be helpful about a field name.
+;
+; What is not emulated answers `"code": 501` and names the method, so an
+; extension finds out on its first call rather than from a silent empty list.
+; =============================================================================
+
+Import "../vault/MfVault.rgr"
+Import "../vault/MfJson.rgr"
+
+class MfGrpcCallStat {
+    def method:string ""
+    def count:int 0
+    def errors:int 0
+}
+
+class MfGrpc {
+    def vault:MfVault
+    def calls:int 0
+    def errors:int 0
+    def stats:[MfGrpcCallStat]
+    ; The last few calls, newest last, as "Method → ok" lines for the console.
+    def trace:[string]
+    def traceLimit:int 60
+
+    Constructor (v:MfVault) {
+        vault = v
+    }
+
+    ; =========================================================================
+    ; Envelope
+    ; =========================================================================
+
+    fn call:string (method:string requestJson:string) {
+        calls = (calls + 1)
+        def req:MfJ (MfJ.parse(requestJson))
+        if ((req.isObj()) == false) {
+            req = (MfJ.newObj())
+        }
+        def err:MfJ (MfJ.newObj())
+        def res:MfJ (this.dispatch(method req err))
+        def out:MfJ (MfJ.newObj())
+        def failed:boolean (err.has("code"))
+        this.count(method failed)
+        if failed {
+            errors = (errors + 1)
+            out.putBool("ok" false)
+            out.put("error" err)
+            this.note((method + " → " + (err.str_("message"))))
+        } {
+            out.putBool("ok" true)
+            out.put("response" res)
+            this.note((method + " → ok"))
+        }
+        return (out.toJson())
+    }
+
+    fn count:void (method:string failed:boolean) {
+        for stats s:MfGrpcCallStat i {
+            if (s.method == method) {
+                s.count = (s.count + 1)
+                if failed {
+                    s.errors = (s.errors + 1)
+                }
+                return
+            }
+        }
+        def ns (new MfGrpcCallStat)
+        ns.method = method
+        ns.count = 1
+        if failed {
+            ns.errors = 1
+        }
+        push stats ns
+    }
+
+    fn note:void (line:string) {
+        push trace line
+        if ((array_length trace) > traceLimit) {
+            remove_index trace 0
+        }
+    }
+
+    fn fail:MfJ (err:MfJ code:int message:string) {
+        err.putInt("code" code)
+        err.putStr("message" message)
+        return (MfJ.newObj())
+    }
+
+    fn dispatch:MfJ (method:string req:MfJ err:MfJ) {
+        if (method == "ObjectTypesOperations.GetObjectTypes") {
+            return (this.getObjectTypes())
+        }
+        if (method == "ValueListsOperations.GetValueLists") {
+            return (this.getValueLists())
+        }
+        if (method == "ValueListsOperations.GetValueListItemsWithPermissions") {
+            return (this.getValueListItems(req false))
+        }
+        if (method == "ValueListsOperations.SearchValueListItemsWithPermissions") {
+            return (this.getValueListItems(req true))
+        }
+        if (method == "PropertyDefsOperations.GetPropertyDefs") {
+            return (this.getPropertyDefs())
+        }
+        if (method == "PropertyDefsOperations.GetObjectClassesAndGroups") {
+            return (this.getClasses())
+        }
+        if (method == "SearchOperations.SearchObjects") {
+            return (this.searchObjects(req))
+        }
+        if (method == "SearchOperations.GetFolderContents") {
+            return (this.getFolderContents(req err))
+        }
+        if (method == "ViewsOperations.GetViews") {
+            return (this.getViews(req))
+        }
+        if (method == "ObjectOperations.GetObjectDataOfMultipleObjects") {
+            return (this.getObjectData(req))
+        }
+        if (method == "ObjectOperations.CheckOutMultiple") {
+            return (this.checkOutMultiple(req err))
+        }
+        if (method == "ObjectOperations.CheckInMultiple") {
+            return (this.checkInMultiple(req err))
+        }
+        if (method == "ObjectOperations.UndoCheckoutMultiple") {
+            return (this.undoCheckoutMultiple(req err))
+        }
+        if (method == "ObjectOperations.SetPropertiesMultiple") {
+            return (this.setPropertiesMultiple(req err))
+        }
+        if (method == "ObjectOperations.AddObjectWithFiles") {
+            return (this.addObjectWithFiles(req err))
+        }
+        if (method == "ObjectOperations.RemoveObjects") {
+            return (this.removeObjects(req err))
+        }
+        if (method == "ObjectOperations.DestroyObjects") {
+            return (this.destroyObjects(req))
+        }
+        if (method == "ObjectOperations.FollowObject") {
+            return (this.followObject(req))
+        }
+        if (method == "ObjectOperations.GetObjIDByGUID") {
+            return (this.objIdByGuid(req err))
+        }
+        if (method == "NamedValueStorageOperations.GetNamedValues") {
+            return (this.getNamedValues(req))
+        }
+        if (method == "NamedValueStorageOperations.SetNamedValues") {
+            return (this.setNamedValues(req))
+        }
+        if (method == "NamedValueStorageOperations.RemoveNamedValues") {
+            return (this.removeNamedValues(req))
+        }
+        if (method == "VaultOperations.GetMetadataStructureItemIdByAlias") {
+            return (this.idByAlias(req err))
+        }
+        if (method == "VaultExtensionMethodsOperations.IsExtensionMethodAvailable") {
+            return (this.isExtMethod(req))
+        }
+        if (method == "VaultExtensionMethodsOperations.RunExtensionMethod") {
+            return (this.runExtMethod(req err))
+        }
+        return (this.fail(err 501 ("Not implemented in the emulator: " + method)))
+    }
+
+    ; =========================================================================
+    ; Encoding: vault → wire
+    ; =========================================================================
+
+    sfn objId:MfJ (ot:int id:int) {
+        def item:MfJ (MfJ.newObj())
+        item.putInt("internal_id" id)
+        def o:MfJ (MfJ.newObj())
+        o.putInt("type" ot)
+        o.put("item_id" item)
+        return o
+    }
+
+    sfn verSpecific:MfJ (ver:int) {
+        def v:MfJ (MfJ.newObj())
+        v.putInt("type" 4)
+        v.putInt("internal_version" ver)
+        return v
+    }
+
+    sfn verLatest:MfJ () {
+        def v:MfJ (MfJ.newObj())
+        v.putInt("type" 1)
+        return v
+    }
+
+    sfn objVer:MfJ (ot:int id:int ver:int) {
+        def o:MfJ (MfJ.newObj())
+        o.put("obj_id" (MfGrpc.objId(ot id)))
+        o.put("version" (MfGrpc.verSpecific(ver)))
+        return o
+    }
+
+    sfn timestamp:MfJ (iso:string) {
+        def t:MfJ (MfJ.newObj())
+        def minutes:int (MfText.minutesOf(iso))
+        def secs:double ((to_double minutes) * 60.0)
+        t.putNum("seconds" secs)
+        t.putInt("nanos" 0)
+        return t
+    }
+
+    fn lookupJ:MfJ (vl:int item:int) {
+        def info:MfJ (MfJ.newObj())
+        info.put("obj_id" (MfGrpc.objId(vl item)))
+        info.putStr("name" (vault.lookupName(vl item)))
+        def lk:MfJ (MfJ.newObj())
+        lk.put("value_list_item_info" info)
+        lk.put("version" (MfGrpc.verLatest()))
+        return lk
+    }
+
+    fn typedValue:MfJ (pd:int v:MfTypedValue) {
+        def tv:MfJ (MfJ.newObj())
+        tv.putInt("type" v.datatype)
+        tv.putBool("is_null_value" v.isNull)
+        if v.isNull {
+            return tv
+        }
+        def data:MfJ (MfJ.newObj())
+        def dt:int v.datatype
+        if (dt == 1) {
+            data.putStr("text" v.text)
+        }
+        if (dt == 13) {
+            data.putStr("multi_line_text" v.text)
+        }
+        if (dt == 2) {
+            data.putInt("integer" (to_int v.num))
+        }
+        if (dt == 3) {
+            data.putNum("real_number" v.num)
+        }
+        if (dt == 8) {
+            data.putBool("boolean" v.flag)
+        }
+        if (dt == 5) {
+            data.put("date" (MfGrpc.timestamp(v.text)))
+        }
+        if (dt == 7) {
+            data.put("timestamp" (MfGrpc.timestamp(v.text)))
+        }
+        if ((dt == 9) || (dt == 10)) {
+            def pdef:MfPropertyDef (vault.propDef(pd))
+            def vl:int pdef.valueList
+            if (dt == 9) {
+                data.put("lookup" (this.lookupJ(vl (v.firstLookup()))))
+            } {
+                def vals:MfJ (MfJ.newArr())
+                for v.lookups it:int i {
+                    vals.add((this.lookupJ(vl it)))
+                }
+                def msl:MfJ (MfJ.newObj())
+                msl.put("values" vals)
+                data.put("multi_select_lookup" msl)
+            }
+        }
+        tv.put("data" data)
+        return tv
+    }
+
+    fn propertyValue:MfJ (p:MfPropertyValue) {
+        def o:MfJ (MfJ.newObj())
+        o.putInt("property_def" p.propDef)
+        o.put("value" (this.typedValue(p.propDef p.value)))
+        return o
+    }
+
+    fn propertyValues:MfJ (v:MfObjectVersion) {
+        def arr:MfJ (MfJ.newArr())
+        for v.props p:MfPropertyValue i {
+            arr.add((this.propertyValue(p)))
+        }
+        return arr
+    }
+
+    fn fileJ:MfJ (f:MfObjectFile) {
+        def fid:MfJ (MfJ.newObj())
+        fid.putInt("internal_id" f.id)
+        def fv:MfJ (MfJ.newObj())
+        fv.put("file_id" fid)
+        fv.putInt("type" 1)
+        fv.putInt("internal_version" f.version)
+        def o:MfJ (MfJ.newObj())
+        o.put("file_ver" fv)
+        o.putStr("title" f.title)
+        o.putStr("extension" f.extension)
+        o.putInt("size" f.size)
+        return o
+    }
+
+    fn objectVersion:MfJ (o:MfObject v:MfObjectVersion) {
+        def j:MfJ (MfJ.newObj())
+        j.put("version" (MfGrpc.verSpecific(v.version)))
+        j.putStr("title" (v.title()))
+        def single:boolean ((o.objectType == 0) && ((array_length v.files) == 1))
+        j.putBool("is_single_file_object" single)
+        def asg:MfPropertyValue (v.prop(44))
+        j.putBool("has_assignments" ((asg.propDef == 44) && (asg.value.isNull == false)))
+        j.put("last_modified_at_utc" (MfGrpc.timestamp(v.modified)))
+        def files:MfJ (MfJ.newArr())
+        for v.files f:MfObjectFile i {
+            files.add((this.fileJ(f)))
+        }
+        j.put("files" files)
+        j.putInt("class_id" (v.classId()))
+        j.putStr("version_guid" (o.guid + "#" + (to_string v.version)))
+        return j
+    }
+
+    fn objectLevelInfo:MfJ (o:MfObject) {
+        def j:MfJ (MfJ.newObj())
+        j.put("obj_id" (MfGrpc.objId(o.objectType o.id)))
+        def latest:MfObjectVersion (o.latest())
+        if (o.checkedOutTo != 0) {
+            j.put("checked_out_version" (MfGrpc.verSpecific(latest.version)))
+            j.putInt("checked_out_to_user_id" o.checkedOutTo)
+            def holder:MfUser (vault.user(o.checkedOutTo))
+            j.putStr("checked_out_to_user_name" holder.name)
+            def n:int (array_length o.versions)
+            if (n > 1) {
+                def prev:MfObjectVersion (itemAt o.versions (n - 2))
+                j.put("checked_in_version" (MfGrpc.verSpecific(prev.version)))
+            }
+        } {
+            j.put("checked_in_version" (MfGrpc.verSpecific(latest.version)))
+        }
+        def first:MfObjectVersion (itemAt o.versions 0)
+        def created:MfPropertyValue (first.prop(20))
+        if (created.propDef == 20) {
+            j.put("created_at_utc" (MfGrpc.timestamp(created.value.text)))
+        }
+        if ((strlen o.accessedByMe) > 0) {
+            j.put("accessed_by_me_utc" (MfGrpc.timestamp(o.accessedByMe)))
+        }
+        j.putStr("guid" o.guid)
+        ; ITEMFLAGS: the emulator reports deletion as a boolean field of its
+        ; own rather than guessing the bit layout.
+        j.putBool("deleted" o.deleted)
+        return j
+    }
+
+    fn objectVersionEx:MfJ (o:MfObject v:MfObjectVersion) {
+        def j:MfJ (MfJ.newObj())
+        j.put("version_info" (this.objectVersion(o v)))
+        j.put("object_info" (this.objectLevelInfo(o)))
+        return j
+    }
+
+    fn objectVersionExWP:MfJ (o:MfObject v:MfObjectVersion) {
+        def j:MfJ (MfJ.newObj())
+        j.put("object_version" (this.objectVersionEx(o v)))
+        j.put("properties" (this.propertyValues(v)))
+        return j
+    }
+
+    fn extObjectInfo:MfJ (o:MfObject) {
+        def v:MfObjectVersion (o.latest())
+        def j:MfJ (MfJ.newObj())
+        j.putBool("is_visible" true)
+        j.put("object_info" (this.objectLevelInfo(o)))
+        j.putBool("is_latest_version_visible" true)
+        j.put("latest_version" (this.objectVersionExWP(o v)))
+        j.put("original_obj_ver" (MfGrpc.objVer(o.objectType o.id v.version)))
+        return j
+    }
+
+    fn itemInfo:MfJ (vl:int id:int nm:string) {
+        def info:MfJ (MfJ.newObj())
+        info.put("obj_id" (MfGrpc.objId(vl id)))
+        info.putStr("name" nm)
+        info.putStr("guid" (vault.makeGuid(vl id)))
+        return info
+    }
+
+    fn valueListItemJ:MfJ (it:MfValueListItem) {
+        def j:MfJ (MfJ.newObj())
+        j.put("item_info" (this.itemInfo(it.valueList it.id it.name)))
+        j.putBool("has_parent" false)
+        j.putBool("has_owner" false)
+        return j
+    }
+
+    fn valueListJ:MfJ (vl:MfValueList) {
+        def j:MfJ (MfJ.newObj())
+        j.putInt("id" vl.id)
+        def singular:string vl.name
+        def plural:string vl.name
+        if (vl.objectType >= 0) {
+            def ot:MfObjectType (vault.objectType(vl.objectType))
+            singular = ot.name
+            plural = ot.namePlural
+        }
+        j.putStr("name_singular" singular)
+        j.putStr("name_plural" plural)
+        j.putBool("is_real_object_type" (vl.objectType >= 0))
+        j.putBool("is_hierarchical" false)
+        j.putBool("has_owner" false)
+        j.putInt("default_property_def" 0)
+        j.putStr("guid" (vault.makeGuid(-1 vl.id)))
+        return j
+    }
+
+    ; =========================================================================
+    ; Decoding: wire → vault
+    ; =========================================================================
+
+    ; ObjID → [type, id]
+    sfn readObjId:[int] (j:MfJ) {
+        def out:[int]
+        push out (j.int_("type" 0))
+        def item:MfJ (j.field("item_id"))
+        push out (item.int_("internal_id" 0))
+        return out
+    }
+
+    sfn readTimestamp:string (j:MfJ) {
+        def secs:double (j.num_("seconds" 0.0))
+        def minutes:int (to_int (secs / 60.0))
+        return (MfText.isoOfMinutes(minutes))
+    }
+
+    sfn lookupItem:int (lk:MfJ) {
+        def info:MfJ (lk.field("value_list_item_info"))
+        def oid:MfJ (info.field("obj_id"))
+        def item:MfJ (oid.field("item_id"))
+        return (item.int_("internal_id" 0))
+    }
+
+    ; `fallbackType` is the property definition's datatype, used when a
+    ; request leaves `type` out.
+    fn readTypedValue:MfTypedValue (tv:MfJ fallbackType:int) {
+        def dt:int (tv.int_("type" fallbackType))
+        def data:MfJ (tv.field("data"))
+        if ((tv.bool_("is_null_value" false)) || ((data.isObj()) == false)) {
+            return (MfTypedValue.nullOf(dt))
+        }
+        if (data.has("text")) {
+            def t:MfTypedValue (MfTypedValue.ofText((data.str_("text"))))
+            if (dt == 13) {
+                t.datatype = 13
+            }
+            return t
+        }
+        if (data.has("multi_line_text")) {
+            return (MfTypedValue.ofMultiLine((data.str_("multi_line_text"))))
+        }
+        if (data.has("integer")) {
+            return (MfTypedValue.ofInt((data.int_("integer" 0))))
+        }
+        if (data.has("integer64")) {
+            return (MfTypedValue.ofInt((data.int_("integer64" 0))))
+        }
+        if (data.has("real_number")) {
+            return (MfTypedValue.ofReal((data.num_("real_number" 0.0))))
+        }
+        if (data.has("boolean")) {
+            return (MfTypedValue.ofBool((data.bool_("boolean" false))))
+        }
+        if (data.has("date")) {
+            def dts:string (MfGrpc.readTimestamp((data.field("date"))))
+            return (MfTypedValue.ofDate((substring dts 0 10)))
+        }
+        if (data.has("timestamp")) {
+            return (MfTypedValue.ofTimestamp((MfGrpc.readTimestamp((data.field("timestamp"))))))
+        }
+        if (data.has("lookup")) {
+            def one:MfTypedValue (MfTypedValue.ofLookup((MfGrpc.lookupItem((data.field("lookup"))))))
+            if (dt == 10) {
+                one.datatype = 10
+            }
+            return one
+        }
+        if (data.has("multi_select_lookup")) {
+            def msl:MfJ (data.field("multi_select_lookup"))
+            def ids:[int]
+            def vals:[MfJ] (msl.list("values"))
+            for vals lv:MfJ i {
+                push ids (MfGrpc.lookupItem(lv))
+            }
+            def many:MfTypedValue (MfTypedValue.ofMultiLookup(ids))
+            if (dt == 9) {
+                many.datatype = 9
+            }
+            return many
+        }
+        return (MfTypedValue.nullOf(dt))
+    }
+
+    fn readPropertyValue:MfPropertyValue (j:MfJ) {
+        def pd:int (j.int_("property_def" -1))
+        def pdef:MfPropertyDef (vault.propDef(pd))
+        def v:MfTypedValue (this.readTypedValue((j.field("value")) pdef.datatype))
+        ; A text value for a multi-line property is the same value.
+        if ((pdef.datatype == 13) && (v.datatype == 1)) {
+            v.datatype = 13
+        }
+        if ((pdef.datatype == 10) && (v.datatype == 9)) {
+            v.datatype = 10
+        }
+        return (MfPropertyValue.of(pd v))
+    }
+
+    fn readPropertyValues:[MfPropertyValue] (arr:[MfJ]) {
+        def out:[MfPropertyValue]
+        for arr j:MfJ i {
+            push out (this.readPropertyValue(j))
+        }
+        return out
+    }
+
+    fn readCondition:MfSearchCondition (j:MfJ) {
+        def c (new MfSearchCondition)
+        c.condition = (j.int_("type" 1))
+        def ex:MfJ (j.field("expression"))
+        def et:int (ex.int_("type" 0))
+        def data:MfJ (ex.field("data"))
+        def value:MfJ (j.field("value"))
+        if (et == 1) {
+            def pvd:MfJ (data.field("property_value"))
+            c.kind = "property"
+            c.propDef = (pvd.int_("property_def" 0))
+            def pdef:MfPropertyDef (vault.propDef(c.propDef))
+            c.value = (this.readTypedValue(value pdef.datatype))
+            return c
+        }
+        if (et == 3) {
+            def sv:MfJ (data.field("status_value"))
+            def st:int (sv.int_("type" 0))
+            c.value = (this.readTypedValue(value 0))
+            if (st == 6) {
+                c.kind = "objecttype"
+                if ((c.value.datatype == 2) || (c.value.datatype == 3)) {
+                    c.value = (MfTypedValue.ofLookup((to_int c.value.num)))
+                }
+            }
+            if (st == 5) {
+                c.kind = "deleted"
+            }
+            if (st == 3) {
+                c.kind = "objectid"
+                if (c.value.datatype == 9) {
+                    c.value = (MfTypedValue.ofInt((c.value.firstLookup())))
+                }
+            }
+            if ((st == 0) || (st == 1)) {
+                c.kind = "checkedout"
+                if (c.value.datatype != 8) {
+                    c.value = (MfTypedValue.ofBool(true))
+                }
+            }
+            return c
+        }
+        if (et == 5) {
+            def tvd:MfJ (data.field("typed_value"))
+            c.kind = "anylookup"
+            c.propDef = (tvd.int_("value_list" -1))
+            c.value = (this.readTypedValue(value 9))
+            return c
+        }
+        if (et == 6) {
+            c.kind = "fulltext"
+            c.value = (this.readTypedValue(value 1))
+            return c
+        }
+        ; unknown expression: a condition nothing satisfies
+        c.kind = "objectid"
+        c.condition = 1
+        c.value = (MfTypedValue.ofInt(-1))
+        return c
+    }
+
+    fn readConditions:[MfSearchCondition] (arr:[MfJ]) {
+        def out:[MfSearchCondition]
+        for arr j:MfJ i {
+            push out (this.readCondition(j))
+        }
+        return out
+    }
+
+    ; =========================================================================
+    ; Metadata
+    ; =========================================================================
+
+    fn getObjectTypes:MfJ () {
+        def arr:MfJ (MfJ.newArr())
+        for vault.valueLists vl:MfValueList i {
+            if (vl.objectType >= 0) {
+                arr.add((this.valueListJ(vl)))
+            }
+        }
+        def out:MfJ (MfJ.newObj())
+        out.put("object_types" arr)
+        return out
+    }
+
+    fn getValueLists:MfJ () {
+        def arr:MfJ (MfJ.newArr())
+        for vault.valueLists vl:MfValueList i {
+            arr.add((this.valueListJ(vl)))
+        }
+        def out:MfJ (MfJ.newObj())
+        out.put("value_lists" arr)
+        return out
+    }
+
+    fn getValueListItems:MfJ (req:MfJ searching:boolean) {
+        def vlId:int (req.int_("value_list" -1))
+        def items:[MfValueListItem] (vault.valueListItems(vlId))
+        def filters:[MfJ] (req.list("search_conditions"))
+        def limit:int (req.int_("results_limit" 0))
+        def arr:MfJ (MfJ.newArr())
+        for items it:MfValueListItem i {
+            def keep:boolean true
+            if searching {
+                for filters f:MfJ k {
+                    def fv:MfJ (f.field("value"))
+                    def want:MfTypedValue (this.readTypedValue(fv 1))
+                    if ((strlen want.text) > 0) {
+                        if ((MfText.hasNoCase(it.name want.text)) == false) {
+                            keep = false
+                        }
+                    }
+                }
+            }
+            if keep {
+                if ((limit == 0) || ((arr.count()) < limit)) {
+                    arr.add((this.valueListItemJ(it)))
+                }
+            }
+        }
+        def out:MfJ (MfJ.newObj())
+        out.putInt("current_version" vault.revision)
+        out.put("items" arr)
+        out.putBool("has_more_results" false)
+        return out
+    }
+
+    fn getPropertyDefs:MfJ () {
+        def arr:MfJ (MfJ.newArr())
+        for vault.propDefs p:MfPropertyDef i {
+            def j:MfJ (MfJ.newObj())
+            j.putInt("id" p.id)
+            j.putStr("name" p.name)
+            j.putInt("data_type" p.datatype)
+            j.putBool("is_based_on_value_list" (p.valueList >= 0))
+            if (p.valueList >= 0) {
+                j.putInt("value_list" p.valueList)
+            }
+            j.putBool("is_predefined" p.builtIn)
+            if p.automatic {
+                j.putInt("automatic_value_type" 1)
+            } {
+                j.putInt("automatic_value_type" 0)
+            }
+            j.putBool("allow_for_all_object_types" true)
+            j.putStr("guid" (vault.makeGuid(-2 p.id)))
+            arr.add(j)
+        }
+        def out:MfJ (MfJ.newObj())
+        out.putInt("current_version" vault.revision)
+        out.put("property_defs" arr)
+        return out
+    }
+
+    fn getClasses:MfJ () {
+        def arr:MfJ (MfJ.newArr())
+        for vault.classes c:MfClass i {
+            def j:MfJ (MfJ.newObj())
+            def base:MfJ (MfJ.newObj())
+            base.put("item_info" (this.itemInfo(1 c.id c.name)))
+            j.put("base_info" base)
+            def assoc:MfJ (MfJ.newArr())
+            for c.props a:MfAssocProp k {
+                def aj:MfJ (MfJ.newObj())
+                aj.putInt("property_def" a.propDef)
+                aj.putBool("is_required" a.required)
+                assoc.add(aj)
+            }
+            j.put("associated_property_defs" assoc)
+            j.putInt("default_workflow" c.workflow)
+            j.putInt("object_type" c.objectType)
+            j.putInt("name_property_def" 0)
+            arr.add(j)
+        }
+        def out:MfJ (MfJ.newObj())
+        out.putInt("current_version" vault.revision)
+        out.put("classes" arr)
+        out.put("class_groups" (MfJ.newArr()))
+        return out
+    }
+
+    fn viewJ:MfJ (v:MfView) {
+        def j:MfJ (MfJ.newObj())
+        j.putInt("id" v.id)
+        j.putInt("type" 0)
+        j.putStr("name" v.name)
+        j.putBool("is_common" (v.builtIn == false))
+        j.putBool("is_visible" true)
+        return j
+    }
+
+    fn getViews:MfJ (req:MfJ) {
+        def parent:int (req.int_("parent_view" -1))
+        def all:boolean (req.bool_("get_all_views" false))
+        def arr:MfJ (MfJ.newArr())
+        for vault.views v:MfView i {
+            if (all || (v.parent == parent)) {
+                arr.add((this.viewJ(v)))
+            }
+        }
+        def out:MfJ (MfJ.newObj())
+        out.put("views" arr)
+        return out
+    }
+
+    ; =========================================================================
+    ; Search
+    ; =========================================================================
+
+    fn resultsJ:MfJ (list:[MfObject] limit:int) {
+        def arr:MfJ (MfJ.newArr())
+        for list o:MfObject i {
+            if ((limit <= 0) || (i < limit)) {
+                def item:MfJ (MfJ.newObj())
+                def v:MfObjectVersion (o.latest())
+                item.put("object" (this.objectVersionEx(o v)))
+                arr.add(item)
+            }
+        }
+        return arr
+    }
+
+    fn searchObjects:MfJ (req:MfJ) {
+        def limit:int (req.int_("limit" 500))
+        ; `conditions` is an OR of AND-arrays.
+        def groups:[MfJ] (req.list("conditions"))
+        def found:[MfObject]
+        if ((array_length groups) == 0) {
+            def flat:[MfSearchCondition] (this.readConditions((req.list("search_conditions"))))
+            found = (vault.search(flat 0))
+        } {
+            for vault.objects o:MfObject i {
+                def hit:boolean false
+                for groups g:MfJ k {
+                    if (hit == false) {
+                        def conds:[MfSearchCondition] (this.readConditions((g.list("value"))))
+                        def one:[MfObject] (vault.search(conds 0))
+                        for one x:MfObject m {
+                            if ((x.objectType == o.objectType) && (x.id == o.id)) {
+                                hit = true
+                            }
+                        }
+                    }
+                }
+                if hit {
+                    push found o
+                }
+            }
+        }
+        def out:MfJ (MfJ.newObj())
+        out.put("results" (this.resultsJ(found limit)))
+        out.putBool("has_more_results" ((limit > 0) && ((array_length found) > limit)))
+        return out
+    }
+
+    fn getFolderContents:MfJ (req:MfJ err:MfJ) {
+        def path:[MfJ] (req.list("path"))
+        def limit:int (req.int_("limit" 0))
+        def out:MfJ (MfJ.newObj())
+        def depth:int (array_length path)
+        if (depth == 0) {
+            def top:MfJ (MfJ.newArr())
+            for vault.views v:MfView i {
+                if (v.parent == -1) {
+                    top.add((this.viewJ(v)))
+                }
+            }
+            out.put("view_folders" top)
+            out.put("objects" (MfJ.newArr()))
+            return out
+        }
+        def first:MfJ (itemAt path 0)
+        def fdata:MfJ (first.field("data"))
+        def vf:MfJ (fdata.field("view_folder"))
+        def viewId:int (vf.int_("id" -1))
+        def view:MfView (vault.view(viewId))
+        if (view.id == -999) {
+            return (this.fail(err 404 ("No such view: " + (to_string viewId))))
+        }
+        def subviews:MfJ (MfJ.newArr())
+        def children:[MfView] (vault.childViews(viewId))
+        for children cv:MfView j {
+            subviews.add((this.viewJ(cv)))
+        }
+        out.put("view_folders" subviews)
+        if ((view.groupBy >= 0) && (depth == 1)) {
+            def folders:MfJ (MfJ.newArr())
+            def pdef:MfPropertyDef (vault.propDef(view.groupBy))
+            def groups:[MfValueListItem] (vault.groupItems(viewId))
+            for groups g:MfValueListItem k {
+                def gv:MfTypedValue (MfTypedValue.ofLookup(g.id))
+                if (pdef.datatype == 10) {
+                    gv.datatype = 10
+                }
+                folders.add((this.typedValue(view.groupBy gv)))
+            }
+            out.put("property_folders" folders)
+            out.put("objects" (MfJ.newArr()))
+            return out
+        }
+        if ((view.groupBy >= 0) && (depth >= 2)) {
+            def second:MfJ (itemAt path 1)
+            def sdata:MfJ (second.field("data"))
+            def pf:MfJ (sdata.field("property_folder"))
+            def tv:MfTypedValue (this.readTypedValue((pf.field("typed_value")) 9))
+            def grouped:[MfObject] (vault.groupObjects(viewId (tv.firstLookup())))
+            out.put("objects" (this.resultsJ(grouped limit)))
+            return out
+        }
+        def objs:[MfObject] (vault.viewObjects(viewId))
+        out.put("objects" (this.resultsJ(objs limit)))
+        out.putBool("has_more_objects" ((limit > 0) && ((array_length objs) > limit)))
+        return out
+    }
+
+    ; =========================================================================
+    ; Objects
+    ; =========================================================================
+
+    ; The object an ObjVer names, or none. The version is honoured when it is
+    ; specific and the object has it.
+    fn findVersion:MfObjectVersion (ov:MfJ) {
+        def ids:[int] (MfGrpc.readObjId((ov.field("obj_id"))))
+        def ot:int (itemAt ids 0)
+        def id:int (itemAt ids 1)
+        if ((vault.hasObject(ot id)) == false) {
+            def none (new MfObjectVersion)
+            none.id = 0
+            return none
+        }
+        def o:MfObject (vault.object(ot id))
+        def ver:MfJ (ov.field("version"))
+        def vt:int (ver.int_("type" 1))
+        if (vt == 4) {
+            def wanted:int (ver.int_("internal_version" 0))
+            if (o.hasVersion(wanted)) {
+                return (o.versionAt(wanted))
+            }
+            def missing (new MfObjectVersion)
+            missing.id = 0
+            return missing
+        }
+        return (o.latest())
+    }
+
+    fn getObjectData:MfJ (req:MfJ) {
+        def arr:MfJ (MfJ.newArr())
+        def ovs:[MfJ] (req.list("obj_vers"))
+        for ovs ov:MfJ i {
+            def res:MfJ (MfJ.newObj())
+            res.put("obj_ver" ov)
+            def v:MfObjectVersion (this.findVersion(ov))
+            if (v.id == 0) {
+                def ei:MfJ (MfJ.newObj())
+                ei.putInt("error_code" 404)
+                res.put("error_info" ei)
+            } {
+                def o:MfObject (vault.object(v.objectType v.id))
+                vault.markAccessed(o.objectType o.id)
+                def data:MfJ (MfJ.newObj())
+                data.put("obj_ver" (MfGrpc.objVer(o.objectType o.id v.version)))
+                data.put("object_version" (this.objectVersionEx(o v)))
+                def props:MfJ (MfJ.newObj())
+                props.put("value" (this.propertyValues(v)))
+                data.put("properties" props)
+                def shown:MfJ (MfJ.newObj())
+                shown.put("value" (this.propertyValues(v)))
+                data.put("properties_for_display" shown)
+                res.put("object_data" data)
+            }
+            arr.add(res)
+        }
+        def out:MfJ (MfJ.newObj())
+        out.put("results" arr)
+        return out
+    }
+
+    fn checkOutMultiple:MfJ (req:MfJ err:MfJ) {
+        def outs:MfJ (MfJ.newArr())
+        def prevs:MfJ (MfJ.newArr())
+        def ids:[MfJ] (req.list("obj_ids"))
+        for ids j:MfJ i {
+            def p:[int] (MfGrpc.readObjId(j))
+            def ot:int (itemAt p 0)
+            def id:int (itemAt p 1)
+            def before:string ""
+            if (vault.hasObject(ot id)) {
+                def ob:MfObject (vault.object(ot id))
+                def prev:MfObjectVersion (ob.latest())
+                prevs.add((this.objectVersionEx(ob prev)))
+            }
+            def e:string (vault.checkOut(ot id))
+            if ((strlen e) > 0) {
+                return (this.fail(err 409 e))
+            }
+            def o:MfObject (vault.object(ot id))
+            def v:MfObjectVersion (o.latest())
+            outs.add((this.objectVersionExWP(o v)))
+        }
+        def out:MfJ (MfJ.newObj())
+        out.put("checked_out_versions" outs)
+        out.put("previous_versions" prevs)
+        return out
+    }
+
+    fn eachObjVer:[MfObject] (req:MfJ err:MfJ) {
+        def out:[MfObject]
+        def ovs:[MfJ] (req.list("obj_vers"))
+        for ovs ov:MfJ i {
+            def p:[int] (MfGrpc.readObjId((ov.field("obj_id"))))
+            def ot:int (itemAt p 0)
+            def id:int (itemAt p 1)
+            if (vault.hasObject(ot id)) {
+                push out (vault.object(ot id))
+            } {
+                this.fail(err 404 ("Object not found: " + (to_string ot) + "-" + (to_string id)))
+            }
+        }
+        return out
+    }
+
+    fn checkInMultiple:MfJ (req:MfJ err:MfJ) {
+        def objs:[MfObject] (this.eachObjVer(req err))
+        if (err.has("code")) {
+            return (MfJ.newObj())
+        }
+        def extra:[MfPropertyValue] (this.readPropertyValues((req.list("properties"))))
+        def arr:MfJ (MfJ.newArr())
+        for objs o:MfObject i {
+            if ((array_length extra) > 0) {
+                vault.setProperties(o.objectType o.id extra)
+            }
+            def e:string (vault.checkIn(o.objectType o.id))
+            if ((strlen e) > 0) {
+                return (this.fail(err 409 e))
+            }
+            arr.add((this.extObjectInfo(o)))
+        }
+        def out:MfJ (MfJ.newObj())
+        out.put("results" arr)
+        return out
+    }
+
+    fn undoCheckoutMultiple:MfJ (req:MfJ err:MfJ) {
+        def objs:[MfObject] (this.eachObjVer(req err))
+        if (err.has("code")) {
+            return (MfJ.newObj())
+        }
+        def arr:MfJ (MfJ.newArr())
+        for objs o:MfObject i {
+            def e:string (vault.undoCheckOut(o.objectType o.id))
+            if ((strlen e) > 0) {
+                return (this.fail(err 409 e))
+            }
+            if (vault.hasObject(o.objectType o.id)) {
+                arr.add((this.extObjectInfo(o)))
+            }
+        }
+        def out:MfJ (MfJ.newObj())
+        out.put("results" arr)
+        return out
+    }
+
+    fn setPropertiesMultiple:MfJ (req:MfJ err:MfJ) {
+        def arr:MfJ (MfJ.newArr())
+        def params:[MfJ] (req.list("properties"))
+        for params sp:MfJ i {
+            def ov:MfJ (sp.field("obj_ver"))
+            def p:[int] (MfGrpc.readObjId((ov.field("obj_id"))))
+            def ot:int (itemAt p 0)
+            def id:int (itemAt p 1)
+            if ((vault.hasObject(ot id)) == false) {
+                return (this.fail(err 404 ("Object not found: " + (to_string ot) + "-" + (to_string id))))
+            }
+            def o:MfObject (vault.object(ot id))
+            ; Like the server: a checked-in object is only modified when the
+            ; caller says so, which is the flag real code forgets.
+            if (o.checkedOutTo == 0) {
+                if ((sp.bool_("allow_modifying_checked_in_object" false)) == false) {
+                    return (this.fail(err 409 "The object is not checked out (set allow_modifying_checked_in_object to modify a checked-in object)"))
+                }
+            }
+            def setProps:[MfPropertyValue] (this.readPropertyValues((sp.list("set_properties"))))
+            if (sp.bool_("is_full_set" false)) {
+                def latest:MfObjectVersion (o.latest())
+                def keep:[int]
+                for setProps sx:MfPropertyValue m {
+                    push keep sx.propDef
+                }
+                def drop:[int]
+                for latest.props lp:MfPropertyValue n {
+                    def lpd:MfPropertyDef (vault.propDef(lp.propDef))
+                    if ((lpd.automatic == false) && ((indexOf keep lp.propDef) < 0)) {
+                        push drop lp.propDef
+                    }
+                }
+                for drop dpd:int q {
+                    vault.removeProperty(ot id dpd)
+                }
+            }
+            def e:string (vault.setProperties(ot id setProps))
+            if ((strlen e) > 0) {
+                return (this.fail(err 409 e))
+            }
+            def removes:[MfJ] (sp.list("remove_properties"))
+            for removes r:MfJ k {
+                vault.removeProperty(ot id (to_int r.num))
+            }
+            arr.add((this.extObjectInfo(o)))
+        }
+        def out:MfJ (MfJ.newObj())
+        out.put("results" arr)
+        return out
+    }
+
+    fn addObjectWithFiles:MfJ (req:MfJ err:MfJ) {
+        def ot:int (req.int_("object_type_id" 0))
+        def targetList:MfValueList (vault.valueList(ot))
+        if (targetList.objectType < 0) {
+            return (this.fail(err 400 ("Not an object type: " + (to_string ot))))
+        }
+        def props:[MfPropertyValue] (this.readPropertyValues((req.list("properties"))))
+        def files:[MfObjectFile]
+        def checkIn:boolean (req.bool_("check_in" true))
+        def probe (new MfObjectVersion)
+        probe.objectType = ot
+        for props p:MfPropertyValue i {
+            probe.setProp(p.propDef p.value)
+        }
+        def missing:[string] (vault.missingRequired(probe))
+        if ((array_length missing) > 0) {
+            return (this.fail(err 400 ("Required property missing: " + (join missing ", "))))
+        }
+        def o:MfObject (vault.createObject(ot props files checkIn))
+        def v:MfObjectVersion (o.latest())
+        def out:MfJ (MfJ.newObj())
+        out.putBool("is_visible_to_user" true)
+        out.put("created_object" (this.objectVersionExWP(o v)))
+        return out
+    }
+
+    fn removeObjects:MfJ (req:MfJ err:MfJ) {
+        def arr:MfJ (MfJ.newArr())
+        def ids:[MfJ] (req.list("obj_ids"))
+        for ids j:MfJ i {
+            def p:[int] (MfGrpc.readObjId(j))
+            def ot:int (itemAt p 0)
+            def id:int (itemAt p 1)
+            def e:string (vault.deleteObject(ot id))
+            if ((strlen e) > 0) {
+                return (this.fail(err 409 e))
+            }
+            def o:MfObject (vault.object(ot id))
+            arr.add((this.extObjectInfo(o)))
+        }
+        def out:MfJ (MfJ.newObj())
+        out.put("deleted_objects" arr)
+        return out
+    }
+
+    fn destroyObjects:MfJ (req:MfJ) {
+        def ids:[MfJ] (req.list("obj_ids"))
+        for ids j:MfJ i {
+            def p:[int] (MfGrpc.readObjId(j))
+            vault.destroy((itemAt p 0) (itemAt p 1))
+        }
+        return (MfJ.newObj())
+    }
+
+    fn followObject:MfJ (req:MfJ) {
+        def p:[int] (MfGrpc.readObjId((req.field("obj_id"))))
+        def ot:int (itemAt p 0)
+        def id:int (itemAt p 1)
+        if (vault.hasObject(ot id)) {
+            def o:MfObject (vault.object(ot id))
+            o.followed = (req.bool_("follow_state" true))
+            vault.changed()
+        }
+        return (MfJ.newObj())
+    }
+
+    fn objIdByGuid:MfJ (req:MfJ err:MfJ) {
+        def guid:string (req.str_("guid"))
+        for vault.objects o:MfObject i {
+            if (o.guid == guid) {
+                def out:MfJ (MfJ.newObj())
+                out.put("obj_id" (MfGrpc.objId(o.objectType o.id)))
+                return out
+            }
+        }
+        return (this.fail(err 404 ("No object with GUID " + guid)))
+    }
+
+    ; =========================================================================
+    ; Named values, aliases, extension methods
+    ; =========================================================================
+
+    fn getNamedValues:MfJ (req:MfJ) {
+        def ns:string (req.str_("namespace_name"))
+        def arr:MfJ (MfJ.newArr())
+        def vals:[MfNamedValue] (vault.namedValues(ns))
+        for vals nv:MfNamedValue i {
+            def j:MfJ (MfJ.newObj())
+            j.putStr("key" nv.name)
+            def tv:MfTypedValue (MfTypedValue.ofText(nv.value))
+            j.put("value" (this.typedValue(-1 tv)))
+            arr.add(j)
+        }
+        def out:MfJ (MfJ.newObj())
+        out.put("values" arr)
+        return out
+    }
+
+    fn setNamedValues:MfJ (req:MfJ) {
+        def ns:string (req.str_("namespace_name"))
+        def vals:[MfJ] (req.list("values"))
+        for vals j:MfJ i {
+            def tv:MfTypedValue (this.readTypedValue((j.field("value")) 1))
+            def text:string tv.text
+            if ((tv.datatype == 2) || (tv.datatype == 3)) {
+                text = (MfText.numText(tv.num))
+            }
+            vault.setNamedValue(ns (j.str_("key")) text)
+        }
+        return (MfJ.newObj())
+    }
+
+    fn removeNamedValues:MfJ (req:MfJ) {
+        def ns:string (req.str_("namespace_name"))
+        def keys_:[MfJ] (req.list("keys"))
+        for keys_ k:MfJ i {
+            vault.removeNamedValue(ns k.str)
+        }
+        return (MfJ.newObj())
+    }
+
+    fn idByAlias:MfJ (req:MfJ err:MfJ) {
+        def itemType:int (req.int_("item_type" 0))
+        def alias:string (req.str_("alias"))
+        def id:int (vault.aliasId(itemType alias))
+        if (id < 0) {
+            return (this.fail(err 404 ("No metadata item with alias " + alias)))
+        }
+        def out:MfJ (MfJ.newObj())
+        out.putInt("id" id)
+        return out
+    }
+
+    ; Two server-side methods exist in every emulated vault, so the extension
+    ; method path can be exercised without a Vault Application behind it.
+    fn isExtMethod:MfJ (req:MfJ) {
+        def name:string (req.str_("method_identifier"))
+        def known:boolean ((name == "Emulator.Echo") || (name == "Emulator.Now"))
+        def out:MfJ (MfJ.newObj())
+        out.putBool("exists" known)
+        out.putBool("is_active" known)
+        return out
+    }
+
+    fn runExtMethod:MfJ (req:MfJ err:MfJ) {
+        def name:string (req.str_("method_name"))
+        def out:MfJ (MfJ.newObj())
+        if (name == "Emulator.Echo") {
+            out.putStr("output" (req.str_("input")))
+            return out
+        }
+        if (name == "Emulator.Now") {
+            out.putStr("output" (vault.now()))
+            return out
+        }
+        return (this.fail(err 404 ("No vault extension method " + name)))
+    }
+}

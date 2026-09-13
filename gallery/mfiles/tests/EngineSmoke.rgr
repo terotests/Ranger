@@ -1,0 +1,70 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; npm run mfiles:engine:test
+;
+; The seam the UIX host stands on: an EvalNativeBridge function called from
+; every shape of JavaScript function the preludes use — a function
+; declaration (which the engine compiles to bytecode), a nested function, an
+; arrow, a method, a callback, an async function, and a handler fired later
+; from the host through callFunction + drainJobs.
+;
+; The function-declaration cases are the regression: a compiled body used to
+; resolve the callee as a scope binding and throw "is not defined" instead of
+; asking the bridge.
+
+Import "../../game_engine/v2/interp/migrate/src/ComponentEngine.rgr"
+Import "../../game_engine/v2/interp/migrate/src/EvHandle.rgr"
+
+class SmokeBridge extends EvalNativeBridge {
+    def calls:int 0
+    fn has:boolean (name:string) {
+        return (name == "__host")
+    }
+    fn invoke:EvHandle (name:string args:[EvHandle]) {
+        calls = calls + 1
+        def a:EvHandle (itemAt args 0)
+        return (EvHandle.string(("<" + (a.toString()) + ">")))
+    }
+}
+
+class EngineSmoke {
+    def passed:int 0
+    def failed:int 0
+
+    fn check:void (label:string src:string want:string) {
+        def engine:ComponentEngine (new ComponentEngine)
+        engine.quiet = true
+        def bridge:SmokeBridge (new SmokeBridge)
+        engine.setNativeBridge(bridge)
+        engine.loadScript(src)
+        engine.drainJobs()
+        def fired:EvHandle (engine.callFunction("fire" (EvHandle.null())))
+        engine.drainJobs()
+        def out:EvHandle (engine.callFunction("result" (EvHandle.null())))
+        def got:string (out.toString())
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + label + "\n       got  " + got + "\n       want " + want)
+        }
+    }
+
+    fn run:void () {
+        def tail:string "\nfunction result() { return String(r); }\n"
+        this.check("function declaration" ("var r = ''; function g() { return __host('a'); } function fire() { r = g(); }" + tail) "<a>")
+        this.check("assignment in declaration" ("var r = ''; function g() { var x = __host('b'); return x; } function fire() { r = g(); }" + tail) "<b>")
+        this.check("nested declaration" ("var r = ''; function outer() { function inner() { return __host('c'); } return inner(); } function fire() { r = outer(); }" + tail) "<c>")
+        this.check("function expression callback" ("var r = ''; var hs = []; hs.push(function () { return __host('d'); }); function fire() { r = hs[0](); }" + tail) "<d>")
+        this.check("arrow" ("var r = ''; var f = () => __host('e'); function fire() { r = f(); }" + tail) "<e>")
+        this.check("method" ("var r = ''; var o = { m() { return __host('f'); } }; function fire() { r = o.m(); }" + tail) "<f>")
+        this.check("nested argument" ("var r = ''; function wrap(v) { return JSON.stringify(v, function (k, x) { return x; }); } function op(a) { return JSON.parse(JSON.stringify(__host(wrap(a)))); } function fire() { r = op({ z: 1 }); }" + tail) "<{\"z\":1}>")
+        this.check("after await" ("var r = ''; async function g() { await Promise.resolve(1); return __host('g'); } function fire() { g().then(function (v) { r = v; }); }" + tail) "<g>")
+        this.check("handler fired later" ("var r = ''; var hs = []; function reg(cb) { hs.push(cb); } reg(async function (x) { r = __host('h'); }); function fire() { hs.forEach(function (h) { h(1); }); }" + tail) "<h>")
+        print ("\nengine bridge: " + (to_string passed) + " passed, " + (to_string failed) + " failed")
+    }
+}
+
+sfn main:void () {
+    def t (new EngineSmoke)
+    t.run()
+}

@@ -12237,6 +12237,20 @@ class ComponentEngine {
             if (this.isGlobalBuiltinCallName(callee.name)) {
                 return false
             }
+            ; A name the embedder answers through EvalNativeBridge is not a
+            ; binding the VM can load: op 10 resolves scopes and the global
+            ; object only, so a host function called from a compiled body threw
+            ; "is not defined" while the same call in an arrow (walked, not
+            ; compiled) reached the bridge. The walker owns the bridge lookup;
+            ; keep such calls there.
+            if ((prog.localIdxOf(callee.name)) < 0) {
+                if nativeBridge {
+                    def nbc:EvalNativeBridge (unwrap nativeBridge)
+                    if (nbc.has(callee.name)) {
+                        return false
+                    }
+                }
+            }
             def cslot:int (prog.localIdxOf(callee.name))
             if (cslot >= 0) {
                 prog.emit(8 cslot 1 0)
@@ -42007,6 +42021,21 @@ class ComponentEngine {
                 if (protoTarget.isFunction()) {
                     if (protoTarget.hasOwnData("__fnprotocall__")) { notCtor = true }
                 }
+                ; D-NEWCLASSMEMBER: the member is a CLASS value -- `new ns.C()` with C a
+                ; class returned from a module IIFE or put on an object literal. A class
+                ; value has no function node and no builtin constructor name, so it was
+                ; rejected as not constructible, while `var K = ns.C; new K()` worked
+                ; through the identifier path. Take the class name the value carries and
+                ; let the name-keyed instantiation below build it, as that path does.
+                def ncIsClass:boolean false
+                if ((protoTarget.isFunction()) || (protoTarget.isObject())) {
+                    def ncClassTag:EvHandle (protoTarget.getMember("__classname__"))
+                    if (ncClassTag.isString()) {
+                        ncIsClass = true
+                        notCtor = false
+                        className = (ncClassTag.stringOf())
+                    }
+                }
                 if notCtor {
                     return (this.throwSpecError("TypeError" "expression is not a constructor"))
                 }
@@ -42015,7 +42044,7 @@ class ComponentEngine {
                 ; name-keyed class lookup below only sees the last property
                 ; name ("C") and used to return null. Construct from the value
                 ; we already resolved — same path as `var C = ns.Deep.C; new C()`.
-                if (protoTarget.isFunction()) {
+                if ((protoTarget.isFunction()) && (false == ncIsClass)) {
                     ; Rust: the callee-name read must not stay an argument
                     ; expression -- its borrow guard would live across the whole
                     ; construct call and collide with borrows inside it.

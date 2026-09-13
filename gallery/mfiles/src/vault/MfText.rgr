@@ -1,0 +1,221 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; MfText — strings, dates and numbers, the way the vault needs them
+; =============================================================================
+; Time in the vault is a LOGICAL clock: minutes since 1970-01-01, turned into
+; ISO-8601 text when stored. The host decides when the clock moves, which is
+; what lets a headless test assert on "Last modified" without a race against
+; the wall.
+;
+; Comparison is by UTF-16 code unit on the JS backend (charAt answers a code),
+; which is the order an ISO date needs and a good-enough collation for titles.
+; =============================================================================
+
+class MfText {
+    sfn pad2:string (n:int) {
+        if (n < 10) {
+            return ("0" + (to_string n))
+        }
+        return (to_string n)
+    }
+
+    sfn toIntOr:int (s:string fallback:int) {
+        def v@(optional):int (str2int s)
+        if (!null? v) {
+            return (unwrap v)
+        }
+        return fallback
+    }
+
+    sfn toDoubleOr:double (s:string fallback:double) {
+        def v@(optional):double (str2double s)
+        if (!null? v) {
+            return (unwrap v)
+        }
+        return fallback
+    }
+
+    ; -1, 0 or 1.
+    sfn cmp:int (a:string b:string) {
+        def la:int (strlen a)
+        def lb:int (strlen b)
+        def n:int la
+        if (lb < n) {
+            n = lb
+        }
+        def i:int 0
+        while (i < n) {
+            def ca:int (charAt a i)
+            def cb:int (charAt b i)
+            if (ca < cb) {
+                return -1
+            }
+            if (ca > cb) {
+                return 1
+            }
+            i = (i + 1)
+        }
+        if (la < lb) {
+            return -1
+        }
+        if (la > lb) {
+            return 1
+        }
+        return 0
+    }
+
+    sfn cmpNoCase:int (a:string b:string) {
+        def la:string (to_lowercase a)
+        def lb:string (to_lowercase b)
+        return (MfText.cmp(la lb))
+    }
+
+    sfn hasNoCase:boolean (hay:string needle:string) {
+        if ((strlen needle) == 0) {
+            return true
+        }
+        def h:string (to_lowercase hay)
+        def n:string (to_lowercase needle)
+        return ((indexOf h n) >= 0)
+    }
+
+    sfn beginsNoCase:boolean (hay:string needle:string) {
+        def h:string (to_lowercase hay)
+        def n:string (to_lowercase needle)
+        return ((indexOf h n) == 0)
+    }
+
+    ; A number as a person writes it: no ".0" on a whole number.
+    sfn numText:string (n:double) {
+        def whole:int (to_int n)
+        def back:double (to_double whole)
+        if (back == n) {
+            return (to_string whole)
+        }
+        return (to_string n)
+    }
+
+    ; --- the calendar -------------------------------------------------------
+    ; Howard Hinnant's days_from_civil / civil_from_days, for years >= 1970,
+    ; where every quotient is of non-negative numbers.
+
+    sfn daysFromCivil:int (y0:int m:int d:int) {
+        def y:int y0
+        if (m <= 2) {
+            y = (y - 1)
+        }
+        def era:int (to_int (y / 400))
+        def yoe:int (y - (era * 400))
+        def mp:int (m + 9)
+        if (m > 2) {
+            mp = (m - 3)
+        }
+        def doy:int ((to_int (((153 * mp) + 2) / 5)) + (d - 1))
+        def doe:int ((((yoe * 365) + (to_int (yoe / 4))) - (to_int (yoe / 100))) + doy)
+        return (((era * 146097) + doe) - 719468)
+    }
+
+    sfn minutesOf:int (iso:string) {
+        if ((strlen iso) < 10) {
+            return 0
+        }
+        def y:int (MfText.toIntOr((substring iso 0 4) 1970))
+        def mo:int (MfText.toIntOr((substring iso 5 7) 1))
+        def d:int (MfText.toIntOr((substring iso 8 10) 1))
+        def h:int 0
+        def mi:int 0
+        if ((strlen iso) >= 16) {
+            h = (MfText.toIntOr((substring iso 11 13) 0))
+            mi = (MfText.toIntOr((substring iso 14 16) 0))
+        }
+        def days:int (MfText.daysFromCivil(y mo d))
+        return (((days * 1440) + (h * 60)) + mi)
+    }
+
+    sfn isoOfMinutes:string (total:int) {
+        def days:int (to_int (total / 1440))
+        def rest:int (total - (days * 1440))
+        def h:int (to_int (rest / 60))
+        def mi:int (rest - (h * 60))
+        def z:int (days + 719468)
+        def era:int (to_int (z / 146097))
+        def doe:int (z - (era * 146097))
+        def a1:int (to_int (doe / 1460))
+        def a2:int (to_int (doe / 36524))
+        def a3:int (to_int (doe / 146096))
+        def yoe:int (to_int ((((doe - a1) + a2) - a3) / 365))
+        def y:int (yoe + (era * 400))
+        def doy:int (doe - (((365 * yoe) + (to_int (yoe / 4))) - (to_int (yoe / 100))))
+        def mp:int (to_int (((5 * doy) + 2) / 153))
+        def d:int ((doy - (to_int (((153 * mp) + 2) / 5))) + 1)
+        def m:int (mp + 3)
+        if (mp >= 10) {
+            m = (mp - 9)
+        }
+        if (m <= 2) {
+            y = (y + 1)
+        }
+        def datePart:string ((to_string y) + "-" + (MfText.pad2(m)) + "-" + (MfText.pad2(d)))
+        return (datePart + "T" + (MfText.pad2(h)) + ":" + (MfText.pad2(mi)) + ":00Z")
+    }
+
+    ; "2023-12-27" → "12/27/2023"
+    sfn displayDate:string (iso:string) {
+        if ((strlen iso) < 10) {
+            return iso
+        }
+        def y:string (substring iso 0 4)
+        def m:string (substring iso 5 7)
+        def d:string (substring iso 8 10)
+        def mi:int (MfText.toIntOr(m 0))
+        def di:int (MfText.toIntOr(d 0))
+        return ((to_string mi) + "/" + (to_string di) + "/" + y)
+    }
+
+    ; "2023-12-27T10:00:00Z" → "12/27/2023 10:00 AM"
+    sfn displayTimestamp:string (iso:string) {
+        if ((strlen iso) < 16) {
+            return (MfText.displayDate(iso))
+        }
+        def datePart:string (MfText.displayDate(iso))
+        def h:int (MfText.toIntOr((substring iso 11 13) 0))
+        def mi:string (substring iso 14 16)
+        def ampm:string "AM"
+        if (h >= 12) {
+            ampm = "PM"
+        }
+        def h12:int (h % 12)
+        if (h12 == 0) {
+            h12 = 12
+        }
+        return (datePart + " " + (to_string h12) + ":" + mi + " " + ampm)
+    }
+
+    ; "12/27/2023" or "2023-12-27" → "2023-12-27"; "" when it is neither.
+    sfn parseDate:string (s0:string) {
+        def s:string (trim s0)
+        if ((strlen s) == 10) {
+            if ((charAt s 4) == 45) {
+                return s
+            }
+        }
+        def parts:[string] (strsplit s "/")
+        if ((array_length parts) != 3) {
+            return ""
+        }
+        def m:int (MfText.toIntOr((itemAt parts 0) 0))
+        def d:int (MfText.toIntOr((itemAt parts 1) 0))
+        def y:int (MfText.toIntOr((itemAt parts 2) 0))
+        if ((m < 1) || (m > 12)) {
+            return ""
+        }
+        if ((d < 1) || (d > 31)) {
+            return ""
+        }
+        if (y < 1970) {
+            return ""
+        }
+        return ((to_string y) + "-" + (MfText.pad2(m)) + "-" + (MfText.pad2(d)))
+    }
+}

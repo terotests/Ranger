@@ -2660,6 +2660,12 @@ class RangerFlowTest {
         c.ok("the yes branch starts on the diamond" (q.holdsPoint(((fg.endpointX(eYes true)) - 0.5) (fg.endpointY(eYes true)))))
         c.ok("and so does the no branch" (q.holdsPoint(((fg.endpointX(eNo true)) - 0.5) (fg.endpointY(eNo true)))))
         c.ok("neither starts on the empty box beside it" ((fg.endpointX(eNo true)) < 239.9))
+        ; The router still turns from the box: an outline socket sits inside
+        ; the obstacle the search clears, and a stub measured from there
+        ; often found no route. Drawing uses endpointX; pathfinding uses
+        ; boxEndpointX.
+        c.near("the box socket is still on the box" (fg.boxEndpointX(eNo true)) 240.0 0.001)
+        c.ok("and further out than the outline socket" ((fg.boxEndpointX(eNo true)) > (fg.endpointX(eNo true))))
 
         ; …and the editor has to agree with the drawing.
         def g (new FlowGraph)

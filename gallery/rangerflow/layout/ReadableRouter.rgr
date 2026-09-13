@@ -404,10 +404,16 @@ class ReadableRouter {
         def e:FlowEdge (g.edgeAt(k))
         def s1:int (g.edgeSide(e true))
         def s2:int (g.edgeSide(e false))
-        def x1:double (g.endpointX(e true))
-        def y1:double (g.endpointY(e true))
-        def x2:double (g.endpointX(e false))
-        def y2:double (g.endpointY(e false))
+        ; Stubs turn from the bounding-box socket. `endpointX`/`endpointY` put
+        ; a fanned end on the shape outline (so a diamond does not start in
+        ; mid-air), and that outline sits INSIDE the box the router clears —
+        ; a stub measured from there often began inside an obstacle and the
+        ; search returned nothing. The drawn ends still walk onto the outline
+        ; via `onOutline` below; only the turn is measured from the box.
+        def x1:double (g.boxEndpointX(e true))
+        def y1:double (g.boxEndpointY(e true))
+        def x2:double (g.boxEndpointX(e false))
+        def y2:double (g.boxEndpointY(e false))
         def ax:double (x1 + ((FlowPosition.normalX(s1)) * (itemAt stubSrc k)))
         def ay:double (y1 + ((FlowPosition.normalY(s1)) * (itemAt stubSrc k)))
         def bx:double (x2 + ((FlowPosition.normalX(s2)) * (itemAt stubDst k)))

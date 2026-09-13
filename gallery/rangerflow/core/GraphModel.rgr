@@ -1580,6 +1580,72 @@ class FlowGraph {
         return (t.edgeY(side nudge))
     }
 
+    ; The same end, but on the bounding box — never pulled onto a diamond or
+    ; stadium outline. `endpointX`/`endpointY` put a fanned edge on the shape
+    ; so the drawing does not start in empty canvas beside a vertex; the
+    ; readable router still turns its stub from the BOX, because the box is
+    ; the obstacle it clears and a stub that began on an inset outline would
+    ; start inside that obstacle and often find no route at all.
+    fn boxEndpointX:double (e:FlowEdge atSource:boolean) {
+        def nudge:double e.portNudgeTarget
+        if atSource {
+            nudge = e.portNudgeSource
+        }
+        def side:int (this.edgeSide(e atSource))
+        def alongX:boolean false
+        if (side == 0) { alongX = true }
+        if (side == 2) { alongX = true }
+        if (alongX == false) {
+            nudge = 0.0
+        }
+        if atSource {
+            if (this.hasPort(e.sourcePort)) {
+                def p:FlowPort (this.portRef(e.sourcePort))
+                def owner:FlowNode (this.nodeById(p.nodeId))
+                return ((owner.portX(p)) + nudge)
+            }
+            def n:FlowNode (this.nodeById(e.source))
+            return ((n.handleX(side)) + nudge)
+        }
+        if (this.hasPort(e.targetPort)) {
+            def p2:FlowPort (this.portRef(e.targetPort))
+            def owner2:FlowNode (this.nodeById(p2.nodeId))
+            return ((owner2.portX(p2)) + nudge)
+        }
+        def t:FlowNode (this.nodeById(e.target))
+        return ((t.handleX(side)) + nudge)
+    }
+
+    fn boxEndpointY:double (e:FlowEdge atSource:boolean) {
+        def nudge:double e.portNudgeTarget
+        if atSource {
+            nudge = e.portNudgeSource
+        }
+        def side:int (this.edgeSide(e atSource))
+        def alongY:boolean false
+        if (side == 1) { alongY = true }
+        if (side == 3) { alongY = true }
+        if (alongY == false) {
+            nudge = 0.0
+        }
+        if atSource {
+            if (this.hasPort(e.sourcePort)) {
+                def p:FlowPort (this.portRef(e.sourcePort))
+                def owner:FlowNode (this.nodeById(p.nodeId))
+                return ((owner.portY(p)) + nudge)
+            }
+            def n:FlowNode (this.nodeById(e.source))
+            return ((n.handleY(side)) + nudge)
+        }
+        if (this.hasPort(e.targetPort)) {
+            def p2:FlowPort (this.portRef(e.targetPort))
+            def owner2:FlowNode (this.nodeById(p2.nodeId))
+            return ((owner2.portY(p2)) + nudge)
+        }
+        def t:FlowNode (this.nodeById(e.target))
+        return ((t.handleY(side)) + nudge)
+    }
+
     fn edgeSide:int (e:FlowEdge atSource:boolean) {
         if atSource {
             if (this.hasPort(e.sourcePort)) {

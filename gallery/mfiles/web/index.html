@@ -1,0 +1,136 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2310205a'/%3E%3Ctext x='5' y='22' font-family='Arial' font-weight='bold' font-size='16' fill='%235aa2ff'%3EM%3C/text%3E%3C/svg%3E"
+    />
+    <title>M-Files emulator — UIX extensions against a vault written in Ranger</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #eef0f4;
+        font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+        overflow: hidden;
+      }
+      #stage {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+      #c {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+        outline: none;
+      }
+      #err {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        right: 12px;
+        color: #c0392b;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+        pointer-events: none;
+      }
+      /* The code drawer: where a developer pastes an extension. It is plain DOM
+         on purpose — a code editor is the one control this page does not need
+         to draw itself. */
+      #code {
+        position: absolute;
+        z-index: 30;
+        display: none;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px;
+        box-sizing: border-box;
+        background: #0f1629;
+        color: #c9d4ff;
+        border-left: 1px solid #253152;
+      }
+      #code.open {
+        display: flex;
+      }
+      #code .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      #code select,
+      #code input,
+      #code button {
+        font: 12px Arial, sans-serif;
+        height: 28px;
+        border-radius: 4px;
+        border: 1px solid #3a4a78;
+        background: #141d36;
+        color: #c9d4ff;
+        padding: 0 8px;
+      }
+      #code button {
+        cursor: pointer;
+      }
+      #code button.primary {
+        background: #5aa2ff;
+        color: #0f1629;
+        border-color: #5aa2ff;
+      }
+      #code textarea {
+        flex: 1;
+        resize: none;
+        border-radius: 4px;
+        border: 1px solid #3a4a78;
+        background: #0a0f1e;
+        color: #e6ecff;
+        font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        padding: 10px;
+        tab-size: 2;
+      }
+      #code .hint {
+        font-size: 11px;
+        color: #7f8db3;
+      }
+      #code-status {
+        min-height: 16px;
+        font-size: 12px;
+        color: #ffcf6b;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage"><canvas id="c" tabindex="0"></canvas></div>
+    <aside id="code" aria-label="Extension code">
+      <div class="row">
+        <select id="code-app" aria-label="Application"></select>
+        <select id="code-version" aria-label="UIX version">
+          <option value="2">UIX v2</option>
+          <option value="1">UIX v1</option>
+        </select>
+        <input id="code-name" aria-label="Name" placeholder="Name" style="flex: 1" />
+      </div>
+      <textarea id="code-src" spellcheck="false" aria-label="Source"></textarea>
+      <div class="row">
+        <button id="code-run" class="primary" type="button">Load / restart</button>
+        <button id="code-close" type="button">Back to metadata</button>
+        <span class="hint">OnNewShellUI(shellUI) is the entry point · console.log goes to the console panel</span>
+      </div>
+      <div id="code-status"></div>
+    </aside>
+    <div id="err"></div>
+    <noscript>
+      This page is an M-Files client emulator — a vault, its gRPC API and the UIX v1/v2 extension frameworks, compiled from Ranger and
+      running in the tab. It needs JavaScript and WebGL 2.
+    </noscript>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
