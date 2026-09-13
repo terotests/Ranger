@@ -508,7 +508,7 @@ jobs:
       # editor, a keystroke crossing to the markdown, a sheet, a PDF, and
       # the chrome folded to a phone's width.
       - name: Check the r5 page works in a browser
-        run: node gallery/r5/web/smoke.mjs
+        run: node gallery/r5/web/smoke.mjs --dist "$GITHUB_WORKSPACE/_site/r5"
 
       # ---- RangerFlow at /rangerflow/ --------------------------------------
       # The graph editor with no host process: the schema is parsed in the tab,
