@@ -19,6 +19,7 @@
 ; ==============================================================================
 
 Import "EVGPatch.rgr"
+Import "EVGTreeJson.rgr"
 Import "EVGElement.rgr"
 Import "EVGInspect.rgr"
 Import "EVGReject.rgr"
@@ -333,69 +334,10 @@ class EVGPatchTest {
     ; this file exists to make loud: it would present as "this property is
     ; patchable" followed by an undo that silently does nothing.
 
-    fn names:[string] () {
-        def a:[string]
-        push a "display"
-        push a "position"
-        push a "flex-direction"
-        push a "justify-content"
-        push a "align-items"
-        push a "align-content"
-        push a "flex-wrap"
-        push a "grid-area"
-        push a "grid-template-columns"
-        push a "grid-template-rows"
-        push a "font-family"
-        push a "font-weight"
-        push a "text-align"
-        push a "overflow"
-        push a "cursor"
-        push a "class-name"
-        push a "theme"
-        push a "src"
-        push a "object-fit"
-        push a "transform"
-        push a "transition"
-        push a "background-gradient"
-        push a "width"
-        push a "height"
-        push a "min-width"
-        push a "min-height"
-        push a "max-width"
-        push a "max-height"
-        push a "left"
-        push a "top"
-        push a "right"
-        push a "bottom"
-        push a "gap"
-        push a "font-size"
-        push a "flex-basis"
-        push a "color"
-        push a "background-color"
-        push a "border-color"
-        push a "opacity"
-        push a "line-height"
-        push a "flex-grow"
-        push a "flex-shrink"
-        push a "rotate"
-        push a "scale"
-        push a "margin-top"
-        push a "margin-right"
-        push a "margin-bottom"
-        push a "margin-left"
-        push a "padding-top"
-        push a "padding-right"
-        push a "padding-bottom"
-        push a "padding-left"
-        push a "border-width"
-        push a "border-radius"
-        return a
-    }
-
     fn testTableIsWhole:void () {
         print ""
         print "-- the patchable set answers in all three places"
-        def list:[string] (this.names())
+        def list:[string] (EVGPatch.patchableNames())
         def admitted:int 0
         def clearable:int 0
         def i:int 0
@@ -422,7 +364,7 @@ class EVGPatchTest {
     fn testClearedIsWhatAFreshElementSays:void () {
         print ""
         print "-- clearing restores what a fresh element reads"
-        def list:[string] (this.names())
+        def list:[string] (EVGPatch.patchableNames())
         def matched:int 0
         def i:int 0
         while (i < (array_length list)) {
@@ -452,6 +394,124 @@ class EVGPatchTest {
         this.ok("and class is an alias for class-name" (EVGPatch.readable("class")))
     }
 
+
+    ; --- the document format --------------------------------------------------
+    ;
+    ; Round-trip is the only claim worth testing here: write, read, write, and
+    ; the two texts are the same. It catches a property the writer emits and
+    ; the reader ignores, and a reader that quietly builds the wrong tag, both
+    ; of which otherwise show up much later as a document that drifts a little
+    ; every time it is saved.
+
+    fn testRoundTrip:void () {
+        print ""
+        print "-- write, read, write"
+        def root:EVGElement (this.build())
+        def card:EVGElement (itemAt root.children 0)
+        card.setAttribute("background-color" "#ff0000")
+        card.markInline("background-color")
+        card.setAttribute("width" "320px")
+        card.markInline("width")
+        def once:string (EVGTreeJson.toText(root))
+        def back@(optional):EVGElement (EVGTreeJson.fromText(once))
+        this.ok("it read back" ((null? back) == false))
+        if (null? back) {
+            return
+        }
+        def again:EVGElement (unwrap back)
+        def twice:string (EVGTreeJson.toText(again))
+        this.same("the two texts agree" twice once)
+        def readCard:EVGElement (itemAt again.children 0)
+        ; the reader's canonical form is what setAttribute takes back, which is rgb()
+        this.same("the colour survived" (EVGPatch.readProp(readCard "background-color")) "rgb(255,0,0)")
+        this.same("the width survived" (EVGPatch.readProp(readCard "width")) "320px")
+        this.same("the class survived" readCard.className "card")
+        def readTitle:EVGElement (itemAt readCard.children 0)
+        this.same("the text survived" readTitle.textContent "Orders")
+        this.same("and the tag" readTitle.tagName "span")
+        def readSide:EVGElement (itemAt again.children 1)
+        this.same("as did the key" readSide.key "side")
+    }
+
+    fn testDefaultsAreNotWritten:void () {
+        print ""
+        print "-- a fresh tree says almost nothing"
+        def plain:EVGElement (EVGElement.createDiv())
+        def text:string (EVGTreeJson.toText(plain))
+        this.ok("no props block" ((indexOf text "props") < 0))
+        this.ok("but it has its tag" ((indexOf text "\"tag\":\"div\"") >= 0))
+    }
+
+    fn testTextWithQuotes:void () {
+        print ""
+        print "-- text that needs escaping"
+        def root:EVGElement (EVGElement.createDiv())
+        def label:EVGElement (EVGElement.createSpan())
+        label.textContent = "a \"quoted\" line\nand a second"
+        root.addChild(label)
+        def text:string (EVGTreeJson.toText(root))
+        def back@(optional):EVGElement (EVGTreeJson.fromText(text))
+        this.ok("it read back" ((null? back) == false))
+        if (null? back) {
+            return
+        }
+        def again:EVGElement (unwrap back)
+        def readLabel:EVGElement (itemAt again.children 0)
+        this.same("the text came through" readLabel.textContent label.textContent)
+    }
+
+    fn testPatchThenSave:void () {
+        print ""
+        print "-- an edit survives being written down"
+        def root:EVGElement (this.build())
+        def p (new EVGPatch())
+        def list:[EVGPatchOp] (this.ops())
+        push list (EVGPatchOp.setProp("0/0" "padding-left" "16px"))
+        push list (EVGPatchOp.setText("0/0/0" "Invoices"))
+        def r:EVGPatchResult (p.apply(root list))
+        this.ok("the patch applied" r.ok)
+        def saved:string (EVGTreeJson.toText(root))
+        def back@(optional):EVGElement (EVGTreeJson.fromText(saved))
+        this.ok("it read back" ((null? back) == false))
+        if (null? back) {
+            return
+        }
+        def again:EVGElement (unwrap back)
+        def readCard:EVGElement (itemAt again.children 0)
+        this.same("the padding is in the file" (EVGPatch.readProp(readCard "padding-left")) "16px")
+        def readTitle:EVGElement (itemAt readCard.children 0)
+        this.same("and so is the text" readTitle.textContent "Invoices")
+    }
+
+    fn testNotThisFormat:void () {
+        print ""
+        print "-- something that is not a document"
+        def back@(optional):EVGElement (EVGTreeJson.fromText("[1,2,3]"))
+        this.ok("nothing came back" (null? back))
+    }
+
+
+    ; The bug this guards: `EVGBox` keeps the authored unit and the px layout
+    ; resolves from it, and reading the px gave "0.00px" for a padding that had
+    ; just been set — so the inverse restored a number nobody wrote.
+    fn testBoxSidesReadWhatWasWritten:void () {
+        print ""
+        print "-- a box side, before anything is laid out"
+        def root:EVGElement (this.build())
+        def card:EVGElement (itemAt root.children 0)
+        def p (new EVGPatch())
+        def list:[EVGPatchOp] (this.ops())
+        push list (EVGPatchOp.setProp("0/0" "padding-left" "16px"))
+        push list (EVGPatchOp.setProp("0/0" "margin-top" "2em"))
+        def r:EVGPatchResult (p.apply(root list))
+        this.ok("it applied" r.ok)
+        this.same("the padding reads as written" (EVGPatch.readProp(card "padding-left")) "16px")
+        this.same("and the margin keeps its unit" (EVGPatch.readProp(card "margin-top")) "2em")
+        p.rollback(root)
+        this.same("rollback clears the padding" (EVGPatch.readProp(card "padding-left")) "")
+        this.same("and the margin" (EVGPatch.readProp(card "margin-top")) "")
+    }
+
     fn run:void () {
         print "=== EVGPatch: every edit carries its own undo ==="
         this.testSetProp()
@@ -472,6 +532,12 @@ class EVGPatchTest {
         this.testTableIsWhole()
         this.testClearedIsWhatAFreshElementSays()
         this.testNotPatchable()
+        this.testBoxSidesReadWhatWasWritten()
+        this.testRoundTrip()
+        this.testDefaultsAreNotWritten()
+        this.testTextWithQuotes()
+        this.testPatchThenSave()
+        this.testNotThisFormat()
         print ""
         print (("passed = " + (to_string passed)) + ("  failed = " + (to_string failed)))
         if (failed > 0) {

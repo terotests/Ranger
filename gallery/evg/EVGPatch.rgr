@@ -550,7 +550,13 @@ class EVGPatch {
     sfn KIND_UNIT:int ()   { return 2 }
     sfn KIND_COLOR:int ()  { return 3 }
     sfn KIND_NUMBER:int () { return 4 }
-    sfn KIND_BOXPX:int ()  { return 5 }
+    ; There is no separate "box" kind. A box side is a length like any other —
+    ; the difference is only WHICH field to read, and reading the wrong one is
+    ; the mistake this note exists to prevent: `EVGBox` carries the authored
+    ; `paddingLeft:EVGUnit` AND the `paddingLeftPx` that layout resolves from
+    ; it. `EVGInspect` prints the px, correctly, because an inspector reports
+    ; what layout did. A patch must read the unit, because an inverse has to
+    ; restore what the author wrote and the px is 0 until the first pass.
 
     ; `class` is what an author writes and `class-name` is what `setAttribute`
     ; answers to, so the alias is resolved once, here, rather than at each use.
@@ -584,12 +590,75 @@ class EVGPatch {
         if (((name == "opacity") || (name == "line-height")) || (name == "flex-grow")) { return 4 }
         if (((name == "flex-shrink") || (name == "rotate")) || (name == "scale")) { return 4 }
 
-        if (((name == "margin-top") || (name == "margin-right")) || (name == "margin-bottom")) { return 5 }
-        if (((name == "margin-left") || (name == "padding-top")) || (name == "padding-right")) { return 5 }
-        if (((name == "padding-bottom") || (name == "padding-left")) || (name == "border-width")) { return 5 }
-        if (name == "border-radius") { return 5 }
+        if (((name == "margin-top") || (name == "margin-right")) || (name == "margin-bottom")) { return 2 }
+        if (((name == "margin-left") || (name == "padding-top")) || (name == "padding-right")) { return 2 }
+        if (((name == "padding-bottom") || (name == "padding-left")) || (name == "border-width")) { return 2 }
+        if (name == "border-radius") { return 2 }
 
         return 0
+    }
+
+    ; The same set `kindOf` admits, in a form something can iterate: the
+    ; serializer walks it to decide what a node has to say, and the test walks
+    ; it to prove `readProp` and `clearProp` answer for all of it. Kept here
+    ; rather than in either caller so there is still one list.
+    sfn patchableNames:[string] () {
+        def a:[string]
+        push a "display"
+        push a "position"
+        push a "flex-direction"
+        push a "justify-content"
+        push a "align-items"
+        push a "align-content"
+        push a "flex-wrap"
+        push a "grid-area"
+        push a "grid-template-columns"
+        push a "grid-template-rows"
+        push a "font-family"
+        push a "font-weight"
+        push a "text-align"
+        push a "overflow"
+        push a "cursor"
+        push a "class-name"
+        push a "theme"
+        push a "src"
+        push a "object-fit"
+        push a "transform"
+        push a "transition"
+        push a "background-gradient"
+        push a "width"
+        push a "height"
+        push a "min-width"
+        push a "min-height"
+        push a "max-width"
+        push a "max-height"
+        push a "left"
+        push a "top"
+        push a "right"
+        push a "bottom"
+        push a "gap"
+        push a "font-size"
+        push a "flex-basis"
+        push a "color"
+        push a "background-color"
+        push a "border-color"
+        push a "opacity"
+        push a "line-height"
+        push a "flex-grow"
+        push a "flex-shrink"
+        push a "rotate"
+        push a "scale"
+        push a "margin-top"
+        push a "margin-right"
+        push a "margin-bottom"
+        push a "margin-left"
+        push a "padding-top"
+        push a "padding-right"
+        push a "padding-bottom"
+        push a "padding-left"
+        push a "border-width"
+        push a "border-radius"
+        return a
     }
 
     sfn readable:boolean (name:string) {
@@ -658,16 +727,16 @@ class EVGPatch {
         if (n == "rotate")      { return (EVGDisplayList.num(el.rotate)) }
         if (n == "scale")       { return (EVGDisplayList.num(el.scale)) }
 
-        if (n == "margin-top")     { return (EVGPatch.pxText(bx.marginTopPx)) }
-        if (n == "margin-right")   { return (EVGPatch.pxText(bx.marginRightPx)) }
-        if (n == "margin-bottom")  { return (EVGPatch.pxText(bx.marginBottomPx)) }
-        if (n == "margin-left")    { return (EVGPatch.pxText(bx.marginLeftPx)) }
-        if (n == "padding-top")    { return (EVGPatch.pxText(bx.paddingTopPx)) }
-        if (n == "padding-right")  { return (EVGPatch.pxText(bx.paddingRightPx)) }
-        if (n == "padding-bottom") { return (EVGPatch.pxText(bx.paddingBottomPx)) }
-        if (n == "padding-left")   { return (EVGPatch.pxText(bx.paddingLeftPx)) }
-        if (n == "border-width")   { return (EVGPatch.pxText(bx.borderWidthPx)) }
-        if (n == "border-radius")  { return (EVGPatch.pxText(bx.borderRadiusPx)) }
+        if (n == "margin-top") { return (EVGPatch.unitText(bx.marginTop)) }
+        if (n == "margin-right") { return (EVGPatch.unitText(bx.marginRight)) }
+        if (n == "margin-bottom") { return (EVGPatch.unitText(bx.marginBottom)) }
+        if (n == "margin-left") { return (EVGPatch.unitText(bx.marginLeft)) }
+        if (n == "padding-top") { return (EVGPatch.unitText(bx.paddingTop)) }
+        if (n == "padding-right") { return (EVGPatch.unitText(bx.paddingRight)) }
+        if (n == "padding-bottom") { return (EVGPatch.unitText(bx.paddingBottom)) }
+        if (n == "padding-left") { return (EVGPatch.unitText(bx.paddingLeft)) }
+        if (n == "border-width") { return (EVGPatch.unitText(bx.borderWidth)) }
+        if (n == "border-radius") { return (EVGPatch.unitText(bx.borderRadius)) }
 
         return ""
     } doc {
@@ -877,43 +946,43 @@ class EVGPatch {
         }
 
         if (n == "margin-top") {
-            bx.marginTopPx = 0.0
+            bx.marginTop = u
             return true
         }
         if (n == "margin-right") {
-            bx.marginRightPx = 0.0
+            bx.marginRight = u
             return true
         }
         if (n == "margin-bottom") {
-            bx.marginBottomPx = 0.0
+            bx.marginBottom = u
             return true
         }
         if (n == "margin-left") {
-            bx.marginLeftPx = 0.0
+            bx.marginLeft = u
             return true
         }
         if (n == "padding-top") {
-            bx.paddingTopPx = 0.0
+            bx.paddingTop = u
             return true
         }
         if (n == "padding-right") {
-            bx.paddingRightPx = 0.0
+            bx.paddingRight = u
             return true
         }
         if (n == "padding-bottom") {
-            bx.paddingBottomPx = 0.0
+            bx.paddingBottom = u
             return true
         }
         if (n == "padding-left") {
-            bx.paddingLeftPx = 0.0
+            bx.paddingLeft = u
             return true
         }
         if (n == "border-width") {
-            bx.borderWidthPx = 0.0
+            bx.borderWidth = u
             return true
         }
         if (n == "border-radius") {
-            bx.borderRadiusPx = 0.0
+            bx.borderRadius = u
             return true
         }
 
@@ -945,9 +1014,6 @@ class EVGPatch {
         return (cc.toCSSString())
     }
 
-    sfn pxText:string (v:double) {
-        return ((EVGDisplayList.num(v)) + "px")
-    }
 
     sfn create@(optional):EVGElement (tag:string) {
         if ((tag == "div") || (tag == "View")) {
