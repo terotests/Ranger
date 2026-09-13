@@ -88,10 +88,15 @@ const VIEWERS = [
   ["gallery/datagrid/web/code_editor_web.rgr", "code_editor_web.js"],
 ];
 const VIEWER_DIR = path.join(HERE, "viewers");
+// `-d` is joined onto cwd inside the compiler, so an absolute path becomes
+// `<cwd>/<absolute>` (e.g. `/workspace/workspace/…`) and the file lands
+// somewhere build.mjs never looks. Always pass a path relative to REPO.
+const VIEWER_DIR_REL = path.relative(REPO, VIEWER_DIR) || ".";
+fs.mkdirSync(VIEWER_DIR, { recursive: true });
 for (const [source, out] of VIEWERS) {
   if (fs.existsSync(path.join(VIEWER_DIR, out)) && !argv.includes("--viewers")) continue;
   process.stdout.write(`  compiling ${source} …\n`);
-  const log = execFileSync(process.execPath, ["bin/output.js", "-es6", source, `-d=${VIEWER_DIR}`, `-o=${out}`], {
+  const log = execFileSync(process.execPath, ["bin/output.js", "-es6", source, `-d=${VIEWER_DIR_REL}`, `-o=${out}`], {
     cwd: REPO,
     env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
     encoding: "utf8",
