@@ -529,7 +529,10 @@ class FigApp {
         if (h < 2.0) {
             h = 2.0
         }
-        list.addTurnedFrame(x y w h ringW (EVGColor.rgb(59 130 246)) deg ox oy)
+        ; A muted blue-green, the same colour the DOM overlay draws: the ring
+        ; is over the DOCUMENT, and a chrome blue is one more blue box on a
+        ; board covered in blue stickies.
+        list.addTurnedFrame(x y w h ringW (EVGColor.rgb(45 107 102)) deg ox oy)
         cmdCount = (array_length list.cmds)
     }
 
