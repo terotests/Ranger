@@ -96,6 +96,11 @@
     background: var(--bg); color: var(--ink); border-color: var(--line);
     margin-bottom: -1px; padding-bottom: 6px;
   }
+  #diagramSource {
+    flex: 1; width: 100%; resize: none; border: 0; outline: none;
+    padding: 12px 14px; background: transparent; color: var(--ink);
+    font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size: 2;
+  }
   #styleSource {
     flex: 1; width: 100%; resize: none; border: 0; outline: none;
     padding: 12px 14px; background: transparent; color: var(--ink);
@@ -270,8 +275,11 @@
         <button id="tabDoc" role="tab" type="button" aria-selected="true">document.md</button>
         <button id="tabCss" role="tab" type="button" aria-selected="false">style.css</button>
         <button id="tabFiles" role="tab" type="button" aria-selected="false">files</button>
+        <button id="tabDiagram" role="tab" type="button" aria-selected="false" hidden
+                title="The source of the diagram selected on the slide or the page — edit it and the drawing follows">diagram</button>
       </div>
       <textarea id="source" spellcheck="false" aria-label="Markdown source"></textarea>
+      <textarea id="diagramSource" spellcheck="false" aria-label="The selected diagram's source" hidden></textarea>
       <textarea id="styleSource" spellcheck="false" aria-label="The stylesheet" hidden></textarea>
       <div id="fileList" aria-label="What the byte store holds" hidden></div>
     </div>

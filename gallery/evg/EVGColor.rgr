@@ -3,6 +3,18 @@
 ; EVGColor.rgr - Color parsing and manipulation for EVG layout
 ; Supports: hex (#RGB, #RRGGBB, #RRGGBBAA), rgb(), rgba(), hsl(), named colors
 
+; The two colours every element starts with, shared the way the unset unit
+; is (see EVGUnitDefaults). An EVGColor has no in-place mutator at all — every
+; operation returns a new colour — so sharing needs no guard beyond the
+; convention that a field is REPLACED, never written through.
+class EVGColorDefaults @singleton(true) {
+    def noColor:EVGColor (new EVGColor())
+    def black:EVGColor (new EVGColor())
+    Constructor () {
+        noColor.isSet = false
+    }
+}
+
 class EVGColor {
     def r:double 0.0
     def g:double 0.0
@@ -36,14 +48,14 @@ class EVGColor {
         return (EVGColor.create((to_double red) (to_double green) (to_double blue) alpha))
     }
     
+    ; The shared "no colour". Read-only by convention — see EVGColorDefaults.
     sfn noColor:EVGColor () {
-        def c (new EVGColor())
-        c.isSet = false
-        return c
+        return ((EVGColorDefaults.__singleton()).noColor)
     }
     
+    ; Shared, like noColor.
     sfn black:EVGColor () {
-        return (EVGColor.rgb(0 0 0))
+        return ((EVGColorDefaults.__singleton()).black)
     }
     
     sfn white:EVGColor () {

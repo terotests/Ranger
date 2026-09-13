@@ -904,6 +904,78 @@ class FlowNode {
         return (this.spinY(hx hy))
     }
 
+    ; Where an edge fanned `along` the side from its handle meets the shape.
+    ; The handle is the middle of the side; two edges leaving the same side
+    ; are fanned apart along it, and the fanned point has to be on the
+    ; outline as much as the handle is — on a diamond the box beside the
+    ; vertex is canvas, and an edge drawn from there started in mid-air.
+    fn edgeX:double (side:int along:double) {
+        if (along == 0.0) {
+            return (this.handleX(side))
+        }
+        def ex:double (this.rawEdgeX(side along))
+        if ((this.spun()) == false) { return ex }
+        def ey:double (this.rawEdgeY(side along))
+        return (this.spinX(ex ey))
+    }
+
+    fn edgeY:double (side:int along:double) {
+        if (along == 0.0) {
+            return (this.handleY(side))
+        }
+        def ey:double (this.rawEdgeY(side along))
+        if ((this.spun()) == false) { return ey }
+        def ex:double (this.rawEdgeX(side along))
+        return (this.spinY(ex ey))
+    }
+
+    fn rawEdgeX:double (side:int along:double) {
+        if (shape == "polygon") {
+            if (side == 0) { return ((x + (width * 0.5)) + along) }
+            if (side == 2) { return ((x + (width * 0.5)) + along) }
+            def box:double x
+            if (side == 1) { box = (x + width) }
+            def ring:[double] (FlowShapes.outlineCustom(shape x y width height shapePoints))
+            return (FlowShapes.ringCross(ring side ((y + (height * 0.5)) + along) box))
+        }
+        return (FlowShapes.edgeCrossX(shape x y width height side along))
+    }
+
+    fn rawEdgeY:double (side:int along:double) {
+        if (shape == "polygon") {
+            if (side == 1) { return ((y + (height * 0.5)) + along) }
+            if (side == 3) { return ((y + (height * 0.5)) + along) }
+            def box:double y
+            if (side == 2) { box = (y + height) }
+            def ring:[double] (FlowShapes.outlineCustom(shape x y width height shapePoints))
+            return (FlowShapes.ringCross(ring side ((x + (width * 0.5)) + along) box))
+        }
+        return (FlowShapes.edgeCrossY(shape x y width height side along))
+    }
+
+    ; The same for a port. A centred port IS the side's handle and follows
+    ; the outline; a port at an offset — a table's row — is on the box, and
+    ; the fan moves it along the box as it always did.
+    fn portEdgeX:double (p:FlowPort along:double) {
+        if p.centred {
+            return (this.edgeX(p.side along))
+        }
+        def px:double (this.portX(p))
+        if (p.side == 0) { return (px + along) }
+        if (p.side == 2) { return (px + along) }
+        return px
+    }
+
+    fn portEdgeY:double (p:FlowPort along:double) {
+        if p.centred {
+            return (this.edgeY(p.side along))
+        }
+        def py:double (this.portY(p))
+        if (p.side == 1) { return (py + along) }
+        if (p.side == 3) { return (py + along) }
+        return py
+    }
+
     ; Inside the SHAPE, not inside the bounding box: the corner beside a
     ; diamond looks like empty canvas and has to behave like it.
     fn holdsPoint:boolean (px:double py:double) {
@@ -1462,31 +1534,26 @@ class FlowGraph {
             nudge = e.portNudgeSource
         }
         ; The nudge runs ALONG the side, so it moves X on a top or bottom
-        ; handle and Y on a left or right one. `endpointY` has the mirror of
-        ; this test; between them exactly one axis takes the offset.
+        ; handle and Y on a left or right one — and on a shape whose side is
+        ; not the box's, the other axis follows the outline. The node knows
+        ; its shape; it takes the nudge whole and puts it on the right axis.
         def side:int (this.edgeSide(e atSource))
-        def alongX:boolean false
-        if (side == 0) { alongX = true }
-        if (side == 2) { alongX = true }
-        if (alongX == false) {
-            nudge = 0.0
-        }
         if atSource {
             if (this.hasPort(e.sourcePort)) {
                 def p:FlowPort (this.portRef(e.sourcePort))
                 def owner:FlowNode (this.nodeById(p.nodeId))
-                return ((owner.portX(p)) + nudge)
+                return (owner.portEdgeX(p nudge))
             }
             def n:FlowNode (this.nodeById(e.source))
-            return ((n.handleX(side)) + nudge)
+            return (n.edgeX(side nudge))
         }
         if (this.hasPort(e.targetPort)) {
             def p2:FlowPort (this.portRef(e.targetPort))
             def owner2:FlowNode (this.nodeById(p2.nodeId))
-            return ((owner2.portX(p2)) + nudge)
+            return (owner2.portEdgeX(p2 nudge))
         }
         def t:FlowNode (this.nodeById(e.target))
-        return ((t.handleX(side)) + nudge)
+        return (t.edgeX(side nudge))
     }
 
     fn endpointY:double (e:FlowEdge atSource:boolean) {
@@ -1494,32 +1561,23 @@ class FlowGraph {
         if atSource {
             nudge = e.portNudgeSource
         }
-        ; The nudge runs ALONG the side the port is on: down a left or right
-        ; edge, across a top or bottom one. Applying it on the wrong axis
-        ; would pull the endpoint off the node.
         def side:int (this.edgeSide(e atSource))
-        def alongY:boolean false
-        if (side == 1) { alongY = true }
-        if (side == 3) { alongY = true }
-        if (alongY == false) {
-            nudge = 0.0
-        }
         if atSource {
             if (this.hasPort(e.sourcePort)) {
                 def p:FlowPort (this.portRef(e.sourcePort))
                 def owner:FlowNode (this.nodeById(p.nodeId))
-                return ((owner.portY(p)) + nudge)
+                return (owner.portEdgeY(p nudge))
             }
             def n:FlowNode (this.nodeById(e.source))
-            return ((n.handleY(side)) + nudge)
+            return (n.edgeY(side nudge))
         }
         if (this.hasPort(e.targetPort)) {
             def p2:FlowPort (this.portRef(e.targetPort))
             def owner2:FlowNode (this.nodeById(p2.nodeId))
-            return ((owner2.portY(p2)) + nudge)
+            return (owner2.portEdgeY(p2 nudge))
         }
         def t:FlowNode (this.nodeById(e.target))
-        return ((t.handleY(side)) + nudge)
+        return (t.edgeY(side nudge))
     }
 
     fn edgeSide:int (e:FlowEdge atSource:boolean) {

@@ -1,0 +1,393 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * r5's chrome, as an EVG stylesheet. Light, because a document is read on
+ * paper; class-first and one token per selector, as gallery/ui's own sheets
+ * are. Every colour is a `@vars` value so a second palette is a second set
+ * of values, not a second set of rules.
+ *
+ * THE BREAKPOINT IS HERE AND NOWHERE ELSE. Under 768px the rail is not there
+ * and the bottom bar is; over it the bar is not there and the rail is. The
+ * tree is the same one (R5App builds both); the sheet folds it.
+ *
+ * Text elements carry a height: EVG's text engine measures the width and the
+ * box says how tall the line is. EVG's flex default is `wrap` where CSS's is
+ * `nowrap`, so every row that must not wrap says so.
+ */
+
+@vars {
+  --bg: #eef0f4;
+  --panel: #ffffff;
+  --panel-2: #f6f8fa;
+  --line: #d8dee4;
+  --ink: #1f2328;
+  --ink-dim: #57606a;
+  --ink-mute: #8c959f;
+  --accent: #0969da;
+  --accent-soft: #ddeafb;
+  --on-accent: #ffffff;
+  --scrim: rgba(31, 35, 40, 0.42);
+}
+
+/* --- the page ------------------------------------------------------------- */
+
+.r5-page {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  width: 100%;
+  height: 100%;
+  font-family: Open Sans;
+}
+
+.r5-body {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  flex-grow: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+/* --- the rail (a desk) ----------------------------------------------------- */
+
+.r5-rail {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  width: 72px;
+  min-width: 72px;
+  height: 100%;
+  padding: 10px 0px;
+  background-color: var(--panel);
+  border-right: 1px solid var(--line);
+}
+
+.r5-rail-btn {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 62px;
+  height: 40px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.r5-rail-btn:hover { background-color: var(--panel-2); }
+.r5-rail-btn-on { background-color: var(--accent-soft); }
+
+.r5-rail-txt {
+  color: var(--ink-dim);
+  font-size: 11.5px;
+  height: 16px;
+}
+.r5-rail-btn-on .r5-rail-txt { color: var(--accent); }
+
+.r5-rail-gap { flex-grow: 1; }
+
+/* --- the bottom bar (a phone) ---------------------------------------------- */
+
+.r5-nav {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  height: 56px;
+  min-height: 56px;
+  width: 100%;
+  background-color: var(--panel);
+  border-top: 1px solid var(--line);
+}
+
+.r5-nav-btn {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  flex-grow: 1;
+  cursor: pointer;
+}
+.r5-nav-btn:hover { background-color: var(--panel-2); }
+
+.r5-nav-txt {
+  color: var(--ink-dim);
+  font-size: 12px;
+  height: 17px;
+}
+.r5-nav-btn-on .r5-nav-txt { color: var(--accent); }
+
+/* --- the side: head, panes ------------------------------------------------- */
+
+.r5-side {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  flex-grow: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+.r5-head {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  min-height: 40px;
+  width: 100%;
+  padding: 0px 10px;
+  background-color: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.r5-head-txt {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: bold;
+  height: 18px;
+  padding-right: 6px;
+}
+
+.r5-head-gap { flex-grow: 1; }
+
+.r5-chip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  height: 26px;
+  padding: 0px 9px;
+  border-radius: 6px;
+  border-width: 1px;
+  border-color: var(--line);
+  background-color: var(--panel);
+  cursor: pointer;
+}
+.r5-chip:hover { background-color: var(--panel-2); }
+.r5-chip-on { background-color: var(--accent-soft); border-color: var(--accent-soft); }
+
+.r5-chip-txt {
+  color: var(--ink-dim);
+  font-size: 11.5px;
+  height: 16px;
+}
+.r5-chip-on .r5-chip-txt { color: var(--accent); }
+
+.r5-pill {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  height: 26px;
+  border-radius: 13px;
+  border-width: 1px;
+  border-color: var(--line);
+  background-color: var(--panel);
+}
+
+.r5-pill-btn {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.r5-pill-btn:hover { background-color: var(--panel-2); }
+
+.r5-pill-txt {
+  color: var(--ink-dim);
+  font-size: 14px;
+  height: 18px;
+}
+
+.r5-pill-num {
+  color: var(--ink);
+  font-size: 12px;
+  height: 16px;
+  padding: 0px 4px;
+}
+
+.r5-split {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  flex-grow: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+/* The editor paints itself into this rectangle; the box only says where. */
+.r5-editor {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+.r5-editor-side {
+  width: 42%;
+  min-width: 260px;
+  max-width: 720px;
+  border-right: 1px solid var(--line);
+}
+
+/* NO BACKGROUND. The document is drawn under the chrome, and this is the
+   hole it shows through. */
+.r5-pane {
+  flex-grow: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+.r5-hint {
+  color: var(--ink-mute);
+  font-size: 13px;
+  height: 18px;
+}
+
+/* --- the sheets ------------------------------------------------------------ */
+
+.r5-overlay {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  background-color: var(--scrim);
+}
+/* On a phone the sheet rises from the bottom, over the bar. */
+.r5-overlay-bottom {
+  justify-content: flex-end;
+  padding: 0px;
+}
+
+.r5-sheet {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 2px;
+  width: 360px;
+  max-width: 100%;
+  padding: 14px 12px 10px 12px;
+  border-radius: 14px;
+  background-color: var(--panel);
+  border-width: 1px;
+  border-color: var(--line);
+  box-shadow: 0px 8px 28px rgba(16, 22, 26, 0.18);
+}
+.r5-overlay-bottom .r5-sheet {
+  width: 100%;
+  max-width: 100%;
+  border-radius: 16px 16px 0px 0px;
+  padding-bottom: 14px;
+}
+
+.r5-sheet-ttl {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: bold;
+  height: 22px;
+  padding: 0px 8px 6px 8px;
+}
+
+.r5-sheet-sub {
+  color: var(--ink-mute);
+  font-size: 10.5px;
+  height: 22px;
+  padding: 8px 8px 0px 8px;
+}
+
+.r5-sheet-note {
+  color: var(--ink-dim);
+  font-size: 11px;
+  height: 30px;
+  padding: 8px 8px 0px 8px;
+}
+
+.r5-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.r5-row:hover { background-color: var(--panel-2); }
+.r5-row-on { background-color: var(--accent-soft); }
+
+.r5-row-mark {
+  color: var(--ink-mute);
+  font-size: 10px;
+  height: 14px;
+  width: 12px;
+}
+.r5-row-on .r5-row-mark { color: var(--accent); }
+
+.r5-row-txt {
+  color: var(--ink);
+  font-size: 13px;
+  height: 18px;
+}
+
+.r5-chips {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 8px;
+}
+
+.r5-fmt {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0px 11px;
+  border-radius: 7px;
+  border-width: 1px;
+  border-color: var(--line);
+  background-color: var(--panel);
+  cursor: pointer;
+}
+.r5-fmt:hover { background-color: var(--panel-2); }
+
+.r5-fmt-txt {
+  color: var(--ink);
+  font-size: 12.5px;
+  height: 17px;
+}
+
+/* --- the breakpoint -------------------------------------------------------- */
+
+@media (max-width: 767px) {
+  .r5-rail { display: none; }
+}
+@media (min-width: 768px) {
+  .r5-nav { display: none; }
+}
+
+/* A finger needs a bigger target than a mouse does. */
+@media (pointer: coarse) {
+  .r5-row { height: 44px; min-height: 44px; }
+  .r5-fmt { height: 40px; }
+  .r5-chip { height: 30px; }
+  .r5-rail-btn { height: 44px; }
+}

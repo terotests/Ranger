@@ -1,0 +1,71 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; Scratch: does a DOT cluster carry its nodes when it is dragged?
+Import "../domains/graphviz/DotFlow.rgr"
+Import "../core/FlowEditor.rgr"
+Import "../export/FlowExport.rgr"
+
+class ClusterProbe {
+    Constructor () {
+    }
+
+    sfn main:void () {
+        def p (new ClusterProbe)
+        p.run()
+    }
+
+    fn draw:void (g:FlowGraph stem:string) {
+        def v:FlowView (FlowView.of(g))
+        def ex (new FlowExport)
+        ex.loadFonts("gallery/pdf_writer/assets/fonts")
+        ex.mode = "fit"
+        ex.margin = 28.0
+        def ok:boolean (ex.writeSvg(v ("gallery/rangerflow/bin/cluster_" + stem + ".svg")))
+        print ("   wrote cluster_" + stem + ".svg " + (to_string ok))
+    }
+
+    fn run:void () {
+        def srcOpt:string (?? (read_file "." "gallery/rangerflow/bin/tilaus.gv") "")
+        def doc:DotGraph (DotReader.parse(srcOpt))
+        def style (new FlowStyle)
+        def g:FlowGraph (DotFlow.build(doc style))
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            if (n.nodeType == "group") {
+                print (("   frame " + n.id) + (" \"" + (n.label + "\"")))
+            } {
+                print (("   node  " + n.id) + ((" parent=" + n.parentId) + ((" x=" + (to_string (to_int n.x))) + (" y=" + (to_string (to_int n.y))))))
+            }
+            i = (i + 1)
+        }
+        this.draw(g "before")
+
+        ; Select the cluster and drag it, exactly as the editor does.
+        def ed:FlowEditor (FlowEditor.of(g))
+        def frame:FlowNode (g.nodeById("__cluster_cluster_laskutus"))
+        frame.selected = true
+        ed.beginDrag()
+        print ("   drag takes " + (to_string (array_length ed.dragIds)) + " nodes")
+        def k:int 0
+        while (k < (array_length ed.dragIds)) {
+            print ("     " + (itemAt ed.dragIds k))
+            k = (k + 1)
+        }
+        def m:int 0
+        while (m < (array_length ed.dragIds)) {
+            def id:string (itemAt ed.dragIds m)
+            def n2:FlowNode (g.nodeById(id))
+            n2.x = (n2.x + 320.0)
+            n2.y = (n2.y - 120.0)
+            n2.syncFromModel()
+            m = (m + 1)
+        }
+        ed.endDrag()
+        EdgeLanes.reset(g)
+        def refaced:int (EdgeFacing.repairAll(g))
+        EdgeLanes.assign(g)
+        OrthoRouter.repairAll(g)
+        print ("   re-faced ends after the drag: " + (to_string refaced))
+        this.draw(g "after")
+    }
+}

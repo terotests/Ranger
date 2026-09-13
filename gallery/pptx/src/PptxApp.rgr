@@ -61,38 +61,75 @@ class PptxToolbar extends EVGToolbar {
     fn build:void () {
         clear items
         clear tabs
-        this.addTab("Home")
-        this.add("file.open" "" "Open a deck" (ToolIcon.openFile()))
-        ; The two a beginner reaches for first carry their names.
+        ; File is what you do to the DECK: open it, save it, print it, show
+        ; it. Home is what you do to the text in front of you, in the order a
+        ; reader scans a formatting row — undo, face, size, weight, colour,
+        ; then the paragraph — which is the order every suite from Docs to
+        ; Writer settled on. Insert puts something new on the slide, Arrange
+        ; moves what is there, and Slides is the deck itself. Thirty buttons
+        ; in one band made all of it look like one undifferentiated wall of
+        ; pictures, and a Format tab beside a Home tab meant the same text
+        ; button twice.
+        this.addTab("File")
+        this.addLabeled("file.open" "" "Open" (ToolIcon.openFile()))
         this.addLabeled("file.save" "" "Save" (ToolIcon.save()))
         this.addLabeled("file.print" "" "Print" (ToolIcon.printDoc()))
         this.addSeparator()
-        this.add("slide.first" "" "First slide" (ToolIcon.navFirst()))
-        this.add("slide.prev" "" "Previous slide" (ToolIcon.navPrev()))
-        this.add("slide.next" "" "Next slide" (ToolIcon.navNext()))
-        this.add("slide.last" "" "Last slide" (ToolIcon.navLast()))
-        this.addSeparator()
-        ; The typeface, where the slide counter used to be.
-        ;
-        ; That counter read "3 / 12" and opened a grid of numbered buttons.
-        ; Four nav buttons sit to its left and the whole deck is drawn down
-        ; the side as thumbnails, so it was the third way to do the same
-        ; thing and the worst of the three — while the one thing a reader
-        ; reaches for constantly, the font of the text they have selected,
-        ; was nowhere on the strip at all. `slide.pick` is still a command;
-        ; it just no longer takes the best slot on the tab.
-        ;
-        ; The entries are filled in at `refreshFonts`, from the faces the page
-        ; has actually loaded — a chooser offering a typeface nothing can draw
-        ; would measure with one face and paint with another.
-        this.addDropdown("Font" (ToolIcon.textBox()))
-        this.addSeparator()
-        ; The editing half of the strip. It is always here — the buttons are
-        ; live only while `edit.toggle` is pressed, which is what tells you
-        ; the deck can be changed at all.
-        this.add("edit.toggle" "" "Edit the slide" (ToolIcon.editMode()))
+        this.addLabeled("show.start" "" "Show" (ToolIcon.play()))
+
+        this.addTab("Home")
+        ; One row, and it has to fit a pane: the markdown page shows this
+        ; strip in a column beside a text editor. So the groups are the
+        ; groups Docs draws, and the two that are lists of choices — a
+        ; paragraph's alignment, a list's kind and level — are one button
+        ; that opens rather than four that do not fit.
         this.add("edit.undo" "" "Undo" (ToolIcon.undo()))
         this.add("edit.redo" "" "Redo" (ToolIcon.redo()))
+        this.addSeparator()
+        ; The typeface. The entries are filled in at `refreshFonts`, from the
+        ; faces the page has actually loaded — a chooser offering a typeface
+        ; nothing can draw would measure with one face and paint with another.
+        this.addDropdown("Font" (ToolIcon.textBox()))
+        this.add("text.size.down" "" "Smaller text" (ToolIcon.sizeDown()))
+        this.add("text.size.up" "" "Bigger text" (ToolIcon.sizeUp()))
+        this.addSeparator()
+        this.add("edit.bold" "" "Bold text" (ToolIcon.bold()))
+        this.add("edit.italic" "" "Italic text" (ToolIcon.italic()))
+        ; Colour, alignment and list are the icon and a chevron, no word:
+        ; the picture says which is which, and the three words were the
+        ; width the row was over the pane by.
+        (this.addDropdown("Colour" (ToolIcon.textColor()))).showLabel = false
+        this.addUnder("edit.textcolor" "1F2328" "Ink" (ToolIcon.textColor()))
+        this.addUnder("edit.textcolor" "FFFFFF" "White" (ToolIcon.textColor()))
+        this.addUnder("edit.textcolor" "6B7280" "Grey" (ToolIcon.textColor()))
+        this.addUnder("edit.textcolor" "B4451F" "Rust" (ToolIcon.textColor()))
+        this.addUnder("edit.textcolor" "1D4ED8" "Blue" (ToolIcon.textColor()))
+        this.addUnder("edit.textcolor" "15803D" "Green" (ToolIcon.textColor()))
+        this.addSeparator()
+        ; The paragraph: where its text sits, and whether it is a list.
+        (this.addDropdown("Align" (ToolIcon.alignLeft()))).showLabel = false
+        this.addUnder("text.align.left" "" "Left" (ToolIcon.alignLeft()))
+        this.addUnder("text.align.center" "" "Centre" (ToolIcon.alignCenter()))
+        this.addUnder("text.align.right" "" "Right" (ToolIcon.alignRight()))
+        (this.addDropdown("List" (ToolIcon.bulletList()))).showLabel = false
+        this.addUnder("text.bullet" "" "Bulleted" (ToolIcon.bulletList()))
+        this.addUnder("text.number" "" "Numbered" (ToolIcon.numberList()))
+        this.addUnder("text.indent" "" "Indent" (ToolIcon.indentMore()))
+        this.addUnder("text.outdent" "" "Outdent" (ToolIcon.indentLess()))
+        this.addSeparator()
+        ; The editing switch. It is always here — the buttons are live only
+        ; while it is pressed, which is what tells you the deck can be changed
+        ; at all.
+        this.add("edit.toggle" "" "Edit the slide" (ToolIcon.editMode()))
+        this.addSeparator()
+        ; Where you are in the deck: the thing a reader does between every
+        ; other thing, so it is on the page they work on rather than a tab
+        ; away. Last on the row, because a pane too narrow for the whole row
+        ; clips its tail, and this is the pair a page beside a text editor
+        ; has another way to do — a page pill, the panel — while the editing
+        ; switch it does not. First and last are Home and End.
+        this.add("slide.prev" "" "Previous slide" (ToolIcon.navPrev()))
+        this.add("slide.next" "" "Next slide" (ToolIcon.navNext()))
 
         this.addTab("Insert")
         ; The text box is what somebody opens Insert to do, so it is drawn as
@@ -107,63 +144,49 @@ class PptxToolbar extends EVGToolbar {
         this.addTab("Arrange")
         this.add("edit.copy" "" "Copy" (ToolIcon.copy()))
         this.add("edit.paste" "" "Paste" (ToolIcon.paste()))
-        this.add("edit.lock" "" "Lock or unlock" (ToolIcon.lock()))
-        this.add("edit.flip.h" "" "Flip across" (ToolIcon.flipH()))
-        this.add("edit.flip.v" "" "Flip down" (ToolIcon.flipV()))
         this.add("edit.duplicate" "" "Duplicate" (ToolIcon.duplicate()))
         this.add("edit.delete" "" "Delete" (ToolIcon.trash()))
+        this.addSeparator()
+        ; A shape's formatting, picked up and painted on another: about
+        ; shapes, so it lives with the rest of what is done to them.
+        this.add("format.copy" "" "Pick up the formatting" (ToolIcon.paint()))
+        this.add("format.paste" "" "Paint it on" (ToolIcon.formatPaste()))
+        this.addSeparator()
         this.add("edit.front" "" "Bring to front" (ToolIcon.bringFront()))
         this.add("edit.back" "" "Send to back" (ToolIcon.sendBack()))
         this.add("edit.group" "" "Group" (ToolIcon.group()))
         this.add("edit.ungroup" "" "Ungroup" (ToolIcon.ungroup()))
-        ; Moving shapes to line up with each other, which is what Align meant
-        ; on the Format tab and should never have.
+        this.add("edit.lock" "" "Lock or unlock" (ToolIcon.lock()))
+        this.addSeparator()
+        this.add("edit.flip.h" "" "Flip across" (ToolIcon.flipH()))
+        this.add("edit.flip.v" "" "Flip down" (ToolIcon.flipV()))
+        ; Moving shapes to line up with each other — SHAPES, which is why it
+        ; is here and not beside the text alignment on Home.
         this.addDropdown("Line up" (ToolIcon.arrangeLeft()))
         this.addUnder("edit.align.left" "" "Left edges" (ToolIcon.arrangeLeft()))
         this.addUnder("edit.align.hcenter" "" "Centres, across" (ToolIcon.arrangeCenter()))
         this.addUnder("edit.align.right" "" "Right edges" (ToolIcon.arrangeRight()))
 
-        this.addTab("Format")
-        ; Align, on the FORMAT tab, means the text inside the shape — which is
-        ; what a reader who has just selected a text box is asking for. It used
-        ; to move the shape across the slide instead, which is a different job
-        ; and now lives under Arrange. Three buttons became one list because
-        ; only one of the three is ever wanted at a time.
-        ;
-        ; Master reached the same complaint from the other side while this
-        ; branch was open: it kept `edit.align.*` here and gave the three their
-        ; own pictures so that lining SHAPES up could not be mistaken for
-        ; aligning TEXT. Both halves are kept — the shape ones moved to Arrange
-        ; above rather than staying here, since that is where the rest of
-        ; moving things about lives, and they take master's new icons, which is
-        ; what stops the two Lefts from sharing one picture.
-        this.addDropdown("Align" (ToolIcon.alignLeft()))
-        this.addUnder("text.align.left" "" "Left" (ToolIcon.alignLeft()))
-        this.addUnder("text.align.center" "" "Centre" (ToolIcon.alignCenter()))
-        this.addUnder("text.align.right" "" "Right" (ToolIcon.alignRight()))
-        this.add("format.copy" "" "Pick up the formatting" (ToolIcon.paint()))
-        this.add("format.paste" "" "Paint it on" (ToolIcon.formatPaste()))
-        this.add("edit.bold" "" "Bold text" (ToolIcon.bold()))
-        this.add("edit.italic" "" "Italic text" (ToolIcon.italic()))
-        this.add("text.bullet" "" "Bulleted list" (ToolIcon.bulletList()))
-        this.add("text.number" "" "Numbered list" (ToolIcon.numberList()))
-        this.add("text.outdent" "" "Outdent the list" (ToolIcon.indentLess()))
-        this.add("text.indent" "" "Indent the list" (ToolIcon.indentMore()))
-
         this.addTab("Slides")
+        this.add("slide.add" "" "New slide" (ToolIcon.slideAdd()))
+        this.add("slide.duplicate" "" "Duplicate slide" (ToolIcon.slideCopy()))
+        this.add("slide.delete" "" "Delete slide" (ToolIcon.slideDel()))
+        this.addSeparator()
+        this.add("slide.first" "" "First slide" (ToolIcon.navFirst()))
+        this.add("slide.last" "" "Last slide" (ToolIcon.navLast()))
+        this.addSeparator()
         this.add("view.notes" "" "Show the notes" (ToolIcon.comment()))
         this.add("view.props" "" "Show fill, line and text" (ToolIcon.fill()))
         ; A list, because that is what an outline is: the slide's own shapes
         ; down the side, where the deck usually is.
         this.add("view.outline" "" "Browse this slide's shapes" (ToolIcon.outlineList()))
         this.add("theme.palette" "office" "Recolour the deck" (ToolIcon.palette()))
-        this.add("slide.add" "" "New slide" (ToolIcon.slideAdd()))
-        this.add("slide.duplicate" "" "Duplicate slide" (ToolIcon.slideCopy()))
-        this.add("slide.delete" "" "Delete slide" (ToolIcon.slideDel()))
-        this.addSeparator()
-        this.add("show.start" "" "Show the deck" (ToolIcon.play()))
         this.addSeparator()
         this.add("view.rtl" "" "Right-to-left layout" (ToolIcon.textRtl()))
+
+        ; Home is the page a deck opens on; File is first because that is
+        ; where every suite puts it, not because it is where anyone works.
+        this.selectTab((this.tabNamed("Home")))
     }
 
     ; The one button that shows a value rather than a picture. The strip
@@ -517,6 +540,9 @@ class PptxApp {
     ; `view.chromeH` is what the slide's fit-to-window scale keeps clear, so it
     ; has to be the whole frame rather than the old status band alone.
     fn initFrame:void () {
+        ; The strip lays a large button out in its one row, word beside
+        ; picture; the icon painter has to know or it stacks the two.
+        toolbarView.largeInline = true
         toolbar.build()
         toolbar.editOn = editMode
         toolbarH = (stripUi.heightFor(W))
@@ -809,6 +835,8 @@ class PptxApp {
         commands.add("edit.distribute.h" "Distribute across" "Arrange" "")
         commands.add("edit.distribute.v" "Distribute down" "Arrange" "")
         commands.add("edit.bold" "Bold text" "Format" "Ctrl+B")
+        commands.add("text.size.up" "Bigger text" "Format" "")
+        commands.add("text.size.down" "Smaller text" "Format" "")
         commands.add("edit.italic" "Italic text" "Format" "Ctrl+I")
         commands.add("text.bullet" "Bulleted list" "Format" "")
         commands.add("text.number" "Numbered list" "Format" "")
@@ -3630,6 +3658,26 @@ class PptxApp {
         return r.bold
     }
 
+    ; The size the selection's text is set in, in points — the first run of
+    ; the first selected shape, which is what the strip's face and weight
+    ; already answer from. Eighteen when nothing says: a deck's default.
+    fn selectionSizePt:double () {
+        def hit@(optional):PptxShape (editor.firstSelected())
+        if (null? hit) {
+            return 18.0
+        }
+        def sh:PptxShape (unwrap hit)
+        def run@(optional):PptxTextRun (PptxEditor.firstRun(sh.text))
+        if (null? run) {
+            return 18.0
+        }
+        def r:PptxTextRun (unwrap run)
+        if (r.fontSizePt <= 0.0) {
+            return 18.0
+        }
+        return r.fontSizePt
+    }
+
     fn selectionItalic:boolean () {
         def hit@(optional):PptxShape (editor.firstSelected())
         if (null? hit) {
@@ -4128,6 +4176,18 @@ class PptxApp {
         if (id == "edit.italic") {
             def it:boolean (this.selectionItalic())
             return (editor.setTextItalic((it == false)))
+        }
+        ; Two points at a time, between six and ninety-six: the steps a
+        ; slide's text is set in, and the range a slide can show.
+        if (id == "text.size.up") {
+            def up:double ((this.selectionSizePt()) + 2.0)
+            if (up > 96.0) { up = 96.0 }
+            return (editor.setTextSizePt(up))
+        }
+        if (id == "text.size.down") {
+            def down:double ((this.selectionSizePt()) - 2.0)
+            if (down < 6.0) { down = 6.0 }
+            return (editor.setTextSizePt(down))
         }
         ; Lists. Both toggle: asking for the list a paragraph already is turns
         ; it off, which is what every editor's list button does.

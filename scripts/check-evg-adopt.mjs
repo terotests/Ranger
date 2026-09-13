@@ -49,6 +49,7 @@ const EXPECTED_SKIPS = {
   ringsSteps: "derived — the step ceiling the cache was flattened at",
   ringsScale: "derived — the scale the cache was flattened at",
   ringsViewBox: "derived — the viewBox the cache was flattened under",
+  ringsFit: "derived — the preserveAspectRatio the cache was flattened under",
 };
 
 const src = fs.readFileSync(FILE, "utf8").split("\n");

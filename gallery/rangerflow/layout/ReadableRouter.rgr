@@ -108,6 +108,40 @@ class ReadableRouter {
     def extraDown:[double]
     def turnExtra:[double]
 
+    ; --------------------------------------------------- the segment index --
+    ; `segmentExtra` and `pointNearSegments` ask the same two questions of
+    ; every segment already drawn, and both answers are LOCAL: a crossing needs
+    ; the other segment to lie across this one's own span, and everything else
+    ; — running parallel too close, turning on somebody's line — has a radius
+    ; of a dozen pixels. Asking all of them was the whole cost of the router:
+    ; on a 28-node DOT diagram the simplify pass alone made fifteen thousand
+    ; million segment comparisons and took over a minute.
+    ;
+    ; So the segments are binned along the ONE coordinate each of them is
+    ; constant in — a vertical by its x, a horizontal by its y — and a query
+    ; visits only the bins its answer can be in. The predicates are unchanged
+    ; and every candidate is still tested exactly: this narrows what is asked,
+    ; never what is charged, so the routes it produces are the same routes.
+    ;
+    ; Rebuilt by a counting sort, which is linear, so the many small edits the
+    ; simplify pass makes cost nothing to keep up with.
+    def idxDirty@(mutable):boolean true
+    def idxBins@(mutable):int 1
+    ; verticals, in bin order, and where each bin starts
+    def vAt:[int]
+    def vStart:[int]
+    def vLo@(mutable):double 0.0
+    def vStep@(mutable):double 1.0
+    ; horizontals, the same
+    def hAt:[int]
+    def hStart:[int]
+    def hLo@(mutable):double 0.0
+    def hStep@(mutable):double 1.0
+    ; anything axis-aligned in neither sense — nothing produces one today, and
+    ; a pass that quietly dropped it if something did would be a bug nobody
+    ; could see. Scanned every time; the list is empty.
+    def oAt:[int]
+
     def cur:int -1
     ; diagnostics
     def unrouted:int 0
@@ -167,6 +201,7 @@ class ReadableRouter {
         clear sy1
         clear sx2
         clear sy2
+        idxDirty = true
         clear cornerEdge
         clear cornX
         clear cornY
@@ -419,7 +454,7 @@ class ReadableRouter {
         push pts by
         push pts (ReadableRouter.onOutline((g.nodeAt(e.targetIndex)) x2 y2 (FlowPosition.normalX(s2)) (FlowPosition.normalY(s2)) true))
         push pts (ReadableRouter.onOutline((g.nodeAt(e.targetIndex)) x2 y2 (FlowPosition.normalX(s2)) (FlowPosition.normalY(s2)) false))
-        def tidy:[double] (EdgeRouter.dropCollinear((EdgeRouter.dedupe(pts))))
+        def tidy:[double] (ReadableRouter.mergeInterior(pts))
         if ((idiv (array_length tidy) 2) < 2) {
             return none
         }
@@ -515,6 +550,140 @@ class ReadableRouter {
         push sy1 ay
         push sx2 bx
         push sy2 by
+        idxDirty = true
+    }
+
+    ; ------------------------------------------------------- the index ------
+    ; A counting sort into `idxBins` bins over one coordinate, once per batch
+    ; of edits rather than once per query.
+    fn reindexSegs:void () {
+        idxDirty = false
+        clear vAt
+        clear hAt
+        clear oAt
+        clear vStart
+        clear hStart
+        def n:int (array_length segEdge)
+        def bins:int (1 + (idiv n 2))
+        if (bins < 16) { bins = 16 }
+        if (bins > 1024) { bins = 1024 }
+        idxBins = bins
+        ; --- which family each segment is in, and its key
+        def vKey:[double]
+        def vOf:[int]
+        def hKey:[double]
+        def hOf:[int]
+        def m:int 0
+        while (m < n) {
+            def ax:double (itemAt sx1 m)
+            def ay:double (itemAt sy1 m)
+            def bx:double (itemAt sx2 m)
+            def by:double (itemAt sy2 m)
+            ; The same test `crosses` and `proximityOf` use, so a segment is
+            ; filed under the family those two will judge it as.
+            if ((fabs (ax - bx)) < 0.5) {
+                push vKey ax
+                push vOf m
+            } {
+                if ((fabs (ay - by)) < 0.5) {
+                    push hKey ay
+                    push hOf m
+                } {
+                    push oAt m
+                }
+            }
+            m = (m + 1)
+        }
+        vLo = (ReadableRouter.lowOf(vKey))
+        vStep = (ReadableRouter.stepOf(vKey vLo bins))
+        hLo = (ReadableRouter.lowOf(hKey))
+        hStep = (ReadableRouter.stepOf(hKey hLo bins))
+        this.fill(vAt vStart vKey vOf vLo vStep bins)
+        this.fill(hAt hStart hKey hOf hLo hStep bins)
+    }
+
+    sfn lowOf:double (keys:[double]) {
+        if ((array_length keys) == 0) {
+            return 0.0
+        }
+        def lo:double (itemAt keys 0)
+        def i:int 1
+        while (i < (array_length keys)) {
+            def v:double (itemAt keys i)
+            if (v < lo) { lo = v }
+            i = (i + 1)
+        }
+        return lo
+    }
+
+    sfn stepOf:double (keys:[double] lo:double bins:int) {
+        if ((array_length keys) == 0) {
+            return 1.0
+        }
+        def hi:double (itemAt keys 0)
+        def i:int 1
+        while (i < (array_length keys)) {
+            def v:double (itemAt keys i)
+            if (v > hi) { hi = v }
+            i = (i + 1)
+        }
+        def span:double (hi - lo)
+        if (span < 1.0) {
+            return 1.0
+        }
+        return (span / (to_double bins))
+    }
+
+    ; Counting sort: count, prefix, place.
+    fn fill:void (into:[int] starts:[int] keys:[double] of:[int] lo:double step:double bins:int) {
+        def counts:[int]
+        def b:int 0
+        while (b <= bins) {
+            push counts 0
+            push starts 0
+            b = (b + 1)
+        }
+        def i:int 0
+        while (i < (array_length keys)) {
+            def at:int (ReadableRouter.binOf((itemAt keys i) lo step bins))
+            set_at counts at ((itemAt counts at) + 1)
+            i = (i + 1)
+        }
+        def run:int 0
+        def b2:int 0
+        while (b2 <= bins) {
+            set_at starts b2 run
+            if (b2 < bins) {
+                run = (run + (itemAt counts b2))
+            }
+            b2 = (b2 + 1)
+        }
+        def cursor:[int]
+        def b3:int 0
+        while (b3 <= bins) {
+            push cursor (itemAt starts b3)
+            b3 = (b3 + 1)
+        }
+        def j:int 0
+        while (j < (array_length keys)) {
+            push into 0
+            j = (j + 1)
+        }
+        def p:int 0
+        while (p < (array_length keys)) {
+            def at2:int (ReadableRouter.binOf((itemAt keys p) lo step bins))
+            def slot:int (itemAt cursor at2)
+            set_at into slot (itemAt of p)
+            set_at cursor at2 (slot + 1)
+            p = (p + 1)
+        }
+    }
+
+    sfn binOf:int (v:double lo:double step:double bins:int) {
+        def at:int (to_int ((v - lo) / step))
+        if (at < 0) { at = 0 }
+        if (at >= bins) { at = (bins - 1) }
+        return at
     }
 
     fn dropSegsOf:void (k:int) {
@@ -539,6 +708,7 @@ class ReadableRouter {
         ReadableRouter.takeDoubles(sy1 b)
         ReadableRouter.takeDoubles(sx2 c)
         ReadableRouter.takeDoubles(sy2 d)
+        idxDirty = true
     }
 
     fn unregister:void (k:int) {
@@ -928,32 +1098,43 @@ class ReadableRouter {
     ; a crossing at somebody's bend or socket, running parallel too close,
     ; sharing a corridor outright, and passing through a label.
     fn segmentExtra:double (ax:double ay:double bx:double by:double skip:int) {
+        if idxDirty {
+            this.reindexSegs()
+        }
         def total:double 0.0
         def vertical:boolean ((fabs (ax - bx)) < 0.5)
-        def m:int 0
-        while (m < (array_length segEdge)) {
-            def owner:int (itemAt segEdge m)
-            if (owner != skip) {
-                def cx:double (itemAt sx1 m)
-                def cy:double (itemAt sy1 m)
-                def dx:double (itemAt sx2 m)
-                def dy:double (itemAt sy2 m)
-                if (ReadableRouter.crosses(ax ay bx by cx cy dx dy)) {
-                    total = (total + crossingCost)
-                    def px:double cx
-                    def py:double ay
-                    if vertical {
-                        px = ax
-                        py = cy
-                    }
-                    if (this.nearCorner(px py owner)) {
-                        total = (total + crossingAtBendCost)
-                    }
-                } {
-                    total = (total + (this.proximityOf(ax ay bx by cx cy dx dy)))
-                }
+        ; A pair is either a crossing or a proximity and never both: `crosses`
+        ; refuses two segments of the same family, and `proximityOf` refuses
+        ; two of different ones. So the two questions are asked of two lists,
+        ; each narrowed to the range its answer can be in, and between them
+        ; they ask exactly what the single loop over everything used to.
+        def slack:double 1.0
+        if vertical {
+            ; crossings: horizontals whose own y lies along this segment
+            def yLo:double (ReadableRouter.minOf(ay by))
+            def yHi:double (ReadableRouter.maxOf(ay by))
+            def crossV:double (this.crossRange(hAt hStart hLo hStep (yLo - slack) (yHi + slack) ax ay bx by skip vertical))
+            total = (total + crossV)
+            ; parallels: verticals standing within a hair's breadth in x
+            def nearV:double (this.nearRange(vAt vStart vLo vStep (ax - minParallelGap) (ax + minParallelGap) ax ay bx by skip))
+            total = (total + nearV)
+        } {
+            def xLo:double (ReadableRouter.minOf(ax bx))
+            def xHi:double (ReadableRouter.maxOf(ax bx))
+            def crossH:double (this.crossRange(vAt vStart vLo vStep (xLo - slack) (xHi + slack) ax ay bx by skip vertical))
+            total = (total + crossH)
+            def nearH:double (this.nearRange(hAt hStart hLo hStep (ay - minParallelGap) (ay + minParallelGap) ax ay bx by skip))
+            total = (total + nearH)
+        }
+        ; Whatever was in neither family — nothing, today.
+        def o:int 0
+        while (o < (array_length oAt)) {
+            def om:int (itemAt oAt o)
+            o = (o + 1)
+            if ((itemAt segEdge om) == skip) {
+                continue
             }
-            m = (m + 1)
+            total = (total + (this.chargeOne(om ax ay bx by vertical)))
         }
         if useLabels {
             def l:int 0
@@ -966,6 +1147,100 @@ class ReadableRouter {
             }
         }
         return total
+    }
+
+    ; Every segment in `[lo, hi]` of the binned coordinate, charged the way
+    ; the single loop charged it. `crossRange` is handed the perpendicular
+    ; family, `nearRange` the parallel one; the predicates decide, as before.
+    fn crossRange:double (at:[int] starts:[int] lo0:double step:double lo:double hi:double ax:double ay:double bx:double by:double skip:int vertical:boolean) {
+        def total:double 0.0
+        def n:int (array_length at)
+        if (n == 0) {
+            return 0.0
+        }
+        def from:int (itemAt starts (ReadableRouter.binOf(lo lo0 step idxBins)))
+        def upto:int (itemAt starts ((ReadableRouter.binOf(hi lo0 step idxBins)) + 1))
+        def i:int from
+        while (i < upto) {
+            def m:int (itemAt at i)
+            i = (i + 1)
+            def owner:int (itemAt segEdge m)
+            if (owner == skip) {
+                continue
+            }
+            def cx:double (itemAt sx1 m)
+            def cy:double (itemAt sy1 m)
+            def dx:double (itemAt sx2 m)
+            def dy:double (itemAt sy2 m)
+            if (ReadableRouter.crosses(ax ay bx by cx cy dx dy)) {
+                total = (total + crossingCost)
+                def px:double cx
+                def py:double ay
+                if vertical {
+                    px = ax
+                    py = cy
+                }
+                if (this.nearCorner(px py owner)) {
+                    total = (total + crossingAtBendCost)
+                }
+            }
+            i = i
+        }
+        return total
+    }
+
+    fn nearRange:double (at:[int] starts:[int] lo0:double step:double lo:double hi:double ax:double ay:double bx:double by:double skip:int) {
+        def total:double 0.0
+        def n:int (array_length at)
+        if (n == 0) {
+            return 0.0
+        }
+        def from:int (itemAt starts (ReadableRouter.binOf(lo lo0 step idxBins)))
+        def upto:int (itemAt starts ((ReadableRouter.binOf(hi lo0 step idxBins)) + 1))
+        def i:int from
+        while (i < upto) {
+            def m:int (itemAt at i)
+            i = (i + 1)
+            if ((itemAt segEdge m) == skip) {
+                continue
+            }
+            total = (total + (this.proximityOf(ax ay bx by (itemAt sx1 m) (itemAt sy1 m) (itemAt sx2 m) (itemAt sy2 m))))
+        }
+        return total
+    }
+
+    ; One segment, judged both ways — the shape the old single loop had, kept
+    ; for the family that is neither vertical nor horizontal.
+    fn chargeOne:double (m:int ax:double ay:double bx:double by:double vertical:boolean) {
+        def owner:int (itemAt segEdge m)
+        def cx:double (itemAt sx1 m)
+        def cy:double (itemAt sy1 m)
+        def dx:double (itemAt sx2 m)
+        def dy:double (itemAt sy2 m)
+        if (ReadableRouter.crosses(ax ay bx by cx cy dx dy)) {
+            def total:double crossingCost
+            def px:double cx
+            def py:double ay
+            if vertical {
+                px = ax
+                py = cy
+            }
+            if (this.nearCorner(px py owner)) {
+                total = (total + crossingAtBendCost)
+            }
+            return total
+        }
+        return (this.proximityOf(ax ay bx by cx cy dx dy))
+    }
+
+    sfn minOf:double (a:double b:double) {
+        if (a < b) { return a }
+        return b
+    }
+
+    sfn maxOf:double (a:double b:double) {
+        if (a > b) { return a }
+        return b
     }
 
     ; Do two axis-aligned segments cross? Half-open along the first — a
@@ -1074,15 +1349,50 @@ class ReadableRouter {
         return false
     }
 
+    ; A vertical segment stands at one x, so nothing further than that in x
+    ; can be within the junction radius of a point — and the same for a
+    ; horizontal in y. That is the whole of why the bins answer this.
     fn pointNearSegments:boolean (px:double py:double skip:int) {
-        def m:int 0
-        while (m < (array_length segEdge)) {
-            if ((itemAt segEdge m) != skip) {
-                if ((ReadableRouter.pointToSegment(px py (itemAt sx1 m) (itemAt sy1 m) (itemAt sx2 m) (itemAt sy2 m))) < junctionRadius) {
-                    return true
-                }
+        if idxDirty {
+            this.reindexSegs()
+        }
+        def reach:double (junctionRadius + 1.0)
+        if (this.pointNear(vAt vStart vLo vStep (px - reach) (px + reach) px py skip)) {
+            return true
+        }
+        if (this.pointNear(hAt hStart hLo hStep (py - reach) (py + reach) px py skip)) {
+            return true
+        }
+        def o:int 0
+        while (o < (array_length oAt)) {
+            def om:int (itemAt oAt o)
+            o = (o + 1)
+            if ((itemAt segEdge om) == skip) {
+                continue
             }
-            m = (m + 1)
+            if ((ReadableRouter.pointToSegment(px py (itemAt sx1 om) (itemAt sy1 om) (itemAt sx2 om) (itemAt sy2 om))) < junctionRadius) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn pointNear:boolean (at:[int] starts:[int] lo0:double step:double lo:double hi:double px:double py:double skip:int) {
+        if ((array_length at) == 0) {
+            return false
+        }
+        def from:int (itemAt starts (ReadableRouter.binOf(lo lo0 step idxBins)))
+        def upto:int (itemAt starts ((ReadableRouter.binOf(hi lo0 step idxBins)) + 1))
+        def i:int from
+        while (i < upto) {
+            def m:int (itemAt at i)
+            i = (i + 1)
+            if ((itemAt segEdge m) == skip) {
+                continue
+            }
+            if ((ReadableRouter.pointToSegment(px py (itemAt sx1 m) (itemAt sy1 m) (itemAt sx2 m) (itemAt sy2 m))) < junctionRadius) {
+                return true
+            }
         }
         return false
     }
@@ -1619,7 +1929,71 @@ class ReadableRouter {
             push out (itemAt pts at2)
             j = (j + 1)
         }
-        return (EdgeRouter.dropCollinear((EdgeRouter.dedupe(out))))
+        return (ReadableRouter.mergeInterior(out))
+    }
+
+    ; `search` hands back every grid vertex it walked, not only the ones it
+    ; turned at, and `EdgeRouter.dropCollinear` drops REPEATED points rather
+    ; than collinear ones — so a route across a dense grid was stored as two
+    ; hundred corners of which three were corners. Every later pass paid for
+    ; that twice over: `evalRoute` charges `bendCost` once per stored point, so
+    ; a straight run was priced as two hundred bends, and `simplify` walks
+    ; every PAIR of corners, so it walked forty thousand pairs of a route that
+    ; has three. On a 28-node DOT diagram that was seventy seconds of work to
+    ; decide almost nothing.
+    ;
+    ; Collapsing the runs changes nothing on the page — `EdgeRouter.cornersFor`
+    ; merges them again before anything is painted — but the two STUBS are not
+    ; ordinary corners and may not be merged away. `pts[0..1]` is the exit stub
+    ; and `pts[n-2..n-1]` the entry stub, and `stubsIntact`, `simplify`'s
+    ; bounds and `evalRoute`'s halo check all address them by index. Merging a
+    ; stub into the run that follows it hid a long segment behind the
+    ; exemption meant for a twenty-pixel one, and put a line through a node.
+    sfn mergeInterior:[double] (pts:[double]) {
+        def compact:[double] (EdgeRouter.dedupe(pts))
+        def n:int (idiv (array_length compact) 2)
+        if (n < 5) {
+            return compact
+        }
+        def out:[double]
+        push out (itemAt compact 0)
+        push out (itemAt compact 1)
+        push out (itemAt compact 2)
+        push out (itemAt compact 3)
+        def i:int 2
+        while (i <= (n - 3)) {
+            def px:double (itemAt out ((array_length out) - 2))
+            def py:double (itemAt out ((array_length out) - 1))
+            def cx:double (itemAt compact (i * 2))
+            def cyAt:int ((i * 2) + 1)
+            def cy:double (itemAt compact cyAt)
+            def nx:double (itemAt compact ((i + 1) * 2))
+            def nyAt:int (((i + 1) * 2) + 1)
+            def ny:double (itemAt compact nyAt)
+            def turns:boolean true
+            if ((fabs (cx - px)) < 0.01) {
+                if ((fabs (nx - cx)) < 0.01) {
+                    turns = false
+                }
+            }
+            if ((fabs (cy - py)) < 0.01) {
+                if ((fabs (ny - cy)) < 0.01) {
+                    turns = false
+                }
+            }
+            if turns {
+                push out cx
+                push out cy
+            }
+            i = (i + 1)
+        }
+        push out (itemAt compact ((n - 2) * 2))
+        def beforeAt:int (((n - 2) * 2) + 1)
+        push out (itemAt compact beforeAt)
+        push out (itemAt compact ((n - 1) * 2))
+        def lastAt:int (((n - 1) * 2) + 1)
+        push out (itemAt compact lastAt)
+        return out
     }
 
     ; The first move after the exit stub may not head back into the node, and

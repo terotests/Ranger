@@ -66,6 +66,12 @@
 #                read by RangerFlow's reader and land on the page as geometry,
 #                not as pictures. **Download PDF** builds the file in the tab —
 #                sheets, page breaks and embedded fonts — with no server.
+#   /r5/      -> the same markdown engine under a chrome that is itself a
+#                Ranger program: one EVG tree, a stylesheet whose @media blocks
+#                fold the rail into a bottom bar at 768px, the choices behind
+#                sheets, and the source typed into the code editor from
+#                gallery/datagrid — full-screen tabs on a phone, panes side by
+#                side on a desk. Same exports, same views, one canvas.
 #   /docs/    -> the language documentation. The operator reference is generated
 #                from compiler/Lang.rgr and lib/*.rgr by docs/tools, and the
 #                examples on it are compiled by the compiler built in this job,
@@ -128,6 +134,11 @@ on:
       # The markdown viewer at /markdown/. It draws its diagrams through
       # rangerflow's Mermaid reader, which is why that path is above this one.
       - "gallery/markdown/**"
+      # r5 at /r5/ is the markdown engine under a Ranger chrome, typed into
+      # the code editor from gallery/datagrid.
+      - "gallery/r5/**"
+      - "gallery/datagrid/src/script/**"
+      - "gallery/text_editor/src/**"
       - "gallery/zip/**"
       - ".github/workflows/deploy-pages.yml"
   # A published release republishes the site, so the documentation on
@@ -462,6 +473,42 @@ jobs:
           # it the PPTX button is a button that throws.
           grep -q "MdToPptx" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
           grep -q "MdThemes" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
+
+      # ---- r5 at /r5/ ------------------------------------------------------
+      # The markdown engine again, under a chrome drawn by EVG from a Ranger
+      # program rather than an HTML form. The build script compiles the app
+      # and checks the bundle defines its class with `require` undefined.
+      - name: Build r5
+        run: bash gallery/r5/web/build.sh --out "$GITHUB_WORKSPACE/_site/r5"
+
+      - name: Check the r5 page has an engine
+        run: |
+          test -s "$GITHUB_WORKSPACE/_site/r5/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/r5/r5_app.js"
+          test -s "$GITHUB_WORKSPACE/_site/r5/main.js"
+          test -s "$GITHUB_WORKSPACE/_site/r5/r5.css"
+          test -s "$GITHUB_WORKSPACE/_site/r5/gl/evg-webgl.js"
+          test -s "$GITHUB_WORKSPACE/_site/r5/gl/evg-a11y.js"
+          test -s "$GITHUB_WORKSPACE/_site/r5/host/pptx-host.mjs"
+          test -s "$GITHUB_WORKSPACE/_site/r5/host/docx-host.mjs"
+          test -s "$GITHUB_WORKSPACE/_site/r5/presets.txt"
+          test -s "$GITHUB_WORKSPACE/_site/r5/fonts/OpenSans-Regular.ttf"
+          test -s "$GITHUB_WORKSPACE/_site/r5/samples/mermaid.md"
+          test -s "$GITHUB_WORKSPACE/_site/r5/samples/deck.md"
+          test -s "$GITHUB_WORKSPACE/_site/r5/themes/corporate.css"
+          grep -q "R5App" "$GITHUB_WORKSPACE/_site/r5/r5_app.js"
+          # The chrome's tokenizer and the editor it feeds; without them the
+          # page is the old viewer with a bar under it.
+          grep -q "R5MdLanguage" "$GITHUB_WORKSPACE/_site/r5/r5_app.js"
+          grep -q "ScriptEditor" "$GITHUB_WORKSPACE/_site/r5/r5_app.js"
+          grep -q "MarkdownWeb" "$GITHUB_WORKSPACE/_site/r5/r5_app.js"
+
+      # The steps above only prove the files are there. This one opens the
+      # page in headless Chrome and lets it check itself: the rail, the
+      # editor, a keystroke crossing to the markdown, a sheet, a PDF, and
+      # the chrome folded to a phone's width.
+      - name: Check the r5 page works in a browser
+        run: node gallery/r5/web/smoke.mjs --dist "$GITHUB_WORKSPACE/_site/r5"
 
       # ---- RangerFlow at /rangerflow/ --------------------------------------
       # The graph editor with no host process: the schema is parsed in the tab,

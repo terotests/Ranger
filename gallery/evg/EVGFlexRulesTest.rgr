@@ -1,0 +1,317 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGFlexRulesTest — the five flexbox rules the engine used to get wrong
+; ==============================================================================
+;
+; Each of these was found by laying the same CSS out twice — once here and once
+; in Chromium — and reading the two sets of boxes side by side
+; (`bench/layout-conformance.mjs`). They are kept here rather than only there
+; because the browser comparison needs a browser and this does not, and because
+; a number in a diff is not a statement of what the rule IS.
+;
+;   1. A `flex-basis` on an item that does not grow is still its size.
+;      `flex-basis: 120px` fell past every branch of the row pass, the item was
+;      laid out with no width and so filled the line, and the `flex: 1` sibling
+;      beside it got nothing: 600 | 0 where a browser says 120 | 480.
+;
+;   2. min beats max. `width: 50; min-width: 200; max-width: 100` is 200 in
+;      every browser, because the maximum is applied first and the minimum
+;      second. This engine had the order the other way round and answered 100.
+;
+;   3. Shrinking freezes and repeats. Two 300px items in a 300px row, the first
+;      with `min-width: 200px`: the first stops at 200 and the SECOND has to
+;      absorb what it would not give up. The old pass clamped without
+;      redistributing and produced 200 | 150 — 350 pixels in a 300 pixel row.
+;
+;   4. `align-self` exists. An item may opt out of its container's
+;      `align-items`; the property parsed nowhere and did nothing.
+;
+;   5. `row-gap` / `column-gap` are the axes, and lines have a gap too. Both
+;      longhands parsed and neither was ever read, and the shorthand spaced the
+;      items on a wrapped row without spacing the rows.
+;
+; And the rule under all of them: a declaration this engine cannot use is
+; REPORTED. `EVGReject` collects them and `EVGLayout` drains them into the
+; warnings a build already fails on.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGLayout.rgr"
+Import "EVGReject.rgr"
+
+class FlexRulesCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.05) {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ((((("  FAIL " + name) + " — got ") + (to_string got)) + ", want ") + (to_string want))
+        }
+    }
+
+    ; A row of the given width, with the declarations applied to it.
+    fn row:EVGElement (w:string decls:[string]) {
+        def r (EVGElement.createDiv())
+        r.setAttribute("display" "flex")
+        r.setAttribute("flex-direction" "row")
+        r.setAttribute("flex-wrap" "nowrap")
+        r.setAttribute("width" w)
+        r.setAttribute("height" "100px")
+        def i:int 0
+        while (i < (array_length decls)) {
+            def kid (EVGElement.createDiv())
+            this.applyDecls(kid (itemAt decls i))
+            r.addChild(kid)
+            i = (i + 1)
+        }
+        return r
+    }
+
+    ; "width:100px;height:40px" onto one element, the way a sheet would.
+    fn applyDecls:void (el:EVGElement decls:string) {
+        def parts:[string] (EVGElement.splitOnChar(decls 59))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def one:string (itemAt parts i)
+            def kv:[string] (EVGElement.splitOnChar(one 58))
+            if ((array_length kv) == 2) {
+                el.setAttribute((itemAt kv 0) (itemAt kv 1))
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn lay:EVGLayout (root:EVGElement) {
+        def l (new EVGLayout())
+        l.setPageSize(1200.0 900.0)
+        l.layout(root)
+        return l
+    }
+
+    fn widthOf:double (root:EVGElement i:int) {
+        def kid:EVGElement (root.getChild(i))
+        return kid.calculatedWidth
+    }
+
+    fn run:void () {
+        print "=== EVG flex rules ==="
+        print ""
+
+        ; --- 1. a basis without a grow ---------------------------------------
+        print "-- flex-basis is a size, not only a starting point for growing"
+        def basis:[string]
+        push basis "flex-basis:120px;height:40px"
+        push basis "flex-grow:1;height:40px"
+        def r1 (this.row("600px" basis))
+        def l1 (this.lay(r1))
+        this.near("the basis item is its basis wide" (this.widthOf(r1 0)) 120.0)
+        this.near("and its sibling takes the rest" (this.widthOf(r1 1)) 480.0)
+
+        def sh:[string]
+        push sh "flex:0 0 120px;height:40px"
+        push sh "flex:1;height:40px"
+        def r2 (this.row("600px" sh))
+        def l2 (this.lay(r2))
+        this.near("`flex: 0 0 120px` means the same thing" (this.widthOf(r2 0)) 120.0)
+        this.near("and so does the sibling" (this.widthOf(r2 1)) 480.0)
+
+        def grown:[string]
+        push grown "flex-basis:100px;flex-grow:1;height:40px"
+        push grown "flex-basis:200px;flex-grow:1;height:40px"
+        def r3 (this.row("600px" grown))
+        def l3 (this.lay(r3))
+        this.near("a basis that DOES grow still grows from it" (this.widthOf(r3 0)) 250.0)
+        this.near("both of them" (this.widthOf(r3 1)) 350.0)
+
+        ; --- 2. min beats max --------------------------------------------------
+        print ""
+        print "-- when min and max disagree, min wins"
+        def mm:[string]
+        push mm "width:50px;min-width:200px;max-width:100px;height:40px"
+        def r4 (this.row("600px" mm))
+        def l4 (this.lay(r4))
+        this.near("the minimum is the answer" (this.widthOf(r4 0)) 200.0)
+
+        def cap:[string]
+        push cap "flex-grow:1;max-width:120px;height:40px"
+        push cap "flex-grow:1;height:40px"
+        def r5 (this.row("600px" cap))
+        def l5 (this.lay(r5))
+        this.near("a maximum still caps a growing item" (this.widthOf(r5 0)) 120.0)
+        this.near("and the space it refused goes to its sibling" (this.widthOf(r5 1)) 480.0)
+
+        ; --- 3. shrink freezes and repeats -------------------------------------
+        print ""
+        print "-- shrinking redistributes what a floored item would not give up"
+        def sk:[string]
+        push sk "width:300px;min-width:200px;height:40px"
+        push sk "width:300px;height:40px"
+        def r6 (this.row("300px" sk))
+        def l6 (this.lay(r6))
+        this.near("the floored item stops at its minimum" (this.widthOf(r6 0)) 200.0)
+        this.near("and the other absorbs the whole remainder" (this.widthOf(r6 1)) 100.0)
+
+        def wt:[string]
+        push wt "width:300px;flex-shrink:1;height:40px"
+        push wt "width:300px;flex-shrink:2;height:40px"
+        def r7 (this.row("400px" wt))
+        def l7 (this.lay(r7))
+        this.near("weighted by flex-shrink x size, the lighter one" (this.widthOf(r7 0)) 233.3333)
+        this.near("and the heavier one" (this.widthOf(r7 1)) 166.6667)
+
+        def z:[string]
+        push z "width:300px;flex-shrink:0;height:40px"
+        push z "width:300px;flex-shrink:1;height:40px"
+        def r8 (this.row("400px" z))
+        def l8 (this.lay(r8))
+        this.near("flex-shrink: 0 keeps its size" (this.widthOf(r8 0)) 300.0)
+        this.near("and its sibling takes all of the overflow" (this.widthOf(r8 1)) 100.0)
+
+        ; --- 4. align-self ------------------------------------------------------
+        print ""
+        print "-- an item may opt out of its container's align-items"
+        def r9 (EVGElement.createDiv())
+        r9.setAttribute("display" "flex")
+        r9.setAttribute("flex-direction" "row")
+        r9.setAttribute("flex-wrap" "nowrap")
+        r9.setAttribute("align-items" "flex-start")
+        r9.setAttribute("width" "600px")
+        r9.setAttribute("height" "200px")
+        def a1 (EVGElement.createDiv())
+        this.applyDecls(a1 "width:80px;height:40px")
+        def a2 (EVGElement.createDiv())
+        this.applyDecls(a2 "width:80px;height:40px;align-self:flex-end")
+        def a3 (EVGElement.createDiv())
+        this.applyDecls(a3 "width:80px;height:40px;align-self:center")
+        r9.addChild(a1)
+        r9.addChild(a2)
+        r9.addChild(a3)
+        def l9 (this.lay(r9))
+        this.near("the item that said nothing stays at the top" a1.calculatedY 0.0)
+        this.near("align-self: flex-end goes to the bottom" a2.calculatedY 160.0)
+        this.near("align-self: center goes to the middle" a3.calculatedY 80.0)
+
+        def c1 (EVGElement.createDiv())
+        c1.setAttribute("display" "flex")
+        c1.setAttribute("flex-direction" "column")
+        c1.setAttribute("flex-wrap" "nowrap")
+        c1.setAttribute("align-items" "flex-start")
+        c1.setAttribute("width" "400px")
+        c1.setAttribute("height" "300px")
+        def b1 (EVGElement.createDiv())
+        this.applyDecls(b1 "width:80px;height:40px")
+        def b2 (EVGElement.createDiv())
+        this.applyDecls(b2 "width:80px;height:40px;align-self:center")
+        c1.addChild(b1)
+        c1.addChild(b2)
+        def l10 (this.lay(c1))
+        this.near("in a column the cross axis is the horizontal one" b1.calculatedX 0.0)
+        this.near("and align-self centres across it" b2.calculatedX 160.0)
+
+        ; --- 5. the two gaps ----------------------------------------------------
+        print ""
+        print "-- row-gap and column-gap are axes, and wrapped lines have a gap"
+        def g1 (EVGElement.createDiv())
+        g1.setAttribute("display" "flex")
+        g1.setAttribute("flex-direction" "row")
+        g1.setAttribute("flex-wrap" "wrap")
+        g1.setAttribute("align-content" "flex-start")
+        g1.setAttribute("row-gap" "30px")
+        g1.setAttribute("column-gap" "5px")
+        g1.setAttribute("width" "300px")
+        g1.setAttribute("height" "300px")
+        def q:int 0
+        while (q < 4) {
+            def kid (EVGElement.createDiv())
+            this.applyDecls(kid "width:140px;height:30px")
+            g1.addChild(kid)
+            q = (q + 1)
+        }
+        def l11 (this.lay(g1))
+        def k0:EVGElement (g1.getChild(0))
+        def k1:EVGElement (g1.getChild(1))
+        def k2:EVGElement (g1.getChild(2))
+        this.near("column-gap spaces the items along the line" k1.calculatedX 145.0)
+        this.near("row-gap spaces the lines" k2.calculatedY 60.0)
+
+        def g2 (EVGElement.createDiv())
+        g2.setAttribute("display" "flex")
+        g2.setAttribute("flex-direction" "row")
+        g2.setAttribute("flex-wrap" "wrap")
+        g2.setAttribute("align-content" "flex-start")
+        g2.setAttribute("gap" "10px")
+        g2.setAttribute("width" "300px")
+        g2.setAttribute("height" "300px")
+        def q2:int 0
+        while (q2 < 3) {
+            def kid (EVGElement.createDiv())
+            this.applyDecls(kid "width:120px;height:40px")
+            g2.addChild(kid)
+            q2 = (q2 + 1)
+        }
+        def l12 (this.lay(g2))
+        def m2:EVGElement (g2.getChild(2))
+        this.near("the shorthand spaces the lines too" m2.calculatedY 50.0)
+
+        ; --- and the silence ----------------------------------------------------
+        print ""
+        print "-- a declaration the engine cannot use is reported, not swallowed"
+        EVGReject.clearNotes()
+        def bad:[string]
+        push bad "width:calc(100% - 40px);height:40px"
+        def r13 (this.row("600px" bad))
+        def l13 (this.lay(r13))
+        this.ok("calc() is a warning" ((l13.warningCount()) > 0))
+
+        EVGReject.clearNotes()
+        def ar:[string]
+        push ar "width:200px;aspect-ratio:2/1"
+        def r14 (this.row("600px" ar))
+        def l14 (this.lay(r14))
+        this.ok("an unimplemented property is a warning" ((l14.warningCount()) > 0))
+
+        EVGReject.clearNotes()
+        def fine:[string]
+        push fine "width:100px;height:40px"
+        push fine "flex-grow:1;height:40px"
+        def r15 (this.row("600px" fine))
+        def l15 (this.lay(r15))
+        this.ok("and a document it understands says nothing" ((l15.warningCount()) == 0))
+
+        print ""
+        print ((("Passed: " + (to_string passed)) + "  Failed: ") + (to_string failed))
+        if (failed > 0) {
+            print "FAILED"
+        } {
+            print "OK"
+        }
+    }
+
+    sfn m@(main):void () {
+        def c (new FlexRulesCheck())
+        c.run()
+    }
+}

@@ -58,6 +58,7 @@ Import "../src/MdToPptx.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
+Import "../../office/export/EVGListToElements.rgr"
 Import "../../pdf_writer/src/fonts/FontManager.rgr"
 
 ; The controller, with the module's own idea of what "lay this out" means:
@@ -744,6 +745,10 @@ class MarkdownWeb {
         docSummary = (x.result.describe())
         docWeb.attachDocument(docModel)
         docWeb.setEditMode(true)
+        ; Every page down the frame with a gap between them, the way a PDF
+        ; viewer shows a document: in a pane that does not fit a page, one
+        ; page that turns in place never shows where a page ends.
+        docWeb.setContinuous(true)
         docRev = docModel.revision
         docOn = true
         docFrom = edit.source
@@ -1797,6 +1802,13 @@ class MarkdownWeb {
             deck.setMeasurer((unwrap measurer))
         }
         deck.style = (new MdStyle())
+        ; A deck's own defaults, under whatever the template and the
+        ; document say: a landscape sheet, and text set for a room rather
+        ; than a desk. The deck used to take the document's A4 portrait and
+        ; its 11-point body, which is a page and not a slide. A template that
+        ; states a size or a page that names one still wins — these are the
+        ; answer when nobody said.
+        MarkdownWeb.deckDefaults(deck.style)
         edit.sheet.applyTo(deck.style)
         deck.setStyleSheet(edit.styleCss)
         ; The same byte store the PREVIEW reads. This layout is built fresh —
@@ -1805,12 +1817,12 @@ class MarkdownWeb {
         ; page in front of them.
         if edit.haveImages { deck.setImages(edit.imageStore "/") }
         deck.applyMeta(edit.doc)
-        if ((strlen wantPageSize) > 0) {
-            def pw:double deck.style.pageWidth
-            def ph:double deck.style.pageHeight
-            deck.style.pageWidth = (MdFrontMatter.pageW(wantPageSize pw ph))
-            deck.style.pageHeight = (MdFrontMatter.pageH(wantPageSize ph pw))
-        }
+        ; NOT the sheet the page's dropdown names. That dropdown is the
+        ; markdown's — the PDF tab and the paged preview print on it — and a
+        ; deck is not a document on that paper: a reader who picked A4
+        ; portrait for their print got a portrait deck, which is a poster.
+        ; The deck's sheet is its own default, the document's front matter,
+        ; or a template's `page` rule.
         def cw:double (deck.style.pageWidth - (deck.style.margin * 2.0))
         MdDiagram.prepare(edit.doc deck.embeds cw styleName)
         deck.applySlideMeta(edit.doc)
@@ -1826,6 +1838,137 @@ class MarkdownWeb {
             i = (i + 1)
         }
         return d
+    }
+
+    ; What a slide is when nothing says otherwise. Sizes in the layout's
+    ; units, which are what `MdFrontMatter` answers in; the text sizes are
+    ; the ones a deck template reaches for — a 20-point body reads from the
+    ; back of a room and an 11-point one does not.
+    sfn deckDefaults:void (st:MdStyle) {
+        def pw:double st.pageWidth
+        def ph:double st.pageHeight
+        st.pageWidth = (MdFrontMatter.pageW("a4 landscape" pw ph))
+        st.pageHeight = (MdFrontMatter.pageH("a4 landscape" ph pw))
+        st.bodySize = 20.0
+        st.lineHeight = 1.35
+        st.paraSpacing = 14.0
+        st.h1Size = 40.0
+        st.h2Size = 32.0
+        st.h3Size = 26.0
+        st.h4Size = 22.0
+        st.h5Size = 20.0
+        st.h6Size = 20.0
+        st.headingSpaceBefore = 22.0
+        st.headingSpaceAfter = 12.0
+        st.codeSize = 15.0
+    }
+
+    ; The deck as a PDF: every slide a page, drawn by the slide editor's own
+    ; converter at the scale a PDF unit is, through the same road the pptx
+    ; API's `toPdfDeck` takes. The deck the READER has been editing, with
+    ; its fonts and its pictures — the editor's view has both.
+    fn deckPdf:buffer () {
+        if (! deckOn) { this.ensureDeck() }
+        def app:PptxApp deckWeb.app
+        def pres:PptxPresentation app.presentation
+        def n:int (array_length pres.slides)
+        def empty:buffer (buffer_alloc 0)
+        if (n == 0) { return empty }
+        def first:PptxSlide (itemAt pres.slides 0)
+        def pw:double first.width
+        def ph:double first.height
+        app.view.cachePresentationImages(pres)
+        def root:EVGElement (EVGListToElements.printRoot(pw ph))
+        def section:EVGElement (EVGListToElements.sectionOf(root))
+        def i:int 0
+        while (i < n) {
+            def sl:PptxSlide (itemAt pres.slides i)
+            ; 72/96: `ptToPx` multiplies by 96/72 for the screen and a PDF
+            ; unit is a point, so this cancels it and one slide point is one
+            ; PDF unit.
+            app.view.converter.setScale((72.0 / 96.0))
+            app.view.converter.slideNumber = (i + 1)
+            def dl:EVGDisplayList (app.view.converter.slideToDisplayList(sl))
+            def bg:EVGColor (EVGColor.parse("#FFFFFF"))
+            if sl.bg.isSet {
+                bg = (app.view.converter.colorFrom(sl.bg))
+            }
+            def pg:EVGElement (EVGListToElements.pageFrom(dl pw ph bg true))
+            section.addChild(pg)
+            i = (i + 1)
+        }
+        def renderer (new EVGPDFRenderer())
+        renderer.init(renderer)
+        renderer.setPageSize(pw ph)
+        renderer.setFontManager(app.view.ctx.tr.fm)
+        def m (new TTFTextMeasurer(app.view.ctx.tr.fm))
+        renderer.setMeasurer(m)
+        def parts:[string] (keys app.view.imageCache)
+        def k:int 0
+        while (k < (array_length parts)) {
+            def part:string (itemAt parts k)
+            def pix@(optional):ImageBuffer (get app.view.imageCache part)
+            if (!null? pix) {
+                renderer.registerImage(part (unwrap pix))
+            }
+            k = (k + 1)
+        }
+        return (renderer.render(root))
+    }
+
+    ; --- a drawing, on whichever tab -----------------------------------------
+    ;
+    ; The deck's drawings and the Word document's are the same fence read by
+    ; the same reader; each editor carries the source with the drawing, and
+    ; these answer for whichever is on screen so the page has one diagram
+    ; pane rather than two.
+    fn drawingSource:string () {
+        if (this.showsDeck()) { return (this.deckDiagramSource()) }
+        if (this.showsDoc()) {
+            def dr:DocDrawing (docWeb.viewer.selectedDrawingModel())
+            if (dr.id == 0) { return "" }
+            return dr.source
+        }
+        return ""
+    }
+
+    fn drawingNotation:string () {
+        if (this.showsDeck()) { return (this.deckDiagramNotation()) }
+        if (this.showsDoc()) {
+            def dr:DocDrawing (docWeb.viewer.selectedDrawingModel())
+            if (dr.id == 0) { return "" }
+            return dr.notation
+        }
+        return ""
+    }
+
+    fn hasDrawingSelected:boolean () {
+        return ((strlen (this.drawingNotation())) > 0)
+    }
+
+    fn redrawDrawing:boolean (source:string) {
+        if (this.showsDeck()) { return (this.deckRedrawDiagram(source)) }
+        if (this.showsDoc()) { return (this.docRedrawDrawing(source)) }
+        return false
+    }
+
+    ; The Word document's drawing, drawn again from new text, in place —
+    ; `MdDeckDiagram.redraw` for a `DocDrawing`. The same refusal: text that
+    ; does not read as a diagram leaves the drawing exactly as it was.
+    fn docRedrawDrawing:boolean (source:string) {
+        def id:int (docWeb.viewer.selectedDrawing())
+        if (id == 0) { return false }
+        def dr:DocDrawing (docWeb.viewer.selectedDrawingModel())
+        if ((strlen dr.notation) == 0) { return false }
+        if ((strlen (trim source)) == 0) { return false }
+        def w:double dr.naturalW
+        if (w <= 1.0) { w = 480.0 }
+        def sc:FlowScene (MdDiagram.sceneFor(dr.notation source styleName w (MdDiagram.padding())))
+        if (sc.worldW <= 0.0) { return false }
+        def root:EVGElement (sc.toEvgTree())
+        def ok:boolean (docWeb.viewer.replaceDrawing(id root sc.worldW sc.worldH source))
+        if ok { built = false }
+        return ok
     }
 
     ; The deck as a file. Once the preview owns the document, this saves what

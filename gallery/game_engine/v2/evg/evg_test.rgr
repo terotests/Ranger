@@ -258,7 +258,7 @@ class EVGTest {
         box.setMargin((EVGUnit.px(10.0)))
         box.setPadding((EVGUnit.px(20.0)))
         box.borderWidth = (EVGUnit.px(2.0))
-        box.resolveUnits(400.0 300.0 14.0 14.0)
+        box.resolveUnits(400.0 300.0 14.0 14.0 400.0 300.0)
 
         t.near("margin resolved to 10px" box.marginTopPx 10.0)
         t.near("padding resolved to 20px" box.paddingTopPx 20.0)
@@ -2440,7 +2440,7 @@ class EVGTest {
         def viaCss (new EVGElement())
         viaCss.setAttribute("border-width" "3px")
         viaCss.setAttribute("border-color" "#b08d57")
-        viaCss.box.resolveUnits(100.0 100.0 14.0 16.0)
+        viaCss.box.resolveUnits(100.0 100.0 14.0 16.0 100.0 100.0)
         t.near("a CSS border has its width" (viaCss.effectiveBorderWidthPx()) 3.0)
         t.eqInt("and its colour" ((viaCss.effectiveBorderColor()).red()) 176)
 
@@ -2459,7 +2459,7 @@ class EVGTest {
         ; A width with no colour is black, which is what CSS says.
         def widthOnly (new EVGElement())
         widthOnly.setAttribute("border-width" "1px")
-        widthOnly.box.resolveUnits(100.0 100.0 14.0 16.0)
+        widthOnly.box.resolveUnits(100.0 100.0 14.0 16.0 100.0 100.0)
         def bc:EVGColor (widthOnly.effectiveBorderColor())
         t.eqInt("a width with no colour is black" ((bc.red()) + (bc.green()) + (bc.blue())) 0)
     }

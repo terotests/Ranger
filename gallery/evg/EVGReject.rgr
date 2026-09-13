@@ -1,0 +1,126 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGReject — what the engine was told and did not understand
+; ==============================================================================
+; A layout engine that accepts a CSS-shaped document has exactly two honest
+; answers to `width: calc(100% - 40px)`: implement it, or say it did not. The
+; third answer — drop the declaration and lay the box out as though nobody had
+; asked — is the one that costs a day to find, because a width that silently
+; became the parent's looks like a layout someone chose.
+;
+; Measured before this existed: of nineteen places where an EVG document and
+; the CSS it was written as produced different boxes, EIGHTEEN were silent.
+; The one that spoke was `repeat(auto-fit, …)`, and it spoke because the grid
+; parser happened to have a warning list.
+;
+; So every rejection goes here, and `EVGLayout.layout` drains it into the
+; warnings a build already fails on.
+;
+; --- WHY A SINGLETON AND NOT A FIELD ------------------------------------------
+;
+; A rejection happens in `EVGElement.setAttribute`, which has no route to the
+; layout that will later run — and giving every element a list to hold errors
+; it almost never has would put a field on 100,000 boxes to serve four of them.
+; The collector is process-wide and the elements stay the size they were.
+;
+; --- WHY IT CANNOT GET EXPENSIVE ----------------------------------------------
+;
+; The style cache replays a plan per element per frame, so ONE bad declaration
+; in a sheet is one rejection per element per frame — 22,403 of them on the
+; bench table. Two things bound that:
+;
+;   * de-duplication, so the same (kind, property, value) is stored once;
+;   * a hard cap, after which `add` is a single integer increment and the
+;     de-duplication scan does not run at all.
+;
+; The scan is therefore bounded by cap x cap over the life of the process and
+; O(1) after that. `total` keeps counting, so the report can say how many were
+; folded into how few.
+; ==============================================================================
+
+class EVGRejectStore @singleton(true) {
+    def kinds:[string]
+    def names:[string]
+    def values:[string]
+    ; Every rejection, including the ones folded into an entry already stored.
+    def total:int 0
+    ; Distinct entries kept. Past this, only `total` moves.
+    def cap:int 64
+}
+
+class EVGReject {
+
+    sfn store:EVGRejectStore () {
+        return (EVGRejectStore.__singleton())
+    }
+
+    ; `kind` is the shape of the complaint ("unknown property", "unsupported
+    ; length", …), `name` the CSS property and `value` what was written.
+    sfn note:void (kind:string name:string value:string) {
+        def s:EVGRejectStore (EVGReject.store())
+        s.total = (s.total + 1)
+        def n:int (array_length s.names)
+        if (n >= s.cap) {
+            return
+        }
+        def i:int 0
+        while (i < n) {
+            def kn:string (itemAt s.kinds i)
+            def nm:string (itemAt s.names i)
+            def vl:string (itemAt s.values i)
+            if (((kn == kind) && (nm == name)) && (vl == value)) {
+                return
+            }
+            i = (i + 1)
+        }
+        push s.kinds kind
+        push s.names name
+        push s.values value
+    }
+
+    sfn noteCount:int () {
+        def s:EVGRejectStore (EVGReject.store())
+        return (array_length s.names)
+    }
+
+    sfn noteTotal:int () {
+        def s:EVGRejectStore (EVGReject.store())
+        return s.total
+    }
+
+    sfn noteAt:string (i:int) {
+        def s:EVGRejectStore (EVGReject.store())
+        def kn:string (itemAt s.kinds i)
+        def nm:string (itemAt s.names i)
+        def vl:string (itemAt s.values i)
+        return ((((kn + ": ") + nm) + ": ") + vl)
+    }
+
+    sfn clearNotes:void () {
+        def s:EVGRejectStore (EVGReject.store())
+        def empty1:[string]
+        def empty2:[string]
+        def empty3:[string]
+        s.kinds = empty1
+        s.names = empty2
+        s.values = empty3
+        s.total = 0
+    }
+
+    ; A value that means "no value" is not a rejection: it is how a shorthand
+    ; is cleared and how a sheet says "use the initial value". Complaining
+    ; about these would bury the four real ones in a thousand.
+    sfn isAbsent:boolean (value:string) {
+        if ((strlen value) == 0) {
+            return true
+        }
+        if (value == "auto") { return true }
+        if (value == "none") { return true }
+        if (value == "normal") { return true }
+        if (value == "initial") { return true }
+        if (value == "inherit") { return true }
+        if (value == "unset") { return true }
+        return false
+    }
+}

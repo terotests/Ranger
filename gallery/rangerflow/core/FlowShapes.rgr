@@ -1441,6 +1441,117 @@ class FlowShapes {
         return (x + lean)
     }
 
+    ; Where an edge that leaves `side` at `along` from the middle of it meets
+    ; the outline. `anchorX` is the middle of the side; the lanes fan a
+    ; second and third edge out along it, and on a rectangle the fanned point
+    ; is still on the box. On a diamond it is not: the box beside the vertex
+    ; is empty canvas, and a line drawn to it stopped short of the shape by
+    ; however far the fan had moved it — the first thing a reader saw on a
+    ; flowchart was the "no" branch starting in mid-air. So the fanned point
+    ; is the box point pulled in, perpendicular to the side, until it is on
+    ; the shape. On a side that has no fan (`along` is zero) the answer is
+    ; the anchor, unchanged.
+    sfn edgeCrossX:double (shape:string x:double y:double w:double h:double side:int along:double) {
+        if (along == 0.0) {
+            return (FlowShapes.anchorX(shape x y w h side))
+        }
+        if (side == 0) { return ((x + (w * 0.5)) + along) }
+        if (side == 2) { return ((x + (w * 0.5)) + along) }
+        def box:double x
+        if (side == 1) { box = (x + w) }
+        if (FlowShapes.isPlain(shape)) { return box }
+        if (FlowShapes.isDecorated(shape)) { return box }
+        def ring:[double] (FlowShapes.outline(shape x y w h))
+        return (FlowShapes.ringCross(ring side ((y + (h * 0.5)) + along) box))
+    }
+
+    sfn edgeCrossY:double (shape:string x:double y:double w:double h:double side:int along:double) {
+        if (along == 0.0) {
+            return (FlowShapes.anchorY(shape x y w h side))
+        }
+        if (side == 1) { return ((y + (h * 0.5)) + along) }
+        if (side == 3) { return ((y + (h * 0.5)) + along) }
+        def box:double y
+        if (side == 2) { box = (y + h) }
+        if (FlowShapes.isPlain(shape)) { return box }
+        if (FlowShapes.isDecorated(shape)) { return box }
+        def ring:[double] (FlowShapes.outline(shape x y w h))
+        return (FlowShapes.ringCross(ring side ((x + (w * 0.5)) + along) box))
+    }
+
+    ; The outline's coordinate where a line perpendicular to `side` crosses
+    ; it: for a left or right side `at` is a Y and the answer is the X of the
+    ; outermost crossing on that side; for a top or bottom side the other way
+    ; round. `fallback` when the line misses the ring altogether — a fan
+    ; that reached past the vertex, or a shape with no outline of its own.
+    sfn ringCross:double (ring:[double] side:int at:double fallback:double) {
+        def n:int (idiv (array_length ring) 2)
+        if (n < 3) {
+            return fallback
+        }
+        def wantX:boolean false
+        if (side == 1) { wantX = true }
+        if (side == 3) { wantX = true }
+        def found:boolean false
+        def best:double fallback
+        def j:int (n - 1)
+        def i:int 0
+        while (i < n) {
+            def xi:double (itemAt ring (i * 2))
+            def yiAt:int ((i * 2) + 1)
+            def yi:double (itemAt ring yiAt)
+            def xj:double (itemAt ring (j * 2))
+            def yjAt:int ((j * 2) + 1)
+            def yj:double (itemAt ring yjAt)
+            ; The coordinate the scan line runs across, and the one it reads.
+            def a1:double yi
+            def a2:double yj
+            def r1:double xi
+            def r2:double xj
+            if (wantX == false) {
+                a1 = xi
+                a2 = xj
+                r1 = yi
+                r2 = yj
+            }
+            def lo:double a1
+            def hi:double a2
+            if (a2 < a1) {
+                lo = a2
+                hi = a1
+            }
+            if (at >= (lo - 0.000001)) {
+                if (at <= (hi + 0.000001)) {
+                    def cut:double r1
+                    def da:double (a2 - a1)
+                    if ((fabs da) > 0.000001) {
+                        cut = (r1 + (((at - a1) / da) * (r2 - r1)))
+                    }
+                    def take:boolean (found == false)
+                    if (side == 1) {
+                        if (cut > best) { take = true }
+                    }
+                    if (side == 2) {
+                        if (cut > best) { take = true }
+                    }
+                    if (side == 3) {
+                        if (cut < best) { take = true }
+                    }
+                    if (side == 0) {
+                        if (cut < best) { take = true }
+                    }
+                    if take {
+                        best = cut
+                        found = true
+                    }
+                }
+            }
+            j = i
+            i = (i + 1)
+        }
+        return best
+    }
+
     sfn anchorY:double (shape:string x:double y:double w:double h:double side:int) {
         if (side == 1) { return (y + (h * 0.5)) }
         if (side == 3) { return (y + (h * 0.5)) }

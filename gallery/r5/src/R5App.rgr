@@ -1,0 +1,1757 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; R5App — the markdown page, as one Ranger app drawn by EVG
+; ==============================================================================
+;
+;   ┌ rail (≥768px) ┐┌──────────── side ──────────────────────────────┐
+;   │ Preview       ││ head: name · document.md | style.css · ‹ 1/3 › │
+;   │ Slides        │├───────────────────┬────────────────────────────┤
+;   │ Word          ││ ScriptEditor      │ the document, drawn by     │
+;   │ Source        ││ (markdown, with   │ MarkdownWeb — preview,     │
+;   │ …             ││  its tokens)      │ the deck or the Word page  │
+;   │ Open, Layout  │├───────────────────┴────────────────────────────┤
+;   │ Format, Export││ bottom bar (<768px): Edit Preview Slides Word ⋯ │
+;   └───────────────┘└────────────────────────────────────────────────┘
+;
+; The page that came before this one was an HTML form: two rows of selects
+; and buttons over a textarea and a canvas, with a status line that did not
+; fit a phone. This is the same engine — `MarkdownWeb`, the seam every
+; export and every view already goes through — under a chrome that is ITSELF
+; a Ranger program: one EVG tree, one stylesheet whose `@media` blocks fold
+; the rail into a bottom bar at 768px, and every choice the header used to
+; show behind a sheet that opens when asked. The markdown is typed into
+; `ScriptEditor`, the code editor `gallery/datagrid` draws, with a tokenizer
+; of its own for markdown (`R5MdLanguage.rgr`).
+;
+; ONE CANVAS. The document is drawn first, through the camera `MarkdownWeb`
+; already keeps, moved to where the pane is; this tree is drawn over it with
+; the canvas NOT cleared in between. The rail, the head, the editor and the
+; bar are opaque, the pane is not, so the document shows through exactly
+; where the layout put the pane and nowhere else. A sheet is a second root
+; drawn after the editor, which is why it is not a child of the page.
+;
+; TWO VIEWS OF ONE SOURCE. `MdEditController` owns the markdown; the editor's
+; buffer is a view of it. An edit on either side becomes a PATCH on the
+; other — a common prefix and a common suffix, which is all one keystroke
+; changes — so both keep their own undo and neither is thrown away.
+;
+; The host (web/main.js) owns what a browser owns and nothing else: the
+; fetches, the file picker, the downloads, the clipboard, the hidden text
+; field the keyboard points at, and the frame. Everything it wants done
+; arrives here as a call, and everything this wants done there leaves as a
+; request string (`takeRequest`), so the headless check drives the same app.
+; ==============================================================================
+
+Import "../../markdown/web/markdown_web.rgr"
+Import "../../datagrid/src/script/ScriptEditor.rgr"
+Import "../../game_engine/ui/UITextRenderer.rgr"
+Import "../../game_engine/ui/UIInput.rgr"
+Import "R5MdLanguage.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGColor.rgr"
+
+treefactory R5 {
+    child addChild
+    text  textContent
+
+    tag Page      EVGElement (props (className "r5-page"))
+    tag Body      EVGElement (props (className "r5-body"))
+    tag Rail      EVGElement (props (className "r5-rail") (role "navigation") (a11yLabel "Views and menus"))
+    tag RailBtn   EVGElement (props (className "r5-rail-btn") (role "button"))
+    tag RailTxt   EVGElement (props (className "r5-rail-txt") (elementType 1) (a11yHidden true))
+    tag RailGap   EVGElement (props (className "r5-rail-gap"))
+    tag Nav       EVGElement (props (className "r5-nav") (role "navigation") (a11yLabel "Views"))
+    tag NavBtn    EVGElement (props (className "r5-nav-btn") (role "button"))
+    tag NavTxt    EVGElement (props (className "r5-nav-txt") (elementType 1) (a11yHidden true))
+    tag Side      EVGElement (props (className "r5-side"))
+    tag Head      EVGElement (props (className "r5-head") (role "banner"))
+    tag HeadTxt   EVGElement (props (className "r5-head-txt") (elementType 1))
+    tag HeadGap   EVGElement (props (className "r5-head-gap"))
+    tag Chip      EVGElement (props (className "r5-chip") (role "button"))
+    tag ChipTxt   EVGElement (props (className "r5-chip-txt") (elementType 1) (a11yHidden true))
+    tag Pill      EVGElement (props (className "r5-pill") (role "group") (a11yLabel "Page"))
+    tag PillBtn   EVGElement (props (className "r5-pill-btn") (role "button"))
+    tag PillTxt   EVGElement (props (className "r5-pill-txt") (elementType 1) (a11yHidden true))
+    tag PillNum   EVGElement (props (className "r5-pill-num") (elementType 1) (role "status"))
+    tag Split     EVGElement (props (className "r5-split"))
+    tag Editor    EVGElement (props (className "r5-editor") (role "region") (a11yLabel "Source"))
+    tag Pane      EVGElement (props (className "r5-pane") (role "region") (a11yLabel "Document"))
+    tag Hint      EVGElement (props (className "r5-hint") (elementType 1))
+
+    tag Overlay   EVGElement (props (className "r5-overlay") (role "button") (a11yLabel "Close the menu"))
+    tag Sheet     EVGElement (props (className "r5-sheet") (role "dialog") (a11yModal true))
+    tag SheetTtl  EVGElement (props (className "r5-sheet-ttl") (elementType 1))
+    tag SheetSub  EVGElement (props (className "r5-sheet-sub") (elementType 1))
+    tag SheetNote EVGElement (props (className "r5-sheet-note") (elementType 1))
+    tag Row       EVGElement (props (className "r5-row") (role "button"))
+    tag RowTxt    EVGElement (props (className "r5-row-txt") (elementType 1) (a11yHidden true))
+    tag RowMark   EVGElement (props (className "r5-row-mark") (elementType 1) (a11yHidden true))
+    tag Chips     EVGElement (props (className "r5-chips"))
+    tag FmtChip   EVGElement (props (className "r5-fmt") (role "button"))
+    tag FmtTxt    EVGElement (props (className "r5-fmt-txt") (elementType 1) (a11yHidden true))
+}
+
+class R5App {
+    ; The engine — parser, layout, the three views, every export.
+    def md:MarkdownWeb (new MarkdownWeb())
+    ; The source, typed into the code editor.
+    def editor:ScriptEditor (new ScriptEditor())
+    def tr:UITextRenderer (new UITextRenderer())
+    def lang:R5MdLanguage (new R5MdLanguage())
+
+    def sheet@(optional):EVGStyleSheet
+    def layout@(optional):EVGLayout
+    def overlayLayout@(optional):EVGLayout
+    def root@(optional):EVGElement
+    def overlayRoot@(optional):EVGElement
+    def measurer@(optional):TTFTextMeasurer
+    ; A layout made for another size or another measurer is a layout to make again.
+    def layoutStale:boolean true
+    def hasOverlay:boolean false
+
+    def pageW:double 1000.0
+    def pageH:double 700.0
+    def coarse:boolean false
+
+    ; What is on screen. "edit" is a phone's full-screen editor; on a desk
+    ; the editor is a pane beside the document and `sourceOn` says whether
+    ; it is out.
+    def screen:string "preview"
+    def sourceOn:boolean true
+    ; The open sheet, or nothing: "more" "document" "layout" "format" "export".
+    def menu:string ""
+
+    def sample:string "mermaid"
+    def theme:string ""
+    def mode:string "continuous"
+    def paper:string "a4"
+    ; Which file the editor holds: the markdown, or the stylesheet.
+    def editorDoc:string "md"
+    def docName:string "markdown"
+    def mdText:string ""
+    def cssText:string ""
+
+    ; Where the keyboard is: "editor" or "preview".
+    def focus:string "editor"
+    def hovered:string ""
+    def pressed:string ""
+    def blink:int 0
+    def editorDrag:boolean false
+
+    ; The editor's buffer version the markdown was last patched from, and the
+    ; markdown text the buffer was last patched to.
+    def bufSynced:int -1
+    def mdSeen:string ""
+
+    ; What the host is asked to do, oldest first.
+    def requests:[string]
+    def build:string ""
+    def chromeRev:int 0
+
+    ; The pane and the editor, where the layout put them.
+    def paneX:double 0.0
+    def paneY:double 0.0
+    def paneW:double 0.0
+    def paneH:double 0.0
+    def paneShown:boolean false
+    def edX:double 0.0
+    def edY:double 0.0
+    def edW:double 0.0
+    def edH:double 0.0
+    def edShown:boolean false
+    def sizedW:double 0.0
+    def sizedH:double 0.0
+
+    ; Scratch for a patch: where the two texts differ, and what goes in.
+    def patchStart:int 0
+    def patchEnd:int 0
+    def patchText:string ""
+    def posLine:int 0
+    def posCol:int 0
+
+    ; The menus' tables.
+    def sampleKeys:[string]
+    def sampleNames:[string]
+    def themeKeys:[string]
+    def themeNames:[string]
+    def modeKeys:[string]
+    def modeNames:[string]
+    def paperKeys:[string]
+    def paperNames:[string]
+    def fmtIds:[string]
+    def fmtCmds:[string]
+    def fmtArgs:[string]
+    def fmtNames:[string]
+
+    Constructor () {
+        this.addSample("mermaid" "with diagrams")
+        this.addSample("diagrams" "four notations")
+        this.addSample("picture" "with a picture")
+        this.addSample("deck" "a company deck")
+        this.addSample("sample" "a bit of everything")
+        this.addSample("readme" "this repository's README")
+        this.addTheme("" "what the document asks for")
+        this.addTheme("corporate" "corporate.css")
+        this.addTheme("editorial" "editorial.css")
+        this.addTheme("none" "no template")
+        this.addMode("continuous" "continuous")
+        this.addMode("paged" "paged — the sheets the PDF will have")
+        this.addMode("slides" "slides")
+        this.addPaper("a4" "A4 portrait")
+        this.addPaper("a4 landscape" "A4 landscape")
+        this.addPaper("letter" "Letter portrait")
+        this.addPaper("letter landscape" "Letter landscape")
+        this.addPaper("a5" "A5 portrait")
+        this.addPaper("a5 landscape" "A5 landscape")
+        this.addPaper("a3" "A3 portrait")
+        this.addPaper("a3 landscape" "A3 landscape")
+        this.addFmt("bold" "format.bold" "" "B")
+        this.addFmt("italic" "format.italic" "" "I")
+        this.addFmt("code" "format.code" "" "</>")
+        this.addFmt("strike" "format.strike" "" "strike")
+        this.addFmt("h1" "block.heading" "1" "H1")
+        this.addFmt("h2" "block.heading" "2" "H2")
+        this.addFmt("h3" "block.heading" "3" "H3")
+        this.addFmt("para" "block.heading" "0" "¶")
+        this.addFmt("bullet" "block.bullet" "" "• list")
+        this.addFmt("ordered" "block.ordered" "" "1. list")
+        this.addFmt("quote" "block.quote" "" "quote")
+        this.addFmt("slide" "slide.break" "" "slide break")
+        this.addFmt("keep" "slide.keep" "" "keep together")
+    }
+
+    fn addSample:void (key:string name:string) {
+        push sampleKeys key
+        push sampleNames name
+    }
+
+    fn addTheme:void (key:string name:string) {
+        push themeKeys key
+        push themeNames name
+    }
+
+    fn addMode:void (key:string name:string) {
+        push modeKeys key
+        push modeNames name
+    }
+
+    fn addPaper:void (key:string name:string) {
+        push paperKeys key
+        push paperNames name
+    }
+
+    fn addFmt:void (id:string cmd:string arg:string name:string) {
+        push fmtIds id
+        push fmtCmds cmd
+        push fmtArgs arg
+        push fmtNames name
+    }
+
+    ; =========================================================================
+    ; Starting
+    ; =========================================================================
+    fn init:void (css:string w:double h:double) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+        editor.setLanguage(lang)
+        editor.autoComplete = false
+        editor.fontFamily = "Open Sans"
+        editor.layout.fontSize = 13.0
+        this.lightEditor()
+        editor.init("")
+        bufSynced = editor.buf.version
+        md.init(w h)
+        pageW = w
+        pageH = h
+        this.rebuild()
+    }
+
+    fn setBuild:void (stamp:string) {
+        build = stamp
+    }
+
+    ; The editor's own theme is a dark one; a document is read on paper.
+    fn lightEditor:void () {
+        def t:ScriptEditorTheme editor.theme
+        t.bg = (EVGColor.rgb(255 255 255))
+        t.gutterBg = (EVGColor.rgb(246 248 250))
+        t.gutterText = (EVGColor.rgb(160 168 180))
+        t.gutterActive = (EVGColor.rgb(87 96 106))
+        t.currentLine = (EVGColor.rgb(243 246 250))
+        t.selection = (EVGColor.rgba(9 105 218 0.18))
+        t.caret = (EVGColor.rgb(9 105 218))
+        t.border = (EVGColor.rgb(216 222 228))
+        t.plain = (EVGColor.rgb(31 35 40))
+        ; Headings.
+        t.keyword = (EVGColor.rgb(5 80 174))
+        ; Links and pictures.
+        t.builtin = (EVGColor.rgb(9 105 218))
+        ; List markers.
+        t.number = (EVGColor.rgb(188 76 0))
+        ; Code, inline and fenced.
+        t.text = (EVGColor.rgb(17 99 41))
+        ; Quotes and front matter.
+        t.comment = (EVGColor.rgb(110 119 129))
+        ; Fences, rules, pipes, tags.
+        t.punct = (EVGColor.rgb(140 149 159))
+        ; **bold**
+        t.tag = (EVGColor.rgb(122 46 155))
+        ; *emphasis* and {.attributes}
+        t.attr = (EVGColor.rgb(130 80 223))
+        t.popupBg = (EVGColor.rgb(255 255 255))
+        t.popupEdge = (EVGColor.rgb(216 222 228))
+        t.popupPick = (EVGColor.rgb(221 234 251))
+        t.popupDetail = (EVGColor.rgb(110 119 129))
+    }
+
+    ; A face, into the engine and into the editor's own renderer. The layout
+    ; names its faces with the variant — `Open Sans-Bold` — and the editor's
+    ; renderer takes a family once and the rest as faces.
+    fn attachFont:boolean (name:string data:buffer) {
+        def ok:boolean (md.attachFont(name data))
+        if ((indexOf name "-") >= 0) {
+            tr.addFaceBytes(data)
+        } {
+            tr.loadFontBytes(name data)
+        }
+        if ok {
+            def m:TTFTextMeasurer (new TTFTextMeasurer(md.fontManager))
+            measurer = m
+            ; The chrome measured with the old table; make it again.
+            layoutStale = true
+        }
+        return ok
+    }
+
+    fn loadPresets:void (text:string) {
+        md.loadPresets(text)
+    }
+
+    fn addTextFile:boolean (name:string text:string) {
+        return (md.addTextFile(name text))
+    }
+
+    fn readTextFile:string (name:string) {
+        return (md.readTextFile(name))
+    }
+
+    fn addTemplate:void (name:string css:string) {
+        md.addTheme(name css)
+    }
+
+    fn addImage:boolean (name:string data:buffer contentType:string w:int h:int) {
+        return (md.addImage(name data contentType w h))
+    }
+
+    ; Opening a document. Not an edit on either side.
+    fn setSource:void (text:string name:string) {
+        docName = name
+        md.setSource(text)
+        if (editorDoc == "css") {
+            editorDoc = "md"
+        }
+        editor.init(text)
+        bufSynced = editor.buf.version
+        mdSeen = (md.sourceText())
+        md.scrollTo(0.0)
+        this.followSource(false)
+        this.touch()
+    }
+
+    fn setPageSize:void (w:double h:double) {
+        pageW = w
+        pageH = h
+        layoutStale = true
+        this.rebuild()
+    }
+
+    fn setPointerCoarse:boolean (c:boolean) {
+        if (c == coarse) {
+            return false
+        }
+        coarse = c
+        this.rebuild()
+        return true
+    }
+
+    fn isWide:boolean () {
+        return (pageW >= 768.0)
+    }
+
+    fn touch:void () {
+        chromeRev = (chromeRev + 1)
+        this.rebuild()
+    }
+
+    ; The slides and the Word page are built from the markdown when the reader
+    ; goes to them, and the engine leaves them alone after that. Here they
+    ; FOLLOW the markdown while they are on screen: a new document, a
+    ; keystroke in the editor, a template or a paper size reaches the view
+    ; being looked at. One a reader has edited by hand is kept — the head
+    ; offers "↻ from .md" for that.
+    fn followSource:void (force:boolean) {
+        def v:string (this.paneView())
+        if ((v == "deck") || (v == "doc")) {
+            ; Over the slides or the Word page the engine's `sync` does not
+            ; parse the markdown again — nothing there reads it — but the
+            ; view about to be built from it does.
+            if md.edit.stale {
+                md.edit.ensureLayout()
+            }
+        }
+        if (v == "deck") {
+            if (md.deckEdited()) {
+                return
+            }
+            if force {
+                md.rebuildFromSource()
+            } {
+                md.ensureDeck()
+            }
+        }
+        if (v == "doc") {
+            if (md.docEdited()) {
+                return
+            }
+            if force {
+                md.rebuildFromSource()
+            } {
+                md.ensureDoc()
+            }
+        }
+    }
+
+    ; =========================================================================
+    ; The two views of the source
+    ; =========================================================================
+    ; The editor's buffer went somewhere the markdown has not: hand the
+    ; difference over as a patch, so the markdown's own history and the
+    ; layout's cache see one change rather than a new document.
+    fn syncEditorToMd:void () {
+        if (editor.buf.version == bufSynced) {
+            return
+        }
+        bufSynced = editor.buf.version
+        def now:string (editor.text())
+        if (editorDoc == "css") {
+            cssText = now
+            theme = "custom"
+            md.setStyleSheet(now)
+            md.addTextFile("/style.css" now)
+            this.followSource(true)
+            return
+        }
+        def was:string (md.sourceText())
+        if (was == now) {
+            return
+        }
+        this.computePatch(was now)
+        if ((strlen patchText) == 0) {
+            ; A deletion. `applyPatch` inserts, and inserting nothing is nothing.
+            md.setSelection(patchStart patchEnd)
+            md.edit.deleteSelection()
+        } {
+            md.applyPatch(patchStart patchEnd patchText)
+        }
+        mdSeen = (md.sourceText())
+        this.followSource(false)
+    }
+
+    ; The markdown went somewhere the buffer has not — a key in the preview,
+    ; a format command, an undo there — and the buffer follows by the same
+    ; kind of patch, as ONE edit the editor can undo.
+    fn syncMdToEditor:void () {
+        if (editorDoc == "css") {
+            return
+        }
+        def now:string (md.sourceText())
+        if (now == mdSeen) {
+            return
+        }
+        mdSeen = now
+        def was:string (editor.text())
+        if (was == now) {
+            bufSynced = editor.buf.version
+            return
+        }
+        this.computePatch(was now)
+        this.posOf(was patchStart)
+        def l1:int posLine
+        def c1:int posCol
+        this.posOf(was patchEnd)
+        ; One replace, one undo step — not a delete and an insert.
+        def p:EditorPos (editor.buf.replaceRange(l1 c1 posLine posCol patchText true))
+        editor.markEdited(p)
+        ; The caret where the markdown's is.
+        this.posOf(now (md.edit.caret()))
+        editor.sel.setCaret(posLine posCol)
+        editor.sel.collapseToCaret()
+        editor.layout.preferCol = posCol
+        editor.layout.ensureCaretVisible(editor.buf editor.sel)
+        bufSynced = editor.buf.version
+        this.followSource(false)
+    }
+
+    ; A common prefix, a common suffix, and what sits between them in `now`.
+    fn computePatch:void (was:string now:string) {
+        def wn:int (strlen was)
+        def nn:int (strlen now)
+        def min:int wn
+        if (nn < min) {
+            min = nn
+        }
+        def a:int 0
+        while (a < min) {
+            if ((charAt was a) != (charAt now a)) {
+                break
+            }
+            a = (a + 1)
+        }
+        def z:int 0
+        while (z < (min - a)) {
+            if ((charAt was ((wn - 1) - z)) != (charAt now ((nn - 1) - z))) {
+                break
+            }
+            z = (z + 1)
+        }
+        patchStart = a
+        patchEnd = (wn - z)
+        patchText = (substring now a (nn - z))
+    }
+
+    ; A character offset in `text`, as the line and column the buffer counts.
+    fn posOf:void (text:string offset:int) {
+        def n:int (strlen text)
+        def stop:int offset
+        if (stop > n) {
+            stop = n
+        }
+        def line:int 0
+        def col:int 0
+        def i:int 0
+        while (i < stop) {
+            if ((charAt text i) == 10) {
+                line = (line + 1)
+                col = 0
+            } {
+                col = (col + 1)
+            }
+            i = (i + 1)
+        }
+        posLine = line
+        posCol = col
+    }
+
+    ; The other way: the buffer's line and column as an offset in its text.
+    fn offsetOf:int (line:int col:int) {
+        def off:int 0
+        def i:int 0
+        def n:int (editor.buf.lineCount())
+        while (i < line) {
+            if (i >= n) {
+                break
+            }
+            def len:int (strlen (editor.buf.lineAt(i)))
+            off = ((off + len) + 1)
+            i = (i + 1)
+        }
+        return (off + col)
+    }
+
+    ; Which file the editor holds. The other one's text is kept here.
+    fn openDoc:void (which:string) {
+        if (which == editorDoc) {
+            return
+        }
+        this.syncEditorToMd()
+        if (editorDoc == "md") {
+            mdText = (editor.text())
+        } {
+            cssText = (editor.text())
+        }
+        editorDoc = which
+        if (which == "css") {
+            editor.init((md.styleText()))
+        } {
+            editor.init((md.sourceText()))
+            mdSeen = (md.sourceText())
+        }
+        bufSynced = editor.buf.version
+        focus = "editor"
+        this.touch()
+    }
+
+    ; =========================================================================
+    ; What the reader chose
+    ; =========================================================================
+    fn setScreen:void (name:string) {
+        screen = name
+        if (name == "deck") {
+            md.setView("deck")
+        }
+        if (name == "doc") {
+            md.setView("doc")
+        }
+        if ((name == "preview") || (name == "edit")) {
+            md.setView("md")
+        }
+        if (name == "edit") {
+            focus = "editor"
+        }
+        this.touch()
+    }
+
+    fn paneView:string () {
+        if (screen == "deck") {
+            return "deck"
+        }
+        if (screen == "doc") {
+            return "doc"
+        }
+        return "md"
+    }
+
+    fn editorShown:boolean () {
+        if (this.isWide()) {
+            return sourceOn
+        }
+        return (screen == "edit")
+    }
+
+    fn paneVisible:boolean () {
+        if (this.isWide()) {
+            return true
+        }
+        return (screen != "edit")
+    }
+
+    fn setMode:void (name:string) {
+        mode = name
+        if (name != "continuous") {
+            md.setPageSize(paper)
+        }
+        md.setMode(name)
+        md.scrollTo(0.0)
+        this.followSource(true)
+        this.touch()
+    }
+
+    fn setPaper:void (name:string) {
+        paper = name
+        md.setPageSize(name)
+        md.scrollTo(0.0)
+        this.followSource(true)
+        this.touch()
+    }
+
+    ; A template by key. Empty hands the choice back to the front matter;
+    ; "none" is a blank sheet; a named one is a file the host has to bring —
+    ; out of the store if it is there, off the network if not — and hands to
+    ; `applyTemplate`.
+    fn useTemplate:void (key:string) {
+        theme = key
+        if (key == "") {
+            md.setStyleSheet("")
+            this.followSource(true)
+            this.touch()
+            return
+        }
+        if (key == "none") {
+            md.setStyleSheet(" ")
+            this.followSource(true)
+            this.touch()
+            return
+        }
+        def text:string (md.readTextFile(("/themes/" + key + ".css")))
+        if ((strlen text) > 0) {
+            this.applyTemplate(key text)
+            return
+        }
+        push requests ("theme:" + key)
+    }
+
+    fn applyTemplate:void (key:string text:string) {
+        theme = key
+        md.setStyleSheet(text)
+        md.addTextFile("/style.css" text)
+        cssText = text
+        if (editorDoc == "css") {
+            editor.init(text)
+            bufSynced = editor.buf.version
+        }
+        this.followSource(true)
+        this.touch()
+    }
+
+    fn openSample:void (key:string) {
+        sample = key
+        push requests ("sample:" + key)
+    }
+
+    ; =========================================================================
+    ; The tree
+    ; =========================================================================
+    fn rebuild:void () {
+        root = (this.page())
+        hasOverlay = ((strlen menu) > 0)
+        if hasOverlay {
+            overlayRoot = (this.overlay())
+        }
+    }
+
+    fn page:EVGElement () {
+        def page (tree R5 (Page))
+        def body (tree R5 (Body))
+        if (this.isWide()) {
+            body.addChild((this.rail()))
+        }
+        def side (tree R5 (Side))
+        side.addChild((this.head()))
+        def split (tree R5 (Split))
+        if (this.editorShown()) {
+            def ed (tree R5 (Editor (props (id "r5-editor"))))
+            if (this.isWide()) {
+                ed.className = "r5-editor r5-editor-side"
+            }
+            split.addChild(ed)
+        }
+        if (this.paneVisible()) {
+            def pane (tree R5 (Pane (props (id "r5-pane") (a11yLabel (this.paneName())))))
+            split.addChild(pane)
+        }
+        side.addChild(split)
+        if (! (this.isWide())) {
+            side.addChild((this.nav()))
+        }
+        body.addChild(side)
+        page.addChild(body)
+        return page
+    }
+
+    fn paneName:string () {
+        def v:string (this.paneView())
+        if (v == "deck") {
+            return "The slides"
+        }
+        if (v == "doc") {
+            return "The Word document"
+        }
+        if (mode == "paged") {
+            return "The document, in sheets"
+        }
+        return "The document"
+    }
+
+    ; The desk's rail: the three documents, the source pane, and the menus.
+    fn rail:EVGElement () {
+        def rail (tree R5 (Rail))
+        rail.addChild((this.railBtn("r5-view-preview" "Preview" ((screen == "preview") || (screen == "edit")))))
+        rail.addChild((this.railBtn("r5-view-deck" "Slides" (screen == "deck"))))
+        rail.addChild((this.railBtn("r5-view-doc" "Word" (screen == "doc"))))
+        rail.addChild((this.railBtn("r5-source" "Source" sourceOn)))
+        rail.addChild((tree R5 (RailGap)))
+        rail.addChild((this.railBtn("r5-menu-document" "Open" (menu == "document"))))
+        rail.addChild((this.railBtn("r5-menu-layout" "Layout" (menu == "layout"))))
+        rail.addChild((this.railBtn("r5-menu-format" "Format" (menu == "format"))))
+        rail.addChild((this.railBtn("r5-menu-export" "Export" (menu == "export"))))
+        return rail
+    }
+
+    fn railBtn:EVGElement (id:string label:string on:boolean) {
+        def b (tree R5 (RailBtn (props (id id) (a11yLabel label)
+                                        (className (? on "r5-rail-btn r5-rail-btn-on" "r5-rail-btn")))))
+        if on {
+            b.a11ySelected = 2
+        } {
+            b.a11ySelected = 1
+        }
+        b.addChild((tree R5 (RailTxt label)))
+        return b
+    }
+
+    ; The phone's bar.
+    fn nav:EVGElement () {
+        def nav (tree R5 (Nav))
+        nav.addChild((this.navBtn("r5-nav-edit" "Edit" (screen == "edit"))))
+        nav.addChild((this.navBtn("r5-nav-preview" "Preview" (screen == "preview"))))
+        nav.addChild((this.navBtn("r5-nav-deck" "Slides" (screen == "deck"))))
+        nav.addChild((this.navBtn("r5-nav-doc" "Word" (screen == "doc"))))
+        nav.addChild((this.navBtn("r5-nav-more" "More" ((strlen menu) > 0))))
+        return nav
+    }
+
+    fn navBtn:EVGElement (id:string label:string on:boolean) {
+        def b (tree R5 (NavBtn (props (id id) (a11yLabel label)
+                                       (className (? on "r5-nav-btn r5-nav-btn-on" "r5-nav-btn")))))
+        if on {
+            b.a11ySelected = 2
+        } {
+            b.a11ySelected = 1
+        }
+        b.addChild((tree R5 (NavTxt label)))
+        return b
+    }
+
+    ; The strip over the panes: the document's name, which file the editor
+    ; holds, and where in the document the reader is.
+    fn head:EVGElement () {
+        def head (tree R5 (Head))
+        head.addChild((tree R5 (HeadTxt docName)))
+        if (this.editorShown()) {
+            head.addChild((this.chip("r5-doc-md" "document.md" (editorDoc == "md"))))
+            head.addChild((this.chip("r5-doc-css" "style.css" (editorDoc == "css"))))
+        }
+        head.addChild((tree R5 (HeadGap)))
+        if (this.paneVisible()) {
+            def v:string (this.paneView())
+            if (v == "deck") {
+                if (md.deckEdited()) {
+                    head.addChild((this.chip("r5-rebuild" "↻ from .md" false)))
+                }
+            }
+            if (v == "doc") {
+                if (md.docEdited()) {
+                    head.addChild((this.chip("r5-rebuild" "↻ from .md" false)))
+                }
+            }
+            def total:int (this.pageTotal())
+            if (total > 1) {
+                def pill (tree R5 (Pill))
+                def prev (tree R5 (PillBtn (props (id "r5-page-prev") (a11yLabel "Previous page"))))
+                prev.addChild((tree R5 (PillTxt "‹")))
+                pill.addChild(prev)
+                def at:int ((this.pageAt()) + 1)
+                pill.addChild((tree R5 (PillNum ((to_string at) + " / " + (to_string total)))))
+                def next (tree R5 (PillBtn (props (id "r5-page-next") (a11yLabel "Next page"))))
+                next.addChild((tree R5 (PillTxt "›")))
+                pill.addChild(next)
+                head.addChild(pill)
+            }
+        }
+        return head
+    }
+
+    fn chip:EVGElement (id:string label:string on:boolean) {
+        def c (tree R5 (Chip (props (id id) (a11yLabel label)
+                                     (className (? on "r5-chip r5-chip-on" "r5-chip")))))
+        if on {
+            c.a11ySelected = 2
+        }
+        c.addChild((tree R5 (ChipTxt label)))
+        return c
+    }
+
+    ; Which page, of how many, in whichever document is on screen.
+    fn pageTotal:int () {
+        def v:string (this.paneView())
+        if (v == "deck") {
+            return (md.deckSlideCount())
+        }
+        if (v == "doc") {
+            def dw:DocxWeb (md.docHost())
+            return (dw.pageCount())
+        }
+        if (mode == "continuous") {
+            return 1
+        }
+        return (md.pageCountNow())
+    }
+
+    fn pageAt:int () {
+        def v:string (this.paneView())
+        if (v == "deck") {
+            def pw:PptxWeb (md.deckHost())
+            return (pw.slideIndex())
+        }
+        if (v == "doc") {
+            def dw:DocxWeb (md.docHost())
+            return (dw.page())
+        }
+        return (md.pageAt())
+    }
+
+    fn goToPage:void (p:int) {
+        def total:int (this.pageTotal())
+        if (p < 0) {
+            return
+        }
+        if (p >= total) {
+            return
+        }
+        def v:string (this.paneView())
+        if (v == "deck") {
+            md.deckGoTo(p)
+            md.touch()
+            return
+        }
+        if (v == "doc") {
+            def dw:DocxWeb (md.docHost())
+            dw.goToPage(p)
+            md.touch()
+            return
+        }
+        md.scrollToPage(p)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The sheets
+    ; ----------------------------------------------------------------------
+    fn overlay:EVGElement () {
+        def ov (tree R5 (Overlay (props (id "r5-scrim"))))
+        if (! (this.isWide())) {
+            ov.className = "r5-overlay r5-overlay-bottom"
+        }
+        def sh (tree R5 (Sheet (props (id "r5-sheet") (a11yLabel (this.menuTitle())))))
+        sh.addChild((tree R5 (SheetTtl (this.menuTitle()))))
+        if (menu == "more") {
+            this.moreSheet(sh)
+        }
+        if (menu == "document") {
+            this.documentSheet(sh)
+        }
+        if (menu == "layout") {
+            this.layoutSheet(sh)
+        }
+        if (menu == "format") {
+            this.formatSheet(sh)
+        }
+        if (menu == "export") {
+            this.exportSheet(sh)
+        }
+        sh.addChild((this.actionRow("r5-close" "Close")))
+        ov.addChild(sh)
+        return ov
+    }
+
+    fn menuTitle:string () {
+        if (menu == "document") {
+            return "Document"
+        }
+        if (menu == "layout") {
+            return "Layout"
+        }
+        if (menu == "format") {
+            return "Format"
+        }
+        if (menu == "export") {
+            return "Export"
+        }
+        return "Menu"
+    }
+
+    fn row:EVGElement (id:string label:string on:boolean) {
+        def r (tree R5 (Row (props (id id) (a11yLabel label)
+                                    (className (? on "r5-row r5-row-on" "r5-row")))))
+        def mark:string (? on "●" "○")
+        r.addChild((tree R5 (RowMark mark)))
+        r.addChild((tree R5 (RowTxt label)))
+        if on {
+            r.a11ySelected = 2
+        }
+        return r
+    }
+
+    fn actionRow:EVGElement (id:string label:string) {
+        def r (tree R5 (Row (props (id id) (a11yLabel label))))
+        r.addChild((tree R5 (RowTxt label)))
+        return r
+    }
+
+    fn moreSheet:void (sh:EVGElement) {
+        sh.addChild((this.actionRow("r5-menu-document" "Open a document…")))
+        sh.addChild((this.actionRow("r5-menu-layout" "Layout: template, mode, paper…")))
+        sh.addChild((this.actionRow("r5-menu-format" "Format the selection…")))
+        sh.addChild((this.actionRow("r5-menu-export" "Export: PDF, HTML, PPTX…")))
+        sh.addChild((tree R5 (SheetNote ((md.status()) + " · build " + build))))
+    }
+
+    fn documentSheet:void (sh:EVGElement) {
+        sh.addChild((tree R5 (SheetSub "Samples")))
+        def n:int (array_length sampleKeys)
+        def i:int 0
+        while (i < n) {
+            def key:string (itemAt sampleKeys i)
+            sh.addChild((this.row(("r5-sample-" + key) (itemAt sampleNames i) (key == sample))))
+            i = (i + 1)
+        }
+        sh.addChild((tree R5 (SheetSub "This device")))
+        sh.addChild((this.actionRow("r5-open-file" "Open a .md file…")))
+    }
+
+    fn layoutSheet:void (sh:EVGElement) {
+        sh.addChild((tree R5 (SheetSub "Template")))
+        def tn:int (array_length themeKeys)
+        def ti:int 0
+        while (ti < tn) {
+            def key:string (itemAt themeKeys ti)
+            def id:string ("r5-theme-" + (? (key == "") "auto" key))
+            sh.addChild((this.row(id (itemAt themeNames ti) (key == theme))))
+            ti = (ti + 1)
+        }
+        if (theme == "custom") {
+            sh.addChild((tree R5 (SheetNote "style.css, as edited")))
+        }
+        sh.addChild((tree R5 (SheetSub "Mode")))
+        def mn:int (array_length modeKeys)
+        def mi:int 0
+        while (mi < mn) {
+            def key:string (itemAt modeKeys mi)
+            sh.addChild((this.row(("r5-mode-" + key) (itemAt modeNames mi) (key == mode))))
+            mi = (mi + 1)
+        }
+        if (mode != "continuous") {
+            sh.addChild((tree R5 (SheetSub "Paper")))
+            def pn:int (array_length paperKeys)
+            def pi:int 0
+            while (pi < pn) {
+                def key:string (itemAt paperKeys pi)
+                sh.addChild((this.row(("r5-paper-" + (R5App.slug(key))) (itemAt paperNames pi) (key == paper))))
+                pi = (pi + 1)
+            }
+        }
+    }
+
+    fn formatSheet:void (sh:EVGElement) {
+        if (editorDoc == "css") {
+            sh.addChild((tree R5 (SheetNote "The editor holds style.css; these format the markdown.")))
+        }
+        def chips (tree R5 (Chips))
+        def n:int (array_length fmtIds)
+        def i:int 0
+        while (i < n) {
+            def fname:string (itemAt fmtNames i)
+            def c (tree R5 (FmtChip (props (id ("r5-fmt-" + (itemAt fmtIds i))) (a11yLabel fname))))
+            c.addChild((tree R5 (FmtTxt fname)))
+            chips.addChild(c)
+            i = (i + 1)
+        }
+        sh.addChild(chips)
+        def undo (tree R5 (Chips))
+        def u (tree R5 (FmtChip (props (id "r5-undo") (a11yLabel "Undo"))))
+        u.addChild((tree R5 (FmtTxt "↶ undo")))
+        undo.addChild(u)
+        def r (tree R5 (FmtChip (props (id "r5-redo") (a11yLabel "Redo"))))
+        r.addChild((tree R5 (FmtTxt "↷ redo")))
+        undo.addChild(r)
+        sh.addChild(undo)
+        sh.addChild((tree R5 (SheetNote "Applied to the selection in the editor, or in the preview when it has the keyboard.")))
+    }
+
+    fn exportSheet:void (sh:EVGElement) {
+        sh.addChild((this.actionRow("r5-export-pdf" "PDF — the sheets, fonts embedded")))
+        sh.addChild((this.actionRow("r5-export-html" "HTML")))
+        sh.addChild((this.actionRow("r5-export-pptx" "PPTX — the slides")))
+        sh.addChild((tree R5 (SheetNote "Built in this tab. Nothing is sent anywhere.")))
+    }
+
+    ; "a4 landscape" as something an id can carry.
+    sfn slug:string (key:string) {
+        def out:string ""
+        def n:int (strlen key)
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt key i)
+            if (ch == 32) {
+                str_append out "-"
+            } {
+                str_append out (strfromcode ch)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; =========================================================================
+    ; Pressing
+    ; =========================================================================
+    fn press:boolean (id:string) {
+        if (id == "") {
+            return false
+        }
+        chromeRev = (chromeRev + 1)
+        if ((strlen menu) > 0) {
+            return (this.pressInSheet(id))
+        }
+        if (id == "r5-view-preview") {
+            this.setScreen("preview")
+            return true
+        }
+        if (id == "r5-view-deck") {
+            this.setScreen("deck")
+            return true
+        }
+        if (id == "r5-view-doc") {
+            this.setScreen("doc")
+            return true
+        }
+        if (id == "r5-source") {
+            sourceOn = (! sourceOn)
+            if sourceOn {
+                focus = "editor"
+            }
+            this.touch()
+            return true
+        }
+        if (id == "r5-nav-edit") {
+            this.setScreen("edit")
+            return true
+        }
+        if (id == "r5-nav-preview") {
+            this.setScreen("preview")
+            return true
+        }
+        if (id == "r5-nav-deck") {
+            this.setScreen("deck")
+            return true
+        }
+        if (id == "r5-nav-doc") {
+            this.setScreen("doc")
+            return true
+        }
+        if (id == "r5-nav-more") {
+            this.openMenu("more")
+            return true
+        }
+        if (R5App.beginsWith(id "r5-menu-")) {
+            this.openMenu((substring id 8 (strlen id)))
+            return true
+        }
+        if (id == "r5-doc-md") {
+            this.openDoc("md")
+            return true
+        }
+        if (id == "r5-doc-css") {
+            this.openDoc("css")
+            return true
+        }
+        if (id == "r5-rebuild") {
+            md.rebuildFromSource()
+            this.touch()
+            return true
+        }
+        if (id == "r5-page-prev") {
+            this.goToPage(((this.pageAt()) - 1))
+            this.touch()
+            return true
+        }
+        if (id == "r5-page-next") {
+            this.goToPage(((this.pageAt()) + 1))
+            this.touch()
+            return true
+        }
+        return false
+    }
+
+    fn openMenu:void (name:string) {
+        menu = name
+        this.touch()
+    }
+
+    fn closeMenu:void () {
+        menu = ""
+        this.touch()
+    }
+
+    fn pressInSheet:boolean (id:string) {
+        if ((id == "r5-scrim") || (id == "r5-close")) {
+            this.closeMenu()
+            return true
+        }
+        if (R5App.beginsWith(id "r5-menu-")) {
+            this.openMenu((substring id 8 (strlen id)))
+            return true
+        }
+        if (R5App.beginsWith(id "r5-sample-")) {
+            this.openSample((substring id 10 (strlen id)))
+            this.closeMenu()
+            return true
+        }
+        if (id == "r5-open-file") {
+            push requests "open-file"
+            this.closeMenu()
+            return true
+        }
+        if (R5App.beginsWith(id "r5-theme-")) {
+            def key:string (substring id 9 (strlen id))
+            if (key == "auto") {
+                key = ""
+            }
+            this.useTemplate(key)
+            return true
+        }
+        if (R5App.beginsWith(id "r5-mode-")) {
+            this.setMode((substring id 8 (strlen id)))
+            return true
+        }
+        if (R5App.beginsWith(id "r5-paper-")) {
+            def slug:string (substring id 9 (strlen id))
+            def n:int (array_length paperKeys)
+            def i:int 0
+            while (i < n) {
+                def key:string (itemAt paperKeys i)
+                if ((R5App.slug(key)) == slug) {
+                    this.setPaper(key)
+                    return true
+                }
+                i = (i + 1)
+            }
+            return false
+        }
+        if (R5App.beginsWith(id "r5-export-")) {
+            push requests ("download:" + (substring id 10 (strlen id)))
+            this.closeMenu()
+            return true
+        }
+        if (id == "r5-undo") {
+            this.undo()
+            return true
+        }
+        if (id == "r5-redo") {
+            this.redo()
+            return true
+        }
+        if (R5App.beginsWith(id "r5-fmt-")) {
+            def fid:string (substring id 7 (strlen id))
+            def n:int (array_length fmtIds)
+            def i:int 0
+            while (i < n) {
+                if ((itemAt fmtIds i) == fid) {
+                    this.format((itemAt fmtCmds i) (itemAt fmtArgs i))
+                    return true
+                }
+                i = (i + 1)
+            }
+            return false
+        }
+        return false
+    }
+
+    sfn beginsWith:boolean (s:string prefix:string) {
+        def pn:int (strlen prefix)
+        if ((strlen s) < pn) {
+            return false
+        }
+        return ((substring s 0 pn) == prefix)
+    }
+
+    ; =========================================================================
+    ; Editing
+    ; =========================================================================
+    ; A format command. The markdown module owns what every command means; the
+    ; editor's selection is handed to it as offsets, and the buffer follows the
+    ; change the way it follows any other.
+    fn format:boolean (cmd:string arg:string) {
+        if (focus == "preview") {
+            def okp:boolean (md.run(cmd arg))
+            this.syncMdToEditor()
+            this.touch()
+            return okp
+        }
+        if (editorDoc == "css") {
+            return false
+        }
+        this.syncEditorToMd()
+        def a:int (this.offsetOf(editor.sel.anchor.line editor.sel.anchor.col))
+        def b:int (this.offsetOf(editor.sel.caret.line editor.sel.caret.col))
+        md.setSelection(a b)
+        def ok:boolean (md.run(cmd arg))
+        this.syncMdToEditor()
+        this.touch()
+        return ok
+    }
+
+    fn undo:void () {
+        if (focus == "preview") {
+            md.undo()
+            this.syncMdToEditor()
+        } {
+            editor.undo()
+            this.syncEditorToMd()
+        }
+        this.touch()
+    }
+
+    fn redo:void () {
+        if (focus == "preview") {
+            md.redo()
+            this.syncMdToEditor()
+        } {
+            editor.redo()
+            this.syncEditorToMd()
+        }
+        this.touch()
+    }
+
+    ; A key by the browser's name, to whichever pane has the keyboard.
+    fn key:boolean (name:string shift:boolean ctrl:boolean) {
+        if (focus == "preview") {
+            def took:boolean (md.key(name shift ctrl))
+            this.syncMdToEditor()
+            chromeRev = (chromeRev + 1)
+            return took
+        }
+        def code:int (R5App.keyByName(name))
+        if (code == 0) {
+            return false
+        }
+        editor.handleKey(code shift ctrl)
+        this.syncEditorToMd()
+        return true
+    }
+
+    sfn keyByName:int (name:string) {
+        if (name == "backspace") { return (UIKey.backspace()) }
+        if (name == "enter")     { return (UIKey.enter()) }
+        if (name == "tab")       { return (UIKey.tab()) }
+        if (name == "escape")    { return (UIKey.escape()) }
+        if (name == "left")      { return (UIKey.left()) }
+        if (name == "right")     { return (UIKey.right()) }
+        if (name == "up")        { return (UIKey.up()) }
+        if (name == "down")      { return (UIKey.down()) }
+        if (name == "delete")    { return (UIKey.del()) }
+        if (name == "home")      { return (UIKey.home()) }
+        if (name == "end")       { return (UIKey.end()) }
+        if (name == "pageUp")    { return (UIKey.pageUp()) }
+        if (name == "pageDown")  { return (UIKey.pageDown()) }
+        return 0
+    }
+
+    ; Typed text, an IME's finished composition included.
+    fn text:void (s:string) {
+        if (focus == "preview") {
+            md.typeText(s)
+            this.syncMdToEditor()
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        editor.handleText(s)
+        this.syncEditorToMd()
+    }
+
+    ; Ctrl and one letter. a, z and y are the editor's; b, i and e are the
+    ; markdown's, whichever pane is typing.
+    fn chord:boolean (ch:string) {
+        if (focus == "preview") {
+            def took:boolean (md.key(ch false true))
+            this.syncMdToEditor()
+            chromeRev = (chromeRev + 1)
+            return took
+        }
+        if (ch == "b") { return (this.format("format.bold" "")) }
+        if (ch == "i") { return (this.format("format.italic" "")) }
+        if (ch == "e") { return (this.format("format.code" "")) }
+        if ((strlen ch) != 1) {
+            return false
+        }
+        def took:boolean (editor.handleCtrlChar((charAt ch 0)))
+        this.syncEditorToMd()
+        return took
+    }
+
+    fn copySelection:string () {
+        if (focus == "preview") {
+            return (md.copySelection())
+        }
+        return (editor.selectionText())
+    }
+
+    fn cutSelection:string () {
+        if (focus == "preview") {
+            def cut:string (md.cutSelection())
+            this.syncMdToEditor()
+            return cut
+        }
+        def out:string (editor.cutSelection())
+        this.syncEditorToMd()
+        return out
+    }
+
+    fn paste:void (s:string) {
+        this.text(s)
+    }
+
+    ; Escape closes a sheet before anything else sees it.
+    fn escape:boolean () {
+        if ((strlen menu) > 0) {
+            this.closeMenu()
+            return true
+        }
+        return false
+    }
+
+    ; --- what the hidden field mirrors -----------------------------------------
+    fn currentLine:string () {
+        return (editor.buf.lineAt(editor.sel.caret.line))
+    }
+
+    fn caretLine:int () {
+        return editor.sel.caret.line
+    }
+
+    fn caretCol:int () {
+        return editor.sel.caret.col
+    }
+
+    fn anchorLine:int () {
+        return editor.sel.anchor.line
+    }
+
+    fn anchorCol:int () {
+        return editor.sel.anchor.col
+    }
+
+    fn hasSelection:boolean () {
+        return (! (editor.sel.isCollapsed()))
+    }
+
+    fn setFocus:void (where:string) {
+        if (where == focus) {
+            return
+        }
+        focus = where
+        md.setEditMode((where == "preview"))
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn focusTarget:string () {
+        return focus
+    }
+
+    fn setBlink:void (phase:int) {
+        blink = phase
+    }
+
+    fn setCaretOn:void (on:boolean) {
+        md.setCaretOn(on)
+    }
+
+    ; =========================================================================
+    ; The pointer
+    ; =========================================================================
+    ; Where a press landed: "editor", "chrome", or "" for the document pane,
+    ; which the host serves through its own element over that rectangle.
+    fn pointerDown:string (x:double y:double shift:boolean clicks:int) {
+        this.laidOut()
+        if ((strlen menu) > 0) {
+            def oid:string (this.hitId(x y))
+            this.press(oid)
+            return "chrome"
+        }
+        if edShown {
+            if (this.inEditor(x y)) {
+                def px:int (to_int x)
+                def py:int (to_int y)
+                if (clicks >= 3) {
+                    editor.selectLineAt(tr px py)
+                } {
+                    if (clicks == 2) {
+                        editor.selectWordAt(tr px py)
+                    } {
+                        editor.pointerDown(tr px py shift)
+                        editorDrag = true
+                    }
+                }
+                this.setFocus("editor")
+                chromeRev = (chromeRev + 1)
+                return "editor"
+            }
+        }
+        if paneShown {
+            if (this.inPane(x y)) {
+                return ""
+            }
+        }
+        def id:string (this.hitId(x y))
+        pressed = id
+        this.press(id)
+        return "chrome"
+    }
+
+    fn pointerMove:void (x:double y:double) {
+        if editorDrag {
+            editor.pointerDrag(tr (to_int x) (to_int y))
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        def id:string (this.hitId(x y))
+        if (id != hovered) {
+            hovered = id
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    fn pointerUp:void () {
+        editorDrag = false
+        pressed = ""
+    }
+
+    fn clearHover:void () {
+        hovered = ""
+        pressed = ""
+        editorDrag = false
+    }
+
+    ; A wheel over the editor scrolls it by lines; the host serves the pane.
+    fn wheel:boolean (x:double y:double dy:double) {
+        if (! edShown) {
+            return false
+        }
+        if (! (this.inEditor(x y))) {
+            return false
+        }
+        def notches:int 1
+        if (dy < 0.0) {
+            notches = -1
+        }
+        def lines:int (to_int (dy / 20.0))
+        if (lines == 0) {
+            lines = notches
+        }
+        editor.scrollBy((0 - lines))
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    fn inEditor:boolean (x:double y:double) {
+        if (x < edX) { return false }
+        if (y < edY) { return false }
+        if (x > (edX + edW)) { return false }
+        if (y > (edY + edH)) { return false }
+        return true
+    }
+
+    fn inPane:boolean (x:double y:double) {
+        if (x < paneX) { return false }
+        if (y < paneY) { return false }
+        if (x > (paneX + paneW)) { return false }
+        if (y > (paneY + paneH)) { return false }
+        return true
+    }
+
+    ; What the pointer looks like: over the editor, a text caret.
+    fn cursorAt:string (x:double y:double) {
+        if ((strlen menu) == 0) {
+            if edShown {
+                if (this.inEditor(x y)) {
+                    return "text"
+                }
+            }
+        }
+        def id:string (this.hitId(x y))
+        if ((strlen id) > 0) {
+            return "pointer"
+        }
+        return "default"
+    }
+
+    ; =========================================================================
+    ; Layout and drawing
+    ; =========================================================================
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.markStates((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    fn freshLayout:EVGLayout () {
+        def lay (new EVGLayout())
+        lay.setPageSize(pageW pageH)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        return lay
+    }
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH coarse)
+        this.markStates(r)
+        s.applyTree(r "")
+        if ((null? layout) || layoutStale) {
+            layout = (this.freshLayout())
+            overlayLayout = (this.freshLayout())
+            layoutStale = false
+        }
+        def lay:EVGLayout (unwrap layout)
+        lay.layout(r)
+        paneShown = false
+        edShown = false
+        this.readRects(r)
+        if paneShown {
+            if ((paneW != sizedW) || (paneH != sizedH)) {
+                sizedW = paneW
+                sizedH = paneH
+                md.resize(paneW paneH)
+            }
+        }
+        if hasOverlay {
+            def o:EVGElement (unwrap overlayRoot)
+            this.markStates(o)
+            s.applyTree(o "")
+            def olay:EVGLayout (unwrap overlayLayout)
+            olay.layout(o)
+        }
+        return lay
+    }
+
+    fn readRects:void (el:EVGElement) {
+        if (el.id == "r5-pane") {
+            paneShown = true
+            paneX = el.calculatedX
+            paneY = el.calculatedY
+            paneW = el.calculatedWidth
+            paneH = el.calculatedHeight
+        }
+        if (el.id == "r5-editor") {
+            edShown = true
+            edX = el.calculatedX
+            edY = el.calculatedY
+            edW = el.calculatedWidth
+            edH = el.calculatedHeight
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.readRects((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    ; The chrome: the tree, the editor painted into its rectangle, and the
+    ; sheet over both. Drawn over the document with the canvas kept.
+    fn chromeJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        if edShown {
+            editor.focused = (focus == "editor")
+            editor.layout.showLineNumbers = (edW >= 420.0)
+            editor.setBounds((to_int edX) (to_int edY) (to_int edW) (to_int edH))
+            editor.paint(dl tr blink)
+        }
+        if hasOverlay {
+            def o:EVGElement (unwrap overlayRoot)
+            def olay:EVGLayout (unwrap overlayLayout)
+            def dl2 (new EVGDisplayList())
+            dl2.setTextEngine((olay.getTextEngine()))
+            dl2.build(o)
+            dl.appendFrom(dl2)
+        }
+        def w:string (EVGDisplayList.num(pageW))
+        def h:string (EVGDisplayList.num(pageH))
+        return ("{\"width\":" + w + ",\"height\":" + h + ",\"list\":" + (dl.toJson()) + "}")
+    }
+
+    ; Where the document goes, and which document.
+    fn paneRectJson:string () {
+        this.laidOut()
+        def out:string "{\"shown\":"
+        out = (out + (? paneShown "true" "false"))
+        out = (out + ",\"x\":" + (EVGDisplayList.num(paneX)))
+        out = (out + ",\"y\":" + (EVGDisplayList.num(paneY)))
+        out = (out + ",\"w\":" + (EVGDisplayList.num(paneW)))
+        out = (out + ",\"h\":" + (EVGDisplayList.num(paneH)))
+        out = (out + ",\"view\":\"" + (this.paneView()) + "\"")
+        out = (out + ",\"editor\":" + (? edShown "true" "false"))
+        out = (out + ",\"menu\":" + (? ((strlen menu) > 0) "true" "false"))
+        out = (out + ",\"focus\":\"" + focus + "\"}")
+        return out
+    }
+
+    ; The document's frame and its camera frame, straight from the engine.
+    fn docFrame:string () {
+        return (md.frame())
+    }
+
+    fn docViewFrame:string () {
+        return (md.viewFrame())
+    }
+
+    fn hitId:string (px:double py:double) {
+        def hit (new EVGHitTest())
+        if hasOverlay {
+            def o:EVGElement (unwrap overlayRoot)
+            def oid:string (hit.idAt(o px py))
+            if ((strlen oid) > 0) {
+                return oid
+            }
+            return "r5-scrim"
+        }
+        def r:EVGElement (unwrap root)
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        if hasOverlay {
+            def o:EVGElement (unwrap overlayRoot)
+            def to:EVGA11yTree (b.build(o "r5 menu" generation focusId))
+            return (to.toJson())
+        }
+        def t:EVGA11yTree (b.build(r "r5 markdown" generation focusId))
+        return (t.toJson())
+    }
+
+    ; What the picture depends on, cheaply. The host asks every frame and
+    ; builds only when the answer moved.
+    fn revision:string () {
+        def out:string (to_string chromeRev)
+        out = (out + ":" + (to_string editor.buf.version))
+        out = (out + ":" + (to_string editor.sel.caret.line) + "," + (to_string editor.sel.caret.col))
+        out = (out + ":" + (to_string editor.sel.anchor.line) + "," + (to_string editor.sel.anchor.col))
+        out = (out + ":" + (to_string editor.layout.scrollLine))
+        out = (out + ":" + (to_string blink))
+        out = (out + ":" + menu + ":" + screen + ":" + editorDoc)
+        out = (out + ":" + (? sourceOn "s" "-") + ":" + hovered + ":" + focus)
+        out = (out + ":" + (EVGDisplayList.num(pageW)) + "x" + (EVGDisplayList.num(pageH)))
+        out = (out + ":" + (to_string md.listRev) + ":" + (EVGDisplayList.num((md.scrollPosition()))))
+        out = (out + ":" + (to_string (md.edit.caret())) + "," + (to_string (md.edit.selStart())) + "," + (to_string (md.edit.selEnd())))
+        return out
+    }
+
+    fn takeRequest:string () {
+        if ((array_length requests) == 0) {
+            return ""
+        }
+        def first:string (itemAt requests 0)
+        remove_index requests 0
+        return first
+    }
+
+    fn currentScreen:string () {
+        return screen
+    }
+
+    fn menuOpen:string () {
+        return menu
+    }
+
+    fn statusText:string () {
+        return (md.status())
+    }
+}
