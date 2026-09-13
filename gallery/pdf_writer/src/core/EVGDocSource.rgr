@@ -1,0 +1,261 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGDocSource — one door into the tree, whatever the file is
+; ==============================================================================
+;
+; The PNG, PDF, HTML and display-list tools each began by calling
+; `JSXToEVG.parseFile`, which quietly made "a document" mean "a .tsx file".
+; `EVGTreeJson` is now a second thing a document can be — the one an agent
+; writes — and rather than four copies of a two-way branch, the choice is made
+; once, here.
+;
+; The contract the tools already had is kept exactly: a failure comes back as
+; an element with an empty `tagName`, because that is what every caller tests
+; for. Nothing here prints; the tools own what the user is told.
+;
+; --- WHY THE EXTENSION DECIDES ------------------------------------------------
+;
+; Not sniffing the content. A `.tsx` that happens to start with `{` is a broken
+; `.tsx` and should be reported as one, not silently read as something else —
+; and the error a reader gives for the format it was ASKED to read is the error
+; that helps.
+; ==============================================================================
+
+Import "../jsx/JSXToEVG.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGTreeJson.rgr"
+
+class EVGDocSource {
+
+    ; True when this path names a document written by `EVGTreeJson`.
+    sfn isTreeJson:boolean (name:string) {
+        return (EVGDocSource.hasTail(name ".evg.json"))
+    }
+
+    sfn hasTail:boolean (s:string tail:string) {
+        def n:int (strlen tail)
+        if ((strlen s) < n) {
+            return false
+        }
+        return ((substring s ((strlen s) - n) (strlen s)) == tail)
+    }
+
+    sfn load:EVGElement (dir:string name:string pageWidth:double pageHeight:double) {
+        if (EVGDocSource.isTreeJson(name)) {
+            def text@(optional):string (read_file dir name)
+            if (null? text) {
+                return (EVGDocSource.nothing())
+            }
+            def root@(optional):EVGElement (EVGTreeJson.fromText((unwrap text)))
+            if (null? root) {
+                return (EVGDocSource.nothing())
+            }
+            return (unwrap root)
+        }
+        def converter (new JSXToEVG())
+        converter.pageWidth = pageWidth
+        converter.pageHeight = pageHeight
+        return (converter.parseFile(dir name))
+    } doc {
+        description "Reads a document as an EVG tree, choosing the reader by extension."
+        param dir "The directory the file is in, with or without a trailing slash."
+        param name "The file name."
+        param pageWidth "Page width, for the JSX reader's own sizing."
+        param pageHeight "Page height, likewise."
+        returns "The root element; a tagName of \"\" means it could not be read."
+    }
+
+
+    ; --- assets move with the document ---------------------------------------
+    ;
+    ; A `src` is resolved against the DOCUMENT's directory, so a converted file
+    ; written somewhere else points at nothing: `../../../pdf_writer/assets/…`
+    ; means one thing beside `showcase/pages/` and another beside `/tmp`. The
+    ; conversion has to re-anchor it, or every image in the output is a broken
+    ; link that only shows up as a blank box at render time.
+    ;
+    ; Absolute paths and URLs are left exactly as they are — they do not depend
+    ; on where the document sits, which is the whole reason someone writes one.
+
+    sfn isAnchored:boolean (path:string) {
+        if ((strlen path) == 0) {
+            return true
+        }
+        if ((charAt path 0) == 47) {
+            return true
+        }
+        if ((indexOf path "://") >= 0) {
+            return true
+        }
+        if ((indexOf path "data:") == 0) {
+            return true
+        }
+        return false
+    }
+
+    sfn split:[string] (path:string) {
+        def out:[string]
+        def cur:string ""
+        def i:int 0
+        while (i < (strlen path)) {
+            def c:int (charAt path i)
+            if (c == 47) {
+                if ((strlen cur) > 0) {
+                    push out cur
+                }
+                cur = ""
+            } {
+                cur = (cur + (substring path i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push out cur
+        }
+        return out
+    }
+
+    ; Collapse "." and "..". A leading ".." that cannot be collapsed is KEPT —
+    ; it still means something relative to wherever this is resolved from.
+    sfn collapse:[string] (parts:[string]) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length parts)) {
+            def seg:string (itemAt parts i)
+            if (seg == ".") {
+                i = i
+            } {
+                if (seg == "..") {
+                    def n:int (array_length out)
+                    if (n > 0) {
+                        def last:string (itemAt out (n - 1))
+                        if (last == "..") {
+                            push out seg
+                        } {
+                            remove_index out (n - 1)
+                        }
+                    } {
+                        push out seg
+                    }
+                } {
+                    push out seg
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn joinParts:string (parts:[string] absolute:boolean) {
+        def out:string ""
+        if absolute {
+            out = "/"
+        }
+        def i:int 0
+        while (i < (array_length parts)) {
+            if (i > 0) {
+                out = (out + "/")
+            }
+            out = (out + (itemAt parts i))
+            i = (i + 1)
+        }
+        if ((strlen out) == 0) {
+            return "."
+        }
+        return out
+    }
+
+    ; Where `rel`, written beside a document in `fromDir`, is when read beside
+    ; one in `toDir`. "" means the two directories have no expressible relation
+    ; — one absolute and one not — and the caller has to say so rather than
+    ; write a path that silently resolves somewhere else.
+    sfn rebase:string (fromDir:string toDir:string rel:string) {
+        if (EVGDocSource.isAnchored(rel)) {
+            return rel
+        }
+        def fromAbs:boolean (EVGDocSource.startsAt(fromDir))
+        def toAbs:boolean (EVGDocSource.startsAt(toDir))
+        if (fromAbs != toAbs) {
+            return ""
+        }
+        def target:[string] (EVGDocSource.collapse((EVGDocSource.split((fromDir + "/") + rel))))
+        def base:[string] (EVGDocSource.collapse((EVGDocSource.split(toDir))))
+        ; A ".." left in either after normalising means the two are anchored
+        ; above something neither names, and the walk below would be a guess.
+        if (EVGDocSource.hasDotDot(target)) {
+            return ""
+        }
+        if (EVGDocSource.hasDotDot(base)) {
+            return ""
+        }
+        def common:int 0
+        while (common < (array_length base)) {
+            if (common >= (array_length target)) {
+                return (EVGDocSource.walkUp(((array_length base) - common) target common))
+            }
+            def a:string (itemAt base common)
+            def b:string (itemAt target common)
+            if (a != b) {
+                return (EVGDocSource.walkUp(((array_length base) - common) target common))
+            }
+            common = (common + 1)
+        }
+        return (EVGDocSource.walkUp(0 target common))
+    }
+
+    sfn walkUp:string (up:int target:[string] from:int) {
+        def out:string ""
+        def i:int 0
+        while (i < up) {
+            out = (out + "../")
+            i = (i + 1)
+        }
+        def k:int from
+        while (k < (array_length target)) {
+            if (k > from) {
+                out = (out + "/")
+            }
+            out = (out + (itemAt target k))
+            k = (k + 1)
+        }
+        if ((strlen out) == 0) {
+            return "."
+        }
+        return out
+    }
+
+    sfn hasDotDot:boolean (parts:[string]) {
+        def i:int 0
+        while (i < (array_length parts)) {
+            if ((itemAt parts i) == "..") {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn startsAt:boolean (dir:string) {
+        if ((strlen dir) == 0) {
+            return false
+        }
+        return ((charAt dir 0) == 47)
+    }
+
+    ; What the tools already treat as failure.
+    sfn nothing:EVGElement () {
+        def el (new EVGElement())
+        el.tagName = ""
+        return el
+    }
+
+    ; What to call the source in a message, so each tool does not invent its own
+    ; word for it.
+    sfn kindOf:string (name:string) {
+        if (EVGDocSource.isTreeJson(name)) {
+            return "EVG document"
+        }
+        return "TSX"
+    }
+}

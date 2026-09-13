@@ -573,11 +573,33 @@ class EVGPatch {
         if (((name == "display") || (name == "position")) || (name == "flex-direction")) { return 1 }
         if (((name == "justify-content") || (name == "align-items")) || (name == "align-content")) { return 1 }
         if (((name == "flex-wrap") || (name == "grid-area")) || (name == "grid-template-columns")) { return 1 }
+        ; The rest of the grid vocabulary. It was incomplete, and the hole was
+        ; invisible in a property list and obvious in a picture: the showcase's
+        ; card deck places every card with `grid-row: 1 / 3` against the deck's
+        ; `subgrid` rows, so a conversion that dropped `grid-row` laid the
+        ; captions on top of the paragraph below them.
+        if (((name == "grid-row") || (name == "grid-column")) || (name == "grid-template-areas")) { return 1 }
+        if (name == "grid-auto-flow") { return 1 }
         if (((name == "grid-template-rows") || (name == "font-family")) || (name == "font-weight")) { return 1 }
         if (((name == "text-align") || (name == "overflow")) || (name == "cursor")) { return 1 }
         if (((name == "class-name") || (name == "theme")) || (name == "src")) { return 1 }
         if (((name == "object-fit") || (name == "transform")) || (name == "transition")) { return 1 }
         if (name == "background-gradient") { return 1 }
+        ; The vector vocabulary. Left out of the first draft, and running the
+        ; converter over the showcase said what that cost: every chart, every
+        ; diagram and every piece of imported SVG lost its geometry — 72 paths
+        ; on one page alone — and came out as correctly-sized empty boxes.
+        ; A format for editing documents that cannot hold a chart is not one.
+        if (((name == "d") || (name == "view-box")) || (name == "fill-rule")) { return 1 }
+        if (((name == "stroke-linecap") || (name == "stroke-linejoin")) || (name == "stroke-dasharray")) { return 1 }
+        if ((name == "alt") || (name == "href")) { return 1 }
+        ; An imported SVG document is its TEXT, held on the element and parsed
+        ; by whoever draws it. Leaving it out cost the showcase's `svg` page
+        ; every graphic on it while both audits reported the conversion clean —
+        ; the boxes were right, because the boxes are sized by CSS, and only
+        ; the painting was empty. It is carried at full length: a document that
+        ; renders correctly is worth more than a short file.
+        if (name == "svg") { return 1 }
 
         if (((name == "width") || (name == "height")) || (name == "min-width")) { return 2 }
         if (((name == "min-height") || (name == "max-width")) || (name == "max-height")) { return 2 }
@@ -586,9 +608,20 @@ class EVGPatch {
         if (name == "flex-basis") { return 2 }
 
         if (((name == "color") || (name == "background-color")) || (name == "border-color")) { return 3 }
+        if ((name == "fill") || (name == "stroke")) { return 3 }
+        ; `emoji-color` is a TINT, and that is the whole reason it exists: the
+        ; face is monochrome outlines with no colour of its own, so something
+        ; has to say what to fill them with, and unset it inherits the text
+        ; colour. The showcase's emoji page tints three rows through it
+        ; (`.tintRose`, `.tintBlue`, `.tintGreen`); dropping the property did
+        ; not lose colours the glyphs had, it lost the tint and let all three
+        ; fall back to the text colour. Every audit was silent, because the
+        ; draw commands matched in count and kind and differed only in fill.
+        if (name == "emoji-color") { return 3 }
 
         if (((name == "opacity") || (name == "line-height")) || (name == "flex-grow")) { return 4 }
         if (((name == "flex-shrink") || (name == "rotate")) || (name == "scale")) { return 4 }
+        if ((name == "stroke-width") || (name == "stroke-dashoffset")) { return 4 }
 
         if (((name == "margin-top") || (name == "margin-right")) || (name == "margin-bottom")) { return 2 }
         if (((name == "margin-left") || (name == "padding-top")) || (name == "padding-right")) { return 2 }
@@ -612,6 +645,10 @@ class EVGPatch {
         push a "align-content"
         push a "flex-wrap"
         push a "grid-area"
+        push a "grid-row"
+        push a "grid-column"
+        push a "grid-template-areas"
+        push a "grid-auto-flow"
         push a "grid-template-columns"
         push a "grid-template-rows"
         push a "font-family"
@@ -626,6 +663,20 @@ class EVGPatch {
         push a "transform"
         push a "transition"
         push a "background-gradient"
+        push a "svg"
+        push a "d"
+        push a "view-box"
+        push a "fill-rule"
+        push a "stroke-linecap"
+        push a "stroke-linejoin"
+        push a "stroke-dasharray"
+        push a "alt"
+        push a "href"
+        push a "fill"
+        push a "stroke"
+        push a "emoji-color"
+        push a "stroke-width"
+        push a "stroke-dashoffset"
         push a "width"
         push a "height"
         push a "min-width"
@@ -687,6 +738,10 @@ class EVGPatch {
         if (n == "align-content")          { return el.alignContent }
         if (n == "flex-wrap")              { return el.flexWrap }
         if (n == "grid-area")              { return el.gridArea }
+        if (n == "grid-row")               { return el.gridRow }
+        if (n == "grid-column")            { return el.gridColumn }
+        if (n == "grid-template-areas")    { return el.gridTemplateAreas }
+        if (n == "grid-auto-flow")         { return el.gridAutoFlow }
         if (n == "grid-template-columns")  { return el.gridTemplateColumns }
         if (n == "grid-template-rows")     { return el.gridTemplateRows }
         if (n == "font-family")            { return el.fontFamily }
@@ -701,6 +756,15 @@ class EVGPatch {
         if (n == "transform")              { return el.transformSpec }
         if (n == "transition")             { return el.transitionSpec }
         if (n == "background-gradient")    { return el.backgroundGradient }
+        if (n == "svg")                    { return el.svgSource }
+        if (n == "d")                      { return el.svgPath }
+        if (n == "view-box")               { return el.viewBox }
+        if (n == "fill-rule")              { return el.fillRule }
+        if (n == "stroke-linecap")         { return el.strokeLineCap }
+        if (n == "stroke-linejoin")        { return el.strokeLineJoin }
+        if (n == "stroke-dasharray")       { return el.strokeDashArray }
+        if (n == "alt")                    { return el.alt }
+        if (n == "href")                   { return el.href }
 
         if (n == "width")      { return (EVGPatch.unitText(el.width)) }
         if (n == "height")     { return (EVGPatch.unitText(el.height)) }
@@ -719,6 +783,9 @@ class EVGPatch {
         if (n == "color")            { return (EVGPatch.colorText(el.color)) }
         if (n == "background-color") { return (EVGPatch.colorText(el.backgroundColor)) }
         if (n == "border-color")     { return (EVGPatch.colorText(bx.borderColor)) }
+        if (n == "fill")             { return (EVGPatch.colorText(el.fillColor)) }
+        if (n == "stroke")           { return (EVGPatch.colorText(el.strokeColor)) }
+        if (n == "emoji-color")      { return (EVGPatch.colorText(el.emojiColor)) }
 
         if (n == "opacity")     { return (EVGDisplayList.num(el.opacity)) }
         if (n == "line-height") { return (EVGDisplayList.num(el.lineHeight)) }
@@ -726,6 +793,8 @@ class EVGPatch {
         if (n == "flex-shrink") { return (EVGDisplayList.num(el.flexShrink)) }
         if (n == "rotate")      { return (EVGDisplayList.num(el.rotate)) }
         if (n == "scale")       { return (EVGDisplayList.num(el.scale)) }
+        if (n == "stroke-width")      { return (EVGDisplayList.num(el.strokeWidth)) }
+        if (n == "stroke-dashoffset") { return (EVGDisplayList.num(el.strokeDashOffset)) }
 
         if (n == "margin-top") { return (EVGPatch.unitText(bx.marginTop)) }
         if (n == "margin-right") { return (EVGPatch.unitText(bx.marginRight)) }
@@ -789,6 +858,22 @@ class EVGPatch {
             el.gridArea = ""
             return true
         }
+        if (n == "grid-row") {
+            el.gridRow = ""
+            return true
+        }
+        if (n == "grid-column") {
+            el.gridColumn = ""
+            return true
+        }
+        if (n == "grid-template-areas") {
+            el.gridTemplateAreas = ""
+            return true
+        }
+        if (n == "grid-auto-flow") {
+            el.gridAutoFlow = "row"
+            return true
+        }
         if (n == "grid-template-columns") {
             el.gridTemplateColumns = ""
             return true
@@ -843,6 +928,42 @@ class EVGPatch {
         }
         if (n == "background-gradient") {
             el.backgroundGradient = ""
+            return true
+        }
+        if (n == "svg") {
+            el.svgSource = ""
+            return true
+        }
+        if (n == "d") {
+            el.svgPath = ""
+            return true
+        }
+        if (n == "view-box") {
+            el.viewBox = ""
+            return true
+        }
+        if (n == "fill-rule") {
+            el.fillRule = "nonzero"
+            return true
+        }
+        if (n == "stroke-linecap") {
+            el.strokeLineCap = "butt"
+            return true
+        }
+        if (n == "stroke-linejoin") {
+            el.strokeLineJoin = "miter"
+            return true
+        }
+        if (n == "stroke-dasharray") {
+            el.strokeDashArray = ""
+            return true
+        }
+        if (n == "alt") {
+            el.alt = ""
+            return true
+        }
+        if (n == "href") {
+            el.href = ""
             return true
         }
 
@@ -919,6 +1040,18 @@ class EVGPatch {
             bx.borderColor = c
             return true
         }
+        if (n == "fill") {
+            el.fillColor = c
+            return true
+        }
+        if (n == "stroke") {
+            el.strokeColor = c
+            return true
+        }
+        if (n == "emoji-color") {
+            el.emojiColor = c
+            return true
+        }
 
         if (n == "opacity") {
             el.opacity = 1.0
@@ -942,6 +1075,14 @@ class EVGPatch {
         }
         if (n == "scale") {
             el.scale = 1.0
+            return true
+        }
+        if (n == "stroke-width") {
+            el.strokeWidth = 0.0
+            return true
+        }
+        if (n == "stroke-dashoffset") {
+            el.strokeDashOffset = 0.0
             return true
         }
 
@@ -1015,24 +1156,72 @@ class EVGPatch {
     }
 
 
+    ; An element for a tag name — and the tag name is KEPT, not normalised.
+    ;
+    ; The engine has two tag vocabularies and this has to know both. The
+    ; factories above spell things the HTML way (`span`, `img`), while
+    ; `JSXToEVG.mapTagName` emits the engine's own (`text`, `image`, `page`,
+    ; `layer`). A document written by one and read by the other has to come
+    ; back as what it was, so what the tag decides here is the ELEMENT TYPE —
+    ; container, text, image or path, which is what layout and every renderer
+    ; actually switch on — and the name itself is preserved.
+    ;
+    ; A tag in neither vocabulary is refused rather than defaulted to a
+    ; container. An `insert` op naming a tag nobody has heard of is a typo, and
+    ; a document carrying one would otherwise read back as a silently different
+    ; element. `evg_json_tool` reports it as a loss for that reason.
     sfn create@(optional):EVGElement (tag:string) {
-        if ((tag == "div") || (tag == "View")) {
-            def d@(optional):EVGElement (EVGElement.createDiv())
-            return d
+        def family:int (EVGPatch.familyOf(tag))
+        if (family < 0) {
+            def none@(optional):EVGElement
+            return none
         }
-        if (((tag == "span") || (tag == "Label")) || (tag == "text")) {
-            def s@(optional):EVGElement (EVGElement.createSpan())
-            return s
+        def el:EVGElement (EVGElement.createDiv())
+        if (family == 1) {
+            el = (EVGElement.createSpan())
         }
-        if ((tag == "img") || (tag == "Image")) {
-            def m@(optional):EVGElement (EVGElement.createImg())
-            return m
+        if (family == 2) {
+            el = (EVGElement.createImg())
         }
-        if ((tag == "path") || (tag == "Path")) {
-            def p@(optional):EVGElement (EVGElement.createPath())
-            return p
+        if (family == 3) {
+            el = (EVGElement.createPath())
         }
-        def none@(optional):EVGElement
-        return none
+        el.tagName = tag
+        def out@(optional):EVGElement el
+        return out
     }
+
+    ; 0 container, 1 text, 2 image, 3 path — `EVGElement.elementType` — or -1
+    ; for a tag neither vocabulary claims.
+    sfn familyOf:int (tag:string) {
+        if (((tag == "span") || (tag == "text")) || (tag == "Label")) {
+            return 1
+        }
+        if (((tag == "img") || (tag == "image")) || (tag == "Image")) {
+            return 2
+        }
+        if (((tag == "path") || (tag == "Path")) || (tag == "svg")) {
+            return 3
+        }
+        if (tag == "Svg") {
+            return 3
+        }
+        if (((tag == "div") || (tag == "View")) || (tag == "box")) {
+            return 0
+        }
+        if (((tag == "row") || (tag == "column")) || (tag == "page")) {
+            return 0
+        }
+        if (((tag == "Page") || (tag == "print")) || (tag == "Print")) {
+            return 0
+        }
+        if (((tag == "section") || (tag == "Section")) || (tag == "layer")) {
+            return 0
+        }
+        if (((tag == "Layer") || (tag == "divider")) || (tag == "spacer")) {
+            return 0
+        }
+        return (0 - 1)
+    }
+
 }

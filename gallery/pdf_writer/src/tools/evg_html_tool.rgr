@@ -10,7 +10,7 @@
 ; Compile: npm run evghtml:compile
 ; Run: npm run evghtml:run
 
-Import "../jsx/JSXToEVG.rgr"
+Import "../core/EVGDocSource.rgr"
 Import "../core/EVGHTMLRenderer.rgr"
 Import "../core/EVGStyleLoader.rgr"
 Import "../fonts/FontManager.rgr"
@@ -182,16 +182,12 @@ class EVGHTMLTool {
 
         ; Parse TSX file
         print ""
-        print "Parsing TSX file..."
+        print (("Reading the " + (EVGDocSource.kindOf(inputFileName))) + "…")
         
-        def converter (new JSXToEVG())
-        converter.pageWidth = pageWidth
-        converter.pageHeight = pageHeight
-        
-        def root:EVGElement (converter.parseFile(inputDir inputFileName))
+        def root:EVGElement (EVGDocSource.load(inputDir inputFileName pageWidth pageHeight))
         
         if (root.tagName == "") {
-            print "Error: Failed to parse TSX file or no JSX content found"
+            print (("Error: could not read " + inputFileName) + " as a document")
             return
         }
         

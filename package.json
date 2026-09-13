@@ -773,6 +773,7 @@
     "evg:hosttree:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGHostTreeTest.rgr -d=./gallery/evg/bin -o=EVGHostTreeTest.js -nodecli && node ./gallery/evg/bin/EVGHostTreeTest.js",
     "evg:json:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGJsonTest.rgr -d=./gallery/evg/bin -o=EVGJsonTest.js -nodecli && node ./gallery/evg/bin/EVGJsonTest.js",
     "agent": "bash scripts/rgr-suite.sh ./gallery/evg/agent/evg_agent.rgr ./gallery/evg/bin evg_agent.js",
+    "agent:roundtrip": "bash gallery/evg/agent/roundtrip.sh",
     "agent:smoke": "bash gallery/evg/agent/smoke.sh",
     "evg:patch:test": "bash -o pipefail -c 'bash scripts/rgr-suite.sh ./gallery/evg/EVGPatchTest.rgr ./gallery/evg/bin EVGPatchTest.js | tee /dev/stderr | grep -q \"ALL PASS\"'",
     "evg:trace:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EvgBitmapTracerTest.rgr -d=./gallery/evg/bin -o=EvgBitmapTracerTest.js -nodecli && node ./gallery/evg/bin/EvgBitmapTracerTest.js",

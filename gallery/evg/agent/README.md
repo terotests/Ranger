@@ -110,6 +110,43 @@ that clips, and two in-flow siblings on top of each other. `overflow: visible`
 is not a finding — the author meant it to spill. Absolutely positioned nodes
 are not checked for overlap; overlapping is what they are for.
 
+## Getting a real document in, and a picture out
+
+The four verbs read `.evg.json`. Two neighbours in `gallery/pdf_writer/src/tools`
+connect that to everything else — and both of them read either format, so
+nothing below is a special path for agents:
+
+```bash
+# a .tsx document (with its stylesheet resolved in) -> the editable format
+node gallery/pdf_writer/bin/evg_json_tool.js page.tsx page.evg.json \
+  -css themes/showcase.css -theme editorial
+
+# the editable format -> a picture to look at
+node gallery/pdf_writer/bin/evg_png_tool.js page.evg.json page.png
+node gallery/pdf_writer/bin/evg_html_tool.js page.evg.json page.html
+node gallery/pdf_writer/bin/evg_pdf_tool.js page.evg.json page.pdf
+```
+
+There is no `render` verb here, and that is deliberate: the painters already
+exist and adding a second entry point to them would be two things to keep
+working instead of one.
+
+**The conversion is checked, not asserted.** `evg_json_tool` lays the original
+out, reads its own output back, lays that out too, and compares — the boxes,
+and then the draw commands the two produce. It also names anything it had to
+drop. `-strict` turns that report into a refusal, which is what a build step
+wants.
+
+**Stylesheets are resolved in.** Whatever `-css` decides becomes inline props
+in the output, so the agent edits one document rather than a tree plus a
+cascade it cannot see. The cost is that theming is baked: re-theming means
+converting again from the source.
+
+**Asset paths move with the document.** A `src` is resolved against the file it
+is written in, so the converter re-anchors every one for wherever the output is
+going. When the two places have no expressible relation — one absolute, one not
+— it says so instead of writing a path that resolves somewhere else.
+
 ## The document format
 
 [`EVGTreeJson`](../EVGTreeJson.rgr). A node says its tag, identity, text, and
@@ -127,4 +164,13 @@ rather than round-trip through here and call it identity.
 ```bash
 npm run evg:patch:test    # EVGPatch and EVGTreeJson — 81 assertions
 npm run agent:smoke       # the four verbs, against the fixtures
+npm run agent:roundtrip   # every showcase page, converted and re-rendered
 ```
+
+`agent:roundtrip` is the one that matters most and the one that found every
+loss so far. It converts all seventeen showcase pages and requires the PNG
+rendered from the conversion to be **byte-identical** to the PNG rendered from
+the original. It asks nothing and compares everything, which is why it caught
+three properties the format was missing — `grid-row`, an imported SVG's source,
+and the `emoji-color` tint — each of which the converter's own audit had called
+clean.

@@ -296,17 +296,36 @@ contents are exactly the patchable set), and
 drives the four verbs against fixtures, including that a rejected batch leaves
 the document untouched.
 
-Not built, and named here rather than left to be discovered:
+**Rendering and the first adapter** followed, and took the shape the sketch did
+not anticipate. `render` is not a verb: the PNG, PDF, HTML and display-list
+tools in `gallery/pdf_writer/src/tools` already paint, so instead they were
+taught to READ the editable format — one `EVGDocSource` where each had its own
+call to the JSX parser — and `evg_json_tool` was added to convert the other
+way. A second entry point to the same painters would have been two things to
+keep working instead of one.
 
-- **`render`.** The verb the layer-0 sketch lists. It needs a painter wired to
-  the CLI, and the display list already has several — this is plumbing, not
-  design, but it is not done.
+The conversion is verified rather than asserted, at three depths, and each
+depth exists because the one above it missed something real:
+
+| The check | What it caught that the one above it did not |
+| --- | --- |
+| named fields the format has no room for | `d`, `viewBox`, a stroke — reported, then carried |
+| both trees laid out, every box compared | `grid-row`: captions on top of the paragraph below |
+| both display lists compared, serialized | `emoji-color`: the tint on monochrome emoji, same glyphs and places |
+
+And above all three, `npm run agent:roundtrip`: all seventeen showcase pages
+converted and re-rendered, requiring the PNG from the conversion to be
+**byte-identical** to the PNG from the original. It asks nothing and compares
+everything. That is what found the imported-SVG loss, on a page where every box
+was right and nothing was drawn. All seventeen pass.
+
+Still not built, and named here rather than left to be discovered:
+
 - **`diff`.** Two documents compared structurally. `outline` diffed with
   `diff(1)` covers it well enough to not be urgent.
-- **The format adapters.** `RangerDoc` in the sketch above implies `.fig`,
-  Mermaid and Markdown reaching the same tree. Today the CLI reads `.evg.json`
-  only, and the header of `EVGTreeJson` states what a converter into it would
-  have to admit it drops.
+- **The other adapters.** `.tsx` reaches the tree now. `.fig`, Mermaid and
+  Markdown do not yet, though each already has a reader that produces an EVG
+  tree — the work is a tool around it, not new engine code.
 - **A selector engine.** `query` takes `.class`, `#id`, a tag or a path.
   Compound selectors belong to `EVGStyleSheet`.
 
