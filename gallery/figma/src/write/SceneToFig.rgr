@@ -42,6 +42,7 @@ Import "../KiwiDecode.rgr"
 Import "../FigCanvas.rgr"
 Import "../FigDeflate.rgr"
 Import "../FigSample.rgr"
+Import "FigSchema.rgr"
 Import "FigWrite.rgr"
 Import "FigPathWrite.rgr"
 Import "../../../zip/ZipWriter.rgr"
@@ -120,7 +121,8 @@ class SceneToFig {
 
     fn toBytes:buffer (doc:SceneDocument fileName:string) {
         def msg:KiwiValue (this.message(doc))
-        def canvas:buffer (FigSample.canvasInto((FigSample.schema()) msg dropped))
+        ; FIGMA'S OWN SCHEMA, not this repository's. See `FigSchema`.
+        def canvas:buffer (FigSample.canvasInto((FigSchema.schema()) msg dropped))
         def zip (new ZipWriter())
         zip.create()
         zip.addFile("canvas.fig" canvas)
@@ -140,7 +142,11 @@ class SceneToFig {
         nodes = arr
         def bl:KiwiValue (KiwiValue.fromArray())
         blobs = bl
-        def docNode:KiwiValue (FigWrite.placed(0 0 "DOCUMENT" "Document" (0 - 1) (0 - 1) "" 0.0 0.0 0.0 0.0))
+        ; A DOCUMENT and a CANVAS have no size of their own — a real export
+        ; gives neither one — so they are written as a node and a transform
+        ; rather than as a placed box.
+        def docNode:KiwiValue (FigWrite.node(0 0 "DOCUMENT" "Document"))
+        docNode.put("transform" (FigWrite.xform(0.0 0.0)))
         nodes.pushItem(docNode)
         def pages:[SceneNode] doc.pages
         def p:int 0
@@ -155,7 +161,9 @@ class SceneToFig {
             if (h <= 0.0) {
                 h = 900.0
             }
-            def canvas:KiwiValue (FigWrite.placed(0 pageLocal "CANVAS" (SceneToFig.nameOf(page ("Page " + (to_string (p + 1))))) 0 0 (FigWrite.positionAt(p)) w h 0.0 0.0))
+            def canvas:KiwiValue (FigWrite.node(0 pageLocal "CANVAS" (SceneToFig.nameOf(page ("Page " + (to_string (p + 1)))))))
+            canvas.put("parentIndex" (FigWrite.parentIndex(0 0 (FigWrite.positionAt(p)))))
+            canvas.put("transform" (FigWrite.xform(0.0 0.0)))
             nodes.pushItem(canvas)
             ; Each page owns a session id, so local ids restart and stay small.
             nextLocal = 1
@@ -168,6 +176,12 @@ class SceneToFig {
             p = (p + 1)
         }
         def out:KiwiValue (KiwiValue.fromObject())
+        ; WHAT KIND OF MESSAGE THIS IS. A `.fig` is one message of a protocol,
+        ; and the protocol's first field says which — a file that did not name
+        ; itself as node changes was a file with nothing to apply.
+        out.put("type" (KiwiValue.fromString("NODE_CHANGES")))
+        out.put("sessionID" (KiwiValue.fromInt(0)))
+        out.put("ackID" (KiwiValue.fromInt(0)))
         out.put("nodeChanges" nodes)
         out.put("blobs" blobs)
         return out
@@ -311,7 +325,21 @@ class SceneToFig {
         o.put("textData" (FigWrite.chars(t.characters)))
         o.put("fontSize" (KiwiValue.fromDouble(t.fontSize)))
         if ((strlen t.fontFamily) > 0) {
-            o.put("fontFamily" (KiwiValue.fromString(t.fontFamily)))
+            ; A FACE, not a family name. Figma names a font by family, style
+            ; and PostScript name together — there is no `fontFamily` field on
+            ; a node change at all, so the one written here went nowhere.
+            def fn:KiwiValue (KiwiValue.fromObject())
+            fn.put("family" (KiwiValue.fromString(t.fontFamily)))
+            def style:string "Regular"
+            if (t.fontWeight == "bold") {
+                style = "Bold"
+            }
+            if (t.fontWeight == "700") {
+                style = "Bold"
+            }
+            fn.put("style" (KiwiValue.fromString(style)))
+            fn.put("postscript" (KiwiValue.fromString("")))
+            o.put("fontName" fn)
         }
         if (t.lineHeight > 0.0) {
             def lh:KiwiValue (KiwiValue.fromObject())

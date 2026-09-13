@@ -97,6 +97,46 @@ now, and `from-evg` prints what it could not carry:
   no field in the schema for  NodeChange.textTruncation
 ```
 
+### The schema is Figma's, not ours
+
+A `.fig` carries its own schema, and Figma reads the file THROUGH it: the names
+in the file are matched against the names in Figma's compiled schema. So a type
+this repository invents is a type Figma cannot map onto anything.
+
+The first UI written from here opened in Figma as **"internal error"**, and the
+reason was in the schema rather than in the document:
+
+| what we declared | what Figma declares |
+| --- | --- |
+| a message called `Node` | `NodeChange` — there is no `Node` |
+| `Vector`, `Color`, `ColorStop`, `ParentIndex`, `Blob` as **messages** | **structs** — a different wire format under the same names |
+| `fontFamily` on a node | no such field; a face is `fontName` (family, style, postscript) |
+| `textAlignHorizontal` as a **string** | the enum `TextAlignHorizontal` |
+| no `phase` on a node | `CREATED` on every one — the file is a list of CHANGES |
+| a message with no `type` | `NODE_CHANGES` |
+
+Nothing here could have caught any of it: both ends of the round trip were
+ours, so a file we wrote and read back agreed with itself perfectly. What
+catches it now is `fixtures/health.fig` — a real export, already in the
+repository — used as the ground truth it always was:
+
+`gallery/figma/src/write/FigSchema.rgr` is a SUBSET OF FIGMA'S OWN SCHEMA,
+copied field for field out of that fixture, and
+`FigTest.testWrittenSchemaMatchesFigma` holds it there: every type and every
+field the writer declares must exist in the fixture with the same kind, the
+same id and the same type. A field added to the writer that Figma does not know
+fails the suite instead of a file someone tries to open.
+
+`FigSample.schema()` is a different thing and stays as it is: it exists to
+exercise the READER, and deliberately carries shapes — arcs, masks, instances,
+per-side strokes — that the writer never emits.
+
+And a field the schema does not declare is not refused, it is DROPPED:
+`KiwiEncode.encodeMessage` walks the schema and skips what it does not know.
+That is how `textAutoResize` and `lineHeight` were written into two files that
+did not contain them. The encoder collects those names now, and `from-evg`
+prints them.
+
 ### `sourceType` is why an ellipse survives
 
 `SceneNode.kind` is deliberately small — container, text, image, path — because

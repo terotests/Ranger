@@ -180,6 +180,11 @@ class FigWrite {
     sfn node:KiwiValue (sid:int lid:int typeName:string name:string) {
         def o:KiwiValue (KiwiValue.fromObject())
         o.put("guid" (FigWrite.guid(sid lid)))
+        ; A node change is a node being CREATED. The file is a list of changes
+        ; to apply, not a list of nodes, and a change with no phase is a change
+        ; that says nothing: a real export sets this on every node, and a file
+        ; without it was one Figma could read and not build.
+        o.put("phase" (KiwiValue.fromString("CREATED")))
         o.put("type" (KiwiValue.fromString(typeName)))
         o.put("name" (KiwiValue.fromString(name)))
         o.put("visible" (KiwiValue.fromBool(true)))

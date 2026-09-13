@@ -9,6 +9,7 @@ Import "../src/FigSample.rgr"
 Import "../src/convert/FigToScene.rgr"
 Import "../src/write/SceneToFig.rgr"
 Import "../src/write/EvgToScene.rgr"
+Import "../src/write/FigSchema.rgr"
 Import "../src/write/FigPathWrite.rgr"
 Import "../src/FigPath.rgr"
 Import "../../evg/EVGImageDecode.rgr"
@@ -170,6 +171,89 @@ class FigTest {
         this.eqInt("one page" (array_length back.pages) 1)
         def page:FigNode (back.pageAt(0))
         this.check("the page has content" ((array_length page.children) > 0))
+    }
+
+    ; THE SCHEMA A WRITTEN FILE DECLARES, AGAINST A REAL EXPORT.
+    ;
+    ; A `.fig` carries its own schema and Figma reads the file through it, by
+    ; NAME: a type this repository invented is a type Figma cannot map onto
+    ; anything, and a struct declared as a message is a different wire format
+    ; under a name Figma thinks it knows. The first file written from here had
+    ; both — a message called `Node`, and `Vector`, `Color`, `ParentIndex` and
+    ; `Blob` as messages — and Figma answered "internal error", which is all it
+    ; can say about a file that is well-formed and describes nothing.
+    ;
+    ; Nothing in this repository could have caught that, because both sides of
+    ; the round trip were ours. `fixtures/health.fig` is a real export, and its
+    ; schema is the only ground truth here: every type and field the writer
+    ; declares must exist in it, with the same kind, the same id and the same
+    ; type.
+    fn testWrittenSchemaMatchesFigma:void () {
+        print "-- the written schema, against Figma's own --"
+        def bytes:buffer (buffer_read_file "gallery/figma/fixtures" "health.fig")
+        def p (new FigParser())
+        def doc:FigDoc (p.parseBytes(bytes "health.fig"))
+        this.check(("the fixture parsed " + doc.err) doc.ok)
+        def real:KiwiSchema p.schema
+        this.check("and it carries a schema" ((array_length real.defs) > 100))
+        def mine:KiwiSchema (FigSchema.schema())
+        this.check("the writer declares some types" ((array_length mine.defs) > 10))
+
+        def missingTypes:string ""
+        def wrongKinds:string ""
+        def missingFields:string ""
+        def wrongTypes:string ""
+        def wrongIds:string ""
+        def i:int 0
+        while (i < (array_length mine.defs)) {
+            def d:KiwiDef (itemAt mine.defs i)
+            def at:int (real.findDef(d.name))
+            if (at < 0) {
+                missingTypes = ((missingTypes + " ") + d.name)
+            } {
+                def rd:KiwiDef (itemAt real.defs at)
+                if (d.kind != rd.kind) {
+                    wrongKinds = ((((wrongKinds + " ") + d.name) + ":") + ((to_string d.kind) + "/" + (to_string rd.kind)))
+                }
+                def j:int 0
+                while (j < (array_length d.fields)) {
+                    def f:KiwiField (itemAt d.fields j)
+                    def rf:KiwiField (FigTest.fieldNamed(rd f.name))
+                    if ((strlen rf.name) == 0) {
+                        missingFields = ((((missingFields + " ") + d.name) + ".") + f.name)
+                    } {
+                        if (f.value != rf.value) {
+                            wrongIds = ((((((wrongIds + " ") + d.name) + ".") + f.name) + ":") + ((to_string f.value) + "/" + (to_string rf.value)))
+                        }
+                        ; An enum member has no type; a field does.
+                        if (d.kind != 0) {
+                            if (f.typeName != rf.typeName) {
+                                wrongTypes = ((((((wrongTypes + " ") + d.name) + ".") + f.name) + ":") + (f.typeName + "/" + rf.typeName))
+                            }
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        this.check(("every type is one Figma knows:" + missingTypes) ((strlen missingTypes) == 0))
+        this.check(("and declared the same way (ours/theirs):" + wrongKinds) ((strlen wrongKinds) == 0))
+        this.check(("every field exists there:" + missingFields) ((strlen missingFields) == 0))
+        this.check(("with the same id:" + wrongIds) ((strlen wrongIds) == 0))
+        this.check(("and the same type:" + wrongTypes) ((strlen wrongTypes) == 0))
+    }
+
+    sfn fieldNamed:KiwiField (d:KiwiDef name:string) {
+        def i:int 0
+        while (i < (array_length d.fields)) {
+            def f:KiwiField (itemAt d.fields i)
+            if (f.name == name) {
+                return f
+            }
+            i = (i + 1)
+        }
+        return (new KiwiField())
     }
 
     ; A UI is icons and labels with backgrounds behind them, and both were
@@ -499,6 +583,7 @@ class FigTest {
         this.testEvgToFig()
         this.testWriterReportsWhatItCannotCarry()
         this.testUiSurvives()
+        this.testWrittenSchemaMatchesFigma()
         this.testPathBlobRoundTrip()
         this.testVectorKeepsItsShape()
         this.testGradientSurvives()

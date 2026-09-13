@@ -113,8 +113,16 @@ class FigCli {
             ; be a percentage of, and everything downstream — measure, the PNG
             ; tool — then measures it against a guess. The page's own size is
             ; the answer, so it is written in.
-            evgRoot.setAttribute("width" ((to_string (to_int page3.w)) + "px"))
-            evgRoot.setAttribute("height" ((to_string (to_int page3.h)) + "px"))
+            ; …and a CANVAS has no size of its own. Figma's own exports write
+            ; none — a canvas is unbounded, and what bounds it is what someone
+            ; drew on it — so the page's box is the box around its children.
+            ; Read straight off the canvas node it came out as zero, and a
+            ; document of zero by zero draws its boxes and nothing else: the
+            ; text and the outlines inside it had no room to be measured in.
+            def pw:double (FigCli.pageWidth(page3))
+            def ph:double (FigCli.pageHeight(page3))
+            evgRoot.setAttribute("width" ((to_string (to_int pw)) + "px"))
+            evgRoot.setAttribute("height" ((to_string (to_int ph)) + "px"))
             evgRoot.markInline("width")
             evgRoot.markInline("height")
             ; A Figma image lives inside the archive, and an EVG document
@@ -311,6 +319,49 @@ class FigCli {
             i = (i + 1)
         }
         return n
+    }
+
+    ; How wide the page has to be to hold what is on it. The canvas' own size
+    ; when it has one, and otherwise the right-hand edge of the furthest thing
+    ; drawn on it.
+    sfn pageWidth:double (page:SceneNode) {
+        if (page.w > 0.0) {
+            return page.w
+        }
+        def far:double 0.0
+        def i:int 0
+        while (i < (array_length page.children)) {
+            def c:SceneNode (itemAt page.children i)
+            def edge:double (c.x + c.w)
+            if (edge > far) {
+                far = edge
+            }
+            i = (i + 1)
+        }
+        if (far <= 0.0) {
+            return 1440.0
+        }
+        return far
+    }
+
+    sfn pageHeight:double (page:SceneNode) {
+        if (page.h > 0.0) {
+            return page.h
+        }
+        def far:double 0.0
+        def i:int 0
+        while (i < (array_length page.children)) {
+            def c:SceneNode (itemAt page.children i)
+            def edge:double (c.y + c.h)
+            if (edge > far) {
+                far = edge
+            }
+            i = (i + 1)
+        }
+        if (far <= 0.0) {
+            return 900.0
+        }
+        return far
     }
 
     sfn dirOf:string (path:string) {

@@ -1,0 +1,282 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; FigSchema.rgr — the schema a file this repository WRITES declares.
+; ==============================================================================
+;
+; A `.fig` carries its own schema, and Figma reads the file through it: the
+; names in here are matched against the names in Figma's own compiled schema,
+; so a type this repository invented is a type Figma cannot map. The first UI
+; exported from here declared a message called `Node`, and `Vector`, `Color`,
+; `ParentIndex` and `Blob` as MESSAGES where Figma declares them as STRUCTS —
+; two different wire formats under the same names. Figma opened it and said
+; "internal error", which is all it can say: the file is well-formed kiwi and
+; describes a document nothing on the other side knows how to build.
+;
+; So this is not a schema anyone designed. It is a SUBSET OF FIGMA'S OWN,
+; copied field for field — names, kinds, ids and types — out of a real export:
+;
+;   gallery/figma/fixtures/health.fig   639 types; this keeps the 24 a written
+;                                       document needs
+;
+; `FigTest.testWrittenSchemaMatchesFigma` holds it to that fixture: every type
+; and every field declared here must exist there, with the same kind and the
+; same type. A field added here that Figma does not know fails the suite rather
+; than a file someone tries to open.
+;
+; The SAMPLE's schema (`FigSample.schema`) is a different thing and stays as it
+; is: it exists to exercise the READER, and it deliberately carries shapes —
+; arcs, masks, instances, per-side strokes — that this writer never emits.
+; ==============================================================================
+
+Import "../KiwiSchema.rgr"
+
+class FigSchema {
+    ; Figma's own definitions for what a written document uses.
+    sfn schema:KiwiSchema () {
+        def s (new KiwiSchema())
+        def messageType:KiwiDef (s.addEnum("MessageType"))
+        s.addEnumMember(messageType "JOIN_START" 0)
+        s.addEnumMember(messageType "NODE_CHANGES" 1)
+        s.addEnumMember(messageType "USER_CHANGES" 2)
+        s.addEnumMember(messageType "JOIN_END" 3)
+        s.addEnumMember(messageType "SIGNAL" 4)
+        s.addEnumMember(messageType "STYLE" 5)
+        s.addEnumMember(messageType "STYLE_SET" 6)
+        s.addEnumMember(messageType "JOIN_START_SKIP_RELOAD" 7)
+        s.addEnumMember(messageType "NOTIFY_SHOULD_UPGRADE" 8)
+        s.addEnumMember(messageType "UPGRADE_DONE" 9)
+        s.addEnumMember(messageType "UPGRADE_REFRESH" 10)
+        s.addEnumMember(messageType "SCENE_GRAPH_QUERY" 11)
+        s.addEnumMember(messageType "SCENE_GRAPH_REPLY" 12)
+        s.addEnumMember(messageType "DIFF" 13)
+        s.addEnumMember(messageType "CLIENT_BROADCAST" 14)
+        s.addEnumMember(messageType "JOIN_START_JOURNALED" 15)
+        s.addEnumMember(messageType "STREAM_START" 16)
+        s.addEnumMember(messageType "STREAM_END" 17)
+        s.addEnumMember(messageType "INTERACTIVE_SLIDE_CHANGE" 18)
+        s.addEnumMember(messageType "RECONNECT_SCENE_GRAPH_QUERY" 19)
+        s.addEnumMember(messageType "RECONNECT_SCENE_GRAPH_REPLY" 20)
+        s.addEnumMember(messageType "JOIN_END_INCREMENTAL_RECONNECT" 21)
+        s.addEnumMember(messageType "NODE_STATUS_CHANGE" 22)
+        s.addEnumMember(messageType "CLIENT_RENDERED" 23)
+        s.addEnumMember(messageType "BUZZ_APPROVAL_CHANGE" 24)
+
+        def gUID:KiwiDef (s.addStruct("GUID"))
+        s.addField(gUID "sessionID" "uint" 1 false)
+        s.addField(gUID "localID" "uint" 2 false)
+
+        def nodePhase:KiwiDef (s.addEnum("NodePhase"))
+        s.addEnumMember(nodePhase "CREATED" 0)
+        s.addEnumMember(nodePhase "REMOVED" 1)
+
+        def parentIndex:KiwiDef (s.addStruct("ParentIndex"))
+        s.addField(parentIndex "guid" "GUID" 1 false)
+        s.addField(parentIndex "position" "string" 2 false)
+
+        def nodeType:KiwiDef (s.addEnum("NodeType"))
+        s.addEnumMember(nodeType "NONE" 0)
+        s.addEnumMember(nodeType "DOCUMENT" 1)
+        s.addEnumMember(nodeType "CANVAS" 2)
+        s.addEnumMember(nodeType "GROUP" 3)
+        s.addEnumMember(nodeType "FRAME" 4)
+        s.addEnumMember(nodeType "BOOLEAN_OPERATION" 5)
+        s.addEnumMember(nodeType "VECTOR" 6)
+        s.addEnumMember(nodeType "STAR" 7)
+        s.addEnumMember(nodeType "LINE" 8)
+        s.addEnumMember(nodeType "ELLIPSE" 9)
+        s.addEnumMember(nodeType "RECTANGLE" 10)
+        s.addEnumMember(nodeType "REGULAR_POLYGON" 11)
+        s.addEnumMember(nodeType "ROUNDED_RECTANGLE" 12)
+        s.addEnumMember(nodeType "TEXT" 13)
+        s.addEnumMember(nodeType "SLICE" 14)
+        s.addEnumMember(nodeType "SYMBOL" 15)
+        s.addEnumMember(nodeType "INSTANCE" 16)
+        s.addEnumMember(nodeType "STICKY" 17)
+        s.addEnumMember(nodeType "SHAPE_WITH_TEXT" 18)
+        s.addEnumMember(nodeType "CONNECTOR" 19)
+        s.addEnumMember(nodeType "CODE_BLOCK" 20)
+        s.addEnumMember(nodeType "WIDGET" 21)
+        s.addEnumMember(nodeType "STAMP" 22)
+        s.addEnumMember(nodeType "MEDIA" 23)
+        s.addEnumMember(nodeType "HIGHLIGHT" 24)
+        s.addEnumMember(nodeType "SECTION" 25)
+        s.addEnumMember(nodeType "SECTION_OVERLAY" 26)
+        s.addEnumMember(nodeType "WASHI_TAPE" 27)
+        s.addEnumMember(nodeType "VARIABLE" 28)
+        s.addEnumMember(nodeType "TABLE" 29)
+        s.addEnumMember(nodeType "TABLE_CELL" 30)
+        s.addEnumMember(nodeType "VARIABLE_SET" 31)
+        s.addEnumMember(nodeType "SLIDE" 32)
+        s.addEnumMember(nodeType "ASSISTED_LAYOUT" 33)
+        s.addEnumMember(nodeType "INTERACTIVE_SLIDE_ELEMENT" 34)
+        s.addEnumMember(nodeType "VARIABLE_OVERRIDE" 35)
+        s.addEnumMember(nodeType "MODULE" 36)
+        s.addEnumMember(nodeType "SLIDE_GRID" 37)
+        s.addEnumMember(nodeType "SLIDE_ROW" 38)
+        s.addEnumMember(nodeType "RESPONSIVE_SET" 39)
+        s.addEnumMember(nodeType "CODE_COMPONENT" 40)
+        s.addEnumMember(nodeType "TEXT_PATH" 41)
+        s.addEnumMember(nodeType "CODE_INSTANCE" 42)
+        s.addEnumMember(nodeType "CODE_LIBRARY" 43)
+        s.addEnumMember(nodeType "CODE_FILE" 44)
+        s.addEnumMember(nodeType "CODE_LAYER" 45)
+        s.addEnumMember(nodeType "BRUSH" 46)
+        s.addEnumMember(nodeType "MANAGED_STRING" 47)
+        s.addEnumMember(nodeType "TRANSFORM" 48)
+        s.addEnumMember(nodeType "CMS_RICH_TEXT" 49)
+        s.addEnumMember(nodeType "REPEATER" 50)
+        s.addEnumMember(nodeType "JSX" 51)
+        s.addEnumMember(nodeType "EMBEDDED_PROTOTYPE" 52)
+        s.addEnumMember(nodeType "REACT_FIBER" 53)
+        s.addEnumMember(nodeType "RESPONSIVE_NODE_SET" 54)
+        s.addEnumMember(nodeType "WEBPAGE" 55)
+        s.addEnumMember(nodeType "KEYFRAME" 56)
+        s.addEnumMember(nodeType "KEYFRAME_TRACK" 57)
+        s.addEnumMember(nodeType "ANIMATION_PRESET_INSTANCE" 58)
+        s.addEnumMember(nodeType "CODE_EMBED" 59)
+        s.addEnumMember(nodeType "BINARY_FILE" 60)
+        s.addEnumMember(nodeType "SPEC_BLOCK" 61)
+        s.addEnumMember(nodeType "TOOL_INSTANCE" 62)
+        s.addEnumMember(nodeType "CUSTOM_EFFECT_INSTANCE" 63)
+        s.addEnumMember(nodeType "NATIVE_CODE_LAYER_INSTANCE" 64)
+
+        def textAlignHorizontal:KiwiDef (s.addEnum("TextAlignHorizontal"))
+        s.addEnumMember(textAlignHorizontal "LEFT" 0)
+        s.addEnumMember(textAlignHorizontal "CENTER" 1)
+        s.addEnumMember(textAlignHorizontal "RIGHT" 2)
+        s.addEnumMember(textAlignHorizontal "JUSTIFIED" 3)
+
+        def textAlignVertical:KiwiDef (s.addEnum("TextAlignVertical"))
+        s.addEnumMember(textAlignVertical "TOP" 0)
+        s.addEnumMember(textAlignVertical "CENTER" 1)
+        s.addEnumMember(textAlignVertical "BOTTOM" 2)
+
+        def numberUnits:KiwiDef (s.addEnum("NumberUnits"))
+        s.addEnumMember(numberUnits "RAW" 0)
+        s.addEnumMember(numberUnits "PIXELS" 1)
+        s.addEnumMember(numberUnits "PERCENT" 2)
+
+        def number:KiwiDef (s.addStruct("Number"))
+        s.addField(number "value" "float" 1 false)
+        s.addField(number "units" "NumberUnits" 2 false)
+
+        def fontName:KiwiDef (s.addStruct("FontName"))
+        s.addField(fontName "family" "string" 1 false)
+        s.addField(fontName "style" "string" 2 false)
+        s.addField(fontName "postscript" "string" 3 false)
+
+        def textData:KiwiDef (s.addMessage("TextData"))
+        s.addField(textData "characters" "string" 1 false)
+
+        def vector:KiwiDef (s.addStruct("Vector"))
+        s.addField(vector "x" "float" 1 false)
+        s.addField(vector "y" "float" 2 false)
+
+        def matrix:KiwiDef (s.addStruct("Matrix"))
+        s.addField(matrix "m00" "float" 1 false)
+        s.addField(matrix "m01" "float" 2 false)
+        s.addField(matrix "m02" "float" 3 false)
+        s.addField(matrix "m10" "float" 4 false)
+        s.addField(matrix "m11" "float" 5 false)
+        s.addField(matrix "m12" "float" 6 false)
+
+        def strokeAlign:KiwiDef (s.addEnum("StrokeAlign"))
+        s.addEnumMember(strokeAlign "CENTER" 0)
+        s.addEnumMember(strokeAlign "INSIDE" 1)
+        s.addEnumMember(strokeAlign "OUTSIDE" 2)
+        s.addEnumMember(strokeAlign "OFFSET" 3)
+
+        def paintType:KiwiDef (s.addEnum("PaintType"))
+        s.addEnumMember(paintType "SOLID" 0)
+        s.addEnumMember(paintType "GRADIENT_LINEAR" 1)
+        s.addEnumMember(paintType "GRADIENT_RADIAL" 2)
+        s.addEnumMember(paintType "GRADIENT_ANGULAR" 3)
+        s.addEnumMember(paintType "GRADIENT_DIAMOND" 4)
+        s.addEnumMember(paintType "IMAGE" 5)
+        s.addEnumMember(paintType "EMOJI" 6)
+        s.addEnumMember(paintType "VIDEO" 7)
+        s.addEnumMember(paintType "PATTERN" 8)
+        s.addEnumMember(paintType "NOISE" 9)
+        s.addEnumMember(paintType "CUSTOM" 10)
+
+        def color:KiwiDef (s.addStruct("Color"))
+        s.addField(color "r" "float" 1 false)
+        s.addField(color "g" "float" 2 false)
+        s.addField(color "b" "float" 3 false)
+        s.addField(color "a" "float" 4 false)
+
+        def colorStop:KiwiDef (s.addStruct("ColorStop"))
+        s.addField(colorStop "color" "Color" 1 false)
+        s.addField(colorStop "position" "float" 2 false)
+
+        def paint:KiwiDef (s.addMessage("Paint"))
+        s.addField(paint "type" "PaintType" 1 false)
+        s.addField(paint "color" "Color" 2 false)
+        s.addField(paint "opacity" "float" 3 false)
+        s.addField(paint "visible" "bool" 4 false)
+        s.addField(paint "stops" "ColorStop" 6 true)
+        s.addField(paint "transform" "Matrix" 7 false)
+
+        def windingRule:KiwiDef (s.addEnum("WindingRule"))
+        s.addEnumMember(windingRule "NONZERO" 0)
+        s.addEnumMember(windingRule "ODD" 1)
+
+        def path:KiwiDef (s.addMessage("Path"))
+        s.addField(path "windingRule" "WindingRule" 1 false)
+        s.addField(path "commandsBlob" "uint" 2 false)
+
+        def textAutoResize:KiwiDef (s.addEnum("TextAutoResize"))
+        s.addEnumMember(textAutoResize "NONE" 0)
+        s.addEnumMember(textAutoResize "WIDTH_AND_HEIGHT" 1)
+        s.addEnumMember(textAutoResize "HEIGHT" 2)
+
+        def node:KiwiDef (s.addMessage("NodeChange"))
+        s.addField(node "guid" "GUID" 1 false)
+        s.addField(node "phase" "NodePhase" 2 false)
+        s.addField(node "parentIndex" "ParentIndex" 3 false)
+        s.addField(node "type" "NodeType" 4 false)
+        s.addField(node "name" "string" 5 false)
+        s.addField(node "fontSize" "float" 21 false)
+        s.addField(node "textAlignHorizontal" "TextAlignHorizontal" 32 false)
+        s.addField(node "textAlignVertical" "TextAlignVertical" 33 false)
+        s.addField(node "lineHeight" "Number" 40 false)
+        s.addField(node "fontName" "FontName" 41 false)
+        s.addField(node "textData" "TextData" 42 false)
+        s.addField(node "letterSpacing" "Number" 165 false)
+        s.addField(node "visible" "bool" 6 false)
+        s.addField(node "opacity" "float" 8 false)
+        s.addField(node "size" "Vector" 11 false)
+        s.addField(node "transform" "Matrix" 12 false)
+        s.addField(node "cornerRadius" "float" 20 false)
+        s.addField(node "strokeWeight" "float" 26 false)
+        s.addField(node "strokeAlign" "StrokeAlign" 29 false)
+        s.addField(node "fillPaints" "Paint" 38 true)
+        s.addField(node "strokePaints" "Paint" 39 true)
+        s.addField(node "fillGeometry" "Path" 51 true)
+        s.addField(node "strokeGeometry" "Path" 52 true)
+        s.addField(node "rectangleTopLeftCornerRadius" "float" 145 false)
+        s.addField(node "rectangleTopRightCornerRadius" "float" 146 false)
+        s.addField(node "rectangleBottomLeftCornerRadius" "float" 147 false)
+        s.addField(node "rectangleBottomRightCornerRadius" "float" 148 false)
+        s.addField(node "rectangleCornerRadiiIndependent" "bool" 149 false)
+        s.addField(node "textAutoResize" "TextAutoResize" 46 false)
+        s.addField(node "frameMaskDisabled" "bool" 115 false)
+
+        def blob:KiwiDef (s.addStruct("Blob"))
+        s.addField(blob "bytes" "byte" 1 true)
+
+        def msg:KiwiDef (s.addMessage("Message"))
+        s.addField(msg "type" "MessageType" 1 false)
+        s.addField(msg "sessionID" "uint" 2 false)
+        s.addField(msg "ackID" "uint" 3 false)
+        s.addField(msg "nodeChanges" "NodeChange" 4 true)
+        s.addField(msg "blobs" "Blob" 6 true)
+
+        s.bindTypes()
+        return s
+    } doc {
+        description "The Figma schema subset a written .fig declares."
+        returns "A schema whose names, kinds and field ids are Figma's own."
+    }
+}
