@@ -7,7 +7,7 @@
  * back — and writes the verdict into the DOM. Headless Chrome can dump a DOM
  * without a browser-driver library, so that is what is read back here.
  *
- *   node gallery/r5/web/smoke.mjs [--port 8909] [--shot FILE] [--width 1280]
+ *   node gallery/r5/web/smoke.mjs [--dist DIR] [--port 8909] [--shot FILE] [--width 1280]
  */
 import http from "node:http";
 import fs from "node:fs";
@@ -16,12 +16,14 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DIST = path.join(HERE, "dist");
 
 function argVal(name, dflt) {
   const i = process.argv.indexOf(name);
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : dflt;
 }
+// The build's own dist/ by default; `--dist DIR` when the build was made
+// somewhere else, as the Pages workflow does with `--out`.
+const DIST = path.resolve(argVal("--dist", path.join(HERE, "dist")));
 const PORT = parseInt(argVal("--port", "8909"), 10);
 const SHOT = argVal("--shot", "");
 const WIDTH = argVal("--width", "1280");
