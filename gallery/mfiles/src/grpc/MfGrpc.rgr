@@ -892,8 +892,10 @@ class MfGrpc {
                 ei.putInt("error_code" 404)
                 res.put("error_info" ei)
             } {
+                ; Reading metadata is not an access either: an extension that
+                ; reads the selection on every SelectionChanged would reorder
+                ; the Recent view on every click.
                 def o:MfObject (vault.object(v.objectType v.id))
-                vault.markAccessed(o.objectType o.id)
                 def data:MfJ (MfJ.newObj())
                 data.put("obj_ver" (MfGrpc.objVer(o.objectType o.id v.version)))
                 data.put("object_version" (this.objectVersionEx(o v)))

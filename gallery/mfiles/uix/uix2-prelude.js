@@ -29,6 +29,11 @@
   }
 })();
 
+// The developer documentation's own samples spell every enum through an MFiles
+// namespace — MFiles.MenuLocation.MenuLocation_ContextMenu_Bottom,
+// MFiles.Event.CustomCommand — so both spellings work.
+var MFiles = Object.assign({}, __MF_ENUMS);
+
 function __mfShellItems(data) {
   var d = data || { objects: [], properties: [] };
   var objs = d.objects || [];
@@ -299,6 +304,8 @@ function __mfFrame() {
       return done();
     },
     GetMenuIdOfBuiltInCommand: (commandId) => Promise.resolve(commandId),
+    // Icons are accepted and not drawn: the emulator's menus are text.
+    SetIcon: () => done(),
   };
   var select = (objVers, on, clear) => {
     __mfOp("listing.select", { obj_vers: objVers, select: on, clear: clear });

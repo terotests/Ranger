@@ -109,7 +109,7 @@ section("context menu and an extension command");
   press(app, "row", "Invoice");
   ok("right-click the invoice", press(app, "row", "Invoice #998 - UPS", 2));
   const items = named(app, "menuitem");
-  ok("menu has built-ins and the extension command", items.includes("Check Out") && items.includes("Approve invoice") && items.includes("Say hello"), items.join(" | "));
+  ok("menu has built-ins and the extension command", items.includes("Check out") && items.includes("Pin") && items.includes("Approve invoice") && items.includes("Say hello"), items.join(" | "));
   ok("press Approve invoice", press(app, "menuitem", "Approve invoice"));
   app.tick(16);
   app.displayListJson();
@@ -177,6 +177,55 @@ section("search, dialogs, modes");
   press(app, "row", "Invoice #811 - UPS", 2);
   const items = named(app, "menuitem");
   ok("the v1 commands replace the v2 ones", items.includes("Property report (v1)") && !items.includes("Say hello"), items.join(" | "));
+}
+
+// ---------------------------------------------------------------------------
+section("a phone");
+{
+  const app = open();
+  app.setPageSize(390, 780);
+  app.displayListJson();
+  eq("stylesheet still parses", app.styleErrorCount(), 0);
+  const bar = ["Views", "Objects", "Details", "Code", "Console"];
+  eq("a bottom bar of screens", named(app, "tab").filter((t) => bar.includes(t)), bar);
+  ok("the objects are the first screen", named(app, "row").includes("Job Application, Paula McEnroe"));
+  ok("with no navigation column beside them", !named(app, "treeitem").includes("Documents by Class"));
+  ok("press Views", press(app, "tab", "Views"));
+  ok("the views screen", named(app, "treeitem").includes("Documents by Class"), named(app, "treeitem").join(" | "));
+  press(app, "treeitem", "Documents by Class");
+  ok("a view goes back to the objects", named(app, "row").includes("Invoice"), named(app, "row").join(" | "));
+  press(app, "row", "Invoice");
+  press(app, "row", "Invoice #998 - UPS");
+  ok("an object opens its details", named(app, "button").includes("Edit metadata"), named(app, "button").join(" | "));
+  press(app, "tab", "Code");
+  eq("the code screen is the pane's code tab", app.host.shell.selectedTab, "_code");
+  ok("with room for the editor", JSON.parse(app.codeRectJson()).w === 390);
+  press(app, "tab", "Console");
+  ok("the console screen", nodes(app).some((n) => n.role === "log"));
+}
+
+// ---------------------------------------------------------------------------
+section("previews with the gallery's viewers");
+{
+  const app = open();
+  press(app, "row", "Job Application, Paula McEnroe");
+  eq("the metadata tab shows no viewer", JSON.parse(app.previewJson()), null);
+  press(app, "tab", "Preview");
+  const word = JSON.parse(app.previewJson());
+  ok("a .docx asks for the Word viewer", word && word.kind === "docx" && word.url === "samples/20-business-report.docx", JSON.stringify(word));
+  ok("over the pane's box", word && word.w > 200 && word.h > 200 && word.x > 0, JSON.stringify(word));
+  eq("and the pane is left as a hole", app.hitId(word.x + 20, word.y + 20), "mf-pscroll");
+  press(app, "row", "Sales Invoice 237 - City of Chicago (Planning and Development)");
+  const sheet = JSON.parse(app.previewJson());
+  ok("an .xlsx asks for the spreadsheet", sheet && sheet.kind === "xlsx" && sheet.url === "samples/sales.xlsx", JSON.stringify(sheet));
+  press(app, "row", "Invoice #998 - UPS");
+  eq("a PDF keeps the text preview", JSON.parse(app.previewJson()), null);
+  const samples = vault(app)
+    .objects.map((o) => o.latest())
+    .flatMap((v) => v.files)
+    .map((f) => f.sample)
+    .filter(Boolean);
+  for (const s of new Set(samples)) ok(`${s} is in the build's sample list`, read("web/build.mjs").includes(`"${s.replace("samples/", "")}"`));
 }
 
 if (failures.length) {

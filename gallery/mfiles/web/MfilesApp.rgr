@@ -89,6 +89,9 @@ class MfilesApp {
     def traceEl@(optional):EVGElement
 
     def consoleOpen:boolean true
+    ; On a phone one screen is shown at a time and the bottom bar switches
+    ; between them: "views", "list", "pane" or "console".
+    def mobileScreen:string "list"
     def lastRevision:int -1
     def lastLogs:int 0
     def lastCalls:int 0
@@ -263,6 +266,59 @@ class MfilesApp {
 
     ; Where the page puts its code editor: the right pane's content box while
     ; the Extension code tab is selected, "null" otherwise.
+    ; The sample file the Preview tab is showing with a real viewer, or "".
+    fn previewSample:string () {
+        def shell:MfShell host.shell
+        if (shell.selectedTab != "_preview") {
+            return ""
+        }
+        if ((shell.hasSelection()) == false) {
+            return ""
+        }
+        if (this.mobile()) {
+            if (mobileScreen != "pane") {
+                return ""
+            }
+        }
+        def o:MfObject (shell.selectedObject())
+        def ver:MfObjectVersion (o.latest())
+        if ((array_length ver.files) == 0) {
+            return ""
+        }
+        def f:MfObjectFile (itemAt ver.files 0)
+        return f.sample
+    }
+
+    ; What the page's viewer should draw and where: {kind, url, name, x, y, w,
+    ; h}, or "null" when the preview is text.
+    fn previewJson:string () {
+        def sample:string (this.previewSample())
+        if ((strlen sample) == 0) {
+            return "null"
+        }
+        this.laidOut()
+        def el:EVGElement (this.findById("mf-pscroll"))
+        if (el.id != "mf-pscroll") {
+            return "null"
+        }
+        def o:MfObject (host.shell.selectedObject())
+        def ver:MfObjectVersion (o.latest())
+        def f:MfObjectFile (itemAt ver.files 0)
+        def kind:string "docx"
+        if ((f.extension == "xlsx") || (f.extension == "xls")) {
+            kind = "xlsx"
+        }
+        def j:MfJ (MfJ.newObj())
+        j.putStr("kind" kind)
+        j.putStr("url" sample)
+        j.putStr("name" (f.fileName()))
+        j.putInt("x" (to_int el.calculatedX))
+        j.putInt("y" (to_int el.calculatedY))
+        j.putInt("w" (to_int el.calculatedWidth))
+        j.putInt("h" (to_int el.calculatedHeight))
+        return (j.toJson())
+    }
+
     fn codeRectJson:string () {
         if (host.shell.selectedTab != "_code") {
             return "null"
@@ -282,7 +338,16 @@ class MfilesApp {
 
     ; Column widths follow the stylesheet's @media breakpoints, so a label can
     ; be cut to the width it will actually get.
+    ; A phone-sized page: one screen at a time, and a bar of icons at the bottom
+    ; instead of the navigation column, the way gallery/r5 folds on a phone.
+    fn mobile:boolean () {
+        return (pageW < 760.0)
+    }
+
     fn navWidth:double () {
+        if (this.mobile()) {
+            return pageW
+        }
         if (pageW >= 1360.0) {
             return 220.0
         }
@@ -293,6 +358,9 @@ class MfilesApp {
     }
 
     fn paneWidth:double () {
+        if (this.mobile()) {
+            return pageW
+        }
         if (pageW >= 1360.0) {
             return 470.0
         }
@@ -307,6 +375,13 @@ class MfilesApp {
     }
 
     fn nameWidth:double () {
+        if (this.mobile()) {
+            def mw:double (pageW - 236.0)
+            if (mw < 80.0) {
+                mw = 80.0
+            }
+            return mw
+        }
         def nw:double (this.navWidth())
         def pw:double (this.paneWidth())
         def w:double (((pageW - nw) - pw) - 66.0)
@@ -379,13 +454,40 @@ class MfilesApp {
 
     fn page:EVGElement () {
         def pg:EVGElement (MfilesApp.div("mf-page"))
+        ; A real viewer draws the preview UNDER this page, so the page leaves a
+        ; hole where the preview goes: no background of its own, nor the pane's.
+        if ((strlen (this.previewSample())) > 0) {
+            pg.className = "mf-page mf-page-see"
+        }
         pg.addChild((this.header()))
         def body:EVGElement (MfilesApp.div("mf-body"))
-        body.addChild((this.nav()))
-        body.addChild((this.center()))
-        body.addChild((this.rightPane()))
-        pg.addChild(body)
-        pg.addChild((this.consolePanel()))
+        def noEl@(optional):EVGElement
+        listEl = noEl
+        paneEl = noEl
+        logEl = noEl
+        traceEl = noEl
+        if (this.mobile()) {
+            if (mobileScreen == "views") {
+                body.addChild((this.nav()))
+            }
+            if (mobileScreen == "list") {
+                body.addChild((this.center()))
+            }
+            if (mobileScreen == "pane") {
+                body.addChild((this.rightPane()))
+            }
+            if (mobileScreen == "console") {
+                body.addChild((this.consolePanel()))
+            }
+            pg.addChild(body)
+            pg.addChild((this.mobileNav()))
+        } {
+            body.addChild((this.nav()))
+            body.addChild((this.center()))
+            body.addChild((this.rightPane()))
+            pg.addChild(body)
+            pg.addChild((this.consolePanel()))
+        }
         if menuOpen {
             pg.addChild((this.contextMenu()))
         }
@@ -411,17 +513,22 @@ class MfilesApp {
         brand.addChild((MfilesApp.quiet("mf-brand-m" "M-")))
         brand.addChild((MfilesApp.quiet("mf-brand-files" "Files")))
         head.addChild(brand)
+        def phone:boolean (this.mobile())
         def pathW:double (pageW - 860.0)
         if (pathW < 120.0) {
             pathW = 120.0
         }
         def pathText:string (this.fitText((host.shell.path()) pathW 13.0))
-        head.addChild((MfilesApp.txt("mf-path" pathText)))
-        head.addChild((MfilesApp.div("mf-grow")))
+        if (phone == false) {
+            head.addChild((MfilesApp.txt("mf-path" pathText)))
+            head.addChild((MfilesApp.div("mf-grow")))
+        }
         head.addChild((this.searchBox()))
-        head.addChild((MfilesApp.button("mf-search-go" "Search" "mf-hbtn" "mf-hbtn-text")))
-        def modeLabel:string ("UIX v" + (to_string host.mode))
-        head.addChild((MfilesApp.button("mf-mode" modeLabel "mf-hbtn mf-hbtn-mode" "mf-hbtn-text")))
+        if (phone == false) {
+            head.addChild((MfilesApp.button("mf-search-go" "Search" "mf-hbtn" "mf-hbtn-text")))
+            def modeLabel:string ("UIX v" + (to_string host.mode))
+            head.addChild((MfilesApp.button("mf-mode" modeLabel "mf-hbtn mf-hbtn-mode" "mf-hbtn-text")))
+        }
         def av:EVGElement (MfilesApp.box("mf-avatar" "mf-avatar" "img" "Alex Kramer"))
         av.addChild((MfilesApp.quiet("mf-avatar-text" "AK")))
         head.addChild(av)
@@ -461,7 +568,7 @@ class MfilesApp {
     }
 
     fn searchBox:EVGElement () {
-        return (this.fieldBox(search "mf-searchbox" "Search" 11.0))
+        return (this.fieldBox(search "mf-searchbox" "Search" 0.0))
     }
 
     ; --- navigation ------------------------------------------------------------
@@ -837,6 +944,9 @@ class MfilesApp {
     fn rightPane:EVGElement () {
         def shell:MfShell host.shell
         def p:EVGElement (MfilesApp.box("mf-pane" "mf-pane" "complementary" "Right pane"))
+        if ((strlen (this.previewSample())) > 0) {
+            p.className = "mf-pane mf-pane-see"
+        }
         def tabs:EVGElement (MfilesApp.box("mf-ptabs" "mf-ptabs" "tablist" "Right pane tabs"))
         def ptabs:[MfPaneTab] (shell.paneTabs("right"))
         for ptabs t:MfPaneTab i {
@@ -1066,7 +1176,7 @@ class MfilesApp {
         if ((strlen c.tid) == 0) {
             return (MfilesApp.txt("mf-prop-none" "—"))
         }
-        return (this.fieldBox(c "mf-field" pdef.name 9.0))
+        return (this.fieldBox(c "mf-field" pdef.name 0.0))
     }
 
     fn optChip:EVGElement (id:string label:string on:boolean) {
@@ -1095,6 +1205,12 @@ class MfilesApp {
             return
         }
         def f:MfObjectFile (itemAt ver.files 0)
+        if ((strlen f.sample) > 0) {
+            ; The page's viewer draws here; the pane only keeps the room.
+            body.className = "mf-pscroll mf-pview"
+            body.a11yLabel = (f.fileName())
+            return
+        }
         body.addChild((MfilesApp.txt("mf-preview-name" (f.fileName()))))
         body.addChild((MfilesApp.div("mf-sep")))
         def paper:EVGElement (MfilesApp.box("mf-paper" "mf-paper" "document" (f.fileName())))
@@ -1185,7 +1301,12 @@ class MfilesApp {
         def shell:MfShell host.shell
         def g:MfGrpc shell.grpc
         def con:EVGElement (MfilesApp.box("mf-console" "mf-console" "region" "Console"))
-        if (consoleOpen == false) {
+        def open:boolean consoleOpen
+        if (this.mobile()) {
+            open = true
+            con.className = "mf-console mf-console-full"
+        }
+        if (open == false) {
             con.className = "mf-console mf-console-min"
         }
         def bar:EVGElement (MfilesApp.div("mf-cbar"))
@@ -1197,7 +1318,7 @@ class MfilesApp {
         bar.addChild((MfilesApp.div("mf-grow")))
         bar.addChild((MfilesApp.button("mf-console-clear" "Clear" "mf-cbtn" "mf-cstat")))
         con.addChild(bar)
-        if (consoleOpen == false) {
+        if (open == false) {
             return con
         }
         def cb:EVGElement (MfilesApp.div("mf-cbody"))
@@ -1253,6 +1374,90 @@ class MfilesApp {
         return b
     }
 
+    ; --- the phone's bottom bar -----------------------------------------------
+
+    fn mobileNav:EVGElement () {
+        def bar:EVGElement (MfilesApp.box("mf-mnav" "mf-mnav" "tablist" "Screens"))
+        bar.addChild((this.mnavBtn("views" "Views")))
+        bar.addChild((this.mnavBtn("list" "Objects")))
+        bar.addChild((this.mnavBtn("pane" "Details")))
+        bar.addChild((this.mnavBtn("code" "Code")))
+        bar.addChild((this.mnavBtn("console" "Console")))
+        return bar
+    }
+
+    fn mnavBtn:EVGElement (screen:string label:string) {
+        def codeOpen:boolean ((mobileScreen == "pane") && (host.shell.selectedTab == "_code"))
+        def on:boolean (mobileScreen == screen)
+        if (screen == "pane") {
+            on = ((mobileScreen == "pane") && (codeOpen == false))
+        }
+        if (screen == "code") {
+            on = codeOpen
+        }
+        def cls:string "mf-mnav-btn"
+        def tcls:string "mf-mnav-txt"
+        if on {
+            cls = "mf-mnav-btn mf-mnav-on"
+            tcls = "mf-mnav-txt mf-mnav-txt-on"
+        }
+        def b:EVGElement (MfilesApp.box(cls ("mf-mnav-" + screen) "tab" label))
+        b.a11ySelected = (MfilesApp.tri(on))
+        b.addChild((this.mnavIcon(screen on)))
+        b.addChild((MfilesApp.quiet(tcls label)))
+        return b
+    }
+
+    ; Icons drawn from boxes rather than glyphs: no icon font to load, and the
+    ; same pixels on every canvas.
+    fn mnavIcon:EVGElement (screen:string on:boolean) {
+        def ink:string "mf-ink"
+        if on {
+            ink = "mf-ink mf-ink-on"
+        }
+        if (screen == "views") {
+            def grid:EVGElement (MfilesApp.div("mf-mico mf-mico-grid"))
+            def gi:int 0
+            while (gi < 4) {
+                grid.addChild((MfilesApp.div(("mf-sq " + ink))))
+                gi = (gi + 1)
+            }
+            return grid
+        }
+        if (screen == "list") {
+            def lst:EVGElement (MfilesApp.div("mf-mico mf-mico-list"))
+            def li:int 0
+            while (li < 3) {
+                lst.addChild((MfilesApp.div(("mf-bar " + ink))))
+                li = (li + 1)
+            }
+            return lst
+        }
+        if (screen == "pane") {
+            def holder:EVGElement (MfilesApp.div("mf-mico"))
+            def cardCls:string "mf-cardico"
+            if on {
+                cardCls = "mf-cardico mf-cardico-on"
+            }
+            def card:EVGElement (MfilesApp.div(cardCls))
+            card.addChild((MfilesApp.div(("mf-cline2 " + ink))))
+            card.addChild((MfilesApp.div(("mf-cline2 " + ink))))
+            holder.addChild(card)
+            return holder
+        }
+        def glyph:string ">_"
+        if (screen == "code") {
+            glyph = "</>"
+        }
+        def tcls:string "mf-mico-txt"
+        if on {
+            tcls = "mf-mico-txt mf-mico-txt-on"
+        }
+        def box:EVGElement (MfilesApp.div("mf-mico"))
+        box.addChild((MfilesApp.quiet(tcls glyph)))
+        return box
+    }
+
     ; --- overlays --------------------------------------------------------------
 
     fn menuItem:EVGElement (id:string label:string enabled:boolean app:boolean) {
@@ -1280,7 +1485,7 @@ class MfilesApp {
             x = (pageW - 240.0)
         }
         def items:[MfMenuItem] (shell.visibleMenu(true))
-        def est:double (((to_double (array_length items)) * 28.0) + 150.0)
+        def est:double (((to_double (array_length items)) * 30.0) + 290.0)
         if ((y + est) > pageH) {
             y = (pageH - est)
         }
@@ -1294,22 +1499,69 @@ class MfilesApp {
             mine = (o.checkedOutTo == v.currentUser)
             free = (o.checkedOutTo == 0)
         }
-        m.addChild((this.menuItem("mf-ctx-bi-10" "Check Out" (sel && free) false)))
-        m.addChild((this.menuItem("mf-ctx-bi-11" "Check In" (sel && mine) false)))
-        m.addChild((this.menuItem("mf-ctx-bi-13" "Undo Checkout" (sel && mine) false)))
+        ; The web client's order: open, the version control of the object,
+        ; following and pinning, removal — and then what extensions added.
+        ; MenuLocation_ContextMenu_Open / _Checkout put a command beside those
+        ; groups; everything else lands in the extension group at the bottom.
+        def pinned:boolean false
+        def followed:boolean false
+        if sel {
+            def po:MfObject (shell.selectedObject())
+            pinned = po.favorite
+            followed = po.followed
+        }
+        m.addChild((this.menuItem("mf-ctx-open" "Open in preview" sel false)))
+        this.customGroup(m items 51)
+        m.addChild((MfilesApp.div("mf-msep")))
+        if mine {
+            m.addChild((this.menuItem("mf-ctx-bi-11" "Check in" true false)))
+            m.addChild((this.menuItem("mf-ctx-bi-13" "Undo checkout" true false)))
+        } {
+            m.addChild((this.menuItem("mf-ctx-bi-10" "Check out" (sel && free) false)))
+        }
+        this.customGroup(m items 52)
+        m.addChild((MfilesApp.div("mf-msep")))
+        def followLabel:string "Follow"
+        if followed {
+            followLabel = "Unfollow"
+        }
+        m.addChild((this.menuItem("mf-ctx-follow" followLabel sel false)))
+        def pinLabel:string "Pin"
+        if pinned {
+            pinLabel = "Unpin"
+        }
+        m.addChild((this.menuItem("mf-ctx-pin" pinLabel sel false)))
+        m.addChild((MfilesApp.div("mf-msep")))
         m.addChild((this.menuItem("mf-ctx-bi-76" "Delete" sel false)))
-        m.addChild((this.menuItem("mf-ctx-props" "Properties" sel false)))
-        if ((array_length items) > 0) {
-            m.addChild((MfilesApp.div("mf-msep")))
-            def head:EVGElement (MfilesApp.div("mf-mheadbox"))
-            head.addChild((MfilesApp.txt("mf-mhead" "APPLICATIONS")))
-            m.addChild(head)
-        }
+        def rest:int 0
         for items it:MfMenuItem i {
-            def cmd:MfCustomCommand (shell.command(it.commandId))
-            m.addChild((this.menuItem(("mf-ctx-" + (to_string cmd.id)) cmd.name true true)))
+            if ((it.location != 51) && (it.location != 52)) {
+                rest = (rest + 1)
+            }
         }
+        if (rest > 0) {
+            m.addChild((MfilesApp.div("mf-msep")))
+            this.customGroup(m items -1)
+        }
+        m.addChild((MfilesApp.div("mf-msep")))
+        m.addChild((this.menuItem("mf-ctx-props" "Properties" sel false)))
         return m
+    }
+
+    ; The custom commands placed at one context-menu location, or with -1 all
+    ; of those not placed beside a built-in group.
+    fn customGroup:void (m:EVGElement items:[MfMenuItem] location:int) {
+        def shell:MfShell host.shell
+        for items it:MfMenuItem i {
+            def fits:boolean (it.location == location)
+            if (location < 0) {
+                fits = ((it.location != 51) && (it.location != 52))
+            }
+            if fits {
+                def cmd:MfCustomCommand (shell.command(it.commandId))
+                m.addChild((this.menuItem(("mf-ctx-" + (to_string cmd.id)) cmd.name true true)))
+            }
+        }
     }
 
     fn dropdown:EVGElement () {
@@ -1373,10 +1625,18 @@ class MfilesApp {
     fn toasts:EVGElement () {
         def shell:MfShell host.shell
         def col:EVGElement (MfilesApp.box("mf-toasts" "mf-toasts" "status" "Notifications"))
-        col.left = (EVGUnit.px((pageW - 350.0)))
+        if (this.mobile()) {
+            col.width = (EVGUnit.px((pageW - 20.0)))
+            col.left = (EVGUnit.px(10.0))
+        } {
+            col.left = (EVGUnit.px((pageW - 350.0)))
+        }
         def bottom:double 230.0
         if (consoleOpen == false) {
             bottom = 70.0
+        }
+        if (this.mobile()) {
+            bottom = 76.0
         }
         def n:int (array_length shell.toasts)
         col.top = (EVGUnit.px(((pageH - bottom) - ((to_double n) * 62.0))))
@@ -1393,7 +1653,11 @@ class MfilesApp {
     fn dialog:EVGElement (d:MfDialog) {
         def card:EVGElement (MfilesApp.box("mf-dialog" ("mf-dialog-" + (to_string d.id)) "dialog" d.caption))
         def w:double 460.0
-        def lines:[string] (this.wrapText(d.text 410.0 13.0))
+        if (this.mobile()) {
+            w = (pageW - 24.0)
+            card.width = (EVGUnit.px(w))
+        }
+        def lines:[string] (this.wrapText(d.text (w - 50.0) 13.0))
         def h:double (((to_double (array_length lines)) * 19.0) + 130.0)
         if (d.kind == "popup") {
             h = 360.0
@@ -1457,6 +1721,7 @@ class MfilesApp {
         this.discardEdit()
         host.shell.openView(viewId)
         listScroll = 0.0
+        mobileScreen = "list"
         host.notifyLocation()
         host.notifySelection()
     }
@@ -1467,6 +1732,12 @@ class MfilesApp {
         }
         host.shell.select(ot id additive)
         host.notifySelection()
+        if (this.mobile()) {
+            mobileScreen = "pane"
+            if (host.shell.selectedTab == "_code") {
+                host.shell.selectedTab = "_metadata"
+            }
+        }
     }
 
     fn runSearch:void () {
@@ -1478,6 +1749,7 @@ class MfilesApp {
         }
         listScroll = 0.0
         focused = ""
+        mobileScreen = "list"
         host.notifyLocation()
         host.notifySelection()
     }
@@ -1770,6 +2042,21 @@ class MfilesApp {
         if (dlg.id > 0) {
             return true
         }
+        if (MfilesApp.hasPrefix(id "mf-mnav-")) {
+            def scr:string (MfilesApp.rest(id "mf-mnav-"))
+            menuOpen = false
+            dropdownPd = -1
+            if (scr == "code") {
+                mobileScreen = "pane"
+                shell.selectedTab = "_code"
+            } {
+                mobileScreen = scr
+                if ((scr == "pane") && (shell.selectedTab == "_code")) {
+                    shell.selectedTab = "_metadata"
+                }
+            }
+            return true
+        }
         if (MfilesApp.hasPrefix(id "mf-ctx-")) {
             menuOpen = false
             if (MfilesApp.hasPrefix(id "mf-ctx-bi-")) {
@@ -1778,6 +2065,25 @@ class MfilesApp {
             }
             if (id == "mf-ctx-props") {
                 shell.selectedTab = "_metadata"
+                return true
+            }
+            if (id == "mf-ctx-open") {
+                shell.selectedTab = "_preview"
+                return true
+            }
+            if ((id == "mf-ctx-pin") || (id == "mf-ctx-follow")) {
+                if (shell.hasSelection()) {
+                    def so:MfObject (shell.selectedObject())
+                    def sv:MfVault shell.vault
+                    if (id == "mf-ctx-pin") {
+                        sv.setFavorite(so.objectType so.id (so.favorite == false))
+                    } {
+                        so.followed = (so.followed == false)
+                        sv.changed()
+                    }
+                    shell.refresh()
+                    host.notifyLocation()
+                }
                 return true
             }
             host.runCustomCommand((MfilesApp.partInt(id 2)))
@@ -1968,7 +2274,12 @@ class MfilesApp {
     fn doubleClick:boolean (x:double y:double) {
         def id:string (this.hitId(x y))
         if (MfilesApp.hasPrefix(id "mf-row-")) {
-            this.selectRow((MfilesApp.partInt(id 2)) (MfilesApp.partInt(id 3)) false)
+            def dot:int (MfilesApp.partInt(id 2))
+            def did:int (MfilesApp.partInt(id 3))
+            this.selectRow(dot did false)
+            ; Opening is what M-Files counts as accessing an object.
+            def dv:MfVault host.shell.vault
+            dv.markAccessed(dot did)
             host.shell.selectedTab = "_preview"
             dirty = true
             return true
@@ -1984,6 +2295,28 @@ class MfilesApp {
 
     fn wheel:boolean (x:double y:double dy:double) {
         dirty = true
+        if (this.mobile()) {
+            if (mobileScreen == "pane") {
+                paneScroll = (paneScroll + dy)
+                if (paneScroll < 0.0) {
+                    paneScroll = 0.0
+                }
+            }
+            if (mobileScreen == "list") {
+                listScroll = (listScroll + dy)
+                if (listScroll < 0.0) {
+                    listScroll = 0.0
+                }
+            }
+            if (mobileScreen == "console") {
+                logScroll = (logScroll + dy)
+                logStick = false
+                if (logScroll < 0.0) {
+                    logScroll = 0.0
+                }
+            }
+            return true
+        }
         def consoleTop:double (pageH - 210.0)
         if (consoleOpen && (y >= consoleTop)) {
             if (x < (pageW - 440.0)) {

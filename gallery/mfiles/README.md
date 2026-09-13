@@ -37,6 +37,22 @@ saving makes a version), **Preview**, the tabs extensions add, and
 restarted. The console along the bottom shows what applications logged and
 every Vault API call they made, and switches the emulator between UIX v1 and v2.
 
+**Preview** opens the job applications and the letter template in the
+gallery's Word viewer (`docx_viewer`) and Sales Invoice 237 in its spreadsheet
+(`datagrid`) — the same compiled apps their own pages run, loaded the first
+time a preview is opened. The files are the viewers' test fixtures, copied to
+`web/samples/` by the build. The emulator leaves a hole in its canvas over the
+pane and the viewer draws in a canvas beneath it (`web/preview.js`). There is
+no PDF reader in the gallery, so PDFs keep the text preview.
+
+**Extension code** is the gallery's Ranger code editor
+(`datagrid/web/code_editor_web.rgr`: JavaScript highlighting, diagnostics,
+completion) in a canvas, with the keyboard taken by a hidden textarea
+(`web/code-editor.js`). If it cannot load, the drawer's plain textarea is used.
+
+Under 760 px wide the window becomes a phone layout: one screen at a time
+(views, objects, details, code, console) with an icon bar along the bottom.
+
 ## The pieces
 
 | Path | What it is |

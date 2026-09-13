@@ -83,6 +83,15 @@ class MfSampleVault {
         f.size = ((strlen content) * 3) + 18000
         push files f
     }
+    ; A file the page can show with a real viewer: the bytes are one of the
+    ; gallery's own fixtures, copied beside the page by web/build.mjs.
+    fn sampleFile:void (ttl:string ext:string sample:string content:string) {
+        this.file(ttl ext content)
+        def n:int (array_length files)
+        def f:MfObjectFile (itemAt files (n - 1))
+        f.sample = sample
+    }
+
     ; `accessed` empty means the current user has never opened it.
     fn commit:MfObject (ot:int created:string accessed:string) {
         vault.setNow(created)
@@ -254,14 +263,14 @@ class MfSampleVault {
         this.commit(103 "2023-11-03T08:10:00Z" "")
 
         ; documents (0), newest access first in the screenshot's order
-        this.application("Job Application, Paula McEnroe" "docx" "Paula McEnroe" "Sales Representative" "2023-12-27T10:00:00Z")
-        this.application("Job Application, Tina Cordwell" "doc" "Tina Cordwell" "Account Manager" "2023-12-27T09:03:30Z")
-        this.application("Job Application, Jim Red" "doc" "Jim Red" "Sales Representative" "2023-12-27T09:03:20Z")
+        this.application("Job Application, Paula McEnroe" "docx" "Paula McEnroe" "Sales Representative" "2023-12-27T10:00:00Z" "samples/20-business-report.docx")
+        this.application("Job Application, Tina Cordwell" "docx" "Tina Cordwell" "Account Manager" "2023-12-27T09:03:30Z" "samples/styles_demo.docx")
+        this.application("Job Application, Jim Red" "docx" "Jim Red" "Sales Representative" "2023-12-27T09:03:20Z" "samples/lists_demo.docx")
         this.invoice("Invoice #2304 - CBC" 1 "2304" 12450.0 true "2023-12-27T09:03:10Z")
         this.title("Letter Template for Word")
         this.cls(5)
         this.memo(1007 "Company letterhead with address block and signature.")
-        this.file("Letter Template for Word" "doc" "[Company letterhead]\n\n<Recipient>\n<Address>\n\nDear <Name>,\n\n<Body>\n\nYours sincerely,\n<Sender>")
+        this.sampleFile("Letter Template for Word" "docx" "samples/hello.docx" "[Company letterhead]\n\n<Recipient>\n<Address>\n\nDear <Name>,\n\n<Body>\n\nYours sincerely,\n<Sender>")
         this.commit(0 "2023-06-01T08:00:00Z" "2023-12-27T09:03:05Z")
         this.invoice("Invoice #998 - UPS" 2 "998" 480.5 false "2023-12-27T09:03:04Z")
         this.invoice("Invoice #776 - UPS" 2 "776" 1210.0 true "2023-12-27T09:03:03Z")
@@ -277,11 +286,11 @@ class MfSampleVault {
         this.txt(1005 "237")
         this.many(1001 ([] _:int ( 5 )))
         this.real(1006 23900.0)
-        this.file("Sales Invoice 237 - City of Chicago (Planning and Development)" "xls" "Item\tQty\tPrice\nOffice design consulting\t40\t450.00\nSite visits\t6\t985.00")
+        this.sampleFile("Sales Invoice 237 - City of Chicago (Planning and Development)" "xlsx" "samples/sales.xlsx" "Item\tQty\tPrice\nOffice design consulting\t40\t450.00\nSite visits\t6\t985.00")
         this.commit(0 "2023-11-20T08:00:00Z" "2023-12-27T09:02:00Z")
         this.invoice("Invoice #1035 - Fortney Nolte Associates" 4 "1035" 5320.0 false "2023-12-27T09:01:50Z")
-        this.application("Job Application, Thomas Westwood" "doc" "Thomas Westwood" "Engineer" "2023-12-27T09:01:40Z")
-        this.application("Job Application, Jonathan Lockhart" "doc" "Jonathan Lockhart" "Account Manager" "2023-12-27T09:01:30Z")
+        this.application("Job Application, Thomas Westwood" "docx" "Thomas Westwood" "Engineer" "2023-12-27T09:01:40Z" "samples/05-table-basic.docx")
+        this.application("Job Application, Jonathan Lockhart" "docx" "Jonathan Lockhart" "Account Manager" "2023-12-27T09:01:30Z" "samples/12-header-footer.docx")
         this.invoice("Invoice #811 - UPS" 2 "811" 95.0 true "2023-12-27T09:01:20Z")
         this.invoice("Invoice A113-112-33 - GNT" 6 "A113-112-33" 3100.0 false "2023-12-27T09:01:10Z")
 
@@ -295,7 +304,7 @@ class MfSampleVault {
         this.commit(0 "2024-01-10T12:00:00Z" "")
     }
 
-    fn application:void (ttl:string ext:string who:string position:string accessed:string) {
+    fn application:void (ttl:string ext:string who:string position:string accessed:string sample:string) {
         this.title(ttl)
         this.cls(1)
         this.txt(1015 position)
@@ -304,7 +313,7 @@ class MfSampleVault {
         def mail:string ((to_lowercase (replace who " " ".")) + "@example.com")
         this.txt(1012 mail)
         def body:string ("13 June 2023\n\nAndy Nash\nQuality Consultation\n5050 Quorum Drive, Suite 600\nDallas, TX 75254, USA\n\n" + position + " position at Quality Consultation\n\nDear Mr. Nash,\n\nI am writing to apply for the " + position + " position you advertised. I enjoy working with customers, I learn products quickly, and I would welcome the chance to bring that energy to your team.\n\nMy strengths include:\n  • understanding the competition and how to sell against it\n  • building lasting relationships with new and existing customers\n  • keeping customer service consistently high\n\nI would be glad to meet for an interview at your convenience.\n\nYours sincerely,\n\n" + who + "\n" + mail)
-        this.file(ttl ext body)
+        this.sampleFile(ttl ext sample body)
         this.commit(0 "2023-06-13T08:00:00Z" accessed)
     }
 
