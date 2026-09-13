@@ -1,0 +1,307 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RavePatterns — application patterns, as code
+; =============================================================================
+; A new project is not a blank canvas. `Dashboard Shell` is a layout with a
+; header, a sidebar, a main area and a footer, four routes that share it, and
+; the breakpoints at which the sidebar folds away; `Auth Flow` adds a login
+; route, marks the rest protected, and wires `Login` and `Logout`. They are
+; Ranger functions rather than a template format so they are tested like
+; code: built, run, navigated logged in and out, linted at every width.
+; =============================================================================
+
+Import "RaveDoc.rgr"
+
+class RavePatterns {
+
+    ; --- the shared look -----------------------------------------------------------
+
+    sfn theme:void (app:RaveApp) {
+        app.setVar("bg" "#ffffff")
+        app.setVar("panel" "#fafafa")
+        app.setVar("ink" "#09090b")
+        app.setVar("muted" "#71717a")
+        app.setVar("accent" "#2563eb")
+        app.setVar("accent-ink" "#ffffff")
+        app.setVar("line" "#e4e4e7")
+        app.setVar("radius" "8px")
+
+        app.shared("btn" "flex-direction" "row")
+        app.shared("btn" "align-items" "center")
+        app.shared("btn" "justify-content" "center")
+        app.shared("btn" "height" "36px")
+        app.shared("btn" "padding" "0 16px")
+        app.shared("btn" "border-radius" "var(--radius)")
+        app.shared("btn" "background-color" "var(--accent)")
+        app.shared("btn" "color" "var(--accent-ink)")
+        app.shared("btn" "font-size" "14px")
+        app.shared("btn" "cursor" "pointer")
+        app.shared("btn-ghost" "background-color" "transparent")
+        app.shared("btn-ghost" "color" "var(--ink)")
+
+        app.shared("card" "background-color" "var(--bg)")
+        app.shared("card" "border" "1px solid var(--line)")
+        app.shared("card" "border-radius" "var(--radius)")
+        app.shared("card" "padding" "16px")
+        app.shared("card" "gap" "8px")
+
+        app.shared("field" "gap" "6px")
+        app.shared("input" "height" "36px")
+        app.shared("input" "padding" "0 12px")
+        app.shared("input" "justify-content" "center")
+        app.shared("input" "border" "1px solid var(--line)")
+        app.shared("input" "border-radius" "var(--radius)")
+        app.shared("input" "background-color" "var(--bg)")
+        app.shared("rv-placeholder" "color" "var(--muted)")
+
+        app.shared("title" "font-size" "24px")
+        app.shared("title" "font-weight" "700")
+        app.shared("subtitle" "font-size" "16px")
+        app.shared("subtitle" "font-weight" "600")
+        app.shared("muted" "color" "var(--muted)")
+        app.shared("brand" "font-weight" "700")
+        app.shared("brand" "font-size" "16px")
+
+        app.shared("navlink" "padding" "8px 12px")
+        app.shared("navlink" "border-radius" "var(--radius)")
+        app.shared("navlink" "color" "var(--ink)")
+        app.shared("navlink" "cursor" "pointer")
+    }
+
+    sfn breakpoints:void (app:RaveApp) {
+        app.addBreakpoint("sm" 0)
+        app.addBreakpoint("md" 768)
+        app.addBreakpoint("lg" 1024)
+        app.addBreakpoint("xl" 1440)
+    }
+
+    ; A labelled input: the label is what a reader hears, the placeholder
+    ; what a sighted person sees in the empty box.
+    sfn field:RaveNode (app:RaveApp parent:RaveNode label:string placeholder:string) {
+        def f:RaveNode (parent.add((app.newNode("div" label))))
+        f.addClass("field")
+        def lab:RaveNode (f.add((app.newText("label" label))))
+        lab.addClass("muted")
+        def input:RaveNode (f.add((app.newNode("input" label))))
+        input.addClass("input")
+        input.label = label
+        input.placeholder = placeholder
+        return f
+    }
+
+    sfn button:RaveNode (app:RaveApp parent:RaveNode text:string) {
+        def b:RaveNode (parent.add((app.newText("button" text))))
+        b.addClass("btn")
+        return b
+    }
+
+    ; --- Dashboard Shell -----------------------------------------------------------
+
+    sfn dashboardShell:RaveApp (name:string) {
+        def app (new RaveApp(name))
+        push app.targets "web"
+        push app.targets "tablet"
+        push app.targets "mobile"
+        app.nav = "sidebar"
+        RavePatterns.breakpoints(app)
+        RavePatterns.theme(app)
+
+        ; the layout
+        def shell:RaveNode (app.newLayout("Dashboard Shell"))
+        app.style(shell "width" "100%")
+        app.style(shell "height" "100%")
+        app.style(shell "background-color" "var(--bg)")
+        app.style(shell "color" "var(--ink)")
+        app.style(shell "font-size" "14px")
+
+        def header:RaveNode (shell.add((app.newNode("header" "Header"))))
+        app.style(header "flex-direction" "row")
+        app.style(header "align-items" "center")
+        app.style(header "justify-content" "space-between")
+        app.style(header "height" "56px")
+        app.style(header "padding" "0 24px")
+        app.style(header "border" "1px solid var(--line)")
+        def brand:RaveNode (header.add((app.newText("span" name))))
+        brand.addClass("brand")
+        def tools:RaveNode (header.add((app.newNode("div" "Header tools"))))
+        app.style(tools "flex-direction" "row")
+        app.style(tools "align-items" "center")
+        app.style(tools "gap" "8px")
+        def whenIn:RaveNode (tools.add((app.newConditional("authenticated"))))
+        app.style(whenIn "flex-direction" "row")
+        app.style(whenIn "gap" "8px")
+        def logout:RaveNode (RavePatterns.button(app whenIn "Log out"))
+        logout.addClass("btn-ghost")
+        logout.on("logout" "")
+        def whenOut:RaveNode (tools.add((app.newConditional("unauthenticated"))))
+        def signIn:RaveNode (RavePatterns.button(app whenOut "Sign in"))
+        signIn.on("navigate" "/login")
+
+        def body:RaveNode (shell.add((app.newNode("div" "Body"))))
+        app.style(body "display" "grid")
+        app.style(body "grid-template-columns" "240px 1fr")
+        app.style(body "grid-template-rows" "1fr")
+        app.style(body "flex-grow" "1")
+        app.style(body "min-height" "0")
+        app.styleAt(body (app.below("md")) "grid-template-columns" "1fr")
+
+        def sidebar:RaveNode (body.add((app.newNode("aside" "Sidebar"))))
+        sidebar.label = "Sidebar"
+        app.style(sidebar "padding" "16px")
+        app.style(sidebar "gap" "4px")
+        app.style(sidebar "border" "1px solid var(--line)")
+        app.style(sidebar "background-color" "var(--panel)")
+        app.styleAt(sidebar (app.below("md")) "display" "none")
+        def nav:RaveNode (sidebar.add((app.newNode("nav" "Main navigation"))))
+        nav.label = "Main navigation"
+        app.style(nav "gap" "4px")
+        def l1:RaveNode (nav.add((app.newText("a" "Dashboard"))))
+        l1.addClass("navlink")
+        l1.on("navigate" "/dashboard")
+        def l2:RaveNode (nav.add((app.newText("a" "Settings"))))
+        l2.addClass("navlink")
+        l2.on("navigate" "/settings")
+        def l3:RaveNode (nav.add((app.newText("a" "Profile"))))
+        l3.addClass("navlink")
+        l3.on("navigate" "/profile")
+
+        def main:RaveNode (body.add((app.newNode("main" "Main"))))
+        app.style(main "padding" "24px")
+        app.style(main "gap" "24px")
+        app.style(main "min-width" "0")
+        def slot:RaveNode (main.add((app.newSlot())))
+        app.style(slot "gap" "24px")
+
+        def footer:RaveNode (shell.add((app.newNode("footer" "Footer"))))
+        footer.label = "Footer"
+        app.style(footer "height" "40px")
+        app.style(footer "padding" "0 24px")
+        app.style(footer "justify-content" "center")
+        app.style(footer "border" "1px solid var(--line)")
+        def fine:RaveNode (footer.add((app.newText("span" ("© " + name)))))
+        fine.addClass("muted")
+
+        ; the pages
+        def home:RaveNode (app.newPage("Home"))
+        app.style(home "gap" "16px")
+        def h1:RaveNode (home.add((app.newText("h1" ("Welcome to " + name)))))
+        h1.addClass("title")
+        def lead:RaveNode (home.add((app.newText("p" "This is the application shell. Everything on it already runs."))))
+        lead.addClass("muted")
+        def go:RaveNode (RavePatterns.button(app home "Go to dashboard"))
+        go.on("navigate" "/dashboard")
+        app.style(go "width" "fit-content")
+
+        def dash:RaveNode (app.newPage("Dashboard"))
+        app.style(dash "gap" "24px")
+        def dh:RaveNode (dash.add((app.newText("h1" "Dashboard"))))
+        dh.addClass("title")
+        def cards:RaveNode (dash.add((app.newNode("div" "Cards"))))
+        app.style(cards "display" "grid")
+        app.style(cards "grid-template-columns" "repeat(3, 1fr)")
+        app.style(cards "gap" "24px")
+        app.styleAt(cards (app.below("md")) "grid-template-columns" "1fr")
+        app.styleAt(cards ((app.from("md")) + " and " + (app.below("lg"))) "grid-template-columns" "repeat(2, 1fr)")
+        RavePatterns.card(app cards "Revenue" "Where the money came from this month.")
+        RavePatterns.card(app cards "Users" "Who signed up, and who came back.")
+        RavePatterns.card(app cards "Activity" "What happened, most recent first.")
+
+        def settings:RaveNode (app.newPage("Settings"))
+        app.style(settings "gap" "16px")
+        def sh:RaveNode (settings.add((app.newText("h1" "Settings"))))
+        sh.addClass("title")
+        def form:RaveNode (settings.add((app.newNode("form" "Settings form"))))
+        form.label = "Settings"
+        app.style(form "gap" "12px")
+        app.style(form "max-width" "480px")
+        RavePatterns.field(app form "Display name" "Your name")
+        RavePatterns.field(app form "Email" "you@example.com")
+        def save:RaveNode (RavePatterns.button(app form "Save changes"))
+        app.style(save "width" "fit-content")
+
+        def profile:RaveNode (app.newPage("Profile"))
+        app.style(profile "gap" "16px")
+        def ph:RaveNode (profile.add((app.newText("h1" "Profile"))))
+        ph.addClass("title")
+        def pp:RaveNode (profile.add((app.newText("p" "Who you are, as the application sees you."))))
+        pp.addClass("muted")
+
+        ; the routes
+        app.addRoute("/" "Home" home shell.id)
+        app.addRoute("/dashboard" "Dashboard" dash shell.id)
+        app.addRoute("/settings" "Settings" settings shell.id)
+        app.addRoute("/profile" "Profile" profile shell.id)
+        return app
+    }
+
+    sfn card:RaveNode (app:RaveApp parent:RaveNode title:string body:string) {
+        def c:RaveNode (parent.add((app.newNode("section" title))))
+        c.addClass("card")
+        c.label = title
+        def h:RaveNode (c.add((app.newText("h3" title))))
+        h.addClass("subtitle")
+        def p:RaveNode (c.add((app.newText("p" body))))
+        p.addClass("muted")
+        return c
+    }
+
+    ; --- Auth Flow -----------------------------------------------------------------
+
+    ; Adds `/login` on its own centred layout, protects every route but the
+    ; landing page and the login page, and sends a fresh login to the
+    ; dashboard.
+    sfn withAuth:void (app:RaveApp) {
+        app.authEnabled = true
+        app.loginRoute = "/login"
+        app.afterLogin = "/dashboard"
+
+        def authLayout:RaveNode (app.newLayout("Auth Layout"))
+        app.style(authLayout "width" "100%")
+        app.style(authLayout "height" "100%")
+        app.style(authLayout "align-items" "center")
+        app.style(authLayout "justify-content" "center")
+        app.style(authLayout "background-color" "var(--panel)")
+        app.style(authLayout "color" "var(--ink)")
+        app.style(authLayout "font-size" "14px")
+        def slot:RaveNode (authLayout.add((app.newSlot())))
+        app.style(slot "width" "360px")
+        app.style(slot "max-width" "100%")
+        app.styleAt(slot (app.below("md")) "width" "100%")
+        app.styleAt(slot (app.below("md")) "padding" "16px")
+
+        def login:RaveNode (app.newPage("Login"))
+        login.addClass("card")
+        app.style(login "gap" "16px")
+        app.style(login "padding" "24px")
+        def h1:RaveNode (login.add((app.newText("h1" "Sign in"))))
+        h1.addClass("title")
+        def form:RaveNode (login.add((app.newNode("form" "Sign-in form"))))
+        form.label = "Sign in"
+        app.style(form "gap" "12px")
+        RavePatterns.field(app form "Email" "you@example.com")
+        RavePatterns.field(app form "Password" "••••••••")
+        def go:RaveNode (RavePatterns.button(app form "Sign in"))
+        go.on("login" "")
+        def back:RaveNode (login.add((app.newText("a" "Back to the front page"))))
+        back.addClass("muted")
+        back.on("navigate" "/")
+
+        app.addRoute("/login" "Sign in" login authLayout.id)
+        def i:int 0
+        while (i < (array_length app.routes)) {
+            def r:RaveRoute (itemAt app.routes i)
+            if ((r.path != "/") && (r.path != "/login")) {
+                r.protected = true
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The wizard's answer for the default choices: a dashboard app that signs in.
+    sfn saasStarter:RaveApp (name:string) {
+        def app:RaveApp (RavePatterns.dashboardShell(name))
+        RavePatterns.withAuth(app)
+        return app
+    }
+}

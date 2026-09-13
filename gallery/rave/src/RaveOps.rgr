@@ -1,0 +1,385 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RaveOps — every edit as an operation that knows its inverse
+; =============================================================================
+; The editor never touches the document directly: it asks `RaveEdit`, which
+; applies an op, records it in `OfficeHistory` — the same history the four
+; office editors adopted — and can play it backwards. Tree edits, style edits,
+; text and action edits are all the same kind of thing here, so one undo
+; stack covers a drag, a typed width and a changed route target alike.
+;
+; A transaction (`begin` … `end`) makes several ops one undo step: a wrap is
+; an insert and a move, a duplicate is one insert per cloned subtree.
+; =============================================================================
+
+Import "RaveDoc.rgr"
+Import "../../office/editor/OfficeHistory.rgr"
+
+class RaveOp {
+    ; insert | remove | move | decl | text | name | label | placeholder | action | route
+    def kind:string ""
+    def nodeId:int 0
+    def parentId:int 0
+    def index:int 0
+    def toParentId:int 0
+    def toIndex:int 0
+    def cls:string ""
+    def media:string ""
+    def prop:string ""
+    def oldValue:string ""
+    def newValue:string ""
+    ; for action: the old and new kind/arg pairs
+    def oldArg:string ""
+    def newArg:string ""
+
+    Constructor (k:string) {
+        kind = k
+    }
+}
+
+class RaveEdit {
+    def app:RaveApp (new RaveApp(""))
+    def history:OfficeHistory@(RaveOp) (new OfficeHistory@(RaveOp) ())
+    ; Bumped on every change so a caller can tell whether anything moved.
+    def version:int 0
+
+    Constructor (a:RaveApp) {
+        app = a
+    }
+
+    fn begin:void () {
+        history.begin()
+    }
+
+    fn end:void () {
+        history.end()
+    }
+
+    fn canUndo:boolean () {
+        return (history.canUndo())
+    }
+
+    fn canRedo:boolean () {
+        return (history.canRedo())
+    }
+
+    ; --- applying -------------------------------------------------------------
+
+    fn apply:void (op:RaveOp forward:boolean) {
+        version = (version + 1)
+        if (op.kind == "insert") {
+            if forward {
+                app.attach(op.parentId op.nodeId op.index)
+            } {
+                app.detach(op.nodeId)
+            }
+            return
+        }
+        if (op.kind == "remove") {
+            if forward {
+                app.detach(op.nodeId)
+            } {
+                app.attach(op.parentId op.nodeId op.index)
+            }
+            return
+        }
+        if (op.kind == "move") {
+            app.detach(op.nodeId)
+            if forward {
+                app.attach(op.toParentId op.nodeId op.toIndex)
+            } {
+                app.attach(op.parentId op.nodeId op.index)
+            }
+            return
+        }
+        if (op.kind == "decl") {
+            def value:string op.newValue
+            if (forward == false) {
+                value = op.oldValue
+            }
+            def r:RaveRule (app.rule(op.cls op.media))
+            if ((strlen value) == 0) {
+                r.remove(op.prop)
+            } {
+                r.set(op.prop value)
+            }
+            return
+        }
+        def n:RaveNode (app.node(op.nodeId))
+        def v:string op.newValue
+        if (forward == false) {
+            v = op.oldValue
+        }
+        if (op.kind == "text") {
+            n.text = v
+            return
+        }
+        if (op.kind == "name") {
+            n.name = v
+            return
+        }
+        if (op.kind == "label") {
+            n.label = v
+            return
+        }
+        if (op.kind == "placeholder") {
+            n.placeholder = v
+            return
+        }
+        if (op.kind == "tag") {
+            n.tag = v
+            return
+        }
+        if (op.kind == "action") {
+            def arg:string op.newArg
+            if (forward == false) {
+                arg = op.oldArg
+            }
+            clear n.actions
+            if ((strlen v) > 0) {
+                n.on(v arg)
+            }
+            return
+        }
+    }
+
+    fn commit:void (op:RaveOp) {
+        this.apply(op true)
+        history.record(op)
+    }
+
+    ; --- the edits ------------------------------------------------------------
+
+    ; A node made with `app.newNode` (or the kit), put under a parent. An
+    ; index past the end appends.
+    fn insert:void (n:RaveNode parentId:int index:int) {
+        def op (new RaveOp("insert"))
+        op.nodeId = n.id
+        op.parentId = parentId
+        op.index = index
+        this.commit(op)
+    }
+
+    fn remove:boolean (id:int) {
+        def parent:int (app.parentOf(id))
+        if (parent == 0) {
+            return false
+        }
+        def op (new RaveOp("remove"))
+        op.nodeId = id
+        op.parentId = parent
+        op.index = (app.indexIn(parent id))
+        this.commit(op)
+        return true
+    }
+
+    fn move:boolean (id:int toParent:int toIndex:int) {
+        def parent:int (app.parentOf(id))
+        if (parent == 0) {
+            return false
+        }
+        if (toParent == id) {
+            return false
+        }
+        if (app.isInside(toParent id)) {
+            return false
+        }
+        def op (new RaveOp("move"))
+        op.nodeId = id
+        op.parentId = parent
+        op.index = (app.indexIn(parent id))
+        op.toParentId = toParent
+        op.toIndex = toIndex
+        ; Leaving and re-entering the same parent: the index the node lands
+        ; on is counted with the node already gone.
+        if ((toParent == parent) && (toIndex > op.index)) {
+            op.toIndex = (toIndex - 1)
+        }
+        if ((op.toParentId == op.parentId) && (op.toIndex == op.index)) {
+            return false
+        }
+        this.commit(op)
+        return true
+    }
+
+    fn moveBefore:boolean (id:int targetId:int) {
+        def parent:int (app.parentOf(targetId))
+        if (parent == 0) {
+            return false
+        }
+        return (this.move(id parent (app.indexIn(parent targetId))))
+    }
+
+    fn moveInto:boolean (id:int targetId:int) {
+        def target:RaveNode (app.node(targetId))
+        return (this.move(id targetId (array_length target.children)))
+    }
+
+    fn setDecl:boolean (cls:string media:string prop:string value:string) {
+        def old:string ""
+        if (app.hasRule(cls media)) {
+            def r:RaveRule (app.rule(cls media))
+            old = (r.get(prop))
+        }
+        if (old == value) {
+            return false
+        }
+        def op (new RaveOp("decl"))
+        op.cls = cls
+        op.media = media
+        op.prop = prop
+        op.oldValue = old
+        op.newValue = value
+        this.commit(op)
+        return true
+    }
+
+    ; The same edit, LIVE: while one field is being adjusted — a key held on
+    ; the arrow, a thumb dragged, digits typed — every change lands on the
+    ; document at once and the undo stack keeps ONE step for the whole
+    ; session. `session` is the editor's counter for "the same field, the
+    ; same time"; a new session is a new op.
+    def liveSession:int 0
+    def liveCls:string ""
+    def liveMedia:string ""
+    def liveProp:string ""
+
+    fn setDeclLive:boolean (cls:string media:string prop:string value:string session:int) {
+        def same:boolean ((session == liveSession) && (cls == liveCls) && (media == liveMedia) && (prop == liveProp))
+        if (same && (history.canUndo())) {
+            def top:RaveOp (history.peekUndo())
+            if ((top.kind == "decl") && (top.cls == cls) && (top.media == media) && (top.prop == prop)) {
+                if (top.newValue == value) {
+                    return false
+                }
+                top.newValue = value
+                this.apply(top true)
+                return true
+            }
+        }
+        liveSession = session
+        liveCls = cls
+        liveMedia = media
+        liveProp = prop
+        return (this.setDecl(cls media prop value))
+    }
+
+    ; A live session that ended where it started leaves no undo step behind.
+    fn dropTopIfNoop:void () {
+        if ((history.canUndo()) == false) {
+            return
+        }
+        def top:RaveOp (history.peekUndo())
+        if ((top.kind == "decl") && (top.oldValue == top.newValue)) {
+            history.popUndo()
+        }
+    }
+
+    fn setField:boolean (id:int kind:string value:string) {
+        def n:RaveNode (app.node(id))
+        def old:string ""
+        if (kind == "text") { old = n.text }
+        if (kind == "name") { old = n.name }
+        if (kind == "label") { old = n.label }
+        if (kind == "placeholder") { old = n.placeholder }
+        if (kind == "tag") { old = n.tag }
+        if (old == value) {
+            return false
+        }
+        def op (new RaveOp(kind))
+        op.nodeId = id
+        op.oldValue = old
+        op.newValue = value
+        this.commit(op)
+        return true
+    }
+
+    fn setAction:boolean (id:int kind:string arg:string) {
+        def n:RaveNode (app.node(id))
+        def oldKind:string ""
+        def oldArg:string ""
+        if ((array_length n.actions) > 0) {
+            def a:RaveAction (itemAt n.actions 0)
+            oldKind = a.kind
+            oldArg = a.arg
+        }
+        if ((oldKind == kind) && (oldArg == arg)) {
+            return false
+        }
+        def op (new RaveOp("action"))
+        op.nodeId = id
+        op.oldValue = oldKind
+        op.oldArg = oldArg
+        op.newValue = kind
+        op.newArg = arg
+        this.commit(op)
+        return true
+    }
+
+    ; A copy of the node beside it, as one undo step.
+    fn duplicate:int (id:int) {
+        def parent:int (app.parentOf(id))
+        if (parent == 0) {
+            return 0
+        }
+        def src:RaveNode (app.node(id))
+        def copy:RaveNode (app.cloneNode(src))
+        this.insert(copy parent ((app.indexIn(parent id)) + 1))
+        return copy.id
+    }
+
+    ; A new container where the node was, with the node inside it.
+    fn wrap:int (id:int) {
+        def parent:int (app.parentOf(id))
+        if (parent == 0) {
+            return 0
+        }
+        def box:RaveNode (app.newNode("div" "Container"))
+        app.style(box "gap" "16px")
+        def at:int (app.indexIn(parent id))
+        this.begin()
+        this.insert(box parent at)
+        this.move(id box.id 0)
+        this.end()
+        return box.id
+    }
+
+    ; --- undo / redo ------------------------------------------------------------
+
+    fn undo:boolean () {
+        if ((history.canUndo()) == false) {
+            return false
+        }
+        def n:int (history.undoSpan())
+        if (n < 1) {
+            n = 1
+        }
+        def k:int 0
+        while (k < n) {
+            def op:RaveOp (history.peekUndo())
+            this.apply(op false)
+            history.moveUndoToRedo()
+            k = (k + 1)
+        }
+        return true
+    }
+
+    fn redo:boolean () {
+        if ((history.canRedo()) == false) {
+            return false
+        }
+        def n:int (history.redoSpan())
+        if (n < 1) {
+            n = 1
+        }
+        def k:int 0
+        while (k < n) {
+            def op:RaveOp (history.peekRedo())
+            this.apply(op true)
+            history.moveRedoToUndo()
+            k = (k + 1)
+        }
+        return true
+    }
+}

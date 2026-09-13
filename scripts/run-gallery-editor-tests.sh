@@ -458,6 +458,17 @@ SUITES=(
   # the panel describes, and the board's own list under the chrome rather than
   # beside it. A module with no gate is a module that breaks silently.
   rafi:test
+  # Rave: the editor after Rafi, whose canvas objects are an application's
+  # structure — routes, layouts, pages, a stylesheet with real breakpoints —
+  # rather than rectangles. This is its document and runtime, headless: a
+  # SaaS pattern is built, signed into, navigated by press, pointer and Tab,
+  # laid out at 1440, 768 and 390 from one tree, linted at every width, and
+  # every declaration the engine rejects is a failure rather than a warning.
+  rave:test
+  # And the page: the editor's chrome over the running app, built the way
+  # the site builds it and driven in Node — the rails, the stage's camera,
+  # a sign-in typed at the page, and a document that opens again.
+  rave:smoke
   firesim:targets
   # The workbench: a database browser over the simulator, drawn by EVG and
   # controlled by gallery/ui's own controllers — collections, documents, a

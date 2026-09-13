@@ -1,0 +1,2887 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RaveEditor — Rafi's chrome, over an application instead of a picture
+; =============================================================================
+; The same rails, tree, stage, inspector, toolbar and strip Rafi draws — every
+; one an EVG element laid out by EVGLayout and painted by the same WebGL
+; painter the stage is — with three differences, which are the whole product:
+;
+;   LEFT RAIL    Routes / Components / Layers, not Pages / Layers
+;   STAGE        one route at several widths at once, from ONE tree
+;   TOP          Design | Run: the same document, running
+;
+; The stage is the runtime's scene drawn through a camera; the chrome is
+; painted over it with the clear switched off, exactly as Rafi paints its
+; board. Selection is structural — a node, highlighted in every viewport —
+; and the gestures are reorder, reparent and insert, because a flex/grid
+; layout has nothing to drag by the corner.
+;
+; Everything a click can mean goes through `press(id)`, everything a key can
+; mean through `keyWith`, and typing through `typeChar`: the headless check
+; drives the whole editor through those three doors.
+; =============================================================================
+
+Import "RaveDoc.rgr"
+Import "RaveRuntime.rgr"
+Import "RavePatterns.rgr"
+Import "RaveOps.rgr"
+Import "RaveKit.rgr"
+Import "RaveA11y.rgr"
+Import "RaveCss.rgr"
+Import "RaveBuild.rgr"
+Import "RaveFields.rgr"
+Import "../../ui/src/InputCtl.rgr"
+Import "../../evg/EVGTextEngine.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+
+class RaveEditor {
+    def doc:RaveApp (new RaveApp("app"))
+    def rt@(optional):RaveRuntime
+    def edit@(optional):RaveEdit
+    def sheet@(optional):EVGStyleSheet
+    def layout@(optional):EVGLayout
+    def root@(optional):EVGElement
+    def boardEl@(optional):EVGElement
+    def builtW:double 0.0
+    def builtH:double 0.0
+    def dirty:boolean true
+    def pageW:double 1440.0
+    def pageH:double 860.0
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+
+    ; design | run
+    def mode:string "design"
+    ; routes | components | layers
+    def leftPane:string "layers"
+    ; design | css | a11y
+    def rightPane:string "design"
+    ; the selected node, 0 for none
+    def selected:int 0
+    ; the inspector's breakpoint: base | sm | md | lg
+    def bp:string "base"
+    def folded:[string:boolean]
+    ; the camera over the scene, relative to the board's corner
+    def viewX:double 40.0
+    def viewY:double 40.0
+    def zoom:double 0.5
+    def needFit:boolean true
+    ; the board's box, read back from the layout every frame
+    def bx:double 0.0
+    def by:double 0.0
+    def bw:double 0.0
+    def bh:double 0.0
+    ; the view the keyboard talks to in Run, and the one the A11y pane shows
+    def activeView:int 0
+    ; the field being edited: "field:<prop>", "node:<kind>", "css:<i>"
+    def editing:string ""
+    ; text | length — how the field is edited
+    def editKind:string ""
+    ; the text model while editing: value, caret, anchor, word motion —
+    ; gallery/ui's own, so a caret here behaves as one in a form does
+    def input:InputCtl (new InputCtl())
+    ; the unit half of a length field
+    def unit:string ""
+    ; the value before this edit, for Escape
+    def editOriginal:string ""
+    ; bumped per edit so live changes coalesce into one undo step
+    def session:int 0
+    ; the choice list that is open, and the row the keys are on
+    def openMenu:string ""
+    def menuActive:int 0
+    ; a drag in progress: selecting text in a field, or dragging a track
+    def textDrag:string ""
+    def scrub:string ""
+    ; a node picked up for a drop
+    def dragging:int 0
+    def showTabOrder:boolean false
+    def lastKey:string ""
+    def status:string "ready"
+    ; the a11y problems of the active view, gathered once per frame
+    def problems:[string]
+
+    Constructor () {
+        this.newProject("Acme")
+    }
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+    }
+
+    ; --- the document ---------------------------------------------------------
+
+    fn adopt:void (app:RaveApp) {
+        doc = app
+        def r (new RaveRuntime(app))
+        r.addView("desktop" 1440.0 900.0 false)
+        r.addView("tablet" 768.0 1024.0 true)
+        r.addView("phone" 390.0 844.0 true)
+        rt = r
+        def e (new RaveEdit(app))
+        edit = e
+        selected = 0
+        def fresh:[string:boolean]
+        folded = fresh
+        editing = ""
+        dragging = 0
+        activeView = 0
+        needFit = true
+        status = app.name
+        dirty = true
+    }
+
+    fn newProject:void (name:string) {
+        this.adopt((RavePatterns.saasStarter(name)))
+    }
+
+    fn openJson:boolean (text:string) {
+        def app:RaveApp (RaveApp.fromJson(text))
+        if (app.isEmpty()) {
+            status = "not a Rave document"
+            dirty = true
+            return false
+        }
+        this.adopt(app)
+        return true
+    }
+
+    fn saveJson:string () {
+        return (doc.toJson())
+    }
+
+    fn runtime:RaveRuntime () {
+        return (unwrap rt)
+    }
+
+    fn editor:RaveEdit () {
+        return (unwrap edit)
+    }
+
+    fn currentRoute:RaveRoute () {
+        def r:RaveRuntime (unwrap rt)
+        return (doc.routeAt((r.path())))
+    }
+
+    fn path:string () {
+        def r:RaveRuntime (unwrap rt)
+        return (r.path())
+    }
+
+    fn selectedId:string () {
+        if (selected == 0) {
+            return ""
+        }
+        return ("n" + (to_string selected))
+    }
+
+    fn modeNow:string () {
+        return mode
+    }
+
+    fn setPageSize:void (w:double h:double) {
+        if ((w == pageW) && (h == pageH)) {
+            return
+        }
+        pageW = w
+        pageH = h
+        dirty = true
+    }
+
+    ; --- the breakpoint the inspector edits ------------------------------------------
+
+    fn mediaFor:string (key:string) {
+        if (key == "sm") {
+            return (doc.below("md"))
+        }
+        if (key == "md") {
+            return ((doc.from("md")) + " and " + (doc.below("lg")))
+        }
+        if (key == "lg") {
+            return (doc.from("lg"))
+        }
+        return ""
+    }
+
+    fn media:string () {
+        return (this.mediaFor(bp))
+    }
+
+    fn keyForMedia:string (m:string) {
+        if (m == (this.mediaFor("sm"))) { return "sm" }
+        if (m == (this.mediaFor("md"))) { return "md" }
+        if (m == (this.mediaFor("lg"))) { return "lg" }
+        if ((strlen m) == 0) { return "base" }
+        return m
+    }
+
+    ; --- input ----------------------------------------------------------------
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn hover:boolean (px:double py:double) {
+        def id:string (this.hitId(px py))
+        if (id == hovered) {
+            return false
+        }
+        hovered = id
+        return true
+    }
+
+    fn pointerDown:boolean (px:double py:double) {
+        return (this.pointerDownWith(px py false))
+    }
+
+    ; A press with Shift: inside a field's text it extends the selection to
+    ; the point, the way it does in a form.
+    fn pointerDownWith:boolean (px:double py:double shift:boolean) {
+        def id:string (this.hitId(px py))
+        if ((strlen id) == 0) {
+            if ((strlen openMenu) > 0) {
+                this.closeMenu()
+                return true
+            }
+            return false
+        }
+        if (id == "board") {
+            if ((strlen openMenu) > 0) {
+                this.closeMenu()
+            }
+            return (this.clickBoard(px py))
+        }
+        if (RaveEditor.hasPrefix(id "in:")) {
+            def fid:string (RaveEditor.tail(id 3))
+            if (editing != fid) {
+                this.startEdit(fid)
+            }
+            this.caretAt(fid px shift)
+            textDrag = fid
+            return true
+        }
+        if (RaveEditor.hasPrefix(id "track:")) {
+            def fid2:string (RaveEditor.tail(id 6))
+            if (editing != fid2) {
+                this.startEdit(fid2)
+            }
+            scrub = fid2
+            this.scrubTo(px)
+            return true
+        }
+        return (this.press(id))
+    }
+
+    ; The pointer moved with the button down: a selection being dragged out,
+    ; or a track thumb being pulled.
+    fn pointerMove:boolean (px:double py:double) {
+        if ((strlen textDrag) > 0) {
+            this.caretAt(textDrag px true)
+            return true
+        }
+        if ((strlen scrub) > 0) {
+            this.scrubTo(px)
+            return true
+        }
+        return false
+    }
+
+    fn pointerUp:boolean () {
+        def had:boolean (((strlen textDrag) > 0) || ((strlen scrub) > 0))
+        textDrag = ""
+        scrub = ""
+        return had
+    }
+
+    fn findChromeEl@(optional):EVGElement (el:EVGElement id:string) {
+        if (el.id == id) {
+            def found@(optional):EVGElement el
+            return found
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def kid@(optional):EVGElement (this.findChromeEl((el.getChild(i)) id))
+            if kid {
+                return kid
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):EVGElement
+        return miss
+    }
+
+    fn textEngine:EVGTextEngine () {
+        this.laidOut()
+        def lay:EVGLayout (unwrap layout)
+        return (lay.getTextEngine())
+    }
+
+    ; Put the caret where a press landed in the field's text, measured with
+    ; the engine that paints it.
+    fn caretAt:void (fid:string px:double extend:boolean) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def found@(optional):EVGElement (this.findChromeEl(r ("in:" + fid)))
+        if (null? found) {
+            return
+        }
+        def box:EVGElement (unwrap found)
+        def eng:EVGTextEngine (this.textEngine())
+        def at:int (input.indexAtX(eng (px - box.calculatedX)))
+        input.placeCaret(at extend)
+        dirty = true
+    }
+
+    ; The track under a length field: the pointer's fraction across it is
+    ; the value, snapped to the unit's step.
+    fn scrubTo:void (px:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def found@(optional):EVGElement (this.findChromeEl(r ("track:" + scrub)))
+        if (null? found) {
+            return
+        }
+        def box:EVGElement (unwrap found)
+        if (box.calculatedWidth < 1.0) {
+            return
+        }
+        def frac:double ((px - box.calculatedX) / box.calculatedWidth)
+        if (frac < 0.0) { frac = 0.0 }
+        if (frac > 1.0) { frac = 1.0 }
+        def prop:string (RaveEditor.propOf(scrub))
+        def top:double (RaveFields.trackMax(unit prop))
+        def step:double (RaveFields.trackStep(unit))
+        def v:double ((frac * top) / step)
+        v = ((to_double (to_int (v + 0.5))) * step)
+        input.setValue((RaveFields.fromNumber(v)))
+        input.placeCaret((strlen input.value) false)
+        this.applyLength()
+    }
+
+    fn sceneX:double (px:double) {
+        return (((px - bx) - viewX) / zoom)
+    }
+
+    fn sceneY:double (py:double) {
+        return (((py - by) - viewY) / zoom)
+    }
+
+    ; A click on the stage: in Run it is the app's, in Design it selects the
+    ; node under it — or drops the node being carried onto it.
+    fn clickBoard:boolean (px:double py:double) {
+        def r:RaveRuntime (unwrap rt)
+        def sx:double (this.sceneX(px))
+        def sy:double (this.sceneY(py))
+        def vi:int (r.viewAt(sx sy))
+        if (vi >= 0) {
+            activeView = vi
+        }
+        if (mode == "run") {
+            def did:boolean (r.pressAtScene(sx sy))
+            dirty = true
+            return true
+        }
+        def id:string (r.sceneHit(sx sy))
+        def nid:int (RaveApp.idOfElement(id))
+        if (dragging > 0) {
+            return (this.dropOn(nid))
+        }
+        this.select(nid)
+        return true
+    }
+
+    ; The host's drop after a pointer drag on the stage.
+    fn dropAt:boolean (px:double py:double) {
+        if (dragging == 0) {
+            return false
+        }
+        def r:RaveRuntime (unwrap rt)
+        def id:string (r.sceneHit((this.sceneX(px)) (this.sceneY(py))))
+        return (this.dropOn((RaveApp.idOfElement(id))))
+    }
+
+    fn select:void (nid:int) {
+        if (nid > 0) {
+            if ((doc.hasNode(nid)) == false) {
+                nid = 0
+            }
+        }
+        if (nid != selected) {
+            this.commitEdit()
+            this.closeMenu()
+        }
+        selected = nid
+        dirty = true
+    }
+
+    fn panBy:void (dx:double dy:double) {
+        viewX = (viewX + dx)
+        viewY = (viewY + dy)
+        dirty = true
+    }
+
+    fn wheel:boolean (px:double py:double dy:double) {
+        if (this.insideBoard(px py) == false) {
+            return false
+        }
+        def k:double 1.1
+        if (dy > 0.0) {
+            k = (1.0 / 1.1)
+        }
+        this.zoomAt(px py (zoom * k))
+        return true
+    }
+
+    fn zoomAt:void (px:double py:double want:double) {
+        def z:double want
+        if (z < 0.05) {
+            z = 0.05
+        }
+        if (z > 4.0) {
+            z = 4.0
+        }
+        def lx:double (px - bx)
+        def ly:double (py - by)
+        def sx:double ((lx - viewX) / zoom)
+        def sy:double ((ly - viewY) / zoom)
+        zoom = z
+        viewX = (lx - (sx * zoom))
+        viewY = (ly - (sy * zoom))
+        dirty = true
+    }
+
+    fn insideBoard:boolean (px:double py:double) {
+        if ((px < bx) || (px > (bx + bw))) {
+            return false
+        }
+        if ((py < by) || (py > (by + bh))) {
+            return false
+        }
+        return true
+    }
+
+    ; Every viewport on the stage at once, with room for their labels.
+    fn fit:void () {
+        this.laidOut()
+        if (bw < 1.0) {
+            return
+        }
+        def r:RaveRuntime (unwrap rt)
+        r.ensure()
+        def zx:double ((bw - 48.0) / r.sceneW)
+        def zy:double ((bh - 72.0) / r.sceneH)
+        def z:double zx
+        if (zy < z) {
+            z = zy
+        }
+        if (z > 1.0) {
+            z = 1.0
+        }
+        if (z < 0.05) {
+            z = 0.05
+        }
+        zoom = z
+        viewX = ((bw - (r.sceneW * zoom)) * 0.5)
+        viewY = 40.0
+        needFit = false
+        dirty = true
+    }
+
+    fn zoom100:void () {
+        this.zoomAt((bx + (bw * 0.5)) (by + (bh * 0.5)) 1.0)
+    }
+
+    ; --- commands -------------------------------------------------------------
+
+    sfn hasPrefix:boolean (s:string p:string) {
+        if ((strlen s) < (strlen p)) {
+            return false
+        }
+        return ((substring s 0 (strlen p)) == p)
+    }
+
+    sfn tail:string (s:string n:int) {
+        return (substring s n (strlen s))
+    }
+
+    sfn tailInt:int (s:string n:int) {
+        def digits:string (substring s n (strlen s))
+        def value:int 0
+        def i:int 0
+        while (i < (strlen digits)) {
+            def c:int (charAt digits i)
+            if ((c < 48) || (c > 57)) {
+                return 0
+            }
+            value = ((value * 10) + (c - 48))
+            i = (i + 1)
+        }
+        return value
+    }
+
+    fn press:boolean (id:string) {
+        def r:RaveRuntime (unwrap rt)
+        if (RaveEditor.hasPrefix(id "tab:")) {
+            def which:string (RaveEditor.tail(id 4))
+            if ((which == "routes") || (which == "components") || (which == "layers")) {
+                leftPane = which
+            } {
+                rightPane = which
+            }
+            dirty = true
+            return true
+        }
+        if (id == "mode:design") {
+            mode = "design"
+            dirty = true
+            return true
+        }
+        if (id == "mode:run") {
+            mode = "run"
+            this.cancelEdit()
+            dragging = 0
+            dirty = true
+            return true
+        }
+        if (RaveEditor.hasPrefix(id "route:")) {
+            def to:string (RaveEditor.tail(id 6))
+            if (mode == "run") {
+                r.navigate(to)
+            } {
+                r.jump(to)
+            }
+            selected = 0
+            dirty = true
+            return true
+        }
+        if (id == "nav:back") {
+            def moved:boolean (r.back())
+            dirty = true
+            return moved
+        }
+        if (id == "auth:toggle") {
+            r.setLoggedIn((r.auth.loggedIn == false))
+            dirty = true
+            return true
+        }
+        if (RaveEditor.hasPrefix(id "theme:")) {
+            def t:string (RaveEditor.tail(id 6))
+            if (t == "light") {
+                t = ""
+            }
+            r.setTheme(t)
+            dirty = true
+            return true
+        }
+        if (id == "a11y:taborder") {
+            showTabOrder = (showTabOrder == false)
+            dirty = true
+            return true
+        }
+        if (RaveEditor.hasPrefix(id "vp:")) {
+            activeView = (RaveEditor.tailInt(id 3))
+            dirty = true
+            return true
+        }
+        if (id == "zoom:in") {
+            this.zoomAt((bx + (bw * 0.5)) (by + (bh * 0.5)) (zoom * 1.25))
+            return true
+        }
+        if (id == "zoom:out") {
+            this.zoomAt((bx + (bw * 0.5)) (by + (bh * 0.5)) (zoom / 1.25))
+            return true
+        }
+        if (id == "zoom:100") {
+            this.zoom100()
+            return true
+        }
+        if (id == "fit") {
+            this.fit()
+            return true
+        }
+        if (id == "file:new") {
+            this.newProject("Untitled")
+            return true
+        }
+        ; the tree
+        if (RaveEditor.hasPrefix(id "tree:")) {
+            def nid:int (RaveEditor.tailInt(id 5))
+            if (dragging > 0) {
+                return (this.dropOn(nid))
+            }
+            this.select(nid)
+            return true
+        }
+        if (RaveEditor.hasPrefix(id "fold:")) {
+            def fid:string (RaveEditor.tail(id 5))
+            if (this.isFolded(fid)) {
+                set folded fid false
+            } {
+                set folded fid true
+            }
+            dirty = true
+            return true
+        }
+        if (RaveEditor.hasPrefix(id "pick:")) {
+            dragging = (RaveEditor.tailInt(id 5))
+            status = "carrying a node: click where it goes"
+            dirty = true
+            return true
+        }
+        if (id == "dropcancel") {
+            dragging = 0
+            status = doc.name
+            dirty = true
+            return true
+        }
+        if (RaveEditor.hasPrefix(id "drop:")) {
+            return (this.dropBefore((RaveEditor.tailInt(id 5))))
+        }
+        if (RaveEditor.hasPrefix(id "dropin:")) {
+            return (this.dropInto((RaveEditor.tailInt(id 7))))
+        }
+        ; editing the tree
+        if (RaveEditor.hasPrefix(id "add:")) {
+            return (this.addKind((RaveEditor.tail(id 4))))
+        }
+        if (id == "del") { return (this.deleteSelected()) }
+        if (id == "dup") { return (this.duplicateSelected()) }
+        if (id == "wrap") { return (this.wrapSelected()) }
+        if (id == "up") { return (this.nudge((0 - 1))) }
+        if (id == "down") { return (this.nudge(1)) }
+        if (id == "out") { return (this.moveOut()) }
+        if (id == "in") { return (this.moveIn()) }
+        if (id == "undo") { return (this.undo()) }
+        if (id == "redo") { return (this.redo()) }
+        ; the inspector
+        if (RaveEditor.hasPrefix(id "bp:")) {
+            bp = (RaveEditor.tail(id 3))
+            this.cancelEdit()
+            dirty = true
+            return true
+        }
+        if (RaveEditor.hasPrefix(id "opt:")) {
+            return (this.pick((RaveEditor.tailInt(id 4))))
+        }
+        if (RaveEditor.hasPrefix(id "field:")) {
+            if ((this.fieldKind(id)) == "choice") {
+                return (this.toggleMenu(id))
+            }
+            if (this.startEdit(id)) {
+                input.selectAll()
+                dirty = true
+                return true
+            }
+            return false
+        }
+        if (RaveEditor.hasPrefix(id "node:")) {
+            if (this.startEdit(id)) {
+                input.selectAll()
+                dirty = true
+                return true
+            }
+            return false
+        }
+        if (RaveEditor.hasPrefix(id "css:")) {
+            if (this.startEdit(id)) {
+                input.placeCaret((strlen input.value) false)
+                dirty = true
+                return true
+            }
+            return false
+        }
+        if (RaveEditor.hasPrefix(id "unit:")) {
+            def fid:string (RaveEditor.tail(id 5))
+            if (editing != fid) {
+                this.startEdit(fid)
+            }
+            return (this.toggleMenu(id))
+        }
+        if (RaveEditor.hasPrefix(id "dec:")) {
+            return (this.stepField((RaveEditor.tail(id 4)) (0.0 - 1.0)))
+        }
+        if (RaveEditor.hasPrefix(id "inc:")) {
+            return (this.stepField((RaveEditor.tail(id 4)) 1.0))
+        }
+        if (id == "menu:close") {
+            this.closeMenu()
+            return true
+        }
+        if (RaveEditor.hasPrefix(id "clear:")) {
+            return (this.clearProp((RaveEditor.tail(id 6))))
+        }
+        if (id == "commit") {
+            return (this.commitEdit())
+        }
+        if (id == "cancel") {
+            this.cancelEdit()
+            return true
+        }
+        return false
+    }
+
+    fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
+        lastKey = k
+        if ((strlen openMenu) > 0) {
+            return (this.menuKey(k))
+        }
+        if ((strlen editing) > 0) {
+            return (this.editKey(k shift ctrl))
+        }
+        if (mode == "run") {
+            def r:RaveRuntime (unwrap rt)
+            def did:boolean (r.keyWith(activeView k shift ctrl))
+            if did {
+                lastKey = (k + " → " + (r.focusedId(activeView)))
+                dirty = true
+            } {
+                lastKey = (k + " (not handled)")
+            }
+            return did
+        }
+        if (k == "Escape") {
+            if (dragging > 0) {
+                return (this.press("dropcancel"))
+            }
+            this.select(0)
+            return true
+        }
+        if ((k == "Delete") || (k == "Backspace")) {
+            return (this.deleteSelected())
+        }
+        if (ctrl && (k == "z")) {
+            if shift {
+                return (this.redo())
+            }
+            return (this.undo())
+        }
+        if (ctrl && (k == "y")) {
+            return (this.redo())
+        }
+        if (ctrl && (k == "d")) {
+            return (this.duplicateSelected())
+        }
+        if (ctrl && (k == "g")) {
+            return (this.wrapSelected())
+        }
+        if (ctrl && (k == "ArrowUp")) {
+            return (this.nudge((0 - 1)))
+        }
+        if (ctrl && (k == "ArrowDown")) {
+            return (this.nudge(1))
+        }
+        if (ctrl && (k == "ArrowLeft")) {
+            return (this.moveOut())
+        }
+        if (ctrl && (k == "ArrowRight")) {
+            return (this.moveIn())
+        }
+        if ((k == "1") && shift) {
+            return (this.press("fit"))
+        }
+        if (k == "0") {
+            return (this.press("zoom:100"))
+        }
+        if ((k == "+") || (k == "=")) {
+            return (this.press("zoom:in"))
+        }
+        if ((k == "-") || (k == "_")) {
+            return (this.press("zoom:out"))
+        }
+        return false
+    }
+
+    fn typeChar:boolean (ch:string) {
+        if ((strlen openMenu) > 0) {
+            return false
+        }
+        if ((strlen editing) == 0) {
+            return false
+        }
+        def before:string input.value
+        if ((input.typeChar("f" ch)) == false) {
+            return false
+        }
+        ; A number half filters what it takes: a letter typed at it changes
+        ; nothing, and says so, rather than landing in the value as "24p".
+        if (input.value == before) {
+            return false
+        }
+        if (editKind == "length") {
+            this.applyLength()
+        }
+        dirty = true
+        return true
+    }
+
+    ; A key in a field: the text model takes the caret, the selection and
+    ; the edits; a length field also steps on the arrows and applies live.
+    fn editKey:boolean (k:string shift:boolean ctrl:boolean) {
+        if (k == "Enter") {
+            return (this.commitEdit())
+        }
+        if (k == "Escape") {
+            this.cancelEdit()
+            return true
+        }
+        if (k == "Tab") {
+            this.commitEdit()
+            return true
+        }
+        if (editKind == "length") {
+            if ((k == "ArrowUp") || (k == "ArrowDown")) {
+                def dir:double 1.0
+                if (k == "ArrowDown") {
+                    dir = (0.0 - 1.0)
+                }
+                if shift {
+                    dir = (dir * 10.0)
+                }
+                return (this.stepField(editing dir))
+            }
+        }
+        def known:boolean false
+        if (k == "ArrowLeft") { known = true }
+        if (k == "ArrowRight") { known = true }
+        if (k == "Home") { known = true }
+        if (k == "End") { known = true }
+        if (k == "Backspace") { known = true }
+        if (k == "Delete") { known = true }
+        if ((k == "a") && ctrl) { known = true }
+        if ((ctrl == false) && ((strlen k) == 1)) { known = true }
+        if (known == false) {
+            return false
+        }
+        input.keyDownWith("f" k shift ctrl)
+        if (editKind == "length") {
+            this.applyLength()
+        }
+        dirty = true
+        return true
+    }
+
+    ; --- choice lists -------------------------------------------------------------------
+
+    fn menuOptions:[string] () {
+        if (RaveEditor.hasPrefix(openMenu "unit:")) {
+            return (RaveFields.units((RaveEditor.propOf((RaveEditor.tail(openMenu 5))))))
+        }
+        def prop:string (RaveEditor.propOf(openMenu))
+        if (prop == "action") {
+            return (this.actionChoices())
+        }
+        return (RaveFields.options(prop))
+    }
+
+    ; What the open list's field says right now, to mark the row.
+    fn menuCurrent:string () {
+        if (RaveEditor.hasPrefix(openMenu "unit:")) {
+            return unit
+        }
+        def prop:string (RaveEditor.propOf(openMenu))
+        if (prop == "action") {
+            def n:RaveNode (this.selectedNode())
+            return (this.actionText(n))
+        }
+        return (this.valueOf(prop))
+    }
+
+    fn toggleMenu:boolean (id:string) {
+        if (openMenu == id) {
+            this.closeMenu()
+            return true
+        }
+        if ((this.hasSelection()) == false) {
+            return false
+        }
+        openMenu = id
+        def opts:[string] (this.menuOptions())
+        menuActive = (RaveFields.positionOf(opts (this.menuCurrent())))
+        if (menuActive < 0) {
+            menuActive = 0
+        }
+        dirty = true
+        return true
+    }
+
+    fn closeMenu:void () {
+        if ((strlen openMenu) > 0) {
+            openMenu = ""
+            dirty = true
+        }
+    }
+
+    fn menuKey:boolean (k:string) {
+        if (k == "Escape") {
+            this.closeMenu()
+            return true
+        }
+        def opts:[string] (this.menuOptions())
+        def n:int (array_length opts)
+        if (k == "ArrowDown") {
+            menuActive = (menuActive + 1)
+            if (menuActive >= n) {
+                menuActive = 0
+            }
+            dirty = true
+            return true
+        }
+        if (k == "ArrowUp") {
+            menuActive = (menuActive - 1)
+            if (menuActive < 0) {
+                menuActive = (n - 1)
+            }
+            dirty = true
+            return true
+        }
+        if ((k == "Enter") || (k == " ")) {
+            return (this.pick(menuActive))
+        }
+        return false
+    }
+
+    ; A row of the open list was chosen.
+    fn pick:boolean (i:int) {
+        if ((strlen openMenu) == 0) {
+            return false
+        }
+        def opts:[string] (this.menuOptions())
+        if ((i < 0) || (i >= (array_length opts))) {
+            return false
+        }
+        def chosen:string (itemAt opts i)
+        def which:string openMenu
+        openMenu = ""
+        dirty = true
+        if (RaveEditor.hasPrefix(which "unit:")) {
+            unit = chosen
+            if ((unit == "auto") == false) {
+                if ((strlen input.value) == 0) {
+                    input.setValue("0")
+                }
+            }
+            this.applyLength()
+            return true
+        }
+        def prop:string (RaveEditor.propOf(which))
+        if (prop == "action") {
+            return (this.setActionText(chosen))
+        }
+        return (this.setStyle(prop chosen))
+    }
+
+    ; --- length fields --------------------------------------------------------------------
+
+    ; The number half plus the unit half, applied live and coalesced into
+    ; the session's one undo step.
+    fn applyLength:boolean () {
+        if ((strlen editing) == 0) {
+            return false
+        }
+        def prop:string (RaveEditor.propOf(editing))
+        if ((strlen prop) == 0) {
+            return false
+        }
+        def text:string ""
+        if (unit == "auto") {
+            text = "auto"
+        } {
+            if ((strlen input.value) > 0) {
+                text = ((RaveFields.fromNumber((RaveFields.toNumber(input.value)))) + unit)
+            }
+        }
+        def e:RaveEdit (unwrap edit)
+        def n:RaveNode (this.selectedNode())
+        def did:boolean (e.setDeclLive((n.cls()) (this.media()) prop text session))
+        this.styleChanged()
+        return did
+    }
+
+    fn stepField:boolean (fid:string dir:double) {
+        if (editing != fid) {
+            if ((this.startEdit(fid)) == false) {
+                return false
+            }
+        }
+        if (editKind != "length") {
+            return false
+        }
+        if (unit == "auto") {
+            unit = (itemAt (RaveFields.units((RaveEditor.propOf(fid)))) 0)
+        }
+        def step:double (RaveFields.trackStep(unit))
+        def v:double ((RaveFields.toNumber(input.value)) + (dir * step))
+        def prop:string (RaveEditor.propOf(fid))
+        if ((v < 0.0) && (prop != "margin")) {
+            v = 0.0
+        }
+        input.setValue((RaveFields.fromNumber(v)))
+        input.placeCaret((strlen input.value) false)
+        this.applyLength()
+        return true
+    }
+
+    sfn propOf:string (fid:string) {
+        if (RaveEditor.hasPrefix(fid "field:")) {
+            return (RaveEditor.tail(fid 6))
+        }
+        return ""
+    }
+
+    ; choice | length | text, for a field id and the value it holds now.
+    fn fieldKind:string (fid:string) {
+        def prop:string (RaveEditor.propOf(fid))
+        if ((strlen prop) == 0) {
+            return "text"
+        }
+        if (RaveFields.isChoice(prop)) {
+            return "choice"
+        }
+        if (RaveFields.isLength(prop)) {
+            def v:string (this.valueOf(prop))
+            if ((strlen v) == 0) {
+                return "length"
+            }
+            def parsed:RaveLength (RaveFields.parse(v (RaveFields.units(prop))))
+            if parsed.ok {
+                return "length"
+            }
+        }
+        return "text"
+    }
+
+    ; --- editing the tree -------------------------------------------------------------
+
+    fn selectedNode:RaveNode () {
+        return (doc.node(selected))
+    }
+
+    fn hasSelection:boolean () {
+        if (selected == 0) {
+            return false
+        }
+        return (doc.hasNode(selected))
+    }
+
+    fn changed:void () {
+        def r:RaveRuntime (unwrap rt)
+        r.invalidate()
+        dirty = true
+    }
+
+    fn styleChanged:void () {
+        def r:RaveRuntime (unwrap rt)
+        r.reloadStyles()
+        dirty = true
+    }
+
+    ; A kit component goes into the selected container, or after the selected
+    ; node, or at the end of the current page.
+    fn addKind:boolean (kind:string) {
+        if ((RaveKit.isKind(kind)) == false) {
+            return false
+        }
+        def e:RaveEdit (unwrap edit)
+        def made:RaveNode (RaveKit.create(doc kind))
+        def parent:int 0
+        def at:int (0 - 1)
+        if (this.hasSelection()) {
+            def sel:RaveNode (this.selectedNode())
+            if ((RaveKit.isContainer(sel)) && (sel.kind != "slot")) {
+                parent = selected
+            } {
+                parent = (doc.parentOf(selected))
+                if (parent > 0) {
+                    at = ((doc.indexIn(parent selected)) + 1)
+                }
+            }
+        }
+        if (parent == 0) {
+            def route:RaveRoute (this.currentRoute())
+            parent = route.pageId
+        }
+        e.insert(made parent at)
+        selected = made.id
+        status = (kind + " added")
+        this.changed()
+        return true
+    }
+
+    fn deleteSelected:boolean () {
+        if ((this.hasSelection()) == false) {
+            return false
+        }
+        def e:RaveEdit (unwrap edit)
+        def parent:int (doc.parentOf(selected))
+        if ((e.remove(selected)) == false) {
+            status = "a page or a layout cannot be deleted"
+            dirty = true
+            return false
+        }
+        selected = parent
+        status = "deleted"
+        this.changed()
+        return true
+    }
+
+    fn duplicateSelected:boolean () {
+        if ((this.hasSelection()) == false) {
+            return false
+        }
+        def e:RaveEdit (unwrap edit)
+        def made:int (e.duplicate(selected))
+        if (made == 0) {
+            return false
+        }
+        selected = made
+        status = "duplicated"
+        this.changed()
+        return true
+    }
+
+    fn wrapSelected:boolean () {
+        if ((this.hasSelection()) == false) {
+            return false
+        }
+        def e:RaveEdit (unwrap edit)
+        def made:int (e.wrap(selected))
+        if (made == 0) {
+            return false
+        }
+        selected = made
+        status = "wrapped in a container"
+        this.changed()
+        return true
+    }
+
+    fn nudge:boolean (by:int) {
+        if ((this.hasSelection()) == false) {
+            return false
+        }
+        def e:RaveEdit (unwrap edit)
+        def parent:int (doc.parentOf(selected))
+        if (parent == 0) {
+            return false
+        }
+        def at:int (doc.indexIn(parent selected))
+        def to:int (at + by)
+        if (by > 0) {
+            to = (to + 1)
+        }
+        if ((e.move(selected parent to)) == false) {
+            return false
+        }
+        this.changed()
+        return true
+    }
+
+    ; Out of its parent, to just after it.
+    fn moveOut:boolean () {
+        if ((this.hasSelection()) == false) {
+            return false
+        }
+        def e:RaveEdit (unwrap edit)
+        def parent:int (doc.parentOf(selected))
+        if (parent == 0) {
+            return false
+        }
+        def grand:int (doc.parentOf(parent))
+        if (grand == 0) {
+            return false
+        }
+        if ((e.move(selected grand ((doc.indexIn(grand parent)) + 1))) == false) {
+            return false
+        }
+        this.changed()
+        return true
+    }
+
+    ; Into the sibling before it, as its last child.
+    fn moveIn:boolean () {
+        if ((this.hasSelection()) == false) {
+            return false
+        }
+        def e:RaveEdit (unwrap edit)
+        def parent:int (doc.parentOf(selected))
+        if (parent == 0) {
+            return false
+        }
+        def at:int (doc.indexIn(parent selected))
+        if (at == 0) {
+            return false
+        }
+        def p:RaveNode (doc.node(parent))
+        def prev:RaveNode (itemAt p.children (at - 1))
+        if ((RaveKit.isContainer(prev)) == false) {
+            return false
+        }
+        if ((e.moveInto(selected prev.id)) == false) {
+            return false
+        }
+        this.changed()
+        return true
+    }
+
+    fn dropOn:boolean (nid:int) {
+        if (nid == 0) {
+            return (this.press("dropcancel"))
+        }
+        def target:RaveNode (doc.node(nid))
+        if ((RaveKit.isContainer(target)) && (target.kind != "slot")) {
+            return (this.dropInto(nid))
+        }
+        return (this.dropBefore(nid))
+    }
+
+    fn dropBefore:boolean (nid:int) {
+        if (dragging == 0) {
+            return false
+        }
+        def e:RaveEdit (unwrap edit)
+        def moved:boolean (e.moveBefore(dragging nid))
+        selected = dragging
+        dragging = 0
+        status = doc.name
+        this.changed()
+        return moved
+    }
+
+    fn dropInto:boolean (nid:int) {
+        if (dragging == 0) {
+            return false
+        }
+        def e:RaveEdit (unwrap edit)
+        def moved:boolean (e.moveInto(dragging nid))
+        selected = dragging
+        dragging = 0
+        status = doc.name
+        this.changed()
+        return moved
+    }
+
+    fn undo:boolean () {
+        def e:RaveEdit (unwrap edit)
+        if ((e.undo()) == false) {
+            return false
+        }
+        this.cancelEdit()
+        if (selected > 0) {
+            if ((doc.parentOf(selected)) == 0) {
+                if ((doc.isRoot(selected)) == false) {
+                    selected = 0
+                }
+            }
+        }
+        status = "undone"
+        this.styleChanged()
+        return true
+    }
+
+    fn redo:boolean () {
+        def e:RaveEdit (unwrap edit)
+        if ((e.redo()) == false) {
+            return false
+        }
+        this.cancelEdit()
+        status = "redone"
+        this.styleChanged()
+        return true
+    }
+
+    ; --- editing values ----------------------------------------------------------------
+
+    fn valueOf:string (prop:string) {
+        if ((this.hasSelection()) == false) {
+            return ""
+        }
+        def n:RaveNode (this.selectedNode())
+        if (prop == "action") {
+            return (this.actionText(n))
+        }
+        return (doc.styleOf(n (this.media()) prop))
+    }
+
+    fn nodeValue:string (kind:string) {
+        if ((this.hasSelection()) == false) {
+            return ""
+        }
+        def n:RaveNode (this.selectedNode())
+        if (kind == "name") { return n.name }
+        if (kind == "text") { return n.text }
+        if (kind == "label") { return n.label }
+        if (kind == "placeholder") { return n.placeholder }
+        return ""
+    }
+
+    ; The current rule's declarations, for the CSS tab.
+    fn currentRule:RaveRule () {
+        def n:RaveNode (this.selectedNode())
+        return (doc.rule((n.cls()) (this.media())))
+    }
+
+    fn startEdit:boolean (id:string) {
+        if ((this.hasSelection()) == false) {
+            return false
+        }
+        if (editing == id) {
+            return true
+        }
+        this.commitEdit()
+        this.closeMenu()
+        editing = id
+        session = (session + 1)
+        input.tid = "f"
+        input.fontFamily = "Inter"
+        input.fontSize = 12.0
+        if (RaveEditor.hasPrefix(id "css:")) {
+            input.fontFamily = "Menlo"
+            input.fontSize = 11.0
+        }
+        def v:string ""
+        if (RaveEditor.hasPrefix(id "field:")) {
+            v = (this.valueOf((RaveEditor.tail(id 6))))
+        }
+        if (RaveEditor.hasPrefix(id "node:")) {
+            v = (this.nodeValue((RaveEditor.tail(id 5))))
+        }
+        if (RaveEditor.hasPrefix(id "css:")) {
+            def which:string (RaveEditor.tail(id 4))
+            if (which != "new") {
+                def r:RaveRule (this.currentRule())
+                def i:int (RaveEditor.tailInt(id 4))
+                if (i < (array_length r.decls)) {
+                    def d:RaveDecl (itemAt r.decls i)
+                    v = (d.name + ": " + d.value)
+                }
+            }
+        }
+        editOriginal = v
+        editKind = (this.fieldKind(id))
+        if (editKind == "choice") {
+            editKind = "text"
+        }
+        if (editKind == "length") {
+            def prop:string (RaveEditor.propOf(id))
+            def units:[string] (RaveFields.units(prop))
+            def parsed:RaveLength (RaveFields.parse(v units))
+            input.kind = "number"
+            input.setValue("")
+            input.setValue(parsed.number)
+            unit = parsed.unit
+            if (parsed.ok == false) {
+                unit = (itemAt units 0)
+            }
+        } {
+            input.kind = "text"
+            input.setValue("")
+            input.setValue(v)
+        }
+        input.placeCaret((strlen input.value) false)
+        dirty = true
+        return true
+    }
+
+    ; Escape: a text field forgets what was typed; a length field, which
+    ; applied every step as it went, is put back where it started and the
+    ; undo step it was building is dropped.
+    fn cancelEdit:void () {
+        if ((strlen editing) == 0) {
+            return
+        }
+        if (editKind == "length") {
+            def prop:string (RaveEditor.propOf(editing))
+            def e:RaveEdit (unwrap edit)
+            def n:RaveNode (this.selectedNode())
+            e.setDeclLive((n.cls()) (this.media()) prop editOriginal session)
+            e.dropTopIfNoop()
+            this.styleChanged()
+        }
+        editing = ""
+        editKind = ""
+        textDrag = ""
+        scrub = ""
+        dirty = true
+    }
+
+    ; Enter, Tab, or leaving the field: a text field's value is committed
+    ; now; a length field has already been applied and only closes.
+    fn commitEdit:boolean () {
+        if ((strlen editing) == 0) {
+            return false
+        }
+        def id:string editing
+        def kind:string editKind
+        def value:string (trim input.value)
+        editing = ""
+        editKind = ""
+        textDrag = ""
+        scrub = ""
+        dirty = true
+        if ((this.hasSelection()) == false) {
+            return false
+        }
+        if (kind == "length") {
+            def e0:RaveEdit (unwrap edit)
+            e0.dropTopIfNoop()
+            return true
+        }
+        if (RaveEditor.hasPrefix(id "field:")) {
+            return (this.setStyle((RaveEditor.tail(id 6)) value))
+        }
+        if (RaveEditor.hasPrefix(id "node:")) {
+            def e:RaveEdit (unwrap edit)
+            def did:boolean (e.setField(selected (RaveEditor.tail(id 5)) value))
+            this.changed()
+            return did
+        }
+        if (RaveEditor.hasPrefix(id "css:")) {
+            return (this.commitCss((RaveEditor.tail(id 4)) value))
+        }
+        return false
+    }
+
+    ; One property of the selected node's rule at the inspector's breakpoint.
+    ; An empty value removes the declaration.
+    fn setStyle:boolean (prop:string value:string) {
+        if ((this.hasSelection()) == false) {
+            return false
+        }
+        def e:RaveEdit (unwrap edit)
+        def n:RaveNode (this.selectedNode())
+        def did:boolean (e.setDecl((n.cls()) (this.media()) prop value))
+        this.styleChanged()
+        return did
+    }
+
+    fn clearProp:boolean (prop:string) {
+        return (this.setStyle(prop ""))
+    }
+
+    ; A line of the CSS tab: "name: value" is parsed the way the engine parses
+    ; a sheet, so what is typed is what the engine will read. An emptied line
+    ; removes the declaration it was.
+    fn commitCss:boolean (which:string value:string) {
+        def r:RaveRule (this.currentRule())
+        def oldName:string ""
+        if (which != "new") {
+            def i:int (RaveEditor.tailInt(("css:" + which) 4))
+            if (i < (array_length r.decls)) {
+                def d:RaveDecl (itemAt r.decls i)
+                oldName = d.name
+            }
+        }
+        def s:EVGStyleSheet (unwrap sheet)
+        def decls:[EVGStyleDecl] (s.parseDeclarations(value))
+        def e:RaveEdit (unwrap edit)
+        def n:RaveNode (this.selectedNode())
+        e.begin()
+        def touched:boolean false
+        if ((strlen oldName) > 0) {
+            def keeps:boolean false
+            def j:int 0
+            while (j < (array_length decls)) {
+                def d2:EVGStyleDecl (itemAt decls j)
+                if (d2.name == oldName) {
+                    keeps = true
+                }
+                j = (j + 1)
+            }
+            if (keeps == false) {
+                e.setDecl((n.cls()) (this.media()) oldName "")
+                touched = true
+            }
+        }
+        def k:int 0
+        while (k < (array_length decls)) {
+            def d3:EVGStyleDecl (itemAt decls k)
+            if ((strlen d3.name) > 0) {
+                e.setDecl((n.cls()) (this.media()) d3.name d3.value)
+                touched = true
+            }
+            k = (k + 1)
+        }
+        e.end()
+        this.styleChanged()
+        return touched
+    }
+
+    fn actionChoices:[string] () {
+        def out:[string]
+        push out ""
+        def i:int 0
+        while (i < (array_length doc.routes)) {
+            def r:RaveRoute (itemAt doc.routes i)
+            push out ("navigate " + r.path)
+            i = (i + 1)
+        }
+        push out "login"
+        push out "logout"
+        push out "back"
+        return out
+    }
+
+    fn actionText:string (n:RaveNode) {
+        if ((array_length n.actions) == 0) {
+            return ""
+        }
+        def a:RaveAction (itemAt n.actions 0)
+        if ((strlen a.arg) > 0) {
+            return (a.kind + " " + a.arg)
+        }
+        return a.kind
+    }
+
+    ; "navigate /settings" → the node's one click action.
+    fn setActionText:boolean (choice:string) {
+        def kind:string choice
+        def arg:string ""
+        def sp:int (indexOf choice " ")
+        if (sp > 0) {
+            kind = (substring choice 0 sp)
+            arg = (substring choice (sp + 1) (strlen choice))
+        }
+        def e:RaveEdit (unwrap edit)
+        def did:boolean (e.setAction(selected kind arg))
+        this.changed()
+        return did
+    }
+
+    ; --- the frame ------------------------------------------------------------------
+
+    fn rebuild:void () {
+        root = (this.buildPage())
+        dirty = false
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.markStates((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    fn readBoard:void () {
+        if boardEl {
+            def be:EVGElement (unwrap boardEl)
+            bx = be.calculatedX
+            by = be.calculatedY
+            bw = be.calculatedWidth
+            bh = be.calculatedHeight
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        if (dirty || (null? root)) {
+            this.gather()
+            this.rebuild()
+        }
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        if (null? layout) {
+            def fresh (new EVGLayout())
+            fresh.setPageSize(pageW pageH)
+            layout = fresh
+        }
+        def lay:EVGLayout (unwrap layout)
+        lay.setPageSize(pageW pageH)
+        lay.layout(r)
+        this.readBoard()
+        ; The overlays on the stage are placed against a board the layout has
+        ; only now measured: one more pass when its size moved.
+        if ((RaveEditor.differs(builtW bw)) || (RaveEditor.differs(builtH bh))) {
+            builtW = bw
+            builtH = bh
+            if needFit {
+                this.fit()
+            }
+            this.rebuild()
+            def r2:EVGElement (unwrap root)
+            this.markStates(r2)
+            s.applyTree(r2 "")
+            lay.layout(r2)
+            this.readBoard()
+        }
+        return lay
+    }
+
+    sfn differs:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d > 0.5)
+    }
+
+    ; What the A11y pane and the tree's warning marks read: the lint of the
+    ; active view plus the contrast walk, once per frame.
+    fn gather:void () {
+        def r:RaveRuntime (unwrap rt)
+        clear problems
+        def lint:[string] (r.lint(activeView))
+        def i:int 0
+        while (i < (array_length lint)) {
+            push problems (itemAt lint i)
+            i = (i + 1)
+        }
+        def page:EVGElement (r.pageOf(activeView))
+        def contrast:[string] (RaveA11y.contrast(page))
+        def j:int 0
+        while (j < (array_length contrast)) {
+            push problems (itemAt contrast j)
+            j = (j + 1)
+        }
+    }
+
+    fn problemCount:int () {
+        this.laidOut()
+        return (array_length problems)
+    }
+
+    fn problemAt:string (i:int) {
+        this.laidOut()
+        return (itemAt problems i)
+    }
+
+    ; THE STAGE FIRST, THEN THE CHROME OVER IT: the runtime's scene through
+    ; the camera, on a page the size of the window.
+    fn boardJson:string () {
+        this.laidOut()
+        def r:RaveRuntime (unwrap rt)
+        if (bw < 1.0) {
+            return "{\"width\":0,\"height\":0,\"list\":{\"cmds\":[]}}"
+        }
+        return (r.sceneListJson(pageW pageH (viewX + bx) (viewY + by) zoom))
+    }
+
+    fn chromeList:EVGDisplayList () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def chrome (new EVGDisplayList())
+        chrome.setTextEngine((lay.getTextEngine()))
+        chrome.build(r)
+        return chrome
+    }
+
+    fn displayListJson:string () {
+        def dl:EVGDisplayList (this.chromeList())
+        def body:string (dl.toJson())
+        return ("{\"width\":" + (to_string (to_int pageW)) + ",\"height\":" + (to_string (to_int pageH)) + ",\"list\":" + body + "}")
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Rave" generation focusId))
+        return (t.toJson())
+    }
+
+    ; Where a chrome element is, in window pixels — a field's text box, a
+    ; track — so a headless check can press it where a pointer would.
+    fn chromeBoxJson:string (id:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def found@(optional):EVGElement (this.findChromeEl(r id))
+        if (null? found) {
+            return "[]"
+        }
+        def e:EVGElement (unwrap found)
+        return ("[" + (to_string e.calculatedX) + "," + (to_string e.calculatedY) + "," + (to_string e.calculatedWidth) + "," + (to_string e.calculatedHeight) + "]")
+    }
+
+    fn chromeLeft:double (id:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def found@(optional):EVGElement (this.findChromeEl(r id))
+        if (null? found) {
+            return 0.0
+        }
+        def e:EVGElement (unwrap found)
+        return e.calculatedX
+    }
+
+    fn chromeTop:double (id:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def found@(optional):EVGElement (this.findChromeEl(r id))
+        if (null? found) {
+            return 0.0
+        }
+        def e:EVGElement (unwrap found)
+        return e.calculatedY
+    }
+
+    fn chromeWidth:double (id:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def found@(optional):EVGElement (this.findChromeEl(r id))
+        if (null? found) {
+            return 0.0
+        }
+        def e:EVGElement (unwrap found)
+        return e.calculatedWidth
+    }
+
+    fn boardBoxJson:string () {
+        this.laidOut()
+        return ("[" + (to_string bx) + "," + (to_string by) + "," + (to_string bw) + "," + (to_string bh) + "]")
+    }
+
+    ; A node's box in one viewport, in WINDOW pixels: where a pointer would
+    ; have to press to select it.
+    fn stageBoxJson:string (view:int id:string) {
+        this.laidOut()
+        def r:RaveRuntime (unwrap rt)
+        def x:double (((r.leftOf(view id)) * zoom) + viewX + bx)
+        def y:double (((r.topOf(view id)) * zoom) + viewY + by)
+        def w:double ((r.widthOf(view id)) * zoom)
+        def h:double ((r.heightOf(view id)) * zoom)
+        return ("[" + (to_string x) + "," + (to_string y) + "," + (to_string w) + "," + (to_string h) + "]")
+    }
+
+    fn stageCentreX:double (view:int id:string) {
+        this.laidOut()
+        def r:RaveRuntime (unwrap rt)
+        return ((((r.leftOf(view id)) + ((r.widthOf(view id)) * 0.5)) * zoom) + viewX + bx)
+    }
+
+    fn stageCentreY:double (view:int id:string) {
+        this.laidOut()
+        def r:RaveRuntime (unwrap rt)
+        return ((((r.topOf(view id)) + ((r.heightOf(view id)) * 0.5)) * zoom) + viewY + by)
+    }
+
+    ; --- the page -------------------------------------------------------------
+
+    fn buildPage:EVGElement () {
+        def page:EVGElement (RaveEditor.box("ra-page" "" "" ""))
+        page.addChild((this.topBar()))
+        def main:EVGElement (RaveEditor.box("ra-main" "" "" ""))
+        main.addChild((this.leftRail()))
+        main.addChild((this.stage()))
+        main.addChild((this.rightRail()))
+        page.addChild(main)
+        page.addChild((this.footer()))
+        return page
+    }
+
+    ; --- top bar --------------------------------------------------------------
+
+    fn topBar:EVGElement () {
+        def r:RaveRuntime (unwrap rt)
+        def bar:EVGElement (RaveEditor.box("ra-top" "" "banner" "Rave"))
+        bar.addChild((RaveEditor.box("ra-dot" "" "" "")))
+        bar.addChild((RaveEditor.txt("ra-brand" "Rave")))
+        bar.addChild((RaveEditor.txt("ra-docname" (RaveEditor.cut(doc.name 24)))))
+        bar.addChild((RaveEditor.box("ra-spacer" "" "" "")))
+        def modes:EVGElement (RaveEditor.box("ra-modes" "" "tablist" "Mode"))
+        modes.addChild((this.tab("mode:design" "Design" (mode == "design"))))
+        modes.addChild((this.tab("mode:run" "Run" (mode == "run"))))
+        bar.addChild(modes)
+        bar.addChild((RaveEditor.box("ra-spacer" "" "" "")))
+        if (mode == "run") {
+            bar.addChild((RaveEditor.button("nav:back" "←" "ra-btn" "ra-btn-t")))
+            bar.addChild((RaveEditor.txt("ra-path" (r.path()))))
+        }
+        def who:string "logged out"
+        if r.auth.loggedIn {
+            who = ("logged in · " + r.auth.user)
+        }
+        bar.addChild((RaveEditor.button("auth:toggle" who "ra-btn" "ra-btn-t")))
+        def themeId:string "theme:dark"
+        def themeLabel:string "Light"
+        if (r.theme == "dark") {
+            themeId = "theme:light"
+            themeLabel = "Dark"
+        }
+        bar.addChild((RaveEditor.button(themeId themeLabel "ra-btn" "ra-btn-t")))
+        bar.addChild((RaveEditor.box("ra-sep" "" "" "")))
+        bar.addChild((RaveEditor.button("undo" "Undo" "ra-btn" "ra-btn-t")))
+        bar.addChild((RaveEditor.button("redo" "Redo" "ra-btn" "ra-btn-t")))
+        bar.addChild((RaveEditor.box("ra-sep" "" "" "")))
+        bar.addChild((RaveEditor.button("file:new" "New" "ra-btn" "ra-btn-t")))
+        bar.addChild((RaveEditor.button("file:open" "Open…" "ra-btn" "ra-btn-t")))
+        bar.addChild((RaveEditor.button("file:save" "Save" "ra-btn" "ra-btn-t")))
+        return bar
+    }
+
+    ; --- left rail ------------------------------------------------------------
+
+    fn leftRail:EVGElement () {
+        def rail:EVGElement (RaveEditor.box("ra-rail ra-rail-left" "" "" ""))
+        def tabs:EVGElement (RaveEditor.box("ra-tabrow" "" "tablist" "Left pane"))
+        tabs.addChild((this.tab("tab:routes" "Routes" (leftPane == "routes"))))
+        tabs.addChild((this.tab("tab:components" "Components" (leftPane == "components"))))
+        tabs.addChild((this.tab("tab:layers" "Layers" (leftPane == "layers"))))
+        rail.addChild(tabs)
+        def scroll:EVGElement (RaveEditor.box("ra-scroll" "" "" ""))
+        if (leftPane == "routes") {
+            this.routesPane(scroll)
+        }
+        if (leftPane == "components") {
+            this.componentsPane(scroll)
+        }
+        if (leftPane == "layers") {
+            this.layersPane(scroll)
+        }
+        rail.addChild(scroll)
+        return rail
+    }
+
+    fn routesPane:void (host:EVGElement) {
+        def r:RaveRuntime (unwrap rt)
+        host.addChild((this.cap("ROUTES" (to_string (array_length doc.routes)))))
+        def list:EVGElement (RaveEditor.box("ra-pages" "" "list" "Routes"))
+        def i:int 0
+        while (i < (array_length doc.routes)) {
+            def route:RaveRoute (itemAt doc.routes i)
+            def cls:string "ra-pagerow"
+            if (route.path == (r.path())) {
+                cls = "ra-pagerow ra-pagerow-on"
+            }
+            def row:EVGElement (RaveEditor.box(cls ("route:" + route.path) "button" (route.path + " " + route.title)))
+            def glyph:string "○"
+            if route.protected {
+                glyph = "🔒"
+            }
+            row.addChild((RaveEditor.quiet("ra-page-ic" glyph)))
+            row.addChild((RaveEditor.quiet("ra-page-nm" route.path)))
+            row.addChild((RaveEditor.box("ra-spacer" "" "" "")))
+            row.addChild((RaveEditor.quiet("ra-page-ti" (RaveEditor.cut(route.title 14)))))
+            list.addChild(row)
+            i = (i + 1)
+        }
+        host.addChild(list)
+        host.addChild((this.cap("LAYOUTS" (to_string (array_length doc.layouts)))))
+        def lays:EVGElement (RaveEditor.box("ra-pages" "" "list" "Layouts"))
+        def j:int 0
+        while (j < (array_length doc.layouts)) {
+            def l:RaveNode (itemAt doc.layouts j)
+            def cls2:string "ra-pagerow"
+            if (l.id == selected) {
+                cls2 = "ra-pagerow ra-pagerow-on"
+            }
+            def row2:EVGElement (RaveEditor.box(cls2 ("tree:" + (to_string l.id)) "button" l.name))
+            row2.addChild((RaveEditor.quiet("ra-page-ic" "▦")))
+            row2.addChild((RaveEditor.quiet("ra-page-nm" (RaveEditor.cut(l.name 22)))))
+            lays.addChild(row2)
+            j = (j + 1)
+        }
+        host.addChild(lays)
+        def note:EVGElement (RaveEditor.box("ra-props-box" "" "" ""))
+        if doc.authEnabled {
+            note.addChild((RaveEditor.txt("ra-props" ("sign-in at " + doc.loginRoute + ", then " + doc.afterLogin))))
+        } {
+            note.addChild((RaveEditor.txt("ra-props" "no sign-in in this app")))
+        }
+        host.addChild(note)
+    }
+
+    fn componentsPane:void (host:EVGElement) {
+        def kinds:[string] (RaveKit.kinds())
+        host.addChild((this.cap("COMPONENTS" (to_string (array_length kinds)))))
+        def list:EVGElement (RaveEditor.box("ra-pages" "" "list" "Components"))
+        def i:int 0
+        while (i < (array_length kinds)) {
+            def k:string (itemAt kinds i)
+            def row:EVGElement (RaveEditor.box("ra-pagerow" ("add:" + k) "button" ("Add " + k)))
+            row.addChild((RaveEditor.quiet("ra-page-ic" "+")))
+            row.addChild((RaveEditor.quiet("ra-page-nm" k)))
+            list.addChild(row)
+            i = (i + 1)
+        }
+        host.addChild(list)
+        def note:EVGElement (RaveEditor.box("ra-props-box" "" "" ""))
+        note.addChild((RaveEditor.txt("ra-props" "goes into the selected container,")))
+        note.addChild((RaveEditor.txt("ra-props" "or after the selected node")))
+        host.addChild(note)
+    }
+
+    fn layersPane:void (host:EVGElement) {
+        def route:RaveRoute (this.currentRoute())
+        host.addChild((this.cap("LAYERS" route.path)))
+        def tools:EVGElement (RaveEditor.box("ra-treetools" "" "toolbar" "Layer tools"))
+        tools.addChild((RaveEditor.button("up" "↑" "ra-tool-s" "ra-tool-t")))
+        tools.addChild((RaveEditor.button("down" "↓" "ra-tool-s" "ra-tool-t")))
+        tools.addChild((RaveEditor.button("out" "←" "ra-tool-s" "ra-tool-t")))
+        tools.addChild((RaveEditor.button("in" "→" "ra-tool-s" "ra-tool-t")))
+        tools.addChild((RaveEditor.button("wrap" "Wrap" "ra-tool-s" "ra-tool-t")))
+        tools.addChild((RaveEditor.button("dup" "Dup" "ra-tool-s" "ra-tool-t")))
+        tools.addChild((RaveEditor.button("del" "Del" "ra-tool-s" "ra-tool-t")))
+        host.addChild(tools)
+        if (dragging > 0) {
+            def carry:EVGElement (RaveEditor.box("ra-carry" "" "status" "Carrying"))
+            def d:RaveNode (doc.node(dragging))
+            carry.addChild((RaveEditor.txt("ra-carry-t" ("carrying " + (RaveEditor.cut(d.name 14))))))
+            carry.addChild((RaveEditor.button("dropcancel" "✕" "ra-tool-s" "ra-tool-t")))
+            host.addChild(carry)
+        }
+        host.addChild((this.tree(route)))
+    }
+
+    ; The route's layout with the page spliced into the slot, the way the
+    ; runtime builds it, so the tree reads the way the stage looks.
+    fn tree:EVGElement (route:RaveRoute) {
+        def box:EVGElement (RaveEditor.box("ra-tree" "" "tree" "Layers"))
+        def shown:int 0
+        if (route.layoutId > 0) {
+            shown = (this.treeRows(box (doc.node(route.layoutId)) route.pageId 0 shown))
+        } {
+            shown = (this.treeRows(box (doc.node(route.pageId)) 0 0 shown))
+        }
+        return box
+    }
+
+    sfn glyph:string (n:RaveNode) {
+        if (n.kind == "slot") { return "◇" }
+        if (n.kind == "conditional") { return "?" }
+        def t:string n.tag
+        if (t == "button") { return "▭" }
+        if (t == "input") { return "▤" }
+        if (t == "img") { return "▨" }
+        if (t == "a") { return "↗" }
+        if ((t == "h1") || (t == "h2") || (t == "h3") || (t == "h4")) { return "H" }
+        if ((t == "p") || (t == "span") || (t == "label")) { return "T" }
+        if ((t == "header") || (t == "footer") || (t == "main") || (t == "aside") || (t == "nav") || (t == "section") || (t == "form")) { return "▦" }
+        return "▢"
+    }
+
+    fn treeRows:int (host:EVGElement n:RaveNode pageId:int depth:int shown:int) {
+        if (shown >= 400) {
+            return shown
+        }
+        def cls:string "ra-treerow"
+        if (n.id == selected) {
+            cls = "ra-treerow ra-treerow-on"
+        }
+        if (n.id == dragging) {
+            cls = (cls + " ra-treerow-carry")
+        }
+        def row:EVGElement (RaveEditor.box(cls "" "" ""))
+        def pad:double (to_double (depth * 11))
+        row.setAttribute("padding-left" ((to_string pad) + "px"))
+
+        def kids:int (array_length n.children)
+        if ((n.kind == "slot") && (pageId > 0)) {
+            kids = (kids + 1)
+        }
+        def fid:string (to_string n.id)
+        def fold:EVGElement (RaveEditor.box("ra-fold" "" "" ""))
+        if (kids > 0) {
+            fold.id = ("fold:" + fid)
+            fold.role = "button"
+            fold.a11yLabel = ("fold " + n.name)
+            if (this.isFolded(fid)) {
+                fold.addChild((RaveEditor.quiet("ra-fold-t" "▸")))
+            } {
+                fold.addChild((RaveEditor.quiet("ra-fold-t" "▾")))
+            }
+        }
+        row.addChild(fold)
+
+        def pickCls:string "ra-pick"
+        if (doc.isRoot(n.id)) {
+            pickCls = "ra-pick ra-pick-root"
+        }
+        def label:string n.name
+        if ((strlen label) == 0) {
+            label = n.tag
+        }
+        def pick:EVGElement (RaveEditor.box(pickCls ("tree:" + fid) "treeitem" label))
+        pick.addChild((RaveEditor.quiet("ra-ty" (RaveEditor.glyph(n)))))
+        pick.addChild((RaveEditor.txt("ra-nm" (RaveEditor.cut(label (24 - (depth * 2)))))))
+        def warns:int (RaveA11y.countFor(problems ("n" + fid)))
+        if (warns > 0) {
+            pick.addChild((RaveEditor.quiet("ra-warn" "⚠")))
+        }
+        row.addChild(pick)
+        if ((doc.isRoot(n.id)) == false) {
+            row.addChild((RaveEditor.button(("pick:" + fid) "⋮" "ra-into" "ra-into")))
+        }
+        host.addChild(row)
+        shown = (shown + 1)
+
+        if (this.isFolded(fid)) {
+            return shown
+        }
+        if ((n.kind == "slot") && (pageId > 0)) {
+            shown = (this.treeRows(host (doc.node(pageId)) 0 (depth + 1) shown))
+        }
+        def i:int 0
+        while ((i < (array_length n.children)) && (shown < 400)) {
+            def c:RaveNode (itemAt n.children i)
+            shown = (this.treeRows(host c pageId (depth + 1) shown))
+            i = (i + 1)
+        }
+        return shown
+    }
+
+    fn isFolded:boolean (id:string) {
+        def had@(optional):boolean (get folded id)
+        if (null? had) {
+            return false
+        }
+        return (unwrap had)
+    }
+
+    ; --- stage ----------------------------------------------------------------
+
+    fn stage:EVGElement () {
+        def r:RaveRuntime (unwrap rt)
+        def st:EVGElement (RaveEditor.box("ra-stage" "" "" ""))
+        def board:EVGElement (RaveEditor.box("ra-board" "board" "img" "The stage"))
+        ; Labels over each viewport and a box round the selection in each,
+        ; in window pixels, from the boxes the LAST layout read.
+        if (bw > 1.0) {
+            r.ensure()
+            def i:int 0
+            while (i < (r.viewCount())) {
+                def v:RaveView (r.view(i))
+                def lx:double ((v.offsetX * zoom) + viewX)
+                def ly:double ((v.offsetY * zoom) + viewY)
+                def label:EVGElement (RaveEditor.box("ra-vplabel" ("vp:" + (to_string i)) "button" (v.name + " " + (to_string (to_int v.width)))))
+                if (i == activeView) {
+                    label.className = "ra-vplabel ra-vplabel-on"
+                }
+                label.setAttribute("left" ((to_string lx) + "px"))
+                label.setAttribute("top" ((to_string (ly - 22.0)) + "px"))
+                label.addChild((RaveEditor.quiet("ra-vplabel-t" (v.name + " · " + (to_string (to_int v.width))))))
+                board.addChild(label)
+                if ((mode == "design") && (selected > 0)) {
+                    def sid:string ("n" + (to_string selected))
+                    if (r.hasEl(i sid)) {
+                        def sel:EVGElement (RaveEditor.box("ra-selbox" "" "" ""))
+                        sel.a11yHidden = true
+                        sel.setAttribute("left" ((to_string (((r.leftOf(i sid)) * zoom) + viewX)) + "px"))
+                        sel.setAttribute("top" ((to_string (((r.topOf(i sid)) * zoom) + viewY)) + "px"))
+                        sel.setAttribute("width" ((to_string ((r.widthOf(i sid)) * zoom)) + "px"))
+                        sel.setAttribute("height" ((to_string ((r.heightOf(i sid)) * zoom)) + "px"))
+                        board.addChild(sel)
+                    }
+                }
+                i = (i + 1)
+            }
+            if showTabOrder {
+                this.tabOrderBadges(board)
+            }
+        }
+        def bar:EVGElement (this.toolbar())
+        board.addChild(bar)
+        boardEl = board
+        st.addChild(board)
+        return st
+    }
+
+    fn tabOrderBadges:void (board:EVGElement) {
+        def r:RaveRuntime (unwrap rt)
+        def page:EVGElement (r.pageOf(activeView))
+        def order:[string] (RaveA11y.tabOrder(page))
+        def i:int 0
+        while (i < (array_length order)) {
+            def id:string (itemAt order i)
+            def badge:EVGElement (RaveEditor.box("ra-tabbadge" "" "" ""))
+            badge.a11yHidden = true
+            badge.setAttribute("left" ((to_string (((r.leftOf(activeView id)) * zoom) + viewX)) + "px"))
+            badge.setAttribute("top" ((to_string ((((r.topOf(activeView id)) * zoom) + viewY) - 9.0)) + "px"))
+            badge.addChild((RaveEditor.quiet("ra-tabbadge-t" (to_string (i + 1)))))
+            board.addChild(badge)
+            i = (i + 1)
+        }
+    }
+
+    fn toolbar:EVGElement () {
+        def bar:EVGElement (RaveEditor.box("ra-toolbar" "" "toolbar" "Stage tools"))
+        def w:double 300.0
+        def left:double ((bw - w) * 0.5)
+        if (left < 8.0) {
+            left = 8.0
+        }
+        def top:double (bh - 54.0)
+        if (top < 8.0) {
+            top = 8.0
+        }
+        bar.setAttribute("left" ((to_string left) + "px"))
+        bar.setAttribute("top" ((to_string top) + "px"))
+        bar.setAttribute("width" ((to_string w) + "px"))
+        bar.addChild((this.tool("zoom:out" "−" false "")))
+        bar.addChild((this.tool("zoom:100" (RaveEditor.pct(zoom)) false "ra-zoomlab")))
+        bar.addChild((this.tool("zoom:in" "+" false "")))
+        bar.addChild((this.tool("fit" "Fit" false "")))
+        bar.addChild((RaveEditor.box("ra-tool-sep" "" "" "")))
+        bar.addChild((this.tool("a11y:taborder" "Tab order" showTabOrder "")))
+        return bar
+    }
+
+    fn tool:EVGElement (id:string label:string on:boolean extra:string) {
+        def cls:string "ra-tool"
+        if on {
+            cls = "ra-tool ra-tool-on"
+        }
+        if ((strlen extra) > 0) {
+            cls = (cls + " " + extra)
+        }
+        def b:EVGElement (RaveEditor.box(cls id "button" label))
+        b.addChild((RaveEditor.quiet("ra-tool-t" label)))
+        return b
+    }
+
+    ; --- right rail -----------------------------------------------------------
+
+    fn rightRail:EVGElement () {
+        def rail:EVGElement (RaveEditor.box("ra-rail ra-rail-right" "" "" ""))
+        def tabs:EVGElement (RaveEditor.box("ra-tabrow" "" "tablist" "Inspector"))
+        tabs.addChild((this.tab("tab:design" "Design" (rightPane == "design"))))
+        tabs.addChild((this.tab("tab:css" "CSS" (rightPane == "css"))))
+        tabs.addChild((this.tab("tab:a11y" "A11y" (rightPane == "a11y"))))
+        tabs.addChild((RaveEditor.box("ra-spacer" "" "" "")))
+        tabs.addChild((RaveEditor.quiet("ra-zoomread" (RaveEditor.pct(zoom)))))
+        rail.addChild(tabs)
+        def scroll:EVGElement (RaveEditor.box("ra-scroll" "" "" ""))
+        if (rightPane == "design") {
+            this.designPane(scroll)
+        }
+        if (rightPane == "css") {
+            this.cssPane(scroll)
+        }
+        if (rightPane == "a11y") {
+            this.a11yPane(scroll)
+        }
+        rail.addChild(scroll)
+        return rail
+    }
+
+    fn nothingSelected:void (host:EVGElement) {
+        def box:EVGElement (RaveEditor.box("ra-props-box" "" "" ""))
+        box.addChild((RaveEditor.txt("ra-props" "click a node on the stage")))
+        box.addChild((RaveEditor.txt("ra-props" "or a row in Layers")))
+        box.addChild((RaveEditor.txt("ra-props" "drag to pan, scroll to zoom")))
+        host.addChild(box)
+    }
+
+    fn inspectorHead:EVGElement (n:RaveNode) {
+        def head:EVGElement (RaveEditor.box("ra-insp-head" "" "" ""))
+        def kind:string n.tag
+        if (n.kind != "element") {
+            kind = n.kind
+        }
+        head.addChild((RaveEditor.quiet("ra-kindlab" kind)))
+        head.addChild((RaveEditor.txt("ra-insp-nm" (RaveEditor.cut(n.name 18)))))
+        head.addChild((RaveEditor.box("ra-spacer" "" "" "")))
+        head.addChild((RaveEditor.quiet("ra-eye" ("." + (n.cls())))))
+        return head
+    }
+
+    fn bpRow:EVGElement () {
+        def row:EVGElement (RaveEditor.box("ra-chips" "" "tablist" "Breakpoint"))
+        row.addChild((this.chip("bp:base" "base" (bp == "base"))))
+        row.addChild((this.chip("bp:sm" "<768" (bp == "sm"))))
+        row.addChild((this.chip("bp:md" "768–1023" (bp == "md"))))
+        row.addChild((this.chip("bp:lg" "≥1024" (bp == "lg"))))
+        return row
+    }
+
+    fn chip:EVGElement (id:string label:string on:boolean) {
+        def cls:string "ra-chip"
+        if on {
+            cls = "ra-chip ra-chip-on"
+        }
+        def c:EVGElement (RaveEditor.box(cls id "tab" label))
+        c.addChild((RaveEditor.quiet("ra-chip-t" label)))
+        return c
+    }
+
+    fn designPane:void (host:EVGElement) {
+        if ((this.hasSelection()) == false) {
+            this.nothingSelected(host)
+            return
+        }
+        def n:RaveNode (this.selectedNode())
+        def insp:EVGElement (RaveEditor.box("ra-insp" "" "" ""))
+        insp.addChild((this.inspectorHead(n)))
+
+        def node:EVGElement (this.section("NODE"))
+        def nr:EVGElement (RaveEditor.box("ra-fields" "" "" ""))
+        this.addNodeField(nr "name" "Name")
+        if ((strlen n.text) > 0) {
+            this.addNodeField(nr "text" "Text")
+        } {
+            if ((n.tag == "button") || (n.tag == "a") || (RaveBuild.isTextTag(n.tag))) {
+                this.addNodeField(nr "text" "Text")
+            }
+        }
+        this.addNodeField(nr "label" "Label")
+        if (n.tag == "input") {
+            this.addNodeField(nr "placeholder" "Placeholder")
+        }
+        node.addChild(nr)
+        insp.addChild(node)
+
+        def bps:EVGElement (this.section("BREAKPOINT"))
+        bps.addChild((this.bpRow()))
+        insp.addChild(bps)
+
+        def lay:EVGElement (this.section("LAYOUT"))
+        def l1:EVGElement (RaveEditor.box("ra-fields" "" "" ""))
+        this.addField(l1 "display" "Layout")
+        def disp:string (this.valueOf("display"))
+        if (disp == "grid") {
+            this.addField(l1 "grid-template-columns" "Columns")
+            this.addField(l1 "grid-template-rows" "Rows")
+        } {
+            this.addField(l1 "flex-direction" "Direction")
+            this.addField(l1 "flex-wrap" "Wrap")
+            this.addField(l1 "justify-content" "Justify")
+            this.addField(l1 "align-items" "Align")
+        }
+        this.addField(l1 "gap" "Gap")
+        this.addField(l1 "padding" "Padding")
+        this.addField(l1 "margin" "Margin")
+        lay.addChild(l1)
+        insp.addChild(lay)
+
+        def size:EVGElement (this.section("SIZE"))
+        def s1:EVGElement (RaveEditor.box("ra-fields" "" "" ""))
+        this.addField(s1 "width" "Width")
+        this.addField(s1 "height" "Height")
+        this.addField(s1 "min-width" "Min W")
+        this.addField(s1 "max-width" "Max W")
+        this.addField(s1 "flex-grow" "Grow")
+        this.addField(s1 "align-self" "Self")
+        size.addChild(s1)
+        insp.addChild(size)
+
+        def pos:EVGElement (this.section("POSITION"))
+        def p1:EVGElement (RaveEditor.box("ra-fields" "" "" ""))
+        this.addField(p1 "position" "Position")
+        this.addField(p1 "overflow" "Overflow")
+        pos.addChild(p1)
+        insp.addChild(pos)
+
+        def look:EVGElement (this.section("LOOK"))
+        def k1:EVGElement (RaveEditor.box("ra-fields" "" "" ""))
+        this.addField(k1 "background-color" "Fill")
+        this.addField(k1 "color" "Text")
+        this.addField(k1 "font-size" "Size")
+        this.addField(k1 "font-weight" "Weight")
+        this.addField(k1 "border" "Border")
+        this.addField(k1 "border-radius" "Radius")
+        look.addChild(k1)
+        insp.addChild(look)
+
+        def resp:EVGElement (this.section("RESPONSIVE"))
+        def medias:[string] (doc.mediaOf((n.cls())))
+        if ((array_length medias) == 0) {
+            resp.addChild((RaveEditor.txt("ra-note" "no rules yet — pick a breakpoint and set a value")))
+        }
+        def mi:int 0
+        while (mi < (array_length medias)) {
+            def m:string (itemAt medias mi)
+            def key:string (this.keyForMedia(m))
+            def rule:RaveRule (doc.rule((n.cls()) m))
+            def line:string ""
+            def di:int 0
+            while ((di < (array_length rule.decls)) && (di < 3)) {
+                def d:RaveDecl (itemAt rule.decls di)
+                if (di > 0) {
+                    line = (line + "; ")
+                }
+                line = (line + d.name + ": " + d.value)
+                di = (di + 1)
+            }
+            if ((array_length rule.decls) > 3) {
+                line = (line + " …")
+            }
+            def row:EVGElement (RaveEditor.box("ra-resp" ("bp:" + key) "button" (key + " " + line)))
+            def keyLabel:string key
+            if (key == "base") { keyLabel = "base" }
+            if (key == "sm") { keyLabel = "<768" }
+            if (key == "md") { keyLabel = "768–1023" }
+            if (key == "lg") { keyLabel = "≥1024" }
+            row.addChild((RaveEditor.quiet("ra-resp-k" keyLabel)))
+            row.addChild((RaveEditor.quiet("ra-resp-v" (RaveEditor.cut(line 30)))))
+            resp.addChild(row)
+            mi = (mi + 1)
+        }
+        insp.addChild(resp)
+
+        def act:EVGElement (this.section("ACTIONS"))
+        def a1:EVGElement (RaveEditor.box("ra-fields" "" "" ""))
+        this.addField(a1 "action" "click →")
+        act.addChild(a1)
+        insp.addChild(act)
+
+        def ax:EVGElement (this.section("ACCESSIBILITY"))
+        def role:string (RaveBuild.roleOf(n.tag))
+        if ((strlen role) == 0) {
+            role = "decoration"
+        }
+        ax.addChild((RaveEditor.txt("ra-props" ("role: " + role))))
+        def own:int 0
+        def pi:int 0
+        while (pi < (array_length problems)) {
+            def p:string (itemAt problems pi)
+            if ((RaveA11y.nodeOf(p)) == (n.elementId())) {
+                ax.addChild((RaveEditor.txt("ra-warnline" (RaveEditor.cut((RaveA11y.messageOf(p)) 40)))))
+                own = (own + 1)
+            }
+            pi = (pi + 1)
+        }
+        if (own == 0) {
+            ax.addChild((RaveEditor.txt("ra-okline" "no warnings on this node")))
+        }
+        insp.addChild(ax)
+        host.addChild(insp)
+    }
+
+    ; --- fields -------------------------------------------------------------------------
+    ; Three kinds, decided by `RaveFields` and by the value: a choice opens a
+    ; list under itself; a length is a number half and a unit half with a
+    ; − track + row under it while it is edited; anything else is a text
+    ; field with a caret and a selection.
+
+    fn engineNow:EVGTextEngine () {
+        if (null? layout) {
+            def fresh (new EVGLayout())
+            fresh.setPageSize(pageW pageH)
+            layout = fresh
+        }
+        def lay:EVGLayout (unwrap layout)
+        return (lay.getTextEngine())
+    }
+
+    ; The text box of a field: its value, and while it is being edited the
+    ; selection behind the glyphs and the caret between them, both measured
+    ; with the engine that paints them.
+    fn textBox:EVGElement (fid:string shown:string cls:string) {
+        def box:EVGElement (RaveEditor.box("ra-f-in" ("in:" + fid) "" ""))
+        if (editing == fid) {
+            def eng:EVGTextEngine (this.engineNow())
+            if (input.hasSelection()) {
+                def x0:double (input.caretXAt(eng (input.selStart())))
+                def x1:double (input.caretXAt(eng (input.selEnd())))
+                def sel:EVGElement (RaveEditor.box("ra-f-sel" "" "" ""))
+                sel.a11yHidden = true
+                sel.setAttribute("left" ((to_string x0) + "px"))
+                sel.setAttribute("width" ((to_string (x1 - x0)) + "px"))
+                box.addChild(sel)
+            }
+            box.addChild((RaveEditor.quiet(cls input.value)))
+            def car:EVGElement (RaveEditor.box("ra-f-caret" "" "" ""))
+            car.a11yHidden = true
+            car.setAttribute("left" ((to_string (input.caretXAt(eng input.caret))) + "px"))
+            box.addChild(car)
+        } {
+            box.addChild((RaveEditor.quiet(cls shown)))
+        }
+        return box
+    }
+
+    fn addField:void (host:EVGElement prop:string label:string) {
+        def fid:string ("field:" + prop)
+        def kind:string (this.fieldKind(fid))
+        if (kind == "choice") {
+            host.addChild((this.choiceField(fid label (this.valueOf(prop)))))
+        }
+        if (kind == "length") {
+            host.addChild((this.lengthField(fid label)))
+        }
+        if (kind == "text") {
+            host.addChild((this.textField(fid label false)))
+        }
+        this.addFieldExtras(host fid)
+    }
+
+    fn addNodeField:void (host:EVGElement kind:string label:string) {
+        def fid:string ("node:" + kind)
+        host.addChild((this.textField(fid label true)))
+        this.addFieldExtras(host fid)
+    }
+
+    ; What sits under a field: the − track + row of a length being edited,
+    ; and the open list of a choice or a unit.
+    fn addFieldExtras:void (host:EVGElement fid:string) {
+        if ((editing == fid) && (editKind == "length")) {
+            host.addChild((this.helperRow(fid)))
+        }
+        if ((openMenu == fid) || (openMenu == ("unit:" + fid))) {
+            host.addChild((this.menu()))
+        }
+    }
+
+    fn choiceField:EVGElement (fid:string label:string value:string) {
+        def shown:string value
+        if ((strlen shown) == 0) {
+            shown = "–"
+        }
+        def cls:string "ra-f ra-f-half"
+        if ((strlen label) > 8) {
+            cls = "ra-f ra-f-wide"
+        }
+        if (openMenu == fid) {
+            cls = (cls + " ra-f-open")
+        }
+        def f:EVGElement (RaveEditor.box(cls fid "button" (label + " " + shown)))
+        f.a11yHasPopup = "listbox"
+        f.addChild((RaveEditor.quiet("ra-f-lab" label)))
+        f.addChild((RaveEditor.quiet("ra-f-val" (RaveEditor.cut(shown 14)))))
+        f.addChild((RaveEditor.quiet("ra-f-ar" "▾")))
+        return f
+    }
+
+    fn lengthField:EVGElement (fid:string label:string) {
+        def prop:string (RaveEditor.propOf(fid))
+        def units:[string] (RaveFields.units(prop))
+        def number:string "–"
+        def u:string (itemAt units 0)
+        if (editing == fid) {
+            u = unit
+        } {
+            def v:string (this.valueOf(prop))
+            def parsed:RaveLength (RaveFields.parse(v units))
+            if parsed.ok {
+                u = parsed.unit
+                if (parsed.unit != "auto") {
+                    number = parsed.number
+                }
+            }
+        }
+        def cls:string "ra-f ra-f-half"
+        if (editing == fid) {
+            cls = "ra-f ra-f-half ra-f-edit"
+        }
+        def f:EVGElement (RaveEditor.box(cls fid "button" (label + " " + number + " " + u)))
+        f.addChild((RaveEditor.quiet("ra-f-lab" label)))
+        f.addChild((this.textBox(fid number "ra-f-val")))
+        if ((array_length units) > 1) {
+            def uShown:string u
+            if ((strlen uShown) == 0) {
+                uShown = "—"
+            }
+            def chipCls:string "ra-f-unit"
+            if (openMenu == ("unit:" + fid)) {
+                chipCls = "ra-f-unit ra-f-open"
+            }
+            def chip:EVGElement (RaveEditor.box(chipCls ("unit:" + fid) "button" ("unit " + uShown)))
+            chip.a11yHasPopup = "listbox"
+            chip.addChild((RaveEditor.quiet("ra-f-unit-t" uShown)))
+            chip.addChild((RaveEditor.quiet("ra-f-ar" "▾")))
+            f.addChild(chip)
+        }
+        return f
+    }
+
+    fn textField:EVGElement (fid:string label:string wide:boolean) {
+        def value:string ""
+        if (RaveEditor.hasPrefix(fid "field:")) {
+            value = (this.valueOf((RaveEditor.propOf(fid))))
+        } {
+            value = (this.nodeValue((RaveEditor.tail(fid 5))))
+        }
+        def shown:string value
+        if ((strlen shown) == 0) {
+            shown = "–"
+        }
+        def cls:string "ra-f ra-f-half"
+        if wide {
+            cls = "ra-f ra-f-wide"
+        }
+        if (editing == fid) {
+            cls = (cls + " ra-f-edit")
+        }
+        def f:EVGElement (RaveEditor.box(cls fid "button" (label + " " + value)))
+        f.addChild((RaveEditor.quiet("ra-f-lab" label)))
+        f.addChild((this.textBox(fid shown "ra-f-val")))
+        return f
+    }
+
+    ; − [ track ] + : the number nudged by the unit's step, or dragged.
+    fn helperRow:EVGElement (fid:string) {
+        def prop:string (RaveEditor.propOf(fid))
+        def row:EVGElement (RaveEditor.box("ra-f-help" "" "" ""))
+        row.addChild((RaveEditor.button(("dec:" + fid) "−" "ra-tool-s" "ra-tool-t")))
+        def track:EVGElement (RaveEditor.box("ra-f-track" ("track:" + fid) "slider" (prop + " slider")))
+        def top:double (RaveFields.trackMax(unit prop))
+        def v:double (RaveFields.toNumber(input.value))
+        def pct:double ((v / top) * 100.0)
+        if (pct < 0.0) { pct = 0.0 }
+        if (pct > 100.0) { pct = 100.0 }
+        track.a11yHasValue = true
+        track.a11yValueNow = (to_int v)
+        track.a11yHasRange = true
+        track.a11yValueMin = 0
+        track.a11yValueMax = (to_int top)
+        def range:EVGElement (RaveEditor.box("ra-f-range" "" "" ""))
+        range.setAttribute("width" ((to_string pct) + "%"))
+        track.addChild(range)
+        row.addChild(track)
+        row.addChild((RaveEditor.button(("inc:" + fid) "+" "ra-tool-s" "ra-tool-t")))
+        def hint:string ("↑↓ ±" + (RaveFields.fromNumber((RaveFields.trackStep(unit)))) + " · shift ×10")
+        row.addChild((RaveEditor.quiet("ra-f-hint" hint)))
+        return row
+    }
+
+    ; The open list, under the field it belongs to.
+    fn menu:EVGElement () {
+        def box:EVGElement (RaveEditor.box("ra-menu" "" "listbox" "Options"))
+        def opts:[string] (this.menuOptions())
+        def cur:string (this.menuCurrent())
+        def i:int 0
+        while (i < (array_length opts)) {
+            def o:string (itemAt opts i)
+            def shown:string o
+            if ((strlen shown) == 0) {
+                shown = "—"
+            }
+            def cls:string "ra-opt"
+            if (i == menuActive) {
+                cls = "ra-opt ra-opt-on"
+            }
+            def row:EVGElement (RaveEditor.box(cls ("opt:" + (to_string i)) "option" shown))
+            if (o == cur) {
+                row.a11ySelected = 2
+                row.addChild((RaveEditor.quiet("ra-opt-tick" "✓")))
+            } {
+                row.addChild((RaveEditor.quiet("ra-opt-tick" "")))
+            }
+            row.addChild((RaveEditor.quiet("ra-opt-t" shown)))
+            box.addChild(row)
+            i = (i + 1)
+        }
+        return box
+    }
+
+    ; The CSS tab: the selected node's rule at the inspector's breakpoint,
+    ; one editable line per declaration, and the rest of its rules as text.
+    fn cssPane:void (host:EVGElement) {
+        if ((this.hasSelection()) == false) {
+            this.nothingSelected(host)
+            return
+        }
+        def n:RaveNode (this.selectedNode())
+        def insp:EVGElement (RaveEditor.box("ra-insp" "" "" ""))
+        insp.addChild((this.inspectorHead(n)))
+        def bps:EVGElement (this.section("BREAKPOINT"))
+        bps.addChild((this.bpRow()))
+        insp.addChild(bps)
+        def sec:EVGElement (this.section("RULE"))
+        def m:string (this.media())
+        if ((strlen m) > 0) {
+            sec.addChild((RaveEditor.txt("ra-code ra-code-dim" ("@media " + m + " {"))))
+        }
+        sec.addChild((RaveEditor.txt("ra-code" ("." + (n.cls()) + " {"))))
+        def r:RaveRule (doc.rule((n.cls()) m))
+        def i:int 0
+        while (i < (array_length r.decls)) {
+            def d:RaveDecl (itemAt r.decls i)
+            def id:string ("css:" + (to_string i))
+            def cls:string "ra-codeline"
+            if (editing == id) {
+                cls = "ra-codeline ra-f-edit"
+            }
+            def row:EVGElement (RaveEditor.box(cls id "button" (d.name + " " + d.value)))
+            row.addChild((RaveEditor.quiet("ra-code" "  ")))
+            row.addChild((this.textBox(id (d.name + ": " + d.value + ";") "ra-code")))
+            sec.addChild(row)
+            i = (i + 1)
+        }
+        def addCls:string "ra-codeline ra-codeline-add"
+        if (editing == "css:new") {
+            addCls = "ra-codeline ra-f-edit"
+        }
+        def add:EVGElement (RaveEditor.box(addCls "css:new" "button" "add a declaration"))
+        add.addChild((RaveEditor.quiet("ra-code" "  ")))
+        add.addChild((this.textBox("css:new" "+ declaration" "ra-code")))
+        sec.addChild(add)
+        sec.addChild((RaveEditor.txt("ra-code" "}")))
+        if ((strlen m) > 0) {
+            sec.addChild((RaveEditor.txt("ra-code ra-code-dim" "}")))
+        }
+        insp.addChild(sec)
+
+        def all:EVGElement (this.section("EVERY RULE OF THIS NODE"))
+        def text:string (RaveCss.nodeText(doc n))
+        def lines:[string] (RaveEditor.split(text))
+        def j:int 0
+        while ((j < (array_length lines)) && (j < 40)) {
+            def ln:string (itemAt lines j)
+            if ((strlen ln) > 0) {
+                all.addChild((RaveEditor.txt("ra-code ra-code-dim" (RaveEditor.cut(ln 40)))))
+            }
+            j = (j + 1)
+        }
+        insp.addChild(all)
+        host.addChild(insp)
+    }
+
+    ; The A11y tab: the active view's accessibility tree beside the layer
+    ; tree, and every problem the lint and the contrast walk found.
+    fn a11yPane:void (host:EVGElement) {
+        def r:RaveRuntime (unwrap rt)
+        def v:RaveView (r.view(activeView))
+        def insp:EVGElement (RaveEditor.box("ra-insp" "" "" ""))
+        def head:EVGElement (this.section("ACCESSIBILITY TREE"))
+        head.addChild((RaveEditor.txt("ra-note" ("as a reader hears " + v.name + " · " + (to_string (to_int v.width))))))
+        def toggle:EVGElement (this.tool("a11y:taborder" "Show tab order on the stage" showTabOrder ""))
+        head.addChild(toggle)
+        insp.addChild(head)
+
+        def t:EVGA11yTree (r.a11yTree(activeView))
+        def treeBox:EVGElement (RaveEditor.box("ra-tree" "" "tree" "Accessibility tree"))
+        def depths:[string:int]
+        def i:int 0
+        while ((i < (array_length t.nodes)) && (i < 300)) {
+            def an:EVGA11yNode (itemAt t.nodes i)
+            def depth:int 0
+            if ((strlen an.parentId) > 0) {
+                def pd@(optional):int (get depths an.parentId)
+                if (null? pd) {
+                    depth = 1
+                } {
+                    depth = ((unwrap pd) + 1)
+                }
+            }
+            set depths an.id depth
+            def row:EVGElement (RaveEditor.box("ra-treerow" "" "" ""))
+            row.setAttribute("padding-left" ((to_string (depth * 9)) + "px"))
+            def pickId:string ""
+            def ours:int (RaveApp.idOfElement(an.id))
+            if (ours > 0) {
+                pickId = ("tree:" + (to_string ours))
+            }
+            def cls:string "ra-pick"
+            if ((ours > 0) && (ours == selected)) {
+                cls = "ra-pick ra-pick-on"
+            }
+            def pick:EVGElement (RaveEditor.box(cls pickId "treeitem" ((EVGA11yRole.ariaName(an.role)) + " " + an.name)))
+            pick.addChild((RaveEditor.quiet("ra-ty" (RaveEditor.cut((EVGA11yRole.ariaName(an.role)) 9)))))
+            pick.addChild((RaveEditor.txt("ra-nm" (RaveEditor.cut(an.name (22 - depth))))))
+            if an.focusable {
+                pick.addChild((RaveEditor.quiet("ra-focusable" "⇥")))
+            }
+            row.addChild(pick)
+            treeBox.addChild(row)
+            i = (i + 1)
+        }
+        insp.addChild(treeBox)
+
+        def probs:EVGElement (this.section("PROBLEMS"))
+        if ((array_length problems) == 0) {
+            probs.addChild((RaveEditor.txt("ra-okline" "nothing to fix on this page")))
+        }
+        def j:int 0
+        while ((j < (array_length problems)) && (j < 60)) {
+            def p:string (itemAt problems j)
+            def who:string (RaveA11y.nodeOf(p))
+            def rowId:string ""
+            def nid:int (RaveApp.idOfElement(who))
+            if (nid > 0) {
+                rowId = ("tree:" + (to_string nid))
+            }
+            def row:EVGElement (RaveEditor.box("ra-problem" rowId "button" p))
+            row.addChild((RaveEditor.quiet("ra-warn" "⚠")))
+            def label:string (RaveA11y.messageOf(p))
+            if (nid > 0) {
+                def n:RaveNode (doc.node(nid))
+                label = (n.name + ": " + label)
+            }
+            row.addChild((RaveEditor.quiet("ra-warnline" (RaveEditor.cut(label 38)))))
+            probs.addChild(row)
+            j = (j + 1)
+        }
+        insp.addChild(probs)
+        host.addChild(insp)
+    }
+
+    fn section:EVGElement (title:string) {
+        def s:EVGElement (RaveEditor.box("ra-section" "" "" ""))
+        s.addChild((RaveEditor.quiet("ra-h3" title)))
+        return s
+    }
+
+    fn cap:EVGElement (title:string n:string) {
+        def c:EVGElement (RaveEditor.box("ra-cap" "" "" ""))
+        c.addChild((RaveEditor.quiet("ra-cap-t" title)))
+        if ((strlen n) > 0) {
+            c.addChild((RaveEditor.box("ra-spacer" "" "" "")))
+            c.addChild((RaveEditor.quiet("ra-cap-n" n)))
+        }
+        return c
+    }
+
+    fn tab:EVGElement (id:string label:string on:boolean) {
+        def cls:string "ra-tab"
+        if on {
+            cls = "ra-tab ra-tab-on"
+        }
+        def t:EVGElement (RaveEditor.box(cls id "tab" label))
+        t.addChild((RaveEditor.quiet("ra-tab-t" label)))
+        return t
+    }
+
+    ; --- footer ---------------------------------------------------------------
+
+    fn footer:EVGElement () {
+        def r:RaveRuntime (unwrap rt)
+        def e:RaveEdit (unwrap edit)
+        def f:EVGElement (RaveEditor.box("ra-footer" "" "status" "Status"))
+        f.addChild((RaveEditor.quiet("ra-foot-status" (RaveEditor.cut(status 30)))))
+        f.addChild((RaveEditor.quiet("ra-foot-t" mode)))
+        f.addChild((RaveEditor.quiet("ra-foot-b" (r.path()))))
+        f.addChild((RaveEditor.quiet("ra-foot-t" "views")))
+        f.addChild((RaveEditor.quiet("ra-foot-b" (to_string (r.viewCount())))))
+        f.addChild((RaveEditor.quiet("ra-foot-t" "a11y")))
+        f.addChild((RaveEditor.quiet("ra-foot-b" (to_string (array_length problems)))))
+        f.addChild((RaveEditor.quiet("ra-foot-t" "rejected")))
+        f.addChild((RaveEditor.quiet("ra-foot-b" (to_string (r.layoutWarningCount(0))))))
+        f.addChild((RaveEditor.quiet("ra-foot-t" "undo")))
+        f.addChild((RaveEditor.quiet("ra-foot-b" (to_string (e.history.depth())))))
+        if (mode == "run") {
+            f.addChild((RaveEditor.quiet("ra-foot-t" "key")))
+            f.addChild((RaveEditor.quiet("ra-foot-b" (RaveEditor.cut(lastKey 24)))))
+        }
+        return f
+    }
+
+    ; --- what a headless check asks -------------------------------------------
+
+    fn treeIdsJson:string () {
+        this.laidOut()
+        def route:RaveRoute (this.currentRoute())
+        def ids:[string]
+        if (route.layoutId > 0) {
+            this.treeIds((doc.node(route.layoutId)) route.pageId ids)
+        } {
+            this.treeIds((doc.node(route.pageId)) 0 ids)
+        }
+        def out:string "["
+        def k:int 0
+        while (k < (array_length ids)) {
+            if (k > 0) {
+                out = (out + ",")
+            }
+            out = (out + "\"" + (itemAt ids k) + "\"")
+            k = (k + 1)
+        }
+        return (out + "]")
+    }
+
+    fn treeIds:void (n:RaveNode pageId:int ids:[string]) {
+        if ((array_length ids) >= 400) {
+            return
+        }
+        push ids ("n" + (to_string n.id))
+        if (this.isFolded((to_string n.id))) {
+            return
+        }
+        if ((n.kind == "slot") && (pageId > 0)) {
+            this.treeIds((doc.node(pageId)) 0 ids)
+        }
+        def i:int 0
+        while (i < (array_length n.children)) {
+            this.treeIds((itemAt n.children i) pageId ids)
+            i = (i + 1)
+        }
+    }
+
+    ; --- element helpers ------------------------------------------------------
+
+    sfn box:EVGElement (cls:string id:string role:string label:string) {
+        def e:EVGElement (EVGElement.createDiv())
+        e.className = cls
+        e.id = id
+        e.role = role
+        e.a11yLabel = label
+        if ((role == "button") || (role == "tab") || (role == "treeitem")) {
+            if ((strlen id) > 0) {
+                e.a11yFocusable = true
+            }
+        }
+        return e
+    }
+
+    sfn txt:EVGElement (cls:string s:string) {
+        def e:EVGElement (EVGElement.createDiv())
+        e.className = cls
+        e.elementType = 1
+        e.textContent = s
+        e.role = "text"
+        return e
+    }
+
+    sfn quiet:EVGElement (cls:string s:string) {
+        def e:EVGElement (RaveEditor.txt(cls s))
+        e.role = ""
+        e.a11yHidden = true
+        return e
+    }
+
+    sfn button:EVGElement (id:string label:string cls:string txtCls:string) {
+        def b:EVGElement (RaveEditor.box(cls id "button" label))
+        b.addChild((RaveEditor.quiet(txtCls label)))
+        return b
+    }
+
+    sfn cut:string (s:string n:int) {
+        if ((strlen s) <= n) {
+            return s
+        }
+        if (n < 2) {
+            return s
+        }
+        return ((substring s 0 (n - 1)) + "…")
+    }
+
+    sfn pct:string (z:double) {
+        return ((to_string (to_int ((z * 100.0) + 0.5))) + "%")
+    }
+
+    sfn split:[string] (text:string) {
+        def out:[string]
+        def cur:string ""
+        def i:int 0
+        while (i < (strlen text)) {
+            def c:int (charAt text i)
+            if (c == 10) {
+                push out cur
+                cur = ""
+            } {
+                cur = (cur + (strfromcode c))
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push out cur
+        }
+        return out
+    }
+}

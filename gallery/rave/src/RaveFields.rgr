@@ -1,0 +1,296 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RaveFields — what kind of input each inspector field is
+; =============================================================================
+; A field is not "a box you type CSS into". It is one of three things:
+;
+;   choice   a closed list — `display`, `justify-content`, an action, a unit.
+;            Pressing it OPENS the list; picking closes it. It never cycles.
+;   length   one number and one unit, kept apart: the number half is typed,
+;            stepped with the arrow keys, nudged with − / + or dragged on a
+;            track; the unit half is a choice. "24px" cannot be turned into
+;            "24p" by a slip of the finger, and "px" cannot be typed twice.
+;   text     everything else — `grid-template-columns`, a two-value padding,
+;            a border shorthand, a node's name. A real text field: caret,
+;            selection, word motion, Ctrl+A, click to place, drag to select.
+;
+; The kind is decided per field AND per value: `padding` is a length while
+; it says "16px" and a text field the moment it says "0 24px".
+; =============================================================================
+
+class RaveLength {
+    def ok:boolean false
+    def number:string ""
+    def unit:string ""
+
+    Constructor () {
+    }
+
+    fn text:string () {
+        if (unit == "auto") {
+            return "auto"
+        }
+        return (number + unit)
+    }
+
+    fn value:double () {
+        return (RaveFields.toNumber(number))
+    }
+}
+
+class RaveFields {
+
+    sfn isChoice:boolean (prop:string) {
+        if (prop == "display") { return true }
+        if (prop == "flex-direction") { return true }
+        if (prop == "flex-wrap") { return true }
+        if (prop == "justify-content") { return true }
+        if (prop == "align-items") { return true }
+        if (prop == "align-self") { return true }
+        if (prop == "position") { return true }
+        if (prop == "overflow") { return true }
+        if (prop == "font-weight") { return true }
+        if (prop == "action") { return true }
+        return false
+    }
+
+    sfn isLength:boolean (prop:string) {
+        if (prop == "width") { return true }
+        if (prop == "height") { return true }
+        if (prop == "min-width") { return true }
+        if (prop == "max-width") { return true }
+        if (prop == "min-height") { return true }
+        if (prop == "max-height") { return true }
+        if (prop == "gap") { return true }
+        if (prop == "padding") { return true }
+        if (prop == "margin") { return true }
+        if (prop == "font-size") { return true }
+        if (prop == "border-radius") { return true }
+        if (prop == "flex-grow") { return true }
+        return false
+    }
+
+    ; The closed list a choice field offers.
+    sfn options:[string] (prop:string) {
+        def out:[string]
+        if (prop == "display") {
+            push out "flex"
+            push out "grid"
+            push out "block"
+            push out "none"
+        }
+        if (prop == "flex-direction") {
+            push out "column"
+            push out "row"
+        }
+        if (prop == "flex-wrap") {
+            push out "nowrap"
+            push out "wrap"
+        }
+        if (prop == "justify-content") {
+            push out "flex-start"
+            push out "center"
+            push out "flex-end"
+            push out "space-between"
+            push out "space-around"
+        }
+        if ((prop == "align-items") || (prop == "align-self")) {
+            push out "stretch"
+            push out "flex-start"
+            push out "center"
+            push out "flex-end"
+        }
+        if (prop == "position") {
+            push out "relative"
+            push out "absolute"
+            push out "fixed"
+        }
+        if (prop == "overflow") {
+            push out "visible"
+            push out "hidden"
+            push out "auto"
+        }
+        if (prop == "font-weight") {
+            push out "normal"
+            push out "500"
+            push out "600"
+            push out "bold"
+        }
+        return out
+    }
+
+    ; The units a length field may carry. The first is the default for a
+    ; number typed with none.
+    sfn units:[string] (prop:string) {
+        def out:[string]
+        if (prop == "flex-grow") {
+            push out ""
+            return out
+        }
+        push out "px"
+        if ((prop == "width") || (prop == "height") || (prop == "min-width") || (prop == "max-width") || (prop == "min-height") || (prop == "max-height")) {
+            push out "%"
+            push out "vw"
+            push out "vh"
+            push out "auto"
+        }
+        if ((prop == "gap") || (prop == "padding") || (prop == "margin") || (prop == "font-size") || (prop == "border-radius")) {
+            push out "em"
+            push out "rem"
+        }
+        if ((prop == "gap") || (prop == "padding") || (prop == "margin")) {
+            push out "%"
+        }
+        return out
+    }
+
+    ; The top of the track for a unit: what "all the way right" means.
+    sfn trackMax:double (unit:string prop:string) {
+        if (unit == "%") { return 100.0 }
+        if ((unit == "vw") || (unit == "vh")) { return 100.0 }
+        if ((unit == "em") || (unit == "rem")) { return 8.0 }
+        if ((strlen unit) == 0) { return 10.0 }
+        if (prop == "font-size") { return 72.0 }
+        if ((prop == "gap") || (prop == "padding") || (prop == "margin") || (prop == "border-radius")) { return 96.0 }
+        return 1440.0
+    }
+
+    sfn trackStep:double (unit:string) {
+        if ((unit == "em") || (unit == "rem")) { return 0.25 }
+        return 1.0
+    }
+
+    ; --- numbers ----------------------------------------------------------------
+
+    sfn isDigit:boolean (c:int) {
+        return ((c >= 48) && (c <= 57))
+    }
+
+    ; "24px" → 24 / "px"; "1.5em" → 1.5 / "em"; "auto" → auto; anything else
+    ; — "0 24px", "1px solid" — is not a length and `ok` is false.
+    sfn parse:RaveLength (value:string units:[string]) {
+        def out (new RaveLength())
+        def v:string (trim value)
+        if (v == "auto") {
+            out.ok = (RaveFields.hasUnit(units "auto"))
+            out.unit = "auto"
+            return out
+        }
+        def i:int 0
+        def n:int (strlen v)
+        if ((n > 0) && ((charAt v 0) == 45)) {
+            i = 1
+        }
+        def digits:int 0
+        def dots:int 0
+        def go:boolean true
+        while (go && (i < n)) {
+            def c:int (charAt v i)
+            if (RaveFields.isDigit(c)) {
+                digits = (digits + 1)
+                i = (i + 1)
+            } {
+                if ((c == 46) && (dots == 0)) {
+                    dots = 1
+                    i = (i + 1)
+                } {
+                    go = false
+                }
+            }
+        }
+        if (digits == 0) {
+            return out
+        }
+        def number:string (substring v 0 i)
+        def unit:string (substring v i n)
+        if ((RaveFields.hasUnit(units unit)) == false) {
+            return out
+        }
+        out.ok = true
+        out.number = number
+        out.unit = unit
+        return out
+    }
+
+    sfn hasUnit:boolean (units:[string] unit:string) {
+        def i:int 0
+        while (i < (array_length units)) {
+            if ((itemAt units i) == unit) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn toNumber:double (s:string) {
+        def v:double 0.0
+        def neg:boolean false
+        def i:int 0
+        def n:int (strlen s)
+        if ((n > 0) && ((charAt s 0) == 45)) {
+            neg = true
+            i = 1
+        }
+        while ((i < n) && (RaveFields.isDigit((charAt s i)))) {
+            v = ((v * 10.0) + (to_double ((charAt s i) - 48)))
+            i = (i + 1)
+        }
+        if ((i < n) && ((charAt s i) == 46)) {
+            i = (i + 1)
+            def scale:double 0.1
+            while ((i < n) && (RaveFields.isDigit((charAt s i)))) {
+                v = (v + ((to_double ((charAt s i) - 48)) * scale))
+                scale = (scale * 0.1)
+                i = (i + 1)
+            }
+        }
+        if neg {
+            return (0.0 - v)
+        }
+        return v
+    }
+
+    ; A number as CSS writes it: no trailing zeros, at most two decimals.
+    sfn fromNumber:string (v:double) {
+        def neg:boolean (v < 0.0)
+        def a:double v
+        if neg {
+            a = (0.0 - v)
+        }
+        def whole:int (to_int (a + 0.000001))
+        def frac:int (to_int (((a - (to_double whole)) * 100.0) + 0.5))
+        if (frac >= 100) {
+            whole = (whole + 1)
+            frac = 0
+        }
+        def out:string (to_string whole)
+        if (frac > 0) {
+            if ((frac % 10) == 0) {
+                out = (out + "." + (to_string (idiv frac 10)))
+            } {
+                if (frac < 10) {
+                    out = (out + ".0" + (to_string frac))
+                } {
+                    out = (out + "." + (to_string frac))
+                }
+            }
+        }
+        if neg {
+            return ("-" + out)
+        }
+        return out
+    }
+
+    sfn positionOf:int (list:[string] v:string) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == v) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+}

@@ -1,0 +1,654 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RaveTest — the document and the runtime, checked without a browser
+; =============================================================================
+; The sentence the project has to prove, as a script: a SaaS skeleton that
+; signs in, navigates, folds to a phone and works from the keyboard. Every
+; stage of PLAN_RAVE.md adds to this file, and `gallery:editors:test` runs it.
+;
+;   npm run rave:test
+; =============================================================================
+
+Import "../src/RaveDoc.rgr"
+Import "../src/RavePatterns.rgr"
+Import "../src/RaveRuntime.rgr"
+Import "../src/RaveEditor.rgr"
+Import "../src/RaveA11y.rgr"
+
+class Check {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got [" + got + "] want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class RaveTest {
+
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d < 1.0)
+    }
+
+    sfn includes:boolean (s:string sub:string) {
+        return ((indexOf s sub) >= 0)
+    }
+
+    sfn elId:string (id:int) {
+        return ("n" + (to_string id))
+    }
+
+    sfn printAll:void (lines:[string]) {
+        def i:int 0
+        while (i < (array_length lines)) {
+            print ("       " + (itemAt lines i))
+            i = (i + 1)
+        }
+    }
+
+    sfn lintClean:void (c:Check rt:RaveRuntime view:int name:string) {
+        def problems:[string] (rt.lint(view))
+        c.eqInt(name (array_length problems) 0)
+        if ((array_length problems) > 0) {
+            RaveTest.printAll(problems)
+        }
+    }
+
+    sfn noRejections:void (c:Check rt:RaveRuntime view:int name:string) {
+        def n:int (rt.layoutWarningCount(view))
+        c.eqInt(name n 0)
+        def i:int 0
+        while (i < n) {
+            print ("       " + (rt.layoutWarning(view i)))
+            i = (i + 1)
+        }
+    }
+
+
+    ; --- the editor -----------------------------------------------------------------
+
+    sfn chromeCss:string () {
+        def css@(optional):string (read_file "gallery/rave/web" "rave.css")
+        if (null? css) {
+            return ""
+        }
+        return (unwrap css)
+    }
+
+    sfn typeText:void (ed:RaveEditor s:string) {
+        def i:int 0
+        while (i < (strlen s)) {
+            ed.typeChar((strfromcode (charAt s i)))
+            i = (i + 1)
+        }
+    }
+
+    sfn backspaces:void (ed:RaveEditor n:int) {
+        def i:int 0
+        while (i < n) {
+            ed.keyWith("Backspace" false false)
+            i = (i + 1)
+        }
+    }
+
+    sfn editorChecks:void (c:Check) {
+        print "the editor — M1"
+        def ed (new RaveEditor())
+        ed.init((RaveTest.chromeCss()))
+        ed.setPageSize(1440.0 860.0)
+        def doc:RaveApp ed.doc
+        def rt:RaveRuntime (ed.runtime())
+        def dl:string (ed.displayListJson())
+        c.ok("the chrome is drawn" ((strlen dl) > 400))
+        c.ok("…with Routes / Components / Layers" ((RaveTest.includes(dl "Routes")) && (RaveTest.includes(dl "Layers"))))
+        c.ok("…and Design | Run" ((RaveTest.includes(dl "Design")) && (RaveTest.includes(dl "Run"))))
+        def board:string (ed.boardJson())
+        c.ok("the stage draws the app" (RaveTest.includes(board "Welcome to Acme")))
+        c.ok("…through a camera" (RaveTest.includes(board "\"view\":[")))
+        c.ok("the stage is between the rails" ((ed.insideBoard(700.0 400.0)) && ((ed.insideBoard(100.0 400.0)) == false) && ((ed.insideBoard(1400.0 400.0)) == false)))
+        c.ok("the strip counts rejections" (RaveTest.includes(dl "rejected")))
+        ed.boardJson()
+        c.eqInt("…and the chrome sheet costs none" (rt.layoutWarningCount(0)) 0)
+        ed.press("tab:routes")
+        def dl2:string (ed.displayListJson())
+        c.ok("the Routes pane lists the routes" ((RaveTest.includes(dl2 "/dashboard")) && (RaveTest.includes(dl2 "/settings"))))
+        c.ok("a route press moves the stage, guard or no guard" (ed.press("route:/dashboard")))
+        c.eqStr("…to /dashboard" (ed.path()) "/dashboard")
+        ed.press("tab:layers")
+        def dashRoute:RaveRoute (doc.routeAt("/dashboard"))
+        def dashPage:RaveNode (doc.node(dashRoute.pageId))
+        def cards:int (doc.findIn(dashPage "div" "Cards"))
+        def card1:int (doc.findIn(dashPage "section" "Revenue"))
+        def card2:int (doc.findIn(dashPage "section" "Users"))
+        def card3:int (doc.findIn(dashPage "section" "Activity"))
+        def sidebar:int (doc.idOfNamed("aside" "Sidebar"))
+        def ids:string (ed.treeIdsJson())
+        c.ok("the tree shows the layout" (RaveTest.includes(ids (RaveTest.elId(sidebar)))))
+        c.ok("…with the page spliced into its slot" (RaveTest.includes(ids (RaveTest.elId(cards)))))
+        c.ok("a tree row selects" (ed.press(("tree:" + (to_string cards)))))
+        c.eqStr("…that node" (ed.selectedId()) (RaveTest.elId(cards)))
+        def dl3:string (ed.displayListJson())
+        c.ok("the inspector reads its grid" (RaveTest.includes(dl3 "repeat(3, 1fr)")))
+        c.ok("…and its name" (RaveTest.includes(dl3 "Cards")))
+        def b0:string (ed.stageBoxJson(0 (RaveTest.elId(cards))))
+        def b2:string (ed.stageBoxJson(2 (RaveTest.elId(cards))))
+        c.ok("the selection has a box in the first viewport" ((strlen b0) > 8))
+        c.ok("…and in the third" ((strlen b2) > 8))
+        def cx:double (ed.stageCentreX(0 (RaveTest.elId(card1))))
+        def cy:double (ed.stageCentreY(0 (RaveTest.elId(card1))))
+        c.ok("a stage click lands" (ed.pointerDown(cx cy)))
+        c.eqStr("…on the card under it" (ed.selectedId()) (RaveTest.elId(card1)))
+        ed.press(("tree:" + (to_string cards)))
+        ed.press("bp:sm")
+        def dl4:string (ed.displayListJson())
+        c.ok("the <768 breakpoint shows its own value" (RaveTest.includes(dl4 "1fr")))
+        ed.press("bp:base")
+
+        print "editing — M2"
+        c.ok("a field opens for typing" (ed.press("field:gap")))
+        RaveTest.typeText(ed "32")
+        c.ok("Enter commits" (ed.keyWith("Enter" false false)))
+        def cardsNode:RaveNode (doc.node(cards))
+        c.eqStr("…into the rule, with its unit" (doc.styleOf(cardsNode "" "gap")) "32px")
+        def gapNow:double ((rt.leftOf(0 (RaveTest.elId(card2)))) - ((rt.leftOf(0 (RaveTest.elId(card1)))) + (rt.widthOf(0 (RaveTest.elId(card1))))))
+        c.ok("…and the stage laid it out" (RaveTest.near(gapNow 32.0)))
+        c.ok("undo" (ed.press("undo")))
+        c.eqStr("…puts the old value back" (doc.styleOf(cardsNode "" "gap")) "24px")
+        c.ok("redo" (ed.press("redo")))
+        c.eqStr("…puts the new one back" (doc.styleOf(cardsNode "" "gap")) "32px")
+        ed.press("tab:css")
+        def dl5:string (ed.displayListJson())
+        c.ok("the CSS tab shows the same rule" (RaveTest.includes(dl5 "gap: 32px;")))
+        ed.press("css:new")
+        RaveTest.typeText(ed "padding: 8px")
+        c.ok("a typed declaration commits" (ed.keyWith("Enter" false false)))
+        c.eqStr("…into the rule" (doc.styleOf(cardsNode "" "padding")) "8px")
+        ed.press("tab:design")
+        def dl6:string (ed.displayListJson())
+        c.eqStr("…and Design reads it" (ed.valueOf("padding")) "8px")
+        c.ok("…as a number and a unit" ((RaveTest.includes(dl6 "\"8\"")) && (RaveTest.includes(dl6 "px"))))
+        ed.press("undo")
+        c.eqStr("undo removes it again" (doc.styleOf(cardsNode "" "padding")) "")
+        c.ok("a choice field opens" (ed.press("field:display")))
+        c.eqStr("…and changes nothing yet" (doc.styleOf(cardsNode "" "display")) "grid")
+        c.ok("…listing its options" (RaveTest.includes((ed.displayListJson()) "block")))
+        c.ok("a pick" (ed.press("opt:2")))
+        c.eqStr("…sets grid to block" (doc.styleOf(cardsNode "" "display")) "block")
+        ed.press("undo")
+        c.eqStr("…and undo puts grid back" (doc.styleOf(cardsNode "" "display")) "grid")
+        ed.press(("tree:" + (to_string card1)))
+        c.ok("a kit component is added" (ed.press("add:Button")))
+        def added:int (RaveApp.idOfElement((ed.selectedId())))
+        c.eqInt("…into the selected container" (doc.parentOf(added)) card1)
+        c.ok("…and the stage draws it" (RaveTest.includes((rt.displayListJson(0)) "Button")))
+        c.ok("delete" (ed.press("del")))
+        c.eqInt("…takes it out" (doc.parentOf(added)) 0)
+        ed.press("undo")
+        c.eqInt("…and undo puts it back" (doc.parentOf(added)) card1)
+        ed.press(("tree:" + (to_string added)))
+        ed.press("del")
+        ed.press(("tree:" + (to_string card1)))
+        c.ok("down" (ed.press("down")))
+        c.eqInt("…moves the card after its sibling" (doc.indexIn(cards card1)) 1)
+        c.ok("up" (ed.press("up")))
+        c.eqInt("…moves it back" (doc.indexIn(cards card1)) 0)
+        ed.press(("tree:" + (to_string card2)))
+        c.ok("wrap" (ed.press("wrap")))
+        def wrapper:int (RaveApp.idOfElement((ed.selectedId())))
+        c.eqInt("…puts a container round it" (doc.parentOf(card2)) wrapper)
+        c.eqInt("…where the card was" (doc.parentOf(wrapper)) cards)
+        ed.press("undo")
+        c.eqInt("…and one undo takes the whole wrap back" (doc.parentOf(card2)) cards)
+        ed.press(("tree:" + (to_string card3)))
+        c.ok("duplicate" (ed.press("dup")))
+        c.eqInt("…adds a twin" (array_length cardsNode.children) 4)
+        def twin:RaveNode (doc.node((RaveApp.idOfElement((ed.selectedId())))))
+        c.eqStr("…with the same name" twin.name "Activity")
+        c.eqStr("…and the same look" (doc.styleOf(twin "" "gap")) (doc.styleOf((doc.node(card3)) "" "gap")))
+        ed.press("undo")
+        c.eqInt("…until undone" (array_length cardsNode.children) 3)
+        c.ok("pick" (ed.press(("pick:" + (to_string card1)))))
+        c.ok("…drop before the third" (ed.press(("drop:" + (to_string card3)))))
+        c.eqInt("…reorders" (doc.indexIn(cards card1)) 1)
+        ed.press("undo")
+        c.eqInt("…until undone" (doc.indexIn(cards card1)) 0)
+        ed.press(("pick:" + (to_string card1)))
+        ed.keyWith("Escape" false false)
+        c.ok("Escape cancels a pick" ((ed.press(("drop:" + (to_string card3)))) == false))
+        def heading:int (doc.findIn(dashPage "h1" "Dashboard"))
+        ed.press(("tree:" + (to_string heading)))
+        ed.press("node:text")
+        ed.keyWith("End" false false)
+        RaveTest.typeText(ed " v2")
+        ed.keyWith("Enter" false false)
+        def hNode:RaveNode (doc.node(heading))
+        c.eqStr("typing changes the text" hNode.text "Dashboard v2")
+        c.ok("…and the stage says so" (RaveTest.includes((rt.displayListJson(0)) "Dashboard v2")))
+        ed.press("undo")
+        c.eqStr("…until undone" hNode.text "Dashboard")
+        def signInTop:int (doc.idWithAction("navigate" "/login"))
+        ed.press(("tree:" + (to_string signInTop)))
+        c.ok("the action field opens" (ed.press("field:action")))
+        def sn:RaveNode (doc.node(signInTop))
+        c.eqStr("…without changing the action" (ed.actionText(sn)) "navigate /login")
+        c.ok("ArrowDown moves down the list" (ed.keyWith("ArrowDown" false false)))
+        c.ok("Enter picks" (ed.keyWith("Enter" false false)))
+        c.eqStr("…the next choice" (ed.actionText(sn)) "login")
+        ed.press("undo")
+        c.eqStr("…until undone" (ed.actionText(sn)) "navigate /login")
+        def json:string (ed.saveJson())
+        c.ok("the document saves as JSON" ((strlen json) > 2000))
+        def ed2 (new RaveEditor())
+        ed2.init("")
+        c.ok("…and opens again" (ed2.openJson(json)))
+        c.eqInt("…with its routes" (array_length ed2.doc.routes) 5)
+        def again:RaveApp ed2.doc
+        c.eqStr("…and its edits" (doc.styleOf((again.node(cards)) "" "gap")) "32px")
+        c.eqStr("…byte for byte" (again.toJson()) json)
+        c.ok("not JSON is refused" ((ed2.openJson("hello")) == false))
+
+        print "run — M3"
+        c.ok("Run is a mode" (ed.press("mode:run")))
+        c.eqStr("…and it is on" (ed.modeNow()) "run")
+        ed.press("route:/")
+        c.eqStr("the app is at /" (ed.path()) "/")
+        def sx:double (ed.stageCentreX(0 (RaveTest.elId(signInTop))))
+        def sy:double (ed.stageCentreY(0 (RaveTest.elId(signInTop))))
+        c.ok("a stage press reaches the app" (ed.pointerDown(sx sy)))
+        c.eqStr("…which navigates" (ed.path()) "/login")
+        c.ok("Tab reaches the app" (ed.keyWith("Tab" false false)))
+        ed.keyWith("Tab" false false)
+        ed.keyWith("Tab" false false)
+        c.ok("Enter presses the focused button" (ed.keyWith("Enter" false false)))
+        c.ok("…and the session is signed in" rt.auth.loggedIn)
+        c.eqStr("…on the dashboard" (ed.path()) "/dashboard")
+        c.ok("the stage shows Log out" (RaveTest.includes((ed.boardJson()) "Log out")))
+        def dl7:string (ed.displayListJson())
+        c.ok("the strip shows the last key" (RaveTest.includes(dl7 "key")))
+        c.ok("the session toggle signs out" (ed.press("auth:toggle")))
+        c.ok("…really" (rt.auth.loggedIn == false))
+        c.eqStr("…and leaves the protected page" (ed.path()) "/")
+        c.ok("a theme is picked" (ed.press("theme:dark")))
+        c.eqStr("…and the runtime has it" rt.theme "dark")
+        ed.press("theme:light")
+        c.eqStr("…and loses it" rt.theme "")
+        ed.press("mode:design")
+        c.eqStr("Design is back" (ed.modeNow()) "design")
+
+        print "accessibility — M4"
+        ed.press("route:/login")
+        ed.press("tab:a11y")
+        def dl8:string (ed.displayListJson())
+        c.ok("the A11y pane shows the tree" (RaveTest.includes(dl8 "textbox")))
+        c.ok("…with its names" (RaveTest.includes(dl8 "Password")))
+        c.ok("…and no problems" (RaveTest.includes(dl8 "nothing to fix")))
+        c.eqInt("the login page has no problems" (ed.problemCount()) 0)
+        def loginRoute:RaveRoute (doc.routeAt("/login"))
+        def loginPage:RaveNode (doc.node(loginRoute.pageId))
+        def email:int (doc.findIn(loginPage "input" "Email"))
+        def password:int (doc.findIn(loginPage "input" "Password"))
+        def signIn:int (doc.findWithAction(loginPage "login" ""))
+        ed.press(("tree:" + (to_string email)))
+        ed.press("tab:design")
+        ed.press("node:label")
+        RaveTest.backspaces(ed 5)
+        ed.keyWith("Enter" false false)
+        c.eqInt("an unlabelled input is exactly one problem" (ed.problemCount()) 1)
+        c.ok("…on that input" (RaveTest.includes((ed.problemAt(0)) ((RaveTest.elId(email)) + ": focusable with no accessible name"))))
+        ed.press("tab:layers")
+        c.ok("…and the tree marks it" (RaveTest.includes((ed.displayListJson()) "⚠")))
+        ed.press("tab:design")
+        c.ok("…and so does the inspector" (RaveTest.includes((ed.displayListJson()) "no accessible name")))
+        ed.press("undo")
+        c.eqInt("…until undone" (ed.problemCount()) 0)
+        def order:[string] (RaveA11y.tabOrder((rt.pageOf(0))))
+        c.eqInt("the tab order has four stops" (array_length order) 4)
+        c.eqStr("…email first" (itemAt order 0) (RaveTest.elId(email)))
+        c.eqStr("…the password second" (itemAt order 1) (RaveTest.elId(password)))
+        c.eqStr("…the button third" (itemAt order 2) (RaveTest.elId(signIn)))
+        c.ok("the tab order can be shown" (ed.press("a11y:taborder")))
+        c.ok("…as badges on the stage" (RaveTest.includes((ed.displayListJson()) "\"3\"")))
+        ed.press("a11y:taborder")
+        def h1:int (doc.findIn(loginPage "h1" "Sign in"))
+        ed.press(("tree:" + (to_string h1)))
+        ed.press("field:color")
+        RaveTest.typeText(ed "#e5e5e5")
+        ed.keyWith("Enter" false false)
+        c.ok("faint text is a contrast problem" ((ed.problemCount()) == 1))
+        c.ok("…and says so" (RaveTest.includes((ed.problemAt(0)) "contrast")))
+        ed.press("undo")
+        c.eqInt("…until undone" (ed.problemCount()) 0)
+    }
+
+    sfn inputChecks:void (c:Check) {
+        print "inputs"
+        def ed (new RaveEditor())
+        ed.init((RaveTest.chromeCss()))
+        ed.setPageSize(1440.0 860.0)
+        def doc:RaveApp ed.doc
+        def rt:RaveRuntime (ed.runtime())
+        def e:RaveEdit (ed.editor())
+        ed.press("route:/dashboard")
+        def dashRoute:RaveRoute (doc.routeAt("/dashboard"))
+        def dashPage:RaveNode (doc.node(dashRoute.pageId))
+        def cards:int (doc.findIn(dashPage "div" "Cards"))
+        def cardsNode:RaveNode (doc.node(cards))
+        ed.press(("tree:" + (to_string cards)))
+
+        ; --- a text field: caret, selection, keys, pointer -----------------------
+        c.ok("a text field opens" (ed.press("field:grid-template-columns")))
+        c.eqStr("…as a text field" ed.editKind "text")
+        c.eqStr("…with the value" ed.input.value "repeat(3, 1fr)")
+        c.ok("…all selected on open" ((ed.input.selStart() == 0) && (ed.input.selEnd() == 14)))
+        ed.keyWith("End" false false)
+        c.ok("End collapses to the end" ((ed.input.caret == 14) && ((ed.input.hasSelection()) == false)))
+        ed.keyWith("ArrowLeft" true false)
+        ed.keyWith("ArrowLeft" true false)
+        c.ok("Shift+Left selects two" ((ed.input.selStart() == 12) && (ed.input.selEnd() == 14)))
+        c.ok("…and the field draws the selection" (RaveTest.includes((ed.displayListJson()) "repeat(3, 1fr)")))
+        ed.typeChar("x")
+        c.eqStr("typing replaces the selection" ed.input.value "repeat(3, 1fx")
+        ed.keyWith("a" false true)
+        c.ok("Ctrl+A selects everything" ((ed.input.selStart() == 0) && (ed.input.selEnd() == 13)))
+        RaveTest.typeText(ed "1fr 1fr")
+        c.eqStr("…and typing over it" ed.input.value "1fr 1fr")
+        ed.keyWith("Home" false false)
+        ed.keyWith("ArrowRight" false true)
+        c.ok("Ctrl+Right moves a word" (ed.input.caret > 0))
+        c.eqStr("nothing is committed yet" (doc.styleOf(cardsNode "" "grid-template-columns")) "repeat(3, 1fr)")
+        c.ok("Enter commits" (ed.keyWith("Enter" false false)))
+        c.eqStr("…the typed value" (doc.styleOf(cardsNode "" "grid-template-columns")) "1fr 1fr")
+        ed.press("undo")
+        c.eqStr("…until undone" (doc.styleOf(cardsNode "" "grid-template-columns")) "repeat(3, 1fr)")
+        ; the pointer: a press in the text places the caret, a drag selects
+        ed.press("field:grid-template-columns")
+        def bx:string (ed.chromeBoxJson("in:field:grid-template-columns"))
+        c.ok("the text box has a place" ((strlen bx) > 8))
+        def x0:double (ed.chromeLeft("in:field:grid-template-columns"))
+        def y0:double ((ed.chromeTop("in:field:grid-template-columns")) + 8.0)
+        c.ok("a press at its left edge" (ed.pointerDown((x0 + 1.0) y0)))
+        c.eqInt("…puts the caret first" ed.input.caret 0)
+        c.ok("…with nothing selected" ((ed.input.hasSelection()) == false))
+        ed.pointerMove((x0 + 300.0) y0)
+        c.ok("dragging to the right selects to the end" ((ed.input.selStart() == 0) && (ed.input.selEnd() == 14)))
+        ed.pointerUp()
+        ed.pointerDownWith((x0 + 1.0) y0 true)
+        c.ok("Shift+press extends from the anchor" ((ed.input.selStart() == 0) && (ed.input.caret == 0)))
+        ed.pointerUp()
+        ed.keyWith("Escape" false false)
+        c.ok("Escape drops the edit" ((strlen ed.editing) == 0))
+        c.eqStr("…and the value stands" (doc.styleOf(cardsNode "" "grid-template-columns")) "repeat(3, 1fr)")
+
+        ; --- a length field: number half, unit half, steps, track --------------
+        def depth0:int (e.history.depth())
+        c.ok("a length field opens" (ed.press("field:gap")))
+        c.eqStr("…as a length" ed.editKind "length")
+        c.eqStr("…with the number" ed.input.value "24")
+        c.eqStr("…and the unit apart" ed.unit "px")
+        c.ok("ArrowUp steps" (ed.keyWith("ArrowUp" false false)))
+        c.eqStr("…and applies at once" (doc.styleOf(cardsNode "" "gap")) "25px")
+        ed.keyWith("ArrowUp" true false)
+        c.eqStr("Shift+ArrowUp steps ten" (doc.styleOf(cardsNode "" "gap")) "35px")
+        c.ok("+ steps" (ed.press("inc:field:gap")))
+        c.eqStr("…once more" (doc.styleOf(cardsNode "" "gap")) "36px")
+        ed.press("dec:field:gap")
+        c.eqStr("− steps back" (doc.styleOf(cardsNode "" "gap")) "35px")
+        c.eqInt("the whole session is one undo step" (e.history.depth()) (depth0 + 1))
+        c.ok("the unit is a list" (ed.press("unit:field:gap")))
+        c.ok("…that opens" (RaveTest.includes((ed.displayListJson()) "rem")))
+        c.ok("…and a pick" (ed.press("opt:1")))
+        c.eqStr("…changes only the unit" (doc.styleOf(cardsNode "" "gap")) "35em")
+        ed.press("unit:field:gap")
+        ed.press("opt:0")
+        c.eqStr("…and back" (doc.styleOf(cardsNode "" "gap")) "35px")
+        c.ok("a letter is refused by the number half" ((ed.typeChar("p")) == false))
+        c.eqStr("…so the value cannot be broken" (doc.styleOf(cardsNode "" "gap")) "35px")
+        def tx:double (ed.chromeLeft("track:field:gap"))
+        def tw:double (ed.chromeWidth("track:field:gap"))
+        def ty:double ((ed.chromeTop("track:field:gap")) + 3.0)
+        c.ok("the track is drawn" (tw > 40.0))
+        c.ok("a press on the track" (ed.pointerDown((tx + (tw * 0.5)) ty)))
+        c.eqStr("…sets half of its top" (doc.styleOf(cardsNode "" "gap")) "48px")
+        ed.pointerMove((tx + tw) ty)
+        c.eqStr("…and a drag to the end sets the top" (doc.styleOf(cardsNode "" "gap")) "96px")
+        ed.pointerUp()
+        c.eqInt("…still one undo step" (e.history.depth()) (depth0 + 1))
+        ed.keyWith("Escape" false false)
+        c.eqStr("Escape puts the length back" (doc.styleOf(cardsNode "" "gap")) "24px")
+        c.eqInt("…and leaves no undo step" (e.history.depth()) depth0)
+        ed.press("field:gap")
+        ed.keyWith("ArrowUp" false false)
+        ed.keyWith("Enter" false false)
+        c.eqStr("Enter keeps a stepped length" (doc.styleOf(cardsNode "" "gap")) "25px")
+        c.ok("undo" (ed.press("undo")))
+        c.eqStr("…takes the whole session back" (doc.styleOf(cardsNode "" "gap")) "24px")
+        ; a two-value padding cannot be typed into the number half — the
+        ; CSS tab takes it, and the Design field is a text field from then on
+        ed.press("field:padding")
+        RaveTest.typeText(ed "0 24px")
+        ed.keyWith("Enter" false false)
+        c.eqStr("the number half keeps a two-value padding out" (doc.styleOf(cardsNode "" "padding")) "24px")
+        ed.press("undo")
+        ed.press("tab:css")
+        ed.press("css:new")
+        RaveTest.typeText(ed "padding: 0 24px")
+        ed.keyWith("Enter" false false)
+        c.eqStr("the CSS tab takes it" (doc.styleOf(cardsNode "" "padding")) "0 24px")
+        ed.press("tab:design")
+        c.eqStr("…and the field is text from then on" (ed.fieldKind("field:padding")) "text")
+        ed.press("undo")
+
+        ; --- choice lists: open first, pick second ---------------------------------
+        c.ok("a choice opens" (ed.press("field:justify-content")))
+        c.eqStr("…changing nothing" (doc.styleOf(cardsNode "" "justify-content")) "")
+        ed.keyWith("ArrowDown" false false)
+        ed.keyWith("ArrowDown" false false)
+        c.ok("Enter picks the third" (ed.keyWith("Enter" false false)))
+        c.eqStr("…flex-end" (doc.styleOf(cardsNode "" "justify-content")) "flex-end")
+        ed.press("field:justify-content")
+        c.ok("Escape closes without a change" (ed.keyWith("Escape" false false)))
+        c.eqStr("…" (doc.styleOf(cardsNode "" "justify-content")) "flex-end")
+        ed.press("field:justify-content")
+        ed.press("field:justify-content")
+        c.ok("a second press closes" ((strlen ed.openMenu) == 0))
+        ed.press("undo")
+        c.eqStr("…and undo clears it" (doc.styleOf(cardsNode "" "justify-content")) "")
+
+        ; --- the CSS tab's lines are text fields too -------------------------------
+        ed.press("tab:css")
+        c.ok("a CSS line opens" (ed.press("css:0")))
+        c.ok("…with the declaration" (RaveTest.includes(ed.input.value "display: grid")))
+        ed.keyWith("a" false true)
+        RaveTest.typeText(ed "display: flex")
+        ed.keyWith("Enter" false false)
+        c.eqStr("…and Ctrl+A, type, Enter rewrites it" (doc.styleOf(cardsNode "" "display")) "flex")
+        ed.press("undo")
+        c.eqStr("…until undone" (doc.styleOf(cardsNode "" "display")) "grid")
+    }
+
+    sfn main:void () {
+        def c (new Check())
+
+        ; --- the document ---------------------------------------------------------
+        print "the pattern"
+        def app:RaveApp (RavePatterns.saasStarter("Acme"))
+        c.eqInt("five routes" (array_length app.routes) 5)
+        c.eqInt("two layouts" (array_length app.layouts) 2)
+        c.eqInt("five pages" (array_length app.pages) 5)
+        c.ok("auth is on" app.authEnabled)
+        def dashRoute:RaveRoute (app.routeAt("/dashboard"))
+        c.ok("/dashboard is protected" dashRoute.protected)
+        def homeRoute:RaveRoute (app.routeAt("/"))
+        c.ok("/ is public" (homeRoute.protected == false))
+        c.eqStr("below md is a max-width query" (app.below("md")) "(max-width: 767px)")
+        def css:string (RaveCss.emit(app))
+        c.ok("the sheet declares its palette" (RaveTest.includes(css "@vars { --bg: #ffffff;")))
+        c.ok("a node's rule is a class rule" (RaveTest.includes(css ".n1 {")))
+        c.ok("a breakpoint is a media block" (RaveTest.includes(css "@media (max-width: 767px) {")))
+
+        ; --- the runtime ----------------------------------------------------------
+        print "the runtime"
+        def rt (new RaveRuntime(app))
+        c.eqInt("the sheet parses clean" (rt.styleErrorCount()) 0)
+        if ((rt.styleErrorCount()) > 0) {
+            print ("       " + (rt.styleError(0)))
+        }
+        def desk:int (rt.addView("desktop" 1440.0 900.0 false))
+        def tab:int (rt.addView("tablet" 768.0 1024.0 true))
+        def phone:int (rt.addView("phone" 390.0 844.0 true))
+        c.eqStr("starts at /" (rt.path()) "/")
+        def dl:string (rt.displayListJson(desk))
+        c.ok("the landing page is drawn" ((strlen dl) > 400))
+        c.ok("…with its heading" (RaveTest.includes(dl "Welcome to Acme")))
+        c.ok("…and a Sign in button, logged out" (RaveTest.includes(dl "Sign in")))
+        c.ok("…and no Log out button" ((RaveTest.includes(dl "Log out")) == false))
+        RaveTest.noRejections(c rt desk "the engine rejected nothing at 1440")
+        RaveTest.noRejections(c rt phone "the engine rejected nothing at 390")
+        def goBtn:string (RaveTest.elId((app.idWithAction("navigate" "/dashboard"))))
+        c.ok("a button is as wide as its caption, not its column" (((rt.widthOf(desk goBtn)) < 260.0) && ((rt.widthOf(desk goBtn)) > 60.0)))
+        RaveTest.lintClean(c rt desk "the landing page lints clean at 1440")
+        RaveTest.lintClean(c rt phone "the landing page lints clean at 390")
+
+        ; --- one page, three widths -------------------------------------------------
+        print "one page, three widths"
+        def sidebar:string (RaveTest.elId((app.idOfNamed("aside" "Sidebar"))))
+        c.ok("1440 shows the sidebar" (rt.isShown(desk sidebar)))
+        c.ok("…240 wide" (RaveTest.near((rt.widthOf(desk sidebar)) 240.0)))
+        c.ok("768 shows the sidebar" (rt.isShown(tab sidebar)))
+        c.ok("390 folds the sidebar away" ((rt.isShown(phone sidebar)) == false))
+        def main:string (RaveTest.elId((app.idOfNamed("main" "Main"))))
+        c.ok("1440: main sits beside the sidebar" (RaveTest.near((rt.leftOf(desk main)) 240.0)))
+        c.ok("390: main takes the whole width" (RaveTest.near((rt.widthOf(phone main)) 390.0)))
+
+        ; --- the guard ----------------------------------------------------------------
+        print "the guard"
+        c.ok("navigating to /dashboard logged out moves" (rt.navigate("/dashboard")))
+        c.eqStr("…to /login" (rt.path()) "/login")
+        c.ok("the login page is drawn" (RaveTest.includes((rt.displayListJson(desk)) "Sign in")))
+        c.ok("…without the shell" ((rt.hasEl(desk sidebar)) == false))
+        RaveTest.lintClean(c rt desk "the login page lints clean at 1440")
+        RaveTest.lintClean(c rt phone "the login page lints clean at 390")
+        c.ok("an unknown path is refused" ((rt.navigate("/nowhere")) == false))
+        c.eqStr("…and the path stays" (rt.path()) "/login")
+
+        ; --- the keyboard ---------------------------------------------------------------
+        print "the keyboard"
+        def loginRoute:RaveRoute (app.routeAt("/login"))
+        def loginPage:RaveNode (app.node(loginRoute.pageId))
+        def email:string (RaveTest.elId((app.findIn(loginPage "input" "Email"))))
+        def password:string (RaveTest.elId((app.findIn(loginPage "input" "Password"))))
+        def signIn:string (RaveTest.elId((app.findWithAction(loginPage "login" ""))))
+        c.ok("nothing is focused to start with" ((strlen (rt.focusedId(desk))) == 0))
+        c.ok("Tab moves the focus" (rt.key(desk "Tab")))
+        c.eqStr("…to the email field" (rt.focusedId(desk)) email)
+        rt.key(desk "Tab")
+        c.eqStr("Tab again: the password field" (rt.focusedId(desk)) password)
+        rt.key(desk "Tab")
+        c.eqStr("Tab again: the Sign in button" (rt.focusedId(desk)) signIn)
+        c.ok("Enter presses it" (rt.key(desk "Enter")))
+        c.ok("…and the session is signed in" rt.auth.loggedIn)
+        c.eqStr("…on the page that was asked for" (rt.path()) "/dashboard")
+
+        ; --- the dashboard, signed in ------------------------------------------------------
+        print "the dashboard"
+        def dl2:string (rt.displayListJson(desk))
+        c.ok("the header shows Log out" (RaveTest.includes(dl2 "Log out")))
+        c.ok("…and not Sign in" ((RaveTest.includes(dl2 "Sign in")) == false))
+        def dashPage:RaveNode (app.node(dashRoute.pageId))
+        def card1:string (RaveTest.elId((app.findIn(dashPage "section" "Revenue"))))
+        def card2:string (RaveTest.elId((app.findIn(dashPage "section" "Users"))))
+        def card3:string (RaveTest.elId((app.findIn(dashPage "section" "Activity"))))
+        c.ok("1440: three cards in one row" ((RaveTest.near((rt.topOf(desk card1)) (rt.topOf(desk card2)))) && (RaveTest.near((rt.topOf(desk card2)) (rt.topOf(desk card3))))))
+        c.ok("768: two cards, then one" ((RaveTest.near((rt.topOf(tab card1)) (rt.topOf(tab card2)))) && ((RaveTest.near((rt.topOf(tab card2)) (rt.topOf(tab card3)))) == false)))
+        c.ok("390: one card per row" (((RaveTest.near((rt.topOf(phone card1)) (rt.topOf(phone card2)))) == false) && ((RaveTest.near((rt.topOf(phone card2)) (rt.topOf(phone card3)))) == false)))
+        c.ok("390: a card is as wide as the page allows" ((rt.widthOf(phone card1)) > 300.0))
+        RaveTest.lintClean(c rt desk "the dashboard lints clean at 1440")
+        RaveTest.lintClean(c rt tab "the dashboard lints clean at 768")
+        RaveTest.lintClean(c rt phone "the dashboard lints clean at 390")
+        RaveTest.noRejections(c rt tab "the engine rejected nothing at 768")
+
+        ; --- navigation by press -----------------------------------------------------------
+        print "navigation"
+        def toSettings:string (RaveTest.elId((app.idWithAction("navigate" "/settings"))))
+        c.ok("pressing the Settings link moves" (rt.press(toSettings)))
+        c.eqStr("…to /settings" (rt.path()) "/settings")
+        c.ok("the settings form is drawn" (RaveTest.includes((rt.displayListJson(desk)) "Display name")))
+        RaveTest.lintClean(c rt desk "settings lints clean at 1440")
+        ; the pointer: the sidebar link is hit where it is drawn
+        def linkX:double ((rt.leftOf(desk toSettings)) + 10.0)
+        def linkY:double ((rt.topOf(desk toSettings)) + 10.0)
+        c.eqStr("the link is hit where it is drawn" (rt.hitId(desk linkX linkY)) toSettings)
+        def toProfile:string (RaveTest.elId((app.idWithAction("navigate" "/profile"))))
+        def px:double ((rt.leftOf(desk toProfile)) + 10.0)
+        def py:double ((rt.topOf(desk toProfile)) + 10.0)
+        c.ok("a pointer press on the Profile link moves" (rt.pointerDown(desk px py)))
+        c.eqStr("…to /profile" (rt.path()) "/profile")
+        c.eqStr("…and focus followed the pointer" (rt.focusedId(desk)) toProfile)
+
+        ; --- logout -------------------------------------------------------------------
+        print "logout"
+        def logout:string (RaveTest.elId((app.idWithAction("logout" ""))))
+        c.ok("pressing Log out changes things" (rt.press(logout)))
+        c.ok("…the session is signed out" (rt.auth.loggedIn == false))
+        c.eqStr("…and a protected page is left" (rt.path()) "/")
+        c.ok("the dashboard is guarded again" (rt.navigate("/dashboard")))
+        c.eqStr("…to /login" (rt.path()) "/login")
+        def signIn2:string (RaveTest.elId((app.findWithAction(loginPage "login" ""))))
+        rt.press(signIn2)
+        c.eqStr("signing in returns to the page asked for" (rt.path()) "/dashboard")
+
+        ; --- the editor's toggle -------------------------------------------------------
+        print "the toggle"
+        c.ok("logging out from the editor moves off the protected page" (rt.setLoggedIn(false)))
+        c.eqStr("…to /" (rt.path()) "/")
+        c.ok("logging in from the editor" (rt.setLoggedIn(true)))
+        c.ok("…is idempotent" ((rt.setLoggedIn(true)) == false))
+
+        ; --- the accessibility tree --------------------------------------------------------
+        print "the tree"
+        rt.navigate("/dashboard")
+        def a11y:string (rt.a11yJson(desk))
+        c.ok("the tree names the navigation" (RaveTest.includes(a11y "Main navigation")))
+        c.ok("…and the heading" (RaveTest.includes(a11y "Dashboard")))
+
+        RaveTest.editorChecks(c)
+        RaveTest.inputChecks(c)
+
+        print ""
+        if (c.failed == 0) {
+            print ("ALL PASS (" + (to_string c.passed) + " checks)")
+        } {
+            print ("failed=" + (to_string c.failed) + " passed=" + (to_string c.passed))
+        }
+    }
+}

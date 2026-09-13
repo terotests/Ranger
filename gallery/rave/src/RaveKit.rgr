@@ -1,0 +1,161 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RaveKit — what the Components pane offers
+; =============================================================================
+; Each entry makes a node tree in the document's own vocabulary — a Button is
+; a `button` with the `btn` class, a Card a `section.card` with a heading
+; and a paragraph — so what is dropped is already accessible, already styled
+; by the shared rules the theme carries, and already runs. The kit is the
+; shadcn/ui list; what gallery/ui has a controller for is bound at run time
+; in later stages.
+; =============================================================================
+
+Import "RaveDoc.rgr"
+
+class RaveKit {
+
+    sfn kinds:[string] () {
+        def out:[string]
+        push out "Container"
+        push out "Section"
+        push out "Heading"
+        push out "Text"
+        push out "Button"
+        push out "Link"
+        push out "Input"
+        push out "Card"
+        push out "Image"
+        push out "Navigation"
+        push out "Form"
+        push out "List"
+        return out
+    }
+
+    sfn isKind:boolean (kind:string) {
+        def all:[string] (RaveKit.kinds())
+        def i:int 0
+        while (i < (array_length all)) {
+            if ((itemAt all i) == kind) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Whether a node can hold children the editor may drop into it.
+    sfn isContainer:boolean (n:RaveNode) {
+        def t:string n.tag
+        if (t == "div") { return true }
+        if (t == "section") { return true }
+        if (t == "header") { return true }
+        if (t == "footer") { return true }
+        if (t == "main") { return true }
+        if (t == "aside") { return true }
+        if (t == "nav") { return true }
+        if (t == "form") { return true }
+        if (t == "ul") { return true }
+        if (t == "li") { return true }
+        return false
+    }
+
+    sfn field:RaveNode (app:RaveApp label:string placeholder:string) {
+        def f:RaveNode (app.newNode("div" label))
+        f.addClass("field")
+        def lab:RaveNode (f.add((app.newText("label" label))))
+        lab.addClass("muted")
+        def input:RaveNode (f.add((app.newNode("input" label))))
+        input.addClass("input")
+        input.label = label
+        input.placeholder = placeholder
+        return f
+    }
+
+    sfn create:RaveNode (app:RaveApp kind:string) {
+        if (kind == "Section") {
+            def s:RaveNode (app.newNode("section" "Section"))
+            s.label = "Section"
+            app.style(s "gap" "16px")
+            app.style(s "padding" "16px")
+            return s
+        }
+        if (kind == "Heading") {
+            def h:RaveNode (app.newText("h2" "Heading"))
+            h.addClass("title")
+            return h
+        }
+        if (kind == "Text") {
+            def p:RaveNode (app.newText("p" "Text. Select it and type to change what it says."))
+            return p
+        }
+        if (kind == "Button") {
+            def b:RaveNode (app.newText("button" "Button"))
+            b.addClass("btn")
+            app.style(b "width" "fit-content")
+            return b
+        }
+        if (kind == "Link") {
+            def a:RaveNode (app.newText("a" "Link"))
+            a.addClass("navlink")
+            app.style(a "width" "fit-content")
+            return a
+        }
+        if (kind == "Input") {
+            return (RaveKit.field(app "Label" "Type here"))
+        }
+        if (kind == "Card") {
+            def c:RaveNode (app.newNode("section" "Card"))
+            c.addClass("card")
+            c.label = "Card"
+            def h3:RaveNode (c.add((app.newText("h3" "Card title"))))
+            h3.addClass("subtitle")
+            def body:RaveNode (c.add((app.newText("p" "What this card is about."))))
+            body.addClass("muted")
+            return c
+        }
+        if (kind == "Image") {
+            def img:RaveNode (app.newNode("img" "Image"))
+            img.alt = "Image"
+            app.style(img "width" "100%")
+            app.style(img "height" "160px")
+            app.style(img "background-color" "var(--panel)")
+            app.style(img "border-radius" "var(--radius)")
+            return img
+        }
+        if (kind == "Navigation") {
+            def nav:RaveNode (app.newNode("nav" "Navigation"))
+            nav.label = "Navigation"
+            app.style(nav "flex-direction" "row")
+            app.style(nav "gap" "4px")
+            def l1:RaveNode (nav.add((app.newText("a" "First"))))
+            l1.addClass("navlink")
+            def l2:RaveNode (nav.add((app.newText("a" "Second"))))
+            l2.addClass("navlink")
+            return nav
+        }
+        if (kind == "Form") {
+            def f:RaveNode (app.newNode("form" "Form"))
+            f.label = "Form"
+            app.style(f "gap" "12px")
+            app.style(f "max-width" "480px")
+            f.add((RaveKit.field(app "Name" "Your name")))
+            def go:RaveNode (f.add((app.newText("button" "Submit"))))
+            go.addClass("btn")
+            app.style(go "width" "fit-content")
+            return f
+        }
+        if (kind == "List") {
+            def ul:RaveNode (app.newNode("ul" "List"))
+            app.style(ul "gap" "4px")
+            ul.add((app.newText("li" "First item")))
+            ul.add((app.newText("li" "Second item")))
+            ul.add((app.newText("li" "Third item")))
+            return ul
+        }
+        def d:RaveNode (app.newNode("div" "Container"))
+        app.style(d "gap" "16px")
+        app.style(d "padding" "16px")
+        return d
+    }
+}

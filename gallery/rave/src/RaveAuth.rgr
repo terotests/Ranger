@@ -1,0 +1,45 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RaveAuth — the mock session
+; =============================================================================
+; Logged in or logged out, and who. That is all the first prototype needs:
+; the editor toggles it, `Login` and `Logout` actions set it, protected routes
+; and `Authenticated` / `Unauthenticated` nodes read it. A real backend is a
+; later implementation of the same three questions.
+; =============================================================================
+
+class RaveAuth {
+    def loggedIn:boolean false
+    def user:string ""
+
+    Constructor () {
+    }
+
+    fn login:void () {
+        loggedIn = true
+        if ((strlen user) == 0) {
+            user = "Ada"
+        }
+    }
+
+    fn loginAs:void (name:string) {
+        user = name
+        loggedIn = true
+    }
+
+    fn logout:void () {
+        loggedIn = false
+    }
+
+    ; Whether a conditional node with this condition is shown now.
+    fn allows:boolean (condition:string) {
+        if (condition == "authenticated") {
+            return loggedIn
+        }
+        if (condition == "unauthenticated") {
+            return (loggedIn == false)
+        }
+        return true
+    }
+}

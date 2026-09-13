@@ -3065,9 +3065,13 @@ class EVGElement {
     ; it applied as `width: 100%`.
     ;
     ; The cost is one `isSet` test on a path that already parsed a string.
+    ;
+    ; `fit-content` is the one value that is understood AND left unset — the
+    ; layout reads its unit type (6), not `isSet` — so it is not a rejection.
+    ; Rave's strip counted it as one for every button on the page.
     fn unitOf:EVGUnit (name:string value:string) {
         def u:EVGUnit (EVGUnit.parse(value))
-        if (u.isSet == false) {
+        if ((u.isSet == false) && (u.unitType != 6)) {
             if ((EVGReject.isAbsent(value)) == false) {
                 EVGReject.note("unsupported length" name value)
             }

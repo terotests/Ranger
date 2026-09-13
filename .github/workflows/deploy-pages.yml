@@ -58,6 +58,9 @@
 #                upload or paste in the tab, parsing it (ZIP → kiwi → node
 #                tree) and drawing it with EVG. ?file=sample opens the deck
 #                Ranger builds in memory instead.
+#   /rave/    -> the editor after Rafi: Routes / Components / Layers, one
+#                page at three widths from one tree, Design | Run over the
+#                same document. Chrome and app are both EVG on one canvas.
 #   /rafi/    -> the same reader with its chrome in Ranger rather than in
 #                HTML: the rails, the layers tree, the panel, the toolbar and
 #                the status strip are EVG elements on the same canvas as the
@@ -478,6 +481,24 @@ jobs:
       # board all answer in Node without a browser.
       - name: Check Rafi draws its editor
         run: node gallery/figma/web/rafi/smoke.mjs
+
+      # ---- Rave, at /rave/ ---------------------------------------------------
+      # The editor after Rafi: the same chrome, but what is on the stage is an
+      # application — routes, layouts, pages, a stylesheet with breakpoints —
+      # laid out at three widths from one tree and run in place. Chrome and
+      # app are both Ranger, so the page is checked in Node before it ships.
+      - name: Build Rave
+        run: npm run rave:build --silent && node gallery/rave/web/build.mjs --out "$GITHUB_WORKSPACE/_site/rave"
+
+      - name: Check Rave has an engine
+        run: |
+          test -s "$GITHUB_WORKSPACE/_site/rave/generated-host.js"
+          test -s "$GITHUB_WORKSPACE/_site/rave/main.js"
+          test -s "$GITHUB_WORKSPACE/_site/rave/evg/gl/evg-webgl.js"
+          grep -q "RaveEditor" "$GITHUB_WORKSPACE/_site/rave/generated-host.js"
+
+      - name: Check Rave draws its editor
+        run: node gallery/rave/web/smoke.mjs
 
       # ---- The markdown viewer at /markdown/ -------------------------------
       # A CommonMark parser in Ranger, its own line breaker, and the same WebGL
