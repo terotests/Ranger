@@ -1,0 +1,17 @@
+{
+  "name": "rangerflow-confluence",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "description": "Forge macro: paste a RangerFlow share link, see the diagram.",
+  "scripts": {
+    "build": "esbuild src/frontend.js --bundle --format=iife --outfile=static/rangerflow/macro.js",
+    "test": "node --test test/*.test.mjs",
+    "deploy": "npm run build && forge deploy"
+  },
+  "dependencies": {
+    "@forge/bridge": "^4.5.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.9"
+  }
+}

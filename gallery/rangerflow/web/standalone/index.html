@@ -73,6 +73,7 @@
   #sharebox button { padding: 3px 9px; border: 1px solid #ccd3dd; border-radius: 5px;
                      background: #fff; cursor: pointer; }
   #sharebox .hint { margin: 0; color: #6b7280; font-size: 12px; }
+  #shareconfluence { font-weight: 600; }
   /* Embedded: the diagram and one way out of the frame. */
   body.embed header, body.embed #tools, body.embed #srcbox, body.embed footer,
   body.embed #sharebox { display: none !important; }
@@ -161,6 +162,7 @@
   <button id="fit">fit</button>
   <button id="svg">download SVG</button>
   <button id="share" title="A link that opens this diagram as it is now — edits included">share link</button>
+  <button id="confluence" title="Copy a view-only link. Paste it in Confluence and the diagram appears.">Copy for Confluence</button>
   <label>open .sql <input type="file" id="file" accept=".sql,.txt"></label>
 </header>
 
@@ -172,11 +174,11 @@
   <label class="field">Link — opens the editor on this diagram, edits included
     <span class="line"><input id="sharelink" readonly><button type="button" data-copy="sharelink">copy</button></span>
   </label>
-  <label class="field">Embed — view only, for an iframe or a Confluence embed
+  <label class="field">Embed — view only, for an iframe. Paste this in Confluence too.
     <span class="line"><input id="shareembed" readonly><button type="button" data-copy="shareembed">copy</button></span>
   </label>
-  <p class="hint"><a id="sharepreview" target="_blank" rel="noopener">Open the embed view</a> · <span id="sharenote"></span></p>
-  <p class="hint">The diagram travels inside the link, after the <code>#</code>. Browsers never send that part to a server, so nothing is uploaded — and a later edit needs a new link.</p>
+  <p class="hint"><button type="button" id="shareconfluence">Copy for Confluence</button> · <a id="sharepreview" target="_blank" rel="noopener">Open the embed view</a> · <span id="sharenote"></span></p>
+  <p class="hint">Paste either link into Confluence: with the RangerFlow app installed, the diagram appears. No <code>/iframe</code>, no sizes. The diagram travels after the <code>#</code>, so nothing is uploaded — and a later edit needs a new link.</p>
 </div>
 
 <div id="tools">

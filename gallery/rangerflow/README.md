@@ -63,11 +63,20 @@ by the Pages workflow on every push to `master` that touches `gallery/rangerflow
 **share link** in the header packs the diagram *as edited* into a link: every
 box moved, line routed by hand, label renamed, look and theme. It is the model,
 not the Mermaid text and not a picture, so the link reopens something you can
-keep editing.
+keep editing. **Copy for Confluence** copies the view-only form of the same
+link, for a paste into a Confluence page.
 
 ```text
 https://terotests.github.io/Ranger/rangerflow/#rf=z…            the editor, on that diagram
 https://terotests.github.io/Ranger/rangerflow/?embed=1#rf=z…    view only: pan and zoom, fitted to its frame
+```
+
+```text
+RangerFlow     Copy for Confluence
+                    ↓
+Confluence     paste
+                    ↓
+               the diagram
 ```
 
 - The document is `FlowDocument` JSON ([export/FlowDocument.rgr](export/FlowDocument.rgr)),
@@ -77,13 +86,19 @@ https://terotests.github.io/Ranger/rangerflow/?embed=1#rf=z…    view only: pan
 - `?embed=1` hides the toolbars, the minimap and the handles, fits the diagram
   to whatever size the frame is, and turns every press into a pan. A corner
   link opens the same diagram in the full editor.
-- In Confluence Cloud, paste the embed link and choose the **Embed** view, or
-  use an iframe macro where your site has one. Whether a site shows a
-  github.io page embedded is up to Confluence and the site's admins; if it
-  only offers a link card, the link still opens the diagram.
+- **Confluence Cloud:** install the tiny Forge app in
+  [`forge/`](forge/README.md). After that, paste either link into a page —
+  Confluence replaces it with a RangerFlow macro (650 px high, as wide as the
+  editor's center / wide / full-width control). No `/iframe`, no sizes. The
+  diagram still runs on GitHub Pages; the app is an iframe wrapper with URL
+  autoconvert. Without the app, paste the embed link and pick **Embed**, or
+  use an iframe macro: a github.io URL is not a first-class Smart Link embed,
+  which is why the wrapper exists.
 - `npm run rangerflow:doc:test` draws every example as SVG, saves it, opens
   the save in a fresh page and compares the two SVG strings, so a field the
   document forgets fails a test rather than a reader.
+- `npm run rangerflow:forge:test` checks the allow-list and the manifest: a
+  foreign URL cannot become the iframe, and the adapter still has no backend.
 
 `npm run rangerflow:demo:web` builds the static page, serves it, and prints
 the URLs. They are the same editor with different graphs in it — the `demo`

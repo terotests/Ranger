@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Tiny Confluence adapter for RangerFlow. The diagram stays on GitHub Pages;
+# this app only recognises a pasted share link and wraps it in an iframe.
+#
+# Replace app.id by running `npx forge register` in this directory before
+# the first deploy.
+
+modules:
+  macro:
+    - key: rangerflow
+      resource: rangerflow-macro
+      title: RangerFlow
+      description: Paste a RangerFlow share link to embed the diagram.
+      icon: icon.svg
+      category: embed
+      layout: block
+      emitsReadyEvent: true
+      autoConvert:
+        matchers:
+          - pattern: "https://terotests.github.io/Ranger/rangerflow"
+          - pattern: "https://terotests.github.io/Ranger/rangerflow/"
+          - pattern: "https://terotests.github.io/Ranger/rangerflow?*"
+          - pattern: "https://terotests.github.io/Ranger/rangerflow/?*"
+          - pattern: "https://terotests.github.io/Ranger/rangerflow/index.html"
+          - pattern: "https://terotests.github.io/Ranger/rangerflow/index.html?*"
+
+resources:
+  - key: rangerflow-macro
+    path: static/rangerflow
+
+permissions:
+  scopes: []
+  external:
+    frames:
+      - "https://terotests.github.io"
+    fetch:
+      client:
+        - "https://terotests.github.io"
+
+app:
+  runtime:
+    name: nodejs20.x
+  id: ari:cloud:ecosystem::app/00000000-0000-4000-8000-000000000000
