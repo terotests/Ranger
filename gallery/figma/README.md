@@ -89,12 +89,17 @@ Reported per node rather than dropped in silence:
 
 | | |
 | --- | --- |
-| **images** | an `IMAGE` paint names a hash whose bytes live in the archive; a flat colour stands in |
-| **gradients** | written as their first stop |
+| **image bytes** | an `IMAGE` paint names a hash whose bytes live in the archive, and `SceneToFig` writes no archive entries. Reading them out works: `to-evg` extracts every image beside the document it writes, under the names the paints already use. |
+| **a gradient's angle** | both ends are written, and the angle is not — Figma orients a gradient with a transform on the paint and a scene records only that it was linear |
 
 Everything else a scene carries — position, size, rotation, fills, strokes,
-corner radius, opacity, clipping, text, its font, **and vector outlines** — is
-written.
+corner radius, opacity, clipping, text, its font, **vector outlines and both
+ends of a gradient** — is written.
+
+A gradient survives the editable format too, which it did not at first: EVG
+spells one `gradient-from` / `gradient-to` / `gradient-dir`, none of those were
+in `EVGPatch.patchableNames()`, and a Figma page with a gradient fill arrived in
+the document with nothing where the gradient had been. They are in the set now.
 
 ### Outlines are blobs, and the blob is the shape
 

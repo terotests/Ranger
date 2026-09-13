@@ -117,6 +117,14 @@ class FigCli {
             evgRoot.setAttribute("height" ((to_string (to_int page3.h)) + "px"))
             evgRoot.markInline("width")
             evgRoot.markInline("height")
+            ; A Figma image lives inside the archive, and an EVG document
+            ; resolves `src` against itself — so a page with pictures converted
+            ; without them produces a document that cannot render. The bytes go
+            ; out beside the document, under the names the paints already use.
+            def wrote:int (FigCli.writeImages(doc3 (FigCli.dirOf(dest3))))
+            if (wrote > 0) {
+                print (("  " + (to_string wrote)) + " image(s) written beside it")
+            }
             def text3:string (EVGTreeJson.toText(evgRoot))
             write_file (FigCli.dirOf(dest3)) (FigCli.nameOf(dest3)) text3
             print (("wrote " + dest3) + ((" (page " + (to_string want)) + (", " + page3.name) + ")"))
@@ -263,6 +271,23 @@ class FigCli {
             return "yes"
         }
         return "no"
+    }
+
+    ; Every image in the archive, on disk next to the document. Returns how
+    ; many, so the caller can say so rather than leave it to be discovered by a
+    ; render that fails.
+    sfn writeImages:int (doc:FigDoc dir:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length doc.images)) {
+            def im:FigImage (itemAt doc.images i)
+            if ((buffer_length im.bytes) > 0) {
+                buffer_write_file dir im.name im.bytes
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
     }
 
     sfn dirOf:string (path:string) {

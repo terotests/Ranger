@@ -279,6 +279,75 @@ class FigTest {
         this.check("the geometry blob rode along" ((array_length back.blobs) > 0))
     }
 
+
+    fn testGradientSurvives:void () {
+        print "--- a gradient, read and written again ---"
+        def bytes:buffer (FigSample.buildFig())
+        def p (new FigParser())
+        def doc:FigDoc (p.parseBytes(bytes "sample.fig"))
+        def conv (new FigToScene())
+        def scene:SceneDocument (conv.convertDoc(doc))
+
+        def found:SceneFill (FigTest.firstGradient(scene))
+        this.check("the sample has a gradient to test with" (found.kind == "gradient"))
+        this.check("its first end is set" ((found.r + found.g + found.b) > 0.0))
+        this.check("and its last end differs" (((found.gradR != found.r) || (found.gradG != found.g)) || (found.gradB != found.b)))
+
+        def w (new SceneToFig())
+        def out:buffer (w.toBytes(scene "grad.fig"))
+        def p2 (new FigParser())
+        def back:FigDoc (p2.parseBytes(out "grad.fig"))
+        this.check(("it parsed " + back.err) back.ok)
+        def conv2 (new FigToScene())
+        def scene2:SceneDocument (conv2.convertDoc(back))
+        def again:SceneFill (FigTest.firstGradient(scene2))
+        ; Written as a solid, this comes back "solid" — which is what it did
+        ; before the writer learned the stops.
+        this.eqStr("it is still a gradient" again.kind "gradient")
+        this.check(("first end survives, got " + (to_string again.r)) ((FigTest.near(again.r found.r)) && (FigTest.near(again.g found.g))))
+        this.check(("last end survives, got " + (to_string again.gradR)) ((FigTest.near(again.gradR found.gradR)) && (FigTest.near(again.gradB found.gradB))))
+    }
+
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d < 0.01)
+    }
+
+    sfn firstGradient:SceneFill (doc:SceneDocument) {
+        def i:int 0
+        while (i < (array_length doc.pages)) {
+            def hit:SceneFill (FigTest.gradientIn((itemAt doc.pages i)))
+            if (hit.kind == "gradient") {
+                return hit
+            }
+            i = (i + 1)
+        }
+        return (new SceneFill())
+    }
+
+    sfn gradientIn:SceneFill (n:SceneNode) {
+        def f:int 0
+        while (f < (array_length n.fills)) {
+            def fill:SceneFill (itemAt n.fills f)
+            if (fill.kind == "gradient") {
+                return fill
+            }
+            f = (f + 1)
+        }
+        def i:int 0
+        while (i < (array_length n.children)) {
+            def hit:SceneFill (FigTest.gradientIn((itemAt n.children i)))
+            if (hit.kind == "gradient") {
+                return hit
+            }
+            i = (i + 1)
+        }
+        return (new SceneFill())
+    }
+
     fn run:void () {
         print "=== FigTest ==="
         this.testVarint()
@@ -304,6 +373,7 @@ class FigTest {
         this.testWriterReportsWhatItCannotCarry()
         this.testPathBlobRoundTrip()
         this.testVectorKeepsItsShape()
+        this.testGradientSurvives()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {

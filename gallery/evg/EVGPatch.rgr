@@ -600,6 +600,11 @@ class EVGPatch {
         ; the painting was empty. It is carried at full length: a document that
         ; renders correctly is worth more than a short file.
         if (name == "svg") { return 1 }
+        ; The two-stop gradient. Found by converting a Figma page that had one:
+        ; the scene carried it, `SceneToEVG` emitted `gradient-from` and
+        ; `gradient-to`, and the editable format — which is this set — dropped
+        ; both, so a gradient fill arrived in the document as nothing at all.
+        if (name == "gradient-dir") { return 4 }
 
         if (((name == "width") || (name == "height")) || (name == "min-width")) { return 2 }
         if (((name == "min-height") || (name == "max-width")) || (name == "max-height")) { return 2 }
@@ -609,6 +614,7 @@ class EVGPatch {
 
         if (((name == "color") || (name == "background-color")) || (name == "border-color")) { return 3 }
         if ((name == "fill") || (name == "stroke")) { return 3 }
+        if ((name == "gradient-from") || (name == "gradient-to")) { return 3 }
         ; `emoji-color` is a TINT, and that is the whole reason it exists: the
         ; face is monochrome outlines with no colour of its own, so something
         ; has to say what to fill them with, and unset it inherits the text
@@ -675,6 +681,9 @@ class EVGPatch {
         push a "fill"
         push a "stroke"
         push a "emoji-color"
+        push a "gradient-from"
+        push a "gradient-to"
+        push a "gradient-dir"
         push a "stroke-width"
         push a "stroke-dashoffset"
         push a "width"
@@ -786,6 +795,8 @@ class EVGPatch {
         if (n == "fill")             { return (EVGPatch.colorText(el.fillColor)) }
         if (n == "stroke")           { return (EVGPatch.colorText(el.strokeColor)) }
         if (n == "emoji-color")      { return (EVGPatch.colorText(el.emojiColor)) }
+        if (n == "gradient-from")    { return (EVGPatch.gradientText(el.gradientFrom el.gradientSet)) }
+        if (n == "gradient-to")      { return (EVGPatch.gradientText(el.gradientTo el.gradientSet)) }
 
         if (n == "opacity")     { return (EVGDisplayList.num(el.opacity)) }
         if (n == "line-height") { return (EVGDisplayList.num(el.lineHeight)) }
@@ -793,6 +804,7 @@ class EVGPatch {
         if (n == "flex-shrink") { return (EVGDisplayList.num(el.flexShrink)) }
         if (n == "rotate")      { return (EVGDisplayList.num(el.rotate)) }
         if (n == "scale")       { return (EVGDisplayList.num(el.scale)) }
+        if (n == "gradient-dir") { return (EVGDisplayList.num((to_double el.gradientDir))) }
         if (n == "stroke-width")      { return (EVGDisplayList.num(el.strokeWidth)) }
         if (n == "stroke-dashoffset") { return (EVGDisplayList.num(el.strokeDashOffset)) }
 
@@ -1052,6 +1064,19 @@ class EVGPatch {
             el.emojiColor = c
             return true
         }
+        ; Clearing either end clears the gradient: half a gradient is not a
+        ; state the renderer has, and leaving `gradientSet` on with one end
+        ; unset paints from black.
+        if (n == "gradient-from") {
+            el.gradientFrom = c
+            el.gradientSet = false
+            return true
+        }
+        if (n == "gradient-to") {
+            el.gradientTo = c
+            el.gradientSet = false
+            return true
+        }
 
         if (n == "opacity") {
             el.opacity = 1.0
@@ -1083,6 +1108,10 @@ class EVGPatch {
         }
         if (n == "stroke-dashoffset") {
             el.strokeDashOffset = 0.0
+            return true
+        }
+        if (n == "gradient-dir") {
+            el.gradientDir = 0
             return true
         }
 
@@ -1142,6 +1171,16 @@ class EVGPatch {
             return ""
         }
         return (uu.toString())
+    }
+
+    ; A gradient end reads as nothing until the gradient is on. Without the
+    ; guard a fresh element reports two black ends it does not have, and every
+    ; document would carry them.
+    sfn gradientText:string (c@(optional):EVGColor on:boolean) {
+        if (on == false) {
+            return ""
+        }
+        return (EVGPatch.colorText(c))
     }
 
     sfn colorText:string (c@(optional):EVGColor) {

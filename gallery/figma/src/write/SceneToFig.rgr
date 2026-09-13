@@ -234,7 +234,15 @@ class SceneToFig {
             return
         }
         if (f.kind == "gradient") {
-            push losses (path + ": a gradient is written as its first stop")
+            ; Both ends, which is both ends the scene has. What is genuinely
+            ; gone is the ANGLE: Figma orients a gradient with a transform on
+            ; the paint and a scene records only that it was linear, so the
+            ; gradient comes back in the default direction.
+            push losses (path + ": the gradient keeps its two ends and loses its angle — a scene does not carry one")
+            def ga:double (f.a * f.opacity)
+            def gb:double (f.gradA * f.opacity)
+            o.put("fillPaints" (FigWrite.gradient(f.r f.g f.b ga f.gradR f.gradG f.gradB gb)))
+            return
         }
         def alpha:double (f.a * f.opacity)
         o.put("fillPaints" (FigWrite.paintsA(f.r f.g f.b alpha)))

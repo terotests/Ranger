@@ -135,6 +135,38 @@ class FigWrite {
         return (KiwiValue.fromArray())
     }
 
+
+    ; A two-stop linear gradient.
+    ;
+    ; A scene keeps only the ENDS — `SceneFill` holds the first stop in its own
+    ; channels and the last in `grad*`, because that is what a display list
+    ; carries — so a gradient that was written with five stops comes back as
+    ; two. The two it comes back as are the right two, which is why the reader
+    ; takes the first and the LAST rather than the first two.
+    ;
+    ; The direction is not carried either: Figma orients a gradient with a
+    ; transform on the paint, and `gradDir` only records that it was linear. So
+    ; this writes the default orientation and the caller says the angle is lost.
+    sfn gradient:KiwiValue (r0:double g0:double b0:double a0:double r1:double g1:double b1:double a1:double) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("type" (KiwiValue.fromString("GRADIENT_LINEAR")))
+        o.put("opacity" (KiwiValue.fromDouble(1.0)))
+        o.put("visible" (KiwiValue.fromBool(true)))
+        def stops:KiwiValue (KiwiValue.fromArray())
+        def first:KiwiValue (KiwiValue.fromObject())
+        first.put("color" (FigWrite.colorA(r0 g0 b0 a0)))
+        first.put("position" (KiwiValue.fromDouble(0.0)))
+        stops.pushItem(first)
+        def last:KiwiValue (KiwiValue.fromObject())
+        last.put("color" (FigWrite.colorA(r1 g1 b1 a1)))
+        last.put("position" (KiwiValue.fromDouble(1.0)))
+        stops.pushItem(last)
+        o.put("stops" stops)
+        def arr:KiwiValue (KiwiValue.fromArray())
+        arr.pushItem(o)
+        return arr
+    }
+
     ; --- text -----------------------------------------------------------------
 
     sfn chars:KiwiValue (text:string) {
