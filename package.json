@@ -957,7 +957,7 @@
     "firesim:test": "npm run firesim:build --silent && node gallery/firesim/tests/firesim-check.mjs",
     "firesim:targets": "node gallery/firesim/tests/targets-check.mjs",
     "firesim:size": "npm run firesim:build --silent && node gallery/firesim/tests/size-check.mjs",
-    "firesim:realtrainer": "npm run firesim:build --silent && node gallery/firesim/tests/realtrainer-check.mjs",
+    "firesim:realtrainer": "npm run firesim:build --silent && npm run rt:build --silent && node gallery/firesim/tests/realtrainer-check.mjs",
     "firesim:demo:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/firesim/demo/FiresimConsole.rgr -d=./gallery/firesim/bin -o=FiresimConsole.cjs",
     "firesim:demo": "npm run firesim:demo:build --silent && node gallery/firesim/tests/console-check.mjs",
     "firesim:demo:page": "npm run firesim:demo:build --silent && node gallery/firesim/demo/build.mjs",
