@@ -1,0 +1,65 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+<title>r5 — markdown, drawn by EVG</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230969da'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-size='16' font-weight='700' fill='white' text-anchor='middle'%3Er5%3C/text%3E%3C/svg%3E" />
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #eef0f4; color: #1f2328;
+    font: 13px/1.45 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    overflow: hidden; overscroll-behavior: none;
+  }
+  /* The page is the window: one stage, one canvas, the document's own
+     input surface over the pane, and the accessibility mirror over all of
+     it — a canvas hands a reader one empty graphic no matter what was drawn
+     into it. */
+  #stage { position: relative; width: 100%; height: 100%; }
+  #c { display: block; width: 100%; height: 100%; touch-action: none; }
+  #c:focus { outline: none; }
+  /* Where the document is drawn. It takes the pointer there — the two
+     editors' host modules attach to it — and it is moved to wherever the
+     layout put the pane. Nothing is painted in it. */
+  #pane { position: absolute; left: 0; top: 0; width: 0; height: 0; touch-action: none; }
+  /* A canvas cannot receive typed text, an IME composition or a paste. This
+     field can, and is what the keyboard points at. It has to stay in the
+     layout and focusable, so it is one transparent pixel. */
+  #keys {
+    position: absolute; top: 0; left: 0; width: 1px; height: 1px;
+    padding: 0; border: 0; outline: none; opacity: 0; resize: none;
+    overflow: hidden; white-space: pre; z-index: 1;
+  }
+  #hint {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    color: #57606a; text-align: center; pointer-events: none;
+  }
+  #err {
+    position: fixed; left: 12px; bottom: 12px; right: 12px;
+    color: #cf222e; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; white-space: pre-wrap; pointer-events: none;
+  }
+  noscript { display: block; padding: 24px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="c" aria-hidden="true"></canvas>
+  <div id="pane"></div>
+  <textarea id="keys" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"
+            aria-label="The document — type here to edit it"></textarea>
+  <div id="hint">loading the engine…</div>
+</div>
+<div id="err"></div>
+<input id="filepick" type="file" accept=".md,.markdown,text/markdown,text/plain" hidden />
+<noscript>
+  This page is a markdown editor and viewer compiled from Ranger — the parser,
+  the layout, the slide and Word editors and the PDF writer all run in the tab.
+  It needs JavaScript and WebGL 2.
+</noscript>
+<script src="./r5_app.js?v=__BUILD__"></script>
+<script type="module" src="./main.js?v=__BUILD__"></script>
+</body>
+</html>
