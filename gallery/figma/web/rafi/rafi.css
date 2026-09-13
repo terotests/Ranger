@@ -1,0 +1,225 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The Fig editor's chrome, as an EVG stylesheet.
+ *
+ * The same three rails and stage the DOM editor has, in the same colours and
+ * at the same sizes: `gallery/figma/web/standalone/index.html` is the
+ * reference, and every number here is the number that is there. Where a token
+ * is a CSS custom property over there it is written out here, because an EVG
+ * sheet has no variables — the palette is in one block at the top so the two
+ * can be diffed by eye.
+ *
+ * Class-first, one concern per class, the way gallery/ui's sheets and
+ * gallery/mfiles' are. EVG's flex default is `wrap`, so every row that must
+ * stay on one line says `flex-wrap: nowrap`, and every text element states a
+ * `height`: EVG sizes a text box by what it is told, not by its glyphs.
+ *
+ * TEXT NEVER WRAPS BY ITSELF. `white-space: nowrap` is set once on the page
+ * and inherited; what has to be cut is measured and cut by the app.
+ *
+ *   --bg #f5f5f5   --panel/--rail #ffffff   --ink #1a1d21   --muted #7b8190
+ *   --faint #aab0bb --line #e7e9ee  --line-soft #f0f1f4     --hover #f2f4f8
+ *   --sel #e8f1fe   --accent #0d6efd --ring #2d6b66         --instance #7b61ff
+ *   --good #16a34a  --warn #b45309   --field #f6f7f9
+ */
+
+.rf-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  /* NO BACKGROUND. The board is drawn under this tree and the chrome is
+     painted over it, so anything the chrome paints behind the stage would
+     paint the document out. What surrounds the board — the rails, the rulers,
+     the strip — is opaque on its own. */
+  font-family: Inter;
+  font-size: 13px;
+  color: #1a1d21;
+  white-space: nowrap;
+}
+
+.rf-grow { flex-grow: 1; }
+.rf-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; }
+.rf-col { display: flex; flex-direction: column; }
+.rf-spacer { flex-grow: 1; }
+
+/* The three rails. Fixed side widths, because a panel that resizes with the
+   window is a panel whose rows reflow while you read them. */
+.rf-main { display: flex; flex-direction: row; flex-wrap: nowrap; flex-grow: 1; min-height: 0; }
+.rf-rail { display: flex; flex-direction: column; height: 100%; background-color: #ffffff; min-height: 0; overflow: hidden; }
+.rf-rail-left { width: 244px; min-width: 244px; border-right: 1px solid #e7e9ee; }
+.rf-rail-right { width: 272px; min-width: 272px; border-left: 1px solid #e7e9ee; }
+.rf-scroll { display: flex; flex-direction: column; flex-grow: 1; min-height: 0; overflow-y: auto; }
+
+/* A rail's head: the file on the left, one row high, so the panes below start
+   where the eye expects them. */
+.rf-railhead {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  height: 40px; min-height: 40px; padding: 0 10px; gap: 8px;
+  border-bottom: 1px solid #e7e9ee;
+}
+.rf-dot { width: 16px; min-width: 16px; height: 16px; border-radius: 4px; background-color: #7b61ff; }
+.rf-title { font-size: 12.5px; font-weight: bold; height: 18px; color: #1a1d21; }
+
+/* Tabs. The underline is the state; a filled pill here would compete with the
+   selection colour, which has to stay the loudest thing. */
+.rf-tabrow {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 2px; padding: 0 6px; height: 33px; min-height: 33px;
+  border-bottom: 1px solid #e7e9ee;
+}
+.rf-tab {
+  padding: 9px 8px 7px; border-bottom: 2px solid #ffffff;
+  display: flex; flex-direction: row; align-items: center;
+}
+.rf-tab-t { font-size: 12px; font-weight: bold; height: 15px; color: #7b8190; }
+.rf-tab:hover .rf-tab-t { color: #1a1d21; }
+.rf-tab-on { border-bottom: 2px solid #1a1d21; }
+.rf-tab-on .rf-tab-t { color: #1a1d21; }
+.rf-zoomread { font-size: 11.5px; height: 16px; color: #7b8190; padding: 0 4px 0 0; }
+
+/* A section in a rail: a quiet caption and its rows. */
+.rf-cap {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 6px; padding: 10px 10px 4px;
+}
+.rf-cap-t { font-size: 10px; font-weight: bold; height: 12px; color: #aab0bb; letter-spacing: 0.9px; }
+.rf-cap-n { font-size: 10px; height: 12px; color: #aab0bb; }
+
+/* The open controls: three buttons and a keyboard shortcut, so a row that gets
+   out of the way rather than a menu that has to be found. */
+.rf-opener {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 6px; padding: 8px 10px; border-bottom: 1px solid #f0f1f4;
+}
+.rf-btn {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  background-color: #f6f7f9; border: 1px solid #e7e9ee; border-radius: 7px;
+  padding: 5px 9px; height: 26px; min-height: 26px;
+}
+.rf-btn:hover { border: 1px solid #0d6efd; }
+.rf-btn-t { font-size: 12px; height: 16px; color: #1a1d21; }
+
+/* Pages. A list and not a dropdown: a file's pages are the first thing you
+   navigate and the last thing that should be behind a click. */
+.rf-pages { display: flex; flex-direction: column; padding: 0 6px 6px; border-bottom: 1px solid #f0f1f4; }
+.rf-pagerow {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 7px; padding: 5px 7px; border-radius: 5px; height: 27px; min-height: 27px;
+}
+.rf-pagerow:hover { background-color: #f2f4f8; }
+.rf-pagerow-on { background-color: #e8f1fe; }
+.rf-page-ic { font-size: 11px; height: 14px; color: #aab0bb; width: 12px; min-width: 12px; }
+.rf-page-nm { font-size: 13px; height: 17px; color: #1a1d21; }
+.rf-pagerow-on .rf-page-nm { font-weight: bold; }
+
+/* The frame picker, which is a real narrowing of the board and not a page: it
+   sits with the layers it scopes. */
+.rf-framepick { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; padding: 4px 10px 8px; }
+.rf-select {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; flex-grow: 1;
+  background-color: #f6f7f9; border: 1px solid #e7e9ee; border-radius: 6px;
+  padding: 4px 6px; height: 26px; min-height: 26px;
+}
+.rf-select:hover { border: 1px solid #0d6efd; }
+.rf-select-t { font-size: 12px; height: 16px; color: #1a1d21; flex-grow: 1; }
+.rf-select-ar { font-size: 9px; height: 16px; color: #aab0bb; }
+
+/* The layers tree. One root at a time, rows that fold, crumbs back out. */
+.rf-tree { display: flex; flex-direction: column; padding: 0 6px 10px; }
+.rf-crumbs { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 2px; padding: 2px 4px 6px; }
+.rf-crumb { font-size: 11px; height: 14px; color: #aab0bb; padding: 1px 3px; }
+.rf-crumb-here { color: #1a1d21; }
+.rf-treerow {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 1px; border-radius: 5px; height: 25px; min-height: 25px;
+}
+.rf-treerow:hover { background-color: #f2f4f8; }
+.rf-treerow-on { background-color: #e8f1fe; }
+.rf-fold { width: 15px; min-width: 15px; display: flex; flex-direction: row; align-items: center; }
+.rf-fold-t { font-size: 9px; height: 12px; color: #aab0bb; width: 15px; min-width: 15px; }
+.rf-pick { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px; flex-grow: 1; padding: 4px 2px; }
+.rf-ty { width: 13px; min-width: 13px; font-size: 11px; height: 14px; color: #aab0bb; }
+.rf-nm { font-size: 12px; height: 16px; color: #1a1d21; }
+/* An instance is purple wherever it appears, which is the one colour Figma
+   users already read as "this came from a component". */
+.rf-pick-inst .rf-ty { color: #7b61ff; }
+.rf-pick-inst .rf-nm { color: #7b61ff; }
+.rf-into { font-size: 11px; height: 16px; color: #aab0bb; padding: 0 4px; }
+.rf-more { font-size: 11px; height: 15px; color: #aab0bb; padding: 8px 6px 0; }
+.rf-empty { font-size: 12px; height: 16px; color: #aab0bb; padding: 12px 10px; }
+
+/* ---- the stage ---------------------------------------------------------- */
+/* Rulers along two edges and the board between them, drawn from the same view
+   the board is, so a tick is where the board says it is. */
+.rf-stage { display: flex; flex-direction: column; flex-grow: 1; height: 100%; min-width: 0; overflow: hidden; }
+.rf-ruler-row { display: flex; flex-direction: row; flex-wrap: nowrap; height: 20px; min-height: 20px; }
+.rf-corner { width: 20px; min-width: 20px; height: 100%; background-color: #ffffff; border-right: 1px solid #e7e9ee; border-bottom: 1px solid #e7e9ee; }
+.rf-ruler-top { flex-grow: 1; height: 100%; position: relative; overflow: hidden; background-color: #ffffff; border-bottom: 1px solid #e7e9ee; }
+.rf-board-row { display: flex; flex-direction: row; flex-wrap: nowrap; flex-grow: 1; min-height: 0; }
+.rf-ruler-left { width: 20px; min-width: 20px; height: 100%; position: relative; overflow: hidden; background-color: #ffffff; border-right: 1px solid #e7e9ee; }
+.rf-board { flex-grow: 1; height: 100%; position: relative; min-width: 0; }
+.rf-tick { font-size: 9px; height: 11px; color: #aab0bb; position: absolute; }
+.rf-page-row-gap { height: 0; }
+
+/* The floating toolbar, over the board rather than in a strip of its own: the
+   board is the thing, and a strip would take a row of it on every window. */
+.rf-toolbar {
+  position: absolute; display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 2px; padding: 4px; height: 38px; min-height: 38px;
+  background-color: #ffffff; border: 1px solid #e7e9ee; border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(16, 22, 32, 0.08);
+}
+.rf-tool { display: flex; flex-direction: row; align-items: center; border-radius: 7px; padding: 6px 8px; height: 28px; min-height: 28px; }
+.rf-tool:hover { background-color: #f2f4f8; }
+.rf-tool-t { font-size: 12px; height: 16px; color: #7b8190; }
+.rf-tool:hover .rf-tool-t { color: #1a1d21; }
+.rf-tool-on { background-color: #0d6efd; }
+.rf-tool-on .rf-tool-t { color: #ffffff; }
+.rf-tool-sep { width: 1px; min-width: 1px; height: 18px; background-color: #e7e9ee; }
+.rf-zoomlab { width: 52px; min-width: 52px; }
+.rf-zoomlab .rf-tool-t { color: #1a1d21; }
+
+/* ---- the inspector ------------------------------------------------------ */
+/* A column of quiet rows that draws a box only where you can type. A value you
+   cannot change is text, not a disabled field. */
+.rf-insp { display: flex; flex-direction: column; }
+.rf-insp-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 10px 10px 9px; }
+.rf-kindlab { font-size: 10px; font-weight: bold; height: 12px; color: #7b61ff; letter-spacing: 0.9px; }
+.rf-insp-nm { font-size: 12.5px; font-weight: bold; height: 17px; color: #1a1d21; }
+.rf-eye { font-size: 12px; height: 16px; color: #7b8190; padding: 2px 5px; }
+.rf-section { display: flex; flex-direction: column; border-top: 1px solid #e7e9ee; padding: 9px 10px 11px; }
+.rf-h3 { font-size: 10px; font-weight: bold; height: 12px; color: #aab0bb; letter-spacing: 0.9px; padding: 0 0 8px; }
+.rf-fields { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+.rf-f {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px;
+  background-color: #f6f7f9; border: 1px solid #f6f7f9; border-radius: 7px;
+  padding: 4px 8px; height: 26px; min-height: 26px;
+}
+.rf-f:focus { border: 1px solid #0d6efd; background-color: #ffffff; }
+.rf-f-half { width: 116px; min-width: 116px; }
+.rf-f-wide { width: 100%; }
+.rf-f-lab { font-size: 11px; height: 15px; color: #aab0bb; }
+.rf-f-val { font-size: 12px; height: 16px; color: #1a1d21; flex-grow: 1; }
+.rf-swatch { width: 15px; min-width: 15px; height: 15px; border-radius: 4px; border: 1px solid #e7e9ee; }
+.rf-pct { font-size: 12px; height: 16px; color: #1a1d21; }
+.rf-unit { font-size: 10.5px; height: 16px; color: #aab0bb; }
+.rf-chip {
+  display: flex; flex-direction: row; align-items: center;
+  border: 1px solid #e7e9ee; border-radius: 999px; padding: 4px 8px; height: 24px; min-height: 24px;
+}
+.rf-chip-t { font-size: 11px; height: 14px; color: #7b8190; }
+.rf-note { font-size: 11px; height: 15px; color: #aab0bb; padding: 7px 1px 0; }
+.rf-props { font-size: 11.5px; height: 17px; color: #7b8190; }
+.rf-props-box { display: flex; flex-direction: column; padding: 12px 10px; }
+
+/* ---- the status strip --------------------------------------------------- */
+.rf-footer {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 16px; padding: 5px 12px; height: 27px; min-height: 27px;
+  border-top: 1px solid #e7e9ee; background-color: #ffffff;
+}
+.rf-foot-t { font-size: 11.5px; height: 16px; color: #7b8190; }
+.rf-foot-b { font-size: 11.5px; height: 16px; font-weight: bold; color: #1a1d21; }
+.rf-foot-status { font-size: 11.5px; height: 16px; color: #1a1d21; }

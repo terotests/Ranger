@@ -450,6 +450,14 @@ SUITES=(
   # phone, and maybe on a watch" claim rests on. The client build is compiled
   # separately from the whole simulator, because they are different sizes for
   # a reason.
+  # Rafi: the Fig editor with its chrome in Ranger rather than in HTML — the
+  # rails, the tree, the panel, the toolbar and the strip as EVG elements over
+  # the same board `gallery/figma` draws. The whole editor therefore answers in
+  # Node, which is what this suite is: the rails where the DOM editor puts
+  # them, a tab that changes a pane, a layer picked in the tree being the layer
+  # the panel describes, and the board's own list under the chrome rather than
+  # beside it. A module with no gate is a module that breaks silently.
+  rafi:test
   firesim:targets
   # The workbench: a database browser over the simulator, drawn by EVG and
   # controlled by gallery/ui's own controllers — collections, documents, a

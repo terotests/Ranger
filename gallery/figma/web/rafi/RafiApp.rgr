@@ -1,0 +1,1224 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RafiApp — the Fig editor's chrome, in Ranger, drawn by EVG
+; =============================================================================
+; The same editor as `gallery/figma/web/standalone`, with the DOM taken out.
+; Over there the board is a canvas and everything around it is HTML that a
+; module builds and a stylesheet paints; here the rails, the tree, the panel,
+; the toolbar and the status strip are EVG elements in one tree, and the page
+; host owns nothing but the pixels, the pointer and the keyboard.
+;
+;   LEFT RAIL   the file, the tabs, the open row, the pages, the layers
+;   STAGE       two rulers and the board, with the toolbar floating on it
+;   RIGHT RAIL  Design or Raw — what the selected layer is
+;   FOOTER      what was read, and what could not be
+;
+; The chrome reads the scene DIRECTLY — `fig.sceneDoc`, `fig.findScene`,
+; `fig.inspect…` — rather than through the JSON the browser build hands to
+; JavaScript. That is the whole point of the exercise: one language from the
+; kiwi bytes to the pixels, with no string in the middle.
+;
+; THE BOARD IS THE FIG LIST, DRAWN FIRST. `FigApp` answers a display list in
+; page pixels, and its pan already carries an origin — so the board's own
+; origin goes into that pan and the commands come out where the board is. The
+; chrome is drawn over them: every rail, ruler and strip around the board is
+; opaque, so what spills is covered, and the toolbar lands on top where it
+; belongs.
+; =============================================================================
+
+Import "../../src/FigApp.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGLayout.rgr"
+Import "../../../evg/EVGDisplayList.rgr"
+Import "../../../evg/EVGStyleSheet.rgr"
+Import "../../../evg/EVGA11yTree.rgr"
+Import "../../../evg/EVGA11yFromTree.rgr"
+Import "../../../evg/EVGHitTest.rgr"
+
+class RafiApp {
+    def fig:FigApp (new FigApp())
+    def sheet@(optional):EVGStyleSheet
+    def layout@(optional):EVGLayout
+    def root@(optional):EVGElement
+    def boardEl@(optional):EVGElement
+    def toolbarEl@(optional):EVGElement
+    ; the board size the tree was last BUILT with, which is what the floating
+    ; toolbar was placed against
+    def builtW:double 0.0
+    def builtH:double 0.0
+    def dirty:boolean true
+    def pageW:double 1440.0
+    def pageH:double 860.0
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+
+    ; which pane each rail is showing
+    def leftPane:string "file"
+    def rightPane:string "design"
+    ; the board's own view, which is the view MINUS the board's origin: the
+    ; number a user reads and the number `fit` works in
+    def viewX:double 40.0
+    def viewY:double 40.0
+    def zoom:double 1.0
+    def handTool:boolean false
+    def debugOn:boolean false
+    def status:string "loading…"
+    ; the layers tree: the node it is rooted at, and the rows folded shut
+    def treeRoot:string ""
+    def folded:[string:boolean]
+    ; the board's box, read back from the layout every frame
+    def bx:double 0.0
+    def by:double 0.0
+    def bw:double 0.0
+    def bh:double 0.0
+
+    Constructor () {
+        ; THE CAMERA IS ON FROM THE START, and it cannot be turned on later:
+        ; with it off the list is in page coordinates, with it on the list is
+        ; in scene coordinates and the painter multiplies, and a list built
+        ; one way and drawn the other is the board at the wrong scale in the
+        ; wrong place. It is also the only mode in which a path lands where
+        ; its box does.
+        fig.setCamera(true)
+    }
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+    }
+
+    ; --- the document ---------------------------------------------------------
+
+    fn openBytes:boolean (data:buffer name:string) {
+        def okv:boolean (fig.openBytes(data name))
+        this.afterOpen()
+        return okv
+    }
+
+    fn openSample:boolean () {
+        def okv:boolean (fig.openSample())
+        this.afterOpen()
+        return okv
+    }
+
+    fn openClipboardSample:boolean () {
+        def okv:boolean (fig.openClipboardSample())
+        this.afterOpen()
+        return okv
+    }
+
+    fn afterOpen:void () {
+        treeRoot = ""
+        def fresh:[string:boolean]
+        folded = fresh
+        if fig.ok {
+            status = (fig.name)
+            if ((strlen status) == 0) {
+                status = "ready"
+            }
+        } {
+            status = fig.err
+        }
+        dirty = true
+    }
+
+    fn setImageUrl:void (ref:string url:string) {
+        fig.setImageUrl(ref url)
+        dirty = true
+    }
+
+    fn ok:boolean () {
+        return fig.ok
+    }
+
+    fn error:string () {
+        return fig.err
+    }
+
+    fn imageCount:int () {
+        return (array_length fig.sceneDoc.assets)
+    }
+
+    fn imageName:string (i:int) {
+        if ((i < 0) || (i >= (array_length fig.sceneDoc.assets))) {
+            return ""
+        }
+        return (itemAt fig.sceneDoc.assets i)
+    }
+
+    fn imageBytes:buffer (name:string) {
+        return (fig.imageBytes(name))
+    }
+
+    ; --- the window -----------------------------------------------------------
+
+    fn setPageSize:void (w:double h:double) {
+        if ((w == pageW) && (h == pageH)) {
+            return
+        }
+        pageW = w
+        pageH = h
+        dirty = true
+    }
+
+    ; --- input ----------------------------------------------------------------
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn hover:boolean (px:double py:double) {
+        def id:string (this.hitId(px py))
+        if (id == hovered) {
+            return false
+        }
+        hovered = id
+        return true
+    }
+
+    fn pointerDown:boolean (px:double py:double) {
+        def id:string (this.hitId(px py))
+        if ((strlen id) == 0) {
+            return false
+        }
+        if (id == "board") {
+            return (this.clickBoard(px py))
+        }
+        return (this.press(id))
+    }
+
+    fn clickBoard:boolean (px:double py:double) {
+        if handTool {
+            return false
+        }
+        def id:string (fig.hit(px py))
+        fig.select(id)
+        dirty = true
+        return true
+    }
+
+    ; A drag on the board moves the view; a drag anywhere else does nothing,
+    ; which is what the DOM editor does too.
+    fn panBy:void (dx:double dy:double) {
+        viewX = (viewX + dx)
+        viewY = (viewY + dy)
+        dirty = true
+    }
+
+    fn wheel:boolean (px:double py:double dy:double) {
+        if (this.insideBoard(px py) == false) {
+            return false
+        }
+        def k:double 1.1
+        if (dy > 0.0) {
+            k = (1.0 / 1.1)
+        }
+        this.zoomAt(px py (zoom * k))
+        return true
+    }
+
+    ; Zoom about a point, which is the only zoom that does not throw the board
+    ; off the screen: the scene point under the cursor stays under it.
+    fn zoomAt:void (px:double py:double want:double) {
+        def z:double want
+        if (z < 0.02) {
+            z = 0.02
+        }
+        if (z > 64.0) {
+            z = 64.0
+        }
+        def lx:double (px - bx)
+        def ly:double (py - by)
+        def sx:double ((lx - viewX) / zoom)
+        def sy:double ((ly - viewY) / zoom)
+        zoom = z
+        viewX = (lx - (sx * zoom))
+        viewY = (ly - (sy * zoom))
+        dirty = true
+    }
+
+    fn insideBoard:boolean (px:double py:double) {
+        if ((px < bx) || (px > (bx + bw))) {
+            return false
+        }
+        if ((py < by) || (py > (by + bh))) {
+            return false
+        }
+        return true
+    }
+
+    ; FIT IS ABOUT THE BOARD, and the board alone: the viewport goes down to
+    ; the board's size for the arithmetic and the drawing puts it back.
+    fn fit:void () {
+        ; The board's size is a thing the LAYOUT knows, so a fit asked for
+        ; before the first frame has to put the tree down before it can
+        ; answer — which is every fit right after a file is opened.
+        this.laidOut()
+        if (bw < 1.0) {
+            return
+        }
+        fig.setViewport(bw bh)
+        fig.fit()
+        viewX = fig.panX
+        viewY = fig.panY
+        zoom = fig.zoom
+        dirty = true
+    }
+
+    fn zoom100:void () {
+        this.zoomAt((bx + (bw * 0.5)) (by + (bh * 0.5)) 1.0)
+    }
+
+    ; Everything a click can mean, in one door — which is also what a screen
+    ; reader's activation and the headless check go through.
+    fn press:boolean (id:string) {
+        if (id == "tab:file") {
+            leftPane = "file"
+            dirty = true
+            return true
+        }
+        if (id == "tab:assets") {
+            leftPane = "assets"
+            dirty = true
+            return true
+        }
+        if (id == "tab:design") {
+            rightPane = "design"
+            dirty = true
+            return true
+        }
+        if (id == "tab:raw") {
+            rightPane = "raw"
+            dirty = true
+            return true
+        }
+        if (id == "sample") {
+            this.openSample()
+            return true
+        }
+        if (id == "tool:move") {
+            handTool = false
+            dirty = true
+            return true
+        }
+        if (id == "tool:hand") {
+            handTool = true
+            dirty = true
+            return true
+        }
+        if (id == "zoom:in") {
+            this.zoomAt((bx + (bw * 0.5)) (by + (bh * 0.5)) (zoom * 1.25))
+            return true
+        }
+        if (id == "zoom:out") {
+            this.zoomAt((bx + (bw * 0.5)) (by + (bh * 0.5)) (zoom / 1.25))
+            return true
+        }
+        if (id == "zoom:100") {
+            this.zoom100()
+            return true
+        }
+        if (id == "fit") {
+            this.fit()
+            return true
+        }
+        if (id == "debug") {
+            debugOn = (debugOn == false)
+            fig.setDebug(debugOn)
+            dirty = true
+            return true
+        }
+        if (RafiApp.hasPrefix(id "page:")) {
+            fig.setPage((RafiApp.tailInt(id 5)))
+            treeRoot = ""
+            dirty = true
+            return true
+        }
+        if (RafiApp.hasPrefix(id "tree:")) {
+            fig.select((substring id 5 (strlen id)))
+            dirty = true
+            return true
+        }
+        if (RafiApp.hasPrefix(id "fold:")) {
+            def fid:string (substring id 5 (strlen id))
+            if (this.isFolded(fid)) {
+                set folded fid false
+            } {
+                set folded fid true
+            }
+            dirty = true
+            return true
+        }
+        if (RafiApp.hasPrefix(id "into:")) {
+            treeRoot = (substring id 5 (strlen id))
+            dirty = true
+            return true
+        }
+        if (RafiApp.hasPrefix(id "crumb:")) {
+            treeRoot = (substring id 6 (strlen id))
+            dirty = true
+            return true
+        }
+        return false
+    }
+
+    fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
+        if (k == "v") {
+            return (this.press("tool:move"))
+        }
+        if (k == "h") {
+            return (this.press("tool:hand"))
+        }
+        if ((k == "1") && shift) {
+            return (this.press("fit"))
+        }
+        if (k == "0") {
+            return (this.press("zoom:100"))
+        }
+        if ((k == "+") || (k == "=")) {
+            return (this.press("zoom:in"))
+        }
+        if ((k == "-") || (k == "_")) {
+            return (this.press("zoom:out"))
+        }
+        return false
+    }
+
+    ; --- the tree -------------------------------------------------------------
+
+    fn rebuild:void () {
+        root = (this.buildPage())
+        dirty = false
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.markStates((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        if (dirty || (null? root)) {
+            this.rebuild()
+        }
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        if (null? layout) {
+            def fresh (new EVGLayout())
+            fresh.setPageSize(pageW pageH)
+            layout = fresh
+        }
+        def lay:EVGLayout (unwrap layout)
+        lay.setPageSize(pageW pageH)
+        lay.layout(r)
+        if boardEl {
+            def be:EVGElement (unwrap boardEl)
+            bx = be.calculatedX
+            by = be.calculatedY
+            bw = be.calculatedWidth
+            bh = be.calculatedHeight
+        }
+        ; THE TOOLBAR FLOATS ON A BOX THE LAYOUT HAS NOT MEASURED YET. It is
+        ; placed against the board, and the board's size is known only once the
+        ; tree is down — so the first layout of a new window size places it
+        ; against the last one, and on the very first it places it against
+        ; nothing. One more pass, and only when the size actually moved.
+        if ((RafiApp.differs(builtW bw)) || (RafiApp.differs(builtH bh))) {
+            builtW = bw
+            builtH = bh
+            this.rebuild()
+            def r2:EVGElement (unwrap root)
+            this.markStates(r2)
+            s.applyTree(r2 "")
+            lay.layout(r2)
+            if boardEl {
+                def be2:EVGElement (unwrap boardEl)
+                bx = be2.calculatedX
+                by = be2.calculatedY
+                bw = be2.calculatedWidth
+                bh = be2.calculatedHeight
+            }
+        }
+        return lay
+    }
+
+    sfn differs:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d > 0.5)
+    }
+
+    ; TWO PASSES, BOARD THEN CHROME.
+    ;
+    ; The board is drawn by the camera — the list is in SCENE coordinates and
+    ; the painter multiplies, which is the only way a path comes out where its
+    ; box does. Its own page background is the desk, the size of the window;
+    ; the chrome is painted over it with the clear switched off, and every
+    ; rail, ruler and strip is opaque, so what is left showing is exactly the
+    ; board. That is why nothing in the chrome paints a background behind the
+    ; stage: the board IS the hole.
+    fn boardJson:string () {
+        this.laidOut()
+        if ((fig.ok == false) || (bw < 1.0)) {
+            return "{\"width\":0,\"height\":0,\"list\":{\"cmds\":[]}}"
+        }
+        fig.setViewport(pageW pageH)
+        fig.setView((viewX + bx) (viewY + by) zoom)
+        ; Walked again on every frame. With a camera the list can be KEPT
+        ; across a pan — that is the whole point of it, and `gl/evg-view.js`
+        ; is the arithmetic for when a kept frame still covers the view — but
+        ; the keeper lives in the host and this page has none yet, so the
+        ; honest thing is to say the board is walked each time.
+        fig.rebuild()
+        return (fig.sceneJson())
+    }
+
+    fn chromeList:EVGDisplayList () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def chrome (new EVGDisplayList())
+        chrome.setTextEngine((lay.getTextEngine()))
+        chrome.build(r)
+        return chrome
+    }
+
+    ; The envelope the painter reads: the page's size and the list inside it,
+    ; which is the shape `FigApp.sceneJson` has always answered.
+    fn displayListJson:string () {
+        def dl:EVGDisplayList (this.chromeList())
+        def body:string (dl.toJson())
+        return ("{\"width\":" + (to_string (to_int pageW)) + ",\"height\":" + (to_string (to_int pageH)) + ",\"list\":" + body + "}")
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Ranger Fig" generation focusId))
+        return (t.toJson())
+    }
+
+    ; --- the page -------------------------------------------------------------
+
+    fn buildPage:EVGElement () {
+        def page:EVGElement (RafiApp.box("rf-page" "" "" ""))
+        def main:EVGElement (RafiApp.box("rf-main" "" "" ""))
+        main.addChild((this.leftRail()))
+        main.addChild((this.stage()))
+        main.addChild((this.rightRail()))
+        page.addChild(main)
+        page.addChild((this.footer()))
+        return page
+    }
+
+    ; --- left rail ------------------------------------------------------------
+
+    fn leftRail:EVGElement () {
+        def rail:EVGElement (RafiApp.box("rf-rail rf-rail-left" "" "" ""))
+
+        def head:EVGElement (RafiApp.box("rf-railhead" "" "" ""))
+        head.addChild((RafiApp.box("rf-dot" "" "" "")))
+        def nm:string fig.name
+        if ((strlen nm) == 0) {
+            nm = "Ranger Fig"
+        }
+        head.addChild((RafiApp.txt("rf-title" (RafiApp.cut(nm 26)))))
+        rail.addChild(head)
+
+        def tabs:EVGElement (RafiApp.box("rf-tabrow" "" "" ""))
+        tabs.addChild((this.tab("tab:file" "File" (leftPane == "file"))))
+        tabs.addChild((this.tab("tab:assets" "Assets" (leftPane == "assets"))))
+        rail.addChild(tabs)
+
+        def opener:EVGElement (RafiApp.box("rf-opener" "" "" ""))
+        opener.addChild((RafiApp.button("open" "Open…" "rf-btn" "rf-btn-t")))
+        opener.addChild((RafiApp.button("sample" "Sample" "rf-btn" "rf-btn-t")))
+        opener.addChild((RafiApp.button("paste" "Paste" "rf-btn" "rf-btn-t")))
+        rail.addChild(opener)
+
+        def scroll:EVGElement (RafiApp.box("rf-scroll" "" "" ""))
+        if (leftPane == "assets") {
+            this.assetsPane(scroll)
+        } {
+            this.filePane(scroll)
+        }
+        rail.addChild(scroll)
+        return rail
+    }
+
+    fn filePane:void (host:EVGElement) {
+        def pages:[SceneNode] fig.sceneDoc.pages
+        host.addChild((this.cap("PAGES" (to_string (array_length pages)))))
+        def list:EVGElement (RafiApp.box("rf-pages" "" "" ""))
+        def i:int 0
+        while (i < (array_length pages)) {
+            def p:SceneNode (itemAt pages i)
+            def cls:string "rf-pagerow"
+            if (i == fig.pageIndex) {
+                cls = "rf-pagerow rf-pagerow-on"
+            }
+            def row:EVGElement (RafiApp.box(cls ("page:" + (to_string i)) "button" p.name))
+            row.addChild((RafiApp.quiet("rf-page-ic" "▢")))
+            row.addChild((RafiApp.txt("rf-page-nm" (RafiApp.cut(p.name 24)))))
+            list.addChild(row)
+            i = (i + 1)
+        }
+        host.addChild(list)
+
+        host.addChild((this.cap("LAYERS" "")))
+        def pick:EVGElement (RafiApp.box("rf-framepick" "" "" ""))
+        def sel:EVGElement (RafiApp.box("rf-select" "frame" "button" "Frame"))
+        def label:string "(whole page)"
+        def frames:[SceneNode] (fig.framesOnPage())
+        if ((fig.frameIndex >= 0) && (fig.frameIndex < (array_length frames))) {
+            def fr:SceneNode (itemAt frames fig.frameIndex)
+            label = fr.name
+        }
+        sel.addChild((RafiApp.txt("rf-select-t" (RafiApp.cut(label 22)))))
+        sel.addChild((RafiApp.quiet("rf-select-ar" "▾")))
+        pick.addChild(sel)
+        host.addChild(pick)
+
+        host.addChild((this.tree()))
+    }
+
+    fn assetsPane:void (host:EVGElement) {
+        def n:int (array_length fig.sceneDoc.assets)
+        host.addChild((this.cap("IMAGES IN THE FILE" (to_string n))))
+        if (n == 0) {
+            host.addChild((RafiApp.txt("rf-empty" "this file carries no images")))
+            return
+        }
+        def i:int 0
+        while (i < n) {
+            def row:EVGElement (RafiApp.box("rf-treerow" "" "" ""))
+            row.addChild((RafiApp.quiet("rf-ty" "▤")))
+            row.addChild((RafiApp.txt("rf-nm" (RafiApp.cut((itemAt fig.sceneDoc.assets i) 26)))))
+            host.addChild(row)
+            i = (i + 1)
+        }
+    }
+
+    ; The layers, one root at a time. The whole page at once is a list with
+    ; three thousand rows in it, which is a list nobody reads.
+    fn tree:EVGElement () {
+        def box:EVGElement (RafiApp.box("rf-tree" "" "tree" "Layers"))
+        def rootNode:SceneNode (fig.currentPage())
+        if ((strlen treeRoot) > 0) {
+            def found:SceneNode (fig.findScene(treeRoot))
+            if ((strlen found.id) > 0) {
+                rootNode = found
+                box.addChild((this.crumbs(found)))
+            }
+        }
+        def kids:[SceneNode] rootNode.children
+        if ((array_length kids) == 0) {
+            box.addChild((RafiApp.txt("rf-empty" "nothing on this page")))
+            return box
+        }
+        def shown:int (this.treeRows(box rootNode 0 0))
+        if (shown >= 400) {
+            box.addChild((RafiApp.txt("rf-more" "…more layers than the pane shows")))
+        }
+        return box
+    }
+
+    fn treeRows:int (host:EVGElement n:SceneNode depth:int shown:int) {
+        if (shown >= 400) {
+            return shown
+        }
+        def cls:string "rf-treerow"
+        if (n.id == fig.selected) {
+            cls = "rf-treerow rf-treerow-on"
+        }
+        def row:EVGElement (RafiApp.box(cls "" "" ""))
+        def pad:double (to_double (depth * 11))
+        row.setAttribute("padding-left" ((to_string pad) + "px"))
+
+        def kids:int (array_length n.children)
+        def fold:EVGElement (RafiApp.box("rf-fold" "" "" ""))
+        if (kids > 0) {
+            fold.id = ("fold:" + n.id)
+            fold.role = "button"
+            if (this.isFolded(n.id)) {
+                fold.addChild((RafiApp.quiet("rf-fold-t" "▸")))
+            } {
+                fold.addChild((RafiApp.quiet("rf-fold-t" "▾")))
+            }
+        }
+        row.addChild(fold)
+
+        def pickCls:string "rf-pick"
+        if (n.sourceType == "INSTANCE") {
+            pickCls = "rf-pick rf-pick-inst"
+        }
+        def pick:EVGElement (RafiApp.box(pickCls ("tree:" + n.id) "treeitem" n.name))
+        pick.addChild((RafiApp.quiet("rf-ty" (RafiApp.glyph(n)))))
+        def label:string n.name
+        if ((strlen label) == 0) {
+            label = n.kind
+        }
+        pick.addChild((RafiApp.txt("rf-nm" (RafiApp.cut(label (26 - (depth * 2)))))))
+        row.addChild(pick)
+        if (kids > 0) {
+            row.addChild((RafiApp.button(("into:" + n.id) "›" "rf-into" "rf-into")))
+        }
+        host.addChild(row)
+        shown = (shown + 1)
+
+        if (this.isFolded(n.id)) {
+            return shown
+        }
+        def i:int 0
+        while ((i < kids) && (shown < 400)) {
+            shown = (this.treeRows(host (itemAt n.children i) (depth + 1) shown))
+            i = (i + 1)
+        }
+        return shown
+    }
+
+    fn isFolded:boolean (id:string) {
+        def had@(optional):boolean (get folded id)
+        if (null? had) {
+            return false
+        }
+        return (unwrap had)
+    }
+
+    fn crumbs:EVGElement (n:SceneNode) {
+        def row:EVGElement (RafiApp.box("rf-crumbs" "" "" ""))
+        row.addChild((RafiApp.button("crumb:" "Page" "rf-crumb" "rf-crumb")))
+        row.addChild((RafiApp.quiet("rf-crumb" "›")))
+        def here:EVGElement (RafiApp.txt("rf-crumb rf-crumb-here" (RafiApp.cut(n.name 18))))
+        row.addChild(here)
+        return row
+    }
+
+    ; --- stage ----------------------------------------------------------------
+
+    fn stage:EVGElement () {
+        def st:EVGElement (RafiApp.box("rf-stage" "" "" ""))
+        def rulers:EVGElement (RafiApp.box("rf-ruler-row" "" "" ""))
+        rulers.addChild((RafiApp.box("rf-corner" "" "" "")))
+        rulers.addChild((this.ruler(true)))
+        st.addChild(rulers)
+
+        def brow:EVGElement (RafiApp.box("rf-board-row" "" "" ""))
+        brow.addChild((this.ruler(false)))
+        def board:EVGElement (RafiApp.box("rf-board" "board" "img" "The board"))
+        def bar:EVGElement (this.toolbar())
+        toolbarEl = bar
+        board.addChild(bar)
+        boardEl = board
+        brow.addChild(board)
+        st.addChild(brow)
+        return st
+    }
+
+    ; A RULER IS THE VIEW, WRITTEN DOWN. The ticks are scene coordinates, so
+    ; they are where the board says they are rather than where the page
+    ; happens to have scrolled — which is the whole reason the rulers are here
+    ; and not a decoration along the edge.
+    fn ruler:EVGElement (top:boolean) {
+        def cls:string "rf-ruler-left"
+        if top {
+            cls = "rf-ruler-top"
+        }
+        def r:EVGElement (RafiApp.box(cls "" "" ""))
+        def span:double bh
+        def pan:double viewY
+        if top {
+            span = bw
+            pan = viewX
+        }
+        if ((span < 2.0) || (zoom < 0.000001)) {
+            return r
+        }
+        def step:double (RafiApp.niceStep(zoom))
+        ; The first tick at or before the left edge of what is shown.
+        def first:double (to_double (to_int (((0.0 - pan) / zoom) / step)))
+        def v:double ((first - 1.0) * step)
+        def guard:int 0
+        while ((guard < 200) && (((v * zoom) + pan) < span)) {
+            def at:double ((v * zoom) + pan)
+            if (at > 2.0) {
+                def t:EVGElement (RafiApp.quiet("rf-tick" (RafiApp.num(v))))
+                if top {
+                    t.setAttribute("left" ((to_string (at + 3.0)) + "px"))
+                    t.setAttribute("top" "4px")
+                } {
+                    t.setAttribute("left" "3px")
+                    t.setAttribute("top" ((to_string (at + 3.0)) + "px"))
+                }
+                r.addChild(t)
+            }
+            v = (v + step)
+            guard = (guard + 1)
+        }
+        return r
+    }
+
+    ; 1, 2 or 5 times a power of ten, whichever puts a tick every eighty
+    ; pixels or so. A ruler whose numbers are 137 apart is a ruler nobody
+    ; reads a position off.
+    sfn niceStep:double (z:double) {
+        def want:double (80.0 / z)
+        def step:double 1.0
+        def guard:int 0
+        while ((step < want) && (guard < 40)) {
+            if ((step * 2.0) >= want) {
+                return (step * 2.0)
+            }
+            if ((step * 5.0) >= want) {
+                return (step * 5.0)
+            }
+            step = (step * 10.0)
+            guard = (guard + 1)
+        }
+        return step
+    }
+
+    fn toolbar:EVGElement () {
+        def bar:EVGElement (RafiApp.box("rf-toolbar" "" "toolbar" "Tools"))
+        ; Centred along the bottom of the board, where the DOM editor floats
+        ; it. The board's own size is known only after a layout, so the offset
+        ; is written from the size the LAST layout read.
+        def w:double 352.0
+        def left:double ((bw - w) * 0.5)
+        if (left < 8.0) {
+            left = 8.0
+        }
+        def top:double (bh - 54.0)
+        if (top < 8.0) {
+            top = 8.0
+        }
+        bar.setAttribute("left" ((to_string left) + "px"))
+        bar.setAttribute("top" ((to_string top) + "px"))
+        bar.setAttribute("width" ((to_string w) + "px"))
+
+        bar.addChild((this.tool("tool:move" "➤" (handTool == false) "")))
+        bar.addChild((this.tool("tool:hand" "✋" handTool "")))
+        bar.addChild((RafiApp.box("rf-tool-sep" "" "" "")))
+        bar.addChild((this.tool("zoom:out" "−" false "")))
+        bar.addChild((this.tool("zoom:100" (RafiApp.pct(zoom)) false "rf-zoomlab")))
+        bar.addChild((this.tool("zoom:in" "+" false "")))
+        bar.addChild((this.tool("fit" "Fit" false "")))
+        bar.addChild((RafiApp.box("rf-tool-sep" "" "" "")))
+        bar.addChild((this.tool("debug" "Debug" debugOn "")))
+        return bar
+    }
+
+    fn tool:EVGElement (id:string label:string on:boolean extra:string) {
+        def cls:string "rf-tool"
+        if on {
+            cls = "rf-tool rf-tool-on"
+        }
+        if ((strlen extra) > 0) {
+            cls = (cls + " " + extra)
+        }
+        def b:EVGElement (RafiApp.box(cls id "button" label))
+        b.addChild((RafiApp.quiet("rf-tool-t" label)))
+        return b
+    }
+
+    ; --- right rail -----------------------------------------------------------
+
+    fn rightRail:EVGElement () {
+        def rail:EVGElement (RafiApp.box("rf-rail rf-rail-right" "" "" ""))
+        def tabs:EVGElement (RafiApp.box("rf-tabrow" "" "" ""))
+        tabs.addChild((this.tab("tab:design" "Design" (rightPane == "design"))))
+        tabs.addChild((this.tab("tab:raw" "Raw" (rightPane == "raw"))))
+        tabs.addChild((RafiApp.box("rf-spacer" "" "" "")))
+        tabs.addChild((RafiApp.quiet("rf-zoomread" (RafiApp.pct(zoom)))))
+        rail.addChild(tabs)
+
+        def scroll:EVGElement (RafiApp.box("rf-scroll" "" "" ""))
+        if (rightPane == "raw") {
+            this.rawPane(scroll)
+        } {
+            this.designPane(scroll)
+        }
+        rail.addChild(scroll)
+        return rail
+    }
+
+    fn designPane:void (host:EVGElement) {
+        def n:SceneNode (fig.findScene(fig.selected))
+        if ((strlen n.id) == 0) {
+            def box:EVGElement (RafiApp.box("rf-props-box" "" "" ""))
+            box.addChild((RafiApp.txt("rf-props" "click a layer or the board")))
+            box.addChild((RafiApp.txt("rf-props" "drag to pan")))
+            box.addChild((RafiApp.txt("rf-props" "scroll or +/− to zoom")))
+            host.addChild(box)
+            return
+        }
+        def insp:EVGElement (RafiApp.box("rf-insp" "" "" ""))
+
+        def head:EVGElement (RafiApp.box("rf-insp-head" "" "" ""))
+        head.addChild((RafiApp.quiet("rf-kindlab" (RafiApp.kindLabel(n)))))
+        head.addChild((RafiApp.txt("rf-insp-nm" (RafiApp.cut(n.name 20)))))
+        head.addChild((RafiApp.box("rf-spacer" "" "" "")))
+        if n.visible {
+            head.addChild((RafiApp.quiet("rf-eye" "●")))
+        } {
+            head.addChild((RafiApp.quiet("rf-eye" "◌")))
+        }
+        insp.addChild(head)
+
+        def pos:EVGElement (this.section("POSITION"))
+        def r1:EVGElement (RafiApp.box("rf-fields" "" "" ""))
+        r1.addChild((RafiApp.field("X" (RafiApp.num(n.x)))))
+        r1.addChild((RafiApp.field("Y" (RafiApp.num(n.y)))))
+        pos.addChild(r1)
+        insp.addChild(pos)
+
+        def lay:EVGElement (this.section("LAYOUT"))
+        def r2:EVGElement (RafiApp.box("rf-fields" "" "" ""))
+        r2.addChild((RafiApp.field("W" (RafiApp.num(n.w)))))
+        r2.addChild((RafiApp.field("H" (RafiApp.num(n.h)))))
+        lay.addChild(r2)
+        insp.addChild(lay)
+
+        def look:EVGElement (this.section("APPEARANCE"))
+        def r3:EVGElement (RafiApp.box("rf-fields" "" "" ""))
+        r3.addChild((RafiApp.field("Opacity" ((to_string (to_int (n.opacity * 100.0))) + "%")))
+        )
+        look.addChild(r3)
+        def fi:int 0
+        while (fi < (array_length n.fills)) {
+            def f:SceneFill (itemAt n.fills fi)
+            if (f.kind == "solid") {
+                look.addChild((RafiApp.paintRow(f)))
+            }
+            fi = (fi + 1)
+        }
+        insp.addChild(look)
+        host.addChild(insp)
+    }
+
+    fn rawPane:void (host:EVGElement) {
+        def box:EVGElement (RafiApp.box("rf-props-box" "" "" ""))
+        def text:string (fig.layerDebug(fig.selected))
+        if ((strlen fig.selected) == 0) {
+            text = "select a layer to see the node the file carries"
+        }
+        def lines:[string] (RafiApp.split(text))
+        def i:int 0
+        while ((i < (array_length lines)) && (i < 120)) {
+            box.addChild((RafiApp.txt("rf-props" (RafiApp.cut((itemAt lines i) 40)))))
+            i = (i + 1)
+        }
+        host.addChild(box)
+    }
+
+    fn section:EVGElement (title:string) {
+        def s:EVGElement (RafiApp.box("rf-section" "" "" ""))
+        s.addChild((RafiApp.quiet("rf-h3" title)))
+        return s
+    }
+
+    fn cap:EVGElement (title:string n:string) {
+        def c:EVGElement (RafiApp.box("rf-cap" "" "" ""))
+        c.addChild((RafiApp.quiet("rf-cap-t" title)))
+        if ((strlen n) > 0) {
+            c.addChild((RafiApp.box("rf-spacer" "" "" "")))
+            c.addChild((RafiApp.quiet("rf-cap-n" n)))
+        }
+        return c
+    }
+
+    fn tab:EVGElement (id:string label:string on:boolean) {
+        def cls:string "rf-tab"
+        if on {
+            cls = "rf-tab rf-tab-on"
+        }
+        def t:EVGElement (RafiApp.box(cls id "tab" label))
+        t.addChild((RafiApp.quiet("rf-tab-t" label)))
+        return t
+    }
+
+    ; --- footer ---------------------------------------------------------------
+
+    fn footer:EVGElement () {
+        def f:EVGElement (RafiApp.box("rf-footer" "" "" ""))
+        def what:string status
+        if (fig.doc.version > 0) {
+            what = (status + " · fig-kiwi v" + (to_string fig.doc.version))
+        }
+        f.addChild((RafiApp.quiet("rf-foot-status" (RafiApp.cut(what 34)))))
+        f.addChild((RafiApp.quiet("rf-foot-t" "nodes")))
+        f.addChild((RafiApp.quiet("rf-foot-b" (to_string (this.countNodes())))))
+        f.addChild((RafiApp.quiet("rf-foot-t" "cmds")))
+        f.addChild((RafiApp.quiet("rf-foot-b" (to_string (array_length fig.list.cmds)))))
+        f.addChild((RafiApp.quiet("rf-foot-t" "unsupported")))
+        f.addChild((RafiApp.quiet("rf-foot-b" (to_string (array_length fig.sceneDoc.warnings)))))
+        return f
+    }
+
+    fn countNodes:int () {
+        def total:int 0
+        def i:int 0
+        while (i < (array_length fig.sceneDoc.pages)) {
+            total = (total + (RafiApp.countWalk((itemAt fig.sceneDoc.pages i))))
+            i = (i + 1)
+        }
+        return total
+    }
+
+    sfn countWalk:int (n:SceneNode) {
+        def total:int 1
+        def i:int 0
+        while (i < (array_length n.children)) {
+            total = (total + (RafiApp.countWalk((itemAt n.children i))))
+            i = (i + 1)
+        }
+        return total
+    }
+
+    ; --- what a headless check asks -------------------------------------------
+
+    fn selectedId:string () {
+        return fig.selected
+    }
+
+    fn zoomNow:double () {
+        return zoom
+    }
+
+    fn boardBoxJson:string () {
+        return ("[" + (to_string bx) + "," + (to_string by) + "," + (to_string bw) + "," + (to_string bh) + "]")
+    }
+
+    ; The ids the tree is showing, in the order it shows them — what a click
+    ; would land on, without a browser to click with.
+    fn treeIdsJson:string () {
+        def out:string "["
+        def rootNode:SceneNode (fig.currentPage())
+        if ((strlen treeRoot) > 0) {
+            def found:SceneNode (fig.findScene(treeRoot))
+            if ((strlen found.id) > 0) {
+                rootNode = found
+            }
+        }
+        def ids:[string]
+        def i:int 0
+        while (i < (array_length rootNode.children)) {
+            this.treeIds((itemAt rootNode.children i) ids)
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length ids)) {
+            if (k > 0) {
+                out = (out + ",")
+            }
+            out = (out + "\"" + (itemAt ids k) + "\"")
+            k = (k + 1)
+        }
+        return (out + "]")
+    }
+
+    fn treeIds:void (n:SceneNode ids:[string]) {
+        if ((array_length ids) >= 400) {
+            return
+        }
+        push ids n.id
+        if (this.isFolded(n.id)) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length n.children)) {
+            this.treeIds((itemAt n.children i) ids)
+            i = (i + 1)
+        }
+    }
+
+    ; --- element helpers ------------------------------------------------------
+
+    sfn box:EVGElement (cls:string id:string role:string label:string) {
+        def e:EVGElement (EVGElement.createDiv())
+        e.className = cls
+        e.id = id
+        e.role = role
+        e.a11yLabel = label
+        return e
+    }
+
+    ; A text element that is part of what is written, so it carries its own
+    ; words to the accessibility tree.
+    sfn txt:EVGElement (cls:string s:string) {
+        def e:EVGElement (EVGElement.createDiv())
+        e.className = cls
+        e.elementType = 1
+        e.textContent = s
+        return e
+    }
+
+    ; The same, for a glyph or a label that a reader would say twice: the box
+    ; around it already carries the name.
+    sfn quiet:EVGElement (cls:string s:string) {
+        def e:EVGElement (RafiApp.txt(cls s))
+        e.a11yHidden = true
+        return e
+    }
+
+    sfn button:EVGElement (id:string label:string cls:string txtCls:string) {
+        def b:EVGElement (RafiApp.box(cls id "button" label))
+        b.addChild((RafiApp.quiet(txtCls label)))
+        return b
+    }
+
+    sfn field:EVGElement (label:string value:string) {
+        def f:EVGElement (RafiApp.box("rf-f rf-f-half" "" "" (label + " " + value)))
+        f.addChild((RafiApp.quiet("rf-f-lab" label)))
+        f.addChild((RafiApp.quiet("rf-f-val" value)))
+        return f
+    }
+
+    ; A paint reads the way the file writes it: a colour and a strength, side
+    ; by side. Folding the two into one #rrggbbaa is what put the 15% of a
+    ; tinted frame somewhere no control could reach.
+    sfn paintRow:EVGElement (f:SceneFill) {
+        def row:EVGElement (RafiApp.box("rf-f rf-f-wide" "" "" "Fill"))
+        row.addChild((RafiApp.quiet("rf-f-lab" "Fill")))
+        def sw:EVGElement (RafiApp.box("rf-swatch" "" "" ""))
+        sw.setAttribute("background-color" (f.hex()))
+        row.addChild(sw)
+        row.addChild((RafiApp.quiet("rf-f-val" (f.hex()))))
+        row.addChild((RafiApp.quiet("rf-pct" (to_string (to_int (((f.a * f.opacity) * 100.0) + 0.5))))))
+        row.addChild((RafiApp.quiet("rf-unit" "%")))
+        return row
+    }
+
+    ; --- small text helpers ---------------------------------------------------
+
+    sfn pct:string (z:double) {
+        return ((to_string (to_int ((z * 100.0) + 0.5))) + "%")
+    }
+
+    sfn num:string (v:double) {
+        def r:double (to_double (to_int ((v * 100.0) + 0.5)))
+        def whole:int (to_int (r / 100.0))
+        def frac:int ((to_int r) - (whole * 100))
+        if (frac < 0) {
+            frac = (0 - frac)
+        }
+        if (frac == 0) {
+            return (to_string whole)
+        }
+        def fs:string (to_string frac)
+        if (frac < 10) {
+            fs = ("0" + fs)
+        }
+        return ((to_string whole) + "." + fs)
+    }
+
+    ; Cut to a width the pane has, with an ellipsis where it was cut. EVG has
+    ; no `text-overflow`: a box is the size it is told and a string longer than
+    ; the box draws past it, so the cutting is the app's.
+    sfn cut:string (s:string n:int) {
+        if (n < 4) {
+            n = 4
+        }
+        if ((strlen s) <= n) {
+            return s
+        }
+        return ((substring s 0 (n - 1)) + "…")
+    }
+
+    sfn split:[string] (s:string) {
+        def out:[string]
+        def cur:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if (c == 10) {
+                push out cur
+                cur = ""
+            } {
+                cur = (cur + (substring s i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        push out cur
+        return out
+    }
+
+    sfn hasPrefix:boolean (s:string prefix:string) {
+        if ((strlen s) < (strlen prefix)) {
+            return false
+        }
+        return ((substring s 0 (strlen prefix)) == prefix)
+    }
+
+    sfn tailInt:int (s:string at:int) {
+        def v:int 0
+        def i:int at
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if ((c < 48) || (c > 57)) {
+                return v
+            }
+            v = ((v * 10) + (c - 48))
+            i = (i + 1)
+        }
+        return v
+    }
+
+    sfn kindLabel:string (n:SceneNode) {
+        if ((strlen n.sourceType) > 0) {
+            return n.sourceType
+        }
+        return n.kind
+    }
+
+    ; The type as ONE character. Eleven of "ROUNDED_RECT" in front of every
+    ; name is the name pushed out of the pane.
+    sfn glyph:string (n:SceneNode) {
+        if (n.kind == "text") {
+            return "T"
+        }
+        if (n.kind == "image") {
+            return "▤"
+        }
+        if (n.kind == "path") {
+            return "◇"
+        }
+        if (n.sourceType == "INSTANCE") {
+            return "◈"
+        }
+        if (n.sourceType == "ELLIPSE") {
+            return "○"
+        }
+        if ((array_length n.children) > 0) {
+            return "▣"
+        }
+        return "▢"
+    }
+}
