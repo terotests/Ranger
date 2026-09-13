@@ -1,0 +1,5 @@
+{ "name":"toast_pause","component":"toast",
+  "behaviours":["pause-on-hover","resume-on-leave"],
+  "fixture":{"controls":[
+    {"type":"toast","tid":"ts","name":"Show","title":"Saved","body":"All good","duration":500}]},
+  "steps":[{"click":"ts-trigger"},{"hover":"ts-viewport","settle":900},{"unhover":true},{"hover":"ts-trigger","settle":900}] }

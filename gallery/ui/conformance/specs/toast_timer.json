@@ -1,0 +1,5 @@
+{ "name":"toast_timer","component":"toast",
+  "behaviours":["auto-dismiss","auto-dismiss-no-focus-move"],
+  "fixture":{"controls":[
+    {"type":"toast","tid":"ts","name":"Show","title":"Saved","body":"All good","duration":500}]},
+  "steps":[{"click":"ts-trigger"},{"hover":"ts-trigger","settle":250},{"hover":"ts-trigger","settle":700}] }

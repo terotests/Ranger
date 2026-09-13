@@ -1,0 +1,5484 @@
+{
+  "reference": "@base-ui/react/combobox",
+  "version": "1.8.0",
+  "note": "Captured by combobox_oracle.mjs against Base UI's Combobox: a single-value field with a Clear and a Trigger, and a `multiple` field whose selection is drawn as Chips with a ChipRemove each. Every value below was read off the DOM after a real gesture; FINDINGS names the reads that matter and why.",
+  "findings": {
+    "howItOpens": {
+      "what": "`single.afterClickInput.open` against `single.afterClickTrigger.open` and `single.afterArrowDown.open`: which gestures open the list.",
+      "consequence": "A text box that opens on click behaves like a select; one that does not behaves like a search box. The controller copies whichever the capture says."
+    },
+    "whereTheHighlightLands": {
+      "what": "`single.afterArrowDown.items[*]['data-highlighted']` on a field with 'Python' chosen, and `single.emptyAfterArrowDown` on one with nothing chosen.",
+      "consequence": "The chosen row, the first row, or no row. A select puts you where you already are; a combobox may not."
+    },
+    "autoHighlight": {
+      "what": "`single.afterTypingRu.items` — is the first match highlighted with no arrow pressed — and `single.afterTypingRuEnter.input.value`, which is what Enter then does.",
+      "consequence": "Without autoHighlight, typing 'ru' and pressing Enter chooses nothing. That is the single most surprising thing about the shadcn combobox and it is measured rather than assumed either way."
+    },
+    "nonsenseAfterBlur": {
+      "what": "`single.afterTypingNonsenseTab.input.value` and `single.afterTypingRuTab.input.value`: what the box holds when what was typed matched nothing, or matched but was not chosen, and focus left.",
+      "consequence": "Reverting to the chosen label is the difference between a combobox and an autocomplete. The controller does what the capture says."
+    },
+    "multipleKeepsTheListOpen": {
+      "what": "`multi.afterEnterOnHighlighted.open` and `multi.afterClickItemRust.open`, and the same reads' `input.value` after a filter was typed (`multi.afterTypingRuEnter`).",
+      "consequence": "A multi-select that closed on every pick would need reopening for each tag. Whether the typed filter survives a pick decides whether picking three matches is three keystrokes or nine."
+    },
+    "backspaceAndTheChips": {
+      "what": "`multi.afterBackspaceInEmptyInput`: whether the last chip is REMOVED, FOCUSED, or untouched. `multi.afterArrowLeftFromEmptyInput.focus`: whether ArrowLeft leaves the input for the chips. `multi.afterBackspaceOnFocusedChip` and `multi.afterDeleteOnFirstChip`: what removes a focused chip and where focus goes after.",
+      "consequence": "This is the whole character of a tag input, and every library does it differently. The rule here is the one the capture shows."
+    },
+    "theChipsRoles": {
+      "what": "`shape.multi.chips.role`, `shape.multi.chip[0].role`, `shape.multi.chip[0].tabindex`, `shape.multi.chipRemove[0]` and `shape.multi.list['aria-multiselectable']`.",
+      "consequence": "What a reader is told the strip is, and whether Tab stops on every chip or on none of them."
+    }
+  },
+  "shape": {
+    "single": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "value": "Python",
+        "selStart": 6,
+        "selEnd": 6,
+        "focused": false
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "Clear",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "body"
+    },
+    "singleEmpty": {
+      "group": {
+        "tag": "div",
+        "text": "▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": false
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "body"
+    },
+    "singleDisabled": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "data-disabled": "",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "data-disabled": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "disabled": "",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "value": "Python",
+        "selStart": 6,
+        "selEnd": 6,
+        "focused": false
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "data-disabled": "",
+        "tabindex": "-1",
+        "disabled": "",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "data-disabled": "",
+        "tabindex": "-1",
+        "disabled": "",
+        "aria-label": "Clear",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "body"
+    },
+    "multi": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": false
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "body"
+    },
+    "multiEmpty": {
+      "group": {
+        "tag": "div",
+        "text": "▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "e.g. TypeScript",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": false
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "",
+        "focused": false
+      },
+      "chip": [],
+      "chipRemove": [],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "body"
+    }
+  },
+  "single": {
+    "afterClickInput": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "aria-activedescendant": "base-ui-:r0:-2",
+        "value": "Python",
+        "selStart": 6,
+        "selEnd": 6,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "Clear",
+        "data-popup-open": "",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "JavaScriptTypeScript✓PythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "JavaScriptTypeScript✓PythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "JavaScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "✓Python",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "data-highlighted": "",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterClickTrigger": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "aria-activedescendant": "base-ui-:r0:-2",
+        "value": "Python",
+        "selStart": 6,
+        "selEnd": 6,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "Clear",
+        "data-popup-open": "",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "JavaScriptTypeScript✓PythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "JavaScriptTypeScript✓PythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "JavaScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "✓Python",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "data-highlighted": "",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterArrowDown": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "aria-activedescendant": "base-ui-:r0:-3",
+        "value": "Python",
+        "selStart": 6,
+        "selEnd": 6,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "Clear",
+        "data-popup-open": "",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "JavaScriptTypeScript✓PythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "JavaScriptTypeScript✓PythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "JavaScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "✓Python",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "data-highlighted": "",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterArrowDownTwice": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "aria-activedescendant": "base-ui-:r0:-4",
+        "value": "Python",
+        "selStart": 6,
+        "selEnd": 6,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "Clear",
+        "data-popup-open": "",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "JavaScriptTypeScript✓PythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "JavaScriptTypeScript✓PythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "JavaScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "✓Python",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "data-highlighted": "",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterArrowUpBack": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "aria-activedescendant": "base-ui-:r0:-3",
+        "value": "Python",
+        "selStart": 6,
+        "selEnd": 6,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "Clear",
+        "data-popup-open": "",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "JavaScriptTypeScript✓PythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "JavaScriptTypeScript✓PythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "JavaScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "✓Python",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "data-highlighted": "",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterEscape": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "value": "Python",
+        "selStart": 6,
+        "selEnd": 6,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "Clear",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "afterEscapeTwice": {
+      "group": {
+        "tag": "div",
+        "text": "▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "emptyAfterArrowDown": {
+      "group": {
+        "tag": "div",
+        "text": "▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r5:",
+        "aria-activedescendant": "base-ui-:r4:-0",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r5:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "JavaScriptTypeScriptPythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "JavaScriptTypeScriptPythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "JavaScript",
+          "role": "option",
+          "aria-selected": "false",
+          "data-highlighted": "",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Python",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "emptyAfterClickInput": {
+      "group": {
+        "tag": "div",
+        "text": "▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r5:",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r5:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "JavaScriptTypeScriptPythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "JavaScriptTypeScriptPythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "JavaScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Python",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "emptyAfterEnterOnNothing": {
+      "group": {
+        "tag": "div",
+        "text": "▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "afterEnterOnNext": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "value": "Rust",
+        "selStart": 4,
+        "selEnd": 4,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "Clear",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "afterClickItem": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "value": "Rust",
+        "selStart": 4,
+        "selEnd": 4,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "Clear",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "afterTypingRu": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "value": "ru",
+        "selStart": 2,
+        "selEnd": 2,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "Clear",
+        "data-popup-open": "",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "RubyRust",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "RubyRust",
+        "role": "listbox",
+        "tabindex": "-1",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterTypingRuEnter": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "value": "Python",
+        "selStart": 6,
+        "selEnd": 6,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "Clear",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "afterTypingNonsense": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "value": "zzz",
+        "selStart": 3,
+        "selEnd": 3,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "Clear",
+        "data-popup-open": "",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "No languages found.",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "data-empty": "",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "",
+        "role": "listbox",
+        "tabindex": "-1",
+        "data-empty": "",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "No languages found.",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [],
+      "focus": "input"
+    },
+    "afterTypingNonsenseTab": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "value": "Python",
+        "selStart": 6,
+        "selEnd": 6,
+        "focused": false
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "Clear",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "afterTypingTyArrowDown": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "aria-activedescendant": "base-ui-:r0:-0",
+        "value": "ty",
+        "selStart": 2,
+        "selEnd": 2,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "Clear",
+        "data-popup-open": "",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "TypeScript",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "TypeScript",
+        "role": "listbox",
+        "tabindex": "-1",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "TypeScript",
+          "role": "option",
+          "aria-selected": "false",
+          "data-highlighted": "",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterTypingTyArrowDownEnter": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "value": "TypeScript",
+        "selStart": 10,
+        "selEnd": 10,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "Clear",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "afterTypingRuTab": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "value": "Python",
+        "selStart": 6,
+        "selEnd": 6,
+        "focused": false
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-label": "Clear",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "afterClear": {
+      "group": {
+        "tag": "div",
+        "text": "▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "afterBackspaceAll": {
+      "group": {
+        "tag": "div",
+        "text": "▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":r1:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "JavaScriptTypeScriptPythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "JavaScriptTypeScriptPythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "JavaScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Python",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterBackspaceAllTab": {
+      "group": {
+        "tag": "div",
+        "text": "▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": false
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "disabledAfterClickTrigger": {
+      "group": {
+        "tag": "div",
+        "text": "×▾",
+        "data-disabled": "",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "data-disabled": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "disabled": "",
+        "placeholder": "Pick a language",
+        "aria-label": "Language",
+        "value": "Python",
+        "selStart": 6,
+        "selEnd": 6,
+        "focused": false
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "data-disabled": "",
+        "tabindex": "-1",
+        "disabled": "",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": {
+        "tag": "button",
+        "text": "×",
+        "type": "button",
+        "data-disabled": "",
+        "tabindex": "-1",
+        "disabled": "",
+        "aria-label": "Clear",
+        "focused": false
+      },
+      "chips": null,
+      "chip": [],
+      "chipRemove": [],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "body"
+    }
+  },
+  "multi": {
+    "afterClickInput": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-activedescendant": "base-ui-:rc:-0",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "✓JavaScript✓TypeScriptPythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "✓JavaScript✓TypeScriptPythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "aria-multiselectable": "true",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "✓JavaScript",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "data-highlighted": "",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "✓TypeScript",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "Python",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterArrowDown": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-activedescendant": "base-ui-:rc:-1",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "✓JavaScript✓TypeScriptPythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "✓JavaScript✓TypeScriptPythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "aria-multiselectable": "true",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "✓JavaScript",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "✓TypeScript",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "data-highlighted": "",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "Python",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterEnterOnHighlighted": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-activedescendant": "base-ui-:rc:-1",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "JavaScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        }
+      ],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "✓JavaScriptTypeScriptPythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "✓JavaScriptTypeScriptPythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "aria-multiselectable": "true",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "✓JavaScript",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript",
+          "role": "option",
+          "aria-selected": "false",
+          "data-highlighted": "",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Python",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterEnterAgain": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-activedescendant": "base-ui-:rc:-1",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "✓JavaScript✓TypeScriptPythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "✓JavaScript✓TypeScriptPythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "aria-multiselectable": "true",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "✓JavaScript",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "✓TypeScript",
+          "role": "option",
+          "aria-selected": "true",
+          "data-highlighted": "",
+          "data-selected": "",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "Python",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterClickTrigger": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-activedescendant": "base-ui-:rc:-0",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "✓JavaScript✓TypeScriptPythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "✓JavaScript✓TypeScriptPythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "aria-multiselectable": "true",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "✓JavaScript",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "data-highlighted": "",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "✓TypeScript",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "Python",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterClickItemRust": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×Rust×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-activedescendant": "base-ui-:rc:-4",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×Rust×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "TypeScript"
+        },
+        {
+          "tag": "div",
+          "text": "Rust×",
+          "tabindex": "-1",
+          "aria-label": "Rust",
+          "focused": false,
+          "chip": "Rust"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove Rust",
+          "focused": false,
+          "chip": "Rust"
+        }
+      ],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "✓JavaScript✓TypeScriptPythonRuby✓RustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "✓JavaScript✓TypeScriptPythonRuby✓RustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "aria-multiselectable": "true",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "✓JavaScript",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "✓TypeScript",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "Python",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "✓Rust",
+          "role": "option",
+          "aria-selected": "true",
+          "data-highlighted": "",
+          "data-selected": "",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterClickItemJavaScriptAgain": {
+      "group": {
+        "tag": "div",
+        "text": "TypeScript×Rust×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-activedescendant": "base-ui-:rc:-0",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "TypeScript×Rust×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "TypeScript"
+        },
+        {
+          "tag": "div",
+          "text": "Rust×",
+          "tabindex": "-1",
+          "aria-label": "Rust",
+          "focused": false,
+          "chip": "Rust"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove Rust",
+          "focused": false,
+          "chip": "Rust"
+        }
+      ],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "JavaScript✓TypeScriptPythonRuby✓RustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "JavaScript✓TypeScriptPythonRuby✓RustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "aria-multiselectable": "true",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "JavaScript",
+          "role": "option",
+          "aria-selected": "false",
+          "data-highlighted": "",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "✓TypeScript",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "Python",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "✓Rust",
+          "role": "option",
+          "aria-selected": "true",
+          "data-selected": "",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterTypingRu": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "value": "ru",
+        "selStart": 2,
+        "selEnd": 2,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "RubyRust",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "RubyRust",
+        "role": "listbox",
+        "tabindex": "-1",
+        "aria-multiselectable": "true",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterTypingRuEnter": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "afterTypingNonsenseTab": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": false
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "afterBackspaceInEmptyInput": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "JavaScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        }
+      ],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "✓JavaScriptTypeScriptPythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "✓JavaScriptTypeScriptPythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "aria-multiselectable": "true",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "✓JavaScript",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Python",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterBackspaceTwice": {
+      "group": {
+        "tag": "div",
+        "text": "▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "e.g. TypeScript",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "",
+        "focused": false
+      },
+      "chip": [],
+      "chipRemove": [],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "JavaScriptTypeScriptPythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "JavaScriptTypeScriptPythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "aria-multiselectable": "true",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "JavaScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Python",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterArrowLeftFromEmptyInput": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": false
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "focused": true,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "chip:TypeScript"
+    },
+    "afterArrowLeftTwice": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": false
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "focused": true,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "chip:JavaScript"
+    },
+    "afterArrowLeftThrice": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "afterArrowRightBack": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "afterArrowRightToInput": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "afterBackspaceOnFocusedChip": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": false
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "focused": true,
+          "chip": "JavaScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        }
+      ],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "chip:JavaScript"
+    },
+    "afterDeleteOnFirstChip": {
+      "group": {
+        "tag": "div",
+        "text": "TypeScript×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": false
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "focused": true,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "chip:TypeScript"
+    },
+    "afterEnterOnFocusedChip": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "afterClickChipRemove": {
+      "group": {
+        "tag": "div",
+        "text": "TypeScript×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "afterClickChip": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-activedescendant": "base-ui-:rc:-0",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "✓JavaScript✓TypeScriptPythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "✓JavaScript✓TypeScriptPythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "aria-multiselectable": "true",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "✓JavaScript",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "data-highlighted": "",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "✓TypeScript",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "Python",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterBackspaceWithText": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-activedescendant": "base-ui-:rc:-0",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rd:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "aria-hidden": "true",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "✓JavaScript✓TypeScriptPythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "✓JavaScript✓TypeScriptPythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "aria-multiselectable": "true",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "✓JavaScript",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "data-highlighted": "",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "✓TypeScript",
+          "data-selected": "",
+          "role": "option",
+          "aria-selected": "true",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": true
+        },
+        {
+          "tag": "div",
+          "text": "Python",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "afterTabFromInput": {
+      "group": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×▾",
+        "role": "group",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": false
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "JavaScript×TypeScript×",
+        "role": "toolbar",
+        "focused": false
+      },
+      "chip": [
+        {
+          "tag": "div",
+          "text": "JavaScript×",
+          "tabindex": "-1",
+          "aria-label": "JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript×",
+          "tabindex": "-1",
+          "aria-label": "TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "chipRemove": [
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove JavaScript",
+          "focused": false,
+          "chip": "JavaScript"
+        },
+        {
+          "tag": "button",
+          "text": "×",
+          "type": "button",
+          "tabindex": "-1",
+          "aria-disabled": "false",
+          "aria-label": "Remove TypeScript",
+          "focused": false,
+          "chip": "TypeScript"
+        }
+      ],
+      "open": false,
+      "popup": null,
+      "list": null,
+      "empty": null,
+      "items": [],
+      "focus": "input"
+    },
+    "emptyAfterBackspace": {
+      "group": {
+        "tag": "div",
+        "text": "▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "e.g. TypeScript",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rh:",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rh:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "",
+        "focused": false
+      },
+      "chip": [],
+      "chipRemove": [],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "JavaScriptTypeScriptPythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "JavaScriptTypeScriptPythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "aria-multiselectable": "true",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "JavaScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Python",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    },
+    "emptyAfterArrowLeft": {
+      "group": {
+        "tag": "div",
+        "text": "▾",
+        "role": "group",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "focused": false
+      },
+      "input": {
+        "tag": "input",
+        "text": "",
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-autocomplete": "list",
+        "aria-label": "Languages",
+        "placeholder": "e.g. TypeScript",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rh:",
+        "value": "",
+        "selStart": 0,
+        "selEnd": 0,
+        "focused": true
+      },
+      "trigger": {
+        "tag": "button",
+        "text": "▾",
+        "type": "button",
+        "tabindex": "-1",
+        "aria-expanded": "true",
+        "aria-haspopup": "listbox",
+        "aria-label": "Open",
+        "data-popup-open": "",
+        "data-pressed": "",
+        "aria-controls": ":rh:",
+        "aria-hidden": "true",
+        "focused": false
+      },
+      "clear": null,
+      "chips": {
+        "tag": "div",
+        "text": "",
+        "focused": false
+      },
+      "chip": [],
+      "chipRemove": [],
+      "open": true,
+      "popup": {
+        "tag": "div",
+        "text": "JavaScriptTypeScriptPythonRubyRustGo",
+        "data-open": "",
+        "tabindex": "-1",
+        "role": "presentation",
+        "focused": false
+      },
+      "list": {
+        "tag": "div",
+        "text": "JavaScriptTypeScriptPythonRubyRustGo",
+        "role": "listbox",
+        "tabindex": "-1",
+        "aria-multiselectable": "true",
+        "focused": false
+      },
+      "empty": {
+        "tag": "div",
+        "text": "",
+        "role": "status",
+        "aria-live": "polite",
+        "aria-atomic": "true",
+        "data-empty": "1",
+        "focused": false
+      },
+      "items": [
+        {
+          "tag": "div",
+          "text": "JavaScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "JavaScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "TypeScript",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "TypeScript",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Python",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Python",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Ruby",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Ruby",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Rust",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Rust",
+          "indicatorShown": false
+        },
+        {
+          "tag": "div",
+          "text": "Go",
+          "role": "option",
+          "aria-selected": "false",
+          "focused": false,
+          "item": "Go",
+          "indicatorShown": false
+        }
+      ],
+      "focus": "input"
+    }
+  }
+}

@@ -1,0 +1,133 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; UiText — measured text that stays inside its box
+; =============================================================================
+; Two questions every page with a fixed column asks, and four places in the
+; gallery answered for themselves: mfiles (`fitText`, `wrapText`), the DB
+; viewer (`fitText`), the breadcrumb (its own collapse arithmetic) and
+; `gallery/evg/EVGTextFit` (over the game engine's text renderer, which the
+; kit does not use). Same binary search, same greedy wrap, written four times
+; and slightly differently each time.
+;
+;   fit    the longest prefix of `text` that, with an ellipsis after it,
+;          measures no wider than `width` — or the whole text when it fits.
+;   wrapLines  the text broken into lines no wider than `width`, at spaces where
+;          it can and inside a word when a single word is wider than the box.
+;          A newline in the text is a line break; an empty paragraph is an
+;          empty line, so a blank line in a note stays a blank line.
+;
+; Both take the ENGINE, because the answer depends on which measurer is in
+; play: the advance table in a headless gate, the browser's `measureText`
+; on the page (`gallery/evg/gl/evg-measure.js` installs it into every
+; module). A helper that made its own engine would measure in the wrong one.
+; =============================================================================
+
+Import "../../evg/EVGTextEngine.rgr"
+
+class UiText {
+
+    Constructor () {
+    }
+
+    sfn widthOf:double (eng:EVGTextEngine text:string family:string size:double) {
+        def m:EVGTextMetrics (eng.measureRun(text family size))
+        return m.width
+    }
+
+    ; The text, or as much of it as fits before an ellipsis.
+    sfn fit:string (eng:EVGTextEngine text:string family:string size:double width:double) {
+        if ((UiText.widthOf(eng text family size)) <= width) {
+            return text
+        }
+        def lo:int 0
+        def hi:int (strlen text)
+        while (lo < hi) {
+            def mid:int (idiv ((lo + hi) + 1) 2)
+            def cand:string ((substring text 0 mid) + "…")
+            if ((UiText.widthOf(eng cand family size)) <= width) {
+                lo = mid
+            } {
+                hi = (mid - 1)
+            }
+        }
+        if (lo == 0) {
+            return "…"
+        }
+        return ((trim (substring text 0 lo)) + "…")
+    }
+
+    ; A word wider than the box, cut into pieces that are not.
+    sfn breakWord:[string] (eng:EVGTextEngine word:string family:string size:double width:double) {
+        def out:[string]
+        def rest:string word
+        while ((strlen rest) > 0) {
+            if ((UiText.widthOf(eng rest family size)) <= width) {
+                push out rest
+                rest = ""
+            } {
+                def lo:int 1
+                def hi:int (strlen rest)
+                while (lo < hi) {
+                    def mid:int (idiv ((lo + hi) + 1) 2)
+                    if ((UiText.widthOf(eng (substring rest 0 mid) family size)) <= width) {
+                        lo = mid
+                    } {
+                        hi = (mid - 1)
+                    }
+                }
+                push out (substring rest 0 lo)
+                rest = (substring rest lo (strlen rest))
+            }
+        }
+        return out
+    }
+
+    sfn wrapLines:[string] (eng:EVGTextEngine text:string family:string size:double width:double) {
+        def out:[string]
+        def paras:[string] (strsplit text "\n")
+        def pi:int 0
+        while (pi < (array_length paras)) {
+            def p:string (itemAt paras pi)
+            if ((strlen p) == 0) {
+                push out ""
+            } {
+                def words:[string] (strsplit p " ")
+                def line:string ""
+                def wi:int 0
+                while (wi < (array_length words)) {
+                    def w:string (itemAt words wi)
+                    def cand:string w
+                    if ((strlen line) > 0) {
+                        cand = (line + " " + w)
+                    }
+                    if ((UiText.widthOf(eng cand family size)) <= width) {
+                        line = cand
+                    } {
+                        if ((strlen line) > 0) {
+                            push out line
+                            line = ""
+                        }
+                        if ((UiText.widthOf(eng w family size)) <= width) {
+                            line = w
+                        } {
+                            ; Wider than the box on its own: every piece but
+                            ; the last is a line, and the last starts the next.
+                            def pieces:[string] (UiText.breakWord(eng w family size width))
+                            def k:int 0
+                            while (k < ((array_length pieces) - 1)) {
+                                push out (itemAt pieces k)
+                                k = (k + 1)
+                            }
+                            line = (itemAt pieces ((array_length pieces) - 1))
+                        }
+                    }
+                    wi = (wi + 1)
+                }
+                push out line
+            }
+            pi = (pi + 1)
+        }
+        return out
+    }
+}

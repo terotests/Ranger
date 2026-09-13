@@ -43,6 +43,7 @@
 ; =============================================================================
 
 Import "../src/InputCtl.rgr"
+Import "../src/UiField.rgr"
 Import "../src/CheckboxCtl.rgr"
 Import "../src/RadioGroupCtl.rgr"
 Import "../src/UiCtl.rgr"
@@ -121,34 +122,8 @@ treefactory Fm {
     tag Note    EVGElement (props (className "fm-note") (elementType 1))
 }
 
-; A label, a hint and an error, and the tid of the control they are about.
-; Everything here is written once and handed to the control; see the header.
-class UiField {
-    def tid:string ""
-    def label:string ""
-    def hint:string ""
-    def error:string ""
-    def required:boolean false
-    ; Half a row rather than a whole one, for the two that sit side by side.
-    def half:boolean false
-
-    Constructor () {
-    }
-
-    ; The one sentence a reader hears after the name and the role — the error
-    ; when there is one, the hint otherwise, and nothing when there is neither.
-    ; NOT both: see the header.
-    fn describedText:string () {
-        if ((strlen error) > 0) {
-            return error
-        }
-        return hint
-    }
-
-    fn isBad:boolean () {
-        return ((strlen error) > 0)
-    }
-}
+; `UiField` — the label, the hint and the error — lives in ../src/UiField.rgr
+; now that three forms want it; the reasoning above is repeated in its header.
 
 class FormDemo {
 
@@ -226,10 +201,7 @@ class FormDemo {
     fn dress:void (c:InputCtl f:UiField) {
         c.fontFamily = boxFont
         c.fontSize = boxFontSize
-        c.name = f.label
-        c.description = (f.describedText())
-        c.required = f.required
-        c.invalid = (f.isBad())
+        f.dressInput(c)
         c.boxWidth = halfTextW
         if (f.half == false) {
             c.boxWidth = boxTextW

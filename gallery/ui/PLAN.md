@@ -2998,6 +2998,105 @@ through `UiRow`; a page built from ELEMENTS could not, and the two paths feed
 the same tree. Axe found it, on a focusable `separator` with no value: not a
 splitter, a decoration that has taken a tab stop. Now readable from both.
 
+## The apps, surveyed — what they hand-build that the kit lacks
+
+The question was put the other way round for once: not "what does Radix have
+that we do not" but "what do the gallery's own applications draw by hand that
+they could take from here". Four surveys — `mfiles`, `realtrainer`, the
+data/form apps (`datagrid`, `rangerdbviewer`, `rangerforms`, `rangersql`,
+`statechart`, `vela`) and the editors (`pptx`, `docx_viewer`, `book`, `r5`,
+`rangerflow`, `figma`, `markdown`, `text_editor`, `office`) — and three
+findings that hold across all of them.
+
+**Nothing outside this directory uses a controller except mfiles and
+realtrainer,** and those two use `InputCtl` and `TableCtl` as MODELS while
+drawing the box themselves. Every editor draws its chrome through the older
+layer in `gallery/evg` — `EVGToolbar`, `EVGWindow`, `EVGSelectChrome` — which
+paints straight into a display list at a given rectangle. That composition
+seam (`GridPane.setBounds` + `buildInto(dl)`) is what lets datagrid live inside
+rangerdbviewer, and `UiCtl` owns an element subtree instead. Until a controller
+can be handed a rectangle as easily as `EVGWindow` can, the editors have no
+cheap way onto the kit. This is the architectural item, and it is not small.
+
+**What the apps have and the kit lacks, ranked by how many of them want it:**
+
+| Missing here | Hand-built in | Notes |
+| --- | --- | --- |
+| ~~Combobox, and a tag/chip input~~ | mfiles (lookup, class picker), the invoice's Customer, realtrainer's selects | **Done — `ComboboxCtl`, measured on Base UI.** See the README |
+| ~~Form row: label, hint, error, required~~ | mfiles, rangerforms `FormView`, FormDemo, ProfileDemo, figma's inspector | **Done — `UiField` promoted to `src`.** Radix `form` is still open: no validation model, no message region |
+| ~~Toast STACK with kinds and timers~~ | mfiles (4 kinds, auto-expiry), realtrainer (per-toast 4 s) | **Done — `ToastCtl` is a list, measured with two up.** Four new Radix specs; see below |
+| ~~Overlay edge clamping~~ | mfiles dropdown and context menu, realtrainer cal menu, rangerflow menu | **Not a gap: `EVGLayout.placeOverlay` already flips the side and shifts along the other axis** (see "Collision handling" above). The apps clamp by hand because they position by coordinates instead of declaring an anchor and a surface — which is what mfiles' lookup stopped doing when it became a `ComboboxCtl` |
+| ~~Measured text: ellipsis and word wrap~~ | mfiles `fitText`/`wrapText`, dbviewer `fitText`, `BreadcrumbCtl`, `EVGTextFit` | **Done — `UiText.fit` / `UiText.wrapLines`**, over whichever engine the caller measures in; the card's heading uses it |
+| Spinner, ring progress, dial | realtrainer (12-blade ring, 8-blade button spinner, 60-tick dial) | `ProgressCtl` is linear only. No oracle; Radix progress semantics with circular presentation |
+| Stat tile with sparkline | realtrainer `statsCard` (trend, min/avg/max, lazy chart seam) | DashboardDemo declines to make a card a controller; the chart seam is the reusable part |
+| Colour swatch / picker | datagrid (dialog), docx (dialog), pptx inspector, figma inspector | `PLAN_INPUTS` P3/P4 (`Track2DCtl` → `ColorCtl`); four apps are waiting |
+| Segmented control skin | mfiles Yes/No, realtrainer `exSegBtn`, wizard visibility | Semantics exist (`RadioGroupCtl.toggleMode`); MetadataDemo styles it as pills. A theme variant, not a controller |
+| Status bar, zoom control, pager (‹ n/m ›), ruler | every editor, twice over | Chrome, not controls; belongs with the composition question above |
+| Bottom sheet | r5 (five of them), realtrainer | The mobile answer to a menu. `DialogCtl` + a slide-up surface |
+| Window manager / z-stack | datagrid chart windows, `EVGWindowManager` | `WindowCtl` is one window |
+| Tree with detail column | rangerdbviewer `ObjectTree` | `TreeCtl` is strictly richer; the app should adopt it and the kit should grow a trailing column |
+| Data grid: column resize, cell edit, ranges, frozen panes | datagrid (14 000 lines) | `TableCtl` is a paginated static table. Not a gap to close by porting; a gap to name |
+
+**And the reverse list — what the apps should take rather than keep:**
+rangerdbviewer's tree (→ `TreeCtl`), rangerforms' text field and picker
+(→ `InputCtl`, `SelectCtl`), datagrid's header menus (→ `MenuCtl`), mfiles'
+free-text date (→ `DateFieldCtl`) and its lookup field (→ `ComboboxCtl`),
+realtrainer's toast slot, calendar menu and month grid (→ `ToastCtl`,
+`MenuCtl`, `CalendarCtl`). Each of those app versions has LESS than the kit's:
+no arrow keys, no roving focus, no measured contract.
+
+### What this pass built
+
+- `ComboboxCtl` — the top of the table, with an oracle (`combobox_oracle.mjs`
+  against `@base-ui/react` 1.8.0), a gate (`combobox_check.mjs`, 123
+  assertions), the offline half in `UiTest` (82 assertions), theme rules, and
+  a `UiHost.addCombobox`. The rules that were not the obvious ones are in the
+  controller's header.
+- `UiCtl.onBlur`, and `UiHost.leaveFocus` calling it. Focus leaving a
+  controller was not an event before, and a combobox with "ru" typed into it
+  had no way to know it should revert. Fired only when focus leaves the
+  controller altogether — a chip taking focus from its own input is not a blur.
+- `UiField` in `src`, with `dress`, `dressInput` and `dressCombobox`.
+  FormDemo now imports it; its check is unchanged.
+- `demo/MetadataDemo.rgr` + `metadata.css` + `metadata-check.mjs` (57
+  assertions): the M-Files card on the kit, on the page as "metadata", with a
+  `render.mjs` entry (`MD_STEP=customer|class|save`).
+- `ToastCtl` became a STACK, and the reference fixture became one too — each
+  press of the trigger appends a `Toast.Root` with its own id, which is the
+  pattern Radix's own docs use. Four specs measured what a list raises
+  (`toast_stack`, `toast_escape_stack`, `toast_timer`, `toast_pause`, all
+  green on the first run): a second raise keeps the first, closing one leaves
+  the rest and parks focus on the viewport, **Escape takes ONE per press,
+  newest first**, a `duration` closes a toast on its own and moves focus
+  nowhere, and the pointer over the viewport holds EVERY clock — leaving
+  resumes from where they were, not from the start. The clock is the host's
+  `tick`, so the gate is deterministic on this side and a 500 ms toast on the
+  other. `raise(title body kind)` is the programmatic door; `kind` is a class
+  (`ui-toast-item-kind-<kind>`) for the theme, not a Radix concept.
+- `UiText` — `fit` and `wrapLines` over an `EVGTextEngine` the caller hands
+  in, because the answer depends on which measurer is in play (the advance
+  table headless, `measureText` on the page). Tested by invariant rather than
+  oracle: nothing returned is wider than the box, one more character would
+  have been, and the lines rejoin to the sentence. MetadataDemo's heading is
+  the first caller; mfiles' and the DB viewer's copies are the next.
+- `UiTree.adoptRows` / `UiTree.dress` — a controller's `rows()` written onto
+  its elements as roles, names, states and values, so a page that walks its
+  own tree with `EVGA11yFromTree` (every demo, every application) sees what
+  the controller means. Realtrainer had written this for itself as `adopt`;
+  mfiles was about to. MetadataDemo's a11y tree now holds two comboboxes, a
+  listbox and its options, and the check says so.
+- **mfiles adopted it.** Its lookup fields and class picker are `ComboboxCtl`
+  (single by datatype 9, chips by 10, the class pseudo-property 100 rebuilding
+  the field set on a pick), its dropdown overlay and hand-clamped coordinates
+  are gone — the layout pass places the list — and `fitText`/`wrapText` are
+  `UiText`. The draft follows the control through one `syncLookup`, focus
+  leaving a box settles its query through `blurLookups`, and Tab walks text
+  fields and lookups in the card's order. Its Yes/No pills became
+  `RadioGroupCtl` in toggle mode and its dates `DateFieldCtl` — a text box
+  parsed on Save became three segments measured on Chromium, and "half a
+  date" became a thing Save can name. `app-check.mjs` is unchanged in what it
+  asked before and still passes; it grew a chip, a pill and a date exercise.
+
 ## Next — the playground
 
 Driving all 45 specs through the page found four bugs in the page itself, none

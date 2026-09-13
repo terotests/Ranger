@@ -305,7 +305,15 @@
         "action-button": "the action button dismisses it",
         "focus-viewport": "dismissing moves focus to the viewport",
         "escape-closes": "Escape dismisses it",
-        "content-unmounted": "an unraised toast is not in the tree at all"
+        "content-unmounted": "an unraised toast is not in the tree at all",
+        "stack": "raising again while one is up adds a second toast; the first stays",
+        "stack-order": "toasts sit in the viewport in the order they were raised, newest last",
+        "close-one-keeps-rest": "closing one toast leaves the others exactly as they were",
+        "escape-stack": "Escape with several toasts up dismisses ONE per press, newest first",
+        "auto-dismiss": "a toast with a duration closes on its own once it has elapsed",
+        "auto-dismiss-no-focus-move": "a toast that times out moves focus nowhere",
+        "pause-on-hover": "the pointer over the viewport holds every toast's timer",
+        "resume-on-leave": "and leaving lets them run again from where they were"
       }
     },
     "sortable": {

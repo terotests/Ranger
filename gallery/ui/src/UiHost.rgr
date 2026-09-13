@@ -41,6 +41,7 @@ Import "PopoverCtl.rgr"
 Import "MenuCtl.rgr"
 Import "HoverCtl.rgr"
 Import "InputCtl.rgr"
+Import "ComboboxCtl.rgr"
 Import "VirtualCtl.rgr"
 Import "SliderCtl.rgr"
 Import "ResizeCtl.rgr"
@@ -346,6 +347,16 @@ class UiHost {
         return c
     }
 
+    fn addCombobox:ComboboxCtl (tid:string name:string multiple:boolean) {
+        def c (new ComboboxCtl())
+        c.tid = tid
+        c.name = name
+        c.multiple = multiple
+        c.build()
+        this.add(c)
+        return c
+    }
+
     fn addDateField:DateFieldCtl (tid:string name:string) {
         def c (new DateFieldCtl())
         c.tid = tid
@@ -500,6 +511,25 @@ class UiHost {
         return miss
     }
 
+    ; Focus is about to move to `target` (or to nothing). Tell the controller
+    ; that HAS it, if the move leaves that controller — a controller's own
+    ; nodes changing hands is not a blur, and it would see its own onFocus.
+    fn leaveFocus:void (target:string) {
+        if ((strlen focusId) == 0) {
+            return
+        }
+        def maybe@(optional):UiCtl (this.ctlFor(focusId))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            if ((strlen target) > 0) {
+                if (c.owns(target)) {
+                    return
+                }
+            }
+            c.onBlur(focusId)
+        }
+    }
+
     ; A click on a focusable node focuses it and activates it. A click on a
     ; disabled node activates nothing AND takes focus away — which is what a
     ; browser does, and what the Radix oracle records.
@@ -511,6 +541,7 @@ class UiHost {
     ; that reads them, and it reads them the way its reference does: shift wins
     ; over control, and only a non-shift click moves the range anchor.
     fn clickWith:void (target:string shift:boolean ctrl:boolean) {
+        this.leaveFocus(target)
         def maybe@(optional):UiCtl (this.ctlFor(target))
         if maybe {
             def c:UiCtl (unwrap maybe)
@@ -543,6 +574,7 @@ class UiHost {
         if maybe {
             def c:UiCtl (unwrap maybe)
             if (c.isFocusable(target)) {
+                this.leaveFocus(target)
                 focusId = target
                 c.onFocus(target)
             }
@@ -550,6 +582,7 @@ class UiHost {
     }
 
     fn blur:void () {
+        this.leaveFocus("")
         focusId = ""
     }
 

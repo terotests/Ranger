@@ -1,0 +1,92 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; UiField — a label, a hint and an error, and the control they are about
+; =============================================================================
+; The thing that turns a control into a form row. It is NOT a controller, and
+; that is the finding rather than a shortcut: a `<label for>` supplies an
+; input's name and the input never goes looking for one, and `aria-describedby`
+; points FROM the input AT the hint. So a Field owns nothing at run time. It is
+; the place the strings are written down once, and `dress()` puts them where a
+; reader will find them — on the control.
+;
+; Promoted out of the invoice demo once the third form wanted it: FormDemo's
+; column layout, ProfileDemo's label-left layout, and the M-Files metadata card
+; (MetadataDemo) all hand-rolled the same four fields and the same one rule:
+;
+; --- THE ERROR IS THE DESCRIPTION, NOT AN EXTRA ---------------------------------
+;
+; A field in error does not announce its hint and then its error. It announces
+; the error INSTEAD — the hint is advice for filling the field in and the error
+; is what is wrong with what is there, and a reader given both is left to work
+; out which one still applies. `describedText` returns one or the other, and a
+; page that draws them draws the error on the hint's line.
+;
+; --- REQUIRED IS ON THE CONTROL, THE STAR IS DECORATION ------------------------
+;
+; `aria-required` on the control is what says a field is required. The
+; asterisk a page draws beside the label is hidden from the tree, because a
+; reader that hears "Full name star" has been told nothing.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "InputCtl.rgr"
+Import "ComboboxCtl.rgr"
+
+class UiField {
+    def tid:string ""
+    def label:string ""
+    def hint:string ""
+    def error:string ""
+    def required:boolean false
+    ; Half a row rather than a whole one, for the two that sit side by side.
+    def half:boolean false
+
+    Constructor () {
+    }
+
+    sfn of:UiField (tid:string label:string hint:string required:boolean) {
+        def f (new UiField())
+        f.tid = tid
+        f.label = label
+        f.hint = hint
+        f.required = required
+        return f
+    }
+
+    ; The one sentence a reader hears after the name and the role — the error
+    ; when there is one, the hint otherwise, and nothing when there is neither.
+    ; NOT both: see the header.
+    fn describedText:string () {
+        if ((strlen error) > 0) {
+            return error
+        }
+        return hint
+    }
+
+    fn isBad:boolean () {
+        return ((strlen error) > 0)
+    }
+
+    ; Hand the strings to ANY control: its name and the sentence after it.
+    ; `required` and `invalid` live on the controls that publish them, so the
+    ; two typed overloads below add those; this one is for a checkbox, a radio
+    ; group, a switch — anything whose row has a name and a description and
+    ; nothing to be invalid about.
+    fn dress:void (c:UiCtl) {
+        c.name = label
+        c.description = (this.describedText())
+    }
+
+    fn dressInput:void (c:InputCtl) {
+        this.dress(c)
+        c.required = required
+        c.invalid = (this.isBad())
+    }
+
+    fn dressCombobox:void (c:ComboboxCtl) {
+        this.dress(c)
+        c.required = required
+        c.invalid = (this.isBad())
+    }
+}
