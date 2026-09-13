@@ -1,0 +1,1042 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; ComboboxCtl — measured against @base-ui/react/combobox
+; =============================================================================
+; A text box that filters a listbox, and — with `multiple` on — the same box
+; holding its selection as CHIPS beside the caret, each with a remove button.
+; That is the M-Files metadata card's lookup field ("ESTT Corporation ×" with
+; a caret beside it) and its class picker, and it was the one component the
+; plan had declined twice for want of an oracle: "a tag input is genuinely new,
+; and the interesting part is what Backspace does at position 0".
+;
+; Radix has neither. Base UI ships both as one component, so the oracle is
+; conformance/oracle/combobox_oracle.mjs and the numbers it wrote are in
+; combobox.json. Everything below that says "measured" is a line in that file.
+;
+; --- THE SHAPE, MEASURED ------------------------------------------------------
+;
+;   input     role COMBOBOX, aria-haspopup=listbox, aria-autocomplete=list,
+;             aria-expanded — and it is the ONE tab stop. The trigger and the
+;             clear button are tabindex=-1, and so is every chip: a keyboard
+;             reaches all of them from the input.
+;   trigger   a button that opens the list; focus stays on the input.
+;   clear     a button that is ABSENT until there is a value. Not disabled:
+;             gone from the tree.
+;   chips     role TOOLBAR. A chip carries no role and its label as its name;
+;             the remove inside it is a button named "Remove <label>".
+;   list      role LISTBOX, aria-multiselectable="true" when `multiple`; the
+;             rows are OPTIONs with aria-selected following the SELECTION and
+;             not the highlight — which is the opposite of Radix's select, and
+;             is why this file does not share SelectCtl's rows.
+;
+; --- OPENING, MEASURED ---------------------------------------------------------
+;
+;   A click on the input opens the list; so does the trigger; so does a click
+;   on a chip. When something is chosen, the highlight lands ON IT; when
+;   nothing is, a click leaves NO highlight and ArrowDown puts it on the first
+;   row. Arrows move the highlight and never the value.
+;
+; --- CHOOSING, MEASURED --------------------------------------------------------
+;
+;   Single: Enter or a click on the highlighted row takes its label into the
+;   input, closes the list and leaves focus in the input. Multiple: the same
+;   gesture TOGGLES the row, the list STAYS OPEN and the highlight stays where
+;   it was — three picks are three keystrokes. Chips are appended in the order
+;   they were picked, not the order of the list.
+;
+; --- TYPING, MEASURED ----------------------------------------------------------
+;
+;   Typing filters the list (case-insensitive contains, Base UI's default) and
+;   CLEARS the highlight — there is no autoHighlight, so "ru" then Enter
+;   chooses nothing: the list closes and the box REVERTS to the chosen label.
+;   Nothing matching draws the Empty text. Focus leaving a box that holds a
+;   partial or a nonsense query reverts it too; leaving a box that was emptied
+;   clears the selection. A multiple box's query is cleared instead of reverted,
+;   because its selection is in the chips and the box never held a label.
+;
+; --- THE CHIPS, MEASURED -------------------------------------------------------
+;
+;   Backspace in an EMPTY input removes the LAST chip — it does not focus it
+;   first — and, because Backspace is typing, the list opens. ArrowLeft in an
+;   empty input closes the list and moves focus onto the last chip; ArrowLeft
+;   again walks back along them; ArrowLeft past the first WRAPS to the input.
+;   Backspace or Delete on a focused chip removes it and focus goes to the
+;   chip now in its place — or the one before it when it was the last — and to
+;   the input when none remain. Enter on a chip goes back to the input. The
+;   remove button removes its chip and focus goes to the input.
+;
+; --- SPECIFIED, NOT MEASURED ---------------------------------------------------
+;
+;   ArrowRight from a chip (the mirror of ArrowLeft, ending on the input),
+;   ArrowUp on a closed list (opens it on the last row), and whether a
+;   multiple pick clears the typed query (it does here — the measured Enter
+;   with a query pending cleared it, and a pick is the same commitment). Each
+;   is a rule the harness could not reach; none of them is a guess about ARIA.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "InputCtl.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class ComboboxCtl extends UiCtl {
+    ; One value in the box, or many as chips.
+    def multiple:boolean false
+    def items:[UiItem]
+    ; The chosen value when single, "" for none.
+    def value:string ""
+    ; The chosen values when multiple, in the order they were picked.
+    def values:[string]
+    def open:boolean false
+    ; The highlighted option — where Enter lands — "" for none. Not the value:
+    ; measured, the arrows move this and only Enter or a click moves that.
+    def activeValue:string ""
+    ; The chip holding focus, "" while focus is in the input.
+    def chipFocus:string ""
+    ; Is the input's text a QUERY, typed since the list opened, or the chosen
+    ; label? Decides what the list shows and what a blur does.
+    def filtering:boolean false
+    def placeholder:string ""
+    def emptyText:string "No results."
+    ; `aria-required` and `aria-invalid`, handed down from a Field.
+    def required:boolean false
+    def invalid:boolean false
+    ; The text box. Its caret, selection and word motion are InputCtl's nine
+    ; specs; this class only decides what its text MEANS.
+    def input:InputCtl
+    def groupEl:EVGElement
+    def chipsEl:EVGElement
+    def clearEl:EVGElement
+    def triggerEl:EVGElement
+    def contentEl:EVGElement
+    def emptyEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        groupEl = (EVGElement.createDiv())
+        chipsEl = (EVGElement.createDiv())
+        clearEl = (EVGElement.createDiv())
+        triggerEl = (EVGElement.createDiv())
+        contentEl = (EVGElement.createDiv())
+        emptyEl = (EVGElement.createDiv())
+        input = (new InputCtl())
+        def empty:[UiItem]
+        items = empty
+        def none:[string]
+        values = none
+    }
+
+    fn addItem:void (itemValue:string itemName:string itemDisabled:boolean) {
+        def it (new UiItem())
+        it.value = itemValue
+        it.name = itemName
+        it.disabled = itemDisabled
+        push items it
+    }
+
+    ; --- ids ----------------------------------------------------------------------
+
+    fn inputTid:string () {
+        return (tid + "-input")
+    }
+
+    fn triggerTid:string () {
+        return (tid + "-trigger")
+    }
+
+    fn clearTid:string () {
+        return (tid + "-clear")
+    }
+
+    fn chipsTid:string () {
+        return (tid + "-chips")
+    }
+
+    fn chipTid:string (v:string) {
+        return ((tid + "-chip-") + v)
+    }
+
+    fn chipRemoveTid:string (v:string) {
+        return (((tid + "-chip-") + v) + "-remove")
+    }
+
+    fn contentTid:string () {
+        return (tid + "-content")
+    }
+
+    fn emptyTid:string () {
+        return (tid + "-empty")
+    }
+
+    fn itemTid:string (v:string) {
+        return ((tid + "-item-") + v)
+    }
+
+    ; --- lookups ------------------------------------------------------------------
+
+    fn indexOfValue:int (v:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if (it.value == v) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn labelOf:string (v:string) {
+        def i:int (this.indexOfValue(v))
+        if (i < 0) {
+            return ""
+        }
+        def it:UiItem (itemAt items i)
+        return it.name
+    }
+
+    fn isChosen:boolean (v:string) {
+        if multiple {
+            return ((indexOf values v) >= 0)
+        }
+        return (v == value)
+    }
+
+    ; The option a target names, "" when it is not one.
+    fn itemValueOf:string (target:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if (target == (this.itemTid(it.value))) {
+                return it.value
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; The chip a target names — the chip itself, or its remove button.
+    fn chipValueOf:string (target:string) {
+        def i:int 0
+        while (i < (array_length values)) {
+            def v:string (itemAt values i)
+            if (target == (this.chipTid(v))) {
+                return v
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn chipRemoveValueOf:string (target:string) {
+        def i:int 0
+        while (i < (array_length values)) {
+            def v:string (itemAt values i)
+            if (target == (this.chipRemoveTid(v))) {
+                return v
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; The typed query, or "" when the box holds a label rather than a filter.
+    fn query:string () {
+        if filtering {
+            return input.value
+        }
+        return ""
+    }
+
+    ; Case-insensitive CONTAINS — Base UI's default filter. Measured only as
+    ; far as "ru" matching Ruby and Rust and "ty" matching TypeScript alone,
+    ; which a prefix match would also pass; the choice between the two is the
+    ; reference's documented default rather than a capture.
+    fn matches:boolean (it:UiItem q:string) {
+        if ((strlen q) == 0) {
+            return true
+        }
+        def hay:string (to_lowercase it.name)
+        def needle:string (to_lowercase q)
+        return ((indexOf hay needle) >= 0)
+    }
+
+    ; The rows the list shows now: everything, or what the query lets through.
+    fn visibleItems:[UiItem] () {
+        def out:[UiItem]
+        def q:string (this.query())
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if (this.matches(it q)) {
+                push out it
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn visibleIndexOf:int (vis:[UiItem] v:string) {
+        def i:int 0
+        while (i < (array_length vis)) {
+            def it:UiItem (itemAt vis i)
+            if (it.value == v) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn stateWord:string () {
+        if open {
+            return "open"
+        }
+        return "closed"
+    }
+
+    ; Is the clear button in the tree? It follows the TEXT, not the value:
+    ; measured, emptying the box with Backspace removed it before anything had
+    ; been committed, and a half-typed query kept it. A multiple box never has
+    ; one — its chips carry their own.
+    fn showsClear:boolean () {
+        if multiple {
+            return false
+        }
+        return ((strlen input.value) > 0)
+    }
+
+    ; What the box shows when nothing is being typed: the chosen label, or
+    ; nothing at all for a multiple box, whose choices are its chips.
+    fn restingText:string () {
+        if multiple {
+            return ""
+        }
+        return (this.labelOf(value))
+    }
+
+    ; Put the resting text back and drop the query.
+    fn settleText:void () {
+        filtering = false
+        input.setValue((this.restingText()))
+        input.caret = (strlen input.value)
+        input.anchor = input.caret
+    }
+
+    ; --- opening and closing ------------------------------------------------------
+
+    ; Open with the highlight on what is chosen — measured: the chosen row,
+    ; the first chosen for a multiple box, and none when nothing is.
+    fn openOnChosen:string () {
+        open = true
+        activeValue = ""
+        if multiple {
+            if ((array_length values) > 0) {
+                activeValue = (itemAt values 0)
+            }
+        } {
+            activeValue = value
+        }
+        this.build()
+        return (this.inputTid())
+    }
+
+    fn closeList:void () {
+        open = false
+        activeValue = ""
+        this.settleText()
+        this.build()
+    }
+
+    ; --- choosing -----------------------------------------------------------------
+
+    fn choose:string (v:string) {
+        def i:int (this.indexOfValue(v))
+        if (i < 0) {
+            return ""
+        }
+        def it:UiItem (itemAt items i)
+        if it.disabled {
+            return ""
+        }
+        if multiple {
+            ; TOGGLE, stay open, keep the highlight where it is. Measured.
+            def at:int (indexOf values v)
+            if (at >= 0) {
+                remove_index values at
+            } {
+                push values v
+            }
+            activeValue = v
+            ; The query is spent: see the header's "specified, not measured".
+            filtering = false
+            input.setValue("")
+            input.caret = 0
+            input.anchor = 0
+            this.build()
+            return (this.inputTid())
+        }
+        value = v
+        open = false
+        activeValue = ""
+        this.settleText()
+        this.build()
+        return (this.inputTid())
+    }
+
+    fn removeValue:void (v:string) {
+        def at:int (indexOf values v)
+        if (at >= 0) {
+            remove_index values at
+        }
+    }
+
+    ; Focus leaving the input with a query pending: revert or clear. Called by
+    ; the host when focus goes to another controller, and by a Tab.
+    fn commitBlur:void () {
+        if (filtering == false) {
+            return
+        }
+        def typed:string input.value
+        open = false
+        activeValue = ""
+        if (multiple == false) {
+            if ((strlen typed) == 0) {
+                ; Emptied and left: the selection goes with the text. Measured.
+                value = ""
+            }
+        }
+        this.settleText()
+        this.build()
+    }
+
+    ; --- input ----------------------------------------------------------------------
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target == (this.inputTid())) {
+            if open {
+                return (this.inputTid())
+            }
+            return (this.openOnChosen())
+        }
+        if (target == (this.triggerTid())) {
+            if open {
+                this.closeList()
+                return (this.inputTid())
+            }
+            return (this.openOnChosen())
+        }
+        if (target == (this.clearTid())) {
+            value = ""
+            open = false
+            activeValue = ""
+            this.settleText()
+            this.build()
+            return (this.inputTid())
+        }
+        def cv:string (this.chipValueOf(target))
+        if ((strlen cv) > 0) {
+            ; A click on a chip is a click in the box: the list opens and
+            ; focus is the input's. Measured.
+            chipFocus = ""
+            if open {
+                return (this.inputTid())
+            }
+            return (this.openOnChosen())
+        }
+        def rv:string (this.chipRemoveValueOf(target))
+        if ((strlen rv) > 0) {
+            this.removeValue(rv)
+            chipFocus = ""
+            open = false
+            activeValue = ""
+            this.build()
+            return (this.inputTid())
+        }
+        def iv:string (this.itemValueOf(target))
+        if ((strlen iv) > 0) {
+            return (this.choose(iv))
+        }
+        return ""
+    }
+
+    fn typeChar:boolean (target:string ch:string) {
+        if (target != (this.inputTid())) {
+            return false
+        }
+        if disabled {
+            return false
+        }
+        input.tid = (this.inputTid())
+        if (filtering == false) {
+            ; The first key turns the label into a query. A resting single box
+            ; holds its label with the caret at the end, so the typed letter
+            ; lands after it exactly as it does on the reference.
+            filtering = true
+        }
+        input.insertText(ch)
+        ; Typing opens the list and drops the highlight. Measured.
+        open = true
+        activeValue = ""
+        this.build()
+        return true
+    }
+
+    fn keyDownWith:string (target:string key:string shift:boolean ctrl:boolean) {
+        if disabled {
+            return ""
+        }
+        input.tid = (this.inputTid())
+        def cv:string (this.chipValueOf(target))
+        if ((strlen cv) > 0) {
+            return (this.chipKey(cv key))
+        }
+        if (target != (this.inputTid())) {
+            return ""
+        }
+        if (key == "Escape") {
+            if open {
+                this.closeList()
+                return (this.inputTid())
+            }
+            ; Escape on a CLOSED single box clears it. Measured, and a
+            ; surprise: the second Escape is the clear button's keyboard.
+            if (multiple == false) {
+                value = ""
+                this.settleText()
+                this.build()
+            }
+            return (this.inputTid())
+        }
+        if (key == "Enter") {
+            if (open == false) {
+                return ""
+            }
+            if ((strlen activeValue) > 0) {
+                return (this.choose(activeValue))
+            }
+            ; Nothing highlighted: close, and the query is thrown away — the
+            ; single box reverts to its label, the multiple box empties.
+            ; Measured; there is no autoHighlight to lean on.
+            this.closeList()
+            return (this.inputTid())
+        }
+        if (key == "ArrowDown") {
+            return (this.moveHighlight(1))
+        }
+        if (key == "ArrowUp") {
+            return (this.moveHighlight(-1))
+        }
+        if (key == "Backspace") {
+            if (multiple && ((strlen input.value) == 0)) {
+                if ((array_length values) > 0) {
+                    ; The last chip goes, the list opens, focus stays. Measured.
+                    removeLast values
+                }
+                open = true
+                filtering = true
+                this.build()
+                return (this.inputTid())
+            }
+            def emptyBefore:boolean ((strlen input.value) == 0)
+            if (filtering == false) {
+                filtering = true
+            }
+            input.keyDownWith((this.inputTid()) key shift ctrl)
+            if (emptyBefore == false) {
+                open = true
+                activeValue = ""
+            }
+            this.build()
+            return (this.inputTid())
+        }
+        if (key == "ArrowLeft") {
+            if multiple {
+                def atStart:boolean ((input.caret == 0) && (input.anchor == 0))
+                if (atStart && ((array_length values) > 0)) {
+                    ; Out of the box and onto the last chip; the list closes.
+                    ; Measured.
+                    open = false
+                    activeValue = ""
+                    def last:string (itemAt values ((array_length values) - 1))
+                    chipFocus = last
+                    this.build()
+                    return (this.chipTid(last))
+                }
+            }
+            input.keyDownWith((this.inputTid()) key shift ctrl)
+            this.build()
+            return ""
+        }
+        if (key == "Tab") {
+            this.commitBlur()
+            return ""
+        }
+        ; Everything else is the text field's: ArrowRight, Home, End, Delete,
+        ; Ctrl+A, word motion.
+        if (key == "Delete") {
+            if (filtering == false) {
+                filtering = true
+            }
+        }
+        input.keyDownWith((this.inputTid()) key shift ctrl)
+        this.build()
+        return ""
+    }
+
+    ; The arrows on the input: open a closed list, else step the highlight
+    ; over the VISIBLE rows, skipping disabled ones, stopping at the ends.
+    fn moveHighlight:string (delta:int) {
+        def vis:[UiItem] (this.visibleItems())
+        if (open == false) {
+            open = true
+            activeValue = ""
+            if (delta > 0) {
+                ; Measured on a box with a value: the chosen row. On an empty
+                ; one: the first row.
+                def chosen:string value
+                if multiple {
+                    chosen = ""
+                    if ((array_length values) > 0) {
+                        chosen = (itemAt values 0)
+                    }
+                }
+                if ((this.visibleIndexOf(vis chosen)) >= 0) {
+                    activeValue = chosen
+                } {
+                    activeValue = (this.firstEnabled(vis 0 1))
+                }
+            } {
+                activeValue = (this.firstEnabled(vis ((array_length vis) - 1) -1))
+            }
+            this.build()
+            return (this.inputTid())
+        }
+        def from:int (this.visibleIndexOf(vis activeValue))
+        if (from < 0) {
+            if (delta > 0) {
+                activeValue = (this.firstEnabled(vis 0 1))
+            } {
+                activeValue = (this.firstEnabled(vis ((array_length vis) - 1) -1))
+            }
+            this.build()
+            return (this.inputTid())
+        }
+        def next:string (this.firstEnabled(vis (from + delta) delta))
+        if ((strlen next) > 0) {
+            activeValue = next
+        }
+        this.build()
+        return (this.inputTid())
+    }
+
+    ; The first enabled row at or after `from`, walking by `delta`; "" when
+    ; the walk runs off the end. No wrap: Base UI's loopFocus is off by default.
+    fn firstEnabled:string (vis:[UiItem] from:int delta:int) {
+        def i:int from
+        while ((i >= 0) && (i < (array_length vis))) {
+            def it:UiItem (itemAt vis i)
+            if (it.disabled == false) {
+                return it.value
+            }
+            i = (i + delta)
+        }
+        return ""
+    }
+
+    ; Keys while a chip holds focus.
+    fn chipKey:string (v:string key:string) {
+        def at:int (indexOf values v)
+        if (at < 0) {
+            return (this.inputTid())
+        }
+        def n:int (array_length values)
+        if (key == "ArrowLeft") {
+            if (at == 0) {
+                ; Past the first chip and round to the input. Measured.
+                chipFocus = ""
+                this.build()
+                return (this.inputTid())
+            }
+            def prev:string (itemAt values (at - 1))
+            chipFocus = prev
+            this.build()
+            return (this.chipTid(prev))
+        }
+        if (key == "ArrowRight") {
+            if (at >= (n - 1)) {
+                chipFocus = ""
+                this.build()
+                return (this.inputTid())
+            }
+            def nxt:string (itemAt values (at + 1))
+            chipFocus = nxt
+            this.build()
+            return (this.chipTid(nxt))
+        }
+        if ((key == "Backspace") || (key == "Delete")) {
+            remove_index values at
+            def left:int (array_length values)
+            if (left == 0) {
+                chipFocus = ""
+                this.build()
+                return (this.inputTid())
+            }
+            ; The chip now in its place, or the one before it when it was the
+            ; last. Measured both ways.
+            def landing:int at
+            if (landing >= left) {
+                landing = (left - 1)
+            }
+            def landed:string (itemAt values landing)
+            chipFocus = landed
+            this.build()
+            return (this.chipTid(landed))
+        }
+        if ((key == "Enter") || (key == "Escape")) {
+            chipFocus = ""
+            this.build()
+            return (this.inputTid())
+        }
+        return ""
+    }
+
+    fn onFocus:void (target:string) {
+        def cv:string (this.chipValueOf(target))
+        if ((strlen cv) > 0) {
+            chipFocus = cv
+        } {
+            chipFocus = ""
+        }
+        this.build()
+    }
+
+    fn onBlur:void (target:string) {
+        chipFocus = ""
+        this.commitBlur()
+    }
+
+    ; --- the tree -----------------------------------------------------------------
+
+    fn build:void () {
+        def word:string (this.stateWord())
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-combobox"
+        if disabled {
+            UiTree.addClass(root "ui-combobox-disabled")
+        }
+        UiTree.clearChildren(root)
+
+        def group:EVGElement (unwrap groupEl)
+        group.id = (tid + "-group")
+        group.className = "ui-combobox-group"
+        if multiple {
+            UiTree.addClass(group "ui-combobox-group-multiple")
+        }
+        if invalid {
+            UiTree.addClass(group "ui-combobox-group-invalid")
+        }
+        UiTree.setState(group "ui-combobox-group" word)
+        UiTree.clearChildren(group)
+        UiTree.anchor(group)
+
+        if multiple {
+            def chips:EVGElement (unwrap chipsEl)
+            chips.id = (this.chipsTid())
+            chips.className = "ui-combobox-chips"
+            UiTree.clearChildren(chips)
+            def i:int 0
+            while (i < (array_length values)) {
+                def v:string (itemAt values i)
+                def chip:EVGElement (UiTree.div((this.chipTid(v)) "ui-combobox-chip"))
+                if (v == chipFocus) {
+                    UiTree.addClass(chip "ui-combobox-chip-focused")
+                }
+                def chipTxt:EVGElement (UiTree.label(((this.chipTid(v)) + "-text") "ui-combobox-chip-text" (this.labelOf(v))))
+                if (v == chipFocus) {
+                    ; A second token on the text, because the sheet matches one
+                    ; class per selector and cannot say "text inside a focused
+                    ; chip".
+                    UiTree.addClass(chipTxt "ui-combobox-chip-text-focused")
+                }
+                chip.addChild(chipTxt)
+                def x:EVGElement (UiTree.div((this.chipRemoveTid(v)) "ui-combobox-chip-remove"))
+                UiTree.leafText(x "×")
+                chip.addChild(x)
+                chips.addChild(chip)
+                i = (i + 1)
+            }
+            group.addChild(chips)
+        }
+
+        ; The text box, built by its own controller and then told where it is.
+        input.tid = (this.inputTid())
+        input.name = name
+        input.description = description
+        input.disabled = disabled
+        input.required = required
+        input.invalid = invalid
+        if (multiple && ((array_length values) > 0)) {
+            ; The placeholder belongs to an EMPTY box, and a box with chips in
+            ; it is not empty. The reference's own demo does exactly this.
+            input.placeholder = ""
+        } {
+            input.placeholder = placeholder
+        }
+        input.build()
+        def box:EVGElement (unwrap input.rootEl)
+        UiTree.addClass(box "ui-combobox-input")
+        ; A single box's input IS the box and a theme gives it the width; a
+        ; multiple box's input shares the line with chips and stays narrow.
+        ; Two tokens, because the sheet matches one class per selector.
+        if multiple {
+            UiTree.addClass(box "ui-combobox-input-multiple")
+        } {
+            UiTree.addClass(box "ui-combobox-input-single")
+        }
+        group.addChild(box)
+        ; A spacer, so the clear and the trigger sit at the far edge of a box
+        ; whose input has a stated width. Decoration: no id, no role.
+        def grow:EVGElement (UiTree.div("" "ui-combobox-grow"))
+        group.addChild(grow)
+
+        if (this.showsClear()) {
+            def clr:EVGElement (unwrap clearEl)
+            clr.id = (this.clearTid())
+            clr.className = "ui-combobox-clear"
+            UiTree.leafText(clr "×")
+            group.addChild(clr)
+        }
+
+        def trig:EVGElement (unwrap triggerEl)
+        trig.id = (this.triggerTid())
+        trig.className = "ui-combobox-trigger"
+        UiTree.setState(trig "ui-combobox-trigger" word)
+        UiTree.leafText(trig "▾")
+        group.addChild(trig)
+        root.addChild(group)
+
+        if (open == false) {
+            return
+        }
+        def content:EVGElement (unwrap contentEl)
+        content.id = (this.contentTid())
+        content.className = "ui-combobox-content"
+        UiTree.setState(content "ui-combobox-content" word)
+        UiTree.surface(content "bottom" "start")
+        UiTree.clearChildren(content)
+        def vis:[UiItem] (this.visibleItems())
+        if ((array_length vis) == 0) {
+            def em:EVGElement (unwrap emptyEl)
+            em.id = (this.emptyTid())
+            em.className = "ui-combobox-empty"
+            UiTree.leafText(em emptyText)
+            content.addChild(em)
+        }
+        def j:int 0
+        while (j < (array_length vis)) {
+            def it:UiItem (itemAt vis j)
+            def el:EVGElement (unwrap it.el)
+            el.id = (this.itemTid(it.value))
+            el.className = "ui-combobox-item"
+            if it.disabled {
+                UiTree.addClass(el "ui-combobox-item-disabled")
+            }
+            if (it.value == activeValue) {
+                UiTree.addClass(el "ui-combobox-item-active")
+            }
+            def itemWord:string "unselected"
+            if (this.isChosen(it.value)) {
+                itemWord = "selected"
+            }
+            UiTree.setState(el "ui-combobox-item" itemWord)
+            UiTree.leafText(el it.name)
+            content.addChild(el)
+            j = (j + 1)
+        }
+        root.addChild(content)
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.inputTid())
+        def inner:[string] (input.tids())
+        def k:int 0
+        while (k < (array_length inner)) {
+            def t:string (itemAt inner k)
+            if (t != (this.inputTid())) {
+                push a t
+            }
+            k = (k + 1)
+        }
+        push a (this.triggerTid())
+        push a (this.clearTid())
+        push a (this.chipsTid())
+        def i:int 0
+        while (i < (array_length values)) {
+            def v:string (itemAt values i)
+            push a (this.chipTid(v))
+            push a (this.chipRemoveTid(v))
+            i = (i + 1)
+        }
+        push a (this.contentTid())
+        push a (this.emptyTid())
+        def j:int 0
+        while (j < (array_length items)) {
+            def it:UiItem (itemAt items j)
+            push a (this.itemTid(it.value))
+            j = (j + 1)
+        }
+        return a
+    }
+
+    ; What the HOST may put focus on and route a click through. Wider than
+    ; the tab order: the trigger, the clear, a chip's remove and an option are
+    ; all tabindex=-1 on the reference, and every one of them hands focus back
+    ; to the input as soon as it has acted. `rows()` says which are tab stops.
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        if (target == (this.inputTid())) {
+            return true
+        }
+        if (target == (this.triggerTid())) {
+            return true
+        }
+        if (target == (this.clearTid())) {
+            return (this.showsClear())
+        }
+        if ((strlen (this.chipValueOf(target))) > 0) {
+            return true
+        }
+        if ((strlen (this.chipRemoveValueOf(target))) > 0) {
+            return true
+        }
+        def iv:string (this.itemValueOf(target))
+        if ((strlen iv) > 0) {
+            if (open == false) {
+                return false
+            }
+            def vis:[UiItem] (this.visibleItems())
+            if ((this.visibleIndexOf(vis iv)) < 0) {
+                return false
+            }
+            def it:UiItem (itemAt items (this.indexOfValue(iv)))
+            return (it.disabled == false)
+        }
+        return false
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def word:string (this.stateWord())
+
+        def inRow:UiRow (UiRow.of((this.inputTid()) (EVGA11yRole.comboBox()) name))
+        inRow.state = word
+        inRow.disabled = disabled
+        inRow.focusable = (disabled == false)
+        inRow.tabStop = (disabled == false)
+        inRow.hasPopup = "listbox"
+        if open {
+            inRow.expanded = (EVGA11yTri.yes())
+        } {
+            inRow.expanded = (EVGA11yTri.no())
+        }
+        if required {
+            inRow.required = "true"
+        }
+        if invalid {
+            inRow.invalid = "true"
+        }
+        inRow.description = description
+        inRow.hasText = true
+        inRow.text = input.value
+        inRow.placeholder = input.placeholder
+        inRow.hasSelection = true
+        inRow.selStart = (input.selStart())
+        inRow.selEnd = (input.selEnd())
+        push out inRow
+
+        if multiple {
+            def bar:UiRow (UiRow.of((this.chipsTid()) (EVGA11yRole.toolbar()) ""))
+            push out bar
+            def i:int 0
+            while (i < (array_length values)) {
+                def v:string (itemAt values i)
+                ; No role, the label as the name, reachable but not a tab
+                ; stop — the reference's chip exactly.
+                def chip:UiRow (UiRow.of((this.chipTid(v)) (EVGA11yRole.none()) (this.labelOf(v))))
+                chip.parentTid = (this.chipsTid())
+                chip.focusable = (disabled == false)
+                push out chip
+                def x:UiRow (UiRow.of((this.chipRemoveTid(v)) (EVGA11yRole.button()) ("Remove " + (this.labelOf(v)))))
+                x.parentTid = (this.chipTid(v))
+                x.disabled = disabled
+                push out x
+                i = (i + 1)
+            }
+        }
+
+        if (this.showsClear()) {
+            def clr:UiRow (UiRow.of((this.clearTid()) (EVGA11yRole.button()) "Clear"))
+            clr.disabled = disabled
+            push out clr
+        }
+
+        def trig:UiRow (UiRow.of((this.triggerTid()) (EVGA11yRole.button()) "Open"))
+        trig.state = word
+        trig.disabled = disabled
+        trig.hasPopup = "listbox"
+        if open {
+            trig.expanded = (EVGA11yTri.yes())
+        } {
+            trig.expanded = (EVGA11yTri.no())
+        }
+        push out trig
+
+        if (open == false) {
+            return out
+        }
+        def list:UiRow (UiRow.of((this.contentTid()) (EVGA11yRole.listBox()) ""))
+        list.state = word
+        if multiple {
+            list.multiSelectable = "true"
+        }
+        push out list
+
+        def vis:[UiItem] (this.visibleItems())
+        if ((array_length vis) == 0) {
+            def em:UiRow (UiRow.of((this.emptyTid()) (EVGA11yRole.none()) emptyText))
+            em.parentTid = (this.contentTid())
+            push out em
+        }
+        def j:int 0
+        while (j < (array_length vis)) {
+            def it:UiItem (itemAt vis j)
+            def row:UiRow (UiRow.of((this.itemTid(it.value)) (EVGA11yRole.option()) it.name))
+            row.parentTid = (this.contentTid())
+            row.disabled = it.disabled
+            row.focusable = (it.disabled == false)
+            ; `aria-selected` follows the SELECTION, whatever the highlight is
+            ; doing. Measured — and the one place this parts from SelectCtl.
+            if (this.isChosen(it.value)) {
+                row.state = "selected"
+                row.selected = (EVGA11yTri.yes())
+            } {
+                row.state = "unselected"
+                row.selected = (EVGA11yTri.no())
+            }
+            push out row
+            j = (j + 1)
+        }
+        return out
+    }
+}

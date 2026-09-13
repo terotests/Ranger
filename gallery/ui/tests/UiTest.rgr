@@ -23,6 +23,10 @@ Import "../src/WindowCtl.rgr"
 Import "../src/HoverCtl.rgr"
 Import "../src/SliderCtl.rgr"
 Import "../src/ToastCtl.rgr"
+Import "../src/ComboboxCtl.rgr"
+Import "../src/UiText.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGTextEngine.rgr"
 Import "../src/UiHost.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGA11yTree.rgr"
@@ -240,6 +244,9 @@ class UiTest {
         UiTest.testWindowStaysReachable(t)
         UiTest.testModalWindow(t)
         UiTest.testSliderAndToast(t)
+        UiTest.testCombobox(t)
+        UiTest.testComboboxChips(t)
+        UiTest.testText(t)
         UiTest.testA11yTree(t)
         print ""
         print ("passed=" + (to_string t.passed) + " failed=" + (to_string t.failed))
@@ -248,6 +255,299 @@ class UiTest {
         } {
             print "RESULT OK"
         }
+    }
+
+
+    ; --- the combobox -----------------------------------------------------------
+    ; The numbers are Base UI's (conformance/oracle/combobox.json); the check
+    ; that reads the capture is ui:combobox:check. These are the offline half:
+    ; the rules restated over the host, so CI has them without a browser.
+
+    sfn textOf:string (h:UiHost target:string) {
+        def r@(optional):UiRow (UiTest.rowFor(h target))
+        if r {
+            def row:UiRow (unwrap r)
+            return row.text
+        }
+        return "<none>"
+    }
+
+    sfn langs:void (c:ComboboxCtl) {
+        c.addItem("js" "JavaScript" false)
+        c.addItem("ts" "TypeScript" false)
+        c.addItem("py" "Python" false)
+        c.addItem("rb" "Ruby" false)
+        c.addItem("rs" "Rust" false)
+        c.addItem("go" "Go" false)
+        c.build()
+    }
+
+    sfn testCombobox:void (t:Check) {
+        print "--- combobox, single ---"
+        def h (new UiHost())
+        def c:ComboboxCtl (h.addCombobox("cb" "Language" false))
+        UiTest.langs(c)
+        c.value = "py"
+        c.settleText()
+        c.build()
+
+        t.eqStr("the input is a combobox" (UiTest.roleOf(h "cb-input")) "combobox")
+        t.eqStr("and shows the chosen label" (UiTest.textOf(h "cb-input")) "Python")
+        t.ok("the list is not built while closed" ((UiTest.hasRow(h "cb-content")) == false))
+        t.ok("a clear button exists because there is a value" (UiTest.hasRow(h "cb-clear")))
+
+        ; Opening: click the input, highlight on the chosen row, focus stays.
+        h.click("cb-input")
+        t.ok("a click on the input opens the list" c.open)
+        t.eqStr("focus stays on the input" h.focusId "cb-input")
+        t.eqStr("the highlight lands on the chosen row" c.activeValue "py")
+        t.eqStr("the list is a listbox" (UiTest.roleOf(h "cb-content")) "listbox")
+        t.eqStr("options carry the selection, not the highlight" (UiTest.stateOfRow(h "cb-item-py")) "selected")
+        h.key("ArrowDown")
+        t.eqStr("ArrowDown moves the highlight" c.activeValue "rb")
+        t.eqStr("and not the value" c.value "py")
+        t.eqStr("aria-selected stays on the chosen row" (UiTest.stateOfRow(h "cb-item-py")) "selected")
+        h.key("ArrowDown")
+        h.key("Enter")
+        t.eqStr("Enter chooses the highlighted row" c.value "rs")
+        t.eqStr("the input takes its label" (UiTest.textOf(h "cb-input")) "Rust")
+        t.ok("and the list closes" (c.open == false))
+        t.eqStr("focus is still the input's" h.focusId "cb-input")
+
+        ; Typing filters and drops the highlight; Enter with none reverts.
+        h.keyWith("a" false true)
+        h.type("r")
+        h.type("u")
+        t.ok("typing opens the list" c.open)
+        t.eqStr("the box holds the query" (UiTest.textOf(h "cb-input")) "ru")
+        t.ok("Ruby is in the filtered list" (UiTest.hasRow(h "cb-item-rb")))
+        t.ok("and Python is not" ((UiTest.hasRow(h "cb-item-py")) == false))
+        t.eqStr("no autoHighlight" c.activeValue "")
+        h.key("Enter")
+        t.ok("Enter on nothing closes" (c.open == false))
+        t.eqStr("and the box reverts to the chosen label" (UiTest.textOf(h "cb-input")) "Rust")
+        t.eqStr("the value did not change" c.value "rs")
+
+        ; Typing then arrowing picks from the filtered rows.
+        h.keyWith("a" false true)
+        h.type("t")
+        h.type("y")
+        h.key("ArrowDown")
+        t.eqStr("ArrowDown highlights the first match" c.activeValue "ts")
+        h.key("Enter")
+        t.eqStr("and Enter takes it" (UiTest.textOf(h "cb-input")) "TypeScript")
+
+        ; Nonsense, and what the Empty row says.
+        h.keyWith("a" false true)
+        h.type("z")
+        h.type("z")
+        t.ok("the empty row appears" (UiTest.hasRow(h "cb-empty")))
+        ; Focus leaving reverts a nonsense query.
+        def other:ToggleCtl (h.addToggle("tg" "Elsewhere"))
+        h.click("tg")
+        t.eqStr("blur reverts a query that matched nothing" (UiTest.textOf(h "cb-input")) "TypeScript")
+        t.ok("and closes the list" (c.open == false))
+
+        ; Emptied and left: the selection goes too.
+        h.focus("cb-input")
+        h.keyWith("a" false true)
+        h.key("Backspace")
+        t.ok("Backspace on the selection opens the list" c.open)
+        h.click("tg")
+        t.eqStr("leaving an emptied box clears the value" c.value "")
+        t.ok("and the clear button is gone" ((UiTest.hasRow(h "cb-clear")) == false))
+
+        ; Escape: closes an open list, clears a closed single box.
+        c.value = "go"
+        c.settleText()
+        c.build()
+        h.click("cb-trigger")
+        t.ok("the trigger opens the list" c.open)
+        t.eqStr("and focus goes to the input" h.focusId "cb-input")
+        h.key("Escape")
+        t.ok("Escape closes" (c.open == false))
+        t.eqStr("and keeps the value" c.value "go")
+        h.key("Escape")
+        t.eqStr("a second Escape clears it" c.value "")
+        t.eqStr("and the box" (UiTest.textOf(h "cb-input")) "")
+
+        ; ArrowDown on an empty closed box: first row.
+        h.key("ArrowDown")
+        t.eqStr("ArrowDown on an empty box highlights the first row" c.activeValue "js")
+        h.key("Escape")
+        h.click("cb-item-py")
+        t.ok("a click on a closed list's row does nothing" (c.value == ""))
+        h.click("cb-input")
+        t.eqStr("a click opens with no highlight when nothing is chosen" c.activeValue "")
+        h.click("cb-item-py")
+        t.eqStr("a click on a row chooses it" c.value "py")
+        h.click("cb-clear")
+        t.eqStr("clear empties the value" c.value "")
+        t.eqStr("and focus is the input's" h.focusId "cb-input")
+
+        ; Disabled.
+        c.disabled = true
+        c.build()
+        h.click("cb-trigger")
+        t.ok("a disabled box does not open" (c.open == false))
+        t.eqStr("and takes no focus" h.focusId "")
+    }
+
+    sfn testComboboxChips:void (t:Check) {
+        print "--- combobox, multiple ---"
+        def h (new UiHost())
+        def c:ComboboxCtl (h.addCombobox("mc" "Languages" true))
+        UiTest.langs(c)
+        push c.values "js"
+        push c.values "ts"
+        c.placeholder = "e.g. TypeScript"
+        c.build()
+
+        t.eqStr("the chips are a toolbar" (UiTest.roleOf(h "mc-chips")) "toolbar")
+        t.ok("a chip is a row named by its label" (UiTest.hasRow(h "mc-chip-ts")))
+        t.eqStr("its remove is a button" (UiTest.roleOf(h "mc-chip-ts-remove")) "button")
+        t.eqStr("a box with chips shows no placeholder" (UiTest.textOf(h "mc-input")) "")
+
+        h.click("mc-input")
+        t.ok("opens" c.open)
+        t.eqStr("highlight on the first chosen" c.activeValue "js")
+        def list@(optional):UiRow (UiTest.rowFor(h "mc-content"))
+        def multi:string ""
+        if list {
+            def lr:UiRow (unwrap list)
+            multi = lr.multiSelectable
+        }
+        t.eqStr("the list says it is multiselectable" multi "true")
+        h.key("ArrowDown")
+        h.key("Enter")
+        t.eqInt("Enter toggles the highlighted chip off" (array_length c.values) 1)
+        t.ok("and the list stays open" c.open)
+        t.eqStr("the highlight stays put" c.activeValue "ts")
+        h.key("Enter")
+        t.eqInt("Enter again toggles it back" (array_length c.values) 2)
+        h.click("mc-item-rs")
+        t.eqInt("a click adds a chip" (array_length c.values) 3)
+        t.eqStr("appended in pick order" (itemAt c.values 2) "rs")
+        t.ok("the list is still open" c.open)
+        t.eqStr("the row says selected" (UiTest.stateOfRow(h "mc-item-rs")) "selected")
+
+        ; Typing, then Enter on nothing: the query is cleared, chips stay.
+        h.type("r")
+        h.type("u")
+        t.ok("Ruby is offered" (UiTest.hasRow(h "mc-item-rb")))
+        h.key("Enter")
+        t.eqStr("Enter on nothing clears the query" (UiTest.textOf(h "mc-input")) "")
+        t.eqInt("and leaves the chips" (array_length c.values) 3)
+        t.ok("closed" (c.open == false))
+
+        ; Backspace in an empty input removes the last chip and opens.
+        h.key("Backspace")
+        t.eqInt("Backspace takes the last chip" (array_length c.values) 2)
+        t.eqStr("focus stays on the input" h.focusId "mc-input")
+        t.ok("and the list opens" c.open)
+
+        ; ArrowLeft walks onto the chips, wraps to the input past the first.
+        h.key("ArrowLeft")
+        t.eqStr("ArrowLeft focuses the last chip" h.focusId "mc-chip-ts")
+        t.ok("and closes the list" (c.open == false))
+        h.key("ArrowLeft")
+        t.eqStr("again, the one before" h.focusId "mc-chip-js")
+        h.key("ArrowLeft")
+        t.eqStr("past the first, round to the input" h.focusId "mc-input")
+
+        ; Removing a focused chip: focus lands on the chip in its place.
+        h.key("ArrowLeft")
+        h.key("Backspace")
+        t.eqInt("Backspace on a chip removes it" (array_length c.values) 1)
+        t.eqStr("focus moves to the chip before it" h.focusId "mc-chip-js")
+        h.key("Enter")
+        t.eqStr("Enter on a chip returns to the input" h.focusId "mc-input")
+        h.click("mc-input")
+        h.click("mc-item-py")
+        h.key("Escape")
+        h.key("ArrowLeft")
+        h.key("ArrowLeft")
+        t.eqStr("on the first of two" h.focusId "mc-chip-js")
+        h.key("Delete")
+        t.eqStr("Delete on the first: focus goes to the one now in its place" h.focusId "mc-chip-py")
+        h.click("mc-chip-py-remove")
+        t.eqInt("the remove button removes" (array_length c.values) 0)
+        t.eqStr("and focus is the input's" h.focusId "mc-input")
+        t.eqStr("with no chips the placeholder is back" (UiTest.textOf(h "mc-input")) "")
+        def r@(optional):UiRow (UiTest.rowFor(h "mc-input"))
+        def ph:string ""
+        if r {
+            def rr:UiRow (unwrap r)
+            ph = rr.placeholder
+        }
+        t.eqStr("the placeholder is published" ph "e.g. TypeScript")
+        h.key("Backspace")
+        t.eqInt("Backspace with nothing left removes nothing" (array_length c.values) 0)
+    }
+
+
+    ; --- measured text ------------------------------------------------------------
+    ; No oracle: the claim is about the kit's own measurer, and the assertions
+    ; are the invariants — nothing returned is wider than the box, and nothing
+    ; is lost that would have fitted.
+
+    sfn testText:void (t:Check) {
+        print "--- measured text: fit and wrap ---"
+        def lay (new EVGLayout())
+        def eng:EVGTextEngine (lay.getTextEngine())
+        def fam:string "Arial"
+        def size:double 13.0
+        def text:string "Invoice #1035 - Fortney Nolte Associates"
+        def full:double (UiText.widthOf(eng text fam size))
+        t.ok("the whole text measures wider than nothing" (full > 0.0))
+        t.eqStr("a box wide enough gets the text back unchanged" (UiText.fit(eng text fam size (full + 1.0))) text)
+        def half:string (UiText.fit(eng text fam size (full / 2.0)))
+        t.ok("a narrower box gets a prefix and an ellipsis"
+            ((strlen half) < (strlen text)) && ((substring half ((strlen half) - 1) (strlen half)) == "…"))
+        t.ok("and it fits" ((UiText.widthOf(eng half fam size)) <= (full / 2.0)))
+        def longer:string ((substring half 0 ((strlen half) - 1)) + "x…")
+        t.ok("one more character would not have" ((UiText.widthOf(eng longer fam size)) > (full / 2.0)))
+        t.eqStr("a box too narrow for one letter gets the ellipsis alone" (UiText.fit(eng text fam size 1.0)) "…")
+
+        def para:string "Pick one or more. Backspace in the empty box takes the last one."
+        def lines:[string] (UiText.wrapLines(eng para fam size 120.0))
+        t.ok("a long sentence wraps into several lines" ((array_length lines) > 2))
+        def i:int 0
+        def widest:double 0.0
+        def rejoined:string ""
+        while (i < (array_length lines)) {
+            def ln:string (itemAt lines i)
+            def w:double (UiText.widthOf(eng ln fam size))
+            if (w > widest) {
+                widest = w
+            }
+            if (i > 0) {
+                rejoined = rejoined + " "
+            }
+            rejoined = rejoined + ln
+            i = (i + 1)
+        }
+        t.ok("no line is wider than the box" (widest <= 120.0))
+        t.eqStr("and joining them gives the sentence back" rejoined para)
+        def blank:[string] (UiText.wrapLines(eng "one\n\ntwo" fam size 200.0))
+        t.eqInt("a blank paragraph is a blank line" (array_length blank) 3)
+        t.eqStr("kept where it was" (itemAt blank 1) "")
+        def wordy:[string] (UiText.wrapLines(eng "Supercalifragilisticexpialidocious" fam size 60.0))
+        t.ok("a word wider than the box is cut into pieces" ((array_length wordy) > 1))
+        def j:int 0
+        def glued:string ""
+        def widest2:double 0.0
+        while (j < (array_length wordy)) {
+            def piece:string (itemAt wordy j)
+            glued = glued + piece
+            def w2:double (UiText.widthOf(eng piece fam size))
+            if (w2 > widest2) {
+                widest2 = w2
+            }
+            j = (j + 1)
+        }
+        t.eqStr("that spell the word" glued "Supercalifragilisticexpialidocious")
+        t.ok("each inside the box" (widest2 <= 60.0))
     }
 
     ; A controller writes classes; the sheet decides what they look like.
@@ -794,13 +1094,60 @@ class UiTest {
         t.ok("nothing is raised yet" ((UiTest.hasRow(h2 "ts")) == false))
         h2.click("ts-trigger")
         t.eqStr("raising it does not steal focus" h2.focusId "ts-trigger")
-        t.ok("the toast is there" ((UiTest.hasRow(h2 "ts")) == true))
-        h2.click("ts-close")
+        t.ok("the toast is there" ((UiTest.hasRow(h2 "ts-item-1")) == true))
+        h2.click("ts-item-1-close")
         t.eqStr("dismissing parks focus on the viewport" h2.focusId "ts-viewport")
         h2.click("ts-trigger")
         h2.key("Escape")
-        t.ok("escape dismisses it" ((UiTest.hasRow(h2 "ts")) == false))
+        t.ok("escape dismisses it" ((UiTest.hasRow(h2 "ts-item-2")) == false))
         t.eqStr("and leaves focus where it was" h2.focusId "ts-trigger")
+
+        ; The stack: measured in toast_stack, toast_escape_stack, toast_timer
+        ; and toast_pause; restated here so CI has them without a browser.
+        h2.click("ts-trigger")
+        h2.click("ts-trigger")
+        h2.click("ts-trigger")
+        t.eqInt("three raises are three toasts" (ts.count()) 3)
+        t.ok("the first is still up" (UiTest.hasRow(h2 "ts-item-3")))
+        t.ok("and the third" (UiTest.hasRow(h2 "ts-item-5")))
+        h2.click("ts-item-3-close")
+        t.eqInt("closing one leaves the rest" (ts.count()) 2)
+        t.ok("the second is untouched" (UiTest.hasRow(h2 "ts-item-4")))
+        t.eqStr("and focus parks on the viewport" h2.focusId "ts-viewport")
+        h2.focus("ts-trigger")
+        h2.key("Escape")
+        t.eqInt("Escape takes one" (ts.count()) 1)
+        t.ok("the NEWEST" ((UiTest.hasRow(h2 "ts-item-5")) == false))
+        t.ok("leaving the older" (UiTest.hasRow(h2 "ts-item-4")))
+        h2.key("Escape")
+        t.eqInt("and the next Escape the last" (ts.count()) 0)
+
+        ; The clock: a duration, the host's tick, and the pause on hover.
+        ts.duration = 500.0
+        ts.raise("Saved" "All good" "success")
+        def sixth:ToastItem (ts.itemOf(6))
+        def sixthEl:EVGElement (unwrap sixth.el)
+        t.ok("a raised toast carries its kind as a class"
+            (UiTree.hasClass(sixthEl "ui-toast-item-kind-success")))
+        h2.tick(250.0)
+        t.eqInt("half way, still up" (ts.count()) 1)
+        h2.hover("ts-viewport")
+        h2.tick(900.0)
+        t.eqInt("the pointer over the viewport holds the clock" (ts.count()) 1)
+        h2.unhover()
+        h2.tick(200.0)
+        t.eqInt("leaving resumes from where it was — not from the start" (ts.count()) 1)
+        h2.tick(100.0)
+        t.eqInt("and it closes on its own" (ts.count()) 0)
+        t.eqStr("moving focus nowhere" h2.focusId "ts-trigger")
+        ts.raise("A" "" "")
+        ts.raise("B" "" "")
+        h2.focus("ts-item-7")
+        h2.tick(900.0)
+        t.eqInt("focus inside the viewport holds every clock" (ts.count()) 2)
+        h2.focus("ts-trigger")
+        h2.tick(600.0)
+        t.eqInt("and leaving lets them all run out" (ts.count()) 0)
     }
 
     sfn testA11yTree:void (t:Check) {

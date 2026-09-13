@@ -18,6 +18,8 @@
 ; =============================================================================
 
 Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "UiCtl.rgr"
 
 class UiTree {
 
@@ -228,6 +230,92 @@ class UiTree {
         el.textContent = text
         el.elementType = 1
         return el
+    }
+
+    ; --- a controller's meaning, written onto its elements ---------------------
+    ; A controller says what its nodes MEAN through `rows()`, and UiHost builds
+    ; the accessibility tree from those rows. A page that composes controllers
+    ; into its own tree and walks THAT tree (`EVGA11yFromTree`, as every demo
+    ; and every application does) sees none of it: the elements carry classes
+    ; and no roles, so a combobox is a div and its options are divs. Realtrainer
+    ; found this first and wrote `adopt` for itself; mfiles was about to write
+    ; it again. So it lives here: after `build()`, copy each row onto the
+    ; element with its id.
+    ;
+    ; `build` first, then this — a rebuild replaces the elements the last pass
+    ; wrote to, which is why `dress()` does the two in order.
+
+    sfn findById@(optional):EVGElement (el:EVGElement id:string) {
+        if (el.id == id) {
+            def hit@(optional):EVGElement el
+            return hit
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def c:EVGElement (itemAt el.children i)
+            def found@(optional):EVGElement (UiTree.findById(c id))
+            if found {
+                return found
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):EVGElement
+        return miss
+    }
+
+    sfn adoptRows:void (root:EVGElement rows:[UiRow]) {
+        def i:int 0
+        while (i < (array_length rows)) {
+            def row:UiRow (itemAt rows i)
+            def found@(optional):EVGElement (UiTree.findById(root row.tid))
+            if found {
+                def el:EVGElement (unwrap found)
+                if (row.role > 0) {
+                    el.role = (EVGA11yRole.ariaName(row.role))
+                }
+                if ((strlen row.name) > 0) {
+                    el.a11yLabel = row.name
+                }
+                el.a11yDescription = row.description
+                el.a11yExpanded = row.expanded
+                el.a11yChecked = row.checked
+                el.a11ySelected = row.selected
+                el.a11yPressed = row.pressed
+                el.a11ySorted = row.sorted
+                el.a11yDisabled = row.disabled
+                el.a11yHidden = row.hidden
+                el.a11yModal = row.modal
+                el.a11yLevel = row.level
+                el.a11ySetSize = row.setSize
+                el.a11yPosInSet = row.setPos
+                el.a11yOrientation = row.orientation
+                el.a11yCurrent = row.current
+                el.a11yRoleDescription = row.roleDescription
+                el.a11yHasPopup = row.hasPopup
+                el.a11yRequired = row.required
+                el.a11yInvalid = row.invalid
+                el.a11yReadOnly = row.readOnly
+                el.a11yHasRange = row.hasRange
+                el.a11yValueMin = row.valueMin
+                el.a11yValueMax = row.valueMax
+                el.a11yHasValue = row.hasValueNow
+                el.a11yValueNow = row.valueNow
+                if row.hasText {
+                    el.a11yValue = row.text
+                }
+                if row.focusable {
+                    el.a11yFocusable = true
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Build a controller's subtree and say what it means, in that order.
+    sfn dress:void (ctl:UiCtl) {
+        ctl.build()
+        def root:EVGElement (unwrap ctl.rootEl)
+        UiTree.adoptRows(root (ctl.rows()))
     }
 
     ; Is `id` reachable from `root`? The trace calls this "visible": a node the

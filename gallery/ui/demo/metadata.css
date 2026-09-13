@@ -1,0 +1,217 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The metadata card: gallery/mfiles's palette on gallery/ui's controllers.
+ *
+ * One rule carries the layout claim, as in the profile form: `.md-label` has
+ * a stated width and `.md-row` centres its two children, so a text box, a
+ * chip box two rows tall and a pair of pills all sit on the same label
+ * column. Every colour is here and none is in the Ranger.
+ *
+ * The kit's own classes are styled here too — `.ui-combobox-*`,
+ * `.ui-datefield-*`, `.ui-togglegroup-item` — because this page is a THEME
+ * of them: the controllers write the class names, and what a chip looks like
+ * on this card is the card's business. */
+
+.md-page {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 24px;
+  background-color: #f6f8fc;
+}
+
+.md-card {
+  display: flex;
+  flex-direction: column;
+  width: 700px;
+  padding: 22px 24px;
+  border: 1px solid #e3e7ef;
+  border-radius: 8px;
+  background-color: #ffffff;
+}
+
+.md-title { color: #0f1f5c; font-size: 20px; font-weight: 700; height: 28px; }
+.md-sub { color: #6b7385; font-size: 13px; height: 20px; }
+
+.md-actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  min-height: 46px;
+}
+.md-btn {
+  color: #27304a;
+  font-size: 14px;
+  height: 34px;
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: 1px solid #cfd6e4;
+  background-color: #ffffff;
+}
+.md-btn:hover { background-color: #eef3ff; }
+.md-btn:focus { border-color: #1d6fd8; }
+.md-btn-primary { color: #ffffff; background-color: #1d6fd8; border-color: #1d6fd8; }
+.md-btn-primary:hover { background-color: #185fb9; }
+.md-status { color: #1a7f4b; font-size: 13px; height: 18px; padding: 0 8px; }
+.md-status-bad { color: #c0392b; }
+
+.md-sep { height: 1px; background-color: #e3e7ef; }
+
+.md-form { display: flex; flex-direction: column; gap: 6px; padding: 12px 0; }
+
+/* The row. `align-items: center` is the whole claim. */
+.md-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 16px;
+  min-height: 40px;
+}
+.md-label {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  width: 150px;
+  min-width: 150px;
+}
+.md-label-text { color: #6b7385; font-size: 13px; height: 18px; text-align: right; }
+.md-star { color: #c0392b; font-size: 13px; height: 18px; }
+.md-cell { display: flex; flex-direction: column; gap: 3px; flex-grow: 1; min-width: 0; }
+.md-hint { color: #8a92a6; font-size: 11px; height: 15px; }
+.md-error { color: #c0392b; }
+.md-auto { color: #7b849a; font-size: 13px; height: 18px; padding: 0 9px; }
+
+/* --- text boxes ---------------------------------------------------------------
+ * The caret and the band are positioned by measurement, so the box is the
+ * positioning context and the two are out of its flow. */
+.ui-input {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  position: relative;
+  width: 100%;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid #c9d1e3;
+  border-radius: 4px;
+  background-color: #ffffff;
+  overflow: hidden;
+}
+.ui-input:focus { border-color: #1d6fd8; }
+.ui-input-invalid { border-color: #c0392b; }
+.ui-input-text { color: #1f2a44; font-size: 13px; height: 18px; }
+.ui-input-placeholder { color: #a9b0c0; }
+.ui-input-caret { position: absolute; top: 10px; width: 2px; height: 18px; background-color: #1d6fd8; }
+.md-band { position: absolute; top: 10px; height: 18px; background-color: #d6e4ff; }
+
+/* --- the combobox --------------------------------------------------------------
+ * The GROUP is the border; the text field inside loses its own. */
+.ui-combobox { display: flex; flex-direction: column; width: 100%; position: relative; }
+.ui-combobox-group {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 40px;
+  padding: 4px 6px 4px 6px;
+  border: 1px solid #c9d1e3;
+  border-radius: 4px;
+  background-color: #ffffff;
+}
+.ui-combobox-group:hover { border-color: #1d6fd8; }
+.ui-combobox-group-state-open { border-color: #1d6fd8; }
+.ui-combobox-group-invalid { border-color: #c0392b; }
+.ui-combobox-input {
+  border: none;
+  border-radius: 0;
+  padding: 0 4px;
+  width: 140px;
+  height: 28px;
+  flex-grow: 1;
+  background-color: transparent;
+}
+.ui-combobox-input:focus { border-color: transparent; }
+.ui-combobox-input-single { width: 380px; }
+.ui-combobox-grow { flex-grow: 1; min-width: 4px; height: 4px; }
+.ui-combobox-chips { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; }
+.ui-combobox-chip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 4px 0 10px;
+  border-radius: 4px;
+  background-color: #e7eefc;
+}
+.ui-combobox-chip-focused { background-color: #1d6fd8; }
+.ui-combobox-chip-text { color: #1f3f7a; font-size: 13px; height: 18px; }
+.ui-combobox-chip-text-focused { color: #ffffff; }
+.ui-combobox-chip-remove { width: 18px; height: 18px; border-radius: 9px; color: #4f6390; font-size: 13px; text-align: center; }
+.ui-combobox-chip-remove:hover { background-color: #c9d8f5; }
+.ui-combobox-clear { width: 22px; height: 22px; color: #6b7385; font-size: 15px; text-align: center; border-radius: 11px; }
+.ui-combobox-clear:hover { background-color: #eef3ff; }
+.ui-combobox-trigger { width: 22px; height: 22px; color: #6b7385; font-size: 12px; text-align: center; }
+.ui-combobox-content {
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  padding: 4px 0;
+  border: 1px solid #c5cddd;
+  border-radius: 6px;
+  background-color: #ffffff;
+}
+.ui-combobox-item { color: #1f2a44; font-size: 13px; height: 32px; padding: 7px 12px; }
+.ui-combobox-item:hover { background-color: #eef3ff; }
+.ui-combobox-item-state-selected { background-color: #e7eefc; }
+.ui-combobox-item-active { background-color: #1d6fd8; color: #ffffff; }
+.ui-combobox-item-disabled { color: #a9b0c0; }
+.ui-combobox-empty { color: #8a92a6; font-size: 13px; height: 32px; padding: 7px 12px; }
+
+/* --- the date field ------------------------------------------------------------ */
+.ui-datefield {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 100%;
+  height: 40px;
+  padding: 0 8px;
+  border: 1px solid #c9d1e3;
+  border-radius: 4px;
+  background-color: #ffffff;
+}
+.ui-datefield-seg { color: #1f2a44; font-size: 13px; height: 22px; padding: 2px 3px; border-radius: 3px; }
+.ui-datefield-hint { color: #a9b0c0; }
+.ui-datefield-seg-focus { background-color: #d6e4ff; color: #0f1f5c; }
+.ui-datefield-sep { color: #6b7385; font-size: 13px; height: 22px; padding: 2px 0; }
+
+/* --- the segmented control -------------------------------------------------------
+ * Radix's toggle group, drawn as the card's two pills. */
+.ui-togglegroup { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 6px; }
+.ui-togglegroup-item {
+  color: #27304a;
+  font-size: 13px;
+  height: 32px;
+  padding: 7px 18px;
+  border-radius: 16px;
+  border: 1px solid #cfd6e4;
+  background-color: #ffffff;
+}
+.ui-togglegroup-item:hover { background-color: #eef3ff; }
+.ui-togglegroup-item:focus { border-color: #1d6fd8; }
+.ui-togglegroup-item-state-on { color: #ffffff; background-color: #1d6fd8; border-color: #1d6fd8; }
+
+.md-note { color: #6b7385; font-size: 12px; height: 17px; }

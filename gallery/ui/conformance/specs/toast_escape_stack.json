@@ -1,0 +1,5 @@
+{ "name":"toast_escape_stack","component":"toast",
+  "behaviours":["escape-stack"],
+  "fixture":{"controls":[
+    {"type":"toast","tid":"ts","name":"Show","title":"Saved","body":"All good"}]},
+  "steps":[{"click":"ts-trigger"},{"click":"ts-trigger"},{"key":"Escape"},{"key":"Escape"},{"key":"Escape"}] }
