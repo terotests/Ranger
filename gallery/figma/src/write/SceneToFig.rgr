@@ -43,6 +43,7 @@ Import "../FigCanvas.rgr"
 Import "../FigDeflate.rgr"
 Import "../FigSample.rgr"
 Import "FigSchema.rgr"
+Import "FigThumb.rgr"
 Import "FigWrite.rgr"
 Import "FigPathWrite.rgr"
 Import "../../../zip/ZipWriter.rgr"
@@ -123,11 +124,104 @@ class SceneToFig {
         def msg:KiwiValue (this.message(doc))
         ; FIGMA'S OWN SCHEMA, not this repository's. See `FigSchema`.
         def canvas:buffer (FigSample.canvasInto((FigSchema.schema()) msg dropped))
+
+        ; THE ARCHIVE HAS FOUR ENTRIES, and a reader that looks one up by name
+        ; gets `undefined` for the ones that are not there. A file with the
+        ; document and nothing else imported as
+        ;
+        ;   format: Figma Zip V2
+        ;   TypeError: Cannot read properties of undefined (reading 'getData')
+        ;
+        ; which is a lookup that found nothing, not a document that was wrong.
+        def pageW:double 1440.0
+        def pageH:double 900.0
+        def paperR:int 245
+        def paperG:int 245
+        def paperB:int 245
+        if ((array_length doc.pages) > 0) {
+            def first:SceneNode (itemAt doc.pages 0)
+            if ((array_length first.children) > 0) {
+                def top:SceneNode (itemAt first.children 0)
+                if (top.w > 0.0) {
+                    pageW = top.w
+                }
+                if (top.h > 0.0) {
+                    pageH = top.h
+                }
+                if ((array_length top.fills) > 0) {
+                    def f:SceneFill (itemAt top.fills 0)
+                    paperR = (to_int ((f.r * 255.0) + 0.5))
+                    paperG = (to_int ((f.g * 255.0) + 0.5))
+                    paperB = (to_int ((f.b * 255.0) + 0.5))
+                }
+            }
+        }
+        def thumbW:int (SceneToFig.thumbSide(pageW pageH true))
+        def thumbH:int (SceneToFig.thumbSide(pageW pageH false))
+
         def zip (new ZipWriter())
         zip.create()
         zip.addFile("canvas.fig" canvas)
-        zip.addString("meta.json" (("{\"file_name\":\"" + (SceneToFig.esc(fileName))) + "\",\"version\":\"1\"}"))
+        zip.addFile("thumbnail.png" (FigThumb.png(thumbW thumbH paperR paperG paperB)))
+        zip.addString("meta.json" (SceneToFig.meta(fileName thumbW thumbH pageW pageH paperR paperG paperB)))
+        ; Empty, and present: an export with no image paints still has the
+        ; folder, and a reader that lists it finds nothing rather than nothing
+        ; to list.
+        zip.addDirectory("images/")
         return (zip.toBuffer())
+    }
+
+    ; A real export's thumbnail is four hundred points on its long side. This
+    ; one is a hundred and twenty-eight, because it is a PLACEHOLDER and it is
+    ; written with stored deflate: a solid picture costs three bytes a pixel
+    ; whatever is in it, and four hundred points of flat colour is a quarter of
+    ; a megabyte attached to a twenty-kilobyte document. The application draws
+    ; its own thumbnail as soon as it has opened the file.
+    sfn thumbSide:int (w:double h:double wantWidth:boolean) {
+        def scale:double 1.0
+        def longest:double w
+        if (h > longest) {
+            longest = h
+        }
+        if (longest > 128.0) {
+            scale = (128.0 / longest)
+        }
+        def out:double (h * scale)
+        if wantWidth {
+            out = (w * scale)
+        }
+        def n:int (to_int (out + 0.5))
+        if (n < 1) {
+            n = 1
+        }
+        return n
+    }
+
+    ; What the file says about itself, shaped like a real export's: the
+    ; background the browser draws behind the thumbnail, the thumbnail's size,
+    ; and the region of the document it is a picture of.
+    sfn meta:string (fileName:string tw:int th:int w:double h:double r:int g:int b:int) {
+        def out:string "{\"client_meta\":{\"background_color\":{"
+        out = (out + ("\"r\":" + (SceneToFig.num((to_double r) / 255.0))))
+        out = (out + (",\"g\":" + (SceneToFig.num((to_double g) / 255.0))))
+        out = (out + (",\"b\":" + (SceneToFig.num((to_double b) / 255.0))))
+        out = (out + ",\"a\":1},")
+        out = (out + ("\"thumbnail_size\":{\"width\":" + (to_string tw)))
+        out = (out + (",\"height\":" + ((to_string th) + "},")))
+        out = (out + "\"render_coordinates\":{\"x\":0,\"y\":0,")
+        out = (out + ("\"width\":" + (SceneToFig.num(w))))
+        out = (out + (",\"height\":" + ((SceneToFig.num(h)) + "}},")))
+        out = (out + ("\"file_name\":\"" + ((SceneToFig.esc(fileName)) + "\",")))
+        out = (out + "\"developer_related_links\":[]}")
+        return out
+    }
+
+    sfn num:string (v:double) {
+        def whole:int (to_int v)
+        if ((to_double whole) == v) {
+            return (to_string whole)
+        }
+        return (to_string v)
     }
 
     ; --- the message ----------------------------------------------------------

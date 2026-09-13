@@ -97,6 +97,34 @@ now, and `from-evg` prints what it could not carry:
   no field in the schema for  NodeChange.textTruncation
 ```
 
+### The archive has four entries, and a reader looks them up by name
+
+```text
+canvas.fig      the document
+thumbnail.png   a picture of it, for the file browser
+meta.json       the background, the thumbnail's size, the region it covers
+images/         the bytes of any image paints
+```
+
+A file with the first two of those imported as:
+
+```text
+format: Figma Zip V2
+TypeError: Cannot read properties of undefined (reading 'getData')
+```
+
+— which is a lookup that found nothing, not a document that was wrong. Figma
+recognised the container, asked for an entry by name and called `getData()` on
+what came back. `FigThumb` writes the missing one: a solid PNG in the
+document's own paper colour, a hundred and twenty-eight points on its long
+side. It is a PLACEHOLDER and says so — the application draws its own
+thumbnail once the file is open — and it is written with stored deflate, so
+the size is the reason it is small: three bytes a pixel whatever is in it.
+
+`meta.json` is shaped like a real export's now (`client_meta` with the
+background colour, the thumbnail's size and the render region), and `images/`
+is present and empty rather than absent.
+
 ### The schema is Figma's, not ours
 
 A `.fig` carries its own schema, and Figma reads the file THROUGH it: the names

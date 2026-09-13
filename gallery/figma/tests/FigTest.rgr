@@ -10,6 +10,7 @@ Import "../src/convert/FigToScene.rgr"
 Import "../src/write/SceneToFig.rgr"
 Import "../src/write/EvgToScene.rgr"
 Import "../src/write/FigSchema.rgr"
+Import "../../zip/ZipReader.rgr"
 Import "../src/write/FigPathWrite.rgr"
 Import "../src/FigPath.rgr"
 Import "../../evg/EVGImageDecode.rgr"
@@ -244,6 +245,17 @@ class FigTest {
         this.check(("and the same type:" + wrongTypes) ((strlen wrongTypes) == 0))
     }
 
+    sfn listHas:boolean (names:[string] want:string) {
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     sfn fieldNamed:KiwiField (d:KiwiDef name:string) {
         def i:int 0
         while (i < (array_length d.fields)) {
@@ -328,6 +340,28 @@ class FigTest {
         ; A one-line label is sized BY its string, so whoever opens the file
         ; does not re-break it against a face this layout never measured.
         this.eqStr("a label sizes itself" inner.text.autoResize "both")
+
+        ; …and the ARCHIVE has everything a reader looks up by name. A file
+        ; with the document and nothing else imported as "Cannot read
+        ; properties of undefined (reading 'getData')" — a lookup that found
+        ; no thumbnail, not a document that was wrong.
+        def archive:buffer (SceneToFig.writeNode(scene "ui.fig"))
+        def zr (new ZipReader())
+        this.check("the archive opens" (zr.openBytes(archive)))
+        def names:[string] (zr.listFiles())
+        this.check("canvas.fig" (FigTest.listHas(names "canvas.fig")))
+        this.check("thumbnail.png" (FigTest.listHas(names "thumbnail.png")))
+        this.check("meta.json" (FigTest.listHas(names "meta.json")))
+        def te@(optional):ZipEntry (zr.getEntry("thumbnail.png"))
+        this.check("the thumbnail is an entry" ((null? te) == false))
+        def thumb:buffer (zr.extract((unwrap te)))
+        this.check("the thumbnail has bytes" ((buffer_length thumb) > 64))
+        ; A PNG, and one a decoder will take: the signature, and an IHDR whose
+        ; size is the one `meta.json` claims.
+        this.eqInt("PNG signature" (buffer_get thumb 0) 137)
+        this.eqInt("P" (buffer_get thumb 1) 80)
+        this.eqInt("N" (buffer_get thumb 2) 78)
+        this.eqInt("G" (buffer_get thumb 3) 71)
 
         ; …and it survives the file, with nothing the schema cannot hold.
         def dropped:[string]
