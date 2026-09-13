@@ -34,7 +34,15 @@
         --line-soft: #f0f1f4;
         --hover: #f2f4f8;
         --sel: #e8f1fe;
-        --accent: #0d6efd;      /* selection, focus */
+        --accent: #0d6efd;      /* focus, links, pressed buttons */
+        /* THE SELECTION RING, which is not the accent. The overlay sits over
+           the DOCUMENT and not over the app's own panels, so a bright chrome
+           blue competes with whatever the board is coloured — and on a FigJam
+           board covered in blue stickies it is one more blue box. A muted
+           blue-green reads as a tool rather than as content at every zoom, and
+           it is the same in both themes for the same reason. */
+        --ring: #2d6b66;
+        --ring-fill: #ffffff;
         --instance: #7b61ff;    /* a component instance, as Figma marks one */
         --good: #16a34a;
         --warn: #b45309;
@@ -54,6 +62,7 @@
           --hover: #1e242e;
           --sel: #1b2a44;
           --accent: #4d9bff;
+          /* --ring stays as it is: it is over the board, not over the panels. */
           --instance: #9d86ff;
           --good: #34d399;
           --warn: #fbbf24;
@@ -196,7 +205,7 @@
       /* The size badge under the selection, where Figma puts it. It is the
          one number you want while dragging and the one the panel is furthest
          from. */
-      #sizebadge { position: absolute; transform: translate(-50%, 0); background: var(--accent);
+      #sizebadge { position: absolute; transform: translate(-50%, 0); background: var(--ring);
         color: #fff; font: 600 10.5px/1 ui-monospace, Menlo, Consolas, monospace;
         padding: 3px 6px; border-radius: 4px; pointer-events: none; white-space: nowrap;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); }
@@ -213,9 +222,16 @@
       #handles { position: absolute; inset: 0; pointer-events: none; }
       #handles[hidden] { display: none; }
       #handles .grp { position: absolute; inset: 0; pointer-events: none; }
-      #handles .body { position: absolute; pointer-events: auto; cursor: move; }
+      /* THE RING ITSELF, not just something to grab. The engine can draw one
+         too, but in camera mode its thickness is chosen when the frame is
+         built and a kept frame moved to another zoom carries the band it was
+         built with — fit a board, zoom to 160%, and the ring is thirty pixels
+         wide. This one is a border on an element that follows the view, so it
+         is 1.5 pixels at every zoom and leans with the layer. */
+      #handles .body { position: absolute; pointer-events: auto; cursor: move;
+        border: 1.5px solid var(--ring); }
       #handles .h { position: absolute; width: 9px; height: 9px; margin: -5px 0 0 -5px;
-        background: var(--panel); border: 1.5px solid var(--accent); border-radius: 2px;
+        background: var(--ring-fill); border: 1.5px solid var(--ring); border-radius: 2px;
         pointer-events: auto; box-shadow: 0 1px 2px rgba(16, 22, 32, 0.2); }
       #handles .h.e, #handles .h.w { cursor: ew-resize; }
       #handles .h.n, #handles .h.s { cursor: ns-resize; }
@@ -224,11 +240,11 @@
       /* The turn handle is a ring above the top edge, away from the corner
          it would otherwise fight with. */
       #handles .rot { position: absolute; width: 13px; height: 13px; margin: -7px 0 0 -7px;
-        border: 1.5px solid var(--accent); border-radius: 50%; background: var(--panel);
+        border: 1.5px solid var(--ring); border-radius: 50%; background: var(--ring-fill);
         pointer-events: auto; cursor: grab; box-shadow: 0 1px 2px rgba(16, 22, 32, 0.2); }
       #handles .rot::after { content: ""; position: absolute; left: 50%; top: 50%;
         width: 3px; height: 3px; margin: -1.5px 0 0 -1.5px; border-radius: 50%;
-        background: var(--accent); }
+        background: var(--ring); }
       /* The line a drag lined up with, drawn only while it is lined up. */
       #guides { position: absolute; inset: 0; pointer-events: none; }
       #guides div { position: absolute; background: #f24822; }

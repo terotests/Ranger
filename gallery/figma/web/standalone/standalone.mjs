@@ -1457,10 +1457,32 @@ function selectionScreenBox() {
     ow = (p.w || d.w) * k;
     oh = (p.h || d.h) * k;
   }
+  // The angle the layer is drawn at, which is every turn above it composed
+  // with its own — the first column of the placement matrix says it.
+  let deg = d.rotation || 0;
+  if (p && p.own) deg = (Math.atan2(p.own.b, p.own.a) * 180) / Math.PI;
+  // A MIRROR IS NOT A TURN. M = R(theta) . diag(1, -1) reverses handedness,
+  // and read as a plain turn about its origin the ring lands BESIDE the
+  // layer, a whole height away and touching it — which is what the arrow
+  // inside a mirrored instance drew. The flip sends the box's [0, h] to
+  // [-h, 0] before the turn, so the rectangle that gets turned starts one
+  // height higher; the turn itself is still about the origin the matrix
+  // names, which is why that origin is now carried separately.
+  const mirrored = !!(p && p.own && p.own.a * p.own.d - p.own.c * p.own.b < 0);
+  const rx = ox;
+  const ry = oy;
+  if (mirrored) oy -= oh;
   return {
     d,
+    deg,
+    place: p,
+    mirrored,
     x: ox * v.sc + v.x,
     y: oy * v.sc + v.y,
+    // Where the turn is about, which is the box's own top-left unless the
+    // layer is mirrored.
+    ox: rx * v.sc + v.x,
+    oy: ry * v.sc + v.y,
     w: ow * v.sc,
     h: oh * v.sc,
     sc: v.sc,
@@ -1482,8 +1504,12 @@ function placeHandles() {
   }
   const { group, body, hs, rot } = buildHandles();
   handlesEl.hidden = false;
-  const deg = b.d.rotation || 0;
-  group.style.transformOrigin = b.x + "px " + b.y + "px";
+  // THE ACCUMULATED ANGLE, not the layer's own. `rotation` on the pane is the
+  // turn the layer carries; what it looks like on the page is that turn AND
+  // every one above it. Turned by its own, a layer inside a turned frame got
+  // handles that leaned one way while the ring it belongs to leaned another.
+  const deg = b.deg;
+  group.style.transformOrigin = b.ox + "px " + b.oy + "px";
   group.style.transform = deg ? `rotate(${deg}deg)` : "";
   body.style.left = b.x + "px";
   body.style.top = b.y + "px";
@@ -1659,8 +1685,14 @@ function onDragMove(ev) {
     const k = g.mode;
     const west = k.includes("w");
     const east = k.includes("e");
-    const north = k.startsWith("n");
-    const south = k.startsWith("s");
+    // A handle is named for where it SITS, and under a mirror the edge it
+    // sits on is the other one: the flip sends the layer's y = h to the top
+    // of what is drawn. Left unswapped, dragging the bottom handle grew the
+    // box upwards, away from the hand.
+    const flip = !!(g.place && g.place.own &&
+      g.place.own.a * g.place.own.d - g.place.own.c * g.place.own.b < 0);
+    const north = flip ? k.startsWith("s") : k.startsWith("n");
+    const south = flip ? k.startsWith("n") : k.startsWith("s");
     const v = viewNow();
     if (west || east) {
       const edge = west ? g.pageFrom.x + pgx : g.pageFrom.x + g.from.w + pgx;
@@ -1983,6 +2015,9 @@ async function openUrl(url, page, frame) {
 }
 window.__openUrl = openUrl;
 // One paint, on demand: what a bench times and what a test waits for.
+// The overlay draws the ring, so the engine does not — see `FigApp.setRing`.
+if (typeof web.setRing === "function") web.setRing(false);
+
 window.__draw = draw;
 // The chrome, for a test that selects without clicking.
 window.__refresh = refreshChrome;

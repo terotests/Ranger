@@ -222,6 +222,12 @@ class FigWeb {
         app.zoom100()
     }
 
+    ; Off for a host that draws its own ring over the board — see
+    ; `FigApp.setRing`.
+    fn setRing:void (on:boolean) {
+        app.setRing(on)
+    }
+
     fn setDebug:void (on:boolean) {
         app.setDebug(on)
     }

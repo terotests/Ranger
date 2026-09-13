@@ -195,7 +195,25 @@ class FigToScene {
         def t:string nd.typeName
         def sn (new SceneNode())
         sn.isMask = (nd.raw.childBool("mask" false))
+        ; AN ID OF ITS OWN FOR EVERY COPY. A component's layers are drawn
+        ; under every instance of it, and each copy used to carry the
+        ; COMPONENT's id — so a board with an arrow used three times had
+        ; three layers all called `2:143`. Everything that looks a layer up
+        ; walks the page and takes the first match, so clicking the third
+        ; arrow selected the first: the ring, the panel's numbers and the
+        ; handles all described a layer somewhere else on the board. The
+        ; outer layers were right because a top-level node appears once,
+        ; which is exactly the shape of it — the page was right and its
+        ; insides were not.
+        ;
+        ; The instance's own path is already computed for the override
+        ; table; it discriminates the copies for the same reason. After the
+        ; `#` so `FigApp.baseId` still recovers the node the file carries,
+        ; which is what the layer IS a copy of.
         sn.id = nd.id
+        if ((strlen pathPrefix) > 0) {
+            sn.id = ((nd.id + "#") + pathPrefix)
+        }
         sn.name = nd.name
         sn.kind = (FigToScene.kindOf(t))
         sn.sourceType = t
@@ -950,7 +968,10 @@ class FigToScene {
             return
         }
         def outline (new SceneNode())
-        outline.id = (nd.id + ":stroke")
+        ; From the LAYER's id and not the file node's: a component's layer is
+        ; copied under every instance, and an outline named after the node
+        ; would be one name shared by all of them.
+        outline.id = (sn.id + ":stroke")
         outline.name = "stroke"
         outline.kind = "path"
         outline.sourceType = "STROKE_GEOMETRY"

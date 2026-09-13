@@ -439,7 +439,24 @@ class FigApp {
     ; twenty pixels into a card three thousand pixels across the board drew
     ; its ring at 20,16 — in the page's top-left corner, nowhere near the
     ; layer it was pointing at.
+    ; Whether the ENGINE draws the selection ring. A host that draws its own
+    ; — one with a DOM overlay over the board — turns this off, because the
+    ; ring it draws is better than the one here can be: in camera mode this
+    ; one's thickness is 2/zoom SCENE units, chosen when the frame is built,
+    ; and a kept frame moved to another zoom carries the band it was built
+    ; with. Fit a board and then zoom to 160% and the ring is thirty pixels
+    ; wide. An overlay follows the view instead of being baked into it.
+    def ring:boolean true
+
+    fn setRing:void (on:boolean) {
+        ring = on
+        this.rebuild()
+    }
+
     fn paintSelect:void () {
+        if (ring == false) {
+            return
+        }
         def n:SceneNode (this.absBox(selected))
         if ((strlen n.id) == 0) {
             return
@@ -461,12 +478,22 @@ class FigApp {
         if n.hasXf {
             if (n.xf.isSimilarity()) {
                 deg = (n.xf.rotationDeg())
-                bx = n.xf.tx
-                by = n.xf.ty
                 bw = (n.ow * (n.xf.uniformScale()))
                 bh = (n.oh * (n.xf.uniformScale()))
-                ox = bx
-                oy = by
+                ox = n.xf.tx
+                oy = n.xf.ty
+                bx = ox
+                by = oy
+                ; A MIRROR IS NOT A TURN, and read as one the ring lands
+                ; BESIDE the layer — a whole width away, touching it, which
+                ; is what an arrow inside a mirrored instance showed. The
+                ; matrix is M = R(theta) diag(1, -1): the flip sends the
+                ; layer's box [0,h] to [-h,0] BEFORE the turn, so the
+                ; rectangle that is turned starts a height higher up. The
+                ; turn is still about the origin the matrix names.
+                if (n.xf.isMirrored()) {
+                    by = (oy - bh)
+                }
             }
         }
         ; In the coordinates the LIST is written in: page pixels with the
@@ -502,7 +529,10 @@ class FigApp {
         if (h < 2.0) {
             h = 2.0
         }
-        list.addTurnedFrame(x y w h ringW (EVGColor.rgb(59 130 246)) deg ox oy)
+        ; A muted blue-green, the same colour the DOM overlay draws: the ring
+        ; is over the DOCUMENT, and a chrome blue is one more blue box on a
+        ; board covered in blue stickies.
+        list.addTurnedFrame(x y w h ringW (EVGColor.rgb(45 107 102)) deg ox oy)
         cmdCount = (array_length list.cmds)
     }
 
