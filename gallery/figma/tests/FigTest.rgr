@@ -793,6 +793,73 @@ class FigTest {
         def m3x:double (flip2.x + ((FigApp.linX(flip2.xf (flip2.w * 0.5) (flip2.h * 0.5)))))
         this.close("and so does a flip" m3x midX)
 
+        ; AND THE RING GOES ROUND WHAT IS DRAWN, mirror or no mirror. A
+        ; mirrored matrix is M = R(theta) diag(1, -1): read as a plain turn
+        ; about the origin it names, the ring comes out BESIDE the layer —
+        ; a whole height away and touching it, which is exactly what the
+        ; arrow inside a mirrored instance drew. The flip sends the box's
+        ; [0, h] to [-h, 0] before the turn, so the rectangle that is turned
+        ; starts one height higher up.
+        ;
+        ; The check is the one thing a ring has to satisfy and the one thing
+        ; the old code failed: the four corners it is drawn at span the same
+        ; rectangle the layer's own corners do.
+        ; A flip is a TOGGLE and this layer has been flipped once already.
+        def pre:SceneNode (app.findScene("3:47"))
+        if ((pre.xf.isMirrored()) == false) {
+            app.editFlip()
+        }
+        ; The list is in PAGE pixels with the view baked in and the box is in
+        ; scene units, so the view is put back to nothing for the comparison.
+        app.setCamera(false)
+        app.setView(0.0 0.0 1.0)
+        app.setRing(true)
+        def mbox:SceneNode (app.absBox("3:47"))
+        this.check("the mirrored layer is mirrored on the page" (mbox.xf.isMirrored()))
+        def ri:int (FigTest.lastFrameIndex(app.list))
+        this.check("and it has a ring" (ri >= 0))
+        if (ri >= 0) {
+            def rc:EVGDrawCmd (itemAt app.list.cmds ri)
+            def rad:double ((rc.rotate * 3.141592653589793) / 180.0)
+            def co:double (cos rad)
+            def si:double (sin rad)
+            def lo:double 0.0
+            def hi:double 0.0
+            def lo2:double 0.0
+            def hi2:double 0.0
+            def ci:int 0
+            while (ci < 4) {
+                def px:double rc.x
+                def py:double rc.y
+                if ((ci == 1) || (ci == 2)) {
+                    px = (rc.x + rc.w)
+                }
+                if ((ci == 2) || (ci == 3)) {
+                    py = (rc.y + rc.h)
+                }
+                def dx:double (px - rc.rotOriginX)
+                def dy:double (py - rc.rotOriginY)
+                def wx:double (rc.rotOriginX + ((dx * co) - (dy * si)))
+                def wy:double (rc.rotOriginY + ((dx * si) + (dy * co)))
+                if (ci == 0) {
+                    lo = wx
+                    hi = wx
+                    lo2 = wy
+                    hi2 = wy
+                }
+                if (wx < lo) { lo = wx }
+                if (wx > hi) { hi = wx }
+                if (wy < lo2) { lo2 = wy }
+                if (wy > hi2) { hi2 = wy }
+                ci = (ci + 1)
+            }
+            this.close("the ring starts where the layer does" lo mbox.x)
+            this.close("in both axes" lo2 mbox.y)
+            this.close("and is as wide as the layer is" (hi - lo) mbox.w)
+            this.close("and as tall" (hi2 - lo2) mbox.h)
+        }
+        app.setRing(false)
+
         ; AND WHAT IS INSIDE GOES WITH THE BOX. A layer's box is not a frame
         ; drawn around its content — it IS the content's extent, and a sticky
         ; made wider while its body stayed the old width came out as a ring
@@ -1100,6 +1167,21 @@ class FigTest {
     }
 
     ; Every id in the subtree, counted. Returns how many were already there.
+    ; The ring `paintSelect` added, which is the last turned frame in the
+    ; list. -1 when there is none.
+    sfn lastFrameIndex:int (l:EVGDisplayList) {
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if ((c.kind == 1) && (c.hasRotOrigin)) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        return at
+    }
+
     sfn countDupIds:int (n:SceneNode seen:[string:int]) {
         def dups:int 0
         def had@(optional):int (get seen n.id)

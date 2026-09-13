@@ -478,12 +478,22 @@ class FigApp {
         if n.hasXf {
             if (n.xf.isSimilarity()) {
                 deg = (n.xf.rotationDeg())
-                bx = n.xf.tx
-                by = n.xf.ty
                 bw = (n.ow * (n.xf.uniformScale()))
                 bh = (n.oh * (n.xf.uniformScale()))
-                ox = bx
-                oy = by
+                ox = n.xf.tx
+                oy = n.xf.ty
+                bx = ox
+                by = oy
+                ; A MIRROR IS NOT A TURN, and read as one the ring lands
+                ; BESIDE the layer — a whole width away, touching it, which
+                ; is what an arrow inside a mirrored instance showed. The
+                ; matrix is M = R(theta) diag(1, -1): the flip sends the
+                ; layer's box [0,h] to [-h,0] BEFORE the turn, so the
+                ; rectangle that is turned starts a height higher up. The
+                ; turn is still about the origin the matrix names.
+                if (n.xf.isMirrored()) {
+                    by = (oy - bh)
+                }
             }
         }
         ; In the coordinates the LIST is written in: page pixels with the
