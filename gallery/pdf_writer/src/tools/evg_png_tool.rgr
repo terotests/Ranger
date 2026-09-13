@@ -31,6 +31,12 @@ Import "../jpeg/ProgressiveJPEGDecoder.rgr"
 class EVGPNGTool {
     def inputFile:string ""
     def outputFile:string ""
+    ; Did the caller name a page size? A document usually knows its own —
+    ; a slide read back from a deck, a page converted from a `.fig`, a diagram
+    ; exported by RangerFlow — and rendering it on A4 because nobody passed
+    ; -w crops it. An explicit flag still wins; this is only the answer when
+    ; there was no question.
+    def sizeGiven:boolean false
     def pageWidth:double 595.0
     def pageHeight:double 842.0
     def scale:double 1.0
@@ -88,6 +94,7 @@ class EVGPNGTool {
                     def wVal@(optional):double (to_double wArg)
                     if wVal {
                         pageWidth = (unwrap wVal)
+                        sizeGiven = true
                     }
                 }
             }
@@ -99,6 +106,7 @@ class EVGPNGTool {
                     def hVal@(optional):double (to_double hArg)
                     if hVal {
                         pageHeight = (unwrap hVal)
+                        sizeGiven = true
                     }
                 }
             }
@@ -186,6 +194,11 @@ class EVGPNGTool {
         print (("Reading the " + (EVGDocSource.kindOf(inputFileName))) + "…")
         
         def root:EVGElement (EVGDocSource.load(inputDir inputFileName pageWidth pageHeight))
+        ; The document's own size, when it states one and nobody overrode it.
+        if (sizeGiven == false) {
+            pageWidth = (EVGDocSource.statedWidth(root pageWidth))
+            pageHeight = (EVGDocSource.statedHeight(root pageHeight))
+        }
         
         if (root.tagName == "") {
             print (("Error: could not read " + inputFileName) + " as a document")

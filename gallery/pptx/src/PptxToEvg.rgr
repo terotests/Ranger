@@ -246,12 +246,123 @@ class PptxToEvg {
             }
             return grp
         }
+        ; A shape with its own outline is a PATH, not a box.
+        ;
+        ; `PptxFromEvg` writes a drawing's strokes as `custGeom`, the parser
+        ; flattens them into `pathUnit`, and this turned every one of them into
+        ; an empty div — so a deck's diagram read back as its labels floating
+        ; over nothing, and a generated deck could not be checked by looking at
+        ; it. The geometry was in the file the whole time.
+        if shape.hasPath {
+            def drawn@(optional):EVGElement (this.pathElement(shape))
+            if ((null? drawn) == false) {
+                return (unwrap drawn)
+            }
+        }
         if shape.hasText {
             return (this.textElement(shape))
         }
         def el (EVGElement.createDiv())
         this.applyBox(el shape)
         return el
+    }
+
+    ; The outline, as an EVG path.
+    ;
+    ; `pathUnit` is in the shape's own 0..1 square — `PptxApp` says so where it
+    ; writes one — so the points are scaled by the box and the `viewBox` is the
+    ; box, which keeps the numbers readable and the transform out of it.
+    ;
+    ; `pathEnds` separates contours and is empty for the ordinary one-ring
+    ; case. Joining them would weld the end of each ring to the start of the
+    ; next, which is how a letter O fills solid.
+    fn pathElement@(optional):EVGElement (shape:PptxShape) {
+        def n:int (array_length shape.pathUnit)
+        if (n < 4) {
+            def none@(optional):EVGElement
+            return none
+        }
+        def w:double (this.ptToPx(shape.width))
+        def h:double (this.ptToPx(shape.height))
+        if (w <= 0.0) {
+            w = 1.0
+        }
+        if (h <= 0.0) {
+            h = 1.0
+        }
+        def d:string ""
+        def i:int 0
+        def ring:int 0
+        def started:boolean false
+        while ((i + 1) < n) {
+            def x:double ((itemAt shape.pathUnit i) * w)
+            def y:double ((itemAt shape.pathUnit (i + 1)) * h)
+            if (started == false) {
+                d = ((d + "M ") + (PptxToEvg.num(x)))
+                d = ((d + " ") + (PptxToEvg.num(y)))
+                started = true
+            } {
+                d = ((d + " L ") + (PptxToEvg.num(x)))
+                d = ((d + " ") + (PptxToEvg.num(y)))
+            }
+            i = (i + 2)
+            ; A contour ends where `pathEnds` says, and the next one starts
+            ; with its own move rather than a line from here.
+            if (ring < (array_length shape.pathEnds)) {
+                if (i >= (itemAt shape.pathEnds ring)) {
+                    if shape.pathClosed {
+                        d = (d + " Z")
+                    }
+                    started = false
+                    ring = (ring + 1)
+                }
+            }
+        }
+        if (started && shape.pathClosed) {
+            d = (d + " Z")
+        }
+        def el (EVGElement.createPath())
+        this.applyBox(el shape)
+        ; The box's own paint would draw a rectangle behind the outline, which
+        ; is not what a stroke is. The path takes the colours instead.
+        el.backgroundColor = (EVGColor.noColor())
+        el.svgPath = d
+        el.viewBox = ((("0 0 " + (PptxToEvg.num(w))) + " ") + (PptxToEvg.num(h)))
+        if (shape.fill.isSet) {
+            if shape.pathClosed {
+                el.fillColor = (this.colorFrom(shape.fill))
+            }
+        }
+        if ((shape.line.isSet) && (shape.lineWidthPt > 0.0)) {
+            el.strokeColor = (this.colorFrom(shape.line))
+            el.strokeWidth = (this.ptToPx(shape.lineWidthPt))
+        } {
+            ; An open path with no line is a shape nobody can see. A drawing's
+            ; connectors arrive that way when the writer put the colour in the
+            ; fill, so the fill becomes the stroke rather than nothing.
+            if (shape.pathClosed == false) {
+                if (shape.fill.isSet) {
+                    el.strokeColor = (this.colorFrom(shape.fill))
+                    el.strokeWidth = 1.0
+                }
+            }
+        }
+        def out@(optional):EVGElement el
+        return out
+    }
+
+    sfn num:string (v:double) {
+        def scaled:int (to_int ((v * 100.0) + 0.5))
+        def whole:int (idiv scaled 100)
+        def frac:int (scaled - (whole * 100))
+        if (frac < 0) {
+            frac = (0 - frac)
+        }
+        def f:string (to_string frac)
+        if (frac < 10) {
+            f = ("0" + f)
+        }
+        return (((to_string whole) + ".") + f)
     }
 
     fn slideToEvg:EVGElement (slide:PptxSlide) {

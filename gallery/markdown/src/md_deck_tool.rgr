@@ -1,0 +1,257 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; md_deck_tool — an analysis, as a deck an agent can produce
+; ==============================================================================
+;
+;   node gallery/markdown/bin/md_deck_tool.js <in.md> <out.pptx> [-css sheet.css]
+;                                             [-style name] [-fonts dir]
+;
+; Everything this does already existed and only the browser could reach it.
+; `MdBlock` parses, `MdDiagram` hands each fenced diagram to the reader that
+; understands it — Mermaid, PlantUML, DOT, D2 — `MdLayout` breaks the slides,
+; and `MdToPptx` writes each block out as the thing PowerPoint should see. The
+; one missing piece was a way to run that without a page open, which is the
+; only way an agent can run anything.
+;
+; --- WHY THIS IS WORTH A TOOL -------------------------------------------------
+;
+; An agent asked to explain a codebase or a merge request writes prose, and
+; prose is where an explanation goes to be skimmed. The same explanation as a
+; deck — a diagram of what calls what, a slide per concern — is read. The agent
+; already writes Markdown well and draws in Mermaid well; what it could not do
+; was turn that into something a person opens in PowerPoint.
+;
+; --- WHAT COMES OUT IS NOT A PICTURE ------------------------------------------
+;
+; A diagram lands as a `p:grpSp` of real shapes and text runs, so a reader can
+; move a box and retype a label. The fence's own source rides along in the
+; group's `extLst`, which is what `MdDeckDiagram` reads to redraw it — so a
+; deck made this way can be regenerated from its own slides rather than only
+; from the Markdown it came from.
+;
+; What did not go out as text is counted and reported. A deck that quietly
+; flattened half a document to pictures would look finished and be useless to
+; edit, so the count is printed rather than kept.
+; ==============================================================================
+
+Import "MdBlock.rgr"
+Import "MdLayout.rgr"
+Import "MdStyle.rgr"
+Import "MdDiagram.rgr"
+Import "MdToPptx.rgr"
+Import "../../pptx/api/PptxApi.rgr"
+Import "../../pptx/src/PptxToEvg.rgr"
+Import "../../evg/EVGTreeJson.rgr"
+Import "../../pdf_writer/src/fonts/EVGFontSetup.rgr"
+Import "../../evg/EVGTextEngine.rgr"
+
+class MdDeckTool {
+    def styleName:string ""
+    def cssPath:string ""
+    def fontsDir:string ""
+
+    sfn m@(main):void () {
+        def t (new MdDeckTool())
+        t.run()
+    }
+
+    fn run:void () {
+        def argc:int (shell_arg_cnt)
+        if (argc < 2) {
+            this.usage()
+            return
+        }
+        ; `slide` reads a deck back. Verifying a generated deck by opening
+        ; PowerPoint is not something an agent can do, and a deck nobody looked
+        ; at is a deck nobody knows is right.
+        if ((shell_arg 0) == "slide") {
+            if (argc < 4) {
+                print "usage: md-deck slide <in.pptx> <n> <out.evg.json>"
+                return
+            }
+            this.slide((shell_arg 1) (shell_arg 2) (shell_arg 3))
+            return
+        }
+        def src:string (shell_arg 0)
+        def dest:string (shell_arg 1)
+        def i:int 2
+        while (i < argc) {
+            def a:string (shell_arg i)
+            if (a == "-css") {
+                if ((i + 1) < argc) {
+                    cssPath = (shell_arg (i + 1))
+                    i = (i + 1)
+                }
+            }
+            if (a == "-style") {
+                if ((i + 1) < argc) {
+                    styleName = (shell_arg (i + 1))
+                    i = (i + 1)
+                }
+            }
+            if (a == "-fonts") {
+                if ((i + 1) < argc) {
+                    fontsDir = (shell_arg (i + 1))
+                    i = (i + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        this.convert(src dest)
+    }
+
+    ; One slide, as a document the agent tools already understand.
+    fn slide:void (src:string which:string dest:string) {
+        def raw@(optional):buffer (buffer_read_file (MdDeckTool.dirOf(src)) (MdDeckTool.nameOf(src)))
+        if (null? raw) {
+            print ("cannot read " + src)
+            return
+        }
+        def deck:PptxDeck (PptxApi.open((unwrap raw)))
+        if (deck.ok == false) {
+            print (("cannot read " + src) + (": " + deck.error))
+            return
+        }
+        def n:int 0
+        def asked@(optional):int (to_int which)
+        if asked {
+            n = (unwrap asked)
+        }
+        def slides:[PptxSlide] deck.pres.slides
+        if (n >= (array_length slides)) {
+            print (("that deck has " + (to_string (array_length slides))) + " slide(s)")
+            return
+        }
+        def conv (new PptxToEvg())
+        def root:EVGElement (conv.slideToEvg((itemAt slides n)))
+        ; The slide's own size, written in, for the same reason a converted
+        ; Figma page needs it: everything downstream otherwise measures the
+        ; document against a guess.
+        root.setAttribute("width" ((to_string (to_int (conv.ptToPx(deck.pres.slideWidth)))) + "px"))
+        root.setAttribute("height" ((to_string (to_int (conv.ptToPx(deck.pres.slideHeight)))) + "px"))
+        root.markInline("width")
+        root.markInline("height")
+        write_file (MdDeckTool.dirOf(dest)) (MdDeckTool.nameOf(dest)) (EVGTreeJson.toText(root))
+        print (("wrote " + dest) + ((" (slide " + (to_string n)) + (" of " + (to_string (array_length slides))) + ")"))
+    }
+
+    fn usage:void () {
+        print "md-deck — a Markdown analysis as a PowerPoint deck"
+        print ""
+        print "  md-deck <in.md> <out.pptx> [options]"
+        print ""
+        print "  -css <file>     a stylesheet for the slides"
+        print "  -style <name>   the diagram style (the same names RangerFlow takes)"
+        print "  -fonts <dir>    where to find TTFs, for measuring text"
+        print ""
+        print "  A fenced mermaid / plantuml / dot / d2 block becomes a slide's"
+        print "  drawing — real shapes, not an image — and carries its own source"
+        print "  so the slide can be redrawn from itself."
+    }
+
+    fn convert:void (src:string dest:string) {
+        def text@(optional):string (read_file (MdDeckTool.dirOf(src)) (MdDeckTool.nameOf(src)))
+        if (null? text) {
+            print ("cannot read " + src)
+            return
+        }
+        def doc:MdNode (MdBlock.parseText((unwrap text)))
+
+        def deck (new MdLayout())
+        ; Measured with real fonts where there are any. Without a measurer the
+        ; slide breaks are computed from guessed widths, which is how a deck
+        ; ends up with a heading that fits on screen and not on the slide.
+        def setup (new EVGFontSetup())
+        setup.init((MdDeckTool.dirOf(src)) fontsDir)
+        def fm:FontManager (setup.getManager())
+        if ((setup.loadedCount()) > 0) {
+            deck.setMeasurer((new TTFTextMeasurer(fm)))
+        } {
+            print "note: no fonts found, so the slides are broken on guessed text widths — pass -fonts"
+        }
+
+        def st (new MdStyle())
+        deck.style = st
+        MdDeckTool.deckDefaults(deck.style)
+        if ((strlen cssPath) > 0) {
+            def css@(optional):string (read_file (MdDeckTool.dirOf(cssPath)) (MdDeckTool.nameOf(cssPath)))
+            if (null? css) {
+                print ("cannot read " + cssPath)
+                return
+            }
+            deck.setStyleSheet((unwrap css))
+        }
+        deck.applyMeta(doc)
+
+        ; The diagrams, drawn before the slides are broken: a drawing's height
+        ; is what decides whether the slide it is on still fits.
+        def cw:double (deck.style.pageWidth - (deck.style.margin * 2.0))
+        MdDiagram.prepare(doc deck.embeds cw styleName)
+        deck.applySlideMeta(doc)
+        deck.layoutSlides(doc)
+
+        def x (new MdToPptx())
+        def d:PptxDeck (x.deck(doc deck))
+        def bytes:buffer (d.save())
+        buffer_write_file (MdDeckTool.dirOf(dest)) (MdDeckTool.nameOf(dest)) bytes
+
+        print ("wrote " + dest + " (" + (to_string (buffer_length bytes)) + " bytes)")
+        print ("  " + (x.result.describe()))
+        ; What could not go out as text. A deck that flattened half a document
+        ; to pictures would look finished and be useless to edit.
+        def n:int (x.result.noteCount())
+        def k:int 0
+        while (k < n) {
+            print ("  " + (x.result.noteAt(k)))
+            k = (k + 1)
+        }
+    }
+
+    ; A slide's own defaults, under whatever the document and the sheet say:
+    ; a landscape sheet, and text set for a room rather than a desk. A document
+    ; sized for A4 portrait at 11 points is a page, not a deck.
+    sfn deckDefaults:void (st:MdStyle) {
+        def pw:double st.pageWidth
+        def ph:double st.pageHeight
+        st.pageWidth = (MdFrontMatter.pageW("a4 landscape" pw ph))
+        st.pageHeight = (MdFrontMatter.pageH("a4 landscape" ph pw))
+        st.bodySize = 20.0
+        st.lineHeight = 1.35
+        st.paraSpacing = 14.0
+        st.h1Size = 40.0
+        st.h2Size = 32.0
+        st.h3Size = 26.0
+        st.h4Size = 22.0
+        st.h5Size = 20.0
+        st.h6Size = 20.0
+    }
+
+    sfn dirOf:string (path:string) {
+        def at:int (MdDeckTool.lastSlash(path))
+        if (at < 0) {
+            return "."
+        }
+        return (substring path 0 at)
+    }
+
+    sfn nameOf:string (path:string) {
+        def at:int (MdDeckTool.lastSlash(path))
+        if (at < 0) {
+            return path
+        }
+        return (substring path (at + 1) (strlen path))
+    }
+
+    sfn lastSlash:int (path:string) {
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        return at
+    }
+}

@@ -217,6 +217,7 @@
     "markdown:embed": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/markdown/tests/MdEmbedProbe.rgr -d=./gallery/markdown/bin -o=MdEmbedProbe.js -nodecli && node ./gallery/markdown/bin/MdEmbedProbe.js gallery/markdown/fixtures/mermaid.md 820",
     "markdown:docx:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdDocxTest.rgr ./gallery/markdown/bin MdDocxTest.js",
     "vfs:test": "bash scripts/rgr-suite.sh ./gallery/vfs/tests/VfsTest.rgr ./gallery/vfs/bin VfsTest.js",
+    "deck": "bash scripts/rgr-suite.sh ./gallery/markdown/src/md_deck_tool.rgr ./gallery/markdown/bin md_deck_tool.js",
     "markdown:web": "bash gallery/markdown/web/standalone/build.sh",
     "markdown:web:serve": "bash gallery/markdown/web/standalone/build.sh && python3 -m http.server -d gallery/markdown/web/standalone/dist 8008",
     "markdown:web:test": "bash gallery/markdown/web/standalone/build.sh && node gallery/markdown/web/standalone/smoke.mjs",

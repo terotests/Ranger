@@ -24,6 +24,7 @@
 
 Import "../jsx/JSXToEVG.rgr"
 Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGUnit.rgr"
 Import "../../../evg/EVGTreeJson.rgr"
 
 class EVGDocSource {
@@ -241,6 +242,44 @@ class EVGDocSource {
             return false
         }
         return ((charAt dir 0) == 47)
+    }
+
+
+    ; --- a document's own size ------------------------------------------------
+    ;
+    ; A slide read back from a deck, a page converted from a `.fig`, a diagram
+    ; exported by RangerFlow: each states its size in px on the root, and each
+    ; came out cropped when it was rendered on A4 because nobody passed `-w`.
+    ; `measure` already learned to ask; the painters did not, and the answer has
+    ; to be the same one or the picture and the verdict are about different
+    ; pages.
+    ;
+    ; Only a px length answers. A root that is `100%` of something — which is
+    ; what a `.tsx` page usually is — has no size of its own to report, and the
+    ; caller's default stands.
+    sfn statedWidth:double (root:EVGElement fallback:double) {
+        return (EVGDocSource.pxOf(root.width fallback))
+    }
+
+    sfn statedHeight:double (root:EVGElement fallback:double) {
+        return (EVGDocSource.pxOf(root.height fallback))
+    }
+
+    sfn pxOf:double (u@(optional):EVGUnit fallback:double) {
+        if (null? u) {
+            return fallback
+        }
+        def uu:EVGUnit (unwrap u)
+        if (uu.isSet == false) {
+            return fallback
+        }
+        if (uu.unitType != 0) {
+            return fallback
+        }
+        if (uu.value <= 0.0) {
+            return fallback
+        }
+        return uu.value
     }
 
     ; What the tools already treat as failure.
