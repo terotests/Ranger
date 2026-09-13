@@ -517,8 +517,12 @@ async function unpackDocument(packed) {
   throw new Error("the link is not in a format this page knows");
 }
 
-function packedFromHash() {
-  return new URLSearchParams(location.hash.slice(1)).get(DOC_KEY);
+function packedFromLocation() {
+  // `#rf=` is the usual form (never sent to a server). `?rf=` is the fallback
+  // when a host strips the fragment on paste — Confluence should not, but
+  // the page still opens a document that arrived that way.
+  return new URLSearchParams(location.hash.slice(1)).get(DOC_KEY)
+      || new URLSearchParams(location.search).get(DOC_KEY);
 }
 
 const pageBase = () => location.origin + location.pathname;
@@ -546,7 +550,7 @@ async function openShared(packed) {
   }
   sel.value = "shared";
   showSourceBox("shared");
-  openFull.href = pageBase() + location.hash;
+  openFull.href = `${pageBase()}#${DOC_KEY}=${packed}`;
   syncControls();
   app.fitView();
   fitSoon();
@@ -554,7 +558,7 @@ async function openShared(packed) {
 }
 
 window.addEventListener("hashchange", () => {
-  const packed = packedFromHash();
+  const packed = packedFromLocation();
   if (packed) openShared(packed);
 });
 
@@ -563,18 +567,28 @@ const shareLink = document.getElementById("sharelink");
 const shareEmbed = document.getElementById("shareembed");
 const shareNote = document.getElementById("sharenote");
 
-document.getElementById("share").addEventListener("click", async () => {
+async function fillShareLinks() {
   const packed = await packDocument(app.documentJson());
   const link = `${pageBase()}#${DOC_KEY}=${packed}`;
   const embed = `${pageBase()}?embed=1#${DOC_KEY}=${packed}`;
   shareLink.value = link;
   shareEmbed.value = embed;
   document.getElementById("sharepreview").href = embed;
-  // The address bar gets the link too, so a reload keeps the edits.
+  // The address bar gets the editor link, so a reload keeps the edits.
   // replaceState does not fire `hashchange`, so this does not reopen it.
   history.replaceState(null, "", link);
+  return { link, embed };
+}
+
+function shareLengthNote(link) {
   let note = `${link.length.toLocaleString()} characters`;
   if (link.length > 8000) note += " — long: some tools cut links this size";
+  return note;
+}
+
+document.getElementById("share").addEventListener("click", async () => {
+  const { link } = await fillShareLinks();
+  let note = shareLengthNote(link);
   shareBox.hidden = false;
   try {
     await navigator.clipboard.writeText(link);
@@ -584,6 +598,25 @@ document.getElementById("share").addEventListener("click", async () => {
   }
   shareNote.textContent = note;
 });
+
+async function copyForConfluence(btn) {
+  const { link, embed } = await fillShareLinks();
+  const label = btn.textContent;
+  try {
+    await navigator.clipboard.writeText(embed);
+    btn.textContent = "copied — paste in Confluence";
+    shareNote.textContent = shareLengthNote(link) + " · Confluence link on the clipboard";
+  } catch (_) {
+    shareBox.hidden = false;
+    shareEmbed.select();
+    btn.textContent = "copy the embed link";
+    shareNote.textContent = shareLengthNote(link);
+  }
+  setTimeout(() => { btn.textContent = label; }, 2200);
+}
+
+document.getElementById("confluence").addEventListener("click", (ev) => copyForConfluence(ev.target));
+document.getElementById("shareconfluence").addEventListener("click", (ev) => copyForConfluence(ev.target));
 
 for (const btn of shareBox.querySelectorAll("[data-copy]")) {
   btn.addEventListener("click", async () => {
@@ -841,7 +874,7 @@ async function boot() {
     openFull.hidden = false;
   }
   // A link with a diagram in it opens that diagram and nothing else.
-  const packed = packedFromHash();
+  const packed = packedFromLocation();
   const opened = packed ? await openShared(packed) : false;
   if (!opened) {
     // An embed with nothing to show shows the page instead, status line and

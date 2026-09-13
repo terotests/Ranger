@@ -349,6 +349,7 @@
     "rangerflow:web:serve": "bash gallery/rangerflow/web/standalone/build.sh && node gallery/rangerflow/web/standalone/serve.mjs",
     "rangerflow:demo:web": "bash gallery/rangerflow/web/standalone/build.sh && node gallery/rangerflow/web/standalone/serve.mjs --open",
     "rangerflow:web:test": "bash gallery/rangerflow/web/standalone/build.sh && node gallery/rangerflow/web/standalone/smoke.mjs --all",
+    "rangerflow:forge:test": "node --test gallery/rangerflow/forge/test/*.test.mjs",
     "rangerflow:artifacts": "bash gallery/rangerflow/web/standalone/build.sh && node gallery/rangerflow/web/standalone/smoke.mjs --all --shots gallery/rangerflow/artifacts && cp gallery/rangerflow/artifacts/scenario_erd.png gallery/rangerflow/artifacts/01_schema_editor_webgl.png",
     "datagrid:test": "bash scripts/rgr-suite.sh ./gallery/datagrid/tests/GridTest.rgr ./gallery/datagrid/bin GridTest.js",
     "rangerdb:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdb/tests/RangerDbTest.rgr -d=./gallery/rangerdb/bin -o=RangerDbTest.js -nodecli && node ./gallery/rangerdb/bin/RangerDbTest.js",
