@@ -584,6 +584,15 @@ class EVGPatch {
         if (((name == "text-align") || (name == "overflow")) || (name == "cursor")) { return 1 }
         if (((name == "class-name") || (name == "theme")) || (name == "src")) { return 1 }
         if (((name == "object-fit") || (name == "transform")) || (name == "transition")) { return 1 }
+        ; A turn is two properties, not one. `transform` says by how much;
+        ; `transform-origin` says about WHAT, and its default is the box's own
+        ; centre — which is the wrong pivot for anything anchored at a point.
+        ; A chart's turned axis label reads as centred on its tick until this
+        ; is carried, and then slides half its own length along the axis.
+        ; `white-space` belongs with them for a related reason: a label placed
+        ; in a box measured by an ESTIMATE wraps the moment the estimate is a
+        ; pixel short, and "markdown" comes back as "markdo".
+        if ((name == "transform-origin") || (name == "white-space")) { return 1 }
         if (name == "background-gradient") { return 1 }
         ; The vector vocabulary. Left out of the first draft, and running the
         ; converter over the showcase said what that cost: every chart, every
@@ -667,6 +676,8 @@ class EVGPatch {
         push a "src"
         push a "object-fit"
         push a "transform"
+        push a "transform-origin"
+        push a "white-space"
         push a "transition"
         push a "background-gradient"
         push a "svg"
@@ -763,6 +774,8 @@ class EVGPatch {
         if (n == "src")                    { return el.src }
         if (n == "object-fit")             { return el.objectFit }
         if (n == "transform")              { return el.transformSpec }
+        if (n == "transform-origin")       { return el.transformOriginSpec }
+        if (n == "white-space")            { return el.whiteSpace }
         if (n == "transition")             { return el.transitionSpec }
         if (n == "background-gradient")    { return el.backgroundGradient }
         if (n == "svg")                    { return el.svgSource }
@@ -932,6 +945,16 @@ class EVGPatch {
         }
         if (n == "transform") {
             el.transformSpec = ""
+            return true
+        }
+        if (n == "transform-origin") {
+            el.transformOriginSpec = ""
+            el.transformOriginX = (EVGUnit.unset())
+            el.transformOriginY = (EVGUnit.unset())
+            return true
+        }
+        if (n == "white-space") {
+            el.whiteSpace = "normal"
             return true
         }
         if (n == "transition") {

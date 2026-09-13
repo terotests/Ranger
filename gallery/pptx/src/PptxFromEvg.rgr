@@ -372,7 +372,18 @@ class PptxFromEvg {
         def ink:PptxColor (PptxShapeInk.rgbaOf(c.r c.g c.b c.a))
         def ax:double (ox + (c.x * unit))
         def ay:double (oy + (c.y * unit))
-        def sh:PptxShape (PptxShapeInk.label(body size family bold align "top" c.rotate ax ay ink))
+        ; A turned label turns about the point the DOCUMENT said, which is
+        ; `transform-origin` and is rarely where the ink starts: an axis label
+        ; is pinned where it meets its tick. Rotating about the ink's own
+        ; corner instead swung the category names up into the plot, where the
+        ; bars drew over them.
+        def px:double ax
+        def py:double ay
+        if c.hasRotOrigin {
+            px = (ox + (c.rotOriginX * unit))
+            py = (oy + (c.rotOriginY * unit))
+        }
+        def sh:PptxShape (PptxShapeInk.labelAbout(body size family bold align "top" c.rotate ax ay px py ink))
         if (c.textAlign == "italic") {
             def para:PptxParagraph (itemAt sh.text.paragraphs 0)
             def run:PptxTextRun (itemAt para.runs 0)

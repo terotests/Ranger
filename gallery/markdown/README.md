@@ -196,7 +196,7 @@ never builds a string of tags.
 | blocks | ATX and setext headings, paragraphs, thematic breaks, fenced and indented code, block quotes, bullet and ordered lists with tight/loose flow, HTML blocks (all seven start conditions), link reference definitions |
 | inlines | emphasis and strong (the full delimiter stack, including the rule of three), code spans, links and images in all four forms, autolinks, raw HTML, HTML5 named and numeric entities, backslash escapes, hard breaks |
 | GFM | tables with column alignment, task lists, strikethrough |
-| beyond both | YAML front matter, and ```mermaid, ```plantuml and ```dot fences drawn as diagrams |
+| beyond both | YAML front matter, and ```mermaid, ```plantuml, ```dot, ```d2 and ```vega-lite fences drawn as diagrams and charts |
 
 Every block carries `srcStart` / `srcEnd` — byte offsets into the text it came
 from — so a viewer can put a caret back where a reader clicked.
@@ -303,7 +303,7 @@ also the seam a resize handle needs ([`PLAN_WYSIWYG.md`](PLAN_WYSIWYG.md) §5
 Stage H): with the source able to say how wide a diagram is, dragging a corner
 is a patch like any other edit rather than a second way to size a drawing.
 
-**Four notations, one branch.** Each has exactly one door on the RangerFlow
+**Five notations, one branch.** Each has exactly one door on the RangerFlow
 side — text and a width in, a `FlowScene` out, no editor — and the dispatch
 between a notation's own dialects happens behind that door:
 
@@ -313,6 +313,7 @@ between a notation's own dialects happens behind that door:
 | ```plantuml, ```puml | [`PlantUmlRender`](../rangerflow/domains/plantuml/PlantUmlRender.rgr) | class, sequence, activity, component |
 | ```dot, ```graphviz | [`DotRender`](../rangerflow/domains/graphviz/DotRender.rgr) | one grammar, `docs/GRAPHVIZ_PARITY.md` |
 | ```d2 | [`D2Render`](../rangerflow/domains/d2/D2Render.rgr) | containers, boards, `docs/D2_FEATURES.md` |
+| ```vega, ```vega-lite, ```vegalite | [`MdVegaRender`](src/MdVegaRender.rgr) | [Vela](../vela/README.md), a Vega-compatible runtime |
 
 `MdDiagram` branches on the notation rather than the fence word, so `plantuml`
 and `puml` are one path. The table saying which word is which lives in
@@ -329,6 +330,48 @@ reader and `D2Render` put a door on it. Its `@file` imports are refused here
 rather than resolved — a renderer that fetched whatever a pasted fence named
 would be a worse bug than an unread import — and the apology says how many
 were left.
+
+### A chart in a fence
+
+The one notation here that is not a graph. `MdVegaRender` runs the spec on
+Vela — `VlCompile` takes Vega-Lite to Vega and passes Vega through, so a
+writer does not have to know which of the two they wrote — and turns the
+runtime's draw commands into the same `FlowScene` a diagram produces. Nothing
+downstream can tell a chart from a diagram, which is the point: the PDF, the
+deck and the GPU read one kind of scene.
+
+````markdown
+```vega-lite
+{"width": 420, "height": 220,
+ "data": {"values": [{"m": "evg", "n": 2317}, {"m": "figma", "n": 1180}]},
+ "mark": "bar",
+ "encoding": {"x": {"field": "m", "type": "nominal"},
+              "y": {"field": "n", "type": "quantitative"}}}
+```
+````
+
+**What it will not approximate.** An `arc` and an `image` are counted and
+named rather than drawn as something else: a pie drawn as rectangles is a
+wrong chart, and a wrong chart is worse than an absent one because nobody
+checks it. The slot says which mark it was.
+
+**Labels are level while they fit.** Vega-Lite stands every category name of a
+discrete bottom axis on end, whatever the room — right for parity, wrong for a
+page, where a chart of four short words reads worse upright than across. So
+this door asks Vela for the third answer (`VlCompile.autoLabelAngle`, reaching
+the axis as `"labelAngle": "auto"`): level while the names fit side by side,
+turned by forty-five degrees when they stop, and upright when even that is not
+enough. A spec that states its own `labelAngle` — including `0` — keeps it.
+
+Two things about a turned label are worth knowing, because both were bugs
+first. It is ANCHORED at a point and turned about that same point, not about
+the middle of its box, or it slides half its own length along the axis. And
+the scene's world is fitted to what was actually drawn: a label on a slant
+reaches sideways as well as down, which the view size Vela reports does not
+account for, and the first category of a crowded axis ran off the page.
+
+`npm run markdown:vega:test` checks all of it against the scene — where each
+label sits, what it is anchored by, and that nothing lands outside the world.
 
 **How it is checked.** Not by looking at the preview — the HTML exporter
 cannot draw a scene's paths (see below). `npm run markdown:embed` builds the

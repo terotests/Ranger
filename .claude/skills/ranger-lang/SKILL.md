@@ -48,10 +48,15 @@ name elsewhere:
 ```
 contains  startsWith  endsWith  trim  first  last
 remove    insert      write     read   normalize  toString
+has       sqrt
 ```
 
 Rename: `hasSub`, `beginsWith`, `finishesWith`, `trimWs`, `lowest`, `highest`,
-`removeNode`, `insertNode`, `toText`, `fromText`, `collapse`, `asString`.
+`removeNode`, `insertNode`, `toText`, `fromText`, `collapse`, `asString`,
+`mentions`, `squareRoot`.
+
+The list is what has been hit, not what exists: `sqrt` and `has` were found one
+compile at a time while writing the Vega chart door and its test.
 
 ## Optionals
 

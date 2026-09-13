@@ -1782,11 +1782,18 @@ class EVGPDFRenderer {
             ; matrix below is a standard y-up rotation.
             def cs:double (cos rad)
             def sn:double (sin rad)
-            ; Rotate about the element's centre: translate(c) * rotate *
-            ; translate(-c), multiplied out. The defining property is that the
-            ; centre maps to itself, which is what the test asserts.
-            def ccx:double (x + (w / 2.0))
-            def ccy:double (pdfY + (h / 2.0))
+            ; Rotate about `transform-origin`: translate(o) * rotate *
+            ; translate(-o), multiplied out. The defining property is that the
+            ; origin maps to itself, which is what the test asserts. The
+            ; default origin is the element's centre, so a document that never
+            ; states one turns exactly as it did before; one that does — a
+            ; chart's axis label, pinned where it meets its tick — turns about
+            ; the point it was pinned at instead of swinging out of the plot.
+            ;
+            ; The vertical offset is measured from the element's TOP, and this
+            ; page's y grows upward from `pdfY`, which is its bottom edge.
+            def ccx:double (x + (EVGElement.resolveOrigin(el.transformOriginX w)))
+            def ccy:double (pdfY + (h - (EVGElement.resolveOrigin(el.transformOriginY h))))
             def ex:double ((ccx - (cs * ccx)) + (sn * ccy))
             def fy:double ((ccy - (sn * ccx)) - (cs * ccy))
             streamBuffer.writeString("q\n")

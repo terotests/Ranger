@@ -148,6 +148,25 @@ class SceneItem {
     ; "left" | "center" | "right"
     def align:string "left"
 
+    ; A label written on a slant, in degrees clockwise — what a crowded axis
+    ; does with category names too wide to stand side by side. The turn is
+    ; about `originX/originY`, measured from the item's own top-left corner,
+    ; because a label is rotated about the point it was ANCHORED at (the tick)
+    ; and not about the middle of the box that happens to hold it: turning a
+    ; right-aligned label about its centre slides it half its own width along
+    ; the axis, which is visible the moment two labels have different lengths.
+    ; Unset, the centre is the pivot, which is CSS' own default.
+    def angle:double 0.0
+    def originX:double 0.0
+    def originY:double 0.0
+    def hasOrigin:boolean false
+    ; One line, whatever the box says. A chart's axis label is a single line by
+    ; construction — the runtime that produced it already decided where the
+    ; breaks are — and the box around it is an ESTIMATE of its width. Estimate
+    ; it a pixel short and the label wraps, which turns "markdown" into
+    ; "markdo" with the rest on a line nobody sees.
+    def nowrap:boolean false
+
     ; path
     def pts:[double]
     def d:string ""
@@ -643,6 +662,17 @@ class FlowScene {
             t.lineHeight = 1.25
             t.color = (EVGColor.parse(s.fill))
             t.textAlign = s.align
+            if s.nowrap {
+                t.whiteSpace = "nowrap"
+            }
+            if (s.angle != 0.0) {
+                t.applyTransform(("rotate(" + (EVGDisplayList.num(s.angle)) + "deg)"))
+                if s.hasOrigin {
+                    t.transformOriginX = (EVGUnit.px(s.originX))
+                    t.transformOriginY = (EVGUnit.px(s.originY))
+                    t.transformOriginSpec = (((EVGDisplayList.num(s.originX)) + "px ") + ((EVGDisplayList.num(s.originY)) + "px"))
+                }
+            }
             if ((strlen s.fontFamily) > 0) {
                 t.fontFamily = s.fontFamily
             }
@@ -743,6 +773,18 @@ class FlowScene {
                 }
                 if s.italic {
                     out = (out + " font-style=\"italic\"")
+                }
+                ; A turned label rotates about the point it was anchored at,
+                ; which is the same pivot the EVG side uses; passing the two
+                ; coordinates to `rotate()` is SVG's way of saying it.
+                if (s.angle != 0.0) {
+                    def px:double (s.x + (s.w * 0.5))
+                    def py:double (s.y + (s.fontSize * 0.5))
+                    if s.hasOrigin {
+                        px = (s.x + s.originX)
+                        py = (s.y + s.originY)
+                    }
+                    out = (out + " transform=\"rotate(" + (EVGDisplayList.num(s.angle)) + " " + (EVGDisplayList.num(px)) + " " + (EVGDisplayList.num(py)) + ")\"")
                 }
                 out = (out + ">" + (FlowScene.xmlEscape(s.text)) + "</text>\n")
             }

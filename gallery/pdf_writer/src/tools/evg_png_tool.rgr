@@ -629,6 +629,22 @@ class EVGPNGTool {
         }
     }
 
+    ; Where a transform turns, measured from the element's top-left in DEVICE
+    ; pixels. `EVGElement.resolveOrigin` answers in layout pixels, which is the
+    ; same number only at scale 1: a page rendered at twice the size would
+    ; otherwise turn about a point halfway to where it belongs.
+    fn originOffset:double (u:EVGUnit size:double) {
+        if (u.isSet == false) {
+            return (size / 2.0)
+        }
+        ; 1 is PERCENT and 3 is HEIGHT_PERCENT, and a percentage of a size that
+        ; is already scaled needs no scaling of its own.
+        if ((u.unitType == 1) || (u.unitType == 3)) {
+            return ((u.value / 100.0) * size)
+        }
+        return (u.value * scale)
+    }
+
     fn rotationMatrix:Matrix2D (el:EVGElement x:double y:double w:double h:double) {
         if (el.rotate == 0.0) {
             return (Matrix2D.identity())
@@ -639,8 +655,15 @@ class EVGPNGTool {
         def sn:double (sin rad)
         ; y grows downward here, so this is clockwise on screen — the same
         ; direction CSS rotate() turns and the same one the PDF renderer emits.
-        def ccx:double (x + (w / 2.0))
-        def ccy:double (y + (h / 2.0))
+        ;
+        ; About `transform-origin`, not about the box's centre. The centre is
+        ; only the DEFAULT, and taking it for the rule turns anything anchored
+        ; at a point about a pivot up to half its own width away: a chart's
+        ; turned axis labels swung out of the plot and off the left of the
+        ; page, while the display list — which has resolved the origin since it
+        ; was written — placed them correctly.
+        def ccx:double (x + (this.originOffset(el.transformOriginX w)))
+        def ccy:double (y + (this.originOffset(el.transformOriginY h)))
         def ex:double ((ccx - (cs * ccx)) + (sn * ccy))
         def fy:double ((ccy - (sn * ccx)) - (cs * ccy))
         return (Matrix2D.create(cs sn (0.0 - sn) cs ex fy))
@@ -1157,7 +1180,16 @@ class EVGPNGTool {
         def unscaledFont:double (fontSize / scale)
         def availW:double (((w - padLeft) - padRight) / scale)
         def engine:EVGTextEngine (layout.getTextEngine())
-        def lines:[EVGTextLine] (engine.breakLines(el.textContent faceName unscaledFont availW))
+        ; `white-space: nowrap` is one line however narrow the box, which the
+        ; layout has honoured since it was written and this painter did not:
+        ; a label whose box was measured by an ESTIMATE broke onto a second
+        ; line the moment the estimate came up short, so "markdown" was
+        ; painted as "markdo" with the rest on a line outside the box.
+        def breakAt:double availW
+        if (el.whiteSpace == "nowrap") {
+            breakAt = 1000000.0
+        }
+        def lines:[EVGTextLine] (engine.breakLines(el.textContent faceName unscaledFont breakAt))
 
         def lineHeightFactor:double el.lineHeight
         if (lineHeightFactor <= 0.0) {
@@ -1169,7 +1201,25 @@ class EVGPNGTool {
         while (li < (array_length lines)) {
             def ln:EVGTextLine (itemAt lines li)
             def lineY:double ((y + padTop) + (lineStep * (to_double li)))
-            this.renderTextLine(el ln.text (x + padLeft) lineY fontSize textR textG textB textA hasShadow)
+            ; `text-align`, which this target read from nothing: every line was
+            ; painted at the left edge of its box while the PDF target and the
+            ; display list both moved it by the slack. A chart's axis labels
+            ; are the case that shows it — each one is placed by pinning its
+            ; END to a tick, so painted from the left they all sit a label's
+            ; width off, and the longer the name the further off it is.
+            def indent:double 0.0
+            if ((el.textAlign == "center") || (el.textAlign == "right")) {
+                def m:EVGTextMetrics (engine.measureRunSpaced(ln.text faceName unscaledFont el.letterSpacing))
+                def slack:double ((availW - m.width) * scale)
+                if (slack > 0.0) {
+                    if (el.textAlign == "center") {
+                        indent = (slack / 2.0)
+                    } {
+                        indent = slack
+                    }
+                }
+            }
+            this.renderTextLine(el ln.text ((x + padLeft) + indent) lineY fontSize textR textG textB textA hasShadow)
             li = (li + 1)
         }
 

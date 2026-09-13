@@ -82,13 +82,14 @@ Short form:
 - **Do not name a method `toString`** — it can crash the compiler; use
   `asString` / `getSymbol` instead (ISSUES.md).
 - **Some method names are reserved.** Defining `contains`, `startsWith`,
-  `endsWith`, `trim`, `first`, `last`, `remove`, `insert`, `write`, `read` or
-  `normalize` on your own class compiles, but every call site fails with
-  `Class X does not have method …` — the compiler resolves those names
-  elsewhere. Rename (`hasSub`, `beginsWith`, `finishesWith`, `trimWs`,
+  `endsWith`, `trim`, `first`, `last`, `remove`, `insert`, `write`, `read`,
+  `normalize`, `has` or `sqrt` on your own class compiles, but every call site
+  fails with `Class X does not have method …` — the compiler resolves those
+  names elsewhere. Rename (`hasSub`, `beginsWith`, `finishesWith`, `trimWs`,
   `lowest`, `highest`, `removeNode`, `insertNode`, `toText`, `fromText`,
-  `collapse`). The last five were found one compile at a time while writing
-  `gallery/evg/EVGPatch.rgr`; the list is what has been hit, not what exists.
+  `collapse`, `mentions`, `squareRoot`). They were found one compile at a time
+  while writing `gallery/evg/EVGPatch.rgr` and the Vega chart door; the list is
+  what has been hit, not what exists.
 - **Arithmetic on a call result needs a variable.** `(w - (Foo.bar() + 8))`
   fails to parse the `+`; bind the call first (`def b:int (Foo.bar())`) and do
   the arithmetic on the name. The same applies to `(obj.method()).field` —

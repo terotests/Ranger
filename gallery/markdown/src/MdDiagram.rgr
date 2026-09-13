@@ -46,6 +46,7 @@
 Import "MdNode.rgr"
 Import "MdEmbed.rgr"
 Import "MdEmbedKinds.rgr"
+Import "MdVegaRender.rgr"
 Import "../../rangerflow/domains/mermaid/MermaidRender.rgr"
 Import "../../rangerflow/domains/plantuml/PlantUmlRender.rgr"
 Import "../../rangerflow/domains/graphviz/DotRender.rgr"
@@ -131,6 +132,9 @@ class MdDiagram {
         if (notation == "d2") {
             return (D2Render.sceneOf(text styleName width pad))
         }
+        if (notation == "vega") {
+            return (MdVegaRender.sceneOf(text styleName width pad))
+        }
         return (MermaidRender.sceneOf(text styleName width pad))
     }
 
@@ -148,6 +152,19 @@ class MdDiagram {
                 return ((dd.error + " — line ") + (to_string dd.errorLine))
             }
             return "nothing declared in that graph"
+        }
+        ; A chart says what it could not draw rather than what it could not
+        ; read: a spec that parses and produces an arc is a pie nothing here
+        ; can draw, and "that is not JSON" would be a lie about it.
+        if (notation == "vega") {
+            def vd:MdVegaDrawing (MdVegaRender.draw(text 600.0 8.0))
+            if ((strlen vd.error) > 0) {
+                return vd.error
+            }
+            if ((array_length vd.skipped) > 0) {
+                return ((("the spec draws " + (itemAt vd.skipped 0)) + " marks, which nothing here draws yet"))
+            }
+            return "the spec produced no marks"
         }
         if (notation == "d2") {
             def st2 (new FlowStyle)

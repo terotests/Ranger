@@ -198,6 +198,21 @@ class PptxShapeInk {
     ; list use. `alphabetic` puts the anchor ON the baseline, roughly a third of
     ; the size below the visual centre of a line of Latin text.
     sfn label:PptxShape (body:string sizePt:double family:string bold:boolean align:string baseline:string angle:double anchorX:double anchorY:double colour:PptxColor) {
+        return (PptxShapeInk.labelAbout(body sizePt family bold align baseline angle anchorX anchorY anchorX anchorY colour))
+    }
+
+    ; The same label, turned about a point that is NOT its anchor.
+    ;
+    ; A turned axis label is anchored where its text meets the tick and rotated
+    ; about that same point — but a label drawn by an engine that resolved the
+    ; alignment itself arrives anchored at the left edge of the INK, which is
+    ; somewhere else entirely. Rotating about the wrong one of the two turns the
+    ; label about a point up to its own length away, and the labels of a
+    ; category axis end up standing inside the plot, behind the bars they name.
+    ;
+    ; PowerPoint turns a shape about its own centre, so the work here is to
+    ; carry that centre round the pivot and let `rot` do the rest.
+    sfn labelAbout:PptxShape (body:string sizePt:double family:string bold:boolean align:string baseline:string angle:double anchorX:double anchorY:double pivotX:double pivotY:double colour:PptxColor) {
         def chars:int ((strlen body) + 4)
         def boxW:double (sizePt * (to_double chars))
         def boxH:double (sizePt * 1.6)
@@ -218,15 +233,23 @@ class PptxShapeInk {
         if (baseline == "alphabetic") {
             cy = (0.0 - (sizePt * 0.34))
         }
-        def rx:double cx
-        def ry:double cy
+        ; Where the box's centre sits before anything is turned, and where the
+        ; turn carries it. With the pivot ON the anchor the two lines below
+        ; reduce to rotating the offset itself, which is what this did when a
+        ; label could only be turned about its own anchor.
+        def bx:double ((anchorX + cx) - pivotX)
+        def by:double ((anchorY + cy) - pivotY)
+        def rx:double bx
+        def ry:double by
         if ((angle > 0.001) || (angle < (0.0 - 0.001))) {
             def rad:double ((angle * 3.141592653589793) / 180.0)
             def cs:double (cos rad)
             def sn:double (sin rad)
-            rx = ((cx * cs) - (cy * sn))
-            ry = ((cx * sn) + (cy * cs))
+            rx = ((bx * cs) - (by * sn))
+            ry = ((bx * sn) + (by * cs))
         }
+        rx = ((pivotX + rx) - anchorX)
+        ry = ((pivotY + ry) - anchorY)
         def sh (new PptxShape())
         sh.kind = (PptxShapeKind.shape())
         sh.hasXfrm = true

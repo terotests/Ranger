@@ -888,6 +888,7 @@ class EVGHTMLRenderer {
         ; origin and the same point the other two renderers use.
         if ((el.rotate == 0.0) == false) {
             css = css + "transform: rotate(" + (to_string el.rotate) + "deg); "
+            css = css + (this.transformOriginStyle(el))
         }
         if (el.opacity < 1.0) {
             css = css + "opacity: " + (to_string el.opacity) + "; "
@@ -1017,6 +1018,7 @@ class EVGHTMLRenderer {
                 css = css + "height: " + (this.formatPx(el.calculatedHeight)) + "; "
             }
             css = css + "transform: rotate(" + (to_string el.rotate) + "deg); "
+            css = css + (this.transformOriginStyle(el))
         }
 
         ; Font properties
@@ -1528,11 +1530,33 @@ class EVGHTMLRenderer {
     ; because this renderer builds the <svg> style itself rather than going
     ; through the builder that carries `transform`. CSS rotates about the
     ; centre of the box by default, which is the point the other two use.
+    ; `transform-origin`, when the document states one. CSS turns about the
+    ; centre of the box unless told otherwise, and so do the other two targets
+    ; — but a label pinned where it meets its tick states its pivot, and the
+    ; three targets have to agree about it or the same document turns three
+    ; ways.
+    fn transformOriginStyle:string (el:EVGElement) {
+        if (el.transformOriginX.isSet == false) {
+            if (el.transformOriginY.isSet == false) {
+                return ""
+            }
+        }
+        def ox:string "50%"
+        def oy:string "50%"
+        if el.transformOriginX.isSet {
+            ox = (this.formatPx((EVGElement.resolveOrigin(el.transformOriginX el.calculatedWidth))))
+        }
+        if el.transformOriginY.isSet {
+            oy = (this.formatPx((EVGElement.resolveOrigin(el.transformOriginY el.calculatedHeight))))
+        }
+        return ((("transform-origin: " + ox) + " ") + (oy + "; "))
+    }
+
     fn svgRotationStyle:string (el:EVGElement) {
         if (el.rotate == 0.0) {
             return ""
         }
-        return ("transform: rotate(" + (to_string el.rotate) + "deg); ")
+        return (("transform: rotate(" + (to_string el.rotate) + "deg); ") + (this.transformOriginStyle(el)))
     }
 
     ; ------------------------------------------------------------------------
