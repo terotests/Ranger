@@ -1,0 +1,6 @@
+{ "name":"toast_stack","component":"toast",
+  "behaviours":["stack","stack-order","close-one-keeps-rest","focus-viewport"],
+  "fixture":{"controls":[
+    {"type":"toast","tid":"ts","name":"Show","title":"Saved","body":"All good"}]},
+  "steps":[{"click":"ts-trigger"},{"click":"ts-trigger"},{"click":"ts-trigger"},
+           {"click":"ts-item-1-close"},{"click":"ts-item-3-action"}] }

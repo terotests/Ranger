@@ -122,20 +122,39 @@ function renderMenuItem(NS, prefix, it) {
  * on how fast the machine is.
  */
 function ToastControl({ spec, tid }) {
-  const [open, setOpen] = React.useState(false);
+  // A STACK, not a flag. The first version held one boolean and could only
+  // raise one toast; mfiles and realtrainer both hold a list with a timer
+  // each, and the questions worth measuring — what a second raise does, what
+  // closing one leaves, which one Escape takes, whether hovering the viewport
+  // pauses every timer or only the hovered one — need two toasts on the
+  // screen. Each raise appends a new Root with its own id, which is the
+  // pattern Radix's own docs use.
+  const [toasts, setToasts] = React.useState([]);
+  const nextId = React.useRef(1);
+  const raise = () => setToasts((t) => t.concat({ id: nextId.current++, open: true }));
+  const setOpen = (id, open) =>
+    setToasts((t) => (open ? t : t.filter((x) => x.id !== id)));
   return (
     <Toast.Provider swipeDirection="right" duration={spec.duration ?? 1000000}>
-      <button data-tid={tid + "-trigger"} type="button" onClick={() => setOpen(true)}>
+      <button data-tid={tid + "-trigger"} type="button" onClick={raise}>
         {spec.name}
       </button>
-      <Toast.Root data-tid={tid} open={open} onOpenChange={setOpen}>
-        <Toast.Title data-tid={tid + "-title"}>{spec.title || spec.name}</Toast.Title>
-        <Toast.Description data-tid={tid + "-description"}>{spec.body || ""}</Toast.Description>
-        <Toast.Action data-tid={tid + "-action"} altText={spec.actionName || "Undo"}>
-          {spec.actionName || "Undo"}
-        </Toast.Action>
-        <Toast.Close data-tid={tid + "-close"}>Close</Toast.Close>
-      </Toast.Root>
+      {toasts.map((t) => (
+        <Toast.Root
+          key={t.id}
+          data-tid={tid + "-item-" + t.id}
+          open={t.open}
+          type={spec.toastType || "foreground"}
+          onOpenChange={(o) => setOpen(t.id, o)}
+        >
+          <Toast.Title data-tid={tid + "-item-" + t.id + "-title"}>{spec.title || spec.name}</Toast.Title>
+          <Toast.Description data-tid={tid + "-item-" + t.id + "-description"}>{spec.body || ""}</Toast.Description>
+          <Toast.Action data-tid={tid + "-item-" + t.id + "-action"} altText={spec.actionName || "Undo"}>
+            {spec.actionName || "Undo"}
+          </Toast.Action>
+          <Toast.Close data-tid={tid + "-item-" + t.id + "-close"}>Close</Toast.Close>
+        </Toast.Root>
+      ))}
       {/*
         Radix wraps the viewport list in a NAMED region — that landmark is how
         a reader finds a toast at all, and it is a separate element from the

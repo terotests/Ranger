@@ -2,4 +2,4 @@
   "behaviours":["action-button","escape-closes"],
   "fixture":{"controls":[
     {"type":"toast","tid":"ts","name":"Show","title":"Saved","body":"All good"}]},
-  "steps":[{"click":"ts-trigger"},{"click":"ts-action"},{"click":"ts-trigger"},{"key":"Escape"}] }
+  "steps":[{"click":"ts-trigger"},{"click":"ts-item-1-action"},{"click":"ts-trigger"},{"key":"Escape"}] }

@@ -263,6 +263,43 @@ are the measured divergence from a plain `<input>`: the calendar's date box is
 page is `OtpCtl`, replayed against input-otp (`npm run ui:otp:check`,
 `npm run ui:otp:demo`).
 
+## The combobox, and the first screen taken from an application
+
+```bash
+npm run ui:combobox:check    # ComboboxCtl against Base UI's capture, 123 assertions
+npm run ui:combobox:oracle   # re-measure Base UI (needs the reference host)
+npm run ui:metadata:check    # the M-Files metadata card drawn out of it
+```
+
+`gallery/mfiles` draws its metadata card by hand: a lookup field with chips and
+a `×` on each, a class picker, Yes/No pills, a label column. The plan had
+declined the chip field twice — "genuinely new, needs an oracle before it needs
+a rule" — because Radix has no combobox and no tag input. **Base UI has both in
+one component**, and `conformance/oracle/combobox_oracle.mjs` asked it the
+questions an implementation otherwise guesses. The answers that were not the
+obvious ones:
+
+- **No autoHighlight.** Typing filters the list and clears the highlight, so
+  "ru" then Enter chooses nothing: the list closes and the box reverts to the
+  chosen label. An arrow first, then Enter.
+- **Backspace in an empty multiple box removes the last chip** — it does not
+  focus it first — and, because Backspace is typing, the list opens.
+- **ArrowLeft walks onto the chips** and, past the first, wraps to the input.
+  Removing a focused chip lands focus on the chip now in its place, or the one
+  before it when it was the last.
+- **The clear button is absent, not disabled**, while the box is empty — and it
+  follows the TEXT: emptying the box takes it away before anything is committed.
+- **A multiple pick keeps the list open**; `aria-selected` follows the selection
+  and not the highlight, which is the opposite of Radix's select.
+- **Escape on a closed single box clears it.** The second Escape is the clear
+  button's keyboard.
+
+`demo/MetadataDemo.rgr` is that card on the kit — `ComboboxCtl` twice,
+`InputCtl` three times, `DateFieldCtl`, and `RadioGroupCtl` in toggle mode
+drawn as the two pills — with a Save that puts an error on the hint's line and
+into the control's description, and a Discard that takes it back. The rows are
+`UiField`s, promoted out of the invoice demo once a third form wanted them.
+
 ## Class-first styling, inline still allowed
 
 A controller never names a colour. It writes class names, and an
@@ -337,6 +374,10 @@ utility-class theme needs compound and attribute selectors; `gallery/css`'s
 | `src/PresentationCtl.rgr` | Label, separator, progress, aspect ratio, icon button, avatar |
 | `src/DateFieldCtl.rgr` | The `mm/dd/yyyy` segmented editor — Chromium's own `<input type="date">` |
 | `src/OtpCtl.rgr` | One-time code: one value, N slots, the selection normalised — `input-otp` |
+| `src/ToastCtl.rgr` | A stack of toasts with a shared clock: raise, close one, Escape newest-first, pause on hover — `@radix-ui/react-toast`, measured with two up |
+| `src/ComboboxCtl.rgr` | A text box that filters a listbox; with `multiple`, the selection as chips with a remove each — Base UI's `combobox` |
+| `src/UiText.rgr` | Measured text that stays in its box: `fit` (prefix + ellipsis) and `wrapLines` (greedy, breaks a word wider than the box) |
+| `src/UiField.rgr` | A form row's strings — label, hint, error, required — handed to the control they are about; not a controller, on purpose |
 | `src/UiHost.rgr` | Root tree, focus, stylesheet, input routing, the trace |
 | `conformance/` | The catalogue, specs, both adapters, the diff, the scorecard, the inventory and the audit |
 | `web/` | The browser playground (`npm run ui:web`) |

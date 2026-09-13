@@ -30,7 +30,7 @@ import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
 // asked for it with `?inspect=1`, so a demo that nobody is inspecting pays
 // one import and no work at all.
 import { attach as attachInspector } from "../../evg/inspect/evg-inspect.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo, FilterDemo, EventCalDemo, MessageDemo, ControlsDemo, OtpDemo, MODULES } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo, FilterDemo, EventCalDemo, MessageDemo, ControlsDemo, OtpDemo, MetadataDemo, MODULES } from "./generated-host.js";
 // The browser measures text for every layout the demos build: the same face
 // the painter draws with, through canvas `measureText`, in place of the
 // advance table. Installed before any demo is constructed, because a demo
@@ -44,7 +44,7 @@ import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
 const fontMeasure = installCanvasMeasurer(MODULES);
 window.__fontMeasure = fontMeasure;
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS, CALENDAR_CSS, FILTERS_CSS, EVENTCAL_CSS, MESSAGE_CSS, CONTROLS_CSS, OTP_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS, CALENDAR_CSS, FILTERS_CSS, EVENTCAL_CSS, MESSAGE_CSS, CONTROLS_CSS, OTP_CSS, METADATA_CSS } from "./generated.js";
 
 // The default stage width. A demo wider than this says so — the dashboard
 // grew to 1336 when its sidebar arrived, and a stage that stays 1240 does not
@@ -373,6 +373,13 @@ controls.init(CONTROLS_CSS);
 let otp = new OtpDemo();
 otp.init(OTP_CSS);
 let lastOtpHover = "";
+// The M-Files metadata card: two comboboxes (one with chips), three text
+// fields, a date field and a segmented Yes/No, on one label column. The
+// combobox is measured against Base UI in `ui:combobox:check`; this page is
+// where its list has to open UNDER its box and above the rows below it.
+let metadata = new MetadataDemo();
+metadata.init(METADATA_CSS);
+let lastMetadataHover = "";
 let lastControlsHover = "";
 let lastCalendarHover = "";
 const dashboard = new DashboardDemo();
@@ -707,6 +714,36 @@ const DEMOS = {
         return true;
       },
       setPressed: (id) => dashboard.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  metadata: {
+    height: () => metadata.heightPx(),
+    list: () => metadata.displayListJson(),
+    hit: (x, y) => metadata.hitId(x, y),
+    a11y: (gen, focus) => metadata.a11yJson(gen, focus),
+    press: (id) => metadata.press(id),
+    hover: (id) => {
+      if (id === lastMetadataHover) return false;
+      lastMetadataHover = id;
+      metadata.setHover(id);
+      return true;
+    },
+    key: (k) => metadata.key(k),
+    // A printable key with no modifier is typing; Shift+Arrow extends a
+    // selection, Ctrl+A selects a box, Tab walks the ring.
+    keyWith: (k, shift, ctrl) => metadata.keyWith(k, shift, ctrl),
+    host: () => ({
+      tick: (dt) => metadata.tick(dt),
+      busy: () => metadata.busyNow(),
+      setHover: (id) => {
+        if (id === lastMetadataHover) return false;
+        lastMetadataHover = id;
+        metadata.setHover(id);
+        return true;
+      },
+      setPressed: (id) => metadata.setPressed(id),
       root: () => null,
     }),
   },
@@ -1763,7 +1800,7 @@ function syncPanels() {
 // `?demo=dashboard` lands on one directly. A page with eighteen demos and one
 // entry point makes every link to it a click instruction; a check that wants
 // the dashboard should not have to press a radio to get there.
-const DEMO_NAMES = ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "calendar", "filters", "eventcal", "message", "controls", "otp", "profile", "dashboard", "dropdown", "dialog", "motion"];
+const DEMO_NAMES = ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "calendar", "filters", "eventcal", "message", "controls", "otp", "metadata", "profile", "dashboard", "dropdown", "dialog", "motion"];
 const wanted = new URLSearchParams(location.search).get("demo");
 if (wanted && DEMO_NAMES.includes(wanted)) state.which = wanted;
 
@@ -2129,6 +2166,7 @@ window.__resetDemo = (name) => {
   else if (name === "profile") { profile = new ProfileDemo(); profile.init(PROFILE_CSS); lastProfileHover = ""; }
   else if (name === "controls") { controls = new ControlsDemo(); controls.init(CONTROLS_CSS); lastControlsHover = ""; }
   else if (name === "otp") { otp = new OtpDemo(); otp.init(OTP_CSS); lastOtpHover = ""; }
+  else if (name === "metadata") { metadata = new MetadataDemo(); metadata.init(METADATA_CSS); lastMetadataHover = ""; }
   else if (name === "dialog") {
     dialog = new DialogDemo(); dialog.init(DIALOG_CSS); dialog.openWindow(); dialog.openModal();
     lastDialogHover = ""; dialogDragAt = null;

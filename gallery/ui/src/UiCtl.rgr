@@ -308,6 +308,14 @@ class UiCtl {
     fn onFocus:void (target:string) {
     }
 
+    ; Focus LEFT this controller altogether: `target` was its focused node
+    ; and the next one belongs to somebody else, or to nothing. A combobox
+    ; settles a half-typed query here — revert to the label, or clear — which
+    ; is the one behaviour of a text box that cannot be seen from inside it.
+    ; Not fired for focus moving between a controller's own nodes.
+    fn onBlur:void (target:string) {
+    }
+
     ; --- the pointer, without a button ---------------------------------------
     ; A tooltip and a hover card have no activation at all: the pointer arriving
     ; IS the input. Like activate(), these return the test id focus should land
