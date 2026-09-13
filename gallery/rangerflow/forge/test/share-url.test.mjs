@@ -4,7 +4,9 @@ import { describe, it } from "node:test";
 import {
   AUTO_CONVERT_PATTERNS,
   DEFAULT_HEIGHT_PX,
+  clampEmbedHeight,
   isAllowedRangerFlowUrl,
+  isTrustedEmbedOrigin,
   matchesAutoConvert,
   packedFromUrl,
   pastedUrlFromContext,
@@ -106,5 +108,21 @@ describe("autoConvert patterns", () => {
     assert.equal(matchesAutoConvert("https://figma.com/file/abc"), false);
     assert.equal(matchesAutoConvert("https://terotests.github.io/Ranger/office/"), false);
     assert.equal(AUTO_CONVERT_PATTERNS.length > 0, true);
+  });
+});
+
+describe("embed host messages", () => {
+  it("trusts GitHub Pages and loopback, and nothing else", () => {
+    assert.equal(isTrustedEmbedOrigin("https://terotests.github.io"), true);
+    assert.equal(isTrustedEmbedOrigin("http://localhost:8080"), true);
+    assert.equal(isTrustedEmbedOrigin("https://evil.example"), false);
+    assert.equal(isTrustedEmbedOrigin("not an origin"), false);
+  });
+
+  it("clamps the iframe height the embed page asks for", () => {
+    assert.equal(clampEmbedHeight(650), 650);
+    assert.equal(clampEmbedHeight(10), 280);
+    assert.equal(clampEmbedHeight(9999), 1400);
+    assert.equal(clampEmbedHeight("nope"), DEFAULT_HEIGHT_PX);
   });
 });

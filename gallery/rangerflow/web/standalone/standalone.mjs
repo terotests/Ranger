@@ -142,9 +142,18 @@ function resize() {
   // An embed has no fit button and a host that may resize the frame at any
   // time, so every new size is a new fit.
   if (embedMode) app.fitView();
+  reportEmbedSize();
 }
 
 let sizeWatch = null;
+
+/** Tell a parent Forge macro how tall this frame wants to be. The type string
+ *  is the contract with gallery/rangerflow/forge/src/share-url.mjs. */
+function reportEmbedSize() {
+  if (!embedMode || window.parent === window) return;
+  const h = Math.ceil(document.documentElement.getBoundingClientRect().height);
+  window.parent.postMessage({ type: "rangerflow:embed-size", height: h }, "*");
+}
 
 /** How far the buffer has drifted from the element, as a ratio. 1 is honest. */
 function sizeDrift() {
@@ -959,6 +968,11 @@ async function boot() {
     syncControls();
     app.fitView();
     fitSoon();
+  }
+
+  if (embedMode) {
+    reportEmbedSize();
+    setTimeout(reportEmbedSize, 400);
   }
 
   if (new URLSearchParams(location.search).has("selftest")) {
