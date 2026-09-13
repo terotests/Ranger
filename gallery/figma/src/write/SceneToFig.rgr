@@ -295,13 +295,27 @@ class SceneToFig {
         return out
     }
 
+    ; A box has no negative side, and Figma will not take one: a node written
+    ; with a negative size is a node it cannot build. EVG clamps these in
+    ; layout now, so this is the second line of defence and the place that says
+    ; so out loud.
+    sfn side:double (v:double) {
+        if (v < 0.0) {
+            return 0.0
+        }
+        return v
+    }
+
     ; One node and its subtree. `sid` is this page's session id; `ps`/`pl` name
     ; the parent's guid; `order` is its place among siblings.
     fn emit:void (n:SceneNode sid:int ps:int pl:int order:int path:string) {
         def lid:int nextLocal
         nextLocal = (nextLocal + 1)
         def typeName:string (SceneToFig.typeOf(n))
-        def o:KiwiValue (FigWrite.placed(sid lid typeName (SceneToFig.nameOf(n "Layer")) ps pl (FigWrite.positionAt(order)) n.w n.h n.x n.y))
+        if ((n.w < 0.0) || (n.h < 0.0)) {
+            push losses (path + ": the box has a negative side, so it is written as empty")
+        }
+        def o:KiwiValue (FigWrite.placed(sid lid typeName (SceneToFig.nameOf(n "Layer")) ps pl (FigWrite.positionAt(order)) (SceneToFig.side(n.w)) (SceneToFig.side(n.h)) n.x n.y))
 
         if (n.hasXf) {
             o.put("transform" (FigWrite.xformRot(n.x n.y n.xf.a n.xf.b)))

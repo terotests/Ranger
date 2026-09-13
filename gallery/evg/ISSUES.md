@@ -805,3 +805,17 @@ indistinguishable from a failure and was rejected. It now asks the decoder what
 its header said: those dimensions stay 0 when nothing parsed, and say 1x1 when
 the file really is that.
 
+
+## #13 A negative resolved size drew mirrored rather than empty — FIXED
+
+`width: -40%` is not a width: CSS throws the declaration away. EVG kept the
+number, and the raster painter drew the box mirrored through its own left edge
+— so RealTrainer's progress bar, whose app-side arithmetic produced "week -41
+of 104", came out as a FULL blue bar where an empty one was correct. The same
+document exported to Figma showed nothing there, which is how the disagreement
+was found: two renderers of the same box, one drawing a bar and one drawing
+nothing.
+
+`EVGLayout` clamps a calculated width or height to zero now. The clamp is on
+the SIZE and not on `EVGUnit.resolve`, because a negative offset is perfectly
+ordinary — `left: -10px` moves a box left — and clamping there would break it.

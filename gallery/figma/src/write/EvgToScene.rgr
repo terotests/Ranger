@@ -171,6 +171,15 @@ class EvgToScene {
         ; into the box the layout gave it.
         if ((strlen el.svgSource) > 0) {
             this.putSvg(n el path)
+            ; A RECTANGLE IS A LEAF. The element had no children of its own
+            ; when its Figma type was decided, so it was written as the shape
+            ; it is — and then the icon's outlines were hung off it, which is
+            ; a node Figma cannot build: the box drew and the shapes inside it
+            ; did not. Anything holding children is a frame.
+            if ((array_length n.children) > 0) {
+                n.kind = "container"
+                n.sourceType = "FRAME"
+            }
         }
 
         def i:int 0

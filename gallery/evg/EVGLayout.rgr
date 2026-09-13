@@ -531,6 +531,19 @@ class EVGLayout {
             }
         }
         
+        ; A BOX HAS NO NEGATIVE SIDE. `width: -40%` is not a width — CSS throws
+        ; the declaration away — and a box that keeps the number draws MIRRORED
+        ; through its own left edge, which is how a progress bar reading "week
+        ; -41 of 104" came out as a full blue bar instead of an empty one. The
+        ; app's arithmetic is the app's; what this owes it is zero rather than
+        ; a picture of a number nobody can see is wrong.
+        if (width < 0.0) {
+            width = 0.0
+        }
+        if (height < 0.0) {
+            height = 0.0
+        }
+
         ; Store calculated dimensions (before content layout for children to reference)
         element.calculatedWidth = width
         element.calculatedInnerWidth = (element.box.getInnerWidth(width))
