@@ -1,0 +1,40 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%237b61ff'/%3E%3Crect x='9' y='8' width='14' height='4' rx='2' fill='%23fff'/%3E%3Crect x='9' y='14' width='9' height='4' rx='2' fill='%23fff'/%3E%3Crect x='9' y='20' width='5' height='4' rx='2' fill='%23fff'/%3E%3C/svg%3E" />
+    <title>Rafi — the Fig editor, drawn by Ranger</title>
+    <style>
+      /* The page owns the pixels and nothing else. Every rail, row, panel and
+         strip you see is an EVG element built by RafiApp — this stylesheet
+         paints the canvas it all lands on, and the canvas is the whole page.
+         The editor's own colours live in rafi.css, which is a stylesheet EVG
+         parses rather than one the browser does. */
+      html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
+        background: #f5f5f5;
+        font: 13px/1.45 "Inter", "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif; }
+      #stage { position: relative; width: 100%; height: 100%; }
+      #c { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+      #err { position: fixed; left: 12px; bottom: 12px; right: 12px; color: #c0392b;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+        white-space: pre-wrap; pointer-events: none; }
+      /* The one control the page cannot draw for itself: a file picker has to
+         be a real input for the browser to open the dialog at all. It sits
+         under the Open… button the app draws, and is invisible. */
+      #file { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="stage"><canvas id="c" tabindex="0"></canvas></div>
+    <input id="file" type="file" accept=".fig,.deck,.jam,application/zip" />
+    <div id="err"></div>
+    <noscript>
+      The Figma reader with its editor drawn by Ranger: the .fig is parsed in
+      this tab and every rail, panel and row around the board is an EVG
+      element rather than HTML. It needs JavaScript and WebGL 2.
+    </noscript>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

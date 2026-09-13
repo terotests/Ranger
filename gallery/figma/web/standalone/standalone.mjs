@@ -753,6 +753,64 @@ function colorField(label, hex, apply) {
   return wrap;
 }
 
+/* A PAINT, AS FIGMA WRITES IT: a colour and a strength, side by side.
+ *
+ * The two are separate in the file — a frame filled `#ff8f82` at 15% has a
+ * colour of full strength and a paint opacity of 0.15 — and the panel used to
+ * show the colour alone. There was then no way to read the 15% off the layer,
+ * let alone change it, and `Opacity` above is the LAYER's, which fades the
+ * children with it.
+ *
+ * The eye is the paint's own `visible`, which a file can already carry: a
+ * paint turned off in Figma came back as a swatch that looked painted.
+ */
+function paintRow(label, index, f) {
+  const wrap = el("div", "f wide paint");
+  const lab = el("label", null, label);
+  lab.style.cursor = "default";
+  const pick = el("input");
+  pick.type = "color";
+  pick.value = f.hex;
+  const text = el("input", "hex");
+  text.value = f.hex;
+  text.spellcheck = false;
+  const pctWrap = el("span", "pct");
+  const pct = el("input");
+  pct.value = String(Math.round((f.opacity == null ? 1 : f.opacity) * 100));
+  pct.spellcheck = false;
+  pctWrap.append(pct, el("span", "unit", "%"));
+  const eye = el("button", "eye", f.visible === false ? "◌" : "●");
+  eye.type = "button";
+  eye.title = f.visible === false ? "paint it" : "do not paint it";
+  if (f.visible === false) eye.classList.add("off");
+
+  const commit = (v) => {
+    if (!/^#[0-9a-fA-F]{6}$/.test(v)) { text.value = pick.value; return; }
+    pick.value = v.toLowerCase();
+    text.value = v.toLowerCase();
+    web.editFillAt(index, v.toLowerCase());
+    afterEdit();
+  };
+  pick.addEventListener("input", () => commit(pick.value));
+  text.addEventListener("change", () => commit(text.value.trim()));
+  pct.addEventListener("change", () => {
+    // A percentage, clamped where it has to be — the engine clamps too, and a
+    // field that snaps back to what was actually written says so.
+    let n = Number(pct.value.replace("%", "").trim());
+    if (!Number.isFinite(n)) n = 100;
+    n = Math.max(0, Math.min(100, Math.round(n)));
+    pct.value = String(n);
+    web.editFillOpacity(index, n / 100);
+    afterEdit();
+  });
+  eye.addEventListener("click", () => {
+    web.editFillVisible(index, f.visible === false);
+    afterEdit();
+  });
+  wrap.append(lab, pick, text, pctWrap, eye);
+  return wrap;
+}
+
 function section(title) {
   const s = el("section");
   s.append(el("h3", null, title));
@@ -966,10 +1024,13 @@ function buildInspector(d) {
   // A COLOUR SWATCH FOR A PICTURE IS A LIE. An image paint has no colour —
   // `hex` is whatever the solid fields happened to hold — and the Image
   // section above already says what it is painted with.
-  const paintIsImage = d.fill && d.fill.kind === "image";
-  if (d.fill && !paintIsImage) {
-    look.append(fieldRow(colorField("Fill", d.fill.hex, (v) => { web.editFill(v); afterEdit(); })));
-  }
+  const paints = Array.isArray(d.fills) && d.fills.length
+    ? d.fills
+    : (d.fill ? [{ ...d.fill, opacity: d.fill.alpha }] : []);
+  paints.forEach((f, i) => {
+    if (f.kind === "image") return;
+    look.append(paintRow(paints.length > 1 ? "Fill " + (i + 1) : "Fill", i, f));
+  });
   if (d.stroke) {
     look.append(fieldRow(colorField("Stroke", d.stroke.hex, (v) => { web.editStroke(v, d.stroke.weight); afterEdit(); })));
     look.append(fieldRow(

@@ -58,6 +58,11 @@
 #                upload or paste in the tab, parsing it (ZIP → kiwi → node
 #                tree) and drawing it with EVG. ?file=sample opens the deck
 #                Ranger builds in memory instead.
+#   /rafi/    -> the same reader with its chrome in Ranger rather than in
+#                HTML: the rails, the layers tree, the panel, the toolbar and
+#                the status strip are EVG elements on the same canvas as the
+#                board. /figma/ stays as the reference the two are compared
+#                against.
 #                Timed against OpenFig on the same bytes when that library
 #                is present; the sample deck is built from Ranger.
 #   /markdown/ -> the markdown viewer: a CommonMark parser written in Ranger,
@@ -449,6 +454,30 @@ jobs:
       # left dist/ in place, which is what the smoke test loads.
       - name: Check the Fig reader parses and pastes
         run: node gallery/figma/web/standalone/smoke.mjs
+
+      # ---- The same editor, in Ranger, at /rafi/ ---------------------------
+      # The reader above with its chrome taken out of the DOM: the rails, the
+      # tree, the panel, the toolbar and the strip are EVG elements drawn on
+      # the same canvas as the board. The page beside it is kept as the
+      # reference — two editors over one reader is the point of having both.
+      - name: Build Rafi
+        run: npm run rafi:build --silent && node gallery/figma/web/rafi/build.mjs --out "$GITHUB_WORKSPACE/_site/rafi"
+
+      - name: Check Rafi has an engine
+        run: |
+          test -s "$GITHUB_WORKSPACE/_site/rafi/generated-host.js"
+          test -s "$GITHUB_WORKSPACE/_site/rafi/main.js"
+          test -s "$GITHUB_WORKSPACE/_site/rafi/evg/gl/evg-webgl.js"
+          # The page opens this by itself, so a missing fixture is a blank
+          # editor on the first paint rather than a 404 anyone would notice.
+          test -s "$GITHUB_WORKSPACE/_site/rafi/fixtures/health.fig"
+          grep -q "RafiApp" "$GITHUB_WORKSPACE/_site/rafi/generated-host.js"
+
+      # The files being there proves nothing about the editor. This runs it:
+      # the whole chrome is Ranger, so the rails, the panes, the tree and the
+      # board all answer in Node without a browser.
+      - name: Check Rafi draws its editor
+        run: node gallery/figma/web/rafi/smoke.mjs
 
       # ---- The markdown viewer at /markdown/ -------------------------------
       # A CommonMark parser in Ranger, its own line breaker, and the same WebGL

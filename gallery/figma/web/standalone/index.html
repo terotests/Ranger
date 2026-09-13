@@ -350,6 +350,22 @@
         box-shadow: 0 1px 2px rgba(16, 22, 32, 0.1); }
       .insp .chip { font: 11px/1 ui-monospace, Menlo, Consolas, monospace; color: var(--muted);
         border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; white-space: nowrap; }
+      /* A PAINT ROW: colour, strength, and whether it is painted at all.
+         Figma writes the three separately and so does the file, so the row
+         shows them separately — the hex takes the room it needs and the
+         percentage the room a percentage needs, rather than both sharing a
+         single stretchy field. */
+      .insp .f.paint { gap: 5px; }
+      .insp .f.paint label { width: 34px; }
+      .insp .f.paint input.hex { flex: 1 1 auto; min-width: 52px; text-transform: uppercase; }
+      .insp .f.paint .pct { display: flex; align-items: baseline; gap: 1px; flex: 0 0 auto; }
+      .insp .f.paint .pct input { width: 26px; flex: 0 0 auto; text-align: right; }
+      .insp .f.paint .unit { color: var(--faint); font-size: 10.5px; }
+      .insp .f.paint .eye { flex: 0 0 auto; background: transparent; border: 0; cursor: pointer;
+        color: var(--muted); font-size: 10px; line-height: 1; padding: 2px 1px 2px 3px; }
+      .insp .f.paint .eye:hover { color: var(--ink); }
+      .insp .f.paint .eye.off { color: var(--faint); }
+
       .insp input[type="color"] { -webkit-appearance: none; appearance: none; border: 0;
         flex: 0 0 auto; width: 17px; height: 17px; padding: 0; background: transparent;
         cursor: pointer; }
