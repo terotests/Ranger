@@ -1,0 +1,318 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; R5MdLanguage.rgr — markdown, as the code editor's language plugin
+; ==============================================================================
+;
+; The same seam `gallery/datagrid/src/script/lang` defines for JavaScript and
+; Ranger, for the document r5 edits. It colours what a reader scans a
+; markdown file by — headings, fences, list markers, emphasis, links, the
+; `{.class}` attributes this module's parser reads — and diagnoses nothing:
+; a markdown file has no syntax errors, only a rendering the reader can see
+; beside it.
+;
+; The token kinds are `CodeTokenKind`'s and the editor's theme colours them;
+; `R5App` chooses the colours so a heading reads as a heading rather than as
+; a keyword.
+; ==============================================================================
+
+Import "../../datagrid/src/script/lang/EditorLanguage.rgr"
+Import "../../datagrid/src/script/lang/CodeTokens.rgr"
+
+class R5MdLanguage {
+    Extends(EditorLanguage)
+
+    Constructor () {
+    }
+
+    fn id:string () {
+        return "markdown"
+    }
+
+    fn label:string () {
+        return "Markdown"
+    }
+
+    fn handlesFile:boolean (name:string) {
+        return (EditorLanguage.hasSuffix(name ".md"))
+    }
+
+    ; Fences and front matter span lines, so the state lives here and every
+    ; line is read in order.
+    fn tokenize:[CodeTokenLine] (lines:[string]) {
+        def out:[CodeTokenLine]
+        def n:int (array_length lines)
+        def inFence:boolean false
+        def inMeta:boolean false
+        def i:int 0
+        while (i < n) {
+            def text:string (itemAt lines i)
+            def line:CodeTokenLine (new CodeTokenLine)
+            def len:int (strlen text)
+            def fence:boolean (R5MdLanguage.isFence(text))
+            if inFence {
+                if fence {
+                    inFence = false
+                    push line.tokens (CodeToken.create(0 len (CodeTokenKind.punct())))
+                } {
+                    if (len > 0) {
+                        push line.tokens (CodeToken.create(0 len (CodeTokenKind.text())))
+                    }
+                }
+                push out line
+                i = (i + 1)
+                continue
+            }
+            if (i == 0) {
+                if (text == "---") {
+                    inMeta = true
+                    push line.tokens (CodeToken.create(0 len (CodeTokenKind.comment())))
+                    push out line
+                    i = (i + 1)
+                    continue
+                }
+            }
+            if inMeta {
+                if (text == "---") {
+                    inMeta = false
+                }
+                push line.tokens (CodeToken.create(0 len (CodeTokenKind.comment())))
+                push out line
+                i = (i + 1)
+                continue
+            }
+            if fence {
+                inFence = true
+                push line.tokens (CodeToken.create(0 len (CodeTokenKind.punct())))
+                push out line
+                i = (i + 1)
+                continue
+            }
+            this.tokenizeLine(text line)
+            push out line
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn isFence:boolean (text:string) {
+        def s:int (R5MdLanguage.indentEnd(text))
+        def n:int (strlen text)
+        if ((n - s) < 3) {
+            return false
+        }
+        def ch:int (charAt text s)
+        if ((ch != 96) && (ch != 126)) {
+            return false
+        }
+        if ((charAt text (s + 1)) != ch) {
+            return false
+        }
+        if ((charAt text (s + 2)) != ch) {
+            return false
+        }
+        return true
+    }
+
+    sfn indentEnd:int (text:string) {
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt text i)
+            if ((ch != 32) && (ch != 9)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; One line outside a fence: the block marker first, then the inline runs.
+    fn tokenizeLine:void (text:string line:CodeTokenLine) {
+        def n:int (strlen text)
+        if (n == 0) {
+            return
+        }
+        def s:int (R5MdLanguage.indentEnd(text))
+        if (s >= n) {
+            return
+        }
+        def ch:int (charAt text s)
+        ; # Heading — the whole line, so the eye finds the outline.
+        if (ch == 35) {
+            push line.tokens (CodeToken.create(0 n (CodeTokenKind.keyword())))
+            return
+        }
+        ; > quote
+        if (ch == 62) {
+            push line.tokens (CodeToken.create(0 n (CodeTokenKind.comment())))
+            return
+        }
+        def from:int s
+        ; - * + bullets, 1. numbers, | table pipes
+        if (((ch == 45) || (ch == 42)) || (ch == 43)) {
+            if ((s + 1) < n) {
+                if ((charAt text (s + 1)) == 32) {
+                    push line.tokens (CodeToken.create(s 1 (CodeTokenKind.number())))
+                    from = (s + 2)
+                }
+            }
+            if (from == s) {
+                ; A rule: --- or ***
+                if (R5MdLanguage.allOf(text s ch)) {
+                    push line.tokens (CodeToken.create(s (n - s) (CodeTokenKind.punct())))
+                    return
+                }
+            }
+        }
+        if ((ch >= 48) && (ch <= 57)) {
+            def j:int s
+            while (j < n) {
+                def d:int (charAt text j)
+                if ((d < 48) || (d > 57)) {
+                    break
+                }
+                j = (j + 1)
+            }
+            if ((j + 1) < n) {
+                if ((charAt text j) == 46) {
+                    if ((charAt text (j + 1)) == 32) {
+                        push line.tokens (CodeToken.create(s ((j + 1) - s) (CodeTokenKind.number())))
+                        from = (j + 2)
+                    }
+                }
+            }
+        }
+        this.inline(text from n line)
+    }
+
+    sfn allOf:boolean (text:string from:int ch:int) {
+        def n:int (strlen text)
+        def i:int from
+        def count:int 0
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == ch) {
+                count = (count + 1)
+            } {
+                if (c != 32) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return (count >= 3)
+    }
+
+    ; The inline runs: `code`, **bold**, *em*, [links](url), {.attrs}, <tags>
+    ; and the plain text between them.
+    fn inline:void (text:string from:int n:int line:CodeTokenLine) {
+        def i:int from
+        def plainStart:int from
+        while (i < n) {
+            def ch:int (charAt text i)
+            def stop:int -1
+            def kind:int 0
+            if (ch == 96) {
+                stop = (R5MdLanguage.closeOf(text (i + 1) 96))
+                kind = (CodeTokenKind.text())
+            }
+            if ((ch == 42) || (ch == 95)) {
+                if ((i + 1) < n) {
+                    if ((charAt text (i + 1)) == ch) {
+                        stop = (R5MdLanguage.closeOfPair(text (i + 2) ch))
+                        kind = (CodeTokenKind.tag())
+                    } {
+                        stop = (R5MdLanguage.closeOf(text (i + 1) ch))
+                        kind = (CodeTokenKind.attr())
+                    }
+                }
+            }
+            if (ch == 91) {
+                def close:int (R5MdLanguage.closeOf(text (i + 1) 93))
+                if (close >= 0) {
+                    if ((close + 1) < n) {
+                        if ((charAt text (close + 1)) == 40) {
+                            def urlEnd:int (R5MdLanguage.closeOf(text (close + 2) 41))
+                            if (urlEnd >= 0) {
+                                stop = urlEnd
+                                kind = (CodeTokenKind.builtin())
+                            }
+                        }
+                    }
+                }
+            }
+            if (ch == 33) {
+                if ((i + 1) < n) {
+                    if ((charAt text (i + 1)) == 91) {
+                        def close2:int (R5MdLanguage.closeOf(text (i + 2) 93))
+                        if (close2 >= 0) {
+                            if ((close2 + 1) < n) {
+                                if ((charAt text (close2 + 1)) == 40) {
+                                    def urlEnd2:int (R5MdLanguage.closeOf(text (close2 + 2) 41))
+                                    if (urlEnd2 >= 0) {
+                                        stop = urlEnd2
+                                        kind = (CodeTokenKind.builtin())
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (ch == 123) {
+                stop = (R5MdLanguage.closeOf(text (i + 1) 125))
+                kind = (CodeTokenKind.attr())
+            }
+            if (ch == 60) {
+                stop = (R5MdLanguage.closeOf(text (i + 1) 62))
+                kind = (CodeTokenKind.punct())
+            }
+            if (ch == 124) {
+                stop = i
+                kind = (CodeTokenKind.punct())
+            }
+            if (stop >= 0) {
+                if (i > plainStart) {
+                    push line.tokens (CodeToken.create(plainStart (i - plainStart) (CodeTokenKind.plain())))
+                }
+                push line.tokens (CodeToken.create(i ((stop + 1) - i) kind))
+                i = (stop + 1)
+                plainStart = i
+                continue
+            }
+            i = (i + 1)
+        }
+        if (n > plainStart) {
+            push line.tokens (CodeToken.create(plainStart (n - plainStart) (CodeTokenKind.plain())))
+        }
+    }
+
+    ; The index of the next `ch` at or after `from`, or -1.
+    sfn closeOf:int (text:string from:int ch:int) {
+        def n:int (strlen text)
+        def i:int from
+        while (i < n) {
+            if ((charAt text i) == ch) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The index of the second character of the next `chch` pair, or -1.
+    sfn closeOfPair:int (text:string from:int ch:int) {
+        def n:int (strlen text)
+        def i:int from
+        while ((i + 1) < n) {
+            if ((charAt text i) == ch) {
+                if ((charAt text (i + 1)) == ch) {
+                    return (i + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}
