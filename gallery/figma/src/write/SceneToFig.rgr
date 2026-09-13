@@ -44,6 +44,8 @@ Import "../FigDeflate.rgr"
 Import "../FigSample.rgr"
 Import "FigSchema.rgr"
 Import "FigThumb.rgr"
+Import "FigVectorNet.rgr"
+Import "FigFonts.rgr"
 Import "FigWrite.rgr"
 Import "FigPathWrite.rgr"
 Import "../../../zip/ZipWriter.rgr"
@@ -56,6 +58,8 @@ class SceneToFig {
     ; because encoding walks the schema. Named here so it is found by reading
     ; a list rather than by noticing a heading on two lines.
     def dropped:[string]
+    ; Families already reported as substituted. See `putText`.
+    def saidFonts:[string]
     ; The flat node array being built, and the id counter inside the current page.
     def nodes:KiwiValue (KiwiValue.fromArray())
     def nextLocal:int 1
@@ -68,6 +72,8 @@ class SceneToFig {
         losses = a
         def b:[string]
         dropped = b
+        def c:[string]
+        saidFonts = c
     }
 
     ; --- the whole file -------------------------------------------------------
@@ -98,8 +104,16 @@ class SceneToFig {
         def bytes:buffer (w.toBytes(doc fileName))
         def i:int 0
         while (i < (array_length w.dropped)) {
-            push report (itemAt w.dropped i)
+            push report ("no field in the schema for " + (itemAt w.dropped i))
             i = (i + 1)
+        }
+        ; …and what the WRITER could not carry, which is the other half of the
+        ; same question and was going nowhere: a substituted font, an outline
+        ; that made no network, an image whose bytes stayed behind.
+        def k:int 0
+        while (k < (array_length w.losses)) {
+            push report (itemAt w.losses k)
+            k = (k + 1)
         }
         return bytes
     }
@@ -341,6 +355,25 @@ class SceneToFig {
         entry.put("bytes" (KiwiValue.fromBytes(blob)))
         def index:int (blobs.itemCount())
         blobs.pushItem(entry)
+
+        ; …AND THE NETWORK, which is what Figma actually draws a vector from.
+        ; `fillGeometry` is the flattened answer it keeps beside the network,
+        ; so a node with only the geometry opens as an empty box — which is
+        ; what every icon of the first UI exported from here did.
+        def net:buffer (FigVectorNet.fromSvg(n.pathData))
+        if ((buffer_length net) > 0) {
+            def netEntry:KiwiValue (KiwiValue.fromObject())
+            netEntry.put("bytes" (KiwiValue.fromBytes(net)))
+            def netIndex:int (blobs.itemCount())
+            blobs.pushItem(netEntry)
+            def vd:KiwiValue (KiwiValue.fromObject())
+            vd.put("vectorNetworkBlob" (KiwiValue.fromInt(netIndex)))
+            vd.put("normalizedSize" (FigWrite.vec(n.pathW n.pathH)))
+            o.put("vectorData" vd)
+        } {
+            push losses (path + ": the outline made no vector network, so Figma will show the node empty")
+        }
+
         def g:KiwiValue (KiwiValue.fromObject())
         g.put("commandsBlob" (KiwiValue.fromInt(index)))
         if n.evenOdd {
@@ -423,7 +456,20 @@ class SceneToFig {
             ; and PostScript name together — there is no `fontFamily` field on
             ; a node change at all, so the one written here went nowhere.
             def fn:KiwiValue (KiwiValue.fromObject())
-            fn.put("family" (KiwiValue.fromString(t.fontFamily)))
+            ; A NAME FIGMA CAN FIND. `Arial` is a system font — every browser
+            ; has it and Figma's web app does not — so a file that asks for it
+            ; opens with a missing-font dialog in front of the drawing.
+            def family:string (FigFonts.figmaFamily(t.fontFamily))
+            if (FigFonts.substituted(t.fontFamily)) {
+                ; ONCE PER FAMILY, not once per string. A document is set in a
+                ; handful of faces and has hundreds of labels, and the same
+                ; sentence ninety times teaches a reader to skip the list.
+                if ((SceneToFig.listHas(saidFonts t.fontFamily)) == false) {
+                    push saidFonts t.fontFamily
+                    push losses ((t.fontFamily + " is not a font Figma ships, so the text is written in ") + family)
+                }
+            }
+            fn.put("family" (KiwiValue.fromString(family)))
             def style:string "Regular"
             if (t.fontWeight == "bold") {
                 style = "Bold"
@@ -500,6 +546,17 @@ class SceneToFig {
             return n.name
         }
         return fallback
+    }
+
+    sfn listHas:boolean (names:[string] want:string) {
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     sfn esc:string (s:string) {

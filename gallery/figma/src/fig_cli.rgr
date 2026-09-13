@@ -25,6 +25,7 @@ class FigCli {
             print "       fig_cli rewrite <in.fig> <out.fig>   read a file and write it back"
             print "       fig_cli to-evg  <in.fig> <out.evg.json> [page]   one page, as an editable document"
             print "       fig_cli from-evg <in.evg.json> <out.fig> [w h]   an editable document, as a file"
+            print "       fig_cli pack <out.fig> <w> <h> <in.evg.json>...   several screens, side by side"
             return
         }
         def cmd:string (shell_arg 0)
@@ -187,8 +188,88 @@ class FigCli {
             ; could not hold it.
             def di:int 0
             while (di < (array_length dropped4)) {
-                print ("  no field in the schema for  " + (itemAt dropped4 di))
+                print ("  " + (itemAt dropped4 di))
                 di = (di + 1)
+            }
+            return
+        }
+
+        ; SEVERAL SCREENS IN ONE FILE, side by side on one page — which is
+        ; what a design file of an app looks like, and what one screen per
+        ; file is not. Each document becomes a top-level frame named after its
+        ; own file, so the layer list reads as the screen list.
+        if (cmd == "pack") {
+            if (n < 5) {
+                print "usage: fig_cli pack <out.fig> <page-width> <page-height> <in1.evg.json> [in2.evg.json ...]"
+                return
+            }
+            def outPath:string (shell_arg 1)
+            def pw@(optional):double (to_double (shell_arg 2))
+            def ph@(optional):double (to_double (shell_arg 3))
+            def wantW:double 430.0
+            def wantH:double 932.0
+            if pw {
+                wantW = (unwrap pw)
+            }
+            if ph {
+                wantH = (unwrap ph)
+            }
+            def packDoc (new SceneDocument())
+            packDoc.name = (FigCli.nameOf(outPath))
+            def packPage (new SceneNode())
+            packPage.name = "Screens"
+            packPage.sourceType = "CANVAS"
+            def atX:double 0.0
+            def gap:double 80.0
+            def notes:[string]
+            def k:int 4
+            while (k < n) {
+                def srcPath:string (shell_arg k)
+                def srcText@(optional):string (read_file (FigCli.dirOf(srcPath)) (FigCli.nameOf(srcPath)))
+                if (null? srcText) {
+                    print ("cannot read " + srcPath)
+                    return
+                }
+                def tree@(optional):EVGElement (EVGTreeJson.fromText((unwrap srcText)))
+                if (null? tree) {
+                    print (srcPath + " is not an EVG document")
+                    return
+                }
+                def one (new EvgToScene())
+                one.pageW = wantW
+                one.pageH = wantH
+                def screen:SceneNode (one.build((unwrap tree)))
+                screen.name = (FigCli.screenName(srcPath))
+                screen.x = atX
+                screen.y = 0.0
+                push packPage.children screen
+                atX = ((atX + wantW) + gap)
+                def li:int 0
+                while (li < (array_length one.losses)) {
+                    push notes (itemAt one.losses li)
+                    li = (li + 1)
+                }
+                k = (k + 1)
+            }
+            push packDoc.pages packPage
+            def packer (new SceneToFig())
+            def packBytes:buffer (packer.toBytes(packDoc (FigCli.nameOf(outPath))))
+            buffer_write_file (FigCli.dirOf(outPath)) (FigCli.nameOf(outPath)) packBytes
+            print ((((("wrote " + outPath) + " (") + (to_string (buffer_length packBytes))) + " bytes, ") + ((to_string (array_length packPage.children)) + " screen(s))"))
+            def ni:int 0
+            while (ni < (array_length notes)) {
+                print ("  " + (itemAt notes ni))
+                ni = (ni + 1)
+            }
+            def wi2:int 0
+            while (wi2 < (array_length packer.losses)) {
+                print ("  " + (itemAt packer.losses wi2))
+                wi2 = (wi2 + 1)
+            }
+            def dj:int 0
+            while (dj < (array_length packer.dropped)) {
+                print ("  no field in the schema for " + (itemAt packer.dropped dj))
+                dj = (dj + 1)
             }
             return
         }
@@ -362,6 +443,27 @@ class FigCli {
             return 900.0
         }
         return far
+    }
+
+    ; A screen's name is its file's, without the folder or the extensions:
+    ; `out/dashboard.evg.json` is "dashboard", which is what a layer list
+    ; should say.
+    sfn screenName:string (path:string) {
+        def base:string (FigCli.nameOf(path))
+        def cut:int (strlen base)
+        def i:int 0
+        while (i < (strlen base)) {
+            if ((charAt base i) == 46) {
+                if (cut == (strlen base)) {
+                    cut = i
+                }
+            }
+            i = (i + 1)
+        }
+        if (cut <= 0) {
+            return base
+        }
+        return (substring base 0 cut)
     }
 
     sfn dirOf:string (path:string) {

@@ -176,6 +176,13 @@ class EvgToScene {
         def i:int 0
         while (i < (array_length el.children)) {
             def kid:EVGElement (itemAt el.children i)
+            ; `display: none` IS NOT A LAYER. A hidden subtree lays out as
+            ; nothing — zero boxes all the way down — and written out it fills
+            ; the file with empty frames a reader has to click past: a phone
+            ; UI with its desktop rail hidden carried sixty-four of them.
+            if (kid.display == "none") {
+                i = (i + 1)
+            } {
             def seg:string (to_string i)
             if ((strlen kid.key) > 0) {
                 seg = ("k:" + kid.key)
@@ -183,6 +190,7 @@ class EvgToScene {
             def kn:SceneNode (this.emit(kid ((path + "/") + seg) el.calculatedX el.calculatedY))
             push n.children kn
             i = (i + 1)
+            }
         }
         return n
     }

@@ -97,6 +97,60 @@ now, and `from-evg` prints what it could not carry:
   no field in the schema for  NodeChange.textTruncation
 ```
 
+### A vector is a NETWORK, and the geometry is the answer beside it
+
+Every icon of the first UI that opened in Figma opened as an empty box. The
+outlines were in the file and correct: `fillGeometry` with a commands blob, the
+same one `FigPath` decodes when reading.
+
+But `fillGeometry` is DERIVED. What a vector node IS, to Figma, is the thing
+its pen tool edits — vertices joined by segments, grouped into regions — kept
+in `vectorData.vectorNetworkBlob`, with the flattened geometry stored beside
+it. A node with only the geometry has nothing to draw.
+
+`FigVectorNet` writes that network, in a format read out of
+`fixtures/health.fig` rather than guessed — twenty-six of its blobs parse as
+this and re-encode to the same bytes:
+
+```text
+uint32  vertexCount, segmentCount, regionCount
+vertex   uint32 style, float x, float y
+segment  uint32 style, uint32 startVertex, float t0x, float t0y,
+                       uint32 endVertex,   float t1x, float t1y
+region   uint32 windingRule, uint32 loopCount,
+         loop: uint32 segmentCount, uint32 segmentIndex[]
+```
+
+A segment's tangents are the cubic's control points measured FROM the vertex
+each belongs to (`t0 = c1 - start`, `t1 = c2 - end`), which is why a straight
+line needs no special case: it is a segment with two zero tangents.
+
+### A font Figma can find, and no hidden layers
+
+Two smaller things the same import turned up:
+
+**`Arial` is a system font.** Every browser has it and Figma's web app does
+not, so the file opened with "Missing font — Arial" in front of the drawing.
+`FigFonts` maps the families Figma cannot resolve onto the ones it ships or
+hosts — Arial, Helvetica, system-ui and `sans-serif` to Inter, the serif
+families to Roboto Serif, the monospace ones to Roboto Mono — and passes
+everything else through, because a document set in Open Sans names a font
+Figma hosts. The substitution is REPORTED, once per family.
+
+**`display: none` is not a layer.** A hidden subtree lays out as nothing, and
+written out it filled the file with empty frames: a phone UI with its desktop
+rail hidden carried sixty-four of them, more than a third of the file.
+
+### Several screens in one file
+
+```bash
+npm run rt:fig     # four RealTrainer screens, side by side, in one .fig
+```
+
+`fig_cli pack <out.fig> <w> <h> <in.evg.json>…` puts each document on one page
+as a top-level frame named after its file, which is what a design file of an
+app looks like and what one screen per file is not.
+
 ### The archive has four entries, and a reader looks them up by name
 
 ```text

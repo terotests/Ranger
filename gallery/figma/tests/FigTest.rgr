@@ -10,6 +10,8 @@ Import "../src/convert/FigToScene.rgr"
 Import "../src/write/SceneToFig.rgr"
 Import "../src/write/EvgToScene.rgr"
 Import "../src/write/FigSchema.rgr"
+Import "../src/write/FigVectorNet.rgr"
+Import "../src/write/FigFonts.rgr"
 Import "../../zip/ZipReader.rgr"
 Import "../src/write/FigPathWrite.rgr"
 Import "../src/FigPath.rgr"
@@ -245,6 +247,14 @@ class FigTest {
         this.check(("and the same type:" + wrongTypes) ((strlen wrongTypes) == 0))
     }
 
+    sfn u32At:int (b:buffer at:int) {
+        def v:int (buffer_get b at)
+        v = (v + ((buffer_get b (at + 1)) * 256))
+        v = (v + ((buffer_get b (at + 2)) * 65536))
+        v = (v + ((buffer_get b (at + 3)) * 16777216))
+        return v
+    }
+
     sfn listHas:boolean (names:[string] want:string) {
         def i:int 0
         while (i < (array_length names)) {
@@ -330,6 +340,30 @@ class FigTest {
         this.check("the icon has shapes" ((array_length iconNode.children) > 0))
         def shape:SceneNode (itemAt iconNode.children 0)
         this.eqStr("drawn as vector" shape.kind "path")
+        ; A NETWORK, not only geometry. `fillGeometry` is the flattened answer
+        ; Figma keeps beside the vector network it actually draws from, so a
+        ; node with the geometry alone opens as an empty box — which is what
+        ; every icon of the first UI exported from here did.
+        def net:buffer (FigVectorNet.fromSvg(shape.pathData))
+        this.check("the outline makes a vector network" ((buffer_length net) > 12))
+        ; Its header counts what is in it, little-endian.
+        def verts:int (FigTest.u32At(net 0))
+        def segs:int (FigTest.u32At(net 4))
+        def regions:int (FigTest.u32At(net 8))
+        this.eqInt("one region" regions 1)
+        this.check("some vertices" (verts > 2))
+        this.check("and segments joining them" (segs > 2))
+        ; vertices 12 bytes each, segments 28, then the region.
+        def after:int ((12 + (verts * 12)) + (segs * 28))
+        this.check("the blob is exactly as long as its parts" ((buffer_length net) > after))
+
+        ; A font Figma can find. `Arial` is a system font: a file that asks for
+        ; it opens with a missing-font dialog in front of the drawing.
+        this.eqStr("Arial is written as Inter" (FigFonts.figmaFamily("Arial")) "Inter")
+        this.eqStr("and so is a stack that starts with it" (FigFonts.figmaFamily("\"Segoe UI\", Arial, sans-serif")) "Inter")
+        this.eqStr("a monospace family" (FigFonts.figmaFamily("Menlo")) "Roboto Mono")
+        ; …and a font Figma hosts is left alone.
+        this.eqStr("Open Sans is passed through" (FigFonts.figmaFamily("Open Sans")) "Open Sans")
         this.check("with geometry" ((strlen shape.pathData) > 0))
         this.check("and paint" ((array_length shape.fills) > 0))
         ; Scaled from the document's 24x24 into the icon's 20x20 box: nothing

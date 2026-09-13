@@ -231,6 +231,10 @@ class FigSchema {
         s.addEnumMember(textAutoResize "WIDTH_AND_HEIGHT" 1)
         s.addEnumMember(textAutoResize "HEIGHT" 2)
 
+        def vectorData:KiwiDef (s.addMessage("VectorData"))
+        s.addField(vectorData "vectorNetworkBlob" "uint" 1 false)
+        s.addField(vectorData "normalizedSize" "Vector" 2 false)
+
         def node:KiwiDef (s.addMessage("NodeChange"))
         s.addField(node "guid" "GUID" 1 false)
         s.addField(node "phase" "NodePhase" 2 false)
@@ -262,6 +266,7 @@ class FigSchema {
         s.addField(node "rectangleCornerRadiiIndependent" "bool" 149 false)
         s.addField(node "textAutoResize" "TextAutoResize" 46 false)
         s.addField(node "frameMaskDisabled" "bool" 115 false)
+        s.addField(node "vectorData" "VectorData" 48 false)
 
         def blob:KiwiDef (s.addStruct("Blob"))
         s.addField(blob "bytes" "byte" 1 true)
