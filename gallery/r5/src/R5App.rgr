@@ -362,6 +362,7 @@ class R5App {
         bufSynced = editor.buf.version
         mdSeen = (md.sourceText())
         md.scrollTo(0.0)
+        this.followSource(false)
         this.touch()
     }
 
@@ -390,6 +391,44 @@ class R5App {
         this.rebuild()
     }
 
+    ; The slides and the Word page are built from the markdown when the reader
+    ; goes to them, and the engine leaves them alone after that. Here they
+    ; FOLLOW the markdown while they are on screen: a new document, a
+    ; keystroke in the editor, a template or a paper size reaches the view
+    ; being looked at. One a reader has edited by hand is kept — the head
+    ; offers "↻ from .md" for that.
+    fn followSource:void (force:boolean) {
+        def v:string (this.paneView())
+        if ((v == "deck") || (v == "doc")) {
+            ; Over the slides or the Word page the engine's `sync` does not
+            ; parse the markdown again — nothing there reads it — but the
+            ; view about to be built from it does.
+            if md.edit.stale {
+                md.edit.ensureLayout()
+            }
+        }
+        if (v == "deck") {
+            if (md.deckEdited()) {
+                return
+            }
+            if force {
+                md.rebuildFromSource()
+            } {
+                md.ensureDeck()
+            }
+        }
+        if (v == "doc") {
+            if (md.docEdited()) {
+                return
+            }
+            if force {
+                md.rebuildFromSource()
+            } {
+                md.ensureDoc()
+            }
+        }
+    }
+
     ; =========================================================================
     ; The two views of the source
     ; =========================================================================
@@ -407,6 +446,7 @@ class R5App {
             theme = "custom"
             md.setStyleSheet(now)
             md.addTextFile("/style.css" now)
+            this.followSource(true)
             return
         }
         def was:string (md.sourceText())
@@ -422,6 +462,7 @@ class R5App {
             md.applyPatch(patchStart patchEnd patchText)
         }
         mdSeen = (md.sourceText())
+        this.followSource(false)
     }
 
     ; The markdown went somewhere the buffer has not — a key in the preview,
@@ -456,6 +497,7 @@ class R5App {
         editor.layout.preferCol = posCol
         editor.layout.ensureCaretVisible(editor.buf editor.sel)
         bufSynced = editor.buf.version
+        this.followSource(false)
     }
 
     ; A common prefix, a common suffix, and what sits between them in `now`.
@@ -598,6 +640,7 @@ class R5App {
         }
         md.setMode(name)
         md.scrollTo(0.0)
+        this.followSource(true)
         this.touch()
     }
 
@@ -605,6 +648,7 @@ class R5App {
         paper = name
         md.setPageSize(name)
         md.scrollTo(0.0)
+        this.followSource(true)
         this.touch()
     }
 
@@ -616,11 +660,13 @@ class R5App {
         theme = key
         if (key == "") {
             md.setStyleSheet("")
+            this.followSource(true)
             this.touch()
             return
         }
         if (key == "none") {
             md.setStyleSheet(" ")
+            this.followSource(true)
             this.touch()
             return
         }
@@ -641,6 +687,7 @@ class R5App {
             editor.init(text)
             bufSynced = editor.buf.version
         }
+        this.followSource(true)
         this.touch()
     }
 

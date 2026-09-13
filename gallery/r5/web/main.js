@@ -843,6 +843,18 @@ function selftest() {
       app.setScreen("deck");
       window.__redraw();
       check("the slides draw in the pane", pane.view === "deck" && app.md.deckSlideCount() >= 1, `${app.md.deckSlideCount()} slides`);
+      // A new document, and a keystroke, while the slides are on screen:
+      // the slides are the new document's, not the one they were made from.
+      const slideText = () => JSON.parse(app.docFrame()).list.cmds.filter((c) => c.k === 3).map((c) => c.text).join("|");
+      app.setSource("# Fresh deck title\n\nOne line.\n", "fresh");
+      window.__redraw();
+      check("opening a document while on the slides rebuilds them", slideText().includes("Fresh deck title"));
+      app.pointerDown(pane.editor ? 200 : 100, 120, false, 1);
+      app.editor.sel.setCaret(0, 18);
+      app.editor.sel.collapseToCaret();
+      app.text(" Z");
+      window.__redraw();
+      check("a keystroke while on the slides reaches them", slideText().includes("Fresh deck title Z"));
       app.setScreen("preview");
       app.setMode("continuous");
       // The other shape: a phone's chrome, then the desk's again.
