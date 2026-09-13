@@ -230,7 +230,15 @@ void main() {
     // coverage mask; only the run's opacity still applies.
     vec4 glyph = texture(uAtlas, vUV);
     if (glyph.a <= 0.001) discard;
-    outColor = vec4(glyph.rgb, glyph.a * vColor.a);
+    // The LETTERS in such a run were drawn in the key ink, pure magenta — see
+    // \`reinkColored\` — and take the run's colour here; the emoji keeps its
+    // own. Judged as a ratio rather than a value: linear filtering mixes an
+    // edge pixel with transparent black, and (0.5, 0, 0.5) is still key ink.
+    float hi = max(glyph.r, glyph.b);
+    float key = hi > 0.02
+      ? smoothstep(0.6, 0.9, 1.0 - (glyph.g + abs(glyph.r - glyph.b)) / hi)
+      : 0.0;
+    outColor = vec4(mix(glyph.rgb, vColor.rgb, key), glyph.a * vColor.a);
     return;
   }
   if (vMode > 1.5) {
@@ -797,6 +805,36 @@ function rasterRuns(c2, measured, dpr) {
 }
 
 /**
+ * Draw a coloured run's cell again, its letters in the key ink.
+ *
+ * A run is one cell, so "🏀 Koripallon EM-kisat" is ONE picture: a sticker the
+ * browser painted in its own colours and letters it painted in the fill style,
+ * white. The cell reads as coloured, the shader samples its pixels as they are
+ * — and the letters come out white on a white box, which is how this was
+ * reported.
+ *
+ * The emoji ignores the fill style and the letters obey it, so painting the
+ * cell once more in a colour no text is — pure magenta — separates the two
+ * without knowing where one ends: whatever came out magenta is letters, and
+ * COLORTEXT gives those the run's colour.
+ */
+const KEY_INK = "#f0f";
+
+function reinkColored(c2, m, dpr) {
+  c2.clearRect(m.x, m.y, m.w, m.h);
+  c2.save();
+  c2.beginPath();
+  c2.rect(m.x, m.y, m.w, m.h);
+  c2.clip();
+  c2.textBaseline = "alphabetic";
+  c2.fillStyle = KEY_INK;
+  c2.font = fontSpec(m.c, dpr);
+  applySpacing(c2, m.c, dpr);
+  c2.fillText(verbatim(m.c.text), m.x + PAD, m.y + PAD + m.asc);
+  c2.restore();
+}
+
+/**
  * Every run in the list, rasterized from scratch — what the first frame does,
  * and what a frame does when the shelf is full.
  *
@@ -858,9 +896,10 @@ function buildTextAtlas(cmds, dpr, view, maxTex) {
   for (const m of measured) {
     const s = slotOf(m, dpr, canvas.width, canvas.height, false);
     s._px = m.x; s._py = m.y; s._pw = m.w; s._ph = m.h;
+    s._m = m;
     slots.set(runKey(m.c, dpr), s);
   }
-  markColoredSlots(c2, slots);
+  markColoredSlots(c2, slots, dpr);
   return { canvas, slots, culled, shelf };
 }
 
@@ -896,7 +935,7 @@ function inkIsColored(data, W, x0, y0, x1, y1) {
  * rare frames that build one, and every fourth pixel of each cell — enough to
  * catch a sticker, cheap enough not to matter.
  */
-export function markColoredSlots(c2, slots) {
+export function markColoredSlots(c2, slots, dpr = 1) {
   let img;
   try {
     img = c2.getImageData(0, 0, c2.canvas.width, c2.canvas.height);
@@ -909,7 +948,11 @@ export function markColoredSlots(c2, slots) {
     const x1 = Math.min(W, x0 + Math.ceil(s._pw));
     const y1 = Math.min(img.height, y0 + Math.ceil(s._ph));
     s.colored = inkIsColored(data, W, x0, y0, x1, y1);
-    delete s._px; delete s._py; delete s._pw; delete s._ph;
+    // The letters beside the sticker, in the key ink. Only where the caller
+    // left the measured run on the slot — a caller that did not keeps white
+    // letters, which is what it had before.
+    if (s.colored && s._m) reinkColored(c2, s._m, dpr);
+    delete s._px; delete s._py; delete s._pw; delete s._ph; delete s._m;
   }
 }
 
@@ -1017,6 +1060,10 @@ function appendRuns(gl, have, runs, dpr) {
       }
       if (img) {
         colored = inkIsColored(img.data, img.width, 0, 0, img.width, img.height);
+        if (colored) {
+          reinkColored(c2, m, dpr);
+          img = c2.getImageData(m.x, m.y, w, h);
+        }
         gl.texSubImage2D(gl.TEXTURE_2D, 0, m.x, m.y, gl.RGBA, gl.UNSIGNED_BYTE, img);
       } else {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, have.bitmap);
