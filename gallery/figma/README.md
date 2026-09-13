@@ -35,6 +35,76 @@ Ranger throughout: the ZIP around a `.fig` and the DEFLATE inside it are
 reader works on every target the compiler emits rather than only on
 JavaScript.
 
+
+## Writing: EVG → Figma, and back
+
+The reader had no counterpart, so a `.fig` was something this repository could
+look at and never answer. It has one now, and it is built on machinery that was
+already here: `KiwiSchema.encode`, `KiwiBuffer`'s write side,
+`FigDeflate.wrapStored` and `FigCanvas.assemble` have been writing the sample
+file in `FigSample` all along. What was missing was the step above them —
+turning a document someone MADE into that message instead of one written out by
+hand.
+
+```text
+ .fig ──FigToScene──► SceneDocument ──SceneToEVG──► EVG ──► render / measure / patch
+   ▲                       ▲                         │
+   │                       │                         │
+   └───SceneToFig──────────┴──────EvgToScene─────────┘
+```
+
+```bash
+npm run figma:to-evg   -- file.fig page.evg.json 0   # a page, as an editable document
+npm run agent          -- outline page.evg.json      # then the whole agent toolchain
+npm run agent          -- patch   page.evg.json ops.json
+npm run figma:from-evg -- page.evg.json edited.fig   # back to a file Figma opens
+npm run figma:rewrite  -- in.fig out.fig             # read and write, unchanged
+```
+
+### `sourceType` is why an ellipse survives
+
+`SceneNode.kind` is deliberately small — container, text, image, path — because
+the scene graph is format-agnostic and an EVG renderer does not care whether a
+box was an `ELLIPSE` or a `ROUNDED_RECTANGLE`. Figma does. So a node read from a
+`.fig` keeps the type it had in `sourceType`, and the writer writes that back
+rather than guessing from the kind. Nothing else would put the ellipses back.
+
+### The round trip preserves the picture, never the structure
+
+`fig → scene → fig` does not return the file it started from, and it is not
+meant to. `FigToScene` resolves as it reads: an instance is expanded into the
+nodes it stands for, a mask becomes a group, a stroke that is geometry gets its
+own outline node. The sample goes in as 99 nodes and comes back as 121 — the
+same drawing, differently built. A tool that needs the original structure has to
+keep the original file.
+
+The same applies going the other way, and harder. EVG is a **layout engine** and
+a scene is a set of **placed** things, so `EvgToScene` runs layout first and
+reads the boxes it produced. Flex, grid and flow become coordinates. That is
+what a design tool wants, and it cannot be undone afterwards.
+
+### What the writer cannot carry yet
+
+Reported per node rather than dropped in silence:
+
+| | |
+| --- | --- |
+| **path geometry** | a `VECTOR`'s outline lives in a commands blob, and writing one means encoding Figma's path opcodes. The box is written in its place, so a circle arrives as a rectangle-shaped hole in the picture. |
+| **images** | an `IMAGE` paint names a hash whose bytes live in the archive; a flat colour stands in |
+| **gradients** | written as their first stop |
+
+Everything else a scene carries — position, size, rotation, fills, strokes,
+corner radius, opacity, clipping, text and its font — is written.
+
+### One unit, two scales
+
+EVG counts a colour channel 0..255 and a scene counts it 0..1. Passing the
+numbers straight through wrote `r: 16` where Figma expected `r: 0.0627`, every
+channel clamped to full, and the result was a file that **inspected perfectly
+and rendered as a blank page** — the node tree, the types, the sizes and the
+fill counts were all exactly right. No structural check would have caught it.
+Rendering the file and looking at it did.
+
 ## EVG support (used, not extended)
 
 | Feature | EVG support |

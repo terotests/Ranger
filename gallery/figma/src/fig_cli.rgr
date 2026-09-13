@@ -7,6 +7,12 @@
 Import "FigParser.rgr"
 Import "FigSample.rgr"
 Import "FigModel.rgr"
+Import "../../evg/EVGCodepoint.rgr"
+Import "convert/FigToScene.rgr"
+Import "evg/SceneToEVG.rgr"
+Import "../../evg/EVGTreeJson.rgr"
+Import "write/SceneToFig.rgr"
+Import "write/EvgToScene.rgr"
 
 class FigCli {
     sfn main:void () {
@@ -16,6 +22,9 @@ class FigCli {
             print "       fig_cli fields <file.fig> <node-id>"
             print "       fig_cli sample"
             print "       fig_cli write-sample <out.fig>"
+            print "       fig_cli rewrite <in.fig> <out.fig>   read a file and write it back"
+            print "       fig_cli to-evg  <in.fig> <out.evg.json> [page]   one page, as an editable document"
+            print "       fig_cli from-evg <in.evg.json> <out.fig>         an editable document, as a file"
             return
         }
         def cmd:string (shell_arg 0)
@@ -25,6 +34,126 @@ class FigCli {
             FigCli.dump(doc)
             return
         }
+        ; Read a document and write it out again — the round trip that says
+        ; whether the writer understood what the reader found. Nothing is
+        ; changed in between on purpose: a difference is the writer's.
+        if (cmd == "rewrite") {
+            if (n < 3) {
+                print "usage: fig_cli rewrite <in.fig> <out.fig>"
+                return
+            }
+            def src:string (shell_arg 1)
+            def dest:string (shell_arg 2)
+            def raw@(optional):buffer (buffer_read_file (FigCli.dirOf(src)) (FigCli.nameOf(src)))
+            if (null? raw) {
+                print ("cannot read " + src)
+                return
+            }
+            def p2 (new FigParser())
+            def doc:FigDoc (p2.parseBytes((unwrap raw) (FigCli.nameOf(src))))
+            if (doc.ok == false) {
+                print ("cannot parse " + src + ": " + doc.err)
+                return
+            }
+            def conv (new FigToScene())
+            def scene:SceneDocument (conv.convertDoc(doc))
+            def w (new SceneToFig())
+            def bytes:buffer (w.toBytes(scene (FigCli.nameOf(src))))
+            buffer_write_file (FigCli.dirOf(dest)) (FigCli.nameOf(dest)) bytes
+            print ("wrote " + dest + " (" + (to_string (buffer_length bytes)) + " bytes)")
+            def li:int 0
+            while (li < (array_length w.losses)) {
+                print ("  lost  " + (itemAt w.losses li))
+                li = (li + 1)
+            }
+            if ((array_length w.losses) == 0) {
+                print "  nothing reported lost"
+            }
+            return
+        }
+        ; A page, as an editable EVG document. From here the whole agent
+        ; toolchain works on a Figma file: outline for addresses, patch for
+        ; changes, measure for a verdict, and the PNG tool for a picture.
+        if (cmd == "to-evg") {
+            if (n < 3) {
+                print "usage: fig_cli to-evg <in.fig> <out.evg.json> [page]"
+                return
+            }
+            def src3:string (shell_arg 1)
+            def dest3:string (shell_arg 2)
+            def want:int 0
+            if (n > 3) {
+                def givenPage@(optional):int (to_int (shell_arg 3))
+                if givenPage {
+                    want = (unwrap givenPage)
+                }
+            }
+            def raw3@(optional):buffer (buffer_read_file (FigCli.dirOf(src3)) (FigCli.nameOf(src3)))
+            if (null? raw3) {
+                print ("cannot read " + src3)
+                return
+            }
+            def p3 (new FigParser())
+            def doc3:FigDoc (p3.parseBytes((unwrap raw3) (FigCli.nameOf(src3))))
+            if (doc3.ok == false) {
+                print ("cannot parse " + src3 + ": " + doc3.err)
+                return
+            }
+            def conv3 (new FigToScene())
+            def scene3:SceneDocument (conv3.convertDoc(doc3))
+            if (want >= (array_length scene3.pages)) {
+                print (("that file has " + (to_string (array_length scene3.pages))) + " page(s)")
+                return
+            }
+            def page3:SceneNode (itemAt scene3.pages want)
+            def emitter3 (new SceneToEVG())
+            def evgRoot:EVGElement (emitter3.buildPage(page3 page3 0.0 0.0 1.0))
+            ; `buildPage` sizes the root 100%/100% because it is normally put
+            ; inside a viewport. A document saved on its own has no viewport to
+            ; be a percentage of, and everything downstream — measure, the PNG
+            ; tool — then measures it against a guess. The page's own size is
+            ; the answer, so it is written in.
+            evgRoot.setAttribute("width" ((to_string (to_int page3.w)) + "px"))
+            evgRoot.setAttribute("height" ((to_string (to_int page3.h)) + "px"))
+            evgRoot.markInline("width")
+            evgRoot.markInline("height")
+            def text3:string (EVGTreeJson.toText(evgRoot))
+            write_file (FigCli.dirOf(dest3)) (FigCli.nameOf(dest3)) text3
+            print (("wrote " + dest3) + ((" (page " + (to_string want)) + (", " + page3.name) + ")"))
+            return
+        }
+
+        ; And back: an editable document becomes a file Figma opens.
+        if (cmd == "from-evg") {
+            if (n < 3) {
+                print "usage: fig_cli from-evg <in.evg.json> <out.fig>"
+                return
+            }
+            def src4:string (shell_arg 1)
+            def dest4:string (shell_arg 2)
+            def text4@(optional):string (read_file (FigCli.dirOf(src4)) (FigCli.nameOf(src4)))
+            if (null? text4) {
+                print ("cannot read " + src4)
+                return
+            }
+            def evg4@(optional):EVGElement (EVGTreeJson.fromText((unwrap text4)))
+            if (null? evg4) {
+                print (src4 + " is not an EVG document")
+                return
+            }
+            def conv4 (new EvgToScene())
+            def node4:SceneNode (conv4.build((unwrap evg4)))
+            def bytes4:buffer (SceneToFig.writeNode(node4 (FigCli.nameOf(dest4))))
+            buffer_write_file (FigCli.dirOf(dest4)) (FigCli.nameOf(dest4)) bytes4
+            print ("wrote " + dest4 + " (" + (to_string (buffer_length bytes4)) + " bytes)")
+            def wi:int 0
+            while (wi < (array_length conv4.losses)) {
+                print ("  lost  " + (itemAt conv4.losses wi))
+                wi = (wi + 1)
+            }
+            return
+        }
+
         if (cmd == "write-sample") {
             if (n < 2) {
                 print "usage: fig_cli write-sample <out.fig>"

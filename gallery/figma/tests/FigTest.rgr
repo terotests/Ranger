@@ -6,6 +6,10 @@ Import "../src/KiwiDecode.rgr"
 Import "../src/KiwiValue.rgr"
 Import "../src/FigParser.rgr"
 Import "../src/FigSample.rgr"
+Import "../src/convert/FigToScene.rgr"
+Import "../src/write/SceneToFig.rgr"
+Import "../src/write/EvgToScene.rgr"
+Import "../../evg/EVGCodepoint.rgr"
 Import "../src/FigApp.rgr"
 Import "../src/FigDeflate.rgr"
 Import "../src/convert/FigToScene.rgr"
@@ -48,6 +52,141 @@ class FigTest {
         this.check((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (d < 0.02))
     }
 
+
+    ; --- writing -------------------------------------------------------------
+    ;
+    ; The reader has always been the tested half. These ask the other question:
+    ; does a file this repository WRITES come back through the same reader
+    ; saying what it was told?
+
+    fn testRewrite:void () {
+        print "--- read a .fig, write it, read it again ---"
+        def bytes:buffer (FigSample.buildFig())
+        def p (new FigParser())
+        def doc:FigDoc (p.parseBytes(bytes "sample.fig"))
+        this.check("the original parsed" doc.ok)
+        def conv (new FigToScene())
+        def scene:SceneDocument (conv.convertDoc(doc))
+        this.eqInt("pages in" (array_length scene.pages) 3)
+
+        def w (new SceneToFig())
+        def out:buffer (w.toBytes(scene "round.fig"))
+        this.check("wrote something" ((buffer_length out) > 100))
+
+        def p2 (new FigParser())
+        def back:FigDoc (p2.parseBytes(out "round.fig"))
+        this.check(("the written file parsed " + back.err) back.ok)
+        this.eqStr("prelude survives" back.prelude "fig-kiwi")
+        this.eqInt("pages survive" (array_length back.pages) 3)
+        ; NOT the same node count, and that is not a defect. `FigToScene`
+        ; resolves as it reads — an instance is expanded into the nodes it
+        ; stands for, a mask becomes a group, a stroke that is geometry gets its
+        ; own outline node. The scene is the RENDERED form, so writing it back
+        ; produces a file that draws the same and is built differently. The
+        ; round trip preserves the picture, never the structure.
+        def wrote:int (array_length back.nodes)
+        def had:int (array_length doc.nodes)
+        def note:string ((("written " + (to_string wrote)) + " from ") + (to_string had))
+        this.check((note + " — the scene is expanded, so at least as many") (wrote >= had))
+
+        ; The shapes are the point: `kind` normalises an ELLIPSE to a container,
+        ; and only `sourceType` can put it back.
+        def p0:FigNode (back.pageAt(0))
+        this.eqStr("page name" p0.name "Welcome")
+        def card:FigNode (itemAt p0.children 0)
+        this.eqStr("frame" card.typeName "FRAME")
+        this.eqStr("frame name" card.name "Card")
+        def kinds:string ""
+        def i:int 0
+        while (i < (array_length card.children)) {
+            def kid:FigNode (itemAt card.children i)
+            kinds = ((kinds + kid.typeName) + " ")
+            i = (i + 1)
+        }
+        this.check(("an ellipse is still an ellipse: " + kinds) ((indexOf kinds "ELLIPSE") >= 0))
+        this.check(("a rounded rect too: " + kinds) ((indexOf kinds "ROUNDED_RECTANGLE") >= 0))
+        this.check(("and the text: " + kinds) ((indexOf kinds "TEXT") >= 0))
+    }
+
+    fn testEvgToFig:void () {
+        print "--- an EVG document, written as a .fig ---"
+        def root:EVGElement (EVGElement.createDiv())
+        root.setAttribute("width" "400px")
+        root.setAttribute("height" "300px")
+        root.markInline("width")
+        root.markInline("height")
+        def card:EVGElement (EVGElement.createDiv())
+        card.id = "card"
+        card.setAttribute("width" "200px")
+        card.setAttribute("height" "100px")
+        card.setAttribute("background-color" "rgb(255,0,0)")
+        card.setAttribute("border-radius" "8px")
+        card.markInline("width")
+        card.markInline("height")
+        card.markInline("background-color")
+        card.markInline("border-radius")
+        def label:EVGElement (EVGElement.createSpan())
+        label.textContent = "Hello"
+        card.addChild(label)
+        root.addChild(card)
+
+        def conv (new EvgToScene())
+        def scene:SceneNode (conv.build(root))
+        this.eqInt("one child" (array_length scene.children) 1)
+        def sc:SceneNode (itemAt scene.children 0)
+        this.eqStr("named from the id" sc.name "card")
+        ; It holds the label, so it is a frame — a Figma frame is what a box
+        ; with children is, whatever its corners.
+        this.eqStr("a box with children is a frame" sc.sourceType "FRAME")
+        this.check("it has a fill" ((array_length sc.fills) > 0))
+
+        ; EVG counts a channel 0..255 and a scene counts it 0..1. Getting this
+        ; wrong wrote a file that inspected perfectly and rendered blank.
+        def f:SceneFill (itemAt sc.fills 0)
+        this.check(("red is a fraction, not 255: " + (to_string f.r)) ((f.r > 0.99) && (f.r < 1.01)))
+        this.check("and green is nearly nothing" (f.g < 0.01))
+
+        ; …and a childless rounded box is a rounded rectangle.
+        def pill:EVGElement (EVGElement.createDiv())
+        pill.setAttribute("width" "40px")
+        pill.setAttribute("height" "40px")
+        pill.setAttribute("border-radius" "20px")
+        pill.markInline("width")
+        pill.markInline("height")
+        pill.markInline("border-radius")
+        root.addChild(pill)
+        def conv2 (new EvgToScene())
+        def scene2:SceneNode (conv2.build(root))
+        def pillNode:SceneNode (itemAt scene2.children 1)
+        this.eqStr("a rounded rectangle" pillNode.sourceType "ROUNDED_RECTANGLE")
+
+        def bytes:buffer (SceneToFig.writeNode(scene "from-evg.fig"))
+        def p (new FigParser())
+        def back:FigDoc (p.parseBytes(bytes "from-evg.fig"))
+        this.check(("it parsed " + back.err) back.ok)
+        this.eqInt("one page" (array_length back.pages) 1)
+        def page:FigNode (back.pageAt(0))
+        this.check("the page has content" ((array_length page.children) > 0))
+    }
+
+    fn testWriterReportsWhatItCannotCarry:void () {
+        print "--- the writer says what it dropped ---"
+        def root:EVGElement (EVGElement.createDiv())
+        root.setAttribute("width" "200px")
+        root.setAttribute("height" "200px")
+        root.markInline("width")
+        root.markInline("height")
+        def shape:EVGElement (EVGElement.createPath())
+        shape.setAttribute("d" "M0 0 L10 0 L10 10 Z")
+        shape.setAttribute("width" "10px")
+        shape.setAttribute("height" "10px")
+        shape.markInline("d")
+        root.addChild(shape)
+        def conv (new EvgToScene())
+        def scene:SceneNode (conv.build(root))
+        this.check("a path is reported, not dropped in silence" ((array_length conv.losses) > 0))
+    }
+
     fn run:void () {
         print "=== FigTest ==="
         this.testVarint()
@@ -68,6 +207,9 @@ class FigTest {
         this.testTracking()
         this.testDashAndCaps()
         this.testRotationAngle()
+        this.testRewrite()
+        this.testEvgToFig()
+        this.testWriterReportsWhatItCannotCarry()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
