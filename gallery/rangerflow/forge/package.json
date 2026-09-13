@@ -23,7 +23,7 @@
     "@forge/bridge": "^4.5.3"
   },
   "devDependencies": {
-    "@forge/cli": "^11.3.0",
+    "@forge/cli": "^11.6.0",
     "esbuild": "^0.25.9"
   }
 }
