@@ -77,6 +77,48 @@ class LayeredLayout {
     def squareUp:boolean false
     def squareRatio:double 1.5
     def minLayerGap:double 56.0
+    ; Packing each layer and centring it on the widest one puts a chain of
+    ; five nodes that hangs off the first node of a row in the middle of the
+    ; page, under the third. With this on, every vertex is then moved
+    ; towards the mean of its neighbours' positions — down the layers, up
+    ; them, and down again — as far as its layer's order and the gaps
+    ; allow: a child under its parent, a long edge straight, a row centred
+    ; over what it feeds. Off, the layers are centred and left there.
+    def balance:boolean false
+    def balanceSweeps:int 4
+    ; What a dummy's wish weighs against a node's. More than a node keeps
+    ; long edges straight at the nodes' expense; less lets a chain of nodes
+    ; line up and leaves the long edges to bend round it.
+    def dummyWeight:double 4.0
+    ; In an ordering sweep, a vertex with no neighbour on the side the sweep
+    ; looks at has no barycentre. Off, it keeps its position as its key and
+    ; is sorted in among the others on that basis — which compares a
+    ; position in this layer with positions in the next, and interleaves
+    ; the two: a row of four boxes with four long edges passing it ends up
+    ; box, line, box, line. On, such vertices step aside — after the ones
+    ; with a say, in the order they had — so a chain and the long edges
+    ; that follow it stay together, and the boxes that lead nowhere stand
+    ; to the side of them.
+    def unconnectedAside:boolean false
+    ; Nodes (by index) that are never to go backwards: each keeps a layer
+    ; no earlier than the one before it in this list, unless an edge path
+    ; says otherwise. A list of the groups of a chart in the order they
+    ; were written keeps the page reading in that order — a group written
+    ; fifth never stands above one written third — without stacking groups
+    ; that could stand side by side.
+    def keepOrder:[int]
+    ; Where along a node's cross extent an edge attaches, from the node's
+    ; middle, per edge index; empty for the middle. A box that stands for
+    ; a whole group has its edges at its members, and a chain through such
+    ; boxes is straight only when the members line up, not the boxes.
+    def edgeOffsetSource:[double]
+    def edgeOffsetTarget:[double]
+    ; …and, per end, whether the edge may meet the node anywhere along it
+    ; rather than at a point: an arrow drawn to a group's frame lands
+    ; wherever on the frame's top is nearest, so its line need not bend
+    ; to reach the middle.
+    def edgeLooseSource:[boolean]
+    def edgeLooseTarget:[boolean]
 
     ; per node
     def layerOf:[int]
@@ -95,9 +137,11 @@ class LayeredLayout {
     def vOutHead:[int]
     def vOutNext:[int]
     def vOutTo:[int]
+    def vOutEdge:[int]
     def vInHead:[int]
     def vInNext:[int]
     def vInFrom:[int]
+    def vInEdge:[int]
     ; per original edge: the first dummy of its chain (in layer order), and
     ; whether the layering had to reverse it to break a cycle
     def chainHead:[int]
@@ -392,6 +436,84 @@ class LayeredLayout {
             push layerOf 0
             i = (i + 1)
         }
+        this.relaxLayers()
+        if ((array_length keepOrder) < 2) {
+            return
+        }
+        ; The written order, as far as the edges allow: a node lifted to the
+        ; layer of the one written before it takes what hangs off it along,
+        ; and the two are settled together. Never against an edge path: a
+        ; node the earlier one can be reached from stays where the path put
+        ; it.
+        def guard:int 0
+        def again:boolean true
+        while again {
+            again = false
+            guard = (guard + 1)
+            if (guard > (n + 2)) {
+                return
+            }
+            def k:int 1
+            while (k < (array_length keepOrder)) {
+                def a:int (itemAt keepOrder (k - 1))
+                def b:int (itemAt keepOrder k)
+                if (a >= 0) {
+                    if (b >= 0) {
+                        if (a < n) {
+                            if (b < n) {
+                                if ((itemAt layerOf b) < (itemAt layerOf a)) {
+                                    if ((this.reaches(b a)) == false) {
+                                        set_at layerOf b (itemAt layerOf a)
+                                        again = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                k = (k + 1)
+            }
+            if again {
+                this.relaxLayers()
+            }
+        }
+    }
+
+    ; Whether `to` is downstream of `from` along the edges as layered.
+    fn reaches:boolean (from:int to:int) {
+        def n:int (graph.nodeCount())
+        def seen:[boolean]
+        def i:int 0
+        while (i < n) {
+            push seen false
+            i = (i + 1)
+        }
+        def stack:[int]
+        push stack from
+        set_at seen from true
+        while ((array_length stack) > 0) {
+            def v:int (last stack)
+            removeLast stack
+            if (v == to) {
+                return true
+            }
+            def at:int (itemAt outHead v)
+            while (at >= 0) {
+                def w:int (itemAt outTo at)
+                if ((itemAt seen w) == false) {
+                    set_at seen w true
+                    push stack w
+                }
+                at = (itemAt outNext at)
+            }
+        }
+        return false
+    }
+
+    ; Longest path from a source, by relaxation. Only ever raises a layer,
+    ; so it can be run again after something else has.
+    fn relaxLayers:void () {
+        def n:int (graph.nodeCount())
         def changed:boolean true
         def guard:int 0
         while (changed) {
@@ -445,9 +567,11 @@ class LayeredLayout {
         clear vOutHead
         clear vOutNext
         clear vOutTo
+        clear vOutEdge
         clear vInHead
         clear vInNext
         clear vInFrom
+        clear vInEdge
         clear chainHead
         def n:int (graph.nodeCount())
         def i:int 0
@@ -486,7 +610,7 @@ class LayeredLayout {
                         span = 1
                     }
                     if (span <= 1) {
-                        this.linkVertices(from to)
+                        this.linkVertices(from to e)
                     } {
                         ; one dummy per layer strictly between the two ends
                         def prev:int from
@@ -497,11 +621,11 @@ class LayeredLayout {
                             if (first < 0) {
                                 first = dv
                             }
-                            this.linkVertices(prev dv)
+                            this.linkVertices(prev dv e)
                             prev = dv
                             l = (l + 1)
                         }
-                        this.linkVertices(prev to)
+                        this.linkVertices(prev to e)
                         set_at chainHead e first
                     }
                 }
@@ -522,7 +646,9 @@ class LayeredLayout {
         return ((array_length vLayer) - 1)
     }
 
-    fn linkVertices:void (from:int to:int) {
+    fn linkVertices:void (from:int to:int edge:int) {
+        push vOutEdge edge
+        push vInEdge edge
         push vOutTo to
         push vOutNext (itemAt vOutHead from)
         set_at vOutHead from ((array_length vOutTo) - 1)
@@ -602,14 +728,26 @@ class LayeredLayout {
     fn sortLayer:void (layer:int useIncoming:boolean) {
         def members:[int]
         def keys:[double]
+        def aside:[int]
         def v:int 0
         while (v < (this.vertexCount())) {
             if ((itemAt vLayer v) == layer) {
-                push members v
-                push keys (this.barycentre(v useIncoming))
+                def take:boolean true
+                if unconnectedAside {
+                    if ((this.neighbourCount(v useIncoming)) == 0) {
+                        push aside v
+                        take = false
+                    }
+                }
+                if take {
+                    push members v
+                    push keys (this.barycentre(v useIncoming))
+                }
             }
             v = (v + 1)
         }
+        ; The ones stepping aside go last, in the order they had.
+        def sideSorted:[int] (this.byOrder(aside))
         def n:int (array_length members)
         ; Insertion sort: a layer is small, and a stable sort keeps vertices
         ; with no neighbours where the previous sweep left them.
@@ -650,6 +788,54 @@ class LayeredLayout {
             set_at vOrder (itemAt members k) k
             k = (k + 1)
         }
+        def a:int 0
+        while (a < (array_length sideSorted)) {
+            set_at vOrder (itemAt sideSorted a) (n + a)
+            a = (a + 1)
+        }
+    }
+
+    fn neighbourCount:int (v:int useIncoming:boolean) {
+        def count:int 0
+        def at:int -1
+        if useIncoming {
+            at = (itemAt vInHead v)
+        } {
+            at = (itemAt vOutHead v)
+        }
+        while (at >= 0) {
+            if useIncoming {
+                at = (itemAt vInNext at)
+            } {
+                at = (itemAt vOutNext at)
+            }
+            count = (count + 1)
+        }
+        return count
+    }
+
+    ; Vertices by their current order, by insertion: the lists are short.
+    fn byOrder:[int] (vs:[int]) {
+        def out:[int]
+        def i:int 0
+        while (i < (array_length vs)) {
+            def cand:int (itemAt vs i)
+            def key:int (itemAt vOrder cand)
+            push out cand
+            def j:int ((array_length out) - 1)
+            while (j > 0) {
+                def prev:int (itemAt out (j - 1))
+                if ((itemAt vOrder prev) > key) {
+                    set_at out j prev
+                    set_at out (j - 1) cand
+                    j = (j - 1)
+                } {
+                    j = 0
+                }
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     fn barycentre:double (v:int useIncoming:boolean) {
@@ -773,7 +959,319 @@ class LayeredLayout {
             }
             slot = (slot + 1)
         }
+        if balance {
+            this.balanceLayers()
+        }
         this.faceNeighbours()
+    }
+
+    ; ----------------------------------------------------------- balance --
+    ; Sugiyama's priority method, in its plain form. A vertex wants to stand
+    ; at the mean of its neighbours on the side the sweep came from; a layer
+    ; is then placed to satisfy those wishes as nearly as it can without
+    ; changing its order or closing a gap below `nodeGap` — the weighted
+    ; least-squares fit under those constraints, which is what pooling
+    ; adjacent violators solves exactly. A dummy weighs more than a node:
+    ; the long edge it stands for is straight when its dummies line up, and
+    ; a straight long edge is worth a node standing a little off centre. A
+    ; node with a node next door on that side wants to stand by IT and
+    ; ignores the long edges merely passing through: under its parent, not
+    ; halfway between its parent and a line from somewhere else on its way
+    ; to somewhere else — so a chain of nodes hangs straight down from
+    ; where it starts. A vertex with nothing on that side wants to stay
+    ; where it is, lightly.
+    fn balanceLayers:void () {
+        def lc:int (this.layerCount())
+        if (lc == 0) {
+            return
+        }
+        def seq:[int] (this.vertexRanking())
+        def starts:[int]
+        def counts:[int]
+        def l:int 0
+        while (l < lc) {
+            push starts 0
+            push counts 0
+            l = (l + 1)
+        }
+        def s:int 0
+        while (s < (array_length seq)) {
+            def v:int (itemAt seq s)
+            if (v >= 0) {
+                def lv:int (itemAt vLayer v)
+                if ((itemAt counts lv) == 0) {
+                    set_at starts lv s
+                }
+                set_at counts lv ((itemAt counts lv) + 1)
+            }
+            s = (s + 1)
+        }
+        def pass:int 0
+        while (pass < balanceSweeps) {
+            def down:boolean ((pass % 2) == 0)
+            if down {
+                def d:int 1
+                while (d < lc) {
+                    this.balanceLayer(seq (itemAt starts d) (itemAt counts d) true)
+                    d = (d + 1)
+                }
+            } {
+                def u:int (lc - 2)
+                while (u >= 0) {
+                    this.balanceLayer(seq (itemAt starts u) (itemAt counts u) false)
+                    u = (u - 1)
+                }
+            }
+            pass = (pass + 1)
+        }
+        ; Back to the origin: the fit is free to drift, the page is not.
+        def low:double 0.0
+        def first:boolean true
+        def v2:int 0
+        while (v2 < (this.vertexCount())) {
+            def edge:double ((itemAt vCross v2) - ((itemAt vExtent v2) * 0.5))
+            if first {
+                low = edge
+                first = false
+            }
+            if (edge < low) {
+                low = edge
+            }
+            v2 = (v2 + 1)
+        }
+        def v3:int 0
+        while (v3 < (this.vertexCount())) {
+            def at:double ((itemAt vCross v3) - low)
+            set_at vCross v3 at
+            def ni:int (itemAt vNode v3)
+            if (ni >= 0) {
+                def nd:FlowNode (graph.nodeAt(ni))
+                def corner:double (at - ((itemAt vExtent v3) * 0.5))
+                if (direction == "TB") {
+                    nd.x = (originX + corner)
+                } {
+                    nd.y = (originY + corner)
+                }
+                nd.syncFromModel()
+            }
+            v3 = (v3 + 1)
+        }
+    }
+
+    ; Where edge `k` attaches to the node vertex `v` stands for, from the
+    ; node's middle along the cross axis. Zero for a dummy, for an edge
+    ; nobody said anything about, and for the middle.
+    fn attachOffset:double (v:int k:int) {
+        if (k < 0) {
+            return 0.0
+        }
+        def ni:int (itemAt vNode v)
+        if (ni < 0) {
+            return 0.0
+        }
+        if (k >= (array_length edgeOffsetSource)) {
+            return 0.0
+        }
+        if (k >= (array_length edgeOffsetTarget)) {
+            return 0.0
+        }
+        def ed:FlowEdge (graph.edgeAt(k))
+        if (ed.sourceIndex == ni) {
+            return (itemAt edgeOffsetSource k)
+        }
+        return (itemAt edgeOffsetTarget k)
+    }
+
+    ; Whether edge `k` may meet the node vertex `v` stands for anywhere.
+    fn looseEnd:boolean (v:int k:int) {
+        if (k < 0) {
+            return false
+        }
+        def ni:int (itemAt vNode v)
+        if (ni < 0) {
+            return false
+        }
+        if (k >= (array_length edgeLooseSource)) {
+            return false
+        }
+        if (k >= (array_length edgeLooseTarget)) {
+            return false
+        }
+        def ed:FlowEdge (graph.edgeAt(k))
+        if (ed.sourceIndex == ni) {
+            return (itemAt edgeLooseSource k)
+        }
+        return (itemAt edgeLooseTarget k)
+    }
+
+    fn balanceLayer:void (seq:[int] start:int count:int useIncoming:boolean) {
+        if (count == 0) {
+            return
+        }
+        ; What each vertex wants, how much it wants it, and how far apart
+        ; the layer's order keeps it from the one before.
+        def want:[double]
+        def weight:[double]
+        def offset:[double]
+        def acc:double 0.0
+        def k:int 0
+        while (k < count) {
+            def v:int (itemAt seq (start + k))
+            def total:double 0.0
+            def n:int 0
+            def realTotal:double 0.0
+            def realN:int 0
+            def at:int -1
+            if useIncoming {
+                at = (itemAt vInHead v)
+            } {
+                at = (itemAt vOutHead v)
+            }
+            def isDummy:boolean ((itemAt vNode v) < 0)
+            ; The end of a long edge: a dummy next to the node its edge
+            ; leaves or arrives at. Anywhere over that node — or within a
+            ; gap of it, since the line turns into the box in any case — is
+            ; as good as its middle, and asking for the middle of a wide
+            ; box that another wide box already stands under would drag
+            ; the two boxes apart instead.
+            def endOfEdge:boolean false
+            def offsets:boolean ((array_length edgeOffsetSource) > 0)
+            while (at >= 0) {
+                def other:int 0
+                def via:int -1
+                if useIncoming {
+                    other = (itemAt vInFrom at)
+                    via = (itemAt vInEdge at)
+                    at = (itemAt vInNext at)
+                } {
+                    other = (itemAt vOutTo at)
+                    via = (itemAt vOutEdge at)
+                    at = (itemAt vOutNext at)
+                }
+                def oc:double (itemAt vCross other)
+                def mine:double (this.attachOffset(v via))
+                if ((itemAt vNode other) >= 0) {
+                    def attach:double (oc + (this.attachOffset(other via)))
+                    if isDummy {
+                        def here:double (itemAt vCross v)
+                        def reach:double (((itemAt vExtent other) * 0.5) + nodeGap)
+                        if offsets {
+                            if ((this.looseEnd(other via)) == false) {
+                                reach = nodeGap
+                            }
+                        }
+                        if (here < (attach - reach)) { here = (attach - reach) }
+                        if (here > (attach + reach)) { here = (attach + reach) }
+                        oc = here
+                        endOfEdge = true
+                    } {
+                        oc = (attach - mine)
+                    }
+                    realTotal = (realTotal + oc)
+                    realN = (realN + 1)
+                } {
+                    if (isDummy == false) {
+                        oc = (oc - mine)
+                    }
+                }
+                total = (total + oc)
+                n = (n + 1)
+            }
+            if (isDummy == false) {
+                if (realN > 0) {
+                    total = realTotal
+                    n = realN
+                }
+            }
+            if (n == 0) {
+                push want (itemAt vCross v)
+                push weight 0.2
+            } {
+                push want (total / (to_double n))
+                def w:double (to_double n)
+                if isDummy {
+                    w = dummyWeight
+                    if endOfEdge {
+                        w = (dummyWeight * 0.25)
+                    }
+                }
+                push weight w
+            }
+            if (k > 0) {
+                def prev:int (itemAt seq ((start + k) - 1))
+                ; A node keeps `nodeGap` from a node. A long edge going by
+                ; needs less: a lane's width from the next lane, and half a
+                ; gap from a box, which is more than the router keeps.
+                def apart:double nodeGap
+                def prevDummy:boolean ((itemAt vNode prev) < 0)
+                if prevDummy {
+                    apart = (nodeGap * 0.5)
+                } {
+                    if isDummy {
+                        apart = (nodeGap * 0.5)
+                    }
+                }
+                if prevDummy {
+                    if isDummy {
+                        apart = edgeGap
+                    }
+                }
+                def gap:double ((((itemAt vExtent prev) + (itemAt vExtent v)) * 0.5) + apart)
+                acc = (acc + gap)
+            }
+            push offset acc
+            k = (k + 1)
+        }
+        ; Pool adjacent violators over the positions with the gaps taken
+        ; out, so the constraint is simply "no block behind the one before".
+        def blockW:[double]
+        def blockWT:[double]
+        def blockEnd:[int]
+        def i:int 0
+        while (i < count) {
+            def w2:double (itemAt weight i)
+            def t:double ((itemAt want i) - (itemAt offset i))
+            push blockW w2
+            push blockWT (w2 * t)
+            push blockEnd i
+            def merging:boolean true
+            while merging {
+                def nb:int (array_length blockW)
+                if (nb < 2) {
+                    merging = false
+                } {
+                    def lastW:double (itemAt blockW (nb - 1))
+                    def lastWT:double (itemAt blockWT (nb - 1))
+                    def prevW:double (itemAt blockW (nb - 2))
+                    def prevWT:double (itemAt blockWT (nb - 2))
+                    if ((lastWT / lastW) < (prevWT / prevW)) {
+                        set_at blockW (nb - 2) (prevW + lastW)
+                        set_at blockWT (nb - 2) (prevWT + lastWT)
+                        set_at blockEnd (nb - 2) (itemAt blockEnd (nb - 1))
+                        removeLast blockW
+                        removeLast blockWT
+                        removeLast blockEnd
+                    } {
+                        merging = false
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def b:int 0
+        def from:int 0
+        while (b < (array_length blockEnd)) {
+            def mean:double ((itemAt blockWT b) / (itemAt blockW b))
+            def to:int (itemAt blockEnd b)
+            def j:int from
+            while (j <= to) {
+                def v4:int (itemAt seq (start + j))
+                set_at vCross v4 (mean + (itemAt offset j))
+                j = (j + 1)
+            }
+            from = (to + 1)
+            b = (b + 1)
+        }
     }
 
     ; A stable global sequence: layer first, order within the layer second.

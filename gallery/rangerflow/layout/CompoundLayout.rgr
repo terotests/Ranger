@@ -1,0 +1,851 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CompoundLayout.rgr — the layered layout, for a graph with groups in it.
+; ============================================================================
+;
+; A layered layout ranks every node of the graph against every other, and a
+; group — a Mermaid `subgraph`, a DOT cluster, a D2 container — is nothing to
+; it. Rank a match-day chart of eight groups that way and the one chain of
+; games running through five of the groups puts those five groups' members
+; in five different layers, so the frame drawn round each of them is as tall
+; as the chart, the frames overlap, and the reader is looking at eight
+; columns of a picture that wanted to be a page.
+;
+; This lays a graph out the way ELK does a hierarchical one, and the way a
+; person would: from the inside out.
+;
+;   1. Each group is laid out on its own — its member nodes and the frames
+;      of the groups nested in it, with only the edges that stay inside it.
+;      That gives the group a size: its members' extent plus the frame's
+;      padding.
+;   2. The group is then ONE box of that size in its parent's layout. An
+;      edge between a node inside it and a node outside it is, at that
+;      level, an edge to the box.
+;   3. The top level is laid out with the ordinary nodes and the top-level
+;      groups' boxes, and everything inside a box moves with it.
+;
+;        ┌───────────┐
+;        │   TITLE   │
+;        └─┬───┬───┬─┘
+;      ┌───┘   │   └────────┐
+;   ┌──┴────┐ ┌┴──────┐ ┌───┴─────┐          three groups, each laid out
+;   │ D1    │ │ D2    │ │ D3      │          on its own and then placed
+;   │ ┌───┐ │ │┌──┐┌──┐ │ ┌──┐┌──┐│          as one box each
+;   │ │M1 │ │ ││M2││M3│ │ │M4││M5││
+;   │ └─┬─┘ │ │└──┘└──┘ │ └──┘└─┬┘│
+;   └───┼───┘ └───────┘ └───────┼─┘
+;       └───────────────────────┘          M1 --> M5 is D1 --> D3 up here
+;
+; A frame is therefore always as small as what it holds, never covers another
+; frame, and never has a stranger's node inside it — which are the three
+; things a frame has to be true about, and the three things the global layout
+; had to be corrected for afterwards. The price is that an edge across a
+; group boundary is ranked against the box rather than the node, so two
+; groups joined by such an edge stand one below the other rather than
+; interleaving their layers. Mermaid's own `flowchart-elk` makes the same
+; trade, and readers prefer it.
+;
+; A group may ask for its own direction — Mermaid's `direction LR` inside a
+; `subgraph` — and gets it: its own layout runs that way, and the box is
+; placed by the parent's.
+;
+; Three more things make the page READ well, not merely fit:
+;
+;   * The groups keep the order they were written in, as far as the edges
+;     allow: a group written fifth is never laid out above one written
+;     third (`LayeredLayout.keepOrder`). A schedule listed day by day comes
+;     out day by day — the days a chain runs through in one column, the
+;     rest beside them, each in its row — rather than as a row of the
+;     unchained days above a staircase of the chained ones.
+;   * A group's members with a line to the outside stand nearest to where
+;     that line goes, and the rest stand after them; the layout runs twice
+;     to find out where the lines go. The five games one team plays are
+;     the left-hand box of each day, and the chain through them runs down
+;     one edge of the page.
+;   * A line between members of two groups is a line between the BOXES at
+;     the parent's level, but it meets each box where its member is
+;     (`LayeredLayout.edgeOffsetSource/Target`), so lining the boxes up
+;     lines the members up, and a chain through the boxes is straight. A
+;     line that names the group itself meets the box wherever is nearest.
+;
+; The graph carries no frames when this runs: the caller describes the groups
+; — `group`, `own` — lays out, and then draws the frames around what it finds,
+; using the same padding this reserved for them. `frameX/Y/W/H` say where each
+; would go, for a caller that would rather not measure again.
+; ============================================================================
+
+Import "../core/GraphModel.rgr"
+Import "LayeredLayout.rgr"
+
+class CompoundLayout {
+    def graph:FlowGraph (new FlowGraph)
+    ; The chart's direction: "TB" | "BT" | "LR" | "RL". A group with no
+    ; direction of its own inherits its parent's, and the top level this.
+    def direction:string "TB"
+
+    ; --- the groups, as the caller described them --------------------------
+    def groupIds:[string]
+    def groupParent:[string]
+    def groupDir:[string]
+    ; node id -> the group it is a direct member of
+    def owner:[string:string]
+    ; per edge index: true for an edge the layout should not see — a stand-in
+    ; the caller added for its own reasons, say.
+    def skipEdge:[boolean]
+    ; per edge index and end: the edge is drawn to the GROUP's frame rather
+    ; than to the member it names here, so it may meet the box anywhere.
+    def looseSource:[boolean]
+    def looseTarget:[boolean]
+
+    ; --- the frame a group will be drawn with ------------------------------
+    ; The room reserved round a group's members: a bar down the left, a
+    ; heading across the top, and a pad on the other two sides. Whoever draws
+    ; the frames afterwards draws them this size, or the boxes overlap.
+    def padLeft:double 34.0
+    def padTop:double 42.0
+    def padRight:double 20.0
+    def padBottom:double 20.0
+
+    ; --- the layered layout's knobs, down the page and across it ----------
+    def layerGapTB:double 76.0
+    def nodeGapTB:double 44.0
+    def minLayerGapTB:double 56.0
+    def layerGapLR:double 120.0
+    def nodeGapLR:double 36.0
+    def minLayerGapLR:double 72.0
+    def squareUp:boolean true
+    ; Centre every node on its neighbours once the layers are ordered — see
+    ; `LayeredLayout.balance`. A chain of groups hangs under the group it
+    ; starts from rather than in the middle of the page.
+    def balance:boolean true
+    ; Across the page the layer gap also holds the edge labels, which are
+    ; written along the flow: the floor is whatever the longest needs.
+    def labelRoomLR:boolean true
+
+    ; --- results ------------------------------------------------------------
+    ; Where each group's frame goes, by group index. Width 0 for a group
+    ; with nothing in it, which gets no frame.
+    def frameX:[double]
+    def frameY:[double]
+    def frameW:[double]
+    def frameH:[double]
+    ; Whether any group took part. When none did — no groups, or none with a
+    ; member — the graph was laid out by one plain `LayeredLayout`, which is
+    ; `rootLayout`, on the graph itself, and its long-edge routes are good.
+    ; When one did, `rootLayout` ran on a stand-in graph and its per-node
+    ; tables do not describe this one.
+    def compound:boolean false
+    def rootLayout:LayeredLayout (new LayeredLayout)
+
+    ; --- what each sub-layout decided: a child's offset in its group ------
+    def recOwner:[string]
+    def recChild:[string]
+    def recIsGroup:[boolean]
+    def recDx:[double]
+    def recDy:[double]
+    ; --- the order a group's children are laid out in, where it matters ---
+    ; A member with a line to something outside the group stands nearest
+    ; where that line goes, and the members with no such line stand after
+    ; it. Known only once everything has been placed, so the layout runs
+    ; twice: once to find out, once to use it.
+    def preferOwner:[string]
+    def preferChild:[string]
+
+    Constructor () {
+    }
+
+    sfn of:CompoundLayout (g:FlowGraph) {
+        def c (new CompoundLayout)
+        c.graph = g
+        return c
+    }
+
+    ; A group: its id, the id of the group it is nested in ("" at the top),
+    ; and its own direction, or "" to take its parent's.
+    fn group:void (id:string parent:string dir:string) {
+        push groupIds id
+        push groupParent parent
+        push groupDir dir
+    }
+
+    ; A node's group. A node nobody claims is at the top level.
+    fn own:void (nodeId:string groupId:string) {
+        set owner nodeId groupId
+    }
+
+    fn ownerOf:string (nodeId:string) {
+        if (has owner nodeId) {
+            return (unwrap (get owner nodeId))
+        }
+        return ""
+    }
+
+    fn indexOfGroup:int (id:string) {
+        def i:int 0
+        while (i < (array_length groupIds)) {
+            if ((itemAt groupIds i) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn parentOf:string (gid:string) {
+        def at:int (this.indexOfGroup(gid))
+        if (at < 0) {
+            return ""
+        }
+        return (itemAt groupParent at)
+    }
+
+    fn depthOf:int (gid:string) {
+        def d:int 0
+        def cur:string gid
+        while ((strlen cur) > 0) {
+            cur = (this.parentOf(cur))
+            d = (d + 1)
+            if (d > 64) {
+                return d
+            }
+        }
+        return d
+    }
+
+    ; The direction a group is laid out in: its own, the nearest ancestor's,
+    ; or the chart's. Mermaid's `TD` is `TB`.
+    fn dirOf:string (gid:string) {
+        def cur:string gid
+        def guard:int 0
+        while ((strlen cur) > 0) {
+            def at:int (this.indexOfGroup(cur))
+            if (at < 0) {
+                cur = ""
+            } {
+                def d:string (itemAt groupDir at)
+                if ((strlen d) > 0) {
+                    return (CompoundLayout.normalise(d))
+                }
+                cur = (itemAt groupParent at)
+            }
+            guard = (guard + 1)
+            if (guard > 64) {
+                cur = ""
+            }
+        }
+        return (CompoundLayout.normalise(direction))
+    }
+
+    sfn normalise:string (d:string) {
+        if (d == "LR") { return "LR" }
+        if (d == "RL") { return "RL" }
+        if (d == "BT") { return "BT" }
+        return "TB"
+    }
+
+    sfn isHorizontal:boolean (d:string) {
+        if (d == "LR") { return true }
+        if (d == "RL") { return true }
+        return false
+    }
+
+    ; The id a group goes by in its parent's stand-in graph.
+    sfn keyOf:string (gid:string) {
+        return ("@group:" + gid)
+    }
+
+    ; What a node is at the level of group `gid`: itself, when it is a direct
+    ; member; the child group it is somewhere inside; or "" when it is not
+    ; in the group at all. `gid` "" is the top level, where everything is.
+    fn liftTo:string (nodeId:string gid:string) {
+        def cur:string (this.ownerOf(nodeId))
+        if (cur == gid) {
+            return nodeId
+        }
+        def guard:int 0
+        while ((strlen cur) > 0) {
+            def prev:string cur
+            cur = (this.parentOf(cur))
+            if (cur == gid) {
+                return (CompoundLayout.keyOf(prev))
+            }
+            guard = (guard + 1)
+            if (guard > 64) {
+                return ""
+            }
+        }
+        return ""
+    }
+
+    fn configure:void (lay:LayeredLayout dir:string) {
+        lay.squareUp = squareUp
+        lay.balance = balance
+        lay.unconnectedAside = balance
+        if (CompoundLayout.isHorizontal(dir)) {
+            lay.direction = "LR"
+            lay.layerGap = layerGapLR
+            lay.nodeGap = nodeGapLR
+            lay.minLayerGap = minLayerGapLR
+            if labelRoomLR {
+                def chars:int (lay.longestLabel())
+                def labelRoom:double (((to_double chars) * 6.6) + 48.0)
+                if (labelRoom > lay.minLayerGap) {
+                    lay.minLayerGap = labelRoom
+                }
+            }
+        } {
+            lay.direction = "TB"
+            lay.layerGap = layerGapTB
+            lay.nodeGap = nodeGapTB
+            lay.minLayerGap = minLayerGapTB
+        }
+    }
+
+    fn run:void () {
+        clear frameX
+        clear frameY
+        clear frameW
+        clear frameH
+        clear recOwner
+        clear recChild
+        clear recIsGroup
+        clear recDx
+        clear recDy
+        compound = false
+        graph.reindex()
+        def i:int 0
+        while (i < (array_length groupIds)) {
+            push frameX 0.0
+            push frameY 0.0
+            push frameW 0.0
+            push frameH 0.0
+            i = (i + 1)
+        }
+        ; No group with a member in it: the plain layout, on the graph
+        ; itself, so the caller keeps the long-edge routes it knows how to use.
+        if ((this.anyMember()) == false) {
+            rootLayout = (LayeredLayout.of(graph))
+            this.configure(rootLayout (this.dirOf("")))
+            rootLayout.run()
+            return
+        }
+        compound = true
+        clear preferOwner
+        clear preferChild
+        this.runOnce()
+        this.preferByOutsideLines()
+        if ((array_length preferOwner) > 0) {
+            clear recOwner
+            clear recChild
+            clear recIsGroup
+            clear recDx
+            clear recDy
+            this.runOnce()
+        }
+    }
+
+    fn runOnce:void () {
+        ; Deepest first: a group's size is known before its parent needs it.
+        def deepest:int 0
+        def k:int 0
+        while (k < (array_length groupIds)) {
+            def d:int (this.depthOf((itemAt groupIds k)))
+            if (d > deepest) {
+                deepest = d
+            }
+            k = (k + 1)
+        }
+        def level:int deepest
+        while (level >= 1) {
+            def m:int 0
+            while (m < (array_length groupIds)) {
+                def gid:string (itemAt groupIds m)
+                if ((this.depthOf(gid)) == level) {
+                    this.layoutGroup(gid)
+                }
+                m = (m + 1)
+            }
+            level = (level - 1)
+        }
+        this.layoutGroup("")
+        this.expand()
+    }
+
+    ; The cross-axis middle of a node, as placed.
+    fn crossMiddle:double (n:FlowNode horiz:boolean) {
+        if horiz {
+            return (n.y + (n.height * 0.5))
+        }
+        return (n.x + (n.width * 0.5))
+    }
+
+    ; For every group: its children with a line to the outside, in the
+    ; order of where those lines go across the flow; the rest after them.
+    fn preferByOutsideLines:void () {
+        def gi:int 0
+        while (gi < (array_length groupIds)) {
+            def gid:string (itemAt groupIds gi)
+            def horiz:boolean (CompoundLayout.isHorizontal((this.dirOf(gid))))
+            def ids:[string]
+            def sums:[double]
+            def counts:[int]
+            def k:int 0
+            while (k < (graph.edgeCount())) {
+                def e:FlowEdge (graph.edgeAt(k))
+                def skip:boolean e.hidden
+                if (k < (array_length skipEdge)) {
+                    if (itemAt skipEdge k) { skip = true }
+                }
+                if (e.sourceIndex < 0) { skip = true }
+                if (e.targetIndex < 0) { skip = true }
+                if (skip == false) {
+                    def a:string (this.liftTo(e.source gid))
+                    def b:string (this.liftTo(e.target gid))
+                    def inside:string ""
+                    def outside:FlowNode (graph.nodeAt(e.targetIndex))
+                    if ((strlen a) > 0) {
+                        if ((strlen b) == 0) {
+                            inside = a
+                        }
+                    } {
+                        if ((strlen b) > 0) {
+                            inside = b
+                            outside = (graph.nodeAt(e.sourceIndex))
+                        }
+                    }
+                    if ((strlen inside) > 0) {
+                        def at:int -1
+                        def q:int 0
+                        while (q < (array_length ids)) {
+                            if ((itemAt ids q) == inside) { at = q }
+                            q = (q + 1)
+                        }
+                        def where:double (this.crossMiddle(outside horiz))
+                        if (at < 0) {
+                            push ids inside
+                            push sums where
+                            push counts 1
+                        } {
+                            set_at sums at ((itemAt sums at) + where)
+                            set_at counts at ((itemAt counts at) + 1)
+                        }
+                    }
+                }
+                k = (k + 1)
+            }
+            ; By the mean of where their lines go; insertion, the lists are short.
+            def order:[int]
+            def m:int 0
+            while (m < (array_length ids)) {
+                def keyM:double ((itemAt sums m) / (to_double (itemAt counts m)))
+                push order m
+                def j:int ((array_length order) - 1)
+                while (j > 0) {
+                    def prev:int (itemAt order (j - 1))
+                    def keyP:double ((itemAt sums prev) / (to_double (itemAt counts prev)))
+                    if (keyP > keyM) {
+                        set_at order j prev
+                        set_at order (j - 1) m
+                        j = (j - 1)
+                    } {
+                        j = 0
+                    }
+                }
+                m = (m + 1)
+            }
+            def o:int 0
+            while (o < (array_length order)) {
+                def which:int (itemAt order o)
+                push preferOwner gid
+                push preferChild (this.childRef((itemAt ids which)))
+                o = (o + 1)
+            }
+            gi = (gi + 1)
+        }
+    }
+
+    ; A lifted end as a child reference: the node id, or the group id
+    ; behind a group key.
+    fn childRef:string (lifted:string) {
+        def prefix:string (CompoundLayout.keyOf(""))
+        def plen:int (strlen prefix)
+        if ((strlen lifted) > plen) {
+            if ((substring lifted 0 plen) == prefix) {
+                return (substring lifted plen (strlen lifted))
+            }
+        }
+        return lifted
+    }
+
+    ; The middle of a node across the flow, from the middle of the box of
+    ; group `gid` that it stands inside — through every group between.
+    fn middleWithin:double (nodeId:string gid:string horiz:boolean) {
+        def n:FlowNode (graph.nodeById(nodeId))
+        def acc:double (n.width * 0.5)
+        if horiz {
+            acc = (n.height * 0.5)
+        }
+        def cur:string nodeId
+        def own:string (this.ownerOf(nodeId))
+        def guard:int 0
+        while (guard < 64) {
+            def r:int 0
+            while (r < (array_length recOwner)) {
+                if ((itemAt recOwner r) == own) {
+                    if ((itemAt recChild r) == cur) {
+                        if horiz {
+                            acc = (acc + (itemAt recDy r))
+                        } {
+                            acc = (acc + (itemAt recDx r))
+                        }
+                        r = (array_length recOwner)
+                    }
+                }
+                r = (r + 1)
+            }
+            if (own == gid) {
+                guard = 64
+            } {
+                cur = own
+                own = (this.parentOf(own))
+                guard = (guard + 1)
+            }
+        }
+        def at:int (this.indexOfGroup(gid))
+        if (at < 0) {
+            return 0.0
+        }
+        if horiz {
+            return (acc - ((itemAt frameH at) * 0.5))
+        }
+        return (acc - ((itemAt frameW at) * 0.5))
+    }
+
+    fn anyMember:boolean () {
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            if (n.nodeType != "group") {
+                if ((strlen (this.ownerOf(n.id))) > 0) {
+                    if ((this.indexOfGroup((this.ownerOf(n.id)))) >= 0) {
+                        return true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; One group, or the top level for "": a stand-in graph of its direct
+    ; members and its child groups' boxes, laid out on its own. What comes
+    ; out is each child's offset from the group's top-left corner, and the
+    ; group's size.
+    fn layoutGroup:void (gid:string) {
+        def t (new FlowGraph)
+        ; the real node behind each stand-in, or -1 for a group's box
+        def backing:[int]
+        def keys:[string]
+        ; …and the node or group id each stands for
+        def refs:[string]
+        ; The children with lines to the outside first, nearest their lines
+        ; first — the order the stand-in graph is built in is the order the
+        ; layout starts from, and keeps where nothing says otherwise.
+        def pr:int 0
+        while (pr < (array_length preferOwner)) {
+            if ((itemAt preferOwner pr) == gid) {
+                this.addChild(t gid (itemAt preferChild pr) backing keys refs)
+            }
+            pr = (pr + 1)
+        }
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            if ((this.ownerOf(n.id)) == gid) {
+                this.addChild(t gid n.id backing keys refs)
+            }
+            i = (i + 1)
+        }
+        def c:int 0
+        while (c < (array_length groupIds)) {
+            if ((itemAt groupParent c) == gid) {
+                this.addChild(t gid (itemAt groupIds c) backing keys refs)
+            }
+            c = (c + 1)
+        }
+        if ((t.nodeCount()) == 0) {
+            return
+        }
+        ; The edges that live at this level, each pair once: two members
+        ; joined by three links are ranked as by one, and a link into a box
+        ; from three of its neighbour's nodes is one link between the boxes.
+        def seen:[string:boolean]
+        ; the real ends behind each stand-in edge
+        def edgeFrom:[string]
+        def edgeTo:[string]
+        def edgeIdx:[int]
+        def k:int 0
+        while (k < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(k))
+            def skip:boolean e.hidden
+            if (k < (array_length skipEdge)) {
+                if (itemAt skipEdge k) {
+                    skip = true
+                }
+            }
+            if (e.sourceIndex < 0) { skip = true }
+            if (e.targetIndex < 0) { skip = true }
+            if (skip == false) {
+                def a:string (this.liftTo(e.source gid))
+                def b:string (this.liftTo(e.target gid))
+                if ((strlen a) > 0) {
+                    if ((strlen b) > 0) {
+                        if (a != b) {
+                            def pair:string ((a + " -> ") + b)
+                            if ((has seen pair) == false) {
+                                set seen pair true
+                                def se:FlowEdge (FlowEdge.create("" a b))
+                                se.label = e.label
+                                t.addEdge(se)
+                                push edgeFrom e.source
+                                push edgeTo e.target
+                                push edgeIdx k
+                            }
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        def dir:string (this.dirOf(gid))
+        def horiz:boolean (CompoundLayout.isHorizontal(dir))
+        def lay:LayeredLayout (LayeredLayout.of(t))
+        this.configure(lay dir)
+        ; The groups in the order they were written, never one above the
+        ; one before it.
+        def g2:int 0
+        while (g2 < (array_length groupIds)) {
+            if ((itemAt groupParent g2) == gid) {
+                def key2:string (CompoundLayout.keyOf((itemAt groupIds g2)))
+                if (t.hasNode(key2)) {
+                    push lay.keepOrder (t.indexOfNode(key2))
+                }
+            }
+            g2 = (g2 + 1)
+        }
+        ; Where each line meets a box: at the member it really goes to.
+        def te:int 0
+        while (te < (t.edgeCount())) {
+            def se2:FlowEdge (t.edgeAt(te))
+            def ek:int (itemAt edgeIdx te)
+            def ls:boolean false
+            def lt:boolean false
+            if (ek < (array_length looseSource)) { ls = (itemAt looseSource ek) }
+            if (ek < (array_length looseTarget)) { lt = (itemAt looseTarget ek) }
+            push lay.edgeLooseSource ls
+            push lay.edgeLooseTarget lt
+            def offS:double 0.0
+            def offT:double 0.0
+            if (ls == false) { offS = (this.attachAt(se2.source (itemAt edgeFrom te) gid horiz)) }
+            if (lt == false) { offT = (this.attachAt(se2.target (itemAt edgeTo te) gid horiz)) }
+            push lay.edgeOffsetSource offS
+            push lay.edgeOffsetTarget offT
+            te = (te + 1)
+        }
+        lay.run()
+        if ((strlen gid) == 0) {
+            rootLayout = lay
+        } {
+            ; The chart is mirrored as a whole afterwards for BT and RL; a
+            ; group is flipped here only where that would leave it facing
+            ; the wrong way — its own way differs from the chart's on that
+            ; axis. The top level is never flipped here: that is the
+            ; mirror's job.
+            def chart:string (CompoundLayout.normalise(direction))
+            def flipX:boolean false
+            def flipY:boolean false
+            if (dir == "RL") { flipX = true }
+            if (chart == "RL") { flipX = (flipX == false) }
+            if (dir == "BT") { flipY = true }
+            if (chart == "BT") { flipY = (flipY == false) }
+            if flipX {
+                CompoundLayout.flipNodes(t true)
+            }
+            if flipY {
+                CompoundLayout.flipNodes(t false)
+            }
+        }
+        ; Offsets from the group's corner, the frame's padding included.
+        def r:FlowRect (t.bounds())
+        def ox:double 0.0
+        def oy:double 0.0
+        if ((strlen gid) > 0) {
+            ox = padLeft
+            oy = padTop
+        }
+        def q:int 0
+        while (q < (t.nodeCount())) {
+            def s2:FlowNode (t.nodeAt(q))
+            def ni0:int (itemAt backing q)
+            push recOwner gid
+            push recChild (itemAt refs q)
+            push recIsGroup (ni0 < 0)
+            push recDx (ox + (s2.x - r.x))
+            push recDy (oy + (s2.y - r.y))
+            def ni:int (itemAt backing q)
+            if (ni >= 0) {
+                def real:FlowNode (graph.nodeAt(ni))
+                if (CompoundLayout.isHorizontal(dir)) {
+                    real.sourcePosition = 1
+                    real.targetPosition = 3
+                } {
+                    real.sourcePosition = 2
+                    real.targetPosition = 0
+                }
+            }
+            q = (q + 1)
+        }
+        if ((strlen gid) > 0) {
+            def at:int (this.indexOfGroup(gid))
+            set_at frameW at ((r.w + padLeft) + padRight)
+            set_at frameH at ((r.h + padTop) + padBottom)
+        }
+    }
+
+    ; One child of a group into its stand-in graph, once: a member node by
+    ; its id, or a child group's box by the group's id.
+    fn addChild:void (t:FlowGraph gid:string ref:string backing:[int] keys:[string] refs:[string]) {
+        def already:int 0
+        while (already < (array_length refs)) {
+            if ((itemAt refs already) == ref) {
+                return
+            }
+            already = (already + 1)
+        }
+        def gi:int (this.indexOfGroup(ref))
+        if (gi >= 0) {
+            if ((itemAt groupParent gi) != gid) {
+                return
+            }
+            def w:double (itemAt frameW gi)
+            if (w <= 0.0) {
+                return
+            }
+            def key:string (CompoundLayout.keyOf(ref))
+            def b:FlowNode (FlowNode.create(key "" 0.0 0.0))
+            b.width = w
+            b.height = (itemAt frameH gi)
+            t.addNode(b)
+            push backing -1
+            push keys key
+            push refs ref
+            return
+        }
+        if ((graph.hasNode(ref)) == false) {
+            return
+        }
+        def n:FlowNode (graph.nodeById(ref))
+        if (n.nodeType == "group") { return }
+        if n.hidden { return }
+        if ((this.ownerOf(ref)) != gid) { return }
+        def s:FlowNode (FlowNode.create(n.id n.label 0.0 0.0))
+        s.width = n.width
+        s.height = n.height
+        t.addNode(s)
+        push backing n.index
+        push keys n.id
+        push refs n.id
+    }
+
+    ; Where a line to `nodeId` meets the stand-in `lifted` it is drawn to at
+    ; the level of `gid`: at the node's middle inside the box, from the
+    ; box's middle — or at the middle, when the stand-in is the node.
+    fn attachAt:double (lifted:string nodeId:string gid:string horiz:boolean) {
+        if (lifted == nodeId) {
+            return 0.0
+        }
+        def group:string (this.childRef(lifted))
+        if ((this.indexOfGroup(group)) < 0) {
+            return 0.0
+        }
+        return (this.middleWithin(nodeId group horiz))
+    }
+
+    sfn flipNodes:void (t:FlowGraph horizontal:boolean) {
+        def r:FlowRect (t.bounds())
+        if (r.valid == false) {
+            return
+        }
+        def i:int 0
+        while (i < (t.nodeCount())) {
+            def n:FlowNode (t.nodeAt(i))
+            if horizontal {
+                def right:double (r.x + r.w)
+                n.x = ((right - (n.x - r.x)) - n.width)
+            } {
+                def bottom:double (r.y + r.h)
+                n.y = ((bottom - (n.y - r.y)) - n.height)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Outside in: the top level's children go where it put them, a group's
+    ; corner is where its parent put its box, and its children follow.
+    fn expand:void () {
+        def originX:[string:double]
+        def originY:[string:double]
+        set originX "" 0.0
+        set originY "" 0.0
+        def done:[boolean]
+        def i:int 0
+        while (i < (array_length recOwner)) {
+            push done false
+            i = (i + 1)
+        }
+        def pass:int 0
+        def left:int (array_length recOwner)
+        while (pass <= ((array_length groupIds) + 1)) {
+            def k:int 0
+            while (k < (array_length recOwner)) {
+                if (left == 0) {
+                    k = (array_length recOwner)
+                    continue
+                }
+                if ((itemAt done k) == false) {
+                    def gid:string (itemAt recOwner k)
+                    if (has originX gid) {
+                        def ox:double (unwrap (get originX gid))
+                        def oy:double (unwrap (get originY gid))
+                        def x:double (ox + (itemAt recDx k))
+                        def y:double (oy + (itemAt recDy k))
+                        def child:string (itemAt recChild k)
+                        if (itemAt recIsGroup k) {
+                            def sub:string child
+                            set originX sub x
+                            set originY sub y
+                            def at:int (this.indexOfGroup(sub))
+                            if (at >= 0) {
+                                set_at frameX at x
+                                set_at frameY at y
+                            }
+                        } {
+                            if (graph.hasNode(child)) {
+                                def n:FlowNode (graph.nodeById(child))
+                                n.x = x
+                                n.y = y
+                                n.placed = true
+                                n.syncFromModel()
+                            }
+                        }
+                        set_at done k true
+                        left = (left - 1)
+                    }
+                }
+                k = (k + 1)
+            }
+            pass = (pass + 1)
+        }
+    }
+}
