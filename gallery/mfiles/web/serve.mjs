@@ -26,7 +26,9 @@ const TYPES = {
 };
 
 const server = http.createServer((req, res) => {
-  const name = req.url === "/" ? "/index.html" : req.url.split("?")[0];
+  // The query (?mode=1) is the page's, not a path.
+  const pathname = req.url.split("?")[0];
+  const name = pathname === "/" ? "/index.html" : pathname;
   const file = path.join(HERE, path.normalize(name).replace(/^(\.\.[/\\])+/, ""));
   if (!file.startsWith(HERE) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
     res.writeHead(404, { "Content-Type": "text/plain" });

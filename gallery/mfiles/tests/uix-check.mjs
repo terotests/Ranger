@@ -140,6 +140,36 @@ section("UIX v1 mode");
 }
 
 // ---------------------------------------------------------------------------
+section("the documentation's context-menu sample, verbatim");
+{
+  // developer.m-files.com → UIX → Overview → Commands: MFiles.* enums, a
+  // context-menu command, a top-pane command, a submenu, SetIcon.
+  const host = MfUixHost.withSampleVault();
+  loadScripts(host);
+  host.addApp("docs", "{DOCS}", 2, `
+function OnNewShellUI(shellUI) {
+  shellUI.Events.Register(MFiles.Event.NewNormalShellFrame, (shellFrame) => {
+    shellFrame.Events.Register(MFiles.Event.Started, async () => {
+      const commandOneId = await shellFrame.Commands.CreateCustomCommand("My First Command");
+      await shellFrame.Commands.AddCustomCommandToMenu(commandOneId, MFiles.MenuLocation.MenuLocation_ContextMenu_Bottom, 1);
+      const parentMenuItemId = await shellFrame.Commands.AddCustomCommandToMenu(commandOneId, MFiles.MenuLocation.MenuLocation_TopPaneMenu, 1);
+      const commandChildOneId = await shellFrame.Commands.CreateCustomCommand("My First Child Command");
+      await shellFrame.Commands.CreateSubMenuItem(parentMenuItemId, commandChildOneId, 1);
+      await shellFrame.Commands.SetIcon(commandOneId, { content: "assets/icons/customCommandIcon.svg", iconContentType: "PATH", alt: "icon", extension: "svg" });
+      shellFrame.Commands.Events.Register(MFiles.Event.CustomCommand, (commandId, data) => {
+        if (commandId === commandOneId) console.log("clicked", commandId);
+      });
+    });
+  });
+}`);
+  eq("no errors", errors(host), []);
+  eq("in the context menu", menu(host, true), ["My First Command"]);
+  eq("and the top pane", menu(host, false), ["My First Command"]);
+  run(host, "My First Command");
+  ok("the click reaches the handler", logText(host).includes("clicked"), logText(host));
+}
+
+// ---------------------------------------------------------------------------
 section("errors reach the console");
 {
   const host = MfUixHost.withSampleVault();

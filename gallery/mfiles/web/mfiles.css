@@ -521,3 +521,69 @@
   .mf-ctrace { width: 280px; min-width: 280px; }
   .mf-kv-k { width: 130px; min-width: 130px; }
 }
+
+/* --- a phone ------------------------------------------------------------- *
+ * MfilesApp.mobile() shows one screen at a time below 760px and puts a bar of
+ * icons along the bottom; these rules size what is shown to the full width. */
+
+.mf-mnav {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  height: 60px;
+  min-height: 60px;
+  background-color: #ffffff;
+  border-top: 1px solid #dde2ec;
+}
+.mf-mnav-btn { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: center; justify-content: center; flex-grow: 1; gap: 4px; }
+.mf-mnav-btn:hover { background-color: #f3f6fc; }
+.mf-mnav-on { background-color: #e8effd; }
+.mf-mnav-on:hover { background-color: #e8effd; }
+.mf-mnav-txt { font-size: 11px; color: #5b6479; height: 15px; }
+.mf-mnav-txt-on { color: #1d6fd8; }
+.mf-mico { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: center; width: 22px; height: 20px; }
+.mf-mico-grid { flex-wrap: wrap; align-content: space-between; justify-content: space-between; width: 17px; height: 17px; }
+.mf-mico-list { flex-direction: column; justify-content: space-between; width: 18px; height: 15px; }
+.mf-sq { width: 7px; height: 7px; border-radius: 1px; }
+.mf-bar { width: 18px; height: 3px; border-radius: 1px; }
+.mf-cardico { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; width: 16px; height: 19px; border: 2px solid #5b6479; border-radius: 2px; }
+.mf-cardico-on { border: 2px solid #1d6fd8; }
+.mf-cline2 { width: 8px; height: 2px; }
+.mf-ink { background-color: #5b6479; }
+.mf-ink-on { background-color: #1d6fd8; }
+.mf-mico-txt { font-size: 12px; color: #5b6479; height: 16px; font-weight: bold; }
+.mf-mico-txt-on { color: #1d6fd8; }
+.mf-console-full { width: 100%; height: 100%; min-height: 0; flex-grow: 1; }
+
+@media (max-width: 759px) {
+  .mf-header { padding: 0 10px; gap: 8px; }
+  .mf-brand { width: 92px; min-width: 92px; }
+  .mf-brand-m { font-size: 21px; }
+  .mf-brand-files { font-size: 21px; }
+  .mf-searchbox { width: 0; min-width: 80px; flex-grow: 1; }
+  .mf-nav { width: 100%; min-width: 0; border-right: 0; }
+  .mf-pane { width: 100%; min-width: 0; border-left: 0; }
+  .mf-center { padding: 8px; }
+  .mf-ctab { padding: 0 10px; }
+  .mf-ctab-txt { font-size: 13px; }
+  .mf-tbtn { padding: 0 8px; }
+  .mf-lcol-date { width: 118px; min-width: 118px; }
+  .mf-cell-date { width: 118px; min-width: 118px; font-size: 11px; }
+  .mf-row { height: 40px; min-height: 40px; padding: 0 10px 0 14px; }
+  .mf-lhead { padding: 0 10px 0 38px; }
+  .mf-nav-item { height: 42px; min-height: 42px; }
+  .mf-prop-label { width: 96px; min-width: 96px; }
+  .mf-kv-k { width: 110px; min-width: 110px; }
+  .mf-ctrace { display: none; }
+  .mf-pscroll { padding: 12px 12px; }
+}
+
+/* --- a real viewer under the preview ------------------------------------- *
+ * The page's host draws a DOCX or XLSX viewer first and this page over it, so
+ * while one is showing the page, the pane and the preview box paint nothing
+ * where the viewer is; the tab strip above keeps its own white. */
+.mf-page-see { background-color: transparent; }
+.mf-pane-see { background-color: transparent; }
+.mf-pview { padding: 0; background-color: transparent; }
+.mf-ptabs { background-color: #ffffff; }

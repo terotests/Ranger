@@ -12,6 +12,7 @@
 // EVG's browser helpers are copied beside the page, followed transitively from
 // what main.js imports.
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,7 @@ const GALLERY = path.join(MODULE, "..");
 const argv = process.argv.slice(2);
 const outFlag = argv.indexOf("--out");
 const OUT = outFlag >= 0 ? path.resolve(argv[outFlag + 1]) : null;
+const REPO = path.join(GALLERY, "..");
 
 const COMPILED = path.join(MODULE, "bin", "MfilesApp.cjs");
 if (!fs.existsSync(COMPILED)) {
@@ -75,6 +77,68 @@ fs.writeFileSync(
     `export const EXTENSIONS = ${JSON.stringify(extensions)};\n`
 );
 
+// --- the Preview tab's viewers, fonts and sample files ------------------------------
+// The Word viewer, the spreadsheet and the code editor are the gallery's own apps, compiled as
+// they are for their own pages (classic scripts, loaded only when a preview is
+// opened). They take half a minute to compile, so an existing build is kept;
+// `--viewers` compiles them again.
+const VIEWERS = [
+  ["gallery/docx_viewer/web/docx_web.rgr", "docx_web.js"],
+  ["gallery/datagrid/web/datagrid_web.rgr", "datagrid_web.js"],
+  ["gallery/datagrid/web/code_editor_web.rgr", "code_editor_web.js"],
+];
+const VIEWER_DIR = path.join(HERE, "viewers");
+for (const [source, out] of VIEWERS) {
+  if (fs.existsSync(path.join(VIEWER_DIR, out)) && !argv.includes("--viewers")) continue;
+  process.stdout.write(`  compiling ${source} …\n`);
+  const log = execFileSync(process.execPath, ["bin/output.js", "-es6", source, `-d=${VIEWER_DIR}`, `-o=${out}`], {
+    cwd: REPO,
+    env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (log.includes("[FAIL]") || !fs.existsSync(path.join(VIEWER_DIR, out))) {
+    console.error(log.split("\n").filter((l) => l.includes("[FAIL]") || l.includes("rror")).slice(0, 20).join("\n"));
+    console.error(`could not compile ${source}`);
+    process.exit(5);
+  }
+}
+
+const FONT_DIR = path.join(GALLERY, "pdf_writer", "assets", "fonts");
+const FONT_FILES = {
+  "OpenSans-Regular.ttf": "Open_Sans",
+  "OpenSans-Bold.ttf": "Open_Sans",
+  "OpenSans-Italic.ttf": "Open_Sans",
+  "OpenSans-BoldItalic.ttf": "Open_Sans",
+  "NotoSans-Regular.ttf": "Noto_Sans",
+  "NotoSans-Bold.ttf": "Noto_Sans",
+  "NotoEmoji-Regular.ttf": "Noto_Emoji",
+};
+// Every `samples/…` path the sample vault names, and the fixture it is.
+const SAMPLES = {
+  "hello.docx": "docx_viewer/fixtures/hello.docx",
+  "20-business-report.docx": "docx_viewer/fixtures/20-business-report.docx",
+  "styles_demo.docx": "docx_viewer/fixtures/styles_demo.docx",
+  "lists_demo.docx": "docx_viewer/fixtures/lists_demo.docx",
+  "05-table-basic.docx": "docx_viewer/fixtures/05-table-basic.docx",
+  "12-header-footer.docx": "docx_viewer/fixtures/12-header-footer.docx",
+  "sales.xlsx": "datagrid/fixtures/sales.xlsx",
+};
+const vaultSource = fs.readFileSync(path.join(MODULE, "src", "vault", "MfSampleVault.rgr"), "utf8");
+for (const m of vaultSource.matchAll(/"samples\/([^"]+)"/g)) {
+  if (!SAMPLES[m[1]]) {
+    console.error(`the sample vault names samples/${m[1]}, which build.mjs does not know`);
+    process.exit(4);
+  }
+}
+function copyAssets(root) {
+  for (const dir of ["fonts", "samples", "viewers"]) fs.mkdirSync(path.join(root, dir), { recursive: true });
+  for (const [name, dir] of Object.entries(FONT_FILES)) fs.copyFileSync(path.join(FONT_DIR, dir, name), path.join(root, "fonts", name));
+  for (const [name, rel] of Object.entries(SAMPLES)) fs.copyFileSync(path.join(GALLERY, rel), path.join(root, "samples", name));
+  if (root !== HERE) for (const [, out] of VIEWERS) fs.copyFileSync(path.join(VIEWER_DIR, out), path.join(root, "viewers", out));
+}
+copyAssets(HERE);
+
 // --- EVG's browser helpers --------------------------------------------------------
 const ENTRY_IMPORTS = ["evg/gl/evg-webgl.js", "evg/gl/evg-a11y.js", "evg/gl/evg-measure.js", "evg/gl/evg-textinput.js"];
 
@@ -115,7 +179,7 @@ function copyHelpers(root) {
 copyHelpers(HERE);
 
 function assertResolvable(root) {
-  for (const name of ["main.js", "generated-host.js", "generated.js"]) {
+  for (const name of ["main.js", "preview.js", "code-editor.js", "generated-host.js", "generated.js"]) {
     const file = path.join(root, name);
     for (const rel of relativeImports(fs.readFileSync(file, "utf8"))) {
       if (!fs.existsSync(path.join(path.dirname(file), rel))) {
@@ -129,10 +193,11 @@ assertResolvable(HERE);
 
 if (OUT) {
   fs.mkdirSync(OUT, { recursive: true });
-  for (const name of ["index.html", "main.js", "generated-host.js", "generated.js"]) {
+  for (const name of ["index.html", "main.js", "preview.js", "code-editor.js", "generated-host.js", "generated.js"]) {
     fs.copyFileSync(path.join(HERE, name), path.join(OUT, name));
   }
   copyHelpers(OUT);
+  copyAssets(OUT);
   assertResolvable(OUT);
   process.stdout.write(`  ${path.relative(process.cwd(), OUT)}  index.html + ${HELPERS.length + 3} modules\n`);
 } else {

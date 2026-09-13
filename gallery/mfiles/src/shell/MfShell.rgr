@@ -248,11 +248,13 @@ class MfShell {
         if (this.isSelected(ot id)) {
             return
         }
+        ; Selecting is not accessing. The Recent view is ordered by access
+        ; time, and marking a click as an access moved the row out from under
+        ; the pointer — the right-click that followed landed on its neighbour.
         def r (new MfRef)
         r.objectType = ot
         r.id = id
         push selection r
-        vault.markAccessed(ot id)
     }
 
     fn unselect:void (ot:int id:int) {

@@ -422,6 +422,9 @@ class MfObjectFile {
     def size:int 0
     ; What the preview pane shows. The emulator keeps text, not bytes.
     def content:string ""
+    ; A real file to preview instead, where the page has one to fetch — a
+    ; path relative to the page ("samples/hello.docx").
+    def sample:string ""
 
     fn fileName:string () {
         if ((strlen extension) == 0) {
@@ -438,6 +441,7 @@ class MfObjectFile {
         f.extension = extension
         f.size = size
         f.content = content
+        f.sample = sample
         return f
     }
 }
