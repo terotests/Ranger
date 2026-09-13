@@ -322,9 +322,13 @@ class R5App {
     ; renderer takes a family once and the rest as faces.
     fn attachFont:boolean (name:string data:buffer) {
         def ok:boolean (md.attachFont(name data))
-        if ((indexOf name "-") >= 0) {
-            tr.addFaceBytes(data)
-        } {
+        ; The editor draws one face and measures with the same one. Its
+        ; renderer takes a family once and answers `getFont` by the file's own
+        ; family name, so a bold face or a second family handed to it — in
+        ; whatever order the fetches land — would have the caret measured in
+        ; a face the text is not drawn in, a few percent to the right of every
+        ; letter. Only the face the editor draws goes in.
+        if (name == editor.fontFamily) {
             tr.loadFontBytes(name data)
         }
         if ok {

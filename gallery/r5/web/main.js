@@ -823,6 +823,7 @@ function selftest() {
     check("chrome has the rail or the bar", wide ? t.includes("Preview") && t.includes("Export") : t.includes("More") && t.includes("Edit"), `${W}x${H}`);
     if (!wide) { app.setScreen("edit"); window.__redraw(); t = texts(window.__lastChrome); }
     check("editor draws line numbers and text", t.includes("1") && t.some((s) => s.startsWith("#")));
+    check("the editor measures with the face it draws", app.tr.fontFamily === "Open Sans" && app.tr.hasFont);
     check("editor text is markdown-coloured", window.__lastChrome.list.cmds.some((c) => c.k === 3 && c.text.startsWith("#") && c.c && c.c[0] === 5 && c.c[1] === 80));
     app.pointerDown(pane.editor ? 200 : 100, 120, false, 1);
     const before = app.md.sourceText();
