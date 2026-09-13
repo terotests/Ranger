@@ -172,6 +172,97 @@ class FigTest {
         this.check("the page has content" ((array_length page.children) > 0))
     }
 
+    ; A UI is icons and labels with backgrounds behind them, and both were
+    ; missing from the first app exported through this door: the icons because
+    ; an embedded SVG document is not a `d` attribute, the pills because a
+    ; Figma text node's fills are its LETTERS.
+    fn testUiSurvives:void () {
+        print "-- a UI: pills, icons, and the page it was drawn for --"
+        def root:EVGElement (EVGElement.createDiv())
+        root.setAttribute("width" "100%")
+        root.setAttribute("height" "100%")
+        root.markInline("width")
+        root.markInline("height")
+
+        ; A tag pill: a string AND a background.
+        def tag:EVGElement (EVGElement.createDiv())
+        tag.id = "tag"
+        tag.textContent = "kuntosali"
+        tag.setAttribute("width" "80px")
+        tag.setAttribute("height" "20px")
+        tag.setAttribute("background-color" "rgb(20,53,31)")
+        tag.setAttribute("color" "rgb(74,222,128)")
+        tag.setAttribute("border-radius" "10px")
+        tag.markInline("width")
+        tag.markInline("height")
+        tag.markInline("background-color")
+        tag.markInline("color")
+        tag.markInline("border-radius")
+        root.addChild(tag)
+
+        ; An icon: a picture written as a document rather than as one outline.
+        def icon:EVGElement (EVGElement.createDiv())
+        icon.id = "icon"
+        icon.setAttribute("width" "20px")
+        icon.setAttribute("height" "20px")
+        icon.markInline("width")
+        icon.markInline("height")
+        icon.svgSource = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M4 4 L20 4 L20 20 Z' fill='#ff8800'/></svg>"
+        root.addChild(icon)
+
+        def conv (new EvgToScene())
+        ; The document says `100%` of a window it does not name.
+        conv.pageW = 430.0
+        conv.pageH = 932.0
+        def scene:SceneNode (conv.build(root))
+        this.check("laid out on the page it was given" ((scene.w > 429.0) && (scene.w < 431.0)))
+
+        def tagNode:SceneNode (itemAt scene.children 0)
+        this.eqStr("a pill is a frame" tagNode.sourceType "FRAME")
+        this.check("with its background" ((array_length tagNode.fills) > 0))
+        this.eqInt("and the string inside it" (array_length tagNode.children) 1)
+        def inner:SceneNode (itemAt tagNode.children 0)
+        this.eqStr("which is the text" inner.kind "text")
+        this.eqStr("with the characters" inner.text.characters "kuntosali")
+        ; The pill is dark and the letters are light: the two fills must not
+        ; be the same one.
+        def pillFill:SceneFill (itemAt tagNode.fills 0)
+        def inkFill:SceneFill (itemAt inner.fills 0)
+        this.check("the letters are not the pill" (inkFill.g > pillFill.g))
+
+        def iconNode:SceneNode (itemAt scene.children 1)
+        this.check("the icon has shapes" ((array_length iconNode.children) > 0))
+        def shape:SceneNode (itemAt iconNode.children 0)
+        this.eqStr("drawn as vector" shape.kind "path")
+        this.check("with geometry" ((strlen shape.pathData) > 0))
+        this.check("and paint" ((array_length shape.fills) > 0))
+        ; Scaled from the document's 24x24 into the icon's 20x20 box: nothing
+        ; may reach outside it.
+        this.check("inside its box" ((shape.pathW > 19.0) && (shape.pathW < 21.0)))
+        this.eqInt("nothing reported lost" (array_length conv.losses) 0)
+
+        ; A one-line label is sized BY its string, so whoever opens the file
+        ; does not re-break it against a face this layout never measured.
+        this.eqStr("a label sizes itself" inner.text.autoResize "both")
+
+        ; …and it survives the file, with nothing the schema cannot hold.
+        def dropped:[string]
+        def bytes:buffer (SceneToFig.writeNodeReporting(scene "ui.fig" dropped))
+        def p (new FigParser())
+        def back:FigDoc (p.parseBytes(bytes "ui.fig"))
+        this.check(("it parsed " + back.err) back.ok)
+        ; Encoding walks the SCHEMA, so a field nobody declared is written and
+        ; then dropped without a word. `textAutoResize` and `lineHeight` were
+        ; exactly that until the schema grew them.
+        def names:string ""
+        def dj:int 0
+        while (dj < (array_length dropped)) {
+            names = ((names + " ") + (itemAt dropped dj))
+            dj = (dj + 1)
+        }
+        this.check(("the schema holds every field written:" + names) ((array_length dropped) == 0))
+    }
+
     fn testWriterReportsWhatItCannotCarry:void () {
         print "--- the writer says what it dropped ---"
         ; Paths used to be the example here. They are carried now, so the test
@@ -407,6 +498,7 @@ class FigTest {
         this.testRewrite()
         this.testEvgToFig()
         this.testWriterReportsWhatItCannotCarry()
+        this.testUiSurvives()
         this.testPathBlobRoundTrip()
         this.testVectorKeepsItsShape()
         this.testGradientSurvives()

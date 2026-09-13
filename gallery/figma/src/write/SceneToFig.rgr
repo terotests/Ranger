@@ -49,6 +49,11 @@ Import "../../../zip/ZipWriter.rgr"
 class SceneToFig {
     ; Everything this could not express, as "0/2/1: what".
     def losses:[string]
+    ; …and everything the SCHEMA could not express: a field set here that the
+    ; file's own schema does not declare is dropped on the way out, silently,
+    ; because encoding walks the schema. Named here so it is found by reading
+    ; a list rather than by noticing a heading on two lines.
+    def dropped:[string]
     ; The flat node array being built, and the id counter inside the current page.
     def nodes:KiwiValue (KiwiValue.fromArray())
     def nextLocal:int 1
@@ -59,6 +64,8 @@ class SceneToFig {
     Constructor () {
         def a:[string]
         losses = a
+        def b:[string]
+        dropped = b
     }
 
     ; --- the whole file -------------------------------------------------------
@@ -71,6 +78,28 @@ class SceneToFig {
         param doc "The document, whose pages become the file's canvases."
         param fileName "The name recorded in the archive's meta.json."
         returns "The archive bytes."
+    }
+
+    ; The same, and it hands back what the file could not carry — the fields
+    ; the schema does not declare, by name.
+    sfn writeNodeReporting:buffer (root:SceneNode fileName:string report:[string]) {
+        def doc (new SceneDocument())
+        doc.name = fileName
+        def page (new SceneNode())
+        page.name = "Page 1"
+        page.sourceType = "CANVAS"
+        page.w = root.w
+        page.h = root.h
+        push page.children root
+        push doc.pages page
+        def w (new SceneToFig())
+        def bytes:buffer (w.toBytes(doc fileName))
+        def i:int 0
+        while (i < (array_length w.dropped)) {
+            push report (itemAt w.dropped i)
+            i = (i + 1)
+        }
+        return bytes
     }
 
     ; One node, in a file of its own. A scene converted from EVG is a single
@@ -91,7 +120,7 @@ class SceneToFig {
 
     fn toBytes:buffer (doc:SceneDocument fileName:string) {
         def msg:KiwiValue (this.message(doc))
-        def canvas:buffer (FigSample.canvasFrom((FigSample.schema()) msg))
+        def canvas:buffer (FigSample.canvasInto((FigSample.schema()) msg dropped))
         def zip (new ZipWriter())
         zip.create()
         zip.addFile("canvas.fig" canvas)
@@ -291,6 +320,17 @@ class SceneToFig {
             o.put("lineHeight" lh)
         }
         o.put("textAlignHorizontal" (KiwiValue.fromString((SceneToFig.alignOf(t.align)))))
+        ; WHETHER THE BOX HOLDS THE STRING OR THE STRING SIZES THE BOX. A label
+        ; written into a fixed box is re-broken by whoever opens the file, and
+        ; the box came from a layout that measured a DIFFERENT face: a heading
+        ; that was one line in the app wrapped onto two in the file and printed
+        ; over the line beneath it. A label that was one line stays one line.
+        if (t.autoResize == "both") {
+            o.put("textAutoResize" (KiwiValue.fromString("WIDTH_AND_HEIGHT")))
+        }
+        if (t.autoResize == "height") {
+            o.put("textAutoResize" (KiwiValue.fromString("HEIGHT")))
+        }
     }
 
     ; --- shapes ---------------------------------------------------------------

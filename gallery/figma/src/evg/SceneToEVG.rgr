@@ -595,6 +595,14 @@ class SceneToEVG {
             return
         }
         el.textContent = n.text.characters
+        ; A label whose box is sized BY its string is one line by definition,
+        ; and must not be re-broken here: the box was measured against the
+        ; face the document was designed in, and this side rarely has it. Left
+        ; to wrap, a one-line heading came back as two lines printed over the
+        ; paragraph below it.
+        if (n.text.autoResize == "both") {
+            el.setAttribute("white-space" "nowrap")
+        }
         def family:string (assets.resolveFont(n.text.fontFamily))
         if ((strlen family) > 0) {
             el.setAttribute("font-family" family)

@@ -24,7 +24,7 @@ class FigCli {
             print "       fig_cli write-sample <out.fig>"
             print "       fig_cli rewrite <in.fig> <out.fig>   read a file and write it back"
             print "       fig_cli to-evg  <in.fig> <out.evg.json> [page]   one page, as an editable document"
-            print "       fig_cli from-evg <in.evg.json> <out.fig>         an editable document, as a file"
+            print "       fig_cli from-evg <in.evg.json> <out.fig> [w h]   an editable document, as a file"
             return
         }
         def cmd:string (shell_arg 0)
@@ -134,7 +134,7 @@ class FigCli {
         ; And back: an editable document becomes a file Figma opens.
         if (cmd == "from-evg") {
             if (n < 3) {
-                print "usage: fig_cli from-evg <in.evg.json> <out.fig>"
+                print "usage: fig_cli from-evg <in.evg.json> <out.fig> [page-width page-height]"
                 return
             }
             def src4:string (shell_arg 1)
@@ -150,14 +150,37 @@ class FigCli {
                 return
             }
             def conv4 (new EvgToScene())
+            ; The page, when the caller knows it. A UI document says it is
+            ; `100%` of a window it does not name, and laid out against the
+            ; fallback it comes out at the fallback's shape — a phone screen
+            ; stretched across twelve hundred points.
+            if (n > 4) {
+                def wantW@(optional):double (to_double (shell_arg 3))
+                def wantH@(optional):double (to_double (shell_arg 4))
+                if wantW {
+                    conv4.pageW = (unwrap wantW)
+                }
+                if wantH {
+                    conv4.pageH = (unwrap wantH)
+                }
+            }
             def node4:SceneNode (conv4.build((unwrap evg4)))
-            def bytes4:buffer (SceneToFig.writeNode(node4 (FigCli.nameOf(dest4))))
+            def dropped4:[string]
+            def bytes4:buffer (SceneToFig.writeNodeReporting(node4 (FigCli.nameOf(dest4)) dropped4))
             buffer_write_file (FigCli.dirOf(dest4)) (FigCli.nameOf(dest4)) bytes4
             print ("wrote " + dest4 + " (" + (to_string (buffer_length bytes4)) + " bytes)")
             def wi:int 0
             while (wi < (array_length conv4.losses)) {
                 print ("  lost  " + (itemAt conv4.losses wi))
                 wi = (wi + 1)
+            }
+            ; …and what the file's schema had no room for, which is a
+            ; different kind of loss: the value was written and the format
+            ; could not hold it.
+            def di:int 0
+            while (di < (array_length dropped4)) {
+                print ("  no field in the schema for  " + (itemAt dropped4 di))
+                di = (di + 1)
             }
             return
         }

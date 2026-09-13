@@ -1,0 +1,108 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; rt_evg_dump.rgr — the app's screen, written down as an EVG document.
+; ==============================================================================
+;
+;   npm run rt:evg -- / gallery/realtrainer/out/home.evg.json
+;   node gallery/figma/bin/fig_cli.js from-evg out/home.evg.json home.fig 430 932
+;
+; The app builds an element tree every frame and draws it; this stops after the
+; build and writes the tree out instead. What comes out is the same editable
+; document `evg_agent` reads, so a screen of a running app can be measured,
+; patched, rendered to PNG or PDF, or written into a Figma file — without a
+; screenshot anywhere in the chain.
+;
+; It is a REAL screen, not a mock: the stylesheet, the seed and both state
+; machines are the ones the web build embeds, so the tree is what a reader
+; would have seen at that route.
+; ==============================================================================
+
+Import "RtHost.rgr"
+Import "../../evg/EVGTreeJson.rgr"
+
+class RtEvgDump {
+    sfn m@(main):void () {
+        def argc:int (shell_arg_cnt)
+        if (argc < 2) {
+            print "usage: rt-evg <route> <out.evg.json> [width height]"
+            print "       a route (/, /calendar) or a button id (rt-nav-dashboard, rt-nav-chat)"
+            return
+        }
+        def route:string (shell_arg 0)
+        def outPath:string (shell_arg 1)
+        def w:double 430.0
+        def h:double 932.0
+        if (argc > 3) {
+            def wantW@(optional):double (to_double (shell_arg 2))
+            def wantH@(optional):double (to_double (shell_arg 3))
+            if wantW {
+                w = (unwrap wantW)
+            }
+            if wantH {
+                h = (unwrap wantH)
+            }
+        }
+
+        def css@(optional):string (read_file "gallery/realtrainer/web" "realtrainer.css")
+        if css {
+        } {
+            print "cannot read gallery/realtrainer/web/realtrainer.css"
+            return
+        }
+        def compact@(optional):string (read_file "gallery/realtrainer/fixtures" "session.compact")
+        def plan@(optional):string (read_file "gallery/realtrainer/fixtures/machines" "planDialog.machine.json")
+        def chat@(optional):string (read_file "gallery/realtrainer/fixtures/machines" "chat.machine.json")
+        def seed@(optional):string (read_file "gallery/realtrainer/fixtures/reference" "seed.json")
+
+        def host (new RtHost())
+        ; A date, because the app has no clock of its own and the seed's
+        ; entries are anchored to today. Fixed, so two dumps of the same route
+        ; are the same document.
+        host.setToday("2025-03-17")
+        host.start(w h (unwrap css) (?? compact "") (?? plan "") (?? chat "") (?? seed ""))
+        ; A ROUTE, or a BUTTON. Only the calendar is routed in this app;
+        ; everything else is a section the shell switches to when its nav item
+        ; is pressed, so an argument that is not a path is taken as the id of
+        ; the thing to press — `rt-nav-dashboard`, `rt-nav-chat`.
+        if ((charAt route 0) == 47) {
+            host.app.openRoute(route)
+        } {
+            host.app.press(route)
+        }
+        host.app.rebuild()
+        ; Built, and then drawn: `frame` is what forces the layout the tree's
+        ; boxes are read from.
+        def dl:EVGDisplayList (host.frame())
+
+        def r@(optional):EVGElement host.demo.root
+        if r {
+        } {
+            print "the app built no element tree"
+            return
+        }
+        def root:EVGElement (unwrap r)
+        def text:string (EVGTreeJson.toText(root))
+        def cut:int (RtEvgDump.lastSlash(outPath))
+        def dir:string "."
+        def name:string outPath
+        if (cut >= 0) {
+            dir = (substring outPath 0 cut)
+            name = (substring outPath (cut + 1) (strlen outPath))
+        }
+        write_file dir name text
+        print ((("wrote " + outPath) + " — ") + ((host.sectionName()) + ", " + (to_string (array_length dl.cmds)) + " draw commands"))
+    }
+
+    sfn lastSlash:int (path:string) {
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        return at
+    }
+}

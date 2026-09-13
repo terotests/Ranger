@@ -989,6 +989,7 @@
     "rt:coverage": "npm run rt:compact:build --silent && node gallery/realtrainer/scripts/coverage.mjs",
     "rt:coverage:check": "npm run rt:compact:build --silent && node gallery/realtrainer/scripts/coverage.mjs --check",
     "rt:check": "npm run rt:build --silent && node gallery/realtrainer/web/loader-check.mjs",
+    "rt:evg": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr:./lib node bin/output.js -es6 ./gallery/realtrainer/src/rt_evg_dump.rgr -d=./gallery/realtrainer/bin -o=rt_evg_dump.js -nodecli && node ./gallery/realtrainer/bin/rt_evg_dump.js",
     "rt:page": "npm run rt:build --silent && node gallery/realtrainer/web/build.mjs",
     "rt:dom": "npm run rt:page --silent && node gallery/realtrainer/web/dom-check.mjs",
     "rt:shot:sync": "npm run rt:build --silent && node gallery/realtrainer/web/snapshot.mjs",

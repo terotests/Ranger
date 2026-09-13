@@ -61,6 +61,42 @@ npm run figma:from-evg -- page.evg.json edited.fig   # back to a file Figma open
 npm run figma:rewrite  -- in.fig out.fig             # read and write, unchanged
 ```
 
+### A running app, as a file
+
+The first thing put through this door that nobody designed for it was a UI —
+RealTrainer's own screens, taken out of the running app rather than out of a
+fixture:
+
+```bash
+npm run rt:evg -- / gallery/realtrainer/out/home.evg.json
+node gallery/figma/bin/fig_cli.js from-evg \
+     gallery/realtrainer/out/home.evg.json home.fig 430 932
+```
+
+`rt:evg` stops the app after it has built its element tree and writes the tree
+down; the second line turns that into a file. No screenshot anywhere in the
+chain — what lands in Figma is the boxes, the type and the icon outlines.
+
+It found four things, and all four were losses nothing reported:
+
+| | |
+| --- | --- |
+| **the page** | a UI says it is `100%` of a window it does not name, so the conversion fell back to 1200x900 and a phone screen came out stretched across it. `EvgToScene.pageW/pageH` — and the two optional arguments to `from-evg` — are the caller saying which window. |
+| **a label with a background** | a Figma text node's fills are its LETTERS, so an element carrying both a string and a background cannot be one node: written as text it kept the words and lost the pill. Every tag on the page. It is a frame with a text child now. |
+| **an icon** | a picture written as an `svg` DOCUMENT rather than as one `d` attribute reached the file as an empty box — silently, because the path branch only ever looked at `svgPath`. `EvgToScene.putSvg` parses it with the same reader the painters use and writes each shape as a vector child. |
+| **a heading on two lines** | a label written into a fixed box is re-broken by whoever opens the file, against a face the layout never measured. A box that is one line tall now says `textAutoResize: WIDTH_AND_HEIGHT`, so the string sizes the box instead. |
+
+The last of those was lost twice over, and the second reason is the useful one:
+`textAutoResize` and `lineHeight` were both being written and **neither was in
+the schema**. Encoding walks the SCHEMA — `KiwiEncode.encodeMessage` emits the
+fields the schema declares and skips everything else — so a field nobody
+declared is not refused, it simply does not reach the file. Both are declared
+now, and `from-evg` prints what it could not carry:
+
+```text
+  no field in the schema for  NodeChange.textTruncation
+```
+
 ### `sourceType` is why an ellipse survives
 
 `SceneNode.kind` is deliberately small — container, text, image, path — because
