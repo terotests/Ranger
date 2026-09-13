@@ -58,6 +58,33 @@ The same page is published at
 **[terotests.github.io/Ranger/rangerflow/](https://terotests.github.io/Ranger/rangerflow/)**
 by the Pages workflow on every push to `master` that touches `gallery/rangerflow/`.
 
+### Share a diagram, or embed it
+
+**share link** in the header packs the diagram *as edited* into a link: every
+box moved, line routed by hand, label renamed, look and theme. It is the model,
+not the Mermaid text and not a picture, so the link reopens something you can
+keep editing.
+
+```text
+https://terotests.github.io/Ranger/rangerflow/#rf=z…            the editor, on that diagram
+https://terotests.github.io/Ranger/rangerflow/?embed=1#rf=z…    view only: pan and zoom, fitted to its frame
+```
+
+- The document is `FlowDocument` JSON ([export/FlowDocument.rgr](export/FlowDocument.rgr)),
+  deflated and base64url-encoded after `#rf=`. A browser never sends the part
+  after `#` to a server, so nothing is uploaded — and there is no backend to
+  keep it, so a later edit needs a new link.
+- `?embed=1` hides the toolbars, the minimap and the handles, fits the diagram
+  to whatever size the frame is, and turns every press into a pan. A corner
+  link opens the same diagram in the full editor.
+- In Confluence Cloud, paste the embed link and choose the **Embed** view, or
+  use an iframe macro where your site has one. Whether a site shows a
+  github.io page embedded is up to Confluence and the site's admins; if it
+  only offers a link card, the link still opens the diagram.
+- `npm run rangerflow:doc:test` draws every example as SVG, saves it, opens
+  the save in a fresh page and compares the two SVG strings, so a field the
+  document forgets fails a test rather than a reader.
+
 `npm run rangerflow:demo:web` builds the static page, serves it, and prints
 the URLs. They are the same editor with different graphs in it — the `demo`
 dropdown in the page switches between them, and `?scenario=` picks one on load:
