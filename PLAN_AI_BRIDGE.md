@@ -8,7 +8,8 @@ that to Claude Code, to MCP hosts, and to the gallery apps themselves.
 
 The premise is not "put an LLM in Ranger". It is: EVG is a renderer and a
 measurer that needs no browser, so it is the verification loop an agent is
-missing. Everything below is built on one core and four surfaces over it.
+missing. Everything below is one core, four transports over it, and one
+widget that three different windows can host.
 
 ---
 
@@ -22,7 +23,7 @@ actually render:
 | --- | --- | --- |
 | **MCP tools** (text + images) | every MCP host, **including the Claude Code terminal** | **Yes — layer 1.** The base case, and the only one the terminal sees. |
 | **MCP Apps** (`ui://` HTML resource, `text/html;profile=mcp-app`) | Claude.ai, Claude Desktop, VS Code / Copilot, Cursor, Goose, M365 Copilot | **Yes — layer 2.** This is the interactive canvas in the chat thread. |
-| **CLI wrappers / Electron / web shims** | a window you ship yourself | **No.** We are not building another chat client. The one exception is `ranger-vscode-extension`, which already exists and can host a preview panel for free. |
+| **Wrappers / Electron / IDE panels** | a window you ship yourself | **Yes, but not as a chat client — layer 2b/3.** A VS Code panel and an Electron shell are two more *hosts for the same widget bundle*, and the Electron one is the simplest way to put an agent inside a gallery editor. Wrapping the Claude Code chat UI itself (Claudeck-style) is what we skip. |
 | **Standalone app calling the API** | your own app | **Partly — layer 3.** Only for gallery apps that must run outside any MCP host. |
 
 **Correction worth stating once, because it drives the design:** the Claude
@@ -168,52 +169,89 @@ returns the inverse list. Tool input schemas are generated from the Ranger
 `@serialize` class definitions rather than hand-written, so the schema and the
 validator cannot disagree.
 
-## 6. Layer 2 — the MCP App widget (`ui://ranger/doc`)
+## 6. Layer 2 — one widget, three hosts
 
-The interactive canvas, in the chat thread, on hosts that render one.
+The interactive canvas. Written **once** and given a thin adapter per host,
+because all three hosts want the same thing: self-contained HTML in a sandbox
+that talks to its container over `postMessage`.
 
 - **What it is:** the EVG document drawn by `gallery/evg/gl/evg-webgl.js`
-  (111 KB) or the SVG painter, in a pan/zoom canvas, inside the host's
-  sandboxed iframe. Self-contained: no CDN, no web fonts, no external fetch,
-  so the default widget CSP needs no exceptions.
+  (111 KB) or the SVG painter, in a pan/zoom canvas. Self-contained: no CDN,
+  no web fonts, no external fetch — so it passes an MCP App iframe's default
+  CSP with no exceptions declared, and needs no `localResourceRoots` gymnastics
+  in a VS Code webview.
 - **What it sends up:** click a node → the widget posts the selection (path +
-  box + role) back through the host's bidirectional channel, so the user can
-  say "make *this* bigger" and the model knows what "this" is. This is the
-  single biggest quality win in the whole plan: it removes the guess-which-node
-  step entirely.
+  box + role) to its host, so the user can say "make *this* bigger" and the
+  model knows what "this" is. The single biggest quality win in the plan: it
+  removes the guess-which-node step entirely.
 - **What it calls down:** the prompt box and the property panel call
-  `ranger_doc_patch` through the host, and the canvas re-renders from the
-  returned tree. Accept / revert uses the inverse ops.
-- **Where it renders:** Claude.ai, Claude Desktop, Cursor, VS Code / Copilot,
-  Goose. In the Claude Code terminal it degrades to layer 1 — text and a PNG —
-  with no separate code path.
+  `patch`, and the canvas re-renders from the returned tree. Accept / revert
+  uses the inverse ops.
 
-MIME type `text/html;profile=mcp-app`, resource declared as `ui://ranger/doc`
-against the spec's `2026-01-26` revision.
+The whole per-host difference is one file:
 
-## 7. Layer 3 — gallery app → Claude (`ranger agent serve`)
-
-Only for gallery apps that run standalone (the published `rangerflow`,
-`figma` and `markdown` pages), where there is no MCP host to ask.
-
-```
- browser app (EVG/WebGL)
-      │  outline(selection) + user prompt
-      ▼
- local bridge  →  claude -p --output-format json  (MCP server attached,
-      │                                            scoped to this document)
-      ▼  patch ops
- EVGPatch validator in the browser → render → diff preview → accept / undo
+```js
+// host.js — the only thing that varies
+export const host = {
+  callTool(name, args),   // → Promise<result>
+  postSelection(sel),     // widget → host
+  onDocUpdate(cb),        // host → widget
+};
 ```
 
-The app never receives code, only ops, and validates them with the same
-compiled validator the server uses. For `@process`-based apps the ops arrive as
-`proc_send` messages, `markStateDirty()` drives the repaint, and the message log
-is the undo stack — no new machinery.
+| Host | `callTool` goes to | What this host uniquely gives |
+| --- | --- | --- |
+| **2a. MCP App** (`ui://ranger/doc`, `text/html;profile=mcp-app`) | the MCP host, over the spec's JSON-RPC bridge | The canvas lives in the chat thread, on Claude.ai / Desktop / Cursor / VS Code / Goose |
+| **2b. VS Code webview** (`ranger-vscode-extension`) | the extension, which runs the layer-0 CLI | **Live preview beside the terminal Claude Code is running in** — watch the file, re-render on save, see the agent's edits land as they happen |
+| **2c. Electron renderer** (layer 3) | the main process, in-process | No host required at all; the agent is embedded in the app |
 
-**Zero-infrastructure alternative:** publish the EVG app as an Artifact and use
-the artifact runtime's own "ask Claude" capability. No local bridge, no API key
-in the page, and a shareable URL. Worth doing first for a demo.
+In the Claude Code terminal, 2a degrades to layer 1 — text and a PNG — with no
+separate code path. 2b is what covers the terminal properly: the panel is a
+second window next to it, not a replacement for it.
+
+**Why 2b is cheap and worth doing:** `ranger-vscode-extension` already exists
+(LSP client, grammar, snippets) and has no webview yet, so this is additive —
+a `createWebviewPanel`, the same bundle, and a host adapter that shells out to
+`npm run agent`. It is the only surface here that gives a *live* preview rather
+than a per-turn snapshot.
+
+**Licensing seam:** the extension is MIT and the widget bundle is gallery
+(AGPL). The panel therefore ships as a gallery-licensed component the extension
+loads, or the extension grows an AGPL feature directory — decide before writing
+it, not after.
+
+## 7. Layer 3 — an agent inside the app (Electron + Agent SDK)
+
+For gallery apps that must run standalone — the `rangerflow` editor, the
+`figma` viewer, the markdown editor — with no MCP host to ask.
+
+The generic advice here is "wrap the CLI in Electron". The better shape is the
+opposite: **an app that happens to contain an agent**, not a chat client that
+happens to show a document.
+
+```
+  Electron main process
+    ├── @anthropic-ai/claude-agent-sdk   query(prompt, options)
+    ├── EVGPatch validator + RangerDoc   (compiled Ranger, in-process)
+    └── the patch tools as in-process SDK MCP servers
+                  │ IPC (contextBridge preload)
+                  ▼
+  renderer = the existing EVG web app + host.js (2c)
+```
+
+Why this beats the local-HTTP-bridge sketch it replaces: no port, no CORS, no
+second process to supervise, no API key in a page, and the Agent SDK gives
+permission hooks and session resume for free. Tools are registered in-process,
+so the same `EVGPatch` object the renderer validates against is the one the
+agent calls. `claude -p --output-format json` stays as the zero-dependency
+fallback for a plain browser page.
+
+For `@process`-based apps the ops arrive as `proc_send` messages,
+`markStateDirty()` drives the repaint, and the message log is the undo stack.
+
+**Zero-infrastructure alternative, worth doing first for a demo:** publish the
+EVG app as an Artifact and use the artifact runtime's own "ask Claude"
+capability. No Electron, no key, and a shareable URL.
 
 ---
 
@@ -225,8 +263,10 @@ in the page, and a shareable URL. Worth doing first for a demo.
 - **Writing `.fig` back out.** `gallery/figma` is a reader. Output is scene
   JSON, EVG JSON, SVG or PDF.
 - **Free-form CSS strings in a patch.** Validated property names only.
-- **A chat client.** No Electron shim, no web wrapper. `ranger-vscode-extension`
-  gets a preview panel and that is the whole desktop story.
+- **A chat client.** Electron and the VS Code panel are hosts for the *document*
+  widget, never a reimplementation of the Claude Code chat UI. Claudeck-style
+  wrappers solve someone else's problem: Ranger's value is the document
+  surface, and the chat clients that exist are better than one we would write.
 - **A second source of geometry.** `measure()` reads the laid-out tree, exactly
   as `EVGInspect` does. Nothing recomputes a box.
 
@@ -239,8 +279,9 @@ in the page, and a shareable URL. Worth doing first for a demo.
 | **P0** | `EVGPatch.rgr` + `RangerDoc` + `npm run agent` | 3–5 d | Claude Code edits EVG / rangerflow / figma docs in this repo today |
 | **P1** | `.claude/skills/` (`evg-edit`, `rangerflow-diagram`, `ranger-lang`) + SessionStart hook | 1 d | Fewer compile-error loops; repo works in Claude Code on the web |
 | **P2** | `tools/ranger-mcp/` stdio server | 2 d | Any MCP host, any repo, terminal included |
-| **P3** | `ui://ranger/doc` widget | ~1 wk | Click-to-select + prompt box inside the chat thread |
-| **P4** | `ranger agent serve` bridge, or the Artifact route | 3 d | Standalone gallery apps ask Claude |
+| **P3** | the widget bundle + `host.js` + MCP App adapter (2a) | ~1 wk | Click-to-select + prompt box inside the chat thread |
+| **P3b** | VS Code webview adapter (2b) | 1–2 d | Live preview beside the terminal, on the same bundle |
+| **P4** | Electron shell + Agent SDK (2c/3), or the Artifact route | 3–5 d | Standalone gallery apps with an agent inside |
 
 P0 is worth doing whether or not anything after it happens.
 
@@ -251,6 +292,12 @@ All of this lives under `gallery/` (or bridges to it), so it is
 the same license. That is a reasonable place for the dual-licensing offer: the
 AI bridge is exactly the component a commercial user wants and the one least
 entangled with the MIT compiler core.
+
+One seam needs deciding before code, not after: `ranger-vscode-extension` is
+**MIT** and the widget bundle it would load is gallery/AGPL. Either the panel
+ships as a separate gallery-licensed component the extension loads, or the
+extension grows an explicitly AGPL feature directory. The Electron shell has no
+such problem — it is a gallery app end to end.
 
 ## 11. Open questions
 
