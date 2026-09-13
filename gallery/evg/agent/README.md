@@ -118,14 +118,17 @@ nothing below is a special path for agents:
 
 ```bash
 # a .tsx document (with its stylesheet resolved in) -> the editable format
-node gallery/pdf_writer/bin/evg_json_tool.js page.tsx page.evg.json \
-  -css themes/showcase.css -theme editorial
+npm run agent:import -- page.tsx page.evg.json -css themes/showcase.css -theme editorial
 
 # the editable format -> a picture to look at
-node gallery/pdf_writer/bin/evg_png_tool.js page.evg.json page.png
-node gallery/pdf_writer/bin/evg_html_tool.js page.evg.json page.html
-node gallery/pdf_writer/bin/evg_pdf_tool.js page.evg.json page.pdf
+npm run agent:render -- page.evg.json page.png
+npm run agent:html   -- page.evg.json page.html
 ```
+
+These build the tool if it is not there and then run it — the compiled
+JavaScript under `gallery/pdf_writer/bin/` is not in the repository, because a
+regenerated bundle is 40 000 lines of diff nobody can review. Running the tool
+directly with `node` works too, once something has built it.
 
 There is no `render` verb here, and that is deliberate: the painters already
 exist and adding a second entry point to them would be two things to keep

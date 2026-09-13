@@ -1,0 +1,117 @@
+---
+name: evg-edit
+description: Read, change and check an EVG document — a `.evg.json` file, or a `.tsx` page under gallery/evg/showcase — without guessing. Use when asked to change what a page, card, chart, diagram or PDF looks like; to move, restyle, retitle or add an element; to find out why a layout is wrong; or to check whether text overflows, boxes overlap or something is off the page. Also use before editing a `.tsx` showcase page by hand, because converting it first gives addresses and a verifier.
+---
+
+# Editing an EVG document
+
+Do not edit an EVG document by rewriting its source and re-rendering to see what
+happened. There is a tool surface that gives you addresses, validated edits,
+an undo, and a numeric verdict on the result. Full reference:
+`gallery/evg/agent/README.md`.
+
+## The loop
+
+```bash
+npm run agent -- outline <doc.evg.json>          # 1. addresses
+npm run agent -- patch   <doc.evg.json> ops.json # 2. change it
+npm run agent -- measure <doc.evg.json>          # 3. is it wrong?
+```
+
+Then look at it only if the question is about taste:
+
+```bash
+node gallery/pdf_writer/bin/evg_png_tool.js <doc.evg.json> out.png
+```
+
+## 1. Addresses, not guesses
+
+`outline` prints one line per node: its path, its tag, its class, its text, and
+only the properties it actually sets.
+
+```
+0/0                     div .card  width=320px  background-color=rgb(255,255,255)
+0/0/k:title               span "Orders"  font-size=20px
+```
+
+Paths are `EVGInspect` paths — `0` the root, `0/3` its fourth child,
+`0/3/k:share` a child with a `key`. **Unkeyed paths shift when a sibling is
+inserted above them**, so re-run `outline` after any structural op rather than
+reusing an address across edits.
+
+`--depth=N` and `--at=PATH` narrow it. A truncated outline says so; never
+describe a document from a truncated one.
+
+Finding something: `npm run agent -- query <doc> .card` (also `#id`, a bare
+tag, or a path).
+
+## 2. Ops are the only way to change it
+
+```json
+{"ops":[
+  {"op":"set-text","at":"0/0/k:title","value":"Invoices"},
+  {"op":"set-prop","at":"0/0","prop":"background-color","value":"rgb(255,251,235)"},
+  {"op":"insert","at":"0/0","index":2,"tag":"span"},
+  {"op":"remove","at":"0/1"},
+  {"op":"move","at":"0/0/k:sub","to":"0/1","index":0}
+]}
+```
+
+Three things to know, because they change how you write ops:
+
+- **A rejected op fails the whole batch and changes nothing.** So a batch is
+  safe to attempt — you never have to work out what half-applied.
+- **Only properties the engine implements are accepted.** `aspect-ratio` and
+  friends are rejected with a reason. Do not work around a rejection by writing
+  the value somewhere else; report it.
+- **`patch` prints the inverse as a runnable ops file.** Save it. To undo, run
+  those ops *in reverse order*.
+
+Colours read back as `rgb(r,g,b)`; that is the canonical form, `#rrggbb` is
+accepted on the way in.
+
+## 3. Check with numbers before you look at a picture
+
+```bash
+npm run agent -- measure <doc.evg.json> --width=600 --height=400
+{"findings":["0/0/0 overflows its parent to the right by 200"],"count":1}
+```
+
+It lays the document out and reports text past its box, siblings on top of each
+other, and nodes off the page. **Use this instead of rendering a PNG to check
+correctness** — it is exact and costs a fraction of the tokens. Render only to
+judge how something looks.
+
+## Getting a real document in
+
+A `.tsx` page is not directly editable this way. Convert it first, resolving its
+stylesheet in:
+
+```bash
+node gallery/pdf_writer/bin/evg_json_tool.js gallery/evg/showcase/pages/cards.tsx \
+  gallery/evg/showcase/pages/cards.evg.json \
+  -css gallery/evg/showcase/themes/showcase.css -theme editorial
+```
+
+The converter checks itself — it lays out both trees and compares their boxes
+and their draw commands — and names anything it had to drop. **Read that
+report.** `-strict` makes a lossy conversion a failure.
+
+Two consequences worth knowing: theming is baked in (re-theming means
+converting again from the `.tsx`), and the converted file is a *new* document —
+editing it does not change the `.tsx` it came from. If the `.tsx` is the file
+that must change, use the conversion to find out *what* to change, then make
+that edit in the `.tsx` by hand.
+
+## Before you claim it works
+
+```bash
+npm run evg:patch:test    # the op language and the format
+npm run agent:smoke       # the four verbs
+npm run agent:roundtrip   # every showcase page, converted and re-rendered
+```
+
+`agent:roundtrip` is the one that catches a property the format cannot carry:
+it requires the PNG rendered from a conversion to be byte-identical to the PNG
+rendered from the original. If you add a property to `EVGPatch.patchableNames()`,
+run it.

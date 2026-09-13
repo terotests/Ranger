@@ -1,0 +1,21 @@
+# Compiler output. Every file ignored here is produced by a named npm script —
+# `evgpdf:compile`, `evghtml:compile`, `evgjson:compile`, `pdf-tool:cli:png` and
+# the rest — so a clone rebuilds it rather than carrying it. They were tracked
+# until now, and 170 000 lines of regenerated bundle in a diff is what that cost:
+# a twelve-line source change arrived as a file nobody could review.
+#
+# Seven files in this directory are still tracked, deliberately. Nothing in
+# package.json builds them, so ignoring them would be losing them, not tidying
+# them: component_engine_module.cjs, evg_html_tool.go, evg_raster_test.js,
+# evg_raster_text_test.js, evg_single_char_test.js, progressive_jpeg_test.js,
+# variant.hpp. (evg_html_tool.go is the odd one: evghtml:compile writes the
+# JavaScript only, so whatever produced the Go is not in package.json.) Git keeps
+# tracking a file it already tracks whatever this file says, so they are safe
+# where they are — but if you work out which source produces one, give it a
+# compile script and it can go too.
+*.js
+*.cjs
+*.go
+*.cpp
+*.rs
+*.hpp
