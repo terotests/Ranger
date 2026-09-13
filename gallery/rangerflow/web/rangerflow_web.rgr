@@ -1881,6 +1881,7 @@ class RangerFlowWeb {
             return d
         }
         def m:string "flowchart\tflowchart"
+        m = (m + "|subgraphs\tsubgraphs (a match schedule)")
         m = (m + "|sequence\tsequence diagram")
         m = (m + "|class\tclass diagram")
         m = (m + "|state\tstate diagram")
@@ -2189,6 +2190,68 @@ class RangerFlowWeb {
     }
 
     sfn mermaidSample:string (name:string) {
+        ; Eight groups, one chain of games through five of them: the chart
+        ; that showed a global layout cannot lay out subgraphs. Each day is
+        ; laid out on its own and placed as one box — see
+        ; `layout/CompoundLayout.rgr`.
+        if (name == "subgraphs") {
+            def t0:string "flowchart TB\n"
+            t0 = (t0 + "    TITLE[\"🏐 CEV EuroVolley 2026<br/>Tampere – Nokia Arena<br/>Lohko C\"]\n")
+            t0 = (t0 + "\n")
+            t0 = (t0 + "    TITLE --> D1\n")
+            t0 = (t0 + "    TITLE --> D2\n")
+            t0 = (t0 + "    TITLE --> D3\n")
+            t0 = (t0 + "    TITLE --> D4\n")
+            t0 = (t0 + "    TITLE --> D5\n")
+            t0 = (t0 + "    TITLE --> D6\n")
+            t0 = (t0 + "    TITLE --> D7\n")
+            t0 = (t0 + "    TITLE --> D8\n")
+            t0 = (t0 + "\n")
+            t0 = (t0 + "    subgraph D1[\"TO 10.9.\"]\n")
+            t0 = (t0 + "        M1[\"20:00 🇫🇮 SUOMI<br/>vs<br/>🇩🇰 TANSKA\"]\n")
+            t0 = (t0 + "    end\n")
+            t0 = (t0 + "\n")
+            t0 = (t0 + "    subgraph D2[\"PE 11.9.\"]\n")
+            t0 = (t0 + "        M2[\"17:00 🇳🇱 ALANKOMAAT<br/>vs<br/>🇧🇪 BELGIA\"]\n")
+            t0 = (t0 + "        M3[\"20:00 🇷🇸 SERBIA<br/>vs<br/>🇪🇪 VIRO\"]\n")
+            t0 = (t0 + "    end\n")
+            t0 = (t0 + "\n")
+            t0 = (t0 + "    subgraph D3[\"LA 12.9.\"]\n")
+            t0 = (t0 + "        M4[\"15:00 🇩🇰 TANSKA<br/>vs<br/>🇳🇱 ALANKOMAAT\"]\n")
+            t0 = (t0 + "        M5[\"18:00 🇧🇪 BELGIA<br/>vs<br/>🇫🇮 SUOMI\"]\n")
+            t0 = (t0 + "    end\n")
+            t0 = (t0 + "\n")
+            t0 = (t0 + "    subgraph D4[\"SU 13.9.\"]\n")
+            t0 = (t0 + "        M6[\"15:00 🇪🇪 VIRO<br/>vs<br/>🇩🇰 TANSKA\"]\n")
+            t0 = (t0 + "        M7[\"18:00 🇫🇮 SUOMI<br/>vs<br/>🇷🇸 SERBIA\"]\n")
+            t0 = (t0 + "    end\n")
+            t0 = (t0 + "\n")
+            t0 = (t0 + "    subgraph D5[\"MA 14.9.\"]\n")
+            t0 = (t0 + "        M8[\"17:00 🇷🇸 SERBIA<br/>vs<br/>🇳🇱 ALANKOMAAT\"]\n")
+            t0 = (t0 + "        M9[\"20:00 🇪🇪 VIRO<br/>vs<br/>🇧🇪 BELGIA\"]\n")
+            t0 = (t0 + "    end\n")
+            t0 = (t0 + "\n")
+            t0 = (t0 + "    subgraph D6[\"TI 15.9.\"]\n")
+            t0 = (t0 + "        M10[\"17:00 🇧🇪 BELGIA<br/>vs<br/>🇩🇰 TANSKA\"]\n")
+            t0 = (t0 + "        M11[\"20:00 🇳🇱 ALANKOMAAT<br/>vs<br/>🇫🇮 SUOMI\"]\n")
+            t0 = (t0 + "    end\n")
+            t0 = (t0 + "\n")
+            t0 = (t0 + "    subgraph D7[\"KE 16.9.\"]\n")
+            t0 = (t0 + "        M12[\"17:00 🇩🇰 TANSKA<br/>vs<br/>🇷🇸 SERBIA\"]\n")
+            t0 = (t0 + "        M13[\"20:00 🇳🇱 ALANKOMAAT<br/>vs<br/>🇪🇪 VIRO\"]\n")
+            t0 = (t0 + "    end\n")
+            t0 = (t0 + "\n")
+            t0 = (t0 + "    subgraph D8[\"TO 17.9.\"]\n")
+            t0 = (t0 + "        M14[\"17:00 🇷🇸 SERBIA<br/>vs<br/>🇧🇪 BELGIA\"]\n")
+            t0 = (t0 + "        M15[\"20:00 🇫🇮 SUOMI<br/>vs<br/>🇪🇪 VIRO\"]\n")
+            t0 = (t0 + "    end\n")
+            t0 = (t0 + "\n")
+            t0 = (t0 + "    M1 --> M5 --> M7 --> M11 --> M15\n")
+            t0 = (t0 + "\n")
+            t0 = (t0 + "    classDef fin fill:#dff0ff,stroke:#005bbb,stroke-width:3px,color:#111;\n")
+            t0 = (t0 + "    class M1,M5,M7,M11,M15 fin;\n")
+            return t0
+        }
         if (name == "sequence") {
             def t:string "sequenceDiagram\n"
             t = (t + "    autonumber\n")

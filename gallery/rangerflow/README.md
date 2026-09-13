@@ -278,9 +278,21 @@ the group, and one arrow is drawn to its frame. Mermaid keeps `O` as a vertex
 all the same — the clustering is a drawing decision, not a parsing one — so the
 model here says what Mermaid's says and only the drawing differs.
 
-What it drops on purpose: `click` (there is no browser to navigate),
-`linkStyle` by index, and `direction` inside a subgraph — RangerFlow lays the
-whole chart out one way. They are ignored rather than treated as errors, so a
+Subgraphs are laid out **from the inside out** ([layout/CompoundLayout.rgr](layout/CompoundLayout.rgr)):
+each group on its own — its members, its nested groups, only the links that
+stay inside it, and its own `direction` if it wrote one — and then as one box
+of that size in its parent's layout. A frame is as small as what it holds,
+never covers another, and never has a stranger's node in it. The groups keep
+the order they were written in as far as the edges allow, so a schedule listed
+day by day reads day by day: the days one team's games chain through stand in
+one column, with those games at the edge of each day's frame, and the other
+days beside them in their rows. A line from outside a group is routed round
+its frame, not across it, and the router keeps a line off the lines already
+drawn. The *subgraphs* example in the page is the schedule that showed why a
+global layout could not do this.
+
+What it drops on purpose: `click` (there is no browser to navigate) and
+`linkStyle` by index. They are ignored rather than treated as errors, so a
 diagram that renders in Mermaid renders here too. The other diagrams Mermaid
 draws are recognised by their header and handed to the reader that knows them —
 never to this one, because a git graph read as a flowchart would be a page of

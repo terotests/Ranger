@@ -47,10 +47,11 @@
 ;   * quoted labels, `<br/>` and the five HTML entities Mermaid documents
 ;
 ; **What it ignores, on purpose.** `click` (there is no browser to navigate),
-; `linkStyle` by index, `direction` inside a subgraph (RangerFlow lays the
-; whole chart out one way), and the ELK/ dagre renderer switches. They are read
+; `linkStyle` by index, and the ELK/ dagre renderer switches. They are read
 ; and dropped rather than treated as errors: a diagram that renders in Mermaid
-; renders here, minus the things a printed page cannot do.
+; renders here, minus the things a printed page cannot do. `direction` inside
+; a subgraph is honoured: each group is laid out on its own, its way, and
+; then placed as one box in the chart — see `layout/CompoundLayout.rgr`.
 ;
 ; **Where it differs.** Mermaid measures text in a browser and this measures it
 ; with a font table, so line breaks can land one word apart; a double circle is
@@ -62,6 +63,7 @@
 Import "../flowchart/Flowchart.rgr"
 Import "../../core/FlowStyleSheet.rgr"
 Import "../../layout/LayeredLayout.rgr"
+Import "../../layout/CompoundLayout.rgr"
 Import "../../layout/EdgeLanes.rgr"
 Import "../../layout/OrthoRouter.rgr"
 
@@ -221,6 +223,10 @@ class MermaidSubgraph {
     def parent:string ""
     def depth:int 0
     def members:[string]
+    ; `direction LR` written inside the block: the group is laid out that
+    ; way, whatever the chart does. "" takes the enclosing group's, or the
+    ; chart's.
+    def direction:string ""
 
     Constructor () {
     }
@@ -904,529 +910,6 @@ class MermaidDiagram {
         }
     }
 
-    ; ------------------------------------------------------------- bands ----
-    ; Keeping a group's members together within a layer is enough while the
-    ; group lives in one or two layers. A group whose members span the whole
-    ; drawing — `c1` in the first layer and `c2` in the last, with two other
-    ; groups' members in between — gets a frame that swallows everything
-    ; between them, and three frames drawn over one another is a picture
-    ; nobody can read. So when the frames as placed would overlap, or take
-    ; in a node that is not theirs, the layers are laid out again in BANDS:
-    ; every group gets a column of its own across the flow, wide enough for
-    ; the widest layer of it, nested groups in columns inside their parent's,
-    ; and the nodes in no group in a column of their own. A frame is then a
-    ; band's width and never crosses another's. The cost is the crossings
-    ; the ordering pass had minimised, which the bands keep only as far as
-    ; their left-to-right order — by the mean of where their members were.
-    fn bandLayers:int (g:FlowGraph lay:LayeredLayout) {
-        if ((array_length subgraphs) == 0) {
-            return 0
-        }
-        if ((this.framesCollide(g)) == false) {
-            return 0
-        }
-        def horiz:boolean (this.horizontal())
-        def moved:int (this.placeBand(g lay "" 0.0 horiz))
-        def i:int 0
-        while (i < (g.nodeCount())) {
-            def n:FlowNode (g.nodeAt(i))
-            n.syncFromModel()
-            i = (i + 1)
-        }
-        return moved
-    }
-
-    ; A node that is not a group's but stands half inside its frame — the
-    ; frame is drawn wider than its members by a bar, a head and a pad, and
-    ; the layout placed the neighbour right up against the members — is
-    ; moved across the flow until it is clear of the frame, and whatever
-    ; stood beyond it in the same layer moves with it. A node drawn across
-    ; a frame's border reads as half in the group, which is a lie.
-    fn pushOutOfFrames:int (g:FlowGraph lay:LayeredLayout) {
-        if ((array_length subgraphs) == 0) {
-            return 0
-        }
-        def horiz:boolean (this.horizontal())
-        def moved:int 0
-        def round:int 0
-        while (round < 3) {
-            def any:int 0
-            def a:int 0
-            while (a < (array_length subgraphs)) {
-                def sg:MermaidSubgraph (itemAt subgraphs a)
-                def r:FlowRect (this.groupBounds(g sg.id))
-                if r.valid {
-                    ; The frame as it will be drawn, plus a little air.
-                    def fx:double ((r.x - 34.0) - 8.0)
-                    def fy:double ((r.y - 42.0) - 8.0)
-                    def fr:double ((r.x + r.w) + 28.0)
-                    def fb:double ((r.y + r.h) + 28.0)
-                    if horiz {
-                        fx = ((r.x - 42.0) - 8.0)
-                        fy = ((r.y - 34.0) - 8.0)
-                    }
-                    def i:int 0
-                    while (i < (g.nodeCount())) {
-                        def n:FlowNode (g.nodeAt(i))
-                        def foreign:boolean (n.nodeType != "group")
-                        if foreign {
-                            def owner:string (this.ownerOf(n.id))
-                            if ((strlen owner) > 0) {
-                                if (this.isWithin(owner sg.id)) {
-                                    foreign = false
-                                }
-                            }
-                        }
-                        if foreign {
-                            def inside:boolean true
-                            if ((n.x + n.width) <= fx) { inside = false }
-                            if (n.x >= fr) { inside = false }
-                            if ((n.y + n.height) <= fy) { inside = false }
-                            if (n.y >= fb) { inside = false }
-                            if inside {
-                                ; Out by the shorter way across the flow.
-                                def toHigh:double (fr - n.x)
-                                def toLow:double ((n.x + n.width) - fx)
-                                if horiz {
-                                    toHigh = (fb - n.y)
-                                    toLow = ((n.y + n.height) - fy)
-                                }
-                                def shift:double toHigh
-                                if (toLow < toHigh) {
-                                    shift = (0.0 - toLow)
-                                }
-                                this.shiftBeyond(g lay i shift horiz)
-                                any = (any + 1)
-                            }
-                        }
-                        i = (i + 1)
-                    }
-                }
-                a = (a + 1)
-            }
-            moved = (moved + any)
-            if (any == 0) {
-                round = 3
-            } {
-                round = (round + 1)
-            }
-        }
-        return moved
-    }
-
-    ; Move a node across the flow, and every node of its layer that stands
-    ; on the side it is moving towards along with it, so nothing is pushed
-    ; onto a neighbour.
-    fn shiftBeyond:void (g:FlowGraph lay:LayeredLayout idx:int shift:double horiz:boolean) {
-        def n:FlowNode (g.nodeAt(idx))
-        def from:double (MermaidDiagram.crossOf(n horiz))
-        def layer:int (itemAt lay.layerOf idx)
-        def i:int 0
-        while (i < (g.nodeCount())) {
-            def other:FlowNode (g.nodeAt(i))
-            def go:boolean (i == idx)
-            if (go == false) {
-                if (i < (array_length lay.layerOf)) {
-                    if ((itemAt lay.layerOf i) == layer) {
-                        if (other.nodeType != "group") {
-                            def at:double (MermaidDiagram.crossOf(other horiz))
-                            if (shift > 0.0) {
-                                if (at > from) { go = true }
-                            } {
-                                if (at < from) { go = true }
-                            }
-                        }
-                    }
-                }
-            }
-            if go {
-                if horiz {
-                    other.y = (other.y + shift)
-                } {
-                    other.x = (other.x + shift)
-                }
-                other.syncFromModel()
-            }
-            i = (i + 1)
-        }
-    }
-
-    ; The bounds of a group's nodes and, through them, of its groups.
-    fn groupBounds:FlowRect (g:FlowGraph sgId:string) {
-        def r (new FlowRect)
-        def at:int (this.indexOfSubgraph(sgId))
-        if (at < 0) {
-            return r
-        }
-        def sg:MermaidSubgraph (itemAt subgraphs at)
-        def i:int 0
-        while (i < (array_length sg.members)) {
-            def mid:string (itemAt sg.members i)
-            if (g.hasNode(mid)) {
-                def n:FlowNode (g.nodeById(mid))
-                MermaidDiagram.growRect(r n.x n.y n.width n.height)
-            }
-            i = (i + 1)
-        }
-        def k:int 0
-        while (k < (array_length subgraphs)) {
-            def child:MermaidSubgraph (itemAt subgraphs k)
-            if (child.parent == sgId) {
-                def cr:FlowRect (this.groupBounds(g child.id))
-                if cr.valid {
-                    MermaidDiagram.growRect(r cr.x cr.y cr.w cr.h)
-                }
-            }
-            k = (k + 1)
-        }
-        return r
-    }
-
-    sfn growRect:void (r:FlowRect x:double y:double w:double h:double) {
-        if (r.valid == false) {
-            r.x = x
-            r.y = y
-            r.w = w
-            r.h = h
-            r.valid = true
-            return
-        }
-        def right:double (r.x + r.w)
-        def bottom:double (r.y + r.h)
-        if ((x + w) > right) {
-            right = (x + w)
-        }
-        if ((y + h) > bottom) {
-            bottom = (y + h)
-        }
-        if (x < r.x) {
-            r.x = x
-        }
-        if (y < r.y) {
-            r.y = y
-        }
-        r.w = (right - r.x)
-        r.h = (bottom - r.y)
-    }
-
-    ; Whether a group's nodes lie inside another's, or a node that is not a
-    ; group's lies inside its frame — the two ways a frame lies about what
-    ; it holds.
-    fn framesCollide:boolean (g:FlowGraph) {
-        def a:int 0
-        while (a < (array_length subgraphs)) {
-            def sa:MermaidSubgraph (itemAt subgraphs a)
-            def ra:FlowRect (this.groupBounds(g sa.id))
-            if ra.valid {
-                def b:int 0
-                while (b < (array_length subgraphs)) {
-                    if (b != a) {
-                        def sb:MermaidSubgraph (itemAt subgraphs b)
-                        if ((this.isWithin(sb.id sa.id)) == false) {
-                            if ((this.isWithin(sa.id sb.id)) == false) {
-                                def rb:FlowRect (this.groupBounds(g sb.id))
-                                if rb.valid {
-                                    if (ra.overlaps(rb)) {
-                                        return true
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    b = (b + 1)
-                }
-                def i:int 0
-                while (i < (g.nodeCount())) {
-                    def n:FlowNode (g.nodeAt(i))
-                    if (n.nodeType != "group") {
-                        def owner:string (this.ownerOf(n.id))
-                        def ours:boolean false
-                        if ((strlen owner) > 0) {
-                            ours = (this.isWithin(owner sa.id))
-                        }
-                        if (ours == false) {
-                            def cx:double (n.x + (n.width * 0.5))
-                            def cy:double (n.y + (n.height * 0.5))
-                            if (cx > ra.x) {
-                                if (cx < (ra.x + ra.w)) {
-                                    if (cy > ra.y) {
-                                        if (cy < (ra.y + ra.h)) {
-                                            return true
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    i = (i + 1)
-                }
-            }
-            a = (a + 1)
-        }
-        return false
-    }
-
-    ; Whether `inner` is `outer`, or nested somewhere inside it.
-    fn isWithin:boolean (inner:string outer:string) {
-        def cur:string inner
-        def guard:int 0
-        while (guard < 64) {
-            if (cur == outer) {
-                return true
-            }
-            def at:int (this.indexOfSubgraph(cur))
-            if (at < 0) {
-                return false
-            }
-            def sg:MermaidSubgraph (itemAt subgraphs at)
-            cur = sg.parent
-            if ((strlen cur) == 0) {
-                return false
-            }
-            guard = (guard + 1)
-        }
-        return false
-    }
-
-    ; The nodes a band holds directly: the group's own members, or, for the
-    ; root, every node in no group.
-    fn directNodes:[int] (g:FlowGraph sgId:string) {
-        def out:[int]
-        def i:int 0
-        while (i < (g.nodeCount())) {
-            def n:FlowNode (g.nodeAt(i))
-            if (n.nodeType != "group") {
-                if ((this.ownerOf(n.id)) == sgId) {
-                    push out i
-                }
-            }
-            i = (i + 1)
-        }
-        return out
-    }
-
-    sfn crossOf:double (n:FlowNode horiz:boolean) {
-        if horiz { return n.y }
-        return n.x
-    }
-
-    sfn crossSize:double (n:FlowNode horiz:boolean) {
-        if horiz { return n.height }
-        return n.width
-    }
-
-    ; The widest layer of a band's own nodes.
-    fn directWidth:double (g:FlowGraph lay:LayeredLayout sgId:string horiz:boolean) {
-        def own:[int] (this.directNodes(g sgId))
-        def widest:double 0.0
-        def gap:double lay.nodeGap
-        def l:int 0
-        while (l < 400) {
-            def total:double 0.0
-            def count:int 0
-            def i:int 0
-            while (i < (array_length own)) {
-                def ni:int (itemAt own i)
-                if ((itemAt lay.layerOf ni) == l) {
-                    def n:FlowNode (g.nodeAt(ni))
-                    total = (total + (MermaidDiagram.crossSize(n horiz)))
-                    count = (count + 1)
-                }
-                i = (i + 1)
-            }
-            if (count > 1) {
-                total = (total + (gap * (to_double (count - 1))))
-            }
-            if (total > widest) {
-                widest = total
-            }
-            l = (l + 1)
-        }
-        return widest
-    }
-
-    ; A band's full width: its columns, the gaps between them, and the room
-    ; a frame takes round a group — the bar down its left, the pad on its
-    ; right, and a little air so two frames never touch.
-    fn bandWidth:double (g:FlowGraph lay:LayeredLayout sgId:string horiz:boolean) {
-        def cols:[string] (this.bandColumns(g sgId horiz))
-        def total:double 0.0
-        def i:int 0
-        while (i < (array_length cols)) {
-            def col:string (itemAt cols i)
-            def w:double 0.0
-            if (col == "*") {
-                w = (this.directWidth(g lay sgId horiz))
-            } {
-                w = (this.bandWidth(g lay col horiz))
-            }
-            if (i > 0) {
-                total = (total + lay.nodeGap)
-            }
-            total = (total + w)
-            i = (i + 1)
-        }
-        if ((strlen sgId) > 0) {
-            total = (total + (MermaidDiagram.bandPadLeft(horiz)))
-            total = (total + (MermaidDiagram.bandPadRight(horiz)))
-        }
-        return total
-    }
-
-    ; Down the page a frame carries a bar on its left and a pad on its
-    ; right; across it, the head above and the pad below.
-    sfn bandPadLeft:double (horiz:boolean) {
-        if horiz { return 50.0 }
-        return 42.0
-    }
-
-    sfn bandPadRight:double (horiz:boolean) {
-        return 28.0
-    }
-
-    ; The columns of a band, left to right: its child groups and "*" for
-    ; its own nodes, ordered by the mean of where their nodes were.
-    fn bandColumns:[string] (g:FlowGraph sgId:string horiz:boolean) {
-        def ids:[string]
-        def means:[double]
-        def own:[int] (this.directNodes(g sgId))
-        if ((array_length own) > 0) {
-            def sum:double 0.0
-            def i:int 0
-            while (i < (array_length own)) {
-                def n:FlowNode (g.nodeAt((itemAt own i)))
-                def half:double ((MermaidDiagram.crossSize(n horiz)) * 0.5)
-                sum = (sum + ((MermaidDiagram.crossOf(n horiz)) + half))
-                i = (i + 1)
-            }
-            push ids "*"
-            push means (sum / (to_double (array_length own)))
-        }
-        def k:int 0
-        while (k < (array_length subgraphs)) {
-            def child:MermaidSubgraph (itemAt subgraphs k)
-            if (child.parent == sgId) {
-                def r:FlowRect (this.groupBounds(g child.id))
-                if r.valid {
-                    push ids child.id
-                    if horiz {
-                        push means (r.y + (r.h * 0.5))
-                    } {
-                        push means (r.x + (r.w * 0.5))
-                    }
-                }
-            }
-            k = (k + 1)
-        }
-        def order:[int]
-        def m:int 0
-        while (m < (array_length ids)) {
-            push order m
-            m = (m + 1)
-        }
-        def a:int 1
-        while (a < (array_length order)) {
-            def b:int a
-            while (b > 0) {
-                def hi:int (itemAt order b)
-                def lo:int (itemAt order (b - 1))
-                if ((itemAt means hi) < (itemAt means lo)) {
-                    set_at order b lo
-                    set_at order (b - 1) hi
-                    b = (b - 1)
-                } {
-                    b = 0
-                }
-            }
-            a = (a + 1)
-        }
-        def out:[string]
-        def o:int 0
-        while (o < (array_length order)) {
-            push out (itemAt ids (itemAt order o))
-            o = (o + 1)
-        }
-        return out
-    }
-
-    ; Lay a band out from `x0`, column by column, and its nodes layer by
-    ; layer centred in their column. Returns how many nodes moved.
-    fn placeBand:int (g:FlowGraph lay:LayeredLayout sgId:string x0:double horiz:boolean) {
-        def moved:int 0
-        def x:double x0
-        if ((strlen sgId) > 0) {
-            x = (x + (MermaidDiagram.bandPadLeft(horiz)))
-        }
-        def cols:[string] (this.bandColumns(g sgId horiz))
-        def i:int 0
-        while (i < (array_length cols)) {
-            def col:string (itemAt cols i)
-            if (i > 0) {
-                x = (x + lay.nodeGap)
-            }
-            if (col == "*") {
-                def w:double (this.directWidth(g lay sgId horiz))
-                moved = (moved + (this.placeOwnNodes(g lay sgId x w horiz)))
-                x = (x + w)
-            } {
-                moved = (moved + (this.placeBand(g lay col x horiz)))
-                x = (x + (this.bandWidth(g lay col horiz)))
-            }
-            i = (i + 1)
-        }
-        return moved
-    }
-
-    fn placeOwnNodes:int (g:FlowGraph lay:LayeredLayout sgId:string x0:double width:double horiz:boolean) {
-        def own:[int] (this.directNodes(g sgId))
-        def moved:int 0
-        def l:int 0
-        while (l < 400) {
-            def here:[int]
-            def i:int 0
-            while (i < (array_length own)) {
-                def ni:int (itemAt own i)
-                if ((itemAt lay.layerOf ni) == l) {
-                    push here ni
-                }
-                i = (i + 1)
-            }
-            if ((array_length here) > 0) {
-                def sorted:[int] (MermaidDiagram.sortByCross(g here horiz))
-                def total:double 0.0
-                def k:int 0
-                while (k < (array_length sorted)) {
-                    def n:FlowNode (g.nodeAt((itemAt sorted k)))
-                    total = (total + (MermaidDiagram.crossSize(n horiz)))
-                    k = (k + 1)
-                }
-                def count:int (array_length sorted)
-                if (count > 1) {
-                    total = (total + (lay.nodeGap * (to_double (count - 1))))
-                }
-                def at:double (x0 + ((width - total) * 0.5))
-                def q:int 0
-                while (q < count) {
-                    def n2:FlowNode (g.nodeAt((itemAt sorted q)))
-                    def was:double (MermaidDiagram.crossOf(n2 horiz))
-                    if horiz {
-                        n2.y = at
-                    } {
-                        n2.x = at
-                    }
-                    if ((fabs (was - at)) > 0.01) {
-                        moved = (moved + 1)
-                    }
-                    def size:double (MermaidDiagram.crossSize(n2 horiz))
-                    at = ((at + size) + lay.nodeGap)
-                    q = (q + 1)
-                }
-            }
-            l = (l + 1)
-        }
-        return moved
-    }
-
     ; Which side each edge leaves and arrives by. The flow runs one way — down
     ; the page, or across it — so an edge that mostly follows the flow uses the
     ; faces the flow uses, and one that mostly does not leaves sideways instead
@@ -1494,190 +977,48 @@ class MermaidDiagram {
         }
     }
 
-    ; --------------------------------------------------------- clustering ----
-    ; The layered layout orders each layer to minimise crossings, and it has
-    ; never heard of a subgraph — so the three nodes of one group can end up
-    ; with two of another group's between them, and the frame drawn round them
-    ; swallows a node that is not in it. This puts the members of a group back
-    ; together inside their layer, keeping the layer's extent and every node's
-    ; size, and paying for it in a crossing or two. A frame that means what it
-    ; says is worth more than a crossing.
-    fn clusterLayers:int (g:FlowGraph lay:LayeredLayout) {
-        if ((array_length subgraphs) == 0) {
-            return 0
-        }
-        def horiz:boolean (this.horizontal())
-        def moved:int 0
-        def maxLayer:int -1
+    ; The subgraphs, told to the layout: each group, its parent and its own
+    ; direction; each node's group; and which links are the stand-ins
+    ; `expandGroupEnds` added — the layout ranks a group as one box, so a
+    ; link to the group needs no stand-in per member to hold the members
+    ; together, and seeing the stand-ins would only weight the box's edge.
+    fn describeGroups:void (cl:CompoundLayout g:FlowGraph) {
         def i:int 0
-        while (i < (array_length lay.layerOf)) {
-            def lv:int (itemAt lay.layerOf i)
-            if (lv > maxLayer) {
-                maxLayer = lv
+        while (i < (array_length subgraphs)) {
+            def sg:MermaidSubgraph (itemAt subgraphs i)
+            cl.group(sg.id sg.parent sg.direction)
+            def m:int 0
+            while (m < (array_length sg.members)) {
+                def mid:string (itemAt sg.members m)
+                if (g.hasNode(mid)) {
+                    cl.own(mid sg.id)
+                }
+                m = (m + 1)
             }
             i = (i + 1)
         }
-        def layer:int 0
-        while (layer <= maxLayer) {
-            def idx:[int]
-            def j:int 0
-            while (j < (array_length lay.layerOf)) {
-                if ((itemAt lay.layerOf j) == layer) {
-                    if (j < (g.nodeCount())) {
-                        push idx j
-                    }
-                }
-                j = (j + 1)
-            }
-            if ((array_length idx) > 1) {
-                def did:int (this.packLayer(g idx horiz))
-                moved = (moved + did)
-            }
-            layer = (layer + 1)
-        }
-        return moved
-    }
-
-    fn packLayer:int (g:FlowGraph idx:[int] horiz:boolean) {
-        ; …in the order the layout left them.
-        def sorted:[int] (MermaidDiagram.sortByCross(g idx horiz))
-        def keys:[string]
         def k:int 0
-        while (k < (array_length sorted)) {
-            def n:FlowNode (g.nodeAt((itemAt sorted k)))
-            push keys (this.rootOwnerOf(n.id))
+        while (k < (g.edgeCount())) {
+            def ghost:boolean false
+            if (k < (array_length linkGhost)) {
+                ghost = (itemAt linkGhost k)
+            }
+            push cl.skipEdge ghost
+            ; A link that named the group is drawn to its frame, wherever
+            ; on the frame is nearest — not to the member it was laid out
+            ; against.
+            def fromGroup:boolean false
+            def toGroup:boolean false
+            if (k < (array_length linkSourceGroup)) {
+                fromGroup = ((strlen (itemAt linkSourceGroup k)) > 0)
+            }
+            if (k < (array_length linkTargetGroup)) {
+                toGroup = ((strlen (itemAt linkTargetGroup k)) > 0)
+            }
+            push cl.looseSource fromGroup
+            push cl.looseTarget toGroup
             k = (k + 1)
         }
-        ; Grouped, first-seen first, so a group that was already contiguous
-        ; does not move at all.
-        def order:[int]
-        def seen:[string]
-        def a:int 0
-        while (a < (array_length sorted)) {
-            def key:string (itemAt keys a)
-            def already:boolean false
-            def s:int 0
-            while (s < (array_length seen)) {
-                if ((itemAt seen s) == key) {
-                    already = true
-                }
-                s = (s + 1)
-            }
-            if (already == false) {
-                push seen key
-                def b:int a
-                while (b < (array_length sorted)) {
-                    if ((itemAt keys b) == key) {
-                        push order (itemAt sorted b)
-                    }
-                    b = (b + 1)
-                }
-            }
-            a = (a + 1)
-        }
-        def changed:int 0
-        def c:int 0
-        while (c < (array_length order)) {
-            if ((itemAt order c) != (itemAt sorted c)) {
-                changed = (changed + 1)
-            }
-            c = (c + 1)
-        }
-        if (changed == 0) {
-            return 0
-        }
-        ; Repack along the cross axis. The layer keeps the room it had: the
-        ; sizes are the same set and the gap is the average of the ones the
-        ; layout chose, so nothing outside this layer has to move.
-        def lo:double 0.0
-        def hi:double 0.0
-        def total:double 0.0
-        def m:int 0
-        while (m < (array_length sorted)) {
-            def n2:FlowNode (g.nodeAt((itemAt sorted m)))
-            def start:double n2.x
-            def size:double n2.width
-            if (horiz == false) {
-            } {
-                start = n2.y
-                size = n2.height
-            }
-            def endAt:double (start + size)
-            if (m == 0) {
-                lo = start
-                hi = endAt
-            }
-            if (start < lo) { lo = start }
-            if (endAt > hi) { hi = endAt }
-            total = (total + size)
-            m = (m + 1)
-        }
-        def count:int (array_length order)
-        def gap:double 12.0
-        if (count > 1) {
-            def slack:double (hi - lo)
-            def free:double (slack - total)
-            def divisor:double (to_double (count - 1))
-            gap = (free / divisor)
-        }
-        if (gap < 10.0) {
-            gap = 10.0
-        }
-        def cursor:double lo
-        def q:int 0
-        while (q < (array_length order)) {
-            def n3:FlowNode (g.nodeAt((itemAt order q)))
-            if horiz {
-                n3.y = cursor
-                cursor = ((cursor + n3.height) + gap)
-            } {
-                n3.x = cursor
-                cursor = ((cursor + n3.width) + gap)
-            }
-            n3.syncFromModel()
-            q = (q + 1)
-        }
-        return changed
-    }
-
-    ; Insertion sort on the cross axis: the layers are short and the order has
-    ; to be stable, which rules out the clever ones.
-    sfn sortByCross:[int] (g:FlowGraph idx:[int] horiz:boolean) {
-        def out:[int]
-        def i:int 0
-        while (i < (array_length idx)) {
-            def cand:int (itemAt idx i)
-            def cn:FlowNode (g.nodeAt(cand))
-            def cv:double cn.x
-            if horiz {
-                cv = cn.y
-            }
-            def at:int (array_length out)
-            def j:int 0
-            while (j < (array_length out)) {
-                def on:FlowNode (g.nodeAt((itemAt out j)))
-                def ov:double on.x
-                if horiz {
-                    ov = on.y
-                }
-                if (cv < ov) {
-                    at = j
-                    j = (array_length out)
-                } {
-                    j = (j + 1)
-                }
-            }
-            push out cand
-            def k:int ((array_length out) - 1)
-            while (k > at) {
-                def prev:int (itemAt out (k - 1))
-                set_at out k prev
-                k = (k - 1)
-            }
-            set_at out at cand
-            i = (i + 1)
-        }
-        return out
     }
 
     ; ------------------------------------------------------------ frames ----
@@ -2261,10 +1602,15 @@ class MermaidReader {
             this.readStyle(rest)
             return
         }
-        ; Read and dropped: a click target needs a browser, `linkStyle` numbers
-        ; the links by the order they were written, and `direction` inside a
-        ; subgraph asks for a second layout inside the first.
-        if (kw == "direction")   { return }
+        ; `direction LR` inside a subgraph: the group's own layout runs that
+        ; way. Outside one it is Mermaid's older spelling of the header's
+        ; direction, and the header already said.
+        if (kw == "direction") {
+            this.subgraphDirection(rest)
+            return
+        }
+        ; Read and dropped: a click target needs a browser, and `linkStyle`
+        ; numbers the links by the order they were written.
         ; `e1@{ animate: true }` — an edge saying something about itself. A
         ; node written the same way is read by `parseGraph`; this is only for
         ; the ids that name a link, which have no node to hang a shape on.
@@ -2319,6 +1665,28 @@ class MermaidReader {
         if (dir == "BT") { doc.direction = "BT" }
         if (dir == "LR") { doc.direction = "LR" }
         if (dir == "RL") { doc.direction = "RL" }
+    }
+
+    fn subgraphDirection:void (rest:string) {
+        if ((array_length stack) == 0) {
+            return
+        }
+        def dir:string (MermaidReader.upper((MermaidReader.firstWord(rest))))
+        def want:string ""
+        if (dir == "TD") { want = "TB" }
+        if (dir == "TB") { want = "TB" }
+        if (dir == "BT") { want = "BT" }
+        if (dir == "LR") { want = "LR" }
+        if (dir == "RL") { want = "RL" }
+        if ((strlen want) == 0) {
+            return
+        }
+        def at:int (doc.indexOfSubgraph((last stack)))
+        if (at < 0) {
+            return
+        }
+        def sg:MermaidSubgraph (doc.subgraphAt(at))
+        sg.direction = want
     }
 
     ; `subgraph one`, `subgraph one [Title]`, `subgraph "A title"`.
@@ -3251,45 +2619,38 @@ class MermaidFlow {
 
     sfn styled:FlowGraph (d:MermaidDiagram style:FlowStyle) {
         def g:FlowGraph (d.buildStyled(style))
-        def lay:LayeredLayout (LayeredLayout.of(g))
-        lay.direction = (d.layerDirection())
-        lay.layerGap = 76.0
-        lay.nodeGap = 44.0
-        ; A strip along the flow is drawn small when fitted to a page; let
-        ; the layout close its gaps towards a squarer picture. Across the
-        ; page the gap also holds the labels, written along the flow, so the
-        ; floor is whatever the longest of them needs.
-        lay.squareUp = true
-        lay.minLayerGap = 56.0
-        if (d.horizontal()) {
-            ; Across the page the gap has to hold a label as well as the line,
-            ; and a label is written along the flow rather than across it.
-            lay.layerGap = 120.0
-            lay.nodeGap = 36.0
-            def chars:int (lay.longestLabel())
-            def labelRoom:double (((to_double chars) * 6.6) + 48.0)
-            lay.minLayerGap = 72.0
-            if (labelRoom > 72.0) {
-                lay.minLayerGap = labelRoom
-            }
-        }
-        lay.run()
-        def shuffled:int (d.clusterLayers(g lay))
-        def banded:int (d.bandLayers(g lay))
-        if (banded > 0) {
-            shuffled = (shuffled + banded)
-        }
-        def pushed:int (d.pushOutOfFrames(g lay))
-        if (pushed > 0) {
-            shuffled = (shuffled + pushed)
+        ; The subgraphs are laid out from the inside out — each group on its
+        ; own, then as one box in its parent's layout — so a frame is as
+        ; small as what it holds and never over another. With no subgraphs
+        ; this is the plain layered layout. The gaps: a strip along the flow
+        ; is drawn small when fitted to a page, so the layout closes its
+        ; gaps towards a squarer picture; across the page the gap also holds
+        ; the labels, written along the flow, so the floor is whatever the
+        ; longest of them needs — all of which `CompoundLayout` carries as
+        ; its defaults, which are these numbers.
+        def cl:CompoundLayout (CompoundLayout.of(g))
+        cl.direction = d.direction
+        d.describeGroups(cl g)
+        cl.run()
+        def lay:LayeredLayout cl.rootLayout
+        ; The frames go where the layout reserved room for them; a stand-in
+        ; per member was never needed and the graph looks better without.
+        def shuffled:int 0
+        if cl.compound {
+            shuffled = 1
         }
         d.mirror(g)
         d.faceEdges(g)
+        ; The frames, before any line is routed: the router keeps a line out
+        ; of a frame it has no business in, and an arrow that names a group
+        ; is drawn to the frame — both need the frames on the page first.
+        def frames:int (d.frameSubgraphs(g style))
+        def attached:int (MermaidFlow.attachGroupEnds(d g))
         def moved:int (EdgeLanes.assign(g))
         ; The long-edge chains are the layout's own coordinates. Once the
-        ; clustering has reordered a layer or the page has been turned over for
-        ; `BT`, they describe a picture that is no longer on the page, so the
-        ; grid router does that work instead.
+        ; groups have been laid out on their own or the page has been turned
+        ; over for `BT`, they describe a picture that is no longer on the
+        ; page, so the grid router does that work instead.
         def stale:boolean (d.mirrored())
         if (shuffled > 0) {
             stale = true
@@ -3315,22 +2676,13 @@ class MermaidFlow {
         def refanned:int (EdgeLanes.assign(g))
         def again:int (OrthoRouter.repairAll(g))
         def parted:int (EdgeLanes.staggerLabels(g))
-        def frames:int (d.frameSubgraphs(g style))
-        def moved:int (MermaidFlow.attachGroupEnds(d g))
-        if (moved > 0) {
-            ; The arrows drawn to frames have new ends and new sides, and
-            ; the slots and tracks were dealt out before either existed.
-            EdgeLanes.resetLanes(g)
-            def fannedAgain:int (EdgeLanes.assign(g))
-            def repairedAgain:int (OrthoRouter.repairAll(g))
-        }
         return g
     }
 
     ; An arrow that named a subgraph is drawn to the FRAME, now that there is
-    ; one. It was laid out against a member so the ranks would come out right;
-    ; this is the second half of that, and it has to be after the frames
-    ; exist, which is after the layout.
+    ; one. It was laid out against a member — the group is one box to the
+    ; layout, so any member stands for it — and this is the second half of
+    ; that, after the frames exist.
     ; Whether two boxes overlap along the flow, or come within the room two
     ; stubs need between them.
     sfn besideAlongFlow:boolean (a:FlowNode b:FlowNode horiz:boolean) {

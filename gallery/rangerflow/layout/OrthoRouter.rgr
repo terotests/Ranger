@@ -32,6 +32,15 @@
 ; The edge's own two nodes are obstacles too, but uninflated: the route may not
 ; cut through them, and the stub already starts outside.
 ;
+; The lines already drawn are the other thing in the way. Four long edges
+; leaving one box for four boxes down the page all find the same corridor,
+; and the same grid line down it, and are drawn as one line four times. So
+; every straight run of every other edge is a TAKEN line: it puts a grid line
+; a lane's width either side of itself, and a grid segment that would run
+; along it costs `overlapPenalty` times its length. A route still crosses a
+; taken line freely — a crossing is a crossing — but it goes beside one
+; rather than over it whenever there is a beside to go.
+;
 ; Cost. One Dijkstra per edge over a grid that grows with the node count, so it
 ; is not something to run every frame on a thousand nodes — `maxAxis` refuses
 ; rather than hanging, and the caller keeps whatever route the edge already
@@ -132,8 +141,13 @@ class OrthoRouter {
     def minClearance:double 3.0
     ; How far an edge leaves its node before it may turn.
     def stub:double 20.0
-    ; Refuse rather than hang: the grid is (obstacles*2 + 2) per axis.
-    def maxAxis:int 160
+    ; Refuse rather than hang: the grid is (obstacles*2 + 2) per axis, plus
+    ; two per straight run of every other edge.
+    def maxAxis:int 240
+    ; How far a route keeps from a line already drawn, and what running
+    ; along one costs, as a multiple of the length run.
+    def laneGap:double 14.0
+    def overlapPenalty:double 3.0
     ; Set when the last call gave up, so a caller can say so.
     def refused:int 0
     ; Diagnostics for the drag sweep: how many repairs found no route at all,
@@ -146,12 +160,20 @@ class OrthoRouter {
     def oy:[double]
     def ow:[double]
     def oh:[double]
+    ; the straight runs of the other edges, already drawn
+    def tx1:[double]
+    def ty1:[double]
+    def tx2:[double]
+    def ty2:[double]
     ; grid lines
     def xs:[double]
     def ys:[double]
-    ; per-segment passability, indexed [j * nx + i]
+    ; per-segment passability, indexed [j * nx + i], and what a segment
+    ; costs per unit of length — more than one along a taken line
     def freeRight:[boolean]
     def freeDown:[boolean]
+    def costRight:[double]
+    def costDown:[double]
 
     Constructor () {
     }
@@ -233,13 +255,59 @@ class OrthoRouter {
             if (i == e.targetIndex) { skip = true }
             if (skip == false) {
                 def nd:FlowNode (g.nodeAt(i))
-                if (EdgeOverlap.blocks(nd)) {
+                if (this.blocksEdge(g nd e)) {
                     if (EdgeOverlap.pathEntersRect(p nd)) {
                         return true
                     }
                 }
             }
             i = (i + 1)
+        }
+        return false
+    }
+
+    ; What stands in an edge's way: every node, and every FRAME the edge
+    ; has no business in. A frame is drawn round a group; a line from
+    ; outside the group that cuts across the frame reads as if it went
+    ; through the group, so it is kept out — unless it starts or ends at
+    ; the frame, or at something inside it, when it has to cross the
+    ; border somewhere.
+    fn blocksEdge:boolean (g:FlowGraph nd:FlowNode e:FlowEdge) {
+        if (EdgeOverlap.blocks(nd)) {
+            return true
+        }
+        if nd.hidden {
+            return false
+        }
+        if (nd.nodeType != "group") {
+            return false
+        }
+        if (OrthoRouter.within(g e.source nd.id)) {
+            return false
+        }
+        if (OrthoRouter.within(g e.target nd.id)) {
+            return false
+        }
+        return true
+    }
+
+    ; Whether a node is the frame, or stands inside it at any depth.
+    sfn within:boolean (g:FlowGraph nodeId:string frameId:string) {
+        def cur:string nodeId
+        def guard:int 0
+        while ((strlen cur) > 0) {
+            if (cur == frameId) {
+                return true
+            }
+            if ((g.hasNode(cur)) == false) {
+                return false
+            }
+            def n:FlowNode (g.nodeById(cur))
+            cur = n.parentId
+            guard = (guard + 1)
+            if (guard > 64) {
+                return false
+            }
         }
         return false
     }
@@ -333,6 +401,7 @@ class OrthoRouter {
         def by:double (y2 + ((FlowPosition.normalY(s2)) * stubLen))
 
         this.collectObstacles(g e pad stubLen)
+        this.collectTaken(g e)
         this.collectGrid(ax ay bx by)
         def nx:int (array_length xs)
         def ny:int (array_length ys)
@@ -413,7 +482,7 @@ class OrthoRouter {
         def i:int 0
         while (i < (g.nodeCount())) {
             def n:FlowNode (g.nodeAt(i))
-            if (EdgeOverlap.blocks(n)) {
+            if (this.blocksEdge(g n e)) {
                 def pad:double inflate
                 if (i == e.sourceIndex) { pad = own }
                 if (i == e.targetIndex) { pad = own }
@@ -423,6 +492,59 @@ class OrthoRouter {
                 push oh (n.height + (pad * 2.0))
             }
             i = (i + 1)
+        }
+    }
+
+    ; The straight runs of every other visible edge: its corners, with its
+    ; two ends, taken pairwise — and, for an edge with no corners, the line
+    ; between its ends when that line is straight. A curve is not a run.
+    fn collectTaken:void (g:FlowGraph e:FlowEdge) {
+        clear tx1
+        clear ty1
+        clear tx2
+        clear ty2
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def f:FlowEdge (g.edgeAt(k))
+            def take:boolean true
+            if (f.id == e.id) { take = false }
+            if f.hidden { take = false }
+            if (f.sourceIndex < 0) { take = false }
+            if (f.targetIndex < 0) { take = false }
+            if take {
+                def pts:[double]
+                push pts (g.endpointX(f true))
+                push pts (g.endpointY(f true))
+                def w:int 0
+                while (w < (array_length f.waypoints)) {
+                    push pts (itemAt f.waypoints w)
+                    w = (w + 1)
+                }
+                push pts (g.endpointX(f false))
+                push pts (g.endpointY(f false))
+                def p:int 2
+                while (p < (array_length pts)) {
+                    def x1:double (itemAt pts (p - 2))
+                    def y1:double (itemAt pts (p - 1))
+                    def x2:double (itemAt pts p)
+                    def y2:double (itemAt pts (p + 1))
+                    def straight:boolean false
+                    if ((fabs (x1 - x2)) < 1.0) {
+                        if ((fabs (y1 - y2)) > 4.0) { straight = true }
+                    }
+                    if ((fabs (y1 - y2)) < 1.0) {
+                        if ((fabs (x1 - x2)) > 4.0) { straight = true }
+                    }
+                    if straight {
+                        push tx1 x1
+                        push ty1 y1
+                        push tx2 x2
+                        push ty2 y2
+                    }
+                    p = (p + 2)
+                }
+            }
+            k = (k + 1)
         }
     }
 
@@ -440,6 +562,19 @@ class OrthoRouter {
             ys = (OrthoRouter.addCoord(ys (itemAt oy i)))
             ys = (OrthoRouter.addCoord(ys ((itemAt oy i) + (itemAt oh i))))
             i = (i + 1)
+        }
+        ; A lane either side of every line already drawn, so that a route
+        ; which would have run along it has somewhere beside it to go.
+        def t:int 0
+        while (t < (array_length tx1)) {
+            if ((fabs ((itemAt ty1 t) - (itemAt ty2 t))) < 1.0) {
+                ys = (OrthoRouter.addCoord(ys ((itemAt ty1 t) - laneGap)))
+                ys = (OrthoRouter.addCoord(ys ((itemAt ty1 t) + laneGap)))
+            } {
+                xs = (OrthoRouter.addCoord(xs ((itemAt tx1 t) - laneGap)))
+                xs = (OrthoRouter.addCoord(xs ((itemAt tx1 t) + laneGap)))
+            }
+            t = (t + 1)
         }
         OrthoRouter.sortDoubles(xs)
         OrthoRouter.sortDoubles(ys)
@@ -544,6 +679,8 @@ class OrthoRouter {
     fn markPassable:void () {
         clear freeRight
         clear freeDown
+        clear costRight
+        clear costDown
         def nx:int (array_length xs)
         def ny:int (array_length ys)
         def j:int 0
@@ -551,19 +688,82 @@ class OrthoRouter {
             def i:int 0
             while (i < nx) {
                 def okR:boolean false
+                def costR:double 1.0
                 if (i < (nx - 1)) {
                     okR = (this.segmentClear((itemAt xs i) (itemAt ys j) (itemAt xs (i + 1)) (itemAt ys j)))
+                    if okR {
+                        costR = (this.costAlong((itemAt xs i) (itemAt ys j) (itemAt xs (i + 1)) (itemAt ys j)))
+                    }
                 }
                 push freeRight okR
+                push costRight costR
                 def okD:boolean false
+                def costD:double 1.0
                 if (j < (ny - 1)) {
                     okD = (this.segmentClear((itemAt xs i) (itemAt ys j) (itemAt xs i) (itemAt ys (j + 1))))
+                    if okD {
+                        costD = (this.costAlong((itemAt xs i) (itemAt ys j) (itemAt xs i) (itemAt ys (j + 1))))
+                    }
                 }
                 push freeDown okD
+                push costDown costD
                 i = (i + 1)
             }
             j = (j + 1)
         }
+    }
+
+    ; What a grid segment costs per unit: more when it would be drawn along
+    ; a line that is already there — the same axis, within most of a lane
+    ; of it, and overlapping it along that axis by more than a hair.
+    fn costAlong:double (x1:double y1:double x2:double y2:double) {
+        def near:double (laneGap * 0.7)
+        def horizontal:boolean ((fabs (y1 - y2)) < 0.5)
+        def t:int 0
+        while (t < (array_length tx1)) {
+            def ax:double (itemAt tx1 t)
+            def ay:double (itemAt ty1 t)
+            def bx:double (itemAt tx2 t)
+            def by:double (itemAt ty2 t)
+            def theirs:boolean ((fabs (ay - by)) < 1.0)
+            if (theirs == horizontal) {
+                if horizontal {
+                    if ((fabs (ay - y1)) < near) {
+                        if (OrthoRouter.spansOverlap(x1 x2 ax bx)) {
+                            return (1.0 + overlapPenalty)
+                        }
+                    }
+                } {
+                    if ((fabs (ax - x1)) < near) {
+                        if (OrthoRouter.spansOverlap(y1 y2 ay by)) {
+                            return (1.0 + overlapPenalty)
+                        }
+                    }
+                }
+            }
+            t = (t + 1)
+        }
+        return 1.0
+    }
+
+    sfn spansOverlap:boolean (a1:double a2:double b1:double b2:double) {
+        def lo1:double a1
+        def hi1:double a2
+        if (a2 < a1) {
+            lo1 = a2
+            hi1 = a1
+        }
+        def lo2:double b1
+        def hi2:double b2
+        if (b2 < b1) {
+            lo2 = b2
+            hi2 = b1
+        }
+        def lo:double lo1
+        if (lo2 > lo) { lo = lo2 }
+        def hi:double hi1
+        if (hi2 < hi) { hi = hi2 }
+        return ((hi - lo) > 2.0)
     }
 
     ; Grazing an obstacle's border is allowed; entering it is not. Without the
@@ -633,23 +833,27 @@ class OrthoRouter {
                     def base:double (itemAt dist s)
                     ; four neighbours, each with its own passability flag
                     if (ci > 0) {
-                        if (itemAt freeRight ((cj * nx) + (ci - 1))) {
-                            this.relax(s base ((cj * nx) + (ci - 1)) 0 axis ((itemAt xs ci) - (itemAt xs (ci - 1))) dist prev heap)
+                        def segL:int ((cj * nx) + (ci - 1))
+                        if (itemAt freeRight segL) {
+                            this.relax(s base segL 0 axis (((itemAt xs ci) - (itemAt xs (ci - 1))) * (itemAt costRight segL)) dist prev heap)
                         }
                     }
                     if (ci < (nx - 1)) {
-                        if (itemAt freeRight ((cj * nx) + ci)) {
-                            this.relax(s base ((cj * nx) + (ci + 1)) 0 axis ((itemAt xs (ci + 1)) - (itemAt xs ci)) dist prev heap)
+                        def segR:int ((cj * nx) + ci)
+                        if (itemAt freeRight segR) {
+                            this.relax(s base ((cj * nx) + (ci + 1)) 0 axis (((itemAt xs (ci + 1)) - (itemAt xs ci)) * (itemAt costRight segR)) dist prev heap)
                         }
                     }
                     if (cj > 0) {
-                        if (itemAt freeDown (((cj - 1) * nx) + ci)) {
-                            this.relax(s base (((cj - 1) * nx) + ci) 1 axis ((itemAt ys cj) - (itemAt ys (cj - 1))) dist prev heap)
+                        def segU:int (((cj - 1) * nx) + ci)
+                        if (itemAt freeDown segU) {
+                            this.relax(s base segU 1 axis (((itemAt ys cj) - (itemAt ys (cj - 1))) * (itemAt costDown segU)) dist prev heap)
                         }
                     }
                     if (cj < (ny - 1)) {
-                        if (itemAt freeDown ((cj * nx) + ci)) {
-                            this.relax(s base (((cj + 1) * nx) + ci) 1 axis ((itemAt ys (cj + 1)) - (itemAt ys cj)) dist prev heap)
+                        def segD:int ((cj * nx) + ci)
+                        if (itemAt freeDown segD) {
+                            this.relax(s base (((cj + 1) * nx) + ci) 1 axis (((itemAt ys (cj + 1)) - (itemAt ys cj)) * (itemAt costDown segD)) dist prev heap)
                         }
                     }
                 }

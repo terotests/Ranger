@@ -166,6 +166,7 @@ class RangerFlowTest {
         RangerFlowTest.testDotEngines(c)
         RangerFlowTest.testMermaidGit(c)
         RangerFlowTest.testMermaidSubgraphEnds(c)
+        RangerFlowTest.testCompoundLayout(c)
         RangerFlowTest.testMermaidKanban(c)
         RangerFlowTest.testMermaidQuadrant(c)
         RangerFlowTest.testMermaidPie(c)
@@ -6235,6 +6236,123 @@ class RangerFlowTest {
     ; parsing one — so the model has to say what Mermaid's says and only the
     ; drawing may differ. Both halves are checked here, because doing it to
     ; the model instead deleted vertices Mermaid keeps.
+    ; ------------------------------------------ subgraphs, inside out ---
+    ; Eight groups of matches and one chain of games through five of them.
+    ; A global layout ranked the chain's members five layers apart and drew
+    ; five frames as tall as the page; laid out from the inside out, each
+    ; frame holds its one or two boxes side by side, the chain hangs in a
+    ; column, and the groups nobody chains through stand in a row in the
+    ; order they were written.
+    sfn testCompoundLayout:void (c:Checker) {
+        c.section("Mermaid subgraphs, laid out from the inside out")
+        def src:string "flowchart TB\n"
+        src = (src + "    T[\"Group C\"]\n")
+        src = (src + "    T --> D1\n    T --> D2\n    T --> D3\n    T --> D4\n    T --> D5\n")
+        src = (src + "    subgraph D1[\"Thu\"]\n        M1[\"20:00 FIN vs DEN\"]\n    end\n")
+        src = (src + "    subgraph D2[\"Fri\"]\n        M2[\"17:00 NED vs BEL\"]\n        M3[\"20:00 SRB vs EST\"]\n    end\n")
+        src = (src + "    subgraph D3[\"Sat\"]\n        M4[\"15:00 DEN vs NED\"]\n        M5[\"18:00 BEL vs FIN\"]\n    end\n")
+        src = (src + "    subgraph D4[\"Sun\"]\n        M6[\"15:00 EST vs DEN\"]\n        M7[\"18:00 FIN vs SRB\"]\n    end\n")
+        src = (src + "    subgraph D5[\"Mon\"]\n        M8[\"17:00 SRB vs NED\"]\n        M9[\"20:00 EST vs BEL\"]\n    end\n")
+        src = (src + "    M1 --> M5 --> M7\n")
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidFlow.render(src))
+        c.eqInt("no frame overlaps another" (RangerFlowTest.frameOverlaps(g)) 0)
+        c.eqInt("no node stands in a frame that is not its own" (RangerFlowTest.strangersInFrames(g)) 0)
+        c.eqInt("nothing is drawn through a node" (EdgeOverlap.nodeCrossings(g)) 0)
+        def f1:FlowNode (g.nodeById("sg-D1"))
+        def f2:FlowNode (g.nodeById("sg-D2"))
+        def f3:FlowNode (g.nodeById("sg-D3"))
+        def f4:FlowNode (g.nodeById("sg-D4"))
+        def f5:FlowNode (g.nodeById("sg-D5"))
+        def m2:FlowNode (g.nodeById("M2"))
+        def m3:FlowNode (g.nodeById("M3"))
+        def m4:FlowNode (g.nodeById("M4"))
+        def m5:FlowNode (g.nodeById("M5"))
+        ; A frame is as small as what it holds: two unlinked matches stand
+        ; side by side, and the frame is one box tall — not five.
+        c.ok("two unlinked matches stand side by side" ((fabs (m2.y - m3.y)) < 1.0))
+        c.ok("even in the group the chain passes through" ((fabs (m4.y - m5.y)) < 1.0))
+        c.ok("so the frame is one box tall" (f3.height < ((m5.height * 2.0) + 62.0)))
+        c.ok("and the frame around one box is too" (f1.height < ((m5.height * 2.0) + 62.0)))
+        ; The chain hangs down the page: Thu over Sat over Sun, one frame
+        ; under the other and each under the one before it.
+        c.ok("the chain runs top to bottom" (f3.y > (f1.y + f1.height)))
+        c.ok("…and on down" (f4.y > (f3.y + f3.height)))
+        c.ok("each frame under the one it follows" ((fabs ((f3.centerX()) - (f1.centerX()))) < (f1.width * 0.5)))
+        c.ok("…and the next under that" ((fabs ((f4.centerX()) - (f3.centerX()))) < (f3.width * 0.5)))
+        ; The page reads in the order the groups were written: Fri beside
+        ; Thu, and Mon — written after Sun — no higher than Sun, beside it
+        ; rather than up beside Thu where nothing else would have kept it.
+        ; The title stands above all of them.
+        c.ok("Fri stands beside Thu" ((fabs (f2.y - f1.y)) < 1.0))
+        c.ok("in the order they were written" (f1.x < f2.x))
+        c.ok("Mon stands no higher than Sun" (f5.y >= f4.y))
+        c.ok("…beside it, not below" ((fabs (f5.y - f4.y)) < 1.0))
+        c.ok("and to its right" (f4.x < f5.x))
+        ; The games that chain stand in one column, at the edge.
+        def m1:FlowNode (g.nodeById("M1"))
+        def m7:FlowNode (g.nodeById("M7"))
+        c.ok("the chain's members line up" ((fabs ((m1.centerX()) - (m7.centerX()))) < 80.0))
+        c.ok("at the edge of their group" (m5.x < m4.x))
+        def t:FlowNode (g.nodeById("T"))
+        c.ok("the title is above every frame" ((t.y + t.height) < f1.y))
+        ; An arrow that names a group goes to its frame, one per group.
+        def toFrames:int 0
+        def i:int 0
+        while (i < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(i))
+            if (e.hidden == false) {
+                if (e.source == "T") {
+                    if ((substring e.target 0 3) == "sg-") {
+                        toFrames = (toFrames + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        c.eqInt("one arrow from the title to each frame" toFrames 5)
+
+        ; `direction` inside a subgraph is the group's own: a TB group in an
+        ; LR chart stacks its members, an RL group runs its arrow leftwards.
+        def dir:string "flowchart LR\n"
+        dir = (dir + "    subgraph one [Inner TB]\n        direction TB\n        a --> b\n    end\n")
+        dir = (dir + "    subgraph two [Inner RL]\n        direction RL\n        c --> d\n    end\n")
+        dir = (dir + "    one --> two\n")
+        def dd:MermaidDiagram (MermaidReader.parse(dir))
+        def one:MermaidSubgraph (dd.subgraphAt(0))
+        c.eqStr("the reader keeps a group's direction" one.direction "TB")
+        def dg:FlowGraph (MermaidFlow.build(dd))
+        def a:FlowNode (dg.nodeById("a"))
+        def b:FlowNode (dg.nodeById("b"))
+        def cc:FlowNode (dg.nodeById("c"))
+        def d:FlowNode (dg.nodeById("d"))
+        c.ok("a TB group in an LR chart stacks its members" (b.y > (a.y + a.height)))
+        c.ok("one above the other" ((fabs ((a.centerX()) - (b.centerX()))) < 1.0))
+        c.ok("an RL group runs right to left" ((d.x + d.width) < cc.x))
+        c.ok("on one line" ((fabs (d.y - cc.y)) < 1.0))
+        def fone:FlowNode (dg.nodeById("sg-one"))
+        def ftwo:FlowNode (dg.nodeById("sg-two"))
+        c.ok("and the chart itself still runs left to right" (ftwo.x > (fone.x + fone.width)))
+        c.eqInt("with no frame over another" (RangerFlowTest.frameOverlaps(dg)) 0)
+
+        ; Nested: the inner frame stands inside the outer one, whole.
+        def nest:string "flowchart TB\n"
+        nest = (nest + "    subgraph outer [Outer]\n        x --> y\n        subgraph inner [Inner]\n            p --> q\n        end\n        y --> p\n    end\n")
+        nest = (nest + "    z --> x\n    q --> w\n")
+        def ng:FlowGraph (MermaidFlow.render(nest))
+        def fo:FlowNode (ng.nodeById("sg-outer"))
+        def fi:FlowNode (ng.nodeById("sg-inner"))
+        c.ok("the inner frame is inside the outer" (fi.x >= fo.x))
+        c.ok("…on the right" ((fi.x + fi.width) <= (fo.x + fo.width)))
+        c.ok("…at the top" (fi.y >= fo.y))
+        c.ok("…and at the bottom" ((fi.y + fi.height) <= (fo.y + fo.height)))
+        c.eqInt("nested: no node in a frame that is not its own" (RangerFlowTest.strangersInFrames(ng)) 0)
+        def zz:FlowNode (ng.nodeById("z"))
+        def ww:FlowNode (ng.nodeById("w"))
+        c.ok("what feeds the group stands above it" ((zz.y + zz.height) < fo.y))
+        c.ok("what it feeds stands below it" (ww.y > (fo.y + fo.height)))
+    }
+
     sfn testMermaidSubgraphEnds:void (c:Checker) {
         c.section("Mermaid links that name a subgraph")
         def src:string "flowchart TB\n"
