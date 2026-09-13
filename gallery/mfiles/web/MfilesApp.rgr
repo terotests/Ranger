@@ -28,6 +28,11 @@ Import "../src/uix/MfUixHost.rgr"
 Import "../../ui/src/InputCtl.rgr"
 Import "../../ui/src/TableCtl.rgr"
 Import "../../ui/src/UiTree.rgr"
+Import "../../ui/src/UiCtl.rgr"
+Import "../../ui/src/ComboboxCtl.rgr"
+Import "../../ui/src/RadioGroupCtl.rgr"
+Import "../../ui/src/DateFieldCtl.rgr"
+Import "../../ui/src/UiText.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
@@ -66,15 +71,26 @@ class MfilesApp {
     def draft:MfObjectVersion (new MfObjectVersion)
     def fields:[InputCtl]
     def fieldProps:[int]
+    ; The lookup fields and the class picker: gallery/ui's ComboboxCtl, one per
+    ; property, single or multiple by datatype. Their list is an overlay the
+    ; layout pass places under the box, so the card has no dropdown of its own.
+    def lookups:[ComboboxCtl]
+    def lookupProps:[int]
+    ; The Yes/No properties: gallery/ui's RadioGroupCtl in toggle mode — Radix's
+    ; toggle group — drawn as the card's two pills by the stylesheet.
+    def bools:[RadioGroupCtl]
+    def boolProps:[int]
+    ; The date properties: gallery/ui's DateFieldCtl — the mm/dd/yyyy segments,
+    ; measured against Chromium's own <input type="date"> — in place of a text
+    ; box parsed on Save.
+    def dates:[DateFieldCtl]
+    def dateProps:[int]
     def editError:string ""
 
     ; overlays
     def menuOpen:boolean false
     def menuX:double 0.0
     def menuY:double 0.0
-    def dropdownPd:int -1
-    def dropX:double 0.0
-    def dropY:double 0.0
 
     ; scrolling
     def listScroll:double 0.0
@@ -398,54 +414,14 @@ class MfilesApp {
 
     ; One line, cut with an ellipsis where it has to be — measured with the
     ; same engine the painter draws with.
+    ; Both measured in the same engine the painter uses; the arithmetic is
+    ; gallery/ui's `UiText`, which is where four copies of it ended up.
     fn fitText:string (text:string width:double size:double) {
-        def eng:EVGTextEngine (this.engine())
-        def full:EVGTextMetrics (eng.measureRun(text fontFamily size))
-        if (full.width <= width) {
-            return text
-        }
-        def lo:int 0
-        def hi:int (strlen text)
-        while (lo < hi) {
-            def mid:int (to_int (((lo + hi) + 1) / 2))
-            def cand:string ((substring text 0 mid) + "…")
-            def m:EVGTextMetrics (eng.measureRun(cand fontFamily size))
-            if (m.width <= width) {
-                lo = mid
-            } {
-                hi = (mid - 1)
-            }
-        }
-        return ((trim (substring text 0 lo)) + "…")
+        return (UiText.fit((this.engine()) text fontFamily size width))
     }
 
     fn wrapText:[string] (text:string width:double size:double) {
-        def eng:EVGTextEngine (this.engine())
-        def out:[string]
-        def paras:[string] (strsplit text "\n")
-        for paras p:string i {
-            if ((strlen p) == 0) {
-                push out ""
-            } {
-                def words:[string] (strsplit p " ")
-                def line:string ""
-                for words w:string j {
-                    def cand:string w
-                    if ((strlen line) > 0) {
-                        cand = (line + " " + w)
-                    }
-                    def m:EVGTextMetrics (eng.measureRun(cand fontFamily size))
-                    if ((m.width > width) && ((strlen line) > 0)) {
-                        push out line
-                        line = w
-                    } {
-                        line = cand
-                    }
-                }
-                push out line
-            }
-        }
-        return out
+        return (UiText.wrapLines((this.engine()) text fontFamily size width))
     }
 
     ; =========================================================================
@@ -490,9 +466,6 @@ class MfilesApp {
         }
         if menuOpen {
             pg.addChild((this.contextMenu()))
-        }
-        if (dropdownPd >= 0) {
-            pg.addChild((this.dropdown()))
         }
         def tst:EVGElement (this.toasts())
         pg.addChild(tst)
@@ -1145,32 +1118,13 @@ class MfilesApp {
         def dt:int pdef.datatype
         def pd:int pdef.id
         if (dt == 8) {
-            def opts:EVGElement (MfilesApp.div("mf-opts"))
-            def yesOn:boolean ((pv.propDef >= 0) && ((pv.value.isNull == false) && pv.value.flag))
-            def noOn:boolean ((pv.propDef >= 0) && ((pv.value.isNull == false) && (pv.value.flag == false)))
-            opts.addChild((this.optChip(("mf-bool-" + (to_string pd) + "-1") "Yes" yesOn)))
-            opts.addChild((this.optChip(("mf-bool-" + (to_string pd) + "-0") "No" noOn)))
-            return opts
+            return (this.boolBox(pd))
+        }
+        if (dt == 5) {
+            return (this.dateBox(pd))
         }
         if ((dt == 9) || (dt == 10)) {
-            def lk:EVGElement (MfilesApp.box("mf-lookup" ("mf-lookup-" + (to_string pd)) "combobox" pdef.name))
-            lk.a11yExpanded = (MfilesApp.tri((dropdownPd == pd)))
-            if (pv.propDef >= 0) {
-                for pv.value.lookups item:int i {
-                    def nm:string (v.lookupName(pdef.valueList item))
-                    def chip:EVGElement (MfilesApp.div("mf-lchip"))
-                    chip.addChild((MfilesApp.quiet("mf-lchip-txt" nm)))
-                    if (dt == 10) {
-                        def x:EVGElement (MfilesApp.box("mf-lchip-x" ("mf-chip-" + (to_string pd) + "-" + (to_string item)) "button" ("Remove " + nm)))
-                        x.addChild((MfilesApp.quiet("mf-lchip-xtxt" "×")))
-                        chip.addChild(x)
-                    }
-                    lk.addChild(chip)
-                }
-            }
-            lk.addChild((MfilesApp.div("mf-grow")))
-            lk.addChild((MfilesApp.quiet("mf-lookup-caret" "▾")))
-            return lk
+            return (this.lookupBox(pd))
         }
         def c:InputCtl (this.fieldFor(pd))
         if ((strlen c.tid) == 0) {
@@ -1179,18 +1133,6 @@ class MfilesApp {
         return (this.fieldBox(c "mf-field" pdef.name 0.0))
     }
 
-    fn optChip:EVGElement (id:string label:string on:boolean) {
-        def cls:string "mf-opt"
-        def tcls:string "mf-opt-txt"
-        if on {
-            cls = "mf-opt mf-opt-on"
-            tcls = "mf-opt-txt mf-opt-txt-on"
-        }
-        def b:EVGElement (MfilesApp.box(cls id "radio" label))
-        b.a11yChecked = (MfilesApp.tri(on))
-        b.addChild((MfilesApp.quiet(tcls label)))
-        return b
-    }
 
     fn previewCard:void (body:EVGElement) {
         def shell:MfShell host.shell
@@ -1564,46 +1506,6 @@ class MfilesApp {
         }
     }
 
-    fn dropdown:EVGElement () {
-        def shell:MfShell host.shell
-        def v:MfVault shell.vault
-        def pdef:MfPropertyDef (v.propDef(dropdownPd))
-        def d:EVGElement (MfilesApp.box("mf-dd" "mf-dd" "listbox" pdef.name))
-        def x:double dropX
-        def y:double dropY
-        if ((x + 290.0) > pageW) {
-            x = (pageW - 290.0)
-        }
-        def items:[MfValueListItem] (this.choicesFor(dropdownPd))
-        def est:double (((to_double (array_length items)) * 28.0) + 12.0)
-        if ((y + est) > pageH) {
-            y = (pageH - est)
-        }
-        if (y < 60.0) {
-            y = 60.0
-        }
-        d.left = (EVGUnit.px(x))
-        d.top = (EVGUnit.px(y))
-        def pv:MfPropertyValue (draft.prop(dropdownPd))
-        for items it:MfValueListItem i {
-            def on:boolean ((pv.propDef >= 0) && (pv.value.hasLookup(it.id)))
-            def cls:string "mf-ddi"
-            if on {
-                cls = "mf-ddi mf-ddi-on"
-            }
-            def row:EVGElement (MfilesApp.box(cls ("mf-dd-" + (to_string it.id)) "option" it.name))
-            row.a11ySelected = (MfilesApp.tri(on))
-            def mark:string " "
-            if on {
-                mark = "✓"
-            }
-            row.addChild((MfilesApp.quiet("mf-ddi-mark" mark)))
-            row.addChild((MfilesApp.quiet("mf-ddi-txt" it.name)))
-            d.addChild(row)
-        }
-        return d
-    }
-
     fn choicesFor:[MfValueListItem] (pd:int) {
         def v:MfVault host.shell.vault
         if (pd == 100) {
@@ -1829,7 +1731,7 @@ class MfilesApp {
         for pds pd:int j {
             def pdef:MfPropertyDef (v.propDef(pd))
             def dt:int pdef.datatype
-            if (((dt == 1) || (dt == 13)) || (((dt == 2) || (dt == 3)) || (dt == 5))) {
+            if (((dt == 1) || (dt == 13)) || ((dt == 2) || (dt == 3))) {
                 def c (new InputCtl())
                 c.tid = ("mf-field-" + (to_string pd))
                 c.name = pdef.name
@@ -1846,15 +1748,441 @@ class MfilesApp {
                     text = (itemAt keepText kept)
                 }
                 c.setValue(text)
-                if (dt == 5) {
-                    c.placeholder = "M/D/YYYY"
-                }
                 push nf c
                 push np pd
             }
         }
         fields = nf
         fieldProps = np
+
+        ; The lookups, from the draft: value lists as items, the picks as the
+        ; value or the chips. The class picker is the pseudo-property 100 and a
+        ; single pick; choosing a class rebuilds the whole field set.
+        def nl:[ComboboxCtl]
+        def nlp:[int]
+        for pds pd2:int k {
+            def pdef2:MfPropertyDef (v.propDef(pd2))
+            def dt2:int pdef2.datatype
+            if (((dt2 == 9) || (dt2 == 10)) || (pd2 == 100)) {
+                def cb (new ComboboxCtl())
+                cb.tid = ("mf-lookup-" + (to_string pd2))
+                cb.name = pdef2.name
+                cb.multiple = (dt2 == 10)
+                cb.placeholder = "Search…"
+                cb.emptyText = "No matches."
+                def items:[MfValueListItem] (this.choicesFor(pd2))
+                for items it:MfValueListItem m {
+                    cb.addItem((to_string it.id) it.name false)
+                }
+                def pv2:MfPropertyValue (draft.prop(pd2))
+                if (pv2.propDef >= 0) {
+                    if cb.multiple {
+                        for pv2.value.lookups lid:int q {
+                            push cb.values (to_string lid)
+                        }
+                    } {
+                        if ((array_length pv2.value.lookups) > 0) {
+                            cb.value = (to_string (itemAt pv2.value.lookups 0))
+                        }
+                    }
+                }
+                def inner:InputCtl (unwrap cb.input)
+                inner.fontFamily = fontFamily
+                inner.fontSize = 13.0
+                inner.boxWidth = 120.0
+                cb.settleText()
+                push nl cb
+                push nlp pd2
+            }
+        }
+        lookups = nl
+        lookupProps = nlp
+
+        def nb:[RadioGroupCtl]
+        def nbp:[int]
+        for pds pd3:int r {
+            def pdef3:MfPropertyDef (v.propDef(pd3))
+            if (pdef3.datatype == 8) {
+                def rg (new RadioGroupCtl())
+                rg.tid = ("mf-bool-" + (to_string pd3))
+                rg.name = pdef3.name
+                rg.toggleMode = true
+                rg.addItem("1" "Yes" false)
+                rg.addItem("0" "No" false)
+                def pv3:MfPropertyValue (draft.prop(pd3))
+                if ((pv3.propDef >= 0) && (pv3.value.isNull == false)) {
+                    if pv3.value.flag {
+                        rg.value = "1"
+                    } {
+                        rg.value = "0"
+                    }
+                }
+                push nb rg
+                push nbp pd3
+            }
+        }
+        bools = nb
+        boolProps = nbp
+
+        def nd:[DateFieldCtl]
+        def ndp:[int]
+        for pds pd4:int q {
+            def pdef4:MfPropertyDef (v.propDef(pd4))
+            if (pdef4.datatype == 5) {
+                def df (new DateFieldCtl())
+                df.tid = ("mf-date-" + (to_string pd4))
+                df.name = pdef4.name
+                def pv4:MfPropertyValue (draft.prop(pd4))
+                if ((pv4.propDef >= 0) && (pv4.value.isNull == false)) {
+                    df.setIso(pv4.value.text)
+                }
+                push nd df
+                push ndp pd4
+            }
+        }
+        dates = nd
+        dateProps = ndp
+    }
+
+    ; --- the date fields ---------------------------------------------------------------
+
+    fn dateIndex:int (pd:int) {
+        def i:int 0
+        while (i < (array_length dateProps)) {
+            if ((itemAt dateProps i) == pd) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn dateOwning:int (id:string) {
+        if ((strlen id) == 0) {
+            return -1
+        }
+        def i:int 0
+        while (i < (array_length dates)) {
+            def df:DateFieldCtl (itemAt dates i)
+            if (df.owns(id)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn dateBox:EVGElement (pd:int) {
+        def i:int (this.dateIndex(pd))
+        if (i < 0) {
+            return (MfilesApp.txt("mf-prop-none" "—"))
+        }
+        def df:DateFieldCtl (itemAt dates i)
+        UiTree.dress(df)
+        def root:EVGElement (unwrap df.rootEl)
+        return root
+    }
+
+    ; Focus leaving a date field drops its segment highlight and its two-digit
+    ; buffer, as a blur does on the reference.
+    fn blurDates:void (target:string) {
+        def i:int 0
+        while (i < (array_length dates)) {
+            def df:DateFieldCtl (itemAt dates i)
+            def owns:boolean false
+            if ((strlen target) > 0) {
+                owns = (df.owns(target))
+            }
+            if (owns == false) {
+                df.blur()
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- the Yes/No pills -------------------------------------------------------------
+
+    fn boolIndex:int (pd:int) {
+        def i:int 0
+        while (i < (array_length boolProps)) {
+            if ((itemAt boolProps i) == pd) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn boolOwning:int (id:string) {
+        if ((strlen id) == 0) {
+            return -1
+        }
+        def i:int 0
+        while (i < (array_length bools)) {
+            def rg:RadioGroupCtl (itemAt bools i)
+            if (rg.owns(id)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn syncBool:void (i:int) {
+        def rg:RadioGroupCtl (itemAt bools i)
+        def pd:int (itemAt boolProps i)
+        if ((strlen rg.value) > 0) {
+            draft.setProp(pd (MfTypedValue.ofBool((rg.value == "1"))))
+        }
+    }
+
+    fn boolBox:EVGElement (pd:int) {
+        def i:int (this.boolIndex(pd))
+        if (i < 0) {
+            return (MfilesApp.txt("mf-prop-none" "—"))
+        }
+        def rg:RadioGroupCtl (itemAt bools i)
+        UiTree.dress(rg)
+        def root:EVGElement (unwrap rg.rootEl)
+        return root
+    }
+
+    ; --- the lookups ---------------------------------------------------------------
+
+    fn lookupIndex:int (pd:int) {
+        def i:int 0
+        while (i < (array_length lookupProps)) {
+            if ((itemAt lookupProps i) == pd) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Which lookup an element id belongs to — the box, a chip, an option, or
+    ; the text and caret leaves inside its input — or -1.
+    fn lookupOwning:int (id:string) {
+        if ((strlen id) == 0) {
+            return -1
+        }
+        def i:int 0
+        while (i < (array_length lookups)) {
+            def cb:ComboboxCtl (itemAt lookups i)
+            if (cb.owns(id)) {
+                return i
+            }
+            def inner:InputCtl (unwrap cb.input)
+            if (id == (inner.tid + "-band")) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The draft follows the control: every pick, toggle, removal or clear is
+    ; written through here, so Save sees what the chips show.
+    fn syncLookup:void (i:int) {
+        def cb:ComboboxCtl (itemAt lookups i)
+        def pd:int (itemAt lookupProps i)
+        if cb.multiple {
+            def ids:[int]
+            for cb.values sv:string k {
+                def iv@(optional):int (str2int sv)
+                if (null? iv) {
+                } {
+                    push ids (unwrap iv)
+                }
+            }
+            draft.setProp(pd (MfTypedValue.ofMultiLookup(ids)))
+            return
+        }
+        if ((strlen cb.value) == 0) {
+            draft.setProp(pd (MfTypedValue.nullOf(9)))
+            return
+        }
+        def one@(optional):int (str2int cb.value)
+        if (null? one) {
+            return
+        }
+        def before:int -1
+        def pv:MfPropertyValue (draft.prop(pd))
+        if ((pv.propDef >= 0) && ((array_length pv.value.lookups) > 0)) {
+            before = (itemAt pv.value.lookups 0)
+        }
+        draft.setProp(pd (MfTypedValue.ofLookup((unwrap one))))
+        if ((pd == 100) && (before != (unwrap one))) {
+            ; A new class is a new field set.
+            this.commitFields(false)
+            this.buildFields()
+        }
+    }
+
+    ; Focus is leaving whatever has it. A lookup with a query pending settles
+    ; it (reverts or clears — ComboboxCtl's measured rule) and closes its list.
+    fn blurLookups:void (target:string) {
+        this.blurDates(target)
+        def i:int 0
+        while (i < (array_length lookups)) {
+            def cb:ComboboxCtl (itemAt lookups i)
+            def owns:boolean false
+            if ((strlen target) > 0) {
+                owns = (cb.owns(target))
+            }
+            if (owns == false) {
+                if cb.open {
+                    cb.closeList()
+                }
+                cb.onBlur(focused)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The combobox, built by its controller, its meaning written onto its
+    ; elements for the a11y walk, and the caret in its input placed by
+    ; measurement exactly as `fieldBox` places one.
+    fn lookupBox:EVGElement (pd:int) {
+        def i:int (this.lookupIndex(pd))
+        if (i < 0) {
+            return (MfilesApp.txt("mf-prop-none" "—"))
+        }
+        def cb:ComboboxCtl (itemAt lookups i)
+        UiTree.dress(cb)
+        def c:InputCtl (unwrap cb.input)
+        def box:EVGElement (unwrap c.rootEl)
+        def txt:EVGElement (unwrap c.textEl)
+        def car:EVGElement (unwrap c.caretEl)
+        def kids:[EVGElement]
+        def eng:EVGTextEngine (this.engine())
+        def hasFocus:boolean (focused == c.tid)
+        if hasFocus {
+            c.ensureCaretVisible(eng)
+            if (c.hasSelection()) {
+                def sx:double (c.caretXAt(eng (c.selStart())))
+                def ex:double (c.caretXAt(eng (c.selEnd())))
+                def band:EVGElement (MfilesApp.div("mf-band"))
+                band.left = (EVGUnit.px((sx - c.scrollX)))
+                band.width = (EVGUnit.px((ex - sx)))
+                UiTree.inline(band "top" "4px")
+                push kids band
+            }
+        }
+        push kids txt
+        if hasFocus {
+            def cx:double (c.caretXAt(eng c.caret))
+            car.left = (EVGUnit.px((cx - c.scrollX)))
+            UiTree.inline(car "top" "4px")
+            push kids car
+        }
+        box.children = kids
+        def root:EVGElement (unwrap cb.rootEl)
+        return root
+    }
+
+    ; The tab ring through the card: text fields and lookups in the order the
+    ; card lists them.
+    fn editRing:[string] () {
+        def ring:[string]
+        def pds:[int] (this.metadataPds(draft))
+        for pds pd:int i {
+            def fc:InputCtl (this.fieldFor(pd))
+            if ((strlen fc.tid) > 0) {
+                push ring fc.tid
+            }
+            def li:int (this.lookupIndex(pd))
+            if (li >= 0) {
+                def cb:ComboboxCtl (itemAt lookups li)
+                push ring (cb.inputTid())
+            }
+            def dxi:int (this.dateIndex(pd))
+            if (dxi >= 0) {
+                def df:DateFieldCtl (itemAt dates dxi)
+                push ring (df.segTid(0))
+            }
+            def bi:int (this.boolIndex(pd))
+            if (bi >= 0) {
+                ; One stop for the group: the pill that is on, or Yes.
+                def rg:RadioGroupCtl (itemAt bools bi)
+                def on:string rg.value
+                if ((strlen on) == 0) {
+                    on = "1"
+                }
+                push ring (rg.itemTid(on))
+            }
+        }
+        return ring
+    }
+
+    fn tabField:void (back:boolean) {
+        def ring:[string] (this.editRing())
+        def n:int (array_length ring)
+        if (n == 0) {
+            return
+        }
+        def at:int -1
+        def i:int 0
+        while (i < n) {
+            def stop:string (itemAt ring i)
+            if (stop == focused) {
+                at = i
+            }
+            if (at < 0) {
+                def li:int (this.lookupOwning(stop))
+                if (li >= 0) {
+                    if (li == (this.lookupOwning(focused))) {
+                        at = i
+                    }
+                }
+                def bi:int (this.boolOwning(stop))
+                if (bi >= 0) {
+                    if (bi == (this.boolOwning(focused))) {
+                        at = i
+                    }
+                }
+                def dxi:int (this.dateOwning(stop))
+                if (dxi >= 0) {
+                    if (dxi == (this.dateOwning(focused))) {
+                        at = i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def next:int (at + 1)
+        if back {
+            next = (at - 1)
+        }
+        if (next < 0) {
+            next = (n - 1)
+        }
+        if (next >= n) {
+            next = 0
+        }
+        def landing:string (itemAt ring next)
+        this.blurLookups(landing)
+        focused = landing
+        def fc:InputCtl (this.inputFor(landing))
+        if ((strlen fc.tid) > 0) {
+            fc.selectAll()
+        }
+        def li2:int (this.lookupOwning(landing))
+        if (li2 >= 0) {
+            def cb:ComboboxCtl (itemAt lookups li2)
+            cb.onFocus(landing)
+        }
+        def bi2:int (this.boolOwning(landing))
+        if (bi2 >= 0) {
+            def rg:RadioGroupCtl (itemAt bools bi2)
+            rg.onFocus(landing)
+        }
+        def dx2:int (this.dateOwning(landing))
+        if (dx2 >= 0) {
+            ; Shift+Tab arrives at the year, Tab at the month — measured.
+            def df:DateFieldCtl (itemAt dates dx2)
+            focused = (df.enterFrom(back))
+        }
     }
 
     ; Field text into the draft. `strict` reports the first value that does not
@@ -1905,21 +2233,28 @@ class MfilesApp {
                     }
                 }
             }
-            if (dt == 5) {
-                if empty {
-                    draft.setProp(pd (MfTypedValue.nullOf(5)))
+            i = (i + 1)
+        }
+        ; The dates: complete → the ISO value, untouched → null, half-filled →
+        ; the one thing a segmented field can say that a text box could not.
+        def di:int 0
+        while (di < (array_length dates)) {
+            def df:DateFieldCtl (itemAt dates di)
+            def dpd:int (itemAt dateProps di)
+            def dpdef:MfPropertyDef (v.propDef(dpd))
+            def blank:boolean (((df.month == 0) && (df.day == 0)) && (df.year == 0))
+            if blank {
+                draft.setProp(dpd (MfTypedValue.nullOf(5)))
+            } {
+                if (df.isComplete()) {
+                    draft.setProp(dpd (MfTypedValue.ofDate((df.isoValue()))))
                 } {
-                    def iso:string (MfText.parseDate(t))
-                    if ((strlen iso) == 0) {
-                        if strict {
-                            return (pdef.name + " is not a date (use M/D/YYYY)")
-                        }
-                    } {
-                        draft.setProp(pd (MfTypedValue.ofDate(iso)))
+                    if strict {
+                        return (dpdef.name + " is not a complete date")
                     }
                 }
             }
-            i = (i + 1)
+            di = (di + 1)
         }
         return ""
     }
@@ -1957,11 +2292,22 @@ class MfilesApp {
         editing = false
         editError = ""
         focused = ""
-        dropdownPd = -1
         def none:[InputCtl]
         fields = none
         def noPd:[int]
         fieldProps = noPd
+        def noLk:[ComboboxCtl]
+        lookups = noLk
+        def noLp:[int]
+        lookupProps = noLp
+        def noB:[RadioGroupCtl]
+        bools = noB
+        def noBp:[int]
+        boolProps = noBp
+        def noD:[DateFieldCtl]
+        dates = noD
+        def noDp:[int]
+        dateProps = noDp
         shell.toast("Saved" ((ver.title()) + " · version " + (to_string ver.version)) 1)
         shell.refresh()
         host.notifyLocation()
@@ -1974,58 +2320,36 @@ class MfilesApp {
         }
         editing = false
         editError = ""
-        dropdownPd = -1
         if (MfilesApp.hasPrefix(focused "mf-field-")) {
+            focused = ""
+        }
+        if (MfilesApp.hasPrefix(focused "mf-lookup-")) {
+            focused = ""
+        }
+        if (MfilesApp.hasPrefix(focused "mf-bool-")) {
+            focused = ""
+        }
+        if (MfilesApp.hasPrefix(focused "mf-date-")) {
             focused = ""
         }
         def none:[InputCtl]
         fields = none
         def noPd:[int]
         fieldProps = noPd
+        def noLk:[ComboboxCtl]
+        lookups = noLk
+        def noLp:[int]
+        lookupProps = noLp
+        def noB:[RadioGroupCtl]
+        bools = noB
+        def noBp:[int]
+        boolProps = noBp
+        def noD:[DateFieldCtl]
+        dates = noD
+        def noDp:[int]
+        dateProps = noDp
     }
 
-    fn pickLookup:void (pd:int item:int) {
-        def v:MfVault host.shell.vault
-        def pdef:MfPropertyDef (v.propDef(pd))
-        this.commitFields(false)
-        if (pdef.datatype == 10) {
-            def pv:MfPropertyValue (draft.prop(pd))
-            def items:[int]
-            if (pv.propDef >= 0) {
-                for pv.value.lookups x:int i {
-                    if (x != item) {
-                        push items x
-                    }
-                }
-                if ((pv.value.hasLookup(item)) == false) {
-                    push items item
-                }
-            } {
-                push items item
-            }
-            draft.setProp(pd (MfTypedValue.ofMultiLookup(items)))
-            return
-        }
-        draft.setProp(pd (MfTypedValue.ofLookup(item)))
-        dropdownPd = -1
-        if (pd == 100) {
-            this.buildFields()
-        }
-    }
-
-    fn removeLookup:void (pd:int item:int) {
-        def pv:MfPropertyValue (draft.prop(pd))
-        if (pv.propDef < 0) {
-            return
-        }
-        def items:[int]
-        for pv.value.lookups x:int i {
-            if (x != item) {
-                push items x
-            }
-        }
-        draft.setProp(pd (MfTypedValue.ofMultiLookup(items)))
-    }
 
     ; =========================================================================
     ; Input
@@ -2045,7 +2369,7 @@ class MfilesApp {
         if (MfilesApp.hasPrefix(id "mf-mnav-")) {
             def scr:string (MfilesApp.rest(id "mf-mnav-"))
             menuOpen = false
-            dropdownPd = -1
+            this.blurLookups("")
             if (scr == "code") {
                 mobileScreen = "pane"
                 shell.selectedTab = "_code"
@@ -2090,23 +2414,34 @@ class MfilesApp {
             return true
         }
         menuOpen = false
-        if (MfilesApp.hasPrefix(id "mf-dd-")) {
-            this.pickLookup(dropdownPd (MfilesApp.partInt(id 2)))
-            return true
-        }
-        if (MfilesApp.hasPrefix(id "mf-lookup-")) {
-            def lpd:int (MfilesApp.partInt(id 2))
-            if (dropdownPd == lpd) {
-                dropdownPd = -1
-            } {
-                dropdownPd = lpd
-                dropX = lastX
-                dropY = (lastY + 16.0)
+        def li:int (this.lookupOwning(id))
+        if (li >= 0) {
+            ; One of the comboboxes: focus it, let it act, land where it says.
+            ; A click on the text or the caret inside its input is a click on
+            ; the input.
+            def cb:ComboboxCtl (itemAt lookups li)
+            def inner:InputCtl (unwrap cb.input)
+            def landing:string id
+            if (((id == (inner.textTid())) || (id == (inner.caretTid()))) || (id == (inner.tid + "-band"))) {
+                landing = inner.tid
             }
-            focused = ""
-            return true
+            if (cb.isFocusable(landing)) {
+                this.commitFields(false)
+                this.blurLookups(landing)
+                focused = landing
+                cb.onFocus(landing)
+                def next:string (cb.activate(landing))
+                if ((strlen next) > 0) {
+                    focused = next
+                }
+                if ((cb.isFocusable(focused)) == false) {
+                    focused = ""
+                }
+                this.syncLookup(li)
+                return true
+            }
         }
-        dropdownPd = -1
+        this.blurLookups("")
         if (MfilesApp.hasPrefix(id "mf-sort-")) {
             table.toggleSort((MfilesApp.rest(id "mf-sort-")))
             listScroll = 0.0
@@ -2185,17 +2520,28 @@ class MfilesApp {
             }
             return true
         }
-        if (MfilesApp.hasPrefix(id "mf-bool-")) {
-            def bpd:int (MfilesApp.partInt(id 2))
-            def bv:int (MfilesApp.partInt(id 3))
+        def dti:int (this.dateOwning(id))
+        if (dti >= 0) {
+            def df:DateFieldCtl (itemAt dates dti)
             this.commitFields(false)
-            draft.setProp(bpd (MfTypedValue.ofBool((bv == 1))))
+            this.blurLookups(id)
+            focused = (df.activate(id))
             return true
         }
-        if (MfilesApp.hasPrefix(id "mf-chip-")) {
-            this.commitFields(false)
-            this.removeLookup((MfilesApp.partInt(id 2)) (MfilesApp.partInt(id 3)))
-            return true
+        def bi:int (this.boolOwning(id))
+        if (bi >= 0) {
+            def rg:RadioGroupCtl (itemAt bools bi)
+            if (rg.isFocusable(id)) {
+                this.commitFields(false)
+                focused = id
+                rg.onFocus(id)
+                def bnext:string (rg.activate(id))
+                if ((strlen bnext) > 0) {
+                    focused = bnext
+                }
+                this.syncBool(bi)
+                return true
+            }
         }
         if (id == "mf-search-go") {
             this.runSearch()
@@ -2242,7 +2588,7 @@ class MfilesApp {
                     this.selectRow(ot oid false)
                 }
             }
-            dropdownPd = -1
+            this.blurLookups("")
             menuOpen = true
             menuX = x
             menuY = y
@@ -2261,9 +2607,8 @@ class MfilesApp {
             }
         }
         if ((strlen id) == 0) {
-            if (menuOpen || (dropdownPd >= 0)) {
+            if menuOpen {
                 menuOpen = false
-                dropdownPd = -1
                 dirty = true
                 return true
             }
@@ -2383,10 +2728,18 @@ class MfilesApp {
             return true
         }
         if (k == "Escape") {
-            if (menuOpen || (dropdownPd >= 0)) {
+            if menuOpen {
                 menuOpen = false
-                dropdownPd = -1
                 return true
+            }
+            def eli:int (this.lookupOwning(focused))
+            if (eli >= 0) {
+                def ecb:ComboboxCtl (itemAt lookups eli)
+                if ecb.open {
+                    ; The list closes first; the next Escape is the card's.
+                    ecb.keyDownWith(focused "Escape" false false)
+                    return true
+                }
             }
             if editing {
                 this.discardEdit()
@@ -2397,6 +2750,83 @@ class MfilesApp {
                 return true
             }
             return false
+        }
+        def kdi:int (this.dateOwning(focused))
+        if (kdi >= 0) {
+            def kdf:DateFieldCtl (itemAt dates kdi)
+            if (k == "Tab") {
+                def inner:string (kdf.tabFrom(focused shift))
+                if ((strlen inner) > 0) {
+                    focused = inner
+                } {
+                    this.tabField(shift)
+                }
+                return true
+            }
+            if (k == "Enter") {
+                this.saveEdit()
+                return true
+            }
+            if (((strlen k) == 1) && (ctrl == false)) {
+                if (kdf.typeChar(focused k)) {
+                    ; Two digits fill a segment and move to the next one; the
+                    ; field says where it is now, and focus follows it.
+                    focused = (kdf.focusTid())
+                    return true
+                }
+            }
+            def dnext:string (kdf.keyDownWith(focused k shift ctrl))
+            if ((strlen dnext) > 0) {
+                focused = dnext
+            } {
+                def now:string (kdf.focusTid())
+                if ((strlen now) > 0) {
+                    focused = now
+                }
+            }
+            return true
+        }
+        def kbi:int (this.boolOwning(focused))
+        if (kbi >= 0) {
+            def krg:RadioGroupCtl (itemAt bools kbi)
+            if (k == "Tab") {
+                this.tabField(shift)
+                return true
+            }
+            if (k == "Enter") {
+                this.saveEdit()
+                return true
+            }
+            def bnext:string (krg.keyDownWith(focused k shift ctrl))
+            if ((strlen bnext) > 0) {
+                focused = bnext
+            }
+            this.syncBool(kbi)
+            return true
+        }
+        def kli:int (this.lookupOwning(focused))
+        if (kli >= 0) {
+            def kcb:ComboboxCtl (itemAt lookups kli)
+            if (k == "Tab") {
+                this.tabField(shift)
+                return true
+            }
+            if ((k == "Enter") && (kcb.open == false)) {
+                this.saveEdit()
+                return true
+            }
+            if (((strlen k) == 1) && (ctrl == false)) {
+                if (kcb.typeChar(focused k)) {
+                    this.syncLookup(kli)
+                    return true
+                }
+            }
+            def knext:string (kcb.keyDownWith(focused k shift ctrl))
+            if ((strlen knext) > 0) {
+                focused = knext
+            }
+            this.syncLookup(kli)
+            return true
         }
         def c:InputCtl (this.inputFor(focused))
         if ((strlen c.tid) > 0) {
@@ -2409,30 +2839,8 @@ class MfilesApp {
                 return true
             }
             if (k == "Tab") {
-                def n:int (array_length fields)
-                if (n > 0) {
-                    def at:int -1
-                    def i:int 0
-                    while (i < n) {
-                        def f:InputCtl (itemAt fields i)
-                        if (f.tid == focused) {
-                            at = i
-                        }
-                        i = (i + 1)
-                    }
-                    def next:int (at + 1)
-                    if shift {
-                        next = (at - 1)
-                    }
-                    if (next < 0) {
-                        next = (n - 1)
-                    }
-                    if (next >= n) {
-                        next = 0
-                    }
-                    def nf:InputCtl (itemAt fields next)
-                    focused = nf.tid
-                    nf.selectAll()
+                if (focused != "mf-search") {
+                    this.tabField(shift)
                 }
                 return true
             }

@@ -67,7 +67,7 @@ Under 760 px wide the window becomes a phone layout: one screen at a time
 | `uix/uix1-prelude.js` | The classic synchronous API: 1-based collections, `MFiles.CreateInstance`, `vault.ObjectPropertyOperations…` |
 | `uix/mfgrpc.js` | `MFGrpc` — the helpers of `@m-filescorporation/uix-vault-messages` (TypedValue.Text, PropertyValue.Bool, SearchConditionArray, ObjectVersionEx …) |
 | `extensions/` | Samples: Hello World (v2), Metadata Inspector (v2, gRPC), Invoice Approval (v2, uix-vault-messages, a BuiltinCommand veto), Property Report (v1) |
-| `web/` | `MfilesApp.rgr` (EVG window over gallery/ui's InputCtl and TableCtl), stylesheet, page host |
+| `web/` | `MfilesApp.rgr` (EVG window over gallery/ui's `InputCtl`, `TableCtl`, `ComboboxCtl` for the lookup fields and the class picker, `UiText` for the measured ellipsis and wrap), stylesheet, page host |
 | `tools/gen-uix-api.mjs` | Regenerates `uix/uix-api.js` from a newer uix-extensions package |
 
 ## Checks and the benchmark
