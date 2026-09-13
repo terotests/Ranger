@@ -43,9 +43,15 @@ Confluence matches the URL, inserts this macro, and passes the pasted link as
 GitHub Pages app, and RangerFlow fits the diagram to the frame. Width is
 whatever the editor's **center / wide / full-width** control already is.
 
-Without this app Confluence can only offer a Smart Link or a generic iframe
-macro; a github.io URL is not a first-class embed. That is the whole reason
-this wrapper exists.
+Without this app Confluence turns the paste into a Smart Link. GitHub Pages
+is not an embed provider, so the page shows:
+
+> We can't display content from this type of terotests.github.io link.
+
+That card is the default site title. Confluence fetched the URL without the
+`#rf=` fragment, so it never had the diagram. The Forge macro is the path
+that keeps the pasted string — fragment included — and iframes it. Until the
+app is installed, RangerFlow's **Copy picture** puts a PNG on the clipboard.
 
 ## Install
 

@@ -24,4 +24,12 @@ describe("Copy for Confluence on the RangerFlow page", () => {
     assert.match(js, /function packedFromLocation/);
     assert.match(js, /location\.search\)\.get\(DOC_KEY\)/);
   });
+
+  it("names the Smart Link failure and offers a PNG paste that does not need the app", () => {
+    assert.match(html, /can't display content from this type of terotests\.github\.io link/);
+    assert.match(html, /id="sharepng"/);
+    assert.match(html, />Copy picture</);
+    assert.match(js, /pngBlobFromSvg/);
+    assert.match(js, /image\/png/);
+  });
 });

@@ -41,4 +41,9 @@ describe("manifest", () => {
     const src = fs.readdirSync(path.join(ROOT, "src"));
     assert.deepEqual(src.sort(), ["frontend.js", "share-url.mjs"]);
   });
+
+  it("documents the Smart Link github.io refusal the paste currently hits", () => {
+    const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+    assert.match(readme, /can't display content from this type of terotests\.github\.io link/);
+  });
 });
