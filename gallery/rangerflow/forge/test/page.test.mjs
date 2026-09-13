@@ -32,4 +32,9 @@ describe("Copy for Confluence on the RangerFlow page", () => {
     assert.match(js, /pngBlobFromSvg/);
     assert.match(js, /image\/png/);
   });
+
+  it("tells a parent Forge macro how tall the embed wants to be", () => {
+    assert.match(js, /rangerflow:embed-size/);
+    assert.match(js, /function reportEmbedSize/);
+  });
 });

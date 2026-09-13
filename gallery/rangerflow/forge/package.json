@@ -3,15 +3,27 @@
   "private": true,
   "license": "AGPL-3.0-or-later",
   "description": "Forge macro: paste a RangerFlow share link, see the diagram.",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "build": "esbuild src/frontend.js --bundle --format=iife --outfile=static/rangerflow/macro.js",
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
     "test": "node --test test/*.test.mjs",
-    "deploy": "npm run build && forge deploy"
+    "check": "node scripts/check-ready.mjs",
+    "login": "forge login",
+    "register": "forge register",
+    "deploy": "npm run build && npm run check && forge deploy",
+    "install:confluence": "forge install --product confluence",
+    "upgrade": "forge install --upgrade",
+    "tunnel": "npm run build && forge tunnel",
+    "lint": "forge lint"
   },
   "dependencies": {
     "@forge/bridge": "^4.5.3"
   },
   "devDependencies": {
+    "@forge/cli": "^11.3.0",
     "esbuild": "^0.25.9"
   }
 }

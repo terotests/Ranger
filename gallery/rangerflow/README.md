@@ -90,8 +90,10 @@ Confluence     paste
   embed. Confluence shows *We can't display content from this type of
   terotests.github.io link* — GitHub Pages is not a Smart Link provider, and
   the crawler never receives `#rf=`, so the card cannot be the diagram. Install
-  the Forge app in [`forge/`](forge/README.md); after that, paste becomes a
-  RangerFlow macro (650 px high, center / wide / full-width from the editor).
+  the Forge app in [`forge/`](forge/README.md) (`npm run rangerflow:forge:install`
+  then `npm run rangerflow:forge:build`, then `login` / `register` / `deploy` /
+  `install:confluence` in that folder). After that, paste becomes a RangerFlow
+  macro (650 px high, then fitted; center / wide / full-width from the editor).
   No `/iframe`, no sizes. Until the app is on the site, **Copy picture** puts a
   PNG on the clipboard and paste lands the drawing as an image.
 - `npm run rangerflow:doc:test` draws every example as SVG, saves it, opens

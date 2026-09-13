@@ -6,6 +6,9 @@
 import { view, router } from "@forge/bridge";
 import {
   DEFAULT_HEIGHT_PX,
+  EMBED_SIZE_TYPE,
+  clampEmbedHeight,
+  isTrustedEmbedOrigin,
   pastedUrlFromContext,
   toEmbedUrl,
   toEditorUrl,
@@ -36,6 +39,14 @@ function showDiagram(src, editor) {
     router.navigate(editor);
   };
 }
+
+window.addEventListener("message", (ev) => {
+  if (!isTrustedEmbedOrigin(ev.origin)) return;
+  const data = ev.data;
+  if (!data || data.type !== EMBED_SIZE_TYPE) return;
+  if (frameEl.hidden) return;
+  frameEl.style.height = `${clampEmbedHeight(data.height)}px`;
+});
 
 async function boot() {
   let ctx;

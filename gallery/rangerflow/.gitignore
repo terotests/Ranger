@@ -19,3 +19,8 @@ harness/out/
 # mean. It is GPL, it is run as a subprocess and never linked, and 22 MB of jar
 # is not this repository's to carry.
 harness/vendor/
+
+# Forge Custom UI: built with `npm run rangerflow:forge:build`, not committed.
+forge/node_modules/
+forge/static/rangerflow/macro.js
+forge/.forge/
