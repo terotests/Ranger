@@ -129,6 +129,10 @@ class RaveNode {
     def overlay:string ""
     ; for an input: the collection field it writes when `create` runs
     def bind:string ""
+    ; for a layout root: the layout this one sits inside, or 0. A route names
+    ; one layout; that layout may name another, and the chain is built
+    ; outermost first with each one's slot holding the next.
+    def parentLayout:int 0
     def actions:[RaveAction]
     def children:[RaveNode]
 
@@ -391,6 +395,31 @@ class RaveApp {
         def n:RaveNode (this.newNode(tag text))
         n.text = text
         return n
+    }
+
+    ; The layouts a route is built through, outermost first, ending with the
+    ; route's own. A cycle stops at the depth guard rather than hanging.
+    fn layoutChain:[int] (layoutId:int) {
+        def inward:[int]
+        def at:int layoutId
+        def guard:int 0
+        while ((at > 0) && (guard < 16)) {
+            push inward at
+            if ((this.hasNode(at)) == false) {
+                at = 0
+            } {
+                def n:RaveNode (this.node(at))
+                at = n.parentLayout
+            }
+            guard = (guard + 1)
+        }
+        def out:[int]
+        def i:int ((array_length inward) - 1)
+        while (i >= 0) {
+            push out (itemAt inward i)
+            i = (i - 1)
+        }
+        return out
     }
 
     fn newLayout:RaveNode (name:string) {
@@ -1220,6 +1249,7 @@ class RaveApp {
         if ((strlen n.sourceKey) > 0) { out = (out + ",\"sourceKey\":" + (RaveJson.q(n.sourceKey))) }
         if ((strlen n.overlay) > 0) { out = (out + ",\"overlay\":" + (RaveJson.q(n.overlay))) }
         if ((strlen n.bind) > 0) { out = (out + ",\"bind\":" + (RaveJson.q(n.bind))) }
+        if (n.parentLayout > 0) { out = (out + ",\"parentLayout\":" + (to_string n.parentLayout)) }
         out = (out + ",\"actions\":[")
         def i:int 0
         while (i < (array_length n.actions)) {
@@ -1360,6 +1390,7 @@ class RaveApp {
         n.sourceKey = (v.s("sourceKey"))
         n.overlay = (v.s("overlay"))
         n.bind = (v.s("bind"))
+        n.parentLayout = (v.i("parentLayout"))
         def cl:RaveJv (v.a("classes"))
         def i:int 0
         while (i < (cl.count())) {

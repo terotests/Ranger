@@ -21,8 +21,10 @@ Import "../../evg/EVGElement.rgr"
 class RaveBuild {
     def app:RaveApp (new RaveApp(""))
     def auth:RaveAuth (new RaveAuth())
-    ; The page the layout's slot receives while a route is being built.
-    def pageId:int 0
+    ; What the slots of the route's layouts receive, outermost slot first,
+    ; ending with the page itself.
+    def slotChain:[int]
+    def slotAt:int 0
     ; What the route's `:name` segments were filled with, for a `source` node.
     def params:[string:string]
     ; The row in play, and where it came from. A text under it reads `{field}`
@@ -59,19 +61,23 @@ class RaveBuild {
         root.className = "rv rv-page"
         root.role = "group"
         root.a11yLabel = r.title
-        pageId = r.pageId
         def freshOwner:[string:string]
         rowOwner = freshOwner
         hasRow = false
         rowColl = ""
         rowSuffix = ""
-        if (r.layoutId > 0) {
-            def lay:RaveNode (app.node(r.layoutId))
-            root.addChild((this.element(lay)))
-        } {
-            def pg:RaveNode (app.node(r.pageId))
-            root.addChild((this.element(pg)))
+        def chain:[int] (app.layoutChain(r.layoutId))
+        push chain r.pageId
+        def outer:int (itemAt chain 0)
+        def rest:[int]
+        def i:int 1
+        while (i < (array_length chain)) {
+            push rest (itemAt chain i)
+            i = (i + 1)
         }
+        slotChain = rest
+        slotAt = 0
+        root.addChild((this.element((app.node(outer)))))
         return root
     }
 
@@ -309,9 +315,10 @@ class RaveBuild {
             }
         }
         if (n.kind == "slot") {
-            if (pageId > 0) {
-                def pg:RaveNode (app.node(pageId))
-                e.addChild((this.element(pg)))
+            if (slotAt < (array_length slotChain)) {
+                def nextId:int (itemAt slotChain slotAt)
+                slotAt = (slotAt + 1)
+                e.addChild((this.element((app.node(nextId)))))
             }
         }
         if ((strlen n.repeat) > 0) {

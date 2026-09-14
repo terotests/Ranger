@@ -382,6 +382,238 @@ class RavePatterns {
         }
     }
 
+    ; --- Settings Layout ----------------------------------------------------------------
+
+    ; A layout inside the shell: a tab list down the left and the panel the
+    ; tab names on the right, stacking into one column on a phone. The three
+    ; panels are pages of their own, so each tab is a route somebody can link
+    ; to and come back to.
+    sfn withSettingsLayout:void (app:RaveApp) {
+        app.shared("tablist" "gap" "4px")
+        app.shared("tab" "padding" "8px 12px")
+        app.shared("tab" "border-radius" "var(--radius)")
+        app.shared("tab" "color" "var(--ink)")
+        app.shared("tab" "cursor" "pointer")
+
+        def settingsRoute:RaveRoute (app.routeAt("/settings"))
+        def shellId:int settingsRoute.layoutId
+
+        def lay:RaveNode (app.newLayout("Settings Layout"))
+        lay.parentLayout = shellId
+        app.style(lay "gap" "16px")
+        app.style(lay "min-width" "0")
+        def h1:RaveNode (lay.add((app.newText("h1" "Settings"))))
+        h1.addClass("title")
+        def split:RaveNode (lay.add((app.newNode("div" "Settings body"))))
+        app.style(split "display" "grid")
+        app.style(split "grid-template-columns" "200px 1fr")
+        app.style(split "gap" "24px")
+        app.styleAt(split (app.below("md")) "grid-template-columns" "1fr")
+
+        def tabs:RaveNode (split.add((app.newNode("nav" "Settings sections"))))
+        tabs.label = "Settings sections"
+        tabs.addClass("tablist")
+        app.styleAt(tabs (app.below("md")) "flex-direction" "row")
+        app.styleAt(tabs (app.below("md")) "flex-wrap" "wrap")
+        def t1:RaveNode (tabs.add((app.newText("a" "Account"))))
+        t1.addClass("tab")
+        t1.on("navigate" "/settings")
+        def t2:RaveNode (tabs.add((app.newText("a" "Notifications"))))
+        t2.addClass("tab")
+        t2.on("navigate" "/settings/notifications")
+        def t3:RaveNode (tabs.add((app.newText("a" "Billing"))))
+        t3.addClass("tab")
+        t3.on("navigate" "/settings/billing")
+
+        def panel:RaveNode (split.add((app.newNode("section" "Settings panel"))))
+        panel.label = "Settings"
+        app.style(panel "gap" "16px")
+        app.style(panel "min-width" "0")
+        panel.add((app.newSlot()))
+
+        ; the page that was at /settings becomes the first tab's panel, minus
+        ; the heading the layout now carries
+        def account:RaveNode (app.node(settingsRoute.pageId))
+        def oldHeading:int (app.findIn(account "h1" "Settings"))
+        if (oldHeading > 0) {
+            app.detach(oldHeading)
+        }
+        settingsRoute.layoutId = lay.id
+
+        def notif:RaveNode (app.newPage("Notifications"))
+        app.style(notif "gap" "12px")
+        def nh:RaveNode (notif.add((app.newText("h2" "Notifications"))))
+        nh.addClass("subtitle")
+        def nform:RaveNode (notif.add((app.newNode("form" "Notification settings"))))
+        nform.label = "Notifications"
+        app.style(nform "gap" "12px")
+        app.style(nform "max-width" "480px")
+        RavePatterns.field(app nform "Email digest" "Weekly")
+        RavePatterns.field(app nform "Product news" "Off")
+        def nsave:RaveNode (RavePatterns.button(app nform "Save changes"))
+        app.style(nsave "width" "fit-content")
+
+        def billing:RaveNode (app.newPage("Billing"))
+        app.style(billing "gap" "12px")
+        def bh:RaveNode (billing.add((app.newText("h2" "Billing"))))
+        bh.addClass("subtitle")
+        def bp:RaveNode (billing.add((app.newText("p" "The plan this account is on, and what it costs."))))
+        bp.addClass("muted")
+        RavePatterns.card(app billing "Team plan" "€49 a month, billed yearly.")
+
+        app.addRoute("/settings/notifications" "Notifications" notif lay.id)
+        app.addRoute("/settings/billing" "Billing" billing lay.id)
+        def i:int 0
+        while (i < (array_length app.routes)) {
+            def r:RaveRoute (itemAt app.routes i)
+            if ((r.path == "/settings/notifications") || (r.path == "/settings/billing")) {
+                r.protected = settingsRoute.protected
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- Marketing + App ------------------------------------------------------------------
+
+    ; Every `navigate` in the document that named one path now names another.
+    sfn renameNavigation:void (app:RaveApp n:RaveNode from:string to:string) {
+        def i:int 0
+        while (i < (array_length n.actions)) {
+            def a:RaveAction (itemAt n.actions i)
+            if ((a.kind == "navigate") && (a.arg == from)) {
+                a.arg = to
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length n.children)) {
+            def c:RaveNode (itemAt n.children j)
+            RavePatterns.renameNavigation(app c from to)
+            j = (j + 1)
+        }
+    }
+
+    sfn renameEverywhere:void (app:RaveApp from:string to:string) {
+        def i:int 0
+        while (i < (array_length app.layouts)) {
+            RavePatterns.renameNavigation(app (itemAt app.layouts i) from to)
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length app.pages)) {
+            RavePatterns.renameNavigation(app (itemAt app.pages j) from to)
+            j = (j + 1)
+        }
+    }
+
+    ; The whole application moves under a prefix, links and all. `/` becomes
+    ; `/app`, `/dashboard` becomes `/app/dashboard`, and every button that
+    ; named the old path names the new one.
+    sfn moveUnder:void (app:RaveApp prefix:string) {
+        def froms:[string]
+        def tos:[string]
+        def i:int 0
+        while (i < (array_length app.routes)) {
+            def r:RaveRoute (itemAt app.routes i)
+            def from:string r.path
+            def to:string (prefix + from)
+            if (from == "/") {
+                to = prefix
+            }
+            push froms from
+            push tos to
+            r.path = to
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length froms)) {
+            RavePatterns.renameEverywhere(app (itemAt froms j) (itemAt tos j))
+            j = (j + 1)
+        }
+        if (app.afterLogin == "/") {
+            app.afterLogin = prefix
+        }
+    }
+
+    ; A public front on a top bar, in front of an application on the shell.
+    sfn withMarketing:void (app:RaveApp) {
+        app.shared("hero" "gap" "16px")
+        app.shared("hero" "padding" "64px 24px")
+        app.shared("hero" "align-items" "center")
+        app.shared("display" "font-size" "40px")
+        app.shared("display" "font-weight" "700")
+
+        def top:RaveNode (app.newLayout("Marketing Layout"))
+        app.style(top "width" "100%")
+        app.style(top "height" "100%")
+        app.style(top "background-color" "var(--bg)")
+        app.style(top "color" "var(--ink)")
+        app.style(top "font-size" "14px")
+
+        def bar:RaveNode (top.add((app.newNode("header" "Top bar"))))
+        app.style(bar "flex-direction" "row")
+        app.style(bar "align-items" "center")
+        app.style(bar "justify-content" "space-between")
+        app.style(bar "height" "56px")
+        app.style(bar "padding" "0 24px")
+        app.style(bar "border" "1px solid var(--line)")
+        def brand:RaveNode (bar.add((app.newText("span" app.name))))
+        brand.addClass("brand")
+        def links:RaveNode (bar.add((app.newNode("nav" "Site navigation"))))
+        links.label = "Site navigation"
+        app.style(links "flex-direction" "row")
+        app.style(links "align-items" "center")
+        app.style(links "gap" "8px")
+        def home:RaveNode (links.add((app.newText("a" "Home"))))
+        home.addClass("navlink")
+        home.on("navigate" "/")
+        def pricing:RaveNode (links.add((app.newText("a" "Pricing"))))
+        pricing.addClass("navlink")
+        pricing.on("navigate" "/pricing")
+        def toApp:RaveNode (RavePatterns.button(app links "Open the app"))
+        toApp.on("navigate" "/app/dashboard")
+
+        def body:RaveNode (top.add((app.newNode("main" "Main"))))
+        app.style(body "flex-grow" "1")
+        app.style(body "min-height" "0")
+        app.style(body "padding" "24px")
+        body.add((app.newSlot()))
+
+        def foot:RaveNode (top.add((app.newNode("footer" "Footer"))))
+        foot.label = "Footer"
+        app.style(foot "height" "40px")
+        app.style(foot "padding" "0 24px")
+        app.style(foot "justify-content" "center")
+        app.style(foot "border" "1px solid var(--line)")
+        def fine:RaveNode (foot.add((app.newText("span" ("© " + app.name)))))
+        fine.addClass("muted")
+
+        def front:RaveNode (app.newPage("Front page"))
+        front.addClass("hero")
+        def h1:RaveNode (front.add((app.newText("h1" ("Everything " + app.name + " does, on one page")))))
+        h1.addClass("display")
+        def lead:RaveNode (front.add((app.newText("p" "Designed in Rave, and already running."))))
+        lead.addClass("muted")
+        def cta:RaveNode (RavePatterns.button(app front "Start now"))
+        cta.on("navigate" "/app/dashboard")
+
+        def plans:RaveNode (app.newPage("Pricing"))
+        app.style(plans "gap" "24px")
+        def ph:RaveNode (plans.add((app.newText("h1" "Pricing"))))
+        ph.addClass("title")
+        def grid:RaveNode (plans.add((app.newNode("div" "Plans"))))
+        app.style(grid "display" "grid")
+        app.style(grid "grid-template-columns" "repeat(3, 1fr)")
+        app.style(grid "gap" "24px")
+        app.styleAt(grid (app.below("md")) "grid-template-columns" "1fr")
+        RavePatterns.card(app grid "Solo" "€9 a month. One seat, every feature.")
+        RavePatterns.card(app grid "Team" "€49 a month. Ten seats and shared projects.")
+        RavePatterns.card(app grid "Company" "Let us talk. Single sign-on and a contract.")
+
+        app.addRoute("/" "Home" front top.id)
+        app.addRoute("/pricing" "Pricing" plans top.id)
+    }
+
     ; --- CRUD --------------------------------------------------------------------------
 
     sfn crudTheme:void (app:RaveApp) {
@@ -583,6 +815,33 @@ class RavePatterns {
         def app:RaveApp (RavePatterns.dashboardShell(name))
         RavePatterns.withMasterDetail(app)
         RavePatterns.withAuth(app)
+        return app
+    }
+
+    ; Dashboard Shell with the settings routes on a layout of their own.
+    sfn settingsLayout:RaveApp (name:string) {
+        def app:RaveApp (RavePatterns.dashboardShell(name))
+        RavePatterns.withSettingsLayout(app)
+        RavePatterns.withAuth(app)
+        return app
+    }
+
+    ; A public front page and a private application, in one document.
+    sfn marketingApp:RaveApp (name:string) {
+        def app:RaveApp (RavePatterns.dashboardShell(name))
+        RavePatterns.moveUnder(app "/app")
+        RavePatterns.withMarketing(app)
+        RavePatterns.withAuth(app)
+        ; the front page and the price list are the public half
+        def i:int 0
+        while (i < (array_length app.routes)) {
+            def r:RaveRoute (itemAt app.routes i)
+            if ((r.path == "/") || (r.path == "/pricing")) {
+                r.protected = false
+            }
+            i = (i + 1)
+        }
+        app.afterLogin = "/app/dashboard"
         return app
     }
 

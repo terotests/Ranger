@@ -283,6 +283,102 @@ class RaveTest {
         c.eqStr("…with the field it writes" bTitle.bind "title")
     }
 
+    ; --- Settings Layout and Marketing + App -----------------------------------------------
+
+    ; Two patterns that both turn on one thing: a route's layout may itself
+    ; sit inside another. Settings is a layout within the shell; Marketing is
+    ; a second top-level layout beside it.
+    sfn layoutChecks:void (c:Check) {
+        print ""
+        print "--- settings layout ---"
+        def app:RaveApp (RavePatterns.settingsLayout("Acme"))
+        def settings:RaveRoute (app.routeAt("/settings"))
+        def lay:RaveNode (app.node(settings.layoutId))
+        c.eqStr("the settings route is on its own layout" lay.name "Settings Layout")
+        c.ok("…which sits inside the shell" (lay.parentLayout > 0))
+        def chain:[int] (app.layoutChain(settings.layoutId))
+        c.eqInt("…so the chain is two deep" (array_length chain) 2)
+        def outer:RaveNode (app.node((itemAt chain 0)))
+        c.eqStr("…the shell first" outer.name "Dashboard Shell")
+
+        def rt (new RaveRuntime(app))
+        c.eqInt("the sheet parses clean" (rt.styleErrorCount()) 0)
+        def desk:int (rt.addView("desktop" 1440.0 900.0 false))
+        def phone:int (rt.addView("phone" 390.0 844.0 true))
+        rt.setLoggedIn(true)
+        rt.navigate("/settings")
+        def dl:string (rt.displayListJson(desk))
+        def shellSide:string (RaveTest.elId((app.idOfNamed("aside" "Sidebar"))))
+        c.ok("the shell is still around it" (rt.hasEl(desk shellSide)))
+        c.ok("…the tab list inside that" (RaveTest.includes(dl "Notifications")))
+        c.ok("…and the account panel inside that" (RaveTest.includes(dl "Display name")))
+        RaveTest.noRejections(c rt desk "the engine rejected nothing")
+        RaveTest.lintClean(c rt desk "settings lints clean at 1440")
+        RaveTest.lintClean(c rt phone "settings lints clean at 390")
+
+        def tabs:string (RaveTest.elId((app.idOfNamed("nav" "Settings sections"))))
+        def panel:string (RaveTest.elId((app.idOfNamed("section" "Settings panel"))))
+        c.ok("1440 puts the tabs beside the panel" ((rt.leftOf(desk panel)) > (rt.leftOf(desk tabs))))
+        c.ok("390 puts them above it" ((rt.topOf(phone panel)) > (rt.topOf(phone tabs))))
+
+        def toNotif:string (RaveTest.elId((app.idWithAction("navigate" "/settings/notifications"))))
+        c.ok("a tab moves" (rt.press(toNotif)))
+        c.eqStr("…to its own route" (rt.path()) "/settings/notifications")
+        def dl2:string (rt.displayListJson(desk))
+        c.ok("…which keeps the layout around it" (rt.hasEl(desk tabs)))
+        c.ok("…and swaps the panel" (RaveTest.includes(dl2 "Email digest")))
+        c.ok("…the old panel is gone" ((RaveTest.includes(dl2 "Display name")) == false))
+        RaveTest.lintClean(c rt desk "the notifications tab lints clean")
+
+        print ""
+        print "--- marketing + app ---"
+        def m:RaveApp (RavePatterns.marketingApp("Acme"))
+        def frontRoute:RaveRoute (m.routeAt("/"))
+        def priceRoute:RaveRoute (m.routeAt("/pricing"))
+        def appRoute:RaveRoute (m.routeAt("/app/dashboard"))
+        c.ok("the front page is public" (frontRoute.protected == false))
+        c.ok("…and so is the price list" (priceRoute.protected == false))
+        c.ok("the application moved under /app" (m.hasRoute("/app/dashboard")))
+        c.ok("…all of it" (m.hasRoute("/app/settings")))
+        c.ok("…and it is protected" appRoute.protected)
+        def sidebarLink:int (m.idWithAction("navigate" "/app/settings"))
+        c.ok("…with the sidebar's links moved with it" (sidebarLink > 0))
+        c.eqInt("…and none left pointing at the old path" (m.idWithAction("navigate" "/settings")) 0)
+
+        def rt2 (new RaveRuntime(m))
+        c.eqInt("the sheet parses clean" (rt2.styleErrorCount()) 0)
+        if ((rt2.styleErrorCount()) > 0) {
+            print ("       " + (rt2.styleError(0)))
+        }
+        def d2:int (rt2.addView("desktop" 1440.0 900.0 false))
+        def p2:int (rt2.addView("phone" 390.0 844.0 true))
+        c.eqStr("it starts on the front page" (rt2.path()) "/")
+        def topNav:string (RaveTest.elId((m.idOfNamed("nav" "Site navigation"))))
+        def appSide:string (RaveTest.elId((m.idOfNamed("aside" "Sidebar"))))
+        c.ok("…which is the marketing layout" (rt2.hasEl(d2 topNav)))
+        c.ok("…and not the shell" ((rt2.hasEl(d2 appSide)) == false))
+        RaveTest.lintClean(c rt2 d2 "the front page lints clean at 1440")
+        RaveTest.lintClean(c rt2 p2 "the front page lints clean at 390")
+        RaveTest.noRejections(c rt2 d2 "the engine rejected nothing on the front page")
+
+        def toPricing:string (RaveTest.elId((m.idWithAction("navigate" "/pricing"))))
+        c.ok("the price list is reachable logged out" (rt2.press(toPricing)))
+        c.eqStr("…at /pricing" (rt2.path()) "/pricing")
+        RaveTest.lintClean(c rt2 p2 "the price list lints clean at 390")
+
+        def toApp:string (RaveTest.elId((m.idWithAction("navigate" "/app/dashboard"))))
+        c.ok("the app asks for a sign-in" (rt2.press(toApp)))
+        c.eqStr("…at /login" (rt2.path()) "/login")
+        def loginRoute:RaveRoute (m.routeAt("/login"))
+        def loginPage:RaveNode (m.node(loginRoute.pageId))
+        def signIn:string (RaveTest.elId((m.findWithAction(loginPage "login" ""))))
+        c.ok("signing in works" (rt2.press(signIn)))
+        c.eqStr("…and lands where it was going" (rt2.path()) "/app/dashboard")
+        c.ok("…on the shell this time" (rt2.hasEl(d2 appSide)))
+        c.ok("…and the marketing bar is gone" ((rt2.hasEl(d2 topNav)) == false))
+        RaveTest.lintClean(c rt2 d2 "the application lints clean at 1440")
+    }
+
     ; --- the editor -----------------------------------------------------------------
 
     sfn chromeCss:string () {
@@ -840,6 +936,7 @@ class RaveTest {
 
         RaveTest.masterDetailChecks(c)
         RaveTest.crudChecks(c)
+        RaveTest.layoutChecks(c)
         RaveTest.editorChecks(c)
         RaveTest.inputChecks(c)
 
