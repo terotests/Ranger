@@ -255,6 +255,9 @@ class PptxClone {
         ; slide.
         s.embedNotation = src.embedNotation
         s.embedSource = src.embedSource
+        s.mdSrcStart = src.mdSrcStart
+        s.mdSrcEnd = src.mdSrcEnd
+        s.mdLastText = src.mdLastText
         s.hasStyle = src.hasStyle
         s.fontRef = src.fontRef
         s.styleFillSig = src.styleFillSig

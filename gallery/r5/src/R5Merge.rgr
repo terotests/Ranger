@@ -83,6 +83,12 @@ class R5DeckBase {
         taken = true
     }
 
+    fn setKeyAt:void (flat:int key:string) {
+        if (flat < 0) { return }
+        if (flat >= (array_length keys)) { return }
+        set_at keys flat key
+    }
+
     ; The flat index of shape `j` on slide `i`.
     fn at:int (i:int j:int) {
         def off:int 0

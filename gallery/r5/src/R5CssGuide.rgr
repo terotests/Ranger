@@ -1,0 +1,78 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; R5CssGuide.rgr — what an empty style.css tab shows, and an example to apply.
+; ============================================================================
+
+class R5CssGuide {
+
+    ; Comments only. Opening the tab does not dress the document; applying
+    ; the example, or typing a rule, does.
+    sfn help:string () {
+        def s:string "/*\n"
+        s = (s + "  style.css — how this markdown looks.\n")
+        s = (s + "\n")
+        s = (s + "  The words stay in document.md. This file only dresses them.\n")
+        s = (s + "  Edit a rule here and Preview, Slides and Word pick it up.\n")
+        s = (s + "\n")
+        s = (s + "  Layout → Template loads corporate.css or editorial.css into\n")
+        s = (s + "  this tab. Press \"Apply example\" for a starter sheet you can\n")
+        s = (s + "  edit. An empty sheet (or Template → no template) is the\n")
+        s = (s + "  layout's own defaults.\n")
+        s = (s + "\n")
+        s = (s + "  Selectors this layout honours:\n")
+        s = (s + "    page        width, height, padding, background-color,\n")
+        s = (s + "                background-image\n")
+        s = (s + "    deck        split-level, overflow, aspect-ratio\n")
+        s = (s + "    document    font-family, font-size, line-height, color\n")
+        s = (s + "                (body is the same selector)\n")
+        s = (s + "    heading     font-family, font-size, margin-top, margin-bottom\n")
+        s = (s + "    h1 … h6     font-size for that level\n")
+        s = (s + "    p           margin-bottom\n")
+        s = (s + "    a           color\n")
+        s = (s + "    code        font-family, font-size, line-height, padding,\n")
+        s = (s + "                background-color, border-color\n")
+        s = (s + "    list, li    padding-left, margin-left, margin-bottom\n")
+        s = (s + "    blockquote  color, border-color, border-width, padding-*\n")
+        s = (s + "    table       border-color, background-color, padding-*\n")
+        s = (s + "    hr          color\n")
+        s = (s + "\n")
+        s = (s + "  A block with `{.lead}` in the markdown matches `.lead`.\n")
+        s = (s + "  `{.c2}` / `{.c3}` set column-count when the sheet says so.\n")
+        s = (s + "\n")
+        s = (s + "  Example (uncomment, or press Apply example):\n")
+        s = (s + "\n")
+        s = (s + "    document  { font-family: Open Sans; font-size: 16pt; color: #1f2328 }\n")
+        s = (s + "    heading   { margin-top: 22pt; margin-bottom: 10pt }\n")
+        s = (s + "    h1        { font-size: 34pt }\n")
+        s = (s + "    h2        { font-size: 24pt }\n")
+        s = (s + "    p         { margin-bottom: 12pt }\n")
+        s = (s + "    a         { color: #0969da }\n")
+        s = (s + "    deck      { split-level: 2; overflow: split; aspect-ratio: 16 / 9 }\n")
+        s = (s + "    .lead     { font-size: 20pt }\n")
+        s = (s + "*/\n")
+        return s
+    }
+
+    sfn example:string () {
+        def s:string "/* example stylesheet — edit me */\n\n"
+        s = (s + "page      { padding: 0.7in; background-color: #ffffff }\n")
+        s = (s + "deck      { split-level: 2; overflow: split; aspect-ratio: 16 / 9 }\n\n")
+        s = (s + "document  { font-family: Open Sans; font-size: 16pt; line-height: 1.4; color: #1f2328 }\n\n")
+        s = (s + "heading   { font-family: Open Sans; margin-top: 22pt; margin-bottom: 10pt }\n")
+        s = (s + "h1        { font-size: 34pt }\n")
+        s = (s + "h2        { font-size: 24pt }\n")
+        s = (s + "h3        { font-size: 18pt }\n\n")
+        s = (s + "p         { margin-bottom: 12pt }\n")
+        s = (s + "a         { color: #0969da }\n\n")
+        s = (s + "list      { padding-left: 24pt; margin-left: 8pt }\n")
+        s = (s + "li        { margin-bottom: 6pt }\n\n")
+        s = (s + "blockquote { color: #57606a; border-color: #0969da; border-width: 3pt; padding-left: 16pt }\n\n")
+        s = (s + "code      { font-family: Noto Sans; font-size: 13pt; padding: 10pt;\n")
+        s = (s + "            background-color: #f6f8fa; border-color: #d8dee4 }\n\n")
+        s = (s + ".lead     { font-size: 20pt }\n")
+        s = (s + ".c2       { column-count: 2; column-gap: 28pt }\n")
+        s = (s + ".c3       { column-count: 3; column-gap: 24pt }\n")
+        return s
+    }
+}

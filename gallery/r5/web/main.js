@@ -698,6 +698,10 @@ function editorDraw() {
 function keepKeyboard() {
   keys.focus({ preventScroll: true });
 }
+function afterDeckInput() {
+  keepKeyboard();
+  if (app.syncDeckToMd()) needsPaint = true;
+}
 function bindEditorHost(view) {
   if (view === boundView) return;
   if (editorHost) {
@@ -711,7 +715,7 @@ function bindEditorHost(view) {
     const web = app.md.deckHost();
     editorHost = [
       attachDeckPointer({
-        canvas: paneEl, web, sceneSize, draw: editorDraw, afterInput: keepKeyboard, keepsFocus: () => true,
+        canvas: paneEl, web, sceneSize, draw: editorDraw, afterInput: afterDeckInput, keepsFocus: () => true,
         onFileRequest: (want) => {
           if (want === "saveAs" || want === "save") window.__lastDownload = deliver(app.md.pptx(), docName + ".pptx",
             "application/vnd.openxmlformats-officedocument.presentationml.presentation");
@@ -719,7 +723,7 @@ function bindEditorHost(view) {
         },
       }),
       attachDeckKeys({
-        web, draw: editorDraw, afterInput: keepKeyboard, target: keys, enabled: enabled("deck"),
+        web, draw: editorDraw, afterInput: afterDeckInput, target: keys, enabled: enabled("deck"),
         onSave: () => { window.__lastDownload = deliver(app.md.pptx(), docName + ".pptx",
           "application/vnd.openxmlformats-officedocument.presentationml.presentation"); },
       }),
@@ -831,6 +835,15 @@ function selftest() {
     check("a keystroke in the editor reaches the markdown", app.md.sourceText() !== before && app.md.sourceText().includes("Q"));
     app.undo();
     check("undo puts it back on both sides", app.md.sourceText() === before && app.editor.text() === before);
+    app.press("r5-doc-css");
+    window.__redraw();
+    check("empty style.css opens with a guide", app.editor.text().indexOf("Selectors") >= 0 && app.editor.text().indexOf("document.md") >= 0);
+    check("the guide is comments, not a live sheet", (app.md.styleText() || "").trim() === "");
+    app.press("r5-css-example");
+    window.__redraw();
+    check("Apply example puts a starter sheet in style.css", app.md.styleText().indexOf("h1") >= 0 && app.editor.text().indexOf("font-size: 34pt") >= 0);
+    app.press("r5-doc-md");
+    window.__redraw();
     if (!wide) app.setScreen("preview");
     window.__redraw();
     const doc = JSON.parse(app.docFrame());
@@ -902,8 +915,8 @@ function selftest() {
       window.__redraw();
       check("a keystroke while on the slides reaches them", slideText().includes("Fresh deck title Z"));
       // A presentation edit on the slides — a title recoloured — survives
-      // the next markdown change; a rewording of the title in the deck does
-      // not, and the head says so.
+      // the next markdown change. A heading retyped on the slide writes
+      // back into document.md, the way the preview already did.
       const pres = app.md.deckWeb.app.presentation;
       const title = pres.slides[0].shapes[0];
       title.noFill = false; title.fill.isSet = true; title.fill.srgb = "FF0000";
@@ -914,12 +927,12 @@ function selftest() {
       check("a recoloured slide keeps its colour when the markdown changes", slideText().includes("Fresh deck title Z!") && title2.fill.srgb === "FF0000" && !app.deckInvasive());
       title2.text.paragraphs[0].runs[0].text = "Retyped on the slide";
       app.md.deckWeb.app.editor.dirty = true;
-      app.text("?");
+      check("a retyped slide title writes back to the markdown", app.syncDeckToMd() && app.md.sourceText().indexOf("Retyped on the slide") >= 0);
       window.__redraw();
-      check("a slide whose words were retyped is kept, with the way back", app.deckInvasive() && texts(window.__lastChrome).includes("↻ from .md"));
+      check("…and the slides keep following the .md", !app.deckInvasive() && slideText().includes("Retyped on the slide"));
       app.press("r5-rebuild");
       window.__redraw();
-      check("↻ from .md builds the slides from the markdown again", !app.deckInvasive() && slideText().includes("Fresh deck title Z!?"));
+      check("↻ from .md still rebuilds when asked", !app.deckInvasive() && slideText().includes("Retyped on the slide"));
       app.setScreen("doc");
       window.__redraw();
       const doc = app.md.docModel;
@@ -928,7 +941,7 @@ function selftest() {
       doc.touch();
       app.text("#");
       window.__redraw();
-      check("a spaced Word paragraph keeps its spacing when the markdown changes", app.md.docModel.blockAt(0).paragraph.spaceAfterPt === 44 && app.md.docModel.blockAt(0).paragraph.text.includes("Z!?#"));
+      check("a spaced Word paragraph keeps its spacing when the markdown changes", app.md.docModel.blockAt(0).paragraph.spaceAfterPt === 44 && app.md.docModel.blockAt(0).paragraph.text.includes("Retyped"));
       const docPdf = app.md.docPdf();
       check("the Word pages come out as a PDF", String.fromCharCode(...new Uint8Array(docPdf).slice(0, 5)) === "%PDF-", `${docPdf.byteLength} bytes`);
       app.setScreen("preview");
