@@ -49,20 +49,7 @@
 <style class="shirt-num">font-size: 44px; font-weight: 700; color: var(--gold); letter-spacing: -0.04em</style>
 <style class="banner-name">font-size: 36px; font-weight: 700; color: var(--pitch-ink); letter-spacing: -0.03em</style>
 <style class="banner-meta">color: var(--pitch-ink); font-size: 15px</style>
-<style class="bowl">background-color: #081c14; padding: 12px; border-radius: 8px; gap: 8px</style>
-<style class="stand">background-color: var(--pitch-mid); color: var(--pitch-ink); align-items: center; justify-content: center; gap: 2px; border-radius: 4px; cursor: pointer; border: 1px solid var(--gold)</style>
-<style class="home">border: 2px solid var(--gold)</style>
-<style class="away">background-color: #1a241c; border: 1px solid var(--line)</style>
-<style class="vip">background-color: var(--pitch); border: 2px solid var(--gold)</style>
-<style class="stand-letter">font-size: 20px; font-weight: 700; color: var(--gold); letter-spacing: -0.03em</style>
-<style class="stand-name">font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: var(--pitch-ink)</style>
-<style class="track">background-color: #8b3a22; padding: 16px; border-radius: 4px; flex-grow: 1; min-width: 0; min-height: 0</style>
-<style class="field">background-color: var(--pitch-mid); flex-grow: 1; min-height: 0; border: 2px solid var(--pitch-ink); padding: 8px; justify-content: space-between; align-items: center</style>
-<style class="pen">width: 58%; height: 16%; border: 2px solid var(--pitch-ink); align-items: center</style>
-<style class="goal">width: 28%; height: 6px; background-color: var(--pitch-ink)</style>
-<style class="half-row">flex-direction: row; align-items: center; width: 100%</style>
-<style class="half">flex-grow: 1; height: 2px; background-color: var(--pitch-ink)</style>
-<style class="spot">width: 14px; height: 14px; border-radius: 999px; border: 2px solid var(--pitch-ink)</style>
+<style class="plan">width: 100%; height: 400px</style>
 <style class="letter-xl">font-size: 56px; font-weight: 700; color: var(--gold); letter-spacing: -0.04em</style>
 
 <collection name="players" fields="id name number position club caps goals age bio">
@@ -386,63 +373,10 @@
       </div>
     </section>
   </div>
-  <section class="bowl" name="Pohjapiirros" label="Olympiastadionin pohjapiirros" style="height: 400px">
-    <media below="md" style="height: 260px; padding: 8px; gap: 6px"/>
+  <path class="plan" name="Pohjapiirros" label="Olympiastadionin pohjapiirros" alt="Soikea pohjapiirros: A pohjoinen koti, B itä perhe, C etelä vieras, D länsi VIP, juoksurata ja kenttä." viewBox="-24 -8 1048 636" svg="<svg xmlns='http://www.w3.org/2000/svg' viewBox='-24 -8 1048 636'><ellipse cx='500' cy='310' rx='490' ry='300' fill='#081c14'/><path d='M 166.2 110.6 C 350.6 0.5 649.4 0.5 833.8 110.6 L 748.9 161.5 C 611.4 79.5 388.6 79.5 251.1 161.5 Z' fill='#145c38' stroke='#c9a227' stroke-width='3'/><path d='M 833.8 110.6 C 922.3 163.5 972 235.2 972 310 C 972 384.8 922.3 456.5 833.8 509.4 L 748.9 458.5 C 814.9 419.1 852 365.7 852 310 C 852 254.3 814.9 200.9 748.9 161.5 Z' fill='#145c38'/><path d='M 833.8 509.4 C 649.4 619.5 350.6 619.5 166.2 509.4 L 251.1 458.5 C 388.6 540.5 611.4 540.5 748.9 458.5 Z' fill='#1a241c'/><path d='M 166.2 509.4 C -18.1 399.3 -18.1 220.7 166.2 110.6 L 251.1 161.5 C 113.6 243.5 113.6 376.5 251.1 458.5 Z' fill='#0e3d2a' stroke='#c9a227' stroke-width='3'/><ellipse cx='500' cy='310' rx='352' ry='210' fill='#8b3a22'/><rect x='418' y='188' width='164' height='244' fill='#145c38' stroke='#f6f1e3' stroke-width='2.5'/><rect x='451' y='188' width='98' height='38' fill='none' stroke='#f6f1e3' stroke-width='2'/><rect x='451' y='394' width='98' height='38' fill='none' stroke='#f6f1e3' stroke-width='2'/><rect x='491' y='188' width='18' height='5' fill='#f6f1e3'/><rect x='491' y='427' width='18' height='5' fill='#f6f1e3'/><line x1='418' y1='310' x2='582' y2='310' stroke='#f6f1e3' stroke-width='2'/><circle cx='500' cy='310' r='22' fill='none' stroke='#f6f1e3' stroke-width='2'/><circle cx='500' cy='310' r='3' fill='#f6f1e3'/><circle cx='500' cy='64' r='7' fill='#c9a227'/><circle cx='912' cy='310' r='7' fill='#c9a227'/><circle cx='500' cy='556' r='7' fill='#c9a227'/><circle cx='88' cy='310' r='7' fill='#c9a227'/></svg>">
+    <media below="md" style="height: 260px"/>
     <media from="lg" style="height: 440px"/>
-    <a class="stand home" name="Pohjoinen" label="Pohjoiskaarre" style="height: 56px; flex-direction: row; gap: 12px">
-      <media below="md" style="height: 40px"/>
-      <span class="stand-letter">A</span>
-      <span class="stand-name">POHJOINEN · KOTI</span>
-      <on click="navigate" arg="/stadion/a"/>
-    </a>
-    <div name="Keskusta" style="flex-direction: row; flex-grow: 1; min-height: 0; gap: 8px">
-      <media below="md" style="gap: 6px"/>
-      <a class="stand vip" name="Länsi" label="Länsikatsomo" style="width: 72px">
-        <media below="md" style="width: 44px"/>
-        <span class="stand-letter">D</span>
-        <span class="stand-name">LÄNSI
-          <media below="md" style="display: none"/>
-        </span>
-        <span class="stand-name">VIP
-          <media below="md" style="display: none"/>
-        </span>
-        <on click="navigate" arg="/stadion/d"/>
-      </a>
-      <div class="track" name="Juoksurata" label="Juoksurata">
-        <media below="md" style="padding: 10px"/>
-        <div class="field" name="Kenttä" label="Pelialue">
-          <div class="pen" name="Pohjoinen rangaistusalue" style="justify-content: flex-start">
-            <div class="goal"></div>
-          </div>
-          <div class="half-row" name="Keskiviiva">
-            <div class="half"></div>
-            <div class="spot"></div>
-            <div class="half"></div>
-          </div>
-          <div class="pen" name="Eteläinen rangaistusalue" style="justify-content: flex-end">
-            <div class="goal"></div>
-          </div>
-        </div>
-      </div>
-      <a class="stand" name="Itä" label="Itäkatsomo" style="width: 72px">
-        <media below="md" style="width: 44px"/>
-        <span class="stand-letter">B</span>
-        <span class="stand-name">ITÄ
-          <media below="md" style="display: none"/>
-        </span>
-        <span class="stand-name">PERHE
-          <media below="md" style="display: none"/>
-        </span>
-        <on click="navigate" arg="/stadion/b"/>
-      </a>
-    </div>
-    <a class="stand away" name="Etelä" label="Eteläkaarre" style="height: 56px; flex-direction: row; gap: 12px">
-      <media below="md" style="height: 40px"/>
-      <span class="stand-letter">C</span>
-      <span class="stand-name">ETELÄ · VIERAS</span>
-      <on click="navigate" arg="/stadion/c"/>
-    </a>
-  </section>
+  </path>
   <div name="Katsomot" repeat="stands" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px">
     <media below="md" style="grid-template-columns: 1fr 1fr; gap: 8px"/>
     <a class="pcard" label="{name}">

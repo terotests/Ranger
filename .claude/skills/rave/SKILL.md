@@ -85,7 +85,8 @@ something a person would have found by looking.
 Words are the element's content. A node's own rule is its `style=`. The same
 rule at another width is a `<media below|from|query … style="…"/>` child. An
 action is an `<on click="…" arg="…"/>` child. Every layout needs exactly one
-`<slot/>`.
+`<slot/>`. A `<path d="…" viewBox="…"/>` is a vector — `svg="…"` is a whole
+drawing — not a box with a radius.
 
 ## The four that catch people out
 

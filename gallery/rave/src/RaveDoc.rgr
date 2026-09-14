@@ -99,7 +99,7 @@ class RaveNode {
     ; element | slot | conditional | instance
     def kind:string "element"
     ; The semantic tag: div header nav main aside section footer h1 h2 h3 h4
-    ; p span button a img form label input ul li. The tag chooses the default
+    ; p span button a img path form label input ul li. The tag chooses the default
     ; accessibility role and the default keyboard behaviour, as in HTML.
     def tag:string "div"
     ; The layer name a person reads.
@@ -109,6 +109,11 @@ class RaveNode {
     def text:string ""
     def src:string ""
     def alt:string ""
+    ; A vector: `d` is one path, `svg` a whole drawing, `viewBox` the
+    ; coordinates those are in. The builder makes an EVG path element.
+    def d:string ""
+    def viewBox:string ""
+    def svg:string ""
     ; The accessible name when the content does not give one — an input's
     ; label, a landmark's title.
     def label:string ""
@@ -1180,6 +1185,9 @@ class RaveApp {
         n.text = src.text
         n.src = src.src
         n.alt = src.alt
+        n.d = src.d
+        n.viewBox = src.viewBox
+        n.svg = src.svg
         n.label = src.label
         n.placeholder = src.placeholder
         n.condition = src.condition
@@ -1247,6 +1255,9 @@ class RaveApp {
         if ((strlen n.text) > 0) { out = (out + ",\"text\":" + (RaveJson.q(n.text))) }
         if ((strlen n.src) > 0) { out = (out + ",\"src\":" + (RaveJson.q(n.src))) }
         if ((strlen n.alt) > 0) { out = (out + ",\"alt\":" + (RaveJson.q(n.alt))) }
+        if ((strlen n.d) > 0) { out = (out + ",\"d\":" + (RaveJson.q(n.d))) }
+        if ((strlen n.viewBox) > 0) { out = (out + ",\"viewBox\":" + (RaveJson.q(n.viewBox))) }
+        if ((strlen n.svg) > 0) { out = (out + ",\"svg\":" + (RaveJson.q(n.svg))) }
         if ((strlen n.label) > 0) { out = (out + ",\"label\":" + (RaveJson.q(n.label))) }
         if ((strlen n.placeholder) > 0) { out = (out + ",\"placeholder\":" + (RaveJson.q(n.placeholder))) }
         if ((strlen n.condition) > 0) { out = (out + ",\"condition\":" + (RaveJson.q(n.condition))) }
@@ -1390,6 +1401,9 @@ class RaveApp {
         n.text = (v.s("text"))
         n.src = (v.s("src"))
         n.alt = (v.s("alt"))
+        n.d = (v.s("d"))
+        n.viewBox = (v.s("viewBox"))
+        n.svg = (v.s("svg"))
         n.label = (v.s("label"))
         n.placeholder = (v.s("placeholder"))
         n.condition = (v.s("condition"))

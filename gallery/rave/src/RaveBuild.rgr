@@ -177,6 +177,7 @@ class RaveBuild {
         if (tag == "button") { return "button" }
         if (tag == "a") { return "link" }
         if (tag == "img") { return "img" }
+        if (tag == "path") { return "img" }
         if (tag == "input") { return "textbox" }
         if (tag == "ul") { return "list" }
         if (tag == "li") { return "listitem" }
@@ -280,6 +281,12 @@ class RaveBuild {
             e.src = n.src
             e.alt = n.alt
         }
+        if (n.tag == "path") {
+            e = (EVGElement.createPath())
+            e.svgPath = (this.tx(n.d))
+            e.viewBox = n.viewBox
+            e.svgSource = n.svg
+        }
         def myId:string (this.eid(n))
         e.id = myId
         e.className = (this.classesOf(n))
@@ -312,6 +319,9 @@ class RaveBuild {
             e.a11yLabel = (this.tx(n.label))
         }
         if ((n.tag == "img") && ((strlen n.alt) > 0)) {
+            e.a11yLabel = (this.tx(n.alt))
+        }
+        if ((n.tag == "path") && ((strlen n.alt) > 0)) {
             e.a11yLabel = (this.tx(n.alt))
         }
         if (RaveBuild.takesFocus(n.tag)) {

@@ -181,6 +181,9 @@ class RaveText {
         out = (out + (RaveText.attr("placeholder" n.placeholder)))
         out = (out + (RaveText.attr("alt" n.alt)))
         out = (out + (RaveText.attr("src" n.src)))
+        out = (out + (RaveText.attr("d" n.d)))
+        out = (out + (RaveText.attr("viewBox" n.viewBox)))
+        out = (out + (RaveText.attr("svg" n.svg)))
         out = (out + (RaveText.attr("role" n.role)))
         out = (out + (RaveText.attr("state" n.state)))
         out = (out + (RaveText.attr("bind" n.bind)))
@@ -435,6 +438,9 @@ class RaveText {
         made.text = n.text
         made.src = n.src
         made.alt = n.alt
+        made.d = n.d
+        made.viewBox = n.viewBox
+        made.svg = n.svg
         made.label = n.label
         made.placeholder = n.placeholder
         made.condition = n.condition
@@ -543,10 +549,11 @@ class RaveText {
 
         s = (s + "THE ELEMENTS ON A PAGE\n")
         s = (s + "  div span p h1 h2 h3 h4 header footer nav main aside section\n")
-        s = (s + "  form label input button a img ul li slot toast\n\n")
+        s = (s + "  form label input button a img path ul li slot toast\n\n")
         s = (s + "  Words are the element's content: <h1 class=\"title\">Dashboard</h1>\n")
         s = (s + "  A <slot/> is where a route's page goes inside its layout. Every\n")
-        s = (s + "  layout needs exactly one.\n\n")
+        s = (s + "  layout needs exactly one. A <path/> is a vector: `d` is one outline,\n")
+        s = (s + "  `svg` a whole drawing, `viewBox` the coordinates those are in.\n\n")
 
         s = (s + "THE ATTRIBUTES ANY ELEMENT MAY HAVE\n")
         s = (s + "  class=\"a b\"         shared classes, defined by <style class=\"a\">\n")
@@ -555,6 +562,8 @@ class RaveText {
         s = (s + "  label=\"…\"           its accessible name, when the words do not give one\n")
         s = (s + "  placeholder=\"…\"     an input's grey text\n")
         s = (s + "  alt=\"…\" src=\"…\"     an image's\n")
+        s = (s + "  d=\"…\" viewBox=\"…\"   a path's outline and its coordinates\n")
+        s = (s + "  svg=\"…\"              a whole SVG drawing on a <path/>\n")
         s = (s + "  role=\"…\" state=\"…\"  an ARIA role the tag does not imply, and\n")
         s = (s + "                      checked|unchecked|selected|unselected|expanded|collapsed\n")
         s = (s + "  when=\"authenticated\"|\"unauthenticated\"   on the page only when the\n")
@@ -585,7 +594,7 @@ class RaveText {
         s = (s + "  padding margin (and their -top/-right/-bottom/-left)\n")
         s = (s + "  position relative absolute fixed · left top right bottom · z-index\n")
         s = (s + "  overflow visible hidden scroll\n")
-        s = (s + "  background-color color opacity cursor\n")
+        s = (s + "  background-color color opacity cursor fill stroke stroke-width\n")
         s = (s + "  border (one shorthand: `1px solid #e4e4e7`) · border-radius\n")
         s = (s + "  font-size font-weight font-family line-height letter-spacing text-align\n")
         s = (s + "  Units: px % vw vh em rem, and fit-content. var(--token) anywhere.\n\n")
@@ -1069,6 +1078,7 @@ class RaveTextReader {
         if (tag == "button") { return true }
         if (tag == "a") { return true }
         if (tag == "img") { return true }
+        if (tag == "path") { return true }
         if (tag == "ul") { return true }
         if (tag == "li") { return true }
         if (tag == "slot") { return true }
@@ -1144,6 +1154,18 @@ class RaveTextReader {
         }
         if (key == "src") {
             n.src = value
+            return
+        }
+        if (key == "d") {
+            n.d = value
+            return
+        }
+        if (key == "viewBox") {
+            n.viewBox = value
+            return
+        }
+        if (key == "svg") {
+            n.svg = value
             return
         }
         if (key == "role") {

@@ -601,6 +601,21 @@ class RaveTest {
         c.eqInt("forty bad lines keep six" (r5.errorCount()) 6)
         c.eqInt("…and count the rest" (r5.moreCount()) 34)
         c.eqInt("…forty in total" (r5.totalErrors()) 40)
+
+        ; --- a path is a vector, not a box ---------------------------------------
+        def pathMark:string "<app name=\"Vec\"/>\n<page name=\"Home\">\n  <path d=\"M 4 4 L 20 4 L 20 20 Z\" viewBox=\"0 0 24 24\" style=\"width: 48px; height: 48px; fill: #c9a227\" label=\"Mark\"/>\n</page>\n<route path=\"/\" title=\"Home\" page=\"Home\"/>\n"
+        def rPath (new RaveTextReader())
+        def vec:RaveApp (rPath.readDoc(pathMark))
+        c.eqInt("a path parses" (rPath.errorCount()) 0)
+        def vecPage:RaveNode (RaveTest.pageOfRoute(vec "/"))
+        def vecPath:RaveNode (itemAt vecPage.children 0)
+        c.eqStr("…as a path" vecPath.tag "path")
+        c.eqStr("…and keeps its d" vecPath.d "M 4 4 L 20 4 L 20 20 Z")
+        def written:string (RaveText.writeApp(vec))
+        c.ok("…through a round trip" (RaveTest.includes(written "d=\"M 4 4 L 20 4 L 20 20 Z\"")))
+        def rtPath (new RaveRuntime(vec))
+        def vp:int (rtPath.addView("desktop" 400.0 300.0 false))
+        RaveTest.noRejections(c rtPath vp "…and fill is a colour the engine knows")
     }
 
     ; --- the AI menu ----------------------------------------------------------------------
