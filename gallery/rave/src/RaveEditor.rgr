@@ -508,14 +508,22 @@ class RaveEditor {
         }
         if (aiScope == "document") {
             def reader (new RaveTextReader())
-            def parsed:RaveApp (reader.read(text))
+            def parsed:RaveApp (reader.readDoc(text))
             this.takeErrors(reader)
             if ((reader.errorCount()) > 0) {
                 dirty = true
                 return false
             }
             if (parsed.isEmpty()) {
-                push aiErrors "that document has no routes, so there is nothing to show"
+                if (reader.looksLikeOnePage()) {
+                    ; the answer is one page, and the menu is on the document:
+                    ; say so and put the menu where the answer belongs, so the
+                    ; same paste works the second time
+                    aiScope = "page"
+                    push aiErrors "that answer is one page, not a whole document — About is now set to This page, so paste it again"
+                } {
+                    push aiErrors "that document has no routes, so there is nothing to show"
+                }
                 dirty = true
                 return false
             }
@@ -526,10 +534,23 @@ class RaveEditor {
             return true
         }
         def reader2 (new RaveTextReader())
-        ; the answer is read against THIS document's breakpoints, so `@<md`
-        ; in it means the same width it means everywhere else here
+        ; the answer is read against THIS document's breakpoints, so `<media
+        ; below="md"/>` in it means the same width it means everywhere else
         reader2.useBreakpointsOf(doc)
         def frag:RaveApp (reader2.readFragment(text))
+        if (reader2.looksWhole()) {
+            ; A WHOLE DOCUMENT, PASTED INTO ONE PAGE. Reading it as a page
+            ; produces an error for every route that cannot find a page that
+            ; was never made — ten complaints about a mistake that is one
+            ; sentence. Say the sentence, and put the menu where the answer
+            ; belongs so the same paste lands the second time.
+            clear aiErrors
+            aiMore = 0
+            aiScope = "document"
+            push aiErrors "that answer is a whole document — About is now set to The whole document, so paste it again"
+            dirty = true
+            return false
+        }
         this.takeErrors(reader2)
         if ((reader2.errorCount()) > 0) {
             dirty = true
