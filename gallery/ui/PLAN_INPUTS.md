@@ -390,7 +390,16 @@ dialog's two inputs are drawn as textboxes and open no editing session.
 Textarea is in the catalogue as MISSING; that is Phase 4. The date field and
 the OTP were, and are components now — see P5b.
 
-### P5b — `DateFieldCtl` and `OtpCtl` (done), `PasswordCtl` (open)
+### P5b — `DateFieldCtl`, `OtpCtl` and `ComboboxCtl` (done), `PasswordCtl` (open)
+
+**`ComboboxCtl` — done, against Base UI's Combobox** (`combobox_oracle.mjs`,
+`combobox_check.mjs`, 123 assertions; the offline half in `UiTest`). Single
+with a Clear, and `multiple` with chips and a ChipRemove — the "tag input" the
+plan had declined twice for want of an oracle, and the invoice's Customer with
+its clear `×`. What the capture said that a reading would not is in
+`ComboboxCtl.rgr`'s header and `README.md`; the one rule specified rather than
+measured is ArrowRight off a chip. The M-Files metadata card
+(`demo/MetadataDemo.rgr`) is the first page built on it.
 
 **`DateFieldCtl`** — the `mm/dd/yyyy` editor a person asked for in place of
 the calendar's formatted label. shadcn has no date FIELD (its Date Picker is a

@@ -295,6 +295,14 @@ SUITES=(
   # And the code drawn: slots, the dash, the caret in the first empty slot, and
   # Verify lighting when the sixth digit lands.
   ui:otp:demo
+  # The combobox, against Base UI's Combobox — single, and multiple with chips:
+  # the highlight lands on the chosen row, typing clears it (no autoHighlight),
+  # a multiple pick keeps the list open, Backspace in the empty box takes the
+  # last chip, ArrowLeft walks onto the chips and wraps back to the input.
+  ui:combobox:check
+  # And the M-Files metadata card drawn out of it: one label column, the list
+  # opening under its box, chips in pick order, Save's errors on the hint line.
+  ui:metadata:check
   # The progress bar, against BOTH shadcn references at once. They disagree in
   # fourteen places and the big one is not small: Radix refuses to report an
   # out-of-range value and goes indeterminate, Base UI clamps. This follows

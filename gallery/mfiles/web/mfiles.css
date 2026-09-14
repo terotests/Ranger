@@ -357,35 +357,80 @@
 }
 .mf-field:focus { border: 1px solid #1d6fd8; }
 
-.mf-opts { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 6px; flex-grow: 1; }
-.mf-opt { display: flex; flex-direction: row; align-items: center; height: 28px; padding: 0 14px; border-radius: 14px; border: 1px solid #cfd6e4; background-color: #ffffff; }
-.mf-opt:hover { background-color: #eef3ff; }
-.mf-opt-on { background-color: #1d6fd8; border: 1px solid #1d6fd8; }
-.mf-opt-on:hover { background-color: #1d6fd8; }
-.mf-opt-txt { font-size: 12px; color: #27304a; height: 16px; }
-.mf-opt-txt-on { color: #ffffff; }
+/* The date fields: gallery/ui's DateFieldCtl, three segments and two
+   separators in a box the height of a text field. */
+.ui-datefield { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; flex-grow: 1; min-width: 0; height: 32px; padding: 0 6px; border: 1px solid #c9d1e3; border-radius: 3px; background-color: #ffffff; }
+.ui-datefield-seg { font-size: 13px; color: #1d2433; height: 20px; padding: 1px 3px; border-radius: 3px; }
+.ui-datefield-hint { color: #8a93a6; }
+.ui-datefield-seg-focus { background-color: #cfe1ff; color: #0f1f5c; }
+.ui-datefield-sep { font-size: 13px; color: #6b7385; height: 20px; padding: 1px 0; }
 
-.mf-lookup {
+/* The Yes/No pills: gallery/ui's RadioGroupCtl in toggle mode, themed as the
+   card's two pills. The state word is the controller's; the look is here. */
+.ui-togglegroup { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 6px; flex-grow: 1; }
+.ui-togglegroup-item { font-size: 12px; color: #27304a; height: 28px; padding: 6px 14px; border-radius: 14px; border: 1px solid #cfd6e4; background-color: #ffffff; }
+.ui-togglegroup-item:hover { background-color: #eef3ff; }
+.ui-togglegroup-item:focus { border-color: #1d6fd8; }
+.ui-togglegroup-item-state-on { color: #ffffff; background-color: #1d6fd8; border-color: #1d6fd8; }
+
+/* The lookup fields are gallery/ui's ComboboxCtl, themed here: the GROUP is
+   the border, the text field inside is borderless, the chips are the card's
+   blue, and the list is an overlay the layout pass hangs under the box. */
+.ui-combobox { display: flex; flex-direction: column; flex-grow: 1; min-width: 0; position: relative; }
+.ui-combobox-group {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
-  flex-grow: 1;
-  min-width: 0;
-  min-height: 32px;
-  padding: 4px 8px 4px 6px;
   gap: 4px;
+  min-height: 32px;
+  padding: 3px 6px 3px 6px;
   border: 1px solid #c9d1e3;
   border-radius: 3px;
   background-color: #ffffff;
 }
-.mf-lookup:hover { border: 1px solid #1d6fd8; }
-.mf-lookup-caret { font-size: 12px; color: #6b7385; height: 16px; }
-.mf-lchip { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; height: 22px; padding: 0 4px 0 8px; gap: 4px; border-radius: 3px; background-color: #e7eefc; }
-.mf-lchip-txt { font-size: 12px; color: #1f3f7a; height: 16px; }
-.mf-lchip-x { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 8px; }
-.mf-lchip-x:hover { background-color: #c9d8f5; }
-.mf-lchip-xtxt { font-size: 12px; color: #4f6390; height: 16px; }
+.ui-combobox-group:hover { border-color: #1d6fd8; }
+.ui-combobox-group-state-open { border-color: #1d6fd8; }
+.ui-combobox-grow { flex-grow: 1; min-width: 4px; height: 4px; }
+.ui-input {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  position: relative;
+  height: 24px;
+  padding: 0 4px;
+  overflow: hidden;
+}
+.ui-combobox-input { width: 40px; flex-grow: 1; }
+.ui-combobox-input-single { width: 190px; }
+.ui-input-text { font-size: 13px; color: #1d2433; height: 18px; }
+.ui-input-placeholder { color: #8a93a6; }
+.ui-input-caret { position: absolute; top: 4px; width: 2px; height: 18px; background-color: #1d6fd8; }
+.ui-combobox-chips { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; }
+.ui-combobox-chip { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; height: 22px; padding: 0 4px 0 8px; gap: 4px; border-radius: 3px; background-color: #e7eefc; }
+.ui-combobox-chip-focused { background-color: #1d6fd8; }
+.ui-combobox-chip-text { font-size: 12px; color: #1f3f7a; height: 16px; }
+.ui-combobox-chip-text-focused { color: #ffffff; }
+.ui-combobox-chip-remove { width: 16px; height: 16px; border-radius: 8px; font-size: 12px; color: #4f6390; text-align: center; }
+.ui-combobox-chip-remove:hover { background-color: #c9d8f5; }
+.ui-combobox-clear { width: 18px; height: 18px; font-size: 13px; color: #6b7385; text-align: center; border-radius: 9px; }
+.ui-combobox-clear:hover { background-color: #eef3ff; }
+.ui-combobox-trigger { width: 18px; height: 18px; font-size: 12px; color: #6b7385; text-align: center; }
+.ui-combobox-content {
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  padding: 4px 0;
+  background-color: #ffffff;
+  border: 1px solid #c5cddd;
+  border-radius: 6px;
+}
+.ui-combobox-item { font-size: 13px; color: #1f2a44; height: 30px; padding: 6px 10px; }
+.ui-combobox-item:hover { background-color: #eef3ff; }
+.ui-combobox-item-state-selected { background-color: #e7eefc; }
+.ui-combobox-item-active { background-color: #1d6fd8; color: #ffffff; }
+.ui-combobox-empty { font-size: 13px; color: #8a92a6; height: 30px; padding: 6px 10px; }
 
 .mf-preview-name { font-size: 13px; color: #0f1f5c; height: 18px; font-weight: bold; }
 .mf-paper { display: flex; flex-direction: column; padding: 22px 24px; border: 1px solid #e3e7ef; border-radius: 2px; background-color: #ffffff; }
@@ -460,21 +505,6 @@
 .mf-mheadbox { padding: 4px 14px 2px 14px; }
 .mf-mhead { font-size: 10px; color: #8a93a6; height: 14px; }
 
-.mf-dd {
-  position: absolute;
-  display: flex;
-  flex-direction: column;
-  width: 280px;
-  padding: 4px 0;
-  background-color: #ffffff;
-  border: 1px solid #c5cddd;
-  border-radius: 6px;
-}
-.mf-ddi { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; height: 30px; padding: 0 10px; gap: 6px; }
-.mf-ddi:hover { background-color: #eef3ff; }
-.mf-ddi-on { background-color: #e7eefc; }
-.mf-ddi-mark { font-size: 12px; color: #1d6fd8; height: 16px; width: 14px; min-width: 14px; }
-.mf-ddi-txt { font-size: 13px; color: #1f2a44; height: 18px; }
 
 .mf-backdrop { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background-color: #0a1228; opacity: 0.35; }
 .mf-dialog {

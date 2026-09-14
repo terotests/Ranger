@@ -154,6 +154,59 @@ section("editing metadata");
 }
 
 // ---------------------------------------------------------------------------
+section("a chip field: the invoice's Customer");
+{
+  // Customer is a multi-select lookup, which the card draws as gallery/ui's
+  // ComboboxCtl with chips. The rules exercised here are the ones that
+  // controller measured on Base UI; this checks they reach the vault.
+  const app = open();
+  const title = "Invoice #1035 - Fortney Nolte Associates";
+  press(app, "row", title);
+  ok("press Edit metadata on the invoice", press(app, "button", "Edit metadata"));
+  ok("Customer is a combobox", !!node(app, "combobox", "Customer"));
+  ok("with the existing customer as a chip", !!node(app, "button", "Remove Fortney Nolte Associates"));
+  ok("open its list", press(app, "combobox", "Customer"));
+  ok("it offers UPS", named(app, "option").includes("UPS"), named(app, "option").join(" | "));
+  press(app, "option", "UPS");
+  ok("picking adds a second chip", !!node(app, "button", "Remove UPS"));
+  ok("and the list stays open — a multiple pick does not close it", named(app, "option").length > 0);
+  app.keyWith("Escape", false, false);
+  app.displayListJson();
+  ok("Escape closes the list and leaves the card open", named(app, "option").length === 0 && named(app, "button").includes("Save"));
+  app.keyWith("Backspace", false, false);
+  app.displayListJson();
+  ok("Backspace in the empty box takes the last chip", !node(app, "button", "Remove UPS") && !!node(app, "button", "Remove Fortney Nolte Associates"));
+  press(app, "combobox", "Customer");
+  press(app, "option", "CBC Company");
+  press(app, "button", "Save");
+  const saved = propText(app, title, 1001) || "";
+  ok("both customers reached the vault", saved.includes("Fortney Nolte Associates") && saved.includes("CBC Company"), saved);
+  eq("as one new version", find(app, title).latest().version, 2);
+
+  // The pills (RadioGroupCtl in toggle mode) and the date (DateFieldCtl):
+  // Approved goes from No to Yes with a press, the due date is typed segment
+  // by segment — two digits fill a segment and move on, measured on Chromium.
+  press(app, "button", "Edit metadata");
+  ok("Approved is a radio group of two", !!node(app, "radio", "Yes") && !!node(app, "radio", "No"));
+  ok("press Yes", press(app, "radio", "Yes"));
+  const due = node(app, "group", "Due date");
+  ok("the due date is a date field", !!due);
+  // Its Month segment: the textbox inside the group's rectangle, because the
+  // invoice has two date fields and both have a "Month".
+  const inside = (n) => n.b && due.b && n.b[0] >= due.b[0] && n.b[0] + n.b[2] <= due.b[0] + due.b[2] && n.b[1] >= due.b[1] && n.b[1] + n.b[3] <= due.b[1] + due.b[3];
+  const month = nodes(app).find((n) => n.role === "textbox" && n.name === "Month" && inside(n));
+  ok("with a Month segment", !!month);
+  app.pointerDown(month.b[0] + month.b[2] / 2, month.b[1] + month.b[3] / 2, 0);
+  app.displayListJson();
+  for (const ch of "12252025") { app.keyWith(ch, false, false); app.displayListJson(); }
+  app.displayListJson();
+  press(app, "button", "Save");
+  eq("Approved saved as Yes", propText(app, title, 1009), "Yes");
+  eq("the typed date saved as a date", propText(app, title, 1014), "12/25/2025");
+  eq("version 3", find(app, title).latest().version, 3);
+}
+
+// ---------------------------------------------------------------------------
 section("search, dialogs, modes");
 {
   const app = open();

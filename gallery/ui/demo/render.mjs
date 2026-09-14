@@ -90,6 +90,100 @@ const DEMOS = {
     },
   },
 
+  metadata: {
+    module: "gallery/ui/bin/MetadataDemo.cjs",
+    css: "metadata.css",
+    width: 760,
+    height: 720,
+    list: (M, css) => {
+      const d = new M.MetadataDemo();
+      d.init(css);
+      // MD_STEP: "customer" opens the chip field's list with a query typed;
+      // "class" opens the single one; "save" empties Customer and saves so
+      // the error line shows.
+      const step = process.env.MD_STEP || "";
+      if (step === "customer") { d.press("md-customer-input"); for (const ch of "a") d.type(ch); d.key("ArrowDown"); }
+      if (step === "class") { d.press("md-class-trigger"); d.key("ArrowDown"); }
+      if (step === "save") { d.press("md-customer-input"); d.key("Backspace"); d.key("Escape"); d.press("md-save"); }
+      return d.displayListJson();
+    },
+    errors: (M, css) => {
+      const d = new M.MetadataDemo();
+      d.init(css);
+      return d.styleErrorCount();
+    },
+  },
+
+  // The toast stack, drawn straight through UiHost with the kit's own theme:
+  // no demo page owns it yet, and a picture of four kinds in a viewport is
+  // what the stack work was for.
+  toasts: {
+    module: "gallery/ui/bin/ui_host.cjs",
+    css: "../theme/base.css",
+    width: 420,
+    height: 1000,
+    list: (M, css) => {
+      const h = new M.UiHost();
+      h.setPageSize(420, 1000);
+      h.addStyleSheet(css);
+      const t = h.addToast("ts", "Show a toast");
+      t.duration = 5000;
+      t.raise("Saved", "Invoice #1035 was saved as version 2.", "success");
+      t.raise("Checked out", "Alex Kramer has this document checked out.", "warning");
+      t.raise("Could not send", "The mail server refused the connection.", "error");
+      t.raise("Tip", "Press F8 to reach the notifications.", "info");
+      if (process.env.TOAST_HOVER) h.hover("ts-item-2");
+      return h.displayListJson();
+    },
+    errors: (M, css) => {
+      const h = new M.UiHost();
+      h.addStyleSheet(css);
+      return h.styleErrorCount();
+    },
+  },
+
+  // gallery/mfiles, whose metadata card is where ComboboxCtl came from and
+  // the first application to use it. MF_STEP: "edit" opens the card on the
+  // job application, "department" opens its class-list combobox.
+  mfiles: {
+    module: "gallery/mfiles/bin/MfilesApp.cjs",
+    css: "../../mfiles/web/mfiles.css",
+    width: 1440,
+    height: 900,
+    list: (M, css) => {
+      const read = (rel) => fs.readFileSync(path.join(ROOT, "gallery/mfiles", rel), "utf8");
+      const app = new M.MfilesApp();
+      app.init(css, read("uix/uix-api.js"), read("uix/uix-core.js"), read("uix/uix1-prelude.js"), read("uix/uix2-prelude.js"), read("uix/mfgrpc.js"));
+      app.setPageSize(1440, 900);
+      app.displayListJson();
+      const nodes = () => JSON.parse(app.a11yJson(1, "")).nodes;
+      const press = (role, name) => {
+        const n = nodes().find((x) => x.role === role && (x.name ?? "") === name);
+        if (!n || !n.b) return false;
+        app.pointerDown(n.b[0] + Math.min(n.b[2] / 2, 40), n.b[1] + n.b[3] / 2, 0);
+        app.displayListJson();
+        return true;
+      };
+      const step = process.env.MF_STEP || "";
+      if (step === "edit" || step === "department") {
+        press("row", "Job Application, Paula McEnroe");
+        press("button", "Edit metadata");
+      }
+      if (step === "invoice") {
+        press("row", "Invoice #1035 - Fortney Nolte Associates");
+        press("button", "Edit metadata");
+      }
+      if (step === "department") press("combobox", "Department");
+      return app.displayListJson();
+    },
+    errors: (M, css) => {
+      const read = (rel) => fs.readFileSync(path.join(ROOT, "gallery/mfiles", rel), "utf8");
+      const app = new M.MfilesApp();
+      app.init(css, read("uix/uix-api.js"), read("uix/uix-core.js"), read("uix/uix1-prelude.js"), read("uix/uix2-prelude.js"), read("uix/mfgrpc.js"));
+      return app.styleErrorCount();
+    },
+  },
+
   profile: {
     module: "gallery/ui/bin/ProfileDemo.cjs",
     css: "profile.css",

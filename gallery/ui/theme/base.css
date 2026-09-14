@@ -441,6 +441,15 @@
   padding: 12px;
   background-color: #ffffff;
 }
+/* The four kinds mfiles has: a tinted card with its border in the kind's
+   colour — EVG strokes a border on all four sides, there is no `border-left`,
+   and a property the sheet does not know is dropped without a word (the first
+   version of these rules drew nothing at all). A kind is a class, and the
+   reference has no such thing, so no spec compares it. */
+.ui-toast-item-kind-info { border-color: #2563eb; background-color: #eff6ff; }
+.ui-toast-item-kind-success { border-color: #16a34a; background-color: #f0fdf4; }
+.ui-toast-item-kind-warning { border-color: #d97706; background-color: #fffbeb; }
+.ui-toast-item-kind-error { border-color: #dc2626; background-color: #fef2f2; }
 .ui-toast-title { color: #0f172a; font-size: 15px; }
 .ui-toast-description { color: #475569; }
 .ui-toast-action, .ui-toast-close {
@@ -907,3 +916,69 @@
 .ui-breadcrumb-sep { height: 20px; width: 12px; color: #a1a1aa; }
 .ui-breadcrumb-ellipsis { height: 20px; width: 20px; color: #71717a; }
 .ui-navmenu-item { display: flex; flex-direction: row; flex-wrap: nowrap; height: 32px; }
+
+/* A combobox: one box that holds the text field, the chips of a multiple one,
+   a clear button while there is something to clear, and the trigger. The box
+   WRAPS, because a multiple box with six chips in it is two lines tall and a
+   box that clipped them would hide the selection it exists to show. The text
+   field inside loses its own border: the group is the border now. */
+.ui-combobox { display: flex; flex-direction: column; width: fit-content; }
+.ui-combobox-disabled { opacity: 0.45; }
+.ui-combobox-group {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 260px;
+  min-height: 34px;
+  padding: 3px 6px 3px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background-color: #ffffff;
+}
+.ui-combobox-group-state-open { border-color: #2563eb; }
+.ui-combobox-group-invalid { border-color: #dc2626; }
+.ui-combobox-input { border: none; padding: 0; height: 26px; width: 120px; flex-grow: 1; background-color: transparent; }
+.ui-combobox-grow { flex-grow: 1; min-width: 4px; height: 4px; }
+.ui-combobox-chips { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; }
+.ui-combobox-chip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 4px 0 8px;
+  border-radius: 4px;
+  background-color: #e0e7ff;
+}
+.ui-combobox-chip-focused { background-color: #1e293b; }
+.ui-combobox-chip-text { color: #1e3a8a; font-size: 13px; height: 18px; }
+.ui-combobox-chip-remove { width: 16px; height: 16px; border-radius: 8px; color: #3730a3; font-size: 13px; text-align: center; }
+.ui-combobox-chip-remove:hover { background-color: #c7d2fe; }
+.ui-combobox-clear { width: 20px; height: 20px; color: #64748b; font-size: 14px; text-align: center; }
+.ui-combobox-trigger { width: 20px; height: 20px; color: #64748b; font-size: 12px; text-align: center; }
+.ui-combobox-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 260px;
+  width: fit-content;
+  gap: 2px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px;
+  background-color: #ffffff;
+}
+.ui-combobox-item { padding: 6px 14px; border-radius: 5px; color: #0f172a; }
+.ui-combobox-item-state-selected { background-color: #e0e7ff; }
+.ui-combobox-item-active { background-color: #1e293b; color: #ffffff; }
+.ui-combobox-item-disabled { opacity: 0.45; }
+.ui-combobox-empty { padding: 6px 14px; color: #64748b; }
+
+.theme-dark .ui-combobox-group { background-color: #0f172a; border-color: #334155; }
+.theme-dark .ui-combobox-chip { background-color: #1e3a8a; }
+.theme-dark .ui-combobox-chip-text { color: #e0e7ff; }
+.theme-dark .ui-combobox-content { background-color: #0f172a; border-color: #334155; }
+.theme-dark .ui-combobox-item { color: #e2e8f0; }
+.theme-dark .ui-combobox-item-state-selected { background-color: #1e3a8a; }

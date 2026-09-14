@@ -147,6 +147,9 @@ function buildHost(M, fixture, css) {
         ctl.title = c.title || c.name;
         ctl.bodyText = c.body || "";
         ctl.actionLabel = c.actionName || "Undo";
+        // 0 means never: the reference is driven with an enormous duration
+        // for the same reason, so a spec without one measures no timer.
+        ctl.duration = c.duration || 0;
         break;
 
       case "label":
