@@ -33,6 +33,9 @@ class RaveKit {
         push out "Tabs"
         push out "Dialog"
         push out "Toggle"
+        push out "Sheet"
+        push out "Command"
+        push out "Sidebar"
         return out
     }
 
@@ -117,10 +120,35 @@ class RaveKit {
             return p
         }
         if (kind == "Button") {
-            def b:RaveNode (app.newText("button" "Button"))
-            b.addClass("btn")
-            app.style(b "width" "fit-content")
+            def b:RaveNode (RaveKit.instance(app "Button" "Button"))
+            b.tag = "button"
+            b.text = "Button"
+            b.variant = "default"
             return b
+        }
+        if (kind == "Sheet") {
+            def sh:RaveNode (RaveKit.instance(app "Sheet" "Sheet title"))
+            sh.text = "Open sheet"
+            sh.variant = "right"
+            sh.add((app.newText("p" "What the sheet holds.")))
+            return sh
+        }
+        if (kind == "Command") {
+            def cm:RaveNode (RaveKit.instance(app "Command" "Command"))
+            cm.text = "Search…"
+            cm.placeholder = "Type a command or search…"
+            RaveKit.option(app cm "Dashboard")
+            RaveKit.option(app cm "Settings")
+            RaveKit.option(app cm "Profile")
+            return cm
+        }
+        if (kind == "Sidebar") {
+            def sb:RaveNode (RaveKit.instance(app "Sidebar" "Sidebar"))
+            sb.label = "Sidebar"
+            RaveKit.option(app sb "Home")
+            RaveKit.option(app sb "Settings")
+            RaveKit.option(app sb "Profile")
+            return sb
         }
         if (kind == "Link") {
             def a:RaveNode (app.newText("a" "Link"))
@@ -132,13 +160,9 @@ class RaveKit {
             return (RaveKit.field(app "Label" "Type here"))
         }
         if (kind == "Card") {
-            def c:RaveNode (app.newNode("section" "Card"))
-            c.addClass("card")
-            c.label = "Card"
-            def h3:RaveNode (c.add((app.newText("h3" "Card title"))))
-            h3.addClass("subtitle")
-            def body:RaveNode (c.add((app.newText("p" "What this card is about."))))
-            body.addClass("muted")
+            def c:RaveNode (RaveKit.instance(app "Card" "Card title"))
+            c.tag = "section"
+            c.text = "What this card is about."
             return c
         }
         if (kind == "Image") {

@@ -1,0 +1,27 @@
+{
+ "name": "card_basic",
+ "component": "card",
+ "behaviours": [
+  "card-region",
+  "card-title-heading",
+  "card-parts"
+ ],
+ "fixture": {
+  "controls": [
+   {
+    "type": "card",
+    "tid": "card",
+    "title": "Revenue",
+    "body": "Where the money came from.",
+    "footer": "Updated today"
+   },
+   {
+    "type": "card",
+    "tid": "bare",
+    "title": "Plain",
+    "body": "Nothing else."
+   }
+  ]
+ },
+ "steps": []
+}

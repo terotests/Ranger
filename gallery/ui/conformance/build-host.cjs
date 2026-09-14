@@ -85,6 +85,33 @@ function buildHost(M, fixture, css) {
         ctl = host.addDialog(c.tid, c.name, c.title || c.name);
         break;
 
+      case "button":
+        ctl = host.addButton(c.tid, c.name);
+        if (c.variant) ctl.variant = c.variant;
+        if (c.size) ctl.size = c.size;
+        break;
+
+      case "sheet":
+        ctl = host.addSheet(c.tid, c.name, c.title || c.name, c.side || "right");
+        break;
+
+      case "card":
+        ctl = host.addCard(c.tid, c.title || c.name || "", c.body || "", c.footer || "");
+        break;
+
+      case "command":
+        ctl = host.addCommand(c.tid, c.name);
+        for (const it of c.items || []) ctl.addItem(it.value, it.name, !!it.disabled);
+        if (c.placeholder) ctl.placeholder = c.placeholder;
+        if (c.empty) ctl.emptyText = c.empty;
+        break;
+
+      case "sidebar":
+        ctl = host.addSidebar(c.tid, c.name || "");
+        for (const it of c.items || []) ctl.addItem(it.value, it.name, !!it.disabled);
+        ctl.value = c.value || "";
+        break;
+
       case "alertdialog":
         ctl = host.addAlertDialog(c.tid, c.name, c.title || c.name);
         ctl.bodyText = c.body || "";
@@ -332,6 +359,11 @@ function buildHost(M, fixture, css) {
  * than a hand-kept list, so "implemented" cannot drift from what the code does.
  */
 const SUPPORTED_TYPES = [
+  "button",
+  "sheet",
+  "card",
+  "command",
+  "sidebar",
   "toggle",
   "collapsible",
   "checkbox",

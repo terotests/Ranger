@@ -1,0 +1,41 @@
+{
+ "name": "command_pointer",
+ "component": "command",
+ "behaviours": [
+  "command-opens",
+  "command-roles",
+  "command-first-active",
+  "command-pointer-picks"
+ ],
+ "fixture": {
+  "controls": [
+   {
+    "type": "command",
+    "tid": "cmd",
+    "name": "Search",
+    "items": [
+     {
+      "value": "settings",
+      "name": "Settings"
+     },
+     {
+      "value": "profile",
+      "name": "Profile"
+     },
+     {
+      "value": "signout",
+      "name": "Sign out"
+     }
+    ]
+   }
+  ]
+ },
+ "steps": [
+  {
+   "click": "cmd-trigger"
+  },
+  {
+   "click": "cmd-item-profile"
+  }
+ ]
+}

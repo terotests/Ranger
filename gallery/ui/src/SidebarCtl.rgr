@@ -1,0 +1,222 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; SidebarCtl — the application's side navigation
+; =============================================================================
+; A list of places, one of them current, and a button that folds the rail
+; to its icons and back. shadcn's Sidebar is markup — a `data-state` of
+; expanded or collapsed on the rail, a trigger named "Toggle Sidebar", a
+; `ul` of `li`s holding buttons, the active one marked — so the DOM side of
+; its specs is a second implementation of that markup with the one thing
+; shadcn leaves out written in: the current place says `aria-current="page"`,
+; which is what a reader needs and a data attribute cannot give it.
+;
+; Going somewhere is the page's business: pressing an item makes it current
+; (`value`) and the host navigates. There is no arrow navigation on
+; purpose; the items are buttons, and Tab is how buttons are walked.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class SidebarCtl extends UiCtl {
+    def collapsed:boolean false
+    def items:[UiItem]
+    ; The current place.
+    def value:string ""
+    def triggerLabel:string "Toggle Sidebar"
+    def triggerEl:EVGElement
+    def menuEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        triggerEl = (EVGElement.createDiv())
+        menuEl = (EVGElement.createDiv())
+    }
+
+    fn addItem:void (itemValue:string itemName:string itemDisabled:boolean) {
+        def it (new UiItem())
+        it.value = itemValue
+        it.name = itemName
+        it.disabled = itemDisabled
+        push items it
+    }
+
+    fn triggerTid:string () {
+        return (tid + "-trigger")
+    }
+
+    fn menuTid:string () {
+        return (tid + "-menu")
+    }
+
+    fn itemTid:string (itemValue:string) {
+        return ((tid + "-item-") + itemValue)
+    }
+
+    fn stateWord:string () {
+        if collapsed {
+            return "collapsed"
+        }
+        return "expanded"
+    }
+
+    fn valueOf:string (target:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.itemTid(it.value)) == target) {
+                return it.value
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn itemOf:UiItem (v:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if (it.value == v) {
+                return it
+            }
+            i = (i + 1)
+        }
+        def first:UiItem (itemAt items 0)
+        return first
+    }
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target == (this.triggerTid())) {
+            collapsed = (collapsed == false)
+            this.build()
+            return ""
+        }
+        def v:string (this.valueOf(target))
+        if ((strlen v) == 0) {
+            return ""
+        }
+        def it:UiItem (this.itemOf(v))
+        if it.disabled {
+            return ""
+        }
+        value = v
+        this.build()
+        return ""
+    }
+
+    fn build:void () {
+        def word:string (this.stateWord())
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-sidebar"
+        UiTree.setState(root "ui-sidebar" word)
+        UiTree.clearChildren(root)
+
+        def trig:EVGElement (unwrap triggerEl)
+        trig.id = (this.triggerTid())
+        trig.className = "ui-sidebar-trigger"
+        UiTree.leafText(trig "☰")
+        root.addChild(trig)
+
+        def menu:EVGElement (unwrap menuEl)
+        menu.id = (this.menuTid())
+        menu.className = "ui-sidebar-menu"
+        UiTree.clearChildren(menu)
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def el:EVGElement (unwrap it.el)
+            el.id = (this.itemTid(it.value))
+            el.className = "ui-sidebar-item"
+            if it.disabled {
+                UiTree.addClass(el "ui-sidebar-item-disabled")
+            }
+            if (it.value == value) {
+                UiTree.addClass(el "ui-sidebar-item-active")
+            }
+            if collapsed {
+                UiTree.leafText(el (substring it.name 0 1))
+            } {
+                UiTree.leafText(el it.name)
+            }
+            menu.addChild(el)
+            i = (i + 1)
+        }
+        root.addChild(menu)
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.triggerTid())
+        push a (this.menuTid())
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            push a (this.itemTid(it.value))
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        if (target == (this.triggerTid())) {
+            return true
+        }
+        def v:string (this.valueOf(target))
+        if ((strlen v) == 0) {
+            return false
+        }
+        def it:UiItem (this.itemOf(v))
+        return (it.disabled == false)
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def word:string (this.stateWord())
+
+        def root:UiRow (UiRow.of(tid (EVGA11yRole.navigation()) name))
+        root.state = word
+        push out root
+
+        def trigRow:UiRow (UiRow.of((this.triggerTid()) (EVGA11yRole.button()) triggerLabel))
+        trigRow.parentTid = tid
+        trigRow.disabled = disabled
+        if (disabled == false) {
+            trigRow.tabStop = true
+            trigRow.focusable = true
+        }
+        push out trigRow
+
+        def menuRow:UiRow (UiRow.of((this.menuTid()) (EVGA11yRole.list()) ""))
+        menuRow.parentTid = tid
+        push out menuRow
+
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def r:UiRow (UiRow.of((this.itemTid(it.value)) (EVGA11yRole.button()) it.name))
+            r.parentTid = (this.menuTid())
+            r.disabled = (it.disabled || disabled)
+            if (it.value == value) {
+                r.current = "page"
+            }
+            if (r.disabled == false) {
+                r.tabStop = true
+                r.focusable = true
+            }
+            push out r
+            i = (i + 1)
+        }
+        return out
+    }
+}

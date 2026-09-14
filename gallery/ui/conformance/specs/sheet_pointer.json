@@ -1,0 +1,35 @@
+{
+ "name": "sheet_pointer",
+ "component": "sheet",
+ "behaviours": [
+  "sheet-pointer-open",
+  "sheet-focus-into",
+  "sheet-aria-expanded",
+  "sheet-background-hidden",
+  "sheet-content-unmounted"
+ ],
+ "fixture": {
+  "controls": [
+   {
+    "type": "toggle",
+    "tid": "behind",
+    "name": "Behind"
+   },
+   {
+    "type": "sheet",
+    "tid": "sh",
+    "name": "Menu",
+    "title": "Navigation",
+    "side": "left"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "click": "sh-trigger"
+  },
+  {
+   "click": "sh-close"
+  }
+ ]
+}

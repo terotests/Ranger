@@ -1,0 +1,33 @@
+{
+ "name": "button_basic",
+ "component": "button",
+ "behaviours": [
+  "button-role",
+  "button-focus-on-click",
+  "button-disabled-inert",
+  "button-disabled-blur"
+ ],
+ "fixture": {
+  "controls": [
+   {
+    "type": "button",
+    "tid": "save",
+    "name": "Save"
+   },
+   {
+    "type": "button",
+    "tid": "dead",
+    "name": "Delete",
+    "disabled": true
+   }
+  ]
+ },
+ "steps": [
+  {
+   "click": "save"
+  },
+  {
+   "click": "dead"
+  }
+ ]
+}

@@ -1,0 +1,72 @@
+{
+ "name": "command_keyboard",
+ "component": "command",
+ "behaviours": [
+  "command-filter",
+  "command-empty",
+  "command-arrows",
+  "command-enter-picks",
+  "command-escape"
+ ],
+ "fixture": {
+  "controls": [
+   {
+    "type": "command",
+    "tid": "cmd",
+    "name": "Search",
+    "items": [
+     {
+      "value": "settings",
+      "name": "Settings"
+     },
+     {
+      "value": "profile",
+      "name": "Profile"
+     },
+     {
+      "value": "signout",
+      "name": "Sign out"
+     }
+    ]
+   }
+  ]
+ },
+ "steps": [
+  {
+   "focus": "cmd-trigger"
+  },
+  {
+   "key": "Enter"
+  },
+  {
+   "key": "ArrowDown"
+  },
+  {
+   "key": "ArrowDown"
+  },
+  {
+   "key": "ArrowDown"
+  },
+  {
+   "key": "ArrowUp"
+  },
+  {
+   "type": "Prof"
+  },
+  {
+   "type": "x"
+  },
+  {
+   "key": "Backspace"
+  },
+  {
+   "key": "Enter"
+  },
+  {
+   "key": "Enter"
+  },
+  {
+   "key": "Escape"
+  }
+ ]
+}

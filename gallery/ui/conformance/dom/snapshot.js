@@ -159,6 +159,9 @@ export function snapshotDom(options) {
     const tag = el.tagName.toLowerCase();
     let role = explicit;
     if (!role) role = IMPLICIT_ROLE(el, tag);
+    // ARIA 1.2 makes `none` a synonym of `presentation`; cmdk writes the old
+    // spelling on its empty row and the Ranger side has only the new one.
+    if (role === "presentation") role = "none";
     const label = el.getAttribute("aria-label");
     // Accessible name from text: aria-hidden subtrees do not contribute. An
     // icon button is glyph + visually-hidden label, and counting the glyph

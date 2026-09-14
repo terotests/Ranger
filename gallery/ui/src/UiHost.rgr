@@ -53,6 +53,11 @@ Import "MenubarCtl.rgr"
 Import "SelectCtl.rgr"
 Import "NavMenuCtl.rgr"
 Import "ScrollAreaCtl.rgr"
+Import "ButtonCtl.rgr"
+Import "SheetCtl.rgr"
+Import "CardCtl.rgr"
+Import "CommandCtl.rgr"
+Import "SidebarCtl.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGLayout.rgr"
@@ -122,6 +127,54 @@ class UiHost {
         def r:EVGElement (unwrap root)
         def el:EVGElement (unwrap c.rootEl)
         r.addChild(el)
+    }
+
+    fn addButton:ButtonCtl (tid:string name:string) {
+        def c (new ButtonCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addSheet:SheetCtl (tid:string name:string title:string side:string) {
+        def c (new SheetCtl())
+        c.tid = tid
+        c.name = name
+        c.title = title
+        c.side = side
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addCard:CardCtl (tid:string title:string body:string footer:string) {
+        def c (new CardCtl())
+        c.tid = tid
+        c.name = title
+        c.title = title
+        c.body = body
+        c.footer = footer
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addCommand:CommandCtl (tid:string name:string) {
+        def c (new CommandCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addSidebar:SidebarCtl (tid:string name:string) {
+        def c (new SidebarCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
     }
 
     fn addToggle:ToggleCtl (tid:string name:string) {
@@ -534,6 +587,17 @@ class UiHost {
                 }
                 return
             }
+            ; A press on a part that takes no focus still lands — a command
+            ; menu's rows are not focusable (the box keeps the focus while the
+            ; arrows walk them) and a click on one picks it all the same. The
+            ; focus goes where a browser's would, to nothing, unless the
+            ; activation says where it should be.
+            focusId = ""
+            def after:string (c.activateWith(target shift ctrl))
+            if ((strlen after) > 0) {
+                focusId = after
+            }
+            return
         }
         focusId = ""
     }

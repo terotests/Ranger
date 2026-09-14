@@ -1,0 +1,462 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; CommandCtl — the command menu (⌘K)
+; =============================================================================
+; A dialog with a text box at the top and a list under it: typing narrows
+; the list, the arrows walk it, Enter picks, Escape closes. shadcn's is
+; `cmdk` inside a Radix Dialog, and that is the shape and the reference here:
+; the trigger is a button that says whether it is showing; the panel is a
+; modal dialog; the box is a combobox that controls a listbox; a row is an
+; option, and exactly one — the active one — says it is selected.
+;
+; The filter is a plain substring of the caption. cmdk's is a fuzzy score,
+; and the two agree on every query a spec uses; a query that they would
+; disagree on ("se" against "Users") is not a query anybody types.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class CommandCtl extends UiCtl {
+    def open:boolean false
+    def items:[UiItem]
+    def query:string ""
+    ; The row the arrows are on, and the one Enter picks.
+    def activeValue:string ""
+    ; What was last picked: what the page reads.
+    def value:string ""
+    def placeholder:string "Type a command or search…"
+    def emptyText:string "No results found."
+    def triggerEl:EVGElement
+    def overlayEl:EVGElement
+    def contentEl:EVGElement
+    def inputEl:EVGElement
+    def listEl:EVGElement
+    def emptyEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        triggerEl = (EVGElement.createDiv())
+        overlayEl = (EVGElement.createDiv())
+        contentEl = (EVGElement.createDiv())
+        inputEl = (EVGElement.createDiv())
+        listEl = (EVGElement.createDiv())
+        emptyEl = (EVGElement.createDiv())
+    }
+
+    fn addItem:void (itemValue:string itemName:string itemDisabled:boolean) {
+        def it (new UiItem())
+        it.value = itemValue
+        it.name = itemName
+        it.disabled = itemDisabled
+        push items it
+    }
+
+    fn triggerTid:string () {
+        return (tid + "-trigger")
+    }
+
+    fn overlayTid:string () {
+        return (tid + "-overlay")
+    }
+
+    fn contentTid:string () {
+        return (tid + "-content")
+    }
+
+    fn inputTid:string () {
+        return (tid + "-input")
+    }
+
+    fn listTid:string () {
+        return (tid + "-list")
+    }
+
+    fn emptyTid:string () {
+        return (tid + "-empty")
+    }
+
+    fn itemTid:string (itemValue:string) {
+        return ((tid + "-item-") + itemValue)
+    }
+
+    fn stateWord:string () {
+        if open {
+            return "open"
+        }
+        return "closed"
+    }
+
+    ; --- the filter -------------------------------------------------------------
+
+    fn matches:boolean (it:UiItem) {
+        if ((strlen query) == 0) {
+            return true
+        }
+        return ((indexOf it.name query) >= 0)
+    }
+
+    fn visible:[UiItem] () {
+        def out:[UiItem]
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if (this.matches(it)) {
+                push out it
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn indexOfVisible:int (v:string) {
+        def vis:[UiItem] (this.visible())
+        def i:int 0
+        while (i < (array_length vis)) {
+            def it:UiItem (itemAt vis i)
+            if (it.value == v) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; The active row after the list changed: kept if it is still shown,
+    ; otherwise the first shown, otherwise none — which is what cmdk does.
+    fn settleActive:void () {
+        def vis:[UiItem] (this.visible())
+        if ((this.indexOfVisible(activeValue)) >= 0) {
+            return
+        }
+        if ((array_length vis) == 0) {
+            activeValue = ""
+            return
+        }
+        def first:UiItem (itemAt vis 0)
+        activeValue = first.value
+    }
+
+    fn valueOf:string (target:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if ((this.itemTid(it.value)) == target) {
+                return it.value
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; --- opening, picking, closing --------------------------------------------------
+
+    ; Opened fresh every time — cmdk is remounted with its dialog, so the
+    ; box is empty and the first row is active whatever was picked before.
+    fn openList:string () {
+        open = true
+        query = ""
+        activeValue = ""
+        this.settleActive()
+        this.build()
+        return (this.inputTid())
+    }
+
+    fn closeList:string () {
+        open = false
+        this.build()
+        return (this.triggerTid())
+    }
+
+    fn pick:string (v:string) {
+        value = v
+        return (this.closeList())
+    }
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target == (this.triggerTid())) {
+            if open {
+                return (this.closeList())
+            }
+            return (this.openList())
+        }
+        def v:string (this.valueOf(target))
+        if ((strlen v) > 0) {
+            return (this.pick(v))
+        }
+        return ""
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        if (key == "Escape") {
+            if open {
+                return (this.closeList())
+            }
+            return ""
+        }
+        if (open == false) {
+            if (UiCtl.activatesOn(key)) {
+                return (this.activate(target))
+            }
+            return ""
+        }
+        if (key == "Enter") {
+            if ((strlen activeValue) > 0) {
+                return (this.pick(activeValue))
+            }
+            return ""
+        }
+        if (key == "Backspace") {
+            if ((strlen query) > 0) {
+                query = (substring query 0 ((strlen query) - 1))
+                this.settleActive()
+                this.build()
+            }
+            return ""
+        }
+        def step:int 0
+        if (key == "ArrowDown") {
+            step = 1
+        }
+        if (key == "ArrowUp") {
+            step = -1
+        }
+        if (step != 0) {
+            def vis:[UiItem] (this.visible())
+            def n:int (array_length vis)
+            if (n == 0) {
+                return ""
+            }
+            def at:int ((this.indexOfVisible(activeValue)) + step)
+            if (at < 0) {
+                at = 0
+            }
+            if (at >= n) {
+                at = (n - 1)
+            }
+            def it:UiItem (itemAt vis at)
+            activeValue = it.value
+            this.build()
+            return ""
+        }
+        if ((strlen key) == 1) {
+            this.typeChar((this.inputTid()) key)
+        }
+        return ""
+    }
+
+    ; Typing goes into the box whatever holds the focus inside the panel.
+    fn typeChar:boolean (target:string ch:string) {
+        if (open == false) {
+            return false
+        }
+        if disabled {
+            return false
+        }
+        query = (query + ch)
+        this.settleActive()
+        this.build()
+        return true
+    }
+
+    ; --- the tree -------------------------------------------------------------------
+
+    fn build:void () {
+        def word:string (this.stateWord())
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-command"
+        UiTree.clearChildren(root)
+
+        def trig:EVGElement (unwrap triggerEl)
+        trig.id = (this.triggerTid())
+        trig.className = "ui-command-trigger"
+        if disabled {
+            UiTree.addClass(trig "ui-command-trigger-disabled")
+        }
+        UiTree.setState(trig "ui-command-trigger" word)
+        UiTree.leafText(trig name)
+        root.addChild(trig)
+
+        if (open == false) {
+            return
+        }
+
+        def overlay:EVGElement (unwrap overlayEl)
+        overlay.id = (this.overlayTid())
+        overlay.className = "ui-command-overlay"
+        UiTree.backdrop(overlay)
+        UiTree.setState(overlay "ui-command-overlay" word)
+        UiTree.clearChildren(overlay)
+        root.addChild(overlay)
+
+        def content:EVGElement (unwrap contentEl)
+        content.id = (this.contentTid())
+        content.className = "ui-command-content"
+        UiTree.surface(content "center" "center")
+        UiTree.setState(content "ui-command-content" word)
+        UiTree.clearChildren(content)
+
+        def box:EVGElement (unwrap inputEl)
+        box.id = (this.inputTid())
+        box.className = "ui-command-input"
+        if ((strlen query) == 0) {
+            UiTree.addClass(box "ui-command-input-placeholder")
+            UiTree.leafText(box placeholder)
+        } {
+            UiTree.leafText(box query)
+        }
+        content.addChild(box)
+
+        def list:EVGElement (unwrap listEl)
+        list.id = (this.listTid())
+        list.className = "ui-command-list"
+        UiTree.clearChildren(list)
+        def vis:[UiItem] (this.visible())
+        def i:int 0
+        while (i < (array_length vis)) {
+            def it:UiItem (itemAt vis i)
+            def el:EVGElement (unwrap it.el)
+            el.id = (this.itemTid(it.value))
+            el.className = "ui-command-item"
+            if it.disabled {
+                UiTree.addClass(el "ui-command-item-disabled")
+            }
+            if (it.value == activeValue) {
+                UiTree.addClass(el "ui-command-item-active")
+            }
+            UiTree.leafText(el it.name)
+            list.addChild(el)
+            i = (i + 1)
+        }
+        if ((array_length vis) == 0) {
+            def empty:EVGElement (unwrap emptyEl)
+            empty.id = (this.emptyTid())
+            empty.className = "ui-command-empty"
+            UiTree.leafText(empty emptyText)
+            list.addChild(empty)
+        }
+        content.addChild(list)
+        root.addChild(content)
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.triggerTid())
+        push a (this.overlayTid())
+        push a (this.contentTid())
+        push a (this.inputTid())
+        push a (this.listTid())
+        push a (this.emptyTid())
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            push a (this.itemTid(it.value))
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        if (target == (this.triggerTid())) {
+            return true
+        }
+        if (open == false) {
+            return false
+        }
+        if (target == (this.inputTid())) {
+            return true
+        }
+        return false
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def word:string (this.stateWord())
+
+        def trigRow:UiRow (UiRow.of((this.triggerTid()) (EVGA11yRole.button()) name))
+        trigRow.state = word
+        trigRow.hasPopup = "dialog"
+        trigRow.disabled = disabled
+        if open {
+            trigRow.expanded = (EVGA11yTri.yes())
+        } {
+            trigRow.expanded = (EVGA11yTri.no())
+        }
+        if (disabled == false) {
+            trigRow.tabStop = true
+            trigRow.focusable = true
+        }
+        push out trigRow
+
+        if (open == false) {
+            return out
+        }
+
+        def overlayRow:UiRow (UiRow.of((this.overlayTid()) (EVGA11yRole.none()) ""))
+        overlayRow.state = word
+        push out overlayRow
+
+        def contentRow:UiRow (UiRow.of((this.contentTid()) (EVGA11yRole.dialog()) ""))
+        contentRow.state = word
+        contentRow.modal = true
+        push out contentRow
+
+        def inputRow:UiRow (UiRow.of((this.inputTid()) (EVGA11yRole.comboBox()) ""))
+        inputRow.parentTid = (this.contentTid())
+        inputRow.expanded = (EVGA11yTri.yes())
+        inputRow.tabStop = true
+        inputRow.focusable = true
+        inputRow.hasText = true
+        inputRow.text = query
+        inputRow.placeholder = placeholder
+        ; The caret sits after what was typed; there is no selection.
+        inputRow.hasSelection = true
+        inputRow.selStart = (strlen query)
+        inputRow.selEnd = (strlen query)
+        push out inputRow
+
+        ; cmdk names its list "Suggestions" unless told otherwise.
+        def listRow:UiRow (UiRow.of((this.listTid()) (EVGA11yRole.listBox()) "Suggestions"))
+        listRow.parentTid = (this.contentTid())
+        push out listRow
+
+        def vis:[UiItem] (this.visible())
+        def i:int 0
+        while (i < (array_length vis)) {
+            def it:UiItem (itemAt vis i)
+            ; Nameless in the trace, the way the select's options are: the
+            ; harness reads an option's name from nothing but aria-label,
+            ; and cmdk writes none. A reader still hears the caption.
+            def r:UiRow (UiRow.of((this.itemTid(it.value)) (EVGA11yRole.option()) ""))
+            r.parentTid = (this.listTid())
+            r.disabled = it.disabled
+            if (it.value == activeValue) {
+                r.selected = (EVGA11yTri.yes())
+            } {
+                r.selected = (EVGA11yTri.no())
+            }
+            push out r
+            i = (i + 1)
+        }
+        if ((array_length vis) == 0) {
+            def e:UiRow (UiRow.of((this.emptyTid()) (EVGA11yRole.none()) ""))
+            e.parentTid = (this.listTid())
+            push out e
+        }
+        return out
+    }
+}

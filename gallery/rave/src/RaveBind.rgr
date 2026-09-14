@@ -29,6 +29,11 @@ Import "../../ui/src/SelectCtl.rgr"
 Import "../../ui/src/TabsCtl.rgr"
 Import "../../ui/src/DialogCtl.rgr"
 Import "../../ui/src/ToggleCtl.rgr"
+Import "../../ui/src/ButtonCtl.rgr"
+Import "../../ui/src/SheetCtl.rgr"
+Import "../../ui/src/CardCtl.rgr"
+Import "../../ui/src/CommandCtl.rgr"
+Import "../../ui/src/SidebarCtl.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGA11yTree.rgr"
 
@@ -40,8 +45,23 @@ class RaveBind {
     def selects:[string:SelectCtl]
     def inputs:[string:InputCtl]
     def toggles:[string:ToggleCtl]
+    def buttons:[string:ButtonCtl]
+    def sheets:[string:SheetCtl]
+    def cards:[string:CardCtl]
+    def commands:[string:CommandCtl]
+    def sidebars:[string:SidebarCtl]
 
     Constructor () {
+        def b:[string:ButtonCtl]
+        buttons = b
+        def sh:[string:SheetCtl]
+        sheets = sh
+        def c:[string:CardCtl]
+        cards = c
+        def cm:[string:CommandCtl]
+        commands = cm
+        def sb:[string:SidebarCtl]
+        sidebars = sb
         def d:[string:DialogCtl]
         dialogs = d
         def t:[string:TabsCtl]
@@ -60,6 +80,11 @@ class RaveBind {
         if (component == "Select") { return true }
         if (component == "Input") { return true }
         if (component == "Toggle") { return true }
+        if (component == "Button") { return true }
+        if (component == "Sheet") { return true }
+        if (component == "Card") { return true }
+        if (component == "Command") { return true }
+        if (component == "Sidebar") { return true }
         return false
     }
 
@@ -148,6 +173,61 @@ class RaveBind {
         return c
     }
 
+    fn button:ButtonCtl (id:string) {
+        if (has buttons id) {
+            return (unwrap (get buttons id))
+        }
+        def c (new ButtonCtl())
+        c.tid = id
+        set buttons id c
+        this.remember(id c)
+        return c
+    }
+
+    fn sheet:SheetCtl (id:string) {
+        if (has sheets id) {
+            return (unwrap (get sheets id))
+        }
+        def c (new SheetCtl())
+        c.tid = id
+        set sheets id c
+        this.remember(id c)
+        return c
+    }
+
+    fn card:CardCtl (id:string) {
+        if (has cards id) {
+            return (unwrap (get cards id))
+        }
+        def c (new CardCtl())
+        c.tid = id
+        set cards id c
+        this.remember(id c)
+        return c
+    }
+
+    fn command:CommandCtl (id:string) {
+        if (has commands id) {
+            return (unwrap (get commands id))
+        }
+        def c (new CommandCtl())
+        c.tid = id
+        set commands id c
+        this.remember(id c)
+        return c
+    }
+
+    fn sidebar:SidebarCtl (id:string) {
+        if (has sidebars id) {
+            return (unwrap (get sidebars id))
+        }
+        def c (new SidebarCtl())
+        c.tid = id
+        set sidebars id c
+        this.remember(id c)
+        return c
+    }
+
     ; --- the rows, onto the elements --------------------------------------------------
 
     sfn findIn@(optional):EVGElement (el:EVGElement id:string) {
@@ -193,6 +273,10 @@ class RaveBind {
                 el.a11yHidden = r.hidden
                 if r.hasText {
                     el.a11yValue = r.text
+                }
+                el.a11yCurrent = r.current
+                if (r.level > 0) {
+                    el.a11yLevel = r.level
                 }
             }
             i = (i + 1)

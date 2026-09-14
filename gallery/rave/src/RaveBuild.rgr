@@ -339,6 +339,108 @@ class RaveBuild {
             UiTree.addClass(root4 (n.cls()))
             return root4
         }
+        if (n.component == "Button") {
+            def bt:ButtonCtl (b.button(id))
+            bt.name = n.text
+            bt.variant = n.variant
+            if ((strlen bt.variant) == 0) {
+                bt.variant = "default"
+            }
+            bt.build()
+            RaveBind.decorate(bt)
+            def root6:EVGElement (unwrap bt.rootEl)
+            UiTree.addClass(root6 (n.cls()))
+            return root6
+        }
+        if (n.component == "Sheet") {
+            def sh:SheetCtl (b.sheet(id))
+            sh.name = n.text
+            sh.title = n.name
+            if ((strlen n.variant) > 0) {
+                sh.side = n.variant
+            }
+            sh.build()
+            if sh.open {
+                def scontent:EVGElement (unwrap sh.contentEl)
+                UiTree.clearChildren(scontent)
+                scontent.addChild((unwrap sh.titleEl))
+                def sbody:EVGElement (EVGElement.createDiv())
+                sbody.className = ("rv " + (n.cls()) + "-body")
+                sbody.setAttribute("gap" "12px")
+                sbody.setAttribute("flex-grow" "1")
+                this.childrenInto(sbody n)
+                scontent.addChild(sbody)
+                scontent.addChild((unwrap sh.closeEl))
+            }
+            RaveBind.decorate(sh)
+            def root7:EVGElement (unwrap sh.rootEl)
+            UiTree.addClass(root7 (n.cls()))
+            return root7
+        }
+        if (n.component == "Card") {
+            def cd:CardCtl (b.card(id))
+            cd.title = n.name
+            cd.name = n.name
+            cd.body = n.text
+            cd.footer = n.label
+            cd.build()
+            ; the document's children go into the content, after the words
+            def ccontent:EVGElement (unwrap cd.contentEl)
+            if ((array_length n.children) > 0) {
+                UiTree.clearChildren(ccontent)
+                ccontent.elementType = 0
+                ccontent.textContent = ""
+                if ((strlen n.text) > 0) {
+                    def lead:EVGElement (EVGElement.createDiv())
+                    lead.elementType = 1
+                    lead.textContent = n.text
+                    lead.role = "paragraph"
+                    lead.className = "rv-t ui-card-lead"
+                    ccontent.addChild(lead)
+                }
+                ccontent.setAttribute("gap" "12px")
+                this.childrenInto(ccontent n)
+            }
+            RaveBind.decorate(cd)
+            def root8:EVGElement (unwrap cd.rootEl)
+            UiTree.addClass(root8 (n.cls()))
+            return root8
+        }
+        if (n.component == "Command") {
+            def cm:CommandCtl (b.command(id))
+            cm.name = n.text
+            clear cm.items
+            def q:int 0
+            while (q < (array_length n.children)) {
+                def opt:RaveNode (itemAt n.children q)
+                cm.addItem((opt.elementId()) opt.text false)
+                q = (q + 1)
+            }
+            if ((strlen n.placeholder) > 0) {
+                cm.placeholder = n.placeholder
+            }
+            cm.build()
+            RaveBind.decorate(cm)
+            def root9:EVGElement (unwrap cm.rootEl)
+            UiTree.addClass(root9 (n.cls()))
+            return root9
+        }
+        if (n.component == "Sidebar") {
+            def sbar:SidebarCtl (b.sidebar(id))
+            sbar.name = n.label
+            clear sbar.items
+            def w:int 0
+            while (w < (array_length n.children)) {
+                def place:RaveNode (itemAt n.children w)
+                sbar.addItem((place.elementId()) place.text false)
+                w = (w + 1)
+            }
+            sbar.build()
+            RaveBind.decorate(sbar)
+            def root10:EVGElement (unwrap sbar.rootEl)
+            UiTree.addClass(root10 (n.cls()))
+            return root10
+        }
         def tg:ToggleCtl (b.toggle(id))
         tg.name = n.text
         tg.build()

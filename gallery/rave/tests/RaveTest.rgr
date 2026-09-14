@@ -16,6 +16,7 @@ Import "../src/RaveRuntime.rgr"
 Import "../src/RaveEditor.rgr"
 Import "../src/RaveA11y.rgr"
 Import "../src/RaveBind.rgr"
+Import "../src/RaveKit.rgr"
 
 class Check {
     def passed:int 0
@@ -651,6 +652,62 @@ class RaveTest {
         def createBtn:string (RaveTest.elId((app.findWithAction(dlgNode "navigate" "/items/1"))))
         c.ok("a button inside the dialog works" (rt.pressIn(desk createBtn)))
         c.eqStr("…and navigates" (rt.path()) "/items/1")
+
+        ; --- the rest of the kit, on an empty page ---------------------------------
+        print "the rest of the kit"
+        def blank:RaveApp (RavePatterns.create("Kit2" "web" false "none" "empty"))
+        def home:RaveNode (itemAt blank.pages 0)
+        def button:RaveNode (home.add((RaveKit.create(blank "Button"))))
+        button.variant = "destructive"
+        button.on("navigate" "/")
+        def sheet:RaveNode (home.add((RaveKit.create(blank "Sheet"))))
+        def card:RaveNode (home.add((RaveKit.create(blank "Card"))))
+        card.add((RaveKit.create(blank "Button")))
+        def command:RaveNode (home.add((RaveKit.create(blank "Command"))))
+        def sidebar:RaveNode (home.add((RaveKit.create(blank "Sidebar"))))
+        def rt3 (new RaveRuntime(blank))
+        def v3:int (rt3.addView("desktop" 1440.0 900.0 false))
+        c.eqInt("the kit's sheet parses clean" (rt3.styleErrorCount()) 0)
+        RaveTest.lintClean(c rt3 v3 "the kit lints clean")
+        RaveTest.noRejections(c rt3 v3 "the kit costs no engine rejections")
+        def bid:string (button.elementId())
+        c.ok("a Button is drawn with its caption" (RaveTest.includes((rt3.displayListJson(v3)) "Button")))
+        c.ok("…as a button" (RaveTest.includes((rt3.a11yJson(v3)) "\"button\"")))
+        def vb:RaveView (rt3.view(v3))
+        def bctl:ButtonCtl (unwrap (get vb.bind.buttons bid))
+        c.eqStr("…with its variant" bctl.variant "destructive")
+        c.ok("pressing it" (rt3.pressIn(v3 bid)))
+        c.eqInt("…counts" bctl.presses 1)
+        def shid:string (sheet.elementId())
+        c.ok("a Sheet is closed" ((RaveTest.includes((rt3.displayListJson(v3)) "What the sheet holds.")) == false))
+        c.ok("its trigger opens it" (rt3.pressIn(v3 (shid + "-trigger"))))
+        c.ok("…with the document's body inside" (RaveTest.includes((rt3.displayListJson(v3)) "What the sheet holds.")))
+        c.eqStr("…and the focus on Close" (rt3.focusedId(v3)) (shid + "-close"))
+        def sheetCtl:SheetCtl (unwrap (get vb.bind.sheets shid))
+        c.eqStr("…on its side" sheetCtl.side "right")
+        c.ok("Escape closes it" (rt3.keyWith(v3 "Escape" false false)))
+        c.ok("…really" (sheetCtl.open == false))
+        def cid:string (card.elementId())
+        c.ok("a Card is a region named by its title" (RaveTest.includes((rt3.a11yJson(v3)) "Card title")))
+        def cardKid:RaveNode (itemAt card.children 0)
+        c.ok("…holding the document's children" (rt3.hasEl(v3 (cardKid.elementId()))))
+        def cmid:string (command.elementId())
+        c.ok("a Command opens on its trigger" (rt3.pressIn(v3 (cmid + "-trigger"))))
+        c.eqStr("…with the focus in the box" (rt3.focusedId(v3)) (cmid + "-input"))
+        c.ok("typing filters" (rt3.typeChar(v3 "S")))
+        def cmdCtl:CommandCtl (unwrap (get vb.bind.commands cmid))
+        c.eqStr("…the query" cmdCtl.query "S")
+        c.eqInt("…to the one row that matches" (array_length (cmdCtl.visible())) 1)
+        c.ok("Enter picks" (rt3.keyWith(v3 "Enter" false false)))
+        c.ok("…and closes" (cmdCtl.open == false))
+        def sbid:string (sidebar.elementId())
+        def sbCtl:SidebarCtl (unwrap (get vb.bind.sidebars sbid))
+        c.ok("a Sidebar is a navigation" (RaveTest.includes((rt3.a11yJson(v3)) "navigation")))
+        c.ok("its trigger folds it" (rt3.pressIn(v3 (sbid + "-trigger"))))
+        c.ok("…really" sbCtl.collapsed)
+        def firstPlace:RaveNode (itemAt sidebar.children 0)
+        c.ok("a place is pressed" (rt3.pressIn(v3 (sbid + "-item-" + (firstPlace.elementId())))))
+        c.eqStr("…and is current" sbCtl.value (firstPlace.elementId()))
     }
 
     ; The sentence at the top of the plan, as one script through the

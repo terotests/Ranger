@@ -34,8 +34,8 @@ Deployed at `/rave/`. **License:** AGPL-3.0-or-later (Gallery).
 | `src/RaveAuth.rgr` | The mock session: logged in or out, and who |
 | `src/RaveRuntime.rgr` | One document, N views, one scene. Each view is a viewport; every view is the same route laid out at its own width, side by side in one tree. Answers `displayListJson`, `sceneListJson` (through a camera), `a11yJson`, `hitId`, `press`, `keyWith`, `lint` |
 | `src/RaveOps.rgr` | Every edit as a `RaveOp` with its inverse, recorded in `OfficeHistory@(RaveOp)`; `RaveEdit` is the only thing that changes a document |
-| `src/RaveKit.rgr` | The Components pane: Container, Section, Heading, Text, Button, Link, Input, Card, Image, Navigation, Form, List, Select, Tabs, Dialog, Toggle — each a node tree in the document's own vocabulary; the last five are *instances* the runtime binds |
-| `src/RaveBind.rgr` | Kit instances bound to `gallery/ui`'s controllers at run time — `DialogCtl`, `TabsCtl`, `SelectCtl`, `InputCtl`, `ToggleCtl` — one binding per viewport, their `UiRow`s written onto the elements so the a11y tree, the focus walk and the lint see them |
+| `src/RaveKit.rgr` | The Components pane: Container, Section, Heading, Text, Link, Image, Navigation, Form, List as node trees, and Button, Input, Card, Select, Tabs, Dialog, Toggle, Sheet, Command, Sidebar as *instances* the runtime binds |
+| `src/RaveBind.rgr` | Kit instances bound to `gallery/ui`'s controllers at run time — Dialog, Tabs, Select, Input, Toggle, Button, Sheet, Card, Command, Sidebar — one binding per viewport, their `UiRow`s written onto the elements so the a11y tree, the focus walk and the lint see them |
 | `src/RaveFields.rgr` | Which kind of input each inspector field is — choice, length (number + unit) or text — and the number/unit parsing behind it |
 | `src/RaveA11y.rgr` | Contrast (a real gamma curve, no `pow`), problems by node, tab order |
 | `src/RavePatterns.rgr` | The six patterns as code — `Dashboard Shell` (sidebar / top bar / tabs / none), `Auth Flow`, `Settings Layout` (tabs), `Master / Detail`, `CRUD` (dialogs), `Marketing + App` — and `create(name, targets, auth, nav, start)`, the new-project sheet's answer |
@@ -43,7 +43,7 @@ Deployed at `/rave/`. **License:** AGPL-3.0-or-later (Gallery).
 | `src/RaveExport.rgr` | The runtime and the patterns compiled without the editor: `open(json)`, `starter()` |
 | `web/` | `index.html`, `main.js` (WebGL, pointer, keyboard, file dialog, download), `rave.css` (the chrome as an EVG sheet), `build.mjs`, `smoke.mjs` |
 | `export/` | The exported application: `index.html`, `main.js` (one view the size of the window, the route in the hash), `build.mjs` (`--app FILE`, `--out DIR`), `smoke.mjs` — deployed at `/rave/app/` |
-| `tests/RaveTest.rgr` | 474 checks: the pattern, the runtime, the guard, the keyboard, three widths, and the editor stage by stage |
+| `tests/RaveTest.rgr` | 503 checks: the pattern, the runtime, the guard, the keyboard, three widths, and the editor stage by stage |
 
 ## The document
 
@@ -110,11 +110,17 @@ when `authenticated` or `unauthenticated`, and `login` / `logout` are actions.
   whether it signs in, where the navigation goes, and what to start from —
   Dashboard Shell, Settings Layout, Master / Detail, CRUD, Marketing + App
   or an empty page. `Create` is a working application at every width chosen.
-- **The kit runs.** Select, Tabs, Dialog, Toggle and every Input are
-  `gallery/ui` controllers at run time (`RaveBind`): a dialog opens on its
-  trigger with the document's children as its body, traps the focus and
-  closes on Escape; tabs switch; a select opens and picks; an input takes
-  typing. Each viewport carries its own instances — three viewports are
+- **The kit runs.** Button, Input, Card, Select, Tabs, Dialog, Sheet, Toggle,
+  Command and Sidebar are `gallery/ui` controllers at run time (`RaveBind`):
+  a dialog or a sheet opens on its trigger with the document's children as
+  its body, traps the focus and closes on Escape; tabs switch; a select
+  opens and picks; the command menu filters as you type; an input takes
+  typing; a button's variant is a class and its press runs the node's
+  actions. The five that `gallery/ui` did not have — Button, Sheet, Card,
+  Command, Sidebar — were added there with conformance specs measured
+  against the browser (cmdk for the command menu, Radix Dialog for the
+  sheet, the platform's `<button>`, and shadcn's markup for the two that
+  have no library). Each viewport carries its own instances — three viewports are
   three running copies. The controllers' own rows are written onto their
   elements, so the A11y tab, the lint and the tab order see them.
 - **Run** hands the stage to the runtime: presses navigate and sign in, `Tab`
@@ -160,5 +166,4 @@ drives, so what passed there passes here.
 
 ## Next
 
-Stage M7, polish. Still open from M5: `ButtonCtl`, `SheetCtl`, `CommandCtl`
-and `SidebarCtl` in `gallery/ui` with conformance specs.
+Stage M7, polish.

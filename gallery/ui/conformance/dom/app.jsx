@@ -44,6 +44,9 @@ import * as Menubar from "@radix-ui/react-menubar";
 import * as NavigationMenu from "@radix-ui/react-navigation-menu";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import * as Select from "@radix-ui/react-select";
+// Not Radix — Radix has no command menu. shadcn's is cmdk inside a Radix
+// Dialog, and so is this fixture.
+import { Command } from "cmdk";
 import {
   DndContext,
   KeyboardSensor,
@@ -594,6 +597,77 @@ function SortableControl({ spec, tid }) {
   );
 }
 
+
+// --- the kit's own five ------------------------------------------------------
+// shadcn has a Button, a Sheet, a Card, a Command menu and a Sidebar; Radix
+// has a Dialog (the Sheet, the Command's frame) and nothing else of these. The
+// button is the platform's; the card and the sidebar are markup, written here
+// with the accessibility shadcn leaves implicit made explicit — a second
+// implementation, as the breadcrumb is, and the catalogue says so.
+
+function CommandFixture({ spec }) {
+  const tid = spec.tid;
+  const [open, setOpen] = React.useState(false);
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Trigger data-tid={tid + "-trigger"}>{spec.name}</Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Overlay data-tid={tid + "-overlay"} />
+        <Dialog.Content data-tid={tid + "-content"} aria-describedby={undefined}>
+          <Dialog.Title style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
+            {spec.name}
+          </Dialog.Title>
+          <Command label={spec.name}>
+            <Command.Input data-tid={tid + "-input"} placeholder={spec.placeholder || "Type a command or search…"} autoFocus />
+            <Command.List data-tid={tid + "-list"}>
+              <Command.Empty data-tid={tid + "-empty"}>{spec.empty || "No results found."}</Command.Empty>
+              {spec.items.map((it) => (
+                <Command.Item
+                  key={it.value}
+                  value={it.name}
+                  data-tid={tid + "-item-" + it.value}
+                  disabled={!!it.disabled}
+                  onSelect={() => setOpen(false)}
+                >
+                  {it.name}
+                </Command.Item>
+              ))}
+            </Command.List>
+          </Command>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function SidebarFixture({ spec }) {
+  const tid = spec.tid;
+  const [active, setActive] = React.useState(spec.value || "");
+  const [collapsed, setCollapsed] = React.useState(false);
+  return (
+    <nav data-tid={tid} aria-label={spec.name} data-state={collapsed ? "collapsed" : "expanded"}>
+      <button data-tid={tid + "-trigger"} aria-label="Toggle Sidebar" onClick={() => setCollapsed((c) => !c)}>
+        ☰
+      </button>
+      <ul data-tid={tid + "-menu"}>
+        {spec.items.map((it) => (
+          <li key={it.value}>
+            <button
+              data-tid={tid + "-item-" + it.value}
+              disabled={!!it.disabled}
+              aria-label={it.name}
+              aria-current={active === it.value ? "page" : undefined}
+              onClick={() => setActive(it.value)}
+            >
+              {collapsed ? it.name.slice(0, 1) : it.name}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
 export function Control({ spec }) {
   const tid = spec.tid;
 
@@ -784,6 +858,46 @@ export function Control({ spec }) {
           ))}
         </Toolbar.Root>
       );
+
+    case "button":
+      return (
+        <button data-tid={tid} disabled={!!spec.disabled}>
+          {spec.name}
+        </button>
+      );
+
+    case "sheet":
+      return (
+        <Dialog.Root data-tid={tid}>
+          <Dialog.Trigger data-tid={tid + "-trigger"}>{spec.name}</Dialog.Trigger>
+          <Dialog.Portal>
+            <Dialog.Overlay data-tid={tid + "-overlay"} />
+            <Dialog.Content data-tid={tid + "-content"} data-side={spec.side || "right"} aria-describedby={undefined}>
+              <Dialog.Title data-tid={tid + "-title"}>{spec.title || spec.name}</Dialog.Title>
+              <Dialog.Close data-tid={tid + "-close"}>Close</Dialog.Close>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
+      );
+
+    case "card":
+      return (
+        <section data-tid={tid} role="region" aria-label={spec.title || spec.name}>
+          <div data-tid={tid + "-header"}>
+            <h3 data-tid={tid + "-title"} role="heading" aria-level={3}>
+              {spec.title || spec.name}
+            </h3>
+          </div>
+          <div data-tid={tid + "-content"}>{spec.body || ""}</div>
+          {spec.footer ? <div data-tid={tid + "-footer"}>{spec.footer}</div> : null}
+        </section>
+      );
+
+    case "command":
+      return <CommandFixture spec={spec} />;
+
+    case "sidebar":
+      return <SidebarFixture spec={spec} />;
 
     case "dialog":
       return (

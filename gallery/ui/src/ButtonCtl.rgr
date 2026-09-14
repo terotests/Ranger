@@ -1,0 +1,77 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; ButtonCtl — a button
+; =============================================================================
+; The one control every kit starts with and this one did not have: a button
+; is a `button`, focusable unless disabled, activated by a click, Enter or
+; Space, and named by its caption. Its variants — default, secondary,
+; outline, ghost, destructive, link — and sizes are classes for the sheet;
+; nothing about them is behaviour.
+;
+; What a press DOES is the page's business: the controller counts it
+; (`presses`) and the host decides. shadcn's Button is a plain <button>, so
+; the reference is the platform's own.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class ButtonCtl extends UiCtl {
+    ; default | secondary | outline | ghost | destructive | link
+    def variant:string "default"
+    ; default | sm | lg | icon
+    def size:string "default"
+    ; How many times it has been activated: what a test reads.
+    def presses:int 0
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+    }
+
+    fn build:void () {
+        def el:EVGElement (unwrap rootEl)
+        el.id = tid
+        el.className = ("ui-button ui-button-" + variant)
+        if (size != "default") {
+            UiTree.addClass(el ("ui-button-size-" + size))
+        }
+        if disabled {
+            UiTree.addClass(el "ui-button-disabled")
+        }
+        UiTree.leafText(el name)
+    }
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target != tid) {
+            return ""
+        }
+        presses = (presses + 1)
+        return ""
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if (target != tid) {
+            return false
+        }
+        return (disabled == false)
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def r:UiRow (UiRow.of(tid (EVGA11yRole.button()) name))
+        r.disabled = disabled
+        r.description = description
+        if (disabled == false) {
+            r.tabStop = true
+            r.focusable = true
+        }
+        push out r
+        return out
+    }
+}

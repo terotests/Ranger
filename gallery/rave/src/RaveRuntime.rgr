@@ -470,7 +470,9 @@ class RaveRuntime {
         activeView = i
         def v:RaveView (itemAt views i)
         ; A bound controller first: a kit instance's root carries the node's
-        ; own id, and the controller is what answers for it.
+        ; own id, and the controller is what answers for it. A Button is
+        ; both — the controller counts the press, and the node's actions run.
+        def handled:boolean false
         def maybe@(optional):UiCtl (v.bind.ctlFor(id))
         if maybe {
             def c:UiCtl (unwrap maybe)
@@ -479,17 +481,17 @@ class RaveRuntime {
                 v.wantFocus = next
             }
             dirty = true
-            return true
+            handled = true
         }
         def nid:int (RaveApp.idOfElement(id))
         if (nid == 0) {
-            return false
+            return handled
         }
         if ((app.hasNode(nid)) == false) {
-            return false
+            return handled
         }
         def n:RaveNode (app.node(nid))
-        def changed:boolean false
+        def changed:boolean handled
         def i:int 0
         while (i < (array_length n.actions)) {
             def a:RaveAction (itemAt n.actions i)
@@ -531,6 +533,9 @@ class RaveRuntime {
     ; --- keyboard -----------------------------------------------------------------
 
     fn focusedId:string (i:int) {
+        ; A controller may have asked for the focus to move; that lands on
+        ; the rebuild, so the answer is only right after one.
+        this.ensure()
         def v:RaveView (itemAt views i)
         return v.focus.focusId
     }

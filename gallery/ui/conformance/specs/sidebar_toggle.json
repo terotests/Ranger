@@ -1,0 +1,35 @@
+{
+ "name": "sidebar_toggle",
+ "component": "sidebar",
+ "behaviours": [
+  "sidebar-toggle"
+ ],
+ "fixture": {
+  "controls": [
+   {
+    "type": "sidebar",
+    "tid": "side",
+    "name": "Main",
+    "value": "home",
+    "items": [
+     {
+      "value": "home",
+      "name": "Home"
+     },
+     {
+      "value": "settings",
+      "name": "Settings"
+     }
+    ]
+   }
+  ]
+ },
+ "steps": [
+  {
+   "click": "side-trigger"
+  },
+  {
+   "click": "side-trigger"
+  }
+ ]
+}

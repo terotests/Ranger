@@ -1,0 +1,31 @@
+{
+ "name": "sheet_keyboard",
+ "component": "sheet",
+ "behaviours": [
+  "sheet-keyboard-open",
+  "sheet-escape-closes",
+  "sheet-focus-restore"
+ ],
+ "fixture": {
+  "controls": [
+   {
+    "type": "sheet",
+    "tid": "sh",
+    "name": "Menu",
+    "title": "Navigation",
+    "side": "right"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "focus": "sh-trigger"
+  },
+  {
+   "key": "Enter"
+  },
+  {
+   "key": "Escape"
+  }
+ ]
+}

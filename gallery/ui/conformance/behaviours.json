@@ -489,6 +489,65 @@
         "input-password": "the value is the text and the glyphs are bullets",
         "input-required": "aria-required is published only when it was asked for"
       }
+    },
+    "button": {
+      "radix": "(none — shadcn's Button is the platform's own <button>)",
+      "$comment": "NO LIBRARY: a button is a <button>, and the reference is the browser's. What can be measured in a trace is the role, the name, focus arriving on a click and a disabled button taking neither a press nor the focus. What a press DOES is the page's business and is not in the trace.",
+      "behaviours": {
+        "button-role": "it is a button, named by its caption",
+        "button-focus-on-click": "clicking moves focus to the button",
+        "button-disabled-inert": "a disabled button is not a tab stop",
+        "button-disabled-blur": "clicking a disabled button drops focus"
+      }
+    },
+    "sheet": {
+      "radix": "@radix-ui/react-dialog",
+      "$comment": "shadcn's Sheet is Radix Dialog with a side. The side is a layout fact — where the panel sits — and is not in a trace; everything a trace can see is the dialog's.",
+      "behaviours": {
+        "sheet-pointer-open": "the trigger opens it",
+        "sheet-keyboard-open": "Enter on the trigger opens it",
+        "sheet-escape-closes": "Escape closes it from inside",
+        "sheet-focus-into": "opening moves focus into the sheet",
+        "sheet-focus-restore": "closing returns focus to the trigger",
+        "sheet-aria-expanded": "the trigger says whether it is showing",
+        "sheet-background-hidden": "everything outside is out of the accessibility tree",
+        "sheet-content-unmounted": "closed content is not in the tree at all"
+      }
+    },
+    "card": {
+      "radix": "none",
+      "$comment": "NO LIBRARY AT ALL: shadcn's Card is markup. The DOM side is a second implementation of the same markup with the accessibility written in — a region named by the title, the title a heading — so it catches the two sides disagreeing and cannot catch both being wrong. Read the score knowing that.",
+      "behaviours": {
+        "card-region": "a card is a region named by its title",
+        "card-title-heading": "the title is a level-three heading",
+        "card-parts": "header, content and (when given) footer are in the tree"
+      }
+    },
+    "command": {
+      "radix": "cmdk",
+      "$comment": "Not Radix — Radix has no command menu. shadcn's is cmdk inside a Radix Dialog, so cmdk is the oracle for the box, the list, the filter and the arrows, and Radix Dialog for the trigger, the scrim and the focus. The filter here is a substring of the caption; cmdk's is a fuzzy score, and the two agree on every query a spec uses.",
+      "behaviours": {
+        "command-opens": "the trigger opens the dialog with focus in the box",
+        "command-roles": "the box is a combobox, the list a listbox, the rows options",
+        "command-first-active": "the first row is active on open",
+        "command-filter": "typing narrows the rows to the ones that match",
+        "command-empty": "a query nothing matches shows the empty row",
+        "command-arrows": "ArrowDown and ArrowUp move the active row and stop at the ends",
+        "command-enter-picks": "Enter picks the active row and closes",
+        "command-pointer-picks": "clicking a row picks it and closes",
+        "command-escape": "Escape closes and returns focus to the trigger"
+      }
+    },
+    "sidebar": {
+      "radix": "none",
+      "$comment": "NO LIBRARY AT ALL: shadcn's Sidebar is markup — a rail with data-state expanded or collapsed, a trigger named Toggle Sidebar, a list of buttons. The DOM side is a second implementation of that markup with the one thing shadcn leaves out written in: the current place says aria-current=page. Same caveat as the card: it catches the two sides disagreeing, not both being wrong.",
+      "behaviours": {
+        "sidebar-navigation": "the rail is a navigation named by the fixture",
+        "sidebar-menu-list": "the places are a list of buttons",
+        "sidebar-current": "the current place says aria-current=page, and pressing another makes it current",
+        "sidebar-toggle": "the trigger folds the rail and unfolds it, and the state says which",
+        "sidebar-disabled": "a disabled place cannot be made current"
+      }
     }
   }
 }

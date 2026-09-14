@@ -1,0 +1,116 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; CardCtl — a card: header, content, footer
+; =============================================================================
+; Three slots and a border. It is here because a kit has one and a page
+; drops it forty times, not because it does anything: a card is a region
+; named by its title, and that name is the whole of its accessibility. No
+; library is the reference — shadcn's is markup — so the DOM side of its
+; specs is a second implementation of the same markup, and the specs say so.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class CardCtl extends UiCtl {
+    def title:string ""
+    def body:string ""
+    def footer:string ""
+    def headerEl:EVGElement
+    def titleEl:EVGElement
+    def contentEl:EVGElement
+    def footerEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        headerEl = (EVGElement.createDiv())
+        titleEl = (EVGElement.createDiv())
+        contentEl = (EVGElement.createDiv())
+        footerEl = (EVGElement.createDiv())
+    }
+
+    fn headerTid:string () {
+        return (tid + "-header")
+    }
+
+    fn titleTid:string () {
+        return (tid + "-title")
+    }
+
+    fn contentTid:string () {
+        return (tid + "-content")
+    }
+
+    fn footerTid:string () {
+        return (tid + "-footer")
+    }
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-card"
+        UiTree.clearChildren(root)
+
+        def header:EVGElement (unwrap headerEl)
+        header.id = (this.headerTid())
+        header.className = "ui-card-header"
+        UiTree.clearChildren(header)
+        def t:EVGElement (unwrap titleEl)
+        t.id = (this.titleTid())
+        t.className = "ui-card-title"
+        UiTree.leafText(t title)
+        header.addChild(t)
+        root.addChild(header)
+
+        def content:EVGElement (unwrap contentEl)
+        content.id = (this.contentTid())
+        content.className = "ui-card-content"
+        UiTree.leafText(content body)
+        root.addChild(content)
+
+        if ((strlen footer) > 0) {
+            def f:EVGElement (unwrap footerEl)
+            f.id = (this.footerTid())
+            f.className = "ui-card-footer"
+            UiTree.leafText(f footer)
+            root.addChild(f)
+        }
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.headerTid())
+        push a (this.titleTid())
+        push a (this.contentTid())
+        if ((strlen footer) > 0) {
+            push a (this.footerTid())
+        }
+        return a
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def root:UiRow (UiRow.of(tid (EVGA11yRole.region()) title))
+        push out root
+        def header:UiRow (UiRow.of((this.headerTid()) (EVGA11yRole.none()) ""))
+        header.parentTid = tid
+        push out header
+        def t:UiRow (UiRow.of((this.titleTid()) (EVGA11yRole.heading()) title))
+        t.parentTid = (this.headerTid())
+        t.level = 3
+        push out t
+        def content:UiRow (UiRow.of((this.contentTid()) (EVGA11yRole.none()) ""))
+        content.parentTid = tid
+        push out content
+        if ((strlen footer) > 0) {
+            def f:UiRow (UiRow.of((this.footerTid()) (EVGA11yRole.none()) ""))
+            f.parentTid = tid
+            push out f
+        }
+        return out
+    }
+}

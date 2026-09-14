@@ -334,6 +334,11 @@ utility-class theme needs compound and attribute selectors; `gallery/css`'s
 | `src/AccordionCtl.rgr` | Single-open sections — `@radix-ui/react-accordion` |
 | `src/ToolbarCtl.rgr` | Roving focus over a row of buttons, no selection |
 | `src/DialogCtl.rgr` | Modal: opens, takes focus, Escape closes and gives it back |
+| `src/ButtonCtl.rgr` | A button: variants and sizes as classes, a press counted — the platform's own `<button>` is the reference |
+| `src/SheetCtl.rgr` | A dialog that comes in from an edge — Radix Dialog with a side, as shadcn's Sheet is |
+| `src/CardCtl.rgr` | Header / content / footer, a region named by its title — shadcn markup, so the DOM side is a second implementation |
+| `src/CommandCtl.rgr` | The command menu (⌘K): a combobox over a listbox in a dialog, filtered as typed — `cmdk` inside Radix Dialog |
+| `src/SidebarCtl.rgr` | The side navigation: a list of places, one current, a trigger that folds the rail — shadcn markup with `aria-current` written in |
 | `src/PresentationCtl.rgr` | Label, separator, progress, aspect ratio, icon button, avatar |
 | `src/DateFieldCtl.rgr` | The `mm/dd/yyyy` segmented editor — Chromium's own `<input type="date">` |
 | `src/OtpCtl.rgr` | One-time code: one value, N slots, the selection normalised — `input-otp` |

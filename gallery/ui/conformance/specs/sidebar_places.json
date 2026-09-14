@@ -1,0 +1,43 @@
+{
+ "name": "sidebar_places",
+ "component": "sidebar",
+ "behaviours": [
+  "sidebar-navigation",
+  "sidebar-menu-list",
+  "sidebar-current",
+  "sidebar-disabled"
+ ],
+ "fixture": {
+  "controls": [
+   {
+    "type": "sidebar",
+    "tid": "side",
+    "name": "Main",
+    "value": "home",
+    "items": [
+     {
+      "value": "home",
+      "name": "Home"
+     },
+     {
+      "value": "settings",
+      "name": "Settings"
+     },
+     {
+      "value": "billing",
+      "name": "Billing",
+      "disabled": true
+     }
+    ]
+   }
+  ]
+ },
+ "steps": [
+  {
+   "click": "side-item-settings"
+  },
+  {
+   "click": "side-item-billing"
+  }
+ ]
+}

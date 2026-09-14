@@ -1,10 +1,10 @@
 {
   "total": {
-    "catalogued": 280,
-    "covered": 278,
-    "matchedBehaviours": 278,
-    "observations": 69570,
-    "matchedObservations": 69570
+    "catalogued": 309,
+    "covered": 307,
+    "matchedBehaviours": 307,
+    "observations": 75073,
+    "matchedObservations": 75073
   },
   "components": {
     "toggle": {
@@ -138,6 +138,26 @@
     "breadcrumb": {
       "covered": 8,
       "matchedBehaviours": 8
+    },
+    "button": {
+      "covered": 4,
+      "matchedBehaviours": 4
+    },
+    "sheet": {
+      "covered": 8,
+      "matchedBehaviours": 8
+    },
+    "card": {
+      "covered": 3,
+      "matchedBehaviours": 3
+    },
+    "command": {
+      "covered": 9,
+      "matchedBehaviours": 9
+    },
+    "sidebar": {
+      "covered": 5,
+      "matchedBehaviours": 5
     }
   }
 }

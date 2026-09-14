@@ -23,6 +23,11 @@ Import "../src/WindowCtl.rgr"
 Import "../src/HoverCtl.rgr"
 Import "../src/SliderCtl.rgr"
 Import "../src/ToastCtl.rgr"
+Import "../src/ButtonCtl.rgr"
+Import "../src/SheetCtl.rgr"
+Import "../src/CardCtl.rgr"
+Import "../src/CommandCtl.rgr"
+Import "../src/SidebarCtl.rgr"
 Import "../src/UiHost.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGA11yTree.rgr"
@@ -241,6 +246,11 @@ class UiTest {
         UiTest.testModalWindow(t)
         UiTest.testSliderAndToast(t)
         UiTest.testA11yTree(t)
+        UiTest.testButton(t)
+        UiTest.testSheet(t)
+        UiTest.testCard(t)
+        UiTest.testCommand(t)
+        UiTest.testSidebar(t)
         print ""
         print ("passed=" + (to_string t.passed) + " failed=" + (to_string t.failed))
         if (t.failed > 0) {
@@ -296,6 +306,149 @@ class UiTest {
         h.layout()
         def bg:int (to_int el.backgroundColor.r)
         t.eqInt("dark theme wins" bg 30)
+    }
+
+    sfn testButton:void (t:Check) {
+        print "--- button ---"
+        def h (new UiHost())
+        def b:ButtonCtl (h.addButton("save" "Save"))
+        def d:ButtonCtl (h.addButton("dead" "Delete"))
+        d.disabled = true
+        d.build()
+        h.click("save")
+        t.eqInt("a click is a press" b.presses 1)
+        t.eqStr("…and takes focus" h.focusId "save")
+        h.key("Enter")
+        t.eqInt("Enter presses" b.presses 2)
+        h.key(" ")
+        t.eqInt("Space presses" b.presses 3)
+        h.click("dead")
+        t.eqInt("disabled never presses" d.presses 0)
+        t.eqStr("…and drops focus" h.focusId "")
+        def rows:[UiRow] (b.rows())
+        def row:UiRow (itemAt rows 0)
+        t.eqStr("it is a button" (EVGA11yRole.ariaName(row.role)) "button")
+        t.eqStr("named by its caption" row.name "Save")
+        b.variant = "destructive"
+        b.build()
+        def el:EVGElement (unwrap b.rootEl)
+        t.ok("the variant is a class" (UiTree.hasClass(el "ui-button-destructive")))
+    }
+
+    sfn testSheet:void (t:Check) {
+        print "--- sheet ---"
+        def h (new UiHost())
+        def s:SheetCtl (h.addSheet("sh" "Menu" "Navigation" "left"))
+        def root:EVGElement (unwrap h.root)
+        t.ok("closed content leaves the tree" ((UiTree.reachable(root "sh-content")) == false))
+        h.click("sh-trigger")
+        t.ok("opens on the trigger" s.open)
+        t.eqStr("…with focus on Close" h.focusId "sh-close")
+        t.ok("the panel is in the overlay" (UiTree.reachable(root "sh-content")))
+        def content:EVGElement (unwrap s.contentEl)
+        t.ok("…on its side" (UiTree.hasClass(content "ui-sheet-content-left")))
+        def rows:[UiRow] (s.rows())
+        def contentRow:UiRow (itemAt rows 2)
+        t.ok("the panel is a modal dialog" (contentRow.modal && ((EVGA11yRole.ariaName(contentRow.role)) == "dialog")))
+        h.key("Escape")
+        t.ok("Escape closes it" (s.open == false))
+        t.eqStr("…and the focus goes back to the trigger" h.focusId "sh-trigger")
+    }
+
+    sfn testCard:void (t:Check) {
+        print "--- card ---"
+        def h (new UiHost())
+        def c:CardCtl (h.addCard("card" "Revenue" "Where the money came from." "Updated today"))
+        def root:EVGElement (unwrap h.root)
+        t.ok("the header is in the tree" (UiTree.reachable(root "card-header")))
+        t.ok("…and the footer" (UiTree.reachable(root "card-footer")))
+        def rows:[UiRow] (c.rows())
+        def region:UiRow (itemAt rows 0)
+        t.eqStr("a card is a region" (EVGA11yRole.ariaName(region.role)) "region")
+        t.eqStr("…named by its title" region.name "Revenue")
+        def title:UiRow (itemAt rows 2)
+        t.eqStr("the title is a heading" (EVGA11yRole.ariaName(title.role)) "heading")
+        t.eqInt("…at level three" title.level 3)
+        def bare:CardCtl (h.addCard("bare" "Plain" "Nothing else." ""))
+        t.ok("no footer, no footer row" ((UiTree.reachable(root "bare-footer")) == false))
+    }
+
+    sfn testCommand:void (t:Check) {
+        print "--- command ---"
+        def h (new UiHost())
+        def c:CommandCtl (h.addCommand("cmd" "Search"))
+        c.addItem("settings" "Settings" false)
+        c.addItem("profile" "Profile" false)
+        c.addItem("signout" "Sign out" false)
+        c.build()
+        def root:EVGElement (unwrap h.root)
+        t.ok("closed, no list" ((UiTree.reachable(root "cmd-list")) == false))
+        h.click("cmd-trigger")
+        t.ok("the trigger opens it" c.open)
+        t.eqStr("…with focus in the box" h.focusId "cmd-input")
+        t.ok("every item is listed" (UiTree.reachable(root "cmd-item-signout")))
+        t.eqStr("the first is active" c.activeValue "settings")
+        h.type("Pro")
+        t.eqStr("typing fills the box" c.query "Pro")
+        t.ok("…and narrows the list" ((UiTree.reachable(root "cmd-item-settings")) == false))
+        t.ok("…to what matches" (UiTree.reachable(root "cmd-item-profile")))
+        t.eqStr("…which is active" c.activeValue "profile")
+        h.key("Enter")
+        t.eqStr("Enter picks it" c.value "profile")
+        t.ok("…and closes" (c.open == false))
+        t.eqStr("…with focus back on the trigger" h.focusId "cmd-trigger")
+        h.key("Enter")
+        t.ok("Enter on the trigger opens" c.open)
+        h.key("ArrowDown")
+        t.eqStr("ArrowDown moves down" c.activeValue "profile")
+        h.key("ArrowDown")
+        h.key("ArrowDown")
+        t.eqStr("…and stops at the end" c.activeValue "signout")
+        h.key("ArrowUp")
+        t.eqStr("ArrowUp moves up" c.activeValue "profile")
+        h.type("zzz")
+        t.ok("no match shows the empty row" (UiTree.reachable(root "cmd-empty")))
+        t.eqStr("…and nothing is active" c.activeValue "")
+        h.key("Backspace")
+        h.key("Backspace")
+        h.key("Backspace")
+        t.eqStr("Backspace clears" c.query "")
+        h.key("Escape")
+        t.ok("Escape closes" (c.open == false))
+        def rows:[UiRow] (c.rows())
+        def trig:UiRow (itemAt rows 0)
+        t.eqStr("the trigger is a button with a dialog" trig.hasPopup "dialog")
+    }
+
+    sfn testSidebar:void (t:Check) {
+        print "--- sidebar ---"
+        def h (new UiHost())
+        def s:SidebarCtl (h.addSidebar("side" "Main"))
+        s.addItem("home" "Home" false)
+        s.addItem("settings" "Settings" false)
+        s.addItem("billing" "Billing" true)
+        s.value = "home"
+        s.build()
+        def rows:[UiRow] (s.rows())
+        def nav:UiRow (itemAt rows 0)
+        t.eqStr("the rail is a navigation" (EVGA11yRole.ariaName(nav.role)) "navigation")
+        t.eqStr("…expanded" nav.state "expanded")
+        def menu:UiRow (itemAt rows 2)
+        t.eqStr("the menu is a list" (EVGA11yRole.ariaName(menu.role)) "list")
+        def home:UiRow (itemAt rows 3)
+        t.eqStr("the current place says so" home.current "page")
+        h.click("side-item-settings")
+        t.eqStr("pressing a place makes it current" s.value "settings")
+        h.click("side-item-billing")
+        t.eqStr("a disabled place cannot be" s.value "settings")
+        h.click("side-trigger")
+        t.ok("the trigger folds the rail" s.collapsed)
+        def rows2:[UiRow] (s.rows())
+        def nav2:UiRow (itemAt rows2 0)
+        t.eqStr("…and the state says so" nav2.state "collapsed")
+        t.ok("folded, the places are still there" (UiTree.reachable((unwrap h.root) "side-item-home")))
+        h.click("side-trigger")
+        t.ok("…and unfolds" (s.collapsed == false))
     }
 
     sfn testToggle:void (t:Check) {
