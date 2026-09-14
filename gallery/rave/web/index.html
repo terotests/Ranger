@@ -21,11 +21,20 @@
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
         white-space: pre-wrap; pointer-events: none; }
       #file { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+      /* The AI menu's fallback when the clipboard is not ours to read or
+         write: a real textarea, over the canvas, that the browser will let a
+         person copy out of and paste into. */
+      .rave-paste { position: fixed; left: 50%; top: 50%; width: min(760px, 88vw);
+        height: min(420px, 60vh); transform: translate(-50%, -50%);
+        padding: 14px 16px; border: 1px solid #cfd4dd; border-radius: 12px;
+        background: #ffffff; color: #1a1d21; z-index: 20;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+        box-shadow: 0 24px 60px rgba(20, 22, 26, 0.28); }
     </style>
   </head>
   <body>
     <div id="stage"><canvas id="c" tabindex="0"></canvas></div>
-    <input id="file" type="file" accept=".json,application/json" />
+    <input id="file" type="file" accept=".json,.fig,application/json" />
     <div id="err"></div>
     <noscript>
       Rave: a UI design tool whose canvas objects are an application's

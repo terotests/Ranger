@@ -182,12 +182,55 @@ canvas.addEventListener("keydown", (ev) => {
 // Open… and Save are EVG buttons; the page does the two things a canvas
 // cannot: show a picker, and hand the browser a download.
 let wantFig = false;
+
+// Reading the clipboard needs permission the user may not have given, and
+// writing it needs a secure context. Both fall back to a textarea the page
+// puts up rather than failing silently.
+const pasteEl = document.createElement("textarea");
+pasteEl.className = "rave-paste";
+pasteEl.placeholder = "Paste the answer here, then press Escape";
+pasteEl.style.display = "none";
+document.body.appendChild(pasteEl);
+pasteEl.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" || (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey))) {
+    app.applyAiText(pasteEl.value);
+    pasteEl.style.display = "none";
+    pasteEl.value = "";
+    schedule();
+    ev.preventDefault();
+  }
+  ev.stopPropagation();
+});
+
+function fallbackCopy(text) {
+  pasteEl.value = text;
+  pasteEl.style.display = "block";
+  pasteEl.focus();
+  pasteEl.select();
+}
+
 const realPress = app.press.bind(app);
 app.press = (id) => {
   if (id === "file:open") {
     fileEl.accept = ".json,.rave.json,application/json";
     wantFig = false;
     fileEl.click();
+    return false;
+  }
+  // The AI menu's two doors: a canvas has no clipboard, so the page has one.
+  if (id === "ai:copy") {
+    const text = app.aiPrompt();
+    navigator.clipboard.writeText(text).then(
+      () => { app.press("ai:copied"); schedule(); },
+      () => { fallbackCopy(text); },
+    );
+    return false;
+  }
+  if (id === "ai:paste") {
+    navigator.clipboard.readText().then(
+      (text) => { app.applyAiText(text); schedule(); },
+      () => { pasteEl.value = ""; pasteEl.style.display = "block"; pasteEl.focus(); },
+    );
     return false;
   }
   if (id === "file:import") {

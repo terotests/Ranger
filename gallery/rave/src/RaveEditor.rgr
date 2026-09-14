@@ -28,6 +28,7 @@ Import "RavePatterns.rgr"
 Import "RaveOps.rgr"
 Import "RaveKit.rgr"
 Import "RaveImport.rgr"
+Import "RaveText.rgr"
 Import "../../figma/src/FigParser.rgr"
 Import "../../figma/src/convert/FigToScene.rgr"
 Import "RaveA11y.rgr"
@@ -121,6 +122,18 @@ class RaveEditor {
     ; because an import is a reading of somebody's file and the reading is
     ; the thing worth checking.
     def importReport:RaveImportReport (new RaveImportReport())
+    ; --- the AI menu -----------------------------------------------------------
+    ; There is no service call anywhere in Rave. The menu writes a prompt — the
+    ; format, the thing as it stands, and what is wanted — to be pasted
+    ; somewhere else, and reads back a document in the same format. A person
+    ; is the transport, which is why the prompt has to say everything and the
+    ; reader has to be strict.
+    def aiOpen:boolean false
+    ; document | page | node
+    def aiScope:string "document"
+    def aiAsk:string ""
+    def aiStatus:string ""
+    def aiErrors:[string]
     def wizWeb:boolean true
     def wizDesktop:boolean false
     def wizTablet:boolean true
@@ -397,6 +410,228 @@ class RaveEditor {
             dirty = true
             return true
         }
+        return false
+    }
+
+    ; --- the AI menu ------------------------------------------------------------
+
+    fn openAi:boolean () {
+        this.commitEdit()
+        this.closeMenu()
+        aiOpen = true
+        aiStatus = ""
+        clear aiErrors
+        if ((this.hasSelection()) == false) {
+            if (aiScope == "node") {
+                aiScope = "page"
+            }
+        }
+        dirty = true
+        return true
+    }
+
+    fn closeAi:boolean () {
+        if (aiOpen == false) {
+            return false
+        }
+        if (editing == "ai:ask") {
+            this.commitEdit()
+        }
+        aiOpen = false
+        dirty = true
+        return true
+    }
+
+    ; The thing the prompt is about, in the format the prompt describes.
+    fn aiBody:string () {
+        if (aiScope == "node") {
+            if (this.hasSelection()) {
+                return (RaveText.writeNode(doc (this.selectedNode())))
+            }
+            return ""
+        }
+        if (aiScope == "page") {
+            def route:RaveRoute (this.currentRoute())
+            if (doc.hasNode(route.pageId)) {
+                return (RaveText.writePage(doc (doc.node(route.pageId))))
+            }
+            return ""
+        }
+        return (RaveText.writeApp(doc))
+    }
+
+    ; What goes on the clipboard.
+    fn aiPrompt:string () {
+        return (RaveText.prompt(doc aiScope (this.aiBody()) aiAsk))
+    }
+
+    fn aiErrorCount:int () {
+        return (array_length aiErrors)
+    }
+
+    fn aiErrorAt:string (i:int) {
+        return (itemAt aiErrors i)
+    }
+
+    fn aiNote:string () {
+        return aiStatus
+    }
+
+    fn takeErrors:void (reader:RaveTextReader) {
+        clear aiErrors
+        def i:int 0
+        while (i < (reader.errorCount())) {
+            push aiErrors (reader.errorAt(i))
+            i = (i + 1)
+        }
+    }
+
+    ; A response, read back. A document with a single error is refused
+    ; outright: half-applying something that came from elsewhere is how a
+    ; document quietly stops being the one that was designed.
+    fn applyAiText:boolean (text:string) {
+        clear aiErrors
+        aiStatus = ""
+        if ((strlen (trim text)) == 0) {
+            push aiErrors "nothing was pasted"
+            dirty = true
+            return false
+        }
+        if (aiScope == "document") {
+            def reader (new RaveTextReader())
+            def parsed:RaveApp (reader.read(text))
+            this.takeErrors(reader)
+            if ((reader.errorCount()) > 0) {
+                dirty = true
+                return false
+            }
+            if (parsed.isEmpty()) {
+                push aiErrors "that document has no routes, so there is nothing to show"
+                dirty = true
+                return false
+            }
+            this.adopt(parsed)
+            aiOpen = false
+            aiStatus = "the document was replaced"
+            status = aiStatus
+            return true
+        }
+        def reader2 (new RaveTextReader())
+        ; the answer is read against THIS document's breakpoints, so `@<md`
+        ; in it means the same width it means everywhere else here
+        reader2.useBreakpointsOf(doc)
+        def frag:RaveApp (reader2.readFragment(text))
+        this.takeErrors(reader2)
+        if ((reader2.errorCount()) > 0) {
+            dirty = true
+            return false
+        }
+        if ((array_length frag.pages) == 0) {
+            push aiErrors "nothing in that answer was a node"
+            dirty = true
+            return false
+        }
+        def holder:RaveNode (itemAt frag.pages 0)
+        def incoming:[RaveNode] holder.children
+        if ((array_length incoming) == 0) {
+            push aiErrors "that answer had no nodes in it"
+            dirty = true
+            return false
+        }
+        def e:RaveEdit (unwrap edit)
+        RaveText.mergeShared(frag doc)
+        if (aiScope == "node") {
+            if ((this.hasSelection()) == false) {
+                push aiErrors "nothing is selected, so there is no node to replace"
+                dirty = true
+                return false
+            }
+            def old:int selected
+            def parent:int (doc.parentOf(old))
+            if (parent == 0) {
+                push aiErrors "a page or a layout is not replaced one node at a time — use Page or Document"
+                dirty = true
+                return false
+            }
+            def at:int (doc.indexIn(parent old))
+            e.begin()
+            e.remove(old)
+            def made:int 0
+            def i:int 0
+            while (i < (array_length incoming)) {
+                def copy:RaveNode (RaveText.copyNode(frag doc (itemAt incoming i)))
+                e.insert(copy parent (at + i))
+                made = copy.id
+                i = (i + 1)
+            }
+            e.end()
+            selected = made
+            aiOpen = false
+            aiStatus = ((to_string (array_length incoming)) + " nodes replaced the selection")
+            status = aiStatus
+            this.changed()
+            return true
+        }
+        ; the page
+        def route:RaveRoute (this.currentRoute())
+        if ((doc.hasNode(route.pageId)) == false) {
+            push aiErrors "this route has no page"
+            dirty = true
+            return false
+        }
+        def page:RaveNode (doc.node(route.pageId))
+        ; the answer's own page rule becomes this page's
+        RaveText.copyRules(frag doc (holder.cls()) (page.cls()))
+        e.begin()
+        while ((array_length page.children) > 0) {
+            def gone:RaveNode (itemAt page.children 0)
+            e.remove(gone.id)
+        }
+        def j:int 0
+        while (j < (array_length incoming)) {
+            def copy2:RaveNode (RaveText.copyNode(frag doc (itemAt incoming j)))
+            e.insert(copy2 page.id (0 - 1))
+            j = (j + 1)
+        }
+        e.end()
+        selected = 0
+        aiOpen = false
+        aiStatus = ((to_string (array_length incoming)) + " nodes replaced the page")
+        status = aiStatus
+        this.changed()
+        return true
+    }
+
+    fn aiPress:boolean (what:string) {
+        if (what == "open") {
+            return (this.openAi())
+        }
+        if (what == "close") {
+            return (this.closeAi())
+        }
+        if (what == "copied") {
+            clear aiErrors
+            aiStatus = "prompt copied — paste it where you like, then bring the answer back"
+            dirty = true
+            return true
+        }
+        if (what == "ask") {
+            return (this.startEdit("ai:ask"))
+        }
+        if (RaveEditor.hasPrefix(what "scope:")) {
+            def which:string (RaveEditor.tail(what 6))
+            if ((which == "node") && ((this.hasSelection()) == false)) {
+                clear aiErrors
+                push aiErrors "select a node on the stage or in Layers first"
+                dirty = true
+                return true
+            }
+            aiScope = which
+            clear aiErrors
+            dirty = true
+            return true
+        }
+        ; copy and paste are the page's business: a canvas has no clipboard
         return false
     }
 
@@ -820,6 +1055,9 @@ class RaveEditor {
         if (RaveEditor.hasPrefix(id "wiz:")) {
             return (this.wizardPress((RaveEditor.tail(id 4))))
         }
+        if (RaveEditor.hasPrefix(id "ai:")) {
+            return (this.aiPress((RaveEditor.tail(id 3))))
+        }
         ; the tree
         if (RaveEditor.hasPrefix(id "tree:")) {
             def nid:int (RaveEditor.tailInt(id 5))
@@ -944,6 +1182,12 @@ class RaveEditor {
         }
         if ((strlen editing) > 0) {
             return (this.editKey(k shift ctrl))
+        }
+        if aiOpen {
+            if (k == "Escape") {
+                return (this.closeAi())
+            }
+            return false
         }
         ; Nothing behind the sheet is answerable while it is up, in either
         ; mode: Escape puts it away, Enter takes the answers.
@@ -1562,7 +1806,7 @@ class RaveEditor {
     fn startEdit:boolean (id:string) {
         ; The wizard's name field is about the sheet, not about a node, so it
         ; is the one field that does not need a selection behind it.
-        if (id != "wiz:name") {
+        if ((id != "wiz:name") && (id != "ai:ask")) {
             if ((this.hasSelection()) == false) {
                 return false
             }
@@ -1584,6 +1828,9 @@ class RaveEditor {
         def v:string ""
         if (id == "wiz:name") {
             v = wizName
+        }
+        if (id == "ai:ask") {
+            v = aiAsk
         }
         if (RaveEditor.hasPrefix(id "field:")) {
             v = (this.valueOf((RaveEditor.tail(id 6))))
@@ -1666,6 +1913,10 @@ class RaveEditor {
         dirty = true
         if (id == "wiz:name") {
             wizName = value
+            return true
+        }
+        if (id == "ai:ask") {
+            aiAsk = value
             return true
         }
         if ((this.hasSelection()) == false) {
@@ -2034,7 +2285,77 @@ class RaveEditor {
         if wizardOpen {
             page.addChild((this.wizardSheet()))
         }
+        if aiOpen {
+            page.addChild((this.aiSheet()))
+        }
         return page
+    }
+
+    ; --- the AI sheet -----------------------------------------------------------
+
+    fn aiSheet:EVGElement () {
+        def scrim:EVGElement (RaveEditor.box("ra-wiz-scrim" "ai:close" "" ""))
+        def sheet:EVGElement (RaveEditor.box("ra-wiz ra-ai" "" "dialog" "Ask an AI"))
+        sheet.a11yModal = true
+        sheet.addChild((RaveEditor.txt("ra-wiz-title" "Ask an AI")))
+        def lead:EVGElement (RaveEditor.box("ra-wiz-row" "" "" ""))
+        lead.addChild((RaveEditor.quiet("ra-note-t" "Copy the prompt, paste it into whatever you use, paste the answer back.")))
+        lead.addChild((RaveEditor.quiet("ra-note-t" "Nothing here talks to a service — you are the wire.")))
+        sheet.addChild(lead)
+
+        def scopeRow:EVGElement (this.wizRow("About"))
+        def sset:EVGElement (RaveEditor.box("ra-wiz-opts" "" "radiogroup" "About"))
+        sset.addChild((this.wizChoice("ai:scope:document" "The whole document" (aiScope == "document") true)))
+        sset.addChild((this.wizChoice("ai:scope:page" "This page" (aiScope == "page") true)))
+        def nodeLabel:string "The selected node"
+        if (this.hasSelection()) {
+            def sel:RaveNode (this.selectedNode())
+            nodeLabel = ("The selected " + sel.tag)
+        }
+        sset.addChild((this.wizChoice("ai:scope:node" nodeLabel (aiScope == "node") true)))
+        scopeRow.addChild(sset)
+        sheet.addChild(scopeRow)
+
+        def askRow:EVGElement (this.wizRow("What should change"))
+        def askCls:string "ra-f ra-f-wide"
+        if (editing == "ai:ask") {
+            askCls = (askCls + " ra-f-edit")
+        }
+        def shown:string aiAsk
+        if ((strlen shown) == 0) {
+            shown = "e.g. two cards per row on a tablet, and a Save button under the form"
+        }
+        def askField:EVGElement (RaveEditor.box(askCls "ai:ask" "button" ("What should change. " + aiAsk)))
+        askField.addChild((this.textBox("ai:ask" shown "ra-f-val")))
+        askRow.addChild(askField)
+        sheet.addChild(askRow)
+
+        def sizeRow:EVGElement (RaveEditor.box("ra-wiz-row" "" "" ""))
+        def body:string (this.aiBody())
+        sizeRow.addChild((RaveEditor.quiet("ra-note-t" ((RaveEditor.cut((RaveText.scopeWord(aiScope)) 20)) + ": " + (to_string (strlen body)) + " characters of document, " + (to_string (strlen (this.aiPrompt()))) + " of prompt"))))
+        sheet.addChild(sizeRow)
+
+        if ((array_length aiErrors) > 0) {
+            def errs:EVGElement (RaveEditor.box("ra-ai-errs" "" "list" "What was wrong with the answer"))
+            def i:int 0
+            while (i < (array_length aiErrors)) {
+                errs.addChild((RaveEditor.txt("ra-ai-err" (itemAt aiErrors i))))
+                i = (i + 1)
+            }
+            sheet.addChild(errs)
+        } {
+            if ((strlen aiStatus) > 0) {
+                sheet.addChild((RaveEditor.txt("ra-note-t" aiStatus)))
+            }
+        }
+
+        def acts:EVGElement (RaveEditor.box("ra-wiz-acts" "" "" ""))
+        acts.addChild((RaveEditor.button("ai:close" "Close" "ra-btn" "ra-btn-t")))
+        acts.addChild((RaveEditor.button("ai:copy" "Copy prompt" "ra-btn" "ra-btn-t")))
+        acts.addChild((RaveEditor.button("ai:paste" "Paste answer" "ra-btn ra-btn-go" "ra-btn-t")))
+        sheet.addChild(acts)
+        scrim.addChild(sheet)
+        return scrim
     }
 
     ; --- File → New -----------------------------------------------------------
@@ -2176,6 +2497,7 @@ class RaveEditor {
         bar.addChild((RaveEditor.button("file:new" "New" "ra-btn" "ra-btn-t")))
         bar.addChild((RaveEditor.button("file:open" "Open…" "ra-btn" "ra-btn-t")))
         bar.addChild((RaveEditor.button("file:import" "Import .fig" "ra-btn" "ra-btn-t")))
+        bar.addChild((RaveEditor.button("ai:open" "AI…" "ra-btn" "ra-btn-t")))
         bar.addChild((RaveEditor.button("file:save" "Save" "ra-btn" "ra-btn-t")))
         return bar
     }

@@ -492,7 +492,15 @@ promise: the thing that was designed is the thing that runs.
 Later exports are compilations of the same document — HTML+CSS, Ranger code for
 a native EVG host — and they are out of scope until §8 M6.
 
-### 7.1 The other direction: import
+### 7.1 The document as text
+
+`RaveText` is `app.rave.json` without the ids: indentation for the tree, a
+node's rule inline, `@md` for the same node at another width, `->` for an
+action. It exists because the AI menu needs a format a model can be told
+about in a paragraph and write without a schema — and because a format with
+no ids in it is the strongest round-trip test the document has.
+
+### 7.2 The other direction: import
 
 Export is the promise; import is what makes the promise reachable from work
 that already exists. `RaveImport` reads a `.fig` into the same `RaveApp` the
@@ -519,6 +527,7 @@ written as a smoke script.
 | **M4 Accessibility** ✅ | A11y inspector tab (the active view's tree beside Layers, every problem clickable), ⚠ on layer rows, `RaveA11y.contrast` with a real gamma curve, tab-order badges on the stage | a pattern with a deliberately unlabelled input reports exactly one warning; Tab from the login field reaches the login button |
 | **M5 New project + patterns + kit** ✅ | the wizard (`File → New` as a sheet, four questions, `RavePatterns.fromChoices` as the answer); all six patterns; the kit table complete — thirty-six entries in six groups. The document gained what the patterns needed: collections with `repeat`, route parameters with `source`/`{field}`, overlays and toasts, nested layouts, and typing into the app's own inputs. The engine gained `viewportRoot`, so `fixed` means the frame it is in rather than the stage. The four anchored controls (Popover, Tooltip, HoverCard, Dropdown/Context menu) wait on an anchor in the document model — see `rave/README.md` | **the ten-minute test**: wizard → login → dashboard → settings → mobile → keyboard, as one script, plus every kit entry dropped and linted at three widths |
 | **M5.5 Import** ✅ | `RaveImport`: a `.fig` read as an application — auto-layout taken as it stands, everything else cut into rows and columns by an XY cut, names and shapes read for meaning, agreeing frames lifted into a shared layout, and a report of every guess. `File → Import .fig` in the editor with an Import tab, `npm run rave:import` on the command line | `health.fig` imports as three routes on one layout with zero engine rejections and zero a11y problems at 1440 and 390; the cut, the guesses and the shared-layout rule each checked on a scene built for them |
+| **M5.6 The AI menu** ✅ | `RaveText`: the document as lines with no ids in them, written and read by one grammar, so a document survives a round trip through something that has never seen this codebase. `AI…` writes a prompt — the format, what the engine will not accept, the thing as it stands, the ask — and reads back an answer over the document, the page or the selected node. No service is called: a person is the wire | a document written out, read back and written again is the same text; an answer over a node lands as one undo step with its shared classes merged; an answer that is not the format is refused whole, with the line number |
 | **M6 Export** | `File → Export`, the static app folder, `location.hash` routing | export a pattern, serve it, run the M0 script against `generated.js` |
 | **M7 Polish** | gradients, shadows, effects, image fills, component property panels, route graph diagram, dark theme editing | — |
 

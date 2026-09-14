@@ -16,6 +16,7 @@ Import "../src/RaveRuntime.rgr"
 Import "../src/RaveEditor.rgr"
 Import "../src/RaveA11y.rgr"
 Import "../src/RaveImport.rgr"
+Import "../src/RaveText.rgr"
 Import "../../figma/src/FigParser.rgr"
 Import "../../figma/src/convert/FigToScene.rgr"
 
@@ -460,6 +461,226 @@ class RaveTest {
         c.ok("…and the palette already set" ((array_length blank.vars) > 0))
         def rt3:RaveRuntime (ed.runtime())
         RaveTest.lintClean(c rt3 0 "the empty project lints clean")
+    }
+
+    ; --- the document as text -------------------------------------------------------------
+
+    ; The format the AI menu hands out and takes back. The property worth
+    ; checking is that it is the SAME grammar in both directions: a document
+    ; written out, read back and written again is the same text. Ids never
+    ; appear in it, so this also proves nothing depends on them.
+    sfn textChecks:void (c:Check) {
+        print ""
+        print "--- the document as text ---"
+        def app:RaveApp (RavePatterns.crud("Acme"))
+        def text:string (RaveText.writeApp(app))
+        c.ok("a document writes as text" ((strlen text) > 2000))
+        c.ok("…naming itself" (RaveTest.includes(text "app \"Acme\"")))
+        c.ok("…with its breakpoints" (RaveTest.includes(text "breakpoint md 768")))
+        c.ok("…its palette" (RaveTest.includes(text "var accent #2563eb")))
+        c.ok("…its shared classes" (RaveTest.includes(text "style .btn {")))
+        c.ok("…its rows" (RaveTest.includes(text "row id=\"1\" title=\"Onboarding email\"")))
+        c.ok("…its routes" (RaveTest.includes(text "route /items/:id \"Item\"")))
+        c.ok("…a node's own rule inline" (RaveTest.includes(text "{ display: grid;")))
+        c.ok("…a breakpoint override under the node it is about" (RaveTest.includes(text "@<md {")))
+        c.ok("…an action as an arrow" (RaveTest.includes(text "-> navigate /items/{id}")))
+        c.ok("…the repeat that draws the rows" (RaveTest.includes(text "repeat=\"items\"")))
+        c.ok("…and the dialog" (RaveTest.includes(text "overlay=\"create\"")))
+        c.ok("no ids anywhere in it" ((RaveTest.includes(text "\"id\":")) == false))
+
+        def reader (new RaveTextReader())
+        def again:RaveApp (reader.read(text))
+        c.eqInt("it reads back with nothing to complain about" (reader.errorCount()) 0)
+        if ((reader.errorCount()) > 0) {
+            def e:int 0
+            while (e < (reader.errorCount())) {
+                print ("       " + (reader.errorAt(e)))
+                e = (e + 1)
+            }
+        }
+        c.eqInt("…the same routes" (array_length again.routes) (array_length app.routes))
+        c.eqInt("…the same pages" (array_length again.pages) (array_length app.pages))
+        c.eqInt("…the same layouts" (array_length again.layouts) (array_length app.layouts))
+        def coll:RaveCollection (again.collection("items"))
+        c.eqInt("…the same rows" (coll.rowCount()) 5)
+        c.eqStr("…and written out again, the same text" (RaveText.writeApp(again)) text)
+
+        ; and it still runs
+        def rt (new RaveRuntime(again))
+        c.eqInt("the stylesheet it wrote parses clean" (rt.styleErrorCount()) 0)
+        if ((rt.styleErrorCount()) > 0) {
+            print ("       " + (rt.styleError(0)))
+        }
+        def desk:int (rt.addView("desktop" 1440.0 900.0 false))
+        def phone:int (rt.addView("phone" 390.0 844.0 true))
+        rt.setLoggedIn(true)
+        rt.navigate("/items")
+        c.ok("the rows are drawn" (RaveTest.includes((rt.displayListJson(desk)) "Onboarding email")))
+        RaveTest.noRejections(c rt desk "the engine rejected nothing")
+        RaveTest.lintClean(c rt desk "it lints clean at 1440")
+        RaveTest.lintClean(c rt phone "…and at 390")
+
+        ; --- something written by hand -------------------------------------------
+        def hand:string "app \"Tiny\"\n"
+        hand = (hand + "breakpoint md 768\n")
+        hand = (hand + "var ink #101014\n")
+        hand = (hand + "style .lead { font-size: 18px; color: #5a5a66 }\n")
+        hand = (hand + "layout \"Shell\"\n")
+        hand = (hand + "  self { width: 100%; height: 100%; background-color: #ffffff; color: var(--ink) }\n")
+        hand = (hand + "  header \"Tiny\" label=\"Header\" { height: 56px; padding: 0 24px; justify-content: center }\n")
+        hand = (hand + "  main label=\"Main\" { padding: 24px; gap: 16px }\n")
+        hand = (hand + "    slot\n")
+        hand = (hand + "page \"Home\"\n")
+        hand = (hand + "  h1 \"Hello\" { font-size: 28px }\n")
+        hand = (hand + "  p.lead \"Written by hand, in the format the prompt describes.\"\n")
+        hand = (hand + "  div { flex-direction: row; gap: 12px }\n")
+        hand = (hand + "    @<md { flex-direction: column }\n")
+        hand = (hand + "    button \"Go\" { height: 36px; padding: 0 16px; background-color: #2563eb; color: #ffffff; border-radius: 8px }\n")
+        hand = (hand + "      -> navigate /second\n")
+        hand = (hand + "page \"Second\"\n")
+        hand = (hand + "  h1 \"The second page\" { font-size: 28px }\n")
+        hand = (hand + "route / \"Home\" page=\"Home\" layout=\"Shell\"\n")
+        hand = (hand + "route /second \"Second\" page=\"Second\" layout=\"Shell\"\n")
+        def r2 (new RaveTextReader())
+        def tiny:RaveApp (r2.read(hand))
+        c.eqInt("a hand-written document parses" (r2.errorCount()) 0)
+        if ((r2.errorCount()) > 0) {
+            def e2:int 0
+            while (e2 < (r2.errorCount())) {
+                print ("       " + (r2.errorAt(e2)))
+                e2 = (e2 + 1)
+            }
+        }
+        c.eqStr("…named as it said" tiny.name "Tiny")
+        c.eqInt("…two routes" (array_length tiny.routes) 2)
+        def rt2 (new RaveRuntime(tiny))
+        c.eqInt("…whose stylesheet parses clean" (rt2.styleErrorCount()) 0)
+        def v0:int (rt2.addView("desktop" 1440.0 900.0 false))
+        def v1:int (rt2.addView("phone" 390.0 844.0 true))
+        c.ok("…and it draws" (RaveTest.includes((rt2.displayListJson(v0)) "Written by hand")))
+        RaveTest.noRejections(c rt2 v0 "…with nothing the engine rejected")
+        RaveTest.lintClean(c rt2 v0 "…and nothing the lint objects to")
+        def rowNode:int (tiny.idOfNamed("div" "div"))
+        c.ok("the breakpoint override was read" (rowNode > 0))
+        def rowN:RaveNode (tiny.node(rowNode))
+        c.eqStr("…onto the node above it" (tiny.styleOf(rowN (tiny.below("md")) "flex-direction")) "column")
+        def go:int (tiny.idWithAction("navigate" "/second"))
+        c.ok("the action was read" (go > 0))
+        c.ok("…and it works" (rt2.press((RaveTest.elId(go)))))
+        c.eqStr("…moving the app" (rt2.path()) "/second")
+
+        ; --- a line that is wrong says which line ---------------------------------
+        def bad:string "app \"Broken\"\npage \"Home\"\n  widget \"nope\"\n  h1 \"Fine\"\nroute / \"Home\" page=\"Home\"\n"
+        def r3 (new RaveTextReader())
+        def broken:RaveApp (r3.read(bad))
+        c.eqInt("a tag the format does not know is one error" (r3.errorCount()) 1)
+        c.ok("…naming the line it was on" (RaveTest.includes((r3.errorAt(0)) "line 3")))
+        c.ok("…and the rest of the document still read" ((array_length broken.routes) == 1))
+    }
+
+    ; --- the AI menu ----------------------------------------------------------------------
+
+    ; A prompt out and an answer back, with a person in the middle. What is
+    ; checked is the round trip the menu promises: the prompt says everything
+    ; the answer needs to be right, and an answer in that format lands in the
+    ; document as one undo step.
+    sfn aiChecks:void (c:Check) {
+        print ""
+        print "--- the AI menu ---"
+        def ed (new RaveEditor())
+        ed.init((RaveTest.chromeCss()))
+        ed.setPageSize(1440.0 860.0)
+        c.ok("AI opens a sheet" (ed.press("ai:open")))
+        def dl:string (ed.displayListJson())
+        c.ok("…asking what it should be about" (RaveTest.includes(dl "The whole document")))
+        c.ok("…and what should change" (RaveTest.includes(dl "What should change")))
+        c.ok("…it is a modal" (RaveTest.includes((ed.a11yJson(1 "")) "\"modal\":true")))
+
+        ; what goes on the clipboard
+        ed.press("ai:ask")
+        ed.keyWith("a" false true)
+        RaveTest.typeText(ed "Make the dashboard cards two per row on a tablet")
+        ed.keyWith("Enter" false false)
+        def prompt:string (ed.aiPrompt())
+        c.ok("the prompt carries the format" (RaveTest.includes(prompt "RAVE TEXT FORMAT")))
+        c.ok("…the tags it may use" (RaveTest.includes(prompt "header footer nav main aside section")))
+        c.ok("…what the engine will not take" (RaveTest.includes(prompt "NOT UNDERSTOOD")))
+        c.ok("…that accessibility is checked" (RaveTest.includes(prompt "every input has a label")))
+        c.ok("…the document as it stands" (RaveTest.includes(prompt "route /dashboard")))
+        c.ok("…the ask, as it was typed" (RaveTest.includes(prompt "two per row on a tablet")))
+        c.ok("…and what the answer must look like" (RaveTest.includes(prompt "no code fences")))
+
+        ; a node, replaced
+        def doc:RaveApp ed.doc
+        def dash:RaveRoute (doc.routeAt("/dashboard"))
+        ed.press(("route:" + "/dashboard"))
+        def cards:int (doc.idOfNamed("div" "Cards"))
+        c.ok("a node can be selected" (cards > 0))
+        ed.press(("tree:" + (to_string cards)))
+        ed.press("ai:open")
+        c.ok("the menu can be about that node" (ed.press("ai:scope:node")))
+        def nodePrompt:string (ed.aiPrompt())
+        c.ok("…and the prompt is only that node" ((RaveTest.includes(nodePrompt "app \"Acme\"")) == false))
+        c.ok("…with its rule on it" (RaveTest.includes(nodePrompt "grid-template-columns: repeat(3, 1fr)")))
+
+        def answer:string "style .kpi { padding: 20px; border-radius: 12px; background-color: #f4f6fb }\n"
+        answer = (answer + "div name=\"Cards\" { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px }\n")
+        answer = (answer + "  @<md { grid-template-columns: 1fr }\n")
+        answer = (answer + "  section.kpi label=\"Revenue\"\n")
+        answer = (answer + "    h3 \"Revenue\" { font-size: 16px; font-weight: 600 }\n")
+        answer = (answer + "    p \"Up nine per cent\" { color: #5b6070 }\n")
+        answer = (answer + "  section.kpi label=\"Churn\"\n")
+        answer = (answer + "    h3 \"Churn\" { font-size: 16px; font-weight: 600 }\n")
+        answer = (answer + "    p \"Down two per cent\" { color: #5b6070 }\n")
+        c.ok("an answer in the format is taken" (ed.applyAiText(answer)))
+        c.eqInt("…with nothing to complain about" (ed.aiErrorCount()) 0)
+        if ((ed.aiErrorCount()) > 0) {
+            print ("       " + (ed.aiErrorAt(0)))
+        }
+        def doc2:RaveApp ed.doc
+        def newCards:int (doc2.idOfNamed("div" "Cards"))
+        c.ok("the node is there" (newCards > 0))
+        c.ok("…but not the one that was" (newCards != cards))
+        def cardNode:RaveNode (doc2.node(newCards))
+        c.eqStr("…carrying the rule the answer wrote" (doc2.styleOf(cardNode "" "grid-template-columns")) "repeat(4, 1fr)")
+        c.eqStr("…and the breakpoint under it" (doc2.styleOf(cardNode (doc2.below("md")) "grid-template-columns")) "1fr")
+        c.eqInt("…with the two sections it described" (array_length cardNode.children) 2)
+        def board:string (ed.boardJson())
+        c.ok("the stage draws it" (RaveTest.includes(board "Up nine per cent")))
+        c.ok("…the shared class it brought came too" (doc2.hasRule("kpi" "")))
+        def rt:RaveRuntime (ed.runtime())
+        c.eqInt("the engine rejected nothing" (rt.layoutWarningCount(0)) 0)
+        RaveTest.lintClean(c rt 0 "…and it lints clean")
+
+        c.ok("the whole thing is one undo step" (ed.press("undo")))
+        def doc3:RaveApp ed.doc
+        def backCards:RaveNode (doc3.node(cards))
+        c.eqStr("…putting the old node back" (doc3.styleOf(backCards "" "grid-template-columns")) "repeat(3, 1fr)")
+        c.ok("…and its children with it" ((array_length backCards.children) == 3))
+
+        ; an answer that is not the format
+        ed.press("ai:open")
+        ed.press("ai:scope:node")
+        c.ok("prose is refused" ((ed.applyAiText("Sure! Here is a nicer card grid:\n\n```\ndiv\n```")) == false))
+        c.ok("…with a line number" ((ed.aiErrorCount()) > 0))
+        c.ok("…which the sheet shows" (RaveTest.includes((ed.displayListJson()) "line 1")))
+        def doc4:RaveApp ed.doc
+        c.ok("…and the document is untouched" ((doc4.hasNode(cards))))
+
+        ; the whole document, replaced
+        def whole:string "app \"Swap\"\nbreakpoint md 768\n"
+        whole = (whole + "page \"Only\"\n")
+        whole = (whole + "  self { width: 100%; height: 100%; padding: 24px; background-color: #ffffff }\n")
+        whole = (whole + "  h1 \"Swapped\" { font-size: 28px; color: #111318 }\n")
+        whole = (whole + "route / \"Only\" page=\"Only\"\n")
+        ed.press("ai:open")
+        ed.press("ai:scope:document")
+        c.ok("a whole document is taken too" (ed.applyAiText(whole)))
+        c.eqStr("…and it is the document now" ed.doc.name "Swap")
+        c.eqInt("…with its one route" (array_length ed.doc.routes) 1)
+        c.ok("…drawn on the stage" (RaveTest.includes((ed.boardJson()) "Swapped")))
+        def rt2:RaveRuntime (ed.runtime())
+        RaveTest.lintClean(c rt2 0 "…linting clean")
     }
 
     ; --- importing a Figma file ---------------------------------------------------------------
@@ -1500,6 +1721,8 @@ class RaveTest {
         RaveTest.kitChecks(c)
         RaveTest.tenMinuteTest(c)
         RaveTest.importChecks(c)
+        RaveTest.textChecks(c)
+        RaveTest.aiChecks(c)
         RaveTest.editorChecks(c)
         RaveTest.inputChecks(c)
 
