@@ -29,7 +29,30 @@ class RaveKit {
         push out "Navigation"
         push out "Form"
         push out "List"
+        push out "Select"
+        push out "Tabs"
+        push out "Dialog"
+        push out "Toggle"
         return out
+    }
+
+    ; A kit instance: a node the runtime binds to a gallery/ui controller.
+    sfn instance:RaveNode (app:RaveApp component:string name:string) {
+        def n:RaveNode (app.newNode("div" name))
+        n.kind = "instance"
+        n.component = component
+        return n
+    }
+
+    ; A tab of a Tabs instance: its name is the tab, its children the panel.
+    sfn tab:RaveNode (app:RaveApp tabs:RaveNode title:string) {
+        def t:RaveNode (tabs.add((app.newNode("div" title))))
+        app.style(t "gap" "12px")
+        return t
+    }
+
+    sfn option:RaveNode (app:RaveApp sel:RaveNode text:string) {
+        return (sel.add((app.newText("li" text))))
     }
 
     sfn isKind:boolean (kind:string) {
@@ -60,12 +83,16 @@ class RaveKit {
         return false
     }
 
+    ; A labelled input: the label is what a reader hears, the placeholder
+    ; what a sighted person sees in the empty box. The input is a kit
+    ; instance, so in Run it takes typing.
     sfn field:RaveNode (app:RaveApp label:string placeholder:string) {
         def f:RaveNode (app.newNode("div" label))
         f.addClass("field")
         def lab:RaveNode (f.add((app.newText("label" label))))
         lab.addClass("muted")
-        def input:RaveNode (f.add((app.newNode("input" label))))
+        def input:RaveNode (f.add((RaveKit.instance(app "Input" label))))
+        input.tag = "input"
         input.addClass("input")
         input.label = label
         input.placeholder = placeholder
@@ -144,6 +171,36 @@ class RaveKit {
             go.addClass("btn")
             app.style(go "width" "fit-content")
             return f
+        }
+        if (kind == "Select") {
+            def sel:RaveNode (RaveKit.instance(app "Select" "Select"))
+            sel.label = "Choice"
+            RaveKit.option(app sel "First")
+            RaveKit.option(app sel "Second")
+            RaveKit.option(app sel "Third")
+            return sel
+        }
+        if (kind == "Tabs") {
+            def tabs:RaveNode (RaveKit.instance(app "Tabs" "Tabs"))
+            def a:RaveNode (RaveKit.tab(app tabs "First"))
+            a.add((app.newText("p" "The first panel.")))
+            def b:RaveNode (RaveKit.tab(app tabs "Second"))
+            b.add((app.newText("p" "The second panel.")))
+            return tabs
+        }
+        if (kind == "Dialog") {
+            def dlg:RaveNode (RaveKit.instance(app "Dialog" "Dialog title"))
+            dlg.text = "Open dialog"
+            dlg.add((app.newText("p" "What the dialog asks.")))
+            def ok:RaveNode (dlg.add((app.newText("button" "Continue"))))
+            ok.addClass("btn")
+            app.style(ok "width" "fit-content")
+            return dlg
+        }
+        if (kind == "Toggle") {
+            def tg:RaveNode (RaveKit.instance(app "Toggle" "Toggle"))
+            tg.text = "Toggle"
+            return tg
         }
         if (kind == "List") {
             def ul:RaveNode (app.newNode("ul" "List"))

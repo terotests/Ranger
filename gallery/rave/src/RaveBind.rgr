@@ -1,0 +1,201 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RaveBind — kit components bound to gallery/ui's controllers, at run time
+; =============================================================================
+; A Dialog on the stage is not a drawing of one. It is `DialogCtl` — the
+; controller measured against Radix in gallery/ui — holding the document's
+; children as its body: the trigger opens it, Escape closes it, the focus
+; trap is the layout's own overlay. The same for Tabs, Select, Input and
+; Toggle. Rave has no private widgets: what it places is what `ui:test`
+; measures.
+;
+; One binding per VIEW. A controller owns a retained element subtree, and a
+; subtree can be in one tree at a time, so each viewport carries its own
+; instances — which is also the honest behaviour: three viewports are three
+; running copies, and a dialog opened in one is not open in the others.
+;
+; The controllers report themselves as `UiRow`s (the conformance record);
+; `decorate` writes those onto their elements so the runtime's accessibility
+; tree, focus walk and lint — which read elements — see them as the
+; buttons, text boxes and dialogs they are.
+; =============================================================================
+
+Import "RaveDoc.rgr"
+Import "../../ui/src/UiCtl.rgr"
+Import "../../ui/src/UiTree.rgr"
+Import "../../ui/src/InputCtl.rgr"
+Import "../../ui/src/SelectCtl.rgr"
+Import "../../ui/src/TabsCtl.rgr"
+Import "../../ui/src/DialogCtl.rgr"
+Import "../../ui/src/ToggleCtl.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class RaveBind {
+    def ids:[string]
+    def ctls:[UiCtl]
+    def dialogs:[string:DialogCtl]
+    def tabs:[string:TabsCtl]
+    def selects:[string:SelectCtl]
+    def inputs:[string:InputCtl]
+    def toggles:[string:ToggleCtl]
+
+    Constructor () {
+        def d:[string:DialogCtl]
+        dialogs = d
+        def t:[string:TabsCtl]
+        tabs = t
+        def s:[string:SelectCtl]
+        selects = s
+        def i:[string:InputCtl]
+        inputs = i
+        def g:[string:ToggleCtl]
+        toggles = g
+    }
+
+    sfn isKit:boolean (component:string) {
+        if (component == "Dialog") { return true }
+        if (component == "Tabs") { return true }
+        if (component == "Select") { return true }
+        if (component == "Input") { return true }
+        if (component == "Toggle") { return true }
+        return false
+    }
+
+    fn remember:void (id:string c:UiCtl) {
+        push ids id
+        push ctls c
+    }
+
+    ; The controller that answers for a test id, if any of ours does.
+    fn ctlFor@(optional):UiCtl (target:string) {
+        def i:int 0
+        while (i < (array_length ctls)) {
+            def c:UiCtl (itemAt ctls i)
+            if (c.owns(target)) {
+                def hit@(optional):UiCtl c
+                return hit
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):UiCtl
+        return miss
+    }
+
+    fn ownsId:boolean (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            return true
+        }
+        return false
+    }
+
+    ; --- one controller per node, kept across rebuilds ------------------------------
+
+    fn dialog:DialogCtl (id:string) {
+        if (has dialogs id) {
+            return (unwrap (get dialogs id))
+        }
+        def c (new DialogCtl())
+        c.tid = id
+        set dialogs id c
+        this.remember(id c)
+        return c
+    }
+
+    fn tabsOf:TabsCtl (id:string) {
+        if (has tabs id) {
+            return (unwrap (get tabs id))
+        }
+        def c (new TabsCtl())
+        c.tid = id
+        set tabs id c
+        this.remember(id c)
+        return c
+    }
+
+    fn select:SelectCtl (id:string) {
+        if (has selects id) {
+            return (unwrap (get selects id))
+        }
+        def c (new SelectCtl())
+        c.tid = id
+        set selects id c
+        this.remember(id c)
+        return c
+    }
+
+    fn input:InputCtl (id:string) {
+        if (has inputs id) {
+            return (unwrap (get inputs id))
+        }
+        def c (new InputCtl())
+        c.tid = id
+        set inputs id c
+        this.remember(id c)
+        return c
+    }
+
+    fn toggle:ToggleCtl (id:string) {
+        if (has toggles id) {
+            return (unwrap (get toggles id))
+        }
+        def c (new ToggleCtl())
+        c.tid = id
+        set toggles id c
+        this.remember(id c)
+        return c
+    }
+
+    ; --- the rows, onto the elements --------------------------------------------------
+
+    sfn findIn@(optional):EVGElement (el:EVGElement id:string) {
+        if (el.id == id) {
+            def found@(optional):EVGElement el
+            return found
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def kid@(optional):EVGElement (RaveBind.findIn((el.getChild(i)) id))
+            if kid {
+                return kid
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):EVGElement
+        return miss
+    }
+
+    ; What a controller says about itself, written where the runtime reads:
+    ; the role, the name, whether it takes focus, what state it is in.
+    sfn decorate:void (c:UiCtl) {
+        def root:EVGElement (unwrap c.rootEl)
+        def rows:[UiRow] (c.rows())
+        def i:int 0
+        while (i < (array_length rows)) {
+            def r:UiRow (itemAt rows i)
+            def found@(optional):EVGElement (RaveBind.findIn(root r.tid))
+            if found {
+                def el:EVGElement (unwrap found)
+                if (r.role > 0) {
+                    el.role = (EVGA11yRole.ariaName(r.role))
+                }
+                el.a11yLabel = r.name
+                el.a11yFocusable = (r.focusable && (r.disabled == false))
+                el.a11yDisabled = r.disabled
+                el.a11yExpanded = r.expanded
+                el.a11yChecked = r.checked
+                el.a11ySelected = r.selected
+                el.a11yPressed = r.pressed
+                el.a11yModal = r.modal
+                el.a11yHasPopup = r.hasPopup
+                el.a11yHidden = r.hidden
+                if r.hasText {
+                    el.a11yValue = r.text
+                }
+            }
+            i = (i + 1)
+        }
+    }
+}

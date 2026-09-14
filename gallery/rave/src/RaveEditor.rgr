@@ -105,6 +105,15 @@ class RaveEditor {
     def showTabOrder:boolean false
     def lastKey:string ""
     def status:string "ready"
+    ; The new-project sheet, and its answers.
+    def modal:string ""
+    def wName:string "My app"
+    def wWeb:boolean true
+    def wTablet:boolean true
+    def wMobile:boolean true
+    def wAuth:boolean true
+    def wNav:string "sidebar"
+    def wStart:string "dashboard"
     ; the a11y problems of the active view, gathered once per frame
     def problems:[string]
 
@@ -123,9 +132,27 @@ class RaveEditor {
     fn adopt:void (app:RaveApp) {
         doc = app
         def r (new RaveRuntime(app))
-        r.addView("desktop" 1440.0 900.0 false)
-        r.addView("tablet" 768.0 1024.0 true)
-        r.addView("phone" 390.0 844.0 true)
+        def any:boolean false
+        def ti:int 0
+        while (ti < (array_length app.targets)) {
+            def t:string (itemAt app.targets ti)
+            if ((t == "web") || (t == "desktop")) {
+                r.addView("desktop" 1440.0 900.0 false)
+                any = true
+            }
+            if (t == "tablet") {
+                r.addView("tablet" 768.0 1024.0 true)
+                any = true
+            }
+            if (t == "mobile") {
+                r.addView("phone" 390.0 844.0 true)
+                any = true
+            }
+            ti = (ti + 1)
+        }
+        if (any == false) {
+            r.addView("desktop" 1440.0 900.0 false)
+        }
         rt = r
         def e (new RaveEdit(app))
         edit = e
@@ -142,6 +169,35 @@ class RaveEditor {
 
     fn newProject:void (name:string) {
         this.adopt((RavePatterns.saasStarter(name)))
+    }
+
+    ; The sheet's Create: the four answers, as a project.
+    fn createProject:void () {
+        def targets:string ""
+        if wWeb { targets = (targets + "web,") }
+        if wTablet { targets = (targets + "tablet,") }
+        if wMobile { targets = (targets + "mobile,") }
+        def name:string (trim wName)
+        if ((strlen name) == 0) {
+            name = "Untitled"
+        }
+        this.adopt((RavePatterns.create(name targets wAuth wNav wStart)))
+        modal = ""
+    }
+
+    fn openSheet:void () {
+        this.commitEdit()
+        this.closeMenu()
+        modal = "new"
+        dirty = true
+    }
+
+    fn closeSheet:void () {
+        if ((strlen modal) > 0) {
+            this.commitEdit()
+            modal = ""
+            dirty = true
+        }
     }
 
     fn openJson:boolean (text:string) {
@@ -612,8 +668,11 @@ class RaveEditor {
             return true
         }
         if (id == "file:new") {
-            this.newProject("Untitled")
+            this.openSheet()
             return true
+        }
+        if (RaveEditor.hasPrefix(id "wiz:")) {
+            return (this.wizardPress((RaveEditor.tail(id 4))))
         }
         ; the tree
         if (RaveEditor.hasPrefix(id "tree:")) {
@@ -740,6 +799,17 @@ class RaveEditor {
         if ((strlen editing) > 0) {
             return (this.editKey(k shift ctrl))
         }
+        if ((strlen modal) > 0) {
+            if (k == "Escape") {
+                this.closeSheet()
+                return true
+            }
+            if (k == "Enter") {
+                this.createProject()
+                return true
+            }
+            return false
+        }
         if (mode == "run") {
             def r:RaveRuntime (unwrap rt)
             def did:boolean (r.keyWith(activeView k shift ctrl))
@@ -808,6 +878,16 @@ class RaveEditor {
             return false
         }
         if ((strlen editing) == 0) {
+            ; In Run the keys are the app's: a character goes to whatever
+            ; bound input holds the focus in the active viewport.
+            if (mode == "run") {
+                def r:RaveRuntime (unwrap rt)
+                def took:boolean (r.typeChar(activeView ch))
+                if took {
+                    dirty = true
+                }
+                return took
+            }
             return false
         }
         def before:string input.value
@@ -1332,7 +1412,7 @@ class RaveEditor {
     }
 
     fn startEdit:boolean (id:string) {
-        if ((this.hasSelection()) == false) {
+        if ((id != "wiz:name") && ((this.hasSelection()) == false)) {
             return false
         }
         if (editing == id) {
@@ -1350,6 +1430,9 @@ class RaveEditor {
             input.fontSize = 11.0
         }
         def v:string ""
+        if (id == "wiz:name") {
+            v = wName
+        }
         if (RaveEditor.hasPrefix(id "field:")) {
             v = (this.valueOf((RaveEditor.tail(id 6))))
         }
@@ -1429,6 +1512,10 @@ class RaveEditor {
         textDrag = ""
         scrub = ""
         dirty = true
+        if (id == "wiz:name") {
+            wName = value
+            return true
+        }
         if ((this.hasSelection()) == false) {
             return false
         }
@@ -1792,7 +1879,140 @@ class RaveEditor {
         main.addChild((this.rightRail()))
         page.addChild(main)
         page.addChild((this.footer()))
+        if (modal == "new") {
+            page.addChild((this.newSheet()))
+        }
         return page
+    }
+
+    ; --- the new-project sheet -------------------------------------------------------
+    ; Four questions and a project: what it runs on, whether it signs in,
+    ; where the navigation goes, what to start from. The answer is a working
+    ; application at every width chosen, never a blank canvas.
+
+    fn wizardPress:boolean (what:string) {
+        if (what == "cancel") {
+            this.closeSheet()
+            return true
+        }
+        if (what == "create") {
+            this.commitEdit()
+            this.createProject()
+            return true
+        }
+        if (what == "name") {
+            if (this.startEdit("wiz:name")) {
+                input.selectAll()
+                dirty = true
+                return true
+            }
+            return false
+        }
+        if (what == "web") { wWeb = (wWeb == false) }
+        if (what == "tablet") { wTablet = (wTablet == false) }
+        if (what == "mobile") { wMobile = (wMobile == false) }
+        if (what == "auth:on") { wAuth = true }
+        if (what == "auth:off") { wAuth = false }
+        if (RaveEditor.hasPrefix(what "nav:")) { wNav = (RaveEditor.tail(what 4)) }
+        if (RaveEditor.hasPrefix(what "start:")) { wStart = (RaveEditor.tail(what 6)) }
+        dirty = true
+        return true
+    }
+
+    fn wizChip:EVGElement (id:string label:string on:boolean) {
+        def cls:string "ra-chip ra-chip-big"
+        if on {
+            cls = "ra-chip ra-chip-big ra-chip-on"
+        }
+        def c:EVGElement (RaveEditor.box(cls ("wiz:" + id) "button" label))
+        if on {
+            c.a11yPressed = 2
+        } {
+            c.a11yPressed = 1
+        }
+        c.addChild((RaveEditor.quiet("ra-chip-t" label)))
+        return c
+    }
+
+    fn wizRow:EVGElement (title:string) {
+        def row:EVGElement (RaveEditor.box("ra-wiz-row" "" "" ""))
+        row.addChild((RaveEditor.quiet("ra-h3" title)))
+        return row
+    }
+
+    fn newSheet:EVGElement () {
+        def scrim:EVGElement (RaveEditor.box("ra-scrim" "menu:close" "" ""))
+        scrim.a11yHidden = true
+        def w:double 460.0
+        def left:double ((pageW - w) * 0.5)
+        def sh:EVGElement (RaveEditor.box("ra-sheet" "" "dialog" "New project"))
+        sh.a11yModal = true
+        sh.setAttribute("left" ((to_string left) + "px"))
+        sh.setAttribute("top" "72px")
+        sh.setAttribute("width" ((to_string w) + "px"))
+        sh.addChild((RaveEditor.txt("ra-sheet-title" "New project")))
+        sh.addChild((RaveEditor.txt("ra-note" "Four answers, and a working application — never a blank canvas.")))
+
+        def nameRow:EVGElement (this.wizRow("NAME"))
+        def nameShown:string wName
+        if ((strlen nameShown) == 0) {
+            nameShown = "–"
+        }
+        def cls:string "ra-f ra-f-wide"
+        if (editing == "wiz:name") {
+            cls = "ra-f ra-f-wide ra-f-edit"
+        }
+        def f:EVGElement (RaveEditor.box(cls "wiz:name" "button" ("Name " + wName)))
+        f.addChild((RaveEditor.quiet("ra-f-lab" "Name")))
+        f.addChild((this.textBox("wiz:name" nameShown "ra-f-val")))
+        nameRow.addChild(f)
+        sh.addChild(nameRow)
+
+        def targets:EVGElement (this.wizRow("RUNS ON"))
+        def tr:EVGElement (RaveEditor.box("ra-chips" "" "group" "Targets"))
+        tr.addChild((this.wizChip("web" "Web · 1440" wWeb)))
+        tr.addChild((this.wizChip("tablet" "Tablet · 768" wTablet)))
+        tr.addChild((this.wizChip("mobile" "Mobile · 390" wMobile)))
+        targets.addChild(tr)
+        sh.addChild(targets)
+
+        def auth:EVGElement (this.wizRow("SIGN-IN"))
+        def ar:EVGElement (RaveEditor.box("ra-chips" "" "group" "Sign-in"))
+        ar.addChild((this.wizChip("auth:on" "Login page and protected routes" wAuth)))
+        ar.addChild((this.wizChip("auth:off" "None" (wAuth == false))))
+        auth.addChild(ar)
+        sh.addChild(auth)
+
+        def nav:EVGElement (this.wizRow("NAVIGATION"))
+        def nr:EVGElement (RaveEditor.box("ra-chips" "" "group" "Navigation"))
+        nr.addChild((this.wizChip("nav:sidebar" "Sidebar" (wNav == "sidebar"))))
+        nr.addChild((this.wizChip("nav:topbar" "Top bar" (wNav == "topbar"))))
+        nr.addChild((this.wizChip("nav:tabs" "Tabs" (wNav == "tabs"))))
+        nr.addChild((this.wizChip("nav:none" "None" (wNav == "none"))))
+        nav.addChild(nr)
+        sh.addChild(nav)
+
+        def start:EVGElement (this.wizRow("START FROM"))
+        def sr:EVGElement (RaveEditor.box("ra-chips ra-chips-wrap" "" "group" "Start from"))
+        sr.addChild((this.wizChip("start:dashboard" "Dashboard Shell" (wStart == "dashboard"))))
+        sr.addChild((this.wizChip("start:settings" "Settings Layout" (wStart == "settings"))))
+        sr.addChild((this.wizChip("start:master" "Master / Detail" (wStart == "master"))))
+        sr.addChild((this.wizChip("start:crud" "CRUD" (wStart == "crud"))))
+        sr.addChild((this.wizChip("start:marketing" "Marketing + App" (wStart == "marketing"))))
+        sr.addChild((this.wizChip("start:empty" "Empty page" (wStart == "empty"))))
+        start.addChild(sr)
+        sh.addChild(start)
+
+        def buttons:EVGElement (RaveEditor.box("ra-wiz-buttons" "" "" ""))
+        buttons.addChild((RaveEditor.box("ra-spacer" "" "" "")))
+        buttons.addChild((RaveEditor.button("wiz:cancel" "Cancel" "ra-btn" "ra-btn-t")))
+        buttons.addChild((RaveEditor.button("wiz:create" "Create project" "ra-btn ra-btn-primary" "ra-btn-t ra-btn-t-primary")))
+        sh.addChild(buttons)
+
+        def host:EVGElement (RaveEditor.box("ra-modal" "" "" ""))
+        host.addChild(scrim)
+        host.addChild(sh)
+        return host
     }
 
     ; --- top bar --------------------------------------------------------------
@@ -1963,6 +2183,7 @@ class RaveEditor {
     }
 
     sfn glyph:string (n:RaveNode) {
+        if (n.kind == "instance") { return "◈" }
         if (n.kind == "slot") { return "◇" }
         if (n.kind == "conditional") { return "?" }
         def t:string n.tag
@@ -2191,8 +2412,12 @@ class RaveEditor {
     fn inspectorHead:EVGElement (n:RaveNode) {
         def head:EVGElement (RaveEditor.box("ra-insp-head" "" "" ""))
         def kind:string n.tag
-        if (n.kind != "element") {
-            kind = n.kind
+        if (n.kind == "instance") {
+            kind = n.component
+        } {
+            if (n.kind != "element") {
+                kind = n.kind
+            }
         }
         head.addChild((RaveEditor.quiet("ra-kindlab" kind)))
         head.addChild((RaveEditor.txt("ra-insp-nm" (RaveEditor.cut(n.name 18)))))

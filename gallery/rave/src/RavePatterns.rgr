@@ -4,14 +4,22 @@
 ; RavePatterns — application patterns, as code
 ; =============================================================================
 ; A new project is not a blank canvas. `Dashboard Shell` is a layout with a
-; header, a sidebar, a main area and a footer, four routes that share it, and
-; the breakpoints at which the sidebar folds away; `Auth Flow` adds a login
-; route, marks the rest protected, and wires `Login` and `Logout`. They are
-; Ranger functions rather than a template format so they are tested like
-; code: built, run, navigated logged in and out, linted at every width.
+; header, a navigation, a main area and a footer and the breakpoints at
+; which the navigation folds away; `Auth Flow` adds a login route, marks the
+; rest protected, and wires `Login` and `Logout`; `Settings Layout` is a
+; tabbed settings page; `Master / Detail` a list beside the thing picked
+; from it, one column on a phone; `CRUD` adds the create dialog and the
+; delete confirmation; `Marketing + App` a public front on its own layout
+; with the app behind sign-in. `create` is what the new-project sheet
+; calls, with the four answers it asked for.
+;
+; They are Ranger functions rather than a template format so they are
+; tested like code: built, run, navigated logged in and out, linted at
+; every width.
 ; =============================================================================
 
 Import "RaveDoc.rgr"
+Import "RaveKit.rgr"
 
 class RavePatterns {
 
@@ -39,6 +47,9 @@ class RavePatterns {
         app.shared("btn" "cursor" "pointer")
         app.shared("btn-ghost" "background-color" "transparent")
         app.shared("btn-ghost" "color" "var(--ink)")
+        app.shared("btn-outline" "background-color" "transparent")
+        app.shared("btn-outline" "color" "var(--ink)")
+        app.shared("btn-outline" "border" "1px solid var(--line)")
 
         app.shared("card" "background-color" "var(--bg)")
         app.shared("card" "border" "1px solid var(--line)")
@@ -48,15 +59,12 @@ class RavePatterns {
 
         app.shared("field" "gap" "6px")
         app.shared("input" "height" "36px")
-        app.shared("input" "padding" "0 12px")
-        app.shared("input" "justify-content" "center")
-        app.shared("input" "border" "1px solid var(--line)")
-        app.shared("input" "border-radius" "var(--radius)")
-        app.shared("input" "background-color" "var(--bg)")
         app.shared("rv-placeholder" "color" "var(--muted)")
 
         app.shared("title" "font-size" "24px")
         app.shared("title" "font-weight" "700")
+        app.shared("hero" "font-size" "40px")
+        app.shared("hero" "font-weight" "700")
         app.shared("subtitle" "font-size" "16px")
         app.shared("subtitle" "font-weight" "600")
         app.shared("muted" "color" "var(--muted)")
@@ -67,6 +75,8 @@ class RavePatterns {
         app.shared("navlink" "border-radius" "var(--radius)")
         app.shared("navlink" "color" "var(--ink)")
         app.shared("navlink" "cursor" "pointer")
+        app.shared("navlink" "font-size" "14px")
+        app.shared("navlink-on" "background-color" "var(--panel)")
     }
 
     sfn breakpoints:void (app:RaveApp) {
@@ -76,38 +86,54 @@ class RavePatterns {
         app.addBreakpoint("xl" 1440)
     }
 
-    ; A labelled input: the label is what a reader hears, the placeholder
-    ; what a sighted person sees in the empty box.
     sfn field:RaveNode (app:RaveApp parent:RaveNode label:string placeholder:string) {
-        def f:RaveNode (parent.add((app.newNode("div" label))))
-        f.addClass("field")
-        def lab:RaveNode (f.add((app.newText("label" label))))
-        lab.addClass("muted")
-        def input:RaveNode (f.add((app.newNode("input" label))))
-        input.addClass("input")
-        input.label = label
-        input.placeholder = placeholder
+        def f:RaveNode (RaveKit.field(app label placeholder))
+        parent.add(f)
         return f
     }
 
     sfn button:RaveNode (app:RaveApp parent:RaveNode text:string) {
         def b:RaveNode (parent.add((app.newText("button" text))))
         b.addClass("btn")
+        app.style(b "width" "fit-content")
         return b
     }
 
-    ; --- Dashboard Shell -----------------------------------------------------------
+    sfn link:RaveNode (app:RaveApp parent:RaveNode text:string to:string) {
+        def l:RaveNode (parent.add((app.newText("a" text))))
+        l.addClass("navlink")
+        l.on("navigate" to)
+        return l
+    }
 
-    sfn dashboardShell:RaveApp (name:string) {
+    sfn card:RaveNode (app:RaveApp parent:RaveNode title:string body:string) {
+        def c:RaveNode (parent.add((app.newNode("section" title))))
+        c.addClass("card")
+        c.label = title
+        def h:RaveNode (c.add((app.newText("h3" title))))
+        h.addClass("subtitle")
+        def p:RaveNode (c.add((app.newText("p" body))))
+        p.addClass("muted")
+        return c
+    }
+
+    sfn fresh:RaveApp (name:string) {
         def app (new RaveApp(name))
         push app.targets "web"
         push app.targets "tablet"
         push app.targets "mobile"
-        app.nav = "sidebar"
         RavePatterns.breakpoints(app)
         RavePatterns.theme(app)
+        return app
+    }
 
-        ; the layout
+    ; --- Dashboard Shell -----------------------------------------------------------
+
+    ; The shell: header, navigation, main, footer. `nav` is where the
+    ; navigation lives — a sidebar that folds under md, a row in the top
+    ; bar, a tab row under it, or nowhere.
+    sfn shell:RaveNode (app:RaveApp name:string nav:string) {
+        app.nav = nav
         def shell:RaveNode (app.newLayout("Dashboard Shell"))
         app.style(shell "width" "100%")
         app.style(shell "height" "100%")
@@ -121,9 +147,19 @@ class RavePatterns {
         app.style(header "justify-content" "space-between")
         app.style(header "height" "56px")
         app.style(header "padding" "0 24px")
+        app.style(header "gap" "24px")
         app.style(header "border" "1px solid var(--line)")
         def brand:RaveNode (header.add((app.newText("span" name))))
         brand.addClass("brand")
+        if (nav == "topbar") {
+            def topNav:RaveNode (header.add((app.newNode("nav" "Main navigation"))))
+            topNav.label = "Main navigation"
+            app.style(topNav "flex-direction" "row")
+            app.style(topNav "gap" "4px")
+            app.style(topNav "flex-grow" "1")
+            app.styleAt(topNav (app.below("md")) "display" "none")
+            RavePatterns.mainLinks(app topNav)
+        }
         def tools:RaveNode (header.add((app.newNode("div" "Header tools"))))
         app.style(tools "flex-direction" "row")
         app.style(tools "align-items" "center")
@@ -138,34 +174,36 @@ class RavePatterns {
         def signIn:RaveNode (RavePatterns.button(app whenOut "Sign in"))
         signIn.on("navigate" "/login")
 
+        if (nav == "tabs") {
+            def tabRow:RaveNode (shell.add((app.newNode("nav" "Main navigation"))))
+            tabRow.label = "Main navigation"
+            app.style(tabRow "flex-direction" "row")
+            app.style(tabRow "gap" "4px")
+            app.style(tabRow "padding" "8px 24px")
+            app.style(tabRow "border" "1px solid var(--line)")
+            RavePatterns.mainLinks(app tabRow)
+        }
+
         def body:RaveNode (shell.add((app.newNode("div" "Body"))))
-        app.style(body "display" "grid")
-        app.style(body "grid-template-columns" "240px 1fr")
-        app.style(body "grid-template-rows" "1fr")
         app.style(body "flex-grow" "1")
         app.style(body "min-height" "0")
-        app.styleAt(body (app.below("md")) "grid-template-columns" "1fr")
-
-        def sidebar:RaveNode (body.add((app.newNode("aside" "Sidebar"))))
-        sidebar.label = "Sidebar"
-        app.style(sidebar "padding" "16px")
-        app.style(sidebar "gap" "4px")
-        app.style(sidebar "border" "1px solid var(--line)")
-        app.style(sidebar "background-color" "var(--panel)")
-        app.styleAt(sidebar (app.below("md")) "display" "none")
-        def nav:RaveNode (sidebar.add((app.newNode("nav" "Main navigation"))))
-        nav.label = "Main navigation"
-        app.style(nav "gap" "4px")
-        def l1:RaveNode (nav.add((app.newText("a" "Dashboard"))))
-        l1.addClass("navlink")
-        l1.on("navigate" "/dashboard")
-        def l2:RaveNode (nav.add((app.newText("a" "Settings"))))
-        l2.addClass("navlink")
-        l2.on("navigate" "/settings")
-        def l3:RaveNode (nav.add((app.newText("a" "Profile"))))
-        l3.addClass("navlink")
-        l3.on("navigate" "/profile")
-
+        if (nav == "sidebar") {
+            app.style(body "display" "grid")
+            app.style(body "grid-template-columns" "240px 1fr")
+            app.style(body "grid-template-rows" "1fr")
+            app.styleAt(body (app.below("md")) "grid-template-columns" "1fr")
+            def sidebar:RaveNode (body.add((app.newNode("aside" "Sidebar"))))
+            sidebar.label = "Sidebar"
+            app.style(sidebar "padding" "16px")
+            app.style(sidebar "gap" "4px")
+            app.style(sidebar "border" "1px solid var(--line)")
+            app.style(sidebar "background-color" "var(--panel)")
+            app.styleAt(sidebar (app.below("md")) "display" "none")
+            def sideNav:RaveNode (sidebar.add((app.newNode("nav" "Main navigation"))))
+            sideNav.label = "Main navigation"
+            app.style(sideNav "gap" "4px")
+            RavePatterns.mainLinks(app sideNav)
+        }
         def main:RaveNode (body.add((app.newNode("main" "Main"))))
         app.style(main "padding" "24px")
         app.style(main "gap" "24px")
@@ -181,8 +219,16 @@ class RavePatterns {
         app.style(footer "border" "1px solid var(--line)")
         def fine:RaveNode (footer.add((app.newText("span" ("© " + name)))))
         fine.addClass("muted")
+        return shell
+    }
 
-        ; the pages
+    sfn mainLinks:void (app:RaveApp nav:RaveNode) {
+        RavePatterns.link(app nav "Dashboard" "/dashboard")
+        RavePatterns.link(app nav "Settings" "/settings")
+        RavePatterns.link(app nav "Profile" "/profile")
+    }
+
+    sfn homePage:RaveNode (app:RaveApp name:string) {
         def home:RaveNode (app.newPage("Home"))
         app.style(home "gap" "16px")
         def h1:RaveNode (home.add((app.newText("h1" ("Welcome to " + name)))))
@@ -191,8 +237,10 @@ class RavePatterns {
         lead.addClass("muted")
         def go:RaveNode (RavePatterns.button(app home "Go to dashboard"))
         go.on("navigate" "/dashboard")
-        app.style(go "width" "fit-content")
+        return home
+    }
 
+    sfn dashboardPage:RaveNode (app:RaveApp) {
         def dash:RaveNode (app.newPage("Dashboard"))
         app.style(dash "gap" "24px")
         def dh:RaveNode (dash.add((app.newText("h1" "Dashboard"))))
@@ -206,28 +254,30 @@ class RavePatterns {
         RavePatterns.card(app cards "Revenue" "Where the money came from this month.")
         RavePatterns.card(app cards "Users" "Who signed up, and who came back.")
         RavePatterns.card(app cards "Activity" "What happened, most recent first.")
+        return dash
+    }
 
-        def settings:RaveNode (app.newPage("Settings"))
-        app.style(settings "gap" "16px")
-        def sh:RaveNode (settings.add((app.newText("h1" "Settings"))))
-        sh.addClass("title")
-        def form:RaveNode (settings.add((app.newNode("form" "Settings form"))))
-        form.label = "Settings"
-        app.style(form "gap" "12px")
-        app.style(form "max-width" "480px")
-        RavePatterns.field(app form "Display name" "Your name")
-        RavePatterns.field(app form "Email" "you@example.com")
-        def save:RaveNode (RavePatterns.button(app form "Save changes"))
-        app.style(save "width" "fit-content")
-
+    sfn profilePage:RaveNode (app:RaveApp) {
         def profile:RaveNode (app.newPage("Profile"))
         app.style(profile "gap" "16px")
         def ph:RaveNode (profile.add((app.newText("h1" "Profile"))))
         ph.addClass("title")
         def pp:RaveNode (profile.add((app.newText("p" "Who you are, as the application sees you."))))
         pp.addClass("muted")
+        return profile
+    }
 
-        ; the routes
+    sfn dashboardShell:RaveApp (name:string) {
+        return (RavePatterns.dashboardWith(name "sidebar"))
+    }
+
+    sfn dashboardWith:RaveApp (name:string nav:string) {
+        def app:RaveApp (RavePatterns.fresh(name))
+        def shell:RaveNode (RavePatterns.shell(app name nav))
+        def home:RaveNode (RavePatterns.homePage(app name))
+        def dash:RaveNode (RavePatterns.dashboardPage(app))
+        def settings:RaveNode (RavePatterns.settingsPage(app))
+        def profile:RaveNode (RavePatterns.profilePage(app))
         app.addRoute("/" "Home" home shell.id)
         app.addRoute("/dashboard" "Dashboard" dash shell.id)
         app.addRoute("/settings" "Settings" settings shell.id)
@@ -235,26 +285,271 @@ class RavePatterns {
         return app
     }
 
-    sfn card:RaveNode (app:RaveApp parent:RaveNode title:string body:string) {
-        def c:RaveNode (parent.add((app.newNode("section" title))))
-        c.addClass("card")
-        c.label = title
-        def h:RaveNode (c.add((app.newText("h3" title))))
-        h.addClass("subtitle")
-        def p:RaveNode (c.add((app.newText("p" body))))
-        p.addClass("muted")
-        return c
+    ; --- Settings Layout -----------------------------------------------------------
+
+    ; Tabs across the top, one form per tab: General, Security, Billing.
+    sfn settingsPage:RaveNode (app:RaveApp) {
+        def settings:RaveNode (app.newPage("Settings"))
+        app.style(settings "gap" "16px")
+        def sh:RaveNode (settings.add((app.newText("h1" "Settings"))))
+        sh.addClass("title")
+        def tabs:RaveNode (settings.add((RaveKit.instance(app "Tabs" "Settings tabs"))))
+        app.style(tabs "max-width" "560px")
+
+        def general:RaveNode (RaveKit.tab(app tabs "General"))
+        def form:RaveNode (general.add((app.newNode("form" "Settings form"))))
+        form.label = "General settings"
+        app.style(form "gap" "12px")
+        RavePatterns.field(app form "Display name" "Your name")
+        RavePatterns.field(app form "Email" "you@example.com")
+        RavePatterns.button(app form "Save changes")
+
+        def security:RaveNode (RaveKit.tab(app tabs "Security"))
+        def form2:RaveNode (security.add((app.newNode("form" "Security form"))))
+        form2.label = "Security settings"
+        app.style(form2 "gap" "12px")
+        RavePatterns.field(app form2 "Current password" "••••••••")
+        RavePatterns.field(app form2 "New password" "••••••••")
+        def twoFactor:RaveNode (form2.add((RaveKit.instance(app "Toggle" "Two-factor"))))
+        twoFactor.text = "Two-factor sign-in"
+        RavePatterns.button(app form2 "Update password")
+
+        def billing:RaveNode (RaveKit.tab(app tabs "Billing"))
+        def plan:RaveNode (billing.add((app.newNode("div" "Plan"))))
+        plan.addClass("field")
+        def planLabel:RaveNode (plan.add((app.newText("label" "Plan"))))
+        planLabel.addClass("muted")
+        def sel:RaveNode (plan.add((RaveKit.instance(app "Select" "Plan"))))
+        sel.label = "Plan"
+        RaveKit.option(app sel "Free")
+        RaveKit.option(app sel "Team")
+        RaveKit.option(app sel "Business")
+        def note:RaveNode (billing.add((app.newText("p" "Invoices are sent to the account email."))))
+        note.addClass("muted")
+        return settings
+    }
+
+    ; --- Master / Detail -----------------------------------------------------------
+
+    sfn itemsList:RaveNode (app:RaveApp parent:RaveNode current:string) {
+        def list:RaveNode (parent.add((app.newNode("nav" "Items"))))
+        list.label = "Items"
+        app.style(list "gap" "4px")
+        def i:int 1
+        while (i <= 3) {
+            def path:string ("/items/" + (to_string i))
+            def l:RaveNode (RavePatterns.link(app list ("Item " + (to_string i)) path))
+            if (path == current) {
+                l.addClass("navlink-on")
+            }
+            i = (i + 1)
+        }
+        return list
+    }
+
+    ; The two columns: the list and what is picked from it. On a phone the
+    ; list page shows the list and a detail page shows the detail, with a
+    ; way back.
+    sfn masterDetailPage:RaveNode (app:RaveApp which:int) {
+        def title:string "Items"
+        if (which > 0) {
+            title = ("Item " + (to_string which))
+        }
+        def page:RaveNode (app.newPage(title))
+        app.style(page "display" "grid")
+        app.style(page "grid-template-columns" "280px 1fr")
+        app.style(page "gap" "24px")
+        app.styleAt(page (app.below("md")) "grid-template-columns" "1fr")
+        def current:string ""
+        if (which > 0) {
+            current = ("/items/" + (to_string which))
+        }
+        def list:RaveNode (RavePatterns.itemsList(app page current))
+        def detail:RaveNode (page.add((app.newNode("section" "Detail"))))
+        detail.addClass("card")
+        detail.label = "Detail"
+        if (which == 0) {
+            app.styleAt(detail (app.below("md")) "display" "none")
+            def hint:RaveNode (detail.add((app.newText("p" "Pick an item from the list."))))
+            hint.addClass("muted")
+        } {
+            app.styleAt(list (app.below("md")) "display" "none")
+            def back:RaveNode (RavePatterns.button(app detail "← All items"))
+            back.addClass("btn-ghost")
+            back.on("navigate" "/items")
+            app.styleAt(back (app.from("md")) "display" "none")
+            def h2:RaveNode (detail.add((app.newText("h2" title))))
+            h2.addClass("title")
+            def p:RaveNode (detail.add((app.newText("p" ("Everything about " + title + ", in one place.")))))
+            p.addClass("muted")
+        }
+        return page
+    }
+
+    sfn withMasterDetail:void (app:RaveApp shellId:int) {
+        def list:RaveNode (RavePatterns.masterDetailPage(app 0))
+        app.addRoute("/items" "Items" list shellId)
+        def i:int 1
+        while (i <= 3) {
+            def detail:RaveNode (RavePatterns.masterDetailPage(app i))
+            app.addRoute(("/items/" + (to_string i)) ("Item " + (to_string i)) detail shellId)
+            i = (i + 1)
+        }
+    }
+
+    ; --- CRUD ---------------------------------------------------------------------
+
+    ; Master / Detail plus the two dialogs: New item on the list page, Delete
+    ; on each detail page. Real dialogs — a scrim, a focus trap, Escape.
+    sfn withCrud:void (app:RaveApp shellId:int) {
+        RavePatterns.withMasterDetail(app shellId)
+        def listRoute:RaveRoute (app.routeAt("/items"))
+        def listPage:RaveNode (app.node(listRoute.pageId))
+        def create:RaveNode (RaveKit.instance(app "Dialog" "New item"))
+        create.text = "New item"
+        def form:RaveNode (create.add((app.newNode("form" "New item form"))))
+        form.label = "New item"
+        app.style(form "gap" "12px")
+        RavePatterns.field(app form "Name" "What is it called?")
+        def save:RaveNode (RavePatterns.button(app form "Create"))
+        save.on("navigate" "/items/1")
+        listPage.add(create)
+        def i:int 1
+        while (i <= 3) {
+            def r:RaveRoute (app.routeAt(("/items/" + (to_string i))))
+            def detailPage:RaveNode (app.node(r.pageId))
+            def detail:RaveNode (itemAt detailPage.children 1)
+            def del:RaveNode (RaveKit.instance(app "Dialog" ("Delete item " + (to_string i) + "?")))
+            del.text = "Delete"
+            def warn:RaveNode (del.add((app.newText("p" "This cannot be undone."))))
+            warn.addClass("muted")
+            def confirm:RaveNode (RavePatterns.button(app del "Delete for good"))
+            confirm.on("navigate" "/items")
+            detail.add(del)
+            i = (i + 1)
+        }
+    }
+
+    ; --- Marketing + App -----------------------------------------------------------
+
+    ; A public front on its own layout, and the app behind sign-in on the
+    ; Dashboard Shell under /app.
+    sfn marketingApp:RaveApp (name:string) {
+        def app:RaveApp (RavePatterns.fresh(name))
+        def front:RaveNode (app.newLayout("Marketing Layout"))
+        app.style(front "width" "100%")
+        app.style(front "height" "100%")
+        app.style(front "background-color" "var(--bg)")
+        app.style(front "color" "var(--ink)")
+        app.style(front "font-size" "14px")
+        app.style(front "align-items" "center")
+        def header:RaveNode (front.add((app.newNode("header" "Header"))))
+        app.style(header "flex-direction" "row")
+        app.style(header "align-items" "center")
+        app.style(header "gap" "24px")
+        app.style(header "height" "64px")
+        app.style(header "padding" "0 24px")
+        app.style(header "width" "100%")
+        app.style(header "max-width" "1080px")
+        def brand:RaveNode (header.add((app.newText("span" name))))
+        brand.addClass("brand")
+        def nav:RaveNode (header.add((app.newNode("nav" "Site navigation"))))
+        nav.label = "Site navigation"
+        app.style(nav "flex-direction" "row")
+        app.style(nav "gap" "4px")
+        app.style(nav "flex-grow" "1")
+        RavePatterns.link(app nav "Home" "/")
+        RavePatterns.link(app nav "Pricing" "/pricing")
+        def whenIn:RaveNode (header.add((app.newConditional("authenticated"))))
+        def open:RaveNode (RavePatterns.button(app whenIn "Open app"))
+        open.on("navigate" "/app")
+        def whenOut:RaveNode (header.add((app.newConditional("unauthenticated"))))
+        def signIn:RaveNode (RavePatterns.button(app whenOut "Sign in"))
+        signIn.addClass("btn-outline")
+        signIn.on("navigate" "/login")
+        def main:RaveNode (front.add((app.newNode("main" "Main"))))
+        app.style(main "width" "100%")
+        app.style(main "max-width" "1080px")
+        app.style(main "padding" "48px 24px")
+        app.style(main "gap" "32px")
+        app.style(main "flex-grow" "1")
+        def slot:RaveNode (main.add((app.newSlot())))
+        app.style(slot "gap" "32px")
+        def footer:RaveNode (front.add((app.newNode("footer" "Footer"))))
+        footer.label = "Footer"
+        app.style(footer "height" "48px")
+        app.style(footer "justify-content" "center")
+        app.style(footer "align-items" "center")
+        app.style(footer "width" "100%")
+        def fine:RaveNode (footer.add((app.newText("span" ("© " + name)))))
+        fine.addClass("muted")
+
+        def landing:RaveNode (app.newPage("Landing"))
+        app.style(landing "gap" "24px")
+        def hero:RaveNode (landing.add((app.newText("h1" ("Ship faster with " + name)))))
+        hero.addClass("hero")
+        app.styleAt(hero (app.below("md")) "font-size" "28px")
+        def lead:RaveNode (landing.add((app.newText("p" "Design it, then run it. The front page is a page like any other."))))
+        lead.addClass("muted")
+        app.style(lead "font-size" "18px")
+        def cta:RaveNode (RavePatterns.button(app landing "Start for free"))
+        cta.on("navigate" "/login")
+
+        def pricing:RaveNode (app.newPage("Pricing"))
+        app.style(pricing "gap" "24px")
+        def ph:RaveNode (pricing.add((app.newText("h1" "Pricing"))))
+        ph.addClass("title")
+        def tiers:RaveNode (pricing.add((app.newNode("div" "Tiers"))))
+        app.style(tiers "display" "grid")
+        app.style(tiers "grid-template-columns" "repeat(3, 1fr)")
+        app.style(tiers "gap" "24px")
+        app.styleAt(tiers (app.below("md")) "grid-template-columns" "1fr")
+        RavePatterns.card(app tiers "Free" "For trying it out.")
+        RavePatterns.card(app tiers "Team" "For a team that ships.")
+        RavePatterns.card(app tiers "Business" "For everyone, with support.")
+
+        app.addRoute("/" "Home" landing front.id)
+        app.addRoute("/pricing" "Pricing" pricing front.id)
+
+        def shell:RaveNode (RavePatterns.shell(app name "sidebar"))
+        RavePatterns.relink(app shell "/dashboard" "/app")
+        RavePatterns.relink(app shell "/settings" "/app/settings")
+        RavePatterns.relink(app shell "/profile" "/app/profile")
+        def dash:RaveNode (RavePatterns.dashboardPage(app))
+        def settings:RaveNode (RavePatterns.settingsPage(app))
+        def profile:RaveNode (RavePatterns.profilePage(app))
+        app.addRoute("/app" "Dashboard" dash shell.id)
+        app.addRoute("/app/settings" "Settings" settings shell.id)
+        app.addRoute("/app/profile" "Profile" profile shell.id)
+        return app
+    }
+
+    ; Every navigate action under `root` that points at `from` points at
+    ; `to` instead: the shell's links, moved under /app.
+    sfn relink:void (app:RaveApp root:RaveNode from:string to:string) {
+        def i:int 0
+        while (i < (array_length root.actions)) {
+            def a:RaveAction (itemAt root.actions i)
+            if ((a.kind == "navigate") && (a.arg == from)) {
+                a.arg = to
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length root.children)) {
+            def c:RaveNode (itemAt root.children j)
+            RavePatterns.relink(app c from to)
+            j = (j + 1)
+        }
     }
 
     ; --- Auth Flow -----------------------------------------------------------------
 
     ; Adds `/login` on its own centred layout, protects every route but the
-    ; landing page and the login page, and sends a fresh login to the
-    ; dashboard.
+    ; public ones, and sends a fresh login to `afterLogin`.
     sfn withAuth:void (app:RaveApp) {
         app.authEnabled = true
         app.loginRoute = "/login"
-        app.afterLogin = "/dashboard"
 
         def authLayout:RaveNode (app.newLayout("Auth Layout"))
         app.style(authLayout "width" "100%")
@@ -291,17 +586,80 @@ class RavePatterns {
         def i:int 0
         while (i < (array_length app.routes)) {
             def r:RaveRoute (itemAt app.routes i)
-            if ((r.path != "/") && (r.path != "/login")) {
+            if ((RavePatterns.isPublic(r.path)) == false) {
                 r.protected = true
             }
             i = (i + 1)
         }
     }
 
-    ; The wizard's answer for the default choices: a dashboard app that signs in.
-    sfn saasStarter:RaveApp (name:string) {
-        def app:RaveApp (RavePatterns.dashboardShell(name))
-        RavePatterns.withAuth(app)
+    sfn isPublic:boolean (path:string) {
+        if (path == "/") { return true }
+        if (path == "/login") { return true }
+        if (path == "/pricing") { return true }
+        return false
+    }
+
+    ; --- the new-project sheet's answer ---------------------------------------------
+
+    ; `start`: dashboard | settings | master | crud | marketing | empty.
+    ; `nav`: sidebar | topbar | tabs | none. `targets`: "web,tablet,mobile".
+    sfn create:RaveApp (name:string targets:string auth:boolean nav:string start:string) {
+        def app:RaveApp (RavePatterns.fresh(name))
+        if (start == "marketing") {
+            app = (RavePatterns.marketingApp(name))
+            app.afterLogin = "/app"
+        }
+        if ((start == "dashboard") || (start == "settings")) {
+            app = (RavePatterns.dashboardWith(name nav))
+            app.afterLogin = "/dashboard"
+            if (start == "settings") {
+                app.afterLogin = "/settings"
+            }
+        }
+        if ((start == "master") || (start == "crud")) {
+            app = (RavePatterns.dashboardWith(name nav))
+            def first:RaveRoute (app.routeAt("/"))
+            def shellId:int first.layoutId
+            if (start == "master") {
+                RavePatterns.withMasterDetail(app shellId)
+            } {
+                RavePatterns.withCrud(app shellId)
+            }
+            app.afterLogin = "/items"
+            def shellNode:RaveNode (app.node(shellId))
+            RavePatterns.relink(app shellNode "/dashboard" "/items")
+        }
+        if (start == "empty") {
+            def page:RaveNode (app.newPage("Home"))
+            app.style(page "width" "100%")
+            app.style(page "height" "100%")
+            app.style(page "padding" "24px")
+            app.style(page "gap" "16px")
+            app.style(page "background-color" "var(--bg)")
+            app.style(page "color" "var(--ink)")
+            def h1:RaveNode (page.add((app.newText("h1" name))))
+            h1.addClass("title")
+            def p:RaveNode (page.add((app.newText("p" "An empty page. Add components from the left."))))
+            p.addClass("muted")
+            app.addRoute("/" "Home" page 0)
+            app.afterLogin = "/"
+        }
+        if auth {
+            RavePatterns.withAuth(app)
+        }
+        clear app.targets
+        if ((indexOf targets "web") >= 0) { push app.targets "web" }
+        if ((indexOf targets "tablet") >= 0) { push app.targets "tablet" }
+        if ((indexOf targets "mobile") >= 0) { push app.targets "mobile" }
+        if ((array_length app.targets) == 0) {
+            push app.targets "web"
+        }
         return app
+    }
+
+    ; The sheet's answer for the default choices: a dashboard app that signs in.
+    sfn saasStarter:RaveApp (name:string) {
+        return (RavePatterns.create(name "web,tablet,mobile" true "sidebar" "dashboard"))
     }
 }

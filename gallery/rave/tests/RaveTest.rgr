@@ -15,6 +15,7 @@ Import "../src/RavePatterns.rgr"
 Import "../src/RaveRuntime.rgr"
 Import "../src/RaveEditor.rgr"
 Import "../src/RaveA11y.rgr"
+Import "../src/RaveBind.rgr"
 
 class Check {
     def passed:int 0
@@ -496,6 +497,219 @@ class RaveTest {
         c.eqStr("…until undone" (doc.styleOf(cardsNode "" "display")) "grid")
     }
 
+    ; --- M5: patterns, the sheet, the kit at run time, the ten-minute test -----
+
+    sfn patternClean:void (c:Check name:string app:RaveApp) {
+        def rt (new RaveRuntime(app))
+        c.eqInt((name + ": the sheet parses clean") (rt.styleErrorCount()) 0)
+        if ((rt.styleErrorCount()) > 0) {
+            print ("       " + (rt.styleError(0)))
+        }
+        def desk:int (rt.addView("desktop" 1440.0 900.0 false))
+        def tab:int (rt.addView("tablet" 768.0 1024.0 true))
+        def phone:int (rt.addView("phone" 390.0 844.0 true))
+        rt.setLoggedIn(true)
+        def i:int 0
+        while (i < (array_length app.routes)) {
+            def r:RaveRoute (itemAt app.routes i)
+            rt.navigate(r.path)
+            c.eqStr((name + ": reaches " + r.path) (rt.path()) r.path)
+            RaveTest.lintClean(c rt desk (name + " " + r.path + " lints clean at 1440"))
+            RaveTest.lintClean(c rt phone (name + " " + r.path + " lints clean at 390"))
+            c.ok((name + " " + r.path + " is drawn") ((strlen (rt.displayListJson(tab))) > 300))
+            i = (i + 1)
+        }
+        RaveTest.noRejections(c rt desk (name + ": the engine rejected nothing"))
+    }
+
+    sfn patternChecks:void (c:Check) {
+        print "patterns — M5"
+        RaveTest.patternClean(c "topbar" (RavePatterns.create("Top" "web,mobile" true "topbar" "dashboard")))
+        RaveTest.patternClean(c "tabs" (RavePatterns.create("Tabs" "web,tablet,mobile" false "tabs" "settings")))
+        RaveTest.patternClean(c "master" (RavePatterns.create("Items" "web,tablet,mobile" true "sidebar" "master")))
+        RaveTest.patternClean(c "crud" (RavePatterns.create("Crud" "web,tablet,mobile" true "sidebar" "crud")))
+        RaveTest.patternClean(c "marketing" (RavePatterns.create("Front" "web,tablet,mobile" true "sidebar" "marketing")))
+        RaveTest.patternClean(c "empty" (RavePatterns.create("Blank" "web" false "none" "empty")))
+
+        ; master / detail: two columns, one on a phone, and a way back
+        def md:RaveApp (RavePatterns.create("Items" "web,tablet,mobile" false "sidebar" "master"))
+        def rt (new RaveRuntime(md))
+        def desk:int (rt.addView("desktop" 1440.0 900.0 false))
+        def phone:int (rt.addView("phone" 390.0 844.0 true))
+        rt.navigate("/items")
+        def listRoute:RaveRoute (md.routeAt("/items"))
+        def listPage:RaveNode (md.node(listRoute.pageId))
+        def listNav:string (RaveTest.elId((md.findIn(listPage "nav" "Items"))))
+        def detail:string (RaveTest.elId((md.findIn(listPage "section" "Detail"))))
+        c.ok("1440: the list and the detail sit side by side" ((rt.leftOf(desk detail)) > ((rt.leftOf(desk listNav)) + 200.0)))
+        c.ok("390: the list page shows the list" (rt.isShown(phone listNav)))
+        c.ok("…and not the empty detail" ((rt.isShown(phone detail)) == false))
+        rt.navigate("/items/2")
+        def r2:RaveRoute (md.routeAt("/items/2"))
+        def p2:RaveNode (md.node(r2.pageId))
+        def nav2:string (RaveTest.elId((md.findIn(p2 "nav" "Items"))))
+        def back:string (RaveTest.elId((md.findWithAction(p2 "navigate" "/items"))))
+        c.ok("390: a detail page hides the list" ((rt.isShown(phone nav2)) == false))
+        c.ok("…and shows the way back" (rt.isShown(phone back)))
+        c.ok("1440: the way back is not needed" ((rt.isShown(desk back)) == false))
+        c.ok("pressing it goes back to the list" (rt.press(back)))
+        c.eqStr("…at /items" (rt.path()) "/items")
+
+        ; marketing + app: public front, protected app
+        def mk:RaveApp (RavePatterns.create("Front" "web" true "sidebar" "marketing"))
+        def rt2 (new RaveRuntime(mk))
+        rt2.addView("desktop" 1440.0 900.0 false)
+        c.ok("/pricing is public" (rt2.navigate("/pricing")))
+        c.eqStr("…and reached" (rt2.path()) "/pricing")
+        c.ok("/app is protected" (rt2.navigate("/app")))
+        c.eqStr("…so it asks for a sign-in" (rt2.path()) "/login")
+        def loginRoute:RaveRoute (mk.routeAt("/login"))
+        def loginPage:RaveNode (mk.node(loginRoute.pageId))
+        rt2.press((RaveTest.elId((mk.findWithAction(loginPage "login" "")))))
+        c.eqStr("…and comes back to /app" (rt2.path()) "/app")
+        c.ok("the shell's links point under /app" (mk.idWithAction("navigate" "/app/settings") > 0))
+    }
+
+    sfn kitChecks:void (c:Check) {
+        print "the kit, running — M5"
+        def app:RaveApp (RavePatterns.create("Kit" "web,mobile" false "sidebar" "crud"))
+        def rt (new RaveRuntime(app))
+        def desk:int (rt.addView("desktop" 1440.0 900.0 false))
+        def phone:int (rt.addView("phone" 390.0 844.0 true))
+        ; Tabs on the settings page
+        rt.navigate("/settings")
+        def sRoute:RaveRoute (app.routeAt("/settings"))
+        def sPage:RaveNode (app.node(sRoute.pageId))
+        def tabs:int (app.findIn(sPage "div" "Settings tabs"))
+        def tabsNode:RaveNode (app.node(tabs))
+        def general:RaveNode (itemAt tabsNode.children 0)
+        def security:RaveNode (itemAt tabsNode.children 1)
+        def tabsId:string (RaveTest.elId(tabs))
+        c.ok("the tabs are drawn" (RaveTest.includes((rt.displayListJson(desk)) "Security")))
+        c.ok("…with the first panel open" (rt.hasEl(desk (RaveTest.elId((app.findIn(general "form" "Settings form")))))))
+        c.ok("…and the second closed" ((rt.hasEl(desk (RaveTest.elId((app.findIn(security "form" "Security form")))))) == false))
+        RaveTest.lintClean(c rt desk "the tabs lint clean")
+        def secTab:string (tabsId + "-tab-" + (security.elementId()))
+        c.ok("pressing the second tab" (rt.pressIn(desk secTab)))
+        c.ok("…opens its panel" (rt.hasEl(desk (RaveTest.elId((app.findIn(security "form" "Security form")))))))
+        c.ok("…in this view only" ((rt.hasEl(phone (RaveTest.elId((app.findIn(security "form" "Security form")))))) == false))
+        ; a Toggle in the security panel
+        def toggle:string (RaveTest.elId((app.findIn(security "div" "Two-factor"))))
+        def tv:RaveView (rt.view(desk))
+        def tg:ToggleCtl (unwrap (get tv.bind.toggles toggle))
+        c.ok("the toggle is off" (tg.on == false))
+        c.ok("pressing it" (rt.pressIn(desk toggle)))
+        c.ok("…turns it on" tg.on)
+        c.ok("…and the tree says so" (RaveTest.includes((rt.a11yJson(desk)) "Two-factor sign-in")))
+        ; typing into a bound input
+        def cur:string (RaveTest.elId((app.findIn(security "input" "Current password"))))
+        def page:EVGElement (rt.pageOf(desk))
+        def v:RaveView (rt.view(desk))
+        v.focus.place(page cur)
+        c.eqStr("focus lands on the input" (rt.focusedId(desk)) cur)
+        c.ok("typing reaches it" (rt.typeChar(desk "h")))
+        rt.typeChar(desk "i")
+        c.eqStr("…and it holds the text" (rt.inputValue(desk cur)) "hi")
+        rt.keyWith(desk "ArrowLeft" false false)
+        rt.keyWith(desk "Backspace" false false)
+        c.eqStr("…with a caret that moves" (rt.inputValue(desk cur)) "i")
+        c.ok("…drawn on the stage" (RaveTest.includes((rt.displayListJson(desk)) "\"i\"")))
+        ; a Select in the billing panel
+        def billing:RaveNode (itemAt tabsNode.children 2)
+        rt.pressIn(desk (tabsId + "-tab-" + (billing.elementId())))
+        def planWrap:RaveNode (app.node((app.findIn(billing "div" "Plan"))))
+        def selNode:RaveNode (itemAt planWrap.children 1)
+        def selId:string (selNode.elementId())
+        c.ok("the select shows its value" (RaveTest.includes((rt.displayListJson(desk)) "Free")))
+        c.ok("…and not the others" ((RaveTest.includes((rt.displayListJson(desk)) "Business")) == false))
+        c.ok("pressing the trigger" (rt.pressIn(desk (selId + "-trigger"))))
+        c.ok("…opens the list" (RaveTest.includes((rt.displayListJson(desk)) "Business")))
+        def team:RaveNode (itemAt selNode.children 1)
+        c.ok("picking Team" (rt.pressIn(desk (selId + "-item-" + (team.elementId())))))
+        def dl:string (rt.displayListJson(desk))
+        c.ok("…closes the list with Team chosen" ((RaveTest.includes(dl "Team")) && ((RaveTest.includes(dl "Business")) == false)))
+        ; the CRUD dialogs
+        rt.navigate("/items")
+        def listRoute:RaveRoute (app.routeAt("/items"))
+        def listPage:RaveNode (app.node(listRoute.pageId))
+        def dlg:int (app.findIn(listPage "div" "New item"))
+        def dlgId:string (RaveTest.elId(dlg))
+        c.ok("the dialog is closed" ((RaveTest.includes((rt.displayListJson(desk)) "What is it called?")) == false))
+        c.ok("its trigger is a button" (RaveTest.includes((rt.a11yJson(desk)) "New item")))
+        c.ok("pressing the trigger" (rt.pressIn(desk (dlgId + "-trigger"))))
+        c.ok("…opens it with the form inside" (RaveTest.includes((rt.displayListJson(desk)) "What is it called?")))
+        c.ok("…and the focus on Close" (RaveTest.includes((rt.focusedId(desk)) dlgId)))
+        def order:[string] (RaveA11y.tabOrder((rt.pageOf(desk))))
+        c.ok("…and Tab stays inside the dialog" ((array_length order) < 6))
+        c.ok("Escape" (rt.keyWith(desk "Escape" false false)))
+        c.ok("…closes it" ((RaveTest.includes((rt.displayListJson(desk)) "What is it called?")) == false))
+        c.eqStr("…and puts the focus back on the trigger" (rt.focusedId(desk)) (dlgId + "-trigger"))
+        RaveTest.lintClean(c rt desk "the list page lints clean")
+        RaveTest.noRejections(c rt desk "the kit costs no engine rejections")
+        rt.pressIn(desk (dlgId + "-trigger"))
+        def dlgNode:RaveNode (app.node(dlg))
+        def createBtn:string (RaveTest.elId((app.findWithAction(dlgNode "navigate" "/items/1"))))
+        c.ok("a button inside the dialog works" (rt.pressIn(desk createBtn)))
+        c.eqStr("…and navigates" (rt.path()) "/items/1")
+    }
+
+    ; The sentence at the top of the plan, as one script through the
+    ; editor's own doors: the sheet, then login → dashboard → settings →
+    ; mobile → keyboard.
+    sfn tenMinutes:void (c:Check) {
+        print "the ten-minute test"
+        def ed (new RaveEditor())
+        ed.init((RaveTest.chromeCss()))
+        ed.setPageSize(1440.0 860.0)
+        c.ok("New opens the sheet" (ed.press("file:new")))
+        c.ok("…which is drawn" (RaveTest.includes((ed.displayListJson()) "New project")))
+        ed.press("wiz:name")
+        RaveTest.typeText(ed "Zephyr")
+        ed.keyWith("Enter" false false)
+        c.eqStr("the name is typed" ed.wName "Zephyr")
+        ed.press("wiz:nav:topbar")
+        ed.press("wiz:start:crud")
+        ed.press("wiz:tablet")
+        c.ok("Create" (ed.press("wiz:create")))
+        def doc:RaveApp ed.doc
+        def rt:RaveRuntime (ed.runtime())
+        c.eqStr("…makes the app" doc.name "Zephyr")
+        c.eqStr("…with the navigation asked for" doc.nav "topbar")
+        c.eqInt("…on the targets asked for" (rt.viewCount()) 2)
+        c.ok("…with sign-in" doc.authEnabled)
+        c.ok("…and the CRUD routes" (doc.hasRoute("/items/2")))
+        c.ok("…and the sheet gone" ((strlen ed.modal) == 0))
+        ed.press("mode:run")
+        ed.press("route:/")
+        def signIn:string (RaveTest.elId((doc.idWithAction("navigate" "/login"))))
+        c.ok("Sign in on the stage" (ed.pointerDown((ed.stageCentreX(0 signIn)) (ed.stageCentreY(0 signIn)))))
+        c.eqStr("…is the login page" (ed.path()) "/login")
+        ed.keyWith("Tab" false false)
+        RaveTest.typeText(ed "ada@zephyr.app")
+        def loginRoute:RaveRoute (doc.routeAt("/login"))
+        def loginPage:RaveNode (doc.node(loginRoute.pageId))
+        def email:string (RaveTest.elId((doc.findIn(loginPage "input" "Email"))))
+        c.eqStr("typing into the email field" (rt.inputValue(0 email)) "ada@zephyr.app")
+        ed.keyWith("Tab" false false)
+        ed.keyWith("Tab" false false)
+        c.ok("Enter signs in" (ed.keyWith("Enter" false false)))
+        c.eqStr("…onto the items" (ed.path()) "/items")
+        def settings:string (RaveTest.elId((doc.idWithAction("navigate" "/settings"))))
+        c.ok("the top bar's Settings link" (ed.pointerDown((ed.stageCentreX(0 settings)) (ed.stageCentreY(0 settings)))))
+        c.eqStr("…navigates" (ed.path()) "/settings")
+        c.ok("…and the phone shows the same page" (RaveTest.includes((rt.displayListJson(1)) "Settings")))
+        def sRoute:RaveRoute (doc.routeAt("/settings"))
+        def sPage:RaveNode (doc.node(sRoute.pageId))
+        def tabs:int (doc.findIn(sPage "div" "Settings tabs"))
+        def tabsNode:RaveNode (doc.node(tabs))
+        def billing:RaveNode (itemAt tabsNode.children 2)
+        c.ok("a tab on the phone" (ed.pointerDown((ed.stageCentreX(1 ((RaveTest.elId(tabs)) + "-tab-" + (billing.elementId())))) (ed.stageCentreY(1 ((RaveTest.elId(tabs)) + "-tab-" + (billing.elementId())))))))
+        c.ok("…opens its panel there" (RaveTest.includes((rt.displayListJson(1)) "Invoices")))
+        ed.press("mode:design")
+        ed.press("tab:a11y")
+        c.eqInt("and nothing to fix" (ed.problemCount()) 0)
+    }
+
     sfn main:void () {
         def c (new Check())
 
@@ -643,6 +857,9 @@ class RaveTest {
 
         RaveTest.editorChecks(c)
         RaveTest.inputChecks(c)
+        RaveTest.patternChecks(c)
+        RaveTest.kitChecks(c)
+        RaveTest.tenMinutes(c)
 
         print ""
         if (c.failed == 0) {

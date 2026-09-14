@@ -35,6 +35,45 @@ class RaveCss {
         return (s + "}\n")
     }
 
+    ; The look of the bound controllers, in the document's own palette. The
+    ; class names are gallery/ui's; the values are `@vars` the theme sets.
+    sfn kit:string () {
+        def s:string ""
+        s = (s + ".ui-input { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; border: 1px solid var(--line); border-radius: var(--radius); background-color: var(--bg); color: var(--ink); padding: 0 12px; height: 36px; width: 100%; }\n")
+        s = (s + ".ui-input:focus { border: 1px solid var(--accent); }\n")
+        s = (s + ".ui-input-text { color: var(--ink); font-size: 14px; height: 18px; }\n")
+        s = (s + ".ui-input-placeholder { color: var(--muted); }\n")
+        s = (s + ".ui-input-caret { width: 1px; min-width: 1px; height: 18px; background-color: var(--muted); }\n")
+        s = (s + ".ui-select { display: flex; flex-direction: column; width: fit-content; }\n")
+        s = (s + ".ui-select-trigger { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: var(--radius); padding: 0 12px; height: 36px; background-color: var(--bg); color: var(--ink); width: fit-content; cursor: pointer; }\n")
+        s = (s + ".ui-select-trigger:focus { border: 1px solid var(--accent); }\n")
+        s = (s + ".ui-select-value { color: var(--ink); font-size: 14px; height: 18px; }\n")
+        s = (s + ".ui-select-content { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--line); border-radius: var(--radius); padding: 6px; background-color: var(--bg); width: fit-content; }\n")
+        s = (s + ".ui-select-item { padding: 6px 14px; border-radius: 5px; color: var(--ink); font-size: 14px; height: 30px; cursor: pointer; }\n")
+        s = (s + ".ui-select-item:hover { background-color: var(--panel); }\n")
+        s = (s + ".ui-select-item:focus { background-color: var(--panel); }\n")
+        s = (s + ".ui-select-item-state-checked { background-color: #e0e7ff; }\n")
+        s = (s + ".ui-tabs { display: flex; flex-direction: column; align-items: stretch; gap: 16px; }\n")
+        s = (s + ".ui-tablist { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: var(--radius); padding: 4px; background-color: var(--panel); width: fit-content; }\n")
+        s = (s + ".ui-tab { padding: 6px 12px; border-radius: 6px; color: var(--muted); font-size: 14px; height: 30px; cursor: pointer; }\n")
+        s = (s + ".ui-tab:focus { color: var(--accent); }\n")
+        s = (s + ".ui-tab-state-active { background-color: var(--bg); color: var(--ink); }\n")
+        s = (s + ".ui-tabpanel { display: flex; flex-direction: column; gap: 12px; }\n")
+        s = (s + ".ui-tabpanel-body { height: 0; }\n")
+        s = (s + ".ui-dialog { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }\n")
+        s = (s + ".ui-dialog-trigger { display: flex; flex-direction: row; align-items: center; justify-content: center; height: 36px; padding: 0 16px; border-radius: var(--radius); background-color: var(--accent); color: var(--accent-ink); font-size: 14px; width: fit-content; cursor: pointer; }\n")
+        s = (s + ".ui-dialog-trigger:focus { border: 2px solid var(--ink); }\n")
+        s = (s + ".ui-dialog-overlay { background-color: rgba(9, 9, 11, 0.45); }\n")
+        s = (s + ".ui-dialog-content { width: 420px; display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px; background-color: var(--bg); color: var(--ink); }\n")
+        s = (s + ".ui-dialog-title { color: var(--ink); font-size: 18px; font-weight: 700; height: 24px; }\n")
+        s = (s + ".ui-dialog-close { display: flex; flex-direction: row; align-items: center; justify-content: center; height: 36px; padding: 0 16px; border-radius: var(--radius); border: 1px solid var(--line); color: var(--ink); font-size: 14px; width: fit-content; cursor: pointer; }\n")
+        s = (s + ".ui-dialog-close:focus { border: 1px solid var(--accent); }\n")
+        s = (s + ".ui-toggle { display: flex; flex-direction: row; align-items: center; border: 1px solid var(--line); padding: 0 14px; height: 36px; border-radius: var(--radius); background-color: var(--panel); color: var(--ink); font-size: 14px; width: fit-content; cursor: pointer; }\n")
+        s = (s + ".ui-toggle:focus { border: 1px solid var(--accent); }\n")
+        s = (s + ".ui-toggle-state-on { background-color: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent); }\n")
+        return s
+    }
+
     sfn emit:string (app:RaveApp) {
         def out:string ""
         if ((array_length app.vars) > 0) {
@@ -48,6 +87,7 @@ class RaveCss {
             out = (out + "}\n")
         }
         out = (out + (RaveCss.base()))
+        out = (out + (RaveCss.kit()))
         ; base rules first, so a breakpoint rule written later wins the tie
         def j:int 0
         while (j < (array_length app.styles)) {

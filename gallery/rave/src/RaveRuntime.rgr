@@ -25,6 +25,8 @@ Import "RaveDoc.rgr"
 Import "RaveAuth.rgr"
 Import "RaveRouter.rgr"
 Import "RaveBuild.rgr"
+Import "RaveBind.rgr"
+Import "../../ui/src/UiCtl.rgr"
 Import "RaveCss.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
@@ -49,6 +51,10 @@ class RaveView {
     def focus:EVGFocus (new EVGFocus())
     def hovered:string ""
     def pressed:string ""
+    ; This view's own controllers — see RaveBind.
+    def bind:RaveBind (new RaveBind())
+    ; Where a controller asked the focus to go, applied after the rebuild.
+    def wantFocus:string ""
 
     Constructor (n:string w:double h:double c:boolean) {
         name = n
@@ -74,6 +80,10 @@ class RaveRuntime {
     def gap:double 80.0
     def sceneW:double 0.0
     def sceneH:double 0.0
+    ; Every declaration the engine refused, across all the views' layouts.
+    def warnings:[string]
+    ; The view a press or a key was last aimed at.
+    def activeView:int 0
 
     Constructor (a:RaveApp) {
         app = a
@@ -259,12 +269,10 @@ class RaveRuntime {
         def r:RaveRouter (unwrap router)
         def route:RaveRoute (r.current())
         def b (new RaveBuild(app auth))
+        b.bind = v.bind
         def root:EVGElement (b.page(route))
         def page:EVGElement (EVGElement.createDiv())
         page.id = ("page-" + v.name)
-        page.setAttribute("position" "absolute")
-        page.setAttribute("left" ((to_string v.offsetX) + "px"))
-        page.setAttribute("top" ((to_string v.offsetY) + "px"))
         page.width = (EVGUnit.px(v.width))
         page.height = (EVGUnit.px(v.height))
         page.setAttribute("overflow" "hidden")
@@ -274,28 +282,52 @@ class RaveRuntime {
         return page
     }
 
+    ; EACH VIEW IS LAID OUT AS ITS OWN PAGE, then moved into place. An
+    ; overlay — a dialog's scrim, a select's list — is placed against the
+    ; layout's page, and the page has to be the viewport for a dialog to sit
+    ; in the middle of the phone rather than in the middle of the desk. The
+    ; scene root holds the placed pages and is given its box by hand.
     fn rebuild:void () {
         this.placeViews()
+        clear warnings
         def sc:EVGElement (EVGElement.createDiv())
         sc.id = "scene"
-        sc.width = (EVGUnit.px(sceneW))
-        sc.height = (EVGUnit.px(sceneH))
-        sc.setAttribute("position" "relative")
         def i:int 0
         while (i < (array_length views)) {
             def v:RaveView (itemAt views i)
             def page:EVGElement (this.buildView(v))
+            layout.setPageSize(v.width v.height)
+            layout.layout(page)
+            def w:int 0
+            while (w < (layout.warningCount())) {
+                push warnings (layout.warningAt(w))
+                w = (w + 1)
+            }
+            page.moveSubtree(v.offsetX v.offsetY)
             sc.addChild(page)
             v.page = page
             i = (i + 1)
         }
-        layout.setPageSize(sceneW sceneH)
-        layout.layout(sc)
+        sc.calculatedX = 0.0
+        sc.calculatedY = 0.0
+        sc.calculatedWidth = sceneW
+        sc.calculatedHeight = sceneH
+        sc.calculatedInnerWidth = sceneW
+        sc.calculatedInnerHeight = sceneH
+        sc.paintLeft = 0.0
+        sc.paintTop = 0.0
+        sc.paintRight = sceneW
+        sc.paintBottom = sceneH
+        sc.paintUnbounded = true
         scene = sc
         def j:int 0
         while (j < (array_length views)) {
             def v2:RaveView (itemAt views j)
             def p2:EVGElement (unwrap v2.page)
+            if ((strlen v2.wantFocus) > 0) {
+                v2.focus.place(p2 v2.wantFocus)
+                v2.wantFocus = ""
+            }
             v2.focus.settle(p2)
             j = (j + 1)
         }
@@ -370,12 +402,12 @@ class RaveRuntime {
 
     fn layoutWarningCount:int (i:int) {
         this.ensure()
-        return (layout.warningCount())
+        return (array_length warnings)
     }
 
     fn layoutWarning:string (i:int j:int) {
         this.ensure()
-        return (layout.warningAt(j))
+        return (itemAt warnings j)
     }
 
     ; Scene coordinates, any view.
@@ -412,7 +444,7 @@ class RaveRuntime {
         if ((strlen id) == 0) {
             return false
         }
-        return (this.press(id))
+        return (this.pressIn(i id))
     }
 
     ; A press at a scene point, in whichever view holds it.
@@ -427,9 +459,28 @@ class RaveRuntime {
 
     ; --- actions ----------------------------------------------------------------
 
-    ; The element under the id, if it is a node of ours, runs its click
-    ; actions. Answers whether anything changed.
     fn press:boolean (id:string) {
+        return (this.pressIn(activeView id))
+    }
+
+    ; The element under the id: a node of ours runs its click actions; a
+    ; part of a bound controller — a dialog's trigger, a tab, an option —
+    ; is activated as the controller says. Answers whether anything changed.
+    fn pressIn:boolean (i:int id:string) {
+        activeView = i
+        def v:RaveView (itemAt views i)
+        ; A bound controller first: a kit instance's root carries the node's
+        ; own id, and the controller is what answers for it.
+        def maybe@(optional):UiCtl (v.bind.ctlFor(id))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.activateWith(id false false))
+            if ((strlen next) > 0) {
+                v.wantFocus = next
+            }
+            dirty = true
+            return true
+        }
         def nid:int (RaveApp.idOfElement(id))
         if (nid == 0) {
             return false
@@ -487,12 +538,30 @@ class RaveRuntime {
     fn keyWith:boolean (i:int k:string shift:boolean ctrl:boolean) {
         def page:EVGElement (this.pageOf(i))
         def v:RaveView (itemAt views i)
+        activeView = i
+        ; A key on a bound controller is the controller's — a caret moved, a
+        ; list walked, a dialog closed with Escape — except Tab, which is
+        ; the page's.
+        def focusNow:string v.focus.focusId
+        if (((strlen focusNow) > 0) && (k != "Tab")) {
+            def maybe@(optional):UiCtl (v.bind.ctlFor(focusNow))
+            if maybe {
+                def c:UiCtl (unwrap maybe)
+                def next:string (c.keyDownWith(focusNow k shift ctrl))
+                if ((strlen next) > 0) {
+                    v.wantFocus = next
+                }
+                v.focus.show()
+                dirty = true
+                return true
+            }
+        }
         if ((k == "Enter") || (k == " ")) {
             def on:string v.focus.focusId
             if ((strlen on) == 0) {
                 return false
             }
-            def did:boolean (this.press(on))
+            def did:boolean (this.pressIn(i on))
             v.focus.show()
             return did
         }
@@ -506,6 +575,35 @@ class RaveRuntime {
 
     fn key:boolean (i:int k:string) {
         return (this.keyWith(i k false false))
+    }
+
+    ; A printable character, to whatever bound control holds the focus.
+    fn typeChar:boolean (i:int ch:string) {
+        this.ensure()
+        def v:RaveView (itemAt views i)
+        def focusNow:string v.focus.focusId
+        if ((strlen focusNow) == 0) {
+            return false
+        }
+        def maybe@(optional):UiCtl (v.bind.ctlFor(focusNow))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            if (c.typeChar(focusNow ch)) {
+                dirty = true
+                return true
+            }
+        }
+        return false
+    }
+
+    ; What a bound Input holds, for a check.
+    fn inputValue:string (i:int id:string) {
+        def v:RaveView (itemAt views i)
+        if (has v.bind.inputs id) {
+            def c:InputCtl (unwrap (get v.bind.inputs id))
+            return c.value
+        }
+        return ""
     }
 
     ; --- reading the laid-out tree, for tests and the editor ------------------------

@@ -343,3 +343,19 @@
 .ra-opt-on { background-color: #e8f1fe; }
 .ra-opt-tick { font-size: 11px; height: 14px; color: #0d6efd; width: 12px; min-width: 12px; }
 .ra-opt-t { font-size: 12px; height: 16px; color: #1a1d21; }
+
+/* ---- the new-project sheet ------------------------------------------------ */
+.ra-modal { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.ra-scrim { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(26, 29, 33, 0.35); }
+.ra-sheet {
+  position: absolute; display: flex; flex-direction: column; gap: 14px;
+  padding: 22px 24px; border-radius: 14px; background-color: #ffffff; border: 1px solid #e7e9ee;
+}
+.ra-sheet-title { font-size: 18px; font-weight: bold; height: 24px; color: #1a1d21; }
+.ra-wiz-row { display: flex; flex-direction: column; gap: 6px; }
+.ra-chips-wrap { flex-wrap: wrap; }
+.ra-chip-big { height: 28px; min-height: 28px; padding: 6px 10px; }
+.ra-chip-big .ra-chip-t { font-size: 12px; height: 15px; }
+.ra-wiz-buttons { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 6px 0 0; }
+.ra-btn-primary { background-color: #0d6efd; border: 1px solid #0d6efd; }
+.ra-btn-t-primary { color: #ffffff; }

@@ -16,6 +16,8 @@
 
 Import "RaveDoc.rgr"
 Import "RaveAuth.rgr"
+Import "RaveBind.rgr"
+Import "../../ui/src/UiTree.rgr"
 Import "../../evg/EVGElement.rgr"
 
 class RaveBuild {
@@ -23,6 +25,9 @@ class RaveBuild {
     def auth:RaveAuth (new RaveAuth())
     ; The page the layout's slot receives while a route is being built.
     def pageId:int 0
+    ; The view's controllers, when a route is built to RUN. Without one a
+    ; kit instance is drawn as its closed, resting shape.
+    def bind@(optional):RaveBind
 
     Constructor (a:RaveApp au:RaveAuth) {
         app = a
@@ -138,6 +143,11 @@ class RaveBuild {
     }
 
     fn element:EVGElement (n:RaveNode) {
+        if ((n.kind == "instance") && (RaveBind.isKit(n.component))) {
+            if bind {
+                return (this.instance(n))
+            }
+        }
         if (RaveBuild.isTextTag(n.tag)) {
             if ((n.hasChildren()) == false) {
                 return (this.textElement(n))
@@ -215,6 +225,127 @@ class RaveBuild {
             i = (i + 1)
         }
         return e
+    }
+
+    ; --- kit instances --------------------------------------------------------
+
+    fn childrenInto:void (host:EVGElement n:RaveNode) {
+        def i:int 0
+        while (i < (array_length n.children)) {
+            def c:RaveNode (itemAt n.children i)
+            if (this.shown(c)) {
+                host.addChild((this.element(c)))
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A kit node becomes its controller's tree: the controller builds its
+    ; own shape, the document's children go where the body belongs, and the
+    ; node's classes ride along so the sheet can address it.
+    fn instance:EVGElement (n:RaveNode) {
+        def b:RaveBind (unwrap bind)
+        def id:string (n.elementId())
+        if (n.component == "Dialog") {
+            def d:DialogCtl (b.dialog(id))
+            d.name = n.text
+            d.title = n.name
+            d.build()
+            if d.open {
+                def content:EVGElement (unwrap d.contentEl)
+                UiTree.clearChildren(content)
+                content.addChild((unwrap d.titleEl))
+                def body:EVGElement (EVGElement.createDiv())
+                body.className = ("rv " + (n.cls()) + "-body")
+                body.setAttribute("gap" "12px")
+                this.childrenInto(body n)
+                content.addChild(body)
+                content.addChild((unwrap d.closeEl))
+            }
+            RaveBind.decorate(d)
+            def root:EVGElement (unwrap d.rootEl)
+            UiTree.addClass(root (n.cls()))
+            return root
+        }
+        if (n.component == "Tabs") {
+            def t:TabsCtl (b.tabsOf(id))
+            clear t.items
+            def i:int 0
+            while (i < (array_length n.children)) {
+                def tab:RaveNode (itemAt n.children i)
+                t.addItem((tab.elementId()) tab.name "" false)
+                i = (i + 1)
+            }
+            if ((array_length n.children) > 0) {
+                def first:RaveNode (itemAt n.children 0)
+                if ((strlen t.value) == 0) {
+                    t.value = (first.elementId())
+                }
+            }
+            t.build()
+            def j:int 0
+            while (j < (array_length n.children)) {
+                def tab2:RaveNode (itemAt n.children j)
+                if ((tab2.elementId()) == t.value) {
+                    def it:UiItem (itemAt t.items j)
+                    def panel:EVGElement (unwrap it.contentEl)
+                    UiTree.clearChildren(panel)
+                    panel.setAttribute("gap" "12px")
+                    this.childrenInto(panel tab2)
+                }
+                j = (j + 1)
+            }
+            RaveBind.decorate(t)
+            def root2:EVGElement (unwrap t.rootEl)
+            UiTree.addClass(root2 (n.cls()))
+            return root2
+        }
+        if (n.component == "Select") {
+            def sel:SelectCtl (b.select(id))
+            clear sel.items
+            def k:int 0
+            while (k < (array_length n.children)) {
+                def opt:RaveNode (itemAt n.children k)
+                sel.addItem((opt.elementId()) opt.text false)
+                k = (k + 1)
+            }
+            if ((array_length n.children) > 0) {
+                def first2:RaveNode (itemAt n.children 0)
+                if ((strlen sel.value) == 0) {
+                    sel.value = (first2.elementId())
+                }
+            }
+            sel.name = n.label
+            sel.build()
+            RaveBind.decorate(sel)
+            def root3:EVGElement (unwrap sel.rootEl)
+            UiTree.addClass(root3 (n.cls()))
+            return root3
+        }
+        if (n.component == "Input") {
+            def inp:InputCtl (b.input(id))
+            inp.name = n.label
+            inp.placeholder = n.placeholder
+            inp.build()
+            RaveBind.decorate(inp)
+            ; The glyphs and the caret are the field's drawing, not its name:
+            ; an input with no label is unnamed even while it shows a
+            ; placeholder, which is what a reader would find too.
+            def glyphs:EVGElement (unwrap inp.textEl)
+            glyphs.a11yHidden = true
+            def caret:EVGElement (unwrap inp.caretEl)
+            caret.a11yHidden = true
+            def root4:EVGElement (unwrap inp.rootEl)
+            UiTree.addClass(root4 (n.cls()))
+            return root4
+        }
+        def tg:ToggleCtl (b.toggle(id))
+        tg.name = n.text
+        tg.build()
+        RaveBind.decorate(tg)
+        def root5:EVGElement (unwrap tg.rootEl)
+        UiTree.addClass(root5 (n.cls()))
+        return root5
     }
 
     fn shown:boolean (n:RaveNode) {
