@@ -111,6 +111,7 @@ screen" — or "what is in this .fig" — use it rather than hand-written HTML.
     npm run rave -- serve app.rave             the editor, bound to the file
     npm run figma -- check app.fig             a .fig, read the whole way
 
-The same behind MCP as `ranger-design` (`.mcp.json`, `.cursor/mcp.json`), and
-written down for an agent in `.claude/skills/rave/SKILL.md` and
+The same behind MCP as `ranger-design` — `.mcp.json` here, and
+`npm run rave:mcp:install -- --cursor` for Cursor, which needs absolute paths.
+Written down for an agent in `.claude/skills/rave/SKILL.md` and
 `.cursor/rules/rave.mdc`.

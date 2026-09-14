@@ -206,3 +206,9 @@ gallery/vfs/bin/
 
 # Screens exported for inspection — regenerate with `npm run rt:evg`.
 gallery/realtrainer/out/
+
+# Cursor's MCP declaration has to carry ABSOLUTE paths — Cursor does not
+# launch a server from the project directory, so a relative one is a
+# MODULE_NOT_FOUND before the server can say anything. It is written per
+# machine by `npm run rave:mcp:install -- --cursor --project`.
+.cursor/mcp.json

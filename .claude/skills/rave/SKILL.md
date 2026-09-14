@@ -21,7 +21,8 @@ npm run rave -- spec                  # the format in full — read this before 
 From outside this repository the same thing is `node <ranger>/gallery/rave/cli.mjs …`.
 
 There is also an MCP server over the same commands — `ranger-design`, declared
-in this repository's `.mcp.json` and `.cursor/mcp.json` — with
+in this repository's `.mcp.json` (and written into Cursor's config, which needs
+absolute paths, by `npm run rave:mcp:install -- --cursor`) — with
 `rave_spec`, `rave_new`, `rave_check`, `rave_read`, `rave_write`, `rave_shot`,
 `figma_check`, `figma_markup` and `figma_tree`. Use whichever door is in front
 of you; they do the same work, and `rave_write` runs the check on what it

@@ -284,24 +284,32 @@ newline-delimited JSON-RPC and four methods, and a server that is one file
 with no install step is one a person can point a host at without thinking
 about it.
 
-`.mcp.json` and `.cursor/mcp.json` in this repository already declare it, so
-Claude Code and Cursor find it when they are opened here. Elsewhere:
+`.mcp.json` declares it for Claude Code, which launches a server from the
+project directory, so a relative path finds it. **Cursor does not**, and a
+relative path there is a `MODULE_NOT_FOUND` before the server can say a word —
+which the host then reports as "configured, but not running". So the entry is
+written per machine, with absolute paths:
 
 ```bash
-claude mcp add ranger-design -- node /path/to/Ranger/gallery/rave/mcp/server.mjs
+npm run rave:mcp:install -- --cursor              # ~/.cursor/mcp.json, every project
+npm run rave:mcp:install -- --cursor --project    # ./.cursor/mcp.json, this one only
+npm run rave:mcp:install -- --claude              # the `claude mcp add` line to paste
+npm run rave:mcp:install -- --print               # just the JSON
 ```
 
-```json
-// ~/.cursor/mcp.json, or .cursor/mcp.json beside your project
-{ "mcpServers": { "ranger-design": {
-    "command": "node",
-    "args": ["/path/to/Ranger/gallery/rave/mcp/server.mjs"],
-    "env": { "RANGER_DESIGN_CWD": "/path/to/your/designs" } } } }
-```
+It merges into a file that is already there rather than replacing it, and then
+**starts what it wrote and speaks to it** — from a different directory, the way
+a host does — so the last line is the server answering, or its stderr. On its
+own that is `npm run rave:mcp:install -- --verify`.
 
-Paths in tool arguments resolve against `RANGER_DESIGN_CWD` when it is set and
-against the server's own working directory otherwise — which is the project
-directory in every host that launches it from one.
+Then, in Cursor: Settings → Cursor Settings → MCP, find `ranger-design`, turn
+it on. Reload the window if it is not listed — Cursor reads the file when the
+window opens. `.cursor/mcp.json` is not in the repository (it cannot be: the
+paths in it are yours), so the installer is the way it gets there.
+
+Paths in tool arguments resolve against `RANGER_DESIGN_CWD` when it is set —
+the installer points it at wherever you ran it — and against the server's own
+working directory otherwise.
 
 `rave_write` is the one worth knowing: it writes the markup **and runs the
 check on it**, so the answer to "I wrote this" is "and here is what is wrong

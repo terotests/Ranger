@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "ranger-design": {
-      "command": "node",
-      "args": ["gallery/rave/mcp/server.mjs"]
-    }
-  }
-}

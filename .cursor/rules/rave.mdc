@@ -11,7 +11,11 @@ with real breakpoints, drawn by the EVG engine — written as HTML-shaped markup
 with no ids in it. When the work is "design a screen / a dashboard / an app" in
 this repository, this is the thing to reach for rather than HTML or a picture.
 
-The `ranger-design` MCP server (declared in `.cursor/mcp.json`) has the tools:
+The `ranger-design` MCP server has the tools below. If it is not there, or
+Cursor says it is configured but not running, run
+`npm run rave:mcp:install -- --cursor` — Cursor does not launch a server from
+the project directory, so the entry has to carry absolute paths — and turn
+`ranger-design` on in Settings → Cursor Settings → MCP.
 
 | tool | what it is for |
 | --- | --- |
