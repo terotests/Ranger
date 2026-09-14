@@ -2,29 +2,52 @@
 <breakpoint name="sm" min="0"/>
 <breakpoint name="md" min="768"/>
 <breakpoint name="lg" min="1024"/>
-<var name="bg" value="#f3efe4"/>
-<var name="panel" value="#fffdf6"/>
-<var name="ink" value="#122018"/>
-<var name="muted" value="#3d4f46"/>
-<var name="pitch" value="#145c38"/>
-<var name="pitch-ink" value="#f3efe4"/>
-<var name="line" value="#d8d0c0"/>
-<var name="gold" value="#c4a035"/>
-<style class="brand">font-weight: 700; font-size: 18px; letter-spacing: 0.08em; color: var(--pitch-ink)</style>
-<style class="navlink">padding: 8px 12px; border-radius: 6px; color: var(--pitch-ink); cursor: pointer; font-size: 14px</style>
-<style class="title">font-size: 32px; font-weight: 700; color: var(--ink)</style>
-<style class="subtitle">font-size: 16px; font-weight: 600; color: var(--ink)</style>
+<var name="bg" value="#efe8d6"/>
+<var name="panel" value="#fbf6ea"/>
+<var name="ink" value="#102018"/>
+<var name="muted" value="#3a4e44"/>
+<var name="pitch" value="#0e3d2a"/>
+<var name="pitch-mid" value="#145c38"/>
+<var name="pitch-ink" value="#f6f1e3"/>
+<var name="line" value="#d4cbb6"/>
+<var name="gold" value="#c9a227"/>
+<style class="mark">width: 28px; height: 28px; border-radius: 999px; border: 1px solid var(--gold); color: var(--pitch-ink); align-items: center; justify-content: center; font-size: 12px; font-weight: 700; letter-spacing: 0.04em</style>
+<style class="brand">font-weight: 700; font-size: 16px; letter-spacing: 0.18em; color: var(--pitch-ink)</style>
+<style class="brand-sub">font-size: 10px; letter-spacing: 0.16em; color: var(--gold)</style>
+<style class="navlink">padding: 8px 12px; border-radius: 4px; color: var(--pitch-ink); cursor: pointer; font-size: 13px; letter-spacing: 0.04em</style>
+<style class="title">font-size: 36px; font-weight: 700; color: var(--ink); letter-spacing: -0.02em</style>
+<style class="subtitle">font-size: 16px; font-weight: 700; color: var(--ink)</style>
 <style class="muted">color: var(--muted)</style>
-<style class="eyebrow">font-size: 12px; font-weight: 600; letter-spacing: 0.14em; color: var(--gold)</style>
-<style class="hero">background-color: var(--pitch); color: var(--pitch-ink); padding: 28px; border-radius: 12px; gap: 8px</style>
-<style class="hero-title">font-size: 32px; font-weight: 700; color: var(--pitch-ink)</style>
-<style class="hero-copy">color: var(--pitch-ink); font-size: 15px</style>
-<style class="stat">background-color: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; gap: 4px</style>
-<style class="stat-n">font-size: 28px; font-weight: 700; color: var(--pitch)</style>
-<style class="pcard">flex-direction: row; align-items: center; gap: 16px; padding: 12px 16px; background-color: var(--panel); border: 1px solid var(--line); border-radius: 12px; cursor: pointer</style>
-<style class="shirt">width: 48px; height: 48px; border-radius: 8px; background-color: var(--pitch); color: var(--pitch-ink); align-items: center; justify-content: center; font-size: 20px; font-weight: 700</style>
-<style class="shirt-lg">width: 96px; height: 96px; border-radius: 12px; background-color: var(--pitch); color: var(--pitch-ink); align-items: center; justify-content: center; font-size: 36px; font-weight: 700</style>
-<style class="back">width: fit-content; color: var(--pitch); cursor: pointer; font-weight: 600</style>
+<style class="kicker">font-size: 11px; font-weight: 700; letter-spacing: 0.16em; color: var(--muted)</style>
+<style class="kicker-gold">font-size: 11px; font-weight: 700; letter-spacing: 0.18em; color: var(--gold)</style>
+<style class="hero">background-color: var(--pitch); color: var(--pitch-ink); padding: 28px; border-radius: 4px; gap: 10px</style>
+<style class="hero-title">font-size: 40px; font-weight: 700; color: var(--pitch-ink); letter-spacing: -0.03em</style>
+<style class="hero-copy">color: var(--pitch-ink); font-size: 15px; line-height: 1.45</style>
+<style class="goldline">width: 48px; height: 3px; background-color: var(--gold)</style>
+<style class="match">flex-direction: row; align-items: center; gap: 16px; padding: 10px 14px; border: 1px solid var(--gold); border-radius: 4px; width: fit-content</style>
+<style class="match-k">font-size: 11px; font-weight: 700; letter-spacing: 0.14em; color: var(--gold)</style>
+<style class="match-t">color: var(--pitch-ink); font-size: 14px</style>
+<style class="tile">width: 52px; height: 52px; background-color: var(--pitch); color: var(--gold); align-items: center; justify-content: center; font-size: 18px; font-weight: 700; border-radius: 4px; cursor: pointer; border: 1px solid var(--gold)</style>
+<style class="stat">flex-direction: row; align-items: stretch; background-color: var(--panel); border: 1px solid var(--line); border-radius: 4px</style>
+<style class="goldbar">width: 4px; background-color: var(--gold)</style>
+<style class="stat-body">padding: 14px 16px; gap: 2px; flex-grow: 1; min-width: 0</style>
+<style class="stat-n">font-size: 28px; font-weight: 700; color: var(--pitch); letter-spacing: -0.03em</style>
+<style class="section-h">flex-direction: row; align-items: baseline; justify-content: space-between; gap: 12px</style>
+<style class="pcard">flex-direction: column; align-items: stretch; background-color: var(--panel); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; overflow: hidden</style>
+<style class="card-head">flex-direction: row; align-items: center; justify-content: space-between; padding: 12px 16px; background-color: var(--pitch)</style>
+<style class="num">font-size: 28px; font-weight: 700; color: var(--gold); letter-spacing: -0.04em</style>
+<style class="role">font-size: 10px; font-weight: 700; letter-spacing: 0.16em; color: var(--pitch-ink)</style>
+<style class="card-body">padding: 14px 16px; gap: 6px</style>
+<style class="meta">flex-direction: row; align-items: center; gap: 12px</style>
+<style class="meta-n">font-size: 13px; font-weight: 700; color: var(--pitch)</style>
+<style class="back">width: fit-content; color: var(--pitch); cursor: pointer; font-weight: 700; font-size: 13px; letter-spacing: 0.04em</style>
+<style class="bio">line-height: 1.55; font-size: 15px; color: var(--ink)</style>
+<style class="banner">flex-direction: row; align-items: center; gap: 24px; padding: 28px; background-color: var(--pitch); border-radius: 4px</style>
+<style class="shirt-xl">width: 112px; height: 112px; border-radius: 4px; background-color: var(--pitch-mid); color: var(--gold); border: 2px solid var(--gold); align-items: center; justify-content: center; gap: 2px</style>
+<style class="shirt-fin">font-size: 10px; font-weight: 700; letter-spacing: 0.18em; color: var(--gold)</style>
+<style class="shirt-num">font-size: 44px; font-weight: 700; color: var(--gold); letter-spacing: -0.04em</style>
+<style class="banner-name">font-size: 36px; font-weight: 700; color: var(--pitch-ink); letter-spacing: -0.03em</style>
+<style class="banner-meta">color: var(--pitch-ink); font-size: 15px</style>
 
 <collection name="players" fields="id name number position club caps goals age bio">
   <row id="1" name="Lukas Hradecky" number="1" position="Maalivahti" club="Bayer Leverkusen" caps="94" goals="0" age="35" bio="Huuhkajien kapteeni. Seisoo linjalla rauhallisena ja puhuu puolustuksen kasaan."/>
@@ -38,128 +61,261 @@
 </collection>
 
 <layout name="Shell" style="width: 100%; height: 100%; background-color: var(--bg); color: var(--ink); font-size: 14px">
-  <header name="Header" label="Ylätunniste" style="flex-direction: row; align-items: center; justify-content: space-between; height: 64px; padding: 0 24px; background-color: var(--pitch)">
-    <span class="brand">HUUHKAJAT</span>
-    <nav name="Main navigation" label="Päävalikko" style="flex-direction: row; gap: 4px">
-      <a class="navlink">Joukkue
-        <on click="navigate" arg="/"/>
-      </a>
-      <a class="navlink">Pelaajat
-        <on click="navigate" arg="/pelaajat"/>
-      </a>
-    </nav>
+  <header name="Header" label="Ylätunniste" style="flex-direction: column; height: 63px; background-color: var(--pitch)">
+    <div name="Yläpalkki" style="flex-direction: row; align-items: center; justify-content: space-between; height: 60px; padding: 0 24px">
+      <div name="Tunnus" style="flex-direction: row; align-items: center; gap: 12px">
+        <div class="mark">H</div>
+        <div name="Nimi" style="gap: 1px">
+          <span class="brand">HUUHKAJAT</span>
+          <span class="brand-sub">SUOMEN PALLOLIITTO · 1907
+            <media below="md" style="display: none"/>
+          </span>
+        </div>
+      </div>
+      <nav name="Main navigation" label="Päävalikko" style="flex-direction: row; gap: 4px">
+        <a class="navlink">Joukkue
+          <on click="navigate" arg="/"/>
+        </a>
+        <a class="navlink">Pelaajat
+          <on click="navigate" arg="/pelaajat"/>
+        </a>
+      </nav>
+    </div>
+    <div name="Kultaviiva" style="height: 3px; width: 100%; background-color: var(--gold)"></div>
   </header>
-  <main name="Main" label="Sisältö" style="padding: 24px; gap: 24px; flex-grow: 1; min-height: 0">
+  <main name="Main" label="Sisältö" style="padding: 24px; gap: 24px; flex-grow: 1; min-height: 0; overflow: hidden">
     <media below="md" style="padding: 16px; gap: 16px"/>
     <slot/>
   </main>
 </layout>
 
-<page name="Joukkue" style="gap: 24px">
+<page name="Joukkue" style="gap: 20px">
   <media below="md" style="gap: 12px"/>
   <section class="hero" name="Hero" label="Johdanto">
-    <media below="md" style="padding: 20px; gap: 4px"/>
-    <p class="eyebrow">SUOMEN A-MAAJOUKKUE</p>
-    <h1 class="hero-title">Huuhkajat</h1>
-    <p class="hero-copy">Kahdeksan nimeä avaukseen. Avaa pelaaja, niin näet ottelut ja maalit.</p>
+    <media below="md" style="padding: 20px; gap: 8px"/>
+    <p class="kicker-gold">SUOMEN A-MAAJOUKKUE</p>
+    <div class="goldline"></div>
+    <h1 class="hero-title">Huuhkajat
+      <media below="md" style="font-size: 32px"/>
+    </h1>
+    <p class="hero-copy">Kahdeksan nimeä avaukseen. Kapteeni, maalintekijä, pelintekijä.</p>
+    <div class="match" name="Seuraava ottelu" label="Seuraava ottelu">
+      <span class="match-k">SEURAAVA</span>
+      <span class="match-t">Slovenia · 14.10. · Helsinki</span>
+    </div>
   </section>
   <div name="Luvut" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px">
     <media below="md" style="grid-template-columns: repeat(3, 1fr); gap: 8px"/>
     <section class="stat" label="Otteluita yhdessä">
-      <media below="md" style="padding: 12px"/>
-      <p class="muted">Ottelut</p>
-      <p class="stat-n">476</p>
+      <div class="goldbar"></div>
+      <div class="stat-body">
+        <p class="kicker">OTTELUT</p>
+        <p class="stat-n">476</p>
+      </div>
     </section>
     <section class="stat" label="Maaleja">
-      <media below="md" style="padding: 12px"/>
-      <p class="muted">Maaleja</p>
-      <p class="stat-n">71</p>
+      <div class="goldbar"></div>
+      <div class="stat-body">
+        <p class="kicker">MAALIT</p>
+        <p class="stat-n">71</p>
+      </div>
     </section>
     <section class="stat" label="Seuroja">
-      <media below="md" style="padding: 12px"/>
-      <p class="muted">Seuroja</p>
-      <p class="stat-n">8</p>
+      <div class="goldbar"></div>
+      <div class="stat-body">
+        <p class="kicker">SEURAT</p>
+        <p class="stat-n">8</p>
+      </div>
     </section>
   </div>
-  <h2 class="subtitle">Avauskokoonpano</h2>
+  <div class="section-h" name="Osasto">
+    <h2 class="subtitle">Avauskokoonpano</h2>
+    <p class="kicker">K · KAPTEENI</p>
+  </div>
   <div name="Nostot" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px">
     <media below="md" style="grid-template-columns: 1fr"/>
     <a class="pcard" name="Pukki" label="Teemu Pukki">
-      <media from="md" style="flex-direction: column; align-items: flex-start; padding: 20px"/>
-      <div class="shirt" name="Numero">10</div>
-      <div name="Tiedot" style="gap: 4px; min-width: 0; flex-grow: 1">
+      <media below="md" style="flex-direction: row; align-items: stretch"/>
+      <div class="card-head">
+        <media below="md" style="width: 64px; padding: 10px; justify-content: center"/>
+        <span class="num">10</span>
+        <span class="role">MAALINTEKIJÄ
+          <media below="md" style="display: none"/>
+        </span>
+      </div>
+      <div class="card-body">
         <h3 class="subtitle">Teemu Pukki</h3>
-        <p class="muted">Hyökkääjä · HJK</p>
+        <p class="muted">Hyökkääjä · HJK Helsinki</p>
+        <div class="meta">
+          <span class="meta-n">121 ott</span>
+          <span class="meta-n">42 maal</span>
+        </div>
       </div>
       <on click="navigate" arg="/pelaajat/6"/>
     </a>
     <a class="pcard" name="Hradecky" label="Lukas Hradecky">
-      <media from="md" style="flex-direction: column; align-items: flex-start; padding: 20px"/>
-      <div class="shirt" name="Numero">1</div>
-      <div name="Tiedot" style="gap: 4px; min-width: 0; flex-grow: 1">
+      <media below="md" style="flex-direction: row; align-items: stretch"/>
+      <div class="card-head">
+        <media below="md" style="width: 64px; padding: 10px; justify-content: center"/>
+        <span class="num">1</span>
+        <span class="role">KAPTEENI
+          <media below="md" style="display: none"/>
+        </span>
+      </div>
+      <div class="card-body">
         <h3 class="subtitle">Lukas Hradecky</h3>
         <p class="muted">Maalivahti · Bayer Leverkusen</p>
+        <div class="meta">
+          <span class="meta-n">94 ott</span>
+          <span class="meta-n">0 maal</span>
+        </div>
       </div>
       <on click="navigate" arg="/pelaajat/1"/>
     </a>
     <a class="pcard" name="Kamara" label="Glen Kamara">
-      <media from="md" style="flex-direction: column; align-items: flex-start; padding: 20px"/>
-      <div class="shirt" name="Numero">6</div>
-      <div name="Tiedot" style="gap: 4px; min-width: 0; flex-grow: 1">
+      <media below="md" style="flex-direction: row; align-items: stretch"/>
+      <div class="card-head">
+        <media below="md" style="width: 64px; padding: 10px; justify-content: center"/>
+        <span class="num">6</span>
+        <span class="role">PELINTEKIJÄ
+          <media below="md" style="display: none"/>
+        </span>
+      </div>
+      <div class="card-body">
         <h3 class="subtitle">Glen Kamara</h3>
         <p class="muted">Keskikenttä · Al-Shabab</p>
+        <div class="meta">
+          <span class="meta-n">64 ott</span>
+          <span class="meta-n">2 maal</span>
+        </div>
       </div>
       <on click="navigate" arg="/pelaajat/4"/>
     </a>
   </div>
+  <div name="Paidat" style="gap: 10px">
+    <media below="md" style="display: none"/>
+    <p class="kicker">KOKO AVAUS · 4–3–3</p>
+    <div name="Numerot" style="flex-direction: row; gap: 8px">
+      <a class="tile" label="Hradecky 1">1
+        <on click="navigate" arg="/pelaajat/1"/>
+      </a>
+      <a class="tile" label="Alho 17">17
+        <on click="navigate" arg="/pelaajat/2"/>
+      </a>
+      <a class="tile" label="Ivanov 4">4
+        <on click="navigate" arg="/pelaajat/3"/>
+      </a>
+      <a class="tile" label="Kamara 6">6
+        <on click="navigate" arg="/pelaajat/4"/>
+      </a>
+      <a class="tile" label="Kairinen 14">14
+        <on click="navigate" arg="/pelaajat/5"/>
+      </a>
+      <a class="tile" label="Pukki 10">10
+        <on click="navigate" arg="/pelaajat/6"/>
+      </a>
+      <a class="tile" label="Pohjanpalo 20">20
+        <on click="navigate" arg="/pelaajat/7"/>
+      </a>
+      <a class="tile" label="Antman 7">7
+        <on click="navigate" arg="/pelaajat/8"/>
+      </a>
+    </div>
+  </div>
 </page>
 
 <page name="Pelaajat" style="gap: 16px">
-  <h1 class="title">Pelaajat</h1>
-  <p class="muted">Koko avaus. Numero, paikka, seura.</p>
+  <media below="md" style="gap: 8px"/>
+  <div name="Otsikko" style="gap: 6px">
+    <p class="kicker">KOKOONPANO · 4–3–3
+      <media below="md" style="display: none"/>
+    </p>
+    <h1 class="title">Pelaajat
+      <media below="md" style="font-size: 24px"/>
+    </h1>
+    <p class="muted">Numero, paikka, seura, ottelut ja maalit.
+      <media below="md" style="display: none"/>
+    </p>
+  </div>
   <div name="Lista" repeat="players" style="display: grid; grid-template-columns: 1fr; gap: 8px">
+    <media below="md" style="gap: 6px"/>
     <media from="md" style="grid-template-columns: repeat(2, 1fr); gap: 12px"/>
     <media from="lg" style="grid-template-columns: repeat(4, 1fr)"/>
     <a class="pcard" label="{name}">
-      <media from="md" style="flex-direction: column; align-items: flex-start; padding: 20px"/>
-      <div class="shirt">{number}</div>
-      <div name="Tiedot" style="gap: 4px; min-width: 0; flex-grow: 1">
+      <media below="md" style="flex-direction: row; align-items: stretch"/>
+      <div class="card-head">
+        <media below="md" style="width: 52px; padding: 8px; justify-content: center"/>
+        <span class="num">{number}</span>
+        <span class="role">{position}
+          <media below="md" style="display: none"/>
+        </span>
+      </div>
+      <div class="card-body">
+        <media below="md" style="padding: 8px 12px; flex-grow: 1; min-width: 0; gap: 2px"/>
         <h2 class="subtitle">{name}</h2>
-        <p class="muted">{position} · {club}</p>
+        <p class="muted">{club}</p>
+        <div class="meta">
+          <media below="md" style="display: none"/>
+          <span class="meta-n">{caps} ott</span>
+          <span class="meta-n">{goals} maal</span>
+        </div>
       </div>
       <on click="navigate" arg="/pelaajat/{id}"/>
     </a>
   </div>
 </page>
 
-<page name="Pelaaja" source="players" sourceKey="id" style="gap: 24px">
-  <a class="back">← Kaikki pelaajat
+<page name="Pelaaja" source="players" sourceKey="id" style="gap: 20px">
+  <a class="back">← Koko avaus
     <on click="navigate" arg="/pelaajat"/>
   </a>
-  <div name="Kärki" style="flex-direction: row; align-items: center; gap: 20px">
-    <media below="md" style="flex-direction: column; align-items: flex-start"/>
-    <div class="shirt-lg">{number}</div>
-    <div name="Nimi" style="flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; flex-grow: 1">
-      <h1 class="title">{name}</h1>
-      <p class="muted">{position} · {club}</p>
+  <section class="banner" name="Paita" label="{name}">
+    <media below="md" style="flex-direction: column; align-items: flex-start; padding: 20px; gap: 16px"/>
+    <div class="shirt-xl">
+      <media below="md" style="width: 80px; height: 80px"/>
+      <span class="shirt-fin">FIN</span>
+      <span class="shirt-num">{number}
+        <media below="md" style="font-size: 32px"/>
+      </span>
     </div>
-  </div>
+    <div name="Nimi" style="flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; flex-grow: 1">
+      <p class="kicker-gold">{position}</p>
+      <div class="goldline"></div>
+      <h1 class="banner-name">{name}</h1>
+      <p class="banner-meta">{club}</p>
+    </div>
+  </section>
   <div name="Tilastot" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px">
-    <media below="md" style="grid-template-columns: 1fr"/>
+    <media below="md" style="grid-template-columns: repeat(3, 1fr); gap: 8px"/>
     <section class="stat" label="Ottelut">
-      <p class="muted">Ottelut</p>
-      <p class="stat-n">{caps}</p>
+      <div class="goldbar"></div>
+      <div class="stat-body">
+        <p class="kicker">OTTELUT</p>
+        <p class="stat-n">{caps}</p>
+      </div>
     </section>
     <section class="stat" label="Maalit">
-      <p class="muted">Maalit</p>
-      <p class="stat-n">{goals}</p>
+      <div class="goldbar"></div>
+      <div class="stat-body">
+        <p class="kicker">MAALIT</p>
+        <p class="stat-n">{goals}</p>
+      </div>
     </section>
     <section class="stat" label="Ikä">
-      <p class="muted">Ikä</p>
-      <p class="stat-n">{age}</p>
+      <div class="goldbar"></div>
+      <div class="stat-body">
+        <p class="kicker">IKÄ</p>
+        <p class="stat-n">{age}</p>
+      </div>
     </section>
   </div>
-  <p style="line-height: 1.5">{bio}</p>
+  <section class="stat" name="Teksti" label="Pelissä">
+    <div class="goldbar"></div>
+    <div class="stat-body">
+      <p class="kicker">PELISSÄ</p>
+      <p class="bio">{bio}</p>
+    </div>
+  </section>
 </page>
 
 <route path="/" title="Joukkue" page="Joukkue" layout="Shell"/>
