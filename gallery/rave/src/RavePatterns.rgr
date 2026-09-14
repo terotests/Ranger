@@ -382,6 +382,139 @@ class RavePatterns {
         }
     }
 
+    ; --- navigation, and a blank start ----------------------------------------------------
+
+    ; The shell's navigation, put where the wizard's answer says. `sidebar`
+    ; is where `dashboardShell` builds it; the other three move the same
+    ; `nav` node somewhere else and take the sidebar away, so the links and
+    ; the routes they name are never rebuilt or duplicated.
+    sfn applyNav:void (app:RaveApp navKind:string) {
+        app.nav = navKind
+        if (navKind == "sidebar") {
+            return
+        }
+        def navId:int (app.idOfNamed("nav" "Main navigation"))
+        def sideId:int (app.idOfNamed("aside" "Sidebar"))
+        def bodyId:int (app.idOfNamed("div" "Body"))
+        if (sideId == 0) {
+            return
+        }
+        if (navId > 0) {
+            app.detach(navId)
+        }
+        app.detach(sideId)
+        if (bodyId > 0) {
+            def body:RaveNode (app.node(bodyId))
+            app.style(body "grid-template-columns" "1fr")
+        }
+        if (navId == 0) {
+            return
+        }
+        def nav:RaveNode (app.node(navId))
+        if (navKind == "none") {
+            return
+        }
+        app.style(nav "flex-direction" "row")
+        app.style(nav "gap" "4px")
+        if (navKind == "topbar") {
+            def headerId:int (app.idOfNamed("header" "Header"))
+            if (headerId > 0) {
+                app.attach(headerId navId 1)
+                app.styleAt(nav (app.below("md")) "display" "none")
+            }
+            return
+        }
+        ; tabs: a bar across the bottom of the shell, above the footer
+        def shell:RaveNode (itemAt app.layouts 0)
+        def footerId:int (app.idOfNamed("footer" "Footer"))
+        def at:int (array_length shell.children)
+        if (footerId > 0) {
+            def where:int (app.indexIn(shell.id footerId))
+            if (where >= 0) {
+                at = where
+            }
+        }
+        app.attach(shell.id navId at)
+        app.style(nav "height" "56px")
+        app.style(nav "align-items" "center")
+        app.style(nav "justify-content" "space-around")
+        app.style(nav "border" "1px solid var(--line)")
+        app.style(nav "background-color" "var(--panel)")
+    }
+
+    ; The wizard's "Empty": the palette, the breakpoints and one page, so the
+    ; first thing dropped on it already has somewhere to land and a look.
+    sfn emptyApp:RaveApp (name:string) {
+        def app (new RaveApp(name))
+        push app.targets "web"
+        app.nav = "none"
+        RavePatterns.breakpoints(app)
+        RavePatterns.theme(app)
+        def page:RaveNode (app.newPage("Home"))
+        app.style(page "width" "100%")
+        app.style(page "height" "100%")
+        app.style(page "padding" "24px")
+        app.style(page "gap" "16px")
+        app.style(page "background-color" "var(--bg)")
+        app.style(page "color" "var(--ink)")
+        app.style(page "font-size" "14px")
+        def h1:RaveNode (page.add((app.newText("h1" name))))
+        h1.addClass("title")
+        def lead:RaveNode (page.add((app.newText("p" "An empty page. Drop something on it."))))
+        lead.addClass("muted")
+        app.addRoute("/" "Home" page 0)
+        return app
+    }
+
+    ; --- the wizard's answer ---------------------------------------------------------------
+
+    ; One application from the four questions `File → New` asks. Every branch
+    ; is the same composition the named patterns make, which is why the
+    ; wizard cannot produce something the patterns do not already test.
+    sfn fromChoices:RaveApp (name:string start:string navKind:string auth:boolean targets:[string]) {
+        def app:RaveApp (RavePatterns.emptyApp(name))
+        if (start != "empty") {
+            app = (RavePatterns.dashboardShell(name))
+        }
+        if (start == "marketing") {
+            RavePatterns.moveUnder(app "/app")
+            RavePatterns.withMarketing(app)
+        }
+        if ((start == "masterdetail") || (start == "crud")) {
+            RavePatterns.withMasterDetail(app)
+        }
+        if (start == "crud") {
+            RavePatterns.withCrud(app)
+        }
+        if (start == "settings") {
+            RavePatterns.withSettingsLayout(app)
+        }
+        if (start != "empty") {
+            RavePatterns.applyNav(app navKind)
+        }
+        if auth {
+            RavePatterns.withAuth(app)
+            if (start == "marketing") {
+                def i:int 0
+                while (i < (array_length app.routes)) {
+                    def r:RaveRoute (itemAt app.routes i)
+                    if ((r.path == "/") || (r.path == "/pricing")) {
+                        r.protected = false
+                    }
+                    i = (i + 1)
+                }
+                app.afterLogin = "/app/dashboard"
+            }
+        }
+        clear app.targets
+        def t:int 0
+        while (t < (array_length targets)) {
+            push app.targets (itemAt targets t)
+            t = (t + 1)
+        }
+        return app
+    }
+
     ; --- Settings Layout ----------------------------------------------------------------
 
     ; A layout inside the shell: a tab list down the left and the panel the

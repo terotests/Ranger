@@ -103,6 +103,21 @@ class RaveEditor {
     ; a node picked up for a drop
     def dragging:int 0
     def showTabOrder:boolean false
+    ; --- File → New, as a sheet rather than a blank canvas ---------------------
+    ; Four questions, and the answer is an application from RavePatterns. The
+    ; sheet is over the editor rather than beside it because nothing else is
+    ; answerable while it is up.
+    def wizardOpen:boolean false
+    def wizName:string "Untitled"
+    def wizAuth:boolean true
+    ; sidebar | topbar | tabs | none
+    def wizNav:string "sidebar"
+    ; dashboard | marketing | masterdetail | crud | settings | empty
+    def wizStart:string "dashboard"
+    def wizWeb:boolean true
+    def wizDesktop:boolean false
+    def wizTablet:boolean true
+    def wizMobile:boolean true
     def lastKey:string ""
     def status:string "ready"
     ; the a11y problems of the active view, gathered once per frame
@@ -121,11 +136,21 @@ class RaveEditor {
     ; --- the document ---------------------------------------------------------
 
     fn adopt:void (app:RaveApp) {
+        this.adoptWith(app false)
+    }
+
+    ; `fromTargets` opens the stage on the widths the wizard was asked for
+    ; instead of the three a document arrives with.
+    fn adoptWith:void (app:RaveApp fromTargets:boolean) {
         doc = app
         def r (new RaveRuntime(app))
-        r.addView("desktop" 1440.0 900.0 false)
-        r.addView("tablet" 768.0 1024.0 true)
-        r.addView("phone" 390.0 844.0 true)
+        if fromTargets {
+            this.viewsForTargets(r)
+        } {
+            r.addView("desktop" 1440.0 900.0 false)
+            r.addView("tablet" 768.0 1024.0 true)
+            r.addView("phone" 390.0 844.0 true)
+        }
         rt = r
         def e (new RaveEdit(app))
         edit = e
@@ -195,6 +220,111 @@ class RaveEditor {
         pageW = w
         pageH = h
         dirty = true
+    }
+
+    ; --- the new-project wizard -------------------------------------------------------
+
+    fn openWizard:boolean () {
+        this.commitEdit()
+        this.closeMenu()
+        wizardOpen = true
+        wizName = "Untitled"
+        dirty = true
+        return true
+    }
+
+    fn closeWizard:boolean () {
+        if (wizardOpen == false) {
+            return false
+        }
+        if (editing == "wiz:name") {
+            this.cancelEdit()
+        }
+        wizardOpen = false
+        dirty = true
+        return true
+    }
+
+    fn wizardTargets:[string] () {
+        def out:[string]
+        if wizWeb { push out "web" }
+        if wizDesktop { push out "desktop" }
+        if wizTablet { push out "tablet" }
+        if wizMobile { push out "mobile" }
+        if ((array_length out) == 0) {
+            push out "web"
+        }
+        return out
+    }
+
+    ; The viewports the stage opens with follow the targets that were ticked,
+    ; so the first thing on the screen is the widths this project is for.
+    fn viewsForTargets:void (r:RaveRuntime) {
+        def targets:[string] (this.wizardTargets())
+        def i:int 0
+        while (i < (array_length targets)) {
+            def t:string (itemAt targets i)
+            if (t == "desktop") { r.addView("desktop" 1920.0 1080.0 false) }
+            if (t == "web") { r.addView("web" 1440.0 900.0 false) }
+            if (t == "tablet") { r.addView("tablet" 768.0 1024.0 true) }
+            if (t == "mobile") { r.addView("phone" 390.0 844.0 true) }
+            i = (i + 1)
+        }
+    }
+
+    fn wizardPress:boolean (what:string) {
+        if (what == "cancel") {
+            return (this.closeWizard())
+        }
+        if (what == "create") {
+            def name:string (trim wizName)
+            if ((strlen name) == 0) {
+                name = "Untitled"
+            }
+            def app:RaveApp (RavePatterns.fromChoices(name wizStart wizNav wizAuth (this.wizardTargets())))
+            wizardOpen = false
+            this.adoptWith(app true)
+            return true
+        }
+        if (what == "auth") {
+            wizAuth = (wizAuth == false)
+            dirty = true
+            return true
+        }
+        if (what == "name") {
+            return (this.startEdit("wiz:name"))
+        }
+        if (RaveEditor.hasPrefix(what "nav:")) {
+            wizNav = (RaveEditor.tail(what 4))
+            dirty = true
+            return true
+        }
+        if (RaveEditor.hasPrefix(what "start:")) {
+            wizStart = (RaveEditor.tail(what 6))
+            dirty = true
+            return true
+        }
+        if (what == "t:web") {
+            wizWeb = (wizWeb == false)
+            dirty = true
+            return true
+        }
+        if (what == "t:desktop") {
+            wizDesktop = (wizDesktop == false)
+            dirty = true
+            return true
+        }
+        if (what == "t:tablet") {
+            wizTablet = (wizTablet == false)
+            dirty = true
+            return true
+        }
+        if (what == "t:mobile") {
+            wizMobile = (wizMobile == false)
+            dirty = true
+            return true
+        }
+        return false
     }
 
     ; --- the breakpoint the inspector edits ------------------------------------------
@@ -612,8 +742,10 @@ class RaveEditor {
             return true
         }
         if (id == "file:new") {
-            this.newProject("Untitled")
-            return true
+            return (this.openWizard())
+        }
+        if (RaveEditor.hasPrefix(id "wiz:")) {
+            return (this.wizardPress((RaveEditor.tail(id 4))))
         }
         ; the tree
         if (RaveEditor.hasPrefix(id "tree:")) {
@@ -739,6 +871,17 @@ class RaveEditor {
         }
         if ((strlen editing) > 0) {
             return (this.editKey(k shift ctrl))
+        }
+        ; Nothing behind the sheet is answerable while it is up, in either
+        ; mode: Escape puts it away, Enter takes the answers.
+        if wizardOpen {
+            if (k == "Escape") {
+                return (this.closeWizard())
+            }
+            if (k == "Enter") {
+                return (this.wizardPress("create"))
+            }
+            return false
         }
         if (mode == "run") {
             def r:RaveRuntime (unwrap rt)
@@ -1332,8 +1475,12 @@ class RaveEditor {
     }
 
     fn startEdit:boolean (id:string) {
-        if ((this.hasSelection()) == false) {
-            return false
+        ; The wizard's name field is about the sheet, not about a node, so it
+        ; is the one field that does not need a selection behind it.
+        if (id != "wiz:name") {
+            if ((this.hasSelection()) == false) {
+                return false
+            }
         }
         if (editing == id) {
             return true
@@ -1350,6 +1497,9 @@ class RaveEditor {
             input.fontSize = 11.0
         }
         def v:string ""
+        if (id == "wiz:name") {
+            v = wizName
+        }
         if (RaveEditor.hasPrefix(id "field:")) {
             v = (this.valueOf((RaveEditor.tail(id 6))))
         }
@@ -1429,6 +1579,10 @@ class RaveEditor {
         textDrag = ""
         scrub = ""
         dirty = true
+        if (id == "wiz:name") {
+            wizName = value
+            return true
+        }
         if ((this.hasSelection()) == false) {
             return false
         }
@@ -1792,7 +1946,112 @@ class RaveEditor {
         main.addChild((this.rightRail()))
         page.addChild(main)
         page.addChild((this.footer()))
+        if wizardOpen {
+            page.addChild((this.wizardSheet()))
+        }
         return page
+    }
+
+    ; --- File → New -----------------------------------------------------------
+
+    ; One row of the sheet: a question on the left, its answers on the right.
+    fn wizRow:EVGElement (label:string) {
+        def row:EVGElement (RaveEditor.box("ra-wiz-row" "" "group" label))
+        row.addChild((RaveEditor.quiet("ra-wiz-lab" label)))
+        return row
+    }
+
+    ; A choice that says whether it is the one taken. Radios and tick boxes
+    ; differ only in what the state is called, so they are the same element
+    ; with the right ARIA on it.
+    fn wizChoice:EVGElement (id:string label:string on:boolean radio:boolean) {
+        def cls:string "ra-wiz-opt"
+        if on {
+            cls = "ra-wiz-opt ra-wiz-opt-on"
+        }
+        def role:string "checkbox"
+        if radio {
+            role = "radio"
+        }
+        def e:EVGElement (RaveEditor.box(cls id role label))
+        e.a11yFocusable = true
+        ; the tri-state: 2 is yes, 1 is no — never a boolean, so a reader is
+        ; not told about a checkbox that is not one
+        e.a11yChecked = 1
+        if on {
+            e.a11yChecked = 2
+        }
+        def mark:string "○"
+        if radio {
+            if on { mark = "◉" }
+        } {
+            mark = "☐"
+            if on { mark = "☑" }
+        }
+        e.addChild((RaveEditor.quiet("ra-wiz-mark" mark)))
+        e.addChild((RaveEditor.quiet("ra-wiz-opt-t" label)))
+        return e
+    }
+
+    fn wizardSheet:EVGElement () {
+        def scrim:EVGElement (RaveEditor.box("ra-wiz-scrim" "wiz:cancel" "" ""))
+        def sheet:EVGElement (RaveEditor.box("ra-wiz" "" "dialog" "New project"))
+        sheet.a11yModal = true
+        sheet.addChild((RaveEditor.txt("ra-wiz-title" "New project")))
+
+        def nameRow:EVGElement (this.wizRow("Name"))
+        def nameCls:string "ra-f ra-f-wide"
+        if (editing == "wiz:name") {
+            nameCls = (nameCls + " ra-f-edit")
+        }
+        def nameField:EVGElement (RaveEditor.box(nameCls "wiz:name" "button" ("Name " + wizName)))
+        nameField.addChild((this.textBox("wiz:name" wizName "ra-f-val")))
+        nameRow.addChild(nameField)
+        sheet.addChild(nameRow)
+
+        def targets:EVGElement (this.wizRow("Targets"))
+        def tset:EVGElement (RaveEditor.box("ra-wiz-opts" "" "group" "Targets"))
+        tset.addChild((this.wizChoice("wiz:t:web" "Web" wizWeb false)))
+        tset.addChild((this.wizChoice("wiz:t:desktop" "Desktop" wizDesktop false)))
+        tset.addChild((this.wizChoice("wiz:t:tablet" "Tablet" wizTablet false)))
+        tset.addChild((this.wizChoice("wiz:t:mobile" "Mobile" wizMobile false)))
+        targets.addChild(tset)
+        sheet.addChild(targets)
+
+        def sign:EVGElement (this.wizRow("Sign-in"))
+        def sset:EVGElement (RaveEditor.box("ra-wiz-opts" "" "radiogroup" "Sign-in"))
+        sset.addChild((this.wizChoice("wiz:auth" "Yes — a login page and protected routes" wizAuth true)))
+        sset.addChild((this.wizChoice("wiz:auth" "No" (wizAuth == false) true)))
+        sign.addChild(sset)
+        sheet.addChild(sign)
+
+        def nav:EVGElement (this.wizRow("Navigation"))
+        def nset:EVGElement (RaveEditor.box("ra-wiz-opts" "" "radiogroup" "Navigation"))
+        nset.addChild((this.wizChoice("wiz:nav:sidebar" "Sidebar" (wizNav == "sidebar") true)))
+        nset.addChild((this.wizChoice("wiz:nav:topbar" "Top bar" (wizNav == "topbar") true)))
+        nset.addChild((this.wizChoice("wiz:nav:tabs" "Tabs" (wizNav == "tabs") true)))
+        nset.addChild((this.wizChoice("wiz:nav:none" "None" (wizNav == "none") true)))
+        nav.addChild(nset)
+        sheet.addChild(nav)
+
+        def start:EVGElement (this.wizRow("Start from"))
+        def stset:EVGElement (RaveEditor.box("ra-wiz-opts" "" "radiogroup" "Start from"))
+        stset.addChild((this.wizChoice("wiz:start:dashboard" "Dashboard Shell" (wizStart == "dashboard") true)))
+        stset.addChild((this.wizChoice("wiz:start:marketing" "Marketing + App" (wizStart == "marketing") true)))
+        stset.addChild((this.wizChoice("wiz:start:masterdetail" "Master / Detail" (wizStart == "masterdetail") true)))
+        stset.addChild((this.wizChoice("wiz:start:crud" "CRUD" (wizStart == "crud") true)))
+        stset.addChild((this.wizChoice("wiz:start:settings" "Settings Layout" (wizStart == "settings") true)))
+        stset.addChild((this.wizChoice("wiz:start:empty" "Empty" (wizStart == "empty") true)))
+        start.addChild(stset)
+        sheet.addChild(start)
+
+        def acts:EVGElement (RaveEditor.box("ra-wiz-acts" "" "" ""))
+        acts.addChild((RaveEditor.button("wiz:cancel" "Cancel" "ra-btn" "ra-btn-t")))
+        acts.addChild((RaveEditor.button("wiz:create" "Create" "ra-btn ra-btn-go" "ra-btn-t")))
+        sheet.addChild(acts)
+
+        scrim.addChild(sheet)
+        return scrim
     }
 
     ; --- top bar --------------------------------------------------------------

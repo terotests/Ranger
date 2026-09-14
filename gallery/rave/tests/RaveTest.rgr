@@ -379,6 +379,86 @@ class RaveTest {
         RaveTest.lintClean(c rt2 d2 "the application lints clean at 1440")
     }
 
+    ; --- File → New ---------------------------------------------------------------------
+
+    ; The wizard is the one place a project starts, so what is checked is
+    ; that its answers reach the document: the sheet is over the editor,
+    ; every question moves, and Create makes the application those answers
+    ; describe — with the stage opened on the widths that were ticked.
+    sfn wizardChecks:void (c:Check) {
+        print ""
+        print "--- file → new ---"
+        def ed (new RaveEditor())
+        ed.init((RaveTest.chromeCss()))
+        ed.setPageSize(1440.0 860.0)
+        def before:string ed.doc.name
+        c.eqStr("the editor opens on a project" before "Acme")
+        def dl0:string (ed.displayListJson())
+        c.ok("…and no sheet over it" ((RaveTest.includes(dl0 "New project")) == false))
+
+        c.ok("New opens the sheet" (ed.press("file:new")))
+        def dl:string (ed.displayListJson())
+        c.ok("…which asks for a name" (RaveTest.includes(dl "Untitled")))
+        c.ok("…the targets" (RaveTest.includes(dl "Tablet")))
+        c.ok("…whether it signs in" (RaveTest.includes(dl "Sign-in")))
+        c.ok("…how it navigates" (RaveTest.includes(dl "Top bar")))
+        c.ok("…and what it starts from" (RaveTest.includes(dl "Master / Detail")))
+        c.eqStr("the document behind it has not changed" ed.doc.name before)
+        def rtNow:RaveRuntime (ed.runtime())
+        ed.boardJson()
+        c.eqInt("the sheet costs the engine no rejections" (rtNow.layoutWarningCount(0)) 0)
+        c.ok("the sheet is a modal in the accessible tree" (RaveTest.includes((ed.a11yJson(1 "")) "\"modal\":true")))
+
+        ; Escape puts it away and changes nothing
+        c.ok("Escape closes it" (ed.keyWith("Escape" false false)))
+        c.eqStr("…leaving the document alone" ed.doc.name before)
+
+        ; the answers
+        ed.press("file:new")
+        c.ok("the name field opens for typing" (ed.press("wiz:name")))
+        c.ok("Ctrl+A selects what is there" (ed.keyWith("a" false true)))
+        RaveTest.typeText(ed "Northwind")
+        c.ok("Enter takes the name" (ed.keyWith("Enter" false false)))
+        c.ok("a start is picked" (ed.press("wiz:start:crud")))
+        c.ok("a navigation is picked" (ed.press("wiz:nav:topbar")))
+        c.ok("a target is unticked" (ed.press("wiz:t:tablet")))
+        def dl2:string (ed.displayListJson())
+        c.ok("…and the sheet shows the name that was typed" (RaveTest.includes(dl2 "Northwind")))
+
+        c.ok("Create makes the project" (ed.press("wiz:create")))
+        def made:RaveApp ed.doc
+        c.eqStr("…with the name" made.name "Northwind")
+        c.ok("…the routes CRUD asks for" (made.hasRoute("/items/:id")))
+        c.ok("…its rows" (made.hasCollection("items")))
+        c.ok("…its create dialog" ((made.idOfOverlay("create")) > 0))
+        c.eqStr("…the navigation that was picked" made.nav "topbar")
+        c.eqInt("…and no sidebar left in the shell" (made.idOfNamed("aside" "Sidebar")) 0)
+        c.ok("…the links are in the header instead" ((made.idOfNamed("nav" "Main navigation")) > 0))
+        c.ok("…sign-in is on" made.authEnabled)
+        c.eqInt("…the two targets still ticked" (array_length made.targets) 2)
+        def rt2:RaveRuntime (ed.runtime())
+        c.eqInt("the stage opens on one frame per target" (rt2.viewCount()) 2)
+        def dl3:string (ed.displayListJson())
+        c.ok("the sheet is gone" ((RaveTest.includes(dl3 "Start from")) == false))
+        def board:string (ed.boardJson())
+        c.ok("…and the new application is on the stage" (RaveTest.includes(board "Northwind")))
+        c.eqInt("…with nothing the engine rejected" (rt2.layoutWarningCount(0)) 0)
+        RaveTest.lintClean(c rt2 0 "the new project lints clean on the first frame")
+
+        ; Empty is a page and a palette, not a blank sheet
+        ed.press("file:new")
+        ed.press("wiz:start:empty")
+        c.ok("sign-in can be turned off" (ed.press("wiz:auth")))
+        ed.press("wiz:create")
+        def blank:RaveApp ed.doc
+        c.ok("…and then there is no login route" (blank.authEnabled == false))
+        c.eqInt("Empty is one route" (array_length blank.routes) 1)
+        c.ok("…with a page on it" ((array_length blank.pages) == 1))
+        c.ok("…and the palette already set" ((array_length blank.vars) > 0))
+        def rt3:RaveRuntime (ed.runtime())
+        RaveTest.lintClean(c rt3 0 "the empty project lints clean")
+    }
+
     ; --- the editor -----------------------------------------------------------------
 
     sfn chromeCss:string () {
@@ -937,6 +1017,7 @@ class RaveTest {
         RaveTest.masterDetailChecks(c)
         RaveTest.crudChecks(c)
         RaveTest.layoutChecks(c)
+        RaveTest.wizardChecks(c)
         RaveTest.editorChecks(c)
         RaveTest.inputChecks(c)
 
