@@ -348,6 +348,35 @@ class RaveEditor {
         dirty = true
     }
 
+    ; --- the document as markup ------------------------------------------------
+    ; The same door the AI menu uses, opened by the page instead: `rave serve`
+    ; hands the editor a file's markup on load and takes it back on save, so
+    ; the file on disk and what is on the screen are one thing.
+
+    fn openMarkup:boolean (text:string) {
+        clear aiErrors
+        aiMore = 0
+        def reader (new RaveTextReader())
+        def parsed:RaveApp (reader.readDoc(text))
+        this.takeErrors(reader)
+        if ((reader.errorCount()) > 0) {
+            status = ((to_string (reader.totalErrors())) + " lines of that document could not be read")
+            dirty = true
+            return false
+        }
+        if (parsed.isEmpty()) {
+            status = "that document has no routes"
+            dirty = true
+            return false
+        }
+        this.adopt(parsed)
+        return true
+    }
+
+    fn saveMarkup:string () {
+        return (RaveText.writeApp(doc))
+    }
+
     fn importNoteCount:int () {
         return (importReport.noteCount())
     }
@@ -1081,6 +1110,12 @@ class RaveEditor {
         }
         if (id == "file:new") {
             return (this.openWizard())
+        }
+        ; The page says when it has written the file `rave serve` gave it.
+        if (id == "file:saved") {
+            status = ("saved · " + doc.name)
+            dirty = true
+            return true
         }
         if (RaveEditor.hasPrefix(id "wiz:")) {
             return (this.wizardPress((RaveEditor.tail(id 4))))

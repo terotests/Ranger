@@ -132,6 +132,17 @@ const figBoard = JSON.parse(figEditor.boardJson());
 ok("…and the screens are drawn", JSON.stringify(figBoard.list.cmds).length > 2000);
 ok("…with nothing the engine rejected", figEditor.runtime().layoutWarningCount(0) === 0);
 
+// --- the file door `rave serve` uses --------------------------------------------------------
+const markup = app.saveMarkup();
+ok("the editor writes its document as markup", markup.startsWith("<app "));
+const fileEditor = new RaveEditor();
+fileEditor.init(CSS);
+fileEditor.setPageSize(W, H);
+ok("…and opens one", fileEditor.openMarkup(markup));
+ok("…as the same markup", fileEditor.saveMarkup() === markup);
+ok("…drawing it", JSON.stringify(JSON.parse(fileEditor.boardJson()).list.cmds).length > 2000);
+ok("markup it cannot read is refused", !fileEditor.openMarkup("<widget/>"));
+
 // --- the document survives a save ----------------------------------------------------------
 const json = app.saveJson();
 const again = new RaveEditor();

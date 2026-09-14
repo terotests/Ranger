@@ -96,3 +96,21 @@ Short form:
   bind the object, then read the field.
 - No `abs` builtin; inline the absolute value. Prefer flattening over relying on
   the TSX interpreter's limited `extends` / `super`.
+
+## Designing a screen, an app, or reading a Figma file
+
+`gallery/rave` is an application you can check rather than a picture of one:
+routes, layouts, pages and a stylesheet with real breakpoints, written as
+HTML-shaped markup. When the task is "design a dashboard / a settings page / a
+screen" — or "what is in this .fig" — use it rather than hand-written HTML.
+
+    npm run rave -- spec                       the format, once
+    npm run rave -- new app.rave --start crud
+    npm run rave -- check app.rave             THE LOOP: never finish on RAVE FAIL
+    npm run rave -- shot app.rave --width 390  paint a route and look at it
+    npm run rave -- serve app.rave             the editor, bound to the file
+    npm run figma -- check app.fig             a .fig, read the whole way
+
+The same behind MCP as `ranger-design` (`.mcp.json`, `.cursor/mcp.json`), and
+written down for an agent in `.claude/skills/rave/SKILL.md` and
+`.cursor/rules/rave.mdc`.

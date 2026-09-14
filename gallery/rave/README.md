@@ -16,12 +16,16 @@ frame, the dashboard, settings, and every route linting clean at every width
 — runs as one script in `rave:test`.
 
 ```bash
-npm run rave:import gallery/figma/fixtures/health.fig        # read a .fig as an application
-npm run rave:import text gallery/figma/fixtures/health.fig   # …and print it as RaveText
-npm run rave:import spec                                     # the format, as the prompt describes it
-npm run rave:test     # the document, the runtime and the editor, headless (in the editor gate)
-npm run rave:smoke    # the page, built the way the site builds it, driven in Node
-npm run rave:web      # build and serve on http://127.0.0.1:8012/
+npm run rave -- new app.rave --name "Acme" --start crud   # a project, from a terminal
+npm run rave -- check app.rave        # parse, build every route at every width, say everything
+npm run rave -- serve app.rave        # the editor at :8012, bound to that file
+npm run rave -- spec                  # the format, exactly as the AI prompt states it
+npm run rave -- import file.fig       # a Figma file, read as an application
+
+npm run rave:test          # the document, the runtime and the editor, headless (in the editor gate)
+npm run rave:smoke         # the page, built the way the site builds it, driven in Node
+npm run rave:serve:check   # `rave serve` — the file door, without a browser
+npm run rave:web           # build and serve on http://127.0.0.1:8012/
 ```
 
 Deployed at `/rave/`. **License:** AGPL-3.0-or-later (Gallery).
@@ -222,6 +226,88 @@ guess with its reason.
 imports as three routes on one shared layout, 363 nodes, 79 containers
 straight from the file's own auto-layout and 15 cut, with zero engine
 rejections and zero accessibility problems at 1440 and at 390.
+
+## From a terminal, and from an agent
+
+The editor is a page. The document is not: it is a file, and everything the
+editor knows how to say about one, `rave` says without a browser.
+
+| | |
+| --- | --- |
+| `rave new <out.rave>` | the wizard's four questions as flags — `--start crud`, `--nav topbar`, `--no-auth`, `--targets "web tablet mobile"` |
+| `rave check <file>` | **the loop.** Parses, then builds every route at every width the project targets, and prints the parse errors with their line numbers, every declaration `EVGReject` refused, and every accessibility problem. Ends `RAVE OK` or `RAVE FAIL n`, and exits non-zero |
+| `rave serve <file.rave>` | the editor at `:8012` **bound to that file** — it loads it, follows it when something else writes it, and writes it back when someone presses Save |
+| `rave fmt` / `json` / `markup` | the same document, spelled the writer's way, as `app.rave.json`, or back |
+| `rave shot <file>` | one route at one width, as a PNG — `--route`, `--width`, `--out`, or `--all` for every route at every target width. No browser: the gallery's own software rasterizer paints the tree the layout kept |
+| `rave spec` | the format, exactly as the AI prompt states it |
+| `rave import <file.fig>` | a Figma file as an application; `rave text` prints one as markup |
+
+`check` is the one that makes an agent useful here, because it is the only
+place that says what the engine silently dropped:
+
+```
+$ rave check app.rave
+  / @1440 rejected: unknown property: aspect-ratio: 16/9
+  / @1440 rejected: unsupported length: width: calc(100% - 20px)
+  / @1440 a11y: n3: focusable with no accessible name
+  Bad · 1 routes · 0 layouts · 1 pages · 1 widths
+RAVE FAIL 3
+```
+
+And `serve` is what makes the two halves one session: the agent edits the
+file, the page follows it, the person moves something in the editor, the file
+changes under the agent. `.claude/skills/rave/SKILL.md` is that loop written
+down for one.
+
+### The Figma side has the same doors
+
+```bash
+npm run figma -- check app.fig     # parsed, converted, imported, drawn — and what was lost
+npm run figma -- markup app.fig    # the file as Rave markup, to edit and check
+npm run figma -- tree app.fig      # the node tree, as the reader sees it
+npm run figma -- serve app.fig     # Rafi at :8011, following the file
+```
+
+`figma check` is `rave check` for a design that arrived as a Figma file: it
+says what the parser could not read, what the converter could not carry, what
+the import had to guess, and then what the engine rejected and the lint
+objected to once it was drawn.
+
+### MCP, for a host that is not a shell
+
+`gallery/rave/mcp/server.mjs` is one MCP server over both — `rave_spec`,
+`rave_new`, `rave_check`, `rave_read`, `rave_write`, `rave_shot`,
+`figma_check`, `figma_markup`, `figma_tree`. `rave_shot` answers with the
+picture itself, so the agent looks at what it made rather than reading about
+it. It has no dependencies: MCP over stdio is
+newline-delimited JSON-RPC and four methods, and a server that is one file
+with no install step is one a person can point a host at without thinking
+about it.
+
+`.mcp.json` and `.cursor/mcp.json` in this repository already declare it, so
+Claude Code and Cursor find it when they are opened here. Elsewhere:
+
+```bash
+claude mcp add ranger-design -- node /path/to/Ranger/gallery/rave/mcp/server.mjs
+```
+
+```json
+// ~/.cursor/mcp.json, or .cursor/mcp.json beside your project
+{ "mcpServers": { "ranger-design": {
+    "command": "node",
+    "args": ["/path/to/Ranger/gallery/rave/mcp/server.mjs"],
+    "env": { "RANGER_DESIGN_CWD": "/path/to/your/designs" } } } }
+```
+
+Paths in tool arguments resolve against `RANGER_DESIGN_CWD` when it is set and
+against the server's own working directory otherwise — which is the project
+directory in every host that launches it from one.
+
+`rave_write` is the one worth knowing: it writes the markup **and runs the
+check on it**, so the answer to "I wrote this" is "and here is what is wrong
+with it" rather than silence. `npm run rave:mcp:check` speaks to the server
+the way a host does — initialize, list, call — so the wire is checked rather
+than assumed.
 
 ## Asking an AI, with a person as the wire
 

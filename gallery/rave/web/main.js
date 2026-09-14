@@ -182,6 +182,8 @@ canvas.addEventListener("keydown", (ev) => {
 // Open… and Save are EVG buttons; the page does the two things a canvas
 // cannot: show a picker, and hand the browser a download.
 let wantFig = false;
+// Whether a `rave serve` is behind this page, holding one file.
+let served = false;
 
 // Reading the clipboard needs permission the user may not have given, and
 // writing it needs a secure context. Both fall back to a textarea the page
@@ -276,6 +278,15 @@ app.press = (id) => {
     fileEl.click();
     return false;
   }
+  if (id === "file:save" && served) {
+    // `rave serve` gave us a file; Save puts it back rather than handing the
+    // browser a download nobody asked for.
+    fetch("doc", { method: "PUT", body: app.saveMarkup() }).then(
+      () => { app.press("file:saved"); schedule(); },
+      () => { /* fall back to the download below on the next press */ served = false; },
+    );
+    return false;
+  }
   if (id === "file:save") {
     const blob = new Blob([app.saveJson()], { type: "application/json" });
     const a = document.createElement("a");
@@ -304,6 +315,37 @@ fileEl.addEventListener("change", async () => {
   }
   fileEl.value = "";
   schedule();
+});
+
+// --- the file, when `rave serve` is behind the page -----------------------------
+// The document lives on disk; the page loads it, follows it when something
+// else writes it, and writes it back on Save. That is what makes an agent
+// editing the file and a person looking at the screen the same session.
+async function loadServedDoc(announce) {
+  let text;
+  try {
+    const r = await fetch("doc", { cache: "no-store" });
+    if (!r.ok) return false;
+    text = await r.text();
+  } catch (e) {
+    return false;
+  }
+  if (!text.trim()) return false;
+  const ok = app.openMarkup(text);
+  served = true;
+  if (ok && announce) app.press("file:saved");
+  schedule();
+  return true;
+}
+
+loadServedDoc(false).then((ok) => {
+  if (!ok) return;
+  try {
+    const events = new EventSource("events");
+    events.onmessage = () => loadServedDoc(false);
+  } catch (e) {
+    /* no live reload, but the file still loaded */
+  }
 });
 
 window.addEventListener("resize", schedule);
