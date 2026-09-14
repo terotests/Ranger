@@ -382,6 +382,143 @@ class RavePatterns {
         }
     }
 
+    ; --- CRUD --------------------------------------------------------------------------
+
+    sfn crudTheme:void (app:RaveApp) {
+        app.shared("scrim" "position" "fixed")
+        app.shared("scrim" "left" "0px")
+        app.shared("scrim" "top" "0px")
+        app.shared("scrim" "right" "0px")
+        app.shared("scrim" "bottom" "0px")
+        app.shared("scrim" "align-items" "center")
+        app.shared("scrim" "justify-content" "center")
+        app.shared("scrim" "padding" "24px")
+        app.shared("scrim" "background-color" "rgba(9, 9, 11, 0.45)")
+
+        app.shared("dialog" "width" "420px")
+        app.shared("dialog" "max-width" "100%")
+        app.shared("dialog" "gap" "16px")
+        app.shared("dialog" "padding" "24px")
+        app.shared("dialog" "background-color" "var(--bg)")
+        app.shared("dialog" "color" "var(--ink)")
+        app.shared("dialog" "border" "1px solid var(--line)")
+        app.shared("dialog" "border-radius" "var(--radius)")
+
+        app.shared("actions" "flex-direction" "row")
+        app.shared("actions" "gap" "8px")
+        app.shared("actions" "justify-content" "flex-end")
+
+        app.shared("btn-danger" "background-color" "#b91c1c")
+        app.shared("btn-danger" "color" "#ffffff")
+
+        app.shared("toast" "position" "fixed")
+        app.shared("toast" "left" "24px")
+        app.shared("toast" "bottom" "24px")
+        app.shared("toast" "padding" "12px 16px")
+        app.shared("toast" "border-radius" "var(--radius)")
+        app.shared("toast" "background-color" "var(--ink)")
+        app.shared("toast" "color" "var(--bg)")
+        app.shared("toast" "font-size" "14px")
+    }
+
+    ; A field whose input writes a collection field when `Create` runs.
+    sfn boundField:RaveNode (app:RaveApp parent:RaveNode label:string placeholder:string field:string) {
+        def f:RaveNode (RavePatterns.field(app parent label placeholder))
+        def inputId:int (app.findIn(f "input" label))
+        if (inputId > 0) {
+            def input:RaveNode (app.node(inputId))
+            input.bind = field
+        }
+        return f
+    }
+
+    ; Create and Delete over the Master / Detail routes: a dialog that makes
+    ; a row out of what was typed into it, an alert dialog that asks before a
+    ; row goes, and a toast that says which happened. `withMasterDetail` has
+    ; to have run first — this is the pattern the plan composes, not a
+    ; separate application.
+    sfn withCrud:void (app:RaveApp) {
+        RavePatterns.crudTheme(app)
+
+        ; --- the list route gains a New item button and its dialog ---------------
+        def listRoute:RaveRoute (app.routeAt("/items"))
+        def list:RaveNode (app.node(listRoute.pageId))
+        def bar:RaveNode (app.newNode("div" "List actions"))
+        app.style(bar "flex-direction" "row")
+        app.style(bar "align-items" "center")
+        app.style(bar "justify-content" "space-between")
+        app.style(bar "gap" "16px")
+        def heading:int (app.findIn(list "h1" "Items"))
+        if (heading > 0) {
+            app.detach(heading)
+            bar.add((app.node(heading)))
+        }
+        def newBtn:RaveNode (RavePatterns.button(app bar "New item"))
+        newBtn.on("open" "create")
+        app.attach(list.id bar.id 0)
+
+        def scrim:RaveNode (list.add((app.newOverlay("create" "New item"))))
+        scrim.addClass("scrim")
+        def panel:RaveNode (scrim.add((app.newNode("section" "New item"))))
+        panel.addClass("dialog")
+        panel.label = "New item"
+        def ph:RaveNode (panel.add((app.newText("h2" "New item"))))
+        ph.addClass("title")
+        def pform:RaveNode (panel.add((app.newNode("form" "New item form"))))
+        pform.label = "New item"
+        app.style(pform "gap" "12px")
+        RavePatterns.boundField(app pform "Title" "What it is called" "title")
+        RavePatterns.boundField(app pform "Summary" "What it is about" "summary")
+        def pacts:RaveNode (panel.add((app.newNode("div" "New item actions"))))
+        pacts.addClass("actions")
+        def cancel:RaveNode (RavePatterns.button(app pacts "Cancel"))
+        cancel.addClass("btn-ghost")
+        cancel.on("close" "")
+        def make:RaveNode (RavePatterns.button(app pacts "Create"))
+        make.on("create" "items")
+        make.on("close" "")
+        make.on("toast" "Item created")
+
+        ; --- the detail route gains Delete and its confirmation ------------------
+        def paneId:int (app.idOfNamed("section" "Item detail"))
+        def pane:RaveNode (app.node(paneId))
+        def dacts:RaveNode (pane.add((app.newNode("div" "Item actions"))))
+        dacts.addClass("actions")
+        app.style(dacts "justify-content" "flex-start")
+        def del:RaveNode (RavePatterns.button(app dacts "Delete"))
+        del.addClass("btn-danger")
+        del.on("open" "confirm")
+
+        def ask:RaveNode (pane.add((app.newOverlay("confirm" "Delete this item?"))))
+        ask.addClass("scrim")
+        def askPanel:RaveNode (ask.add((app.newNode("section" "Delete this item?"))))
+        askPanel.addClass("dialog")
+        askPanel.label = "Delete this item?"
+        def ah:RaveNode (askPanel.add((app.newText("h2" "Delete this item?"))))
+        ah.addClass("title")
+        def ap:RaveNode (askPanel.add((app.newText("p" "\"{title}\" goes, and nothing brings it back."))))
+        ap.addClass("muted")
+        def aacts:RaveNode (askPanel.add((app.newNode("div" "Confirm actions"))))
+        aacts.addClass("actions")
+        def keep:RaveNode (RavePatterns.button(app aacts "Keep it"))
+        keep.addClass("btn-ghost")
+        keep.on("close" "")
+        def gone:RaveNode (RavePatterns.button(app aacts "Delete"))
+        gone.addClass("btn-danger")
+        gone.on("remove" "items/{id}")
+        gone.on("close" "")
+        gone.on("toast" "Item deleted")
+        gone.on("navigate" "/items")
+
+        ; --- and the shell says which of them happened ---------------------------
+        def shellId:int listRoute.layoutId
+        if (shellId > 0) {
+            def shell:RaveNode (app.node(shellId))
+            def toast:RaveNode (shell.add((app.newToast())))
+            toast.addClass("toast")
+        }
+    }
+
     ; --- Auth Flow -----------------------------------------------------------------
 
     ; Adds `/login` on its own centred layout, protects every route but the
@@ -445,6 +582,15 @@ class RavePatterns {
     sfn masterDetail:RaveApp (name:string) {
         def app:RaveApp (RavePatterns.dashboardShell(name))
         RavePatterns.withMasterDetail(app)
+        RavePatterns.withAuth(app)
+        return app
+    }
+
+    ; Master / Detail, and the two things a reader does to the rows.
+    sfn crud:RaveApp (name:string) {
+        def app:RaveApp (RavePatterns.dashboardShell(name))
+        RavePatterns.withMasterDetail(app)
+        RavePatterns.withCrud(app)
         RavePatterns.withAuth(app)
         return app
     }

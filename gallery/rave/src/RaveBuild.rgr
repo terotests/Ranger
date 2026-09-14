@@ -33,6 +33,12 @@ class RaveBuild {
     def rowColl:string ""
     def rowSuffix:string ""
     def rowOwner:[string:string]
+    ; The overlay that is open, the words the toast is showing, and what has
+    ; been typed into each input — all three are the session's, not the
+    ; document's, and the runtime hands them over before it builds.
+    def openOverlay:string ""
+    def toast:string ""
+    def values:[string:string]
 
     Constructor (a:RaveApp au:RaveAuth) {
         app = a
@@ -41,6 +47,8 @@ class RaveBuild {
         params = freshParams
         def freshOwner:[string:string]
         rowOwner = freshOwner
+        def freshValues:[string:string]
+        values = freshValues
     }
 
     ; --- a route --------------------------------------------------------------
@@ -193,6 +201,10 @@ class RaveBuild {
         e.elementType = 1
         e.textContent = (this.tx(n.text))
         e.role = (RaveBuild.roleOf(n.tag))
+        if (n.kind == "toast") {
+            e.textContent = toast
+            e.role = "status"
+        }
         def lvl:int (RaveBuild.headingLevel(n.tag))
         if (lvl > 0) {
             e.a11yLevel = lvl
@@ -232,10 +244,22 @@ class RaveBuild {
             e.src = n.src
             e.alt = n.alt
         }
-        e.id = (this.eid(n))
+        def myId:string (this.eid(n))
+        e.id = myId
         e.className = (this.classesOf(n))
         e.role = (RaveBuild.roleOf(n.tag))
         def ownText:string (this.tx(n.text))
+        if (n.kind == "overlay") {
+            e.role = "dialog"
+            e.a11yModal = true
+        }
+        if (n.kind == "toast") {
+            e.role = "status"
+            ownText = toast
+        }
+        if ((n.tag == "input") && (has values myId)) {
+            ownText = (unwrap (get values myId))
+        }
         if ((strlen n.label) > 0) {
             e.a11yLabel = (this.tx(n.label))
         }
@@ -342,6 +366,12 @@ class RaveBuild {
     fn shown:boolean (n:RaveNode) {
         if (n.kind == "conditional") {
             return (auth.allows(n.condition))
+        }
+        if (n.kind == "overlay") {
+            return (n.overlay == openOverlay)
+        }
+        if (n.kind == "toast") {
+            return ((strlen toast) > 0)
         }
         return true
     }

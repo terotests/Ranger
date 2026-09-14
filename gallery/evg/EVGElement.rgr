@@ -518,6 +518,19 @@ class EVGElement {
     ; the note at the top of EVGUnit.
     def viewportW:double 0.0
     def viewportH:double 0.0
+    ; A BOX THAT IS A VIEWPORT OF ITS OWN. `fixed` is positioned against the
+    ; viewport, and until now there was exactly one of those per layout — the
+    ; page. A stage that shows the same document at 1440, 768 and 390 in one
+    ; tree has three, and a modal in the phone frame belongs over the phone
+    ; frame and not over the whole stage. An element with this set keeps its
+    ; own `viewportW/H` and `viewportX/Y` instead of inheriting them, and
+    ; every `fixed` box under it resolves against that rectangle. Off, the
+    ; viewport is the page's, as it always was.
+    def viewportRoot:boolean false
+    ; Where that viewport's own (0,0) is, in the coordinates the layout works
+    ; in. Zero for the page, which is where it starts.
+    def viewportX:double 0.0
+    def viewportY:double 0.0
     def fontFamily:string "Noto Sans"
     def fontWeight:string "normal"
     ; Extra advance after every character, in pixels — CSS `letter-spacing`,
@@ -1785,10 +1798,15 @@ class EVGElement {
         }
         fontSizeBase = parentEl.inheritedFontSize
         rootFontSize = parentEl.rootFontSize
-        ; The viewport is the same for every element in a tree, so it travels
-        ; the same way the root font size does rather than being looked up.
-        viewportW = parentEl.viewportW
-        viewportH = parentEl.viewportH
+        ; The viewport travels the same way the root font size does rather
+        ; than being looked up — except across a box that declares one of its
+        ; own, which is where the walk stops.
+        if (viewportRoot == false) {
+            viewportW = parentEl.viewportW
+            viewportH = parentEl.viewportH
+            viewportX = parentEl.viewportX
+            viewportY = parentEl.viewportY
+        }
         this.applyOwnFontSize()
         this.applyOwnDirection(parentEl.resolvedRtl)
     }
@@ -2785,6 +2803,9 @@ class EVGElement {
         rootFontSize = other.rootFontSize
         viewportW = other.viewportW
         viewportH = other.viewportH
+        viewportRoot = other.viewportRoot
+        viewportX = other.viewportX
+        viewportY = other.viewportY
         fontFamily = other.fontFamily
         fontWeight = other.fontWeight
         letterSpacing = other.letterSpacing

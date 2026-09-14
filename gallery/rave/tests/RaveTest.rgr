@@ -180,6 +180,109 @@ class RaveTest {
         c.eqStr("…and the repeat that draws them" listNode.repeat "items")
     }
 
+    ; --- CRUD ---------------------------------------------------------------------------
+
+    ; The two things a reader does to a list: put a row in it and take one
+    ; out. What is checked is that both go through the document — the dialog
+    ; is a node built only while it is open, the typing lands in the row that
+    ; is created, and the delete needs the confirmation to have been answered.
+    sfn crudChecks:void (c:Check) {
+        print ""
+        print "--- crud ---"
+        def app:RaveApp (RavePatterns.crud("Acme"))
+        def coll:RaveCollection (app.collection("items"))
+        c.eqInt("five rows to start with" (coll.rowCount()) 5)
+
+        def rt (new RaveRuntime(app))
+        c.eqInt("the sheet parses clean" (rt.styleErrorCount()) 0)
+        if ((rt.styleErrorCount()) > 0) {
+            print ("       " + (rt.styleError(0)))
+        }
+        def desk:int (rt.addView("desktop" 1440.0 900.0 false))
+        def phone:int (rt.addView("phone" 390.0 844.0 true))
+        rt.setLoggedIn(true)
+        rt.navigate("/items")
+
+        ; --- the dialog is not there until it is opened -------------------------
+        def scrimId:int (app.idOfOverlay("create"))
+        def scrim:string (RaveTest.elId(scrimId))
+        c.ok("the dialog is off the page" ((rt.hasEl(desk scrim)) == false))
+        def newBtn:string (RaveTest.elId((app.idWithAction("open" "create"))))
+        c.ok("New item opens it" (rt.press(newBtn)))
+        c.ok("…and now it is on the page" (rt.hasEl(desk scrim)))
+        c.ok("…over the whole viewport" (RaveTest.near((rt.widthOf(desk scrim)) 1440.0)))
+        ; the frame is the viewport: the phone's modal covers the phone
+        c.ok("…and over the phone's, at the phone's width" (RaveTest.near((rt.widthOf(phone scrim)) 390.0)))
+        c.ok("…starting at the phone frame's own left edge" (RaveTest.near((rt.localLeftOf(phone scrim)) 0.0)))
+        c.ok("…not at the stage's" ((rt.leftOf(phone scrim)) > 1.0))
+        RaveTest.noRejections(c rt desk "the engine rejected nothing with the dialog open")
+        RaveTest.lintClean(c rt desk "the dialog lints clean at 1440")
+        RaveTest.lintClean(c rt phone "the dialog lints clean at 390")
+
+        ; --- what is typed into it becomes the row -------------------------------
+        def overlay:RaveNode (app.node(scrimId))
+        def titleId:string (RaveTest.elId((app.findIn(overlay "input" "Title"))))
+        def summaryId:string (RaveTest.elId((app.findIn(overlay "input" "Summary"))))
+        c.ok("the title field takes focus" (rt.focusOn(desk titleId)))
+        RaveTest.typeInto(rt desk "Release notes")
+        c.eqStr("…and holds what was typed" (rt.valueOf(titleId)) "Release notes")
+        c.ok("a backspace takes the last letter" (rt.keyWith(desk "Backspace" false false)))
+        c.eqStr("…one letter" (rt.valueOf(titleId)) "Release note")
+        RaveTest.typeInto(rt desk "s")
+        c.ok("the summary field takes focus" (rt.focusOn(desk summaryId)))
+        RaveTest.typeInto(rt desk "What changed this week.")
+        c.ok("the dialog shows what was typed" (RaveTest.includes((rt.displayListJson(desk)) "Release notes")))
+
+        def createBtn:string (RaveTest.elId((app.idWithAction("create" "items"))))
+        c.ok("Create makes a row" (rt.press(createBtn)))
+        c.eqInt("…the sixth" (coll.rowCount()) 6)
+        def made:RaveRow (coll.rowAt(5))
+        c.eqStr("…with the title that was typed" (made.get("title")) "Release notes")
+        c.eqStr("…and the summary" (made.get("summary")) "What changed this week.")
+        c.ok("…the dialog closed behind it" ((rt.hasEl(desk scrim)) == false))
+        c.ok("…the toast says so" (RaveTest.includes((rt.displayListJson(desk)) "Item created")))
+        c.ok("…and the new row is in the list" (RaveTest.includes((rt.displayListJson(desk)) "Release notes")))
+        c.eqStr("…the fields were emptied" (rt.valueOf(titleId)) "")
+
+        ; --- Escape closes without doing anything --------------------------------
+        rt.press(newBtn)
+        c.ok("the dialog is open again" (rt.hasEl(desk scrim)))
+        c.ok("Escape closes it" (rt.keyWith(desk "Escape" false false)))
+        c.ok("…and nothing was added" ((coll.rowCount()) == 6))
+
+        ; --- delete asks first ----------------------------------------------------
+        rt.navigate("/items/2")
+        c.eqStr("the detail route is about row 2" (rt.path()) "/items/2")
+        def askId:int (app.idOfOverlay("confirm"))
+        def ask:string (RaveTest.elId(askId))
+        c.ok("the confirmation is not on the page" ((rt.hasEl(desk ask)) == false))
+        def delBtn:string (RaveTest.elId((app.idWithAction("open" "confirm"))))
+        c.ok("Delete asks first" (rt.press(delBtn)))
+        c.ok("…with the row's own title in the question" (RaveTest.includes((rt.displayListJson(desk)) "Quarterly invoice")))
+        RaveTest.lintClean(c rt desk "the confirmation lints clean at 1440")
+        def keepBtn:string (RaveTest.elId((app.findIn((app.node(askId)) "button" "Keep it"))))
+        c.ok("Keep it closes it" (rt.press(keepBtn)))
+        c.eqInt("…and the row is still there" (coll.rowCount()) 6)
+
+        rt.press(delBtn)
+        def goneId:int (app.idWithAction("remove" "items/{id}"))
+        def goneBtn:string (RaveTest.elId(goneId))
+        c.ok("confirming deletes" (rt.press(goneBtn)))
+        c.eqInt("…one row" (coll.rowCount()) 5)
+        c.ok("…the one that was asked about" ((coll.hasKey("2")) == false))
+        c.eqStr("…and the app went back to the list" (rt.path()) "/items")
+        c.ok("…saying so" (RaveTest.includes((rt.displayListJson(desk)) "Item deleted")))
+        c.ok("…and the row is gone from it" ((RaveTest.includes((rt.displayListJson(desk)) "Quarterly invoice")) == false))
+        RaveTest.lintClean(c rt desk "the list lints clean after the delete")
+        RaveTest.noRejections(c rt phone "the engine rejected nothing at 390")
+
+        ; --- the document survives a round trip -----------------------------------
+        def back:RaveApp (RaveApp.fromJson((app.toJson())))
+        c.ok("the dialog round-trips" ((back.idOfOverlay("create")) > 0))
+        def bTitle:RaveNode (back.node((back.findIn((back.node((back.idOfOverlay("create")))) "input" "Title"))))
+        c.eqStr("…with the field it writes" bTitle.bind "title")
+    }
+
     ; --- the editor -----------------------------------------------------------------
 
     sfn chromeCss:string () {
@@ -188,6 +291,15 @@ class RaveTest {
             return ""
         }
         return (unwrap css)
+    }
+
+    ; Typing into the application on the stage, one key at a time.
+    sfn typeInto:void (rt:RaveRuntime view:int s:string) {
+        def i:int 0
+        while (i < (strlen s)) {
+            rt.keyWith(view (strfromcode (charAt s i)) false false)
+            i = (i + 1)
+        }
     }
 
     sfn typeText:void (ed:RaveEditor s:string) {
@@ -727,6 +839,7 @@ class RaveTest {
         c.ok("…and the heading" (RaveTest.includes(a11y "Dashboard")))
 
         RaveTest.masterDetailChecks(c)
+        RaveTest.crudChecks(c)
         RaveTest.editorChecks(c)
         RaveTest.inputChecks(c)
 

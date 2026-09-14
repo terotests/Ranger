@@ -127,6 +127,8 @@ class RaveNode {
     def sourceKey:string ""
     ; for kind == overlay: the name `open` and `close` use
     def overlay:string ""
+    ; for an input: the collection field it writes when `create` runs
+    def bind:string ""
     def actions:[RaveAction]
     def children:[RaveNode]
 
@@ -407,6 +409,64 @@ class RaveApp {
         def n:RaveNode (this.newNode("div" "Content"))
         n.kind = "slot"
         return n
+    }
+
+    ; A dialog: built only while it is the overlay that is open, and a modal
+    ; while it is, so `EVGFocus` keeps the keyboard inside it.
+    fn newOverlay:RaveNode (overlayName:string title:string) {
+        def n:RaveNode (this.newNode("div" title))
+        n.kind = "overlay"
+        n.overlay = overlayName
+        n.label = title
+        return n
+    }
+
+    ; The strip that says what just happened. Its words are the runtime's,
+    ; not the document's, and it is on the page only while there are any.
+    fn newToast:RaveNode () {
+        def n:RaveNode (this.newNode("span" "Toast"))
+        n.kind = "toast"
+        n.tag = "span"
+        return n
+    }
+
+    fn findOverlay:int (root:RaveNode overlayName:string) {
+        if ((root.kind == "overlay") && (root.overlay == overlayName)) {
+            return root.id
+        }
+        def i:int 0
+        while (i < (array_length root.children)) {
+            def c:RaveNode (itemAt root.children i)
+            def hit:int (this.findOverlay(c overlayName))
+            if (hit > 0) {
+                return hit
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    ; The overlay of this name, anywhere in the document, or 0.
+    fn idOfOverlay:int (overlayName:string) {
+        def i:int 0
+        while (i < (array_length layouts)) {
+            def l:RaveNode (itemAt layouts i)
+            def hit:int (this.findOverlay(l overlayName))
+            if (hit > 0) {
+                return hit
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length pages)) {
+            def p:RaveNode (itemAt pages j)
+            def hit2:int (this.findOverlay(p overlayName))
+            if (hit2 > 0) {
+                return hit2
+            }
+            j = (j + 1)
+        }
+        return 0
     }
 
     fn newConditional:RaveNode (condition:string) {
@@ -1159,6 +1219,7 @@ class RaveApp {
         if ((strlen n.source) > 0) { out = (out + ",\"source\":" + (RaveJson.q(n.source))) }
         if ((strlen n.sourceKey) > 0) { out = (out + ",\"sourceKey\":" + (RaveJson.q(n.sourceKey))) }
         if ((strlen n.overlay) > 0) { out = (out + ",\"overlay\":" + (RaveJson.q(n.overlay))) }
+        if ((strlen n.bind) > 0) { out = (out + ",\"bind\":" + (RaveJson.q(n.bind))) }
         out = (out + ",\"actions\":[")
         def i:int 0
         while (i < (array_length n.actions)) {
@@ -1298,6 +1359,7 @@ class RaveApp {
         n.source = (v.s("source"))
         n.sourceKey = (v.s("sourceKey"))
         n.overlay = (v.s("overlay"))
+        n.bind = (v.s("bind"))
         def cl:RaveJv (v.a("classes"))
         def i:int 0
         while (i < (cl.count())) {
