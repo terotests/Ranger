@@ -180,14 +180,27 @@ behind these annotations, and the
 
 ## Why does my call not compile?
 
-Ranger is an s-expression language. A call is `(function argument argument)`,
-and a call that gives a value needs its own parentheses.
+Ranger is an s-expression language. A call is `(function argument argument)`.
+
+A call on a **dotted** receiver may also be written the way the C family writes
+it, with nothing between the name and the `(`. The parser folds the two into one
+call node, so both spellings below are the same program:
+
+| Both of these work | |
+| --- | --- |
+| `return this.helper()` | `return (this.helper())` |
+| `return this.helper() + 10` | `def v:int (this.helper())` then `return (v + 10)` |
+| `def v:int (this.helper() + 1)` | `def v:int (this.helper())` then `def w:int (v + 1)` |
+| `this.other(this.helper())` | `this.other((this.helper()))` |
+| `return a.b().c()` | `return (a.b().c())` |
+
+What still needs the parentheses, or a local:
 
 | Write | Do not write | Why |
 | --- | --- | --- |
-| `return (this.helper())` | `return this.helper()` | The bare form fails the analysis on every target, and the message names an unrelated method. |
-| `def v:int (this.helper())` then `return (v + 0)` | `return (this.helper() + 0)` | The call must be the direct operand of the parentheses. |
+| `return (fn1(3))` | `return fn1(3)` | The fold reaches a dotted receiver only. An undotted name in front of a `(` is also how `new Type(...)` and a method declaration are spelled. |
 | `def recv:T (expr)` then `recv.method()` | `(expr).method()` | A statement must not start with a receiver in parentheses. |
+| `def n:T (h.nodeOf())` then `f(n.plain)` | `f((h.nodeOf()).plain)` | A parenthesised receiver followed by a field does not resolve in argument position. |
 | One statement per line | `{ def c:int 5 return c }` | Two statements on one line is a parse error. |
 
 <TargetOutput example={ex("faq/lisp-form")} targets={model.generated.targets} />

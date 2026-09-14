@@ -203,6 +203,12 @@ class CodeNode {
   def has_lambda:boolean false
   def has_lambda_call:boolean false
   def has_call false
+  ; Set by the parser on a `(` it read as the ARGUMENT LIST of the name in
+  ; front of it, as opposed to a grouping paren. A call written bare inside an
+  ; argument list -- `a.add(a.value())` -- has its own name at index 0, where
+  ; the fold otherwise leaves it alone, and the arguments would come out as
+  ; two of them instead of one.
+  def is_call_args:boolean false
   
   ; Rust static analysis - for pre-evaluating method args to avoid borrow conflicts
   def rust_needs_preevaluate:boolean false

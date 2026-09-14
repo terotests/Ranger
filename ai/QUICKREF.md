@@ -102,8 +102,10 @@ continue
 (? cond then else)
 ```
 
-A call that yields a value needs its own parentheses:
-`return (this.helper())` — see [FAQ](https://terotests.github.io/Ranger/docs/faq/#why-does-my-call-not-compile).
+A call on a dotted receiver may be written bare: `return this.helper()`,
+`def v:int (this.helper() + 1)`. A callee that is not dotted — a lambda in a
+local — still needs its own parentheses: `return (fn1(3))`. See
+[FAQ](https://terotests.github.io/Ranger/docs/faq/#why-does-my-call-not-compile).
 
 ## Classes and records
 

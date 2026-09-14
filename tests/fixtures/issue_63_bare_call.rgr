@@ -1,0 +1,122 @@
+; ISSUES.md #63. A method call written the way every C-family language writes
+; it -- `return this.helper()`, `(this.helper() + 1)` -- used to fail analysis
+; and had to be spelled with an extra pair of parentheses or bound to a local
+; first. The parser folds the call together now, so this file is the canonical
+; spelling AND the bare one, side by side, asserting the same values.
+;
+; Every line here failed to compile before the fold.
+
+class Helper {
+    def n:int 0
+
+    Constructor (start:int) {
+        n = start
+    }
+
+    fn value:int () {
+        return (n)
+    }
+
+    fn add:int (x:int) {
+        return (n + x)
+    }
+
+    fn same:Helper () {
+        return (this)
+    }
+}
+
+class Issue63 {
+
+    def h:Helper (new Helper(3))
+
+    sfn twice:int (x:int) {
+        return (x + x)
+    }
+
+    ; bare call in return position
+    fn bareReturn:int () {
+        return this.h.value()
+    }
+
+    ; the spelling that always worked, for comparison
+    fn parenReturn:int () {
+        return (this.h.value())
+    }
+
+    ; bare call as the left operand of arithmetic
+    fn bareReturnPlus:int () {
+        return this.h.value() + 10
+    }
+
+    ; a static call in return position
+    fn bareStaticReturn:int () {
+        return Issue63.twice(7)
+    }
+
+    ; arithmetic on a call result, without binding it to a local first
+    fn arithmeticOnCall:int () {
+        def v:int (this.h.value() + 1)
+        return (v)
+    }
+
+    fn arithmeticOnCallRight:int () {
+        def v:int (100 - this.h.value())
+        return (v)
+    }
+
+    fn arithmeticBothSides:int () {
+        def v:int (this.h.value() + Issue63.twice(10))
+        return (v)
+    }
+
+    ; a call as an argument of another call
+    fn callAsArgument:int () {
+        return this.h.add(this.h.value())
+    }
+
+    ; a chained call, bare, in return position
+    fn bareChainReturn:int () {
+        return this.h.same().value()
+    }
+
+    ; a chained call as an arithmetic operand
+    fn chainArithmetic:int () {
+        def v:int (this.h.same().value() * 5)
+        return (v)
+    }
+
+    ; comparison on a bare call result (this already worked; it must keep working)
+    fn compareCall:int () {
+        if (this.h.value() == 3) {
+            return (1)
+        }
+        return (0)
+    }
+
+    ; a bare call as a statement, and a `new` expression, neither of which the
+    ; fold may touch
+    fn untouched:int () {
+        def other:Helper (new Helper(4))
+        other.add(1)
+        def s:string "hello"
+        def idx:int (s.indexOf("ll"))
+        return (other.value() + idx)
+    }
+
+    sfn main@(main):void () {
+        def t:Issue63 (new Issue63)
+        print ("bareReturn=" + (t.bareReturn()))
+        print ("parenReturn=" + (t.parenReturn()))
+        print ("bareReturnPlus=" + (t.bareReturnPlus()))
+        print ("bareStaticReturn=" + (t.bareStaticReturn()))
+        print ("arithmeticOnCall=" + (t.arithmeticOnCall()))
+        print ("arithmeticOnCallRight=" + (t.arithmeticOnCallRight()))
+        print ("arithmeticBothSides=" + (t.arithmeticBothSides()))
+        print ("callAsArgument=" + (t.callAsArgument()))
+        print ("bareChainReturn=" + (t.bareChainReturn()))
+        print ("chainArithmetic=" + (t.chainArithmetic()))
+        print ("compareCall=" + (t.compareCall()))
+        print ("untouched=" + (t.untouched()))
+    }
+}
