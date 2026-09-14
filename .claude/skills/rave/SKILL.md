@@ -19,6 +19,13 @@ npm run rave -- spec                  # the format in full — read this before 
 
 From outside this repository the same thing is `node <ranger>/gallery/rave/cli.mjs …`.
 
+There is also an MCP server over the same commands — `ranger-design`, declared
+in this repository's `.mcp.json` and `.cursor/mcp.json` — with
+`rave_spec`, `rave_new`, `rave_check`, `rave_read`, `rave_write`,
+`figma_check`, `figma_markup` and `figma_tree`. Use whichever door is in front
+of you; they do the same work, and `rave_write` runs the check on what it
+wrote, so a document that does not hold up says so in the same answer.
+
 ## The loop
 
 1. **`rave spec`** once, if you have not written this markup before. It lists
@@ -103,5 +110,17 @@ file: it loads it, follows it when you write it, and writes it back when
 someone presses Save in the page. That is how an agent editing the file and a
 person watching the screen are one session.
 
-`rave import <file.fig>` reads a Figma file as an application, and
-`rave text <file.fig>` prints it as this markup.
+## The Figma side
+
+`figma check <file.fig>` reads a `.fig` the whole way — parsed, converted,
+imported as an application and drawn — and reports what each stage could not
+carry. `figma markup <file.fig>` prints it as this markup, so a design that
+arrived as a Figma file becomes one that can be edited and checked.
+`figma tree` is the node tree, and `figma serve <file.fig>` runs Rafi — the
+Figma viewer — bound to that file, following it when it is replaced.
+
+```
+npm run figma -- check app.fig
+npm run figma -- markup app.fig > app.rave   # then edit and `rave check` it
+npm run figma -- serve app.fig
+```

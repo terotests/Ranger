@@ -25,7 +25,7 @@ const CLI_JS = path.join(HERE, "bin", "rave_cli.js");
 const CLI_SRC = path.join(HERE, "src");
 const WEB = path.join(HERE, "web");
 
-const DOC_COMMANDS = new Set(["new", "check", "fmt", "json", "markup", "import", "text", "spec"]);
+const DOC_COMMANDS = new Set(["new", "check", "fmt", "json", "markup", "import", "text", "spec", "figcheck"]);
 
 function newestMtime(dir) {
   let newest = 0;

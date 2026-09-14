@@ -238,6 +238,15 @@ fileEl.addEventListener("change", async () => {
 window.addEventListener("resize", schedule);
 
 // --- the file the page starts on --------------------------------------------------
+// `figma serve` puts one beside the page and says when it changes, so a file
+// being rewritten on disk and a page showing it are the same session.
+try {
+  const events = new EventSource("events");
+  events.onmessage = () => boot();
+} catch (e) {
+  /* served from a directory rather than the CLI: no live reload, which is fine */
+}
+
 const start = new URLSearchParams(location.search).get("file") || "fixtures/health.fig";
 
 async function boot() {

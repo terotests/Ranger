@@ -482,6 +482,10 @@ SUITES=(
   # That is how an agent editing the file and a person watching the screen are
   # one session, so it is checked rather than described.
   rave:serve:check
+  # And the MCP door, spoken to the way a host speaks to it — initialize, list,
+  # call — so the thing Claude Code and Cursor both point at is checked rather
+  # than assumed.
+  rave:mcp:check
   firesim:targets
   # The workbench: a database browser over the simulator, drawn by EVG and
   # controlled by gallery/ui's own controllers — collections, documents, a

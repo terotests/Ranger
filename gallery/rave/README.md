@@ -258,6 +258,54 @@ file, the page follows it, the person moves something in the editor, the file
 changes under the agent. `.claude/skills/rave/SKILL.md` is that loop written
 down for one.
 
+### The Figma side has the same doors
+
+```bash
+npm run figma -- check app.fig     # parsed, converted, imported, drawn — and what was lost
+npm run figma -- markup app.fig    # the file as Rave markup, to edit and check
+npm run figma -- tree app.fig      # the node tree, as the reader sees it
+npm run figma -- serve app.fig     # Rafi at :8011, following the file
+```
+
+`figma check` is `rave check` for a design that arrived as a Figma file: it
+says what the parser could not read, what the converter could not carry, what
+the import had to guess, and then what the engine rejected and the lint
+objected to once it was drawn.
+
+### MCP, for a host that is not a shell
+
+`gallery/rave/mcp/server.mjs` is one MCP server over both — `rave_spec`,
+`rave_new`, `rave_check`, `rave_read`, `rave_write`, `figma_check`,
+`figma_markup`, `figma_tree`. It has no dependencies: MCP over stdio is
+newline-delimited JSON-RPC and four methods, and a server that is one file
+with no install step is one a person can point a host at without thinking
+about it.
+
+`.mcp.json` and `.cursor/mcp.json` in this repository already declare it, so
+Claude Code and Cursor find it when they are opened here. Elsewhere:
+
+```bash
+claude mcp add ranger-design -- node /path/to/Ranger/gallery/rave/mcp/server.mjs
+```
+
+```json
+// ~/.cursor/mcp.json, or .cursor/mcp.json beside your project
+{ "mcpServers": { "ranger-design": {
+    "command": "node",
+    "args": ["/path/to/Ranger/gallery/rave/mcp/server.mjs"],
+    "env": { "RANGER_DESIGN_CWD": "/path/to/your/designs" } } } }
+```
+
+Paths in tool arguments resolve against `RANGER_DESIGN_CWD` when it is set and
+against the server's own working directory otherwise — which is the project
+directory in every host that launches it from one.
+
+`rave_write` is the one worth knowing: it writes the markup **and runs the
+check on it**, so the answer to "I wrote this" is "and here is what is wrong
+with it" rather than silence. `npm run rave:mcp:check` speaks to the server
+the way a host does — initialize, list, call — so the wire is checked rather
+than assumed.
+
 ## Asking an AI, with a person as the wire
 
 `AI…` in the top bar. Nothing in Rave calls a service: the menu writes a
