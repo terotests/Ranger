@@ -34,7 +34,10 @@ drawn by EVG, and it is live at
   [`gallery/datagrid`](../datagrid/src/script/ScriptEditor.rgr), with a
   markdown tokenizer of its own ([`src/R5MdLanguage.rgr`](src/R5MdLanguage.rgr)):
   headings, fences, list markers, emphasis, links and `{.attributes}` each in
-  a colour, on a light theme. The tab *style.css* is the document's template.
+  a colour, on a light theme. The right edge is a **minimap** — the same
+  scaled picture of the file VS Code and Monaco draw — so a long document can
+  be jumped by clicking the strip rather than scrolling blindly. The tab
+  *style.css* is the document's template.
   An empty tab opens a commented guide to the selectors the layout honours;
   *Apply example* puts a starter sheet in the tab and dresses the preview.
 - **Two views of one source.** `MdEditController` (in the markdown module)

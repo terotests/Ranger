@@ -432,6 +432,39 @@ class ScriptEditorTest {
         blk.undo()
         c.eqStr("undo is one indent step" (blk.buf.lineAt(0)) "  alpha")
 
+        print "== the minimap is a map of the file =="
+        def mm:ScriptEditor (new ScriptEditor)
+        def built:string ""
+        def mi:int 0
+        while (mi < 80) {
+            built = (built + "const line" + (to_string mi) + " = " + (to_string mi) + ";\n")
+            mi = (mi + 1)
+        }
+        mm.init(built)
+        mm.setBounds(0 0 640 400)
+        c.eqInt("eighty lines plus the trailing empty" (mm.buf.lineCount()) 81)
+        c.ok("the right strip is the map" (mm.insideMinimap(600 40)))
+        c.ok("the text is not" ((mm.insideMinimap(120 40)) == false))
+        c.eqInt("it reserves a strip" (mm.minimapWidth()) mm.minimapW)
+        mm.setBounds(0 0 280 400)
+        c.eqInt("a narrow panel hides it" (mm.minimapWidth()) 0)
+        c.ok("and a click there is just a click" ((mm.insideMinimap(250 40)) == false))
+        mm.setBounds(0 0 640 400)
+        c.eqInt("the top of the map is line 0" (mm.minimapLineAt(0)) 0)
+        def bot:int (mm.minimapLineAt(399))
+        c.ok("the bottom is near the end of the file" (bot > 40))
+        def caretWas:int mm.sel.caret.line
+        c.eqInt("starts unscrolled" mm.layout.scrollLine 0)
+        c.ok("a click on the lower half is consumed" (mm.tryMinimapPointer(600 300)))
+        c.ok("and the view moved down" (mm.layout.scrollLine > 10))
+        c.eqInt("without moving the caret" mm.sel.caret.line caretWas)
+        def downAt:int mm.layout.scrollLine
+        c.ok("dragging toward the top is consumed too" (mm.tryMinimapPointer(600 20)))
+        c.ok("and the view followed" (mm.layout.scrollLine < downAt))
+        mm.showMinimap = false
+        c.eqInt("it can be turned off" (mm.minimapWidth()) 0)
+        mm.showMinimap = true
+
         print ""
         print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))
         if (c.failed > 0) {

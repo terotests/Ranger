@@ -33,7 +33,7 @@ npm run datagrid:script:editor:test  # the lexer and the editing model, 30 check
 | Piece | File | What it does |
 | --- | --- | --- |
 | Lexer | [`src/script/JsTokens.rgr`](../src/script/JsTokens.rgr) | JavaScript / JSX → coloured spans, one line at a time |
-| Editor panel | [`src/script/ScriptEditor.rgr`](../src/script/ScriptEditor.rgr) | gutter, current line, selection, caret, typing, undo |
+| Editor panel | [`src/script/ScriptEditor.rgr`](../src/script/ScriptEditor.rgr) | gutter, current line, selection, caret, typing, undo, **minimap** |
 | Page | [`src/script/CodeEditorPage.rgr`](../src/script/CodeEditorPage.rgr) | header, panel, status bar, input loop |
 | Browser host | [`web/code_editor_web.rgr`](../web/code_editor_web.rgr) + [`web/editor/`](../web/editor) | events → UIInput, scene → `evg-webgl.js` |
 | Native host | [`platform/sdl/code_editor_sdl.rgr`](../platform/sdl/code_editor_sdl.rgr) | SDL events → UIInput, list → `EvgGlPainter` |
@@ -43,14 +43,16 @@ The text model is **not** new: `EditorBuffer`, `EditorSelection` and
 `EditorLayout` come from [`gallery/text_editor`](../../text_editor) — a buffer
 with undo, a codepoint-aware selection, and a layout that measures with a real
 TTF and hit-tests a click back to a column. What the code editor adds on top is
-tokens with colours, a line-number gutter, a current-line band and an Enter
-that keeps its indent.
+tokens with colours, a line-number gutter, a current-line band, a minimap on
+the right (the VS Code / Monaco picture of the file) and an Enter that keeps
+its indent.
 
 ## Keys
 
 | | |
 | --- | --- |
 | click / drag | place the caret, select |
+| click / drag the right-hand strip | jump the view; the strip is a map of the file |
 | arrows, Home/End, PgUp/PgDn | move (Shift extends) |
 | Enter | newline, keeping the indent — one level more after `{`, `(`, `[` |
 | Tab | two spaces at the caret; indent the selected lines if a range is open |
