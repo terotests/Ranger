@@ -436,20 +436,37 @@ function paneEditorHasKeys() {
   return app.focusTarget() === "preview" && (pane.view === "deck" || pane.view === "doc");
 }
 
+// Tab indents (and Shift+Tab outdents) inside the editor, which in a web
+// page is a keyboard trap: Escape arms an escape hatch and the next Tab
+// leaves — the same rule the datagrid code editor uses.
+let tabEscapes = false;
 keys.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") {
     ev.preventDefault();
-    if (!app.escape() && app.focusTarget() === "editor") app.key("escape", ev.shiftKey, false);
+    if (app.escape()) {
+      afterInput();
+      return;
+    }
+    if (app.focusTarget() === "editor") {
+      app.key("escape", ev.shiftKey, false);
+      tabEscapes = true;
+    }
     afterInput();
     return;
   }
   if (paneEditorHasKeys()) return;
   if (ev.key === "Tab") {
-    if (ev.shiftKey || app.focusTarget() !== "editor") return; // the browser moves focus
+    if (app.focusTarget() !== "editor" || tabEscapes) {
+      tabEscapes = false;
+      return; // the browser moves focus
+    }
     ev.preventDefault();
-    app.key("tab", false, false);
+    app.key("tab", ev.shiftKey, false);
     afterInput();
     return;
+  }
+  if (ev.key !== "Shift" && ev.key !== "Control" && ev.key !== "Alt" && ev.key !== "Meta") {
+    tabEscapes = false;
   }
   const mod = ev.ctrlKey || ev.metaKey;
   const special = KEY_MAP[ev.key];
@@ -565,7 +582,7 @@ function at(ev) {
 let touchScroll = null;
 canvas.addEventListener("pointerdown", (ev) => {
   const [x, y] = at(ev);
-  const where = app.pointerDown(x, y, ev.shiftKey, ev.detail || 1);
+  const where = app.pointerDown(x, y, ev.shiftKey, 1);
   if (where === "editor") {
     ev.preventDefault();
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
@@ -606,6 +623,27 @@ function endPointer() {
 canvas.addEventListener("pointerup", endPointer);
 canvas.addEventListener("pointercancel", endPointer);
 canvas.addEventListener("pointerleave", () => { app.clearHover(); });
+// PointerEvent.detail is always 0, so a double-click cannot be seen from
+// pointerdown. `dblclick` / `click` are MouseEvents and carry the count.
+canvas.addEventListener("dblclick", (ev) => {
+  const [x, y] = at(ev);
+  const where = app.pointerDown(x, y, ev.shiftKey, 2);
+  if (where === "editor") {
+    ev.preventDefault();
+    focusKeys("editor");
+  }
+  needsPaint = true;
+});
+canvas.addEventListener("click", (ev) => {
+  if (ev.detail < 3) return;
+  const [x, y] = at(ev);
+  const where = app.pointerDown(x, y, ev.shiftKey, 3);
+  if (where === "editor") {
+    ev.preventDefault();
+    focusKeys("editor");
+  }
+  needsPaint = true;
+});
 canvas.addEventListener("wheel", (ev) => {
   const [x, y] = at(ev);
   const step = ev.deltaMode === 1 ? 18 : ev.deltaMode === 2 ? 400 : 1;
@@ -652,11 +690,15 @@ paneEl.addEventListener("pointerdown", (ev) => {
     return;
   }
   focusKeys("preview");
-  if (ev.detail >= 2) app.md.selectWordAt(x, y);
-  else {
-    app.md.click(x, y, ev.shiftKey);
-    selecting = true;
-  }
+  app.md.click(x, y, ev.shiftKey);
+  selecting = true;
+  afterInput();
+});
+paneEl.addEventListener("dblclick", (ev) => {
+  if (pane.view !== "md") return;
+  ev.preventDefault();
+  const [x, y] = panePoint(ev);
+  app.md.selectWordAt(x, y);
   afterInput();
 });
 paneEl.addEventListener("pointermove", (ev) => {
@@ -835,6 +877,25 @@ function selftest() {
     check("a keystroke in the editor reaches the markdown", app.md.sourceText() !== before && app.md.sourceText().includes("Q"));
     app.undo();
     check("undo puts it back on both sides", app.md.sourceText() === before && app.editor.text() === before);
+    const line0 = app.editor.buf.lineAt(0);
+    let at = 0;
+    while (at < line0.length) {
+      if (/[A-Za-z]/.test(line0[at])) {
+        let end = at + 1;
+        while (end < line0.length && /[A-Za-z]/.test(line0[end])) end += 1;
+        if (end - at > 1) break;
+        at = end;
+        continue;
+      }
+      at += 1;
+    }
+    app.editor.selectWordAtPos(0, at);
+    const word = app.editor.selectionText();
+    check("selecting a word takes a run of letters", word.length > 1 && word.indexOf(" ") < 0 && line0.indexOf(word) >= 0, word);
+    app.key("tab", false, false);
+    check("Tab over a selection indents the line, it does not replace it", app.editor.buf.lineAt(0) === "  " + line0 && app.editor.selectionText() === word);
+    app.undo();
+    check("and that indent undoes", app.editor.buf.lineAt(0) === line0);
     app.press("r5-doc-css");
     window.__redraw();
     check("empty style.css opens with a guide", app.editor.text().indexOf("Selectors") >= 0 && app.editor.text().indexOf("document.md") >= 0);
