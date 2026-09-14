@@ -12,6 +12,7 @@
 Import "../../figma/src/FigParser.rgr"
 Import "../../figma/src/convert/FigToScene.rgr"
 Import "RaveImport.rgr"
+Import "RaveText.rgr"
 Import "RaveRuntime.rgr"
 
 class RaveImportCli {
@@ -49,7 +50,22 @@ class RaveImportCli {
             print "usage: rave_import_cli <file.fig> [out.rave.json]"
             return
         }
-        def path:string (shell_arg 0)
+        def first:string (shell_arg 0)
+        if (first == "spec") {
+            print (RaveText.spec())
+            return
+        }
+        def asText:boolean false
+        def at:int 0
+        if (first == "text") {
+            asText = true
+            at = 1
+        }
+        if (n < (at + 1)) {
+            print "usage: rave_import_cli [text] <file.fig> [out.rave.json]"
+            return
+        }
+        def path:string (shell_arg at)
         def bytes:buffer (buffer_read_file (RaveImportCli.dirOf(path)) (RaveImportCli.nameOf(path)))
         def parser (new FigParser())
         def doc:FigDoc (parser.parseBytes(bytes (RaveImportCli.nameOf(path))))
@@ -62,6 +78,10 @@ class RaveImportCli {
         def imp (new RaveImport())
         def app:RaveApp (imp.run(scene))
 
+        if asText {
+            print (RaveText.writeApp(app))
+            return
+        }
         print ("=== " + app.name + " ===")
         print (imp.report.summary())
         print ("routes " + (to_string (array_length app.routes)) + " · layouts " + (to_string (array_length app.layouts)) + " · pages " + (to_string (array_length app.pages)))
@@ -107,8 +127,8 @@ class RaveImportCli {
             v = (v + 1)
         }
 
-        if (n >= 2) {
-            def out:string (shell_arg 1)
+        if (n >= (at + 2)) {
+            def out:string (shell_arg (at + 1))
             write_file "." out (app.toJson())
             print ("")
             print ("wrote " + out)

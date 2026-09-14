@@ -90,6 +90,28 @@ ok("Enter on the button signs in", app.keyWith("Enter", false, false));
 ok("…and lands on the dashboard", app.path() === "/dashboard", app.path());
 ok("…which the stage draws", JSON.stringify(JSON.parse(app.boardJson()).list.cmds).includes("Log out"));
 
+// --- the AI menu: a prompt out, an answer back ---------------------------------------------
+ok("AI opens a sheet", app.press("ai:open"));
+const aiPrompt = app.aiPrompt();
+ok("the prompt carries the format", aiPrompt.includes("RAVE TEXT FORMAT"));
+ok("…and the document as it stands", aiPrompt.includes("route /dashboard"));
+app.press("ai:scope:page");
+ok(
+  "an answer in that format is taken",
+  app.applyAiText(
+    [
+      'style .note { padding: 16px; border-radius: 10px; background-color: #eef3ff }',
+      'h1 "Pasted back" { font-size: 28px; color: #111318 }',
+      'p.note "This page came in through the clipboard."',
+      '',
+    ].join("\n"),
+  ),
+  app.aiErrorCount() ? app.aiErrorAt(0) : null,
+);
+ok("…and the stage draws it", JSON.stringify(JSON.parse(app.boardJson()).list.cmds).includes("Pasted back"));
+ok("…as one undo step", app.press("undo"));
+app.press("mode:design");
+
 // --- a Figma file, imported through the same door the page uses ----------------------------
 const figPath = path.join(HERE, "..", "..", "figma", "fixtures", "health.fig");
 const rawFig = fs.readFileSync(figPath);

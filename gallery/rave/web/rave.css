@@ -389,3 +389,12 @@
 .ra-noterow:hover { background-color: #f2f4f8; }
 .ra-notebody { display: flex; flex-direction: column; gap: 1px; flex-grow: 1; min-width: 0; }
 .ra-note-t { font-size: 11px; color: #7b8190; }
+/* Ask an AI: a prompt to copy out and an answer to paste back. Wider than
+   the New-project sheet because what it is about is text, not choices. */
+.ra-ai { width: 620px; }
+.ra-ai-errs {
+  display: flex; flex-direction: column; gap: 4px; width: 100%;
+  padding: 10px 12px; border-radius: 8px;
+  background-color: #fff4f4; border: 1px solid #f3d2d2;
+}
+.ra-ai-err { font-size: 11.5px; color: #9b2c2c; }

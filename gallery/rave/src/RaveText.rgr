@@ -1,0 +1,1580 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RaveText — the document as something a person, or a model, can write
+; =============================================================================
+; `app.rave.json` is what the editor saves: every node with its id, every rule
+; as an object, nothing left out. It is a poor thing to hand a language model
+; and a worse thing to ask one to produce — most of its bytes are ids nobody
+; typed, and one wrong id makes a document that opens as something else.
+;
+; RaveText is the same document as lines. Indentation is the tree, a node is
+; its tag and its classes and its words and its rule, and there are no ids at
+; all: the reader makes them. It is small enough to put in a prompt beside a
+; description of itself, and strict enough that a document that comes back
+; either parses or says which line it failed on.
+;
+;     page Dashboard
+;       h1.title "Dashboard"
+;       div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px }
+;         @<md { grid-template-columns: 1fr }
+;         section.card
+;           h3.subtitle "Revenue"
+;           p.muted "Where the money came from this month."
+;
+; Writing and reading are the same grammar, so a document can go out, be
+; edited by something that has never seen this codebase, and come back.
+; =============================================================================
+
+Import "RaveDoc.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+
+class RaveTextError {
+    def line:int 0
+    def text:string ""
+    def why:string ""
+
+    Constructor (l:int t:string w:string) {
+        line = l
+        text = t
+        why = w
+    }
+
+    fn message:string () {
+        return ("line " + (to_string line) + ": " + why + "  —  " + text)
+    }
+}
+
+class RaveText {
+
+    ; --- writing ---------------------------------------------------------------
+
+    sfn quote:string (s:string) {
+        def out:string "\""
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if (c == 34) {
+                out = (out + "\\\"")
+            } {
+                if (c == 92) {
+                    out = (out + "\\\\")
+                } {
+                    if (c == 10) {
+                        out = (out + "\\n")
+                    } {
+                        out = (out + (strfromcode c))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "\"")
+    }
+
+    sfn pad:string (depth:int) {
+        def out:string ""
+        def i:int 0
+        while (i < depth) {
+            out = (out + "  ")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A class rule that belongs to one node — `.n12` — rather than a shared one.
+    sfn isNodeClass:boolean (cls:string) {
+        return ((RaveApp.idOfElement(cls)) > 0)
+    }
+
+    sfn declsText:string (r:RaveRule) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length r.decls)) {
+            def d:RaveDecl (itemAt r.decls i)
+            if (i > 0) {
+                out = (out + "; ")
+            }
+            out = (out + d.name + ": " + d.value)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A media string as the short form when it is one of the document's own
+    ; breakpoints, and verbatim when it is not.
+    sfn mediaName:string (app:RaveApp media:string) {
+        def i:int 0
+        while (i < (array_length app.breakpoints)) {
+            def b:RaveBreakpoint (itemAt app.breakpoints i)
+            if ((app.from(b.name)) == media) {
+                return ("@" + b.name)
+            }
+            if ((app.below(b.name)) == media) {
+                return ("@<" + b.name)
+            }
+            i = (i + 1)
+        }
+        return ("@" + media)
+    }
+
+    sfn attr:string (key:string value:string) {
+        if ((strlen value) == 0) {
+            return ""
+        }
+        return (" " + key + "=" + (RaveText.quote(value)))
+    }
+
+    sfn tagOf:string (n:RaveNode) {
+        if (n.kind == "slot") {
+            return "slot"
+        }
+        if (n.kind == "toast") {
+            return "toast"
+        }
+        return n.tag
+    }
+
+    sfn nodeText:string (app:RaveApp n:RaveNode depth:int) {
+        def out:string ((RaveText.pad(depth)) + (RaveText.tagOf(n)))
+        def i:int 0
+        while (i < (array_length n.classes)) {
+            out = (out + "." + (itemAt n.classes i))
+            i = (i + 1)
+        }
+        if ((strlen n.text) > 0) {
+            out = (out + " " + (RaveText.quote(n.text)))
+        }
+        ; the layer name, when it is not already obvious from the words
+        if ((n.name != n.text) && (n.name != n.tag)) {
+            out = (out + (RaveText.attr("name" n.name)))
+        }
+        out = (out + (RaveText.attr("label" n.label)))
+        out = (out + (RaveText.attr("placeholder" n.placeholder)))
+        out = (out + (RaveText.attr("alt" n.alt)))
+        out = (out + (RaveText.attr("src" n.src)))
+        out = (out + (RaveText.attr("role" n.role)))
+        out = (out + (RaveText.attr("state" n.state)))
+        out = (out + (RaveText.attr("bind" n.bind)))
+        out = (out + (RaveText.attr("repeat" n.repeat)))
+        out = (out + (RaveText.attr("source" n.source)))
+        out = (out + (RaveText.attr("sourceKey" n.sourceKey)))
+        out = (out + (RaveText.attr("overlay" n.overlay)))
+        out = (out + (RaveText.attr("component" n.component)))
+        out = (out + (RaveText.attr("variant" n.variant)))
+        if (n.kind == "conditional") {
+            out = (out + (RaveText.attr("when" n.condition)))
+        }
+        def cls:string (n.cls())
+        if (app.hasRule(cls "")) {
+            def r:RaveRule (app.rule(cls ""))
+            if ((array_length r.decls) > 0) {
+                out = (out + " { " + (RaveText.declsText(r)) + " }")
+            }
+        }
+        out = (out + "\n")
+        ; the same node at other widths
+        def m:int 0
+        while (m < (array_length app.styles)) {
+            def r2:RaveRule (itemAt app.styles m)
+            if ((r2.cls == cls) && ((strlen r2.media) > 0)) {
+                if ((array_length r2.decls) > 0) {
+                    out = (out + (RaveText.pad((depth + 1))) + (RaveText.mediaName(app r2.media)) + " { " + (RaveText.declsText(r2)) + " }\n")
+                }
+            }
+            m = (m + 1)
+        }
+        def a:int 0
+        while (a < (array_length n.actions)) {
+            def act:RaveAction (itemAt n.actions a)
+            def line:string ((RaveText.pad((depth + 1))) + "-> " + act.kind)
+            if ((strlen act.arg) > 0) {
+                line = (line + " " + act.arg)
+            }
+            out = (out + line + "\n")
+            a = (a + 1)
+        }
+        def c:int 0
+        while (c < (array_length n.children)) {
+            out = (out + (RaveText.nodeText(app (itemAt n.children c) (depth + 1))))
+            c = (c + 1)
+        }
+        return out
+    }
+
+    ; One subtree on its own, for handing a model a single node to rework.
+    sfn writeNode:string (app:RaveApp n:RaveNode) {
+        return (RaveText.nodeText(app n 0))
+    }
+
+    sfn writeChildren:string (app:RaveApp n:RaveNode depth:int) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length n.children)) {
+            out = (out + (RaveText.nodeText(app (itemAt n.children i) depth)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn writeApp:string (app:RaveApp) {
+        def out:string ("app " + (RaveText.quote(app.name)) + "\n")
+        if ((array_length app.targets) > 0) {
+            out = (out + "targets")
+            def t:int 0
+            while (t < (array_length app.targets)) {
+                out = (out + " " + (itemAt app.targets t))
+                t = (t + 1)
+            }
+            out = (out + "\n")
+        }
+        if ((strlen app.nav) > 0) {
+            out = (out + "nav " + app.nav + "\n")
+        }
+        if app.authEnabled {
+            out = (out + "auth on login=" + app.loginRoute + " after=" + app.afterLogin + "\n")
+        }
+        def b:int 0
+        while (b < (array_length app.breakpoints)) {
+            def bp:RaveBreakpoint (itemAt app.breakpoints b)
+            out = (out + "breakpoint " + bp.name + " " + (to_string bp.minWidth) + "\n")
+            b = (b + 1)
+        }
+        def v:int 0
+        while (v < (array_length app.vars)) {
+            def vr:RaveVar (itemAt app.vars v)
+            out = (out + "var " + vr.name + " " + vr.value + "\n")
+            v = (v + 1)
+        }
+        def s:int 0
+        while (s < (array_length app.styles)) {
+            def r:RaveRule (itemAt app.styles s)
+            if ((RaveText.isNodeClass(r.cls)) == false) {
+                if ((array_length r.decls) > 0) {
+                    def head:string ("style ." + r.cls)
+                    if ((strlen r.media) > 0) {
+                        head = (head + " " + (RaveText.mediaName(app r.media)))
+                    }
+                    out = (out + head + " { " + (RaveText.declsText(r)) + " }\n")
+                }
+            }
+            s = (s + 1)
+        }
+        def d:int 0
+        while (d < (array_length app.data)) {
+            def coll:RaveCollection (itemAt app.data d)
+            out = (out + "collection " + coll.name)
+            def f:int 0
+            while (f < (array_length coll.fields)) {
+                def fld:RaveField (itemAt coll.fields f)
+                out = (out + " " + fld.name)
+                f = (f + 1)
+            }
+            out = (out + "\n")
+            def rw:int 0
+            while (rw < (array_length coll.rows)) {
+                def row:RaveRow (itemAt coll.rows rw)
+                def line:string "  row"
+                def k:int 0
+                while (k < (array_length row.keys)) {
+                    line = (line + " " + (itemAt row.keys k) + "=" + (RaveText.quote((itemAt row.values k))))
+                    k = (k + 1)
+                }
+                out = (out + line + "\n")
+                rw = (rw + 1)
+            }
+            d = (d + 1)
+        }
+        def l:int 0
+        while (l < (array_length app.layouts)) {
+            def lay:RaveNode (itemAt app.layouts l)
+            def head2:string ("\nlayout " + (RaveText.quote(lay.name)))
+            if (lay.parentLayout > 0) {
+                if (app.hasNode(lay.parentLayout)) {
+                    def par:RaveNode (app.node(lay.parentLayout))
+                    head2 = (head2 + " inside " + (RaveText.quote(par.name)))
+                }
+            }
+            out = (out + head2 + "\n")
+            ; the layout root's own rule first, then what is on it
+            out = (out + (RaveText.rootRules(app lay)))
+            out = (out + (RaveText.writeChildren(app lay 1)))
+            l = (l + 1)
+        }
+        def p:int 0
+        while (p < (array_length app.pages)) {
+            def pg:RaveNode (itemAt app.pages p)
+            out = (out + "\npage " + (RaveText.quote(pg.name)) + (RaveText.pageAttrs(pg)) + "\n")
+            out = (out + (RaveText.rootRules(app pg)))
+            out = (out + (RaveText.writeChildren(app pg 1)))
+            p = (p + 1)
+        }
+        out = (out + "\n")
+        def rt:int 0
+        while (rt < (array_length app.routes)) {
+            def route:RaveRoute (itemAt app.routes rt)
+            def line2:string ("route " + route.path + " " + (RaveText.quote(route.title)))
+            if (app.hasNode(route.pageId)) {
+                def pgn:RaveNode (app.node(route.pageId))
+                line2 = (line2 + " page=" + (RaveText.quote(pgn.name)))
+            }
+            if (route.layoutId > 0) {
+                if (app.hasNode(route.layoutId)) {
+                    def lgn:RaveNode (app.node(route.layoutId))
+                    line2 = (line2 + " layout=" + (RaveText.quote(lgn.name)))
+                }
+            }
+            if route.protected {
+                line2 = (line2 + " protected")
+            }
+            out = (out + line2 + "\n")
+            rt = (rt + 1)
+        }
+        return out
+    }
+
+    sfn pageAttrs:string (n:RaveNode) {
+        def out:string ""
+        out = (out + (RaveText.attr("source" n.source)))
+        out = (out + (RaveText.attr("sourceKey" n.sourceKey)))
+        out = (out + (RaveText.attr("repeat" n.repeat)))
+        def i:int 0
+        while (i < (array_length n.classes)) {
+            out = (out + (RaveText.attr("class" (itemAt n.classes i))))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- carrying a subtree from one document into another ---------------------------
+    ; A fragment is read into a document of its own — new ids, its own rules —
+    ; so putting it into the document being edited is a copy rather than a
+    ; move. The rules travel with the nodes; a shared class the fragment
+    ; brought is merged, because a node that names a class nothing defines
+    ; draws as nothing.
+
+    sfn copyRules:void (src:RaveApp dst:RaveApp fromCls:string toCls:string) {
+        def i:int 0
+        while (i < (array_length src.styles)) {
+            def r:RaveRule (itemAt src.styles i)
+            if (r.cls == fromCls) {
+                def into:RaveRule (dst.rule(toCls r.media))
+                def d:int 0
+                while (d < (array_length r.decls)) {
+                    def decl:RaveDecl (itemAt r.decls d)
+                    into.set(decl.name decl.value)
+                    d = (d + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn copyNode:RaveNode (src:RaveApp dst:RaveApp n:RaveNode) {
+        def made:RaveNode (dst.newNode(n.tag n.name))
+        made.kind = n.kind
+        made.text = n.text
+        made.src = n.src
+        made.alt = n.alt
+        made.label = n.label
+        made.placeholder = n.placeholder
+        made.condition = n.condition
+        made.component = n.component
+        made.variant = n.variant
+        made.repeat = n.repeat
+        made.source = n.source
+        made.sourceKey = n.sourceKey
+        made.overlay = n.overlay
+        made.bind = n.bind
+        made.role = n.role
+        made.state = n.state
+        def c:int 0
+        while (c < (array_length n.classes)) {
+            made.addClass((itemAt n.classes c))
+            c = (c + 1)
+        }
+        def a:int 0
+        while (a < (array_length n.actions)) {
+            def act:RaveAction (itemAt n.actions a)
+            made.on(act.kind act.arg)
+            a = (a + 1)
+        }
+        RaveText.copyRules(src dst (n.cls()) (made.cls()))
+        def k:int 0
+        while (k < (array_length n.children)) {
+            made.add((RaveText.copyNode(src dst (itemAt n.children k))))
+            k = (k + 1)
+        }
+        return made
+    }
+
+    ; The shared classes, tokens and collections a fragment brought with it.
+    sfn mergeShared:void (src:RaveApp dst:RaveApp) {
+        def i:int 0
+        while (i < (array_length src.styles)) {
+            def r:RaveRule (itemAt src.styles i)
+            if ((RaveText.isNodeClass(r.cls)) == false) {
+                def into:RaveRule (dst.rule(r.cls r.media))
+                def d:int 0
+                while (d < (array_length r.decls)) {
+                    def decl:RaveDecl (itemAt r.decls d)
+                    into.set(decl.name decl.value)
+                    d = (d + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        def v:int 0
+        while (v < (array_length src.vars)) {
+            def vr:RaveVar (itemAt src.vars v)
+            dst.setVar(vr.name vr.value)
+            v = (v + 1)
+        }
+        def c:int 0
+        while (c < (array_length src.data)) {
+            def coll:RaveCollection (itemAt src.data c)
+            if ((dst.hasCollection(coll.name)) == false) {
+                def into2:RaveCollection (dst.addCollection(coll.name))
+                def f:int 0
+                while (f < (array_length coll.fields)) {
+                    def fld:RaveField (itemAt coll.fields f)
+                    into2.addField(fld.name fld.label)
+                    f = (f + 1)
+                }
+                def rw:int 0
+                while (rw < (array_length coll.rows)) {
+                    def row:RaveRow (itemAt coll.rows rw)
+                    push into2.rows (row.copy())
+                    rw = (rw + 1)
+                }
+                into2.nextKey = coll.nextKey
+            }
+            c = (c + 1)
+        }
+    }
+
+    ; --- the format, described ------------------------------------------------
+    ; This is what goes into a prompt beside the document. It is written out
+    ; here rather than kept in a file the editor would have to load, because
+    ; a prompt that does not match the parser is worse than no prompt: what
+    ; the model is told and what the reader accepts are the same text.
+
+    sfn spec:string () {
+        def s:string "RAVE TEXT FORMAT\n"
+        s = (s + "================\n\n")
+        s = (s + "A Rave document is an application: routes, layouts, pages, and a\n")
+        s = (s + "stylesheet with real breakpoints. This is that document as lines.\n")
+        s = (s + "Indentation (two spaces per level) is the tree. There are no ids.\n\n")
+
+        s = (s + "DOCUMENT LINES (no indentation)\n")
+        s = (s + "  app \"Name\"\n")
+        s = (s + "  targets web tablet mobile        web=1440 desktop=1920 tablet=768 mobile=390\n")
+        s = (s + "  nav sidebar                      sidebar | topbar | tabs | none\n")
+        s = (s + "  auth on login=/login after=/dashboard\n")
+        s = (s + "  breakpoint md 768                a name and the width it starts at\n")
+        s = (s + "  var ink #09090b                  a theme token, used as var(--ink)\n")
+        s = (s + "  style .btn { height: 36px; color: var(--ink) }      a shared class\n")
+        s = (s + "  style .btn @md { height: 40px }                     the same class, wider\n")
+        s = (s + "  collection items id title status\n")
+        s = (s + "    row id=\"1\" title=\"First\" status=\"Draft\"\n")
+        s = (s + "  layout Shell                     a layout; `layout Inner inside Shell` nests\n")
+        s = (s + "  page Dashboard                   a page\n")
+        s = (s + "  route /dashboard \"Dashboard\" page=Dashboard layout=Shell protected\n\n")
+
+        s = (s + "NODE LINES (indented, under a layout or a page)\n")
+        s = (s + "  tag.class.class \"words\" key=\"value\" { css declarations }\n\n")
+        s = (s + "  tags: div span p h1 h2 h3 h4 header footer nav main aside section\n")
+        s = (s + "        form label input button a img ul li slot toast\n")
+        s = (s + "  keys: name label placeholder alt src role state class\n")
+        s = (s + "        repeat source sourceKey bind overlay when component variant\n\n")
+        s = (s + "  A line indented one more level than a node belongs to that node:\n")
+        s = (s + "    @md { … }      that node's rule at and above the md breakpoint\n")
+        s = (s + "    @<md { … }     that node's rule below it\n")
+        s = (s + "    -> navigate /settings      an action on click\n")
+        s = (s + "    -> login | logout | back\n")
+        s = (s + "    -> open create | close | create items | remove items/{id} | toast Saved\n")
+        s = (s + "  and `self { … }` directly under `page X` or `layout X` is that\n")
+        s = (s + "  page's or layout's own rule.\n\n")
+
+        s = (s + "WHAT THE THINGS MEAN\n")
+        s = (s + "  slot        where a route's page goes inside its layout. Every layout\n")
+        s = (s + "              needs exactly one.\n")
+        s = (s + "  when=\"authenticated\" / \"unauthenticated\"   the node is on the page\n")
+        s = (s + "              only when the session is.\n")
+        s = (s + "  repeat=\"items\"    the node's children are drawn once per row of the\n")
+        s = (s + "              collection. `{field}` in any text under it is that row's value.\n")
+        s = (s + "  source=\"items\" sourceKey=\"id\"   the subtree is about the one row the\n")
+        s = (s + "              route's `:id` names. Use with a route like /items/:id.\n")
+        s = (s + "  bind=\"title\"      an input writes that field when `create` runs.\n")
+        s = (s + "  overlay=\"create\"  a dialog: on the page only while it is open, and a\n")
+        s = (s + "              modal while it is. Open it with `-> open create`.\n\n")
+
+        s = (s + "THE ENGINE'S LIMITS — a rule outside them is dropped, loudly\n")
+        s = (s + "  Layout is real flex and grid: display:flex|grid|block, flex-direction,\n")
+        s = (s + "  flex-wrap, justify-content, align-items, gap, row-gap, column-gap,\n")
+        s = (s + "  grid-template-columns/rows (px, fr, %, repeat(N, …), minmax),\n")
+        s = (s + "  grid-template-areas, flex-grow, width/height/min/max, padding, margin,\n")
+        s = (s + "  position: relative|absolute|fixed with left/top/right/bottom, overflow,\n")
+        s = (s + "  background-color, color, border, border-radius, font-size, font-weight,\n")
+        s = (s + "  line-height, letter-spacing, text-align, cursor, opacity.\n")
+        s = (s + "  Units: px % vw vh em rem, and fit-content.\n")
+        s = (s + "  NOT UNDERSTOOD, so do not write them: calc(), aspect-ratio,\n")
+        s = (s + "  min-content, max-content, repeat(auto-fit|auto-fill, …), box-shadow,\n")
+        s = (s + "  the per-side border shorthands (border-top and friends — only `border`),\n")
+        s = (s + "  reversed flex directions, transitions, transforms, and any selector\n")
+        s = (s + "  other than a class.\n\n")
+
+        s = (s + "ACCESSIBILITY IS CHECKED, so\n")
+        s = (s + "  every input has a label, every img an alt, every button words or a\n")
+        s = (s + "  label, headings go down one level at a time, and text on its ground\n")
+        s = (s + "  reaches 4.5:1.\n")
+        return s
+    }
+
+    ; --- the prompt -------------------------------------------------------------
+    ; What the AI menu puts on the clipboard: the format, the thing as it
+    ; stands, and what the person wants done to it. There is no service call
+    ; anywhere in Rave — this is a piece of text a person pastes somewhere and
+    ; a piece of text they paste back, which is why it has to say everything.
+
+    sfn indentAll:string (text:string) {
+        def out:string ""
+        def lines:[string] (RaveTextReader.splitLines(text))
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            if ((strlen line) > 0) {
+                out = (out + "  " + line)
+            }
+            out = (out + "\n")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; One page as a block of its own: the head line, its rule, and what is on
+    ; it — the same lines `writeApp` would put in the whole document.
+    sfn writePage:string (app:RaveApp page:RaveNode) {
+        def out:string ("page " + (RaveText.quote(page.name)) + (RaveText.pageAttrs(page)) + "\n")
+        out = (out + (RaveText.rootRules(app page)))
+        out = (out + (RaveText.writeChildren(app page 1)))
+        return out
+    }
+
+    sfn scopeWord:string (scope:string) {
+        if (scope == "page") {
+            return "page"
+        }
+        if (scope == "node") {
+            return "node"
+        }
+        return "document"
+    }
+
+    sfn prompt:string (app:RaveApp scope:string body:string ask:string) {
+        def word:string (RaveText.scopeWord(scope))
+        def out:string "You are editing one Rave application document.\n"
+        out = (out + "Rave is a visual editor whose documents ARE applications: routes,\n")
+        out = (out + "layouts, pages and a stylesheet with real breakpoints, drawn by an\n")
+        out = (out + "engine that is strict about what CSS it understands. Read the format\n")
+        out = (out + "below, then do what is asked at the end.\n\n")
+        out = (out + "--------------------------------------------------------------------\n")
+        out = (out + (RaveText.spec()))
+        out = (out + "\n--------------------------------------------------------------------\n")
+        out = (out + "THE " + (RaveText.lowerWord(word)) + " AS IT STANDS\n")
+        out = (out + "--------------------------------------------------------------------\n\n")
+        out = (out + body)
+        out = (out + "\n--------------------------------------------------------------------\n")
+        out = (out + "WHAT I WANT\n")
+        out = (out + "--------------------------------------------------------------------\n\n")
+        if ((strlen (trim ask)) == 0) {
+            out = (out + "(say here what should change)\n")
+        } {
+            out = (out + (trim ask) + "\n")
+        }
+        out = (out + "\n--------------------------------------------------------------------\n")
+        out = (out + "ANSWER WITH\n")
+        out = (out + "--------------------------------------------------------------------\n\n")
+        if (word == "document") {
+            out = (out + "The WHOLE document in the format above, from the `app` line to the\n")
+            out = (out + "last `route` line. Keep the pages, layouts and routes that are there\n")
+            out = (out + "unless I asked you to change them.\n")
+        }
+        if (word == "page") {
+            out = (out + "The WHOLE page block in the format above, starting with its `page`\n")
+            out = (out + "line. Shared classes you need may be added as `style .name { … }`\n")
+            out = (out + "lines before it. Do not write routes, layouts or other pages.\n")
+        }
+        if (word == "node") {
+            out = (out + "The WHOLE node in the format above, starting with its own line at no\n")
+            out = (out + "indentation and everything under it indented. Shared classes you need\n")
+            out = (out + "may be added as `style .name { … }` lines before it. Nothing else.\n")
+        }
+        out = (out + "\nNo prose, no explanation, no code fences — the answer is pasted\n")
+        out = (out + "straight back into the editor and anything that is not the format is\n")
+        out = (out + "an error with a line number.\n")
+        return out
+    }
+
+    sfn lowerWord:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if ((c >= 97) && (c <= 122)) {
+                c = (c - 32)
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A page or a layout is a node too, and its own rule is written under it
+    ; as `self { … }` because its head line is `page Name`, not a tag.
+    sfn rootRules:string (app:RaveApp n:RaveNode) {
+        def out:string ""
+        def cls:string (n.cls())
+        def i:int 0
+        while (i < (array_length app.styles)) {
+            def r:RaveRule (itemAt app.styles i)
+            if ((r.cls == cls) && ((array_length r.decls) > 0)) {
+                if ((strlen r.media) == 0) {
+                    out = (out + "  self { " + (RaveText.declsText(r)) + " }\n")
+                } {
+                    out = (out + "  self " + (RaveText.mediaName(app r.media)) + " { " + (RaveText.declsText(r)) + " }\n")
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+; =============================================================================
+; RaveTextReader — the same grammar, backwards
+; =============================================================================
+; A line is read as far as it makes sense and the rest becomes an error with
+; the line number on it, because a document that came back from somewhere
+; else is exactly the case where "it did not work" is not a useful answer.
+; =============================================================================
+
+class RaveTextReader {
+    def app:RaveApp (new RaveApp(""))
+    def errors:[RaveTextError]
+    def sheet:EVGStyleSheet (new EVGStyleSheet())
+    ; the cursor, while one line is being taken apart
+    def cur:int 0
+    ; the last `key=value` read
+    def pairKey:string ""
+    def pairVal:string ""
+    ; A fragment — one page or one node, on its own — is read into a page of
+    ; its own, and the lines that would be a document's are only the few a
+    ; fragment may legitimately bring.
+    def fragment:boolean false
+    def holderId:int 0
+    ; The breakpoints of the document a fragment is going INTO. Without them
+    ; `@<md` in the answer would mean nothing, and the rule would land under
+    ; a query no view ever matches.
+    def seedNames:[string]
+    def seedMins:[int]
+    ; the node at each depth while a layout or a page is being read
+    def stack:[int]
+    ; the layout or page the lines belong to, and its own node
+    def rootId:int 0
+    def lineNo:int 0
+    ; layouts that named a parent, resolved once every layout has a name
+    def pendingChild:[string]
+    def pendingParent:[string]
+
+    Constructor () {
+    }
+
+    fn fail:void (text:string why:string) {
+        push errors (new RaveTextError(lineNo text why))
+    }
+
+    fn errorCount:int () {
+        return (array_length errors)
+    }
+
+    fn errorAt:string (i:int) {
+        def e:RaveTextError (itemAt errors i)
+        return (e.message())
+    }
+
+    ; --- reading one line apart -------------------------------------------------
+
+    sfn isSpace:boolean (c:int) {
+        return ((c == 32) || (c == 9))
+    }
+
+    fn skipSpace:void (s:string) {
+        while (cur < (strlen s)) {
+            if (RaveTextReader.isSpace((charAt s cur))) {
+                cur = (cur + 1)
+            } {
+                return
+            }
+        }
+    }
+
+    ; A run up to the next space.
+    fn token:string (s:string) {
+        this.skipSpace(s)
+        def out:string ""
+        while (cur < (strlen s)) {
+            def c:int (charAt s cur)
+            if (RaveTextReader.isSpace(c)) {
+                return out
+            }
+            out = (out + (strfromcode c))
+            cur = (cur + 1)
+        }
+        return out
+    }
+
+    ; A quoted run, with the backslash escapes the writer makes.
+    fn quoted:string (s:string) {
+        def out:string ""
+        cur = (cur + 1)
+        while (cur < (strlen s)) {
+            def c:int (charAt s cur)
+            if (c == 92) {
+                cur = (cur + 1)
+                if (cur < (strlen s)) {
+                    def e:int (charAt s cur)
+                    if (e == 110) {
+                        out = (out + "\n")
+                    } {
+                        out = (out + (strfromcode e))
+                    }
+                    cur = (cur + 1)
+                }
+            } {
+                if (c == 34) {
+                    cur = (cur + 1)
+                    return out
+                }
+                out = (out + (strfromcode c))
+                cur = (cur + 1)
+            }
+        }
+        return out
+    }
+
+    ; The rest of the line from the cursor, trimmed.
+    fn rest:string (s:string) {
+        this.skipSpace(s)
+        def out:string (substring s cur (strlen s))
+        cur = (strlen s)
+        return (trim out)
+    }
+
+    ; A name that may be quoted, because a page can be called "Item list".
+    fn nameToken:string (s:string) {
+        this.skipSpace(s)
+        if (cur < (strlen s)) {
+            if ((charAt s cur) == 34) {
+                return (this.quoted(s))
+            }
+        }
+        return (this.token(s))
+    }
+
+    ; One `key="value"` or `key=value`. Answers false at the end of the line;
+    ; the pieces are left in `pairKey` and `pairVal`.
+    fn nextPair:boolean (s:string) {
+        pairKey = ""
+        pairVal = ""
+        this.skipSpace(s)
+        if (cur >= (strlen s)) {
+            return false
+        }
+        def key:string ""
+        while (cur < (strlen s)) {
+            def c:int (charAt s cur)
+            if (c == 61) {
+                cur = (cur + 1)
+                pairKey = key
+                pairVal = (this.nameToken(s))
+                return true
+            }
+            if (RaveTextReader.isSpace(c)) {
+                pairKey = key
+                return true
+            }
+            key = (key + (strfromcode c))
+            cur = (cur + 1)
+        }
+        pairKey = key
+        return true
+    }
+
+    ; --- the pieces of a node line ------------------------------------------------
+
+    ; Where the rule starts — the first `{` that is not inside quotes.
+    sfn braceAt:int (s:string) {
+        def inStr:boolean false
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if (c == 92) {
+                i = (i + 1)
+            } {
+                if (c == 34) {
+                    inStr = (inStr == false)
+                } {
+                    if ((c == 123) && (inStr == false)) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    sfn lastBrace:int (s:string) {
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < (strlen s)) {
+            if ((charAt s i) == 125) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        return at
+    }
+
+    fn applyDecls:void (cls:string media:string css:string) {
+        def decls:[EVGStyleDecl] (sheet.parseDeclarations(css))
+        def r:RaveRule (app.rule(cls media))
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:EVGStyleDecl (itemAt decls i)
+            r.set(d.name d.value)
+            i = (i + 1)
+        }
+    }
+
+    ; `@md`, `@<md`, or a query written out.
+    fn mediaOf:string (word:string) {
+        def body:string (substring word 1 (strlen word))
+        if ((strlen body) == 0) {
+            return ""
+        }
+        if ((charAt body 0) == 40) {
+            return body
+        }
+        if ((charAt body 0) == 60) {
+            return (app.below((substring body 1 (strlen body))))
+        }
+        return (app.from(body))
+    }
+
+    ; --- a node line ---------------------------------------------------------------
+
+    sfn knownTag:boolean (tag:string) {
+        if (tag == "div") { return true }
+        if (tag == "span") { return true }
+        if (tag == "p") { return true }
+        if (tag == "h1") { return true }
+        if (tag == "h2") { return true }
+        if (tag == "h3") { return true }
+        if (tag == "h4") { return true }
+        if (tag == "header") { return true }
+        if (tag == "footer") { return true }
+        if (tag == "nav") { return true }
+        if (tag == "main") { return true }
+        if (tag == "aside") { return true }
+        if (tag == "section") { return true }
+        if (tag == "form") { return true }
+        if (tag == "label") { return true }
+        if (tag == "input") { return true }
+        if (tag == "button") { return true }
+        if (tag == "a") { return true }
+        if (tag == "img") { return true }
+        if (tag == "ul") { return true }
+        if (tag == "li") { return true }
+        if (tag == "slot") { return true }
+        if (tag == "toast") { return true }
+        return false
+    }
+
+    ; `tag.class.class` — the head of every node line.
+    fn makeNode:RaveNode (word:string) {
+        def tag:string ""
+        def classes:[string]
+        def at:string ""
+        def i:int 0
+        while (i < (strlen word)) {
+            def c:int (charAt word i)
+            if (c == 46) {
+                if ((strlen tag) == 0) {
+                    tag = at
+                } {
+                    push classes at
+                }
+                at = ""
+            } {
+                at = (at + (strfromcode c))
+            }
+            i = (i + 1)
+        }
+        if ((strlen tag) == 0) {
+            tag = at
+        } {
+            push classes at
+        }
+        def real:string tag
+        if (tag == "slot") { real = "div" }
+        if (tag == "toast") { real = "span" }
+        def n:RaveNode (app.newNode(real tag))
+        if (tag == "slot") {
+            n.kind = "slot"
+            n.name = "Content"
+        }
+        if (tag == "toast") {
+            n.kind = "toast"
+            n.name = "Toast"
+        }
+        def k:int 0
+        while (k < (array_length classes)) {
+            n.addClass((itemAt classes k))
+            k = (k + 1)
+        }
+        return n
+    }
+
+    fn setAttr:void (n:RaveNode key:string value:string) {
+        if (key == "name") {
+            n.name = value
+            return
+        }
+        if (key == "label") {
+            n.label = value
+            return
+        }
+        if (key == "placeholder") {
+            n.placeholder = value
+            return
+        }
+        if (key == "alt") {
+            n.alt = value
+            return
+        }
+        if (key == "src") {
+            n.src = value
+            return
+        }
+        if (key == "role") {
+            n.role = value
+            return
+        }
+        if (key == "state") {
+            n.state = value
+            return
+        }
+        if (key == "bind") {
+            n.bind = value
+            return
+        }
+        if (key == "repeat") {
+            n.repeat = value
+            return
+        }
+        if (key == "source") {
+            n.source = value
+            return
+        }
+        if (key == "sourceKey") {
+            n.sourceKey = value
+            return
+        }
+        if (key == "class") {
+            n.addClass(value)
+            return
+        }
+        if (key == "overlay") {
+            n.overlay = value
+            n.kind = "overlay"
+            if ((strlen n.label) == 0) {
+                n.label = value
+            }
+            return
+        }
+        if (key == "component") {
+            n.component = value
+            n.kind = "instance"
+            return
+        }
+        if (key == "variant") {
+            n.variant = value
+            return
+        }
+        if (key == "when") {
+            n.kind = "conditional"
+            n.condition = value
+            n.name = value
+            return
+        }
+        this.fail(key ("unknown attribute `" + key + "`"))
+    }
+
+    ; The whole of one node line: the head, the words, the attributes, the rule.
+    fn readNode:RaveNode (body:string) {
+        def css:string ""
+        def head:string body
+        def open:int (RaveTextReader.braceAt(body))
+        if (open >= 0) {
+            def close:int (RaveTextReader.lastBrace(body))
+            if (close > open) {
+                css = (substring body (open + 1) close)
+                head = (substring body 0 open)
+            } {
+                this.fail(body "a rule that opens with { and never closes")
+                head = (substring body 0 open)
+            }
+        }
+        cur = 0
+        def word:string (this.token(head))
+        def n:RaveNode (this.makeNode(word))
+        def go:boolean true
+        while go {
+            this.skipSpace(head)
+            if (cur >= (strlen head)) {
+                go = false
+            } {
+                def c:int (charAt head cur)
+                if (c == 34) {
+                    def words:string (this.quoted(head))
+                    n.text = words
+                    if ((n.name == n.tag) || ((strlen n.name) == 0)) {
+                        n.name = words
+                    }
+                } {
+                    if (this.nextPair(head)) {
+                        if ((strlen pairKey) > 0) {
+                            this.setAttr(n pairKey pairVal)
+                        }
+                    } {
+                        go = false
+                    }
+                }
+            }
+        }
+        if ((strlen css) > 0) {
+            this.applyDecls((n.cls()) "" css)
+        }
+        return n
+    }
+
+    ; --- the document ------------------------------------------------------------------
+
+    sfn splitLines:[string] (text:string) {
+        def out:[string]
+        def at:string ""
+        def i:int 0
+        while (i < (strlen text)) {
+            def c:int (charAt text i)
+            if (c == 10) {
+                push out at
+                at = ""
+            } {
+                if (c != 13) {
+                    at = (at + (strfromcode c))
+                }
+            }
+            i = (i + 1)
+        }
+        push out at
+        return out
+    }
+
+    sfn indentOf:int (line:string) {
+        def spaces:int 0
+        def i:int 0
+        while (i < (strlen line)) {
+            def c:int (charAt line i)
+            if (c == 32) {
+                spaces = (spaces + 1)
+            } {
+                if (c == 9) {
+                    spaces = (spaces + 2)
+                } {
+                    i = (strlen line)
+                }
+            }
+            i = (i + 1)
+        }
+        return (to_int ((to_double spaces) / 2.0))
+    }
+
+    fn setStack:void (depth:int id:int) {
+        while ((array_length stack) <= depth) {
+            push stack 0
+        }
+        set stack depth id
+    }
+
+    fn stackAt:int (depth:int) {
+        if (depth < 0) {
+            return rootId
+        }
+        if (depth >= (array_length stack)) {
+            return 0
+        }
+        return (itemAt stack depth)
+    }
+
+    fn readDocLine:void (line:string) {
+        cur = 0
+        def word:string (this.token(line))
+        if (word == "app") {
+            this.skipSpace(line)
+            if (cur < (strlen line)) {
+                if ((charAt line cur) == 34) {
+                    app.name = (this.quoted(line))
+                    return
+                }
+            }
+            app.name = (this.rest(line))
+            return
+        }
+        if (word == "targets") {
+            def go:boolean true
+            while go {
+                def t:string (this.token(line))
+                if ((strlen t) == 0) {
+                    go = false
+                } {
+                    push app.targets t
+                }
+            }
+            return
+        }
+        if (word == "nav") {
+            app.nav = (this.rest(line))
+            return
+        }
+        if (word == "auth") {
+            def on:string (this.token(line))
+            app.authEnabled = (on == "on")
+            def go2:boolean true
+            while go2 {
+                if (this.nextPair(line)) {
+                    if (pairKey == "login") {
+                        app.loginRoute = pairVal
+                    }
+                    if (pairKey == "after") {
+                        app.afterLogin = pairVal
+                    }
+                } {
+                    go2 = false
+                }
+            }
+            return
+        }
+        if (word == "breakpoint") {
+            def name:string (this.token(line))
+            def w:string (this.token(line))
+            app.addBreakpoint(name (?? (str2int w) 0))
+            return
+        }
+        if (word == "var") {
+            def vname:string (this.token(line))
+            app.setVar(vname (this.rest(line)))
+            return
+        }
+        if (word == "style") {
+            def cls:string (this.token(line))
+            if ((strlen cls) > 0) {
+                if ((charAt cls 0) == 46) {
+                    cls = (substring cls 1 (strlen cls))
+                }
+            }
+            def media:string ""
+            def open:int (RaveTextReader.braceAt(line))
+            def mid:string ""
+            if (open < 0) {
+                this.fail(line "a style line with no rule in { }")
+                return
+            }
+            mid = (trim (substring line cur open))
+            if ((strlen mid) > 0) {
+                if ((charAt mid 0) == 64) {
+                    media = (this.mediaOf(mid))
+                }
+            }
+            def close:int (RaveTextReader.lastBrace(line))
+            if (close <= open) {
+                this.fail(line "a rule that opens with { and never closes")
+                return
+            }
+            this.applyDecls(cls media (substring line (open + 1) close))
+            return
+        }
+        this.fail(line ("`" + word + "` is not something this format says"))
+    }
+
+    ; --- the whole text ------------------------------------------------------------------
+
+    fn read:RaveApp (text:string) {
+        app = (new RaveApp("Untitled"))
+        clear errors
+        clear stack
+        clear pendingChild
+        clear pendingParent
+        rootId = 0
+        holderId = 0
+        lineNo = 0
+        def mode:string ""
+        def collName:string ""
+        def routeLines:[string]
+        def names:[string]
+        def ids:[int]
+        def sb:int 0
+        while (sb < (array_length seedNames)) {
+            app.addBreakpoint((itemAt seedNames sb) (itemAt seedMins sb))
+            sb = (sb + 1)
+        }
+        if fragment {
+            ; a page for the answer to land in; the caller takes what is on it
+            def holder:RaveNode (app.newPage("_fragment"))
+            holderId = holder.id
+            rootId = holderId
+            mode = "block"
+        }
+        def lines:[string] (RaveTextReader.splitLines(text))
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (itemAt lines i)
+            lineNo = (i + 1)
+            i = (i + 1)
+            def line:string (trim raw)
+            if ((strlen line) == 0) {
+                continue
+            }
+            if ((charAt line 0) == 35) {
+                continue
+            }
+            def indent:int (RaveTextReader.indentOf(raw))
+            def topLevel:boolean (indent == 0)
+            if (topLevel && fragment) {
+                ; in a fragment only a few lines are about the document; the
+                ; rest is the node itself, at no indentation
+                topLevel = (RaveTextReader.isFragmentDocLine((RaveTextReader.firstWord(line))))
+            }
+            if topLevel {
+                cur = 0
+                def head:string (this.token(line))
+                if (head == "layout") {
+                    def lname:string (this.nameToken(line))
+                    def lay:RaveNode (app.newLayout(lname))
+                    rootId = lay.id
+                    mode = "block"
+                    clear stack
+                    push names lname
+                    push ids lay.id
+                    def inside:string (this.token(line))
+                    if (inside == "inside") {
+                        push pendingChild lname
+                        push pendingParent (this.nameToken(line))
+                    }
+                    continue
+                }
+                if (head == "page") {
+                    def pname:string (this.nameToken(line))
+                    def pg:RaveNode (app.newPage(pname))
+                    rootId = pg.id
+                    mode = "block"
+                    clear stack
+                    push names pname
+                    push ids pg.id
+                    ; the rest of the head line is attributes on the page
+                    def more:string (this.rest(line))
+                    if ((strlen more) > 0) {
+                        cur = 0
+                        def go:boolean true
+                        while go {
+                            if (this.nextPair(more)) {
+                                if ((strlen pairKey) > 0) {
+                                    this.setAttr(pg pairKey pairVal)
+                                }
+                            } {
+                                go = false
+                            }
+                        }
+                    }
+                    continue
+                }
+                if (head == "collection") {
+                    collName = (this.token(line))
+                    def coll:RaveCollection (app.addCollection(collName))
+                    def go3:boolean true
+                    while go3 {
+                        def f:string (this.token(line))
+                        if ((strlen f) == 0) {
+                            go3 = false
+                        } {
+                            coll.addField(f f)
+                        }
+                    }
+                    mode = "collection"
+                    rootId = 0
+                    continue
+                }
+                if (head == "route") {
+                    push routeLines line
+                    continue
+                }
+                mode = ""
+                rootId = 0
+                this.readDocLine(line)
+                if fragment {
+                    ; a `style` or a `var` line does not close the fragment
+                    rootId = holderId
+                    mode = "block"
+                }
+                continue
+            }
+            ; --- inside a block ---------------------------------------------------
+            if (mode == "collection") {
+                cur = 0
+                def kind:string (this.token(line))
+                if (kind != "row") {
+                    this.fail(line "only `row` lines go under a collection")
+                    continue
+                }
+                def coll2:RaveCollection (app.collection(collName))
+                def row:RaveRow (coll2.addRow())
+                def go4:boolean true
+                while go4 {
+                    if (this.nextPair(line)) {
+                        if ((strlen pairKey) > 0) {
+                            row.set(pairKey pairVal)
+                        }
+                    } {
+                        go4 = false
+                    }
+                }
+                continue
+            }
+            if (rootId == 0) {
+                this.fail(line "this line is indented but no page or layout is open")
+                continue
+            }
+            def depth:int (indent - 1)
+            if fragment {
+                depth = indent
+            }
+            if ((charAt line 0) == 64) {
+                def owner:int (this.stackAt((depth - 1)))
+                if (owner == 0) {
+                    this.fail(line "a breakpoint rule with no node above it")
+                    continue
+                }
+                def open2:int (RaveTextReader.braceAt(line))
+                def close2:int (RaveTextReader.lastBrace(line))
+                if ((open2 < 0) || (close2 <= open2)) {
+                    this.fail(line "a breakpoint rule with no { }")
+                    continue
+                }
+                ; everything up to the rule is the query, because a written-out
+                ; one has spaces in it: `@(min-width: 768px) and (max-width: …)`
+                def mname:string (trim (substring line 0 open2))
+                def on:RaveNode (app.node(owner))
+                this.applyDecls((on.cls()) (this.mediaOf(mname)) (substring line (open2 + 1) close2))
+                continue
+            }
+            if ((charAt line 0) == 45) {
+                def owner2:int (this.stackAt((depth - 1)))
+                if (owner2 == 0) {
+                    this.fail(line "an action with no node above it")
+                    continue
+                }
+                cur = 0
+                this.token(line)
+                def akind:string (this.token(line))
+                def arg:string (this.rest(line))
+                def an:RaveNode (app.node(owner2))
+                an.on(akind arg)
+                continue
+            }
+            cur = 0
+            def first:string (this.token(line))
+            if (first == "self") {
+                def selfNode:RaveNode (app.node(rootId))
+                def media2:string ""
+                def open3:int (RaveTextReader.braceAt(line))
+                if (open3 < 0) {
+                    this.fail(line "a self line with no rule in { }")
+                    continue
+                }
+                def mid2:string (trim (substring line cur open3))
+                if ((strlen mid2) > 0) {
+                    if ((charAt mid2 0) == 64) {
+                        media2 = (this.mediaOf(mid2))
+                    }
+                }
+                def close3:int (RaveTextReader.lastBrace(line))
+                if (close3 <= open3) {
+                    this.fail(line "a rule that opens with { and never closes")
+                    continue
+                }
+                this.applyDecls((selfNode.cls()) media2 (substring line (open3 + 1) close3))
+                continue
+            }
+            def tagWord:string first
+            def dot:int (indexOf tagWord ".")
+            if (dot > 0) {
+                tagWord = (substring tagWord 0 dot)
+            }
+            if ((RaveTextReader.knownTag(tagWord)) == false) {
+                this.fail(line ("`" + tagWord + "` is not a tag this format knows"))
+                continue
+            }
+            def made:RaveNode (this.readNode(line))
+            def parent:int (this.stackAt((depth - 1)))
+            if (parent == 0) {
+                parent = rootId
+            }
+            def pnode:RaveNode (app.node(parent))
+            pnode.add(made)
+            this.setStack(depth made.id)
+        }
+
+        ; a layout that named the layout it sits inside
+        def pc:int 0
+        while (pc < (array_length pendingChild)) {
+            def childName:string (itemAt pendingChild pc)
+            def parentName:string (itemAt pendingParent pc)
+            def childId:int (RaveTextReader.idNamed(names ids childName))
+            def parentId:int (RaveTextReader.idNamed(names ids parentName))
+            if ((childId > 0) && (parentId > 0)) {
+                def cn:RaveNode (app.node(childId))
+                cn.parentLayout = parentId
+            } {
+                this.fail((childName + " inside " + parentName) "one of those layouts does not exist")
+            }
+            pc = (pc + 1)
+        }
+
+        ; and the routes, once every page and layout has a name to find
+        def rl:int 0
+        while (rl < (array_length routeLines)) {
+            this.readRoute((itemAt routeLines rl) names ids)
+            rl = (rl + 1)
+        }
+        return app
+    }
+
+    ; --- a fragment ---------------------------------------------------------------
+    ; A page or a node on its own, the way the AI menu asks for one back. The
+    ; document lines it is allowed to bring — a shared class, a token, a
+    ; collection — are hoisted to the top and everything else is put inside
+    ; one page, so the same reader handles it.
+    ; What a fragment may say about the document rather than about itself.
+    ; Not `layout`, `page`, `collection` or `route`: a fragment is a piece of
+    ; one page, and a line claiming otherwise is a mistake worth reporting.
+    sfn isFragmentDocLine:boolean (word:string) {
+        if (word == "app") { return true }
+        if (word == "targets") { return true }
+        if (word == "auth") { return true }
+        if (word == "breakpoint") { return true }
+        if (word == "var") { return true }
+        if (word == "style") { return true }
+        return false
+    }
+
+    ; The breakpoints a fragment is read against.
+    fn useBreakpointsOf:void (other:RaveApp) {
+        clear seedNames
+        clear seedMins
+        def i:int 0
+        while (i < (array_length other.breakpoints)) {
+            def b:RaveBreakpoint (itemAt other.breakpoints i)
+            push seedNames b.name
+            push seedMins b.minWidth
+            i = (i + 1)
+        }
+    }
+
+    sfn firstWord:string (line:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen line)) {
+            def c:int (charAt line i)
+            if ((c == 32) || (c == 9)) {
+                return out
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn readFragment:RaveApp (text:string) {
+        fragment = true
+        def out:RaveApp (this.read(text))
+        fragment = false
+        return out
+    }
+
+    sfn idNamed:int (names:[string] ids:[int] want:string) {
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == want) {
+                return (itemAt ids i)
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    fn readRoute:void (line:string names:[string] ids:[int]) {
+        cur = 0
+        this.token(line)
+        def path:string (this.token(line))
+        def title:string ""
+        this.skipSpace(line)
+        if (cur < (strlen line)) {
+            if ((charAt line cur) == 34) {
+                title = (this.quoted(line))
+            }
+        }
+        def pageId:int 0
+        def layoutId:int 0
+        def guarded:boolean false
+        def go:boolean true
+        while go {
+            if (this.nextPair(line)) {
+                if (pairKey == "protected") {
+                    guarded = true
+                }
+                if (pairKey == "page") {
+                    pageId = (RaveTextReader.idNamed(names ids pairVal))
+                    if (pageId == 0) {
+                        this.fail(line ("no page called " + pairVal))
+                    }
+                }
+                if (pairKey == "layout") {
+                    layoutId = (RaveTextReader.idNamed(names ids pairVal))
+                    if (layoutId == 0) {
+                        this.fail(line ("no layout called " + pairVal))
+                    }
+                }
+            } {
+                go = false
+            }
+        }
+        if (pageId == 0) {
+            this.fail(line "a route with no page")
+            return
+        }
+        def r (new RaveRoute(path title pageId layoutId))
+        r.protected = guarded
+        push app.routes r
+    }
+}
