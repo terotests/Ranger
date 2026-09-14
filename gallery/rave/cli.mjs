@@ -65,6 +65,91 @@ function runDocCommand(args) {
   return 0;
 }
 
+// --- shot -------------------------------------------------------------------
+// A route at a width, as a PNG, with no browser in it: the document CLI builds
+// and styles the route at that viewport and writes the EVG tree, and the
+// gallery's own software rasterizer paints it. The styling has to happen on
+// the Rave side, because a `@media` rule does not apply at all unless a
+// viewport was stated.
+
+const PNG_TOOL = path.join(ROOT, "gallery", "pdf_writer", "bin", "evg_png_tool.js");
+const PNG_SRC = path.join(ROOT, "gallery", "pdf_writer", "src", "tools", "evg_png_tool.rgr");
+
+function buildPngTool() {
+  if (fs.existsSync(PNG_TOOL) && fs.statSync(PNG_TOOL).mtimeMs > fs.statSync(PNG_SRC).mtimeMs) return true;
+  process.stderr.write("rave: compiling the rasterizer…\n");
+  spawnSync(
+    process.execPath,
+    ["bin/output.js", "-es6", "./gallery/pdf_writer/src/tools/evg_png_tool.rgr", "-d=./gallery/pdf_writer/bin", "-o=evg_png_tool.js", "-nodecli"],
+    { cwd: ROOT, encoding: "utf8", env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr" } },
+  );
+  return fs.existsSync(PNG_TOOL);
+}
+
+function onePng(file, route, width, out, loggedOut) {
+  const tree = out.replace(/\.png$/i, "") + ".evg.json";
+  const args = ["shotdata", path.resolve(file), path.resolve(tree), "--route", route, "--width", String(width)];
+  if (loggedOut) args.push("--logged-out");
+  const made = spawnSync(process.execPath, [CLI_JS, ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const text = (made.stdout || "") + (made.stderr || "");
+  const said = /^SHOT (\d+) (\d+) (.+)$/m.exec(text);
+  if (!said) return { ok: false, text };
+  const painted = spawnSync(
+    process.execPath,
+    [PNG_TOOL, path.resolve(tree), path.resolve(out), "-w", said[1], "-h", said[2]],
+    { cwd: ROOT, encoding: "utf8" },
+  );
+  fs.rmSync(tree, { force: true });
+  const ok = fs.existsSync(path.resolve(out));
+  return { ok, text: ok ? `${out}  ${said[3]} at ${said[1]}×${said[2]}` : (painted.stdout || "") + (painted.stderr || "") };
+}
+
+function routesAndWidths(file) {
+  const out = spawnSync(process.execPath, [CLI_JS, "check", path.resolve(file)], { cwd: process.cwd(), encoding: "utf8" });
+  const text = (out.stdout || "") + (out.stderr || "");
+  const markup = spawnSync(process.execPath, [CLI_JS, "markup", path.resolve(file)], { cwd: process.cwd(), encoding: "utf8" });
+  const doc = (markup.stdout || "");
+  const routes = [...doc.matchAll(/<route path="([^"]+)"/g)].map((m) => m[1]).filter((p) => !p.includes(":"));
+  const targets = (/<app[^>]*targets="([^"]*)"/.exec(doc) || [, "web"])[1].split(/\s+/).filter(Boolean);
+  const byTarget = { desktop: 1920, web: 1440, tablet: 768, mobile: 390 };
+  const widths = targets.map((t) => byTarget[t]).filter(Boolean);
+  return { routes, widths: widths.length ? widths : [1440], text };
+}
+
+function shot(file, rest) {
+  if (!buildPngTool()) {
+    process.stderr.write("rave: the rasterizer did not compile\n");
+    return 2;
+  }
+  const flag = (name, fallback) => {
+    const at = rest.indexOf(name);
+    return at >= 0 && rest[at + 1] ? rest[at + 1] : fallback;
+  };
+  const loggedOut = rest.includes("--logged-out");
+  if (rest.includes("--all")) {
+    const dir = flag("--out", "shots");
+    fs.mkdirSync(dir, { recursive: true });
+    const { routes, widths } = routesAndWidths(file);
+    let bad = 0;
+    for (const route of routes) {
+      for (const width of widths) {
+        const slug = (route === "/" ? "home" : route.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "")) + "-" + width;
+        const r = onePng(file, route, width, path.join(dir, slug + ".png"), loggedOut);
+        process.stdout.write((r.ok ? "" : "FAILED ") + r.text + "\n");
+        if (!r.ok) bad += 1;
+      }
+    }
+    return bad === 0 ? 0 : 1;
+  }
+  const { routes, widths } = routesAndWidths(file);
+  const route = flag("--route", routes[0] || "/");
+  const width = Number(flag("--width", widths[0] || 1440));
+  const out = flag("--out", "shot.png");
+  const r = onePng(file, route, width, out, loggedOut);
+  process.stdout.write(r.text + "\n");
+  return r.ok ? 0 : 1;
+}
+
 // --- serve ------------------------------------------------------------------
 // The editor page, plus the one file it is about: GET /doc is the markup, PUT
 // /doc writes it back, and /events says when the file changed underneath.
@@ -174,6 +259,10 @@ if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
       "  rave import <file.fig> [out]    a Figma file, read as an application",
       "  rave text <file.fig>            …and printed as markup",
       "  rave spec                  the format, exactly as the AI prompt states it",
+      "  rave shot <file> [--route /x] [--width 1440] [--out shot.png]",
+      "  rave shot <file> --all [--out shots/]",
+      "                             a PNG of a route at a width, painted by the",
+      "                             gallery's own rasterizer — no browser",
       "  rave serve <file.rave> [--port 8012]",
       "                             the editor, bound to that file: it loads it,",
       "                             follows it when it changes, and writes it on Save",
@@ -183,7 +272,14 @@ if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
   process.exit(0);
 }
 
-if (cmd === "serve") {
+if (cmd === "shot") {
+  const file = rest.find((a) => !a.startsWith("--") && !rest[rest.indexOf(a) - 1]?.startsWith("--"));
+  if (!file) {
+    process.stderr.write("usage: rave shot <file> [--route /x] [--width 1440] [--out shot.png] [--all]\n");
+    process.exit(2);
+  }
+  process.exit(shot(file, rest));
+} else if (cmd === "serve") {
   const file = rest.find((a) => !a.startsWith("--"));
   const portAt = rest.indexOf("--port");
   const port = portAt >= 0 ? Number(rest[portAt + 1]) : 8012;

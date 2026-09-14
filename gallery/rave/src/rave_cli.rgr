@@ -29,6 +29,7 @@ Import "RaveImport.rgr"
 Import "RaveText.rgr"
 Import "RaveRuntime.rgr"
 Import "RavePatterns.rgr"
+Import "../../evg/EVGTreeJson.rgr"
 
 class RaveCli {
 
@@ -388,6 +389,75 @@ class RaveCli {
         return bad
     }
 
+    ; --- shotdata ------------------------------------------------------------------
+    ; One route, built and styled at one width, written out as the EVG tree the
+    ; software rasterizer reads. The styling happens HERE, through
+    ; `applyTreeIn` with the real viewport, because a `@media` rule does not
+    ; apply at all unless a viewport was stated — a picture taken any other way
+    ; would be the desktop layout wearing a phone's width.
+    sfn shotData:int (path:string outPath:string) {
+        def reader (new RaveTextReader())
+        def app:RaveApp (RaveCli.openDoc(path reader))
+        if ((reader.errorCount()) > 0) {
+            def i:int 0
+            while (i < (reader.errorCount())) {
+                print ("  " + (reader.errorAt(i)))
+                i = (i + 1)
+            }
+            return 1
+        }
+        if (app.isEmpty()) {
+            print "  the document has no routes"
+            return 1
+        }
+        def width:double (?? (str2double (RaveCli.flag("--width" "1440"))) 1440.0)
+        def height:double (?? (str2double (RaveCli.flag("--height" "0"))) 0.0)
+        if (height < 1.0) {
+            height = (RaveCli.heightFor(width))
+        }
+        def first:RaveRoute (itemAt app.routes 0)
+        def want:string (RaveCli.flag("--route" first.path))
+        if ((app.matches(want)) == false) {
+            print ("  no route at " + want)
+            return 1
+        }
+        def rt (new RaveRuntime(app))
+        rt.addView("shot" width height (width < 600.0))
+        if ((RaveCli.hasFlag("--logged-out")) == false) {
+            rt.setLoggedIn(true)
+        }
+        rt.jump(want)
+        rt.ensure()
+        def page:EVGElement (rt.pageOf(0))
+        RaveCli.pruneHidden(page)
+        write_file (RaveCli.dirOf(outPath)) (RaveCli.nameOf(outPath)) (EVGTreeJson.toText(page))
+        print (("SHOT " + (to_string (to_int width))) + " " + (to_string (to_int height)) + " " + want)
+        return 0
+    }
+
+    ; A node the layout decided not to draw has no business in a picture of
+    ; the page. The rasterizer walks the tree it is given rather than the one
+    ; the layout kept, so a sidebar folded away at 390 would otherwise be
+    ; painted over the header.
+    sfn pruneHidden:void (el:EVGElement) {
+        def keep:[EVGElement]
+        def i:int 0
+        def n:int (el.getChildCount())
+        while (i < n) {
+            def kid:EVGElement (el.getChild(i))
+            ; only what the LAYOUT dropped. `a11yHidden` is a different thing
+            ; entirely — a button's caption is hidden from a reader because the
+            ; button already carries the name, and pruning it would take the
+            ; words out of every button in the picture.
+            if (kid.display != "none") {
+                RaveCli.pruneHidden(kid)
+                push keep kid
+            }
+            i = (i + 1)
+        }
+        el.children = keep
+    }
+
     sfn usage:void () {
         print "usage:"
         print "  rave new <out.rave> [--name X --start dashboard|crud|marketing|masterdetail|settings|empty]"
@@ -399,6 +469,7 @@ class RaveCli {
         print "  rave import <file.fig> [out]"
         print "  rave text <file.fig>"
         print "  rave figcheck <file.fig>"
+        print "  rave shotdata <file> <out.evg.json> [--route / --width 1440]"
         print "  rave spec"
     }
 
@@ -491,6 +562,17 @@ class RaveCli {
         }
         if (cmd == "text") {
             RaveCli.importFig(path "" true)
+            return
+        }
+        if (cmd == "shotdata") {
+            if (n < 3) {
+                RaveCli.usage()
+                return
+            }
+            def shotBad:int (RaveCli.shotData(path (shell_arg 2)))
+            if (shotBad > 0) {
+                print ("RAVE FAIL " + (to_string shotBad))
+            }
             return
         }
         if (cmd == "figcheck") {

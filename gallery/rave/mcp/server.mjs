@@ -19,6 +19,7 @@
 // project directory in every host that launches it from one.
 
 import { spawnSync } from "node:child_process";
+import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
@@ -133,6 +134,38 @@ const TOOLS = [
       fs.writeFileSync(target, a.markup);
       const r = run(RAVE, ["check", target]);
       return reply(`wrote ${a.path} (${a.markup.length} bytes)\n\n${r.text}`, r.failed);
+    },
+  },
+  {
+    name: "rave_shot",
+    description:
+      "Paint one route of a Rave document at one width and return the picture. No browser: the route is built and styled at that viewport — a @media rule does not apply at all unless one is stated — and the gallery's own software rasterizer paints it. Use it to SEE what a change did, not only whether it passed the check.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        route: { type: "string", description: "which route, e.g. /dashboard (default: the first)" },
+        width: { type: "number", description: "the viewport width, e.g. 390 or 1440 (default: the project's first target)" },
+        loggedOut: { type: "boolean", description: "draw it as a visitor who has not signed in" },
+      },
+      required: ["path"],
+    },
+    run: (a) => {
+      const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rave-shot-")), "shot.png");
+      const args = ["shot", resolve(a.path), "--out", out];
+      if (a.route) args.push("--route", a.route);
+      if (a.width) args.push("--width", String(a.width));
+      if (a.loggedOut) args.push("--logged-out");
+      const r = run(RAVE, args);
+      if (!fs.existsSync(out)) return reply(r.text, true);
+      const png = fs.readFileSync(out);
+      fs.rmSync(path.dirname(out), { recursive: true, force: true });
+      return {
+        content: [
+          { type: "text", text: r.text },
+          { type: "image", data: png.toString("base64"), mimeType: "image/png" },
+        ],
+      };
     },
   },
   {

@@ -238,6 +238,7 @@ editor knows how to say about one, `rave` says without a browser.
 | `rave check <file>` | **the loop.** Parses, then builds every route at every width the project targets, and prints the parse errors with their line numbers, every declaration `EVGReject` refused, and every accessibility problem. Ends `RAVE OK` or `RAVE FAIL n`, and exits non-zero |
 | `rave serve <file.rave>` | the editor at `:8012` **bound to that file** — it loads it, follows it when something else writes it, and writes it back when someone presses Save |
 | `rave fmt` / `json` / `markup` | the same document, spelled the writer's way, as `app.rave.json`, or back |
+| `rave shot <file>` | one route at one width, as a PNG — `--route`, `--width`, `--out`, or `--all` for every route at every target width. No browser: the gallery's own software rasterizer paints the tree the layout kept |
 | `rave spec` | the format, exactly as the AI prompt states it |
 | `rave import <file.fig>` | a Figma file as an application; `rave text` prints one as markup |
 
@@ -275,8 +276,10 @@ objected to once it was drawn.
 ### MCP, for a host that is not a shell
 
 `gallery/rave/mcp/server.mjs` is one MCP server over both — `rave_spec`,
-`rave_new`, `rave_check`, `rave_read`, `rave_write`, `figma_check`,
-`figma_markup`, `figma_tree`. It has no dependencies: MCP over stdio is
+`rave_new`, `rave_check`, `rave_read`, `rave_write`, `rave_shot`,
+`figma_check`, `figma_markup`, `figma_tree`. `rave_shot` answers with the
+picture itself, so the agent looks at what it made rather than reading about
+it. It has no dependencies: MCP over stdio is
 newline-delimited JSON-RPC and four methods, and a server that is one file
 with no install step is one a person can point a host at without thinking
 about it.

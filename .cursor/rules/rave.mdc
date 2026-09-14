@@ -1,0 +1,39 @@
+---
+description: Rave and the Figma reader — designing an application from files, and checking it
+globs: ["**/*.rave", "**/*.rave.json", "**/*.fig", "gallery/rave/**", "gallery/figma/**"]
+alwaysApply: false
+---
+
+# Rave: a design that is an application
+
+A Rave document **is** an application — routes, layouts, pages and a stylesheet
+with real breakpoints, drawn by the EVG engine — written as HTML-shaped markup
+with no ids in it. When the work is "design a screen / a dashboard / an app" in
+this repository, this is the thing to reach for rather than HTML or a picture.
+
+The `ranger-design` MCP server (declared in `.cursor/mcp.json`) has the tools:
+
+| tool | what it is for |
+| --- | --- |
+| `rave_spec` | the format in full. **Read it first**, once. |
+| `rave_new` | a new application — `start`: dashboard, crud, marketing, masterdetail, settings, empty |
+| `rave_read` / `rave_write` | the markup out and back. `rave_write` checks what it wrote |
+| `rave_check` | **the loop.** Parse errors with lines, every CSS declaration the engine refused, every accessibility problem, per route per width |
+| `rave_shot` | paint one route at one width and look at it |
+| `figma_check` / `figma_markup` / `figma_tree` | a `.fig` file read as an application |
+
+The same thing from a terminal: `npm run rave -- check app.rave`,
+`npm run rave -- shot app.rave --width 390`, `npm run figma -- check app.fig`.
+
+## The rules that are not negotiable here
+
+- **Only class selectors.** `style="…"` on an element, or `<style class="x">…`.
+- **`calc()`, `aspect-ratio`, `min-content`, `max-content`,
+  `repeat(auto-fit, …)`, `box-shadow`, `transform`, `transition` and the
+  per-side border shorthands do not exist.** A rule that uses one is dropped
+  silently, and `rave_check` is the only place that says so.
+- **Accessibility is checked, not suggested**: every input a `label`, every img
+  an `alt`, every button words or a `label`, headings one level at a time,
+  4.5:1 contrast.
+- **Never finish on a `RAVE FAIL`.** Every line it prints is something a person
+  would have found by looking.

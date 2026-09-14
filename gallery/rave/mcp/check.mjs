@@ -55,7 +55,7 @@ ok("…echoing the version the host asked for", hello.result.protocolVersion ===
 
 const listed = await call("tools/list", {});
 const names = (listed.result.tools || []).map((t) => t.name);
-ok("the tools are listed", names.length === 8, names.join(", "));
+ok("the tools are listed", names.length === 9, names.join(", "));
 ok("…with schemas", listed.result.tools.every((t) => t.inputSchema && t.inputSchema.type === "object"));
 
 const made = await call("tools/call", {
@@ -100,6 +100,14 @@ const fig = await call("tools/call", {
   arguments: { path: path.join(ROOT, "gallery", "figma", "fixtures", "sample.fig") },
 });
 ok("figma_check reads a .fig", /sample\.fig · \d+ nodes/.test(fig.result.content[0].text), fig.result.content[0].text);
+
+const shot = await call("tools/call", {
+  name: "rave_shot",
+  arguments: { path: "app.rave", width: 390 },
+});
+const image = (shot.result.content || []).find((c) => c.type === "image");
+ok("rave_shot comes back as a picture", !!image, JSON.stringify(shot.result).slice(0, 300));
+ok("…a real PNG", !!image && Buffer.from(image.data, "base64").subarray(1, 4).toString() === "PNG");
 
 const missing = await call("tools/call", { name: "nope", arguments: {} });
 ok("a tool that is not there is an error, not a crash", !!missing.error);

@@ -13,6 +13,7 @@ other source file.
 ```
 npm run rave -- new app.rave --name "Acme" --start crud --nav sidebar
 npm run rave -- check app.rave        # the loop: exit 0 or the reasons why not
+npm run rave -- shot app.rave --width 390   # paint a route and look at it
 npm run rave -- serve app.rave        # the editor at :8012, bound to the file
 npm run rave -- spec                  # the format in full — read this before writing one
 ```
@@ -21,7 +22,7 @@ From outside this repository the same thing is `node <ranger>/gallery/rave/cli.m
 
 There is also an MCP server over the same commands — `ranger-design`, declared
 in this repository's `.mcp.json` and `.cursor/mcp.json` — with
-`rave_spec`, `rave_new`, `rave_check`, `rave_read`, `rave_write`,
+`rave_spec`, `rave_new`, `rave_check`, `rave_read`, `rave_write`, `rave_shot`,
 `figma_check`, `figma_markup` and `figma_tree`. Use whichever door is in front
 of you; they do the same work, and `rave_write` runs the check on what it
 wrote, so a document that does not hold up says so in the same answer.
@@ -104,6 +105,18 @@ open it with `<on click="open" arg="name"/>`. `when="authenticated"` puts a
 node on the page only when the session is.
 
 ## Seeing it
+
+`rave shot <file> --route /dashboard --width 390 --out shot.png` paints one
+route at one width and leaves a PNG; `--all` does every route at every width
+the project targets, into a directory. There is no browser in it: the route is
+built and styled at that viewport — a `@media` rule does not apply at all
+unless one is stated — and the gallery's own software rasterizer paints the
+tree. Over MCP the same thing is `rave_shot`, and the picture comes back in
+the answer.
+
+Look at what you made. `check` catches what is wrong; a picture catches what
+is merely bad.
+
 
 `rave serve app.rave` runs the editor at `http://127.0.0.1:8012/` bound to that
 file: it loads it, follows it when you write it, and writes it back when
