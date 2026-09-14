@@ -95,6 +95,91 @@ class RaveTest {
     }
 
 
+    ; --- Master / Detail --------------------------------------------------------------
+
+    ; A list route and a detail route over one collection. What is checked is
+    ; the thing the document gained: rows drawn from data rather than typed,
+    ; a press on the third row landing on the third row's path, `:id` read
+    ; back out of the path, and the phone dropping the list column for a
+    ; `Back` link.
+    sfn masterDetailChecks:void (c:Check) {
+        print ""
+        print "--- master / detail ---"
+        def app:RaveApp (RavePatterns.masterDetail("Acme"))
+        c.ok("the items collection is there" (app.hasCollection("items")))
+        def coll:RaveCollection (app.collection("items"))
+        c.eqInt("…with five rows" (coll.rowCount()) 5)
+        c.ok("/items is a route" (app.hasRoute("/items")))
+        c.ok("/items/:id is a route" (app.hasRoute("/items/:id")))
+        c.ok("…and it takes a concrete path" (app.matches("/items/3")))
+        c.ok("…but not one of the wrong shape" ((app.matches("/items/3/edit")) == false))
+        def params:[string:string] (app.paramsOf("/items/3"))
+        c.eqStr("…reading :id back out" (unwrap (get params "id")) "3")
+
+        def rt (new RaveRuntime(app))
+        c.eqInt("the sheet parses clean" (rt.styleErrorCount()) 0)
+        if ((rt.styleErrorCount()) > 0) {
+            print ("       " + (rt.styleError(0)))
+        }
+        def desk:int (rt.addView("desktop" 1440.0 900.0 false))
+        def phone:int (rt.addView("phone" 390.0 844.0 true))
+        rt.setLoggedIn(true)
+        c.ok("the list route is reached" (rt.navigate("/items")))
+        def dl:string (rt.displayListJson(desk))
+        c.ok("the first row is drawn" (RaveTest.includes(dl "Onboarding email")))
+        c.ok("…and the last" (RaveTest.includes(dl "Support backlog")))
+        c.ok("…and a row's status" (RaveTest.includes(dl "In review")))
+        RaveTest.noRejections(c rt desk "the engine rejected nothing on the list")
+        RaveTest.lintClean(c rt desk "the list lints clean at 1440")
+        RaveTest.lintClean(c rt phone "the list lints clean at 390")
+
+        ; the rows are copies of one node: same node id, different element id
+        def itemNode:int (app.idOfNamed("a" "Item"))
+        c.ok("the row template is one node" (itemNode > 0))
+        def row0:string ("n" + (to_string itemNode) + "-0")
+        def row2:string ("n" + (to_string itemNode) + "-2")
+        c.ok("the first row is on the page" (rt.hasEl(desk row0)))
+        c.ok("the third row is too" (rt.hasEl(desk row2)))
+        c.eqInt("…and both name the same node" (RaveApp.idOfElement(row2)) itemNode)
+        c.eqInt("…the third being row 2" (RaveApp.rowOfElement(row2)) 2)
+        c.ok("a row below the first is further down the page" ((rt.topOf(desk row2)) > (rt.topOf(desk row0))))
+
+        ; pressing the third row goes to the third row's path
+        c.ok("pressing the third row moves" (rt.press(row2)))
+        c.eqStr("…to /items/3" (rt.path()) "/items/3")
+        def dl2:string (rt.displayListJson(desk))
+        c.ok("the detail page is about that row" (RaveTest.includes(dl2 "Who came back this month")))
+        RaveTest.lintClean(c rt desk "the detail lints clean at 1440")
+        RaveTest.lintClean(c rt phone "the detail lints clean at 390")
+        RaveTest.noRejections(c rt desk "the engine rejected nothing on the detail")
+
+        ; two columns on a desktop, one on a phone with a Back link
+        def side:string (RaveTest.elId((app.idOfNamed("aside" "Item list column"))))
+        def pane:string (RaveTest.elId((app.idOfNamed("section" "Item detail"))))
+        c.ok("1440 shows the list column" (rt.isShown(desk side)))
+        c.ok("…beside the detail" ((rt.leftOf(desk pane)) > (rt.leftOf(desk side))))
+        c.ok("390 drops the list column" ((rt.isShown(phone side)) == false))
+        def back:string (RaveTest.elId((app.findWithAction((app.node((app.idOfNamed("section" "Item detail")))) "navigate" "/items"))))
+        c.ok("…and shows Back instead" (rt.isShown(phone back)))
+        c.ok("1440 hides Back" ((rt.isShown(desk back)) == false))
+        c.ok("pressing Back returns to the list" (rt.press(back)))
+        c.eqStr("…at /items" (rt.path()) "/items")
+
+        ; a detail route with no row named previews the first row
+        c.ok("the editor may look at the pattern itself" (rt.jump("/items/:id")))
+        c.ok("…and sees the first row" (RaveTest.includes((rt.displayListJson(desk)) "Onboarding email")))
+
+        ; the document survives being written and read
+        def text:string (app.toJson())
+        def back2:RaveApp (RaveApp.fromJson(text))
+        c.ok("the collection round-trips" (back2.hasCollection("items")))
+        def coll2:RaveCollection (back2.collection("items"))
+        c.eqInt("…with its rows" (coll2.rowCount()) 5)
+        c.eqStr("…and their fields" ((coll2.rowAt(2)).get("title")) "Retention report")
+        def listNode:RaveNode (back2.node((back2.idOfNamed("div" "Item list"))))
+        c.eqStr("…and the repeat that draws them" listNode.repeat "items")
+    }
+
     ; --- the editor -----------------------------------------------------------------
 
     sfn chromeCss:string () {
@@ -641,6 +726,7 @@ class RaveTest {
         c.ok("the tree names the navigation" (RaveTest.includes(a11y "Main navigation")))
         c.ok("…and the heading" (RaveTest.includes(a11y "Dashboard")))
 
+        RaveTest.masterDetailChecks(c)
         RaveTest.editorChecks(c)
         RaveTest.inputChecks(c)
 

@@ -246,6 +246,142 @@ class RavePatterns {
         return c
     }
 
+    ; --- Master / Detail -------------------------------------------------------------
+
+    ; The look the rows share.
+    sfn listTheme:void (app:RaveApp) {
+        app.shared("list" "gap" "12px")
+        app.shared("item" "flex-direction" "column")
+        app.shared("item" "gap" "4px")
+        app.shared("item" "padding" "12px 16px")
+        app.shared("item" "border" "1px solid var(--line)")
+        app.shared("item" "border-radius" "var(--radius)")
+        app.shared("item" "background-color" "var(--bg)")
+        app.shared("item" "color" "var(--ink)")
+        app.shared("item" "cursor" "pointer")
+        app.shared("badge" "width" "fit-content")
+        app.shared("badge" "padding" "2px 8px")
+        app.shared("badge" "border-radius" "999px")
+        app.shared("badge" "background-color" "var(--panel)")
+        app.shared("badge" "border" "1px solid var(--line)")
+        app.shared("badge" "font-size" "12px")
+        app.shared("badge" "color" "var(--muted)")
+    }
+
+    ; The five rows the pattern ships with: something to look at on the first
+    ; screen, and something for the detail route to be about.
+    sfn seedItems:RaveCollection (app:RaveApp) {
+        def coll:RaveCollection (app.addCollection("items"))
+        coll.addField("id" "Id")
+        coll.addField("title" "Title")
+        coll.addField("status" "Status")
+        coll.addField("summary" "Summary")
+        def a:RaveRow (coll.addRow())
+        a.set("title" "Onboarding email")
+        a.set("status" "Draft")
+        a.set("summary" "The first message a new account gets.")
+        def b:RaveRow (coll.addRow())
+        b.set("title" "Quarterly invoice")
+        b.set("status" "Sent")
+        b.set("summary" "What the account owes for the quarter just closed.")
+        def c:RaveRow (coll.addRow())
+        c.set("title" "Retention report")
+        c.set("status" "In review")
+        c.set("summary" "Who came back this month, and who did not.")
+        def d:RaveRow (coll.addRow())
+        d.set("title" "Pricing change")
+        d.set("status" "Draft")
+        d.set("summary" "The new plan table, and who it moves.")
+        def e:RaveRow (coll.addRow())
+        e.set("title" "Support backlog")
+        e.set("status" "Done")
+        e.set("summary" "Every ticket older than a week, and its owner.")
+        return coll
+    }
+
+    ; The list, as nodes. It is built twice — once for the list route, once
+    ; for the detail route's left column — because an instance of a component
+    ; is not yet expanded at build time; the rows themselves are one
+    ; collection, so the two lists can never disagree.
+    sfn itemList:RaveNode (app:RaveApp parent:RaveNode) {
+        def list:RaveNode (parent.add((app.newNode("div" "Item list"))))
+        list.addClass("list")
+        list.repeat = "items"
+        list.label = "Items"
+        def item:RaveNode (list.add((app.newNode("a" "Item"))))
+        item.addClass("item")
+        item.label = "{title}"
+        item.on("navigate" "/items/{id}")
+        def t:RaveNode (item.add((app.newText("h3" "{title}"))))
+        t.addClass("subtitle")
+        def st:RaveNode (item.add((app.newText("span" "{status}"))))
+        st.addClass("badge")
+        return list
+    }
+
+    ; A list route and a detail route over one collection: `/items` and
+    ; `/items/:id`. The detail route is two columns on a desktop and one on a
+    ; phone, where the list becomes a `Back` link instead.
+    sfn withMasterDetail:void (app:RaveApp) {
+        RavePatterns.listTheme(app)
+        RavePatterns.seedItems(app)
+
+        def list:RaveNode (app.newPage("Items"))
+        app.style(list "gap" "16px")
+        def lh:RaveNode (list.add((app.newText("h1" "Items"))))
+        lh.addClass("title")
+        RavePatterns.itemList(app list)
+
+        def detail:RaveNode (app.newPage("Item"))
+        detail.source = "items"
+        detail.sourceKey = "id"
+        app.style(detail "display" "grid")
+        app.style(detail "grid-template-columns" "320px 1fr")
+        app.style(detail "gap" "24px")
+        app.styleAt(detail (app.below("md")) "grid-template-columns" "1fr")
+
+        def side:RaveNode (detail.add((app.newNode("aside" "Item list column"))))
+        side.label = "Items"
+        app.style(side "gap" "12px")
+        app.style(side "min-width" "0")
+        app.styleAt(side (app.below("md")) "display" "none")
+        RavePatterns.itemList(app side)
+
+        def pane:RaveNode (detail.add((app.newNode("section" "Item detail"))))
+        pane.label = "{title}"
+        app.style(pane "gap" "12px")
+        app.style(pane "min-width" "0")
+        def back:RaveNode (pane.add((app.newText("a" "← Back to items"))))
+        back.addClass("navlink")
+        back.on("navigate" "/items")
+        app.style(back "display" "none")
+        app.style(back "width" "fit-content")
+        app.styleAt(back (app.below("md")) "display" "flex")
+        def dh:RaveNode (pane.add((app.newText("h1" "{title}"))))
+        dh.addClass("title")
+        def ds:RaveNode (pane.add((app.newText("span" "{status}"))))
+        ds.addClass("badge")
+        def dp:RaveNode (pane.add((app.newText("p" "{summary}"))))
+        dp.addClass("muted")
+
+        def shellId:int 0
+        if ((array_length app.routes) > 0) {
+            def first:RaveRoute (itemAt app.routes 0)
+            shellId = first.layoutId
+        }
+        app.addRoute("/items" "Items" list shellId)
+        app.addRoute("/items/:id" "Item" detail shellId)
+
+        ; and a way in from the shell's own navigation
+        def navId:int (app.idOfNamed("nav" "Main navigation"))
+        if (navId > 0) {
+            def nav:RaveNode (app.node(navId))
+            def link:RaveNode (nav.add((app.newText("a" "Items"))))
+            link.addClass("navlink")
+            link.on("navigate" "/items")
+        }
+    }
+
     ; --- Auth Flow -----------------------------------------------------------------
 
     ; Adds `/login` on its own centred layout, protects every route but the
@@ -301,6 +437,14 @@ class RavePatterns {
     ; The wizard's answer for the default choices: a dashboard app that signs in.
     sfn saasStarter:RaveApp (name:string) {
         def app:RaveApp (RavePatterns.dashboardShell(name))
+        RavePatterns.withAuth(app)
+        return app
+    }
+
+    ; Dashboard Shell with a list and a detail route on it.
+    sfn masterDetail:RaveApp (name:string) {
+        def app:RaveApp (RavePatterns.dashboardShell(name))
+        RavePatterns.withMasterDetail(app)
         RavePatterns.withAuth(app)
         return app
     }

@@ -74,11 +74,16 @@ class RaveRuntime {
     def gap:double 80.0
     def sceneW:double 0.0
     def sceneH:double 0.0
+    ; Which row of which collection each element on the last-built page was a
+    ; copy for, so a press on the third card knows it is the third row.
+    def rowOwner:[string:string]
 
     Constructor (a:RaveApp) {
         app = a
         def r (new RaveRouter(a auth))
         router = r
+        def fresh:[string:string]
+        rowOwner = fresh
         this.reloadStyles()
     }
 
@@ -196,13 +201,14 @@ class RaveRuntime {
     ; designer looks at a protected page without signing in.
     fn jump:boolean (to:string) {
         def r:RaveRouter (unwrap router)
-        if ((app.hasRoute(to)) == false) {
+        if (((app.hasRoute(to)) == false) && ((app.matches(to)) == false)) {
             return false
         }
         if (r.path == to) {
             return false
         }
         r.path = to
+        r.readParams()
         dirty = true
         return true
     }
@@ -259,7 +265,9 @@ class RaveRuntime {
         def r:RaveRouter (unwrap router)
         def route:RaveRoute (r.current())
         def b (new RaveBuild(app auth))
+        b.params = r.params
         def root:EVGElement (b.page(route))
+        rowOwner = b.rowOwner
         def page:EVGElement (EVGElement.createDiv())
         page.id = ("page-" + v.name)
         page.setAttribute("position" "absolute")
@@ -429,6 +437,35 @@ class RaveRuntime {
 
     ; The element under the id, if it is a node of ours, runs its click
     ; actions. Answers whether anything changed.
+    ; The row an element was a copy for, empty when it was not in a repeat.
+    fn rowOf:RaveRow (id:string) {
+        if ((has rowOwner id) == false) {
+            def none (new RaveRow())
+            return none
+        }
+        def owner:string (unwrap (get rowOwner id))
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < (strlen owner)) {
+            if ((charAt owner i) == 47) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        if (at < 0) {
+            def none2 (new RaveRow())
+            return none2
+        }
+        def collName:string (substring owner 0 at)
+        def key:string (substring owner (at + 1) (strlen owner))
+        if ((app.hasCollection(collName)) == false) {
+            def none3 (new RaveRow())
+            return none3
+        }
+        def coll:RaveCollection (app.collection(collName))
+        return (coll.rowOf(key))
+    }
+
     fn press:boolean (id:string) {
         def nid:int (RaveApp.idOfElement(id))
         if (nid == 0) {
@@ -438,12 +475,13 @@ class RaveRuntime {
             return false
         }
         def n:RaveNode (app.node(nid))
+        def r:RaveRow (this.rowOf(id))
         def changed:boolean false
         def i:int 0
         while (i < (array_length n.actions)) {
             def a:RaveAction (itemAt n.actions i)
             if (a.on == "click") {
-                def did:boolean (this.run(a))
+                def did:boolean (this.runWith(a (RaveApp.fill(a.arg r))))
                 if did {
                     changed = true
                 }
@@ -457,9 +495,13 @@ class RaveRuntime {
     }
 
     fn run:boolean (a:RaveAction) {
+        return (this.runWith(a a.arg))
+    }
+
+    fn runWith:boolean (a:RaveAction arg:string) {
         def r:RaveRouter (unwrap router)
         if (a.kind == "navigate") {
-            return (r.navigate(a.arg))
+            return (r.navigate(arg))
         }
         if (a.kind == "back") {
             return (r.back())
