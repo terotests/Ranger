@@ -118,6 +118,29 @@ class RaveNode {
     ; for kind == instance
     def component:string ""
     def variant:string ""
+    ; The collection this node repeats over: one copy of its children per row.
+    def repeat:string ""
+    ; The collection one row of which this subtree is about, and the route
+    ; parameter that names the row. `{field}` in any text under it is that
+    ; row's value.
+    def source:string ""
+    def sourceKey:string ""
+    ; for kind == overlay: the name `open` and `close` use
+    def overlay:string ""
+    ; for an input: the collection field it writes when `create` runs
+    def bind:string ""
+    ; The role, when the tag does not imply the right one: a switch is a box
+    ; that says it is a switch. Empty means the tag decides, which is what
+    ; every node the patterns build does.
+    def role:string ""
+    ; checked | unchecked | selected | unselected | expanded | collapsed —
+    ; the ARIA state, as a word rather than a number, because it is a thing a
+    ; person picks in the inspector.
+    def state:string ""
+    ; for a layout root: the layout this one sits inside, or 0. A route names
+    ; one layout; that layout may name another, and the chain is built
+    ; outermost first with each one's slot holding the next.
+    def parentLayout:int 0
     def actions:[RaveAction]
     def children:[RaveNode]
 
@@ -201,6 +224,144 @@ class RaveComponent {
     }
 }
 
+; --- data -----------------------------------------------------------------------
+; A collection is a table a page can be about: named fields, rows keyed by
+; the field `id`. It is the smallest thing that makes a list route and a
+; detail route real rather than drawn — the list repeats over the rows, the
+; detail route's `:id` picks one, and `{field}` in any text under either is
+; read from the row that is in play.
+
+class RaveField {
+    def name:string ""
+    def label:string ""
+
+    Constructor (n:string l:string) {
+        name = n
+        label = l
+    }
+}
+
+class RaveRow {
+    def keys:[string]
+    def values:[string]
+
+    Constructor () {
+    }
+
+    fn set:void (k:string v:string) {
+        def i:int 0
+        while (i < (array_length keys)) {
+            if ((itemAt keys i) == k) {
+                set values i v
+                return
+            }
+            i = (i + 1)
+        }
+        push keys k
+        push values v
+    }
+
+    fn has:boolean (k:string) {
+        def i:int 0
+        while (i < (array_length keys)) {
+            if ((itemAt keys i) == k) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn get:string (k:string) {
+        def i:int 0
+        while (i < (array_length keys)) {
+            if ((itemAt keys i) == k) {
+                return (itemAt values i)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn copy:RaveRow () {
+        def out (new RaveRow())
+        def i:int 0
+        while (i < (array_length keys)) {
+            out.set((itemAt keys i) (itemAt values i))
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+class RaveCollection {
+    def name:string ""
+    def fields:[RaveField]
+    def rows:[RaveRow]
+    ; The number the next generated `id` gets.
+    def nextKey:int 1
+
+    Constructor (n:string) {
+        name = n
+    }
+
+    fn addField:void (fieldName:string label:string) {
+        push fields (new RaveField(fieldName label))
+    }
+
+    fn rowCount:int () {
+        return (array_length rows)
+    }
+
+    fn rowAt:RaveRow (i:int) {
+        def r:RaveRow (itemAt rows i)
+        return r
+    }
+
+    ; A row with a generated `id`, appended.
+    fn addRow:RaveRow () {
+        def r (new RaveRow())
+        r.set("id" (to_string nextKey))
+        nextKey = (nextKey + 1)
+        push rows r
+        return r
+    }
+
+    fn indexOf:int (key:string) {
+        def i:int 0
+        while (i < (array_length rows)) {
+            def r:RaveRow (itemAt rows i)
+            if ((r.get("id")) == key) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn hasKey:boolean (key:string) {
+        return ((this.indexOf(key)) >= 0)
+    }
+
+    fn rowOf:RaveRow (key:string) {
+        def at:int (this.indexOf(key))
+        if (at < 0) {
+            def none (new RaveRow())
+            return none
+        }
+        return (this.rowAt(at))
+    }
+
+    fn removeKey:boolean (key:string) {
+        def at:int (this.indexOf(key))
+        if (at < 0) {
+            return false
+        }
+        remove_index rows at
+        return true
+    }
+}
+
 class RaveApp {
     def name:string "app"
     ; web desktop tablet mobile
@@ -217,6 +378,7 @@ class RaveApp {
     def pages:[RaveNode]
     def components:[RaveComponent]
     def styles:[RaveRule]
+    def data:[RaveCollection]
     ; Every node ever made, by id. Ids are never reused: a deleted node's
     ; rules may still be in an undo stack that puts it back.
     def byId:[string:RaveNode]
@@ -243,6 +405,31 @@ class RaveApp {
         return n
     }
 
+    ; The layouts a route is built through, outermost first, ending with the
+    ; route's own. A cycle stops at the depth guard rather than hanging.
+    fn layoutChain:[int] (layoutId:int) {
+        def inward:[int]
+        def at:int layoutId
+        def guard:int 0
+        while ((at > 0) && (guard < 16)) {
+            push inward at
+            if ((this.hasNode(at)) == false) {
+                at = 0
+            } {
+                def n:RaveNode (this.node(at))
+                at = n.parentLayout
+            }
+            guard = (guard + 1)
+        }
+        def out:[int]
+        def i:int ((array_length inward) - 1)
+        while (i >= 0) {
+            push out (itemAt inward i)
+            i = (i - 1)
+        }
+        return out
+    }
+
     fn newLayout:RaveNode (name:string) {
         def n:RaveNode (this.newNode("div" name))
         push layouts n
@@ -261,6 +448,64 @@ class RaveApp {
         return n
     }
 
+    ; A dialog: built only while it is the overlay that is open, and a modal
+    ; while it is, so `EVGFocus` keeps the keyboard inside it.
+    fn newOverlay:RaveNode (overlayName:string title:string) {
+        def n:RaveNode (this.newNode("div" title))
+        n.kind = "overlay"
+        n.overlay = overlayName
+        n.label = title
+        return n
+    }
+
+    ; The strip that says what just happened. Its words are the runtime's,
+    ; not the document's, and it is on the page only while there are any.
+    fn newToast:RaveNode () {
+        def n:RaveNode (this.newNode("span" "Toast"))
+        n.kind = "toast"
+        n.tag = "span"
+        return n
+    }
+
+    fn findOverlay:int (root:RaveNode overlayName:string) {
+        if ((root.kind == "overlay") && (root.overlay == overlayName)) {
+            return root.id
+        }
+        def i:int 0
+        while (i < (array_length root.children)) {
+            def c:RaveNode (itemAt root.children i)
+            def hit:int (this.findOverlay(c overlayName))
+            if (hit > 0) {
+                return hit
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    ; The overlay of this name, anywhere in the document, or 0.
+    fn idOfOverlay:int (overlayName:string) {
+        def i:int 0
+        while (i < (array_length layouts)) {
+            def l:RaveNode (itemAt layouts i)
+            def hit:int (this.findOverlay(l overlayName))
+            if (hit > 0) {
+                return hit
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length pages)) {
+            def p:RaveNode (itemAt pages j)
+            def hit2:int (this.findOverlay(p overlayName))
+            if (hit2 > 0) {
+                return hit2
+            }
+            j = (j + 1)
+        }
+        return 0
+    }
+
     fn newConditional:RaveNode (condition:string) {
         def n:RaveNode (this.newNode("div" condition))
         n.kind = "conditional"
@@ -277,7 +522,8 @@ class RaveApp {
         return (unwrap (get byId key))
     }
 
-    ; The node an element id names, or 0 when it is not one of ours.
+    ; The node an element id names, or 0 when it is not one of ours. A node
+    ; built inside a repeat is `n12-3`: the same node, its fourth row.
     sfn idOfElement:int (elementId:string) {
         if ((strlen elementId) < 2) {
             return 0
@@ -286,16 +532,54 @@ class RaveApp {
             return 0
         }
         def value:int 0
+        def seen:int 0
         def i:int 1
         while (i < (strlen elementId)) {
             def c:int (charAt elementId i)
+            if (c == 45) {
+                if (seen == 0) {
+                    return 0
+                }
+                return value
+            }
             if ((c < 48) || (c > 57)) {
                 return 0
             }
             value = ((value * 10) + (c - 48))
+            seen = (seen + 1)
             i = (i + 1)
         }
+        if (seen == 0) {
+            return 0
+        }
         return value
+    }
+
+    ; The row index in `n12-3`, or -1 when the element is not inside a repeat.
+    sfn rowOfElement:int (elementId:string) {
+        def i:int 0
+        while (i < (strlen elementId)) {
+            if ((charAt elementId i) == 45) {
+                def value:int 0
+                def seen:int 0
+                def j:int (i + 1)
+                while (j < (strlen elementId)) {
+                    def c:int (charAt elementId j)
+                    if ((c < 48) || (c > 57)) {
+                        return (0 - 1)
+                    }
+                    value = ((value * 10) + (c - 48))
+                    seen = (seen + 1)
+                    j = (j + 1)
+                }
+                if (seen == 0) {
+                    return (0 - 1)
+                }
+                return value
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
     }
 
     ; --- routes ---------------------------------------------------------------
@@ -316,6 +600,115 @@ class RaveApp {
             i = (i + 1)
         }
         return false
+    }
+
+    ; A path split on "/", empty segments dropped: "/items/3" is [items 3].
+    sfn segmentsOf:[string] (path:string) {
+        def out:[string]
+        def at:string ""
+        def i:int 0
+        while (i < (strlen path)) {
+            def c:int (charAt path i)
+            if (c == 47) {
+                if ((strlen at) > 0) {
+                    push out at
+                    at = ""
+                }
+            } {
+                at = (at + (substring path i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        if ((strlen at) > 0) {
+            push out at
+        }
+        return out
+    }
+
+    sfn isParam:boolean (segment:string) {
+        if ((strlen segment) < 2) {
+            return false
+        }
+        return ((charAt segment 0) == 58)
+    }
+
+    ; Whether a route's pattern takes this concrete path. "/items/:id" takes
+    ; "/items/3"; a pattern segment matches anything non-empty.
+    sfn patternTakes:boolean (pattern:string path:string) {
+        def a:[string] (RaveApp.segmentsOf(pattern))
+        def b:[string] (RaveApp.segmentsOf(path))
+        if ((array_length a) != (array_length b)) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length a)) {
+            def seg:string (itemAt a i)
+            if ((RaveApp.isParam(seg)) == false) {
+                if (seg != (itemAt b i)) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; The index of the route this path lands on: an exact path wins over a
+    ; pattern, so "/items/new" can sit beside "/items/:id".
+    fn matchIndex:int (path:string) {
+        def i:int 0
+        while (i < (array_length routes)) {
+            def r:RaveRoute (itemAt routes i)
+            if (r.path == path) {
+                return i
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length routes)) {
+            def r2:RaveRoute (itemAt routes j)
+            if (RaveApp.patternTakes(r2.path path)) {
+                return j
+            }
+            j = (j + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn matches:boolean (path:string) {
+        return ((this.matchIndex(path)) >= 0)
+    }
+
+    ; The route this path lands on, pattern or not.
+    fn matchedRoute:RaveRoute (path:string) {
+        def at:int (this.matchIndex(path))
+        if (at < 0) {
+            def first:RaveRoute (itemAt routes 0)
+            return first
+        }
+        def r:RaveRoute (itemAt routes at)
+        return r
+    }
+
+    ; What the pattern's `:name` segments were filled with.
+    fn paramsOf:[string:string] (path:string) {
+        def out:[string:string]
+        def at:int (this.matchIndex(path))
+        if (at < 0) {
+            return out
+        }
+        def r:RaveRoute (itemAt routes at)
+        def a:[string] (RaveApp.segmentsOf(r.path))
+        def b:[string] (RaveApp.segmentsOf(path))
+        def i:int 0
+        while ((i < (array_length a)) && (i < (array_length b))) {
+            def seg:string (itemAt a i)
+            if (RaveApp.isParam(seg)) {
+                set out (substring seg 1 (strlen seg)) (itemAt b i)
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     fn routeAt:RaveRoute (path:string) {
@@ -476,6 +869,77 @@ class RaveApp {
         }
         def first:RaveComponent (itemAt components 0)
         return first
+    }
+
+    ; --- data -----------------------------------------------------------------
+
+    fn addCollection:RaveCollection (collName:string) {
+        def c (new RaveCollection(collName))
+        push data c
+        return c
+    }
+
+    fn hasCollection:boolean (collName:string) {
+        def i:int 0
+        while (i < (array_length data)) {
+            def c:RaveCollection (itemAt data i)
+            if (c.name == collName) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn collection:RaveCollection (collName:string) {
+        def i:int 0
+        while (i < (array_length data)) {
+            def c:RaveCollection (itemAt data i)
+            if (c.name == collName) {
+                return c
+            }
+            i = (i + 1)
+        }
+        return (this.addCollection(collName))
+    }
+
+    ; `{field}` in a string, replaced from a row. A field the row has no
+    ; value for leaves an empty space rather than the braces, so a half-built
+    ; document never shows its own syntax to a reader.
+    sfn fill:string (text:string r:RaveRow) {
+        if ((strlen text) == 0) {
+            return text
+        }
+        def out:string ""
+        def i:int 0
+        while (i < (strlen text)) {
+            def c:int (charAt text i)
+            if (c == 123) {
+                def key:string ""
+                def j:int (i + 1)
+                def closed:boolean false
+                while ((j < (strlen text)) && (closed == false)) {
+                    def k:int (charAt text j)
+                    if (k == 125) {
+                        closed = true
+                    } {
+                        key = (key + (substring text j (j + 1)))
+                        j = (j + 1)
+                    }
+                }
+                if closed {
+                    out = (out + (r.get(key)))
+                    i = (j + 1)
+                } {
+                    out = (out + (substring text i (i + 1)))
+                    i = (i + 1)
+                }
+            } {
+                out = (out + (substring text i (i + 1)))
+                i = (i + 1)
+            }
+        }
+        return out
     }
 
     ; --- finding --------------------------------------------------------------
@@ -788,6 +1252,14 @@ class RaveApp {
         if ((strlen n.condition) > 0) { out = (out + ",\"condition\":" + (RaveJson.q(n.condition))) }
         if ((strlen n.component) > 0) { out = (out + ",\"component\":" + (RaveJson.q(n.component))) }
         if ((strlen n.variant) > 0) { out = (out + ",\"variant\":" + (RaveJson.q(n.variant))) }
+        if ((strlen n.repeat) > 0) { out = (out + ",\"repeat\":" + (RaveJson.q(n.repeat))) }
+        if ((strlen n.source) > 0) { out = (out + ",\"source\":" + (RaveJson.q(n.source))) }
+        if ((strlen n.sourceKey) > 0) { out = (out + ",\"sourceKey\":" + (RaveJson.q(n.sourceKey))) }
+        if ((strlen n.overlay) > 0) { out = (out + ",\"overlay\":" + (RaveJson.q(n.overlay))) }
+        if ((strlen n.bind) > 0) { out = (out + ",\"bind\":" + (RaveJson.q(n.bind))) }
+        if (n.parentLayout > 0) { out = (out + ",\"parentLayout\":" + (to_string n.parentLayout)) }
+        if ((strlen n.role) > 0) { out = (out + ",\"role\":" + (RaveJson.q(n.role))) }
+        if ((strlen n.state) > 0) { out = (out + ",\"state\":" + (RaveJson.q(n.state))) }
         out = (out + ",\"actions\":[")
         def i:int 0
         while (i < (array_length n.actions)) {
@@ -859,6 +1331,37 @@ class RaveApp {
             out = (out + "{\"name\":" + (RaveJson.q(comp.name)) + ",\"root\":" + (to_string comp.rootId) + ",\"variants\":" + (RaveJson.strArr(comp.variants)) + ",\"default\":" + (RaveJson.q(comp.defaultVariant)) + "}")
             c = (c + 1)
         }
+        out = (out + "],\"data\":[")
+        def dc:int 0
+        while (dc < (array_length data)) {
+            def coll:RaveCollection (itemAt data dc)
+            if (dc > 0) { out = (out + ",") }
+            out = (out + "{\"name\":" + (RaveJson.q(coll.name)) + ",\"nextKey\":" + (to_string coll.nextKey) + ",\"fields\":[")
+            def fi:int 0
+            while (fi < (array_length coll.fields)) {
+                def fld:RaveField (itemAt coll.fields fi)
+                if (fi > 0) { out = (out + ",") }
+                out = (out + "{\"name\":" + (RaveJson.q(fld.name)) + ",\"label\":" + (RaveJson.q(fld.label)) + "}")
+                fi = (fi + 1)
+            }
+            out = (out + "],\"rows\":[")
+            def ri:int 0
+            while (ri < (array_length coll.rows)) {
+                def rw:RaveRow (itemAt coll.rows ri)
+                if (ri > 0) { out = (out + ",") }
+                out = (out + "{")
+                def ki:int 0
+                while (ki < (array_length rw.keys)) {
+                    if (ki > 0) { out = (out + ",") }
+                    out = (out + (RaveJson.q((itemAt rw.keys ki))) + ":" + (RaveJson.q((itemAt rw.values ki))))
+                    ki = (ki + 1)
+                }
+                out = (out + "}")
+                ri = (ri + 1)
+            }
+            out = (out + "]}")
+            dc = (dc + 1)
+        }
         out = (out + "],\"styles\":[")
         def s:int 0
         while (s < (array_length styles)) {
@@ -892,6 +1395,14 @@ class RaveApp {
         n.condition = (v.s("condition"))
         n.component = (v.s("component"))
         n.variant = (v.s("variant"))
+        n.repeat = (v.s("repeat"))
+        n.source = (v.s("source"))
+        n.sourceKey = (v.s("sourceKey"))
+        n.overlay = (v.s("overlay"))
+        n.bind = (v.s("bind"))
+        n.parentLayout = (v.i("parentLayout"))
+        n.role = (v.s("role"))
+        n.state = (v.s("state"))
         def cl:RaveJv (v.a("classes"))
         def i:int 0
         while (i < (cl.count())) {
@@ -992,6 +1503,38 @@ class RaveApp {
             }
             push app.components comp
             c = (c + 1)
+        }
+        def dd:RaveJv (v.a("data"))
+        def dcx:int 0
+        while (dcx < (dd.count())) {
+            def cv2:RaveJv (dd.at(dcx))
+            def coll2:RaveCollection (app.addCollection((cv2.s("name"))))
+            def fvs:RaveJv (cv2.a("fields"))
+            def fx:int 0
+            while (fx < (fvs.count())) {
+                def fv:RaveJv (fvs.at(fx))
+                coll2.addField((fv.s("name")) (fv.s("label")))
+                fx = (fx + 1)
+            }
+            def rvs:RaveJv (cv2.a("rows"))
+            def rx:int 0
+            while (rx < (rvs.count())) {
+                def rv2:RaveJv (rvs.at(rx))
+                def row2 (new RaveRow())
+                def kx:int 0
+                while (kx < (array_length rv2.keys)) {
+                    def kname:string (itemAt rv2.keys kx)
+                    row2.set(kname (rv2.s(kname)))
+                    kx = (kx + 1)
+                }
+                push coll2.rows row2
+                rx = (rx + 1)
+            }
+            def want2:int (cv2.i("nextKey"))
+            if (want2 > coll2.nextKey) {
+                coll2.nextKey = want2
+            }
+            dcx = (dcx + 1)
         }
         def ss:RaveJv (v.a("styles"))
         def s:int 0

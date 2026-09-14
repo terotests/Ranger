@@ -15,6 +15,9 @@ Import "../src/RavePatterns.rgr"
 Import "../src/RaveRuntime.rgr"
 Import "../src/RaveEditor.rgr"
 Import "../src/RaveA11y.rgr"
+Import "../src/RaveImport.rgr"
+Import "../../figma/src/FigParser.rgr"
+Import "../../figma/src/convert/FigToScene.rgr"
 
 class Check {
     def passed:int 0
@@ -95,6 +98,846 @@ class RaveTest {
     }
 
 
+    ; --- Master / Detail --------------------------------------------------------------
+
+    ; A list route and a detail route over one collection. What is checked is
+    ; the thing the document gained: rows drawn from data rather than typed,
+    ; a press on the third row landing on the third row's path, `:id` read
+    ; back out of the path, and the phone dropping the list column for a
+    ; `Back` link.
+    sfn masterDetailChecks:void (c:Check) {
+        print ""
+        print "--- master / detail ---"
+        def app:RaveApp (RavePatterns.masterDetail("Acme"))
+        c.ok("the items collection is there" (app.hasCollection("items")))
+        def coll:RaveCollection (app.collection("items"))
+        c.eqInt("…with five rows" (coll.rowCount()) 5)
+        c.ok("/items is a route" (app.hasRoute("/items")))
+        c.ok("/items/:id is a route" (app.hasRoute("/items/:id")))
+        c.ok("…and it takes a concrete path" (app.matches("/items/3")))
+        c.ok("…but not one of the wrong shape" ((app.matches("/items/3/edit")) == false))
+        def params:[string:string] (app.paramsOf("/items/3"))
+        c.eqStr("…reading :id back out" (unwrap (get params "id")) "3")
+
+        def rt (new RaveRuntime(app))
+        c.eqInt("the sheet parses clean" (rt.styleErrorCount()) 0)
+        if ((rt.styleErrorCount()) > 0) {
+            print ("       " + (rt.styleError(0)))
+        }
+        def desk:int (rt.addView("desktop" 1440.0 900.0 false))
+        def phone:int (rt.addView("phone" 390.0 844.0 true))
+        rt.setLoggedIn(true)
+        c.ok("the list route is reached" (rt.navigate("/items")))
+        def dl:string (rt.displayListJson(desk))
+        c.ok("the first row is drawn" (RaveTest.includes(dl "Onboarding email")))
+        c.ok("…and the last" (RaveTest.includes(dl "Support backlog")))
+        c.ok("…and a row's status" (RaveTest.includes(dl "In review")))
+        RaveTest.noRejections(c rt desk "the engine rejected nothing on the list")
+        RaveTest.lintClean(c rt desk "the list lints clean at 1440")
+        RaveTest.lintClean(c rt phone "the list lints clean at 390")
+
+        ; the rows are copies of one node: same node id, different element id
+        def itemNode:int (app.idOfNamed("a" "Item"))
+        c.ok("the row template is one node" (itemNode > 0))
+        def row0:string ("n" + (to_string itemNode) + "-0")
+        def row2:string ("n" + (to_string itemNode) + "-2")
+        c.ok("the first row is on the page" (rt.hasEl(desk row0)))
+        c.ok("the third row is too" (rt.hasEl(desk row2)))
+        c.eqInt("…and both name the same node" (RaveApp.idOfElement(row2)) itemNode)
+        c.eqInt("…the third being row 2" (RaveApp.rowOfElement(row2)) 2)
+        c.ok("a row below the first is further down the page" ((rt.topOf(desk row2)) > (rt.topOf(desk row0))))
+
+        ; pressing the third row goes to the third row's path
+        c.ok("pressing the third row moves" (rt.press(row2)))
+        c.eqStr("…to /items/3" (rt.path()) "/items/3")
+        def dl2:string (rt.displayListJson(desk))
+        c.ok("the detail page is about that row" (RaveTest.includes(dl2 "Who came back this month")))
+        RaveTest.lintClean(c rt desk "the detail lints clean at 1440")
+        RaveTest.lintClean(c rt phone "the detail lints clean at 390")
+        RaveTest.noRejections(c rt desk "the engine rejected nothing on the detail")
+
+        ; two columns on a desktop, one on a phone with a Back link
+        def side:string (RaveTest.elId((app.idOfNamed("aside" "Item list column"))))
+        def pane:string (RaveTest.elId((app.idOfNamed("section" "Item detail"))))
+        c.ok("1440 shows the list column" (rt.isShown(desk side)))
+        c.ok("…beside the detail" ((rt.leftOf(desk pane)) > (rt.leftOf(desk side))))
+        c.ok("390 drops the list column" ((rt.isShown(phone side)) == false))
+        def back:string (RaveTest.elId((app.findWithAction((app.node((app.idOfNamed("section" "Item detail")))) "navigate" "/items"))))
+        c.ok("…and shows Back instead" (rt.isShown(phone back)))
+        c.ok("1440 hides Back" ((rt.isShown(desk back)) == false))
+        c.ok("pressing Back returns to the list" (rt.press(back)))
+        c.eqStr("…at /items" (rt.path()) "/items")
+
+        ; a detail route with no row named previews the first row
+        c.ok("the editor may look at the pattern itself" (rt.jump("/items/:id")))
+        c.ok("…and sees the first row" (RaveTest.includes((rt.displayListJson(desk)) "Onboarding email")))
+
+        ; the document survives being written and read
+        def text:string (app.toJson())
+        def back2:RaveApp (RaveApp.fromJson(text))
+        c.ok("the collection round-trips" (back2.hasCollection("items")))
+        def coll2:RaveCollection (back2.collection("items"))
+        c.eqInt("…with its rows" (coll2.rowCount()) 5)
+        c.eqStr("…and their fields" ((coll2.rowAt(2)).get("title")) "Retention report")
+        def listNode:RaveNode (back2.node((back2.idOfNamed("div" "Item list"))))
+        c.eqStr("…and the repeat that draws them" listNode.repeat "items")
+    }
+
+    ; --- CRUD ---------------------------------------------------------------------------
+
+    ; The two things a reader does to a list: put a row in it and take one
+    ; out. What is checked is that both go through the document — the dialog
+    ; is a node built only while it is open, the typing lands in the row that
+    ; is created, and the delete needs the confirmation to have been answered.
+    sfn crudChecks:void (c:Check) {
+        print ""
+        print "--- crud ---"
+        def app:RaveApp (RavePatterns.crud("Acme"))
+        def coll:RaveCollection (app.collection("items"))
+        c.eqInt("five rows to start with" (coll.rowCount()) 5)
+
+        def rt (new RaveRuntime(app))
+        c.eqInt("the sheet parses clean" (rt.styleErrorCount()) 0)
+        if ((rt.styleErrorCount()) > 0) {
+            print ("       " + (rt.styleError(0)))
+        }
+        def desk:int (rt.addView("desktop" 1440.0 900.0 false))
+        def phone:int (rt.addView("phone" 390.0 844.0 true))
+        rt.setLoggedIn(true)
+        rt.navigate("/items")
+
+        ; --- the dialog is not there until it is opened -------------------------
+        def scrimId:int (app.idOfOverlay("create"))
+        def scrim:string (RaveTest.elId(scrimId))
+        c.ok("the dialog is off the page" ((rt.hasEl(desk scrim)) == false))
+        def newBtn:string (RaveTest.elId((app.idWithAction("open" "create"))))
+        c.ok("New item opens it" (rt.press(newBtn)))
+        c.ok("…and now it is on the page" (rt.hasEl(desk scrim)))
+        c.ok("…over the whole viewport" (RaveTest.near((rt.widthOf(desk scrim)) 1440.0)))
+        ; the frame is the viewport: the phone's modal covers the phone
+        c.ok("…and over the phone's, at the phone's width" (RaveTest.near((rt.widthOf(phone scrim)) 390.0)))
+        c.ok("…starting at the phone frame's own left edge" (RaveTest.near((rt.localLeftOf(phone scrim)) 0.0)))
+        c.ok("…not at the stage's" ((rt.leftOf(phone scrim)) > 1.0))
+        RaveTest.noRejections(c rt desk "the engine rejected nothing with the dialog open")
+        RaveTest.lintClean(c rt desk "the dialog lints clean at 1440")
+        RaveTest.lintClean(c rt phone "the dialog lints clean at 390")
+
+        ; --- what is typed into it becomes the row -------------------------------
+        def overlay:RaveNode (app.node(scrimId))
+        def titleId:string (RaveTest.elId((app.findIn(overlay "input" "Title"))))
+        def summaryId:string (RaveTest.elId((app.findIn(overlay "input" "Summary"))))
+        c.ok("the title field takes focus" (rt.focusOn(desk titleId)))
+        RaveTest.typeInto(rt desk "Release notes")
+        c.eqStr("…and holds what was typed" (rt.valueOf(titleId)) "Release notes")
+        c.ok("a backspace takes the last letter" (rt.keyWith(desk "Backspace" false false)))
+        c.eqStr("…one letter" (rt.valueOf(titleId)) "Release note")
+        RaveTest.typeInto(rt desk "s")
+        c.ok("the summary field takes focus" (rt.focusOn(desk summaryId)))
+        RaveTest.typeInto(rt desk "What changed this week.")
+        c.ok("the dialog shows what was typed" (RaveTest.includes((rt.displayListJson(desk)) "Release notes")))
+
+        def createBtn:string (RaveTest.elId((app.idWithAction("create" "items"))))
+        c.ok("Create makes a row" (rt.press(createBtn)))
+        c.eqInt("…the sixth" (coll.rowCount()) 6)
+        def made:RaveRow (coll.rowAt(5))
+        c.eqStr("…with the title that was typed" (made.get("title")) "Release notes")
+        c.eqStr("…and the summary" (made.get("summary")) "What changed this week.")
+        c.ok("…the dialog closed behind it" ((rt.hasEl(desk scrim)) == false))
+        c.ok("…the toast says so" (RaveTest.includes((rt.displayListJson(desk)) "Item created")))
+        c.ok("…and the new row is in the list" (RaveTest.includes((rt.displayListJson(desk)) "Release notes")))
+        c.eqStr("…the fields were emptied" (rt.valueOf(titleId)) "")
+
+        ; --- Escape closes without doing anything --------------------------------
+        rt.press(newBtn)
+        c.ok("the dialog is open again" (rt.hasEl(desk scrim)))
+        c.ok("Escape closes it" (rt.keyWith(desk "Escape" false false)))
+        c.ok("…and nothing was added" ((coll.rowCount()) == 6))
+
+        ; --- delete asks first ----------------------------------------------------
+        rt.navigate("/items/2")
+        c.eqStr("the detail route is about row 2" (rt.path()) "/items/2")
+        def askId:int (app.idOfOverlay("confirm"))
+        def ask:string (RaveTest.elId(askId))
+        c.ok("the confirmation is not on the page" ((rt.hasEl(desk ask)) == false))
+        def delBtn:string (RaveTest.elId((app.idWithAction("open" "confirm"))))
+        c.ok("Delete asks first" (rt.press(delBtn)))
+        c.ok("…with the row's own title in the question" (RaveTest.includes((rt.displayListJson(desk)) "Quarterly invoice")))
+        RaveTest.lintClean(c rt desk "the confirmation lints clean at 1440")
+        def keepBtn:string (RaveTest.elId((app.findIn((app.node(askId)) "button" "Keep it"))))
+        c.ok("Keep it closes it" (rt.press(keepBtn)))
+        c.eqInt("…and the row is still there" (coll.rowCount()) 6)
+
+        rt.press(delBtn)
+        def goneId:int (app.idWithAction("remove" "items/{id}"))
+        def goneBtn:string (RaveTest.elId(goneId))
+        c.ok("confirming deletes" (rt.press(goneBtn)))
+        c.eqInt("…one row" (coll.rowCount()) 5)
+        c.ok("…the one that was asked about" ((coll.hasKey("2")) == false))
+        c.eqStr("…and the app went back to the list" (rt.path()) "/items")
+        c.ok("…saying so" (RaveTest.includes((rt.displayListJson(desk)) "Item deleted")))
+        c.ok("…and the row is gone from it" ((RaveTest.includes((rt.displayListJson(desk)) "Quarterly invoice")) == false))
+        RaveTest.lintClean(c rt desk "the list lints clean after the delete")
+        RaveTest.noRejections(c rt phone "the engine rejected nothing at 390")
+
+        ; --- the document survives a round trip -----------------------------------
+        def back:RaveApp (RaveApp.fromJson((app.toJson())))
+        c.ok("the dialog round-trips" ((back.idOfOverlay("create")) > 0))
+        def bTitle:RaveNode (back.node((back.findIn((back.node((back.idOfOverlay("create")))) "input" "Title"))))
+        c.eqStr("…with the field it writes" bTitle.bind "title")
+    }
+
+    ; --- Settings Layout and Marketing + App -----------------------------------------------
+
+    ; Two patterns that both turn on one thing: a route's layout may itself
+    ; sit inside another. Settings is a layout within the shell; Marketing is
+    ; a second top-level layout beside it.
+    sfn layoutChecks:void (c:Check) {
+        print ""
+        print "--- settings layout ---"
+        def app:RaveApp (RavePatterns.settingsLayout("Acme"))
+        def settings:RaveRoute (app.routeAt("/settings"))
+        def lay:RaveNode (app.node(settings.layoutId))
+        c.eqStr("the settings route is on its own layout" lay.name "Settings Layout")
+        c.ok("…which sits inside the shell" (lay.parentLayout > 0))
+        def chain:[int] (app.layoutChain(settings.layoutId))
+        c.eqInt("…so the chain is two deep" (array_length chain) 2)
+        def outer:RaveNode (app.node((itemAt chain 0)))
+        c.eqStr("…the shell first" outer.name "Dashboard Shell")
+
+        def rt (new RaveRuntime(app))
+        c.eqInt("the sheet parses clean" (rt.styleErrorCount()) 0)
+        def desk:int (rt.addView("desktop" 1440.0 900.0 false))
+        def phone:int (rt.addView("phone" 390.0 844.0 true))
+        rt.setLoggedIn(true)
+        rt.navigate("/settings")
+        def dl:string (rt.displayListJson(desk))
+        def shellSide:string (RaveTest.elId((app.idOfNamed("aside" "Sidebar"))))
+        c.ok("the shell is still around it" (rt.hasEl(desk shellSide)))
+        c.ok("…the tab list inside that" (RaveTest.includes(dl "Notifications")))
+        c.ok("…and the account panel inside that" (RaveTest.includes(dl "Display name")))
+        RaveTest.noRejections(c rt desk "the engine rejected nothing")
+        RaveTest.lintClean(c rt desk "settings lints clean at 1440")
+        RaveTest.lintClean(c rt phone "settings lints clean at 390")
+
+        def tabs:string (RaveTest.elId((app.idOfNamed("nav" "Settings sections"))))
+        def panel:string (RaveTest.elId((app.idOfNamed("section" "Settings panel"))))
+        c.ok("1440 puts the tabs beside the panel" ((rt.leftOf(desk panel)) > (rt.leftOf(desk tabs))))
+        c.ok("390 puts them above it" ((rt.topOf(phone panel)) > (rt.topOf(phone tabs))))
+
+        def toNotif:string (RaveTest.elId((app.idWithAction("navigate" "/settings/notifications"))))
+        c.ok("a tab moves" (rt.press(toNotif)))
+        c.eqStr("…to its own route" (rt.path()) "/settings/notifications")
+        def dl2:string (rt.displayListJson(desk))
+        c.ok("…which keeps the layout around it" (rt.hasEl(desk tabs)))
+        c.ok("…and swaps the panel" (RaveTest.includes(dl2 "Email digest")))
+        c.ok("…the old panel is gone" ((RaveTest.includes(dl2 "Display name")) == false))
+        RaveTest.lintClean(c rt desk "the notifications tab lints clean")
+
+        print ""
+        print "--- marketing + app ---"
+        def m:RaveApp (RavePatterns.marketingApp("Acme"))
+        def frontRoute:RaveRoute (m.routeAt("/"))
+        def priceRoute:RaveRoute (m.routeAt("/pricing"))
+        def appRoute:RaveRoute (m.routeAt("/app/dashboard"))
+        c.ok("the front page is public" (frontRoute.protected == false))
+        c.ok("…and so is the price list" (priceRoute.protected == false))
+        c.ok("the application moved under /app" (m.hasRoute("/app/dashboard")))
+        c.ok("…all of it" (m.hasRoute("/app/settings")))
+        c.ok("…and it is protected" appRoute.protected)
+        def sidebarLink:int (m.idWithAction("navigate" "/app/settings"))
+        c.ok("…with the sidebar's links moved with it" (sidebarLink > 0))
+        c.eqInt("…and none left pointing at the old path" (m.idWithAction("navigate" "/settings")) 0)
+
+        def rt2 (new RaveRuntime(m))
+        c.eqInt("the sheet parses clean" (rt2.styleErrorCount()) 0)
+        if ((rt2.styleErrorCount()) > 0) {
+            print ("       " + (rt2.styleError(0)))
+        }
+        def d2:int (rt2.addView("desktop" 1440.0 900.0 false))
+        def p2:int (rt2.addView("phone" 390.0 844.0 true))
+        c.eqStr("it starts on the front page" (rt2.path()) "/")
+        def topNav:string (RaveTest.elId((m.idOfNamed("nav" "Site navigation"))))
+        def appSide:string (RaveTest.elId((m.idOfNamed("aside" "Sidebar"))))
+        c.ok("…which is the marketing layout" (rt2.hasEl(d2 topNav)))
+        c.ok("…and not the shell" ((rt2.hasEl(d2 appSide)) == false))
+        RaveTest.lintClean(c rt2 d2 "the front page lints clean at 1440")
+        RaveTest.lintClean(c rt2 p2 "the front page lints clean at 390")
+        RaveTest.noRejections(c rt2 d2 "the engine rejected nothing on the front page")
+
+        def toPricing:string (RaveTest.elId((m.idWithAction("navigate" "/pricing"))))
+        c.ok("the price list is reachable logged out" (rt2.press(toPricing)))
+        c.eqStr("…at /pricing" (rt2.path()) "/pricing")
+        RaveTest.lintClean(c rt2 p2 "the price list lints clean at 390")
+
+        def toApp:string (RaveTest.elId((m.idWithAction("navigate" "/app/dashboard"))))
+        c.ok("the app asks for a sign-in" (rt2.press(toApp)))
+        c.eqStr("…at /login" (rt2.path()) "/login")
+        def loginRoute:RaveRoute (m.routeAt("/login"))
+        def loginPage:RaveNode (m.node(loginRoute.pageId))
+        def signIn:string (RaveTest.elId((m.findWithAction(loginPage "login" ""))))
+        c.ok("signing in works" (rt2.press(signIn)))
+        c.eqStr("…and lands where it was going" (rt2.path()) "/app/dashboard")
+        c.ok("…on the shell this time" (rt2.hasEl(d2 appSide)))
+        c.ok("…and the marketing bar is gone" ((rt2.hasEl(d2 topNav)) == false))
+        RaveTest.lintClean(c rt2 d2 "the application lints clean at 1440")
+    }
+
+    ; --- File → New ---------------------------------------------------------------------
+
+    ; The wizard is the one place a project starts, so what is checked is
+    ; that its answers reach the document: the sheet is over the editor,
+    ; every question moves, and Create makes the application those answers
+    ; describe — with the stage opened on the widths that were ticked.
+    sfn wizardChecks:void (c:Check) {
+        print ""
+        print "--- file → new ---"
+        def ed (new RaveEditor())
+        ed.init((RaveTest.chromeCss()))
+        ed.setPageSize(1440.0 860.0)
+        def before:string ed.doc.name
+        c.eqStr("the editor opens on a project" before "Acme")
+        def dl0:string (ed.displayListJson())
+        c.ok("…and no sheet over it" ((RaveTest.includes(dl0 "New project")) == false))
+
+        c.ok("New opens the sheet" (ed.press("file:new")))
+        def dl:string (ed.displayListJson())
+        c.ok("…which asks for a name" (RaveTest.includes(dl "Untitled")))
+        c.ok("…the targets" (RaveTest.includes(dl "Tablet")))
+        c.ok("…whether it signs in" (RaveTest.includes(dl "Sign-in")))
+        c.ok("…how it navigates" (RaveTest.includes(dl "Top bar")))
+        c.ok("…and what it starts from" (RaveTest.includes(dl "Master / Detail")))
+        c.eqStr("the document behind it has not changed" ed.doc.name before)
+        def rtNow:RaveRuntime (ed.runtime())
+        ed.boardJson()
+        c.eqInt("the sheet costs the engine no rejections" (rtNow.layoutWarningCount(0)) 0)
+        c.ok("the sheet is a modal in the accessible tree" (RaveTest.includes((ed.a11yJson(1 "")) "\"modal\":true")))
+
+        ; Escape puts it away and changes nothing
+        c.ok("Escape closes it" (ed.keyWith("Escape" false false)))
+        c.eqStr("…leaving the document alone" ed.doc.name before)
+
+        ; the answers
+        ed.press("file:new")
+        c.ok("the name field opens for typing" (ed.press("wiz:name")))
+        c.ok("Ctrl+A selects what is there" (ed.keyWith("a" false true)))
+        RaveTest.typeText(ed "Northwind")
+        c.ok("Enter takes the name" (ed.keyWith("Enter" false false)))
+        c.ok("a start is picked" (ed.press("wiz:start:crud")))
+        c.ok("a navigation is picked" (ed.press("wiz:nav:topbar")))
+        c.ok("a target is unticked" (ed.press("wiz:t:tablet")))
+        def dl2:string (ed.displayListJson())
+        c.ok("…and the sheet shows the name that was typed" (RaveTest.includes(dl2 "Northwind")))
+
+        c.ok("Create makes the project" (ed.press("wiz:create")))
+        def made:RaveApp ed.doc
+        c.eqStr("…with the name" made.name "Northwind")
+        c.ok("…the routes CRUD asks for" (made.hasRoute("/items/:id")))
+        c.ok("…its rows" (made.hasCollection("items")))
+        c.ok("…its create dialog" ((made.idOfOverlay("create")) > 0))
+        c.eqStr("…the navigation that was picked" made.nav "topbar")
+        c.eqInt("…and no sidebar left in the shell" (made.idOfNamed("aside" "Sidebar")) 0)
+        c.ok("…the links are in the header instead" ((made.idOfNamed("nav" "Main navigation")) > 0))
+        c.ok("…sign-in is on" made.authEnabled)
+        c.eqInt("…the two targets still ticked" (array_length made.targets) 2)
+        def rt2:RaveRuntime (ed.runtime())
+        c.eqInt("the stage opens on one frame per target" (rt2.viewCount()) 2)
+        def dl3:string (ed.displayListJson())
+        c.ok("the sheet is gone" ((RaveTest.includes(dl3 "Start from")) == false))
+        def board:string (ed.boardJson())
+        c.ok("…and the new application is on the stage" (RaveTest.includes(board "Northwind")))
+        c.eqInt("…with nothing the engine rejected" (rt2.layoutWarningCount(0)) 0)
+        RaveTest.lintClean(c rt2 0 "the new project lints clean on the first frame")
+
+        ; Empty is a page and a palette, not a blank sheet
+        ed.press("file:new")
+        ed.press("wiz:start:empty")
+        c.ok("sign-in can be turned off" (ed.press("wiz:auth")))
+        ed.press("wiz:create")
+        def blank:RaveApp ed.doc
+        c.ok("…and then there is no login route" (blank.authEnabled == false))
+        c.eqInt("Empty is one route" (array_length blank.routes) 1)
+        c.ok("…with a page on it" ((array_length blank.pages) == 1))
+        c.ok("…and the palette already set" ((array_length blank.vars) > 0))
+        def rt3:RaveRuntime (ed.runtime())
+        RaveTest.lintClean(c rt3 0 "the empty project lints clean")
+    }
+
+    ; --- importing a Figma file ---------------------------------------------------------------
+
+    sfn sbox:SceneNode (name:string x:double y:double w:double h:double) {
+        def n (new SceneNode())
+        n.id = name
+        n.name = name
+        n.kind = "container"
+        n.x = x
+        n.y = y
+        n.w = w
+        n.h = h
+        n.visible = true
+        return n
+    }
+
+    sfn stext:SceneNode (name:string words:string x:double y:double w:double h:double size:double) {
+        def n:SceneNode (RaveTest.sbox(name x y w h))
+        n.kind = "text"
+        n.text.characters = words
+        n.text.fontSize = size
+        return n
+    }
+
+    sfn spaint:SceneNode (n:SceneNode r:double g:double b:double) {
+        def f (new SceneFill())
+        f.kind = "solid"
+        f.r = r
+        f.g = g
+        f.b = b
+        f.a = 1.0
+        f.visible = true
+        push n.fills f
+        return n
+    }
+
+    sfn sround:SceneNode (n:SceneNode radius:double) {
+        n.radius.setAll(radius)
+        return n
+    }
+
+    sfn sframe:SceneNode (name:string w:double h:double) {
+        return (RaveTest.sbox(name 0.0 0.0 w h))
+    }
+
+    sfn sdoc:SceneDocument (frames:[SceneNode]) {
+        def doc (new SceneDocument())
+        doc.name = "Test file"
+        def page:SceneNode (RaveTest.sbox("Page 1" 0.0 0.0 0.0 0.0))
+        def i:int 0
+        while (i < (array_length frames)) {
+            push page.children (itemAt frames i)
+            i = (i + 1)
+        }
+        push doc.pages page
+        return doc
+    }
+
+    ; The tag of the first child of the first page, and so on down: a path
+    ; like "0/1" reads "the second child of the first child".
+    sfn childAt:RaveNode (app:RaveApp root:RaveNode a:int) {
+        def c:RaveNode (itemAt root.children a)
+        return c
+    }
+
+    sfn pageOfRoute:RaveNode (app:RaveApp path:string) {
+        def r:RaveRoute (app.routeAt(path))
+        return (app.node(r.pageId))
+    }
+
+    ; What a rule says about one node, at the base breakpoint.
+    sfn styleOf:string (app:RaveApp n:RaveNode prop:string) {
+        return (app.styleOf(n "" prop))
+    }
+
+    sfn importChecks:void (c:Check) {
+        print ""
+        print "--- figma import ---"
+
+        ; --- a stack of boxes is a column --------------------------------------
+        def f1:SceneNode (RaveTest.sframe("Stack" 400.0 400.0))
+        push f1.children (RaveTest.sbox("A" 20.0 20.0 360.0 80.0))
+        push f1.children (RaveTest.sbox("B" 20.0 116.0 360.0 80.0))
+        push f1.children (RaveTest.sbox("C" 20.0 212.0 360.0 80.0))
+        def frames1:[SceneNode]
+        push frames1 f1
+        def imp1 (new RaveImport())
+        def app1:RaveApp (imp1.run((RaveTest.sdoc(frames1))))
+        def page1:RaveNode (RaveTest.pageOfRoute(app1 "/"))
+        c.eqInt("three stacked boxes stay three children" (array_length page1.children) 3)
+        c.eqStr("…laid out as a column" (RaveTest.styleOf(app1 page1 "flex-direction")) "")
+        c.eqStr("…with the gap they left between them" (RaveTest.styleOf(app1 page1 "gap")) "16px")
+        c.eqStr("…and the space they left round them" (RaveTest.styleOf(app1 page1 "padding")) "20px 20px 108px 20px")
+        def a1:RaveNode (itemAt page1.children 0)
+        c.eqStr("a box as wide as the space it is in is 100%" (RaveTest.styleOf(app1 a1 "width")) "100%")
+
+        ; --- boxes side by side are a row ---------------------------------------
+        def f2:SceneNode (RaveTest.sframe("Row" 400.0 200.0))
+        push f2.children (RaveTest.sbox("A" 0.0 0.0 120.0 100.0))
+        push f2.children (RaveTest.sbox("B" 140.0 0.0 120.0 100.0))
+        push f2.children (RaveTest.sbox("C" 280.0 0.0 120.0 100.0))
+        def frames2:[SceneNode]
+        push frames2 f2
+        def imp2 (new RaveImport())
+        def app2:RaveApp (imp2.run((RaveTest.sdoc(frames2))))
+        def page2:RaveNode (RaveTest.pageOfRoute(app2 "/"))
+        c.eqStr("boxes side by side are a row" (RaveTest.styleOf(app2 page2 "flex-direction")) "row")
+        c.eqStr("…with their own gap" (RaveTest.styleOf(app2 page2 "gap")) "20px")
+        c.eqInt("…and no group was needed" imp2.report.grouped 0)
+
+        ; --- a grid is a column of rows -----------------------------------------
+        def f3:SceneNode (RaveTest.sframe("Grid" 400.0 400.0))
+        push f3.children (RaveTest.sbox("A" 0.0 0.0 180.0 100.0))
+        push f3.children (RaveTest.sbox("B" 200.0 0.0 180.0 100.0))
+        push f3.children (RaveTest.sbox("C" 0.0 120.0 180.0 100.0))
+        push f3.children (RaveTest.sbox("D" 200.0 120.0 180.0 100.0))
+        def frames3:[SceneNode]
+        push frames3 f3
+        def imp3 (new RaveImport())
+        def app3:RaveApp (imp3.run((RaveTest.sdoc(frames3))))
+        def page3:RaveNode (RaveTest.pageOfRoute(app3 "/"))
+        c.eqInt("a 2×2 grid becomes two rows" (array_length page3.children) 2)
+        c.eqInt("…which are groups the cut made" imp3.report.grouped 2)
+        def row0:RaveNode (itemAt page3.children 0)
+        c.eqStr("…each of them a row" (RaveTest.styleOf(app3 row0 "flex-direction")) "row")
+        c.eqInt("…of two" (array_length row0.children) 2)
+
+        ; --- boxes that overlap stay where they were put -------------------------
+        def f4:SceneNode (RaveTest.sframe("Overlap" 400.0 400.0))
+        push f4.children (RaveTest.sbox("A" 0.0 0.0 300.0 300.0))
+        push f4.children (RaveTest.sbox("B" 100.0 100.0 300.0 300.0))
+        def frames4:[SceneNode]
+        push frames4 f4
+        def imp4 (new RaveImport())
+        def app4:RaveApp (imp4.run((RaveTest.sdoc(frames4))))
+        def page4:RaveNode (RaveTest.pageOfRoute(app4 "/"))
+        c.eqInt("overlapping boxes cannot be cut" imp4.report.absolute 1)
+        def b4:RaveNode (itemAt page4.children 1)
+        c.eqStr("…so they keep their own position" (RaveTest.styleOf(app4 b4 "position")) "absolute")
+        c.eqStr("…and their own corner" (RaveTest.styleOf(app4 b4 "left")) "100px")
+
+        ; --- what the boxes are -------------------------------------------------
+        def f5:SceneNode (RaveTest.sframe("Screen" 1440.0 900.0))
+        push f5.children (RaveTest.sbox("Header" 0.0 0.0 1440.0 80.0))
+        def side:SceneNode (RaveTest.sbox("Sidebar" 0.0 100.0 240.0 800.0))
+        push f5.children side
+        def body:SceneNode (RaveTest.sbox("Body" 260.0 100.0 1180.0 800.0))
+        def cta:SceneNode (RaveTest.sround((RaveTest.spaint((RaveTest.sbox("Primary" 0.0 0.0 160.0 40.0)) 0.1 0.4 0.9)) 8.0)
+        )
+        push cta.children (RaveTest.stext("Label" "Sign in" 0.0 0.0 80.0 20.0 14.0))
+        push body.children cta
+        push f5.children body
+        def frames5:[SceneNode]
+        push frames5 f5
+        def imp5 (new RaveImport())
+        def app5:RaveApp (imp5.run((RaveTest.sdoc(frames5))))
+        def page5:RaveNode (RaveTest.pageOfRoute(app5 "/"))
+        def head5:RaveNode (itemAt page5.children 0)
+        c.eqStr("a layer called Header is a header" head5.tag "header")
+        def row5:RaveNode (itemAt page5.children 1)
+        def side5:RaveNode (itemAt row5.children 0)
+        c.eqStr("…Sidebar is an aside" side5.tag "aside")
+        def btn5:RaveNode (app5.node((app5.idOfNamed("button" "Primary"))))
+        c.eqStr("a rounded, filled box with one line in it is a button" btn5.tag "button")
+        c.eqStr("…carrying the words that were in it" btn5.text "Sign in")
+
+        ; --- auto-layout is taken as it stands -----------------------------------
+        def f6:SceneNode (RaveTest.sframe("Auto" 400.0 200.0))
+        f6.layout.mode = "row"
+        f6.layout.gap = 12.0
+        f6.layout.padL = 24.0
+        f6.layout.padR = 24.0
+        f6.layout.padT = 16.0
+        f6.layout.padB = 16.0
+        f6.layout.justify = "space-between"
+        f6.layout.alignItems = "center"
+        push f6.children (RaveTest.sbox("A" 0.0 0.0 100.0 40.0))
+        push f6.children (RaveTest.sbox("B" 0.0 0.0 100.0 40.0))
+        def frames6:[SceneNode]
+        push frames6 f6
+        def imp6 (new RaveImport())
+        def app6:RaveApp (imp6.run((RaveTest.sdoc(frames6))))
+        def page6:RaveNode (RaveTest.pageOfRoute(app6 "/"))
+        c.eqInt("a frame with auto-layout is not guessed at" imp6.report.auto 1)
+        c.eqInt("…and nothing was inferred" imp6.report.inferred 0)
+        c.eqStr("…the direction is the file's" (RaveTest.styleOf(app6 page6 "flex-direction")) "row")
+        c.eqStr("…the gap is the file's" (RaveTest.styleOf(app6 page6 "gap")) "12px")
+        c.eqStr("…the padding is the file's" (RaveTest.styleOf(app6 page6 "padding")) "16px 24px 16px 24px")
+        c.eqStr("…and so is the justification" (RaveTest.styleOf(app6 page6 "justify-content")) "space-between")
+
+        ; --- what every screen agrees about becomes a layout ---------------------
+        def s1:SceneNode (RaveTest.sframe("Home" 390.0 800.0))
+        push s1.children (RaveTest.sbox("Body" 0.0 0.0 390.0 736.0))
+        push s1.children (RaveTest.sbox("Tab bar" 0.0 736.0 390.0 64.0))
+        def s2:SceneNode (RaveTest.sframe("Profile" 390.0 900.0))
+        push s2.children (RaveTest.sbox("Body" 0.0 0.0 390.0 836.0))
+        push s2.children (RaveTest.sbox("Tab bar" 0.0 836.0 390.0 64.0))
+        def frames7:[SceneNode]
+        push frames7 s1
+        push frames7 s2
+        def imp7 (new RaveImport())
+        def app7:RaveApp (imp7.run((RaveTest.sdoc(frames7))))
+        c.eqInt("two screens with the same tab bar make one layout" (array_length app7.layouts) 1)
+        c.eqInt("…and two routes" (array_length app7.routes) 2)
+        def r7a:RaveRoute (app7.routeAt("/"))
+        def r7b:RaveRoute (app7.routeAt("/profile"))
+        c.ok("…both on it" ((r7a.layoutId > 0) && (r7a.layoutId == r7b.layoutId)))
+        def lay7:RaveNode (app7.node(r7a.layoutId))
+        c.eqInt("the layout is the tab bar and a slot" (array_length lay7.children) 2)
+        def slot7:RaveNode (itemAt lay7.children 0)
+        c.eqStr("…the slot first, where the screens differ" slot7.kind "slot")
+        def bar7:RaveNode (itemAt lay7.children 1)
+        c.eqStr("…and the tab bar under it" bar7.name "Tab bar")
+        c.eqStr("…the slot growing into what is left" (RaveTest.styleOf(app7 slot7 "flex-grow")) "1")
+
+        ; --- and a real file ------------------------------------------------------
+        def bytes@(optional):buffer (buffer_read_file "gallery/figma/fixtures" "health.fig")
+        if (null? bytes) {
+            c.ok("health.fig is readable" false)
+            return
+        }
+        def parser (new FigParser())
+        def fig:FigDoc (parser.parseBytes((unwrap bytes) "health.fig"))
+        c.ok("health.fig parses" fig.ok)
+        def conv (new FigToScene())
+        def scene:SceneDocument (conv.convertDoc(fig))
+        def imp (new RaveImport())
+        def app:RaveApp (imp.run(scene))
+        c.eqInt("its three screens are three routes" (array_length app.routes) 3)
+        c.eqInt("…its shared tab bar is a layout" (array_length app.layouts) 1)
+        c.ok("…most of it was the file's own auto-layout" (imp.report.auto > 50))
+        c.ok("…and what was not was cut into flex" (imp.report.inferred > 5))
+        c.ok("the import wrote down what it guessed" ((imp.report.noteCount()) > 0))
+        def rt (new RaveRuntime(app))
+        c.eqInt("the stylesheet it wrote parses clean" (rt.styleErrorCount()) 0)
+        if ((rt.styleErrorCount()) > 0) {
+            print ("       " + (rt.styleError(0)))
+        }
+        def wide:int (rt.addView("wide" 1440.0 900.0 false))
+        def phone:int (rt.addView("phone" 390.0 844.0 true))
+        def dl:string (rt.displayListJson(phone))
+        c.ok("the screen is drawn" (RaveTest.includes(dl "SLEEP QUALITY")))
+        RaveTest.noRejections(c rt wide "the engine rejected nothing at 1440")
+        RaveTest.noRejections(c rt phone "the engine rejected nothing at 390")
+        RaveTest.lintClean(c rt phone "an imported screen lints clean")
+        c.ok("a second screen is a route you can reach" (rt.navigate("/activity")))
+        c.eqStr("…at its own path" (rt.path()) "/activity")
+        def activityDl:string (rt.displayListJson(phone))
+        c.ok("…drawing that screen" (RaveTest.includes(activityDl "MOVEMENT")))
+        c.ok("…and not the one before it" ((RaveTest.includes(activityDl "SLEEP QUALITY")) == false))
+        RaveTest.lintClean(c rt phone "…and it lints clean too")
+        def text:string (app.toJson())
+        def back:RaveApp (RaveApp.fromJson(text))
+        c.eqStr("…and the whole import saves and opens" (back.toJson()) text)
+    }
+
+    ; --- the ten-minute test ----------------------------------------------------------------
+
+    ; PLAN_RAVE's acceptance test for M5, as one script and in one order:
+    ;
+    ;   the wizard → a working app on the stage → run it → a protected page
+    ;   asks for a sign-in → sign in FROM THE KEYBOARD on the phone frame →
+    ;   the dashboard → settings → and every route, at every width, drawn
+    ;   with nothing the engine rejected and nothing the lint objects to.
+    ;
+    ; Nothing here reaches past the editor: every step is a press or a key,
+    ; the way a person would do it.
+    sfn tenMinuteTest:void (c:Check) {
+        print ""
+        print "--- the ten-minute test ---"
+        def ed (new RaveEditor())
+        ed.init((RaveTest.chromeCss()))
+        ed.setPageSize(1440.0 860.0)
+
+        ; --- the wizard ---------------------------------------------------------
+        ed.press("file:new")
+        ed.press("wiz:name")
+        ed.keyWith("a" false true)
+        RaveTest.typeText(ed "Northwind")
+        ed.keyWith("Enter" false false)
+        ed.press("wiz:start:dashboard")
+        ed.press("wiz:nav:sidebar")
+        c.ok("the wizard makes the project" (ed.press("wiz:create")))
+        def doc:RaveApp ed.doc
+        def rt:RaveRuntime (ed.runtime())
+        c.eqStr("…named as asked" doc.name "Northwind")
+        c.eqInt("…on three frames, one per target" (rt.viewCount()) 3)
+        def board:string (ed.boardJson())
+        c.ok("…and the first thing on the screen is the application" (RaveTest.includes(board "Welcome to Northwind")))
+        c.ok("…drawn at every width at once" (RaveTest.includes(board "\"view\":[")))
+
+        ; --- run it -------------------------------------------------------------
+        c.ok("Run hands the stage to the app" (ed.press("mode:run")))
+        c.eqStr("…starting at /" (ed.path()) "/")
+        c.ok("…logged out" (rt.auth.loggedIn == false))
+
+        ; --- a protected page asks for a sign-in --------------------------------
+        def toDash:int (doc.idWithAction("navigate" "/dashboard"))
+        def dashEl:string (RaveTest.elId(toDash))
+        def dx:double (ed.stageCentreX(0 dashEl))
+        def dy:double (ed.stageCentreY(0 dashEl))
+        c.ok("a press on Dashboard reaches the app" (ed.pointerDown(dx dy)))
+        c.eqStr("…and the guard sends it to the login page" (ed.path()) "/login")
+
+        ; --- sign in from the keyboard, on the phone ----------------------------
+        c.ok("the keyboard talks to the phone frame" (ed.press("vp:2")))
+        def loginRoute:RaveRoute (doc.routeAt("/login"))
+        def loginPage:RaveNode (doc.node(loginRoute.pageId))
+        def signIn:string (RaveTest.elId((doc.findWithAction(loginPage "login" ""))))
+        def steps:int 0
+        def reached:boolean false
+        while ((steps < 12) && (reached == false)) {
+            ed.keyWith("Tab" false false)
+            if ((rt.focusedId(2)) == signIn) {
+                reached = true
+            }
+            steps = (steps + 1)
+        }
+        c.ok("Tab reaches the Sign in button on the phone" reached)
+        c.ok("Enter presses it" (ed.keyWith("Enter" false false)))
+        c.ok("…and the session is signed in" rt.auth.loggedIn)
+        c.eqStr("…landing on the page that was asked for" (ed.path()) "/dashboard")
+
+        ; --- the phone is a phone -----------------------------------------------
+        def sidebar:string (RaveTest.elId((doc.idOfNamed("aside" "Sidebar"))))
+        c.ok("1440 keeps the sidebar" (rt.isShown(0 sidebar)))
+        c.ok("390 folds it away" ((rt.isShown(2 sidebar)) == false))
+        def dashRoute:RaveRoute (doc.routeAt("/dashboard"))
+        def dashPage:RaveNode (doc.node(dashRoute.pageId))
+        def card1:string (RaveTest.elId((doc.findIn(dashPage "section" "Revenue"))))
+        def card2:string (RaveTest.elId((doc.findIn(dashPage "section" "Users"))))
+        c.ok("1440 puts two cards on one row" (RaveTest.near((rt.topOf(0 card1)) (rt.topOf(0 card2)))))
+        c.ok("390 puts them one above the other" (((RaveTest.near((rt.topOf(2 card1)) (rt.topOf(2 card2)))) == false)))
+
+        ; --- and on to settings --------------------------------------------------
+        ed.press("vp:0")
+        def toSettings:string (RaveTest.elId((doc.idWithAction("navigate" "/settings"))))
+        def sx:double (ed.stageCentreX(0 toSettings))
+        def sy:double (ed.stageCentreY(0 toSettings))
+        c.ok("a press on Settings reaches the app" (ed.pointerDown(sx sy)))
+        c.eqStr("…at /settings" (ed.path()) "/settings")
+        c.ok("…and the form is drawn" (RaveTest.includes((ed.boardJson()) "Display name")))
+
+        ; --- every route, every width --------------------------------------------
+        def bad:[string]
+        def ri:int 0
+        while (ri < (array_length doc.routes)) {
+            def route:RaveRoute (itemAt doc.routes ri)
+            rt.jump(route.path)
+            ed.boardJson()
+            def v:int 0
+            while (v < 3) {
+                def problems:[string] (rt.lint(v))
+                def pi:int 0
+                while (pi < (array_length problems)) {
+                    push bad (route.path + " @" + (to_string v) + ": " + (itemAt problems pi))
+                    pi = (pi + 1)
+                }
+                def warn:int (rt.layoutWarningCount(v))
+                def wi:int 0
+                while (wi < warn) {
+                    push bad (route.path + " @" + (to_string v) + ": " + (rt.layoutWarning(v wi)))
+                    wi = (wi + 1)
+                }
+                v = (v + 1)
+            }
+            ri = (ri + 1)
+        }
+        c.eqInt("every route lints clean at every width, and the engine rejects nothing" (array_length bad) 0)
+        if ((array_length bad) > 0) {
+            RaveTest.printAll(bad)
+        }
+
+        ; --- and it is a document somebody can put away and open again ------------
+        def text:string (doc.toJson())
+        c.ok("the project saves" ((strlen text) > 1000))
+        def ed2 (new RaveEditor())
+        ed2.init((RaveTest.chromeCss()))
+        ed2.setPageSize(1440.0 860.0)
+        c.ok("…and opens" (ed2.openJson(text)))
+        c.eqStr("…as the same application" ed2.doc.name "Northwind")
+        c.eqStr("…with the same text" (ed2.doc.toJson()) text)
+    }
+
+    ; --- the kit ---------------------------------------------------------------------------
+
+    ; Every entry in the Components pane, dropped onto a page one at a time.
+    ; The claim the kit makes is that what is dropped already works: it lays
+    ; out at every width, the engine rejects none of its rules, and the
+    ; accessibility lint has nothing to say about it. So that is what is
+    ; asked, once per entry, rather than a picture of each.
+    sfn kitChecks:void (c:Check) {
+        print ""
+        print "--- the kit ---"
+        def kinds:[string] (RaveKit.kinds())
+        c.ok("the kit has the whole table" ((array_length kinds) >= 30))
+        def groups:[string]
+        def gi:int 0
+        while (gi < (array_length kinds)) {
+            def g:string (RaveKit.groupOf((itemAt kinds gi)))
+            def seen:boolean false
+            def gj:int 0
+            while (gj < (array_length groups)) {
+                if ((itemAt groups gj) == g) {
+                    seen = true
+                }
+                gj = (gj + 1)
+            }
+            if (seen == false) {
+                push groups g
+            }
+            gi = (gi + 1)
+        }
+        c.eqInt("…in six groups" (array_length groups) 6)
+
+        def bad:[string]
+        def rejected:[string]
+        def i:int 0
+        while (i < (array_length kinds)) {
+            def kind:string (itemAt kinds i)
+            def ed (new RaveEditor())
+            ed.init((RaveTest.chromeCss()))
+            ed.setPageSize(1440.0 860.0)
+            def rt:RaveRuntime (ed.runtime())
+            if ((ed.addKind(kind)) == false) {
+                push bad (kind + ": would not insert")
+            } {
+                ed.boardJson()
+                def v:int 0
+                while (v < 3) {
+                    def problems:[string] (rt.lint(v))
+                    def pi:int 0
+                    while (pi < (array_length problems)) {
+                        push bad (kind + " @" + (to_string v) + ": " + (itemAt problems pi))
+                        pi = (pi + 1)
+                    }
+                    def warn:int (rt.layoutWarningCount(v))
+                    def wi:int 0
+                    while (wi < warn) {
+                        push rejected (kind + " @" + (to_string v) + ": " + (rt.layoutWarning(v wi)))
+                        wi = (wi + 1)
+                    }
+                    v = (v + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        c.eqInt("every entry drops and lints clean at three widths" (array_length bad) 0)
+        if ((array_length bad) > 0) {
+            RaveTest.printAll(bad)
+        }
+        c.eqInt("…and the engine rejects none of their rules" (array_length rejected) 0)
+        if ((array_length rejected) > 0) {
+            RaveTest.printAll(rejected)
+        }
+
+        ; the ones that say what they are rather than what tag they are
+        def ed2 (new RaveEditor())
+        ed2.init((RaveTest.chromeCss()))
+        ed2.setPageSize(1440.0 860.0)
+        ed2.press("tab:components")
+        def pane:string (ed2.displayListJson())
+        c.ok("the pane captions its groups" ((RaveTest.includes(pane "Overlay")) && (RaveTest.includes(pane "Form"))))
+        ed2.addKind("Switch")
+        ed2.boardJson()
+        def a11y:string ((ed2.runtime()).a11yJson(0))
+        c.ok("a switch is a switch to a reader" (RaveTest.includes(a11y "\"role\":\"switch\"")))
+        c.ok("…and it says it is on" (RaveTest.includes(a11y "\"checked\":2")))
+        ed2.addKind("Dialog")
+        def dl:string (ed2.boardJson())
+        c.ok("a dropped dialog is on the stage, not hidden" (RaveTest.includes(dl "What this is about")))
+        def doc2:RaveApp ed2.doc
+        c.ok("…as an overlay" ((doc2.idOfOverlay("dialog")) > 0))
+        c.ok("undo takes it away again" (ed2.press("undo")))
+        c.ok("…and the page is clean" (((ed2.runtime()).lintCount(0)) == 0))
+    }
+
     ; --- the editor -----------------------------------------------------------------
 
     sfn chromeCss:string () {
@@ -103,6 +946,15 @@ class RaveTest {
             return ""
         }
         return (unwrap css)
+    }
+
+    ; Typing into the application on the stage, one key at a time.
+    sfn typeInto:void (rt:RaveRuntime view:int s:string) {
+        def i:int 0
+        while (i < (strlen s)) {
+            rt.keyWith(view (strfromcode (charAt s i)) false false)
+            i = (i + 1)
+        }
     }
 
     sfn typeText:void (ed:RaveEditor s:string) {
@@ -641,6 +1493,13 @@ class RaveTest {
         c.ok("the tree names the navigation" (RaveTest.includes(a11y "Main navigation")))
         c.ok("…and the heading" (RaveTest.includes(a11y "Dashboard")))
 
+        RaveTest.masterDetailChecks(c)
+        RaveTest.crudChecks(c)
+        RaveTest.layoutChecks(c)
+        RaveTest.wizardChecks(c)
+        RaveTest.kitChecks(c)
+        RaveTest.tenMinuteTest(c)
+        RaveTest.importChecks(c)
         RaveTest.editorChecks(c)
         RaveTest.inputChecks(c)
 

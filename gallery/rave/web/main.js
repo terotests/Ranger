@@ -181,9 +181,18 @@ canvas.addEventListener("keydown", (ev) => {
 // --- the file ---------------------------------------------------------------------
 // Open… and Save are EVG buttons; the page does the two things a canvas
 // cannot: show a picker, and hand the browser a download.
+let wantFig = false;
 const realPress = app.press.bind(app);
 app.press = (id) => {
   if (id === "file:open") {
+    fileEl.accept = ".json,.rave.json,application/json";
+    wantFig = false;
+    fileEl.click();
+    return false;
+  }
+  if (id === "file:import") {
+    fileEl.accept = ".fig";
+    wantFig = true;
     fileEl.click();
     return false;
   }
@@ -202,7 +211,18 @@ app.press = (id) => {
 fileEl.addEventListener("change", async () => {
   const f = fileEl.files && fileEl.files[0];
   if (!f) return;
-  app.openJson(await f.text());
+  // A .fig is bytes and a .rave.json is text — the picker is the same one,
+  // and which button opened it decides how the file is read.
+  if (wantFig || /\.fig$/i.test(f.name)) {
+    // Ranger reads a `buffer` through a DataView it expects to find on the
+    // ArrayBuffer itself.
+    const ab = await f.arrayBuffer();
+    if (!ab._view) ab._view = new DataView(ab);
+    app.importFig(ab, f.name);
+  } else {
+    app.openJson(await f.text());
+  }
+  fileEl.value = "";
   schedule();
 });
 

@@ -90,6 +90,24 @@ ok("Enter on the button signs in", app.keyWith("Enter", false, false));
 ok("…and lands on the dashboard", app.path() === "/dashboard", app.path());
 ok("…which the stage draws", JSON.stringify(JSON.parse(app.boardJson()).list.cmds).includes("Log out"));
 
+// --- a Figma file, imported through the same door the page uses ----------------------------
+const figPath = path.join(HERE, "..", "..", "figma", "fixtures", "health.fig");
+const rawFig = fs.readFileSync(figPath);
+// Ranger reads a `buffer` through a DataView it expects on the ArrayBuffer
+// itself — the same handover main.js makes from the file picker.
+const figBytes = rawFig.buffer.slice(rawFig.byteOffset, rawFig.byteOffset + rawFig.byteLength);
+figBytes._view = new DataView(figBytes);
+const figEditor = new RaveEditor();
+figEditor.init(CSS);
+figEditor.setPageSize(W, H);
+ok("a .fig imports", figEditor.importFig(figBytes, "health.fig"));
+ok("…as more than one screen", figEditor.doc.routes.length >= 3, `${figEditor.doc.routes.length} routes`);
+ok("…with a report to read", figEditor.importNoteCount() > 0);
+ok("…which the Import tab shows", figEditor.displayListJson().includes("IMPORT"));
+const figBoard = JSON.parse(figEditor.boardJson());
+ok("…and the screens are drawn", JSON.stringify(figBoard.list.cmds).length > 2000);
+ok("…with nothing the engine rejected", figEditor.runtime().layoutWarningCount(0) === 0);
+
 // --- the document survives a save ----------------------------------------------------------
 const json = app.saveJson();
 const again = new RaveEditor();

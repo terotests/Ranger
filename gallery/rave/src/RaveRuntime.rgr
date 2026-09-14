@@ -74,11 +74,23 @@ class RaveRuntime {
     def gap:double 80.0
     def sceneW:double 0.0
     def sceneH:double 0.0
+    ; Which row of which collection each element on the last-built page was a
+    ; copy for, so a press on the third card knows it is the third row.
+    def rowOwner:[string:string]
+    ; The session's own state, beside the document's: which dialog is open,
+    ; what the toast is saying, and what has been typed into each input.
+    def openOverlay:string ""
+    def toastText:string ""
+    def values:[string:string]
 
     Constructor (a:RaveApp) {
         app = a
         def r (new RaveRouter(a auth))
         router = r
+        def fresh:[string:string]
+        rowOwner = fresh
+        def freshValues:[string:string]
+        values = freshValues
         this.reloadStyles()
     }
 
@@ -196,13 +208,14 @@ class RaveRuntime {
     ; designer looks at a protected page without signing in.
     fn jump:boolean (to:string) {
         def r:RaveRouter (unwrap router)
-        if ((app.hasRoute(to)) == false) {
+        if (((app.hasRoute(to)) == false) && ((app.matches(to)) == false)) {
             return false
         }
         if (r.path == to) {
             return false
         }
         r.path = to
+        r.readParams()
         dirty = true
         return true
     }
@@ -259,7 +272,12 @@ class RaveRuntime {
         def r:RaveRouter (unwrap router)
         def route:RaveRoute (r.current())
         def b (new RaveBuild(app auth))
+        b.params = r.params
+        b.openOverlay = openOverlay
+        b.toast = toastText
+        b.values = values
         def root:EVGElement (b.page(route))
+        rowOwner = b.rowOwner
         def page:EVGElement (EVGElement.createDiv())
         page.id = ("page-" + v.name)
         page.setAttribute("position" "absolute")
@@ -268,6 +286,15 @@ class RaveRuntime {
         page.width = (EVGUnit.px(v.width))
         page.height = (EVGUnit.px(v.height))
         page.setAttribute("overflow" "hidden")
+        ; EACH FRAME IS A VIEWPORT. `vw`, `vh` and `position: fixed` inside a
+        ; view mean that view — a modal in the phone frame covers the phone
+        ; frame, not the stage — which is the whole claim of "one document,
+        ; three widths, all of them live".
+        page.viewportRoot = true
+        page.viewportW = v.width
+        page.viewportH = v.height
+        page.viewportX = v.offsetX
+        page.viewportY = v.offsetY
         page.addChild(root)
         this.markStates(page v)
         sheet.applyTreeIn(root theme v.width v.height v.coarse)
@@ -429,6 +456,35 @@ class RaveRuntime {
 
     ; The element under the id, if it is a node of ours, runs its click
     ; actions. Answers whether anything changed.
+    ; The row an element was a copy for, empty when it was not in a repeat.
+    fn rowOf:RaveRow (id:string) {
+        if ((has rowOwner id) == false) {
+            def none (new RaveRow())
+            return none
+        }
+        def owner:string (unwrap (get rowOwner id))
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < (strlen owner)) {
+            if ((charAt owner i) == 47) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        if (at < 0) {
+            def none2 (new RaveRow())
+            return none2
+        }
+        def collName:string (substring owner 0 at)
+        def key:string (substring owner (at + 1) (strlen owner))
+        if ((app.hasCollection(collName)) == false) {
+            def none3 (new RaveRow())
+            return none3
+        }
+        def coll:RaveCollection (app.collection(collName))
+        return (coll.rowOf(key))
+    }
+
     fn press:boolean (id:string) {
         def nid:int (RaveApp.idOfElement(id))
         if (nid == 0) {
@@ -438,12 +494,13 @@ class RaveRuntime {
             return false
         }
         def n:RaveNode (app.node(nid))
+        def r:RaveRow (this.rowOf(id))
         def changed:boolean false
         def i:int 0
         while (i < (array_length n.actions)) {
             def a:RaveAction (itemAt n.actions i)
             if (a.on == "click") {
-                def did:boolean (this.run(a))
+                def did:boolean (this.runWith(a (RaveApp.fill(a.arg r))))
                 if did {
                     changed = true
                 }
@@ -457,9 +514,13 @@ class RaveRuntime {
     }
 
     fn run:boolean (a:RaveAction) {
+        return (this.runWith(a a.arg))
+    }
+
+    fn runWith:boolean (a:RaveAction arg:string) {
         def r:RaveRouter (unwrap router)
         if (a.kind == "navigate") {
-            return (r.navigate(a.arg))
+            return (r.navigate(arg))
         }
         if (a.kind == "back") {
             return (r.back())
@@ -474,7 +535,176 @@ class RaveRuntime {
             r.afterLogout()
             return true
         }
+        if (a.kind == "open") {
+            return (this.openDialog(arg))
+        }
+        if (a.kind == "close") {
+            return (this.closeDialog())
+        }
+        if (a.kind == "toast") {
+            toastText = arg
+            return true
+        }
+        if (a.kind == "create") {
+            return (this.createRow(arg))
+        }
+        if (a.kind == "remove") {
+            return (this.removeRow(arg))
+        }
         return false
+    }
+
+    ; --- dialogs, toasts and rows ---------------------------------------------
+
+    fn openDialog:boolean (overlayName:string) {
+        if (openOverlay == overlayName) {
+            return false
+        }
+        openOverlay = overlayName
+        dirty = true
+        return true
+    }
+
+    fn closeDialog:boolean () {
+        if ((strlen openOverlay) == 0) {
+            return false
+        }
+        openOverlay = ""
+        dirty = true
+        return true
+    }
+
+    fn clearToast:boolean () {
+        if ((strlen toastText) == 0) {
+            return false
+        }
+        toastText = ""
+        dirty = true
+        return true
+    }
+
+    ; Every input under a node, with the field it writes.
+    fn boundInputs:void (n:RaveNode ids:[string] fields:[string]) {
+        if ((n.tag == "input") && ((strlen n.bind) > 0)) {
+            push ids (n.elementId())
+            push fields n.bind
+        }
+        def i:int 0
+        while (i < (array_length n.children)) {
+            def c:RaveNode (itemAt n.children i)
+            this.boundInputs(c ids fields)
+            i = (i + 1)
+        }
+    }
+
+    ; A row made of what was typed into the dialog that is open, appended to
+    ; the collection. The fields are emptied afterwards, so the dialog opens
+    ; blank the next time.
+    fn createRow:boolean (collName:string) {
+        if ((app.hasCollection(collName)) == false) {
+            return false
+        }
+        def ids:[string]
+        def fields:[string]
+        if ((strlen openOverlay) > 0) {
+            def oid:int (app.idOfOverlay(openOverlay))
+            if (oid > 0) {
+                this.boundInputs((app.node(oid)) ids fields)
+            }
+        }
+        def coll:RaveCollection (app.collection(collName))
+        def r:RaveRow (coll.addRow())
+        def i:int 0
+        while (i < (array_length ids)) {
+            def eid:string (itemAt ids i)
+            def value:string ""
+            if (has values eid) {
+                value = (unwrap (get values eid))
+            }
+            r.set((itemAt fields i) value)
+            set values eid ""
+            i = (i + 1)
+        }
+        dirty = true
+        return true
+    }
+
+    ; `remove` names a collection and a key: "items/3". The key is usually
+    ; `{id}`, filled in from the row the press was on.
+    fn removeRow:boolean (target:string) {
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < (strlen target)) {
+            if ((charAt target i) == 47) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        if (at < 0) {
+            return false
+        }
+        def collName:string (substring target 0 at)
+        def key:string (substring target (at + 1) (strlen target))
+        if ((app.hasCollection(collName)) == false) {
+            return false
+        }
+        def coll:RaveCollection (app.collection(collName))
+        if ((coll.removeKey(key)) == false) {
+            return false
+        }
+        dirty = true
+        return true
+    }
+
+    ; --- typing into the app's own fields ---------------------------------------
+
+    ; Whether the focused element is an input of the document's.
+    fn focusedInput:string (i:int) {
+        def v:RaveView (itemAt views i)
+        def id:string v.focus.focusId
+        def nid:int (RaveApp.idOfElement(id))
+        if (nid == 0) {
+            return ""
+        }
+        if ((app.hasNode(nid)) == false) {
+            return ""
+        }
+        def n:RaveNode (app.node(nid))
+        if (n.tag != "input") {
+            return ""
+        }
+        return id
+    }
+
+    fn valueOf:string (id:string) {
+        if (has values id) {
+            return (unwrap (get values id))
+        }
+        return ""
+    }
+
+    fn typeChar:boolean (i:int ch:string) {
+        def id:string (this.focusedInput(i))
+        if ((strlen id) == 0) {
+            return false
+        }
+        set values id ((this.valueOf(id)) + ch)
+        dirty = true
+        return true
+    }
+
+    fn backspace:boolean (i:int) {
+        def id:string (this.focusedInput(i))
+        if ((strlen id) == 0) {
+            return false
+        }
+        def was:string (this.valueOf(id))
+        if ((strlen was) == 0) {
+            return false
+        }
+        set values id (substring was 0 ((strlen was) - 1))
+        dirty = true
+        return true
     }
 
     ; --- keyboard -----------------------------------------------------------------
@@ -484,9 +714,42 @@ class RaveRuntime {
         return v.focus.focusId
     }
 
+    ; Put the keyboard on one element, the way a click would.
+    fn focusOn:boolean (i:int id:string) {
+        this.ensure()
+        def v:RaveView (itemAt views i)
+        def page:EVGElement (this.pageOf(i))
+        def did:boolean (v.focus.place(page id))
+        if did {
+            v.focus.show()
+            dirty = true
+        }
+        return did
+    }
+
     fn keyWith:boolean (i:int k:string shift:boolean ctrl:boolean) {
         def page:EVGElement (this.pageOf(i))
         def v:RaveView (itemAt views i)
+        if (k == "Escape") {
+            if (this.closeDialog()) {
+                return true
+            }
+            return (this.clearToast())
+        }
+        ; A focused input takes the key before the focus walk does — a space
+        ; in a sentence is a space, not a press.
+        def typing:string (this.focusedInput(i))
+        if ((strlen typing) > 0) {
+            if (k == "Backspace") {
+                return (this.backspace(i))
+            }
+            if ((strlen k) == 1) {
+                return (this.typeChar(i k))
+            }
+        }
+        if (k == "Backspace") {
+            return false
+        }
         if ((k == "Enter") || (k == " ")) {
             def on:string v.focus.focusId
             if ((strlen on) == 0) {

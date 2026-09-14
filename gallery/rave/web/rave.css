@@ -343,3 +343,49 @@
 .ra-opt-on { background-color: #e8f1fe; }
 .ra-opt-tick { font-size: 11px; height: 14px; color: #0d6efd; width: 12px; min-width: 12px; }
 .ra-opt-t { font-size: 12px; height: 16px; color: #1a1d21; }
+
+/* File → New. A sheet over the editor, because nothing behind it is
+   answerable while it is up: four questions, and the answer is an
+   application. Position fixed, so it covers the chrome rather than pushing
+   it about. */
+.ra-wiz-scrim {
+  position: fixed; left: 0; top: 0; right: 0; bottom: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 24px; background-color: rgba(20, 22, 26, 0.42);
+}
+.ra-wiz {
+  display: flex; flex-direction: column; gap: 14px;
+  width: 520px; max-width: 100%; padding: 20px;
+  background-color: #ffffff; border: 1px solid #e7e9ee; border-radius: 12px;
+}
+.ra-wiz-title { font-size: 15px; font-weight: bold; height: 20px; color: #1a1d21; }
+.ra-wiz-row { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.ra-wiz-lab { font-size: 11px; height: 15px; color: #aab0bb; }
+.ra-wiz-opts { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; width: 100%; }
+.ra-wiz-opt {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px;
+  padding: 5px 9px; border-radius: 7px; height: 26px; min-height: 26px;
+  background-color: #f6f7f9; border: 1px solid #f6f7f9; cursor: pointer;
+}
+.ra-wiz-opt:hover { border: 1px solid #0d6efd; }
+.ra-wiz-opt-on { background-color: #e8f1fe; border: 1px solid #cfe3ff; }
+.ra-wiz-mark { font-size: 11px; height: 15px; color: #0d6efd; }
+.ra-wiz-opt-t { font-size: 12px; height: 16px; color: #1a1d21; }
+.ra-wiz-acts {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  justify-content: flex-end; gap: 8px; width: 100%; padding: 4px 0 0;
+}
+.ra-btn-go { background-color: #0d6efd; border: 1px solid #0d6efd; }
+.ra-btn-go .ra-btn-t { color: #ffffff; }
+/* A group caption between the kit's rows, so thirty entries read as six
+   lists rather than one. */
+.ra-group { font-size: 10px; font-weight: bold; height: 14px; color: #aab0bb; padding: 8px 7px 2px; }
+/* What an import made of somebody's file: one row per guess, with the
+   reason beside it. */
+.ra-noterow {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: flex-start;
+  gap: 7px; padding: 6px 7px; border-radius: 5px;
+}
+.ra-noterow:hover { background-color: #f2f4f8; }
+.ra-notebody { display: flex; flex-direction: column; gap: 1px; flex-grow: 1; min-width: 0; }
+.ra-note-t { font-size: 11px; color: #7b8190; }

@@ -15,21 +15,84 @@ Import "RaveDoc.rgr"
 
 class RaveKit {
 
+    ; What the Components pane offers, in the order it shows them. The
+    ; groups are `groupOf`'s business so the pane can caption them; the list
+    ; itself stays one array because that is what an insert reads.
     sfn kinds:[string] () {
         def out:[string]
         push out "Container"
         push out "Section"
+        push out "Grid"
+        push out "Row"
+        push out "Scroll area"
+        push out "Separator"
         push out "Heading"
         push out "Text"
+        push out "Label"
+        push out "Badge"
         push out "Button"
         push out "Link"
         push out "Input"
+        push out "Textarea"
+        push out "Select"
+        push out "Checkbox"
+        push out "Switch"
+        push out "Radio group"
+        push out "Slider"
+        push out "Form"
         push out "Card"
+        push out "List"
+        push out "Table"
+        push out "Avatar"
+        push out "Progress"
         push out "Image"
         push out "Navigation"
-        push out "Form"
-        push out "List"
+        push out "Sidebar"
+        push out "Top bar"
+        push out "Tabs"
+        push out "Breadcrumb"
+        push out "Menu"
+        push out "Dialog"
+        push out "Sheet"
+        push out "Command menu"
+        push out "Toast"
         return out
+    }
+
+    ; Layout | Text | Form | Data | Navigation | Overlay
+    ; Layout | Text | Form | Data | Navigation | Overlay
+    sfn groupOf:string (kind:string) {
+        if (kind == "Container") { return "Layout" }
+        if (kind == "Section") { return "Layout" }
+        if (kind == "Grid") { return "Layout" }
+        if (kind == "Row") { return "Layout" }
+        if (kind == "Scroll area") { return "Layout" }
+        if (kind == "Separator") { return "Layout" }
+        if (kind == "Heading") { return "Text" }
+        if (kind == "Text") { return "Text" }
+        if (kind == "Label") { return "Text" }
+        if (kind == "Badge") { return "Text" }
+        if (kind == "Button") { return "Form" }
+        if (kind == "Link") { return "Form" }
+        if (kind == "Input") { return "Form" }
+        if (kind == "Textarea") { return "Form" }
+        if (kind == "Select") { return "Form" }
+        if (kind == "Checkbox") { return "Form" }
+        if (kind == "Switch") { return "Form" }
+        if (kind == "Radio group") { return "Form" }
+        if (kind == "Slider") { return "Form" }
+        if (kind == "Form") { return "Form" }
+        if (kind == "Card") { return "Data" }
+        if (kind == "List") { return "Data" }
+        if (kind == "Table") { return "Data" }
+        if (kind == "Avatar") { return "Data" }
+        if (kind == "Progress") { return "Data" }
+        if (kind == "Image") { return "Data" }
+        if (kind == "Dialog") { return "Overlay" }
+        if (kind == "Sheet") { return "Overlay" }
+        if (kind == "Command menu") { return "Overlay" }
+        if (kind == "Toast") { return "Overlay" }
+        return "Navigation"
     }
 
     sfn isKind:boolean (kind:string) {
@@ -70,6 +133,63 @@ class RaveKit {
         input.label = label
         input.placeholder = placeholder
         return f
+    }
+
+    sfn radio:RaveNode (app:RaveApp label:string on:boolean) {
+        def r:RaveNode (app.newNode("div" label))
+        r.addClass("row")
+        r.role = "radio"
+        r.label = label
+        r.state = "unchecked"
+        if on {
+            r.state = "checked"
+        }
+        def mark:RaveNode (r.add((app.newNode("div" "Dot"))))
+        mark.addClass("box")
+        mark.addClass("dot")
+        def cap:RaveNode (r.add((app.newText("span" label))))
+        return r
+    }
+
+    sfn cell:RaveNode (app:RaveApp parent:RaveNode text:string role:string) {
+        def c:RaveNode (parent.add((app.newText("span" text))))
+        c.addClass("tcell")
+        c.role = role
+        return c
+    }
+
+    sfn menuItem:RaveNode (app:RaveApp parent:RaveNode text:string) {
+        def m:RaveNode (parent.add((app.newText("span" text))))
+        m.addClass("menuitem")
+        m.role = "menuitem"
+        m.label = text
+        return m
+    }
+
+    ; A dialog, or the same thing pinned to the right edge. Both are overlays
+    ; — on the page only while they are the one that is open — and both trap
+    ; the keyboard, which is the whole reason they are not just boxes.
+    sfn overlay:RaveNode (app:RaveApp overlayName:string title:string side:boolean) {
+        def scrim:RaveNode (app.newOverlay(overlayName title))
+        scrim.addClass("scrim")
+        def panel:RaveNode (scrim.add((app.newNode("section" title))))
+        panel.label = title
+        if side {
+            panel.addClass("sheetside")
+        } {
+            panel.addClass("dialog")
+        }
+        def h:RaveNode (panel.add((app.newText("h2" title))))
+        h.addClass("title")
+        def body:RaveNode (panel.add((app.newText("p" "What this is about."))))
+        body.addClass("muted")
+        def acts:RaveNode (panel.add((app.newNode("div" (title + " actions")))))
+        acts.addClass("actions")
+        def cancel:RaveNode (acts.add((app.newText("button" "Close"))))
+        cancel.addClass("btn")
+        cancel.addClass("btn-ghost")
+        cancel.on("close" "")
+        return scrim
     }
 
     sfn create:RaveNode (app:RaveApp kind:string) {
@@ -144,6 +264,273 @@ class RaveKit {
             go.addClass("btn")
             app.style(go "width" "fit-content")
             return f
+        }
+        if (kind == "Grid") {
+            def g:RaveNode (app.newNode("div" "Grid"))
+            app.style(g "display" "grid")
+            app.style(g "grid-template-columns" "repeat(3, 1fr)")
+            app.style(g "gap" "16px")
+            app.styleAt(g (app.below("md")) "grid-template-columns" "1fr")
+            return g
+        }
+        if (kind == "Row") {
+            def r:RaveNode (app.newNode("div" "Row"))
+            r.addClass("row")
+            return r
+        }
+        if (kind == "Scroll area") {
+            def sa:RaveNode (app.newNode("div" "Scroll area"))
+            sa.addClass("scrollarea")
+            sa.label = "Scroll area"
+            def note:RaveNode (sa.add((app.newText("p" "Taller than its box, so it scrolls."))))
+            note.addClass("muted")
+            return sa
+        }
+        if (kind == "Separator") {
+            def sp:RaveNode (app.newNode("div" "Separator"))
+            sp.addClass("sep")
+            sp.role = "separator"
+            return sp
+        }
+        if (kind == "Label") {
+            def lb:RaveNode (app.newText("label" "Label"))
+            lb.addClass("muted")
+            return lb
+        }
+        if (kind == "Badge") {
+            def bd:RaveNode (app.newText("span" "Badge"))
+            bd.addClass("badge")
+            return bd
+        }
+        if (kind == "Textarea") {
+            def ta:RaveNode (app.newNode("div" "Notes"))
+            ta.addClass("field")
+            def lab:RaveNode (ta.add((app.newText("label" "Notes"))))
+            lab.addClass("muted")
+            def area:RaveNode (ta.add((app.newNode("input" "Notes"))))
+            area.addClass("input")
+            area.label = "Notes"
+            area.placeholder = "Several lines of it"
+            area.role = "textbox"
+            app.style(area "height" "88px")
+            app.style(area "align-items" "flex-start")
+            app.style(area "padding" "8px 12px")
+            return ta
+        }
+        if (kind == "Select") {
+            def se:RaveNode (app.newNode("div" "Choice"))
+            se.addClass("field")
+            def lab2:RaveNode (se.add((app.newText("label" "Choice"))))
+            lab2.addClass("muted")
+            def btn:RaveNode (se.add((app.newNode("div" "Choice"))))
+            btn.addClass("input")
+            btn.addClass("row")
+            btn.role = "combobox"
+            btn.label = "Choice"
+            btn.state = "collapsed"
+            def val:RaveNode (btn.add((app.newText("span" "The first one"))))
+            def caret:RaveNode (btn.add((app.newText("span" "▾"))))
+            caret.addClass("muted")
+            app.style(btn "justify-content" "space-between")
+            return se
+        }
+        if (kind == "Checkbox") {
+            def cb:RaveNode (app.newNode("div" "Checkbox"))
+            cb.addClass("row")
+            cb.role = "checkbox"
+            cb.label = "I agree"
+            cb.state = "unchecked"
+            def mark:RaveNode (cb.add((app.newNode("div" "Box"))))
+            mark.addClass("box")
+            def cap:RaveNode (cb.add((app.newText("span" "I agree"))))
+            return cb
+        }
+        if (kind == "Switch") {
+            def sw:RaveNode (app.newNode("div" "Switch"))
+            sw.addClass("row")
+            sw.role = "switch"
+            sw.label = "Email digest"
+            sw.state = "checked"
+            def rail:RaveNode (sw.add((app.newNode("div" "Rail"))))
+            rail.addClass("switch")
+            rail.addClass("switch-on")
+            def knob:RaveNode (rail.add((app.newNode("div" "Knob"))))
+            knob.addClass("knob")
+            def cap2:RaveNode (sw.add((app.newText("span" "Email digest"))))
+            return sw
+        }
+        if (kind == "Radio group") {
+            def rg:RaveNode (app.newNode("div" "Plan"))
+            rg.role = "radiogroup"
+            rg.label = "Plan"
+            app.style(rg "gap" "8px")
+            def one:RaveNode (RaveKit.radio(app "Monthly" true))
+            def two:RaveNode (RaveKit.radio(app "Yearly" false))
+            rg.add(one)
+            rg.add(two)
+            return rg
+        }
+        if (kind == "Slider") {
+            def sl:RaveNode (app.newNode("div" "Amount"))
+            app.style(sl "gap" "6px")
+            def lab3:RaveNode (sl.add((app.newText("label" "Amount"))))
+            lab3.addClass("muted")
+            def track:RaveNode (sl.add((app.newNode("div" "Amount"))))
+            track.addClass("track")
+            track.role = "slider"
+            track.label = "Amount"
+            def range:RaveNode (track.add((app.newNode("div" "Range"))))
+            range.addClass("range")
+            app.style(range "width" "40%")
+            return sl
+        }
+        if (kind == "Table") {
+            def tb:RaveNode (app.newNode("div" "Table"))
+            tb.addClass("table")
+            tb.role = "table"
+            tb.label = "Table"
+            def head:RaveNode (tb.add((app.newNode("div" "Head"))))
+            head.addClass("trow")
+            head.addClass("thead")
+            head.role = "row"
+            RaveKit.cell(app head "Name" "columnheader")
+            RaveKit.cell(app head "Status" "columnheader")
+            def r1:RaveNode (tb.add((app.newNode("div" "Row 1"))))
+            r1.addClass("trow")
+            r1.role = "row"
+            RaveKit.cell(app r1 "First" "cell")
+            RaveKit.cell(app r1 "Done" "cell")
+            def r2:RaveNode (tb.add((app.newNode("div" "Row 2"))))
+            r2.addClass("trow")
+            r2.role = "row"
+            RaveKit.cell(app r2 "Second" "cell")
+            RaveKit.cell(app r2 "Draft" "cell")
+            return tb
+        }
+        if (kind == "Avatar") {
+            def av:RaveNode (app.newNode("div" "Avatar"))
+            av.addClass("avatar")
+            av.label = "Ada Lovelace"
+            def init:RaveNode (av.add((app.newText("span" "AL"))))
+            return av
+        }
+        if (kind == "Progress") {
+            def pr:RaveNode (app.newNode("div" "Progress"))
+            pr.addClass("track")
+            pr.role = "progressbar"
+            pr.label = "Uploading"
+            def bar:RaveNode (pr.add((app.newNode("div" "Bar"))))
+            bar.addClass("range")
+            app.style(bar "width" "60%")
+            return pr
+        }
+        if (kind == "Sidebar") {
+            def sb:RaveNode (app.newNode("aside" "Sidebar"))
+            sb.label = "Sidebar"
+            app.style(sb "width" "240px")
+            app.style(sb "padding" "16px")
+            app.style(sb "gap" "4px")
+            app.style(sb "border" "1px solid var(--line)")
+            app.style(sb "background-color" "var(--panel)")
+            app.styleAt(sb (app.below("md")) "display" "none")
+            def nav2:RaveNode (sb.add((app.newNode("nav" "Sidebar navigation"))))
+            nav2.label = "Sidebar navigation"
+            app.style(nav2 "gap" "4px")
+            def a1:RaveNode (nav2.add((app.newText("a" "First"))))
+            a1.addClass("navlink")
+            def a2:RaveNode (nav2.add((app.newText("a" "Second"))))
+            a2.addClass("navlink")
+            return sb
+        }
+        if (kind == "Top bar") {
+            def tbar:RaveNode (app.newNode("header" "Top bar"))
+            app.style(tbar "flex-direction" "row")
+            app.style(tbar "align-items" "center")
+            app.style(tbar "justify-content" "space-between")
+            app.style(tbar "height" "56px")
+            app.style(tbar "padding" "0 24px")
+            app.style(tbar "border" "1px solid var(--line)")
+            def brand:RaveNode (tbar.add((app.newText("span" "Brand"))))
+            brand.addClass("brand")
+            def links:RaveNode (tbar.add((app.newNode("nav" "Top navigation"))))
+            links.label = "Top navigation"
+            links.addClass("row")
+            def b1:RaveNode (links.add((app.newText("a" "First"))))
+            b1.addClass("navlink")
+            def b2:RaveNode (links.add((app.newText("a" "Second"))))
+            b2.addClass("navlink")
+            return tbar
+        }
+        if (kind == "Tabs") {
+            def tabs:RaveNode (app.newNode("nav" "Tabs"))
+            tabs.addClass("tablist")
+            tabs.addClass("row")
+            tabs.role = "tablist"
+            tabs.label = "Tabs"
+            def t1:RaveNode (tabs.add((app.newText("a" "First"))))
+            t1.addClass("tab")
+            t1.addClass("tab-on")
+            t1.role = "tab"
+            t1.state = "selected"
+            def t2:RaveNode (tabs.add((app.newText("a" "Second"))))
+            t2.addClass("tab")
+            t2.role = "tab"
+            t2.state = "unselected"
+            return tabs
+        }
+        if (kind == "Breadcrumb") {
+            def bc:RaveNode (app.newNode("nav" "Breadcrumb"))
+            bc.addClass("crumbs")
+            bc.label = "Breadcrumb"
+            def c1:RaveNode (bc.add((app.newText("a" "Home"))))
+            c1.addClass("navlink")
+            def s1:RaveNode (bc.add((app.newText("span" "/"))))
+            s1.addClass("muted")
+            def c2:RaveNode (bc.add((app.newText("span" "This page"))))
+            return bc
+        }
+        if (kind == "Menu") {
+            def mn:RaveNode (app.newNode("div" "Menu"))
+            mn.addClass("menu")
+            mn.role = "menu"
+            mn.label = "Menu"
+            RaveKit.menuItem(app mn "Open")
+            RaveKit.menuItem(app mn "Rename")
+            RaveKit.menuItem(app mn "Delete")
+            return mn
+        }
+        if (kind == "Dialog") {
+            return (RaveKit.overlay(app "dialog" "Dialog" false))
+        }
+        if (kind == "Sheet") {
+            return (RaveKit.overlay(app "sheet" "Sheet" true))
+        }
+        if (kind == "Command menu") {
+            def scrim:RaveNode (app.newOverlay("commands" "Commands"))
+            scrim.addClass("scrim")
+            app.style(scrim "align-items" "flex-start")
+            app.style(scrim "padding" "80px 24px")
+            def panel:RaveNode (scrim.add((app.newNode("section" "Commands"))))
+            panel.addClass("dialog")
+            panel.label = "Commands"
+            app.style(panel "gap" "8px")
+            def search:RaveNode (panel.add((app.newNode("input" "Search commands"))))
+            search.addClass("input")
+            search.label = "Search commands"
+            search.placeholder = "Type a command"
+            def list2:RaveNode (panel.add((app.newNode("div" "Commands"))))
+            list2.role = "menu"
+            list2.label = "Commands"
+            app.style(list2 "gap" "2px")
+            RaveKit.menuItem(app list2 "New item")
+            RaveKit.menuItem(app list2 "Go to settings")
+            RaveKit.menuItem(app list2 "Sign out")
+            return scrim
+        }
+        if (kind == "Toast") {
+            def to:RaveNode (app.newToast())
+            to.addClass("toast")
+            return to
         }
         if (kind == "List") {
             def ul:RaveNode (app.newNode("ul" "List"))

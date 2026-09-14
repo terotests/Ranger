@@ -21,12 +21,36 @@ Import "../../evg/EVGElement.rgr"
 class RaveBuild {
     def app:RaveApp (new RaveApp(""))
     def auth:RaveAuth (new RaveAuth())
-    ; The page the layout's slot receives while a route is being built.
-    def pageId:int 0
+    ; What the slots of the route's layouts receive, outermost slot first,
+    ; ending with the page itself.
+    def slotChain:[int]
+    def slotAt:int 0
+    ; What the route's `:name` segments were filled with, for a `source` node.
+    def params:[string:string]
+    ; The row in play, and where it came from. A text under it reads `{field}`
+    ; from here; an element built under it is remembered in `rowOwner` so a
+    ; press knows which row it was on.
+    def row:RaveRow (new RaveRow())
+    def hasRow:boolean false
+    def rowColl:string ""
+    def rowSuffix:string ""
+    def rowOwner:[string:string]
+    ; The overlay that is open, the words the toast is showing, and what has
+    ; been typed into each input — all three are the session's, not the
+    ; document's, and the runtime hands them over before it builds.
+    def openOverlay:string ""
+    def toast:string ""
+    def values:[string:string]
 
     Constructor (a:RaveApp au:RaveAuth) {
         app = a
         auth = au
+        def freshParams:[string:string]
+        params = freshParams
+        def freshOwner:[string:string]
+        rowOwner = freshOwner
+        def freshValues:[string:string]
+        values = freshValues
     }
 
     ; --- a route --------------------------------------------------------------
@@ -37,15 +61,71 @@ class RaveBuild {
         root.className = "rv rv-page"
         root.role = "group"
         root.a11yLabel = r.title
-        pageId = r.pageId
-        if (r.layoutId > 0) {
-            def lay:RaveNode (app.node(r.layoutId))
-            root.addChild((this.element(lay)))
-        } {
-            def pg:RaveNode (app.node(r.pageId))
-            root.addChild((this.element(pg)))
+        def freshOwner:[string:string]
+        rowOwner = freshOwner
+        hasRow = false
+        rowColl = ""
+        rowSuffix = ""
+        def chain:[int] (app.layoutChain(r.layoutId))
+        push chain r.pageId
+        def outer:int (itemAt chain 0)
+        def rest:[int]
+        def i:int 1
+        while (i < (array_length chain)) {
+            push rest (itemAt chain i)
+            i = (i + 1)
         }
+        slotChain = rest
+        slotAt = 0
+        root.addChild((this.element((app.node(outer)))))
         return root
+    }
+
+    ; --- the row in play ------------------------------------------------------
+
+    ; The element id a node gets here: its own, plus the row it is a copy for.
+    fn eid:string (n:RaveNode) {
+        def id:string ((n.elementId()) + rowSuffix)
+        if hasRow {
+            set rowOwner id (rowColl + "/" + (row.get("id")))
+        }
+        return id
+    }
+
+    ; Text with `{field}` read from the row in play.
+    fn tx:string (text:string) {
+        if (hasRow == false) {
+            return text
+        }
+        return (RaveApp.fill(text row))
+    }
+
+    ; The collection and row a `source` node names, or no row at all.
+    fn takeSource:boolean (n:RaveNode) {
+        if ((app.hasCollection(n.source)) == false) {
+            return false
+        }
+        def key:string ""
+        if (has params n.sourceKey) {
+            key = (unwrap (get params n.sourceKey))
+        }
+        def coll:RaveCollection (app.collection(n.source))
+        if ((coll.hasKey(key)) == false) {
+            ; No row was named — the editor is looking at `/items/:id` with
+            ; nothing chosen. Preview the first row rather than show a page
+            ; of braces; an empty collection gets an empty row.
+            if ((coll.rowCount()) == 0) {
+                return false
+            }
+            row = (coll.rowAt(0))
+            rowColl = n.source
+            hasRow = true
+            return true
+        }
+        row = (coll.rowOf(key))
+        rowColl = n.source
+        hasRow = true
+        return true
     }
 
     ; --- a node ---------------------------------------------------------------
@@ -114,10 +194,34 @@ class RaveBuild {
         return false
     }
 
+    ; A role the tag does not have but the keyboard still has to reach.
+    sfn roleTakesFocus:boolean (role:string) {
+        if (role == "checkbox") { return true }
+        if (role == "switch") { return true }
+        if (role == "radio") { return true }
+        if (role == "tab") { return true }
+        if (role == "slider") { return true }
+        if (role == "menuitem") { return true }
+        if (role == "option") { return true }
+        if (role == "combobox") { return true }
+        return false
+    }
+
+    ; The ARIA state a node says it is in, as the tri-states the tree wants:
+    ; 0 not applicable, 1 no, 2 yes.
+    sfn applyState:void (e:EVGElement state:string) {
+        if (state == "checked") { e.a11yChecked = 2 }
+        if (state == "unchecked") { e.a11yChecked = 1 }
+        if (state == "selected") { e.a11ySelected = 2 }
+        if (state == "unselected") { e.a11ySelected = 1 }
+        if (state == "expanded") { e.a11yExpanded = 2 }
+        if (state == "collapsed") { e.a11yExpanded = 1 }
+    }
+
     ; A text node: the element IS the text.
     fn textElement:EVGElement (n:RaveNode) {
         def e:EVGElement (EVGElement.createDiv())
-        e.id = (n.elementId())
+        e.id = (this.eid(n))
         e.className = ("rv-t " + (n.cls()))
         def i:int 0
         while (i < (array_length n.classes)) {
@@ -125,19 +229,46 @@ class RaveBuild {
             i = (i + 1)
         }
         e.elementType = 1
-        e.textContent = n.text
+        e.textContent = (this.tx(n.text))
         e.role = (RaveBuild.roleOf(n.tag))
+        if ((strlen n.role) > 0) {
+            e.role = n.role
+        }
+        if ((strlen n.state) > 0) {
+            RaveBuild.applyState(e n.state)
+        }
+        if (n.kind == "toast") {
+            e.textContent = toast
+            e.role = "status"
+        }
         def lvl:int (RaveBuild.headingLevel(n.tag))
         if (lvl > 0) {
             e.a11yLevel = lvl
         }
         if ((strlen n.label) > 0) {
-            e.a11yLabel = n.label
+            e.a11yLabel = (this.tx(n.label))
         }
         return e
     }
 
+    ; A node that names one row of a collection takes that row for its whole
+    ; subtree; everything else is built as it stands.
     fn element:EVGElement (n:RaveNode) {
+        if ((strlen n.source) == 0) {
+            return (this.build(n))
+        }
+        def keptRow:RaveRow row
+        def keptHas:boolean hasRow
+        def keptColl:string rowColl
+        this.takeSource(n)
+        def e:EVGElement (this.build(n))
+        row = keptRow
+        hasRow = keptHas
+        rowColl = keptColl
+        return e
+    }
+
+    fn build:EVGElement (n:RaveNode) {
         if (RaveBuild.isTextTag(n.tag)) {
             if ((n.hasChildren()) == false) {
                 return (this.textElement(n))
@@ -149,36 +280,61 @@ class RaveBuild {
             e.src = n.src
             e.alt = n.alt
         }
-        e.id = (n.elementId())
+        def myId:string (this.eid(n))
+        e.id = myId
         e.className = (this.classesOf(n))
         e.role = (RaveBuild.roleOf(n.tag))
+        def ownText:string (this.tx(n.text))
+        if ((strlen n.role) > 0) {
+            e.role = n.role
+        }
+        if ((strlen n.state) > 0) {
+            RaveBuild.applyState(e n.state)
+        }
+        if (RaveBuild.roleTakesFocus(e.role)) {
+            e.a11yFocusable = true
+            if (((strlen n.label) == 0) && ((strlen ownText) > 0)) {
+                e.a11yLabel = ownText
+            }
+        }
+        if (n.kind == "overlay") {
+            e.role = "dialog"
+            e.a11yModal = true
+        }
+        if (n.kind == "toast") {
+            e.role = "status"
+            ownText = toast
+        }
+        if ((n.tag == "input") && (has values myId)) {
+            ownText = (unwrap (get values myId))
+        }
         if ((strlen n.label) > 0) {
-            e.a11yLabel = n.label
+            e.a11yLabel = (this.tx(n.label))
         }
         if ((n.tag == "img") && ((strlen n.alt) > 0)) {
-            e.a11yLabel = n.alt
+            e.a11yLabel = (this.tx(n.alt))
         }
         if (RaveBuild.takesFocus(n.tag)) {
             e.a11yFocusable = true
             ; A button or a link is named by its caption. The caption element
             ; itself is hidden from the reader so the name is said once.
-            if (((strlen n.label) == 0) && ((strlen n.text) > 0)) {
-                e.a11yLabel = n.text
+            if (((strlen n.label) == 0) && ((strlen ownText) > 0)) {
+                e.a11yLabel = ownText
             }
         }
         if (n.tag == "input") {
-            e.a11yValue = n.text
-            if ((strlen n.text) == 0) {
+            e.a11yValue = ownText
+            if ((strlen ownText) == 0) {
                 def hint:EVGElement (EVGElement.createDiv())
                 hint.elementType = 1
-                hint.textContent = n.placeholder
+                hint.textContent = (this.tx(n.placeholder))
                 hint.className = "rv-t rv-placeholder"
                 hint.a11yHidden = true
                 e.addChild(hint)
             } {
                 def val:EVGElement (EVGElement.createDiv())
                 val.elementType = 1
-                val.textContent = n.text
+                val.textContent = ownText
                 val.className = "rv-t rv-value"
                 val.a11yHidden = true
                 e.addChild(val)
@@ -187,10 +343,10 @@ class RaveBuild {
             ; A container with words of its own: a button's caption, a link's
             ; text, a list item. The caption is hidden from the reader because
             ; the box already carries the name from its content.
-            if ((strlen n.text) > 0) {
+            if ((strlen ownText) > 0) {
                 def cap:EVGElement (EVGElement.createDiv())
                 cap.elementType = 1
-                cap.textContent = n.text
+                cap.textContent = ownText
                 cap.className = "rv-t rv-cap"
                 if (RaveBuild.takesFocus(n.tag)) {
                     cap.a11yHidden = true
@@ -201,10 +357,15 @@ class RaveBuild {
             }
         }
         if (n.kind == "slot") {
-            if (pageId > 0) {
-                def pg:RaveNode (app.node(pageId))
-                e.addChild((this.element(pg)))
+            if (slotAt < (array_length slotChain)) {
+                def nextId:int (itemAt slotChain slotAt)
+                slotAt = (slotAt + 1)
+                e.addChild((this.element((app.node(nextId)))))
             }
+        }
+        if ((strlen n.repeat) > 0) {
+            this.repeatInto(e n)
+            return e
         }
         def i:int 0
         while (i < (array_length n.children)) {
@@ -217,9 +378,49 @@ class RaveBuild {
         return e
     }
 
+    ; One copy of the children per row of the named collection. Each copy's
+    ; element ids carry the row index — `n40-2` is node 40 on the third row —
+    ; so a press lands on a row and not merely on a template.
+    fn repeatInto:void (e:EVGElement n:RaveNode) {
+        if ((app.hasCollection(n.repeat)) == false) {
+            return
+        }
+        def coll:RaveCollection (app.collection(n.repeat))
+        def keptRow:RaveRow row
+        def keptHas:boolean hasRow
+        def keptColl:string rowColl
+        def keptSuffix:string rowSuffix
+        def r:int 0
+        while (r < (coll.rowCount())) {
+            row = (coll.rowAt(r))
+            hasRow = true
+            rowColl = n.repeat
+            rowSuffix = (keptSuffix + "-" + (to_string r))
+            def i:int 0
+            while (i < (array_length n.children)) {
+                def c:RaveNode (itemAt n.children i)
+                if (this.shown(c)) {
+                    e.addChild((this.element(c)))
+                }
+                i = (i + 1)
+            }
+            r = (r + 1)
+        }
+        row = keptRow
+        hasRow = keptHas
+        rowColl = keptColl
+        rowSuffix = keptSuffix
+    }
+
     fn shown:boolean (n:RaveNode) {
         if (n.kind == "conditional") {
             return (auth.allows(n.condition))
+        }
+        if (n.kind == "overlay") {
+            return (n.overlay == openOverlay)
+        }
+        if (n.kind == "toast") {
+            return ((strlen toast) > 0)
         }
         return true
     }

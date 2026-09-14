@@ -21,14 +21,29 @@ class RaveRouter {
     def returnTo:string ""
     ; The last navigation that was refused, for the status strip.
     def lastRefused:string ""
+    ; What the current route's `:name` segments were filled with.
+    def params:[string:string]
 
     Constructor (a:RaveApp au:RaveAuth) {
         app = a
         auth = au
+        def fresh:[string:string]
+        params = fresh
     }
 
     fn current:RaveRoute () {
-        return (app.routeAt(path))
+        return (app.matchedRoute(path))
+    }
+
+    fn param:string (name:string) {
+        if (has params name) {
+            return (unwrap (get params name))
+        }
+        return ""
+    }
+
+    fn readParams:void () {
+        params = (app.paramsOf(path))
     }
 
     fn currentTitle:string () {
@@ -38,11 +53,11 @@ class RaveRouter {
 
     ; Go there, subject to the guard. Answers whether the path changed.
     fn navigate:boolean (to:string) {
-        if ((app.hasRoute(to)) == false) {
+        if ((app.matches(to)) == false) {
             lastRefused = to
             return false
         }
-        def r:RaveRoute (app.routeAt(to))
+        def r:RaveRoute (app.matchedRoute(to))
         def dest:string to
         if (r.protected && (auth.loggedIn == false)) {
             if (app.authEnabled == false) {
@@ -57,6 +72,7 @@ class RaveRouter {
         }
         push history path
         path = dest
+        this.readParams()
         return true
     }
 
@@ -67,6 +83,7 @@ class RaveRouter {
         def prev:string (last history)
         removeLast history
         path = prev
+        this.readParams()
         return true
     }
 

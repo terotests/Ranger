@@ -211,6 +211,63 @@ class EVGFixedTest {
         c.eqInt("the bar did not move at all" (to_int (bar.calculatedY - wasBar)) 0)
     }
 
+    ; --- a frame that is a viewport of its own -------------------------------------
+    ; Two frames side by side in one scene, each one a viewport root, each
+    ; holding a bar fixed to its bottom. Before this the two bars landed on
+    ; top of each other at the scene's own bottom-left, because there was one
+    ; viewport per layout and it was the page.
+    sfn buildStage:EVGElement () {
+        def scene:EVGElement (EVGFixedTest.box("scene" 1000.0 800.0))
+        scene.setAttribute("position" "relative")
+        def one:EVGElement (EVGFixedTest.box("one" 400.0 600.0))
+        one.setAttribute("position" "absolute")
+        one.setAttribute("left" "0px")
+        one.setAttribute("top" "0px")
+        one.viewportRoot = true
+        one.viewportW = 400.0
+        one.viewportH = 600.0
+        def bar1:EVGElement (EVGFixedTest.box("bar1" 400.0 50.0))
+        bar1.setAttribute("position" "fixed")
+        bar1.setAttribute("left" "0px")
+        bar1.setAttribute("bottom" "0px")
+        one.addChild(bar1)
+        def two:EVGElement (EVGFixedTest.box("two" 300.0 500.0))
+        two.setAttribute("position" "absolute")
+        two.setAttribute("left" "500px")
+        two.setAttribute("top" "40px")
+        two.viewportRoot = true
+        two.viewportW = 300.0
+        two.viewportH = 500.0
+        two.viewportX = 500.0
+        two.viewportY = 40.0
+        def bar2:EVGElement (EVGFixedTest.box("bar2" 300.0 50.0))
+        bar2.setAttribute("position" "fixed")
+        bar2.setAttribute("left" "0px")
+        bar2.setAttribute("bottom" "0px")
+        two.addChild(bar2)
+        scene.addChild(one)
+        scene.addChild(two)
+        return scene
+    }
+
+    sfn testViewportRoot:void (c:FixedCheck) {
+        print ""
+        print "--- a frame is a viewport of its own ---"
+        def scene:EVGElement (EVGFixedTest.buildStage())
+        def lay (new EVGLayout())
+        lay.setPageSize(1000.0 800.0)
+        lay.layout(scene)
+        def one:EVGElement (scene.getChild(0))
+        def two:EVGElement (scene.getChild(1))
+        def bar1:EVGElement (one.getChild(0))
+        def bar2:EVGElement (two.getChild(0))
+        c.eqInt("the first frame's bar starts at the scene's own left" (to_int bar1.calculatedX) 0)
+        c.eqInt("the second frame's bar starts at the second frame" (to_int bar2.calculatedX) 500)
+        c.eqInt("…and is as wide as that frame" (to_int bar2.calculatedWidth) 300)
+        c.eqInt("the first frame's bar is on ITS bottom" (to_int bar1.calculatedY) 550)
+        c.eqInt("…and the second frame's on its own, well above the scene's" (to_int bar2.calculatedY) 490)
+    }
+
     sfn main:void () {
         def c (new FixedCheck())
         print "=== EVG position: fixed ==="
@@ -220,6 +277,7 @@ class EVGFixedTest {
         EVGFixedTest.testStretch(c)
         EVGFixedTest.testScrollLeavesItAlone(c)
         EVGFixedTest.testScrollOnlyLeavesItAlone(c)
+        EVGFixedTest.testViewportRoot(c)
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed > 0) {

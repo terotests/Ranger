@@ -139,6 +139,8 @@ class EVGLayout {
         ; so with `setPageSize`, which every host already calls.
         root.viewportW = pageWidth
         root.viewportH = pageHeight
+        root.viewportX = 0.0
+        root.viewportY = 0.0
         ; The root has no parent to inherit a direction from, so it settles
         ; its own. This is the switch: `direction: rtl` here and every
         ; container below turns around with it.
@@ -1580,6 +1582,14 @@ class EVGLayout {
                     this.layoutElement(child 0.0 0.0 child.viewportW child.viewportH)
                     layingOutAlongRow = wasRowF
                     columnCrossShrinks = wasShrinkF
+                    ; The viewport's own origin. It is (0,0) for a page, so
+                    ; this is a no-op for every host that has one viewport;
+                    ; a stage with a frame per width moves the box onto its
+                    ; frame, the same one translation the absolute branch
+                    ; below makes for its own reason.
+                    if ((child.viewportX != 0.0) || (child.viewportY != 0.0)) {
+                        this.translateSubtree(child child.viewportX child.viewportY)
+                    }
                     i = i + 1
                     continue
                 }
