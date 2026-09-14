@@ -357,6 +357,9 @@
   display: flex; flex-direction: column; gap: 14px;
   width: 520px; max-width: 100%; padding: 20px;
   background-color: #ffffff; border: 1px solid #e7e9ee; border-radius: 12px;
+  /* A sheet never grows past the window: what does not fit scrolls, because a
+     dialog taller than the screen has no buttons on it. */
+  max-height: 100%; overflow: scroll;
 }
 .ra-wiz-title { font-size: 15px; font-weight: bold; height: 20px; color: #1a1d21; }
 .ra-wiz-row { display: flex; flex-direction: column; gap: 6px; width: 100%; }
@@ -393,8 +396,10 @@
    the New-project sheet because what it is about is text, not choices. */
 .ra-ai { width: 620px; }
 .ra-ai-errs {
-  display: flex; flex-direction: column; gap: 4px; width: 100%;
+  display: flex; flex-direction: column; gap: 3px; width: 100%;
   padding: 10px 12px; border-radius: 8px;
   background-color: #fff4f4; border: 1px solid #f3d2d2;
 }
-.ra-ai-err { font-size: 11.5px; color: #9b2c2c; }
+.ra-ai-head { font-size: 11.5px; font-weight: bold; height: 15px; color: #9b2c2c; }
+.ra-ai-err { font-size: 11px; height: 15px; color: #9b2c2c; }
+.ra-ai-more { font-size: 11px; height: 15px; color: #c07878; }

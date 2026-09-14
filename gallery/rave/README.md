@@ -38,7 +38,7 @@ Deployed at `/rave/`. **License:** AGPL-3.0-or-later (Gallery).
 | `src/RaveAuth.rgr` | The mock session: logged in or out, and who |
 | `src/RaveRuntime.rgr` | One document, N views, one scene. Each view is a viewport; every view is the same route laid out at its own width, side by side in one tree. Answers `displayListJson`, `sceneListJson` (through a camera), `a11yJson`, `hitId`, `press`, `keyWith`, `lint` |
 | `src/RaveOps.rgr` | Every edit as a `RaveOp` with its inverse, recorded in `OfficeHistory@(RaveOp)`; `RaveEdit` is the only thing that changes a document |
-| `src/RaveText.rgr` | The document as lines — no ids, indentation for the tree, a node's rule inline — plus the reader that takes it back, and the prompt the AI menu hands out |
+| `src/RaveText.rgr` | The document as HTML-shaped markup — no ids, closing tags for the tree, a node's rule in `style=` — plus the reader that takes it back, and the prompt the AI menu hands out |
 | `src/RaveImport.rgr` | A Figma file read as an application: auto-layout taken as it stands, everything else cut into flex, names and shapes read for meaning, agreeing frames lifted into a layout — and a report of every guess |
 | `src/rave_import_cli.rgr` | `npm run rave:import <file.fig> [out.rave.json]` — the reading, then the result built at two widths with its rejections and lint |
 | `src/RaveKit.rgr` | The Components pane: thirty-six entries in six groups (Layout, Text, Form, Data, Navigation, Overlay), each a node tree in the document's own vocabulary |
@@ -227,56 +227,69 @@ rejections and zero accessibility problems at 1440 and at 390.
 
 `AI…` in the top bar. Nothing in Rave calls a service: the menu writes a
 prompt for you to paste wherever you like, and reads back an answer you paste
-in. Which means the prompt has to say everything, and the reader has to be
-strict — and both are the same grammar, `RaveText`.
+in. ⌘V / Ctrl+V drops one straight into the sheet; `Paste box` opens a
+textarea for when the clipboard is not cooperating. Which means the prompt
+has to say everything, and the reader has to be strict — and both are the
+same grammar.
 
-**The format.** `app.rave.json` is what the editor saves: every node with its
-id, every rule as an object. It is a poor thing to hand a model and a worse
-thing to ask one to produce — most of its bytes are ids nobody typed, and one
-wrong id makes a document that opens as something else. RaveText is the same
-document as lines:
+**The format is HTML-shaped, on purpose.** `app.rave.json` is what the editor
+saves: every node with its id, every rule as an object. It is a poor thing to
+hand a model and a worse thing to ask one to produce — most of its bytes are
+ids nobody typed, and one wrong id makes a document that opens as something
+else. So:
 
+```html
+<page name="Dashboard" style="gap: 24px">
+  <h1 class="title">Dashboard</h1>
+  <div name="Cards" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px">
+    <media below="md" style="grid-template-columns: 1fr"/>
+    <section class="card" label="Revenue">
+      <h3 class="subtitle">Revenue</h3>
+      <p class="muted">Where the money came from this month.</p>
+    </section>
+  </div>
+  <button class="btn">Go to settings<on click="navigate" arg="/settings"/></button>
+</page>
 ```
-page "Dashboard"
-  self { padding: 24px; gap: 24px }
-  h1.title "Dashboard"
-  div name="Cards" { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px }
-    @<md { grid-template-columns: 1fr }
-    section.card label="Revenue"
-      h3.subtitle "Revenue"
-      p.muted "Where the money came from this month."
-  button.btn "Open settings"
-    -> navigate /settings
-```
 
-Indentation is the tree. A node is `tag.class.class "words" key="value" { css }`.
-A line indented one further is either that node's rule at a breakpoint
-(`@md`, `@<md`), an action (`-> navigate /settings`), or a child. `self { … }`
-under `page X` or `layout X` is that page's own rule. Document lines — `app`,
-`targets`, `auth`, `breakpoint`, `var`, `style .name { … }`, `collection` with
-its `row`s, `layout`, `page`, `route` — sit at no indentation. **There are no
-ids anywhere in it**, so a document written out, read back and written again
-is the same text, which is the property `rave:test` checks.
+Words are the element's content, a node's own rule is its `style=`, the same
+rule at another width is a `<media/>` child, an action is an `<on/>` child.
+Document-level elements are `<app/>`, `<breakpoint/>`, `<var/>`, `<style>`,
+`<collection>` with its `<row/>`s, `<layout>`, `<page>` and `<route/>`. The
+elements a page may hold are `div span p h1 h2 h3 h4 header footer nav main
+aside section form label input button a img ul li slot toast`, and the
+attributes any of them may carry are `class style name label placeholder alt
+src role state when repeat source sourceKey bind overlay component variant`.
 
-**The prompt** is the format described (including what EVG will *not* accept,
-so the answer does not come back full of `calc()` and `box-shadow`), then the
-thing as it stands, then what you asked for, then what the answer must look
-like. Three scopes:
+**The first version of this was indentation-based, and it was wrong.** An
+answer copied through a chat window comes back with its leading spaces gone,
+and a format whose tree *is* its indentation then has no tree at all — two
+hundred error lines and nothing to do about them. Closing tags say what is
+inside what whatever happens to the whitespace; the parser ignores
+indentation entirely and the writer still emits it, to be read. **There are
+no ids anywhere in it**, so a document written out, read back and written
+again is the same markup, which is the property `rave:test` checks.
+
+**The prompt** is the format described — including the CSS the engine
+understands and, listed by name, the CSS it does not, so the answer does not
+come back full of `calc()` and `box-shadow` — then the thing as it stands,
+then what you asked for, then what the answer must look like. Three scopes:
 
 | About | What goes in the prompt | What comes back replaces |
 | --- | --- | --- |
-| The whole document | every line of it | the document, like opening a file |
-| This page | that page's block | the page's contents, as one undo step |
-| The selected node | that subtree | the selection, as one undo step |
+| The whole document | every element of it | the document, like opening a file |
+| This page | that `<page>…</page>` | the page's contents, as one undo step |
+| The selected node | that element | the selection, as one undo step |
 
-A page or a node answer may bring `style .name { … }` and `var` lines with it;
+A page or node answer may bring `<style class="…">` and `<var/>` with it;
 they are merged into the document, because a node naming a class nothing
 defines draws as nothing.
 
-**An answer is taken whole or not at all.** One line the reader cannot make
-sense of and nothing is applied — the sheet lists what was wrong and which
-line it was on. Half-applying something that came from elsewhere is how a
-document quietly stops being the one that was designed.
+**An answer is taken whole or not at all.** One element the reader cannot
+make sense of and nothing is applied. The sheet says how many lines could not
+be read and shows the first four with the line each was on — an answer that
+is wrong is usually wrong the same way on every line, and two hundred copies
+of one mistake is a wall, not a report.
 
 `npm run rave:import spec` prints the format on its own, and
 `npm run rave:import text <file.fig>` prints an imported Figma file in it —
