@@ -67,6 +67,116 @@ class RavePatterns {
         app.shared("navlink" "border-radius" "var(--radius)")
         app.shared("navlink" "color" "var(--ink)")
         app.shared("navlink" "cursor" "pointer")
+
+        RavePatterns.kitTheme(app)
+        RavePatterns.crudTheme(app)
+    }
+
+    ; The look the kit's controls share. It is part of the palette rather
+    ; than something each dropped node carries, so a switch dropped onto a
+    ; page looks like the switch on the next page, and a designer restyles
+    ; every one of them by editing one rule.
+    sfn kitTheme:void (app:RaveApp) {
+        app.shared("row" "flex-direction" "row")
+        app.shared("row" "align-items" "center")
+        app.shared("row" "gap" "8px")
+        app.shared("sep" "width" "100%")
+        app.shared("sep" "height" "1px")
+        app.shared("sep" "background-color" "var(--line)")
+        app.shared("scrollarea" "max-height" "240px")
+        app.shared("scrollarea" "overflow" "scroll")
+        app.shared("scrollarea" "gap" "8px")
+
+        app.shared("badge" "width" "fit-content")
+        app.shared("badge" "padding" "2px 8px")
+        app.shared("badge" "border-radius" "999px")
+        app.shared("badge" "background-color" "var(--panel)")
+        app.shared("badge" "border" "1px solid var(--line)")
+        app.shared("badge" "font-size" "12px")
+        app.shared("badge" "color" "var(--muted)")
+
+        app.shared("box" "width" "18px")
+        app.shared("box" "height" "18px")
+        app.shared("box" "border" "1px solid var(--line)")
+        app.shared("box" "border-radius" "4px")
+        app.shared("box" "align-items" "center")
+        app.shared("box" "justify-content" "center")
+        app.shared("box" "background-color" "var(--bg)")
+        app.shared("box" "font-size" "12px")
+        app.shared("box" "color" "var(--accent)")
+        app.shared("dot" "border-radius" "999px")
+
+        app.shared("switch" "width" "40px")
+        app.shared("switch" "height" "22px")
+        app.shared("switch" "border-radius" "999px")
+        app.shared("switch" "background-color" "var(--line)")
+        app.shared("switch" "padding" "2px")
+        app.shared("switch" "flex-direction" "row")
+        app.shared("switch" "align-items" "center")
+        app.shared("switch-on" "background-color" "var(--accent)")
+        app.shared("switch-on" "justify-content" "flex-end")
+        app.shared("knob" "width" "18px")
+        app.shared("knob" "height" "18px")
+        app.shared("knob" "border-radius" "999px")
+        app.shared("knob" "background-color" "var(--bg)")
+
+        app.shared("track" "width" "100%")
+        app.shared("track" "height" "6px")
+        app.shared("track" "border-radius" "999px")
+        app.shared("track" "background-color" "var(--line)")
+        app.shared("range" "height" "6px")
+        app.shared("range" "border-radius" "999px")
+        app.shared("range" "background-color" "var(--accent)")
+
+        app.shared("avatar" "width" "36px")
+        app.shared("avatar" "height" "36px")
+        app.shared("avatar" "border-radius" "999px")
+        app.shared("avatar" "background-color" "var(--panel)")
+        app.shared("avatar" "border" "1px solid var(--line)")
+        app.shared("avatar" "align-items" "center")
+        app.shared("avatar" "justify-content" "center")
+
+        app.shared("table" "width" "100%")
+        app.shared("table" "border" "1px solid var(--line)")
+        app.shared("table" "border-radius" "var(--radius)")
+        app.shared("trow" "flex-direction" "row")
+        app.shared("trow" "align-items" "center")
+        app.shared("trow" "gap" "16px")
+        app.shared("trow" "padding" "8px 12px")
+        app.shared("thead" "background-color" "var(--panel)")
+        app.shared("thead" "color" "var(--muted)")
+        app.shared("tcell" "flex-grow" "1")
+        app.shared("tcell" "min-width" "0")
+
+        app.shared("tablist" "gap" "4px")
+        app.shared("tab" "padding" "8px 12px")
+        app.shared("tab" "border-radius" "var(--radius)")
+        app.shared("tab" "color" "var(--ink)")
+        app.shared("tab" "cursor" "pointer")
+        app.shared("tab-on" "background-color" "var(--panel)")
+        app.shared("crumbs" "flex-direction" "row")
+        app.shared("crumbs" "align-items" "center")
+        app.shared("crumbs" "gap" "6px")
+        app.shared("menu" "padding" "4px")
+        app.shared("menu" "gap" "2px")
+        app.shared("menu" "border" "1px solid var(--line)")
+        app.shared("menu" "border-radius" "var(--radius)")
+        app.shared("menu" "background-color" "var(--bg)")
+        app.shared("menu" "width" "fit-content")
+        app.shared("menuitem" "padding" "6px 10px")
+        app.shared("menuitem" "border-radius" "6px")
+        app.shared("menuitem" "cursor" "pointer")
+
+        app.shared("sheetside" "position" "fixed")
+        app.shared("sheetside" "top" "0px")
+        app.shared("sheetside" "right" "0px")
+        app.shared("sheetside" "bottom" "0px")
+        app.shared("sheetside" "width" "360px")
+        app.shared("sheetside" "max-width" "100%")
+        app.shared("sheetside" "padding" "24px")
+        app.shared("sheetside" "gap" "16px")
+        app.shared("sheetside" "background-color" "var(--bg)")
+        app.shared("sheetside" "border" "1px solid var(--line)")
     }
 
     sfn breakpoints:void (app:RaveApp) {
@@ -749,6 +859,9 @@ class RavePatterns {
 
     ; --- CRUD --------------------------------------------------------------------------
 
+    ; The scrim, the dialog panel, the action row and the toast. Wanted by
+    ; the CRUD pattern and by anything the kit drops that sits over a page,
+    ; so it is its own function rather than CRUD's private business.
     sfn crudTheme:void (app:RaveApp) {
         app.shared("scrim" "position" "fixed")
         app.shared("scrim" "left" "0px")

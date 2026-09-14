@@ -194,6 +194,30 @@ class RaveBuild {
         return false
     }
 
+    ; A role the tag does not have but the keyboard still has to reach.
+    sfn roleTakesFocus:boolean (role:string) {
+        if (role == "checkbox") { return true }
+        if (role == "switch") { return true }
+        if (role == "radio") { return true }
+        if (role == "tab") { return true }
+        if (role == "slider") { return true }
+        if (role == "menuitem") { return true }
+        if (role == "option") { return true }
+        if (role == "combobox") { return true }
+        return false
+    }
+
+    ; The ARIA state a node says it is in, as the tri-states the tree wants:
+    ; 0 not applicable, 1 no, 2 yes.
+    sfn applyState:void (e:EVGElement state:string) {
+        if (state == "checked") { e.a11yChecked = 2 }
+        if (state == "unchecked") { e.a11yChecked = 1 }
+        if (state == "selected") { e.a11ySelected = 2 }
+        if (state == "unselected") { e.a11ySelected = 1 }
+        if (state == "expanded") { e.a11yExpanded = 2 }
+        if (state == "collapsed") { e.a11yExpanded = 1 }
+    }
+
     ; A text node: the element IS the text.
     fn textElement:EVGElement (n:RaveNode) {
         def e:EVGElement (EVGElement.createDiv())
@@ -207,6 +231,12 @@ class RaveBuild {
         e.elementType = 1
         e.textContent = (this.tx(n.text))
         e.role = (RaveBuild.roleOf(n.tag))
+        if ((strlen n.role) > 0) {
+            e.role = n.role
+        }
+        if ((strlen n.state) > 0) {
+            RaveBuild.applyState(e n.state)
+        }
         if (n.kind == "toast") {
             e.textContent = toast
             e.role = "status"
@@ -255,6 +285,18 @@ class RaveBuild {
         e.className = (this.classesOf(n))
         e.role = (RaveBuild.roleOf(n.tag))
         def ownText:string (this.tx(n.text))
+        if ((strlen n.role) > 0) {
+            e.role = n.role
+        }
+        if ((strlen n.state) > 0) {
+            RaveBuild.applyState(e n.state)
+        }
+        if (RaveBuild.roleTakesFocus(e.role)) {
+            e.a11yFocusable = true
+            if (((strlen n.label) == 0) && ((strlen ownText) > 0)) {
+                e.a11yLabel = ownText
+            }
+        }
         if (n.kind == "overlay") {
             e.role = "dialog"
             e.a11yModal = true

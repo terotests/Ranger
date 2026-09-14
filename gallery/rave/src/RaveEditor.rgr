@@ -1257,6 +1257,18 @@ class RaveEditor {
         }
         e.insert(made parent at)
         selected = made.id
+        ; An overlay is on the page only while it is the one that is open, so
+        ; a dialog that was just dropped would otherwise vanish the moment it
+        ; landed. Open it: what was dropped is what is on the stage.
+        if (made.kind == "overlay") {
+            def r:RaveRuntime (unwrap rt)
+            r.openDialog(made.overlay)
+        }
+        if (made.kind == "toast") {
+            def r2:RaveRuntime (unwrap rt)
+            r2.toastText = "Something happened"
+            r2.invalidate()
+        }
         status = (kind + " added")
         this.changed()
         return true
@@ -2170,9 +2182,15 @@ class RaveEditor {
         def kinds:[string] (RaveKit.kinds())
         host.addChild((this.cap("COMPONENTS" (to_string (array_length kinds)))))
         def list:EVGElement (RaveEditor.box("ra-pages" "" "list" "Components"))
+        def group:string ""
         def i:int 0
         while (i < (array_length kinds)) {
             def k:string (itemAt kinds i)
+            def g:string (RaveKit.groupOf(k))
+            if (g != group) {
+                group = g
+                list.addChild((RaveEditor.quiet("ra-group" g)))
+            }
             def row:EVGElement (RaveEditor.box("ra-pagerow" ("add:" + k) "button" ("Add " + k)))
             row.addChild((RaveEditor.quiet("ra-page-ic" "+")))
             row.addChild((RaveEditor.quiet("ra-page-nm" k)))

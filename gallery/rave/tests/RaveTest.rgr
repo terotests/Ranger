@@ -459,6 +459,99 @@ class RaveTest {
         RaveTest.lintClean(c rt3 0 "the empty project lints clean")
     }
 
+    ; --- the kit ---------------------------------------------------------------------------
+
+    ; Every entry in the Components pane, dropped onto a page one at a time.
+    ; The claim the kit makes is that what is dropped already works: it lays
+    ; out at every width, the engine rejects none of its rules, and the
+    ; accessibility lint has nothing to say about it. So that is what is
+    ; asked, once per entry, rather than a picture of each.
+    sfn kitChecks:void (c:Check) {
+        print ""
+        print "--- the kit ---"
+        def kinds:[string] (RaveKit.kinds())
+        c.ok("the kit has the whole table" ((array_length kinds) >= 30))
+        def groups:[string]
+        def gi:int 0
+        while (gi < (array_length kinds)) {
+            def g:string (RaveKit.groupOf((itemAt kinds gi)))
+            def seen:boolean false
+            def gj:int 0
+            while (gj < (array_length groups)) {
+                if ((itemAt groups gj) == g) {
+                    seen = true
+                }
+                gj = (gj + 1)
+            }
+            if (seen == false) {
+                push groups g
+            }
+            gi = (gi + 1)
+        }
+        c.eqInt("…in six groups" (array_length groups) 6)
+
+        def bad:[string]
+        def rejected:[string]
+        def i:int 0
+        while (i < (array_length kinds)) {
+            def kind:string (itemAt kinds i)
+            def ed (new RaveEditor())
+            ed.init((RaveTest.chromeCss()))
+            ed.setPageSize(1440.0 860.0)
+            def rt:RaveRuntime (ed.runtime())
+            if ((ed.addKind(kind)) == false) {
+                push bad (kind + ": would not insert")
+            } {
+                ed.boardJson()
+                def v:int 0
+                while (v < 3) {
+                    def problems:[string] (rt.lint(v))
+                    def pi:int 0
+                    while (pi < (array_length problems)) {
+                        push bad (kind + " @" + (to_string v) + ": " + (itemAt problems pi))
+                        pi = (pi + 1)
+                    }
+                    def warn:int (rt.layoutWarningCount(v))
+                    def wi:int 0
+                    while (wi < warn) {
+                        push rejected (kind + " @" + (to_string v) + ": " + (rt.layoutWarning(v wi)))
+                        wi = (wi + 1)
+                    }
+                    v = (v + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        c.eqInt("every entry drops and lints clean at three widths" (array_length bad) 0)
+        if ((array_length bad) > 0) {
+            RaveTest.printAll(bad)
+        }
+        c.eqInt("…and the engine rejects none of their rules" (array_length rejected) 0)
+        if ((array_length rejected) > 0) {
+            RaveTest.printAll(rejected)
+        }
+
+        ; the ones that say what they are rather than what tag they are
+        def ed2 (new RaveEditor())
+        ed2.init((RaveTest.chromeCss()))
+        ed2.setPageSize(1440.0 860.0)
+        ed2.press("tab:components")
+        def pane:string (ed2.displayListJson())
+        c.ok("the pane captions its groups" ((RaveTest.includes(pane "Overlay")) && (RaveTest.includes(pane "Form"))))
+        ed2.addKind("Switch")
+        ed2.boardJson()
+        def a11y:string ((ed2.runtime()).a11yJson(0))
+        c.ok("a switch is a switch to a reader" (RaveTest.includes(a11y "\"role\":\"switch\"")))
+        c.ok("…and it says it is on" (RaveTest.includes(a11y "\"checked\":2")))
+        ed2.addKind("Dialog")
+        def dl:string (ed2.boardJson())
+        c.ok("a dropped dialog is on the stage, not hidden" (RaveTest.includes(dl "What this is about")))
+        def doc2:RaveApp ed2.doc
+        c.ok("…as an overlay" ((doc2.idOfOverlay("dialog")) > 0))
+        c.ok("undo takes it away again" (ed2.press("undo")))
+        c.ok("…and the page is clean" (((ed2.runtime()).lintCount(0)) == 0))
+    }
+
     ; --- the editor -----------------------------------------------------------------
 
     sfn chromeCss:string () {
@@ -1018,6 +1111,7 @@ class RaveTest {
         RaveTest.crudChecks(c)
         RaveTest.layoutChecks(c)
         RaveTest.wizardChecks(c)
+        RaveTest.kitChecks(c)
         RaveTest.editorChecks(c)
         RaveTest.inputChecks(c)
 

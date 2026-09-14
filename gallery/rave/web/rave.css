@@ -377,3 +377,6 @@
 }
 .ra-btn-go { background-color: #0d6efd; border: 1px solid #0d6efd; }
 .ra-btn-go .ra-btn-t { color: #ffffff; }
+/* A group caption between the kit's rows, so thirty entries read as six
+   lists rather than one. */
+.ra-group { font-size: 10px; font-weight: bold; height: 14px; color: #aab0bb; padding: 8px 7px 2px; }
