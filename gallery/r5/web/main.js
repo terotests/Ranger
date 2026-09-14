@@ -583,11 +583,13 @@ let touchScroll = null;
 canvas.addEventListener("pointerdown", (ev) => {
   const [x, y] = at(ev);
   const where = app.pointerDown(x, y, ev.shiftKey, 1);
-  if (where === "editor") {
+  if (where === "editor" || where === "minimap") {
     ev.preventDefault();
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
-    if (ev.pointerType === "touch") {
-      // A finger on the editor scrolls it; a mouse selects.
+    if (where === "editor" && ev.pointerType === "touch") {
+      // A finger on the text scrolls it; a mouse selects. The minimap is
+      // a map: the finger stays a pointer and names the place the view
+      // jumps to, rather than a flick that walks a line at a time.
       app.pointerUp();
       touchScroll = { y, acc: 0 };
     }
@@ -628,7 +630,7 @@ canvas.addEventListener("pointerleave", () => { app.clearHover(); });
 canvas.addEventListener("dblclick", (ev) => {
   const [x, y] = at(ev);
   const where = app.pointerDown(x, y, ev.shiftKey, 2);
-  if (where === "editor") {
+  if (where === "editor" || where === "minimap") {
     ev.preventDefault();
     focusKeys("editor");
   }
@@ -638,7 +640,7 @@ canvas.addEventListener("click", (ev) => {
   if (ev.detail < 3) return;
   const [x, y] = at(ev);
   const where = app.pointerDown(x, y, ev.shiftKey, 3);
-  if (where === "editor") {
+  if (where === "editor" || where === "minimap") {
     ev.preventDefault();
     focusKeys("editor");
   }
