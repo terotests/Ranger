@@ -744,6 +744,10 @@ function afterDeckInput() {
   keepKeyboard();
   if (app.syncDeckToMd()) needsPaint = true;
 }
+function afterDocInput() {
+  keepKeyboard();
+  if (app.syncDocToMd()) needsPaint = true;
+}
 function bindEditorHost(view) {
   if (view === boundView) return;
   if (editorHost) {
@@ -773,9 +777,9 @@ function bindEditorHost(view) {
   } else if (view === "doc") {
     const web = app.md.docHost();
     editorHost = [
-      attachDocPointer({ canvas: paneEl, web, sceneSize, draw: editorDraw, afterInput: keepKeyboard, keepsFocus: () => true }),
+      attachDocPointer({ canvas: paneEl, web, sceneSize, draw: editorDraw, afterInput: afterDocInput, keepsFocus: () => true }),
       attachDocKeys({
-        web, draw: editorDraw, afterInput: keepKeyboard, target: keys, enabled: enabled("doc"),
+        web, draw: editorDraw, afterInput: afterDocInput, target: keys, enabled: enabled("doc"),
         onCopy: (text) => navigator.clipboard?.writeText(text).catch(() => {}),
         onCut: (text) => navigator.clipboard?.writeText(text).catch(() => {}),
       }),
@@ -1003,6 +1007,17 @@ function selftest() {
       app.text("#");
       window.__redraw();
       check("a spaced Word paragraph keeps its spacing when the markdown changes", app.md.docModel.blockAt(0).paragraph.spaceAfterPt === 44 && app.md.docModel.blockAt(0).paragraph.text.includes("Retyped"));
+      app.md.docModel.blockAt(0).paragraph.text = "Retyped in Word";
+      check("a retyped Word heading writes back to the markdown", app.syncDocToMd() && app.md.sourceText().indexOf("Retyped in Word") >= 0);
+      window.__redraw();
+      check("…and Word keeps following the .md", !app.docInvasive() && app.md.docModel.blockAt(0).paragraph.text.includes("Retyped in Word"));
+      app.pointerDown(pane.editor ? 200 : 100, 120, false, 1);
+      const headingLine = app.editor.buf.lineAt(0);
+      app.editor.sel.setCaret(0, headingLine.length);
+      app.editor.sel.collapseToCaret();
+      app.text("!");
+      window.__redraw();
+      check("a markdown edit while on Word reaches the page", app.md.docModel.blockAt(0).paragraph.text.includes("Retyped in Word!"));
       const docPdf = app.md.docPdf();
       check("the Word pages come out as a PDF", String.fromCharCode(...new Uint8Array(docPdf).slice(0, 5)) === "%PDF-", `${docPdf.byteLength} bytes`);
       app.setScreen("preview");

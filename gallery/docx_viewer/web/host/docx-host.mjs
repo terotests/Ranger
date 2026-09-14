@@ -163,6 +163,13 @@ export function attachPointer({ canvas, web, sceneSize, draw, afterInput, keepsF
   canvas.addEventListener("pointermove", onMove);
   canvas.addEventListener("pointerup", onUp);
   canvas.addEventListener("pointercancel", onCancel);
+  const onDblClick = async (ev) => {
+    const { x, y } = coords(ev);
+    if (web.selectWordAt) web.selectWordAt(x, y);
+    settled();
+    await redraw();
+  };
+  canvas.addEventListener("dblclick", onDblClick);
 
   return {
     detach() {
@@ -171,6 +178,7 @@ export function attachPointer({ canvas, web, sceneSize, draw, afterInput, keepsF
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp);
       canvas.removeEventListener("pointercancel", onCancel);
+      canvas.removeEventListener("dblclick", onDblClick);
     },
     coords,
     get held() { return buttonDown; },

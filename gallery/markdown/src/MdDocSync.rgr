@@ -1,0 +1,104 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdDocSync.rgr — a heading retyped in Word, written back into the .md.
+; ============================================================================
+;
+; The slide exporter stamps a title with the source span of its inner text
+; (`MdDeckSync`). The Word exporter is a stream of paragraphs, and until this
+; file a heading retyped in the Word editor stayed on the page — document.md
+; never heard. The maps are the same ones: inner text after the hashes,
+; before a trailing `{.class}`.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdDeckSync.rgr"
+Import "../../docx_viewer/src/RichDocument.rgr"
+
+class MdDocSync {
+
+    sfn stamp:void (p:Paragraph node:MdNode) {
+        def a:int (MdDeckSync.innerFrom(node))
+        def b:int (MdDeckSync.innerTo(node))
+        if (a < 0) { return }
+        if (b < a) { return }
+        p.mdSrcStart = a
+        p.mdSrcEnd = b
+        p.mdLastText = (node.plainText())
+    }
+
+    sfn collect:void (doc:RichDocument starts:[int] ends:[int] texts:[string] paras:[Paragraph]) {
+        def n:int (doc.blockCount())
+        def i:int 0
+        while (i < n) {
+            def b:DocBlock (doc.blockAt(i))
+            if (b.kind == (DocBlockKind.para())) {
+                MdDocSync.collectPara(b.paragraph starts ends texts paras)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn collectPara:void (p:Paragraph starts:[int] ends:[int] texts:[string] paras:[Paragraph]) {
+        if (p.mdSrcStart < 0) { return }
+        def now:string (p.plainText())
+        if (now == p.mdLastText) { return }
+        push starts p.mdSrcStart
+        push ends p.mdSrcEnd
+        push texts now
+        push paras p
+    }
+
+    sfn sortDesc:void (starts:[int] ends:[int] texts:[string] paras:[Paragraph]) {
+        def n:int (array_length starts)
+        def i:int 0
+        while (i < n) {
+            def j:int (i + 1)
+            while (j < n) {
+                if ((itemAt starts j) > (itemAt starts i)) {
+                    def ts:int (itemAt starts i)
+                    set_at starts i (itemAt starts j)
+                    set_at starts j ts
+                    def te:int (itemAt ends i)
+                    set_at ends i (itemAt ends j)
+                    set_at ends j te
+                    def tt:string (itemAt texts i)
+                    set_at texts i (itemAt texts j)
+                    set_at texts j tt
+                    def tp:Paragraph (itemAt paras i)
+                    set_at paras i (itemAt paras j)
+                    set_at paras j tp
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn commit:void (p:Paragraph from:int text:string) {
+        p.mdSrcStart = from
+        p.mdSrcEnd = (from + (strlen text))
+        p.mdLastText = text
+    }
+
+    sfn shiftAfter:void (doc:RichDocument oldEnd:int delta:int keepStart:int) {
+        if (delta == 0) { return }
+        def n:int (doc.blockCount())
+        def i:int 0
+        while (i < n) {
+            def b:DocBlock (doc.blockAt(i))
+            if (b.kind == (DocBlockKind.para())) {
+                def p:Paragraph b.paragraph
+                if (p.mdSrcStart >= 0) {
+                    if (p.mdSrcStart != keepStart) {
+                        if (p.mdSrcStart >= oldEnd) {
+                            p.mdSrcStart = (p.mdSrcStart + delta)
+                            p.mdSrcEnd = (p.mdSrcEnd + delta)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+}

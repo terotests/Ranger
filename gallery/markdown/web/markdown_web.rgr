@@ -56,6 +56,7 @@ Import "../src/MdToDocx.rgr"
 Import "../src/MdCssEdit.rgr"
 Import "../src/MdToPptx.rgr"
 Import "../src/MdDeckSync.rgr"
+Import "../src/MdDocSync.rgr"
 Import "../../pptx/src/PptxModel.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
@@ -1407,6 +1408,7 @@ class MarkdownWeb {
         if (this.showsDoc()) {
             docWeb.typeText(v)
             built = false
+            this.syncDocTextToMd()
             return
         }
         if (this.showsDeck()) {
@@ -1449,6 +1451,7 @@ class MarkdownWeb {
         if (this.showsDoc()) {
             def tookDoc:boolean (docWeb.frameKey(name shift ctrl))
             built = false
+            this.syncDocTextToMd()
             return tookDoc
         }
         if (this.showsDeck()) {
@@ -1652,7 +1655,9 @@ class MarkdownWeb {
     fn cutSelection:string () {
         if (this.showsDoc()) {
             built = false
-            return (docWeb.cutSelection())
+            def cut:string (docWeb.cutSelection())
+            this.syncDocTextToMd()
+            return cut
         }
         if (this.showsDeck()) { return "" }
         def v:string (edit.selectedText())
@@ -1674,7 +1679,9 @@ class MarkdownWeb {
         this.sync()
         if (this.showsDoc()) {
             built = false
-            return (docWeb.paste(html text))
+            def pasted:boolean (docWeb.paste(html text))
+            this.syncDocTextToMd()
+            return pasted
         }
         if (this.showsDeck()) { return false }
         return (edit.pasteRich(html text))
@@ -1832,6 +1839,39 @@ class MarkdownWeb {
             i = (i + 1)
         }
         deckFrom = edit.source
+        return true
+    }
+
+    ; A heading (or paragraph) retyped in Word, written into the .md the same
+    ; way a slide title is. Presentation edits — spacing, a colour — stay on
+    ; the page and do not come through here.
+    fn syncDocTextToMd:boolean () {
+        if (! docOn) { return false }
+        def starts:[int]
+        def ends:[int]
+        def texts:[string]
+        def paras:[Paragraph]
+        MdDocSync.collect(docModel starts ends texts paras)
+        if ((array_length starts) == 0) { return false }
+        MdDocSync.sortDesc(starts ends texts paras)
+        def i:int 0
+        while (i < (array_length starts)) {
+            def from:int (itemAt starts i)
+            def to:int (itemAt ends i)
+            def text:string (itemAt texts i)
+            def p:Paragraph (itemAt paras i)
+            if ((strlen text) == 0) {
+                this.setSelection(from to)
+                edit.deleteSelection()
+            } {
+                this.applyPatch(from to text)
+            }
+            MdDocSync.commit(p from text)
+            def delta:int ((strlen text) - (to - from))
+            MdDocSync.shiftAfter(docModel to delta from)
+            i = (i + 1)
+        }
+        docFrom = edit.source
         return true
     }
 

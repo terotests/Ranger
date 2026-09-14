@@ -18,6 +18,7 @@
 
 Import "../src/MdBlock.rgr"
 Import "../src/MdToDocx.rgr"
+Import "../src/MdDocSync.rgr"
 Import "../../docx_viewer/src/DocxView.rgr"
 Import "../src/MdDiagram.rgr"
 Import "../../docx_viewer/src/DocxA11y.rgr"
@@ -93,6 +94,7 @@ class MdDocxTest {
         this.drawn(c)
         this.drawings(c)
         this.pictures(c)
+        this.headingWriteback(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
@@ -128,6 +130,34 @@ class MdDocxTest {
             i = (i + 1)
         }
         c.ok("and every paragraph has an id the editor can name it by" ids)
+    }
+
+    ; A title retyped in Word is a patch on the heading, not a second document.
+    fn headingWriteback:void (c:DocCheck) {
+        print "-- a heading retyped in Word writes back to the .md --"
+        def src:string "# Hello there {.lead}\n\nA line.\n"
+        def d:RichDocument (this.make(src))
+        def h:Paragraph (itemAt d.paragraphs 0)
+        c.ok("the heading is stamped" (h.mdSrcStart >= 0))
+        c.eqStr("the stamp is the visible heading" h.mdLastText "Hello there")
+        def inner:string (substring src h.mdSrcStart h.mdSrcEnd)
+        c.eqStr("the inner span is the heading words" inner "Hello there")
+        h.text = "New title"
+        def starts:[int]
+        def ends:[int]
+        def texts:[string]
+        def paras:[Paragraph]
+        MdDocSync.collect(d starts ends texts paras)
+        c.eqInt("one heading changed" (array_length starts) 1)
+        def from:int (itemAt starts 0)
+        def to:int (itemAt ends 0)
+        def text:string (itemAt texts 0)
+        def next:string ((substring src 0 from) + text)
+        next = (next + (substring src to (strlen src)))
+        c.ok("the markdown has the new title" (MdDocxTest.hasSub(next "New title")))
+        c.ok("the hashes stayed" (MdDocxTest.hasSub(next "# New title")))
+        c.ok("the class stayed" (MdDocxTest.hasSub(next "{.lead}")))
+        c.ok("the body stayed" (MdDocxTest.hasSub(next "A line.")))
     }
 
     ; ----------------------------------------------------------------------

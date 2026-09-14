@@ -580,10 +580,13 @@ class R5App {
         editor.layout.preferCol = posCol
         editor.layout.ensureCaretVisible(editor.buf editor.sel)
         bufSynced = editor.buf.version
-        ; A patch that came FROM the slides must not rebuild them: the deck
-        ; already holds the new heading, and rebuilding would drop the caret.
-        if ((this.paneView() == "deck") && (focus == "preview")) {
-            return
+        ; A patch that came FROM the slides or the Word page must not rebuild
+        ; them: the view already holds the new heading, and rebuilding would
+        ; drop the caret.
+        if (focus == "preview") {
+            if ((this.paneView() == "deck") || (this.paneView() == "doc")) {
+                return
+            }
         }
         this.followSource(false)
     }
@@ -831,6 +834,31 @@ class R5App {
                 flat = (flat + 1)
                 j = (j + 1)
             }
+            i = (i + 1)
+        }
+    }
+
+    ; A heading retyped in Word, written into document.md.
+    fn syncDocToMd:boolean () {
+        def ok:boolean (md.syncDocTextToMd())
+        if (! ok) { return false }
+        this.refreshDocBaseKeys()
+        this.syncMdToEditor()
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The markdown now says what the Word page says, so a retype is not an
+    ; invasive edit. Keys in the base follow; signatures (spacing, colour)
+    ; stay.
+    fn refreshDocBaseKeys:void () {
+        if (! docBase.taken) { return }
+        if (! (md.docOn)) { return }
+        def n:int (md.docModel.blockCount())
+        if (n != (array_length docBase.keys)) { return }
+        def i:int 0
+        while (i < n) {
+            docBase.setKeyAt(i (R5Merge.blockKey((md.docModel.blockAt(i)))))
             i = (i + 1)
         }
     }
@@ -1459,6 +1487,7 @@ class R5App {
         if (focus == "preview") {
             def took:boolean (md.key(name shift ctrl))
             this.syncDeckToMd()
+            this.syncDocToMd()
             this.syncMdToEditor()
             chromeRev = (chromeRev + 1)
             return took
@@ -1494,6 +1523,7 @@ class R5App {
         if (focus == "preview") {
             md.typeText(s)
             this.syncDeckToMd()
+            this.syncDocToMd()
             this.syncMdToEditor()
             chromeRev = (chromeRev + 1)
             return
