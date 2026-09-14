@@ -1,0 +1,167 @@
+<app name="Huuhkajat" targets="web tablet mobile" nav="topbar"/>
+<breakpoint name="sm" min="0"/>
+<breakpoint name="md" min="768"/>
+<breakpoint name="lg" min="1024"/>
+<var name="bg" value="#f3efe4"/>
+<var name="panel" value="#fffdf6"/>
+<var name="ink" value="#122018"/>
+<var name="muted" value="#3d4f46"/>
+<var name="pitch" value="#145c38"/>
+<var name="pitch-ink" value="#f3efe4"/>
+<var name="line" value="#d8d0c0"/>
+<var name="gold" value="#c4a035"/>
+<style class="brand">font-weight: 700; font-size: 18px; letter-spacing: 0.08em; color: var(--pitch-ink)</style>
+<style class="navlink">padding: 8px 12px; border-radius: 6px; color: var(--pitch-ink); cursor: pointer; font-size: 14px</style>
+<style class="title">font-size: 32px; font-weight: 700; color: var(--ink)</style>
+<style class="subtitle">font-size: 16px; font-weight: 600; color: var(--ink)</style>
+<style class="muted">color: var(--muted)</style>
+<style class="eyebrow">font-size: 12px; font-weight: 600; letter-spacing: 0.14em; color: var(--gold)</style>
+<style class="hero">background-color: var(--pitch); color: var(--pitch-ink); padding: 28px; border-radius: 12px; gap: 8px</style>
+<style class="hero-title">font-size: 32px; font-weight: 700; color: var(--pitch-ink)</style>
+<style class="hero-copy">color: var(--pitch-ink); font-size: 15px</style>
+<style class="stat">background-color: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; gap: 4px</style>
+<style class="stat-n">font-size: 28px; font-weight: 700; color: var(--pitch)</style>
+<style class="pcard">flex-direction: row; align-items: center; gap: 16px; padding: 12px 16px; background-color: var(--panel); border: 1px solid var(--line); border-radius: 12px; cursor: pointer</style>
+<style class="shirt">width: 48px; height: 48px; border-radius: 8px; background-color: var(--pitch); color: var(--pitch-ink); align-items: center; justify-content: center; font-size: 20px; font-weight: 700</style>
+<style class="shirt-lg">width: 96px; height: 96px; border-radius: 12px; background-color: var(--pitch); color: var(--pitch-ink); align-items: center; justify-content: center; font-size: 36px; font-weight: 700</style>
+<style class="back">width: fit-content; color: var(--pitch); cursor: pointer; font-weight: 600</style>
+
+<collection name="players" fields="id name number position club caps goals age bio">
+  <row id="1" name="Lukas Hradecky" number="1" position="Maalivahti" club="Bayer Leverkusen" caps="94" goals="0" age="35" bio="Huuhkajien kapteeni. Seisoo linjalla rauhallisena ja puhuu puolustuksen kasaan."/>
+  <row id="2" name="Nikolai Alho" number="17" position="Puolustaja" club="Asteras Tripolis" caps="42" goals="2" age="32" bio="Oikea laitapuolustaja, joka nousee mukaan hyökkäyksiin eikä säästele metrejä."/>
+  <row id="3" name="Robert Ivanov" number="4" position="Puolustaja" club="Eintracht Braunschweig" caps="38" goals="1" age="31" bio="Keskuspuolustaja. Voittaa ilmapallot ja antaa ensimmäisen syötön eteenpäin."/>
+  <row id="4" name="Glen Kamara" number="6" position="Keskikenttä" club="Al-Shabab" caps="64" goals="2" age="29" bio="Pelintekijä keskellä. Pitää pallon, katkaisee syötöt ja avaa pelin yhdellä kosketuksella."/>
+  <row id="5" name="Kaan Kairinen" number="14" position="Keskikenttä" club="Sparta Praha" caps="21" goals="1" age="26" bio="Syöttösuunta eteen. Pitää tempon ja hakee tilan kymmenen ja kuuden välistä."/>
+  <row id="6" name="Teemu Pukki" number="10" position="Hyökkääjä" club="HJK" caps="121" goals="42" age="35" bio="Maajoukkueen maalintekijä. Liikkuu selän taakse ja viimeistelee ensimmäisellä kosketuksella."/>
+  <row id="7" name="Joel Pohjanpalo" number="20" position="Hyökkääjä" club="Venezia" caps="78" goals="17" age="31" bio="Kärki joka voittaa kaksinkamppailut. Pukin rinnalla tai yksin keulassa."/>
+  <row id="8" name="Oliver Antman" number="7" position="Hyökkääjä" club="Go Ahead Eagles" caps="18" goals="6" age="24" bio="Laita joka vie pallon linjan taa. Nuorin tässä kokoonpanossa, ja näkyy."/>
+</collection>
+
+<layout name="Shell" style="width: 100%; height: 100%; background-color: var(--bg); color: var(--ink); font-size: 14px">
+  <header name="Header" label="Ylätunniste" style="flex-direction: row; align-items: center; justify-content: space-between; height: 64px; padding: 0 24px; background-color: var(--pitch)">
+    <span class="brand">HUUHKAJAT</span>
+    <nav name="Main navigation" label="Päävalikko" style="flex-direction: row; gap: 4px">
+      <a class="navlink">Joukkue
+        <on click="navigate" arg="/"/>
+      </a>
+      <a class="navlink">Pelaajat
+        <on click="navigate" arg="/pelaajat"/>
+      </a>
+    </nav>
+  </header>
+  <main name="Main" label="Sisältö" style="padding: 24px; gap: 24px; flex-grow: 1; min-height: 0">
+    <media below="md" style="padding: 16px; gap: 16px"/>
+    <slot/>
+  </main>
+</layout>
+
+<page name="Joukkue" style="gap: 24px">
+  <media below="md" style="gap: 12px"/>
+  <section class="hero" name="Hero" label="Johdanto">
+    <media below="md" style="padding: 20px; gap: 4px"/>
+    <p class="eyebrow">SUOMEN A-MAAJOUKKUE</p>
+    <h1 class="hero-title">Huuhkajat</h1>
+    <p class="hero-copy">Kahdeksan nimeä avaukseen. Avaa pelaaja, niin näet ottelut ja maalit.</p>
+  </section>
+  <div name="Luvut" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px">
+    <media below="md" style="grid-template-columns: repeat(3, 1fr); gap: 8px"/>
+    <section class="stat" label="Otteluita yhdessä">
+      <media below="md" style="padding: 12px"/>
+      <p class="muted">Ottelut</p>
+      <p class="stat-n">476</p>
+    </section>
+    <section class="stat" label="Maaleja">
+      <media below="md" style="padding: 12px"/>
+      <p class="muted">Maaleja</p>
+      <p class="stat-n">71</p>
+    </section>
+    <section class="stat" label="Seuroja">
+      <media below="md" style="padding: 12px"/>
+      <p class="muted">Seuroja</p>
+      <p class="stat-n">8</p>
+    </section>
+  </div>
+  <h2 class="subtitle">Avauskokoonpano</h2>
+  <div name="Nostot" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px">
+    <media below="md" style="grid-template-columns: 1fr"/>
+    <a class="pcard" name="Pukki" label="Teemu Pukki">
+      <media from="md" style="flex-direction: column; align-items: flex-start; padding: 20px"/>
+      <div class="shirt" name="Numero">10</div>
+      <div name="Tiedot" style="gap: 4px; min-width: 0; flex-grow: 1">
+        <h3 class="subtitle">Teemu Pukki</h3>
+        <p class="muted">Hyökkääjä · HJK</p>
+      </div>
+      <on click="navigate" arg="/pelaajat/6"/>
+    </a>
+    <a class="pcard" name="Hradecky" label="Lukas Hradecky">
+      <media from="md" style="flex-direction: column; align-items: flex-start; padding: 20px"/>
+      <div class="shirt" name="Numero">1</div>
+      <div name="Tiedot" style="gap: 4px; min-width: 0; flex-grow: 1">
+        <h3 class="subtitle">Lukas Hradecky</h3>
+        <p class="muted">Maalivahti · Bayer Leverkusen</p>
+      </div>
+      <on click="navigate" arg="/pelaajat/1"/>
+    </a>
+    <a class="pcard" name="Kamara" label="Glen Kamara">
+      <media from="md" style="flex-direction: column; align-items: flex-start; padding: 20px"/>
+      <div class="shirt" name="Numero">6</div>
+      <div name="Tiedot" style="gap: 4px; min-width: 0; flex-grow: 1">
+        <h3 class="subtitle">Glen Kamara</h3>
+        <p class="muted">Keskikenttä · Al-Shabab</p>
+      </div>
+      <on click="navigate" arg="/pelaajat/4"/>
+    </a>
+  </div>
+</page>
+
+<page name="Pelaajat" style="gap: 16px">
+  <h1 class="title">Pelaajat</h1>
+  <p class="muted">Koko avaus. Numero, paikka, seura.</p>
+  <div name="Lista" repeat="players" style="display: grid; grid-template-columns: 1fr; gap: 8px">
+    <media from="md" style="grid-template-columns: repeat(2, 1fr); gap: 12px"/>
+    <media from="lg" style="grid-template-columns: repeat(4, 1fr)"/>
+    <a class="pcard" label="{name}">
+      <media from="md" style="flex-direction: column; align-items: flex-start; padding: 20px"/>
+      <div class="shirt">{number}</div>
+      <div name="Tiedot" style="gap: 4px; min-width: 0; flex-grow: 1">
+        <h2 class="subtitle">{name}</h2>
+        <p class="muted">{position} · {club}</p>
+      </div>
+      <on click="navigate" arg="/pelaajat/{id}"/>
+    </a>
+  </div>
+</page>
+
+<page name="Pelaaja" source="players" sourceKey="id" style="gap: 24px">
+  <a class="back">← Kaikki pelaajat
+    <on click="navigate" arg="/pelaajat"/>
+  </a>
+  <div name="Kärki" style="flex-direction: row; align-items: center; gap: 20px">
+    <media below="md" style="flex-direction: column; align-items: flex-start"/>
+    <div class="shirt-lg">{number}</div>
+    <div name="Nimi" style="flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; flex-grow: 1">
+      <h1 class="title">{name}</h1>
+      <p class="muted">{position} · {club}</p>
+    </div>
+  </div>
+  <div name="Tilastot" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px">
+    <media below="md" style="grid-template-columns: 1fr"/>
+    <section class="stat" label="Ottelut">
+      <p class="muted">Ottelut</p>
+      <p class="stat-n">{caps}</p>
+    </section>
+    <section class="stat" label="Maalit">
+      <p class="muted">Maalit</p>
+      <p class="stat-n">{goals}</p>
+    </section>
+    <section class="stat" label="Ikä">
+      <p class="muted">Ikä</p>
+      <p class="stat-n">{age}</p>
+    </section>
+  </div>
+  <p style="line-height: 1.5">{bio}</p>
+</page>
+
+<route path="/" title="Joukkue" page="Joukkue" layout="Shell"/>
+<route path="/pelaajat" title="Pelaajat" page="Pelaajat" layout="Shell"/>
+<route path="/pelaajat/:id" title="Pelaaja" page="Pelaaja" layout="Shell"/>

@@ -30,6 +30,14 @@ npm run rave:web           # build and serve on http://127.0.0.1:8012/
 
 Deployed at `/rave/`. **License:** AGPL-3.0-or-later (Gallery).
 
+A document that is an application, not the editor: `examples/huuhkajat.rave` —
+Huuhkajien pelaajasivu, `rave check` / `rave shot` without a browser.
+
+```bash
+npm run rave -- check gallery/rave/examples/huuhkajat.rave
+npm run rave -- shot gallery/rave/examples/huuhkajat.rave --route /pelaajat --width 1440
+```
+
 ## What is where
 
 | Path | What it is |
