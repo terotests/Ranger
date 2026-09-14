@@ -1,0 +1,523 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EvgToScene — an EVG document, read as a scene
+; ==============================================================================
+;
+; `SceneToEVG` turns a Figma scene into boxes an EVG renderer can draw. This is
+; the other way, and it is not its inverse: EVG is a LAYOUT engine and a scene
+; is a set of PLACED things, so what comes back is the document as it was laid
+; out, with its flow, flex and grid already resolved into positions.
+;
+; That is the honest description and it is also the useful one. A Figma file has
+; no notion of "this row follows that one"; every node sits at a point. So the
+; conversion runs layout first and reads the boxes it produced, which is exactly
+; what a design tool wants and exactly what cannot be undone afterwards.
+;
+; --- WHAT SURVIVES ------------------------------------------------------------
+;
+;   position and size     from the laid-out box, absolute within the page
+;   fills and strokes     background-color, border-color and width
+;   corner radius         uniform and per-corner
+;   opacity, visibility
+;   text                  characters, family, size, alignment, colour
+;
+; --- WHAT DOES NOT ------------------------------------------------------------
+;
+;   the layout itself     flex, grid and flow become coordinates
+;   path geometry         reported, and the box is written in its place
+;   images                reported; the bytes are not carried into the archive
+;
+; Anything reported lands in `losses`, and the caller prints it rather than
+; letting a file look complete when it is not.
+; ==============================================================================
+
+Import "../scene/SceneNode.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGLayout.rgr"
+Import "../../../evg/EVGColor.rgr"
+Import "FigPathWrite.rgr"
+Import "../../../evg/SvgParser.rgr"
+Import "../../../evg/PathBuilder.rgr"
+
+class EvgToScene {
+    def losses:[string]
+    def nextId:int 1
+    ; The page the document is laid out on, when the caller knows it and the
+    ; document does not. A UI says it is `100%` of a window nobody wrote down,
+    ; and measured against the fallback it comes out at the fallback's shape:
+    ; a phone screen stretched across twelve hundred points.
+    def pageW:double 0.0
+    def pageH:double 0.0
+
+    Constructor () {
+        def a:[string]
+        losses = a
+    }
+
+    ; Lay the document out, then read what layout decided.
+    ;
+    ; The page size comes from the document when it states one, because a
+    ; document that says it is 600x400 and is measured against something else
+    ; produces a scene whose boxes are answers to the wrong question.
+    fn build:SceneNode (root:EVGElement) {
+        def w:double (EvgToScene.sizeOf(root true 1200.0))
+        def h:double (EvgToScene.sizeOf(root false 900.0))
+        if (pageW > 0.0) {
+            w = pageW
+        }
+        if (pageH > 0.0) {
+            h = pageH
+        }
+        def l (new EVGLayout())
+        l.setPageSize(w h)
+        l.layout(root)
+        def out:SceneNode (this.emit(root "0" 0.0 0.0))
+        out.name = "Document"
+        return out
+    } doc {
+        description "Converts a laid-out EVG tree into a scene of placed nodes."
+        param root "The document."
+        returns "The scene root; anything that could not be carried is in `losses`."
+    }
+
+    ; EVG boxes are absolute already — `calculatedX` is page space, not parent
+    ; space — while a scene node's transform is relative to its parent. So the
+    ; parent's origin is subtracted on the way down rather than accumulated.
+    fn emit:SceneNode (el:EVGElement path:string parentX:double parentY:double) {
+        def n (new SceneNode())
+        n.id = ("evg:" + path)
+        n.name = (EvgToScene.nameOf(el path))
+        n.x = (el.calculatedX - parentX)
+        n.y = (el.calculatedY - parentY)
+        n.w = el.calculatedWidth
+        n.h = el.calculatedHeight
+        n.opacity = el.opacity
+        n.clip = (el.overflow == "hidden")
+
+        ; A LABEL WITH A BACKGROUND IS TWO NODES. A Figma text node's fills are
+        ; the glyphs' colour and nothing else, so an element that carries both
+        ; a string and a background — a tag pill, a badge, a chip — cannot be
+        ; one node: written as text it keeps the letters and loses the pill,
+        ; which is what the first UI exported through here did to every tag on
+        ; the page. The box becomes the frame and the string becomes its child.
+        def boxedText:boolean false
+        if ((strlen el.textContent) > 0) {
+            if (EvgToScene.paintsBox(el)) {
+                boxedText = true
+            }
+        }
+        if boxedText {
+            n.kind = "container"
+            n.sourceType = "FRAME"
+        } {
+        if ((strlen el.textContent) > 0) {
+            n.kind = "text"
+            n.sourceType = "TEXT"
+            this.putText(n el)
+        } {
+            if ((strlen el.svgPath) > 0) {
+                n.kind = "path"
+                n.sourceType = "VECTOR"
+                n.pathW = el.calculatedWidth
+                n.pathH = el.calculatedHeight
+                if ((FigPathWrite.spaceMatches(el.viewBox el.calculatedWidth el.calculatedHeight)) == false) {
+                    push losses ((((path + ": the outline's viewBox `") + el.viewBox) + "` is not the node's ") + ((to_string (to_int el.calculatedWidth)) + "x" + (to_string (to_int el.calculatedHeight)) + " box, so the shape is written at the wrong scale"))
+                }
+                n.pathData = el.svgPath
+                ; No loss reported here. The outline is carried in `pathData`
+                ; and `SceneToFig` encodes it as a geometry blob; it reports
+                ; only when the path parses to no commands. An unconditional
+                ; complaint here was the same mistake the converter made
+                ; earlier — a warning that stays after the thing it warned
+                ; about was fixed teaches people to ignore the next real one.
+            } {
+                if ((strlen el.src) > 0) {
+                    n.kind = "image"
+                    n.sourceType = "RECTANGLE"
+                    n.imageRef = el.src
+                    push losses ((path + ": the image `") + (el.src + "` is named but its bytes are not carried into the archive"))
+                } {
+                    n.kind = "container"
+                    n.sourceType = (EvgToScene.shapeOf(el))
+                }
+            }
+        }
+        }
+
+        this.putFill(n el)
+        this.putStroke(n el)
+        this.putRadius(n el)
+
+        ; …and then the string, inside the box that paints it.
+        if boxedText {
+            def tn (new SceneNode())
+            tn.id = ("evg:" + path + "/text")
+            tn.name = (EvgToScene.nameOf(el path))
+            tn.kind = "text"
+            tn.sourceType = "TEXT"
+            tn.x = 0.0
+            tn.y = 0.0
+            tn.w = el.calculatedWidth
+            tn.h = el.calculatedHeight
+            this.putText(tn el)
+            push n.children tn
+        }
+
+        ; AN EMBEDDED SVG IS A PICTURE, and it was silently not one: an element
+        ; whose graphic is an `svg` document — every icon in a UI — came out as
+        ; an empty box while the conversion reported nothing wrong. Each shape
+        ; in it becomes a vector child, scaled from the document's own viewBox
+        ; into the box the layout gave it.
+        if ((strlen el.svgSource) > 0) {
+            this.putSvg(n el path)
+            ; A RECTANGLE IS A LEAF. The element had no children of its own
+            ; when its Figma type was decided, so it was written as the shape
+            ; it is — and then the icon's outlines were hung off it, which is
+            ; a node Figma cannot build: the box drew and the shapes inside it
+            ; did not. Anything holding children is a frame.
+            if ((array_length n.children) > 0) {
+                n.kind = "container"
+                n.sourceType = "FRAME"
+            }
+        }
+
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children i)
+            ; `display: none` IS NOT A LAYER. A hidden subtree lays out as
+            ; nothing — zero boxes all the way down — and written out it fills
+            ; the file with empty frames a reader has to click past: a phone
+            ; UI with its desktop rail hidden carried sixty-four of them.
+            if (kid.display == "none") {
+                i = (i + 1)
+            } {
+            def seg:string (to_string i)
+            if ((strlen kid.key) > 0) {
+                seg = ("k:" + kid.key)
+            }
+            def kn:SceneNode (this.emit(kid ((path + "/") + seg) el.calculatedX el.calculatedY))
+            push n.children kn
+            i = (i + 1)
+            }
+        }
+        return n
+    }
+
+    ; EVG keeps a channel as 0..255 and a scene keeps it as 0..1 — `SceneFill`
+    ; multiplies by 255 to make a hex string, which is the tell. Passing the
+    ; numbers straight through wrote `r: 16` where Figma expected `r: 0.0627`,
+    ; and every channel clamped to full: a file whose structure inspected
+    ; perfectly and rendered as a blank page. Alpha is 0..1 on both sides.
+    sfn channel:double (v:double) {
+        return (v / 255.0)
+    }
+
+    ; A box is painted by `background-color`; a PATH is painted by `fill`, and
+    ; a stroked path by `stroke` / `stroke-width` rather than by a border.
+    ; Reading the box's field for a path wrote a VECTOR with geometry and no
+    ; paint — which is a shape that is there and draws nothing, and looks
+    ; exactly like geometry that failed to write.
+    fn putFill:void (n:SceneNode el:EVGElement) {
+        def c@(optional):EVGColor el.backgroundColor
+        if (n.kind == "path") {
+            c = el.fillColor
+        }
+        if (null? c) {
+            return
+        }
+        def cc:EVGColor (unwrap c)
+        if (cc.isSet == false) {
+            return
+        }
+        def f (new SceneFill())
+        f.kind = "solid"
+        f.r = (EvgToScene.channel(cc.r))
+        f.g = (EvgToScene.channel(cc.g))
+        f.b = (EvgToScene.channel(cc.b))
+        f.a = cc.a
+        push n.fills f
+    }
+
+    fn putStroke:void (n:SceneNode el:EVGElement) {
+        def bx:EVGBox el.box
+        def weight:double bx.borderWidthPx
+        def c@(optional):EVGColor bx.borderColor
+        if (n.kind == "path") {
+            weight = el.strokeWidth
+            c = el.strokeColor
+        }
+        if (weight <= 0.0) {
+            return
+        }
+        if (null? c) {
+            return
+        }
+        def cc:EVGColor (unwrap c)
+        if (cc.isSet == false) {
+            return
+        }
+        def s (new SceneStroke())
+        s.r = (EvgToScene.channel(cc.r))
+        s.g = (EvgToScene.channel(cc.g))
+        s.b = (EvgToScene.channel(cc.b))
+        s.a = cc.a
+        s.weight = weight
+        push n.strokes s
+    }
+
+    fn putRadius:void (n:SceneNode el:EVGElement) {
+        def bx:EVGBox el.box
+        if (bx.borderRadiusPx <= 0.0) {
+            return
+        }
+        n.radius.setAll(bx.borderRadiusPx)
+    }
+
+    fn putText:void (n:SceneNode el:EVGElement) {
+        def t:SceneText n.text
+        t.characters = el.textContent
+        t.fontFamily = el.fontFamily
+        def fs@(optional):EVGUnit el.fontSize
+        if ((null? fs) == false) {
+            def u:EVGUnit (unwrap fs)
+            if u.isSet {
+                t.fontSize = u.pixels
+            }
+        }
+        t.align = el.textAlign
+        ; ONE LINE, AND SIZED BY ITS OWN STRING. EVG has just laid this out, so
+        ; the answer is known rather than guessed: a box one line tall holds a
+        ; label, and a label written into a fixed box is re-broken by whoever
+        ; opens the file — against a face that is never quite the one the
+        ; layout measured. Anything taller keeps its box, because its line
+        ; breaks are part of what the document says.
+        def lines:double 1.25
+        if (el.lineHeight > 0.0) {
+            lines = el.lineHeight
+        }
+        ; Measured against TWO lines rather than against one: a label's box is
+        ; its line box plus whatever padding the style gave it, so "one line"
+        ; is "not tall enough to be two" and not "exactly one line tall".
+        def oneLine:double (t.fontSize * lines)
+        if (el.calculatedHeight < (oneLine * 1.8)) {
+            t.autoResize = "both"
+        }
+        if (el.lineHeight > 0.0) {
+            t.lineHeight = (el.lineHeight * t.fontSize)
+        }
+        def c@(optional):EVGColor el.color
+        if (null? c) {
+            return
+        }
+        def cc:EVGColor (unwrap c)
+        if (cc.isSet == false) {
+            return
+        }
+        def f (new SceneFill())
+        f.kind = "solid"
+        f.r = (EvgToScene.channel(cc.r))
+        f.g = (EvgToScene.channel(cc.g))
+        f.b = (EvgToScene.channel(cc.b))
+        f.a = cc.a
+        push n.fills f
+    }
+
+    ; Does this element paint a box of its own, as opposed to only writing on
+    ; the page? Background or border — either one needs a frame under the text.
+    sfn paintsBox:boolean (el:EVGElement) {
+        def bg@(optional):EVGColor el.backgroundColor
+        if ((null? bg) == false) {
+            def bc:EVGColor (unwrap bg)
+            if bc.isSet {
+                return true
+            }
+        }
+        def bx:EVGBox el.box
+        if (bx.borderWidthPx > 0.0) {
+            def bo@(optional):EVGColor bx.borderColor
+            if ((null? bo) == false) {
+                def oc:EVGColor (unwrap bo)
+                if oc.isSet {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    ; Every shape of an embedded SVG document, as vector children of the box it
+    ; was given. The document is parsed by the SAME reader the painters use, so
+    ; an icon that draws on a page draws in the file — rather than by a second
+    ; parser that would agree with the first one only most of the time.
+    ;
+    ; The shapes are in the document's own coordinates, so they are scaled from
+    ; its viewBox into the element's box the way a browser does it: one factor
+    ; for both axes, centred in whichever direction has room left over.
+    fn putSvg:void (n:SceneNode el:EVGElement path:string) {
+        def sp (new SvgParser())
+        def doc:SvgDocument (sp.parse(el.svgSource))
+        if (doc.hasErrors()) {
+            push losses ((path + ": the embedded SVG did not parse — ") + (doc.errorSummary()))
+            return
+        }
+        def count:int (array_length doc.items)
+        if (count == 0) {
+            push losses (path + ": the embedded SVG has no shapes in it")
+            return
+        }
+        def vw:double doc.viewBox.width
+        def vh:double doc.viewBox.height
+        if (vw <= 0.0) {
+            vw = doc.width
+        }
+        if (vh <= 0.0) {
+            vh = doc.height
+        }
+        if (vw <= 0.0) {
+            vw = el.calculatedWidth
+        }
+        if (vh <= 0.0) {
+            vh = el.calculatedHeight
+        }
+        if (vw <= 0.0) {
+            return
+        }
+        if (vh <= 0.0) {
+            return
+        }
+        def sx:double (el.calculatedWidth / vw)
+        def sy:double (el.calculatedHeight / vh)
+        def sc:double sx
+        if (sy < sc) {
+            sc = sy
+        }
+        def offX:double (((el.calculatedWidth - (vw * sc)) * 0.5) - (doc.viewBox.minX * sc))
+        def offY:double (((el.calculatedHeight - (vh * sc)) * 0.5) - (doc.viewBox.minY * sc))
+
+        def i:int 0
+        while (i < count) {
+            def item:SvgVectorItem (itemAt doc.items i)
+            def pb (new PathBuilder())
+            def ci:int 0
+            while (ci < (array_length item.commands)) {
+                def c:PathCommand (itemAt item.commands ci)
+                if (c.type == "M") {
+                    pb.moveTo(((c.x * sc) + offX) ((c.y * sc) + offY))
+                }
+                if (c.type == "L") {
+                    pb.lineTo(((c.x * sc) + offX) ((c.y * sc) + offY))
+                }
+                if (c.type == "C") {
+                    pb.cubicTo(((c.x1 * sc) + offX) ((c.y1 * sc) + offY) ((c.x2 * sc) + offX) ((c.y2 * sc) + offY) ((c.x * sc) + offX) ((c.y * sc) + offY))
+                }
+                if (c.type == "Q") {
+                    pb.quadTo(((c.x1 * sc) + offX) ((c.y1 * sc) + offY) ((c.x * sc) + offX) ((c.y * sc) + offY))
+                }
+                ; An arc is written as a line to its end point rather than
+                ; dropped: the reader flattens arcs for the painters too, and a
+                ; missing segment leaves an open contour that fills wrongly.
+                if (c.type == "A") {
+                    pb.lineTo(((c.x * sc) + offX) ((c.y * sc) + offY))
+                }
+                if (c.type == "Z") {
+                    pb.close()
+                }
+                ci = (ci + 1)
+            }
+            if (pb.isEmpty()) {
+                i = (i + 1)
+            } {
+                def vn (new SceneNode())
+                vn.id = ((("evg:" + path) + "/svg") + (to_string i))
+                vn.name = ("shape " + (to_string (i + 1)))
+                vn.kind = "path"
+                vn.sourceType = "VECTOR"
+                vn.x = 0.0
+                vn.y = 0.0
+                vn.w = el.calculatedWidth
+                vn.h = el.calculatedHeight
+                vn.pathW = el.calculatedWidth
+                vn.pathH = el.calculatedHeight
+                vn.pathData = (pb.asPathData())
+                if (item.hasFill()) {
+                    def f (new SceneFill())
+                    f.kind = "solid"
+                    f.r = (EvgToScene.channel(item.fillColor.r))
+                    f.g = (EvgToScene.channel(item.fillColor.g))
+                    f.b = (EvgToScene.channel(item.fillColor.b))
+                    f.a = item.fillColor.a
+                    push vn.fills f
+                }
+                if (item.hasStroke()) {
+                    def st (new SceneStroke())
+                    st.r = (EvgToScene.channel(item.strokeColor.r))
+                    st.g = (EvgToScene.channel(item.strokeColor.g))
+                    st.b = (EvgToScene.channel(item.strokeColor.b))
+                    st.a = item.strokeColor.a
+                    st.weight = (item.strokeWidth * sc)
+                    push vn.strokes st
+                }
+                push n.children vn
+                i = (i + 1)
+            }
+        }
+    }
+
+    ; A rounded box is a different Figma shape from a square one, and a node
+    ; with children is a frame whatever its corners.
+    sfn shapeOf:string (el:EVGElement) {
+        if ((array_length el.children) > 0) {
+            return "FRAME"
+        }
+        def bx:EVGBox el.box
+        if (bx.borderRadiusPx > 0.0) {
+            return "ROUNDED_RECTANGLE"
+        }
+        return "RECTANGLE"
+    }
+
+    ; Figma shows layer names, so a name that says where the node came from is
+    ; worth more than "Layer 7" — the id when the document gave one, the class
+    ; when it did not, the path as a last resort.
+    sfn nameOf:string (el:EVGElement path:string) {
+        if ((strlen el.id) > 0) {
+            return el.id
+        }
+        if ((strlen el.className) > 0) {
+            return el.className
+        }
+        if ((strlen el.textContent) > 0) {
+            return (EvgToScene.clip(el.textContent 24))
+        }
+        return path
+    }
+
+    sfn clip:string (s:string n:int) {
+        if ((strlen s) <= n) {
+            return s
+        }
+        return (substring s 0 n)
+    }
+
+    sfn sizeOf:double (root:EVGElement wide:boolean fallback:double) {
+        def u@(optional):EVGUnit root.height
+        if wide {
+            u = root.width
+        }
+        if (null? u) {
+            return fallback
+        }
+        def uu:EVGUnit (unwrap u)
+        if (uu.isSet == false) {
+            return fallback
+        }
+        if (uu.unitType != 0) {
+            return fallback
+        }
+        if (uu.value <= 0.0) {
+            return fallback
+        }
+        return uu.value
+    }
+}

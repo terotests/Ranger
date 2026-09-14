@@ -2593,6 +2593,26 @@ class EVGElement {
         }
     }
 
+    ; Forget that the authoring layer set `name` directly.
+    ;
+    ; `markInline` had no inverse, which was fine while the only writer was a
+    ; parser reading a document once. An edit that is undone needs one: putting
+    ; the value back without clearing this leaves the property outranking every
+    ; stylesheet rule, so the tree would look restored and cascade differently.
+    fn unmarkInline:void (name:string) {
+        def prop:string (EVGElement.toKebab(name))
+        def kept:[string]
+        def i:int 0
+        while (i < (array_length inlineProps)) {
+            def cur:string (itemAt inlineProps i)
+            if (cur != prop) {
+                push kept cur
+            }
+            i = (i + 1)
+        }
+        inlineProps = kept
+    }
+
     fn hasInline:boolean (name:string) {
         ; The overwhelmingly common answer, reached without converting the
         ; name. The stylesheet asks this once per declaration per element per

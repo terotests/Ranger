@@ -10,7 +10,7 @@
 ; Compile: npm run evghtml:compile
 ; Run: npm run evghtml:run
 
-Import "../jsx/JSXToEVG.rgr"
+Import "../core/EVGDocSource.rgr"
 Import "../core/EVGHTMLRenderer.rgr"
 Import "../core/EVGStyleLoader.rgr"
 Import "../fonts/FontManager.rgr"
@@ -21,6 +21,12 @@ Import "../../../evg/EVGGrapheme.rgr"
 class EVGHTMLTool {
     def inputFile:string ""
     def outputFile:string ""
+    ; Did the caller name a page size? A document usually knows its own —
+    ; a slide read back from a deck, a page converted from a `.fig`, a diagram
+    ; exported by RangerFlow — and rendering it on A4 because nobody passed
+    ; -w crops it. An explicit flag still wins; this is only the answer when
+    ; there was no question.
+    def sizeGiven:boolean false
     def pageWidth:double 595.0
     def pageHeight:double 842.0
     def debug:boolean false
@@ -68,6 +74,7 @@ class EVGHTMLTool {
                     def wVal@(optional):double (to_double wArg)
                     if wVal {
                         pageWidth = (unwrap wVal)
+                        sizeGiven = true
                     }
                 }
             }
@@ -79,6 +86,7 @@ class EVGHTMLTool {
                     def hVal@(optional):double (to_double hArg)
                     if hVal {
                         pageHeight = (unwrap hVal)
+                        sizeGiven = true
                     }
                 }
             }
@@ -182,16 +190,17 @@ class EVGHTMLTool {
 
         ; Parse TSX file
         print ""
-        print "Parsing TSX file..."
+        print (("Reading the " + (EVGDocSource.kindOf(inputFileName))) + "…")
         
-        def converter (new JSXToEVG())
-        converter.pageWidth = pageWidth
-        converter.pageHeight = pageHeight
-        
-        def root:EVGElement (converter.parseFile(inputDir inputFileName))
+        def root:EVGElement (EVGDocSource.load(inputDir inputFileName pageWidth pageHeight))
+        ; The document's own size, when it states one and nobody overrode it.
+        if (sizeGiven == false) {
+            pageWidth = (EVGDocSource.statedWidth(root pageWidth))
+            pageHeight = (EVGDocSource.statedHeight(root pageHeight))
+        }
         
         if (root.tagName == "") {
-            print "Error: Failed to parse TSX file or no JSX content found"
+            print (("Error: could not read " + inputFileName) + " as a document")
             return
         }
         

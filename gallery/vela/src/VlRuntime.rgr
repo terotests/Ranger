@@ -135,6 +135,14 @@ class VlRuntime {
     ; past the x axis and not past half a line of y-axis label.
     def axisTop:double 0.0
     def axisBottom:double 0.0
+
+    ; Let a crowded horizontal axis turn its labels rather than overprint them.
+    ; OFF by default, because Vela draws what Vega draws and Vega leaves them
+    ; level; a caller that renders into a DOCUMENT rather than into a
+    ; comparison turns it on, and a spec can ask for the same thing one axis at
+    ; a time with `"labelAngle": "auto"`. An axis that states an angle keeps it
+    ; either way.
+    def autoLabelAngle:boolean false
     ; The top-level groups a concatenated or faceted view holds, with the room
     ; each one's own axes need around it. The layout step places them.
     def groupBoxes:[VlGroupBox]
@@ -2350,6 +2358,11 @@ class VlRuntime {
                 def sc:VlScale (scope.scale(scaleName))
                 def axis (new VlAxis())
                 axis.readConfig(adef)
+                if autoLabelAngle {
+                    if (axis.labelAngleSet == false) {
+                        axis.labelAngleAuto = true
+                    }
+                }
                 def tickCount:int (this.axisTickCount(adef))
                 def ticks:[VlAxisTickValue] (VlAxis.tickValues(sc tickCount (axis.bandPosition) axis.labelFormat axis.labelFormatType axis.tickBand (this.axisTickMinStep(adef))))
                 ; An axis may name the values it wants ticked rather than let

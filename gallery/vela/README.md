@@ -700,6 +700,40 @@ there is no even step to round to. `[19, 91]` becomes `[10, 100]`, and a domain
 reaching below one nices *downward*, never to zero, which a log scale cannot
 reach.
 
+## One thing this can do that Vega will not: turn labels only when it has to
+
+Vega-Lite stands every category name of a discrete bottom axis on end, whatever
+the room — `labelAngle: 270`, decided from the scale's type rather than from
+the labels' width. It is the right default for a chart on a screen with a
+scale nobody has looked at yet, and the wrong one for a printed page: four
+short words that fit comfortably side by side read worse upright.
+
+So there is a third answer, and it is OFF unless asked for, because the suites
+above measure this code against Vega's own output and an axis that turned its
+labels where the reference left them level would be a parity failure rather
+than an improvement. It is asked for per axis in a specification:
+
+```json
+{"encoding": {"x": {"axis": {"labelAngle": "auto"}}}}
+```
+
+…or for a whole chart by the caller, which is what the Markdown document
+renderer does:
+
+```ranger
+def compiler (new VlCompile())
+compiler.autoLabelAngle = true      ; a discrete bottom axis decides for itself
+def rt (new VlRuntime())
+rt.autoLabelAngle = true            ; …and so does a plain Vega spec's axis
+```
+
+`VlAxis.angleThatFits` then measures the widest label against the narrowest gap
+between ticks and answers with the flattest angle that fits: level, then
+forty-five degrees, then upright — at which point a label takes one line of
+type along the axis and there is nothing flatter left to try. An axis that
+states its own `labelAngle`, `0` included, keeps it: a chart that asked for
+level labels is not asking for an opinion.
+
 ## Drawing: the EVG backend
 
 `VlEvg` turns the command list into an EVG document, which the existing tools

@@ -6,6 +6,17 @@ Import "../src/KiwiDecode.rgr"
 Import "../src/KiwiValue.rgr"
 Import "../src/FigParser.rgr"
 Import "../src/FigSample.rgr"
+Import "../src/convert/FigToScene.rgr"
+Import "../src/write/SceneToFig.rgr"
+Import "../src/write/EvgToScene.rgr"
+Import "../src/write/FigSchema.rgr"
+Import "../src/write/FigVectorNet.rgr"
+Import "../src/write/FigFonts.rgr"
+Import "../../zip/ZipReader.rgr"
+Import "../src/write/FigPathWrite.rgr"
+Import "../src/FigPath.rgr"
+Import "../../evg/EVGImageDecode.rgr"
+Import "../../evg/EVGCodepoint.rgr"
 Import "../src/FigApp.rgr"
 Import "../src/FigDeflate.rgr"
 Import "../src/convert/FigToScene.rgr"
@@ -48,6 +59,574 @@ class FigTest {
         this.check((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (d < 0.02))
     }
 
+
+    ; --- writing -------------------------------------------------------------
+    ;
+    ; The reader has always been the tested half. These ask the other question:
+    ; does a file this repository WRITES come back through the same reader
+    ; saying what it was told?
+
+    fn testRewrite:void () {
+        print "--- read a .fig, write it, read it again ---"
+        def bytes:buffer (FigSample.buildFig())
+        def p (new FigParser())
+        def doc:FigDoc (p.parseBytes(bytes "sample.fig"))
+        this.check("the original parsed" doc.ok)
+        def conv (new FigToScene())
+        def scene:SceneDocument (conv.convertDoc(doc))
+        this.eqInt("pages in" (array_length scene.pages) 3)
+
+        def w (new SceneToFig())
+        def out:buffer (w.toBytes(scene "round.fig"))
+        this.check("wrote something" ((buffer_length out) > 100))
+
+        def p2 (new FigParser())
+        def back:FigDoc (p2.parseBytes(out "round.fig"))
+        this.check(("the written file parsed " + back.err) back.ok)
+        this.eqStr("prelude survives" back.prelude "fig-kiwi")
+        this.eqInt("pages survive" (array_length back.pages) 3)
+        ; NOT the same node count, and that is not a defect. `FigToScene`
+        ; resolves as it reads — an instance is expanded into the nodes it
+        ; stands for, a mask becomes a group, a stroke that is geometry gets its
+        ; own outline node. The scene is the RENDERED form, so writing it back
+        ; produces a file that draws the same and is built differently. The
+        ; round trip preserves the picture, never the structure.
+        def wrote:int (array_length back.nodes)
+        def had:int (array_length doc.nodes)
+        def note:string ((("written " + (to_string wrote)) + " from ") + (to_string had))
+        this.check((note + " — the scene is expanded, so at least as many") (wrote >= had))
+
+        ; The shapes are the point: `kind` normalises an ELLIPSE to a container,
+        ; and only `sourceType` can put it back.
+        def p0:FigNode (back.pageAt(0))
+        this.eqStr("page name" p0.name "Welcome")
+        def card:FigNode (itemAt p0.children 0)
+        this.eqStr("frame" card.typeName "FRAME")
+        this.eqStr("frame name" card.name "Card")
+        def kinds:string ""
+        def i:int 0
+        while (i < (array_length card.children)) {
+            def kid:FigNode (itemAt card.children i)
+            kinds = ((kinds + kid.typeName) + " ")
+            i = (i + 1)
+        }
+        this.check(("an ellipse is still an ellipse: " + kinds) ((indexOf kinds "ELLIPSE") >= 0))
+        this.check(("a rounded rect too: " + kinds) ((indexOf kinds "ROUNDED_RECTANGLE") >= 0))
+        this.check(("and the text: " + kinds) ((indexOf kinds "TEXT") >= 0))
+    }
+
+    fn testEvgToFig:void () {
+        print "--- an EVG document, written as a .fig ---"
+        def root:EVGElement (EVGElement.createDiv())
+        root.setAttribute("width" "400px")
+        root.setAttribute("height" "300px")
+        root.markInline("width")
+        root.markInline("height")
+        def card:EVGElement (EVGElement.createDiv())
+        card.id = "card"
+        card.setAttribute("width" "200px")
+        card.setAttribute("height" "100px")
+        card.setAttribute("background-color" "rgb(255,0,0)")
+        card.setAttribute("border-radius" "8px")
+        card.markInline("width")
+        card.markInline("height")
+        card.markInline("background-color")
+        card.markInline("border-radius")
+        def label:EVGElement (EVGElement.createSpan())
+        label.textContent = "Hello"
+        card.addChild(label)
+        root.addChild(card)
+
+        def conv (new EvgToScene())
+        def scene:SceneNode (conv.build(root))
+        this.eqInt("one child" (array_length scene.children) 1)
+        def sc:SceneNode (itemAt scene.children 0)
+        this.eqStr("named from the id" sc.name "card")
+        ; It holds the label, so it is a frame — a Figma frame is what a box
+        ; with children is, whatever its corners.
+        this.eqStr("a box with children is a frame" sc.sourceType "FRAME")
+        this.check("it has a fill" ((array_length sc.fills) > 0))
+
+        ; EVG counts a channel 0..255 and a scene counts it 0..1. Getting this
+        ; wrong wrote a file that inspected perfectly and rendered blank.
+        def f:SceneFill (itemAt sc.fills 0)
+        this.check(("red is a fraction, not 255: " + (to_string f.r)) ((f.r > 0.99) && (f.r < 1.01)))
+        this.check("and green is nearly nothing" (f.g < 0.01))
+
+        ; …and a childless rounded box is a rounded rectangle.
+        def pill:EVGElement (EVGElement.createDiv())
+        pill.setAttribute("width" "40px")
+        pill.setAttribute("height" "40px")
+        pill.setAttribute("border-radius" "20px")
+        pill.markInline("width")
+        pill.markInline("height")
+        pill.markInline("border-radius")
+        root.addChild(pill)
+        def conv2 (new EvgToScene())
+        def scene2:SceneNode (conv2.build(root))
+        def pillNode:SceneNode (itemAt scene2.children 1)
+        this.eqStr("a rounded rectangle" pillNode.sourceType "ROUNDED_RECTANGLE")
+
+        def bytes:buffer (SceneToFig.writeNode(scene "from-evg.fig"))
+        def p (new FigParser())
+        def back:FigDoc (p.parseBytes(bytes "from-evg.fig"))
+        this.check(("it parsed " + back.err) back.ok)
+        this.eqInt("one page" (array_length back.pages) 1)
+        def page:FigNode (back.pageAt(0))
+        this.check("the page has content" ((array_length page.children) > 0))
+    }
+
+    ; THE SCHEMA A WRITTEN FILE DECLARES, AGAINST A REAL EXPORT.
+    ;
+    ; A `.fig` carries its own schema and Figma reads the file through it, by
+    ; NAME: a type this repository invented is a type Figma cannot map onto
+    ; anything, and a struct declared as a message is a different wire format
+    ; under a name Figma thinks it knows. The first file written from here had
+    ; both — a message called `Node`, and `Vector`, `Color`, `ParentIndex` and
+    ; `Blob` as messages — and Figma answered "internal error", which is all it
+    ; can say about a file that is well-formed and describes nothing.
+    ;
+    ; Nothing in this repository could have caught that, because both sides of
+    ; the round trip were ours. `fixtures/health.fig` is a real export, and its
+    ; schema is the only ground truth here: every type and field the writer
+    ; declares must exist in it, with the same kind, the same id and the same
+    ; type.
+    fn testWrittenSchemaMatchesFigma:void () {
+        print "-- the written schema, against Figma's own --"
+        def bytes:buffer (buffer_read_file "gallery/figma/fixtures" "health.fig")
+        def p (new FigParser())
+        def doc:FigDoc (p.parseBytes(bytes "health.fig"))
+        this.check(("the fixture parsed " + doc.err) doc.ok)
+        def real:KiwiSchema p.schema
+        this.check("and it carries a schema" ((array_length real.defs) > 100))
+        def mine:KiwiSchema (FigSchema.schema())
+        this.check("the writer declares some types" ((array_length mine.defs) > 10))
+
+        def missingTypes:string ""
+        def wrongKinds:string ""
+        def missingFields:string ""
+        def wrongTypes:string ""
+        def wrongIds:string ""
+        def i:int 0
+        while (i < (array_length mine.defs)) {
+            def d:KiwiDef (itemAt mine.defs i)
+            def at:int (real.findDef(d.name))
+            if (at < 0) {
+                missingTypes = ((missingTypes + " ") + d.name)
+            } {
+                def rd:KiwiDef (itemAt real.defs at)
+                if (d.kind != rd.kind) {
+                    wrongKinds = ((((wrongKinds + " ") + d.name) + ":") + ((to_string d.kind) + "/" + (to_string rd.kind)))
+                }
+                def j:int 0
+                while (j < (array_length d.fields)) {
+                    def f:KiwiField (itemAt d.fields j)
+                    def rf:KiwiField (FigTest.fieldNamed(rd f.name))
+                    if ((strlen rf.name) == 0) {
+                        missingFields = ((((missingFields + " ") + d.name) + ".") + f.name)
+                    } {
+                        if (f.value != rf.value) {
+                            wrongIds = ((((((wrongIds + " ") + d.name) + ".") + f.name) + ":") + ((to_string f.value) + "/" + (to_string rf.value)))
+                        }
+                        ; An enum member has no type; a field does.
+                        if (d.kind != 0) {
+                            if (f.typeName != rf.typeName) {
+                                wrongTypes = ((((((wrongTypes + " ") + d.name) + ".") + f.name) + ":") + (f.typeName + "/" + rf.typeName))
+                            }
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        this.check(("every type is one Figma knows:" + missingTypes) ((strlen missingTypes) == 0))
+        this.check(("and declared the same way (ours/theirs):" + wrongKinds) ((strlen wrongKinds) == 0))
+        this.check(("every field exists there:" + missingFields) ((strlen missingFields) == 0))
+        this.check(("with the same id:" + wrongIds) ((strlen wrongIds) == 0))
+        this.check(("and the same type:" + wrongTypes) ((strlen wrongTypes) == 0))
+    }
+
+    sfn u32At:int (b:buffer at:int) {
+        def v:int (buffer_get b at)
+        v = (v + ((buffer_get b (at + 1)) * 256))
+        v = (v + ((buffer_get b (at + 2)) * 65536))
+        v = (v + ((buffer_get b (at + 3)) * 16777216))
+        return v
+    }
+
+    sfn listHas:boolean (names:[string] want:string) {
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn fieldNamed:KiwiField (d:KiwiDef name:string) {
+        def i:int 0
+        while (i < (array_length d.fields)) {
+            def f:KiwiField (itemAt d.fields i)
+            if (f.name == name) {
+                return f
+            }
+            i = (i + 1)
+        }
+        return (new KiwiField())
+    }
+
+    ; A UI is icons and labels with backgrounds behind them, and both were
+    ; missing from the first app exported through this door: the icons because
+    ; an embedded SVG document is not a `d` attribute, the pills because a
+    ; Figma text node's fills are its LETTERS.
+    fn testUiSurvives:void () {
+        print "-- a UI: pills, icons, and the page it was drawn for --"
+        def root:EVGElement (EVGElement.createDiv())
+        root.setAttribute("width" "100%")
+        root.setAttribute("height" "100%")
+        root.markInline("width")
+        root.markInline("height")
+
+        ; A tag pill: a string AND a background.
+        def tag:EVGElement (EVGElement.createDiv())
+        tag.id = "tag"
+        tag.textContent = "kuntosali"
+        tag.setAttribute("width" "80px")
+        tag.setAttribute("height" "20px")
+        tag.setAttribute("background-color" "rgb(20,53,31)")
+        tag.setAttribute("color" "rgb(74,222,128)")
+        tag.setAttribute("border-radius" "10px")
+        tag.markInline("width")
+        tag.markInline("height")
+        tag.markInline("background-color")
+        tag.markInline("color")
+        tag.markInline("border-radius")
+        root.addChild(tag)
+
+        ; An icon: a picture written as a document rather than as one outline.
+        def icon:EVGElement (EVGElement.createDiv())
+        icon.id = "icon"
+        icon.setAttribute("width" "20px")
+        icon.setAttribute("height" "20px")
+        icon.markInline("width")
+        icon.markInline("height")
+        icon.svgSource = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M4 4 L20 4 L20 20 Z' fill='#ff8800'/></svg>"
+        root.addChild(icon)
+
+        def conv (new EvgToScene())
+        ; The document says `100%` of a window it does not name.
+        conv.pageW = 430.0
+        conv.pageH = 932.0
+        def scene:SceneNode (conv.build(root))
+        this.check("laid out on the page it was given" ((scene.w > 429.0) && (scene.w < 431.0)))
+
+        def tagNode:SceneNode (itemAt scene.children 0)
+        this.eqStr("a pill is a frame" tagNode.sourceType "FRAME")
+        this.check("with its background" ((array_length tagNode.fills) > 0))
+        this.eqInt("and the string inside it" (array_length tagNode.children) 1)
+        def inner:SceneNode (itemAt tagNode.children 0)
+        this.eqStr("which is the text" inner.kind "text")
+        this.eqStr("with the characters" inner.text.characters "kuntosali")
+        ; The pill is dark and the letters are light: the two fills must not
+        ; be the same one.
+        def pillFill:SceneFill (itemAt tagNode.fills 0)
+        def inkFill:SceneFill (itemAt inner.fills 0)
+        this.check("the letters are not the pill" (inkFill.g > pillFill.g))
+
+        def iconNode:SceneNode (itemAt scene.children 1)
+        this.check("the icon has shapes" ((array_length iconNode.children) > 0))
+        def shape:SceneNode (itemAt iconNode.children 0)
+        this.eqStr("drawn as vector" shape.kind "path")
+        ; A NETWORK, not only geometry. `fillGeometry` is the flattened answer
+        ; Figma keeps beside the vector network it actually draws from, so a
+        ; node with the geometry alone opens as an empty box — which is what
+        ; every icon of the first UI exported from here did.
+        def net:buffer (FigVectorNet.fromSvg(shape.pathData))
+        this.check("the outline makes a vector network" ((buffer_length net) > 12))
+        ; Its header counts what is in it, little-endian.
+        def verts:int (FigTest.u32At(net 0))
+        def segs:int (FigTest.u32At(net 4))
+        def regions:int (FigTest.u32At(net 8))
+        this.eqInt("one region" regions 1)
+        this.check("some vertices" (verts > 2))
+        this.check("and segments joining them" (segs > 2))
+        ; vertices 12 bytes each, segments 28, then the region.
+        def after:int ((12 + (verts * 12)) + (segs * 28))
+        this.check("the blob is exactly as long as its parts" ((buffer_length net) > after))
+
+        ; A font Figma can find. `Arial` is a system font: a file that asks for
+        ; it opens with a missing-font dialog in front of the drawing.
+        this.eqStr("Arial is written as Inter" (FigFonts.figmaFamily("Arial")) "Inter")
+        this.eqStr("and so is a stack that starts with it" (FigFonts.figmaFamily("\"Segoe UI\", Arial, sans-serif")) "Inter")
+        this.eqStr("a monospace family" (FigFonts.figmaFamily("Menlo")) "Roboto Mono")
+        ; …and a font Figma hosts is left alone.
+        this.eqStr("Open Sans is passed through" (FigFonts.figmaFamily("Open Sans")) "Open Sans")
+        this.check("with geometry" ((strlen shape.pathData) > 0))
+        this.check("and paint" ((array_length shape.fills) > 0))
+        ; Scaled from the document's 24x24 into the icon's 20x20 box: nothing
+        ; may reach outside it.
+        this.check("inside its box" ((shape.pathW > 19.0) && (shape.pathW < 21.0)))
+        this.eqInt("nothing reported lost" (array_length conv.losses) 0)
+
+        ; A one-line label is sized BY its string, so whoever opens the file
+        ; does not re-break it against a face this layout never measured.
+        this.eqStr("a label sizes itself" inner.text.autoResize "both")
+
+        ; …and the ARCHIVE has everything a reader looks up by name. A file
+        ; with the document and nothing else imported as "Cannot read
+        ; properties of undefined (reading 'getData')" — a lookup that found
+        ; no thumbnail, not a document that was wrong.
+        def archive:buffer (SceneToFig.writeNode(scene "ui.fig"))
+        def zr (new ZipReader())
+        this.check("the archive opens" (zr.openBytes(archive)))
+        def names:[string] (zr.listFiles())
+        this.check("canvas.fig" (FigTest.listHas(names "canvas.fig")))
+        this.check("thumbnail.png" (FigTest.listHas(names "thumbnail.png")))
+        this.check("meta.json" (FigTest.listHas(names "meta.json")))
+        def te@(optional):ZipEntry (zr.getEntry("thumbnail.png"))
+        this.check("the thumbnail is an entry" ((null? te) == false))
+        def thumb:buffer (zr.extract((unwrap te)))
+        this.check("the thumbnail has bytes" ((buffer_length thumb) > 64))
+        ; A PNG, and one a decoder will take: the signature, and an IHDR whose
+        ; size is the one `meta.json` claims.
+        this.eqInt("PNG signature" (buffer_get thumb 0) 137)
+        this.eqInt("P" (buffer_get thumb 1) 80)
+        this.eqInt("N" (buffer_get thumb 2) 78)
+        this.eqInt("G" (buffer_get thumb 3) 71)
+
+        ; …and it survives the file, with nothing the schema cannot hold.
+        def dropped:[string]
+        def bytes:buffer (SceneToFig.writeNodeReporting(scene "ui.fig" dropped))
+        def p (new FigParser())
+        def back:FigDoc (p.parseBytes(bytes "ui.fig"))
+        this.check(("it parsed " + back.err) back.ok)
+        ; Encoding walks the SCHEMA, so a field nobody declared is written and
+        ; then dropped without a word. `textAutoResize` and `lineHeight` were
+        ; exactly that until the schema grew them.
+        def names:string ""
+        def dj:int 0
+        while (dj < (array_length dropped)) {
+            names = ((names + " ") + (itemAt dropped dj))
+            dj = (dj + 1)
+        }
+        this.check(("the schema holds every field written:" + names) ((array_length dropped) == 0))
+    }
+
+    fn testWriterReportsWhatItCannotCarry:void () {
+        print "--- the writer says what it dropped ---"
+        ; Paths used to be the example here. They are carried now, so the test
+        ; moved to something that still is not: an image names bytes that live
+        ; in the archive, and the archive is not written.
+        def root:EVGElement (EVGElement.createDiv())
+        root.setAttribute("width" "200px")
+        root.setAttribute("height" "200px")
+        root.markInline("width")
+        root.markInline("height")
+        def pic:EVGElement (EVGElement.createImg())
+        pic.setAttribute("src" "photo.jpg")
+        pic.setAttribute("width" "50px")
+        pic.setAttribute("height" "50px")
+        pic.markInline("src")
+        root.addChild(pic)
+        def conv (new EvgToScene())
+        def scene:SceneNode (conv.build(root))
+        this.check("an image is reported, not dropped in silence" ((array_length conv.losses) > 0))
+
+        ; And a path is NOT reported, because nothing about it is lost.
+        def clean:EVGElement (EVGElement.createDiv())
+        clean.setAttribute("width" "200px")
+        clean.setAttribute("height" "200px")
+        clean.markInline("width")
+        clean.markInline("height")
+        def shape:EVGElement (EVGElement.createPath())
+        shape.setAttribute("d" "M 0 0 L 10 0 L 10 10 Z")
+        shape.setAttribute("width" "10px")
+        shape.setAttribute("height" "10px")
+        shape.markInline("d")
+        shape.markInline("width")
+        shape.markInline("height")
+        clean.addChild(shape)
+        def conv2 (new EvgToScene())
+        def scene2:SceneNode (conv2.build(clean))
+        this.eqInt("a carried path is not complained about" (array_length conv2.losses) 0)
+    }
+
+
+    fn testPathBlobRoundTrip:void () {
+        print "--- an outline, encoded and decoded again ---"
+        ; Straight through the reader's own decoder, which is the only check
+        ; worth making on an encoder: the bytes mean what `FigPath` says they
+        ; mean, or they do not.
+        def blob:buffer (FigPathWrite.fromSvg("M 10 20 L 110 20 L 110 70 Z"))
+        this.check("it produced bytes" ((buffer_length blob) > 0))
+        def rings:[FigPathRing]
+        FigPath.decode(blob rings)
+        this.eqInt("one ring" (array_length rings) 1)
+        def r:FigPathRing (itemAt rings 0)
+        def pts:int (idiv (array_length r.pts) 2)
+        this.check(("points " + (to_string pts)) (pts >= 3))
+        this.check("first x" (((itemAt r.pts 0) > 9.9) && ((itemAt r.pts 0) < 10.1)))
+        this.check("first y" (((itemAt r.pts 1) > 19.9) && ((itemAt r.pts 1) < 20.1)))
+
+        ; A curve has to survive too — the reader flattens it, so the test is
+        ; that it arrives as many points and ends where it was told to.
+        def curved:buffer (FigPathWrite.fromSvg("M 0 0 C 0 50 50 50 50 0"))
+        def rings2:[FigPathRing]
+        FigPath.decode(curved rings2)
+        this.eqInt("one ring for the curve" (array_length rings2) 1)
+        def r2:FigPathRing (itemAt rings2 0)
+        def pts2:int (idiv (array_length r2.pts) 2)
+        this.check(("a curve flattens to several points, got " + (to_string pts2)) (pts2 > 4))
+        def lastX:double (itemAt r2.pts ((array_length r2.pts) - 2))
+        this.check(("it ends at x=50, got " + (to_string lastX)) ((lastX > 49.0) && (lastX < 51.0)))
+
+        this.eqInt("nothing in, nothing out" (buffer_length (FigPathWrite.fromSvg(""))) 0)
+    }
+
+    fn testVectorKeepsItsShape:void () {
+        print "--- a vector written with its geometry ---"
+        def root:EVGElement (EVGElement.createDiv())
+        root.setAttribute("width" "200px")
+        root.setAttribute("height" "200px")
+        root.markInline("width")
+        root.markInline("height")
+        def shape:EVGElement (EVGElement.createPath())
+        shape.setAttribute("d" "M 0 0 L 100 0 L 100 100 Z")
+        shape.setAttribute("width" "100px")
+        shape.setAttribute("height" "100px")
+        shape.setAttribute("fill" "rgb(0,128,0)")
+        shape.markInline("d")
+        shape.markInline("width")
+        shape.markInline("height")
+        shape.markInline("fill")
+        root.addChild(shape)
+
+        def conv (new EvgToScene())
+        def scene:SceneNode (conv.build(root))
+        def sn:SceneNode (itemAt scene.children 0)
+        this.eqStr("it is a vector" sn.sourceType "VECTOR")
+        this.check("the outline came across" ((strlen sn.pathData) > 0))
+        ; A path is painted by `fill`, not by `background-color`. Reading the
+        ; box's field here wrote a shape with geometry and no paint, which
+        ; renders as nothing and looks exactly like geometry that failed.
+        this.check("and so did the paint" ((array_length sn.fills) > 0))
+        def f:SceneFill (itemAt sn.fills 0)
+        this.check(("green as a fraction, got " + (to_string f.g)) ((f.g > 0.49) && (f.g < 0.51)))
+
+        def bytes:buffer (SceneToFig.writeNode(scene "vector.fig"))
+        def p (new FigParser())
+        def back:FigDoc (p.parseBytes(bytes "vector.fig"))
+        this.check(("it parsed " + back.err) back.ok)
+        this.check("the geometry blob rode along" ((array_length back.blobs) > 0))
+    }
+
+
+    fn testGradientSurvives:void () {
+        print "--- a gradient, read and written again ---"
+        def bytes:buffer (FigSample.buildFig())
+        def p (new FigParser())
+        def doc:FigDoc (p.parseBytes(bytes "sample.fig"))
+        def conv (new FigToScene())
+        def scene:SceneDocument (conv.convertDoc(doc))
+
+        def found:SceneFill (FigTest.firstGradient(scene))
+        this.check("the sample has a gradient to test with" (found.kind == "gradient"))
+        this.check("its first end is set" ((found.r + found.g + found.b) > 0.0))
+        this.check("and its last end differs" (((found.gradR != found.r) || (found.gradG != found.g)) || (found.gradB != found.b)))
+
+        def w (new SceneToFig())
+        def out:buffer (w.toBytes(scene "grad.fig"))
+        def p2 (new FigParser())
+        def back:FigDoc (p2.parseBytes(out "grad.fig"))
+        this.check(("it parsed " + back.err) back.ok)
+        def conv2 (new FigToScene())
+        def scene2:SceneDocument (conv2.convertDoc(back))
+        def again:SceneFill (FigTest.firstGradient(scene2))
+        ; Written as a solid, this comes back "solid" — which is what it did
+        ; before the writer learned the stops.
+        this.eqStr("it is still a gradient" again.kind "gradient")
+        this.check(("first end survives, got " + (to_string again.r)) ((FigTest.near(again.r found.r)) && (FigTest.near(again.g found.g))))
+        this.check(("last end survives, got " + (to_string again.gradR)) ((FigTest.near(again.gradR found.gradR)) && (FigTest.near(again.gradB found.gradB))))
+    }
+
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d < 0.01)
+    }
+
+    sfn firstGradient:SceneFill (doc:SceneDocument) {
+        def i:int 0
+        while (i < (array_length doc.pages)) {
+            def hit:SceneFill (FigTest.gradientIn((itemAt doc.pages i)))
+            if (hit.kind == "gradient") {
+                return hit
+            }
+            i = (i + 1)
+        }
+        return (new SceneFill())
+    }
+
+    sfn gradientIn:SceneFill (n:SceneNode) {
+        def f:int 0
+        while (f < (array_length n.fills)) {
+            def fill:SceneFill (itemAt n.fills f)
+            if (fill.kind == "gradient") {
+                return fill
+            }
+            f = (f + 1)
+        }
+        def i:int 0
+        while (i < (array_length n.children)) {
+            def hit:SceneFill (FigTest.gradientIn((itemAt n.children i)))
+            if (hit.kind == "gradient") {
+                return hit
+            }
+            i = (i + 1)
+        }
+        return (new SceneFill())
+    }
+
+
+    ; One decoder, three formats. The raster tool used to pick between the two
+    ; JPEG decoders itself and had never heard of PNG — which a Figma archive
+    ; is full of, so a converted page rendered "Not a JPEG file (missing SOI)".
+    fn testImageSniffing:void () {
+        print "--- what kind of picture is this ---"
+        def png:buffer (FigSample.png1x1())
+        def got@(optional):ImageBuffer (EVGImageDecode.decode(png))
+        this.check("a PNG decodes" ((null? got) == false))
+        if ((null? got) == false) {
+            def im:ImageBuffer (unwrap got)
+            this.check(("it has a size, got " + ((to_string im.width) + "x" + (to_string im.height))) ((im.width > 0) && (im.height > 0)))
+        }
+
+        ; The JPEG branch chooses between baseline and progressive from the SOF
+        ; marker rather than from a name. Sending a progressive file to the
+        ; baseline decoder is not an error, it is a picture that never arrives.
+        def baseline:buffer (buffer_alloc 8)
+        buffer_set baseline 0 255
+        buffer_set baseline 1 216
+        buffer_set baseline 2 255
+        buffer_set baseline 3 192
+        this.check("SOF0 reads as baseline" ((EVGImageDecode.isProgressive(baseline)) == false))
+        def prog:buffer (buffer_alloc 8)
+        buffer_set prog 0 255
+        buffer_set prog 1 216
+        buffer_set prog 2 255
+        buffer_set prog 3 194
+        this.check("SOF2 reads as progressive" (EVGImageDecode.isProgressive(prog)))
+
+        def junk:buffer (buffer_alloc 8)
+        def nothing@(optional):ImageBuffer (EVGImageDecode.decode(junk))
+        this.check("and something that is neither is refused" (null? nothing))
+    }
+
     fn run:void () {
         print "=== FigTest ==="
         this.testVarint()
@@ -68,6 +647,15 @@ class FigTest {
         this.testTracking()
         this.testDashAndCaps()
         this.testRotationAngle()
+        this.testRewrite()
+        this.testEvgToFig()
+        this.testWriterReportsWhatItCannotCarry()
+        this.testUiSurvives()
+        this.testWrittenSchemaMatchesFigma()
+        this.testPathBlobRoundTrip()
+        this.testVectorKeepsItsShape()
+        this.testGradientSurvives()
+        this.testImageSniffing()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {

@@ -218,6 +218,17 @@ class EVGInspect {
         return (itemAt paths slot)
     }
 
+    ; The path of a node's parent. `visit` already recorded it, so this is a
+    ; lookup and not a string operation — which matters because a keyed segment
+    ; ("0/3/k:share") cannot be cut off by searching for the last "/".
+    fn parentOf:string (path:string) {
+        def slot:int (this.slotOf(path))
+        if (slot < 0) {
+            return ""
+        }
+        return (itemAt parentPaths slot)
+    }
+
     fn slotOf:int (path:string) {
         def at@(optional):int (get index path)
         if (null? at) {

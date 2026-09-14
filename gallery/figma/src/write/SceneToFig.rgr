@@ -1,0 +1,589 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; SceneToFig — a scene, written back out as a Figma file
+; ==============================================================================
+;
+; The other direction has existed since the reader did: `.fig` → `FigToScene` →
+; `SceneNode`. This closes the loop, so a scene that was read, changed, or built
+; from something else entirely can be saved as a file Figma opens.
+;
+; --- WHY `sourceType` MATTERS -------------------------------------------------
+;
+; `SceneNode.kind` is deliberately small — container, text, image, path — because
+; the scene graph is meant to be format-agnostic and an EVG renderer does not
+; care whether a box was an `ELLIPSE` or a `ROUNDED_RECTANGLE`. Figma does. So a
+; node that came from a `.fig` keeps the type it had in `sourceType`, and this
+; writes that back rather than guessing from the kind. A node from anywhere else
+; has no `sourceType`, and then the kind decides.
+;
+; That is the whole reason a read-then-write round trip keeps its ellipses.
+;
+; --- WHAT IT CANNOT CARRY YET -------------------------------------------------
+;
+; Reported per node rather than dropped in silence, the same way
+; `evg_json_tool` reports what the editable format has no room for:
+;
+;   path geometry   a VECTOR's outline lives in a commands BLOB, and writing one
+;                   means encoding Figma's path opcodes — not done, so a path
+;                   is written as its bounding box
+;   images          an IMAGE paint names a hash whose bytes live in the archive;
+;                   the fill is written as a flat colour instead
+;   gradients       written as their first stop
+;
+; Everything else a scene carries — position, size, rotation, fills, strokes,
+; corner radius, opacity, clipping, text and its font — is written.
+; ==============================================================================
+
+Import "../scene/SceneNode.rgr"
+Import "../KiwiValue.rgr"
+Import "../KiwiSchema.rgr"
+Import "../KiwiDecode.rgr"
+Import "../FigCanvas.rgr"
+Import "../FigDeflate.rgr"
+Import "../FigSample.rgr"
+Import "FigSchema.rgr"
+Import "FigThumb.rgr"
+Import "FigVectorNet.rgr"
+Import "FigFonts.rgr"
+Import "FigWrite.rgr"
+Import "FigPathWrite.rgr"
+Import "../../../zip/ZipWriter.rgr"
+
+class SceneToFig {
+    ; Everything this could not express, as "0/2/1: what".
+    def losses:[string]
+    ; …and everything the SCHEMA could not express: a field set here that the
+    ; file's own schema does not declare is dropped on the way out, silently,
+    ; because encoding walks the schema. Named here so it is found by reading
+    ; a list rather than by noticing a heading on two lines.
+    def dropped:[string]
+    ; Families already reported as substituted. See `putText`.
+    def saidFonts:[string]
+    ; The flat node array being built, and the id counter inside the current page.
+    def nodes:KiwiValue (KiwiValue.fromArray())
+    def nextLocal:int 1
+    ; Geometry lives outside the nodes: a node names a blob by index into this
+    ; list, and the list rides on the message beside them.
+    def blobs:KiwiValue (KiwiValue.fromArray())
+
+    Constructor () {
+        def a:[string]
+        losses = a
+        def b:[string]
+        dropped = b
+        def c:[string]
+        saidFonts = c
+    }
+
+    ; --- the whole file -------------------------------------------------------
+
+    sfn write:buffer (doc:SceneDocument fileName:string) {
+        def w (new SceneToFig())
+        return (w.toBytes(doc fileName))
+    } doc {
+        description "Writes a scene document as a .fig archive."
+        param doc "The document, whose pages become the file's canvases."
+        param fileName "The name recorded in the archive's meta.json."
+        returns "The archive bytes."
+    }
+
+    ; The same, and it hands back what the file could not carry — the fields
+    ; the schema does not declare, by name.
+    sfn writeNodeReporting:buffer (root:SceneNode fileName:string report:[string]) {
+        def doc (new SceneDocument())
+        doc.name = fileName
+        def page (new SceneNode())
+        page.name = "Page 1"
+        page.sourceType = "CANVAS"
+        page.w = root.w
+        page.h = root.h
+        push page.children root
+        push doc.pages page
+        def w (new SceneToFig())
+        def bytes:buffer (w.toBytes(doc fileName))
+        def i:int 0
+        while (i < (array_length w.dropped)) {
+            push report ("no field in the schema for " + (itemAt w.dropped i))
+            i = (i + 1)
+        }
+        ; …and what the WRITER could not carry, which is the other half of the
+        ; same question and was going nowhere: a substituted font, an outline
+        ; that made no network, an image whose bytes stayed behind.
+        def k:int 0
+        while (k < (array_length w.losses)) {
+            push report (itemAt w.losses k)
+            k = (k + 1)
+        }
+        return bytes
+    }
+
+    ; One node, in a file of its own. A scene converted from EVG is a single
+    ; frame, and a `.fig` with no CANVAS has nowhere to put it — it opens empty.
+    sfn writeNode:buffer (root:SceneNode fileName:string) {
+        def doc (new SceneDocument())
+        doc.name = fileName
+        def page (new SceneNode())
+        page.name = "Page 1"
+        page.sourceType = "CANVAS"
+        page.w = root.w
+        page.h = root.h
+        push page.children root
+        push doc.pages page
+        def w (new SceneToFig())
+        return (w.toBytes(doc fileName))
+    }
+
+    fn toBytes:buffer (doc:SceneDocument fileName:string) {
+        def msg:KiwiValue (this.message(doc))
+        ; FIGMA'S OWN SCHEMA, not this repository's. See `FigSchema`.
+        def canvas:buffer (FigSample.canvasInto((FigSchema.schema()) msg dropped))
+
+        ; THE ARCHIVE HAS FOUR ENTRIES, and a reader that looks one up by name
+        ; gets `undefined` for the ones that are not there. A file with the
+        ; document and nothing else imported as
+        ;
+        ;   format: Figma Zip V2
+        ;   TypeError: Cannot read properties of undefined (reading 'getData')
+        ;
+        ; which is a lookup that found nothing, not a document that was wrong.
+        def pageW:double 1440.0
+        def pageH:double 900.0
+        def paperR:int 245
+        def paperG:int 245
+        def paperB:int 245
+        if ((array_length doc.pages) > 0) {
+            def first:SceneNode (itemAt doc.pages 0)
+            if ((array_length first.children) > 0) {
+                def top:SceneNode (itemAt first.children 0)
+                if (top.w > 0.0) {
+                    pageW = top.w
+                }
+                if (top.h > 0.0) {
+                    pageH = top.h
+                }
+                if ((array_length top.fills) > 0) {
+                    def f:SceneFill (itemAt top.fills 0)
+                    paperR = (to_int ((f.r * 255.0) + 0.5))
+                    paperG = (to_int ((f.g * 255.0) + 0.5))
+                    paperB = (to_int ((f.b * 255.0) + 0.5))
+                }
+            }
+        }
+        def thumbW:int (SceneToFig.thumbSide(pageW pageH true))
+        def thumbH:int (SceneToFig.thumbSide(pageW pageH false))
+
+        def zip (new ZipWriter())
+        zip.create()
+        zip.addFile("canvas.fig" canvas)
+        zip.addFile("thumbnail.png" (FigThumb.png(thumbW thumbH paperR paperG paperB)))
+        zip.addString("meta.json" (SceneToFig.meta(fileName thumbW thumbH pageW pageH paperR paperG paperB)))
+        ; Empty, and present: an export with no image paints still has the
+        ; folder, and a reader that lists it finds nothing rather than nothing
+        ; to list.
+        zip.addDirectory("images/")
+        return (zip.toBuffer())
+    }
+
+    ; A real export's thumbnail is four hundred points on its long side. This
+    ; one is a hundred and twenty-eight, because it is a PLACEHOLDER and it is
+    ; written with stored deflate: a solid picture costs three bytes a pixel
+    ; whatever is in it, and four hundred points of flat colour is a quarter of
+    ; a megabyte attached to a twenty-kilobyte document. The application draws
+    ; its own thumbnail as soon as it has opened the file.
+    sfn thumbSide:int (w:double h:double wantWidth:boolean) {
+        def scale:double 1.0
+        def longest:double w
+        if (h > longest) {
+            longest = h
+        }
+        if (longest > 128.0) {
+            scale = (128.0 / longest)
+        }
+        def out:double (h * scale)
+        if wantWidth {
+            out = (w * scale)
+        }
+        def n:int (to_int (out + 0.5))
+        if (n < 1) {
+            n = 1
+        }
+        return n
+    }
+
+    ; What the file says about itself, shaped like a real export's: the
+    ; background the browser draws behind the thumbnail, the thumbnail's size,
+    ; and the region of the document it is a picture of.
+    sfn meta:string (fileName:string tw:int th:int w:double h:double r:int g:int b:int) {
+        def out:string "{\"client_meta\":{\"background_color\":{"
+        out = (out + ("\"r\":" + (SceneToFig.num((to_double r) / 255.0))))
+        out = (out + (",\"g\":" + (SceneToFig.num((to_double g) / 255.0))))
+        out = (out + (",\"b\":" + (SceneToFig.num((to_double b) / 255.0))))
+        out = (out + ",\"a\":1},")
+        out = (out + ("\"thumbnail_size\":{\"width\":" + (to_string tw)))
+        out = (out + (",\"height\":" + ((to_string th) + "},")))
+        out = (out + "\"render_coordinates\":{\"x\":0,\"y\":0,")
+        out = (out + ("\"width\":" + (SceneToFig.num(w))))
+        out = (out + (",\"height\":" + ((SceneToFig.num(h)) + "}},")))
+        out = (out + ("\"file_name\":\"" + ((SceneToFig.esc(fileName)) + "\",")))
+        out = (out + "\"developer_related_links\":[]}")
+        return out
+    }
+
+    sfn num:string (v:double) {
+        def whole:int (to_int v)
+        if ((to_double whole) == v) {
+            return (to_string whole)
+        }
+        return (to_string v)
+    }
+
+    ; --- the message ----------------------------------------------------------
+    ;
+    ; A document, then a page per top-level child, then that child's subtree.
+    ; A scene whose root is a single frame — anything converted from EVG — gets
+    ; one page wrapped around it, because a `.fig` with no CANVAS has nowhere to
+    ; put its content and opens empty.
+
+    fn message:KiwiValue (doc:SceneDocument) {
+        def arr:KiwiValue (KiwiValue.fromArray())
+        nodes = arr
+        def bl:KiwiValue (KiwiValue.fromArray())
+        blobs = bl
+        ; A DOCUMENT and a CANVAS have no size of their own — a real export
+        ; gives neither one — so they are written as a node and a transform
+        ; rather than as a placed box.
+        def docNode:KiwiValue (FigWrite.node(0 0 "DOCUMENT" "Document"))
+        docNode.put("transform" (FigWrite.xform(0.0 0.0)))
+        nodes.pushItem(docNode)
+        def pages:[SceneNode] doc.pages
+        def p:int 0
+        while (p < (array_length pages)) {
+            def page:SceneNode (itemAt pages p)
+            def pageLocal:int (p + 1)
+            def w:double page.w
+            def h:double page.h
+            if (w <= 0.0) {
+                w = 1440.0
+            }
+            if (h <= 0.0) {
+                h = 900.0
+            }
+            def canvas:KiwiValue (FigWrite.node(0 pageLocal "CANVAS" (SceneToFig.nameOf(page ("Page " + (to_string (p + 1)))))))
+            canvas.put("parentIndex" (FigWrite.parentIndex(0 0 (FigWrite.positionAt(p)))))
+            canvas.put("transform" (FigWrite.xform(0.0 0.0)))
+            nodes.pushItem(canvas)
+            ; Each page owns a session id, so local ids restart and stay small.
+            nextLocal = 1
+            def kids:[SceneNode] page.children
+            def k:int 0
+            while (k < (array_length kids)) {
+                this.emit((itemAt kids k) (pageLocal + 1) 0 pageLocal k ((("0/" + (to_string p)) + "/") + (to_string k)))
+                k = (k + 1)
+            }
+            p = (p + 1)
+        }
+        def out:KiwiValue (KiwiValue.fromObject())
+        ; WHAT KIND OF MESSAGE THIS IS. A `.fig` is one message of a protocol,
+        ; and the protocol's first field says which — a file that did not name
+        ; itself as node changes was a file with nothing to apply.
+        out.put("type" (KiwiValue.fromString("NODE_CHANGES")))
+        out.put("sessionID" (KiwiValue.fromInt(0)))
+        out.put("ackID" (KiwiValue.fromInt(0)))
+        out.put("nodeChanges" nodes)
+        out.put("blobs" blobs)
+        return out
+    }
+
+    ; A box has no negative side, and Figma will not take one: a node written
+    ; with a negative size is a node it cannot build. EVG clamps these in
+    ; layout now, so this is the second line of defence and the place that says
+    ; so out loud.
+    sfn side:double (v:double) {
+        if (v < 0.0) {
+            return 0.0
+        }
+        return v
+    }
+
+    ; One node and its subtree. `sid` is this page's session id; `ps`/`pl` name
+    ; the parent's guid; `order` is its place among siblings.
+    fn emit:void (n:SceneNode sid:int ps:int pl:int order:int path:string) {
+        def lid:int nextLocal
+        nextLocal = (nextLocal + 1)
+        def typeName:string (SceneToFig.typeOf(n))
+        if ((n.w < 0.0) || (n.h < 0.0)) {
+            push losses (path + ": the box has a negative side, so it is written as empty")
+        }
+        def o:KiwiValue (FigWrite.placed(sid lid typeName (SceneToFig.nameOf(n "Layer")) ps pl (FigWrite.positionAt(order)) (SceneToFig.side(n.w)) (SceneToFig.side(n.h)) n.x n.y))
+
+        if (n.hasXf) {
+            o.put("transform" (FigWrite.xformRot(n.x n.y n.xf.a n.xf.b)))
+        }
+        if (n.opacity < 1.0) {
+            o.put("opacity" (KiwiValue.fromDouble(n.opacity)))
+        }
+        if (n.visible == false) {
+            o.put("visible" (KiwiValue.fromBool(false)))
+        }
+        if n.clip {
+            o.put("frameMaskDisabled" (KiwiValue.fromBool(false)))
+        }
+        this.putFills(o n path)
+        this.putStroke(o n path)
+        this.putRadius(o n)
+        this.putText(o n)
+        this.putGeometry(o n path)
+
+        nodes.pushItem(o)
+        def kids:[SceneNode] n.children
+        def i:int 0
+        while (i < (array_length kids)) {
+            this.emit((itemAt kids i) sid sid lid i ((path + "/") + (to_string i)))
+            i = (i + 1)
+        }
+    }
+
+    ; --- geometry -------------------------------------------------------------
+    ;
+    ; The outline, written as a blob and named by index. This is what makes a
+    ; VECTOR arrive as a shape rather than as a rectangle-shaped hole.
+    fn putGeometry:void (o:KiwiValue n:SceneNode path:string) {
+        if ((strlen n.pathData) == 0) {
+            return
+        }
+        def w:double n.pathW
+        def h:double n.pathH
+        if (w <= 0.0) {
+            w = n.w
+        }
+        if (h <= 0.0) {
+            h = n.h
+        }
+        def blob:buffer (FigPathWrite.fromSvg(n.pathData))
+        if ((buffer_length blob) == 0) {
+            push losses (path + ": the outline parsed to no commands, so the node is written without geometry")
+            return
+        }
+        def entry:KiwiValue (KiwiValue.fromObject())
+        entry.put("bytes" (KiwiValue.fromBytes(blob)))
+        def index:int (blobs.itemCount())
+        blobs.pushItem(entry)
+
+        ; …AND THE NETWORK, which is what Figma actually draws a vector from.
+        ; `fillGeometry` is the flattened answer it keeps beside the network,
+        ; so a node with only the geometry opens as an empty box — which is
+        ; what every icon of the first UI exported from here did.
+        def net:buffer (FigVectorNet.fromSvg(n.pathData))
+        if ((buffer_length net) > 0) {
+            def netEntry:KiwiValue (KiwiValue.fromObject())
+            netEntry.put("bytes" (KiwiValue.fromBytes(net)))
+            def netIndex:int (blobs.itemCount())
+            blobs.pushItem(netEntry)
+            def vd:KiwiValue (KiwiValue.fromObject())
+            vd.put("vectorNetworkBlob" (KiwiValue.fromInt(netIndex)))
+            vd.put("normalizedSize" (FigWrite.vec(n.pathW n.pathH)))
+            o.put("vectorData" vd)
+        } {
+            push losses (path + ": the outline made no vector network, so Figma will show the node empty")
+        }
+
+        def g:KiwiValue (KiwiValue.fromObject())
+        g.put("commandsBlob" (KiwiValue.fromInt(index)))
+        if n.evenOdd {
+            g.put("windingRule" (KiwiValue.fromString("ODD")))
+        }
+        def arr:KiwiValue (KiwiValue.fromArray())
+        arr.pushItem(g)
+        if (n.strokeIsGeometry) {
+            o.put("strokeGeometry" arr)
+        } {
+            o.put("fillGeometry" arr)
+        }
+    }
+
+    ; --- properties -----------------------------------------------------------
+
+    fn putFills:void (o:KiwiValue n:SceneNode path:string) {
+        if ((array_length n.fills) == 0) {
+            return
+        }
+        def f:SceneFill (itemAt n.fills 0)
+        if (f.visible == false) {
+            return
+        }
+        if (f.kind == "image") {
+            push losses (path + ": an image fill names bytes in the archive, which are not written — a flat colour stands in")
+            o.put("fillPaints" (FigWrite.paints(0.86 0.88 0.9)))
+            return
+        }
+        if (f.kind == "gradient") {
+            ; Both ends, which is both ends the scene has. What is genuinely
+            ; gone is the ANGLE: Figma orients a gradient with a transform on
+            ; the paint and a scene records only that it was linear, so the
+            ; gradient comes back in the default direction.
+            push losses (path + ": the gradient keeps its two ends and loses its angle — a scene does not carry one")
+            def ga:double (f.a * f.opacity)
+            def gb:double (f.gradA * f.opacity)
+            o.put("fillPaints" (FigWrite.gradient(f.r f.g f.b ga f.gradR f.gradG f.gradB gb)))
+            return
+        }
+        def alpha:double (f.a * f.opacity)
+        o.put("fillPaints" (FigWrite.paintsA(f.r f.g f.b alpha)))
+    }
+
+    fn putStroke:void (o:KiwiValue n:SceneNode path:string) {
+        if ((array_length n.strokes) == 0) {
+            return
+        }
+        def s:SceneStroke (itemAt n.strokes 0)
+        def alpha:double (s.a * s.opacity)
+        o.put("strokePaints" (FigWrite.paintsA(s.r s.g s.b alpha)))
+        o.put("strokeWeight" (KiwiValue.fromDouble(s.weight)))
+    }
+
+    fn putRadius:void (o:KiwiValue n:SceneNode) {
+        def r:SceneRadius n.radius
+        if ((r.any()) == false) {
+            return
+        }
+        if r.uniform {
+            o.put("cornerRadius" (KiwiValue.fromDouble(r.tl)))
+            return
+        }
+        o.put("rectangleTopLeftCornerRadius" (KiwiValue.fromDouble(r.tl)))
+        o.put("rectangleTopRightCornerRadius" (KiwiValue.fromDouble(r.tr)))
+        o.put("rectangleBottomRightCornerRadius" (KiwiValue.fromDouble(r.br)))
+        o.put("rectangleBottomLeftCornerRadius" (KiwiValue.fromDouble(r.bl)))
+        o.put("rectangleCornerRadiiIndependent" (KiwiValue.fromBool(true)))
+    }
+
+    fn putText:void (o:KiwiValue n:SceneNode) {
+        if (n.kind != "text") {
+            return
+        }
+        def t:SceneText n.text
+        o.put("textData" (FigWrite.chars(t.characters)))
+        o.put("fontSize" (KiwiValue.fromDouble(t.fontSize)))
+        if ((strlen t.fontFamily) > 0) {
+            ; A FACE, not a family name. Figma names a font by family, style
+            ; and PostScript name together — there is no `fontFamily` field on
+            ; a node change at all, so the one written here went nowhere.
+            def fn:KiwiValue (KiwiValue.fromObject())
+            ; A NAME FIGMA CAN FIND. `Arial` is a system font — every browser
+            ; has it and Figma's web app does not — so a file that asks for it
+            ; opens with a missing-font dialog in front of the drawing.
+            def family:string (FigFonts.figmaFamily(t.fontFamily))
+            if (FigFonts.substituted(t.fontFamily)) {
+                ; ONCE PER FAMILY, not once per string. A document is set in a
+                ; handful of faces and has hundreds of labels, and the same
+                ; sentence ninety times teaches a reader to skip the list.
+                if ((SceneToFig.listHas(saidFonts t.fontFamily)) == false) {
+                    push saidFonts t.fontFamily
+                    push losses ((t.fontFamily + " is not a font Figma ships, so the text is written in ") + family)
+                }
+            }
+            fn.put("family" (KiwiValue.fromString(family)))
+            def style:string "Regular"
+            if (t.fontWeight == "bold") {
+                style = "Bold"
+            }
+            if (t.fontWeight == "700") {
+                style = "Bold"
+            }
+            fn.put("style" (KiwiValue.fromString(style)))
+            fn.put("postscript" (KiwiValue.fromString("")))
+            o.put("fontName" fn)
+        }
+        if (t.lineHeight > 0.0) {
+            def lh:KiwiValue (KiwiValue.fromObject())
+            lh.put("value" (KiwiValue.fromDouble(t.lineHeight)))
+            lh.put("units" (KiwiValue.fromString("PIXELS")))
+            o.put("lineHeight" lh)
+        }
+        o.put("textAlignHorizontal" (KiwiValue.fromString((SceneToFig.alignOf(t.align)))))
+        ; WHETHER THE BOX HOLDS THE STRING OR THE STRING SIZES THE BOX. A label
+        ; written into a fixed box is re-broken by whoever opens the file, and
+        ; the box came from a layout that measured a DIFFERENT face: a heading
+        ; that was one line in the app wrapped onto two in the file and printed
+        ; over the line beneath it. A label that was one line stays one line.
+        if (t.autoResize == "both") {
+            o.put("textAutoResize" (KiwiValue.fromString("WIDTH_AND_HEIGHT")))
+        }
+        if (t.autoResize == "height") {
+            o.put("textAutoResize" (KiwiValue.fromString("HEIGHT")))
+        }
+    }
+
+    ; --- shapes ---------------------------------------------------------------
+
+    ; What Figma should call this node. A scene read from a `.fig` remembers,
+    ; and remembering is the only way an ELLIPSE survives a round trip — the
+    ; kind it was normalised to says "container" like everything else.
+    sfn typeOf:string (n:SceneNode) {
+        if ((strlen n.sourceType) > 0) {
+            return n.sourceType
+        }
+        if (n.kind == "text") {
+            return "TEXT"
+        }
+        if (n.kind == "image") {
+            return "RECTANGLE"
+        }
+        if (n.kind == "path") {
+            return "VECTOR"
+        }
+        if ((array_length n.children) > 0) {
+            return "FRAME"
+        }
+        if ((n.radius.any())) {
+            return "ROUNDED_RECTANGLE"
+        }
+        return "RECTANGLE"
+    }
+
+    sfn alignOf:string (a:string) {
+        if (a == "center") {
+            return "CENTER"
+        }
+        if (a == "right") {
+            return "RIGHT"
+        }
+        if (a == "justified") {
+            return "JUSTIFIED"
+        }
+        return "LEFT"
+    }
+
+    sfn nameOf:string (n:SceneNode fallback:string) {
+        if ((strlen n.name) > 0) {
+            return n.name
+        }
+        return fallback
+    }
+
+    sfn listHas:boolean (names:[string] want:string) {
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn esc:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if ((c == 34) || (c == 92)) {
+                out = (out + "\\")
+            }
+            out = (out + (substring s i (i + 1)))
+            i = (i + 1)
+        }
+        return out
+    }
+}

@@ -203,3 +203,6 @@ gallery/vfs/bin/
 # than an output: `picture.md` names it, the page's self test reads its size
 # out of the PNG header, and the deployed sample needs it beside the document.
 !gallery/markdown/fixtures/logo.png
+
+# Screens exported for inspection — regenerate with `npm run rt:evg`.
+gallery/realtrainer/out/

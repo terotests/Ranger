@@ -14,7 +14,7 @@
 ;   gallery/evg/gl/evg_gl_host.rgr    SDL2 + OpenGL, via the C++ target
 
 Import "../core/Utf8.rgr"
-Import "../jsx/JSXToEVG.rgr"
+Import "../core/EVGDocSource.rgr"
 Import "../core/EVGStyleLoader.rgr"
 Import "../fonts/EVGFontSetup.rgr"
 Import "../../../evg/EVGElement.rgr"
@@ -108,12 +108,9 @@ class EVGDisplayListTool {
         def fontSetup (new EVGFontSetup())
         fontSetup.init(inputDir fontsOverride)
 
-        def conv (new JSXToEVG())
-        conv.pageWidth = pageWidth
-        conv.pageHeight = pageHeight
-        def root:EVGElement (conv.parseFile(inputDir inputName))
+        def root:EVGElement (EVGDocSource.load(inputDir inputName pageWidth pageHeight))
         if (root.tagName == "") {
-            print "Error: no JSX content found"
+            print (("Error: could not read " + inputName) + " as a document")
             return
         }
 

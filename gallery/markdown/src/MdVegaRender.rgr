@@ -1,0 +1,567 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; MdVegaRender — a chart in a fence, drawn where the diagrams are drawn
+; ==============================================================================
+;
+; ````markdown
+; ```vega-lite
+; {"data": {"values": [{"a": "A", "b": 28}, {"a": "B", "b": 55}]},
+;  "mark": "bar",
+;  "encoding": {"x": {"field": "a", "type": "nominal"},
+;               "y": {"field": "b", "type": "quantitative"}}}
+; ```
+; ````
+;
+; `MdEmbedKinds` says a fence word earns its row only once something can DRAW
+; it. Vela is that something: a Vega-compatible runtime already in this
+; repository, already drawing the charts in a `.pptx`. This is the door
+; `D2Render` is for D2 — the reader exists, and what was missing was the step
+; that hands its output to the page.
+;
+; --- WHY IT PRODUCES A FlowScene ----------------------------------------------
+;
+; A chart is not a graph, and `FlowScene` is not a graph either: it is a flat
+; list of rects, texts and paths with a world rectangle around them — a display
+; list under a different name. Every one of markdown's diagram notations already
+; arrives that way, and everything downstream (the PDF, the deck, the GPU) reads
+; it. Emitting anything else would mean a second path through the renderer for
+; the one notation that is not a diagram.
+;
+; --- WHAT IS DRAWN, AND WHAT IS SAID ------------------------------------------
+;
+; Rects, text, lines, polylines, polygons, paths and symbols. An `arc` and an
+; `image` are counted rather than approximated: a pie drawn as rectangles is a
+; wrong chart, and a wrong chart is worse than an absent one because nobody
+; checks it. `MdDiagram.refusal` reads the count.
+; ==============================================================================
+
+Import "../../rangerflow/core/FlowScene.rgr"
+Import "../../vela/src/VlJson.rgr"
+Import "../../vela/src/VlCompile.rgr"
+Import "../../vela/src/VlRuntime.rgr"
+Import "../../vela/src/VlCommand.rgr"
+Import "../../vela/src/VlText.rgr"
+
+class MdVegaDrawing {
+    def ok:boolean false
+    def error:string ""
+    ; Marks this could not draw, by op, so the reason can name them.
+    def skipped:[string]
+    def scene:FlowScene (new FlowScene)
+
+    Constructor () {
+        def a:[string]
+        skipped = a
+    }
+}
+
+class MdVegaRender {
+
+    ; The fence, as a scene. `width` is what the page has to give it; the chart
+    ; keeps its own aspect and is scaled to fit rather than stretched, because a
+    ; stretched chart lies about its own proportions.
+    sfn sceneOf:FlowScene (text:string styleName:string width:double pad:double) {
+        def d:MdVegaDrawing (MdVegaRender.draw(text width pad))
+        return d.scene
+    } doc {
+        description "Runs a Vega or Vega-Lite spec and returns its marks as a scene."
+        param text "The fence's text: a Vega-Lite or Vega specification."
+        param styleName "The page's diagram style. Charts carry their own colours, so it is not read yet."
+        param width "The width the page can give the chart."
+        param pad "Padding around it."
+        returns "A scene of the chart's marks."
+    }
+
+    sfn draw:MdVegaDrawing (text:string width:double pad:double) {
+        def out (new MdVegaDrawing())
+        def parser (new VlJsonParser())
+        def spec:VlJson (parser.parse(text))
+        if (parser.ok == false) {
+            out.error = "that is not JSON"
+            return out
+        }
+        ; `compileSpec` takes Vega-Lite to Vega and passes Vega through, so one
+        ; door serves both and a reader does not have to know which they wrote.
+        def compiler (new VlCompile())
+        ; Level labels while they fit, turned when they do not — rather than
+        ; Vega-Lite's answer for a discrete bottom axis, which is to stand every
+        ; category name on end whatever the room. See `VlCompile.autoLabelAngle`
+        ; and `VlAxis.angleThatFits`.
+        compiler.autoLabelAngle = true
+        def vg:VlJson (compiler.compileSpec(spec))
+        def rt (new VlRuntime())
+        ; A document is not a comparison. Vega leaves crowded category names
+        ; level and lets them overprint; on a printed page that is a row of
+        ; words a reader cannot separate, so the axis turns them instead. A
+        ; spec that states its own `labelAngle` still gets what it asked for.
+        rt.autoLabelAngle = true
+        def mark:VlSceneMark (rt.run(vg))
+        def list:VlCommandList (VlSceneCommands.build(mark))
+        if ((array_length list.commands) == 0) {
+            out.error = "the spec produced no marks"
+            return out
+        }
+
+        def viewW:double (rt.viewWidth())
+        def viewH:double (rt.viewHeight())
+        if (viewW < 1.0) {
+            viewW = 400.0
+        }
+        if (viewH < 1.0) {
+            viewH = 300.0
+        }
+        def avail:double (width - (pad * 2.0))
+        if (avail < 1.0) {
+            avail = viewW
+        }
+        def scale:double (avail / viewW)
+        ; Never enlarged. A 200-point chart blown up to a 700-point column is
+        ; a chart with 3.5x line weights and text that looks like a heading.
+        if (scale > 1.0) {
+            scale = 1.0
+        }
+
+        def sc:FlowScene out.scene
+        sc.worldX = 0.0
+        sc.worldY = 0.0
+        sc.worldW = ((viewW * scale) + (pad * 2.0))
+        sc.worldH = ((viewH * scale) + (pad * 2.0))
+
+        ; A command's coordinates are the PLOT's, not the view's: the plot
+        ; rectangle starts at zero and the y axis' labels sit at negative x,
+        ; out to the left of it. The view is the plot plus what the axes take,
+        ; so the offset has to be added back or the axis labels land outside
+        ; the scene — which is exactly what happened: a chart whose numbers
+        ; were cut off at the left edge and whose caption sat against the
+        ; wrong side of it.
+        def padX:double (pad + ((rt.plotOriginX()) * scale))
+        def padY:double (pad + ((rt.plotOriginY()) * scale))
+
+        def i:int 0
+        while (i < (array_length list.commands)) {
+            def c:VlDrawCommand (itemAt list.commands i)
+            if (c.hidden == false) {
+                MdVegaRender.emit(out c scale padX padY)
+            }
+            i = (i + 1)
+        }
+        ; …and then the world is fitted to what was actually drawn. The view
+        ; Vela reports is the plot plus what each axis reserves ACROSS itself,
+        ; which is the right answer for level labels and short of it for turned
+        ; ones: a label on a slant reaches sideways as well as down, and the
+        ; first category of a crowded axis reached off the left of the page.
+        MdVegaRender.fit(sc pad)
+        out.ok = true
+        return out
+    }
+
+    ; Grow the scene's world rectangle until everything drawn is inside it.
+    ;
+    ; Nothing is moved: `FlowScene` draws its items against `worldX`/`worldY`,
+    ; so widening the world to the left is the same thing as shifting the
+    ; contents right, and it cannot get an item's own geometry wrong the way a
+    ; pass that rewrote every coordinate could.
+    sfn fit:void (sc:FlowScene pad:double) {
+        def n:int (array_length sc.items)
+        if (n == 0) {
+            return
+        }
+        def minX:double 0.0
+        def minY:double 0.0
+        def maxX:double 0.0
+        def maxY:double 0.0
+        def first:boolean true
+        def i:int 0
+        while (i < n) {
+            def it:SceneItem (itemAt sc.items i)
+            def box:[double] (MdVegaRender.boundsOf(it))
+            def bx0:double (itemAt box 0)
+            def by0:double (itemAt box 1)
+            def bx1:double (itemAt box 2)
+            def by1:double (itemAt box 3)
+            if first {
+                minX = bx0
+                minY = by0
+                maxX = bx1
+                maxY = by1
+                first = false
+            } {
+                if (bx0 < minX) { minX = bx0 }
+                if (by0 < minY) { minY = by0 }
+                if (bx1 > maxX) { maxX = bx1 }
+                if (by1 > maxY) { maxY = by1 }
+            }
+            i = (i + 1)
+        }
+        ; Only what is OUTSIDE grows the world, and it brings the padding with
+        ; it. Widening to `minX - pad` unconditionally reserved a second margin
+        ; beside a chart that already fitted, so every chart came out a little
+        ; wider than the width it was asked for.
+        if (minX < sc.worldX) {
+            def lo:double (minX - pad)
+            sc.worldW = (sc.worldW + (sc.worldX - lo))
+            sc.worldX = lo
+        }
+        if (minY < sc.worldY) {
+            def top:double (minY - pad)
+            sc.worldH = (sc.worldH + (sc.worldY - top))
+            sc.worldY = top
+        }
+        if (maxX > (sc.worldX + sc.worldW)) {
+            sc.worldW = ((maxX + pad) - sc.worldX)
+        }
+        if (maxY > (sc.worldY + sc.worldH)) {
+            sc.worldH = ((maxY + pad) - sc.worldY)
+        }
+    }
+
+    ; What one item covers, as [x0 y0 x1 y1] — and for a TURNED one, the box
+    ; its four corners need once they have been carried round the pivot, which
+    ; is the whole reason this exists: a label on a slant reaches down and to
+    ; the side, and its upright box says neither.
+    sfn boundsOf:[double] (it:SceneItem) {
+        def w:double it.w
+        def h:double it.h
+        def x:double it.x
+        if (it.kind == 1) {
+            h = (it.fontSize * 1.25)
+            ; The INK, not the box. A label's box is deliberately wider than
+            ; its string — see `emit`, where the width is an estimate and the
+            ; estimate has to be generous — so measuring the page by the boxes
+            ; would reserve a margin of empty space beside every chart and
+            ; shrink the drawing to make room for it.
+            def ink:double ((VlText.drawWidth(it.text it.fontSize)) * 1.25)
+            if (ink > w) {
+                ink = w
+            }
+            if (it.align == "center") {
+                x = (it.x + ((w - ink) * 0.5))
+            }
+            if (it.align == "right") {
+                x = ((it.x + w) - ink)
+            }
+            w = ink
+        }
+        def out:[double]
+        if (it.angle == 0.0) {
+            push out x
+            push out it.y
+            push out (x + w)
+            push out (it.y + h)
+            return out
+        }
+        def ox:double (it.x + (it.w * 0.5))
+        def oy:double (it.y + (h * 0.5))
+        if it.hasOrigin {
+            ox = (it.x + it.originX)
+            oy = (it.y + it.originY)
+        }
+        def rad:double ((it.angle * 3.141592653589793) / 180.0)
+        def cs:double (cos rad)
+        def sn:double (sin rad)
+        def xs:[double]
+        def ys:[double]
+        def cx:int 0
+        while (cx < 2) {
+            def cy:int 0
+            while (cy < 2) {
+                def px:double (x + ((to_double cx) * w))
+                def py:double (it.y + ((to_double cy) * h))
+                def dx:double (px - ox)
+                def dy:double (py - oy)
+                push xs (ox + ((dx * cs) - (dy * sn)))
+                push ys (oy + ((dx * sn) + (dy * cs)))
+                cy = (cy + 1)
+            }
+            cx = (cx + 1)
+        }
+        def x0:double (itemAt xs 0)
+        def y0:double (itemAt ys 0)
+        def x1:double x0
+        def y1:double y0
+        def k:int 1
+        while (k < (array_length xs)) {
+            def vx:double (itemAt xs k)
+            def vy:double (itemAt ys k)
+            if (vx < x0) { x0 = vx }
+            if (vx > x1) { x1 = vx }
+            if (vy < y0) { y0 = vy }
+            if (vy > y1) { y1 = vy }
+            k = (k + 1)
+        }
+        push out x0
+        push out y0
+        push out x1
+        push out y1
+        return out
+    }
+
+    sfn emit:void (out:MdVegaDrawing c:VlDrawCommand scale:double padX:double padY:double) {
+        def sc:FlowScene out.scene
+        if (c.op == "rect") {
+            def x:double (padX + (c.x * scale))
+            def y:double (padY + (c.y * scale))
+            def w:double (c.width * scale)
+            def h:double (c.height * scale)
+            ; A bar rounded to nothing is still a bar, but a bar with no size
+            ; is a gap in the chart — the runtime produces hairline rects for
+            ; rules and gridlines and they have to stay visible.
+            if (w < 0.5) {
+                w = 0.5
+            }
+            if (h < 0.5) {
+                h = 0.5
+            }
+            ; No fill means NO fill. Inventing one here painted the plot frame
+            ; — a rect with a stroke and an empty `fill` — solid blue across
+            ; the whole chart, which read as one enormous bar covering the
+            ; data. A default colour is a guess, and a guess that draws is
+            ; worse than one that does not.
+            if (c.hasFill == false) {
+                if (c.hasStroke == false) {
+                    return
+                }
+            }
+            def r:SceneItem (sc.rect(x y w h (MdVegaRender.fillOf(c))))
+            r.opacity = (c.opacity * c.fillOpacity)
+            if (c.cornerTL > 0.0) {
+                r.radius = (c.cornerTL * scale)
+            }
+            if c.hasStroke {
+                r.stroke = c.stroke
+                r.strokeWidth = (c.strokeWidth * scale)
+            }
+            r.tag = "chart"
+            return
+        }
+        if (c.op == "text") {
+            def tx:double (padX + ((c.x + c.dx) * scale))
+            def ty:double (padY + ((c.y + c.dy) * scale))
+            def size:double (c.fontSize * scale)
+            ; Text is the one mark that needs a colour when it names none:
+            ; a label with no fill is invisible, and Vega's own default for
+            ; text is black rather than nothing.
+            def ink:string (MdVegaRender.fillOf(c))
+            if ((strlen ink) == 0) {
+                ink = "#000000"
+            }
+            ; Vega ANCHORS a string at a point and says which way it hangs off
+            ; it; a scene item ALIGNS a string inside a box. An axis label
+            ; carrying `align: center` into a box of width zero comes out
+            ; left-aligned at the tick — every category name drawn half its own
+            ; width to the right of the bar it names, which is what the first
+            ; chart through this door did.
+            def al:string (MdVegaRender.align(c.align))
+            def wide:double (VlText.drawWidth(c.text size))
+            ; The box must never be NARROWER than the glyphs. `drawWidth` is an
+            ; ESTIMATE — one advance table for every sans face — and the face
+            ; that ends up drawing is wider than it by a third for lowercase
+            ; text, so a box measured to the estimate clips: "markdown" came
+            ; out as "markdo" on the first chart that had a long category in
+            ; it. Generous, therefore, and deliberately: an empty box paints
+            ; nothing, so the only cost of one too wide is nothing at all,
+            ; while one too narrow eats the end of a word. The ANCHOR stays
+            ; exact whatever the box is, because the alignment is what places
+            ; the string inside it — a right-aligned label ends at its tick
+            ; whether its box is forty pixels wide or four hundred.
+            def boxW:double ((wide * 2.0) + size)
+            def left:double tx
+            if (al == "center") {
+                left = (tx - (boxW * 0.5))
+            }
+            if (al == "right") {
+                left = (tx - boxW)
+            }
+            ; Vega places text on a BASELINE and names which one; a scene item
+            ; places it on the top of its line box. Taking every string for an
+            ; alphabetic baseline put the bottom axis' labels four fifths of a
+            ; line high, over the ticks they belong under.
+            def top:double (MdVegaRender.topOf(ty size c.baseline))
+            def t:SceneItem (sc.text(c.text left top boxW size ink))
+            t.align = al
+            ; The box is an estimate; the label is not. A chart's runtime has
+            ; already decided where this string breaks, so the box may place it
+            ; but must never rewrap it.
+            t.nowrap = true
+            ; Turned labels: an axis too crowded to write its categories flat
+            ; writes them on a slant, and the scene item turns about the same
+            ; anchor Vega rotates about — its own box, which is why the box
+            ; above has to be the label's and not the column's.
+            if (c.angle != 0.0) {
+                t.angle = c.angle
+                t.originX = (tx - left)
+                t.originY = (ty - top)
+                t.hasOrigin = true
+            }
+            if (c.fontWeight == "bold") {
+                t.bold = true
+            }
+            if ((strlen c.font) > 0) {
+                t.fontFamily = c.font
+            }
+            t.opacity = c.opacity
+            t.tag = "chart"
+            return
+        }
+        if (c.op == "path") {
+            if ((strlen c.pathData) == 0) {
+                push out.skipped c.op
+                return
+            }
+            def none:[double]
+            def p:SceneItem (sc.path(none c.pathData (MdVegaRender.stroke(c)) (c.strokeWidth * scale)))
+            p.tag = "chart"
+            ; A path's own coordinates are the runtime's, so the scene item
+            ; carries the offset rather than the points being rewritten.
+            p.x = padX
+            p.y = padY
+            if c.hasFill {
+                p.fill = c.fill
+            }
+            return
+        }
+        ; A group is a coordinate system, not a shape. Its children already
+        ; carry its offset, so there is nothing here to draw — and nothing to
+        ; report either: counted as marks this could not draw, every chart
+        ; arrived with two dozen apologies attached to it.
+        if ((c.op == "group-begin") || (c.op == "group-end")) {
+            return
+        }
+        if (((c.op == "line") || (c.op == "polyline")) || (c.op == "trail")) {
+            def pts:[double] (MdVegaRender.pointsOf(c scale padX padY))
+            ; A SEGMENT — one tick, one axis rule — is two points Vega writes
+            ; as `x,y` and `x2,y2` rather than as a list. Read as a list it is
+            ; empty, and every axis came out with no ticks and no domain line
+            ; while the labels beside them were drawn.
+            if ((array_length pts) == 0) {
+                push pts (padX + (c.x * scale))
+                push pts (padY + (c.y * scale))
+                push pts (padX + (c.x2 * scale))
+                push pts (padY + (c.y2 * scale))
+            }
+            if ((array_length pts) < 4) {
+                push out.skipped c.op
+                return
+            }
+            def l:SceneItem (sc.path(pts "" (MdVegaRender.stroke(c)) (c.strokeWidth * scale)))
+            l.d = (FlowScene.polygonPath(l.pts false))
+            l.opacity = c.opacity
+            l.tag = "chart"
+            return
+        }
+        if (c.op == "polygon") {
+            def poly:[double] (MdVegaRender.pointsOf(c scale padX padY))
+            if ((array_length poly) < 6) {
+                push out.skipped c.op
+                return
+            }
+            if (c.hasFill == false) {
+                push out.skipped c.op
+                return
+            }
+            def g:SceneItem (sc.polygon(poly (MdVegaRender.fillOf(c))))
+            g.opacity = (c.opacity * c.fillOpacity)
+            g.tag = "chart"
+            return
+        }
+        if (c.op == "symbol") {
+            ; A point mark. Its `size` is an AREA in Vega, which is why this
+            ; takes a square root rather than treating it as a width — a
+            ; scatter plot sized by the number would have dots an order of
+            ; magnitude too big.
+            def side:double ((MdVegaRender.squareRoot(c.size)) * scale)
+            if (side < 1.0) {
+                side = 1.0
+            }
+            def half:double (side * 0.5)
+            def sx:double ((padX + (c.x * scale)) - half)
+            def sy:double ((padY + (c.y * scale)) - half)
+            def s:SceneItem (sc.rect(sx sy side side (MdVegaRender.fillOf(c))))
+            if (c.shape != "square") {
+                s.radius = half
+            }
+            s.opacity = (c.opacity * c.fillOpacity)
+            if c.hasStroke {
+                s.stroke = c.stroke
+                s.strokeWidth = (c.strokeWidth * scale)
+            }
+            s.tag = "chart"
+            return
+        }
+        ; An arc drawn as anything else is a wrong chart, and a wrong chart is
+        ; worse than an absent one because nobody checks it.
+        push out.skipped c.op
+    }
+
+    sfn pointsOf:[double] (c:VlDrawCommand scale:double padX:double padY:double) {
+        def out:[double]
+        def i:int 0
+        while ((i + 1) < (array_length c.points)) {
+            push out (padX + ((itemAt c.points i) * scale))
+            push out (padY + ((itemAt c.points (i + 1)) * scale))
+            i = (i + 2)
+        }
+        return out
+    }
+
+    ; The command's own fill, or "" when it has none. Never a substitute.
+    sfn fillOf:string (c:VlDrawCommand) {
+        if (c.hasFill == false) {
+            return ""
+        }
+        return c.fill
+    }
+
+    sfn stroke:string (c:VlDrawCommand) {
+        if c.hasStroke {
+            if ((strlen c.stroke) > 0) {
+                return c.stroke
+            }
+        }
+        return "#333333"
+    }
+
+    ; Where the top of a scene item's line box goes, for the baseline Vega
+    ; named. `middle` is a y-axis label centred on its tick, `top` a bottom-axis
+    ; label hanging under the plot, `bottom` a title sitting on a line.
+    sfn topOf:double (y:double size:double baseline:string) {
+        if (baseline == "top") {
+            return y
+        }
+        if (baseline == "middle") {
+            return (y - (size * 0.5))
+        }
+        if (baseline == "bottom") {
+            return (y - size)
+        }
+        ; "alphabetic", and anything this does not know: the baseline sits about
+        ; four fifths of the way down the em box.
+        return (y - (size * 0.8))
+    }
+
+    sfn align:string (a:string) {
+        if (a == "center") {
+            return "center"
+        }
+        if (a == "right") {
+            return "right"
+        }
+        return "left"
+    }
+
+    ; Newton's method, because there is no `sqrt` to reach for here and a
+    ; symbol's side is the only thing that needs one.
+    sfn squareRoot:double (v:double) {
+        if (v <= 0.0) {
+            return 0.0
+        }
+        def x:double v
+        def i:int 0
+        while (i < 24) {
+            x = ((x + (v / x)) * 0.5)
+            i = (i + 1)
+        }
+        return x
+    }
+}

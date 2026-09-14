@@ -241,6 +241,13 @@ class VlCompile {
     ; that only knows its own half of the tree cannot find it. Every child is
     ; given this, so the search is over the chart rather than over the layer.
     def rootSource:VlJson (new VlJson)
+    ; Let a crowded bottom axis decide its own label angle instead of taking
+    ; the reference's answer for a discrete scale, which is to stand every
+    ; category name on end. OFF by default — Vela compiles what Vega-Lite
+    ; compiles — and turned on by a caller drawing into a document. It reaches
+    ; the axis as `"labelAngle": "auto"`, which `VlAxis` resolves once it knows
+    ; how much room each label has.
+    def autoLabelAngle:boolean false
     def markName:string "point"
     def markDef:VlJson (new VlJson)
     def stackField:string ""
@@ -813,6 +820,7 @@ class VlCompile {
         def probeIndex:int 0
         while (probeIndex < total) {
             def probe (new VlCompile())
+            probe.autoLabelAngle = autoLabelAngle
             probe.rootSource = rootSource
             probe.source = (VlCompile.mergeSpec(src (layers.at(probeIndex))))
             probe.readMark()
@@ -850,6 +858,7 @@ class VlCompile {
         def index:int 0
         while (index < total) {
             def child (new VlCompile())
+            child.autoLabelAngle = autoLabelAngle
             child.rootSource = rootSource
             ; A layer inside a layer names its data and its marks after the
             ; whole path down to it. Named after its own index alone, the
@@ -1923,6 +1932,7 @@ class VlCompile {
         def panelScales:boolean ((array_length apart) > 0)
 
         def child (new VlCompile())
+        child.autoLabelAngle = autoLabelAngle
         child.rootSource = rootSource
         child.insidePanel = true
         child.widthSignal = "child_width"
@@ -2816,6 +2826,7 @@ class VlCompile {
                 return none
             }
             def sizer (new VlCompile())
+            sizer.autoLabelAngle = autoLabelAngle
             sizer.rootSource = rootSource
             sizer.source = pane
             sizer.readMark()
@@ -2910,6 +2921,7 @@ class VlCompile {
             ; are both called `concat_0_` and quietly share a scale.
             def label:string ((prefix + ("concat_" + (VlJson.intToText(index)))) + "_")
             def child (new VlCompile())
+            child.autoLabelAngle = autoLabelAngle
             child.rootSource = rootSource
             child.prefix = label
             ; The pane's rows are numbered from the PANE's name, not from the
@@ -3522,6 +3534,7 @@ class VlCompile {
     ; band-ness already, so there is nothing to settle there.
     fn resizeAcrossLayers:void (out:VlJson src:VlJson layers:VlJson bandX:boolean bandY:boolean) {
         def sizer (new VlCompile())
+        sizer.autoLabelAngle = autoLabelAngle
         sizer.rootSource = rootSource
         sizer.source = (VlCompile.mergeSpec(src (VlCompile.unionOfLayers(layers))))
         if bandX {
@@ -9330,6 +9343,14 @@ class VlCompile {
         if (! (a.has("labelAngle"))) {
             return
         }
+        ; "auto" is not an angle. Which way the labels face is not known until
+        ; the axis has measured them against the room they have, so nothing is
+        ; written down here — including the anchoring, which follows from the
+        ; angle and would otherwise pin a turned label's alignment onto one
+        ; that came out level.
+        if ((a.get("labelAngle")).isString()) {
+            return
+        }
         ; An angle is a direction, not a number of turns: the reference writes
         ; a quarter turn back as 315 and not as -45, and two labels that face
         ; the same way have to be written the same way.
@@ -9930,7 +9951,17 @@ class VlCompile {
                     ; took a hundred and fifty pixels of page with them.
                     if (! (a.has("labelAngle"))) {
                         if (! (this.axisStates(orient "labelAngle"))) {
-                            a.setMember("labelAngle" (VlJson.numberValue(270.0)))
+                            ; …and a caller drawing into a DOCUMENT rather than
+                            ; against the reference asks for the third answer:
+                            ; level while the names fit side by side, turned
+                            ; when they stop fitting. A page of charts whose
+                            ; every category name stands on end reads worse
+                            ; than one where only the crowded axes do.
+                            if autoLabelAngle {
+                                a.setMember("labelAngle" (VlJson.stringValue("auto")))
+                            } {
+                                a.setMember("labelAngle" (VlJson.numberValue(270.0)))
+                            }
                         }
                     }
                 } {

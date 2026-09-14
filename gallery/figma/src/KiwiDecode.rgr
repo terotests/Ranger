@@ -132,14 +132,21 @@ class KiwiEncode {
     def bb:KiwiBuffer (new KiwiBuffer())
     def ok:boolean true
     def err:string ""
+    ; Fields the caller set that the schema does not declare, as
+    ; "Message.field". See `noteDropped`.
+    def dropped:[string]
 
     Constructor () {
+        def d:[string]
+        dropped = d
     }
 
     fn init:void (s:KiwiSchema) {
         schema = s
         ok = true
         err = ""
+        def d:[string]
+        dropped = d
         bb.init((buffer_alloc 256))
     }
 
@@ -239,5 +246,44 @@ class KiwiEncode {
             i = (i + 1)
         }
         bb.writeVarUint(0)
+        this.noteDropped(d v)
+    }
+
+    ; WHAT THE SCHEMA HAD NO ROOM FOR. Encoding walks the schema, so a field
+    ; the caller set and the schema does not declare is not an error and not a
+    ; warning — it simply does not reach the file. Two of them were found the
+    ; long way round: a label's `textAutoResize` and its `lineHeight` were both
+    ; written and both dropped, and the tell was a heading that came back
+    ; wrapped onto two lines. Noted by name so the next one is found by reading
+    ; a list instead.
+    fn noteDropped:void (d:KiwiDef v:KiwiValue) {
+        def vn:int (array_length v.fieldNames)
+        def i:int 0
+        while (i < vn) {
+            def name:string (itemAt v.fieldNames i)
+            def known:boolean false
+            def j:int 0
+            while (j < (array_length d.fields)) {
+                def f:KiwiField (itemAt d.fields j)
+                if (f.name == name) {
+                    known = true
+                }
+                j = (j + 1)
+            }
+            if (known == false) {
+                def seen:boolean false
+                def k:int 0
+                while (k < (array_length dropped)) {
+                    if ((itemAt dropped k) == ((d.name + ".") + name)) {
+                        seen = true
+                    }
+                    k = (k + 1)
+                }
+                if (seen == false) {
+                    push dropped ((d.name + ".") + name)
+                }
+            }
+            i = (i + 1)
+        }
     }
 }

@@ -1,0 +1,307 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdVegaTest.rgr — a chart in a fence, and where its labels end up.
+; ============================================================================
+;
+;   npm run markdown:vega:test
+;
+; A ```vega fence goes through the same door every other drawable fence uses,
+; so most of what could be wrong with it is wrong in ONE of three places, and
+; each of the three is checked here by asking about the scene rather than about
+; the picture:
+;
+;   the table    `vega`, `vega-lite` and `vegalite` name the same reader, and
+;                a fence word that names a LANGUAGE still names no drawing
+;   the marks    a bar chart arrives as rectangles and strings, and a mark
+;                nothing here can draw — an arc — is REPORTED rather than
+;                approximated, because a pie drawn as rectangles is a wrong
+;                chart and a wrong chart is worse than an absent one
+;   the labels   a category name is centred under its own bar while the names
+;                fit side by side, and turned when they stop fitting — and
+;                whatever it does, it stays inside the scene it was drawn into
+;
+; The last of those is the one that needed a test. A label is placed by
+; ANCHORING it — Vega gives a point and says which way the string hangs off it
+; — and a scene item is placed by a BOX. Getting between the two wrongly is
+; invisible in every structural check and obvious in the picture: the first
+; chart through this door drew every category name half its own width to the
+; right of the bar it named.
+; ============================================================================
+
+Import "../src/MdVegaRender.rgr"
+Import "../src/MdEmbedKinds.rgr"
+Import "../src/MdDiagram.rgr"
+
+class VegaCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print (("    got  " + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+
+    fn eqNum:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.001) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print (("    got  " + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+}
+
+class MdVegaTest {
+    sfn main:void () {
+        def t (new MdVegaTest())
+        t.run()
+    }
+
+    ; Four short category names in a plot wide enough for them.
+    sfn barSpec:string () {
+        return "{\"width\": 420, \"height\": 220, \"data\": {\"values\": [{\"m\": \"evg\", \"n\": 2317}, {\"m\": \"figma\", \"n\": 1180}, {\"m\": \"markdown\", \"n\": 310}, {\"m\": \"pptx\", \"n\": 140}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"m\", \"type\": \"nominal\"}, \"y\": {\"field\": \"n\", \"type\": \"quantitative\"}}}"
+    }
+
+    ; Six long ones in the same plot, which do not fit side by side.
+    sfn crowdedSpec:string () {
+        return "{\"width\": 420, \"height\": 220, \"data\": {\"values\": [{\"m\": \"authentication\", \"n\": 231}, {\"m\": \"serialization\", \"n\": 118}, {\"m\": \"documentation\", \"n\": 310}, {\"m\": \"observability\", \"n\": 140}, {\"m\": \"configuration\", \"n\": 96}, {\"m\": \"orchestration\", \"n\": 205}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"m\", \"type\": \"nominal\"}, \"y\": {\"field\": \"n\", \"type\": \"quantitative\"}}}"
+    }
+
+    sfn pieSpec:string () {
+        return "{\"width\": 300, \"height\": 300, \"data\": {\"values\": [{\"k\": \"a\", \"n\": 4}, {\"k\": \"b\", \"n\": 6}]}, \"mark\": \"arc\", \"encoding\": {\"theta\": {\"field\": \"n\", \"type\": \"quantitative\"}, \"color\": {\"field\": \"k\", \"type\": \"nominal\"}}}"
+    }
+
+    fn words:void (c:VegaCheck) {
+        print "-- the fence words --"
+        c.eqStr("vega" (MdEmbedKinds.notationOf("vega")) "vega")
+        c.eqStr("vega-lite" (MdEmbedKinds.notationOf("vega-lite")) "vega")
+        c.eqStr("vegalite" (MdEmbedKinds.notationOf("vegalite")) "vega")
+        c.eqStr("its name" (MdEmbedKinds.notationWord("vega-lite")) "Vega")
+        c.ok("a drawing" (MdEmbedKinds.isDrawing("vega-lite")))
+        ; A language is still a language. `vega` naming a drawing must not turn
+        ; every fence that mentions a chart library into a slot.
+        c.eqStr("javascript is not one" (MdEmbedKinds.notationOf("javascript")) "")
+    }
+
+    fn marks:void (c:VegaCheck) {
+        print "-- the marks --"
+        def d:MdVegaDrawing (MdVegaRender.draw((MdVegaTest.barSpec()) 520.0 10.0))
+        c.eqStr("it read" d.error "")
+        c.ok("it drew" d.ok)
+        c.eqInt("nothing was skipped" (array_length d.skipped) 0)
+        def bars:int 0
+        def labels:int 0
+        def i:int 0
+        while (i < (array_length d.scene.items)) {
+            def it:SceneItem (itemAt d.scene.items i)
+            if (it.kind == 0) {
+                ; FILLED rectangles. The plot frame is a rectangle too — a
+                ; stroke and no fill — and counting it as a bar would let a
+                ; chart that painted the whole plot area pass, which is the
+                ; exact failure this door had on its first run.
+                if ((strlen it.fill) > 0) {
+                    bars = (bars + 1)
+                }
+            }
+            if (it.kind == 1) {
+                labels = (labels + 1)
+            }
+            i = (i + 1)
+        }
+        ; Four bars, and the plot frame is not one of them: it has no fill, and
+        ; a rectangle with neither fill nor stroke is not drawn. Painting it
+        ; with a default colour filled the whole plot — one enormous bar over
+        ; the data.
+        c.eqInt("four bars" bars 4)
+        c.ok("and its labels" (labels > 4))
+        ; The scene is asked for at a width, and it keeps to it.
+        c.ok("inside the width it was given" (d.scene.worldW <= 521.0))
+
+        ; The door `MdDiagram` dispatches through is the same one.
+        def sc:FlowScene (MdDiagram.sceneFor("vega" (MdVegaTest.barSpec()) "default" 520.0 10.0))
+        c.ok("through MdDiagram too" ((array_length sc.items) > 4))
+    }
+
+    ; What it cannot draw, it says.
+    fn refused:void (c:VegaCheck) {
+        print "-- what it will not approximate --"
+        def d:MdVegaDrawing (MdVegaRender.draw((MdVegaTest.pieSpec()) 520.0 10.0))
+        def sawArc:boolean false
+        def i:int 0
+        while (i < (array_length d.skipped)) {
+            if ((itemAt d.skipped i) == "arc") {
+                sawArc = true
+            }
+            i = (i + 1)
+        }
+        c.ok("an arc is counted" sawArc)
+        def why:string (MdDiagram.refusal("vega" (MdVegaTest.pieSpec())))
+        c.ok("and named" ((strlen why) > 0))
+        c.ok("by its own op" (MdVegaTest.mentions(why "arc")))
+    }
+
+    ; A label sits under the bar it names — which is what a box of width zero
+    ; could not do, because an alignment needs something to align inside.
+    fn centred:void (c:VegaCheck) {
+        print "-- level labels, centred on their ticks --"
+        def d:MdVegaDrawing (MdVegaRender.draw((MdVegaTest.barSpec()) 520.0 10.0))
+        def names:[string]
+        push names "evg"
+        push names "figma"
+        push names "markdown"
+        push names "pptx"
+        def ni:int 0
+        while (ni < (array_length names)) {
+            def want:string (itemAt names ni)
+            def label:SceneItem (MdVegaTest.textNamed(d.scene want))
+            c.ok((want + " was drawn") ((strlen label.text) > 0))
+            c.eqStr((want + " is centred") label.align "center")
+            c.eqNum((want + " is level") label.angle 0.0)
+            def mid:double (label.x + (label.w * 0.5))
+            ; …over the bar it names, whichever one that is: the labels are in
+            ; the scale's order and the bars in the data's, so the check is
+            ; that SOME bar holds the label's centre, not that the n-th does.
+            c.ok((want + " is over a bar") (MdVegaTest.overABar(d.scene mid)))
+            ni = (ni + 1)
+        }
+    }
+
+    ; …and turned when they stop fitting, rather than printed over each other.
+    fn turned:void (c:VegaCheck) {
+        print "-- crowded labels, turned to fit --"
+        def d:MdVegaDrawing (MdVegaRender.draw((MdVegaTest.crowdedSpec()) 520.0 10.0))
+        def label:SceneItem (MdVegaTest.textNamed(d.scene "authentication"))
+        c.ok("the long name was drawn" ((strlen label.text) > 0))
+        c.eqNum("on a slant" label.angle -45.0)
+        ; Anchored where it meets its tick, and turned about that same point:
+        ; a right-aligned label turned about the middle of its box slides half
+        ; its own length along the axis.
+        c.ok("about its anchor" label.hasOrigin)
+        c.eqStr("hanging by its end" label.align "right")
+        ; …and the whole of it is inside the scene. A turned label reaches
+        ; sideways as well as down, which the view Vela reports does not
+        ; account for: the first category ran off the left of the page.
+        c.ok("nothing outside the scene" (MdVegaTest.allInside(d.scene)))
+    }
+
+    ; --- the small answers ----------------------------------------------------
+
+    sfn textNamed:SceneItem (sc:FlowScene want:string) {
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def it:SceneItem (itemAt sc.items i)
+            if (it.kind == 1) {
+                if (it.text == want) {
+                    return it
+                }
+            }
+            i = (i + 1)
+        }
+        return (new SceneItem())
+    }
+
+    sfn overABar:boolean (sc:FlowScene x:double) {
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def it:SceneItem (itemAt sc.items i)
+            if (it.kind == 0) {
+                if (x >= it.x) {
+                    if (x <= (it.x + it.w)) {
+                        return true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn allInside:boolean (sc:FlowScene) {
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def it:SceneItem (itemAt sc.items i)
+            def box:[double] (MdVegaRender.boundsOf(it))
+            if ((itemAt box 0) < sc.worldX) {
+                return false
+            }
+            if ((itemAt box 1) < sc.worldY) {
+                return false
+            }
+            if ((itemAt box 2) > (sc.worldX + sc.worldW)) {
+                return false
+            }
+            if ((itemAt box 3) > (sc.worldY + sc.worldH)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    sfn mentions:boolean (hay:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen hay)
+        if (n == 0) {
+            return true
+        }
+        def i:int 0
+        while ((i + n) <= m) {
+            if ((substring hay i (i + n)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn run:void () {
+        def c (new VegaCheck())
+        print "== MdVegaTest =="
+        this.words(c)
+        this.marks(c)
+        this.refused(c)
+        this.centred(c)
+        this.turned(c)
+        print ""
+        print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

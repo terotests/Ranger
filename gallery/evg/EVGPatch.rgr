@@ -1,0 +1,1289 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGPatch — the only way an agent is allowed to change a tree
+; ==============================================================================
+;
+; An LLM that edits a document needs three things this engine already has:
+; a stable address for a node, a change that is validated before it lands, and
+; a way to put it back. This is the second and third of those.
+;
+; The rule the whole file exists to enforce: THE MODEL NEVER WRITES CODE INTO
+; THE DOCUMENT. It writes ops — `set-prop`, `set-text`, `insert`, `remove`,
+; `move` — each addressed by an `EVGInspect` path, each validated against the
+; engine's real property set, and each carrying its own inverse. The worst a
+; bad generation can do is be rejected.
+;
+; --- VALIDATION IS NOT A LIST HERE --------------------------------------------
+;
+; There is no whitelist of property names in this file, and that is deliberate:
+; a second list would drift from the first. `EVGElement.setAttribute` already
+; ends with `EVGReject.note("unknown property" …)` for anything it does not
+; implement, so the engine itself is the validator. A `set-prop` clears nothing
+; and counts nothing global: it reads `EVGReject.noteTotal()` before and after,
+; and a note that appeared during the write is the rejection.
+;
+; What this file DOES enumerate is the readable set — `readProp` — because an
+; op has to be invertible before it is allowed to apply. That is the stronger
+; rule and it is the one worth stating: **an op that cannot be undone is not
+; applied**. So the patchable set is exactly the set this file can read back,
+; and a property outside it is rejected with that as the reason rather than
+; applied and lost.
+;
+; --- ALL OR NOTHING -----------------------------------------------------------
+;
+; A rejected op rolls the whole patch back. "3 of 5 applied" hands the caller a
+; document in a state nobody designed and a diff nobody asked for; the agent
+; then has to work out which 3. Failing the batch keeps the document exactly as
+; it was, and the reason says which op and why.
+;
+; --- ADDRESSES ARE REBUILT, NOT CACHED ----------------------------------------
+;
+; `insert`, `remove` and `move` change what every later path means, so the
+; `EVGInspect` index is rebuilt before each op rather than once per patch. That
+; is O(n) per op and it is the right trade at this size: the alternative is a
+; path-rewriting scheme that is wrong in exactly the cases — an unkeyed sibling
+; shifting under an insert — that the inspector's own doc comment warns about.
+;
+; --- PARENTS ------------------------------------------------------------------
+;
+; `EVGElement.addChild` deliberately keeps no `parent` back-reference (it broke
+; the C++ backend — see its comment). So nothing here reads `el.parent`. The
+; parent of a node is its path with the last segment removed, which is what
+; `EVGInspect` already tracks, and structural ops go through the parent element
+; found that way.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGInspect.rgr"
+Import "EVGReject.rgr"
+Import "EVGUnit.rgr"
+Import "EVGColor.rgr"
+Import "EVGDisplayList.rgr"
+
+; One edit. Built through the static helpers below rather than by hand, so the
+; fields that do not apply to a given op stay at their defaults.
+class EVGPatchOp {
+    def op:string ""
+    def at:string ""
+    def prop:string ""
+    def value:string ""
+    def toPath:string ""
+    def index:int 0
+    def tag:string ""
+    ; `restore` only: which detached subtree in the result's stash to put back.
+    def stash:int 0
+
+    Constructor () {}
+
+    sfn setProp:EVGPatchOp (at:string prop:string value:string) {
+        def o (new EVGPatchOp())
+        o.op = "set-prop"
+        o.at = at
+        o.prop = prop
+        o.value = value
+        return o
+    }
+
+    sfn setText:EVGPatchOp (at:string value:string) {
+        def o (new EVGPatchOp())
+        o.op = "set-text"
+        o.at = at
+        o.value = value
+        return o
+    }
+
+    sfn insertNode:EVGPatchOp (at:string index:int tag:string) {
+        def o (new EVGPatchOp())
+        o.op = "insert"
+        o.at = at
+        o.index = index
+        o.tag = tag
+        return o
+    }
+
+    sfn removeNode:EVGPatchOp (at:string) {
+        def o (new EVGPatchOp())
+        o.op = "remove"
+        o.at = at
+        return o
+    }
+
+    sfn move:EVGPatchOp (at:string toPath:string index:int) {
+        def o (new EVGPatchOp())
+        o.op = "move"
+        o.at = at
+        o.toPath = toPath
+        o.index = index
+        return o
+    }
+
+    sfn restore:EVGPatchOp (at:string index:int stash:int) {
+        def o (new EVGPatchOp())
+        o.op = "restore"
+        o.at = at
+        o.index = index
+        o.stash = stash
+        return o
+    }
+
+    fn describe:string () {
+        def s:string op
+        s = ((s + " ") + at)
+        if ((strlen prop) > 0) {
+            s = ((s + " ") + prop)
+        }
+        if ((strlen value) > 0) {
+            s = ((s + "=") + value)
+        }
+        return s
+    }
+}
+
+; What a patch did, and everything needed to undo it.
+;
+; `inverse` is in APPLY order, so undoing means walking it backwards. That is
+; stated here because the alternative — storing it pre-reversed — reads fine
+; until a caller appends two patches' inverses together and the seam is wrong.
+class EVGPatchResult {
+    def ok:boolean true
+    def applied:int 0
+    def inverse:[EVGPatchOp]
+    def rejected:[string]
+    ; Subtrees taken out by `remove`, kept alive so `restore` can put them back.
+    def stash:[EVGElement]
+
+    Constructor () {
+        def a:[EVGPatchOp]
+        inverse = a
+        def b:[string]
+        rejected = b
+        def c:[EVGElement]
+        stash = c
+    }
+
+    fn reason:string () {
+        if ((array_length rejected) == 0) {
+            return ""
+        }
+        return (itemAt rejected 0)
+    }
+}
+
+class EVGPatch {
+    def insp:EVGInspect
+    def res:EVGPatchResult
+    ; Off while rolling back: an undo must not record an undo of itself.
+    def recording:boolean true
+
+    Constructor () {
+        insp = (new EVGInspect())
+        res = (new EVGPatchResult())
+    }
+
+    ; --- the entry point ------------------------------------------------------
+
+    fn apply:EVGPatchResult (root:EVGElement ops:[EVGPatchOp]) {
+        def out (new EVGPatchResult())
+        res = out
+        recording = true
+        def i:int 0
+        while (i < (array_length ops)) {
+            def op:EVGPatchOp (itemAt ops i)
+            def why:string (this.applyOne(root op))
+            if ((strlen why) > 0) {
+                def msg:string ((((("op " + (to_string i)) + " (") + (op.describe())) + "): ") + why)
+                push out.rejected msg
+                this.rollback(root)
+                out.ok = false
+                out.applied = 0
+                return out
+            }
+            out.applied = (out.applied + 1)
+            i = (i + 1)
+        }
+        return out
+    } doc {
+        description "Applies ops to a tree, all or nothing, recording an inverse for each."
+        param root "The tree to edit."
+        param ops "The edits, applied in order."
+        returns "What was applied, why it was not, and how to undo it."
+    }
+
+    ; Walk the recorded inverse backwards. Used on rejection, and callable by a
+    ; host that wants an undo button.
+    fn rollback:void (root:EVGElement) {
+        recording = false
+        def i:int ((array_length res.inverse) - 1)
+        while (i >= 0) {
+            def op:EVGPatchOp (itemAt res.inverse i)
+            def ignored:string (this.applyOne(root op))
+            i = (i - 1)
+        }
+        recording = true
+    } doc {
+        description "Undoes an applied patch, newest edit first."
+        param root "The tree the patch was applied to."
+    }
+
+    ; --- one op ---------------------------------------------------------------
+    ;
+    ; Returns "" when it applied, and the reason when it did not. Nothing here
+    ; throws: a rejection is data the caller shows the model, not an exception.
+
+    fn applyOne:string (root:EVGElement op:EVGPatchOp) {
+        insp.build(root)
+        if (op.op == "set-prop") {
+            return (this.doSetProp(op))
+        }
+        if (op.op == "set-text") {
+            return (this.doSetText(op))
+        }
+        if (op.op == "insert") {
+            return (this.doInsert(op))
+        }
+        if (op.op == "remove") {
+            return (this.doRemove(op))
+        }
+        if (op.op == "move") {
+            return (this.doMove(op))
+        }
+        if (op.op == "restore") {
+            return (this.doRestore(op))
+        }
+        return ("unknown op \"" + (op.op + "\""))
+    }
+
+    fn record:void (op:EVGPatchOp) {
+        if recording {
+            push res.inverse op
+        }
+    }
+
+    ; --- set-prop -------------------------------------------------------------
+
+    fn doSetProp:string (op:EVGPatchOp) {
+        def hit@(optional):EVGElement (insp.elementAt(op.at))
+        if (null? hit) {
+            return (this.noSuchNode(op.at))
+        }
+        def el:EVGElement (unwrap hit)
+        def name:string (EVGElement.toKebab(op.prop))
+        if ((EVGPatch.readable(name)) == false) {
+            return ((("property \"" + name) + "\" is not patchable — nothing here can read it back, so the edit could not be undone"))
+        }
+        def before:string (EVGPatch.readProp(el name))
+        def wasInline:boolean (el.hasInline(name))
+        def notesBefore:int (EVGReject.noteTotal())
+        if (EVGReject.isAbsent(op.value)) {
+            def cleared:boolean (EVGPatch.clearProp(el name))
+            if (cleared == false) {
+                return ((("property \"" + name) + "\" cannot be cleared"))
+            }
+            el.unmarkInline(name)
+        } {
+            el.setAttribute(name op.value)
+            el.markInline(name)
+        }
+        def notesAfter:int (EVGReject.noteTotal())
+        if (notesAfter > notesBefore) {
+            def last:int ((EVGReject.noteCount()) - 1)
+            def why:string "rejected by the engine"
+            if (last >= 0) {
+                why = (EVGReject.noteAt(last))
+            }
+            ; Put it back exactly as it was before complaining.
+            def undo:boolean (EVGPatch.clearProp(el name))
+            if ((strlen before) > 0) {
+                el.setAttribute(name before)
+            }
+            if (wasInline == false) {
+                el.unmarkInline(name)
+            }
+            return why
+        }
+        def inv:EVGPatchOp (EVGPatchOp.setProp(op.at name before))
+        this.record(inv)
+        return ""
+    }
+
+    ; --- set-text -------------------------------------------------------------
+
+    fn doSetText:string (op:EVGPatchOp) {
+        def hit@(optional):EVGElement (insp.elementAt(op.at))
+        if (null? hit) {
+            return (this.noSuchNode(op.at))
+        }
+        def el:EVGElement (unwrap hit)
+        if ((array_length el.children) > 0) {
+            return "set-text on a node with children — remove them first, or write to the child that holds the text"
+        }
+        def before:string el.textContent
+        el.textContent = op.value
+        def inv:EVGPatchOp (EVGPatchOp.setText(op.at before))
+        this.record(inv)
+        return ""
+    }
+
+    ; --- insert ---------------------------------------------------------------
+
+    fn doInsert:string (op:EVGPatchOp) {
+        def hit@(optional):EVGElement (insp.elementAt(op.at))
+        if (null? hit) {
+            return (this.noSuchNode(op.at))
+        }
+        def parent:EVGElement (unwrap hit)
+        def made@(optional):EVGElement (EVGPatch.create(op.tag))
+        if (null? made) {
+            return ((("no element type for tag \"" + op.tag) + "\" — div, span, img or path"))
+        }
+        def kid:EVGElement (unwrap made)
+        def at:int (EVGPatch.clampIndex(op.index (array_length parent.children)))
+        EVGPatch.insertAt(parent kid at)
+        def inv:EVGPatchOp (EVGPatchOp.removeNode((EVGPatch.childPath(op.at parent at))))
+        this.record(inv)
+        return ""
+    }
+
+    ; --- remove ---------------------------------------------------------------
+
+    fn doRemove:string (op:EVGPatchOp) {
+        if (op.at == "0") {
+            return "cannot remove the root"
+        }
+        def hit@(optional):EVGElement (insp.elementAt(op.at))
+        if (null? hit) {
+            return (this.noSuchNode(op.at))
+        }
+        def el:EVGElement (unwrap hit)
+        def parentPath:string (insp.parentOf(op.at))
+        def ph@(optional):EVGElement (insp.elementAt(parentPath))
+        if (null? ph) {
+            return (this.noSuchNode(parentPath))
+        }
+        def parent:EVGElement (unwrap ph)
+        def at:int (EVGPatch.indexOfChild(parent el))
+        if (at < 0) {
+            return "the node is not among its parent's children — the index is stale"
+        }
+        EVGPatch.removeAt(parent at)
+        push res.stash el
+        def slot:int ((array_length res.stash) - 1)
+        def inv:EVGPatchOp (EVGPatchOp.restore(parentPath at slot))
+        this.record(inv)
+        return ""
+    }
+
+    ; `restore` is the inverse of `remove` and exists only for that. It puts a
+    ; stashed subtree back where it was, which is why it names a slot and not a
+    ; tag: the node is the same object, with its children and state intact.
+    fn doRestore:string (op:EVGPatchOp) {
+        def hit@(optional):EVGElement (insp.elementAt(op.at))
+        if (null? hit) {
+            return (this.noSuchNode(op.at))
+        }
+        def parent:EVGElement (unwrap hit)
+        if (op.stash >= (array_length res.stash)) {
+            return "nothing stashed at that slot"
+        }
+        def el:EVGElement (itemAt res.stash op.stash)
+        def at:int (EVGPatch.clampIndex(op.index (array_length parent.children)))
+        EVGPatch.insertAt(parent el at)
+        def inv:EVGPatchOp (EVGPatchOp.removeNode((EVGPatch.childPath(op.at parent at))))
+        this.record(inv)
+        return ""
+    }
+
+    ; --- move -----------------------------------------------------------------
+
+    fn doMove:string (op:EVGPatchOp) {
+        if (op.at == "0") {
+            return "cannot move the root"
+        }
+        def hit@(optional):EVGElement (insp.elementAt(op.at))
+        if (null? hit) {
+            return (this.noSuchNode(op.at))
+        }
+        def el:EVGElement (unwrap hit)
+        def destHit@(optional):EVGElement (insp.elementAt(op.toPath))
+        if (null? destHit) {
+            return (this.noSuchNode(op.toPath))
+        }
+        def dest:EVGElement (unwrap destHit)
+        if (EVGPatch.subtreeHas(el dest)) {
+            return "cannot move a node into itself or its own subtree"
+        }
+        def fromPath:string (insp.parentOf(op.at))
+        def fh@(optional):EVGElement (insp.elementAt(fromPath))
+        if (null? fh) {
+            return (this.noSuchNode(fromPath))
+        }
+        def from:EVGElement (unwrap fh)
+        def at:int (EVGPatch.indexOfChild(from el))
+        if (at < 0) {
+            return "the node is not among its parent's children — the index is stale"
+        }
+        EVGPatch.removeAt(from at)
+        def landing:int (EVGPatch.clampIndex(op.index (array_length dest.children)))
+        EVGPatch.insertAt(dest el landing)
+        ; The inverse names the node by where it now IS, and puts it back by
+        ; the parent path and index it came from.
+        def nowPath:string (EVGPatch.childPath(op.toPath dest landing))
+        def inv:EVGPatchOp (EVGPatchOp.move(nowPath fromPath at))
+        this.record(inv)
+        return ""
+    }
+
+    fn noSuchNode:string (path:string) {
+        def n:int (insp.count())
+        return ((((("no node at \"" + path) + "\" (") + (to_string n)) + " nodes in this tree)"))
+    }
+
+    ; --- children, as arrays --------------------------------------------------
+    ;
+    ; There is no array insert in the standard ops, so both of these rebuild the
+    ; list. At the size of a child list that is cheaper than being clever.
+
+    sfn insertAt:void (parent:EVGElement kid:EVGElement at:int) {
+        def rebuilt:[EVGElement]
+        def i:int 0
+        def n:int (array_length parent.children)
+        while (i < n) {
+            if (i == at) {
+                push rebuilt kid
+            }
+            push rebuilt (itemAt parent.children i)
+            i = (i + 1)
+        }
+        if (at >= n) {
+            push rebuilt kid
+        }
+        parent.children = rebuilt
+    }
+
+    sfn removeAt:void (parent:EVGElement at:int) {
+        def rebuilt:[EVGElement]
+        def i:int 0
+        def n:int (array_length parent.children)
+        while (i < n) {
+            if (i != at) {
+                push rebuilt (itemAt parent.children i)
+            }
+            i = (i + 1)
+        }
+        parent.children = rebuilt
+    }
+
+    ; Identity is `inspectSlot`, which `EVGInspect.build` has just stamped on
+    ; every node in this tree — the same handle the display list uses to say
+    ; which element emitted a command. A node that carries no slot was never in
+    ; the index, and answering for it would be a guess.
+    sfn indexOfChild:int (parent:EVGElement kid:EVGElement) {
+        if (kid.inspectSlot < 0) {
+            return (0 - 1)
+        }
+        def i:int 0
+        while (i < (array_length parent.children)) {
+            def c:EVGElement (itemAt parent.children i)
+            if (c.inspectSlot == kid.inspectSlot) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    sfn subtreeHas:boolean (el:EVGElement maybe:EVGElement) {
+        if (el.inspectSlot == maybe.inspectSlot) {
+            
+            return true
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def c:EVGElement (itemAt el.children i)
+            if (EVGPatch.subtreeHas(c maybe)) {
+                
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn clampIndex:int (want:int n:int) {
+        if (want < 0) {
+            return 0
+        }
+        if (want > n) {
+            return n
+        }
+        return want
+    }
+
+    ; The path a child at `at` has under `parentPath`, by the same rule
+    ; `EVGInspect.visit` uses: the key when there is one, the index otherwise.
+    sfn childPath:string (parentPath:string parent:EVGElement at:int) {
+        def seg:string (to_string at)
+        if (at < (array_length parent.children)) {
+            def kid:EVGElement (itemAt parent.children at)
+            if ((strlen kid.key) > 0) {
+                seg = ("k:" + kid.key)
+            }
+        }
+        return ((parentPath + "/") + seg)
+    }
+
+
+    ; --- the patchable set ----------------------------------------------------
+    ;
+    ; `kindOf` is the ONE list. `readable` is defined from it, and `readProp`
+    ; and `clearProp` answer by name for the names it admits — so a name this
+    ; admits and they do not is a bug, and `EVGPatchTest` walks the list on a
+    ; fresh element to catch exactly that.
+    ;
+    ; Membership is narrower than what `setAttribute` accepts, and the missing
+    ; ones are missing for a reason: a property this file cannot read back
+    ; cannot be inverted, and an op that cannot be inverted does not apply.
+
+    sfn KIND_NONE:int ()   { return 0 }
+    sfn KIND_STRING:int () { return 1 }
+    sfn KIND_UNIT:int ()   { return 2 }
+    sfn KIND_COLOR:int ()  { return 3 }
+    sfn KIND_NUMBER:int () { return 4 }
+    ; There is no separate "box" kind. A box side is a length like any other —
+    ; the difference is only WHICH field to read, and reading the wrong one is
+    ; the mistake this note exists to prevent: `EVGBox` carries the authored
+    ; `paddingLeft:EVGUnit` AND the `paddingLeftPx` that layout resolves from
+    ; it. `EVGInspect` prints the px, correctly, because an inspector reports
+    ; what layout did. A patch must read the unit, because an inverse has to
+    ; restore what the author wrote and the px is 0 until the first pass.
+
+    ; `class` is what an author writes and `class-name` is what `setAttribute`
+    ; answers to, so the alias is resolved once, here, rather than at each use.
+    sfn canonical:string (name:string) {
+        def n:string (EVGElement.toKebab(name))
+        if (n == "class") {
+            return "class-name"
+        }
+        return n
+    }
+
+    sfn kindOf:int (rawName:string) {
+        def name:string (EVGPatch.canonical(rawName))
+        if (((name == "display") || (name == "position")) || (name == "flex-direction")) { return 1 }
+        if (((name == "justify-content") || (name == "align-items")) || (name == "align-content")) { return 1 }
+        if (((name == "flex-wrap") || (name == "grid-area")) || (name == "grid-template-columns")) { return 1 }
+        ; The rest of the grid vocabulary. It was incomplete, and the hole was
+        ; invisible in a property list and obvious in a picture: the showcase's
+        ; card deck places every card with `grid-row: 1 / 3` against the deck's
+        ; `subgrid` rows, so a conversion that dropped `grid-row` laid the
+        ; captions on top of the paragraph below them.
+        if (((name == "grid-row") || (name == "grid-column")) || (name == "grid-template-areas")) { return 1 }
+        if (name == "grid-auto-flow") { return 1 }
+        if (((name == "grid-template-rows") || (name == "font-family")) || (name == "font-weight")) { return 1 }
+        if (((name == "text-align") || (name == "overflow")) || (name == "cursor")) { return 1 }
+        if (((name == "class-name") || (name == "theme")) || (name == "src")) { return 1 }
+        if (((name == "object-fit") || (name == "transform")) || (name == "transition")) { return 1 }
+        ; A turn is two properties, not one. `transform` says by how much;
+        ; `transform-origin` says about WHAT, and its default is the box's own
+        ; centre — which is the wrong pivot for anything anchored at a point.
+        ; A chart's turned axis label reads as centred on its tick until this
+        ; is carried, and then slides half its own length along the axis.
+        ; `white-space` belongs with them for a related reason: a label placed
+        ; in a box measured by an ESTIMATE wraps the moment the estimate is a
+        ; pixel short, and "markdown" comes back as "markdo".
+        if ((name == "transform-origin") || (name == "white-space")) { return 1 }
+        if (name == "background-gradient") { return 1 }
+        ; The vector vocabulary. Left out of the first draft, and running the
+        ; converter over the showcase said what that cost: every chart, every
+        ; diagram and every piece of imported SVG lost its geometry — 72 paths
+        ; on one page alone — and came out as correctly-sized empty boxes.
+        ; A format for editing documents that cannot hold a chart is not one.
+        if (((name == "d") || (name == "view-box")) || (name == "fill-rule")) { return 1 }
+        if (((name == "stroke-linecap") || (name == "stroke-linejoin")) || (name == "stroke-dasharray")) { return 1 }
+        if ((name == "alt") || (name == "href")) { return 1 }
+        ; An imported SVG document is its TEXT, held on the element and parsed
+        ; by whoever draws it. Leaving it out cost the showcase's `svg` page
+        ; every graphic on it while both audits reported the conversion clean —
+        ; the boxes were right, because the boxes are sized by CSS, and only
+        ; the painting was empty. It is carried at full length: a document that
+        ; renders correctly is worth more than a short file.
+        if (name == "svg") { return 1 }
+        ; The two-stop gradient. Found by converting a Figma page that had one:
+        ; the scene carried it, `SceneToEVG` emitted `gradient-from` and
+        ; `gradient-to`, and the editable format — which is this set — dropped
+        ; both, so a gradient fill arrived in the document as nothing at all.
+        if (name == "gradient-dir") { return 4 }
+
+        if (((name == "width") || (name == "height")) || (name == "min-width")) { return 2 }
+        if (((name == "min-height") || (name == "max-width")) || (name == "max-height")) { return 2 }
+        if (((name == "left") || (name == "top")) || (name == "right")) { return 2 }
+        if (((name == "bottom") || (name == "gap")) || (name == "font-size")) { return 2 }
+        if (name == "flex-basis") { return 2 }
+
+        if (((name == "color") || (name == "background-color")) || (name == "border-color")) { return 3 }
+        if ((name == "fill") || (name == "stroke")) { return 3 }
+        if ((name == "gradient-from") || (name == "gradient-to")) { return 3 }
+        ; `emoji-color` is a TINT, and that is the whole reason it exists: the
+        ; face is monochrome outlines with no colour of its own, so something
+        ; has to say what to fill them with, and unset it inherits the text
+        ; colour. The showcase's emoji page tints three rows through it
+        ; (`.tintRose`, `.tintBlue`, `.tintGreen`); dropping the property did
+        ; not lose colours the glyphs had, it lost the tint and let all three
+        ; fall back to the text colour. Every audit was silent, because the
+        ; draw commands matched in count and kind and differed only in fill.
+        if (name == "emoji-color") { return 3 }
+
+        if (((name == "opacity") || (name == "line-height")) || (name == "flex-grow")) { return 4 }
+        if (((name == "flex-shrink") || (name == "rotate")) || (name == "scale")) { return 4 }
+        if ((name == "stroke-width") || (name == "stroke-dashoffset")) { return 4 }
+
+        if (((name == "margin-top") || (name == "margin-right")) || (name == "margin-bottom")) { return 2 }
+        if (((name == "margin-left") || (name == "padding-top")) || (name == "padding-right")) { return 2 }
+        if (((name == "padding-bottom") || (name == "padding-left")) || (name == "border-width")) { return 2 }
+        if (name == "border-radius") { return 2 }
+
+        return 0
+    }
+
+    ; The same set `kindOf` admits, in a form something can iterate: the
+    ; serializer walks it to decide what a node has to say, and the test walks
+    ; it to prove `readProp` and `clearProp` answer for all of it. Kept here
+    ; rather than in either caller so there is still one list.
+    sfn patchableNames:[string] () {
+        def a:[string]
+        push a "display"
+        push a "position"
+        push a "flex-direction"
+        push a "justify-content"
+        push a "align-items"
+        push a "align-content"
+        push a "flex-wrap"
+        push a "grid-area"
+        push a "grid-row"
+        push a "grid-column"
+        push a "grid-template-areas"
+        push a "grid-auto-flow"
+        push a "grid-template-columns"
+        push a "grid-template-rows"
+        push a "font-family"
+        push a "font-weight"
+        push a "text-align"
+        push a "overflow"
+        push a "cursor"
+        push a "class-name"
+        push a "theme"
+        push a "src"
+        push a "object-fit"
+        push a "transform"
+        push a "transform-origin"
+        push a "white-space"
+        push a "transition"
+        push a "background-gradient"
+        push a "svg"
+        push a "d"
+        push a "view-box"
+        push a "fill-rule"
+        push a "stroke-linecap"
+        push a "stroke-linejoin"
+        push a "stroke-dasharray"
+        push a "alt"
+        push a "href"
+        push a "fill"
+        push a "stroke"
+        push a "emoji-color"
+        push a "gradient-from"
+        push a "gradient-to"
+        push a "gradient-dir"
+        push a "stroke-width"
+        push a "stroke-dashoffset"
+        push a "width"
+        push a "height"
+        push a "min-width"
+        push a "min-height"
+        push a "max-width"
+        push a "max-height"
+        push a "left"
+        push a "top"
+        push a "right"
+        push a "bottom"
+        push a "gap"
+        push a "font-size"
+        push a "flex-basis"
+        push a "color"
+        push a "background-color"
+        push a "border-color"
+        push a "opacity"
+        push a "line-height"
+        push a "flex-grow"
+        push a "flex-shrink"
+        push a "rotate"
+        push a "scale"
+        push a "margin-top"
+        push a "margin-right"
+        push a "margin-bottom"
+        push a "margin-left"
+        push a "padding-top"
+        push a "padding-right"
+        push a "padding-bottom"
+        push a "padding-left"
+        push a "border-width"
+        push a "border-radius"
+        return a
+    }
+
+    sfn readable:boolean (name:string) {
+        return ((EVGPatch.kindOf(name)) != 0)
+    } doc {
+        description "Whether a property can be patched — which is to say, read back and undone."
+        param name "A property name, kebab or camel."
+        returns "True when an op naming it will be considered."
+    }
+
+    ; What the element says about this property NOW, in the form `setAttribute`
+    ; would take back. "" means it was never set, which `clearProp` restores.
+    sfn readProp:string (el:EVGElement name:string) {
+        def n:string (EVGPatch.canonical(name))
+        def kind:int (EVGPatch.kindOf(n))
+        if (kind == 0) {
+            return ""
+        }
+        def bx:EVGBox el.box
+
+        if (n == "display")                { return el.display }
+        if (n == "position")               { return el.position }
+        if (n == "flex-direction")         { return el.flexDirection }
+        if (n == "justify-content")        { return el.justifyContent }
+        if (n == "align-items")            { return el.alignItems }
+        if (n == "align-content")          { return el.alignContent }
+        if (n == "flex-wrap")              { return el.flexWrap }
+        if (n == "grid-area")              { return el.gridArea }
+        if (n == "grid-row")               { return el.gridRow }
+        if (n == "grid-column")            { return el.gridColumn }
+        if (n == "grid-template-areas")    { return el.gridTemplateAreas }
+        if (n == "grid-auto-flow")         { return el.gridAutoFlow }
+        if (n == "grid-template-columns")  { return el.gridTemplateColumns }
+        if (n == "grid-template-rows")     { return el.gridTemplateRows }
+        if (n == "font-family")            { return el.fontFamily }
+        if (n == "font-weight")            { return el.fontWeight }
+        if (n == "text-align")             { return el.textAlign }
+        if (n == "overflow")               { return el.overflow }
+        if (n == "cursor")                 { return el.cursor }
+        if (n == "class-name")             { return el.className }
+        if (n == "theme")                  { return el.theme }
+        if (n == "src")                    { return el.src }
+        if (n == "object-fit")             { return el.objectFit }
+        if (n == "transform")              { return el.transformSpec }
+        if (n == "transform-origin")       { return el.transformOriginSpec }
+        if (n == "white-space")            { return el.whiteSpace }
+        if (n == "transition")             { return el.transitionSpec }
+        if (n == "background-gradient")    { return el.backgroundGradient }
+        if (n == "svg")                    { return el.svgSource }
+        if (n == "d")                      { return el.svgPath }
+        if (n == "view-box")               { return el.viewBox }
+        if (n == "fill-rule")              { return el.fillRule }
+        if (n == "stroke-linecap")         { return el.strokeLineCap }
+        if (n == "stroke-linejoin")        { return el.strokeLineJoin }
+        if (n == "stroke-dasharray")       { return el.strokeDashArray }
+        if (n == "alt")                    { return el.alt }
+        if (n == "href")                   { return el.href }
+
+        if (n == "width")      { return (EVGPatch.unitText(el.width)) }
+        if (n == "height")     { return (EVGPatch.unitText(el.height)) }
+        if (n == "min-width")  { return (EVGPatch.unitText(el.minWidth)) }
+        if (n == "min-height") { return (EVGPatch.unitText(el.minHeight)) }
+        if (n == "max-width")  { return (EVGPatch.unitText(el.maxWidth)) }
+        if (n == "max-height") { return (EVGPatch.unitText(el.maxHeight)) }
+        if (n == "left")       { return (EVGPatch.unitText(el.left)) }
+        if (n == "top")        { return (EVGPatch.unitText(el.top)) }
+        if (n == "right")      { return (EVGPatch.unitText(el.right)) }
+        if (n == "bottom")     { return (EVGPatch.unitText(el.bottom)) }
+        if (n == "gap")        { return (EVGPatch.unitText(el.gap)) }
+        if (n == "font-size")  { return (EVGPatch.unitText(el.fontSize)) }
+        if (n == "flex-basis") { return (EVGPatch.unitText(el.flexBasis)) }
+
+        if (n == "color")            { return (EVGPatch.colorText(el.color)) }
+        if (n == "background-color") { return (EVGPatch.colorText(el.backgroundColor)) }
+        if (n == "border-color")     { return (EVGPatch.colorText(bx.borderColor)) }
+        if (n == "fill")             { return (EVGPatch.colorText(el.fillColor)) }
+        if (n == "stroke")           { return (EVGPatch.colorText(el.strokeColor)) }
+        if (n == "emoji-color")      { return (EVGPatch.colorText(el.emojiColor)) }
+        if (n == "gradient-from")    { return (EVGPatch.gradientText(el.gradientFrom el.gradientSet)) }
+        if (n == "gradient-to")      { return (EVGPatch.gradientText(el.gradientTo el.gradientSet)) }
+
+        if (n == "opacity")     { return (EVGDisplayList.num(el.opacity)) }
+        if (n == "line-height") { return (EVGDisplayList.num(el.lineHeight)) }
+        if (n == "flex-grow")   { return (EVGDisplayList.num(el.flex)) }
+        if (n == "flex-shrink") { return (EVGDisplayList.num(el.flexShrink)) }
+        if (n == "rotate")      { return (EVGDisplayList.num(el.rotate)) }
+        if (n == "scale")       { return (EVGDisplayList.num(el.scale)) }
+        if (n == "gradient-dir") { return (EVGDisplayList.num((to_double el.gradientDir))) }
+        if (n == "stroke-width")      { return (EVGDisplayList.num(el.strokeWidth)) }
+        if (n == "stroke-dashoffset") { return (EVGDisplayList.num(el.strokeDashOffset)) }
+
+        if (n == "margin-top") { return (EVGPatch.unitText(bx.marginTop)) }
+        if (n == "margin-right") { return (EVGPatch.unitText(bx.marginRight)) }
+        if (n == "margin-bottom") { return (EVGPatch.unitText(bx.marginBottom)) }
+        if (n == "margin-left") { return (EVGPatch.unitText(bx.marginLeft)) }
+        if (n == "padding-top") { return (EVGPatch.unitText(bx.paddingTop)) }
+        if (n == "padding-right") { return (EVGPatch.unitText(bx.paddingRight)) }
+        if (n == "padding-bottom") { return (EVGPatch.unitText(bx.paddingBottom)) }
+        if (n == "padding-left") { return (EVGPatch.unitText(bx.paddingLeft)) }
+        if (n == "border-width") { return (EVGPatch.unitText(bx.borderWidth)) }
+        if (n == "border-radius") { return (EVGPatch.unitText(bx.borderRadius)) }
+
+        return ""
+    } doc {
+        description "Reads a property back in the form setAttribute would accept."
+        param el "The element to read."
+        param name "A patchable property name."
+        returns "The current value, or \"\" when the property was never set."
+    }
+
+    ; Put a property back to the value a fresh element has. This is what an
+    ; inverse op does when the property had never been set — writing "" through
+    ; `setAttribute` would be a parse failure, not an erasure.
+    sfn clearProp:boolean (el:EVGElement name:string) {
+        def n:string (EVGPatch.canonical(name))
+        def kind:int (EVGPatch.kindOf(n))
+        if (kind == 0) {
+            return false
+        }
+        def bx:EVGBox el.box
+
+        if (n == "display") {
+            el.display = "block"
+            return true
+        }
+        if (n == "position") {
+            el.position = "relative"
+            return true
+        }
+        if (n == "flex-direction") {
+            el.flexDirection = "column"
+            return true
+        }
+        if (n == "justify-content") {
+            el.justifyContent = "flex-start"
+            return true
+        }
+        if (n == "align-items") {
+            el.alignItems = "flex-start"
+            return true
+        }
+        if (n == "align-content") {
+            el.alignContent = "flex-start"
+            return true
+        }
+        if (n == "flex-wrap") {
+            el.flexWrap = "wrap"
+            return true
+        }
+        if (n == "grid-area") {
+            el.gridArea = ""
+            return true
+        }
+        if (n == "grid-row") {
+            el.gridRow = ""
+            return true
+        }
+        if (n == "grid-column") {
+            el.gridColumn = ""
+            return true
+        }
+        if (n == "grid-template-areas") {
+            el.gridTemplateAreas = ""
+            return true
+        }
+        if (n == "grid-auto-flow") {
+            el.gridAutoFlow = "row"
+            return true
+        }
+        if (n == "grid-template-columns") {
+            el.gridTemplateColumns = ""
+            return true
+        }
+        if (n == "grid-template-rows") {
+            el.gridTemplateRows = ""
+            return true
+        }
+        if (n == "font-family") {
+            el.fontFamily = "Noto Sans"
+            return true
+        }
+        if (n == "font-weight") {
+            el.fontWeight = "normal"
+            return true
+        }
+        if (n == "text-align") {
+            el.textAlign = "left"
+            return true
+        }
+        if (n == "overflow") {
+            el.overflow = "visible"
+            return true
+        }
+        if (n == "cursor") {
+            el.cursor = ""
+            return true
+        }
+        if (n == "class-name") {
+            el.className = ""
+            return true
+        }
+        if (n == "theme") {
+            el.theme = ""
+            return true
+        }
+        if (n == "src") {
+            el.src = ""
+            return true
+        }
+        if (n == "object-fit") {
+            el.objectFit = "cover"
+            return true
+        }
+        if (n == "transform") {
+            el.transformSpec = ""
+            return true
+        }
+        if (n == "transform-origin") {
+            el.transformOriginSpec = ""
+            el.transformOriginX = (EVGUnit.unset())
+            el.transformOriginY = (EVGUnit.unset())
+            return true
+        }
+        if (n == "white-space") {
+            el.whiteSpace = "normal"
+            return true
+        }
+        if (n == "transition") {
+            el.transitionSpec = ""
+            return true
+        }
+        if (n == "background-gradient") {
+            el.backgroundGradient = ""
+            return true
+        }
+        if (n == "svg") {
+            el.svgSource = ""
+            return true
+        }
+        if (n == "d") {
+            el.svgPath = ""
+            return true
+        }
+        if (n == "view-box") {
+            el.viewBox = ""
+            return true
+        }
+        if (n == "fill-rule") {
+            el.fillRule = "nonzero"
+            return true
+        }
+        if (n == "stroke-linecap") {
+            el.strokeLineCap = "butt"
+            return true
+        }
+        if (n == "stroke-linejoin") {
+            el.strokeLineJoin = "miter"
+            return true
+        }
+        if (n == "stroke-dasharray") {
+            el.strokeDashArray = ""
+            return true
+        }
+        if (n == "alt") {
+            el.alt = ""
+            return true
+        }
+        if (n == "href") {
+            el.href = ""
+            return true
+        }
+
+        def u:EVGUnit (EVGUnit.unset())
+        if (n == "width") {
+            el.width = u
+            return true
+        }
+        if (n == "height") {
+            el.height = u
+            return true
+        }
+        if (n == "min-width") {
+            el.minWidth = u
+            return true
+        }
+        if (n == "min-height") {
+            el.minHeight = u
+            return true
+        }
+        if (n == "max-width") {
+            el.maxWidth = u
+            return true
+        }
+        if (n == "max-height") {
+            el.maxHeight = u
+            return true
+        }
+        if (n == "left") {
+            el.left = u
+            return true
+        }
+        if (n == "top") {
+            el.top = u
+            return true
+        }
+        if (n == "right") {
+            el.right = u
+            return true
+        }
+        if (n == "bottom") {
+            el.bottom = u
+            return true
+        }
+        if (n == "gap") {
+            el.gap = u
+            return true
+        }
+        if (n == "font-size") {
+            el.fontSize = u
+            return true
+        }
+        if (n == "flex-basis") {
+            el.flexBasis = u
+            return true
+        }
+
+        ; `color` is not like the other two. A fresh element's background and
+        ; border are UNSET — nothing is painted until something asks — but its
+        ; text colour is a real black, because text has to be drawn in
+        ; something. Clearing it to `noColor` made a reverted element read ""
+        ; where a fresh one reads rgb(0,0,0), which is the shape of bug this
+        ; file's last test exists to catch.
+        def c:EVGColor (EVGColor.noColor())
+        if (n == "color") {
+            el.color = (new EVGColor())
+            return true
+        }
+        if (n == "background-color") {
+            el.backgroundColor = c
+            return true
+        }
+        if (n == "border-color") {
+            bx.borderColor = c
+            return true
+        }
+        if (n == "fill") {
+            el.fillColor = c
+            return true
+        }
+        if (n == "stroke") {
+            el.strokeColor = c
+            return true
+        }
+        if (n == "emoji-color") {
+            el.emojiColor = c
+            return true
+        }
+        ; Clearing either end clears the gradient: half a gradient is not a
+        ; state the renderer has, and leaving `gradientSet` on with one end
+        ; unset paints from black.
+        if (n == "gradient-from") {
+            el.gradientFrom = c
+            el.gradientSet = false
+            return true
+        }
+        if (n == "gradient-to") {
+            el.gradientTo = c
+            el.gradientSet = false
+            return true
+        }
+
+        if (n == "opacity") {
+            el.opacity = 1.0
+            return true
+        }
+        if (n == "line-height") {
+            el.lineHeight = 0.0
+            return true
+        }
+        if (n == "flex-grow") {
+            el.flex = 0.0
+            return true
+        }
+        if (n == "flex-shrink") {
+            el.flexShrink = 1.0
+            return true
+        }
+        if (n == "rotate") {
+            el.rotate = 0.0
+            return true
+        }
+        if (n == "scale") {
+            el.scale = 1.0
+            return true
+        }
+        if (n == "stroke-width") {
+            el.strokeWidth = 0.0
+            return true
+        }
+        if (n == "stroke-dashoffset") {
+            el.strokeDashOffset = 0.0
+            return true
+        }
+        if (n == "gradient-dir") {
+            el.gradientDir = 0
+            return true
+        }
+
+        if (n == "margin-top") {
+            bx.marginTop = u
+            return true
+        }
+        if (n == "margin-right") {
+            bx.marginRight = u
+            return true
+        }
+        if (n == "margin-bottom") {
+            bx.marginBottom = u
+            return true
+        }
+        if (n == "margin-left") {
+            bx.marginLeft = u
+            return true
+        }
+        if (n == "padding-top") {
+            bx.paddingTop = u
+            return true
+        }
+        if (n == "padding-right") {
+            bx.paddingRight = u
+            return true
+        }
+        if (n == "padding-bottom") {
+            bx.paddingBottom = u
+            return true
+        }
+        if (n == "padding-left") {
+            bx.paddingLeft = u
+            return true
+        }
+        if (n == "border-width") {
+            bx.borderWidth = u
+            return true
+        }
+        if (n == "border-radius") {
+            bx.borderRadius = u
+            return true
+        }
+
+        return false
+    }
+
+    ; The unit fields are optional on the element, so "never said anything
+    ; about width" is a real answer here and not a defensive check — the same
+    ; reading `EVGInspect.unitProp` takes.
+    sfn unitText:string (u@(optional):EVGUnit) {
+        if (null? u) {
+            return ""
+        }
+        def uu:EVGUnit (unwrap u)
+        if (uu.isSet == false) {
+            return ""
+        }
+        return (uu.toString())
+    }
+
+    ; A gradient end reads as nothing until the gradient is on. Without the
+    ; guard a fresh element reports two black ends it does not have, and every
+    ; document would carry them.
+    sfn gradientText:string (c@(optional):EVGColor on:boolean) {
+        if (on == false) {
+            return ""
+        }
+        return (EVGPatch.colorText(c))
+    }
+
+    sfn colorText:string (c@(optional):EVGColor) {
+        if (null? c) {
+            return ""
+        }
+        def cc:EVGColor (unwrap c)
+        if (cc.isSet == false) {
+            return ""
+        }
+        return (cc.toCSSString())
+    }
+
+
+    ; An element for a tag name — and the tag name is KEPT, not normalised.
+    ;
+    ; The engine has two tag vocabularies and this has to know both. The
+    ; factories above spell things the HTML way (`span`, `img`), while
+    ; `JSXToEVG.mapTagName` emits the engine's own (`text`, `image`, `page`,
+    ; `layer`). A document written by one and read by the other has to come
+    ; back as what it was, so what the tag decides here is the ELEMENT TYPE —
+    ; container, text, image or path, which is what layout and every renderer
+    ; actually switch on — and the name itself is preserved.
+    ;
+    ; A tag in neither vocabulary is refused rather than defaulted to a
+    ; container. An `insert` op naming a tag nobody has heard of is a typo, and
+    ; a document carrying one would otherwise read back as a silently different
+    ; element. `evg_json_tool` reports it as a loss for that reason.
+    sfn create@(optional):EVGElement (tag:string) {
+        def family:int (EVGPatch.familyOf(tag))
+        if (family < 0) {
+            def none@(optional):EVGElement
+            return none
+        }
+        def el:EVGElement (EVGElement.createDiv())
+        if (family == 1) {
+            el = (EVGElement.createSpan())
+        }
+        if (family == 2) {
+            el = (EVGElement.createImg())
+        }
+        if (family == 3) {
+            el = (EVGElement.createPath())
+        }
+        el.tagName = tag
+        def out@(optional):EVGElement el
+        return out
+    }
+
+    ; 0 container, 1 text, 2 image, 3 path — `EVGElement.elementType` — or -1
+    ; for a tag neither vocabulary claims.
+    sfn familyOf:int (tag:string) {
+        if (((tag == "span") || (tag == "text")) || (tag == "Label")) {
+            return 1
+        }
+        if (((tag == "img") || (tag == "image")) || (tag == "Image")) {
+            return 2
+        }
+        if (((tag == "path") || (tag == "Path")) || (tag == "svg")) {
+            return 3
+        }
+        if (tag == "Svg") {
+            return 3
+        }
+        if (((tag == "div") || (tag == "View")) || (tag == "box")) {
+            return 0
+        }
+        if (((tag == "row") || (tag == "column")) || (tag == "page")) {
+            return 0
+        }
+        if (((tag == "Page") || (tag == "print")) || (tag == "Print")) {
+            return 0
+        }
+        if (((tag == "section") || (tag == "Section")) || (tag == "layer")) {
+            return 0
+        }
+        if (((tag == "Layer") || (tag == "divider")) || (tag == "spacer")) {
+            return 0
+        }
+        return (0 - 1)
+    }
+
+}

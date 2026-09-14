@@ -1,0 +1,408 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; evg_json_tool — a document, in the form an agent can edit
+; ==============================================================================
+;
+;   evg-json page.tsx out.evg.json [-css sheet.css] [-theme name] [-w N] [-h N]
+;
+; The other three tools in this directory turn a document into something to
+; look at. This one turns it into something to EDIT: `EVGTreeJson`, whose
+; contents are exactly the set `EVGPatch` can change.
+;
+; --- IT SAYS WHAT IT DROPPED --------------------------------------------------
+;
+; The conversion is lossy and the header of `EVGTreeJson` says so in general
+; terms. In general terms is not enough for a tool: a converter that quietly
+; loses a chart's path data hands you a file that renders as a blank box and
+; nothing anywhere said why.
+;
+; So this walks the tree it read and reports, per node, what the format has no
+; place for — an SVG path's `d`, a `viewBox`, an image's `alt`, a stroke, a tag
+; that is not one of the four the format can name. With `-strict` that report
+; is a refusal instead of a warning, which is what a build step wants.
+;
+; Applying a stylesheet BEFORE writing is deliberate and is the reason `-css`
+; is here: whatever the sheet resolves to becomes inline props in the output,
+; so the agent edits one document rather than a tree plus a cascade it cannot
+; see. The cost is that the theming is baked; re-theming means converting
+; again from the source.
+; ==============================================================================
+
+Import "../core/EVGDocSource.rgr"
+Import "../core/EVGStyleLoader.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGTreeJson.rgr"
+Import "../../../evg/EVGPatch.rgr"
+Import "../../../evg/EVGLayout.rgr"
+Import "../../../evg/EVGDisplayList.rgr"
+Import "../fonts/EVGFontSetup.rgr"
+Import "../../../evg/EVGTextEngine.rgr"
+
+class EVGJsonTool {
+    def inputFile:string ""
+    def outputFile:string ""
+    def pageWidth:double 595.0
+    def pageHeight:double 842.0
+    def strict:boolean false
+    def styles:EVGStyleLoader
+    def losses:[string]
+
+    sfn m@(main):void () {
+        def t (new EVGJsonTool())
+        t.run()
+    }
+
+    fn run:void () {
+        def sl (new EVGStyleLoader())
+        styles = sl
+        def argCount:int (shell_arg_cnt)
+        if (argCount < 2) {
+            this.printUsage()
+            return
+        }
+        inputFile = (shell_arg 0)
+        outputFile = (shell_arg 1)
+        def i:int 2
+        while (i < argCount) {
+            def arg:string (shell_arg i)
+            if (arg == "-strict") {
+                strict = true
+            }
+            if (arg == "-w") {
+                if ((i + 1) < argCount) {
+                    def w@(optional):double (to_double (shell_arg (i + 1)))
+                    if w {
+                        pageWidth = (unwrap w)
+                    }
+                    i = (i + 1)
+                }
+            }
+            if (arg == "-h") {
+                if ((i + 1) < argCount) {
+                    def h@(optional):double (to_double (shell_arg (i + 1)))
+                    if h {
+                        pageHeight = (unwrap h)
+                    }
+                    i = (i + 1)
+                }
+            }
+            if (arg == "-css") {
+                if ((i + 1) < argCount) {
+                    styles.addFile((shell_arg (i + 1)))
+                    i = (i + 1)
+                }
+            }
+            if (arg == "-theme") {
+                if ((i + 1) < argCount) {
+                    styles.setTheme((shell_arg (i + 1)))
+                    i = (i + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        this.convert()
+    }
+
+    fn printUsage:void () {
+        print "evg-json — convert a document to the editable EVG format"
+        print ""
+        print "  evg-json <in.tsx|in.evg.json> <out.evg.json> [options]"
+        print ""
+        print "  -css <file>    stylesheet to resolve into the output"
+        print "  -theme <name>  theme to select from the stylesheet"
+        print "  -w <n> -h <n>  page size for the reader"
+        print "  -strict        fail instead of warning when something is dropped"
+    }
+
+    fn convert:void () {
+        def cut:int (lastIndexOf inputFile "/")
+        def dir:string "./"
+        def name:string inputFile
+        if (cut >= 0) {
+            dir = (substring inputFile 0 (cut + 1))
+            name = (substring inputFile (cut + 1) (strlen inputFile))
+        }
+        print (("Reading the " + (EVGDocSource.kindOf(name))) + "…")
+        def root:EVGElement (EVGDocSource.load(dir name pageWidth pageHeight))
+        if (root.tagName == "") {
+            print (("Error: could not read " + inputFile) + " as a document")
+            return
+        }
+        def usedTheme:string (styles.applyTo(root))
+        if (styles.hasFiles()) {
+            styles.report(usedTheme)
+        }
+
+        def found:[string]
+        losses = found
+        ; Re-anchor before auditing, so a `src` that could not be re-anchored
+        ; is reported as a loss alongside everything else rather than as a
+        ; separate kind of complaint.
+        def outCutEarly:int (lastIndexOf outputFile "/")
+        def outDirEarly:string "."
+        if (outCutEarly >= 0) {
+            outDirEarly = (substring outputFile 0 outCutEarly)
+        }
+        this.rebaseAssets(root "0" dir outDirEarly)
+        this.audit(root "0")
+        if ((array_length losses) > 0) {
+            print ""
+            print (((to_string (array_length losses)) + " thing(s) the editable format has no place for:"))
+            def i:int 0
+            while (i < (array_length losses)) {
+                print ("  " + (itemAt losses i))
+                i = (i + 1)
+            }
+            if strict {
+                print ""
+                print "Refusing to write a lossy conversion (-strict)."
+                return
+            }
+            print ""
+            print "Writing anyway — pass -strict to make this a failure."
+        }
+
+        def text:string (EVGTreeJson.toText(root))
+        this.proveItLandedTheSame(root text dir)
+        def outCut:int (lastIndexOf outputFile "/")
+        def outDir:string "."
+        def outName:string outputFile
+        if (outCut >= 0) {
+            outDir = (substring outputFile 0 outCut)
+            outName = (substring outputFile (outCut + 1) (strlen outputFile))
+        }
+        write_file outDir outName text
+        print ""
+        print ("Wrote " + outputFile)
+        print (("  " + (to_string (strlen text))) + " bytes")
+    }
+
+    ; --- the audit that is not a list ----------------------------------------
+    ;
+    ; Checking named fields catches what someone thought to name. It does not
+    ; catch a property the format simply never learned — and that is the one
+    ; that matters, because it presents as a document that renders and is
+    ; WRONG. The showcase card deck found this the expensive way: every card is
+    ; placed with `grid-row: 1 / 3` against the deck's subgrid, the format had
+    ; no `grid-row`, and the conversion produced a page whose captions sat on
+    ; top of the paragraph below them. Nothing in a field list would have said
+    ; so. A picture did.
+    ;
+    ; So the real audit is behavioural: lay the original out, read the written
+    ; text back, lay THAT out at the same size, and compare every box. A
+    ; property the format lost is a box in the wrong place, whatever the
+    ; property was called.
+    fn proveItLandedTheSame:void (root:EVGElement text:string dir:string) {
+        def again@(optional):EVGElement (EVGTreeJson.fromText(text))
+        if (null? again) {
+            push losses "the document could not be read back at all"
+            return
+        }
+        def copy:EVGElement (unwrap again)
+        def setup (new EVGFontSetup())
+        setup.init(dir "")
+        def a (new EVGLayout())
+        a.setMeasurer((new TTFTextMeasurer((setup.getManager()))))
+        a.setPageSize(pageWidth pageHeight)
+        a.layout(root)
+        def b (new EVGLayout())
+        b.setMeasurer((new TTFTextMeasurer((setup.getManager()))))
+        b.setPageSize(pageWidth pageHeight)
+        b.layout(copy)
+        this.compare(root copy "0")
+        this.comparePainting(root copy)
+    }
+
+    ; The boxes agreeing is not the document agreeing.
+    ;
+    ; This was learned from the `svg` page, which converted with both audits
+    ; silent and then rendered with every graphic on it missing: an imported
+    ; SVG document is sized by CSS, so its box was right to the pixel while
+    ; nothing was drawn inside it. Layout cannot see that. The display list
+    ; can — it IS what gets painted — so the last check is that both trees
+    ; produce the same number of draw commands of each kind.
+    fn comparePainting:void (a:EVGElement b:EVGElement) {
+        def da (new EVGDisplayList())
+        da.build(a)
+        def db (new EVGDisplayList())
+        db.build(b)
+        def na:int (array_length da.cmds)
+        def nb:int (array_length db.cmds)
+        if (na != nb) {
+            push losses ((((("the page draws " + (to_string na)) + " things and the converted one draws ") + (to_string nb))))
+            return
+        }
+        ; Compared as the serialized lists, not field by field. Comparing the
+        ; command KIND alone let the emoji page through: the same number of
+        ; glyph runs, in the same places, in the wrong colour. `toJson` already
+        ; knows every field that matters to a painter — that is what it is for
+        ; — so detection is a string comparison and cannot have a hole in it.
+        ; Only the REPORT is approximate: the first byte where they part, with
+        ; enough either side to recognise the command.
+        def ja:string (da.toJson())
+        def jb:string (db.toJson())
+        if (ja == jb) {
+            return
+        }
+        def at:int (EVGJsonTool.firstDifference(ja jb))
+        push losses "the same boxes, drawn differently:"
+        push losses ("    was  " + (EVGJsonTool.window(ja at)))
+        push losses ("    now  " + (EVGJsonTool.window(jb at)))
+    }
+
+    fn compare:void (a:EVGElement b:EVGElement path:string) {
+        if ((array_length a.children) != (array_length b.children)) {
+            push losses ((((path + ": ") + (to_string (array_length a.children))) + " children became ") + (to_string (array_length b.children)))
+            return
+        }
+        def dx:double (a.calculatedX - b.calculatedX)
+        def dy:double (a.calculatedY - b.calculatedY)
+        def dw:double (a.calculatedWidth - b.calculatedWidth)
+        def dh:double (a.calculatedHeight - b.calculatedHeight)
+        if (EVGJsonTool.off(dx dy dw dh)) {
+            push losses ((((((((path + ": the box moved — ") + (EVGJsonTool.box(a.calculatedX a.calculatedY a.calculatedWidth a.calculatedHeight))) + " became ") + (EVGJsonTool.box(b.calculatedX b.calculatedY b.calculatedWidth b.calculatedHeight)))))))
+        }
+        def i:int 0
+        while (i < (array_length a.children)) {
+            def ka:EVGElement (itemAt a.children i)
+            def kb:EVGElement (itemAt b.children i)
+            def seg:string (to_string i)
+            if ((strlen ka.key) > 0) {
+                seg = ("k:" + ka.key)
+            }
+            this.compare(ka kb ((path + "/") + seg))
+            i = (i + 1)
+        }
+    }
+
+    sfn firstDifference:int (a:string b:string) {
+        def n:int (strlen a)
+        if ((strlen b) < n) {
+            n = (strlen b)
+        }
+        def i:int 0
+        while (i < n) {
+            if ((charAt a i) != (charAt b i)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn window:string (s:string at:int) {
+        def from:int (at - 60)
+        if (from < 0) {
+            from = 0
+        }
+        def to:int (at + 60)
+        if (to > (strlen s)) {
+            to = (strlen s)
+        }
+        return (substring s from to)
+    }
+
+    sfn off:boolean (dx:double dy:double dw:double dh:double) {
+        if ((EVGJsonTool.abs(dx)) > 0.5) {
+            return true
+        }
+        if ((EVGJsonTool.abs(dy)) > 0.5) {
+            return true
+        }
+        if ((EVGJsonTool.abs(dw)) > 0.5) {
+            return true
+        }
+        if ((EVGJsonTool.abs(dh)) > 0.5) {
+            return true
+        }
+        return false
+    }
+
+    sfn abs:double (v:double) {
+        if (v < 0.0) {
+            return (0.0 - v)
+        }
+        return v
+    }
+
+    sfn box:string (x:double y:double w:double h:double) {
+        def out:string (to_string (to_int x))
+        out = ((out + ",") + (to_string (to_int y)))
+        out = ((out + " ") + (to_string (to_int w)))
+        out = ((out + "x") + (to_string (to_int h)))
+        return out
+    }
+
+    ; A document's `src` is resolved against the document, so moving the
+    ; document moves what its images mean. Every one is rewritten to point at
+    ; the same file from where the OUTPUT will sit.
+    fn rebaseAssets:void (el:EVGElement path:string fromDir:string toDir:string) {
+        if ((strlen el.src) > 0) {
+            def moved:string (EVGDocSource.rebase(fromDir toDir el.src))
+            if ((strlen moved) == 0) {
+                push losses ((((path + ": the image path `") + el.src) + "` cannot be re-anchored from ") + ((fromDir + " to ") + toDir))
+            } {
+                el.src = moved
+            }
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children i)
+            def seg:string (to_string i)
+            if ((strlen kid.key) > 0) {
+                seg = ("k:" + kid.key)
+            }
+            this.rebaseAssets(kid ((path + "/") + seg) fromDir toDir)
+            i = (i + 1)
+        }
+    }
+
+    ; What this node carries that the format cannot say.
+    ;
+    ; Each check ASKS the patchable set rather than asserting an answer. That
+    ; matters: the first version hardcoded "the path's `d` data" as a loss, the
+    ; set later learned to carry `d`, and the tool went on reporting a loss
+    ; that no longer happened — 72 of them on one page. A warning that is wrong
+    ; is worse than no warning, because the next real one is read as noise.
+    fn audit:void (el:EVGElement path:string) {
+        def made@(optional):EVGElement (EVGPatch.create(el.tagName))
+        if (null? made) {
+            push losses ((((path + ": <") + el.tagName) + "> has no equivalent — it would be read back as something else"))
+        }
+        this.dropped(path "d" el.svgPath)
+        this.dropped(path "view-box" el.viewBox)
+        this.dropped(path "alt" el.alt)
+        this.dropped(path "href" el.href)
+        this.dropped(path "stroke-dasharray" el.strokeDashArray)
+        if (el.strokeWidth > 0.0) {
+            this.dropped(path "stroke-width" "set")
+        }
+        if (el.fillColor.isSet) {
+            this.dropped(path "fill" "set")
+        }
+        if (el.strokeColor.isSet) {
+            this.dropped(path "stroke" "set")
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children i)
+            def seg:string (to_string i)
+            if ((strlen kid.key) > 0) {
+                seg = ("k:" + kid.key)
+            }
+            this.audit(kid ((path + "/") + seg))
+            i = (i + 1)
+        }
+    }
+
+    fn dropped:void (path:string name:string value:string) {
+        if ((strlen value) == 0) {
+            return
+        }
+        if (EVGPatch.readable(name)) {
+            return
+        }
+        push losses ((((path + ": `") + name) + "` has no place in the editable format"))
+    }
+}

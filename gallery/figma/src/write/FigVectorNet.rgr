@@ -1,0 +1,276 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; FigVectorNet.rgr — an outline as the NETWORK Figma draws it from.
+; ==============================================================================
+;
+; A `VECTOR` written with `fillGeometry` alone opens in Figma as an empty box.
+; Every icon of the first UI exported from here was one of those: the outline
+; was in the file, correct, and nothing drew it.
+;
+; The reason is that `fillGeometry` is DERIVED. What a vector node is, to
+; Figma, is a network of vertices joined by segments, grouped into regions —
+; the thing its pen tool edits — and the geometry is the flattened answer it
+; keeps beside it. Both are written now: the network in `vectorData`, the
+; commands in `fillGeometry`.
+;
+; --- THE FORMAT ---------------------------------------------------------------
+;
+; Read out of `gallery/figma/fixtures/health.fig` rather than guessed: twenty-six
+; of its blobs parse as this and re-encode to the same bytes, which is the only
+; kind of evidence available for a format nobody published.
+;
+;   uint32  vertexCount, segmentCount, regionCount
+;   vertex   uint32 style, float x, float y
+;   segment  uint32 style, uint32 startVertex, float t0x, float t0y,
+;                          uint32 endVertex,   float t1x, float t1y
+;   region   uint32 windingRule, uint32 loopCount,
+;            loop: uint32 segmentCount, uint32 segmentIndex[]
+;
+; A segment's TANGENTS are the cubic's control points measured FROM the vertex
+; each belongs to — `t0 = c1 - start`, `t1 = c2 - end` — which is why a
+; straight line is a segment with two zero tangents and needs no special case.
+; Little-endian throughout, as everything in a `.fig` is.
+; ==============================================================================
+
+Import "../../../evg/SVGPathParser.rgr"
+Import "../KiwiBuffer.rgr"
+
+class FigVectorNet {
+    ; The blob for an SVG path, in node space. Empty when the path says
+    ; nothing — the caller reports that rather than attaching an empty network.
+    sfn fromSvg:buffer (d:string) {
+        def p (new SVGPathParser())
+        p.parse(d)
+
+        ; Vertices, as x and y in step, because Ranger has no pair type and a
+        ; parallel pair of arrays is clearer here than a class nobody else
+        ; uses.
+        def vx:[double]
+        def vy:[double]
+        ; Segments: start, end, and the four tangent components.
+        def sa:[int]
+        def sb:[int]
+        def t0x:[double]
+        def t0y:[double]
+        def t1x:[double]
+        def t1y:[double]
+        ; Which segments make up each closed loop, flattened with a count per
+        ; loop — again because the alternative is an array of arrays.
+        def loopLen:[int]
+        def loopSeg:[int]
+
+        def curX:double 0.0
+        def curY:double 0.0
+        def curV:int (0 - 1)
+        def startV:int (0 - 1)
+        def openCount:int 0
+        def i:int 0
+        while (i < (array_length p.commands)) {
+            def c:PathCommand (itemAt p.commands i)
+            if (c.type == "M") {
+                ; A new subpath. Whatever was open before it stays open — a
+                ; path may have both closed and open pieces, and only the
+                ; closed ones fill.
+                if (openCount > 0) {
+                    push loopLen openCount
+                }
+                openCount = 0
+                push vx c.x
+                push vy c.y
+                curV = ((array_length vx) - 1)
+                startV = curV
+                curX = c.x
+                curY = c.y
+            }
+            if (c.type == "L") {
+                if (curV >= 0) {
+                    push vx c.x
+                    push vy c.y
+                    def to:int ((array_length vx) - 1)
+                    push sa curV
+                    push sb to
+                    push t0x 0.0
+                    push t0y 0.0
+                    push t1x 0.0
+                    push t1y 0.0
+                    push loopSeg ((array_length sa) - 1)
+                    openCount = (openCount + 1)
+                    curV = to
+                    curX = c.x
+                    curY = c.y
+                }
+            }
+            if (c.type == "C") {
+                if (curV >= 0) {
+                    push vx c.x
+                    push vy c.y
+                    def toC:int ((array_length vx) - 1)
+                    push sa curV
+                    push sb toC
+                    push t0x (c.x1 - curX)
+                    push t0y (c.y1 - curY)
+                    push t1x (c.x2 - c.x)
+                    push t1y (c.y2 - c.y)
+                    push loopSeg ((array_length sa) - 1)
+                    openCount = (openCount + 1)
+                    curV = toC
+                    curX = c.x
+                    curY = c.y
+                }
+            }
+            if (c.type == "Q") {
+                ; A quadratic is a cubic whose controls sit two thirds of the
+                ; way along each arm. Written as a quadratic here it would be a
+                ; different curve, because a network has no quadratic segment.
+                if (curV >= 0) {
+                    push vx c.x
+                    push vy c.y
+                    def toQ:int ((array_length vx) - 1)
+                    push sa curV
+                    push sb toQ
+                    push t0x ((c.x1 - curX) * 0.6666666666666666)
+                    push t0y ((c.y1 - curY) * 0.6666666666666666)
+                    push t1x ((c.x1 - c.x) * 0.6666666666666666)
+                    push t1y ((c.y1 - c.y) * 0.6666666666666666)
+                    push loopSeg ((array_length sa) - 1)
+                    openCount = (openCount + 1)
+                    curV = toQ
+                    curX = c.x
+                    curY = c.y
+                }
+            }
+            if (c.type == "Z") {
+                if (curV >= 0) {
+                    if (startV >= 0) {
+                        ; Back to where the subpath began — unless it is
+                        ; already there, which is what a path that closes on
+                        ; its own last point looks like.
+                        if (curV != startV) {
+                            def dx:double ((itemAt vx startV) - curX)
+                            def dy:double ((itemAt vy startV) - curY)
+                            def far:boolean true
+                            if ((FigVectorNet.small(dx)) && (FigVectorNet.small(dy))) {
+                                far = false
+                            }
+                            if far {
+                                push sa curV
+                                push sb startV
+                                push t0x 0.0
+                                push t0y 0.0
+                                push t1x 0.0
+                                push t1y 0.0
+                                push loopSeg ((array_length sa) - 1)
+                                openCount = (openCount + 1)
+                            } {
+                                ; The last vertex lands on the first: join the
+                                ; last segment back to the start instead of
+                                ; adding a zero-length one, or the region has a
+                                ; seam a fill can leak through.
+                                def last:int ((array_length sb) - 1)
+                                if (last >= 0) {
+                                    set sb last startV
+                                }
+                            }
+                        }
+                    }
+                    push loopLen openCount
+                    openCount = 0
+                    curV = startV
+                    if (startV >= 0) {
+                        curX = (itemAt vx startV)
+                        curY = (itemAt vy startV)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (openCount > 0) {
+            push loopLen openCount
+        }
+
+        if ((array_length sa) == 0) {
+            return (buffer_alloc 0)
+        }
+
+        def out:[int]
+        FigVectorNet.u32(out (array_length vx))
+        FigVectorNet.u32(out (array_length sa))
+        FigVectorNet.u32(out 1)
+        def v:int 0
+        while (v < (array_length vx)) {
+            FigVectorNet.u32(out 0)
+            FigVectorNet.f32(out (itemAt vx v))
+            FigVectorNet.f32(out (itemAt vy v))
+            v = (v + 1)
+        }
+        def s:int 0
+        while (s < (array_length sa)) {
+            FigVectorNet.u32(out 0)
+            FigVectorNet.u32(out (itemAt sa s))
+            FigVectorNet.f32(out (itemAt t0x s))
+            FigVectorNet.f32(out (itemAt t0y s))
+            FigVectorNet.u32(out (itemAt sb s))
+            FigVectorNet.f32(out (itemAt t1x s))
+            FigVectorNet.f32(out (itemAt t1y s))
+            s = (s + 1)
+        }
+        ; One region over every loop. `1` is the winding rule a real export
+        ; writes for a nonzero fill — the blob counts them its own way rather
+        ; than by the `WindingRule` enum's numbers.
+        FigVectorNet.u32(out 1)
+        FigVectorNet.u32(out (array_length loopLen))
+        def at:int 0
+        def l:int 0
+        while (l < (array_length loopLen)) {
+            def count:int (itemAt loopLen l)
+            FigVectorNet.u32(out count)
+            def k:int 0
+            while (k < count) {
+                FigVectorNet.u32(out (itemAt loopSeg (at + k)))
+                k = (k + 1)
+            }
+            at = (at + count)
+            l = (l + 1)
+        }
+        return (FigVectorNet.toBuffer(out))
+    } doc {
+        description "Encodes an SVG path as a Figma vector network blob."
+        param d "The path data, in node space."
+        returns "The blob bytes; empty when the path held no segments."
+    }
+
+    sfn small:boolean (v:double) {
+        def a:double v
+        if (a < 0.0) {
+            a = (0.0 - a)
+        }
+        return (a < 0.0001)
+    }
+
+    sfn u32:void (out:[int] v:int) {
+        push out (bit_and v 255)
+        push out (bit_and (bit_shr v 8) 255)
+        push out (bit_and (bit_shr v 16) 255)
+        push out (bit_and (bit_shr v 24) 255)
+    }
+
+    sfn f32:void (out:[int] v:double) {
+        def bits:int (KiwiBuffer.floatToBits(v))
+        push out (bit_and bits 255)
+        push out (bit_and (bit_shr bits 8) 255)
+        push out (bit_and (bit_shr bits 16) 255)
+        push out (bit_and (bit_shr bits 24) 255)
+    }
+
+    sfn toBuffer:buffer (bytes:[int]) {
+        def n:int (array_length bytes)
+        def b:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set b i (itemAt bytes i)
+            i = (i + 1)
+        }
+        return b
+    }
+}

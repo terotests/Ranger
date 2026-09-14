@@ -7,6 +7,7 @@ Import "../../../evg/EVGCodepoint.rgr"
 
 Import "PDFWriter.rgr"
 Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGDisplayList.rgr"
 Import "../../../evg/EVGLayout.rgr"
 Import "../../../evg/EVGTextMeasurer.rgr"
 Import "../../../evg/EVGTextEngine.rgr"
@@ -1781,11 +1782,18 @@ class EVGPDFRenderer {
             ; matrix below is a standard y-up rotation.
             def cs:double (cos rad)
             def sn:double (sin rad)
-            ; Rotate about the element's centre: translate(c) * rotate *
-            ; translate(-c), multiplied out. The defining property is that the
-            ; centre maps to itself, which is what the test asserts.
-            def ccx:double (x + (w / 2.0))
-            def ccy:double (pdfY + (h / 2.0))
+            ; Rotate about `transform-origin`: translate(o) * rotate *
+            ; translate(-o), multiplied out. The defining property is that the
+            ; origin maps to itself, which is what the test asserts. The
+            ; default origin is the element's centre, so a document that never
+            ; states one turns exactly as it did before; one that does — a
+            ; chart's axis label, pinned where it meets its tick — turns about
+            ; the point it was pinned at instead of swinging out of the plot.
+            ;
+            ; The vertical offset is measured from the element's TOP, and this
+            ; page's y grows upward from `pdfY`, which is its bottom edge.
+            def ccx:double (x + (EVGElement.resolveOrigin(el.transformOriginX w)))
+            def ccy:double (pdfY + (h - (EVGElement.resolveOrigin(el.transformOriginY h))))
             def ex:double ((ccx - (cs * ccx)) + (sn * ccy))
             def fy:double ((ccy - (sn * ccx)) - (cs * ccy))
             streamBuffer.writeString("q\n")
@@ -1825,6 +1833,9 @@ class EVGPDFRenderer {
         ; Render gradient background if set
         ; Skip gradients with opacity (rgba, transparent) - PDF can't blend properly
         ; These will be handled by the raster engine later
+        if el.gradientSet {
+            this.renderTwoStopGradientBackground(el x pdfY w h borderRadius)
+        } {
         if ((strlen el.backgroundGradient) > 0) {
             def hasOpacity:boolean false
             if (contains el.backgroundGradient "rgba") {
@@ -1845,6 +1856,7 @@ class EVGPDFRenderer {
             if bgColor.isSet {
                 this.renderBackgroundWithRadius(x pdfY w h bgColor borderRadius)
             }
+        }
         }
         
         ; Render border (with border radius)
@@ -2558,6 +2570,42 @@ class EVGPDFRenderer {
         this.renderBackgroundWithRadius(x y w h color 0.0)
     }
     
+    ; The `gradient-from` / `gradient-to` pair, in PDF.
+    ;
+    ; The same gap the raster tool had: this renderer knew only the CSS string,
+    ; so a gradient that came from Figma — or from anything else speaking the
+    ; display list's own vocabulary — drew on the GPU and was simply absent
+    ; from the PDF.
+    ;
+    ; The angle comes from `EVGDisplayList.cssAngleOfDir` and NOT from the
+    ; raster one beside it: this file reduces a CSS angle, where 90 is to the
+    ; right, while the rasteriser builds a vector where 0 is. One `dir`, two
+    ; correct answers, and taking the wrong one turns every gradient a quarter
+    ; turn in one target only.
+    fn renderTwoStopGradientBackground:void (el:EVGElement x:double y:double w:double h:double radius:double) {
+        if (w <= 0.0) {
+            return
+        }
+        if (h <= 0.0) {
+            return
+        }
+        ; The ends are optional fields, so they are unwrapped rather than
+        ; pushed: a gradient with one end missing is not half a gradient, it is
+        ; a paint nobody can draw.
+        def a@(optional):EVGColor el.gradientFrom
+        def b@(optional):EVGColor el.gradientTo
+        if (null? a) {
+            return
+        }
+        if (null? b) {
+            return
+        }
+        def colors:[EVGColor]
+        push colors (unwrap a)
+        push colors (unwrap b)
+        this.paintGradientStrips(x y w h radius colors (EVGDisplayList.cssAngleOfDir(el.gradientDir)))
+    }
+
     ; Render a gradient background by drawing multiple thin strips
     ; Parses CSS gradient syntax: linear-gradient(angle, color1, color2, ...)
     fn renderGradientBackground:void (el:EVGElement x:double y:double w:double h:double radius:double) {
@@ -2634,6 +2682,17 @@ class EVGPDFRenderer {
             return
         }
         
+        this.paintGradientStrips(x y w h radius colors angle)
+    }
+
+    ; Everything after the parse: the clip, the direction, and the strips.
+    ;
+    ; Split out so the `gradient-from` / `gradient-to` pair can reach it without
+    ; being rendered into a CSS string and parsed straight back — which is what
+    ; the alternative was, and it would have made the two-stop path's accuracy
+    ; depend on a round trip through text.
+    fn paintGradientStrips:void (x:double y:double w:double h:double radius:double colors:[EVGColor] angleIn:double) {
+        def angle:double angleIn
         ; Clip to the rounded rectangle shape first
         streamBuffer.writeString("q\n")
         if (radius > 0.0) {

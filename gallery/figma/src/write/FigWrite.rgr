@@ -1,0 +1,204 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; FigWrite — the value vocabulary a .fig is written in
+; ==============================================================================
+;
+; Writing a Figma file was never the missing piece. `KiwiSchema.encode`,
+; `KiwiBuffer`'s write side, `FigDeflate.wrapStored` and `FigCanvas.assemble`
+; are all here and have been exercised by `FigSample`, which hand-builds a
+; document and round-trips it through the reader in `FigTest`. What was missing
+; is the step above them: turning a document someone MADE into that message,
+; rather than one written out by hand.
+;
+; So these are the small builders — a guid, a transform, a paint, a node — that
+; `FigSample` had as private statics and a general writer needs too. One copy,
+; here, because two copies of "what shape is a paint" is the kind of drift that
+; shows up as a file Figma opens and draws wrong.
+;
+; --- WHAT A MESSAGE IS --------------------------------------------------------
+;
+; Not a tree. A `.fig` message is a FLAT ARRAY of nodes, and the tree is
+; reconstructed from two fields on each of them:
+;
+;   parentIndex.guid      which node this one hangs from
+;   parentIndex.position  where among its siblings
+;
+; `position` is a fractional index — a short string compared byte by byte, so a
+; node can be inserted between two others without renumbering anything. That is
+; why it is a string and not an integer, and why `positionAt` below walks the
+; printable range rather than counting.
+; ==============================================================================
+
+Import "../KiwiValue.rgr"
+
+class FigWrite {
+
+    ; --- identity -------------------------------------------------------------
+
+    sfn guid:KiwiValue (sid:int lid:int) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("sessionID" (KiwiValue.fromInt(sid)))
+        o.put("localID" (KiwiValue.fromInt(lid)))
+        return o
+    }
+
+    sfn parentIndex:KiwiValue (sid:int lid:int pos:string) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("guid" (FigWrite.guid(sid lid)))
+        o.put("position" (KiwiValue.fromString(pos)))
+        return o
+    }
+
+    ; The nth sibling position, as a fractional index.
+    ;
+    ; Figma's own are arbitrary strings; what matters is only that siblings sort
+    ; in the order they should be drawn. One printable character covers 93
+    ; siblings, and past that a second character keeps the ordering correct
+    ; because a longer string with the same prefix sorts after the shorter one.
+    sfn positionAt:string (n:int) {
+        def first:int 33
+        def span:int 93
+        if (n < span) {
+            return (strfromcode (first + n))
+        }
+        def hi:int (idiv n span)
+        def lo:int (n - (hi * span))
+        def a:string (strfromcode (first + hi))
+        def b:string (strfromcode (first + lo))
+        return (a + b)
+    }
+
+    ; --- geometry -------------------------------------------------------------
+
+    sfn vec:KiwiValue (x:double y:double) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("x" (KiwiValue.fromDouble(x)))
+        o.put("y" (KiwiValue.fromDouble(y)))
+        return o
+    }
+
+    sfn xform:KiwiValue (x:double y:double) {
+        return (FigWrite.xformRot(x y 1.0 0.0))
+    }
+
+    sfn xformRot:KiwiValue (x:double y:double c:double s:double) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("m00" (KiwiValue.fromDouble(c)))
+        o.put("m01" (KiwiValue.fromDouble((0.0 - s))))
+        o.put("m02" (KiwiValue.fromDouble(x)))
+        o.put("m10" (KiwiValue.fromDouble(s)))
+        o.put("m11" (KiwiValue.fromDouble(c)))
+        o.put("m12" (KiwiValue.fromDouble(y)))
+        return o
+    }
+
+    ; --- paint ----------------------------------------------------------------
+
+    sfn colorA:KiwiValue (r:double g:double b:double a:double) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("r" (KiwiValue.fromDouble(r)))
+        o.put("g" (KiwiValue.fromDouble(g)))
+        o.put("b" (KiwiValue.fromDouble(b)))
+        o.put("a" (KiwiValue.fromDouble(a)))
+        return o
+    }
+
+    sfn color:KiwiValue (r:double g:double b:double) {
+        return (FigWrite.colorA(r g b 1.0))
+    }
+
+    sfn solidA:KiwiValue (r:double g:double b:double a:double) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("type" (KiwiValue.fromString("SOLID")))
+        o.put("color" (FigWrite.colorA(r g b a)))
+        o.put("opacity" (KiwiValue.fromDouble(1.0)))
+        o.put("visible" (KiwiValue.fromBool(true)))
+        return o
+    }
+
+    sfn solid:KiwiValue (r:double g:double b:double) {
+        return (FigWrite.solidA(r g b 1.0))
+    }
+
+    sfn paintsA:KiwiValue (r:double g:double b:double a:double) {
+        def arr:KiwiValue (KiwiValue.fromArray())
+        arr.pushItem((FigWrite.solidA(r g b a)))
+        return arr
+    }
+
+    sfn paints:KiwiValue (r:double g:double b:double) {
+        return (FigWrite.paintsA(r g b 1.0))
+    }
+
+    sfn noPaints:KiwiValue () {
+        return (KiwiValue.fromArray())
+    }
+
+
+    ; A two-stop linear gradient.
+    ;
+    ; A scene keeps only the ENDS — `SceneFill` holds the first stop in its own
+    ; channels and the last in `grad*`, because that is what a display list
+    ; carries — so a gradient that was written with five stops comes back as
+    ; two. The two it comes back as are the right two, which is why the reader
+    ; takes the first and the LAST rather than the first two.
+    ;
+    ; The direction is not carried either: Figma orients a gradient with a
+    ; transform on the paint, and `gradDir` only records that it was linear. So
+    ; this writes the default orientation and the caller says the angle is lost.
+    sfn gradient:KiwiValue (r0:double g0:double b0:double a0:double r1:double g1:double b1:double a1:double) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("type" (KiwiValue.fromString("GRADIENT_LINEAR")))
+        o.put("opacity" (KiwiValue.fromDouble(1.0)))
+        o.put("visible" (KiwiValue.fromBool(true)))
+        def stops:KiwiValue (KiwiValue.fromArray())
+        def first:KiwiValue (KiwiValue.fromObject())
+        first.put("color" (FigWrite.colorA(r0 g0 b0 a0)))
+        first.put("position" (KiwiValue.fromDouble(0.0)))
+        stops.pushItem(first)
+        def last:KiwiValue (KiwiValue.fromObject())
+        last.put("color" (FigWrite.colorA(r1 g1 b1 a1)))
+        last.put("position" (KiwiValue.fromDouble(1.0)))
+        stops.pushItem(last)
+        o.put("stops" stops)
+        def arr:KiwiValue (KiwiValue.fromArray())
+        arr.pushItem(o)
+        return arr
+    }
+
+    ; --- text -----------------------------------------------------------------
+
+    sfn chars:KiwiValue (text:string) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("characters" (KiwiValue.fromString(text)))
+        return o
+    }
+
+    ; --- a node ---------------------------------------------------------------
+
+    sfn node:KiwiValue (sid:int lid:int typeName:string name:string) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("guid" (FigWrite.guid(sid lid)))
+        ; A node change is a node being CREATED. The file is a list of changes
+        ; to apply, not a list of nodes, and a change with no phase is a change
+        ; that says nothing: a real export sets this on every node, and a file
+        ; without it was one Figma could read and not build.
+        o.put("phase" (KiwiValue.fromString("CREATED")))
+        o.put("type" (KiwiValue.fromString(typeName)))
+        o.put("name" (KiwiValue.fromString(name)))
+        o.put("visible" (KiwiValue.fromBool(true)))
+        o.put("opacity" (KiwiValue.fromDouble(1.0)))
+        return o
+    }
+
+    sfn placed:KiwiValue (sid:int lid:int typeName:string name:string ps:int pl:int pos:string w:double h:double x:double y:double) {
+        def o:KiwiValue (FigWrite.node(sid lid typeName name))
+        if ((ps >= 0) && (pl >= 0)) {
+            o.put("parentIndex" (FigWrite.parentIndex(ps pl pos)))
+        }
+        o.put("size" (FigWrite.vec(w h)))
+        o.put("transform" (FigWrite.xform(x y)))
+        return o
+    }
+}

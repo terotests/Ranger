@@ -1,0 +1,237 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; FigThumb.rgr — the picture a `.fig` carries of itself.
+; ==============================================================================
+;
+; A Figma archive holds four things, and until now this repository wrote two of
+; them:
+;
+;   canvas.fig     the document                          written
+;   meta.json      what the file says about itself       written, too thin
+;   thumbnail.png  a picture of it, for the file browser  MISSING
+;   images/        the bytes of any image paints          MISSING
+;
+; Figma reads the archive by NAME — `entries.find(e => e.filename === …)` — and
+; calls `getData()` on what comes back. On a file with no thumbnail that is
+; `undefined.getData()`, which is the error a real import gave:
+;
+;   format: Figma Zip V2
+;   TypeError: Cannot read properties of undefined (reading 'getData')
+;
+; So the entry has to be there and it has to be a real PNG. It is a plain one —
+; the document's own paper colour, at the shape of its page — and deliberately
+; so: a thumbnail is a convenience the application regenerates, and a wrong
+; picture of a document is worse than a plain one. What matters is that it
+; decodes.
+;
+; The PNG is written here rather than borrowed from `pdf_writer`'s encoder
+; because this module already carries a deflate writer (`FigDeflate`) and a
+; CRC32 (the zip's), and a solid image needs nothing else: stored deflate
+; inside a zlib wrapper, three chunks, four CRCs.
+; ==============================================================================
+
+Import "../FigDeflate.rgr"
+Import "../../../zip/CRC32.rgr"
+
+class FigThumb {
+    ; A solid PNG, `w` by `h`, in 8-bit RGB.
+    sfn png:buffer (w:int h:int r:int g:int b:int) {
+        def wide:int w
+        def high:int h
+        if (wide < 1) {
+            wide = 1
+        }
+        if (high < 1) {
+            high = 1
+        }
+        ; A PNG scanline is a filter byte and then the pixels. Filter 0 is
+        ; "none", which is what a picture of one colour wants — every other
+        ; filter would compress better and none of them would be simpler.
+        def stride:int ((wide * 3) + 1)
+        def raw:buffer (buffer_alloc (stride * high))
+        def y:int 0
+        while (y < high) {
+            def base:int (y * stride)
+            buffer_set raw base 0
+            def x:int 0
+            while (x < wide) {
+                def at:int ((base + 1) + (x * 3))
+                buffer_set raw at r
+                buffer_set raw (at + 1) g
+                buffer_set raw (at + 2) b
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+
+        def z:buffer (FigThumb.zlib(raw))
+        def out (new FigBytes())
+        out.init()
+        ; The signature, and then the three chunks every PNG has.
+        out.byte(137)
+        out.byte(80)
+        out.byte(78)
+        out.byte(71)
+        out.byte(13)
+        out.byte(10)
+        out.byte(26)
+        out.byte(10)
+
+        def ihdr:buffer (buffer_alloc 13)
+        FigThumb.putU32(ihdr 0 wide)
+        FigThumb.putU32(ihdr 4 high)
+        buffer_set ihdr 8 8
+        ; colour type 2 is truecolour RGB; no interlace, no palette.
+        buffer_set ihdr 9 2
+        buffer_set ihdr 10 0
+        buffer_set ihdr 11 0
+        buffer_set ihdr 12 0
+        out.chunk("IHDR" ihdr)
+        out.chunk("IDAT" z)
+        out.chunk("IEND" (buffer_alloc 0))
+        return (out.done())
+    } doc {
+        description "A solid-colour PNG."
+        param w "Width in pixels."
+        param h "Height in pixels."
+        param r "Red, 0..255."
+        param g "Green, 0..255."
+        param b "Blue, 0..255."
+        returns "The PNG bytes."
+    }
+
+    ; A zlib stream around already-stored deflate: the two header bytes say
+    ; "deflate, 32K window, no dictionary", and the trailer is Adler-32 of what
+    ; went in — which is what tells a decoder it came out the same.
+    sfn zlib:buffer (raw:buffer) {
+        def body:buffer (FigDeflate.wrapStored(raw))
+        def n:int (buffer_length body)
+        def out:buffer (buffer_alloc ((n + 2) + 4))
+        buffer_set out 0 120
+        buffer_set out 1 1
+        def i:int 0
+        while (i < n) {
+            buffer_set out (i + 2) (buffer_get body i)
+            i = (i + 1)
+        }
+        def sum:int (FigThumb.adler32(raw))
+        FigThumb.putU32(out (n + 2) sum)
+        return out
+    }
+
+    sfn adler32:int (data:buffer) {
+        def a:int 1
+        def b:int 0
+        def n:int (buffer_length data)
+        def i:int 0
+        while (i < n) {
+            a = ((a + (buffer_get data i)) % 65521)
+            b = ((b + a) % 65521)
+            i = (i + 1)
+        }
+        return ((b * 65536) + a)
+    }
+
+    ; Big-endian, because a PNG is, and a zip is not — the two are next to each
+    ; other in this module and writing one the other's way is a byte-order bug
+    ; that looks like a corrupt file.
+    sfn putU32:void (dst:buffer at:int v:int) {
+        buffer_set dst at (bit_and (bit_ushr v 24) 255)
+        buffer_set dst (at + 1) (bit_and (bit_ushr v 16) 255)
+        buffer_set dst (at + 2) (bit_and (bit_ushr v 8) 255)
+        buffer_set dst (at + 3) (bit_and v 255)
+    }
+}
+
+; A growing byte buffer, because a PNG is written forwards and its chunks are
+; not known in advance.
+class FigBytes {
+    def data:buffer (buffer_alloc 0)
+    def size:int 0
+
+    Constructor () {
+    }
+
+    fn init:void () {
+        data = (buffer_alloc 1024)
+        size = 0
+    }
+
+    fn room:void (extra:int) {
+        def need:int (size + extra)
+        def have:int (buffer_length data)
+        if (need <= have) {
+            return
+        }
+        def grown:int (have * 2)
+        while (grown < need) {
+            grown = (grown * 2)
+        }
+        def want:int grown
+        def next:buffer (buffer_alloc want)
+        def i:int 0
+        while (i < size) {
+            buffer_set next i (buffer_get data i)
+            i = (i + 1)
+        }
+        data = next
+    }
+
+    fn byte:void (v:int) {
+        this.room(1)
+        buffer_set data size (bit_and v 255)
+        size = (size + 1)
+    }
+
+    fn bytes:void (src:buffer) {
+        def n:int (buffer_length src)
+        this.room(n)
+        def i:int 0
+        while (i < n) {
+            buffer_set data (size + i) (buffer_get src i)
+            i = (i + 1)
+        }
+        size = (size + n)
+    }
+
+    ; One PNG chunk: length, type, data, and a CRC over the TYPE AND THE DATA
+    ; — not over the length, which is the mistake that makes every chunk look
+    ; corrupt to a decoder that checks.
+    fn chunk:void (kind:string payload:buffer) {
+        def n:int (buffer_length payload)
+        def head:buffer (buffer_alloc 4)
+        FigThumb.putU32(head 0 n)
+        this.bytes(head)
+        def typed:buffer (buffer_alloc (4 + n))
+        def k:int 0
+        while (k < 4) {
+            buffer_set typed k (charAt kind k)
+            k = (k + 1)
+        }
+        def i:int 0
+        while (i < n) {
+            buffer_set typed (4 + i) (buffer_get payload i)
+            i = (i + 1)
+        }
+        this.bytes(typed)
+        def crcBytes:buffer (buffer_alloc 4)
+        FigThumb.putU32(crcBytes 0 (CRC32Util.computeCRC(typed)))
+        this.bytes(crcBytes)
+    }
+
+    fn done:buffer () {
+        ; The length in a LOCAL. `buffer_alloc` compiles to an expression that
+        ; loses `this`, so allocating by a field reads as undefined at run time
+        ; — one of those failures that compiles cleanly and dies on the first
+        ; call.
+        def n:int size
+        def out:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < size) {
+            buffer_set out i (buffer_get data i)
+            i = (i + 1)
+        }
+        return out
+    }
+}

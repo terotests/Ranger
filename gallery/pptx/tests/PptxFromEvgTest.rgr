@@ -18,6 +18,7 @@
 
 Import "../src/PptxFromEvg.rgr"
 Import "../src/PptxToEvg.rgr"
+Import "../../evg/EVGElement.rgr"
 Import "../api/PptxApi.rgr"
 
 class PptxFromEvgTest {
@@ -47,11 +48,52 @@ class PptxFromEvgTest {
         this.check((name + " (got '" + got + "' want '" + want + "')") (got == want))
     }
 
+
+    ; A drawing's strokes go out as `custGeom` and used to come back as an
+    ; empty div, so a generated deck read back as its labels floating over
+    ; nothing — and a deck nobody can look at is a deck nobody knows is right.
+    fn testCustomGeometryReadsBack:void () {
+        print "-- a custom outline, read back into EVG"
+        def sh (new PptxShape())
+        sh.kind = (PptxShapeKind.shape())
+        sh.hasXfrm = true
+        sh.width = 100.0
+        sh.height = 50.0
+        sh.hasPath = true
+        ; The shape's own 0..1 square, which is what `pathUnit` holds.
+        def pts:[double]
+        push pts 0.0
+        push pts 0.0
+        push pts 1.0
+        push pts 0.0
+        push pts 1.0
+        push pts 1.0
+        sh.pathUnit = pts
+        sh.pathClosed = true
+        sh.line = (PptxShapeInk.rgbaOf(10 20 30 1.0))
+        sh.lineWidthPt = 2.0
+
+        def conv (new PptxToEvg())
+        def el:EVGElement (conv.shapeElement(sh))
+        this.eqStr("it is a path, not a box" el.tagName "path")
+        this.check(("it carries an outline: " + el.svgPath) ((strlen el.svgPath) > 0))
+        this.check("it starts with a move" ((indexOf el.svgPath "M ") == 0))
+        this.check("it draws lines" ((indexOf el.svgPath " L ") > 0))
+        this.check("and closes, because the path did" ((indexOf el.svgPath "Z") > 0))
+        this.check("the viewBox is the box" ((strlen el.viewBox) > 0))
+        this.check("the stroke came with it" el.strokeColor.isSet)
+        this.check("at its width" (el.strokeWidth > 0.0))
+        ; The box's own paint would draw a rectangle behind the outline, which
+        ; is not what a stroke is.
+        this.check("and no rectangle behind it" (el.backgroundColor.isSet == false))
+    }
+
     fn run:void () {
         print "=== PptxFromEvgTest ==="
         this.testEveryKind()
         this.testWhatCannotBeSaid()
         this.testRoundTripThroughEvg()
+        this.testCustomGeometryReadsBack()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {

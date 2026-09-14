@@ -35,6 +35,254 @@ Ranger throughout: the ZIP around a `.fig` and the DEFLATE inside it are
 reader works on every target the compiler emits rather than only on
 JavaScript.
 
+
+## Writing: EVG → Figma, and back
+
+The reader had no counterpart, so a `.fig` was something this repository could
+look at and never answer. It has one now, and it is built on machinery that was
+already here: `KiwiSchema.encode`, `KiwiBuffer`'s write side,
+`FigDeflate.wrapStored` and `FigCanvas.assemble` have been writing the sample
+file in `FigSample` all along. What was missing was the step above them —
+turning a document someone MADE into that message instead of one written out by
+hand.
+
+```text
+ .fig ──FigToScene──► SceneDocument ──SceneToEVG──► EVG ──► render / measure / patch
+   ▲                       ▲                         │
+   │                       │                         │
+   └───SceneToFig──────────┴──────EvgToScene─────────┘
+```
+
+```bash
+npm run figma:to-evg   -- file.fig page.evg.json 0   # a page, as an editable document
+npm run agent          -- outline page.evg.json      # then the whole agent toolchain
+npm run agent          -- patch   page.evg.json ops.json
+npm run figma:from-evg -- page.evg.json edited.fig   # back to a file Figma opens
+npm run figma:rewrite  -- in.fig out.fig             # read and write, unchanged
+```
+
+### A running app, as a file
+
+The first thing put through this door that nobody designed for it was a UI —
+RealTrainer's own screens, taken out of the running app rather than out of a
+fixture:
+
+```bash
+npm run rt:evg -- / gallery/realtrainer/out/home.evg.json
+node gallery/figma/bin/fig_cli.js from-evg \
+     gallery/realtrainer/out/home.evg.json home.fig 430 932
+```
+
+`rt:evg` stops the app after it has built its element tree and writes the tree
+down; the second line turns that into a file. No screenshot anywhere in the
+chain — what lands in Figma is the boxes, the type and the icon outlines.
+
+It found four things, and all four were losses nothing reported:
+
+| | |
+| --- | --- |
+| **the page** | a UI says it is `100%` of a window it does not name, so the conversion fell back to 1200x900 and a phone screen came out stretched across it. `EvgToScene.pageW/pageH` — and the two optional arguments to `from-evg` — are the caller saying which window. |
+| **a label with a background** | a Figma text node's fills are its LETTERS, so an element carrying both a string and a background cannot be one node: written as text it kept the words and lost the pill. Every tag on the page. It is a frame with a text child now. |
+| **an icon** | a picture written as an `svg` DOCUMENT rather than as one `d` attribute reached the file as an empty box — silently, because the path branch only ever looked at `svgPath`. `EvgToScene.putSvg` parses it with the same reader the painters use and writes each shape as a vector child. |
+| **a heading on two lines** | a label written into a fixed box is re-broken by whoever opens the file, against a face the layout never measured. A box that is one line tall now says `textAutoResize: WIDTH_AND_HEIGHT`, so the string sizes the box instead. |
+
+The last of those was lost twice over, and the second reason is the useful one:
+`textAutoResize` and `lineHeight` were both being written and **neither was in
+the schema**. Encoding walks the SCHEMA — `KiwiEncode.encodeMessage` emits the
+fields the schema declares and skips everything else — so a field nobody
+declared is not refused, it simply does not reach the file. Both are declared
+now, and `from-evg` prints what it could not carry:
+
+```text
+  no field in the schema for  NodeChange.textTruncation
+```
+
+### A vector is a NETWORK, and the geometry is the answer beside it
+
+Every icon of the first UI that opened in Figma opened as an empty box. The
+outlines were in the file and correct: `fillGeometry` with a commands blob, the
+same one `FigPath` decodes when reading.
+
+But `fillGeometry` is DERIVED. What a vector node IS, to Figma, is the thing
+its pen tool edits — vertices joined by segments, grouped into regions — kept
+in `vectorData.vectorNetworkBlob`, with the flattened geometry stored beside
+it. A node with only the geometry has nothing to draw.
+
+`FigVectorNet` writes that network, in a format read out of
+`fixtures/health.fig` rather than guessed — twenty-six of its blobs parse as
+this and re-encode to the same bytes:
+
+```text
+uint32  vertexCount, segmentCount, regionCount
+vertex   uint32 style, float x, float y
+segment  uint32 style, uint32 startVertex, float t0x, float t0y,
+                       uint32 endVertex,   float t1x, float t1y
+region   uint32 windingRule, uint32 loopCount,
+         loop: uint32 segmentCount, uint32 segmentIndex[]
+```
+
+A segment's tangents are the cubic's control points measured FROM the vertex
+each belongs to (`t0 = c1 - start`, `t1 = c2 - end`), which is why a straight
+line needs no special case: it is a segment with two zero tangents.
+
+### A font Figma can find, and no hidden layers
+
+Two smaller things the same import turned up:
+
+**`Arial` is a system font.** Every browser has it and Figma's web app does
+not, so the file opened with "Missing font — Arial" in front of the drawing.
+`FigFonts` maps the families Figma cannot resolve onto the ones it ships or
+hosts — Arial, Helvetica, system-ui and `sans-serif` to Inter, the serif
+families to Roboto Serif, the monospace ones to Roboto Mono — and passes
+everything else through, because a document set in Open Sans names a font
+Figma hosts. The substitution is REPORTED, once per family.
+
+**`display: none` is not a layer.** A hidden subtree lays out as nothing, and
+written out it filled the file with empty frames: a phone UI with its desktop
+rail hidden carried sixty-four of them, more than a third of the file.
+
+### Several screens in one file
+
+```bash
+npm run rt:fig     # four RealTrainer screens, side by side, in one .fig
+```
+
+`fig_cli pack <out.fig> <w> <h> <in.evg.json>…` puts each document on one page
+as a top-level frame named after its file, which is what a design file of an
+app looks like and what one screen per file is not.
+
+### The archive has four entries, and a reader looks them up by name
+
+```text
+canvas.fig      the document
+thumbnail.png   a picture of it, for the file browser
+meta.json       the background, the thumbnail's size, the region it covers
+images/         the bytes of any image paints
+```
+
+A file with the first two of those imported as:
+
+```text
+format: Figma Zip V2
+TypeError: Cannot read properties of undefined (reading 'getData')
+```
+
+— which is a lookup that found nothing, not a document that was wrong. Figma
+recognised the container, asked for an entry by name and called `getData()` on
+what came back. `FigThumb` writes the missing one: a solid PNG in the
+document's own paper colour, a hundred and twenty-eight points on its long
+side. It is a PLACEHOLDER and says so — the application draws its own
+thumbnail once the file is open — and it is written with stored deflate, so
+the size is the reason it is small: three bytes a pixel whatever is in it.
+
+`meta.json` is shaped like a real export's now (`client_meta` with the
+background colour, the thumbnail's size and the render region), and `images/`
+is present and empty rather than absent.
+
+### The schema is Figma's, not ours
+
+A `.fig` carries its own schema, and Figma reads the file THROUGH it: the names
+in the file are matched against the names in Figma's compiled schema. So a type
+this repository invents is a type Figma cannot map onto anything.
+
+The first UI written from here opened in Figma as **"internal error"**, and the
+reason was in the schema rather than in the document:
+
+| what we declared | what Figma declares |
+| --- | --- |
+| a message called `Node` | `NodeChange` — there is no `Node` |
+| `Vector`, `Color`, `ColorStop`, `ParentIndex`, `Blob` as **messages** | **structs** — a different wire format under the same names |
+| `fontFamily` on a node | no such field; a face is `fontName` (family, style, postscript) |
+| `textAlignHorizontal` as a **string** | the enum `TextAlignHorizontal` |
+| no `phase` on a node | `CREATED` on every one — the file is a list of CHANGES |
+| a message with no `type` | `NODE_CHANGES` |
+
+Nothing here could have caught any of it: both ends of the round trip were
+ours, so a file we wrote and read back agreed with itself perfectly. What
+catches it now is `fixtures/health.fig` — a real export, already in the
+repository — used as the ground truth it always was:
+
+`gallery/figma/src/write/FigSchema.rgr` is a SUBSET OF FIGMA'S OWN SCHEMA,
+copied field for field out of that fixture, and
+`FigTest.testWrittenSchemaMatchesFigma` holds it there: every type and every
+field the writer declares must exist in the fixture with the same kind, the
+same id and the same type. A field added to the writer that Figma does not know
+fails the suite instead of a file someone tries to open.
+
+`FigSample.schema()` is a different thing and stays as it is: it exists to
+exercise the READER, and deliberately carries shapes — arcs, masks, instances,
+per-side strokes — that the writer never emits.
+
+And a field the schema does not declare is not refused, it is DROPPED:
+`KiwiEncode.encodeMessage` walks the schema and skips what it does not know.
+That is how `textAutoResize` and `lineHeight` were written into two files that
+did not contain them. The encoder collects those names now, and `from-evg`
+prints them.
+
+### `sourceType` is why an ellipse survives
+
+`SceneNode.kind` is deliberately small — container, text, image, path — because
+the scene graph is format-agnostic and an EVG renderer does not care whether a
+box was an `ELLIPSE` or a `ROUNDED_RECTANGLE`. Figma does. So a node read from a
+`.fig` keeps the type it had in `sourceType`, and the writer writes that back
+rather than guessing from the kind. Nothing else would put the ellipses back.
+
+### The round trip preserves the picture, never the structure
+
+`fig → scene → fig` does not return the file it started from, and it is not
+meant to. `FigToScene` resolves as it reads: an instance is expanded into the
+nodes it stands for, a mask becomes a group, a stroke that is geometry gets its
+own outline node. The sample goes in as 99 nodes and comes back as 121 — the
+same drawing, differently built. A tool that needs the original structure has to
+keep the original file.
+
+The same applies going the other way, and harder. EVG is a **layout engine** and
+a scene is a set of **placed** things, so `EvgToScene` runs layout first and
+reads the boxes it produced. Flex, grid and flow become coordinates. That is
+what a design tool wants, and it cannot be undone afterwards.
+
+### What the writer cannot carry yet
+
+Reported per node rather than dropped in silence:
+
+| | |
+| --- | --- |
+| **image bytes** | an `IMAGE` paint names a hash whose bytes live in the archive, and `SceneToFig` writes no archive entries. Reading them out works: `to-evg` extracts every image beside the document it writes, under the names the paints already use. |
+| **a gradient's angle** | both ends are written, and the angle is not — Figma orients a gradient with a transform on the paint and a scene records only that it was linear |
+
+Everything else a scene carries — position, size, rotation, fills, strokes,
+corner radius, opacity, clipping, text, its font, **vector outlines and both
+ends of a gradient** — is written.
+
+A gradient survives the editable format too, which it did not at first: EVG
+spells one `gradient-from` / `gradient-to` / `gradient-dir`, none of those were
+in `EVGPatch.patchableNames()`, and a Figma page with a gradient fill arrived in
+the document with nothing where the gradient had been. They are in the set now.
+
+### Outlines are blobs, and the blob is the shape
+
+A `VECTOR` keeps its geometry outside the node, in a commands blob that
+`FigPath` decodes and `FigPathWrite` now encodes — `0x01` moveTo, `0x02` lineTo,
+`0x03` quadTo, `0x04` cubicTo, `0x00` close, coordinates as little-endian f32 in
+node space. Arcs never reach the encoder: `SVGPathParser` turns `A` into cubics
+as it reads, so a branch for it would be unreachable code claiming to handle a
+case the parser already resolved.
+
+Writing the blob was not enough on its own, and the second half is worth
+knowing: **a box is painted by `background-color`, a path by `fill`.** Reading
+the box's field for a path produced a `VECTOR` with perfect geometry and no
+paint — a shape that is there, is the right size, and draws nothing, which
+looks exactly like geometry that failed to write.
+
+### One unit, two scales
+
+EVG counts a colour channel 0..255 and a scene counts it 0..1. Passing the
+numbers straight through wrote `r: 16` where Figma expected `r: 0.0627`, every
+channel clamped to full, and the result was a file that **inspected perfectly
+and rendered as a blank page** — the node tree, the types, the sizes and the
+fill counts were all exactly right. No structural check would have caught it.
+Rendering the file and looking at it did.
+
 ## EVG support (used, not extended)
 
 | Feature | EVG support |

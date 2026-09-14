@@ -196,6 +196,17 @@ class FigSample {
         def sid:KiwiDef (s.addMessage("StyleId"))
         s.addField(sid "guid" "GUID" 1 false)
         s.addField(node "styleIdForFill" "StyleId" 57 false)
+        ; WHETHER A LABEL'S BOX HOLDS ITS STRING OR ITS STRING SIZES THE BOX,
+        ; and how far apart its lines are. Both were written by `SceneToFig`
+        ; and neither was in this schema, so both were dropped on the way out
+        ; — silently, because `encodeMessage` walks the SCHEMA and skips what
+        ; it does not know. A one-line heading exported from a UI came back
+        ; wrapped onto two lines, over the line beneath it.
+        s.addField(node "textAutoResize" "string" 58 false)
+        def lh:KiwiDef (s.addMessage("LineHeight"))
+        s.addField(lh "value" "float" 1 false)
+        s.addField(lh "units" "string" 2 false)
+        s.addField(node "lineHeight" "LineHeight" 59 false)
         def blob:KiwiDef (s.addMessage("Blob"))
         s.addField(blob "bytes" "byte" 1 true)
         def msg:KiwiDef (s.addMessage("Message"))
@@ -1369,9 +1380,23 @@ class FigSample {
     ; fig-kiwi bytes for one message: what canvas.fig holds, and what a
     ; Figma copy puts on the clipboard.
     sfn canvasFrom:buffer (s:KiwiSchema root:KiwiValue) {
+        def ignored:[string]
+        return (FigSample.canvasInto(s root ignored))
+    }
+
+    ; The same, and it says what the schema had no room for. Encoding walks the
+    ; SCHEMA, so a field nobody declared is dropped rather than refused — which
+    ; is how a label's `textAutoResize` and `lineHeight` were written, lost and
+    ; not missed until a heading came back on two lines.
+    sfn canvasInto:buffer (s:KiwiSchema root:KiwiValue report:[string]) {
         def enc (new KiwiEncode())
         enc.init(s)
         def msg:buffer (enc.encodeNamed("Message" root))
+        def di:int 0
+        while (di < (array_length enc.dropped)) {
+            push report (itemAt enc.dropped di)
+            di = (di + 1)
+        }
         def schemaRaw:buffer (s.encode())
         def schemaComp:buffer (FigDeflate.wrapStored(schemaRaw))
         def msgComp:buffer (FigDeflate.wrapStored(msg))

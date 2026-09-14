@@ -7,7 +7,7 @@
 ; This tool converts TSX files to PNG images using the software rasterizer.
 ; It uses the same JSXToEVG parser as the HTML and PDF tools.
 
-Import "../jsx/JSXToEVG.rgr"
+Import "../core/EVGDocSource.rgr"
 Import "../raster/EVGRasterRenderer.rgr"
 Import "../raster/RasterText.rgr"
 Import "../raster/PNGEncoder.rgr"
@@ -18,17 +18,25 @@ Import "../../../evg/VectorStroke.rgr"
 Import "../../../evg/SvgParser.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGLayout.rgr"
+Import "../../../evg/EVGDisplayList.rgr"
 Import "../fonts/TrueTypeFont.rgr"
 Import "../fonts/FontManager.rgr"
 Import "../fonts/EVGFontSetup.rgr"
 Import "../../../evg/EVGTextEngine.rgr"
 Import "../core/EVGStyleLoader.rgr"
+Import "../../../evg/EVGImageDecode.rgr"
 Import "../jpeg/JPEGDecoder.rgr"
 Import "../jpeg/ProgressiveJPEGDecoder.rgr"
 
 class EVGPNGTool {
     def inputFile:string ""
     def outputFile:string ""
+    ; Did the caller name a page size? A document usually knows its own —
+    ; a slide read back from a deck, a page converted from a `.fig`, a diagram
+    ; exported by RangerFlow — and rendering it on A4 because nobody passed
+    ; -w crops it. An explicit flag still wins; this is only the answer when
+    ; there was no question.
+    def sizeGiven:boolean false
     def pageWidth:double 595.0
     def pageHeight:double 842.0
     def scale:double 1.0
@@ -86,6 +94,7 @@ class EVGPNGTool {
                     def wVal@(optional):double (to_double wArg)
                     if wVal {
                         pageWidth = (unwrap wVal)
+                        sizeGiven = true
                     }
                 }
             }
@@ -97,6 +106,7 @@ class EVGPNGTool {
                     def hVal@(optional):double (to_double hArg)
                     if hVal {
                         pageHeight = (unwrap hVal)
+                        sizeGiven = true
                     }
                 }
             }
@@ -181,16 +191,17 @@ class EVGPNGTool {
         
         ; Parse TSX file
         print ""
-        print "Parsing TSX file..."
+        print (("Reading the " + (EVGDocSource.kindOf(inputFileName))) + "…")
         
-        def converter (new JSXToEVG())
-        converter.pageWidth = pageWidth
-        converter.pageHeight = pageHeight
-        
-        def root:EVGElement (converter.parseFile(inputDir inputFileName))
+        def root:EVGElement (EVGDocSource.load(inputDir inputFileName pageWidth pageHeight))
+        ; The document's own size, when it states one and nobody overrode it.
+        if (sizeGiven == false) {
+            pageWidth = (EVGDocSource.statedWidth(root pageWidth))
+            pageHeight = (EVGDocSource.statedHeight(root pageHeight))
+        }
         
         if (root.tagName == "") {
-            print "Error: Failed to parse TSX file or no JSX content found"
+            print (("Error: could not read " + inputFileName) + " as a document")
             return
         }
         
@@ -429,6 +440,15 @@ class EVGPNGTool {
         }
         
         ; Render background (gradient or solid color)
+        ; EVG has two ways to say "gradient" and this painter knew one of
+        ; them. `background-gradient` is the CSS string; `gradient-from` /
+        ; `gradient-to` / `gradient-dir` is the pair the display list, the GPU
+        ; backend and the Figma importer all use. A Figma page's gradient fill
+        ; therefore drew on the GPU and silently did not draw here, which is
+        ; the opposite of the claim this engine makes about its targets.
+        if el.gradientSet {
+            this.renderTwoStopGradient(el x y w h radius)
+        } {
         if (el.backgroundGradient != "") {
             this.renderGradient(el x y w h radius)
         } {
@@ -450,6 +470,7 @@ class EVGPNGTool {
                     }
                 }
             }
+        }
         }
         
         ; Render border.
@@ -608,6 +629,22 @@ class EVGPNGTool {
         }
     }
 
+    ; Where a transform turns, measured from the element's top-left in DEVICE
+    ; pixels. `EVGElement.resolveOrigin` answers in layout pixels, which is the
+    ; same number only at scale 1: a page rendered at twice the size would
+    ; otherwise turn about a point halfway to where it belongs.
+    fn originOffset:double (u:EVGUnit size:double) {
+        if (u.isSet == false) {
+            return (size / 2.0)
+        }
+        ; 1 is PERCENT and 3 is HEIGHT_PERCENT, and a percentage of a size that
+        ; is already scaled needs no scaling of its own.
+        if ((u.unitType == 1) || (u.unitType == 3)) {
+            return ((u.value / 100.0) * size)
+        }
+        return (u.value * scale)
+    }
+
     fn rotationMatrix:Matrix2D (el:EVGElement x:double y:double w:double h:double) {
         if (el.rotate == 0.0) {
             return (Matrix2D.identity())
@@ -618,8 +655,15 @@ class EVGPNGTool {
         def sn:double (sin rad)
         ; y grows downward here, so this is clockwise on screen — the same
         ; direction CSS rotate() turns and the same one the PDF renderer emits.
-        def ccx:double (x + (w / 2.0))
-        def ccy:double (y + (h / 2.0))
+        ;
+        ; About `transform-origin`, not about the box's centre. The centre is
+        ; only the DEFAULT, and taking it for the rule turns anything anchored
+        ; at a point about a pivot up to half its own width away: a chart's
+        ; turned axis labels swung out of the plot and off the left of the
+        ; page, while the display list — which has resolved the origin since it
+        ; was written — placed them correctly.
+        def ccx:double (x + (this.originOffset(el.transformOriginX w)))
+        def ccy:double (y + (this.originOffset(el.transformOriginY h)))
         def ex:double ((ccx - (cs * ccx)) + (sn * ccy))
         def fy:double ((ccy - (sn * ccx)) - (cs * ccy))
         return (Matrix2D.create(cs sn (0.0 - sn) cs ex fy))
@@ -868,6 +912,35 @@ class EVGPNGTool {
         return false
     }
 
+    ; The `gradient-from` / `gradient-to` pair, painted.
+    ;
+    ; `EVGDisplayList.angleOfDir` owns the direction convention — this asks it
+    ; rather than deciding, so the image and the GPU cannot disagree about
+    ; which way the gradient runs. Everything else here is the same call the
+    ; CSS path makes, so the two arrive at one gradient renderer.
+    fn renderTwoStopGradient:void (el:EVGElement x:double y:double w:double h:double radius:int) {
+        if (w <= 0.0) {
+            return
+        }
+        if (h <= 0.0) {
+            return
+        }
+        def from:EVGColor el.gradientFrom
+        def to:EVGColor el.gradientTo
+        def angle:double (EVGDisplayList.rasterAngleOfDir(el.gradientDir))
+        def r1:int (from.red())
+        def g1:int (from.green())
+        def b1:int (from.blue())
+        def r2:int (to.red())
+        def g2:int (to.green())
+        def b2:int (to.blue())
+        if (radius > 0) {
+            renderer.renderLinearGradientRoundedRect((to_int x) (to_int y) (to_int w) (to_int h) radius angle r1 g1 b1 r2 g2 b2)
+            return
+        }
+        renderer.renderLinearGradientRect((to_int x) (to_int y) (to_int w) (to_int h) angle r1 g1 b1 r2 g2 b2)
+    }
+
     fn renderGradient:void (el:EVGElement x:double y:double w:double h:double radius:int) {
         ; Use the pre-parsed gradient from EVGElement
         def grad:EVGGradient el.gradient
@@ -1018,43 +1091,29 @@ class EVGPNGTool {
             name = (substring path (slash + 1) (strlen path))
         }
 
-        ; A progressive JPEG needs the other decoder. Baseline is by far the
-        ; common case, but "some of the photos are simply missing" is a poor
-        ; way to find out which kind you have.
-        def img:ImageBuffer (this.decodeAnyJpeg(dir name))
+        ; One decoder for every format, sniffed from the bytes. This used to
+        ; choose between the two JPEG decoders itself and had never heard of
+        ; PNG — which a Figma archive is full of, so a converted page rendered
+        ; "Not a JPEG file (missing SOI)" and stopped. `EVGImageDecode` already
+        ; sniffed all three; the tool was simply not asking it.
+        def img:ImageBuffer (this.decodeAny(dir name))
         push imageCacheKeys src
         push imageCache img
         return img
     }
 
-    ; Pick the decoder from the SOF marker, the way jpeg_scaler does.
-    fn decodeAnyJpeg:ImageBuffer (dir:string name:string) {
+    ; Whatever it is, decoded once. The cache above means this runs a single
+    ; time per distinct `src`, so the sniff costs nothing that matters and the
+    ; decode is never repeated inside a page.
+    fn decodeAny:ImageBuffer (dir:string name:string) {
         def data:buffer (buffer_read_file dir name)
-        def dataLen:int (buffer_length data)
-        def isProgressive:boolean false
-        def i:int 0
-        while (i < (dataLen - 1)) {
-            if ((buffer_get data i) == 255) {
-                def marker:int (buffer_get data (i + 1))
-                if (marker == 194) {
-                    ; SOF2
-                    isProgressive = true
-                    i = dataLen
-                }
-                if (marker == 192) {
-                    ; SOF0
-                    isProgressive = false
-                    i = dataLen
-                }
-            }
-            i = (i + 1)
+        def got@(optional):ImageBuffer (EVGImageDecode.decode(data))
+        if (null? got) {
+            def empty (new ImageBuffer())
+            empty.init(1 1)
+            return empty
         }
-        if isProgressive {
-            def pdec (new ProgressiveJPEGDecoder())
-            return (pdec.decode(dir name))
-        }
-        def dec (new JPEGDecoder())
-        return (dec.decode(dir name))
+        return (unwrap got)
     }
 
     fn renderText:void (el:EVGElement x:double y:double w:double h:double padLeft:double padTop:double padRight:double) {
@@ -1121,7 +1180,16 @@ class EVGPNGTool {
         def unscaledFont:double (fontSize / scale)
         def availW:double (((w - padLeft) - padRight) / scale)
         def engine:EVGTextEngine (layout.getTextEngine())
-        def lines:[EVGTextLine] (engine.breakLines(el.textContent faceName unscaledFont availW))
+        ; `white-space: nowrap` is one line however narrow the box, which the
+        ; layout has honoured since it was written and this painter did not:
+        ; a label whose box was measured by an ESTIMATE broke onto a second
+        ; line the moment the estimate came up short, so "markdown" was
+        ; painted as "markdo" with the rest on a line outside the box.
+        def breakAt:double availW
+        if (el.whiteSpace == "nowrap") {
+            breakAt = 1000000.0
+        }
+        def lines:[EVGTextLine] (engine.breakLines(el.textContent faceName unscaledFont breakAt))
 
         def lineHeightFactor:double el.lineHeight
         if (lineHeightFactor <= 0.0) {
@@ -1133,7 +1201,25 @@ class EVGPNGTool {
         while (li < (array_length lines)) {
             def ln:EVGTextLine (itemAt lines li)
             def lineY:double ((y + padTop) + (lineStep * (to_double li)))
-            this.renderTextLine(el ln.text (x + padLeft) lineY fontSize textR textG textB textA hasShadow)
+            ; `text-align`, which this target read from nothing: every line was
+            ; painted at the left edge of its box while the PDF target and the
+            ; display list both moved it by the slack. A chart's axis labels
+            ; are the case that shows it — each one is placed by pinning its
+            ; END to a tick, so painted from the left they all sit a label's
+            ; width off, and the longer the name the further off it is.
+            def indent:double 0.0
+            if ((el.textAlign == "center") || (el.textAlign == "right")) {
+                def m:EVGTextMetrics (engine.measureRunSpaced(ln.text faceName unscaledFont el.letterSpacing))
+                def slack:double ((availW - m.width) * scale)
+                if (slack > 0.0) {
+                    if (el.textAlign == "center") {
+                        indent = (slack / 2.0)
+                    } {
+                        indent = slack
+                    }
+                }
+            }
+            this.renderTextLine(el ln.text ((x + padLeft) + indent) lineY fontSize textR textG textB textA hasShadow)
             li = (li + 1)
         }
 

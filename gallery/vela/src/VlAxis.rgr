@@ -147,6 +147,21 @@ class VlAxis {
     def labelAngle:double 0.0
     def labelAlign:string ""
     def labelBaseline:string ""
+    ; Set by the spec, as opposed to left at zero. Nothing may decide an angle
+    ; for an axis that stated one — including flat: `"labelAngle": 0` is a
+    ; chart saying it wants its labels level whatever they collide with.
+    def labelAngleSet:boolean false
+    ; TURN THEM IF THEY DO NOT FIT. Vega has no such setting: the reference
+    ; either draws crowded labels on top of each other or, with `labelOverlap`,
+    ; throws some away. Neither reads well in a printed document, where a
+    ; dropped category is a category the reader never learns about — so a
+    ; document-shaped caller (`MdVegaRender`) turns this on and a spec can ask
+    ; for it by name with `"labelAngle": "auto"`.
+    ;
+    ; It is OFF by default, and deliberately: Vela is measured against Vega's
+    ; own output, and an axis that turned its labels where the reference left
+    ; them level would be a parity failure rather than an improvement.
+    def labelAngleAuto:boolean false
     def minExtent:double 0.0
     def maxExtent:double 200.0
     ; How far the whole axis stands off the plot it measures. A diverging
@@ -273,6 +288,16 @@ class VlAxis {
         labelFormatType = (adef.stringOr("formatType" ""))
         this.readFlush((adef.get("labelFlush")))
         this.readOverlap((adef.get("labelOverlap")))
+        labelAngleSet = (adef.has("labelAngle"))
+        def wantAngle:VlJson (adef.get("labelAngle"))
+        if (wantAngle.isString()) {
+            if ((wantAngle.asString()) == "auto") {
+                labelAngleAuto = true
+                ; "auto" is not an angle, so nothing was stated: the axis is
+                ; free to choose one.
+                labelAngleSet = false
+            }
+        }
         labelAngle = (adef.doubleOr("labelAngle" labelAngle))
         labelAlign = (adef.stringOr("labelAlign" labelAlign))
         labelBaseline = (adef.stringOr("labelBaseline" labelBaseline))
@@ -628,6 +653,14 @@ class VlAxis {
             if ((sc.scaleType == "band") || (sc.scaleType == "point")) {
                 flushFrom = 0.0
                 flushTo = range
+            }
+            ; Decided BEFORE the labels are built, because the angle changes
+            ; how each one is anchored (a turned label hangs by its end, not
+            ; its middle) and how much room the axis reserves for them.
+            if labelAngleAuto {
+                if (! vertical) {
+                    labelAngle = (this.angleThatFits(ticks))
+                }
             }
             def labelMark:VlSceneMark (this.buildLabels(ticks orient vertical flushFrom flushTo wantTicks))
             push group.marks labelMark
@@ -993,6 +1026,79 @@ class VlAxis {
     ; Which way a label was turned, as -1, 0 or 1. Vega measures the angle
     ; clockwise from level and wraps it into a full turn first, so 270 and -90
     ; are the same quarter turn and 360 is none at all.
+    ; The flattest angle the labels of a horizontal axis fit at.
+    ;
+    ;   level      the widest label plus a space fits in the gap between ticks
+    ;   -45        its diagonal footprint does
+    ;   -90        neither — on its side it takes one line of type, which is
+    ;              the least room a label can take, so there is nothing flatter
+    ;              left to try
+    ;
+    ; Measured against the NARROWEST gap and the WIDEST label rather than pair
+    ; by pair, because an axis with some of its labels turned and some level
+    ; reads as a mistake even where each one happens to fit.
+    ;
+    ; Only horizontal axes. A vertical axis' labels are a line apart and stand
+    ; side by side with nothing, so they collide only by being taller than the
+    ; band — which turning them would make worse, not better.
+    fn angleThatFits:double (ticks:[VlAxisTickValue]) {
+        def n:int (array_length ticks)
+        if (n < 2) {
+            return 0.0
+        }
+        def widest:double 0.0
+        def gap:double 0.0
+        def haveGap:boolean false
+        def prev:double 0.0
+        def i:int 0
+        while (i < n) {
+            def tv:VlAxisTickValue (itemAt ticks i)
+            ; The text as it will be DRAWN — a label already cut to
+            ; `labelLimit` is not as wide as the string it was cut from.
+            def shown:string (VlText.truncate(tv.label labelFontSize labelLimit))
+            def w:double (VlText.drawWidth(shown labelFontSize))
+            if (w > widest) {
+                widest = w
+            }
+            if (i > 0) {
+                def d:double (tv.labelPosition - prev)
+                if (d < 0.0) {
+                    d = (0.0 - d)
+                }
+                if (haveGap == false) {
+                    gap = d
+                    haveGap = true
+                } {
+                    if (d < gap) {
+                        gap = d
+                    }
+                }
+            }
+            prev = tv.labelPosition
+            i = (i + 1)
+        }
+        if (haveGap == false) {
+            return 0.0
+        }
+        if (gap <= 0.0) {
+            return 0.0
+        }
+        ; Half a character of air between neighbours. Labels that touch are
+        ; labels a reader has to separate by eye.
+        def air:double (labelFontSize * 0.5)
+        if ((widest + air) <= gap) {
+            return 0.0
+        }
+        ; What a label turned by a quarter of a right angle takes ALONG the
+        ; axis: its width and its height each projected onto it, which for
+        ; forty-five degrees is the same factor for both.
+        def diagonal:double (((widest + (VlText.lineHeight(labelFontSize))) * 0.7071067811865476))
+        if ((diagonal + air) <= gap) {
+            return -45.0
+        }
+        return -90.0
+    }
+
     sfn turnedQuarter:int (angle:double) {
         def a:double angle
         while (a < 0.0) {

@@ -1,0 +1,84 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; FigFonts.rgr — a family name Figma can actually find.
+; ==============================================================================
+;
+; A document names its type by family, and the names a BROWSER resolves are not
+; the names Figma has. `Arial` is a system font: every machine that runs a
+; browser has it and Figma's web app does not, so a file that asks for it opens
+; with "Missing font — Arial" and a dialog before the drawing.
+;
+; What Figma has is Inter, which it ships, and the Google Fonts library, which
+; it hosts. So a family goes through unchanged when it is one of those, and
+; otherwise it is written as the nearest thing that will resolve — with the
+; substitution REPORTED, because a font that was silently replaced is a
+; difference between the design and the file that nobody asked for.
+;
+;   Arial, Helvetica, system-ui, Segoe UI, sans-serif   →  Inter
+;   Times, Georgia, serif                               →  Roboto Serif
+;   Courier, Menlo, Consolas, monospace                 →  Roboto Mono
+;
+; Everything else is passed through: a document set in Open Sans or Roboto
+; names a font Figma hosts, and second-guessing it would be worse than useless.
+; ==============================================================================
+
+class FigFonts {
+    ; The family to write, for the family the document asked for.
+    sfn figmaFamily:string (family:string) {
+        def key:string (FigFonts.fold(family))
+        if ((strlen key) == 0) {
+            return "Inter"
+        }
+        if (key == "arial") { return "Inter" }
+        if (key == "helvetica") { return "Inter" }
+        if (key == "helvetica neue") { return "Inter" }
+        if (key == "system-ui") { return "Inter" }
+        if (key == "-apple-system") { return "Inter" }
+        if (key == "segoe ui") { return "Inter" }
+        if (key == "sans-serif") { return "Inter" }
+        if (key == "tahoma") { return "Inter" }
+        if (key == "verdana") { return "Inter" }
+        if (key == "times") { return "Roboto Serif" }
+        if (key == "times new roman") { return "Roboto Serif" }
+        if (key == "georgia") { return "Roboto Serif" }
+        if (key == "serif") { return "Roboto Serif" }
+        if (key == "courier") { return "Roboto Mono" }
+        if (key == "courier new") { return "Roboto Mono" }
+        if (key == "menlo") { return "Roboto Mono" }
+        if (key == "consolas") { return "Roboto Mono" }
+        if (key == "monospace") { return "Roboto Mono" }
+        return family
+    } doc {
+        description "The nearest family Figma can resolve."
+        param family "The family the document asked for."
+        returns "A family Figma ships or hosts."
+    }
+
+    ; Was it changed? The caller reports it rather than this deciding how.
+    sfn substituted:boolean (family:string) {
+        return ((FigFonts.figmaFamily(family)) != family)
+    }
+
+    ; Lowercase, trimmed, and the FIRST family of a stack: `"Segoe UI", Arial,
+    ; sans-serif` asks for Segoe UI and settles for the rest.
+    sfn fold:string (family:string) {
+        def src:string (to_lowercase (trim family))
+        def out:string ""
+        def n:int (strlen src)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt src i)
+            if (c == 44) {
+                return (trim out)
+            }
+            if ((c == 34) || (c == 39)) {
+                i = (i + 1)
+            } {
+                out = (out + (substring src i (i + 1)))
+                i = (i + 1)
+            }
+        }
+        return (trim out)
+    }
+}
