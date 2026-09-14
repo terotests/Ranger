@@ -455,12 +455,17 @@ class ScriptEditorTest {
         c.ok("the bottom is near the end of the file" (bot > 40))
         def caretWas:int mm.sel.caret.line
         c.eqInt("starts unscrolled" mm.layout.scrollLine 0)
-        c.ok("a click on the lower half is consumed" (mm.tryMinimapPointer(600 300)))
-        c.ok("and the view moved down" (mm.layout.scrollLine > 10))
+        def pointed:int (mm.minimapLineAt(200))
+        c.ok("a click on the map is consumed" (mm.tryMinimapPointer(600 200)))
+        c.eqInt("and the view's top is the line under the pointer" mm.layout.scrollLine pointed)
         c.eqInt("without moving the caret" mm.sel.caret.line caretWas)
-        def downAt:int mm.layout.scrollLine
-        c.ok("dragging toward the top is consumed too" (mm.tryMinimapPointer(600 20)))
-        c.ok("and the view followed" (mm.layout.scrollLine < downAt))
+        def midAt:int mm.layout.scrollLine
+        mm.tryMinimapPointer(600 80)
+        def higher:int mm.layout.scrollLine
+        mm.tryMinimapPointer(600 320)
+        def lower:int mm.layout.scrollLine
+        c.ok("further down the map is further in the file" (lower > higher))
+        c.ok("and a drag toward the top goes back" (higher < midAt))
         mm.showMinimap = false
         c.eqInt("it can be turned off" (mm.minimapWidth()) 0)
         mm.showMinimap = true

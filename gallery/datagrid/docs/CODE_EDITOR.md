@@ -52,7 +52,7 @@ its indent.
 | | |
 | --- | --- |
 | click / drag | place the caret, select |
-| click / drag the right-hand strip | jump the view; the strip is a map of the file |
+| click / drag the right-hand strip | jump so that line is the top of the view |
 | arrows, Home/End, PgUp/PgDn | move (Shift extends) |
 | Enter | newline, keeping the indent — one level more after `{`, `(`, `[` |
 | Tab | two spaces at the caret; indent the selected lines if a range is open |

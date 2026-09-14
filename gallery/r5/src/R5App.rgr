@@ -1605,8 +1605,10 @@ class R5App {
     ; =========================================================================
     ; The pointer
     ; =========================================================================
-    ; Where a press landed: "editor", "chrome", or "" for the document pane,
-    ; which the host serves through its own element over that rectangle.
+    ; Where a press landed: "editor", "minimap", "chrome", or "" for the
+    ; document pane, which the host serves through its own element over that
+    ; rectangle. "minimap" is still the editor: the host keeps the drag so a
+    ; finger names a place in the file instead of flicking a line at a time.
     fn pointerDown:string (x:double y:double shift:boolean clicks:int) {
         this.laidOut()
         if ((strlen menu) > 0) {
@@ -1630,6 +1632,9 @@ class R5App {
                 }
                 this.setFocus("editor")
                 chromeRev = (chromeRev + 1)
+                if (editor.insideMinimap(px py)) {
+                    return "minimap"
+                }
                 return "editor"
             }
         }
@@ -1695,6 +1700,13 @@ class R5App {
         if (x > (edX + edW)) { return false }
         if (y > (edY + edH)) { return false }
         return true
+    }
+
+    fn inMinimap:boolean (x:double y:double) {
+        if (! (this.inEditor(x y))) {
+            return false
+        }
+        return (editor.insideMinimap((to_int x) (to_int y)))
     }
 
     fn inPane:boolean (x:double y:double) {

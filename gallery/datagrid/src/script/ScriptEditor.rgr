@@ -486,23 +486,19 @@ class ScriptEditor {
         return (py < bottom)
     }
 
-    ; Pixels of minimap height per source line. Two is the VS Code default;
-    ; a file that would not fit is scaled so the whole document stays in view.
+    ; Pixels of minimap height per source line. The strip is the whole file,
+    ; so a finger on the map is a place in the document — not a 2px band at
+    ; the top with a dead zone below it.
     fn minimapScale:double () {
         def n:int (buf.lineCount())
-        if (n < 1) {
-            return 2.0
-        }
         def h:double (to_double layout.h)
+        if (n < 1) {
+            return 1.0
+        }
         if (h < 1.0) {
-            return 2.0
+            return 1.0
         }
-        def px:double 2.0
-        def need:double ((to_double n) * px)
-        if (need > h) {
-            px = (h / (to_double n))
-        }
-        return px
+        return (h / (to_double n))
     }
 
     fn minimapLineAt:int (py:int) {
@@ -529,14 +525,12 @@ class ScriptEditor {
         return line
     }
 
-    ; Centre the clicked line in the viewport — a click is a jump, not a
-    ; caret move. Dragging uses the same mapping, so the slider follows.
+    ; The line under the pointer becomes the top of the view. A click is a
+    ; jump to that place, not a relative nudge, so the finger names the
+    ; spot the document goes to.
     fn jumpMinimap:void (py:int) {
         def line:int (this.minimapLineAt(py))
-        def vis:int (layout.visibleLineCount())
-        def half:int (idiv vis 2)
-        def scroll:int (line - half)
-        layout.scrollLine = scroll
+        layout.scrollLine = line
         layout.clampScroll(buf)
     }
 
