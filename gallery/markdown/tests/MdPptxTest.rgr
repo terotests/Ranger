@@ -631,6 +631,63 @@ class MdPptxTest {
         c.ok("…and below the title" (m.y > 36.0))
     }
 
+    ; A short H3 is a box the width of the COLUMN, not of the words. The
+    ; layout's boxes are the glyphs; a text box that size is already full,
+    ; and PowerPoint wrapping the last word onto the table under it is
+    ; exactly the picture the reader sent: "A" / "tabledd" over the grid.
+    ; H1 and H2 escaped because they draw a rule the width of the column.
+    fn headingBox:void (c:DeckCheck) {
+        print "-- a short heading is as wide as the column --"
+        def src:string "# Title\n\n### A tabledd\n\n| Stage | Reads | Writes |\n| --- | --- | ---: |\n| a | b | c |\n"
+        def css:string "page { width: 720pt; height: 405pt; padding: 36pt }"
+        def back:PptxDeck (this.reopened((this.build(src css))))
+        def sl:PptxSlideRef (back.slideAt(0))
+        def found:boolean false
+        def hw:double 0.0
+        def hx:double 0.0
+        def hy:double 0.0
+        def hh:double 0.0
+        def ty:double 0.0
+        def haveTable:boolean false
+        def i:int 0
+        while (i < (sl.shapeCount())) {
+            def sh:PptxShapeRef (sl.shapeAt(i))
+            def m:PptxShape (sh.model())
+            if (m.kind == 4) {
+                haveTable = true
+                ty = m.y
+            }
+            def words:string (MdPptxTest.firstRun(m))
+            if (words == "A tabledd") {
+                found = true
+                hw = m.width
+                hx = m.x
+                hy = m.y
+                hh = m.height
+            }
+            i = (i + 1)
+        }
+        c.ok("the heading is on the slide" found)
+        c.ok("the table is on the same slide" haveTable)
+        ; Glyph-tight, "A tabledd" at 15.5pt is well under 200pt. The
+        ; column is 720 − 72 = 648.
+        c.ok("the heading is as wide as the column, not its glyphs" (hw > 400.0))
+        c.ok("…and reaches the right margin" ((hx + hw) > 600.0))
+        c.ok("the table is below the heading's box" (ty >= (hy + hh - 1.0)))
+    }
+
+    sfn firstRun:string (m:PptxShape) {
+        if ((array_length m.text.paragraphs) == 0) {
+            return ""
+        }
+        def p:PptxParagraph (itemAt m.text.paragraphs 0)
+        if ((array_length p.runs) == 0) {
+            return ""
+        }
+        def r:PptxTextRun (itemAt p.runs 0)
+        return r.text
+    }
+
     ; Nested lists become LEVELS, which is how PowerPoint spells a sub-bullet
     ; — not a second shape, which would not be the same list.
     fn levels:void (c:DeckCheck) {
@@ -1237,6 +1294,7 @@ prose
         print "== MdPptxTest =="
         this.roundTrip(c)
         this.editable(c)
+        this.headingBox(c)
         this.levels(c)
         this.numbering(c)
         this.drawable(c)

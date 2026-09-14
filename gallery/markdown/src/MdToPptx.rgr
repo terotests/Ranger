@@ -408,6 +408,15 @@ class MdToPptx {
         if (h <= 1.0) { h = (layout.style.bodySize * layout.style.lineHeight) }
 
         def kind:string node.kind
+        ; The boxes for a heading are the glyphs, each as wide as that run.
+        ; A text box that size is already full: the first millimetre
+        ; PowerPoint measures wider — default insets, a bolder face — wraps
+        ; the last word onto the table under it. `### A tabledd` became
+        ; "A" / "tabledd" over the grid. H1 and H2 escaped because they
+        ; draw a rule the width of the COLUMN; H3 has no rule. The
+        ; rectangle the layout gave the block is that column, and wrapping
+        ; belongs inside it.
+        w = (this.stretchFlow(kind x w))
         if (kind == "heading") {
             this.heading(slide node x y w h)
             return
@@ -470,6 +479,30 @@ class MdToPptx {
         m.text.insetT = 0.0
         m.text.insetB = 0.0
         m.text.insetsSet = true
+    }
+
+    ; A flowing block's box reaches the right of the column, not the right
+    ; of its last glyph. Tables and drawings keep the size they were
+    ; measured at — stretching those would be a different picture.
+    fn stretchFlow:double (kind:string x:double w:double) {
+        if (! (this.flows(kind))) {
+            return w
+        }
+        def room:double ((layout.contentX + layout.contentW) - x)
+        if (room > w) {
+            return room
+        }
+        return w
+    }
+
+    fn flows:boolean (kind:string) {
+        if (kind == "heading") { return true }
+        if (kind == "paragraph") { return true }
+        if (kind == "block_quote") { return true }
+        if (kind == "list") { return true }
+        if (kind == "code_block") { return true }
+        if (kind == "html_block") { return true }
+        return false
     }
 
     ; A heading at or above the deck's split level is the slide's TITLE — the

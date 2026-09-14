@@ -182,6 +182,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Editing the markdown while looking at a slide jumped the deck back to
+  the first one.** Rebuilding the slides hands the editor a new presentation,
+  and `attachPresentation` always opened on slide 1 — so a keystroke on slide
+  3 of r5's markdown pane made the preview leap to the title, and the heading
+  just typed was off-screen. The slide that is in front stays in front.
+
+- **A short heading wrapped onto the table under it.** `### A tabledd` drew
+  as "A" / "tabledd" over the grid. The layout's boxes for a heading are the
+  glyphs, each as wide as that run, and the exporter made a PowerPoint text
+  box that size — already full, so the first millimetre a bolder face or a
+  default inset measured wider wrapped the last word out of the box and over
+  the next block. H1 and H2 escaped because they draw a rule the width of the
+  column; H3 has no rule. Flowing blocks now get that column, and wrapping
+  stays inside it.
+
 - **A page panned away from the origin drew almost nothing.** EVG skips a
   subtree that cannot reach the clip it is inside, and the test was made
   against the boxes the layout placed while a transform moves the pixels
