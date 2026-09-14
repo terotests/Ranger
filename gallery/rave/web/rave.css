@@ -380,3 +380,12 @@
 /* A group caption between the kit's rows, so thirty entries read as six
    lists rather than one. */
 .ra-group { font-size: 10px; font-weight: bold; height: 14px; color: #aab0bb; padding: 8px 7px 2px; }
+/* What an import made of somebody's file: one row per guess, with the
+   reason beside it. */
+.ra-noterow {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: flex-start;
+  gap: 7px; padding: 6px 7px; border-radius: 5px;
+}
+.ra-noterow:hover { background-color: #f2f4f8; }
+.ra-notebody { display: flex; flex-direction: column; gap: 1px; flex-grow: 1; min-width: 0; }
+.ra-note-t { font-size: 11px; color: #7b8190; }

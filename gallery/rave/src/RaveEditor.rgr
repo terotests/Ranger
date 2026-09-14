@@ -27,6 +27,9 @@ Import "RaveRuntime.rgr"
 Import "RavePatterns.rgr"
 Import "RaveOps.rgr"
 Import "RaveKit.rgr"
+Import "RaveImport.rgr"
+Import "../../figma/src/FigParser.rgr"
+Import "../../figma/src/convert/FigToScene.rgr"
 Import "RaveA11y.rgr"
 Import "RaveCss.rgr"
 Import "RaveBuild.rgr"
@@ -114,6 +117,10 @@ class RaveEditor {
     def wizNav:string "sidebar"
     ; dashboard | marketing | masterdetail | crud | settings | empty
     def wizStart:string "dashboard"
+    ; What the last Figma import worked out, and what it had to guess. Kept
+    ; because an import is a reading of somebody's file and the reading is
+    ; the thing worth checking.
+    def importReport:RaveImportReport (new RaveImportReport())
     def wizWeb:boolean true
     def wizDesktop:boolean false
     def wizTablet:boolean true
@@ -260,7 +267,10 @@ class RaveEditor {
     ; The viewports the stage opens with follow the targets that were ticked,
     ; so the first thing on the screen is the widths this project is for.
     fn viewsForTargets:void (r:RaveRuntime) {
-        def targets:[string] (this.wizardTargets())
+        this.viewsFrom(r (this.wizardTargets()))
+    }
+
+    fn viewsFrom:void (r:RaveRuntime targets:[string]) {
         def i:int 0
         while (i < (array_length targets)) {
             def t:string (itemAt targets i)
@@ -270,6 +280,69 @@ class RaveEditor {
             if (t == "mobile") { r.addView("phone" 390.0 844.0 true) }
             i = (i + 1)
         }
+        if ((r.viewCount()) == 0) {
+            r.addView("web" 1440.0 900.0 false)
+        }
+    }
+
+    ; --- File → Import ---------------------------------------------------------
+
+    ; A `.fig` file, read as an application. The bytes come from the page's
+    ; file picker; everything after that is RaveImport's reading of them, and
+    ; the report it wrote is what the Import tab shows.
+    fn importFig:boolean (bytes:buffer name:string) {
+        def parser (new FigParser())
+        def doc:FigDoc (parser.parseBytes(bytes name))
+        if (doc.ok == false) {
+            status = ("not a Figma file: " + doc.err)
+            dirty = true
+            return false
+        }
+        def conv (new FigToScene())
+        def scene:SceneDocument (conv.convertDoc(doc))
+        def imp (new RaveImport())
+        def app:RaveApp (imp.run(scene))
+        if (app.isEmpty()) {
+            status = "nothing in that file to import"
+            dirty = true
+            return false
+        }
+        importReport = imp.report
+        this.adoptImported(app)
+        status = (imp.report.summary())
+        if ((importReport.noteCount()) > 0) {
+            rightPane = "import"
+        }
+        return true
+    }
+
+    fn adoptImported:void (app:RaveApp) {
+        doc = app
+        def r (new RaveRuntime(app))
+        this.viewsFrom(r app.targets)
+        rt = r
+        def e (new RaveEdit(app))
+        edit = e
+        selected = 0
+        def fresh:[string:boolean]
+        folded = fresh
+        editing = ""
+        dragging = 0
+        activeView = 0
+        needFit = true
+        dirty = true
+    }
+
+    fn importNoteCount:int () {
+        return (importReport.noteCount())
+    }
+
+    fn importNoteAt:string (i:int) {
+        return (importReport.noteAt(i))
+    }
+
+    fn importSummary:string () {
+        return (importReport.summary())
     }
 
     fn wizardPress:boolean (what:string) {
@@ -2102,6 +2175,7 @@ class RaveEditor {
         bar.addChild((RaveEditor.box("ra-sep" "" "" "")))
         bar.addChild((RaveEditor.button("file:new" "New" "ra-btn" "ra-btn-t")))
         bar.addChild((RaveEditor.button("file:open" "Open…" "ra-btn" "ra-btn-t")))
+        bar.addChild((RaveEditor.button("file:import" "Import .fig" "ra-btn" "ra-btn-t")))
         bar.addChild((RaveEditor.button("file:save" "Save" "ra-btn" "ra-btn-t")))
         return bar
     }
@@ -2440,6 +2514,10 @@ class RaveEditor {
         tabs.addChild((this.tab("tab:design" "Design" (rightPane == "design"))))
         tabs.addChild((this.tab("tab:css" "CSS" (rightPane == "css"))))
         tabs.addChild((this.tab("tab:a11y" "A11y" (rightPane == "a11y"))))
+        ; The Import tab is there only when there is an import to read about.
+        if ((importReport.noteCount()) > 0) {
+            tabs.addChild((this.tab("tab:import" "Import" (rightPane == "import"))))
+        }
         tabs.addChild((RaveEditor.box("ra-spacer" "" "" "")))
         tabs.addChild((RaveEditor.quiet("ra-zoomread" (RaveEditor.pct(zoom)))))
         rail.addChild(tabs)
@@ -2453,8 +2531,39 @@ class RaveEditor {
         if (rightPane == "a11y") {
             this.a11yPane(scroll)
         }
+        if (rightPane == "import") {
+            this.importPane(scroll)
+        }
         rail.addChild(scroll)
         return rail
+    }
+
+    ; What the import made of the file: the counts, then every guess and
+    ; every thing it could not carry over, in the order it met them. A
+    ; reading of somebody else's file is worth nothing if it cannot be
+    ; checked, so it is written down rather than merely applied.
+    fn importPane:void (host:EVGElement) {
+        host.addChild((this.cap("IMPORT" (to_string (importReport.noteCount())))))
+        def head:EVGElement (RaveEditor.box("ra-props-box" "" "" ""))
+        head.addChild((RaveEditor.txt("ra-props" (importReport.summary()))))
+        host.addChild(head)
+        def list:EVGElement (RaveEditor.box("ra-pages" "" "list" "Import notes"))
+        def i:int 0
+        while (i < (importReport.noteCount())) {
+            def note:RaveImportNote (itemAt importReport.notes i)
+            def row:EVGElement (RaveEditor.box("ra-noterow" "" "listitem" (note.line())))
+            def mark:string "?"
+            if (note.kind == "dropped") { mark = "!" }
+            if (note.kind == "layout") { mark = "▤" }
+            row.addChild((RaveEditor.quiet("ra-page-ic" mark)))
+            def body:EVGElement (RaveEditor.box("ra-notebody" "" "" ""))
+            body.addChild((RaveEditor.quiet("ra-page-nm" (RaveEditor.cut(note.nodeName 22)))))
+            body.addChild((RaveEditor.quiet("ra-note-t" note.detail)))
+            row.addChild(body)
+            list.addChild(row)
+            i = (i + 1)
+        }
+        host.addChild(list)
     }
 
     fn nothingSelected:void (host:EVGElement) {

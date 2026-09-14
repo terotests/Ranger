@@ -15,6 +15,9 @@ Import "../src/RavePatterns.rgr"
 Import "../src/RaveRuntime.rgr"
 Import "../src/RaveEditor.rgr"
 Import "../src/RaveA11y.rgr"
+Import "../src/RaveImport.rgr"
+Import "../../figma/src/FigParser.rgr"
+Import "../../figma/src/convert/FigToScene.rgr"
 
 class Check {
     def passed:int 0
@@ -457,6 +460,261 @@ class RaveTest {
         c.ok("…and the palette already set" ((array_length blank.vars) > 0))
         def rt3:RaveRuntime (ed.runtime())
         RaveTest.lintClean(c rt3 0 "the empty project lints clean")
+    }
+
+    ; --- importing a Figma file ---------------------------------------------------------------
+
+    sfn sbox:SceneNode (name:string x:double y:double w:double h:double) {
+        def n (new SceneNode())
+        n.id = name
+        n.name = name
+        n.kind = "container"
+        n.x = x
+        n.y = y
+        n.w = w
+        n.h = h
+        n.visible = true
+        return n
+    }
+
+    sfn stext:SceneNode (name:string words:string x:double y:double w:double h:double size:double) {
+        def n:SceneNode (RaveTest.sbox(name x y w h))
+        n.kind = "text"
+        n.text.characters = words
+        n.text.fontSize = size
+        return n
+    }
+
+    sfn spaint:SceneNode (n:SceneNode r:double g:double b:double) {
+        def f (new SceneFill())
+        f.kind = "solid"
+        f.r = r
+        f.g = g
+        f.b = b
+        f.a = 1.0
+        f.visible = true
+        push n.fills f
+        return n
+    }
+
+    sfn sround:SceneNode (n:SceneNode radius:double) {
+        n.radius.setAll(radius)
+        return n
+    }
+
+    sfn sframe:SceneNode (name:string w:double h:double) {
+        return (RaveTest.sbox(name 0.0 0.0 w h))
+    }
+
+    sfn sdoc:SceneDocument (frames:[SceneNode]) {
+        def doc (new SceneDocument())
+        doc.name = "Test file"
+        def page:SceneNode (RaveTest.sbox("Page 1" 0.0 0.0 0.0 0.0))
+        def i:int 0
+        while (i < (array_length frames)) {
+            push page.children (itemAt frames i)
+            i = (i + 1)
+        }
+        push doc.pages page
+        return doc
+    }
+
+    ; The tag of the first child of the first page, and so on down: a path
+    ; like "0/1" reads "the second child of the first child".
+    sfn childAt:RaveNode (app:RaveApp root:RaveNode a:int) {
+        def c:RaveNode (itemAt root.children a)
+        return c
+    }
+
+    sfn pageOfRoute:RaveNode (app:RaveApp path:string) {
+        def r:RaveRoute (app.routeAt(path))
+        return (app.node(r.pageId))
+    }
+
+    ; What a rule says about one node, at the base breakpoint.
+    sfn styleOf:string (app:RaveApp n:RaveNode prop:string) {
+        return (app.styleOf(n "" prop))
+    }
+
+    sfn importChecks:void (c:Check) {
+        print ""
+        print "--- figma import ---"
+
+        ; --- a stack of boxes is a column --------------------------------------
+        def f1:SceneNode (RaveTest.sframe("Stack" 400.0 400.0))
+        push f1.children (RaveTest.sbox("A" 20.0 20.0 360.0 80.0))
+        push f1.children (RaveTest.sbox("B" 20.0 116.0 360.0 80.0))
+        push f1.children (RaveTest.sbox("C" 20.0 212.0 360.0 80.0))
+        def frames1:[SceneNode]
+        push frames1 f1
+        def imp1 (new RaveImport())
+        def app1:RaveApp (imp1.run((RaveTest.sdoc(frames1))))
+        def page1:RaveNode (RaveTest.pageOfRoute(app1 "/"))
+        c.eqInt("three stacked boxes stay three children" (array_length page1.children) 3)
+        c.eqStr("…laid out as a column" (RaveTest.styleOf(app1 page1 "flex-direction")) "")
+        c.eqStr("…with the gap they left between them" (RaveTest.styleOf(app1 page1 "gap")) "16px")
+        c.eqStr("…and the space they left round them" (RaveTest.styleOf(app1 page1 "padding")) "20px 20px 108px 20px")
+        def a1:RaveNode (itemAt page1.children 0)
+        c.eqStr("a box as wide as the space it is in is 100%" (RaveTest.styleOf(app1 a1 "width")) "100%")
+
+        ; --- boxes side by side are a row ---------------------------------------
+        def f2:SceneNode (RaveTest.sframe("Row" 400.0 200.0))
+        push f2.children (RaveTest.sbox("A" 0.0 0.0 120.0 100.0))
+        push f2.children (RaveTest.sbox("B" 140.0 0.0 120.0 100.0))
+        push f2.children (RaveTest.sbox("C" 280.0 0.0 120.0 100.0))
+        def frames2:[SceneNode]
+        push frames2 f2
+        def imp2 (new RaveImport())
+        def app2:RaveApp (imp2.run((RaveTest.sdoc(frames2))))
+        def page2:RaveNode (RaveTest.pageOfRoute(app2 "/"))
+        c.eqStr("boxes side by side are a row" (RaveTest.styleOf(app2 page2 "flex-direction")) "row")
+        c.eqStr("…with their own gap" (RaveTest.styleOf(app2 page2 "gap")) "20px")
+        c.eqInt("…and no group was needed" imp2.report.grouped 0)
+
+        ; --- a grid is a column of rows -----------------------------------------
+        def f3:SceneNode (RaveTest.sframe("Grid" 400.0 400.0))
+        push f3.children (RaveTest.sbox("A" 0.0 0.0 180.0 100.0))
+        push f3.children (RaveTest.sbox("B" 200.0 0.0 180.0 100.0))
+        push f3.children (RaveTest.sbox("C" 0.0 120.0 180.0 100.0))
+        push f3.children (RaveTest.sbox("D" 200.0 120.0 180.0 100.0))
+        def frames3:[SceneNode]
+        push frames3 f3
+        def imp3 (new RaveImport())
+        def app3:RaveApp (imp3.run((RaveTest.sdoc(frames3))))
+        def page3:RaveNode (RaveTest.pageOfRoute(app3 "/"))
+        c.eqInt("a 2×2 grid becomes two rows" (array_length page3.children) 2)
+        c.eqInt("…which are groups the cut made" imp3.report.grouped 2)
+        def row0:RaveNode (itemAt page3.children 0)
+        c.eqStr("…each of them a row" (RaveTest.styleOf(app3 row0 "flex-direction")) "row")
+        c.eqInt("…of two" (array_length row0.children) 2)
+
+        ; --- boxes that overlap stay where they were put -------------------------
+        def f4:SceneNode (RaveTest.sframe("Overlap" 400.0 400.0))
+        push f4.children (RaveTest.sbox("A" 0.0 0.0 300.0 300.0))
+        push f4.children (RaveTest.sbox("B" 100.0 100.0 300.0 300.0))
+        def frames4:[SceneNode]
+        push frames4 f4
+        def imp4 (new RaveImport())
+        def app4:RaveApp (imp4.run((RaveTest.sdoc(frames4))))
+        def page4:RaveNode (RaveTest.pageOfRoute(app4 "/"))
+        c.eqInt("overlapping boxes cannot be cut" imp4.report.absolute 1)
+        def b4:RaveNode (itemAt page4.children 1)
+        c.eqStr("…so they keep their own position" (RaveTest.styleOf(app4 b4 "position")) "absolute")
+        c.eqStr("…and their own corner" (RaveTest.styleOf(app4 b4 "left")) "100px")
+
+        ; --- what the boxes are -------------------------------------------------
+        def f5:SceneNode (RaveTest.sframe("Screen" 1440.0 900.0))
+        push f5.children (RaveTest.sbox("Header" 0.0 0.0 1440.0 80.0))
+        def side:SceneNode (RaveTest.sbox("Sidebar" 0.0 100.0 240.0 800.0))
+        push f5.children side
+        def body:SceneNode (RaveTest.sbox("Body" 260.0 100.0 1180.0 800.0))
+        def cta:SceneNode (RaveTest.sround((RaveTest.spaint((RaveTest.sbox("Primary" 0.0 0.0 160.0 40.0)) 0.1 0.4 0.9)) 8.0)
+        )
+        push cta.children (RaveTest.stext("Label" "Sign in" 0.0 0.0 80.0 20.0 14.0))
+        push body.children cta
+        push f5.children body
+        def frames5:[SceneNode]
+        push frames5 f5
+        def imp5 (new RaveImport())
+        def app5:RaveApp (imp5.run((RaveTest.sdoc(frames5))))
+        def page5:RaveNode (RaveTest.pageOfRoute(app5 "/"))
+        def head5:RaveNode (itemAt page5.children 0)
+        c.eqStr("a layer called Header is a header" head5.tag "header")
+        def row5:RaveNode (itemAt page5.children 1)
+        def side5:RaveNode (itemAt row5.children 0)
+        c.eqStr("…Sidebar is an aside" side5.tag "aside")
+        def btn5:RaveNode (app5.node((app5.idOfNamed("button" "Primary"))))
+        c.eqStr("a rounded, filled box with one line in it is a button" btn5.tag "button")
+        c.eqStr("…carrying the words that were in it" btn5.text "Sign in")
+
+        ; --- auto-layout is taken as it stands -----------------------------------
+        def f6:SceneNode (RaveTest.sframe("Auto" 400.0 200.0))
+        f6.layout.mode = "row"
+        f6.layout.gap = 12.0
+        f6.layout.padL = 24.0
+        f6.layout.padR = 24.0
+        f6.layout.padT = 16.0
+        f6.layout.padB = 16.0
+        f6.layout.justify = "space-between"
+        f6.layout.alignItems = "center"
+        push f6.children (RaveTest.sbox("A" 0.0 0.0 100.0 40.0))
+        push f6.children (RaveTest.sbox("B" 0.0 0.0 100.0 40.0))
+        def frames6:[SceneNode]
+        push frames6 f6
+        def imp6 (new RaveImport())
+        def app6:RaveApp (imp6.run((RaveTest.sdoc(frames6))))
+        def page6:RaveNode (RaveTest.pageOfRoute(app6 "/"))
+        c.eqInt("a frame with auto-layout is not guessed at" imp6.report.auto 1)
+        c.eqInt("…and nothing was inferred" imp6.report.inferred 0)
+        c.eqStr("…the direction is the file's" (RaveTest.styleOf(app6 page6 "flex-direction")) "row")
+        c.eqStr("…the gap is the file's" (RaveTest.styleOf(app6 page6 "gap")) "12px")
+        c.eqStr("…the padding is the file's" (RaveTest.styleOf(app6 page6 "padding")) "16px 24px 16px 24px")
+        c.eqStr("…and so is the justification" (RaveTest.styleOf(app6 page6 "justify-content")) "space-between")
+
+        ; --- what every screen agrees about becomes a layout ---------------------
+        def s1:SceneNode (RaveTest.sframe("Home" 390.0 800.0))
+        push s1.children (RaveTest.sbox("Body" 0.0 0.0 390.0 736.0))
+        push s1.children (RaveTest.sbox("Tab bar" 0.0 736.0 390.0 64.0))
+        def s2:SceneNode (RaveTest.sframe("Profile" 390.0 900.0))
+        push s2.children (RaveTest.sbox("Body" 0.0 0.0 390.0 836.0))
+        push s2.children (RaveTest.sbox("Tab bar" 0.0 836.0 390.0 64.0))
+        def frames7:[SceneNode]
+        push frames7 s1
+        push frames7 s2
+        def imp7 (new RaveImport())
+        def app7:RaveApp (imp7.run((RaveTest.sdoc(frames7))))
+        c.eqInt("two screens with the same tab bar make one layout" (array_length app7.layouts) 1)
+        c.eqInt("…and two routes" (array_length app7.routes) 2)
+        def r7a:RaveRoute (app7.routeAt("/"))
+        def r7b:RaveRoute (app7.routeAt("/profile"))
+        c.ok("…both on it" ((r7a.layoutId > 0) && (r7a.layoutId == r7b.layoutId)))
+        def lay7:RaveNode (app7.node(r7a.layoutId))
+        c.eqInt("the layout is the tab bar and a slot" (array_length lay7.children) 2)
+        def slot7:RaveNode (itemAt lay7.children 0)
+        c.eqStr("…the slot first, where the screens differ" slot7.kind "slot")
+        def bar7:RaveNode (itemAt lay7.children 1)
+        c.eqStr("…and the tab bar under it" bar7.name "Tab bar")
+        c.eqStr("…the slot growing into what is left" (RaveTest.styleOf(app7 slot7 "flex-grow")) "1")
+
+        ; --- and a real file ------------------------------------------------------
+        def bytes@(optional):buffer (buffer_read_file "gallery/figma/fixtures" "health.fig")
+        if (null? bytes) {
+            c.ok("health.fig is readable" false)
+            return
+        }
+        def parser (new FigParser())
+        def fig:FigDoc (parser.parseBytes((unwrap bytes) "health.fig"))
+        c.ok("health.fig parses" fig.ok)
+        def conv (new FigToScene())
+        def scene:SceneDocument (conv.convertDoc(fig))
+        def imp (new RaveImport())
+        def app:RaveApp (imp.run(scene))
+        c.eqInt("its three screens are three routes" (array_length app.routes) 3)
+        c.eqInt("…its shared tab bar is a layout" (array_length app.layouts) 1)
+        c.ok("…most of it was the file's own auto-layout" (imp.report.auto > 50))
+        c.ok("…and what was not was cut into flex" (imp.report.inferred > 5))
+        c.ok("the import wrote down what it guessed" ((imp.report.noteCount()) > 0))
+        def rt (new RaveRuntime(app))
+        c.eqInt("the stylesheet it wrote parses clean" (rt.styleErrorCount()) 0)
+        if ((rt.styleErrorCount()) > 0) {
+            print ("       " + (rt.styleError(0)))
+        }
+        def wide:int (rt.addView("wide" 1440.0 900.0 false))
+        def phone:int (rt.addView("phone" 390.0 844.0 true))
+        def dl:string (rt.displayListJson(phone))
+        c.ok("the screen is drawn" (RaveTest.includes(dl "SLEEP QUALITY")))
+        RaveTest.noRejections(c rt wide "the engine rejected nothing at 1440")
+        RaveTest.noRejections(c rt phone "the engine rejected nothing at 390")
+        RaveTest.lintClean(c rt phone "an imported screen lints clean")
+        c.ok("a second screen is a route you can reach" (rt.navigate("/activity")))
+        c.eqStr("…at its own path" (rt.path()) "/activity")
+        def activityDl:string (rt.displayListJson(phone))
+        c.ok("…drawing that screen" (RaveTest.includes(activityDl "MOVEMENT")))
+        c.ok("…and not the one before it" ((RaveTest.includes(activityDl "SLEEP QUALITY")) == false))
+        RaveTest.lintClean(c rt phone "…and it lints clean too")
+        def text:string (app.toJson())
+        def back:RaveApp (RaveApp.fromJson(text))
+        c.eqStr("…and the whole import saves and opens" (back.toJson()) text)
     }
 
     ; --- the ten-minute test ----------------------------------------------------------------
@@ -1241,6 +1499,7 @@ class RaveTest {
         RaveTest.wizardChecks(c)
         RaveTest.kitChecks(c)
         RaveTest.tenMinuteTest(c)
+        RaveTest.importChecks(c)
         RaveTest.editorChecks(c)
         RaveTest.inputChecks(c)
 
