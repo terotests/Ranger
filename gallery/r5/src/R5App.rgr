@@ -320,6 +320,9 @@ class R5App {
         t.popupEdge = (EVGColor.rgb(216 222 228))
         t.popupPick = (EVGColor.rgb(221 234 251))
         t.popupDetail = (EVGColor.rgb(110 119 129))
+        t.minimapBg = (EVGColor.rgb(246 248 250))
+        t.minimapSlider = (EVGColor.rgba(31 35 40 0.10))
+        t.minimapEdge = (EVGColor.rgb(216 222 228))
     }
 
     ; A face, into the engine and into the editor's own renderer. The layout
@@ -1707,6 +1710,9 @@ class R5App {
         if ((strlen menu) == 0) {
             if edShown {
                 if (this.inEditor(x y)) {
+                    if (editor.insideMinimap((to_int x) (to_int y))) {
+                        return "default"
+                    }
                     return "text"
                 }
             }

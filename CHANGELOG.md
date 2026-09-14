@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The code editor has a minimap.** The right edge of `ScriptEditor` is a
+  scaled picture of the file, the same idea as VS Code's and Monaco's: each
+  token is a coloured speck, the slider is the viewport, a problem is a tick,
+  and a click or a drag there jumps the view without moving the caret. A
+  panel too narrow to spare the strip hides it. The same map shows on the r5
+  page, on the light theme.
+
 - **FigJam boards draw.** A sticky, a shape with text, a connector and a table
   carry no children: Figma builds their layers itself and a `.jam` ships only
   what it built, as two lists that pair by `guidPath` —

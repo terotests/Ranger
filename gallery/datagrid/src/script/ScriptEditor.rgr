@@ -15,7 +15,9 @@
 ; with the TEXT RENDERER IT IS GIVEN — the grid's own. That is what makes it a
 ; panel rather than an application: no canvas of its own, no font of its own,
 ; no frame of its own. The same list goes to SoftCanvas on a desktop host and
-; to WebGL in a browser, so the editor is on the GPU for free.
+; to WebGL in a browser, so the editor is on the GPU for free. The right edge
+; is a minimap: a scaled picture of the file, like VS Code's, that you scroll
+; with a click.
 ;
 ; Every token is positioned by `layout.caretPixelX`, the same call the caret
 ; and the selection use, rather than by adding up token widths as it goes: two
@@ -64,6 +66,11 @@ class ScriptEditorTheme {
     ; Diagnostics.
     def errorInk:EVGColor (EVGColor.rgb(247 118 142))
     def warningInk:EVGColor (EVGColor.rgb(224 175 104))
+    ; The minimap on the right: a darker strip, a slider over the visible
+    ; range, and a hairline where the text ends.
+    def minimapBg:EVGColor (EVGColor.rgb(22 23 32))
+    def minimapSlider:EVGColor (EVGColor.rgba(155 168 210 0.16))
+    def minimapEdge:EVGColor (EVGColor.rgb(41 46 66))
 
     Constructor () {
     }
@@ -149,6 +156,15 @@ class ScriptEditor {
     ; True while what is shown came from the cheap pass alone — the status bar
     ; can say so rather than implying the document has been fully checked.
     def quickOnly:boolean false
+    ; --- minimap --------------------------------------------------------------
+    ; A scaled picture of the whole file on the right, the same idea as
+    ; VS Code's and Monaco's: each token is a coloured speck, the slider is
+    ; the viewport, and a click there is a jump. Hidden when the panel is too
+    ; narrow to spare the strip.
+    def showMinimap:boolean true
+    def minimapW:int 96
+    def minimapCharW:double 2.0
+    def minimapDrag:boolean false
 
     Constructor () {
     }
@@ -430,6 +446,113 @@ class ScriptEditor {
         return (itemAt lines line)
     }
 
+    ; --- minimap --------------------------------------------------------------
+    ; How wide the strip is this frame: the configured width, or nothing when
+    ; the panel cannot spare it. Every other measurement reads this, so a
+    ; hidden map takes no space and eats no clicks.
+    fn minimapWidth:int () {
+        if (showMinimap == false) {
+            return 0
+        }
+        def need:int ((layout.gutterW + 200) + minimapW)
+        if (layout.w < need) {
+            return 0
+        }
+        return minimapW
+    }
+
+    fn minimapX:int () {
+        def mw:int (this.minimapWidth())
+        return ((layout.x + layout.w) - mw)
+    }
+
+    fn insideMinimap:boolean (px:int py:int) {
+        def mw:int (this.minimapWidth())
+        if (mw <= 0) {
+            return false
+        }
+        def left:int (this.minimapX())
+        if (px < left) {
+            return false
+        }
+        def right:int (layout.x + layout.w)
+        if (px >= right) {
+            return false
+        }
+        if (py < layout.y) {
+            return false
+        }
+        def bottom:int (layout.y + layout.h)
+        return (py < bottom)
+    }
+
+    ; Pixels of minimap height per source line. Two is the VS Code default;
+    ; a file that would not fit is scaled so the whole document stays in view.
+    fn minimapScale:double () {
+        def n:int (buf.lineCount())
+        if (n < 1) {
+            return 2.0
+        }
+        def h:double (to_double layout.h)
+        if (h < 1.0) {
+            return 2.0
+        }
+        def px:double 2.0
+        def need:double ((to_double n) * px)
+        if (need > h) {
+            px = (h / (to_double n))
+        }
+        return px
+    }
+
+    fn minimapLineAt:int (py:int) {
+        def n:int (buf.lineCount())
+        if (n <= 1) {
+            return 0
+        }
+        def px:double (this.minimapScale())
+        if (px < 0.0001) {
+            return 0
+        }
+        def local:double ((to_double py) - (to_double layout.y))
+        if (local < 0.0) {
+            local = 0.0
+        }
+        def line:int (to_int (local / px))
+        def last:int (n - 1)
+        if (line > last) {
+            line = last
+        }
+        if (line < 0) {
+            line = 0
+        }
+        return line
+    }
+
+    ; Centre the clicked line in the viewport — a click is a jump, not a
+    ; caret move. Dragging uses the same mapping, so the slider follows.
+    fn jumpMinimap:void (py:int) {
+        def line:int (this.minimapLineAt(py))
+        def vis:int (layout.visibleLineCount())
+        def half:int (idiv vis 2)
+        def scroll:int (line - half)
+        layout.scrollLine = scroll
+        layout.clampScroll(buf)
+    }
+
+    ; True when the pointer is on the map and the view was moved. Pointer
+    ; down and drag both come through here so a test can drive it without a
+    ; text renderer.
+    fn tryMinimapPointer:boolean (px:int py:int) {
+        if ((this.insideMinimap(px py)) == false) {
+            minimapDrag = false
+            return false
+        }
+        minimapDrag = true
+        this.jumpMinimap(py)
+        return true
+    }
+
     ; --- painting -------------------------------------------------------------
     fn pushRect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
         def c:EVGDrawCmd (new EVGDrawCmd)
@@ -494,7 +617,9 @@ class ScriptEditor {
         def h0:double (to_double layout.h)
         this.pushRect(dl x0 y0 w0 h0 theme.bg)
         this.pushRect(dl x0 y0 (to_double layout.gutterW) h0 theme.gutterBg)
-        this.pushClip(dl x0 y0 w0 h0)
+        def mapW:int (this.minimapWidth())
+        def clipW:double (w0 - (to_double mapW))
+        this.pushClip(dl x0 y0 clipW h0)
 
         def first:int (layout.firstVisible())
         def last:int (layout.lastVisible(buf))
@@ -506,7 +631,7 @@ class ScriptEditor {
             if ((caretLine >= first) && (caretLine <= last)) {
                 def bandY:double (to_double (layout.caretPixelY(caretLine)))
                 def bandX:double (to_double (layout.x + layout.gutterW))
-                def bandW:double (to_double (layout.w - layout.gutterW))
+                def bandW:double ((to_double (layout.w - layout.gutterW)) - (to_double mapW))
                 this.pushRect(dl bandX bandY bandW (to_double layout.lineHeight) theme.currentLine)
             }
         } {
@@ -550,6 +675,7 @@ class ScriptEditor {
         ; status bar the first time someone typed on the last line.
         this.paintCompletions(dl tr)
         this.popClip(dl)
+        this.paintMinimap(dl)
         def edge:EVGDrawCmd (new EVGDrawCmd)
         edge.kind = 1
         edge.x = x0
@@ -603,7 +729,8 @@ class ScriptEditor {
             y = ((to_double (layout.caretPixelY(completionLine))) - boxH - 2.0)
         }
         def right:double (x + boxW)
-        def edgeX:double (to_double ((layout.x + layout.w) - 8))
+        def mapW:int (this.minimapWidth())
+        def edgeX:double (to_double (((layout.x + layout.w) - mapW) - 8))
         if (right > edgeX) {
             x = (edgeX - boxW)
         }
@@ -794,6 +921,232 @@ class ScriptEditor {
             this.pushText(dl tr part (to_double px) (to_double ty) layout.fontSize col)
             i = (i + 1)
         }
+    }
+
+    ; A token that is only spaces would paint a bar where the file is empty,
+    ; which is the opposite of an approximation.
+    sfn blankSpan:boolean (s:string from:int len:int) {
+        def n:int (strlen s)
+        def i:int from
+        def stop:int (from + len)
+        if (stop > n) {
+            stop = n
+        }
+        if (i >= stop) {
+            return true
+        }
+        while (i < stop) {
+            def ch:int (charAt s i)
+            if ((ch != 32) && (ch != 9)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    sfn firstInk:int (s:string) {
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt s i)
+            if ((ch != 32) && (ch != 9)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn lastInk:int (s:string) {
+        def n:int (strlen s)
+        def i:int n
+        while (i > 0) {
+            def ch:int (charAt s (i - 1))
+            if ((ch != 32) && (ch != 9)) {
+                return i
+            }
+            i = (i - 1)
+        }
+        return 0
+    }
+
+    fn paintMinimap:void (dl:EVGDisplayList) {
+        def mw:int (this.minimapWidth())
+        if (mw <= 0) {
+            return
+        }
+        def x0:double (to_double (this.minimapX()))
+        def y0:double (to_double layout.y)
+        def w0:double (to_double mw)
+        def h0:double (to_double layout.h)
+        this.pushRect(dl x0 y0 w0 h0 theme.minimapBg)
+        this.pushRect(dl x0 y0 1.0 h0 theme.minimapEdge)
+        this.pushClip(dl x0 y0 w0 h0)
+
+        def n:int (buf.lineCount())
+        if (n < 1) {
+            this.popClip(dl)
+            return
+        }
+        def scale:double (this.minimapScale())
+        def caretLine:int sel.caret.line
+        def innerX:double (x0 + 3.0)
+        def innerW:double (w0 - 8.0)
+        if (innerW < 8.0) {
+            innerW = 8.0
+        }
+
+        ; Selection first, so the tokens sit on top of it the way they do in
+        ; the text — a selected region is a wash, not a replacement.
+        if ((sel.isCollapsed()) == false) {
+            def a:EditorPos (new EditorPos)
+            def b:EditorPos (new EditorPos)
+            sel.normalized(a b)
+            def sy:double (y0 + ((to_double a.line) * scale))
+            def sh:double ((to_double ((b.line - a.line) + 1)) * scale)
+            if (sh < 2.0) {
+                sh = 2.0
+            }
+            this.pushRect(dl innerX sy innerW sh theme.selection)
+        } {
+            def cy:double (y0 + ((to_double caretLine) * scale))
+            def ch:double scale
+            if (ch < 2.0) {
+                ch = 2.0
+            }
+            this.pushRect(dl innerX cy innerW ch theme.currentLine)
+        }
+
+        if (scale >= 1.0) {
+            def li:int 0
+            while (li < n) {
+                def ly:double (y0 + ((to_double li) * scale))
+                def lh:double scale
+                if (lh > 1.6) {
+                    lh = (lh - 0.35)
+                }
+                this.paintMinimapLine(dl li innerX ly innerW lh)
+                li = (li + 1)
+            }
+        } {
+            ; Longer than the strip: one source line per pixel row, so the
+            ; command count stays a function of the panel's height.
+            def row:int 0
+            def rows:int layout.h
+            while (row < rows) {
+                def li2:int (to_int (((to_double row) * (to_double n)) / h0))
+                if (li2 >= n) {
+                    li2 = (n - 1)
+                }
+                if (li2 < 0) {
+                    li2 = 0
+                }
+                this.paintMinimapLine(dl li2 innerX (y0 + (to_double row)) innerW 1.0)
+                row = (row + 1)
+            }
+        }
+
+        ; A tick on the right for each diagnostic, so a problem below the
+        ; fold is a colour even when the slider is elsewhere.
+        def di:int 0
+        def dn:int (array_length diagnostics)
+        def tickW:double 3.0
+        def tickX:double ((x0 + w0) - (tickW + 1.0))
+        while (di < dn) {
+            def d:EditorDiagnostic (itemAt diagnostics di)
+            def tickY:double (y0 + ((to_double d.line) * scale))
+            def tickH:double scale
+            if (tickH < 2.0) {
+                tickH = 2.0
+            }
+            this.pushRect(dl tickX tickY tickW tickH (theme.forSeverity(d.severity)))
+            di = (di + 1)
+        }
+
+        ; The slider: the visible window, drawn last so it tints the specks
+        ; rather than hiding them.
+        def vis:int (layout.visibleLineCount())
+        def sliderY:double (y0 + ((to_double layout.scrollLine) * scale))
+        def sliderH:double ((to_double vis) * scale)
+        if (sliderH < 8.0) {
+            sliderH = 8.0
+        }
+        def sliderBottom:double (sliderY + sliderH)
+        def mapBottom:double (y0 + h0)
+        if (sliderBottom > mapBottom) {
+            sliderH = (mapBottom - sliderY)
+        }
+        if (sliderY < y0) {
+            sliderH = (sliderH - (y0 - sliderY))
+            sliderY = y0
+        }
+        if (sliderH > 0.5) {
+            this.pushRect(dl x0 sliderY w0 sliderH theme.minimapSlider)
+            def sliderEdge:EVGDrawCmd (new EVGDrawCmd)
+            sliderEdge.kind = 1
+            sliderEdge.x = x0
+            sliderEdge.y = sliderY
+            sliderEdge.w = w0
+            sliderEdge.h = sliderH
+            sliderEdge.thickness = 1.0
+            sliderEdge.r = (theme.minimapEdge.red())
+            sliderEdge.g = (theme.minimapEdge.green())
+            sliderEdge.b = (theme.minimapEdge.blue())
+            sliderEdge.a = 0.55
+            push dl.cmds sliderEdge
+        }
+        this.popClip(dl)
+    }
+
+    fn paintMinimapLine:void (dl:EVGDisplayList line:int x0:double y:double maxW:double h:double) {
+        if (h < 0.5) {
+            return
+        }
+        def s:string (buf.lineAt(line))
+        if ((strlen s) == 0) {
+            return
+        }
+        def charW:double minimapCharW
+        if (charW < 0.75) {
+            charW = 0.75
+        }
+        def limit:double (x0 + maxW)
+        def toks:CodeTokenLine (this.tokensFor(line))
+        def n:int (toks.count())
+        if (n == 0) {
+            def a:int (ScriptEditor.firstInk(s))
+            def b:int (ScriptEditor.lastInk(s))
+            if (b <= a) {
+                return
+            }
+            this.paintMinimapBar(dl x0 y h charW limit a (b - a) theme.plain)
+            return
+        }
+        def i:int 0
+        while (i < n) {
+            def t:CodeToken (toks.at(i))
+            if ((ScriptEditor.blankSpan(s t.start t.len)) == false) {
+                def col:EVGColor (theme.forKind(t.kind))
+                this.paintMinimapBar(dl x0 y h charW limit t.start t.len col)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn paintMinimapBar:void (dl:EVGDisplayList x0:double y:double h:double charW:double limit:double col:int len:int ink:EVGColor) {
+        def rx:double (x0 + ((to_double col) * charW))
+        if (rx >= limit) {
+            return
+        }
+        def rw:double ((to_double len) * charW)
+        if ((rx + rw) > limit) {
+            rw = (limit - rx)
+        }
+        if (rw < 0.75) {
+            return
+        }
+        this.pushRect(dl rx y rw h ink)
     }
 
     ; --- editing --------------------------------------------------------------
@@ -1362,6 +1715,9 @@ class ScriptEditor {
     fn pointerDown:void (tr:UITextRenderer px:int py:int extend:boolean) {
         focused = true
         this.closeCompletions()
+        if (this.tryMinimapPointer(px py)) {
+            return
+        }
         def hit:EditorPos (layout.hitTest(tr buf px py))
         this.moveCaret(hit.line hit.col extend)
         layout.preferCol = sel.caret.col
@@ -1375,6 +1731,9 @@ class ScriptEditor {
     ; already knows how to find, so a word means the same thing here as it does
     ; to Ctrl+arrow.
     fn selectWordAt:void (tr:UITextRenderer px:int py:int) {
+        if (this.tryMinimapPointer(px py)) {
+            return
+        }
         def hit:EditorPos (layout.hitTest(tr buf px py))
         this.selectWordAtPos(hit.line hit.col)
     }
@@ -1404,6 +1763,9 @@ class ScriptEditor {
     }
 
     fn selectLineAt:void (tr:UITextRenderer px:int py:int) {
+        if (this.tryMinimapPointer(px py)) {
+            return
+        }
         focused = true
         this.closeCompletions()
         def hit:EditorPos (layout.hitTest(tr buf px py))
@@ -1415,6 +1777,10 @@ class ScriptEditor {
     }
 
     fn pointerDrag:void (tr:UITextRenderer px:int py:int) {
+        if minimapDrag {
+            this.jumpMinimap(py)
+            return
+        }
         def hit:EditorPos (layout.hitTest(tr buf px py))
         this.moveCaret(hit.line hit.col true)
     }
