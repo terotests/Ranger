@@ -469,6 +469,10 @@ SUITES=(
   # the site builds it and driven in Node — the rails, the stage's camera,
   # a sign-in typed at the page, and a document that opens again.
   rave:smoke
+  # And the export: the runtime compiled without the editor, opening the
+  # document the build wrote, with the M0 script run against it — the
+  # thing that was designed is the thing that runs.
+  rave:export:smoke
   firesim:targets
   # The workbench: a database browser over the simulator, drawn by EVG and
   # controlled by gallery/ui's own controllers — collections, documents, a

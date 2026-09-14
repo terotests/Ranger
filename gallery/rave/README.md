@@ -10,12 +10,14 @@ application but the application's structure — routes, layouts, pages,
 components and a stylesheet with real breakpoints — and `Design` and `Run`
 are two tabs over the same document.
 
-The plan is [`../PLAN_RAVE.md`](../PLAN_RAVE.md). Stages M0–M5 are done.
+The plan is [`../PLAN_RAVE.md`](../PLAN_RAVE.md). Stages M0–M6 are done.
 
 ```bash
 npm run rave:test     # the document, the runtime and the editor, headless (in the editor gate)
 npm run rave:smoke    # the page, built the way the site builds it, driven in Node
 npm run rave:web      # build and serve on http://127.0.0.1:8012/
+npm run rave:export   # the app without the editor, in gallery/rave/export/
+npm run rave:export:serve   # …served on http://127.0.0.1:8013/
 ```
 
 Deployed at `/rave/`. **License:** AGPL-3.0-or-later (Gallery).
@@ -38,7 +40,9 @@ Deployed at `/rave/`. **License:** AGPL-3.0-or-later (Gallery).
 | `src/RaveA11y.rgr` | Contrast (a real gamma curve, no `pow`), problems by node, tab order |
 | `src/RavePatterns.rgr` | The six patterns as code — `Dashboard Shell` (sidebar / top bar / tabs / none), `Auth Flow`, `Settings Layout` (tabs), `Master / Detail`, `CRUD` (dialogs), `Marketing + App` — and `create(name, targets, auth, nav, start)`, the new-project sheet's answer |
 | `src/RaveEditor.rgr` | The editor: Rafi's chrome over the runtime's scene. `press(id)`, `keyWith`, `typeChar` are the three doors everything goes through |
+| `src/RaveExport.rgr` | The runtime and the patterns compiled without the editor: `open(json)`, `starter()` |
 | `web/` | `index.html`, `main.js` (WebGL, pointer, keyboard, file dialog, download), `rave.css` (the chrome as an EVG sheet), `build.mjs`, `smoke.mjs` |
+| `export/` | The exported application: `index.html`, `main.js` (one view the size of the window, the route in the hash), `build.mjs` (`--app FILE`, `--out DIR`), `smoke.mjs` — deployed at `/rave/app/` |
 | `tests/RaveTest.rgr` | 474 checks: the pattern, the runtime, the guard, the keyboard, three widths, and the editor stage by stage |
 
 ## The document
@@ -143,9 +147,18 @@ was the scene, and a dialog opened on the phone was centred on the desk.
 it into place with `moveSubtree`; the scene root only holds them. The
 camera, the hit test and the selection boxes did not change.
 
+## Export — the running app
+
+`Save` writes `app.rave.json`. `npm run rave:export -- --app app.rave.json`
+(or the deploy's `/rave/app/`) assembles the runtime without the editor,
+the page host and that document into a static folder: it runs from any
+static server, lays the page out at the window's real width so the
+breakpoints are the browser's, keeps the route in `location.hash`, and the
+mock session in memory. `rave:export:smoke` runs the M0 script against the
+module the build wrote — the same `RaveRuntime` the editor's Run tab
+drives, so what passed there passes here.
+
 ## Next
 
-Stage M6 in the plan: `File → Export`, the static app folder with
-`location.hash` routing, and the M0 script run against it. Still open from
-M5: `ButtonCtl`, `SheetCtl`, `CommandCtl` and `SidebarCtl` in `gallery/ui`
-with conformance specs.
+Stage M7, polish. Still open from M5: `ButtonCtl`, `SheetCtl`, `CommandCtl`
+and `SidebarCtl` in `gallery/ui` with conformance specs.

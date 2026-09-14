@@ -500,6 +500,17 @@ jobs:
       - name: Check Rave draws its editor
         run: node gallery/rave/web/smoke.mjs
 
+      # The exported application at /rave/app/: the runtime without the
+      # editor, one view the size of the window, the route in the hash.
+      - name: Build the Rave app
+        run: npm run rave:export:build --silent && node gallery/rave/export/build.mjs --out "$GITHUB_WORKSPACE/_site/rave/app"
+
+      - name: Check the Rave app runs
+        run: |
+          test -s "$GITHUB_WORKSPACE/_site/rave/app/generated-host.js"
+          test -s "$GITHUB_WORKSPACE/_site/rave/app/app.rave.json"
+          node gallery/rave/export/smoke.mjs
+
       # ---- The markdown viewer at /markdown/ -------------------------------
       # A CommonMark parser in Ranger, its own line breaker, and the same WebGL
       # painter every other page here uses. The build script compiles the

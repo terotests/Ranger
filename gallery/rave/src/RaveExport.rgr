@@ -1,0 +1,34 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RaveExport — the runtime, on its own, as the exported application
+; =============================================================================
+; What `File → Export` ships: the runtime and the patterns compiled without
+; the editor, and a page host beside them that reads `app.rave.json`. The
+; thing that was designed is the thing that runs — the same RaveRuntime the
+; editor's Run tab drives, on one view the size of the window.
+; =============================================================================
+
+Import "RaveDoc.rgr"
+Import "RaveRuntime.rgr"
+Import "RavePatterns.rgr"
+
+class RaveExport {
+
+    ; A runtime over a saved document, or over nothing when the text is not one.
+    sfn open:RaveRuntime (json:string) {
+        def app:RaveApp (RaveApp.fromJson(json))
+        return (new RaveRuntime(app))
+    }
+
+    sfn isDocument:boolean (json:string) {
+        def app:RaveApp (RaveApp.fromJson(json))
+        return ((app.isEmpty()) == false)
+    }
+
+    ; The document the exported page starts on when none is beside it.
+    sfn starter:string () {
+        def app:RaveApp (RavePatterns.saasStarter("Acme"))
+        return (app.toJson())
+    }
+}

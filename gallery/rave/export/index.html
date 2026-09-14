@@ -1,0 +1,28 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d6efd'/%3E%3Cpath d='M11 9l12 7-12 7z' fill='%23fff'/%3E%3C/svg%3E" />
+    <title>Rave app</title>
+    <style>
+      /* The exported application: one canvas the size of the window. The
+         page is laid out by the same engine the editor showed it in, at the
+         window's real width, so the breakpoints are the browser's. */
+      html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #ffffff;
+        font: 14px/1.45 "Inter", "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif; }
+      #stage { position: relative; width: 100%; height: 100%; }
+      #c { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+      #err { position: fixed; left: 12px; bottom: 12px; right: 12px; color: #c0392b;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+        white-space: pre-wrap; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <div id="stage"><canvas id="c" tabindex="0"></canvas></div>
+    <div id="err"></div>
+    <noscript>An application designed in Rave and run by Ranger's EVG engine. It needs JavaScript and WebGL 2.</noscript>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
