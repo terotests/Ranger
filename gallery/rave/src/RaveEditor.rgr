@@ -134,6 +134,8 @@ class RaveEditor {
     def aiAsk:string ""
     def aiStatus:string ""
     def aiErrors:[string]
+    ; errors past the few the sheet shows
+    def aiMore:int 0
     def wizWeb:boolean true
     def wizDesktop:boolean false
     def wizTablet:boolean true
@@ -477,8 +479,14 @@ class RaveEditor {
         return aiStatus
     }
 
+    ; Whether the page should hand a paste over: only while the sheet is up.
+    fn aiIsOpen:boolean () {
+        return aiOpen
+    }
+
     fn takeErrors:void (reader:RaveTextReader) {
         clear aiErrors
+        aiMore = (reader.moreCount())
         def i:int 0
         while (i < (reader.errorCount())) {
             push aiErrors (reader.errorAt(i))
@@ -491,6 +499,7 @@ class RaveEditor {
     ; document quietly stops being the one that was designed.
     fn applyAiText:boolean (text:string) {
         clear aiErrors
+        aiMore = 0
         aiStatus = ""
         if ((strlen (trim text)) == 0) {
             push aiErrors "nothing was pasted"
@@ -2332,15 +2341,29 @@ class RaveEditor {
 
         def sizeRow:EVGElement (RaveEditor.box("ra-wiz-row" "" "" ""))
         def body:string (this.aiBody())
-        sizeRow.addChild((RaveEditor.quiet("ra-note-t" ((RaveEditor.cut((RaveText.scopeWord(aiScope)) 20)) + ": " + (to_string (strlen body)) + " characters of document, " + (to_string (strlen (this.aiPrompt()))) + " of prompt"))))
+        sizeRow.addChild((RaveEditor.quiet("ra-note-t" ((to_string (strlen body)) + " characters of " + (RaveText.scopeWord(aiScope)) + ", " + (to_string (strlen (this.aiPrompt()))) + " of prompt"))))
         sheet.addChild(sizeRow)
 
         if ((array_length aiErrors) > 0) {
             def errs:EVGElement (RaveEditor.box("ra-ai-errs" "" "list" "What was wrong with the answer"))
+            def total:int ((array_length aiErrors) + aiMore)
+            def head:string ((to_string total) + " lines could not be read")
+            if (total == 1) {
+                head = "one line could not be read"
+            }
+            errs.addChild((RaveEditor.txt("ra-ai-head" head)))
+            def shown:int (array_length aiErrors)
+            if (shown > 4) {
+                shown = 4
+            }
             def i:int 0
-            while (i < (array_length aiErrors)) {
-                errs.addChild((RaveEditor.txt("ra-ai-err" (itemAt aiErrors i))))
+            while (i < shown) {
+                errs.addChild((RaveEditor.txt("ra-ai-err" (RaveEditor.cut((itemAt aiErrors i) 84)))))
                 i = (i + 1)
+            }
+            def rest:int (total - shown)
+            if (rest > 0) {
+                errs.addChild((RaveEditor.txt("ra-ai-more" ("…and " + (to_string rest) + " more"))))
             }
             sheet.addChild(errs)
         } {
@@ -2350,9 +2373,11 @@ class RaveEditor {
         }
 
         def acts:EVGElement (RaveEditor.box("ra-wiz-acts" "" "" ""))
+        acts.addChild((RaveEditor.quiet("ra-note-t" "⌘V / Ctrl+V pastes an answer straight in")))
+        acts.addChild((RaveEditor.box("ra-spacer" "" "" "")))
         acts.addChild((RaveEditor.button("ai:close" "Close" "ra-btn" "ra-btn-t")))
         acts.addChild((RaveEditor.button("ai:copy" "Copy prompt" "ra-btn" "ra-btn-t")))
-        acts.addChild((RaveEditor.button("ai:paste" "Paste answer" "ra-btn ra-btn-go" "ra-btn-t")))
+        acts.addChild((RaveEditor.button("ai:paste" "Paste box" "ra-btn ra-btn-go" "ra-btn-t")))
         sheet.addChild(acts)
         scrim.addChild(sheet)
         return scrim

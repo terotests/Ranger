@@ -188,26 +188,63 @@ let wantFig = false;
 // puts up rather than failing silently.
 const pasteEl = document.createElement("textarea");
 pasteEl.className = "rave-paste";
-pasteEl.placeholder = "Paste the answer here, then press Escape";
+pasteEl.placeholder = "Paste the answer here, then press ⌘Enter / Ctrl+Enter";
 pasteEl.style.display = "none";
 document.body.appendChild(pasteEl);
+const pasteHint = document.createElement("div");
+pasteHint.className = "rave-paste-hint";
+pasteHint.textContent = "⌘Enter / Ctrl+Enter to take it · Escape to close";
+pasteHint.style.display = "none";
+document.body.appendChild(pasteHint);
 pasteEl.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape" || (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey))) {
-    app.applyAiText(pasteEl.value);
-    pasteEl.style.display = "none";
-    pasteEl.value = "";
+  if (ev.key === "Escape") {
+    closePasteBox();
+    ev.preventDefault();
+  } else if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) {
+    const text = pasteEl.value;
+    closePasteBox();
+    app.applyAiText(text);
     schedule();
     ev.preventDefault();
   }
   ev.stopPropagation();
 });
 
-function fallbackCopy(text) {
+function openPasteBox(text) {
   pasteEl.value = text;
   pasteEl.style.display = "block";
+  pasteHint.style.display = "block";
   pasteEl.focus();
-  pasteEl.select();
+  if (text) pasteEl.select();
 }
+
+function closePasteBox() {
+  pasteEl.style.display = "none";
+  pasteHint.style.display = "none";
+  pasteEl.value = "";
+}
+
+function fallbackCopy(text) {
+  openPasteBox(text);
+  try {
+    document.execCommand("copy");
+  } catch (e) {
+    /* the person copies it themselves */
+  }
+}
+
+// Ctrl+V / ⌘V anywhere while the AI sheet is up: the browser hands the text
+// over without asking anyone's permission, which is the whole reason this is
+// nicer than reading the clipboard.
+document.addEventListener("paste", (ev) => {
+  if (pasteEl.style.display === "block") return;
+  if (!app.aiIsOpen || !app.aiIsOpen()) return;
+  const text = (ev.clipboardData || window.clipboardData).getData("text");
+  if (!text) return;
+  ev.preventDefault();
+  app.applyAiText(text);
+  schedule();
+});
 
 const realPress = app.press.bind(app);
 app.press = (id) => {
@@ -227,10 +264,10 @@ app.press = (id) => {
     return false;
   }
   if (id === "ai:paste") {
-    navigator.clipboard.readText().then(
-      (text) => { app.applyAiText(text); schedule(); },
-      () => { pasteEl.value = ""; pasteEl.style.display = "block"; pasteEl.focus(); },
-    );
+    // A box you can paste into, always. Reading the clipboard needs a
+    // permission the browser may not give, and asking for it to show a
+    // textarea anyway is a worse first move than just showing the textarea.
+    openPasteBox("");
     return false;
   }
   if (id === "file:import") {

@@ -93,16 +93,18 @@ ok("…which the stage draws", JSON.stringify(JSON.parse(app.boardJson()).list.c
 // --- the AI menu: a prompt out, an answer back ---------------------------------------------
 ok("AI opens a sheet", app.press("ai:open"));
 const aiPrompt = app.aiPrompt();
-ok("the prompt carries the format", aiPrompt.includes("RAVE TEXT FORMAT"));
-ok("…and the document as it stands", aiPrompt.includes("route /dashboard"));
+ok("the prompt carries the format", aiPrompt.includes("RAVE MARKUP"));
+ok("…and the document as it stands", aiPrompt.includes('<route path="/dashboard"'));
 app.press("ai:scope:page");
 ok(
-  "an answer in that format is taken",
+  "an answer in that markup is taken, <page> wrapper and all",
   app.applyAiText(
     [
-      'style .note { padding: 16px; border-radius: 10px; background-color: #eef3ff }',
-      'h1 "Pasted back" { font-size: 28px; color: #111318 }',
-      'p.note "This page came in through the clipboard."',
+      '<style class="note">padding: 16px; border-radius: 10px; background-color: #eef3ff</style>',
+      '<page name="Home">',
+      '  <h1 style="font-size: 28px; color: #111318">Pasted back</h1>',
+      '  <p class="note">This page came in through the clipboard.</p>',
+      '</page>',
       '',
     ].join("\n"),
   ),

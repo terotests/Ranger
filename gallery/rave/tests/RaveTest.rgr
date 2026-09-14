@@ -471,21 +471,22 @@ class RaveTest {
     ; appear in it, so this also proves nothing depends on them.
     sfn textChecks:void (c:Check) {
         print ""
-        print "--- the document as text ---"
+        print "--- the document as markup ---"
         def app:RaveApp (RavePatterns.crud("Acme"))
         def text:string (RaveText.writeApp(app))
-        c.ok("a document writes as text" ((strlen text) > 2000))
-        c.ok("…naming itself" (RaveTest.includes(text "app \"Acme\"")))
-        c.ok("…with its breakpoints" (RaveTest.includes(text "breakpoint md 768")))
-        c.ok("…its palette" (RaveTest.includes(text "var accent #2563eb")))
-        c.ok("…its shared classes" (RaveTest.includes(text "style .btn {")))
-        c.ok("…its rows" (RaveTest.includes(text "row id=\"1\" title=\"Onboarding email\"")))
-        c.ok("…its routes" (RaveTest.includes(text "route /items/:id \"Item\"")))
-        c.ok("…a node's own rule inline" (RaveTest.includes(text "{ display: grid;")))
-        c.ok("…a breakpoint override under the node it is about" (RaveTest.includes(text "@<md {")))
-        c.ok("…an action as an arrow" (RaveTest.includes(text "-> navigate /items/{id}")))
+        c.ok("a document writes as markup" ((strlen text) > 2000))
+        c.ok("…naming itself" (RaveTest.includes(text "<app name=\"Acme\"")))
+        c.ok("…with its breakpoints" (RaveTest.includes(text "<breakpoint name=\"md\" min=\"768\"/>")))
+        c.ok("…its palette" (RaveTest.includes(text "<var name=\"accent\" value=\"#2563eb\"/>")))
+        c.ok("…its shared classes" (RaveTest.includes(text "<style class=\"btn\">")))
+        c.ok("…its rows" (RaveTest.includes(text "<row id=\"1\" title=\"Onboarding email\"")))
+        c.ok("…its routes" (RaveTest.includes(text "<route path=\"/items/:id\" title=\"Item\"")))
+        c.ok("…a node's own rule as a style attribute" (RaveTest.includes(text "style=\"display: grid;")))
+        c.ok("…a breakpoint override as a child of the node it is about" (RaveTest.includes(text "<media below=\"md\"")))
+        c.ok("…an action as a child too" (RaveTest.includes(text "<on click=\"navigate\" arg=\"/items/{id}\"/>")))
         c.ok("…the repeat that draws the rows" (RaveTest.includes(text "repeat=\"items\"")))
         c.ok("…and the dialog" (RaveTest.includes(text "overlay=\"create\"")))
+        c.ok("…words are the element's content" (RaveTest.includes(text "<button class=\"btn\">Sign in")))
         c.ok("no ids anywhere in it" ((RaveTest.includes(text "\"id\":")) == false))
 
         def reader (new RaveTextReader())
@@ -503,7 +504,7 @@ class RaveTest {
         c.eqInt("…the same layouts" (array_length again.layouts) (array_length app.layouts))
         def coll:RaveCollection (again.collection("items"))
         c.eqInt("…the same rows" (coll.rowCount()) 5)
-        c.eqStr("…and written out again, the same text" (RaveText.writeApp(again)) text)
+        c.eqStr("…and written out again, the same markup" (RaveText.writeApp(again)) text)
 
         ; and it still runs
         def rt (new RaveRuntime(again))
@@ -521,26 +522,27 @@ class RaveTest {
         RaveTest.lintClean(c rt phone "…and at 390")
 
         ; --- something written by hand -------------------------------------------
-        def hand:string "app \"Tiny\"\n"
-        hand = (hand + "breakpoint md 768\n")
-        hand = (hand + "var ink #101014\n")
-        hand = (hand + "style .lead { font-size: 18px; color: #5a5a66 }\n")
-        hand = (hand + "layout \"Shell\"\n")
-        hand = (hand + "  self { width: 100%; height: 100%; background-color: #ffffff; color: var(--ink) }\n")
-        hand = (hand + "  header \"Tiny\" label=\"Header\" { height: 56px; padding: 0 24px; justify-content: center }\n")
-        hand = (hand + "  main label=\"Main\" { padding: 24px; gap: 16px }\n")
-        hand = (hand + "    slot\n")
-        hand = (hand + "page \"Home\"\n")
-        hand = (hand + "  h1 \"Hello\" { font-size: 28px }\n")
-        hand = (hand + "  p.lead \"Written by hand, in the format the prompt describes.\"\n")
-        hand = (hand + "  div { flex-direction: row; gap: 12px }\n")
-        hand = (hand + "    @<md { flex-direction: column }\n")
-        hand = (hand + "    button \"Go\" { height: 36px; padding: 0 16px; background-color: #2563eb; color: #ffffff; border-radius: 8px }\n")
-        hand = (hand + "      -> navigate /second\n")
-        hand = (hand + "page \"Second\"\n")
-        hand = (hand + "  h1 \"The second page\" { font-size: 28px }\n")
-        hand = (hand + "route / \"Home\" page=\"Home\" layout=\"Shell\"\n")
-        hand = (hand + "route /second \"Second\" page=\"Second\" layout=\"Shell\"\n")
+        def hand:string "<app name=\"Tiny\"/>\n"
+        hand = (hand + "<breakpoint name=\"md\" min=\"768\"/>\n")
+        hand = (hand + "<var name=\"ink\" value=\"#101014\"/>\n")
+        hand = (hand + "<style class=\"lead\">font-size: 18px; color: #5a5a66</style>\n")
+        hand = (hand + "<layout name=\"Shell\" style=\"width: 100%; height: 100%; background-color: #ffffff; color: var(--ink)\">\n")
+        hand = (hand + "  <header label=\"Header\" style=\"height: 56px; padding: 0 24px; justify-content: center\">Tiny</header>\n")
+        hand = (hand + "  <main label=\"Main\" style=\"padding: 24px; gap: 16px\"><slot/></main>\n")
+        hand = (hand + "</layout>\n")
+        hand = (hand + "<page name=\"Home\">\n")
+        hand = (hand + "  <h1 style=\"font-size: 28px\">Hello</h1>\n")
+        hand = (hand + "  <p class=\"lead\">Written by hand, in the markup the prompt describes.</p>\n")
+        hand = (hand + "  <div name=\"Buttons\" style=\"flex-direction: row; gap: 12px\">\n")
+        hand = (hand + "    <media below=\"md\" style=\"flex-direction: column\"/>\n")
+        hand = (hand + "    <button style=\"height: 36px; padding: 0 16px; background-color: #2563eb; color: #ffffff; border-radius: 8px\">Go<on click=\"navigate\" arg=\"/second\"/></button>\n")
+        hand = (hand + "  </div>\n")
+        hand = (hand + "</page>\n")
+        hand = (hand + "<page name=\"Second\">\n")
+        hand = (hand + "  <h1 style=\"font-size: 28px\">The second page</h1>\n")
+        hand = (hand + "</page>\n")
+        hand = (hand + "<route path=\"/\" title=\"Home\" page=\"Home\" layout=\"Shell\"/>\n")
+        hand = (hand + "<route path=\"/second\" title=\"Second\" page=\"Second\" layout=\"Shell\"/>\n")
         def r2 (new RaveTextReader())
         def tiny:RaveApp (r2.read(hand))
         c.eqInt("a hand-written document parses" (r2.errorCount()) 0)
@@ -560,22 +562,45 @@ class RaveTest {
         c.ok("…and it draws" (RaveTest.includes((rt2.displayListJson(v0)) "Written by hand")))
         RaveTest.noRejections(c rt2 v0 "…with nothing the engine rejected")
         RaveTest.lintClean(c rt2 v0 "…and nothing the lint objects to")
-        def rowNode:int (tiny.idOfNamed("div" "div"))
-        c.ok("the breakpoint override was read" (rowNode > 0))
+        def rowNode:int (tiny.idOfNamed("div" "Buttons"))
+        c.ok("the media child was read" (rowNode > 0))
         def rowN:RaveNode (tiny.node(rowNode))
-        c.eqStr("…onto the node above it" (tiny.styleOf(rowN (tiny.below("md")) "flex-direction")) "column")
+        c.eqStr("…onto the element it is inside" (tiny.styleOf(rowN (tiny.below("md")) "flex-direction")) "column")
         def go:int (tiny.idWithAction("navigate" "/second"))
         c.ok("the action was read" (go > 0))
         c.ok("…and it works" (rt2.press((RaveTest.elId(go)))))
         c.eqStr("…moving the app" (rt2.path()) "/second")
 
-        ; --- a line that is wrong says which line ---------------------------------
-        def bad:string "app \"Broken\"\npage \"Home\"\n  widget \"nope\"\n  h1 \"Fine\"\nroute / \"Home\" page=\"Home\"\n"
+        ; --- indentation is not the tree any more --------------------------------
+        def flat:string "<app name=\"Flat\"/><page name=\"Home\"><div style=\"gap: 8px\"><h1>One</h1><p>Two</p></div></page><route path=\"/\" title=\"Home\" page=\"Home\"/>"
+        def r4 (new RaveTextReader())
+        def flatApp:RaveApp (r4.read(flat))
+        c.eqInt("markup on one line reads the same" (r4.errorCount()) 0)
+        def flatPage:RaveNode (RaveTest.pageOfRoute(flatApp "/"))
+        c.eqInt("…one child on the page" (array_length flatPage.children) 1)
+        def flatDiv:RaveNode (itemAt flatPage.children 0)
+        c.eqInt("…and two inside that" (array_length flatDiv.children) 2)
+
+        ; --- something that is wrong says which line ------------------------------
+        def bad:string "<app name=\"Broken\"/>\n<page name=\"Home\">\n  <widget>nope</widget>\n  <h1>Fine</h1>\n</page>\n<route path=\"/\" title=\"Home\" page=\"Home\"/>\n"
         def r3 (new RaveTextReader())
         def broken:RaveApp (r3.read(bad))
-        c.eqInt("a tag the format does not know is one error" (r3.errorCount()) 1)
+        c.eqInt("an element the markup does not have is one error" (r3.errorCount()) 1)
         c.ok("…naming the line it was on" (RaveTest.includes((r3.errorAt(0)) "line 3")))
         c.ok("…and the rest of the document still read" ((array_length broken.routes) == 1))
+
+        ; --- a wall of errors is counted, not printed -----------------------------
+        def prose:string ""
+        def pi:int 0
+        while (pi < 40) {
+            prose = (prose + "<widget>no</widget>\n")
+            pi = (pi + 1)
+        }
+        def r5 (new RaveTextReader())
+        def none:RaveApp (r5.read(("<app name=\"X\"/><page name=\"Home\">" + prose + "</page>")))
+        c.eqInt("forty bad lines keep six" (r5.errorCount()) 6)
+        c.eqInt("…and count the rest" (r5.moreCount()) 34)
+        c.eqInt("…forty in total" (r5.totalErrors()) 40)
     }
 
     ; --- the AI menu ----------------------------------------------------------------------
@@ -602,11 +627,11 @@ class RaveTest {
         RaveTest.typeText(ed "Make the dashboard cards two per row on a tablet")
         ed.keyWith("Enter" false false)
         def prompt:string (ed.aiPrompt())
-        c.ok("the prompt carries the format" (RaveTest.includes(prompt "RAVE TEXT FORMAT")))
-        c.ok("…the tags it may use" (RaveTest.includes(prompt "header footer nav main aside section")))
+        c.ok("the prompt carries the format" (RaveTest.includes(prompt "RAVE MARKUP")))
+        c.ok("…the elements it may use" (RaveTest.includes(prompt "header footer nav main aside section")))
         c.ok("…what the engine will not take" (RaveTest.includes(prompt "NOT UNDERSTOOD")))
         c.ok("…that accessibility is checked" (RaveTest.includes(prompt "every input has a label")))
-        c.ok("…the document as it stands" (RaveTest.includes(prompt "route /dashboard")))
+        c.ok("…the document as it stands" (RaveTest.includes(prompt "<route path=\"/dashboard\"")))
         c.ok("…the ask, as it was typed" (RaveTest.includes(prompt "two per row on a tablet")))
         c.ok("…and what the answer must look like" (RaveTest.includes(prompt "no code fences")))
 
@@ -623,16 +648,19 @@ class RaveTest {
         c.ok("…and the prompt is only that node" ((RaveTest.includes(nodePrompt "app \"Acme\"")) == false))
         c.ok("…with its rule on it" (RaveTest.includes(nodePrompt "grid-template-columns: repeat(3, 1fr)")))
 
-        def answer:string "style .kpi { padding: 20px; border-radius: 12px; background-color: #f4f6fb }\n"
-        answer = (answer + "div name=\"Cards\" { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px }\n")
-        answer = (answer + "  @<md { grid-template-columns: 1fr }\n")
-        answer = (answer + "  section.kpi label=\"Revenue\"\n")
-        answer = (answer + "    h3 \"Revenue\" { font-size: 16px; font-weight: 600 }\n")
-        answer = (answer + "    p \"Up nine per cent\" { color: #5b6070 }\n")
-        answer = (answer + "  section.kpi label=\"Churn\"\n")
-        answer = (answer + "    h3 \"Churn\" { font-size: 16px; font-weight: 600 }\n")
-        answer = (answer + "    p \"Down two per cent\" { color: #5b6070 }\n")
-        c.ok("an answer in the format is taken" (ed.applyAiText(answer)))
+        def answer:string "<style class=\"kpi\">padding: 20px; border-radius: 12px; background-color: #f4f6fb</style>\n"
+        answer = (answer + "<div name=\"Cards\" style=\"display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px\">\n")
+        answer = (answer + "  <media below=\"md\" style=\"grid-template-columns: 1fr\"/>\n")
+        answer = (answer + "  <section class=\"kpi\" label=\"Revenue\">\n")
+        answer = (answer + "    <h3 style=\"font-size: 16px; font-weight: 600\">Revenue</h3>\n")
+        answer = (answer + "    <p style=\"color: #5b6070\">Up nine per cent</p>\n")
+        answer = (answer + "  </section>\n")
+        answer = (answer + "  <section class=\"kpi\" label=\"Churn\">\n")
+        answer = (answer + "    <h3 style=\"font-size: 16px; font-weight: 600\">Churn</h3>\n")
+        answer = (answer + "    <p style=\"color: #5b6070\">Down two per cent</p>\n")
+        answer = (answer + "  </section>\n")
+        answer = (answer + "</div>\n")
+        c.ok("an answer in the markup is taken" (ed.applyAiText(answer)))
         c.eqInt("…with nothing to complain about" (ed.aiErrorCount()) 0)
         if ((ed.aiErrorCount()) > 0) {
             print ("       " + (ed.aiErrorAt(0)))
@@ -661,18 +689,18 @@ class RaveTest {
         ; an answer that is not the format
         ed.press("ai:open")
         ed.press("ai:scope:node")
-        c.ok("prose is refused" ((ed.applyAiText("Sure! Here is a nicer card grid:\n\n```\ndiv\n```")) == false))
+        c.ok("prose is refused" ((ed.applyAiText("Sure! Here is a nicer card grid:\n\n```\n<widget/>\n```")) == false))
         c.ok("…with a line number" ((ed.aiErrorCount()) > 0))
-        c.ok("…which the sheet shows" (RaveTest.includes((ed.displayListJson()) "line 1")))
+        c.ok("…which the sheet shows" (RaveTest.includes((ed.displayListJson()) "line 4")))
         def doc4:RaveApp ed.doc
         c.ok("…and the document is untouched" ((doc4.hasNode(cards))))
 
         ; the whole document, replaced
-        def whole:string "app \"Swap\"\nbreakpoint md 768\n"
-        whole = (whole + "page \"Only\"\n")
-        whole = (whole + "  self { width: 100%; height: 100%; padding: 24px; background-color: #ffffff }\n")
-        whole = (whole + "  h1 \"Swapped\" { font-size: 28px; color: #111318 }\n")
-        whole = (whole + "route / \"Only\" page=\"Only\"\n")
+        def whole:string "<app name=\"Swap\"/>\n<breakpoint name=\"md\" min=\"768\"/>\n"
+        whole = (whole + "<page name=\"Only\" style=\"width: 100%; height: 100%; padding: 24px; background-color: #ffffff\">\n")
+        whole = (whole + "  <h1 style=\"font-size: 28px; color: #111318\">Swapped</h1>\n")
+        whole = (whole + "</page>\n")
+        whole = (whole + "<route path=\"/\" title=\"Only\" page=\"Only\"/>\n")
         ed.press("ai:open")
         ed.press("ai:scope:document")
         c.ok("a whole document is taken too" (ed.applyAiText(whole)))
