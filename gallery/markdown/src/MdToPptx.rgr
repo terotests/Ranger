@@ -43,6 +43,7 @@ Import "MdNode.rgr"
 Import "MdLayout.rgr"
 Import "MdToEvg.rgr"
 Import "MdEmbedKinds.rgr"
+Import "MdDeckSync.rgr"
 Import "../../vfs/src/Vfs.rgr"
 Import "../../pptx/api/PptxApi.rgr"
 Import "../../pptx/src/PptxFromEvg.rgr"
@@ -517,12 +518,13 @@ class MdToPptx {
         r.font(layout.style.headingFamily size)
         r.bold(true)
         r.color(layout.style.textColor)
+        def m:PptxShape (box.model())
+        MdDeckSync.stamp(m node)
         if (node.level <= layout.splitLevel) {
             ; `isPlaceholder` as well as the type: the writer emits a bare
             ; `<p:nvPr/>` without it, and a title that is not a placeholder is
             ; an ordinary text box — out of the outline view, not inheriting
             ; from the layout, and not a title to anything that reads the deck.
-            def m:PptxShape (box.model())
             m.isPlaceholder = true
             m.phType = "title"
             m.phIdx = -1

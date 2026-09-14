@@ -34,8 +34,17 @@ drawn by EVG, and it is live at
   [`gallery/datagrid`](../datagrid/src/script/ScriptEditor.rgr), with a
   markdown tokenizer of its own ([`src/R5MdLanguage.rgr`](src/R5MdLanguage.rgr)):
   headings, fences, list markers, emphasis, links and `{.attributes}` each in
-  a colour, on a light theme. The tab *style.css* puts the template in the
-  same editor.
+  a colour, on a light theme. The tab *style.css* is the document's template.
+  An empty tab opens a commented guide to the selectors the layout honours;
+  *Apply example* puts a starter sheet in the tab and dresses the preview.
+- **Two views of one source.** `MdEditController` (in the markdown module)
+  owns the text; the editor's buffer is a view of it. An edit on either side
+  becomes a *patch* on the other — a common prefix and a common suffix — so
+  both keep their own undo. The preview still takes the keyboard: click into
+  it and type, and the editor follows. A heading retyped on a **slide** is
+  the same patch: the title writes back into `document.md`, so Slides and
+  the markdown stay one document for the words. Recolouring, resizing and
+  adding a shape stay on the deck.
 - **Two views of one source.** `MdEditController` (in the markdown module)
   owns the text; the editor's buffer is a view of it. An edit on either side
   becomes a *patch* on the other — a common prefix and a common suffix — so
@@ -67,6 +76,7 @@ drawn by EVG, and it is live at
 | [`src/R5App.rgr`](src/R5App.rgr) | The app: the tree, the sheets, the editor, the pointer, the keyboard, the two-way patch, the host's JSON seam |
 | [`src/R5MdLanguage.rgr`](src/R5MdLanguage.rgr) | Markdown as an `EditorLanguage` plugin for the code editor |
 | [`src/R5Merge.rgr`](src/R5Merge.rgr) | A reader's presentation edits on the slides or the Word page, carried across a rebuild from the markdown |
+| [`src/R5CssGuide.rgr`](src/R5CssGuide.rgr) | The comments an empty style.css tab opens with, and the example sheet *Apply example* writes |
 | [`web/r5.css`](web/r5.css) | The chrome's EVG stylesheet, light, with the breakpoint |
 | [`web/main.js`](web/main.js) | The browser host: WebGL frame, pointer, hidden text field, fetches, downloads |
 | [`web/index.html`](web/index.html) | The page — a canvas, the pane's input surface, the text field |

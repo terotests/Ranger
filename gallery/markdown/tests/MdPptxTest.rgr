@@ -24,6 +24,7 @@
 ; ============================================================================
 
 Import "../src/MdToPptx.rgr"
+Import "../src/MdDeckSync.rgr"
 Import "../src/MdBlock.rgr"
 Import "../src/MdCss.rgr"
 Import "../src/MdDiagram.rgr"
@@ -1289,6 +1290,39 @@ prose
         c.ok("…and what a substitution costs is said" (MdPptxTest.noted(maker "reflows inside its boxes")))
     }
 
+    ; A title retyped on the slide is a patch on the heading, not a second
+    ; document. Attributes and the hashes stay.
+    fn headingWriteback:void (c:DeckCheck) {
+        def src:string "# Hello there {.lead}\n\nA line.\n"
+        def d:PptxDeck (this.build(src "deck { split-level: 1 }\n"))
+        def sl:PptxSlideRef (d.slideAt(0))
+        c.ok("the sample has a title shape" ((sl.shapeCount()) > 0))
+        def box:PptxShapeRef (sl.shapeAt(0))
+        def sh:PptxShape (box.model())
+        c.ok("the title heading is stamped" (sh.mdSrcStart >= 0))
+        c.eqStr("the stamp is the visible heading" sh.mdLastText "Hello there")
+        def inner:string (substring src sh.mdSrcStart sh.mdSrcEnd)
+        c.eqStr("the inner span is the heading words" inner "Hello there")
+        def p:PptxParagraph (itemAt sh.text.paragraphs 0)
+        def run:PptxTextRun (itemAt p.runs 0)
+        run.text = "New title"
+        def starts:[int]
+        def ends:[int]
+        def texts:[string]
+        def shapes:[PptxShape]
+        MdDeckSync.collect(d.pres starts ends texts shapes)
+        c.eqInt("one heading changed" (array_length starts) 1)
+        def from:int (itemAt starts 0)
+        def to:int (itemAt ends 0)
+        def text:string (itemAt texts 0)
+        def next:string ((substring src 0 from) + text)
+        next = (next + (substring src to (strlen src)))
+        c.ok("the markdown has the new title" ((indexOf next "New title") >= 0))
+        c.ok("the hashes stayed" ((indexOf next "# New title") >= 0))
+        c.ok("the class stayed" ((indexOf next "{.lead}") >= 0))
+        c.ok("the body stayed" ((indexOf next "A line.") >= 0))
+    }
+
     fn run:void () {
         def c:DeckCheck (new DeckCheck())
         print "== MdPptxTest =="
@@ -1306,6 +1340,7 @@ prose
         this.pictures(c)
         this.drawingObject(c)
         this.drawingEdit(c)
+        this.headingWriteback(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {

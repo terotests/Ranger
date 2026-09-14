@@ -49,6 +49,8 @@ Import "../../game_engine/ui/UITextRenderer.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "R5MdLanguage.rgr"
 Import "R5Merge.rgr"
+Import "R5CssGuide.rgr"
+Import "../../pptx/src/PptxModel.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
@@ -142,6 +144,9 @@ class R5App {
     def docName:string "markdown"
     def mdText:string ""
     def cssText:string ""
+    ; The style.css tab is showing the help comments, not a sheet the
+    ; document is dressed in. Typing, or Apply example, turns that off.
+    def cssGuide:boolean false
 
     ; Where the keyboard is: "editor" or "preview".
     def focus:string "editor"
@@ -519,6 +524,7 @@ class R5App {
         bufSynced = editor.buf.version
         def now:string (editor.text())
         if (editorDoc == "css") {
+            cssGuide = false
             cssText = now
             theme = "custom"
             md.setStyleSheet(now)
@@ -574,6 +580,11 @@ class R5App {
         editor.layout.preferCol = posCol
         editor.layout.ensureCaretVisible(editor.buf editor.sel)
         bufSynced = editor.buf.version
+        ; A patch that came FROM the slides must not rebuild them: the deck
+        ; already holds the new heading, and rebuilding would drop the caret.
+        if ((this.paneView() == "deck") && (focus == "preview")) {
+            return
+        }
         this.followSource(false)
     }
 
@@ -652,12 +663,22 @@ class R5App {
         if (editorDoc == "md") {
             mdText = (editor.text())
         } {
-            cssText = (editor.text())
+            if (! cssGuide) {
+                cssText = (editor.text())
+            }
         }
         editorDoc = which
         if (which == "css") {
-            editor.init((md.styleText()))
+            def sheet:string (md.styleText())
+            if ((strlen (trim sheet)) == 0) {
+                editor.init((R5CssGuide.help()))
+                cssGuide = true
+            } {
+                editor.init(sheet)
+                cssGuide = false
+            }
         } {
+            cssGuide = false
             editor.init((md.sourceText()))
             mdSeen = (md.sourceText())
         }
@@ -758,6 +779,7 @@ class R5App {
 
     fn applyTemplate:void (key:string text:string) {
         theme = key
+        cssGuide = false
         md.setStyleSheet(text)
         md.addTextFile("/style.css" text)
         cssText = text
@@ -767,6 +789,50 @@ class R5App {
         }
         this.followSource(true)
         this.touch()
+    }
+
+    ; The starter sheet from the style.css tab. It is a real sheet, not the
+    ; help comments, and the preview, the slides and the Word page take it.
+    fn applyExampleCss:void () {
+        this.applyTemplate("custom" (R5CssGuide.example()))
+    }
+
+    ; A heading retyped on a slide, written into document.md. The editor
+    ; buffer follows; the deck is not rebuilt (it already shows the words).
+    fn syncDeckToMd:boolean () {
+        def ok:boolean (md.syncDeckTextToMd())
+        if (! ok) { return false }
+        this.syncMdToEditor()
+        this.refreshDeckBaseKeys()
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The markdown now says what the stamped headings say, so a retype is
+    ; not an invasive edit. Keys in the base follow; signatures (the look)
+    ; stay, so a recoloured title still keeps its colour.
+    fn refreshDeckBaseKeys:void () {
+        if (! deckBase.taken) { return }
+        if (! (md.deckOn)) { return }
+        def pres:PptxPresentation md.deckWeb.app.presentation
+        def n:int (array_length pres.slides)
+        if (n != (array_length deckBase.counts)) { return }
+        def flat:int 0
+        def i:int 0
+        while (i < n) {
+            def sl:PptxSlide (itemAt pres.slides i)
+            if ((array_length sl.shapes) != (itemAt deckBase.counts i)) { return }
+            def j:int 0
+            while (j < (array_length sl.shapes)) {
+                def sh:PptxShape (itemAt sl.shapes j)
+                if (sh.mdSrcStart >= 0) {
+                    deckBase.setKeyAt(flat (R5Merge.shapeKey(sh)))
+                }
+                flat = (flat + 1)
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
     }
 
     fn openSample:void (key:string) {
@@ -886,6 +952,9 @@ class R5App {
         if (this.editorShown()) {
             head.addChild((this.chip("r5-doc-md" "document.md" (editorDoc == "md"))))
             head.addChild((this.chip("r5-doc-css" "style.css" (editorDoc == "css"))))
+            if (editorDoc == "css") {
+                head.addChild((this.chip("r5-css-example" "Apply example" false)))
+            }
         }
         head.addChild((tree R5 (HeadGap)))
         if (this.paneVisible()) {
@@ -1099,7 +1168,9 @@ class R5App {
 
     fn formatSheet:void (sh:EVGElement) {
         if (editorDoc == "css") {
-            sh.addChild((tree R5 (SheetNote "The editor holds style.css; these format the markdown.")))
+            sh.addChild((tree R5 (SheetNote "The editor holds style.css. Apply example puts a starter sheet in this tab; Layout → Template loads corporate or editorial.")))
+            sh.addChild((this.actionRow("r5-css-example" "Apply example stylesheet")))
+            return
         }
         def chips (tree R5 (Chips))
         def n:int (array_length fmtIds)
@@ -1214,6 +1285,11 @@ class R5App {
             this.openDoc("css")
             return true
         }
+        if (id == "r5-css-example") {
+            this.applyExampleCss()
+            this.closeMenu()
+            return true
+        }
         if (id == "r5-rebuild") {
             md.rebuildFromSource()
             this.noteAttached()
@@ -1245,6 +1321,11 @@ class R5App {
 
     fn pressInSheet:boolean (id:string) {
         if ((id == "r5-scrim") || (id == "r5-close")) {
+            this.closeMenu()
+            return true
+        }
+        if (id == "r5-css-example") {
+            this.applyExampleCss()
             this.closeMenu()
             return true
         }
@@ -1377,6 +1458,7 @@ class R5App {
     fn key:boolean (name:string shift:boolean ctrl:boolean) {
         if (focus == "preview") {
             def took:boolean (md.key(name shift ctrl))
+            this.syncDeckToMd()
             this.syncMdToEditor()
             chromeRev = (chromeRev + 1)
             return took
@@ -1411,6 +1493,7 @@ class R5App {
     fn text:void (s:string) {
         if (focus == "preview") {
             md.typeText(s)
+            this.syncDeckToMd()
             this.syncMdToEditor()
             chromeRev = (chromeRev + 1)
             return

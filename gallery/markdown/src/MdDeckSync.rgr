@@ -1,0 +1,150 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdDeckSync.rgr — a heading retyped on a slide, written back into the .md.
+; ============================================================================
+;
+; The preview is the markdown file, so a heading typed there is already a
+; patch. A slide is a second document, and until this file a title retyped
+; in the PowerPoint editor stayed on the slide — the markdown never heard.
+;
+; A heading the exporter placed is stamped with the source span of its INNER
+; text (after the hashes, before a trailing `{.class}`). When that shape's
+; words move, this replaces that span. Attributes, the ATX marker and every
+; other block stay put. A heading whose maps could not name the inner text
+; is not stamped, and a retype of that shape stays a slide-only edit.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "../../pptx/src/PptxModel.rgr"
+
+class MdDeckSync {
+
+    ; Where the heading's visible text begins in the file, or -1.
+    sfn innerFrom:int (node:MdNode) {
+        def at:int (node.srcOfLiteral(0))
+        if (at < 0) { return -1 }
+        if (at <= node.srcStart) { return -1 }
+        return at
+    }
+
+    ; One past the last character of that text, or -1.
+    sfn innerTo:int (node:MdNode) {
+        def t:string (node.plainText())
+        def n:int (strlen t)
+        def at:int (node.srcOfLiteral(n))
+        if (at < 0) { return -1 }
+        if (at < (MdDeckSync.innerFrom(node))) { return -1 }
+        return at
+    }
+
+    sfn stamp:void (sh:PptxShape node:MdNode) {
+        def a:int (MdDeckSync.innerFrom(node))
+        def b:int (MdDeckSync.innerTo(node))
+        if (a < 0) { return }
+        if (b < a) { return }
+        sh.mdSrcStart = a
+        sh.mdSrcEnd = b
+        sh.mdLastText = (node.plainText())
+    }
+
+    sfn shapeText:string (sh:PptxShape) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length sh.text.paragraphs)) {
+            def p:PptxParagraph (itemAt sh.text.paragraphs i)
+            if (i > 0) {
+                str_append out "\n"
+            }
+            def j:int 0
+            while (j < (array_length p.runs)) {
+                def r:PptxTextRun (itemAt p.runs j)
+                str_append out r.text
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn collect:void (pres:PptxPresentation starts:[int] ends:[int] texts:[string] shapes:[PptxShape]) {
+        def i:int 0
+        while (i < (array_length pres.slides)) {
+            def sl:PptxSlide (itemAt pres.slides i)
+            def j:int 0
+            while (j < (array_length sl.shapes)) {
+                MdDeckSync.collectShape((itemAt sl.shapes j) starts ends texts shapes)
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn collectShape:void (sh:PptxShape starts:[int] ends:[int] texts:[string] shapes:[PptxShape]) {
+        if (sh.mdSrcStart < 0) { return }
+        def now:string (MdDeckSync.shapeText(sh))
+        if (now == sh.mdLastText) { return }
+        push starts sh.mdSrcStart
+        push ends sh.mdSrcEnd
+        push texts now
+        push shapes sh
+    }
+
+    ; Highest offset first, so each patch leaves the lower ones valid.
+    sfn sortDesc:void (starts:[int] ends:[int] texts:[string] shapes:[PptxShape]) {
+        def n:int (array_length starts)
+        def i:int 0
+        while (i < n) {
+            def j:int (i + 1)
+            while (j < n) {
+                if ((itemAt starts j) > (itemAt starts i)) {
+                    def ts:int (itemAt starts i)
+                    set_at starts i (itemAt starts j)
+                    set_at starts j ts
+                    def te:int (itemAt ends i)
+                    set_at ends i (itemAt ends j)
+                    set_at ends j te
+                    def tt:string (itemAt texts i)
+                    set_at texts i (itemAt texts j)
+                    set_at texts j tt
+                    def sh:PptxShape (itemAt shapes i)
+                    set_at shapes i (itemAt shapes j)
+                    set_at shapes j sh
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn commit:void (sh:PptxShape from:int text:string) {
+        sh.mdSrcStart = from
+        sh.mdSrcEnd = (from + (strlen text))
+        sh.mdLastText = text
+    }
+
+    ; Spans that began at or after the old end of a patch move with it.
+    ; `keepStart` is the heading that was just rewritten; it already has
+    ; its new end and must not move.
+    sfn shiftAfter:void (pres:PptxPresentation oldEnd:int delta:int keepStart:int) {
+        if (delta == 0) { return }
+        def i:int 0
+        while (i < (array_length pres.slides)) {
+            def sl:PptxSlide (itemAt pres.slides i)
+            def j:int 0
+            while (j < (array_length sl.shapes)) {
+                def sh:PptxShape (itemAt sl.shapes j)
+                if (sh.mdSrcStart >= 0) {
+                    if (sh.mdSrcStart != keepStart) {
+                        if (sh.mdSrcStart >= oldEnd) {
+                            sh.mdSrcStart = (sh.mdSrcStart + delta)
+                            sh.mdSrcEnd = (sh.mdSrcEnd + delta)
+                        }
+                    }
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+}

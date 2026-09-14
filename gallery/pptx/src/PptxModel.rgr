@@ -727,6 +727,12 @@ class PptxShape {
     ; screen reader would read a Mermaid source aloud.
     def embedNotation:string ""
     def embedSource:string ""
+    ; A heading this shape was built from, as offsets into the markdown.
+    ; -1 means it has no heading to write back to. `mdLastText` is the
+    ; words that were last synced, so a retype can be told from a look.
+    def mdSrcStart:int -1
+    def mdSrcEnd:int -1
+    def mdLastText:string ""
     ; `p:cNvPr/@id`, which is the name the slide's own timing tree uses to say
     ; which shape an animation is about.
     def shapeId:int 0

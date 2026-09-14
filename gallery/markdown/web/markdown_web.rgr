@@ -55,6 +55,8 @@ Import "../src/MdDeckDiagram.rgr"
 Import "../src/MdToDocx.rgr"
 Import "../src/MdCssEdit.rgr"
 Import "../src/MdToPptx.rgr"
+Import "../src/MdDeckSync.rgr"
+Import "../../pptx/src/PptxModel.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
@@ -1410,6 +1412,7 @@ class MarkdownWeb {
         if (this.showsDeck()) {
             deckWeb.type(v false false)
             built = false
+            this.syncDeckTextToMd()
             return
         }
         if (! (this.mayWriteInPreview())) { return }
@@ -1457,6 +1460,7 @@ class MarkdownWeb {
                 deckWeb.keyMod(dn shift ctrl)
             }
             built = false
+            this.syncDeckTextToMd()
             return true
         }
         ; Moving and selecting are not writing: a read-only preview is one a
@@ -1798,6 +1802,39 @@ class MarkdownWeb {
         return ((edit.history.depth()) + (edit.history.redoDepth()))
     }
 
+    ; A heading retyped on a slide becomes a patch on the markdown, the way
+    ; a heading typed in the preview already is. Presentation edits (colour,
+    ; size, a shape added) are not headings and do not come through here.
+    fn syncDeckTextToMd:boolean () {
+        if (! deckOn) { return false }
+        def starts:[int]
+        def ends:[int]
+        def texts:[string]
+        def shapes:[PptxShape]
+        MdDeckSync.collect(deckWeb.app.presentation starts ends texts shapes)
+        if ((array_length starts) == 0) { return false }
+        MdDeckSync.sortDesc(starts ends texts shapes)
+        def i:int 0
+        while (i < (array_length starts)) {
+            def from:int (itemAt starts i)
+            def to:int (itemAt ends i)
+            def text:string (itemAt texts i)
+            def sh:PptxShape (itemAt shapes i)
+            if ((strlen text) == 0) {
+                this.setSelection(from to)
+                edit.deleteSelection()
+            } {
+                this.applyPatch(from to text)
+            }
+            MdDeckSync.commit(sh from text)
+            def delta:int ((strlen text) - (to - from))
+            MdDeckSync.shiftAfter(deckWeb.app.presentation to delta from)
+            i = (i + 1)
+        }
+        deckFrom = edit.source
+        return true
+    }
+
     ; The deck, as a `.pptx` a reader can open and change the number in.
     ;
     ; Built from a layout of its own, the way the PDF is, and from the same
@@ -1846,6 +1883,7 @@ class MarkdownWeb {
         def cw:double (deck.style.pageWidth - (deck.style.margin * 2.0))
         MdDiagram.prepare(edit.doc deck.embeds cw styleName)
         deck.applySlideMeta(edit.doc)
+        deck.setDocSource(edit.source)
         deck.layoutSlides(edit.doc)
         def x (new MdToPptx())
         def d:PptxDeck (x.deck(edit.doc deck))
