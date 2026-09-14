@@ -879,7 +879,16 @@ function selftest() {
     check("undo puts it back on both sides", app.md.sourceText() === before && app.editor.text() === before);
     const line0 = app.editor.buf.lineAt(0);
     let at = 0;
-    while (at < line0.length && !/[A-Za-z]/.test(line0[at])) at += 1;
+    while (at < line0.length) {
+      if (/[A-Za-z]/.test(line0[at])) {
+        let end = at + 1;
+        while (end < line0.length && /[A-Za-z]/.test(line0[end])) end += 1;
+        if (end - at > 1) break;
+        at = end;
+        continue;
+      }
+      at += 1;
+    }
     app.editor.selectWordAtPos(0, at);
     const word = app.editor.selectionText();
     check("selecting a word takes a run of letters", word.length > 1 && word.indexOf(" ") < 0 && line0.indexOf(word) >= 0, word);
