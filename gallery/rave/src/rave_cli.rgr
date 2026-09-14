@@ -1,0 +1,405 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; rave — the document work, on the command line
+; =============================================================================
+; The editor is a page; this is the same document model without one, so that
+; something which cannot click — a person at a terminal, or an agent editing
+; files — can make a Rave application, ask whether it is right, and be told
+; exactly what is wrong with it.
+;
+;   rave new <out.rave> [--start … --nav … --no-auth --name …]
+;   rave check <file.rave|file.rave.json>
+;   rave fmt <file.rave>
+;   rave json <file.rave> <out.rave.json>      markup   -> the editor's file
+;   rave markup <file.rave.json> [out.rave]    the file -> markup
+;   rave import <file.fig> [out.rave.json]     a Figma file, read as an app
+;   rave text <file.fig>                       …and printed as markup
+;   rave spec                                  the format, as the prompt says it
+;
+; `check` is the one that matters: it parses, builds every route at every
+; width the project targets, and reports the parse errors with their line
+; numbers, every declaration the engine refused, and every accessibility
+; problem — then says OK or FAIL, so a loop can be built on it.
+; =============================================================================
+
+Import "../../figma/src/FigParser.rgr"
+Import "../../figma/src/convert/FigToScene.rgr"
+Import "RaveImport.rgr"
+Import "RaveText.rgr"
+Import "RaveRuntime.rgr"
+Import "RavePatterns.rgr"
+
+class RaveCli {
+
+    sfn dirOf:string (path:string) {
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        if (at < 0) {
+            return "."
+        }
+        return (substring path 0 at)
+    }
+
+    sfn nameOf:string (path:string) {
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        return (substring path (at + 1) (strlen path))
+    }
+
+    sfn endsIn:boolean (path:string tail:string) {
+        if ((strlen path) < (strlen tail)) {
+            return false
+        }
+        return ((substring path ((strlen path) - (strlen tail)) (strlen path)) == tail)
+    }
+
+    sfn slurp:string (path:string) {
+        def got@(optional):string (read_file (RaveCli.dirOf(path)) (RaveCli.nameOf(path)))
+        if (null? got) {
+            return ""
+        }
+        return (unwrap got)
+    }
+
+    ; A flag's value: `--start crud` answers "crud", and a flag that is not
+    ; there answers the fallback.
+    sfn flag:string (name:string fallback:string) {
+        def n:int (shell_arg_cnt)
+        def i:int 0
+        while (i < n) {
+            if ((shell_arg i) == name) {
+                if ((i + 1) < n) {
+                    return (shell_arg (i + 1))
+                }
+            }
+            i = (i + 1)
+        }
+        return fallback
+    }
+
+    sfn hasFlag:boolean (name:string) {
+        def n:int (shell_arg_cnt)
+        def i:int 0
+        while (i < n) {
+            if ((shell_arg i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; --- opening a document ------------------------------------------------------
+
+    ; A `.rave` is markup and a `.rave.json` is the editor's own file. Which
+    ; one this is is decided by what is in it, not by what it is called: a
+    ; document that starts with `{` is JSON wherever it came from.
+    sfn openDoc:RaveApp (path:string reader:RaveTextReader) {
+        def text:string (RaveCli.slurp(path))
+        if ((strlen (trim text)) == 0) {
+            return (new RaveApp(""))
+        }
+        if ((charAt (trim text) 0) == 123) {
+            return (RaveApp.fromJson(text))
+        }
+        return (reader.readDoc(text))
+    }
+
+    ; --- check -------------------------------------------------------------------
+
+    ; The widths a project is checked at: one per target it named, and 1440
+    ; when it named none.
+    sfn widthsOf:[double] (app:RaveApp) {
+        def out:[double]
+        def i:int 0
+        while (i < (array_length app.targets)) {
+            def t:string (itemAt app.targets i)
+            if (t == "desktop") { push out 1920.0 }
+            if (t == "web") { push out 1440.0 }
+            if (t == "tablet") { push out 768.0 }
+            if (t == "mobile") { push out 390.0 }
+            i = (i + 1)
+        }
+        if ((array_length out) == 0) {
+            push out 1440.0
+        }
+        return out
+    }
+
+    sfn heightFor:double (w:double) {
+        if (w >= 1700.0) { return 1080.0 }
+        if (w >= 1100.0) { return 900.0 }
+        if (w >= 600.0) { return 1024.0 }
+        return 844.0
+    }
+
+    sfn check:int (path:string) {
+        def reader (new RaveTextReader())
+        def app:RaveApp (RaveCli.openDoc(path reader))
+        def bad:int 0
+        def i:int 0
+        while (i < (reader.errorCount())) {
+            print ("  " + (reader.errorAt(i)))
+            bad = (bad + 1)
+            i = (i + 1)
+        }
+        if ((reader.moreCount()) > 0) {
+            print ("  …and " + (to_string (reader.moreCount())) + " more lines that could not be read")
+            bad = (bad + (reader.moreCount()))
+        }
+        if (app.isEmpty()) {
+            print "  the document has no routes, so there is nothing to draw"
+            return (bad + 1)
+        }
+        def rt (new RaveRuntime(app))
+        def se:int 0
+        while (se < (rt.styleErrorCount())) {
+            print ("  stylesheet: " + (rt.styleError(se)))
+            bad = (bad + 1)
+            se = (se + 1)
+        }
+        def widths:[double] (RaveCli.widthsOf(app))
+        def w:int 0
+        while (w < (array_length widths)) {
+            def width:double (itemAt widths w)
+            rt.addView(("w" + (to_string (to_int width))) width (RaveCli.heightFor(width)) (width < 600.0))
+            w = (w + 1)
+        }
+        ; every route, logged in, at every width
+        rt.setLoggedIn(true)
+        def r:int 0
+        while (r < (array_length app.routes)) {
+            def route:RaveRoute (itemAt app.routes r)
+            rt.jump(route.path)
+            rt.ensure()
+            def v:int 0
+            while (v < (array_length widths)) {
+                def warn:int (rt.layoutWarningCount(v))
+                def wi:int 0
+                while (wi < warn) {
+                    print ("  " + route.path + " @" + (to_string (to_int (itemAt widths v))) + " rejected: " + (rt.layoutWarning(v wi)))
+                    bad = (bad + 1)
+                    wi = (wi + 1)
+                }
+                def problems:[string] (rt.lint(v))
+                def pi:int 0
+                while (pi < (array_length problems)) {
+                    print ("  " + route.path + " @" + (to_string (to_int (itemAt widths v))) + " a11y: " + (itemAt problems pi))
+                    bad = (bad + 1)
+                    pi = (pi + 1)
+                }
+                v = (v + 1)
+            }
+            r = (r + 1)
+        }
+        print ((app.name + " · " + (to_string (array_length app.routes)) + " routes · "
+            + (to_string (array_length app.layouts)) + " layouts · "
+            + (to_string (array_length app.pages)) + " pages · "
+            + (to_string (array_length widths)) + " widths"))
+        return bad
+    }
+
+    ; --- new ---------------------------------------------------------------------
+
+    sfn targetsFromFlag:[string] () {
+        def out:[string]
+        def raw:string (RaveCli.flag("--targets" "web tablet mobile"))
+        def at:string ""
+        def i:int 0
+        while (i <= (strlen raw)) {
+            def c:int 32
+            if (i < (strlen raw)) {
+                c = (charAt raw i)
+            }
+            if ((c == 32) || (c == 44)) {
+                if ((strlen at) > 0) {
+                    push out at
+                    at = ""
+                }
+            } {
+                at = (at + (strfromcode c))
+            }
+            i = (i + 1)
+        }
+        if ((array_length out) == 0) {
+            push out "web"
+        }
+        return out
+    }
+
+    sfn makeNew:void (out:string) {
+        def name:string (RaveCli.flag("--name" "Untitled"))
+        def start:string (RaveCli.flag("--start" "dashboard"))
+        def nav:string (RaveCli.flag("--nav" "sidebar"))
+        def auth:boolean ((RaveCli.hasFlag("--no-auth")) == false)
+        def app:RaveApp (RavePatterns.fromChoices(name start nav auth (RaveCli.targetsFromFlag())))
+        if (RaveCli.endsIn(out ".json")) {
+            write_file "." out (app.toJson())
+        } {
+            write_file "." out (RaveText.writeApp(app))
+        }
+        print ("wrote " + out + " — " + name + ", " + start + ", nav " + nav)
+    }
+
+    ; --- the figma half ------------------------------------------------------------
+
+    sfn importFig:void (path:string out:string asText:boolean) {
+        def bytes:buffer (buffer_read_file (RaveCli.dirOf(path)) (RaveCli.nameOf(path)))
+        def parser (new FigParser())
+        def doc:FigDoc (parser.parseBytes(bytes (RaveCli.nameOf(path))))
+        if (doc.ok == false) {
+            print ("error: " + doc.err)
+            return
+        }
+        def conv (new FigToScene())
+        def scene:SceneDocument (conv.convertDoc(doc))
+        def imp (new RaveImport())
+        def app:RaveApp (imp.run(scene))
+        if asText {
+            print (RaveText.writeApp(app))
+            return
+        }
+        print ("=== " + app.name + " ===")
+        print (imp.report.summary())
+        print ("routes " + (to_string (array_length app.routes)) + " · layouts " + (to_string (array_length app.layouts)) + " · pages " + (to_string (array_length app.pages)))
+        def r:int 0
+        while (r < (array_length app.routes)) {
+            def route:RaveRoute (itemAt app.routes r)
+            print ("  " + route.path + "   " + route.title)
+            r = (r + 1)
+        }
+        print ""
+        def i:int 0
+        while (i < (imp.report.noteCount())) {
+            print ("  " + (imp.report.noteAt(i)))
+            i = (i + 1)
+        }
+        if ((strlen out) > 0) {
+            if (RaveCli.endsIn(out ".json")) {
+                write_file "." out (app.toJson())
+            } {
+                write_file "." out (RaveText.writeApp(app))
+            }
+            print ""
+            print ("wrote " + out)
+        }
+    }
+
+    sfn usage:void () {
+        print "usage:"
+        print "  rave new <out.rave> [--name X --start dashboard|crud|marketing|masterdetail|settings|empty]"
+        print "                      [--nav sidebar|topbar|tabs|none] [--no-auth] [--targets \"web tablet mobile\"]"
+        print "  rave check <file.rave|file.rave.json>"
+        print "  rave fmt <file.rave>"
+        print "  rave json <file.rave> <out.rave.json>"
+        print "  rave markup <file.rave.json> [out.rave]"
+        print "  rave import <file.fig> [out]"
+        print "  rave text <file.fig>"
+        print "  rave spec"
+    }
+
+    sfn main:void () {
+        def n:int (shell_arg_cnt)
+        if (n < 1) {
+            RaveCli.usage()
+            return
+        }
+        def cmd:string (shell_arg 0)
+        if (cmd == "spec") {
+            print (RaveText.spec())
+            return
+        }
+        if (n < 2) {
+            RaveCli.usage()
+            return
+        }
+        def path:string (shell_arg 1)
+        if (cmd == "new") {
+            RaveCli.makeNew(path)
+            return
+        }
+        if (cmd == "check") {
+            def bad:int (RaveCli.check(path))
+            if (bad == 0) {
+                print "RAVE OK"
+            } {
+                print ("RAVE FAIL " + (to_string bad))
+            }
+            return
+        }
+        if (cmd == "fmt") {
+            def reader (new RaveTextReader())
+            def app:RaveApp (RaveCli.openDoc(path reader))
+            if ((reader.errorCount()) > 0) {
+                def i:int 0
+                while (i < (reader.errorCount())) {
+                    print ("  " + (reader.errorAt(i)))
+                    i = (i + 1)
+                }
+                print ("RAVE FAIL " + (to_string (reader.totalErrors())))
+                return
+            }
+            write_file "." path (RaveText.writeApp(app))
+            print ("RAVE OK " + path)
+            return
+        }
+        if (cmd == "json") {
+            if (n < 3) {
+                RaveCli.usage()
+                return
+            }
+            def reader2 (new RaveTextReader())
+            def app2:RaveApp (RaveCli.openDoc(path reader2))
+            if ((reader2.errorCount()) > 0) {
+                def j:int 0
+                while (j < (reader2.errorCount())) {
+                    print ("  " + (reader2.errorAt(j)))
+                    j = (j + 1)
+                }
+                print ("RAVE FAIL " + (to_string (reader2.totalErrors())))
+                return
+            }
+            write_file "." (shell_arg 2) (app2.toJson())
+            print ("RAVE OK " + (shell_arg 2))
+            return
+        }
+        if (cmd == "markup") {
+            def reader3 (new RaveTextReader())
+            def app3:RaveApp (RaveCli.openDoc(path reader3))
+            def markup:string (RaveText.writeApp(app3))
+            if (n >= 3) {
+                write_file "." (shell_arg 2) markup
+                print ("RAVE OK " + (shell_arg 2))
+                return
+            }
+            print markup
+            return
+        }
+        if (cmd == "import") {
+            def out:string ""
+            if (n >= 3) {
+                out = (shell_arg 2)
+            }
+            RaveCli.importFig(path out false)
+            return
+        }
+        if (cmd == "text") {
+            RaveCli.importFig(path "" true)
+            return
+        }
+        RaveCli.usage()
+    }
+}

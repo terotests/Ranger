@@ -16,12 +16,16 @@ frame, the dashboard, settings, and every route linting clean at every width
 — runs as one script in `rave:test`.
 
 ```bash
-npm run rave:import gallery/figma/fixtures/health.fig        # read a .fig as an application
-npm run rave:import text gallery/figma/fixtures/health.fig   # …and print it as RaveText
-npm run rave:import spec                                     # the format, as the prompt describes it
-npm run rave:test     # the document, the runtime and the editor, headless (in the editor gate)
-npm run rave:smoke    # the page, built the way the site builds it, driven in Node
-npm run rave:web      # build and serve on http://127.0.0.1:8012/
+npm run rave -- new app.rave --name "Acme" --start crud   # a project, from a terminal
+npm run rave -- check app.rave        # parse, build every route at every width, say everything
+npm run rave -- serve app.rave        # the editor at :8012, bound to that file
+npm run rave -- spec                  # the format, exactly as the AI prompt states it
+npm run rave -- import file.fig       # a Figma file, read as an application
+
+npm run rave:test          # the document, the runtime and the editor, headless (in the editor gate)
+npm run rave:smoke         # the page, built the way the site builds it, driven in Node
+npm run rave:serve:check   # `rave serve` — the file door, without a browser
+npm run rave:web           # build and serve on http://127.0.0.1:8012/
 ```
 
 Deployed at `/rave/`. **License:** AGPL-3.0-or-later (Gallery).
@@ -222,6 +226,37 @@ guess with its reason.
 imports as three routes on one shared layout, 363 nodes, 79 containers
 straight from the file's own auto-layout and 15 cut, with zero engine
 rejections and zero accessibility problems at 1440 and at 390.
+
+## From a terminal, and from an agent
+
+The editor is a page. The document is not: it is a file, and everything the
+editor knows how to say about one, `rave` says without a browser.
+
+| | |
+| --- | --- |
+| `rave new <out.rave>` | the wizard's four questions as flags — `--start crud`, `--nav topbar`, `--no-auth`, `--targets "web tablet mobile"` |
+| `rave check <file>` | **the loop.** Parses, then builds every route at every width the project targets, and prints the parse errors with their line numbers, every declaration `EVGReject` refused, and every accessibility problem. Ends `RAVE OK` or `RAVE FAIL n`, and exits non-zero |
+| `rave serve <file.rave>` | the editor at `:8012` **bound to that file** — it loads it, follows it when something else writes it, and writes it back when someone presses Save |
+| `rave fmt` / `json` / `markup` | the same document, spelled the writer's way, as `app.rave.json`, or back |
+| `rave spec` | the format, exactly as the AI prompt states it |
+| `rave import <file.fig>` | a Figma file as an application; `rave text` prints one as markup |
+
+`check` is the one that makes an agent useful here, because it is the only
+place that says what the engine silently dropped:
+
+```
+$ rave check app.rave
+  / @1440 rejected: unknown property: aspect-ratio: 16/9
+  / @1440 rejected: unsupported length: width: calc(100% - 20px)
+  / @1440 a11y: n3: focusable with no accessible name
+  Bad · 1 routes · 0 layouts · 1 pages · 1 widths
+RAVE FAIL 3
+```
+
+And `serve` is what makes the two halves one session: the agent edits the
+file, the page follows it, the person moves something in the editor, the file
+changes under the agent. `.claude/skills/rave/SKILL.md` is that loop written
+down for one.
 
 ## Asking an AI, with a person as the wire
 

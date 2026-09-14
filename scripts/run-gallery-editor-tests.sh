@@ -477,6 +477,11 @@ SUITES=(
   # the site builds it and driven in Node — the rails, the stage's camera,
   # a sign-in typed at the page, and a document that opens again.
   rave:smoke
+  # And the file door: `rave serve` handing the editor one document on disk,
+  # following it when something else writes it, and writing it back on Save.
+  # That is how an agent editing the file and a person watching the screen are
+  # one session, so it is checked rather than described.
+  rave:serve:check
   firesim:targets
   # The workbench: a database browser over the simulator, drawn by EVG and
   # controlled by gallery/ui's own controllers — collections, documents, a
