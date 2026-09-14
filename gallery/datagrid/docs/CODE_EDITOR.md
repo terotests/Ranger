@@ -53,7 +53,8 @@ that keeps its indent.
 | click / drag | place the caret, select |
 | arrows, Home/End, PgUp/PgDn | move (Shift extends) |
 | Enter | newline, keeping the indent — one level more after `{`, `(`, `[` |
-| Tab | two spaces |
+| Tab | two spaces at the caret; indent the selected lines if a range is open |
+| Shift+Tab | outdent the current line, or the selected lines |
 | Ctrl+A / Ctrl+Z / Ctrl+Y | select all, undo, redo |
 | Ctrl+C / Ctrl+X / Ctrl+V | copy, cut, paste — the whole selection, across lines |
 | Ctrl+Space | suggest; arrows choose, Enter accepts, Escape closes |

@@ -367,11 +367,11 @@ canvas.addEventListener(
 
 // --- the keyboard ------------------------------------------------------------
 //
-// Tab inserts indentation, which in a code editor is what people want and in a
-// WEB PAGE is a keyboard trap: a user who arrives on this editor with the Tab
-// key must be able to leave with it (WCAG 2.1.2). So Escape arms an escape
-// hatch — exactly CodeMirror's rule — and the next Tab moves focus instead of
-// indenting. Shift+Tab always moves focus backwards.
+// Tab indents, Shift+Tab outdents, which in a code editor is what people
+// want and in a WEB PAGE is a keyboard trap: a user who arrives on this
+// editor with the Tab key must be able to leave with it (WCAG 2.1.2). So
+// Escape arms an escape hatch — exactly CodeMirror's rule — and the next
+// Tab moves focus instead of indenting.
 
 let tabEscapes = false;
 let composing = false;
@@ -386,13 +386,13 @@ ta?.addEventListener("keydown", (ev) => {
     return;
   }
   if (ev.key === "Tab") {
-    if (tabEscapes || ev.shiftKey) {
+    if (tabEscapes) {
       tabEscapes = false;
       announce("Leaving the editor.");
       return; // the browser moves focus
     }
     ev.preventDefault();
-    web.key("tab", false, false);
+    web.key("tab", ev.shiftKey, false);
     afterInput();
     return;
   }

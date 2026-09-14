@@ -872,6 +872,107 @@ class ScriptEditor {
         this.insert(opened)
     }
 
+    ; How many leading characters one outdent step removes: a tab, or up to
+    ; two spaces — the same unit Tab inserts.
+    sfn leadingOutdent:int (line:string) {
+        def n:int (strlen line)
+        if (n == 0) {
+            return 0
+        }
+        if ((charAt line 0) == 9) {
+            return 1
+        }
+        def i:int 0
+        while ((i < 2) && (i < n)) {
+            if ((charAt line i) == 32) {
+                i = (i + 1)
+            } {
+                break
+            }
+        }
+        return i
+    }
+
+    sfn adjustIndentCol:int (col:int delta:int) {
+        def next:int (col + delta)
+        if (next < 0) {
+            return 0
+        }
+        return next
+    }
+
+    ; Shift every selected line one indent unit. A collapsed caret + Tab still
+    ; inserts two spaces at the caret (so Tab in the middle of a word does
+    ; what people type); a range is always a block indent, never a replace.
+    fn indentSelection:void (outdent:boolean) {
+        this.closeCompletions()
+        if ((sel.isCollapsed()) && (outdent == false)) {
+            this.insert("  ")
+            return
+        }
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        sel.normalized(a b)
+        def last:int b.line
+        if ((b.col == 0) && (last > a.line)) {
+            last = (last - 1)
+        }
+        this.shiftLines(a.line last outdent)
+    }
+
+    fn shiftLines:void (first:int last:int outdent:boolean) {
+        if (last < first) {
+            return
+        }
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        sel.normalized(a b)
+        def caretAtEnd:boolean ((sel.caret.line == b.line) && (sel.caret.col == b.col))
+        def aDelta:int 0
+        def bDelta:int 0
+        def built:string ""
+        def i:int first
+        while (i <= last) {
+            def line:string (buf.lineAt(i))
+            def delta:int 0
+            def shifted:string line
+            if outdent {
+                def n:int (ScriptEditor.leadingOutdent(line))
+                shifted = (substring line n (strlen line))
+                delta = (0 - n)
+            } {
+                shifted = ("  " + line)
+                delta = 2
+            }
+            if (i > first) {
+                built = (built + "\n")
+            }
+            built = (built + shifted)
+            if (i == a.line) {
+                aDelta = delta
+            }
+            if (i == b.line) {
+                bDelta = delta
+            }
+            i = (i + 1)
+        }
+        def lastLen:int (strlen (buf.lineAt(last)))
+        buf.replaceRange(first 0 last lastLen built true)
+        def aCol:int (ScriptEditor.adjustIndentCol(a.col aDelta))
+        def bCol:int (ScriptEditor.adjustIndentCol(b.col bDelta))
+        if caretAtEnd {
+            sel.setAnchor(a.line aCol)
+            sel.setCaret(b.line bCol)
+        } {
+            sel.setAnchor(b.line bCol)
+            sel.setCaret(a.line aCol)
+        }
+        layout.preferCol = sel.caret.col
+        layout.ensureCaretVisible(buf sel)
+        lastEditMs = (wall_clock_ms)
+        dirty = true
+    }
+
     fn backspace:void () {
         if (this.deleteSelection()) {
             this.refreshCompletions()
@@ -1198,7 +1299,10 @@ class ScriptEditor {
             return true
         }
         if (key == (UIKey.tab())) {
-            this.insert("  ")
+            ; A range is a block to indent, not text to replace — the same
+            ; rule VS Code and CodeMirror use. A collapsed caret still inserts
+            ; two spaces; Shift+Tab outdents the line the caret is on.
+            this.indentSelection(shift)
             return true
         }
         return false
@@ -1271,14 +1375,30 @@ class ScriptEditor {
     ; already knows how to find, so a word means the same thing here as it does
     ; to Ctrl+arrow.
     fn selectWordAt:void (tr:UITextRenderer px:int py:int) {
+        def hit:EditorPos (layout.hitTest(tr buf px py))
+        this.selectWordAtPos(hit.line hit.col)
+    }
+
+    ; The same selection without a hit test — hosts that already know the
+    ; column, and the tests, use this.
+    fn selectWordAtPos:void (line:int col:int) {
         focused = true
         this.closeCompletions()
-        def hit:EditorPos (layout.hitTest(tr buf px py))
-        def s:string (buf.lineAt(hit.line))
-        def from:int (EditorWord.wordStart(s hit.col))
-        def to:int (EditorWord.wordEnd(s hit.col))
-        sel.setAnchor(hit.line from)
-        sel.setCaret(hit.line to)
+        def p:EditorPos (EditorPos.create(line col))
+        buf.clampPos(p)
+        def s:string (buf.lineAt(p.line))
+        def from:int (EditorWord.wordStart(s p.col))
+        def to:int (EditorWord.wordEnd(s p.col))
+        if (from == to) {
+            ; Clicked whitespace or punctuation — take the character under
+            ; the pointer, which is what a double-click on a gap does.
+            if (p.col < (strlen s)) {
+                from = p.col
+                to = (p.col + 1)
+            }
+        }
+        sel.setAnchor(p.line from)
+        sel.setCaret(p.line to)
         layout.preferCol = to
         layout.ensureCaretVisible(buf sel)
     }
