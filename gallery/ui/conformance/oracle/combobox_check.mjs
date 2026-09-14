@@ -414,5 +414,6 @@ console.log("SPECIFIED — what the capture could not reach");
   eq("ArrowUp on a closed list opens it on the last row", c2.activeValue, "Go");
 }
 
-console.log(`\n${fail === 0 ? "RESULT OK" : "RESULT FAIL"}  pass=${pass} fail=${fail}  (reference @base-ui/react ${O.version})`);
+console.log(`\n${fail === 0 ? "RESULT OK" : "RESULT FAIL"}  pass=${pass} failed=${fail}  (reference @base-ui/react ${O.version})`);
+if (fail === 0) console.log("ALL PASS");
 process.exit(fail === 0 ? 0 : 1);
