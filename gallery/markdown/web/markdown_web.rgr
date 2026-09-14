@@ -725,9 +725,29 @@ class MarkdownWeb {
     ; The presentation, handed to the slide editor. `attachPresentation` is
     ; what `loadBytes` does once it has parsed a file, minus the file: same
     ; editor, same selection, same undo, same strip.
+    ;
+    ; Same strip, but not slide 1. `attachPresentation` always opens on the
+    ; first slide, and a keystroke in the markdown while looking at slide 3
+    ; rebuilds the deck through here — so the view used to jump back to the
+    ; title on every edit. The slide that is in front stays in front,
+    ; clamped if the count moved.
     fn attachDeck:void () {
+        def keep:int deckWeb.app.index
+        if (deckWeb.app.editor.slideIndex > keep) {
+            keep = deckWeb.app.editor.slideIndex
+        }
         def d:PptxDeck (this.buildDeck())
         deckWeb.app.attachPresentation(d.pres "markdown")
+        def n:int (d.slideCount())
+        if (n > 0) {
+            if (keep >= n) {
+                keep = (n - 1)
+            }
+            if (keep < 0) {
+                keep = 0
+            }
+            deckWeb.app.gotoSlide(keep)
+        }
         deckWeb.app.setEditMode(true)
         deckOn = true
         deckFrom = edit.source

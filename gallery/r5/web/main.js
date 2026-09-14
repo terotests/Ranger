@@ -858,9 +858,40 @@ function selftest() {
       app.setScreen("deck");
       window.__redraw();
       check("the slides draw in the pane", pane.view === "deck" && app.md.deckSlideCount() >= 1, `${app.md.deckSlideCount()} slides`);
+      const slideText = () => JSON.parse(app.docFrame()).list.cmds.filter((c) => c.k === 3).map((c) => c.text).join("|");
+      // Stay on the slide you were looking at: rebuilding the deck used to
+      // hand a new presentation to the editor, which always opened on slide 1.
+      app.setSource("# One\n\nHi.\n\n# Two\n\nThere.\n\n# Three\n\n### A tabledd\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n", "keep-slide");
+      window.__redraw();
+      check("a three-heading document is three slides", app.md.deckSlideCount() >= 3, `${app.md.deckSlideCount()} slides`);
+      const headingOn = (i) => {
+        const sl = app.md.deckWeb.app.presentation.slides[i];
+        if (!sl || !sl.shapes) return null;
+        for (const sh of sl.shapes) {
+          const run = sh.text && sh.text.paragraphs && sh.text.paragraphs[0] && sh.text.paragraphs[0].runs && sh.text.paragraphs[0].runs[0];
+          if (run && run.text === "A tabledd") return sh;
+        }
+        return null;
+      };
+      let headingSlide = -1;
+      let h0 = null;
+      for (let i = 0; i < app.md.deckSlideCount(); i++) {
+        const h = headingOn(i);
+        if (h) { headingSlide = i; h0 = h; break; }
+      }
+      app.md.deckGoTo(Math.max(0, headingSlide));
+      window.__redraw();
+      check("the heading's slide is in front", headingSlide >= 0 && app.md.deckHost().slideIndex() === headingSlide, `slide ${headingSlide + 1}`);
+      check("a short heading is as wide as the column", !!(h0 && h0.width > 400), h0 ? `${Math.round(h0.width)}pt` : "no heading");
+      app.pointerDown(pane.editor ? 200 : 100, 120, false, 1);
+      app.editor.sel.setCaret(10, 13);
+      app.editor.sel.collapseToCaret();
+      app.text("!");
+      window.__redraw();
+      check("a markdown edit keeps the current slide", app.md.deckHost().slideIndex() === headingSlide, `slide ${app.md.deckHost().slideIndex() + 1}`);
+      check("…and the heading on that slide followed", slideText().includes("A tabledd!"));
       // A new document, and a keystroke, while the slides are on screen:
       // the slides are the new document's, not the one they were made from.
-      const slideText = () => JSON.parse(app.docFrame()).list.cmds.filter((c) => c.k === 3).map((c) => c.text).join("|");
       app.setSource("# Fresh deck title\n\nOne line.\n", "fresh");
       window.__redraw();
       check("opening a document while on the slides rebuilds them", slideText().includes("Fresh deck title"));
