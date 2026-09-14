@@ -138,6 +138,15 @@ on:
       - "gallery/xml/**"
       - "gallery/pdf_writer/src/**"
       - "gallery/figma/**"
+      # The .fig reader decodes zstd in Ranger, so the decoder is part of
+      # /figma/ and /rave/ even though neither directory names it.
+      - "gallery/zstd/src/**"
+      # Rave at /rave/ — the editor, its chrome sheet and its page. It also
+      # builds from gallery/figma (the .fig importer), gallery/ui (InputCtl),
+      # gallery/office (the undo history) and gallery/evg, all listed here
+      # already; without this line a merge that touches only Rave left the
+      # site showing the editor as it was.
+      - "gallery/rave/**"
       # The graph editor at /rangerflow/ is built from these — the domains it
       # reads (SQL, UML, Mermaid), the layout and the exporters included.
       - "gallery/rangerflow/**"
