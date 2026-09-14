@@ -14,16 +14,20 @@ other source file.
 npm run rave -- new app.rave --name "Acme" --start crud --nav sidebar
 npm run rave -- check app.rave        # the loop: exit 0 or the reasons why not
 npm run rave -- shot app.rave --width 390   # paint a route and look at it
+npm run rave -- measure app.rave --width 390  # overflow, overlap, off the page
+npm run rave -- outline app.rave --width 390  # the laid-out tree, one line per node
 npm run rave -- serve app.rave        # the editor at :8012, bound to the file
 npm run rave -- spec                  # the format in full — read this before writing one
 ```
 
 From outside this repository the same thing is `node <ranger>/gallery/rave/cli.mjs …`.
+If the host has not loaded `ranger-design` (a cloud agent often has not), this
+CLI *is* the MCP: every tool is one of these commands.
 
 There is also an MCP server over the same commands — `ranger-design`, declared
 in this repository's `.mcp.json` and `.cursor/mcp.json` — with
 `rave_spec`, `rave_new`, `rave_check`, `rave_read`, `rave_write`, `rave_shot`,
-`figma_check`, `figma_markup` and `figma_tree`. Use whichever door is in front
+`rave_measure`, `rave_outline`, `figma_check`, `figma_markup` and `figma_tree`. Use whichever door is in front
 of you; they do the same work, and `rave_write` runs the check on what it
 wrote, so a document that does not hold up says so in the same answer.
 
@@ -43,6 +47,10 @@ wrote, so a document that does not hold up says so in the same answer.
      accessibility problem.
    It ends with `RAVE OK` or `RAVE FAIL n`, and exits non-zero on failure.
 4. Fix what it named. Go back to 3.
+5. **`rave shot`** and **`rave measure`** on a route at a width. `check` is CSS
+   and accessibility; `measure` is boxes — overflow, overlap, off the page —
+   and `shot` now prints that measure under the picture. `rave outline` is the
+   same tree, one line per node, with the addresses the findings speak in.
 
 Do not declare a design finished on a `RAVE FAIL`. Every line it prints is
 something a person would have found by looking.
@@ -111,11 +119,13 @@ route at one width and leaves a PNG; `--all` does every route at every width
 the project targets, into a directory. There is no browser in it: the route is
 built and styled at that viewport — a `@media` rule does not apply at all
 unless one is stated — and the gallery's own software rasterizer paints the
-tree. Over MCP the same thing is `rave_shot`, and the picture comes back in
-the answer.
+tree. The same call now prints a `MEASURE n findings` of that tree, so looking
+at the picture also says whether the boxes are wrong. Over MCP the same thing
+is `rave_shot`, and the picture comes back in the answer; `rave_measure` and
+`rave_outline` are the boxes and the tree on their own.
 
-Look at what you made. `check` catches what is wrong; a picture catches what
-is merely bad.
+Look at what you made. `check` catches what is wrong; a picture and a measure
+catch what is merely bad.
 
 
 `rave serve app.rave` runs the editor at `http://127.0.0.1:8012/` bound to that

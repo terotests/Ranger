@@ -139,7 +139,7 @@ const TOOLS = [
   {
     name: "rave_shot",
     description:
-      "Paint one route of a Rave document at one width and return the picture. No browser: the route is built and styled at that viewport — a @media rule does not apply at all unless one is stated — and the gallery's own software rasterizer paints it. Use it to SEE what a change did, not only whether it passed the check.",
+      "Paint one route of a Rave document at one width and return the picture, plus the EVG measure of the same tree. No browser: the route is built and styled at that viewport — a @media rule does not apply at all unless one is stated — and the gallery's own software rasterizer paints it. Use it to SEE what a change did; the MEASURE lines say whether the boxes are wrong.",
     inputSchema: {
       type: "object",
       properties: {
@@ -166,6 +166,56 @@ const TOOLS = [
           { type: "image", data: png.toString("base64"), mimeType: "image/png" },
         ],
       };
+    },
+  },
+  {
+    name: "rave_measure",
+    description:
+      "Lay one route of a Rave document out at one width and say, in numbers, what is geometrically wrong: overflow, overlap, a node off the page. check is CSS and accessibility; this is boxes. Use it after a shot — or instead of staring at one. Ends MEASURE n findings, and is an error when n is not 0.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        route: { type: "string", description: "which route, e.g. /dashboard (default: the first)" },
+        width: { type: "number", description: "the viewport width, e.g. 390 or 1440" },
+        loggedOut: { type: "boolean" },
+      },
+      required: ["path"],
+    },
+    run: (a) => {
+      const args = ["measure", resolve(a.path)];
+      if (a.route) args.push("--route", a.route);
+      if (a.width) args.push("--width", String(a.width));
+      if (a.loggedOut) args.push("--logged-out");
+      const r = run(RAVE, args);
+      return reply(r.text, r.failed);
+    },
+  },
+  {
+    name: "rave_outline",
+    description:
+      "The laid-out tree of one route at one width, one line per node: its path, tag, class, text, and the properties it actually sets. Same addresses the measure findings speak in. A truncated outline says so — raise depth or pass at to go into one.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        route: { type: "string" },
+        width: { type: "number" },
+        depth: { type: "number", description: "how many levels (default 6)" },
+        at: { type: "string", description: "start at this path, e.g. 0/0/1" },
+        loggedOut: { type: "boolean" },
+      },
+      required: ["path"],
+    },
+    run: (a) => {
+      const args = ["outline", resolve(a.path)];
+      if (a.route) args.push("--route", a.route);
+      if (a.width) args.push("--width", String(a.width));
+      if (a.depth) args.push("--depth", String(a.depth));
+      if (a.at) args.push("--at", a.at);
+      if (a.loggedOut) args.push("--logged-out");
+      const r = run(RAVE, args);
+      return reply(r.text, r.failed);
     },
   },
   {

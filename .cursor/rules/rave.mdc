@@ -18,12 +18,16 @@ The `ranger-design` MCP server (declared in `.cursor/mcp.json`) has the tools:
 | `rave_spec` | the format in full. **Read it first**, once. |
 | `rave_new` | a new application — `start`: dashboard, crud, marketing, masterdetail, settings, empty |
 | `rave_read` / `rave_write` | the markup out and back. `rave_write` checks what it wrote |
-| `rave_check` | **the loop.** Parse errors with lines, every CSS declaration the engine refused, every accessibility problem, per route per width |
-| `rave_shot` | paint one route at one width and look at it |
+| `rave_check` | **the loop.** Parse errors with lines, every CSS declaration the engine refused, every accessibility problem, per route per width. Names the routes. |
+| `rave_shot` | paint one route at one width and look at it; includes the EVG measure of the same tree |
+| `rave_measure` | overflow, overlap, off the page — boxes, not pixels |
+| `rave_outline` | the laid-out tree, one line per node |
 | `figma_check` / `figma_markup` / `figma_tree` | a `.fig` file read as an application |
 
 The same thing from a terminal: `npm run rave -- check app.rave`,
-`npm run rave -- shot app.rave --width 390`, `npm run figma -- check app.fig`.
+`npm run rave -- shot app.rave --width 390`, `npm run rave -- measure app.rave --width 390`,
+`npm run figma -- check app.fig`. If `ranger-design` is not in the tool list,
+the CLI is the door.
 
 ## The rules that are not negotiable here
 

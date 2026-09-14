@@ -235,10 +235,12 @@ editor knows how to say about one, `rave` says without a browser.
 | | |
 | --- | --- |
 | `rave new <out.rave>` | the wizard's four questions as flags — `--start crud`, `--nav topbar`, `--no-auth`, `--targets "web tablet mobile"` |
-| `rave check <file>` | **the loop.** Parses, then builds every route at every width the project targets, and prints the parse errors with their line numbers, every declaration `EVGReject` refused, and every accessibility problem. Ends `RAVE OK` or `RAVE FAIL n`, and exits non-zero |
+| `rave check <file>` | **the loop.** Parses, then builds every route at every width the project targets, and prints the parse errors with their line numbers, every declaration `EVGReject` refused, and every accessibility problem — then the routes themselves, so a shot does not have to guess. Ends `RAVE OK` or `RAVE FAIL n`, and exits non-zero |
 | `rave serve <file.rave>` | the editor at `:8012` **bound to that file** — it loads it, follows it when something else writes it, and writes it back when someone presses Save |
 | `rave fmt` / `json` / `markup` | the same document, spelled the writer's way, as `app.rave.json`, or back |
-| `rave shot <file>` | one route at one width, as a PNG — `--route`, `--width`, `--out`, or `--all` for every route at every target width. No browser: the gallery's own software rasterizer paints the tree the layout kept |
+| `rave shot <file>` | one route at one width, as a PNG — `--route`, `--width`, `--out`, or `--all` for every route at every target width. No browser: the gallery's own software rasterizer paints the tree the layout kept. Prints a `MEASURE` of the same tree |
+| `rave measure <file>` | overflow, overlap, off the page, as the EVG agent reads the boxes. Exit non-zero when there is a finding |
+| `rave outline <file>` | the laid-out tree, one line per node, with the addresses measure speaks in |
 | `rave spec` | the format, exactly as the AI prompt states it |
 | `rave import <file.fig>` | a Figma file as an application; `rave text` prints one as markup |
 
@@ -250,6 +252,7 @@ $ rave check app.rave
   / @1440 rejected: unknown property: aspect-ratio: 16/9
   / @1440 rejected: unsupported length: width: calc(100% - 20px)
   / @1440 a11y: n3: focusable with no accessible name
+  /  Home
   Bad · 1 routes · 0 layouts · 1 pages · 1 widths
 RAVE FAIL 3
 ```
@@ -277,9 +280,9 @@ objected to once it was drawn.
 
 `gallery/rave/mcp/server.mjs` is one MCP server over both — `rave_spec`,
 `rave_new`, `rave_check`, `rave_read`, `rave_write`, `rave_shot`,
-`figma_check`, `figma_markup`, `figma_tree`. `rave_shot` answers with the
-picture itself, so the agent looks at what it made rather than reading about
-it. It has no dependencies: MCP over stdio is
+`rave_measure`, `rave_outline`, `figma_check`, `figma_markup`, `figma_tree`.
+`rave_shot` answers with the picture itself *and* the measure of the tree, so
+the agent looks at what it made rather than reading about it. It has no dependencies: MCP over stdio is
 newline-delimited JSON-RPC and four methods, and a server that is one file
 with no install step is one a person can point a host at without thinking
 about it.

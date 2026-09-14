@@ -16,6 +16,7 @@
 import { spawnSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,7 +26,18 @@ const CLI_JS = path.join(HERE, "bin", "rave_cli.js");
 const CLI_SRC = path.join(HERE, "src");
 const WEB = path.join(HERE, "web");
 
-const DOC_COMMANDS = new Set(["new", "check", "fmt", "json", "markup", "import", "text", "spec", "figcheck"]);
+const DOC_COMMANDS = new Set([
+  "new",
+  "check",
+  "fmt",
+  "json",
+  "markup",
+  "import",
+  "text",
+  "spec",
+  "figcheck",
+  "shotdata",
+]);
 
 function newestMtime(dir) {
   let newest = 0;
@@ -65,15 +77,19 @@ function runDocCommand(args) {
   return 0;
 }
 
-// --- shot -------------------------------------------------------------------
-// A route at a width, as a PNG, with no browser in it: the document CLI builds
-// and styles the route at that viewport and writes the EVG tree, and the
-// gallery's own software rasterizer paints it. The styling has to happen on
-// the Rave side, because a `@media` rule does not apply at all unless a
-// viewport was stated.
+// --- shot / measure / outline -----------------------------------------------
+// A route at a width, as an EVG tree: the document CLI builds and styles it
+// at that viewport. From that tree, three things:
+//   shot     the gallery's own software rasterizer paints a PNG
+//   measure  the EVG agent's boxes — overflow, overlap, off the page
+//   outline  one line per node, with the addresses measure talks in
+// The styling has to happen on the Rave side, because a `@media` rule does
+// not apply at all unless a viewport was stated.
 
 const PNG_TOOL = path.join(ROOT, "gallery", "pdf_writer", "bin", "evg_png_tool.js");
 const PNG_SRC = path.join(ROOT, "gallery", "pdf_writer", "src", "tools", "evg_png_tool.rgr");
+const AGENT_JS = path.join(ROOT, "gallery", "evg", "bin", "evg_agent.js");
+const AGENT_SRC = path.join(ROOT, "gallery", "evg", "agent", "evg_agent.rgr");
 
 function buildPngTool() {
   if (fs.existsSync(PNG_TOOL) && fs.statSync(PNG_TOOL).mtimeMs > fs.statSync(PNG_SRC).mtimeMs) return true;
@@ -86,68 +102,194 @@ function buildPngTool() {
   return fs.existsSync(PNG_TOOL);
 }
 
-function onePng(file, route, width, out, loggedOut) {
-  const tree = out.replace(/\.png$/i, "") + ".evg.json";
-  const args = ["shotdata", path.resolve(file), path.resolve(tree), "--route", route, "--width", String(width)];
+function buildAgent() {
+  if (fs.existsSync(AGENT_JS) && fs.statSync(AGENT_JS).mtimeMs > fs.statSync(AGENT_SRC).mtimeMs) return true;
+  process.stderr.write("rave: compiling the EVG agent…\n");
+  fs.mkdirSync(path.dirname(AGENT_JS), { recursive: true });
+  spawnSync(
+    process.execPath,
+    ["bin/output.js", "-es6", "./gallery/evg/agent/evg_agent.rgr", "-d=./gallery/evg/bin", "-o=evg_agent.js", "-nodecli"],
+    { cwd: ROOT, encoding: "utf8", env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" } },
+  );
+  return fs.existsSync(AGENT_JS);
+}
+
+function flagOf(rest, name, fallback) {
+  const at = rest.indexOf(name);
+  return at >= 0 && rest[at + 1] ? rest[at + 1] : fallback;
+}
+
+function parseMeasure(text) {
+  const start = String(text).indexOf("{");
+  const end = String(text).lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+function formatMeasure(data) {
+  const n = data && typeof data.count === "number" ? data.count : 0;
+  const lines = [`MEASURE ${n} finding${n === 1 ? "" : "s"}`];
+  for (const f of (data && data.findings) || []) lines.push("  " + f);
+  return lines.join("\n");
+}
+
+function runAgent(verb, tree, extra) {
+  if (!buildAgent()) return { ok: false, text: "rave: the EVG agent did not compile" };
+  const out = spawnSync(process.execPath, [AGENT_JS, verb, path.resolve(tree), ...extra], {
+    cwd: ROOT,
+    encoding: "utf8",
+  });
+  const text = ((out.stdout || "") + (out.stderr || "")).trim();
+  return { ok: (out.status ?? 0) === 0 && !/^rave:/.test(text), text };
+}
+
+function shotTree(file, route, width, loggedOut) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rave-tree-"));
+  const tree = path.join(dir, "tree.evg.json");
+  const args = ["shotdata", path.resolve(file), tree, "--route", route, "--width", String(width)];
   if (loggedOut) args.push("--logged-out");
   const made = spawnSync(process.execPath, [CLI_JS, ...args], { cwd: process.cwd(), encoding: "utf8" });
   const text = (made.stdout || "") + (made.stderr || "");
   const said = /^SHOT (\d+) (\d+) (.+)$/m.exec(text);
-  if (!said) return { ok: false, text };
+  if (!said || !fs.existsSync(tree)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    return { ok: false, text };
+  }
+  return {
+    ok: true,
+    tree,
+    dir,
+    width: said[1],
+    height: said[2],
+    route: said[3],
+    header: `${said[3]} at ${said[1]}×${said[2]}`,
+  };
+}
+
+function dropTree(built) {
+  if (built && built.dir) fs.rmSync(built.dir, { recursive: true, force: true });
+}
+
+function measureTree(built) {
+  const ran = runAgent("measure", built.tree, [`--width=${built.width}`, `--height=${built.height}`]);
+  const data = parseMeasure(ran.text);
+  return {
+    ok: ran.ok && !!data,
+    data,
+    text: data ? formatMeasure(data) : ran.text,
+    count: data ? data.count : 1,
+  };
+}
+
+function onePng(file, route, width, out, loggedOut) {
+  const built = shotTree(file, route, width, loggedOut);
+  if (!built.ok) return { ok: false, text: built.text };
   const painted = spawnSync(
     process.execPath,
-    [PNG_TOOL, path.resolve(tree), path.resolve(out), "-w", said[1], "-h", said[2]],
+    [PNG_TOOL, built.tree, path.resolve(out), "-w", built.width, "-h", built.height],
     { cwd: ROOT, encoding: "utf8" },
   );
-  fs.rmSync(tree, { force: true });
+  const measured = measureTree(built);
+  dropTree(built);
   const ok = fs.existsSync(path.resolve(out));
-  return { ok, text: ok ? `${out}  ${said[3]} at ${said[1]}×${said[2]}` : (painted.stdout || "") + (painted.stderr || "") };
+  const body = ok ? `${built.header}\n${measured.text}` : (painted.stdout || "") + (painted.stderr || "");
+  return { ok, text: body };
 }
 
 function routesAndWidths(file) {
-  const out = spawnSync(process.execPath, [CLI_JS, "check", path.resolve(file)], { cwd: process.cwd(), encoding: "utf8" });
-  const text = (out.stdout || "") + (out.stderr || "");
   const markup = spawnSync(process.execPath, [CLI_JS, "markup", path.resolve(file)], { cwd: process.cwd(), encoding: "utf8" });
-  const doc = (markup.stdout || "");
+  const doc = markup.stdout || "";
   const routes = [...doc.matchAll(/<route path="([^"]+)"/g)].map((m) => m[1]).filter((p) => !p.includes(":"));
   const targets = (/<app[^>]*targets="([^"]*)"/.exec(doc) || [, "web"])[1].split(/\s+/).filter(Boolean);
   const byTarget = { desktop: 1920, web: 1440, tablet: 768, mobile: 390 };
   const widths = targets.map((t) => byTarget[t]).filter(Boolean);
-  return { routes, widths: widths.length ? widths : [1440], text };
+  return { routes, widths: widths.length ? widths : [1440] };
 }
 
-function shot(file, rest) {
-  if (!buildPngTool()) {
-    process.stderr.write("rave: the rasterizer did not compile\n");
-    return 2;
-  }
-  const flag = (name, fallback) => {
-    const at = rest.indexOf(name);
-    return at >= 0 && rest[at + 1] ? rest[at + 1] : fallback;
-  };
+function eachShot(file, rest, fn) {
   const loggedOut = rest.includes("--logged-out");
+  const { routes, widths } = routesAndWidths(file);
   if (rest.includes("--all")) {
-    const dir = flag("--out", "shots");
-    fs.mkdirSync(dir, { recursive: true });
-    const { routes, widths } = routesAndWidths(file);
     let bad = 0;
     for (const route of routes) {
       for (const width of widths) {
-        const slug = (route === "/" ? "home" : route.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "")) + "-" + width;
-        const r = onePng(file, route, width, path.join(dir, slug + ".png"), loggedOut);
-        process.stdout.write((r.ok ? "" : "FAILED ") + r.text + "\n");
+        const r = fn(route, width, loggedOut, true);
         if (!r.ok) bad += 1;
       }
     }
     return bad === 0 ? 0 : 1;
   }
-  const { routes, widths } = routesAndWidths(file);
-  const route = flag("--route", routes[0] || "/");
-  const width = Number(flag("--width", widths[0] || 1440));
-  const out = flag("--out", "shot.png");
-  const r = onePng(file, route, width, out, loggedOut);
-  process.stdout.write(r.text + "\n");
+  const route = flagOf(rest, "--route", routes[0] || "/");
+  const width = Number(flagOf(rest, "--width", widths[0] || 1440));
+  const r = fn(route, width, loggedOut, false);
   return r.ok ? 0 : 1;
+}
+
+function shot(file, rest) {
+  if (!buildCli()) return 2;
+  if (!buildPngTool()) {
+    process.stderr.write("rave: the rasterizer did not compile\n");
+    return 2;
+  }
+  if (rest.includes("--all")) {
+    const dir = flagOf(rest, "--out", "shots");
+    fs.mkdirSync(dir, { recursive: true });
+    return eachShot(file, rest, (route, width, loggedOut) => {
+      const slug = (route === "/" ? "home" : route.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "")) + "-" + width;
+      const dest = path.join(dir, slug + ".png");
+      const r = onePng(file, route, width, dest, loggedOut);
+      process.stdout.write((r.ok ? "" : "FAILED ") + dest + "\n" + r.text + "\n");
+      return r;
+    });
+  }
+  const out = flagOf(rest, "--out", "shot.png");
+  return eachShot(file, rest, (route, width, loggedOut) => {
+    const r = onePng(file, route, width, out, loggedOut);
+    process.stdout.write(r.text + "\n");
+    return r;
+  });
+}
+
+function measure(file, rest) {
+  if (!buildCli()) return 2;
+  let findings = 0;
+  const code = eachShot(file, rest, (route, width, loggedOut) => {
+    const built = shotTree(file, route, width, loggedOut);
+    if (!built.ok) {
+      process.stdout.write(built.text + "\n");
+      return built;
+    }
+    const measured = measureTree(built);
+    dropTree(built);
+    process.stdout.write(`${built.header}\n${measured.text}\n`);
+    findings += measured.count;
+    return { ok: measured.ok };
+  });
+  if (code !== 0) return code;
+  return findings === 0 ? 0 : 1;
+}
+
+function outline(file, rest) {
+  if (!buildCli()) return 2;
+  const depth = flagOf(rest, "--depth", "6");
+  const at = flagOf(rest, "--at", "");
+  return eachShot(file, rest, (route, width, loggedOut) => {
+    const built = shotTree(file, route, width, loggedOut);
+    if (!built.ok) {
+      process.stdout.write(built.text + "\n");
+      return built;
+    }
+    const extra = [`--depth=${depth}`];
+    if (at) extra.push(`--at=${at}`);
+    const ran = runAgent("outline", built.tree, extra);
+    dropTree(built);
+    process.stdout.write(`${built.header}\n${ran.text}\n`);
+    return ran;
+  });
 }
 
 // --- serve ------------------------------------------------------------------
@@ -262,7 +404,12 @@ if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
       "  rave shot <file> [--route /x] [--width 1440] [--out shot.png]",
       "  rave shot <file> --all [--out shots/]",
       "                             a PNG of a route at a width, painted by the",
-      "                             gallery's own rasterizer — no browser",
+      "                             gallery's own rasterizer — no browser —",
+      "                             and the EVG measure of the same tree",
+      "  rave measure <file> [--route /x] [--width 1440] [--all]",
+      "                             overflow, overlap, off the page — boxes, not pixels",
+      "  rave outline <file> [--route /x] [--width 1440] [--depth 6] [--at PATH]",
+      "                             the laid-out tree, one line per node",
       "  rave serve <file.rave> [--port 8012]",
       "                             the editor, bound to that file: it loads it,",
       "                             follows it when it changes, and writes it on Save",
@@ -272,13 +419,31 @@ if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
   process.exit(0);
 }
 
+function fileArg(rest) {
+  return rest.find((a) => !a.startsWith("--") && !rest[rest.indexOf(a) - 1]?.startsWith("--"));
+}
+
 if (cmd === "shot") {
-  const file = rest.find((a) => !a.startsWith("--") && !rest[rest.indexOf(a) - 1]?.startsWith("--"));
+  const file = fileArg(rest);
   if (!file) {
     process.stderr.write("usage: rave shot <file> [--route /x] [--width 1440] [--out shot.png] [--all]\n");
     process.exit(2);
   }
   process.exit(shot(file, rest));
+} else if (cmd === "measure") {
+  const file = fileArg(rest);
+  if (!file) {
+    process.stderr.write("usage: rave measure <file> [--route /x] [--width 1440] [--all]\n");
+    process.exit(2);
+  }
+  process.exit(measure(file, rest));
+} else if (cmd === "outline") {
+  const file = fileArg(rest);
+  if (!file) {
+    process.stderr.write("usage: rave outline <file> [--route /x] [--width 1440] [--depth 6] [--at PATH]\n");
+    process.exit(2);
+  }
+  process.exit(outline(file, rest));
 } else if (cmd === "serve") {
   const file = rest.find((a) => !a.startsWith("--"));
   const portAt = rest.indexOf("--port");
