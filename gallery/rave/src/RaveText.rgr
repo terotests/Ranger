@@ -704,6 +704,14 @@ class RaveTextReader {
     def names:[string]
     def ids:[int]
     def routeTexts:[string]
+    def routeLines:[int]
+    ; What the answer turned out to be, which is not always what was asked
+    ; for: a whole document pasted while the menu is on one page, or one page
+    ; pasted while it is on the document. Both are worth saying plainly
+    ; instead of reporting as ten missing routes.
+    def sawRoute:boolean false
+    def sawLayout:boolean false
+    def pageCount:int 0
     ; the attributes of the tag just read
     def attrKeys:[string]
     def attrVals:[string]
@@ -740,6 +748,27 @@ class RaveTextReader {
 
     fn moreCount:int () {
         return more
+    }
+
+    ; An answer that is a whole application: it has routes, or a layout, or
+    ; more than one page. Asked of a fragment read, it means the person
+    ; pasted the document while the menu was on one page of it.
+    fn looksWhole:boolean () {
+        if sawRoute {
+            return true
+        }
+        if sawLayout {
+            return true
+        }
+        return (pageCount > 1)
+    }
+
+    ; And the other way: one page and no routes, pasted as a document.
+    fn looksLikeOnePage:boolean () {
+        if sawRoute {
+            return false
+        }
+        return (pageCount <= 1)
     }
 
     fn totalErrors:int () {
@@ -963,7 +992,7 @@ class RaveTextReader {
         }
     }
 
-    fn has:boolean (key:string) {
+    fn hasAttr:boolean (key:string) {
         def i:int 0
         while (i < (array_length attrKeys)) {
             if ((itemAt attrKeys i) == key) {
@@ -1063,10 +1092,10 @@ class RaveTextReader {
 
     ; `below="md"`, `from="md"` or `query="…"`, as the query the sheet wants.
     fn mediaOfAttrs:string () {
-        if (this.has("below")) {
+        if (this.hasAttr("below")) {
             return (app.below((this.get("below"))))
         }
-        if (this.has("from")) {
+        if (this.hasAttr("from")) {
             return (app.from((this.get("from"))))
         }
         return (this.get("query"))
@@ -1277,7 +1306,7 @@ class RaveTextReader {
             i = (i + 1)
         }
         if isLayout {
-            if (this.has("inside")) {
+            if (this.hasAttr("inside")) {
                 push pendingChild name
                 push pendingParent (this.get("inside"))
             }
@@ -1290,7 +1319,7 @@ class RaveTextReader {
         def title:string (this.get("title"))
         def pageId:int (RaveTextReader.idNamed(names ids (this.get("page"))))
         def layoutId:int 0
-        if (this.has("layout")) {
+        if (this.hasAttr("layout")) {
             layoutId = (RaveTextReader.idNamed(names ids (this.get("layout"))))
             if (layoutId == 0) {
                 this.fail(text ("no layout called " + (this.get("layout"))))
@@ -1301,7 +1330,7 @@ class RaveTextReader {
             return
         }
         def r (new RaveRoute(path title pageId layoutId))
-        r.protected = (this.has("protected"))
+        r.protected = (this.hasAttr("protected"))
         push app.routes r
     }
 
@@ -1319,12 +1348,12 @@ class RaveTextReader {
     ; A page or a node on its own, the way the AI menu asks for one back.
     fn readFragment:RaveApp (text:string) {
         fragment = true
-        def out:RaveApp (this.read(text))
+        def out:RaveApp (this.readDoc(text))
         fragment = false
         return out
     }
 
-    fn read:RaveApp (text:string) {
+    fn readDoc:RaveApp (text:string) {
         app = (new RaveApp("Untitled"))
         clear errors
         clear openTags
@@ -1334,6 +1363,10 @@ class RaveTextReader {
         clear names
         clear ids
         clear routeTexts
+        clear routeLines
+        sawRoute = false
+        sawLayout = false
+        pageCount = 0
         src = text
         pos = 0
         lineNo = 1
@@ -1421,16 +1454,16 @@ class RaveTextReader {
                                     }
                                     ti = (ti + 1)
                                 }
-                                if (this.has("nav")) {
+                                if (this.hasAttr("nav")) {
                                     app.nav = (this.get("nav"))
                                 }
-                                if (this.has("auth")) {
+                                if (this.hasAttr("auth")) {
                                     app.authEnabled = ((this.get("auth")) != "off")
                                 }
-                                if (this.has("login")) {
+                                if (this.hasAttr("login")) {
                                     app.loginRoute = (this.get("login"))
                                 }
-                                if (this.has("after")) {
+                                if (this.hasAttr("after")) {
                                     app.afterLogin = (this.get("after"))
                                 }
                                 continue
@@ -1500,10 +1533,17 @@ class RaveTextReader {
                                 continue
                             }
                             if (tag == "route") {
+                                sawRoute = true
                                 push routeTexts (this.routeText())
+                                push routeLines where
                                 continue
                             }
                             if ((tag == "page") || (tag == "layout")) {
+                                if (tag == "layout") {
+                                    sawLayout = true
+                                } {
+                                    pageCount = (pageCount + 1)
+                                }
                                 if fragment {
                                     ; the answer brought its own page or layout
                                     ; tag: fill the holder from it instead of
@@ -1591,6 +1631,7 @@ class RaveTextReader {
         ; and the routes, once every page and layout has a name to find
         def rl:int 0
         while (rl < (array_length routeTexts)) {
+            lineNo = (itemAt routeLines rl)
             this.replayRoute((itemAt routeTexts rl))
             rl = (rl + 1)
         }

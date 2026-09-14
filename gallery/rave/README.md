@@ -285,14 +285,25 @@ A page or node answer may bring `<style class="…">` and `<var/>` with it;
 they are merged into the document, because a node naming a class nothing
 defines draws as nothing.
 
+**The scope has to match the answer, and the editor says when it does not.**
+A whole document pasted while `About` is on *This page* used to come back as
+one complaint per route about pages that were never made — ten sentences for
+a mistake that is one. Now it is one sentence, and the radio is moved to
+where the answer belongs, so pasting again lands it. The same the other way:
+one `<page>` pasted as a document.
+
 **An answer is taken whole or not at all.** One element the reader cannot
 make sense of and nothing is applied. The sheet says how many lines could not
 be read and shows the first four with the line each was on — an answer that
 is wrong is usually wrong the same way on every line, and two hundred copies
 of one mistake is a wall, not a report.
 
-`npm run rave:import spec` prints the format on its own, and
-`npm run rave:import text <file.fig>` prints an imported Figma file in it —
+`npm run rave:import spec` prints the format on its own,
+`npm run rave:import read <file.rave>` takes markup back through the same
+reader the sheet uses and says what it made of it — errors with line numbers,
+the routes, the rejections and the lint — and `read` has a `readpage` twin for
+the fragment door. `npm run rave:import text <file.fig>` prints an imported
+Figma file in the format —
 which is also the shortest way to see what the two halves of this README have
 to do with each other.
 

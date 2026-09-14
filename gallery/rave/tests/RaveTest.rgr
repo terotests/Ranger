@@ -490,7 +490,7 @@ class RaveTest {
         c.ok("no ids anywhere in it" ((RaveTest.includes(text "\"id\":")) == false))
 
         def reader (new RaveTextReader())
-        def again:RaveApp (reader.read(text))
+        def again:RaveApp (reader.readDoc(text))
         c.eqInt("it reads back with nothing to complain about" (reader.errorCount()) 0)
         if ((reader.errorCount()) > 0) {
             def e:int 0
@@ -544,7 +544,7 @@ class RaveTest {
         hand = (hand + "<route path=\"/\" title=\"Home\" page=\"Home\" layout=\"Shell\"/>\n")
         hand = (hand + "<route path=\"/second\" title=\"Second\" page=\"Second\" layout=\"Shell\"/>\n")
         def r2 (new RaveTextReader())
-        def tiny:RaveApp (r2.read(hand))
+        def tiny:RaveApp (r2.readDoc(hand))
         c.eqInt("a hand-written document parses" (r2.errorCount()) 0)
         if ((r2.errorCount()) > 0) {
             def e2:int 0
@@ -574,7 +574,7 @@ class RaveTest {
         ; --- indentation is not the tree any more --------------------------------
         def flat:string "<app name=\"Flat\"/><page name=\"Home\"><div style=\"gap: 8px\"><h1>One</h1><p>Two</p></div></page><route path=\"/\" title=\"Home\" page=\"Home\"/>"
         def r4 (new RaveTextReader())
-        def flatApp:RaveApp (r4.read(flat))
+        def flatApp:RaveApp (r4.readDoc(flat))
         c.eqInt("markup on one line reads the same" (r4.errorCount()) 0)
         def flatPage:RaveNode (RaveTest.pageOfRoute(flatApp "/"))
         c.eqInt("…one child on the page" (array_length flatPage.children) 1)
@@ -584,7 +584,7 @@ class RaveTest {
         ; --- something that is wrong says which line ------------------------------
         def bad:string "<app name=\"Broken\"/>\n<page name=\"Home\">\n  <widget>nope</widget>\n  <h1>Fine</h1>\n</page>\n<route path=\"/\" title=\"Home\" page=\"Home\"/>\n"
         def r3 (new RaveTextReader())
-        def broken:RaveApp (r3.read(bad))
+        def broken:RaveApp (r3.readDoc(bad))
         c.eqInt("an element the markup does not have is one error" (r3.errorCount()) 1)
         c.ok("…naming the line it was on" (RaveTest.includes((r3.errorAt(0)) "line 3")))
         c.ok("…and the rest of the document still read" ((array_length broken.routes) == 1))
@@ -597,7 +597,7 @@ class RaveTest {
             pi = (pi + 1)
         }
         def r5 (new RaveTextReader())
-        def none:RaveApp (r5.read(("<app name=\"X\"/><page name=\"Home\">" + prose + "</page>")))
+        def none:RaveApp (r5.readDoc(("<app name=\"X\"/><page name=\"Home\">" + prose + "</page>")))
         c.eqInt("forty bad lines keep six" (r5.errorCount()) 6)
         c.eqInt("…and count the rest" (r5.moreCount()) 34)
         c.eqInt("…forty in total" (r5.totalErrors()) 40)
@@ -694,6 +694,22 @@ class RaveTest {
         c.ok("…which the sheet shows" (RaveTest.includes((ed.displayListJson()) "line 4")))
         def doc4:RaveApp ed.doc
         c.ok("…and the document is untouched" ((doc4.hasNode(cards))))
+
+        ; --- a whole document pasted into one page ---------------------------------
+        ed.press("ai:open")
+        ed.press("ai:scope:page")
+        def wholeIntoPage:string "<app name=\"Whole\"/>\n<layout name=\"Shell\"><main><slot/></main></layout>\n<page name=\"One\"><h1>One</h1></page>\n<route path=\"/\" title=\"One\" page=\"One\" layout=\"Shell\"/>\n"
+        c.ok("a document pasted into a page is refused" ((ed.applyAiText(wholeIntoPage)) == false))
+        c.eqInt("…with one sentence, not ten missing routes" (ed.aiErrorCount()) 1)
+        c.ok("…which says what happened" (RaveTest.includes((ed.aiErrorAt(0)) "whole document")))
+        c.ok("…and the menu is now where the answer belongs" (RaveTest.includes((ed.displayListJson()) "The whole document")))
+
+        ; --- and one page pasted as a document ---------------------------------------
+        ed.press("ai:scope:document")
+        def pageIntoWhole:string "<page name=\"Just one\"><h1>Only this</h1></page>\n"
+        c.ok("a page pasted as a document is refused" ((ed.applyAiText(pageIntoWhole)) == false))
+        c.eqInt("…with one sentence too" (ed.aiErrorCount()) 1)
+        c.ok("…which says that" (RaveTest.includes((ed.aiErrorAt(0)) "one page")))
 
         ; the whole document, replaced
         def whole:string "<app name=\"Swap\"/>\n<breakpoint name=\"md\" min=\"768\"/>\n"

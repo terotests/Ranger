@@ -55,6 +55,62 @@ class RaveImportCli {
             print (RaveText.spec())
             return
         }
+        ; `read` and `readpage` take markup back the way the AI menu does, and
+        ; say what the reader made of it. The same two doors, on a file.
+        if ((first == "read") || (first == "readpage")) {
+            if (n < 2) {
+                print "usage: rave_import_cli read|readpage <file.rave>"
+                return
+            }
+            def mpath:string (shell_arg 1)
+            def markup@(optional):string (read_file (RaveImportCli.dirOf(mpath)) (RaveImportCli.nameOf(mpath)))
+            if (null? markup) {
+                print ("cannot read " + mpath)
+                return
+            }
+            def reader (new RaveTextReader())
+            def got:RaveApp (new RaveApp(""))
+            if (first == "readpage") {
+                got = (reader.readFragment((unwrap markup)))
+            } {
+                got = (reader.readDoc((unwrap markup)))
+            }
+            if (first == "readpage") {
+                if (reader.looksWhole()) {
+                    print "this is a whole document, not one page — read it with `read`"
+                }
+            }
+            print ("errors " + (to_string (reader.totalErrors())))
+            def ei:int 0
+            while (ei < (reader.errorCount())) {
+                print ("  " + (reader.errorAt(ei)))
+                ei = (ei + 1)
+            }
+            print ("name " + got.name + " · routes " + (to_string (array_length got.routes))
+                + " · layouts " + (to_string (array_length got.layouts))
+                + " · pages " + (to_string (array_length got.pages))
+                + " · styles " + (to_string (array_length got.styles)))
+            def ri:int 0
+            while (ri < (array_length got.routes)) {
+                def rr:RaveRoute (itemAt got.routes ri)
+                print ("  " + rr.path + "  " + rr.title)
+                ri = (ri + 1)
+            }
+            if ((array_length got.routes) > 0) {
+                def rtc (new RaveRuntime(got))
+                print ("stylesheet errors " + (to_string (rtc.styleErrorCount())))
+                rtc.addView("wide" 1440.0 900.0 false)
+                def warn:int (rtc.layoutWarningCount(0))
+                def problems:[string] (rtc.lint(0))
+                print ("rejected " + (to_string warn) + " · a11y " + (to_string (array_length problems)))
+                def wi:int 0
+                while (wi < warn) {
+                    print ("  rejected: " + (rtc.layoutWarning(0 wi)))
+                    wi = (wi + 1)
+                }
+            }
+            return
+        }
         def asText:boolean false
         def at:int 0
         if (first == "text") {
