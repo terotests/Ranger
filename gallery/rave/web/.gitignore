@@ -1,0 +1,4 @@
+# Written by build.mjs from the compiled app and the stylesheet beside it.
+generated-host.js
+generated.js
+evg/

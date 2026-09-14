@@ -1,0 +1,615 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RaveRuntime — one document, N views, running
+; =============================================================================
+; What makes `Run` work, and what the exported app is. It is headless: it
+; answers a display list, an accessibility tree, a hit test, a press and a
+; key, the same seams `gallery/ui/demo` and Rafi have, so the whole thing is
+; checked in Node and a browser only adds pixels.
+;
+; A view is a viewport — a width, a height, whether the pointer is coarse —
+; and every view is the SAME route built again from the same document and
+; laid out at its own size. That is "one page, many viewports" done
+; literally: there is one description and N laid-out instances, and a
+; `Navigate` moves all of them at once.
+;
+; THE VIEWS SHARE ONE SCENE. Each view's page is a fixed-size box placed
+; side by side in one scene tree, laid out once, so the editor can draw them
+; all with one camera (`sceneListJson`) and hit-test them in one coordinate
+; space. A single-view host — the exported app — has a scene of one page at
+; the origin, which is the page.
+; =============================================================================
+
+Import "RaveDoc.rgr"
+Import "RaveAuth.rgr"
+Import "RaveRouter.rgr"
+Import "RaveBuild.rgr"
+Import "RaveCss.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGFocus.rgr"
+
+class RaveView {
+    def name:string ""
+    def width:double 1440.0
+    def height:double 900.0
+    def coarse:boolean false
+    ; Where this view's page sits in the scene.
+    def offsetX:double 0.0
+    def offsetY:double 0.0
+    ; The page wrapper, sized in pixels, holding the built route.
+    def page@(optional):EVGElement
+    def focus:EVGFocus (new EVGFocus())
+    def hovered:string ""
+    def pressed:string ""
+
+    Constructor (n:string w:double h:double c:boolean) {
+        name = n
+        width = w
+        height = h
+        coarse = c
+    }
+}
+
+class RaveRuntime {
+    def app:RaveApp (new RaveApp(""))
+    def auth:RaveAuth (new RaveAuth())
+    def router@(optional):RaveRouter
+    def sheet:EVGStyleSheet (new EVGStyleSheet())
+    def theme:string ""
+    def views:[RaveView]
+    def dirty:boolean true
+    def generation:int 0
+    def css:string ""
+    ; The scene: every view's page, side by side, in one tree.
+    def scene@(optional):EVGElement
+    def layout:EVGLayout (new EVGLayout())
+    def gap:double 80.0
+    def sceneW:double 0.0
+    def sceneH:double 0.0
+
+    Constructor (a:RaveApp) {
+        app = a
+        def r (new RaveRouter(a auth))
+        router = r
+        this.reloadStyles()
+    }
+
+    ; The stylesheet is rebuilt from the document whenever the document's
+    ; rules change; the editor calls this after every style edit.
+    fn reloadStyles:void () {
+        css = (RaveCss.emit(app))
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+        dirty = true
+    }
+
+    ; The tree changed: build again on the next question.
+    fn invalidate:void () {
+        dirty = true
+    }
+
+    fn styleErrorCount:int () {
+        return (sheet.getErrorCount())
+    }
+
+    fn styleError:string (i:int) {
+        return (sheet.getError(i))
+    }
+
+    fn setTheme:void (name:string) {
+        theme = name
+        dirty = true
+    }
+
+    ; --- views ----------------------------------------------------------------
+
+    fn addView:int (name:string w:double h:double coarse:boolean) {
+        push views (new RaveView(name w h coarse))
+        this.placeViews()
+        dirty = true
+        return ((array_length views) - 1)
+    }
+
+    fn viewCount:int () {
+        return (array_length views)
+    }
+
+    fn resizeView:void (i:int w:double h:double) {
+        def v:RaveView (itemAt views i)
+        v.width = w
+        v.height = h
+        this.placeViews()
+        dirty = true
+    }
+
+    fn view:RaveView (i:int) {
+        def v:RaveView (itemAt views i)
+        return v
+    }
+
+    ; Left to right, a gap between, the tallest sets the scene's height.
+    fn placeViews:void () {
+        def x:double 0.0
+        def h:double 0.0
+        def i:int 0
+        while (i < (array_length views)) {
+            def v:RaveView (itemAt views i)
+            v.offsetX = x
+            v.offsetY = 0.0
+            x = (x + v.width + gap)
+            if (v.height > h) {
+                h = v.height
+            }
+            i = (i + 1)
+        }
+        sceneW = (x - gap)
+        if (sceneW < 1.0) {
+            sceneW = 1.0
+        }
+        sceneH = h
+        if (sceneH < 1.0) {
+            sceneH = 1.0
+        }
+    }
+
+    ; The view a scene point is in, or -1.
+    fn viewAt:int (sx:double sy:double) {
+        def i:int 0
+        while (i < (array_length views)) {
+            def v:RaveView (itemAt views i)
+            if ((sx >= v.offsetX) && (sx <= (v.offsetX + v.width))) {
+                if ((sy >= v.offsetY) && (sy <= (v.offsetY + v.height))) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; --- the session ----------------------------------------------------------
+
+    fn path:string () {
+        def r:RaveRouter (unwrap router)
+        return r.path
+    }
+
+    fn navigate:boolean (to:string) {
+        def r:RaveRouter (unwrap router)
+        def moved:boolean (r.navigate(to))
+        if moved {
+            dirty = true
+        }
+        return moved
+    }
+
+    ; The editor's way there: any route, guard or no guard, because a
+    ; designer looks at a protected page without signing in.
+    fn jump:boolean (to:string) {
+        def r:RaveRouter (unwrap router)
+        if ((app.hasRoute(to)) == false) {
+            return false
+        }
+        if (r.path == to) {
+            return false
+        }
+        r.path = to
+        dirty = true
+        return true
+    }
+
+    fn back:boolean () {
+        def r:RaveRouter (unwrap router)
+        def moved:boolean (r.back())
+        if moved {
+            dirty = true
+        }
+        return moved
+    }
+
+    fn setLoggedIn:boolean (on:boolean) {
+        if (on == auth.loggedIn) {
+            return false
+        }
+        def r:RaveRouter (unwrap router)
+        if on {
+            auth.login()
+        } {
+            auth.logout()
+            r.afterLogout()
+        }
+        dirty = true
+        return true
+    }
+
+    ; --- building -------------------------------------------------------------
+
+    fn markStates:void (el:EVGElement v:RaveView) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == v.hovered) {
+                el.isHovered = true
+            }
+            if (el.id == v.pressed) {
+                el.isPressed = true
+            }
+            if (el.id == v.focus.focusId) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.markStates((el.getChild(i)) v)
+            i = (i + 1)
+        }
+    }
+
+    fn buildView:EVGElement (v:RaveView) {
+        def r:RaveRouter (unwrap router)
+        def route:RaveRoute (r.current())
+        def b (new RaveBuild(app auth))
+        def root:EVGElement (b.page(route))
+        def page:EVGElement (EVGElement.createDiv())
+        page.id = ("page-" + v.name)
+        page.setAttribute("position" "absolute")
+        page.setAttribute("left" ((to_string v.offsetX) + "px"))
+        page.setAttribute("top" ((to_string v.offsetY) + "px"))
+        page.width = (EVGUnit.px(v.width))
+        page.height = (EVGUnit.px(v.height))
+        page.setAttribute("overflow" "hidden")
+        page.addChild(root)
+        this.markStates(page v)
+        sheet.applyTreeIn(root theme v.width v.height v.coarse)
+        return page
+    }
+
+    fn rebuild:void () {
+        this.placeViews()
+        def sc:EVGElement (EVGElement.createDiv())
+        sc.id = "scene"
+        sc.width = (EVGUnit.px(sceneW))
+        sc.height = (EVGUnit.px(sceneH))
+        sc.setAttribute("position" "relative")
+        def i:int 0
+        while (i < (array_length views)) {
+            def v:RaveView (itemAt views i)
+            def page:EVGElement (this.buildView(v))
+            sc.addChild(page)
+            v.page = page
+            i = (i + 1)
+        }
+        layout.setPageSize(sceneW sceneH)
+        layout.layout(sc)
+        scene = sc
+        def j:int 0
+        while (j < (array_length views)) {
+            def v2:RaveView (itemAt views j)
+            def p2:EVGElement (unwrap v2.page)
+            v2.focus.settle(p2)
+            j = (j + 1)
+        }
+        generation = (generation + 1)
+        dirty = false
+    }
+
+    fn ensure:void () {
+        if dirty {
+            this.rebuild()
+        }
+    }
+
+    fn pageOf:EVGElement (i:int) {
+        this.ensure()
+        def v:RaveView (itemAt views i)
+        return (unwrap v.page)
+    }
+
+    fn sceneRoot:EVGElement () {
+        this.ensure()
+        return (unwrap scene)
+    }
+
+    ; --- what a host asks ---------------------------------------------------------
+
+    ; One view, alone, in its own coordinates: the exported app's frame.
+    fn displayListJson:string (i:int) {
+        def page:EVGElement (this.pageOf(i))
+        def v:RaveView (itemAt views i)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((layout.getTextEngine()))
+        dl.setView((0.0 - v.offsetX) (0.0 - v.offsetY) 1.0)
+        dl.build(page)
+        def body:string (dl.toJson())
+        return ("{\"width\":" + (to_string (to_int v.width)) + ",\"height\":" + (to_string (to_int v.height)) + ",\"list\":" + body + "}")
+    }
+
+    ; Every view, through a camera: scene coordinates times `zoom` plus the
+    ; pan land on a page `w` by `h`. The editor's stage.
+    fn sceneListJson:string (w:double h:double panX:double panY:double zoom:double) {
+        def sc:EVGElement (this.sceneRoot())
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((layout.getTextEngine()))
+        dl.setView(panX panY zoom)
+        dl.build(sc)
+        def body:string (dl.toJson())
+        return ("{\"width\":" + (to_string (to_int w)) + ",\"height\":" + (to_string (to_int h)) + ",\"list\":" + body + "}")
+    }
+
+    fn a11yTree:EVGA11yTree (i:int) {
+        def page:EVGElement (this.pageOf(i))
+        def v:RaveView (itemAt views i)
+        def b (new EVGA11yFromTree())
+        return (b.build(page app.name generation v.focus.focusId))
+    }
+
+    fn a11yJson:string (i:int) {
+        def t:EVGA11yTree (this.a11yTree(i))
+        return (t.toJson())
+    }
+
+    fn lint:[string] (i:int) {
+        def t:EVGA11yTree (this.a11yTree(i))
+        return (t.lint())
+    }
+
+    fn lintCount:int (i:int) {
+        def problems:[string] (this.lint(i))
+        return (array_length problems)
+    }
+
+    fn layoutWarningCount:int (i:int) {
+        this.ensure()
+        return (layout.warningCount())
+    }
+
+    fn layoutWarning:string (i:int j:int) {
+        this.ensure()
+        return (layout.warningAt(j))
+    }
+
+    ; Scene coordinates, any view.
+    fn hitId:string (i:int px:double py:double) {
+        def page:EVGElement (this.pageOf(i))
+        def hit (new EVGHitTest())
+        return (hit.idAt(page px py))
+    }
+
+    fn sceneHit:string (sx:double sy:double) {
+        def sc:EVGElement (this.sceneRoot())
+        def hit (new EVGHitTest())
+        return (hit.idAt(sc sx sy))
+    }
+
+    fn hover:boolean (i:int px:double py:double) {
+        def id:string (this.hitId(i px py))
+        def v:RaveView (itemAt views i)
+        if (id == v.hovered) {
+            return false
+        }
+        v.hovered = id
+        dirty = true
+        return true
+    }
+
+    fn pointerDown:boolean (i:int px:double py:double) {
+        def id:string (this.hitId(i px py))
+        def v:RaveView (itemAt views i)
+        def page:EVGElement (this.pageOf(i))
+        ; A press on something focusable moves the focus there so the keys
+        ; carry on from it; the ring is not drawn, as after any pointer.
+        v.focus.pointAt(page id)
+        if ((strlen id) == 0) {
+            return false
+        }
+        return (this.press(id))
+    }
+
+    ; A press at a scene point, in whichever view holds it.
+    fn pressAtScene:boolean (sx:double sy:double) {
+        this.ensure()
+        def i:int (this.viewAt(sx sy))
+        if (i < 0) {
+            return false
+        }
+        return (this.pointerDown(i sx sy))
+    }
+
+    ; --- actions ----------------------------------------------------------------
+
+    ; The element under the id, if it is a node of ours, runs its click
+    ; actions. Answers whether anything changed.
+    fn press:boolean (id:string) {
+        def nid:int (RaveApp.idOfElement(id))
+        if (nid == 0) {
+            return false
+        }
+        if ((app.hasNode(nid)) == false) {
+            return false
+        }
+        def n:RaveNode (app.node(nid))
+        def changed:boolean false
+        def i:int 0
+        while (i < (array_length n.actions)) {
+            def a:RaveAction (itemAt n.actions i)
+            if (a.on == "click") {
+                def did:boolean (this.run(a))
+                if did {
+                    changed = true
+                }
+            }
+            i = (i + 1)
+        }
+        if changed {
+            dirty = true
+        }
+        return changed
+    }
+
+    fn run:boolean (a:RaveAction) {
+        def r:RaveRouter (unwrap router)
+        if (a.kind == "navigate") {
+            return (r.navigate(a.arg))
+        }
+        if (a.kind == "back") {
+            return (r.back())
+        }
+        if (a.kind == "login") {
+            auth.login()
+            r.afterLogin()
+            return true
+        }
+        if (a.kind == "logout") {
+            auth.logout()
+            r.afterLogout()
+            return true
+        }
+        return false
+    }
+
+    ; --- keyboard -----------------------------------------------------------------
+
+    fn focusedId:string (i:int) {
+        def v:RaveView (itemAt views i)
+        return v.focus.focusId
+    }
+
+    fn keyWith:boolean (i:int k:string shift:boolean ctrl:boolean) {
+        def page:EVGElement (this.pageOf(i))
+        def v:RaveView (itemAt views i)
+        if ((k == "Enter") || (k == " ")) {
+            def on:string v.focus.focusId
+            if ((strlen on) == 0) {
+                return false
+            }
+            def did:boolean (this.press(on))
+            v.focus.show()
+            return did
+        }
+        def to:string (v.focus.key(page k shift))
+        if ((strlen to) == 0) {
+            return false
+        }
+        dirty = true
+        return true
+    }
+
+    fn key:boolean (i:int k:string) {
+        return (this.keyWith(i k false false))
+    }
+
+    ; --- reading the laid-out tree, for tests and the editor ------------------------
+
+    fn findEl@(optional):EVGElement (el:EVGElement id:string) {
+        if (el.id == id) {
+            def found@(optional):EVGElement el
+            return found
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def kid@(optional):EVGElement (this.findEl((el.getChild(i)) id))
+            if kid {
+                return kid
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):EVGElement
+        return miss
+    }
+
+    fn hasEl:boolean (i:int id:string) {
+        def page:EVGElement (this.pageOf(i))
+        def found@(optional):EVGElement (this.findEl(page id))
+        if found {
+            return true
+        }
+        return false
+    }
+
+    ; Whether the element is in the tree AND takes space: a bar the stylesheet
+    ; folded away at a breakpoint is in the tree with no box.
+    fn isShown:boolean (i:int id:string) {
+        def page:EVGElement (this.pageOf(i))
+        def found@(optional):EVGElement (this.findEl(page id))
+        if found {
+            def e:EVGElement (unwrap found)
+            if (e.isHidden()) {
+                return false
+            }
+            return (e.calculatedWidth > 0.0)
+        }
+        return false
+    }
+
+    ; The box of an element in one view, in SCENE coordinates.
+    fn boxOf:string (i:int id:string) {
+        def page:EVGElement (this.pageOf(i))
+        def found@(optional):EVGElement (this.findEl(page id))
+        if found {
+            def e:EVGElement (unwrap found)
+            return ("[" + (to_string (to_int e.calculatedX)) + "," + (to_string (to_int e.calculatedY)) + "," + (to_string (to_int e.calculatedWidth)) + "," + (to_string (to_int e.calculatedHeight)) + "]")
+        }
+        return "[]"
+    }
+
+    fn widthOf:double (i:int id:string) {
+        def page:EVGElement (this.pageOf(i))
+        def found@(optional):EVGElement (this.findEl(page id))
+        if found {
+            def e:EVGElement (unwrap found)
+            return e.calculatedWidth
+        }
+        return 0.0
+    }
+
+    fn heightOf:double (i:int id:string) {
+        def page:EVGElement (this.pageOf(i))
+        def found@(optional):EVGElement (this.findEl(page id))
+        if found {
+            def e:EVGElement (unwrap found)
+            return e.calculatedHeight
+        }
+        return 0.0
+    }
+
+    fn topOf:double (i:int id:string) {
+        def page:EVGElement (this.pageOf(i))
+        def found@(optional):EVGElement (this.findEl(page id))
+        if found {
+            def e:EVGElement (unwrap found)
+            return e.calculatedY
+        }
+        return 0.0
+    }
+
+    fn leftOf:double (i:int id:string) {
+        def page:EVGElement (this.pageOf(i))
+        def found@(optional):EVGElement (this.findEl(page id))
+        if found {
+            def e:EVGElement (unwrap found)
+            return e.calculatedX
+        }
+        return 0.0
+    }
+
+    ; The same, relative to the view's own corner.
+    fn localLeftOf:double (i:int id:string) {
+        def v:RaveView (itemAt views i)
+        return ((this.leftOf(i id)) - v.offsetX)
+    }
+
+    fn localTopOf:double (i:int id:string) {
+        def v:RaveView (itemAt views i)
+        return ((this.topOf(i id)) - v.offsetY)
+    }
+}

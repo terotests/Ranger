@@ -1,0 +1,1033 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RaveDoc — what a Rave document is
+; =============================================================================
+; Not a picture of an application: the application's structure.
+;
+;   App → Routes → Pages → Layouts → Components → Elements
+;
+; A node is a semantic element (header, nav, main, button, input, h1 …) with
+; a stable id, and its style is a set of CLASS RULES on `n<id>` — one per
+; breakpoint condition — because an EVG stylesheet knows class selectors and
+; nothing else. That is a feature here: what the inspector shows is exactly
+; what the engine reads. Actions are data on the node (`click → Navigate
+; /settings`), and the navigation graph is derived from them, never drawn.
+;
+; Auth is a document concept: a route is `protected`, a node is rendered only
+; when `authenticated` or `unauthenticated`, and `Login` / `Logout` are
+; actions. Nothing here is a login page anyone drew.
+; =============================================================================
+
+Import "RaveJson.rgr"
+
+class RaveDecl {
+    def name:string ""
+    def value:string ""
+
+    Constructor (n:string v:string) {
+        name = n
+        value = v
+    }
+}
+
+; One class rule under one condition. `media` is "" for the base rule and a
+; media query body — "(max-width: 767px)" — for a breakpoint override.
+class RaveRule {
+    def cls:string ""
+    def media:string ""
+    def decls:[RaveDecl]
+
+    Constructor (c:string m:string) {
+        cls = c
+        media = m
+    }
+
+    fn set:void (name:string value:string) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:RaveDecl (itemAt decls i)
+            if (d.name == name) {
+                d.value = value
+                return
+            }
+            i = (i + 1)
+        }
+        push decls (new RaveDecl(name value))
+    }
+
+    fn get:string (name:string) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:RaveDecl (itemAt decls i)
+            if (d.name == name) {
+                return d.value
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn remove:void (name:string) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:RaveDecl (itemAt decls i)
+            if (d.name == name) {
+                remove_index decls i
+                return
+            }
+            i = (i + 1)
+        }
+    }
+}
+
+; What a node does when it is used. `on` is the event — "click" for now —
+; and `kind` one of: navigate, back, login, logout, open, close, toggle.
+class RaveAction {
+    def on:string "click"
+    def kind:string ""
+    def arg:string ""
+
+    Constructor (k:string a:string) {
+        kind = k
+        arg = a
+    }
+}
+
+class RaveNode {
+    def id:int 0
+    ; element | slot | conditional | instance
+    def kind:string "element"
+    ; The semantic tag: div header nav main aside section footer h1 h2 h3 h4
+    ; p span button a img form label input ul li. The tag chooses the default
+    ; accessibility role and the default keyboard behaviour, as in HTML.
+    def tag:string "div"
+    ; The layer name a person reads.
+    def name:string ""
+    ; Shared style classes beyond the node's own `n<id>`.
+    def classes:[string]
+    def text:string ""
+    def src:string ""
+    def alt:string ""
+    ; The accessible name when the content does not give one — an input's
+    ; label, a landmark's title.
+    def label:string ""
+    def placeholder:string ""
+    ; authenticated | unauthenticated, for kind == conditional
+    def condition:string ""
+    ; for kind == instance
+    def component:string ""
+    def variant:string ""
+    def actions:[RaveAction]
+    def children:[RaveNode]
+
+    Constructor (nid:int t:string n:string) {
+        id = nid
+        tag = t
+        name = n
+    }
+
+    fn cls:string () {
+        return ("n" + (to_string id))
+    }
+
+    fn elementId:string () {
+        return ("n" + (to_string id))
+    }
+
+    fn add:RaveNode (child:RaveNode) {
+        push children child
+        return child
+    }
+
+    fn addClass:void (c:string) {
+        push classes c
+    }
+
+    fn on:void (kind:string arg:string) {
+        push actions (new RaveAction(kind arg))
+    }
+
+    fn hasChildren:boolean () {
+        return ((array_length children) > 0)
+    }
+}
+
+class RaveRoute {
+    def path:string "/"
+    def title:string ""
+    def pageId:int 0
+    ; 0 for no layout: the page is the whole screen
+    def layoutId:int 0
+    def protected:boolean false
+
+    Constructor (p:string t:string page:int layout:int) {
+        path = p
+        title = t
+        pageId = page
+        layoutId = layout
+    }
+}
+
+class RaveBreakpoint {
+    def name:string ""
+    def minWidth:int 0
+
+    Constructor (n:string w:int) {
+        name = n
+        minWidth = w
+    }
+}
+
+class RaveVar {
+    def name:string ""
+    def value:string ""
+
+    Constructor (n:string v:string) {
+        name = n
+        value = v
+    }
+}
+
+class RaveComponent {
+    def name:string ""
+    def rootId:int 0
+    def variants:[string]
+    def defaultVariant:string ""
+
+    Constructor (n:string root:int) {
+        name = n
+        rootId = root
+    }
+}
+
+class RaveApp {
+    def name:string "app"
+    ; web desktop tablet mobile
+    def targets:[string]
+    def authEnabled:boolean false
+    def loginRoute:string "/login"
+    def afterLogin:string "/"
+    ; sidebar | topbar | tabs | none
+    def nav:string "sidebar"
+    def breakpoints:[RaveBreakpoint]
+    def vars:[RaveVar]
+    def routes:[RaveRoute]
+    def layouts:[RaveNode]
+    def pages:[RaveNode]
+    def components:[RaveComponent]
+    def styles:[RaveRule]
+    ; Every node ever made, by id. Ids are never reused: a deleted node's
+    ; rules may still be in an undo stack that puts it back.
+    def byId:[string:RaveNode]
+    def nextId:int 1
+
+    Constructor (n:string) {
+        name = n
+        def fresh:[string:RaveNode]
+        byId = fresh
+    }
+
+    ; --- nodes ----------------------------------------------------------------
+
+    fn newNode:RaveNode (tag:string name:string) {
+        def n (new RaveNode(nextId tag name))
+        nextId = (nextId + 1)
+        set byId (to_string n.id) n
+        return n
+    }
+
+    fn newText:RaveNode (tag:string text:string) {
+        def n:RaveNode (this.newNode(tag text))
+        n.text = text
+        return n
+    }
+
+    fn newLayout:RaveNode (name:string) {
+        def n:RaveNode (this.newNode("div" name))
+        push layouts n
+        return n
+    }
+
+    fn newPage:RaveNode (name:string) {
+        def n:RaveNode (this.newNode("div" name))
+        push pages n
+        return n
+    }
+
+    fn newSlot:RaveNode () {
+        def n:RaveNode (this.newNode("div" "Content"))
+        n.kind = "slot"
+        return n
+    }
+
+    fn newConditional:RaveNode (condition:string) {
+        def n:RaveNode (this.newNode("div" condition))
+        n.kind = "conditional"
+        n.condition = condition
+        return n
+    }
+
+    fn hasNode:boolean (id:int) {
+        return (has byId (to_string id))
+    }
+
+    fn node:RaveNode (id:int) {
+        def key:string (to_string id)
+        return (unwrap (get byId key))
+    }
+
+    ; The node an element id names, or 0 when it is not one of ours.
+    sfn idOfElement:int (elementId:string) {
+        if ((strlen elementId) < 2) {
+            return 0
+        }
+        if ((charAt elementId 0) != 110) {
+            return 0
+        }
+        def value:int 0
+        def i:int 1
+        while (i < (strlen elementId)) {
+            def c:int (charAt elementId i)
+            if ((c < 48) || (c > 57)) {
+                return 0
+            }
+            value = ((value * 10) + (c - 48))
+            i = (i + 1)
+        }
+        return value
+    }
+
+    ; --- routes ---------------------------------------------------------------
+
+    fn addRoute:RaveRoute (path:string title:string page:RaveNode layout:int) {
+        def r (new RaveRoute(path title page.id layout))
+        push routes r
+        return r
+    }
+
+    fn hasRoute:boolean (path:string) {
+        def i:int 0
+        while (i < (array_length routes)) {
+            def r:RaveRoute (itemAt routes i)
+            if (r.path == path) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn routeAt:RaveRoute (path:string) {
+        def i:int 0
+        while (i < (array_length routes)) {
+            def r:RaveRoute (itemAt routes i)
+            if (r.path == path) {
+                return r
+            }
+            i = (i + 1)
+        }
+        def first:RaveRoute (itemAt routes 0)
+        return first
+    }
+
+    fn protectAllExcept:void (path:string) {
+        def i:int 0
+        while (i < (array_length routes)) {
+            def r:RaveRoute (itemAt routes i)
+            if (r.path != path) {
+                r.protected = true
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- breakpoints ----------------------------------------------------------
+
+    fn addBreakpoint:void (name:string minWidth:int) {
+        push breakpoints (new RaveBreakpoint(name minWidth))
+    }
+
+    fn breakpointMin:int (name:string) {
+        def i:int 0
+        while (i < (array_length breakpoints)) {
+            def b:RaveBreakpoint (itemAt breakpoints i)
+            if (b.name == name) {
+                return b.minWidth
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    ; "(max-width: 767px)" for `below("md")`: narrower than the breakpoint.
+    fn below:string (name:string) {
+        def w:int (this.breakpointMin(name))
+        return ("(max-width: " + (to_string (w - 1)) + "px)")
+    }
+
+    ; "(min-width: 768px)" for `from("md")`: the breakpoint and wider.
+    fn from:string (name:string) {
+        def w:int (this.breakpointMin(name))
+        return ("(min-width: " + (to_string w) + "px)")
+    }
+
+    ; --- styles ---------------------------------------------------------------
+
+    fn setVar:void (name:string value:string) {
+        def i:int 0
+        while (i < (array_length vars)) {
+            def v:RaveVar (itemAt vars i)
+            if (v.name == name) {
+                v.value = value
+                return
+            }
+            i = (i + 1)
+        }
+        push vars (new RaveVar(name value))
+    }
+
+    fn hasRule:boolean (cls:string media:string) {
+        def i:int 0
+        while (i < (array_length styles)) {
+            def r:RaveRule (itemAt styles i)
+            if ((r.cls == cls) && (r.media == media)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn rule:RaveRule (cls:string media:string) {
+        def i:int 0
+        while (i < (array_length styles)) {
+            def r:RaveRule (itemAt styles i)
+            if ((r.cls == cls) && (r.media == media)) {
+                return r
+            }
+            i = (i + 1)
+        }
+        def made (new RaveRule(cls media))
+        push styles made
+        return made
+    }
+
+    ; The base rule of a node.
+    fn style:void (n:RaveNode name:string value:string) {
+        def r:RaveRule (this.rule((n.cls()) ""))
+        r.set(name value)
+    }
+
+    ; A node's rule under a media condition.
+    fn styleAt:void (n:RaveNode media:string name:string value:string) {
+        def r:RaveRule (this.rule((n.cls()) media))
+        r.set(name value)
+    }
+
+    ; A shared class rule.
+    fn shared:void (cls:string name:string value:string) {
+        def r:RaveRule (this.rule(cls ""))
+        r.set(name value)
+    }
+
+    fn sharedAt:void (cls:string media:string name:string value:string) {
+        def r:RaveRule (this.rule(cls media))
+        r.set(name value)
+    }
+
+    ; What one node's rule says for one property under one condition.
+    fn styleOf:string (n:RaveNode media:string name:string) {
+        if ((this.hasRule((n.cls()) media)) == false) {
+            return ""
+        }
+        def r:RaveRule (this.rule((n.cls()) media))
+        return (r.get(name))
+    }
+
+    ; --- components -----------------------------------------------------------
+
+    fn addComponent:RaveComponent (name:string root:RaveNode) {
+        def c (new RaveComponent(name root.id))
+        push components c
+        return c
+    }
+
+    fn hasComponent:boolean (name:string) {
+        def i:int 0
+        while (i < (array_length components)) {
+            def c:RaveComponent (itemAt components i)
+            if (c.name == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn component:RaveComponent (name:string) {
+        def i:int 0
+        while (i < (array_length components)) {
+            def c:RaveComponent (itemAt components i)
+            if (c.name == name) {
+                return c
+            }
+            i = (i + 1)
+        }
+        def first:RaveComponent (itemAt components 0)
+        return first
+    }
+
+    ; --- finding --------------------------------------------------------------
+
+    ; The first node under `root` with this tag and name, or 0.
+    fn findIn:int (root:RaveNode tag:string name:string) {
+        if ((root.tag == tag) && (root.name == name)) {
+            return root.id
+        }
+        def i:int 0
+        while (i < (array_length root.children)) {
+            def c:RaveNode (itemAt root.children i)
+            def hit:int (this.findIn(c tag name))
+            if (hit > 0) {
+                return hit
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    ; The first node anywhere with this tag and name, or 0.
+    fn idOfNamed:int (tag:string name:string) {
+        def i:int 0
+        while (i < (array_length layouts)) {
+            def l:RaveNode (itemAt layouts i)
+            def hit:int (this.findIn(l tag name))
+            if (hit > 0) {
+                return hit
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length pages)) {
+            def p:RaveNode (itemAt pages j)
+            def hit2:int (this.findIn(p tag name))
+            if (hit2 > 0) {
+                return hit2
+            }
+            j = (j + 1)
+        }
+        return 0
+    }
+
+    fn findWithAction:int (root:RaveNode kind:string arg:string) {
+        def i:int 0
+        while (i < (array_length root.actions)) {
+            def a:RaveAction (itemAt root.actions i)
+            if ((a.kind == kind) && (a.arg == arg)) {
+                return root.id
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length root.children)) {
+            def c:RaveNode (itemAt root.children j)
+            def hit:int (this.findWithAction(c kind arg))
+            if (hit > 0) {
+                return hit
+            }
+            j = (j + 1)
+        }
+        return 0
+    }
+
+    ; The first node anywhere carrying this action, or 0. The navigation
+    ; graph the editor draws is this, asked once per route.
+    fn idWithAction:int (kind:string arg:string) {
+        def i:int 0
+        while (i < (array_length layouts)) {
+            def l:RaveNode (itemAt layouts i)
+            def hit:int (this.findWithAction(l kind arg))
+            if (hit > 0) {
+                return hit
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length pages)) {
+            def p:RaveNode (itemAt pages j)
+            def hit2:int (this.findWithAction(p kind arg))
+            if (hit2 > 0) {
+                return hit2
+            }
+            j = (j + 1)
+        }
+        return 0
+    }
+
+    ; --- the tree, as a tree ---------------------------------------------------------
+
+    fn findParent:int (root:RaveNode id:int) {
+        def i:int 0
+        while (i < (array_length root.children)) {
+            def c:RaveNode (itemAt root.children i)
+            if (c.id == id) {
+                return root.id
+            }
+            def hit:int (this.findParent(c id))
+            if (hit > 0) {
+                return hit
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    ; The parent of a node, or 0 for a root (a layout or a page) and for a
+    ; node that is not in any tree.
+    fn parentOf:int (id:int) {
+        def i:int 0
+        while (i < (array_length layouts)) {
+            def l:RaveNode (itemAt layouts i)
+            def hit:int (this.findParent(l id))
+            if (hit > 0) {
+                return hit
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length pages)) {
+            def p:RaveNode (itemAt pages j)
+            def hit2:int (this.findParent(p id))
+            if (hit2 > 0) {
+                return hit2
+            }
+            j = (j + 1)
+        }
+        return 0
+    }
+
+    fn isRoot:boolean (id:int) {
+        def i:int 0
+        while (i < (array_length layouts)) {
+            def l:RaveNode (itemAt layouts i)
+            if (l.id == id) {
+                return true
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length pages)) {
+            def p:RaveNode (itemAt pages j)
+            if (p.id == id) {
+                return true
+            }
+            j = (j + 1)
+        }
+        return false
+    }
+
+    ; The layout or page a node belongs to, or 0.
+    fn rootOf:int (id:int) {
+        def at:int id
+        def guard:int 0
+        while (guard < 64) {
+            if (this.isRoot(at)) {
+                return at
+            }
+            def up:int (this.parentOf(at))
+            if (up == 0) {
+                return 0
+            }
+            at = up
+            guard = (guard + 1)
+        }
+        return 0
+    }
+
+    fn indexIn:int (parentId:int id:int) {
+        def p:RaveNode (this.node(parentId))
+        def i:int 0
+        while (i < (array_length p.children)) {
+            def c:RaveNode (itemAt p.children i)
+            if (c.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Whether `id` is `ancestorId` or somewhere under it.
+    fn isInside:boolean (id:int ancestorId:int) {
+        def at:int id
+        def guard:int 0
+        while (guard < 64) {
+            if (at == ancestorId) {
+                return true
+            }
+            def up:int (this.parentOf(at))
+            if (up == 0) {
+                return false
+            }
+            at = up
+            guard = (guard + 1)
+        }
+        return false
+    }
+
+    fn detach:void (id:int) {
+        def parent:int (this.parentOf(id))
+        if (parent == 0) {
+            return
+        }
+        def p:RaveNode (this.node(parent))
+        def at:int (this.indexIn(parent id))
+        if (at >= 0) {
+            remove_index p.children at
+        }
+    }
+
+    fn attach:void (parentId:int id:int index:int) {
+        def p:RaveNode (this.node(parentId))
+        def n:RaveNode (this.node(id))
+        def n2:int (array_length p.children)
+        if ((index < 0) || (index >= n2)) {
+            push p.children n
+            return
+        }
+        ; insert at index: push the last, shift the rest up one
+        def lastOne:RaveNode (itemAt p.children (n2 - 1))
+        push p.children lastOne
+        def k:int (n2 - 1)
+        while (k > index) {
+            def prev:RaveNode (itemAt p.children (k - 1))
+            set p.children k prev
+            k = (k - 1)
+        }
+        set p.children index n
+    }
+
+    ; A deep copy with fresh ids, and every rule of every copied node copied
+    ; to the fresh class, so the twin looks the same and can then diverge.
+    fn cloneNode:RaveNode (src:RaveNode) {
+        def n:RaveNode (this.newNode(src.tag src.name))
+        n.kind = src.kind
+        n.text = src.text
+        n.src = src.src
+        n.alt = src.alt
+        n.label = src.label
+        n.placeholder = src.placeholder
+        n.condition = src.condition
+        n.component = src.component
+        n.variant = src.variant
+        def i:int 0
+        while (i < (array_length src.classes)) {
+            n.addClass((itemAt src.classes i))
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length src.actions)) {
+            def a:RaveAction (itemAt src.actions j)
+            n.on(a.kind a.arg)
+            j = (j + 1)
+        }
+        def fromCls:string (src.cls())
+        def toCls:string (n.cls())
+        def k:int 0
+        def total:int (array_length styles)
+        while (k < total) {
+            def r:RaveRule (itemAt styles k)
+            if (r.cls == fromCls) {
+                def copy:RaveRule (this.rule(toCls r.media))
+                def d:int 0
+                while (d < (array_length r.decls)) {
+                    def decl:RaveDecl (itemAt r.decls d)
+                    copy.set(decl.name decl.value)
+                    d = (d + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        def c:int 0
+        while (c < (array_length src.children)) {
+            def kid:RaveNode (itemAt src.children c)
+            n.add((this.cloneNode(kid)))
+            c = (c + 1)
+        }
+        return n
+    }
+
+    ; Every rule of one class, base first.
+    fn mediaOf:[string] (cls:string) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length styles)) {
+            def r:RaveRule (itemAt styles i)
+            if (r.cls == cls) {
+                push out r.media
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- JSON ---------------------------------------------------------------------
+
+    fn nodeJson:string (n:RaveNode) {
+        def out:string ("{\"id\":" + (to_string n.id))
+        out = (out + ",\"kind\":" + (RaveJson.q(n.kind)))
+        out = (out + ",\"tag\":" + (RaveJson.q(n.tag)))
+        out = (out + ",\"name\":" + (RaveJson.q(n.name)))
+        out = (out + ",\"classes\":" + (RaveJson.strArr(n.classes)))
+        if ((strlen n.text) > 0) { out = (out + ",\"text\":" + (RaveJson.q(n.text))) }
+        if ((strlen n.src) > 0) { out = (out + ",\"src\":" + (RaveJson.q(n.src))) }
+        if ((strlen n.alt) > 0) { out = (out + ",\"alt\":" + (RaveJson.q(n.alt))) }
+        if ((strlen n.label) > 0) { out = (out + ",\"label\":" + (RaveJson.q(n.label))) }
+        if ((strlen n.placeholder) > 0) { out = (out + ",\"placeholder\":" + (RaveJson.q(n.placeholder))) }
+        if ((strlen n.condition) > 0) { out = (out + ",\"condition\":" + (RaveJson.q(n.condition))) }
+        if ((strlen n.component) > 0) { out = (out + ",\"component\":" + (RaveJson.q(n.component))) }
+        if ((strlen n.variant) > 0) { out = (out + ",\"variant\":" + (RaveJson.q(n.variant))) }
+        out = (out + ",\"actions\":[")
+        def i:int 0
+        while (i < (array_length n.actions)) {
+            def a:RaveAction (itemAt n.actions i)
+            if (i > 0) { out = (out + ",") }
+            out = (out + "{\"on\":" + (RaveJson.q(a.on)) + ",\"kind\":" + (RaveJson.q(a.kind)) + ",\"arg\":" + (RaveJson.q(a.arg)) + "}")
+            i = (i + 1)
+        }
+        out = (out + "],\"children\":[")
+        def j:int 0
+        while (j < (array_length n.children)) {
+            def c:RaveNode (itemAt n.children j)
+            if (j > 0) { out = (out + ",") }
+            out = (out + (this.nodeJson(c)))
+            j = (j + 1)
+        }
+        return (out + "]}")
+    }
+
+    fn nodesJson:string (list:[RaveNode]) {
+        def out:string "["
+        def i:int 0
+        while (i < (array_length list)) {
+            def n:RaveNode (itemAt list i)
+            if (i > 0) { out = (out + ",") }
+            out = (out + (this.nodeJson(n)))
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
+    fn toJson:string () {
+        def out:string ("{\"format\":\"rave/1\",\"name\":" + (RaveJson.q(name)))
+        out = (out + ",\"targets\":" + (RaveJson.strArr(targets)))
+        out = (out + ",\"auth\":{\"enabled\":" + (RaveJson.bool(authEnabled)) + ",\"loginRoute\":" + (RaveJson.q(loginRoute)) + ",\"afterLogin\":" + (RaveJson.q(afterLogin)) + "}")
+        out = (out + ",\"nav\":" + (RaveJson.q(nav)))
+        out = (out + ",\"nextId\":" + (to_string nextId))
+        out = (out + ",\"breakpoints\":[")
+        def i:int 0
+        while (i < (array_length breakpoints)) {
+            def b:RaveBreakpoint (itemAt breakpoints i)
+            if (i > 0) { out = (out + ",") }
+            out = (out + "{\"name\":" + (RaveJson.q(b.name)) + ",\"min\":" + (to_string b.minWidth) + "}")
+            i = (i + 1)
+        }
+        out = (out + "],\"vars\":[")
+        def j:int 0
+        while (j < (array_length vars)) {
+            def v:RaveVar (itemAt vars j)
+            if (j > 0) { out = (out + ",") }
+            out = (out + "{\"name\":" + (RaveJson.q(v.name)) + ",\"value\":" + (RaveJson.q(v.value)) + "}")
+            j = (j + 1)
+        }
+        out = (out + "],\"routes\":[")
+        def k:int 0
+        while (k < (array_length routes)) {
+            def r:RaveRoute (itemAt routes k)
+            if (k > 0) { out = (out + ",") }
+            out = (out + "{\"path\":" + (RaveJson.q(r.path)) + ",\"title\":" + (RaveJson.q(r.title)) + ",\"page\":" + (to_string r.pageId) + ",\"layout\":" + (to_string r.layoutId) + ",\"protected\":" + (RaveJson.bool(r.protected)) + "}")
+            k = (k + 1)
+        }
+        out = (out + "],\"layouts\":" + (this.nodesJson(layouts)))
+        out = (out + ",\"pages\":" + (this.nodesJson(pages)))
+        out = (out + ",\"components\":[")
+        def c:int 0
+        while (c < (array_length components)) {
+            def comp:RaveComponent (itemAt components c)
+            if (c > 0) { out = (out + ",") }
+            out = (out + "{\"name\":" + (RaveJson.q(comp.name)) + ",\"root\":" + (to_string comp.rootId) + ",\"variants\":" + (RaveJson.strArr(comp.variants)) + ",\"default\":" + (RaveJson.q(comp.defaultVariant)) + "}")
+            c = (c + 1)
+        }
+        out = (out + "],\"styles\":[")
+        def s:int 0
+        while (s < (array_length styles)) {
+            def r2:RaveRule (itemAt styles s)
+            if (s > 0) { out = (out + ",") }
+            out = (out + "{\"cls\":" + (RaveJson.q(r2.cls)) + ",\"media\":" + (RaveJson.q(r2.media)) + ",\"decls\":[")
+            def d:int 0
+            while (d < (array_length r2.decls)) {
+                def decl:RaveDecl (itemAt r2.decls d)
+                if (d > 0) { out = (out + ",") }
+                out = (out + "{\"name\":" + (RaveJson.q(decl.name)) + ",\"value\":" + (RaveJson.q(decl.value)) + "}")
+                d = (d + 1)
+            }
+            out = (out + "]}")
+            s = (s + 1)
+        }
+        return (out + "]}")
+    }
+
+    fn nodeFromJson:RaveNode (v:RaveJv) {
+        def n (new RaveNode((v.i("id")) (v.s("tag")) (v.s("name"))))
+        n.kind = (v.s("kind"))
+        if ((strlen n.kind) == 0) {
+            n.kind = "element"
+        }
+        n.text = (v.s("text"))
+        n.src = (v.s("src"))
+        n.alt = (v.s("alt"))
+        n.label = (v.s("label"))
+        n.placeholder = (v.s("placeholder"))
+        n.condition = (v.s("condition"))
+        n.component = (v.s("component"))
+        n.variant = (v.s("variant"))
+        def cl:RaveJv (v.a("classes"))
+        def i:int 0
+        while (i < (cl.count())) {
+            def c:RaveJv (cl.at(i))
+            n.addClass(c.str)
+            i = (i + 1)
+        }
+        def acts:RaveJv (v.a("actions"))
+        def j:int 0
+        while (j < (acts.count())) {
+            def a:RaveJv (acts.at(j))
+            n.on((a.s("kind")) (a.s("arg")))
+            j = (j + 1)
+        }
+        def kids:RaveJv (v.a("children"))
+        def k:int 0
+        while (k < (kids.count())) {
+            def kid:RaveJv (kids.at(k))
+            n.add((this.nodeFromJson(kid)))
+            k = (k + 1)
+        }
+        set byId (to_string n.id) n
+        if (n.id >= nextId) {
+            nextId = (n.id + 1)
+        }
+        return n
+    }
+
+    ; A document from `toJson`'s text. A string that is not one answers an
+    ; app named "" with nothing in it, which `isEmpty` tells apart.
+    sfn fromJson:RaveApp (text:string) {
+        def v:RaveJv (RaveJson.parse(text))
+        def app (new RaveApp((v.s("name"))))
+        if ((v.isObj()) == false) {
+            return app
+        }
+        def tg:RaveJv (v.a("targets"))
+        def i:int 0
+        while (i < (tg.count())) {
+            def t:RaveJv (tg.at(i))
+            push app.targets t.str
+            i = (i + 1)
+        }
+        def auth:RaveJv (v.a("auth"))
+        app.authEnabled = (auth.b("enabled"))
+        app.loginRoute = (auth.s("loginRoute"))
+        app.afterLogin = (auth.s("afterLogin"))
+        app.nav = (v.s("nav"))
+        def bps:RaveJv (v.a("breakpoints"))
+        def b:int 0
+        while (b < (bps.count())) {
+            def bp:RaveJv (bps.at(b))
+            app.addBreakpoint((bp.s("name")) (bp.i("min")))
+            b = (b + 1)
+        }
+        def vs:RaveJv (v.a("vars"))
+        def x:int 0
+        while (x < (vs.count())) {
+            def vv:RaveJv (vs.at(x))
+            app.setVar((vv.s("name")) (vv.s("value")))
+            x = (x + 1)
+        }
+        def ls:RaveJv (v.a("layouts"))
+        def l:int 0
+        while (l < (ls.count())) {
+            def lv:RaveJv (ls.at(l))
+            push app.layouts (app.nodeFromJson(lv))
+            l = (l + 1)
+        }
+        def ps:RaveJv (v.a("pages"))
+        def p:int 0
+        while (p < (ps.count())) {
+            def pv:RaveJv (ps.at(p))
+            push app.pages (app.nodeFromJson(pv))
+            p = (p + 1)
+        }
+        def rs:RaveJv (v.a("routes"))
+        def r:int 0
+        while (r < (rs.count())) {
+            def rv:RaveJv (rs.at(r))
+            def route (new RaveRoute((rv.s("path")) (rv.s("title")) (rv.i("page")) (rv.i("layout"))))
+            route.protected = (rv.b("protected"))
+            push app.routes route
+            r = (r + 1)
+        }
+        def cs:RaveJv (v.a("components"))
+        def c:int 0
+        while (c < (cs.count())) {
+            def cv:RaveJv (cs.at(c))
+            def comp (new RaveComponent((cv.s("name")) (cv.i("root"))))
+            comp.defaultVariant = (cv.s("default"))
+            def vars2:RaveJv (cv.a("variants"))
+            def q:int 0
+            while (q < (vars2.count())) {
+                def one:RaveJv (vars2.at(q))
+                push comp.variants one.str
+                q = (q + 1)
+            }
+            push app.components comp
+            c = (c + 1)
+        }
+        def ss:RaveJv (v.a("styles"))
+        def s:int 0
+        while (s < (ss.count())) {
+            def sv:RaveJv (ss.at(s))
+            def rule:RaveRule (app.rule((sv.s("cls")) (sv.s("media"))))
+            def ds:RaveJv (sv.a("decls"))
+            def d:int 0
+            while (d < (ds.count())) {
+                def dv:RaveJv (ds.at(d))
+                rule.set((dv.s("name")) (dv.s("value")))
+                d = (d + 1)
+            }
+            s = (s + 1)
+        }
+        def want:int (v.i("nextId"))
+        if (want > app.nextId) {
+            app.nextId = want
+        }
+        return app
+    }
+
+    fn isEmpty:boolean () {
+        return ((array_length routes) == 0)
+    }
+
+    ; --- counting -------------------------------------------------------------
+
+    fn countNodes:int (n:RaveNode) {
+        def total:int 1
+        def i:int 0
+        while (i < (array_length n.children)) {
+            def c:RaveNode (itemAt n.children i)
+            total = (total + (this.countNodes(c)))
+            i = (i + 1)
+        }
+        return total
+    }
+}

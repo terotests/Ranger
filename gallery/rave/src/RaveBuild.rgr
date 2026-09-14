@@ -1,0 +1,226 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RaveBuild — a route, as EVG elements
+; =============================================================================
+; The one place that knows how a `RaveNode` becomes an element. A route's
+; layout is built with the page spliced into its slot; a conditional node is
+; built only when the session allows it; a tag chooses a role and whether the
+; thing takes focus, the way HTML does. Every element carries the node's own
+; id, so the hit test, the accessibility tree and the focus walk all speak
+; the document's ids.
+;
+; Nothing here is styled: `rv`, `n<id>` and the shared classes are put on the
+; element, and the stylesheet the document emitted does the rest.
+; =============================================================================
+
+Import "RaveDoc.rgr"
+Import "RaveAuth.rgr"
+Import "../../evg/EVGElement.rgr"
+
+class RaveBuild {
+    def app:RaveApp (new RaveApp(""))
+    def auth:RaveAuth (new RaveAuth())
+    ; The page the layout's slot receives while a route is being built.
+    def pageId:int 0
+
+    Constructor (a:RaveApp au:RaveAuth) {
+        app = a
+        auth = au
+    }
+
+    ; --- a route --------------------------------------------------------------
+
+    fn page:EVGElement (r:RaveRoute) {
+        def root:EVGElement (EVGElement.createDiv())
+        root.id = "page"
+        root.className = "rv rv-page"
+        root.role = "group"
+        root.a11yLabel = r.title
+        pageId = r.pageId
+        if (r.layoutId > 0) {
+            def lay:RaveNode (app.node(r.layoutId))
+            root.addChild((this.element(lay)))
+        } {
+            def pg:RaveNode (app.node(r.pageId))
+            root.addChild((this.element(pg)))
+        }
+        return root
+    }
+
+    ; --- a node ---------------------------------------------------------------
+
+    fn classesOf:string (n:RaveNode) {
+        def s:string ("rv " + (n.cls()))
+        def i:int 0
+        while (i < (array_length n.classes)) {
+            s = (s + " " + (itemAt n.classes i))
+            i = (i + 1)
+        }
+        if (n.kind == "instance") {
+            s = (s + " cmp-" + n.component)
+            if ((strlen n.variant) > 0) {
+                s = (s + " cmp-" + n.component + "-" + n.variant)
+            }
+        }
+        return s
+    }
+
+    sfn isTextTag:boolean (tag:string) {
+        if (tag == "h1") { return true }
+        if (tag == "h2") { return true }
+        if (tag == "h3") { return true }
+        if (tag == "h4") { return true }
+        if (tag == "p") { return true }
+        if (tag == "span") { return true }
+        if (tag == "label") { return true }
+        return false
+    }
+
+    sfn headingLevel:int (tag:string) {
+        if (tag == "h1") { return 1 }
+        if (tag == "h2") { return 2 }
+        if (tag == "h3") { return 3 }
+        if (tag == "h4") { return 4 }
+        return 0
+    }
+
+    ; The role a tag implies. "" is decoration: not in the accessible tree.
+    sfn roleOf:string (tag:string) {
+        if (tag == "header") { return "banner" }
+        if (tag == "nav") { return "navigation" }
+        if (tag == "main") { return "main" }
+        if (tag == "aside") { return "region" }
+        if (tag == "section") { return "region" }
+        if (tag == "footer") { return "region" }
+        if (tag == "form") { return "form" }
+        if (tag == "button") { return "button" }
+        if (tag == "a") { return "link" }
+        if (tag == "img") { return "img" }
+        if (tag == "input") { return "textbox" }
+        if (tag == "ul") { return "list" }
+        if (tag == "li") { return "listitem" }
+        if (tag == "p") { return "paragraph" }
+        if (tag == "span") { return "text" }
+        if (tag == "label") { return "text" }
+        if ((RaveBuild.headingLevel(tag)) > 0) { return "heading" }
+        return ""
+    }
+
+    sfn takesFocus:boolean (tag:string) {
+        if (tag == "button") { return true }
+        if (tag == "a") { return true }
+        if (tag == "input") { return true }
+        return false
+    }
+
+    ; A text node: the element IS the text.
+    fn textElement:EVGElement (n:RaveNode) {
+        def e:EVGElement (EVGElement.createDiv())
+        e.id = (n.elementId())
+        e.className = ("rv-t " + (n.cls()))
+        def i:int 0
+        while (i < (array_length n.classes)) {
+            e.className = (e.className + " " + (itemAt n.classes i))
+            i = (i + 1)
+        }
+        e.elementType = 1
+        e.textContent = n.text
+        e.role = (RaveBuild.roleOf(n.tag))
+        def lvl:int (RaveBuild.headingLevel(n.tag))
+        if (lvl > 0) {
+            e.a11yLevel = lvl
+        }
+        if ((strlen n.label) > 0) {
+            e.a11yLabel = n.label
+        }
+        return e
+    }
+
+    fn element:EVGElement (n:RaveNode) {
+        if (RaveBuild.isTextTag(n.tag)) {
+            if ((n.hasChildren()) == false) {
+                return (this.textElement(n))
+            }
+        }
+        def e:EVGElement (EVGElement.createDiv())
+        if (n.tag == "img") {
+            e = (EVGElement.createImg())
+            e.src = n.src
+            e.alt = n.alt
+        }
+        e.id = (n.elementId())
+        e.className = (this.classesOf(n))
+        e.role = (RaveBuild.roleOf(n.tag))
+        if ((strlen n.label) > 0) {
+            e.a11yLabel = n.label
+        }
+        if ((n.tag == "img") && ((strlen n.alt) > 0)) {
+            e.a11yLabel = n.alt
+        }
+        if (RaveBuild.takesFocus(n.tag)) {
+            e.a11yFocusable = true
+            ; A button or a link is named by its caption. The caption element
+            ; itself is hidden from the reader so the name is said once.
+            if (((strlen n.label) == 0) && ((strlen n.text) > 0)) {
+                e.a11yLabel = n.text
+            }
+        }
+        if (n.tag == "input") {
+            e.a11yValue = n.text
+            if ((strlen n.text) == 0) {
+                def hint:EVGElement (EVGElement.createDiv())
+                hint.elementType = 1
+                hint.textContent = n.placeholder
+                hint.className = "rv-t rv-placeholder"
+                hint.a11yHidden = true
+                e.addChild(hint)
+            } {
+                def val:EVGElement (EVGElement.createDiv())
+                val.elementType = 1
+                val.textContent = n.text
+                val.className = "rv-t rv-value"
+                val.a11yHidden = true
+                e.addChild(val)
+            }
+        } {
+            ; A container with words of its own: a button's caption, a link's
+            ; text, a list item. The caption is hidden from the reader because
+            ; the box already carries the name from its content.
+            if ((strlen n.text) > 0) {
+                def cap:EVGElement (EVGElement.createDiv())
+                cap.elementType = 1
+                cap.textContent = n.text
+                cap.className = "rv-t rv-cap"
+                if (RaveBuild.takesFocus(n.tag)) {
+                    cap.a11yHidden = true
+                } {
+                    cap.role = "text"
+                }
+                e.addChild(cap)
+            }
+        }
+        if (n.kind == "slot") {
+            if (pageId > 0) {
+                def pg:RaveNode (app.node(pageId))
+                e.addChild((this.element(pg)))
+            }
+        }
+        def i:int 0
+        while (i < (array_length n.children)) {
+            def c:RaveNode (itemAt n.children i)
+            if (this.shown(c)) {
+                e.addChild((this.element(c)))
+            }
+            i = (i + 1)
+        }
+        return e
+    }
+
+    fn shown:boolean (n:RaveNode) {
+        if (n.kind == "conditional") {
+            return (auth.allows(n.condition))
+        }
+        return true
+    }
+}

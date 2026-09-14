@@ -1,0 +1,89 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RaveCss — the document's rules, as the stylesheet the engine reads
+; =============================================================================
+; The document owns the styles as structure (`RaveRule`); this writes them out
+; as EVG stylesheet text. The editor's CSS tab is a view of one rule and goes
+; the other way through `EVGStyleSheet.parseDeclarations`.
+;
+; The base class `.rv` is on every container node and restores two CSS
+; defaults the engine does not share: `flex-wrap: nowrap` (EVG initialises to
+; wrap) and `align-items: stretch` (EVG defaults to flex-start). A designer's
+; expectations hold because every node starts from CSS's answer.
+; =============================================================================
+
+Import "RaveDoc.rgr"
+
+class RaveCss {
+
+    sfn base:string () {
+        def s:string ".rv { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; }\n"
+        s = (s + ".rv-t { }\n")
+        s = (s + ".rv-page { width: 100%; height: 100%; }\n")
+        return s
+    }
+
+    sfn ruleText:string (r:RaveRule) {
+        def s:string ("." + r.cls + " { ")
+        def i:int 0
+        while (i < (array_length r.decls)) {
+            def d:RaveDecl (itemAt r.decls i)
+            s = (s + d.name + ": " + d.value + "; ")
+            i = (i + 1)
+        }
+        return (s + "}\n")
+    }
+
+    sfn emit:string (app:RaveApp) {
+        def out:string ""
+        if ((array_length app.vars) > 0) {
+            out = (out + "@vars { ")
+            def i:int 0
+            while (i < (array_length app.vars)) {
+                def v:RaveVar (itemAt app.vars i)
+                out = (out + "--" + v.name + ": " + v.value + "; ")
+                i = (i + 1)
+            }
+            out = (out + "}\n")
+        }
+        out = (out + (RaveCss.base()))
+        ; base rules first, so a breakpoint rule written later wins the tie
+        def j:int 0
+        while (j < (array_length app.styles)) {
+            def r:RaveRule (itemAt app.styles j)
+            if ((strlen r.media) == 0) {
+                out = (out + (RaveCss.ruleText(r)))
+            }
+            j = (j + 1)
+        }
+        def k:int 0
+        while (k < (array_length app.styles)) {
+            def r2:RaveRule (itemAt app.styles k)
+            if ((strlen r2.media) > 0) {
+                out = (out + "@media " + r2.media + " { " + (RaveCss.ruleText(r2)) + "}\n")
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; One node's rules, every condition, as the CSS tab shows them.
+    sfn nodeText:string (app:RaveApp n:RaveNode) {
+        def out:string ""
+        def cls:string (n.cls())
+        def i:int 0
+        while (i < (array_length app.styles)) {
+            def r:RaveRule (itemAt app.styles i)
+            if (r.cls == cls) {
+                if ((strlen r.media) == 0) {
+                    out = (out + (RaveCss.ruleText(r)))
+                } {
+                    out = (out + "@media " + r.media + " { " + (RaveCss.ruleText(r)) + "}\n")
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

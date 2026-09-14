@@ -1,0 +1,345 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The Rave editor's chrome, as an EVG stylesheet.
+ *
+ * The same three rails and stage the DOM editor has, in the same colours and
+ * at the same sizes: `gallery/figma/web/standalone/index.html` is the
+ * reference, and every number here is the number that is there. Where a token
+ * is a CSS custom property over there it is written out here — the palette is
+ * in one block at the top so the two can be diffed by eye.
+ *
+ * ENGINE-CLEAN. Every declaration here is one EVG accepts: `border` rather
+ * than `border-bottom`, `overflow` rather than `overflow-y`, no box-shadow.
+ * The editor's strip counts what the engine rejects, and a chrome that
+ * cost ten rejections would be lying about the document under it.
+ *
+ * Class-first, one concern per class, the way gallery/ui's sheets and
+ * gallery/mfiles' are. EVG's flex default is `wrap`, so every row that must
+ * stay on one line says `flex-wrap: nowrap`, and every text element states a
+ * `height`: EVG sizes a text box by what it is told, not by its glyphs.
+ *
+ * TEXT NEVER WRAPS BY ITSELF. `white-space: nowrap` is set once on the page
+ * and inherited; what has to be cut is measured and cut by the app.
+ *
+ *   --bg #f5f5f5   --panel/--rail #ffffff   --ink #1a1d21   --muted #7b8190
+ *   --faint #aab0bb --line #e7e9ee  --line-soft #f0f1f4     --hover #f2f4f8
+ *   --sel #e8f1fe   --accent #0d6efd --ring #2d6b66         --instance #7b61ff
+ *   --good #16a34a  --warn #b45309   --field #f6f7f9
+ */
+
+.ra-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  /* NO BACKGROUND. The board is drawn under this tree and the chrome is
+     painted over it, so anything the chrome paints behind the stage would
+     paint the document out. What surrounds the board — the rails, the rulers,
+     the strip — is opaque on its own. */
+  font-family: Inter;
+  font-size: 13px;
+  color: #1a1d21;
+  white-space: nowrap;
+}
+
+.ra-grow { flex-grow: 1; }
+.ra-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; }
+.ra-col { display: flex; flex-direction: column; }
+.ra-spacer { flex-grow: 1; }
+
+/* The three rails. Fixed side widths, because a panel that resizes with the
+   window is a panel whose rows reflow while you read them. */
+.ra-main { display: flex; flex-direction: row; flex-wrap: nowrap; flex-grow: 1; min-height: 0; }
+.ra-rail { display: flex; flex-direction: column; height: 100%; background-color: #ffffff; min-height: 0; overflow: hidden; }
+.ra-rail-left { width: 244px; min-width: 244px; border: 1px solid #e7e9ee; }
+.ra-rail-right { width: 272px; min-width: 272px; border: 1px solid #e7e9ee; }
+.ra-scroll { display: flex; flex-direction: column; flex-grow: 1; min-height: 0; overflow: auto; }
+
+/* A rail's head: the file on the left, one row high, so the panes below start
+   where the eye expects them. */
+.ra-railhead {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  height: 40px; min-height: 40px; padding: 0 10px; gap: 8px;
+  border: 1px solid #e7e9ee;
+}
+.ra-dot { width: 16px; min-width: 16px; height: 16px; border-radius: 4px; background-color: #7b61ff; }
+.ra-title { font-size: 12.5px; font-weight: bold; height: 18px; color: #1a1d21; }
+
+/* Tabs. The underline is the state; a filled pill here would compete with the
+   selection colour, which has to stay the loudest thing. */
+.ra-tabrow {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 2px; padding: 0 6px; height: 33px; min-height: 33px;
+  border: 1px solid #e7e9ee;
+}
+.ra-tab {
+  padding: 8px 9px; border-radius: 6px;
+  display: flex; flex-direction: row; align-items: center;
+}
+.ra-tab-t { font-size: 12px; font-weight: bold; height: 15px; color: #7b8190; }
+.ra-tab:hover .ra-tab-t { color: #1a1d21; }
+.ra-tab-on { background-color: #f2f4f8; }
+.ra-tab-on .ra-tab-t { color: #1a1d21; }
+.ra-zoomread { font-size: 11.5px; height: 16px; color: #7b8190; padding: 0 4px 0 0; }
+
+/* A section in a rail: a quiet caption and its rows. */
+.ra-cap {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 6px; padding: 10px 10px 4px;
+}
+.ra-cap-t { font-size: 10px; font-weight: bold; height: 12px; color: #aab0bb; letter-spacing: 0.9px; }
+.ra-cap-n { font-size: 10px; height: 12px; color: #aab0bb; }
+
+/* The open controls: three buttons and a keyboard shortcut, so a row that gets
+   out of the way rather than a menu that has to be found. */
+.ra-opener {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 6px; padding: 8px 10px; border: 1px solid #f0f1f4;
+}
+.ra-btn {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  background-color: #f6f7f9; border: 1px solid #e7e9ee; border-radius: 7px;
+  padding: 5px 9px; height: 26px; min-height: 26px;
+}
+.ra-btn:hover { border: 1px solid #0d6efd; }
+.ra-btn-t { font-size: 12px; height: 16px; color: #1a1d21; }
+
+/* Pages. A list and not a dropdown: a file's pages are the first thing you
+   navigate and the last thing that should be behind a click. */
+.ra-pages { display: flex; flex-direction: column; padding: 0 6px 6px; border: 1px solid #f0f1f4; }
+.ra-pagerow {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 7px; padding: 5px 7px; border-radius: 5px; height: 27px; min-height: 27px;
+}
+.ra-pagerow:hover { background-color: #f2f4f8; }
+.ra-pagerow-on { background-color: #e8f1fe; }
+.ra-page-ic { font-size: 11px; height: 14px; color: #aab0bb; width: 12px; min-width: 12px; }
+.ra-page-nm { font-size: 13px; height: 17px; color: #1a1d21; }
+.ra-pagerow-on .ra-page-nm { font-weight: bold; }
+
+/* The frame picker, which is a real narrowing of the board and not a page: it
+   sits with the layers it scopes. */
+.ra-framepick { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; padding: 4px 10px 8px; }
+.ra-select {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; flex-grow: 1;
+  background-color: #f6f7f9; border: 1px solid #e7e9ee; border-radius: 6px;
+  padding: 4px 6px; height: 26px; min-height: 26px;
+}
+.ra-select:hover { border: 1px solid #0d6efd; }
+.ra-select-t { font-size: 12px; height: 16px; color: #1a1d21; flex-grow: 1; }
+.ra-select-ar { font-size: 9px; height: 16px; color: #aab0bb; }
+
+/* The layers tree. One root at a time, rows that fold, crumbs back out. */
+.ra-tree { display: flex; flex-direction: column; padding: 0 6px 10px; }
+.ra-crumbs { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 2px; padding: 2px 4px 6px; }
+.ra-crumb { font-size: 11px; height: 14px; color: #aab0bb; padding: 1px 3px; }
+.ra-crumb-here { color: #1a1d21; }
+.ra-treerow {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 1px; border-radius: 5px; height: 25px; min-height: 25px;
+}
+.ra-treerow:hover { background-color: #f2f4f8; }
+.ra-treerow-on { background-color: #e8f1fe; }
+.ra-fold { width: 15px; min-width: 15px; display: flex; flex-direction: row; align-items: center; }
+.ra-fold-t { font-size: 9px; height: 12px; color: #aab0bb; width: 15px; min-width: 15px; }
+.ra-pick { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px; flex-grow: 1; padding: 4px 2px; }
+.ra-ty { width: 13px; min-width: 13px; font-size: 11px; height: 14px; color: #aab0bb; }
+.ra-nm { font-size: 12px; height: 16px; color: #1a1d21; }
+/* An instance is purple wherever it appears, which is the one colour Figma
+   users already read as "this came from a component". */
+.ra-pick-inst .ra-ty { color: #7b61ff; }
+.ra-pick-inst .ra-nm { color: #7b61ff; }
+.ra-into { font-size: 11px; height: 16px; color: #aab0bb; padding: 0 4px; }
+.ra-more { font-size: 11px; height: 15px; color: #aab0bb; padding: 8px 6px 0; }
+.ra-empty { font-size: 12px; height: 16px; color: #aab0bb; padding: 12px 10px; }
+
+/* ---- the stage ---------------------------------------------------------- */
+/* Rulers along two edges and the board between them, drawn from the same view
+   the board is, so a tick is where the board says it is. */
+.ra-stage { display: flex; flex-direction: column; flex-grow: 1; height: 100%; min-width: 0; overflow: hidden; }
+.ra-ruler-row { display: flex; flex-direction: row; flex-wrap: nowrap; height: 20px; min-height: 20px; }
+.ra-corner { width: 20px; min-width: 20px; height: 100%; background-color: #ffffff; border: 1px solid #e7e9ee; border: 1px solid #e7e9ee; }
+.ra-ruler-top { flex-grow: 1; height: 100%; position: relative; overflow: hidden; background-color: #ffffff; border: 1px solid #e7e9ee; }
+.ra-board-row { display: flex; flex-direction: row; flex-wrap: nowrap; flex-grow: 1; min-height: 0; }
+.ra-ruler-left { width: 20px; min-width: 20px; height: 100%; position: relative; overflow: hidden; background-color: #ffffff; border: 1px solid #e7e9ee; }
+.ra-board { flex-grow: 1; height: 100%; position: relative; min-width: 0; }
+.ra-tick { font-size: 9px; height: 11px; color: #aab0bb; position: absolute; }
+.ra-page-row-gap { height: 0; }
+
+/* The floating toolbar, over the board rather than in a strip of its own: the
+   board is the thing, and a strip would take a row of it on every window. */
+.ra-toolbar {
+  position: absolute; display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 2px; padding: 4px; height: 38px; min-height: 38px;
+  background-color: #ffffff; border: 1px solid #e7e9ee; border-radius: 10px;
+}
+.ra-tool { display: flex; flex-direction: row; align-items: center; border-radius: 7px; padding: 6px 8px; height: 28px; min-height: 28px; }
+.ra-tool:hover { background-color: #f2f4f8; }
+.ra-tool-t { font-size: 12px; height: 16px; color: #7b8190; }
+.ra-tool:hover .ra-tool-t { color: #1a1d21; }
+.ra-tool-on { background-color: #0d6efd; }
+.ra-tool-on .ra-tool-t { color: #ffffff; }
+.ra-tool-sep { width: 1px; min-width: 1px; height: 18px; background-color: #e7e9ee; }
+.ra-zoomlab { width: 52px; min-width: 52px; }
+.ra-zoomlab .ra-tool-t { color: #1a1d21; }
+
+/* ---- the inspector ------------------------------------------------------ */
+/* A column of quiet rows that draws a box only where you can type. A value you
+   cannot change is text, not a disabled field. */
+.ra-insp { display: flex; flex-direction: column; }
+.ra-insp-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 10px 10px 9px; }
+.ra-kindlab { font-size: 10px; font-weight: bold; height: 12px; color: #7b61ff; letter-spacing: 0.9px; }
+.ra-insp-nm { font-size: 12.5px; font-weight: bold; height: 17px; color: #1a1d21; }
+.ra-eye { font-size: 12px; height: 16px; color: #7b8190; padding: 2px 5px; }
+.ra-section { display: flex; flex-direction: column; border: 1px solid #e7e9ee; padding: 9px 10px 11px; }
+.ra-h3 { font-size: 10px; font-weight: bold; height: 12px; color: #aab0bb; letter-spacing: 0.9px; padding: 0 0 8px; }
+.ra-fields { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+.ra-f {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px;
+  background-color: #f6f7f9; border: 1px solid #f6f7f9; border-radius: 7px;
+  padding: 4px 8px; height: 26px; min-height: 26px;
+}
+.ra-f:focus { border: 1px solid #0d6efd; background-color: #ffffff; }
+.ra-f-half { width: 116px; min-width: 116px; }
+.ra-f-wide { width: 100%; }
+.ra-f-lab { font-size: 11px; height: 15px; color: #aab0bb; }
+.ra-f-val { font-size: 12px; height: 16px; color: #1a1d21; flex-grow: 1; }
+.ra-swatch { width: 15px; min-width: 15px; height: 15px; border-radius: 4px; border: 1px solid #e7e9ee; }
+.ra-pct { font-size: 12px; height: 16px; color: #1a1d21; }
+.ra-unit { font-size: 10.5px; height: 16px; color: #aab0bb; }
+.ra-chip {
+  display: flex; flex-direction: row; align-items: center;
+  border: 1px solid #e7e9ee; border-radius: 999px; padding: 4px 8px; height: 24px; min-height: 24px;
+}
+.ra-chip-t { font-size: 11px; height: 14px; color: #7b8190; }
+.ra-note { font-size: 11px; height: 15px; color: #aab0bb; padding: 7px 1px 0; }
+.ra-props { font-size: 11.5px; height: 17px; color: #7b8190; }
+.ra-props-box { display: flex; flex-direction: column; padding: 12px 10px; }
+
+/* ---- the status strip --------------------------------------------------- */
+.ra-footer {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 16px; padding: 5px 12px; height: 27px; min-height: 27px;
+  border: 1px solid #e7e9ee; background-color: #ffffff;
+}
+.ra-foot-t { font-size: 11.5px; height: 16px; color: #7b8190; }
+.ra-foot-b { font-size: 11.5px; height: 16px; font-weight: bold; color: #1a1d21; }
+.ra-foot-status { font-size: 11.5px; height: 16px; color: #1a1d21; }
+
+/* ---- what Rave adds to Rafi's chrome ------------------------------------ */
+/* The top bar: brand, Design | Run, the session, the file. */
+.ra-top {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 8px; padding: 0 12px; height: 44px; min-height: 44px;
+  background-color: #ffffff; border: 1px solid #e7e9ee;
+}
+.ra-brand { font-size: 13px; font-weight: bold; height: 17px; color: #1a1d21; }
+.ra-docname { font-size: 12.5px; height: 17px; color: #7b8190; }
+.ra-modes {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 2px; padding: 3px; border-radius: 9px; background-color: #f2f4f8;
+}
+.ra-modes .ra-tab { border-radius: 7px; padding: 5px 12px; }
+.ra-modes .ra-tab-on { background-color: #ffffff; }
+.ra-path { font-size: 12.5px; height: 17px; color: #1a1d21; font-weight: bold; padding: 0 6px; }
+.ra-sep { width: 1px; min-width: 1px; height: 18px; background-color: #e7e9ee; }
+
+/* The routes list carries the title on the right. */
+.ra-page-ti { font-size: 11px; height: 15px; color: #aab0bb; }
+
+/* Layer tools: a row of small buttons over the tree. */
+.ra-treetools {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 3px; padding: 4px 8px; border: 1px solid #f0f1f4;
+}
+.ra-tool-s { display: flex; flex-direction: row; align-items: center; border-radius: 6px; padding: 4px 7px; height: 24px; min-height: 24px; background-color: #f6f7f9; }
+.ra-tool-s:hover { background-color: #e8f1fe; }
+.ra-carry {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 6px; padding: 5px 10px; background-color: #fff7e6;
+}
+.ra-carry-t { font-size: 11.5px; height: 15px; color: #b45309; flex-grow: 1; }
+.ra-treerow-carry { background-color: #fff7e6; }
+.ra-pick-root .ra-nm { font-weight: bold; }
+.ra-pick-on { background-color: #e8f1fe; border-radius: 5px; }
+.ra-warn { font-size: 11px; height: 14px; color: #b45309; }
+.ra-focusable { font-size: 10px; height: 14px; color: #aab0bb; }
+
+/* Over the stage: a label per viewport, a box round the selection, and the
+   tab-order badges. All absolutely placed from the last layout. */
+.ra-vplabel {
+  position: absolute; display: flex; flex-direction: row; align-items: center;
+  padding: 2px 6px; border-radius: 4px; height: 18px; min-height: 18px;
+  background-color: #ffffff; border: 1px solid #e7e9ee;
+}
+.ra-vplabel-on { border: 1px solid #0d6efd; }
+.ra-vplabel-t { font-size: 10.5px; height: 13px; color: #7b8190; }
+.ra-vplabel-on .ra-vplabel-t { color: #0d6efd; }
+.ra-selbox { position: absolute; border: 2px solid #0d6efd; }
+.ra-tabbadge {
+  position: absolute; display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 18px; min-width: 18px; height: 18px; min-height: 18px; border-radius: 9px;
+  background-color: #16a34a;
+}
+.ra-tabbadge-t { font-size: 10px; height: 12px; color: #ffffff; font-weight: bold; }
+
+/* The inspector's extras. */
+.ra-f-edit { border: 1px solid #0d6efd; background-color: #ffffff; }
+.ra-f-ar { font-size: 9px; height: 16px; color: #aab0bb; }
+.ra-chips { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 4px; }
+.ra-chip-on { border: 1px solid #0d6efd; background-color: #e8f1fe; }
+.ra-chip-on .ra-chip-t { color: #0d6efd; }
+.ra-resp {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px;
+  padding: 4px 6px; border-radius: 5px; height: 24px; min-height: 24px;
+}
+.ra-resp:hover { background-color: #f2f4f8; }
+.ra-resp-k { font-size: 11px; height: 14px; color: #0d6efd; width: 64px; min-width: 64px; font-weight: bold; }
+.ra-resp-v { font-size: 11px; height: 14px; color: #7b8190; }
+.ra-warnline { font-size: 11px; height: 15px; color: #b45309; }
+.ra-okline { font-size: 11px; height: 15px; color: #16a34a; }
+.ra-problem {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px;
+  padding: 3px 4px; border-radius: 5px; height: 22px; min-height: 22px;
+}
+.ra-problem:hover { background-color: #fff7e6; }
+.ra-code { font-family: Menlo; font-size: 11px; height: 15px; color: #1a1d21; }
+.ra-code-dim { color: #aab0bb; }
+.ra-codeline { display: flex; flex-direction: row; align-items: center; height: 19px; min-height: 19px; padding: 2px 2px; border-radius: 4px; }
+.ra-codeline:hover { background-color: #f2f4f8; }
+.ra-codeline-add .ra-code { color: #0d6efd; }
+
+/* ---- the inspector's inputs ---------------------------------------------- */
+/* A text box inside a field: the value, the selection behind it and the
+   caret in it are placed from the same measurement the painter uses. */
+.ra-f-in { position: relative; display: flex; flex-direction: row; align-items: center; flex-grow: 1; height: 16px; min-height: 16px; min-width: 20px; overflow: hidden; }
+.ra-f-sel { position: absolute; top: 0; height: 16px; background-color: #cfe3ff; }
+.ra-f-caret { position: absolute; top: 1px; width: 1px; min-width: 1px; height: 14px; background-color: #1a1d21; }
+.ra-f-open { border: 1px solid #0d6efd; }
+/* The unit half of a length: its own control, so "px" is picked, not typed. */
+.ra-f-unit {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 2px;
+  padding: 1px 4px; border-radius: 4px; background-color: #ffffff; border: 1px solid #e7e9ee;
+  height: 18px; min-height: 18px;
+}
+.ra-f-unit:hover { border: 1px solid #0d6efd; }
+.ra-f-unit-t { font-size: 10.5px; height: 14px; color: #7b8190; }
+/* − [ track ] + under a length while it is edited. */
+.ra-f-help {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px;
+  width: 100%; padding: 2px 0 4px;
+}
+.ra-f-track { position: relative; flex-grow: 1; height: 6px; min-height: 6px; border-radius: 3px; background-color: #e7e9ee; cursor: pointer; }
+.ra-f-range { height: 6px; min-height: 6px; border-radius: 3px; background-color: #0d6efd; }
+.ra-f-hint { font-size: 10px; height: 13px; color: #aab0bb; }
+/* An open list, under its field. */
+.ra-menu {
+  display: flex; flex-direction: column; width: 100%; padding: 4px;
+  background-color: #ffffff; border: 1px solid #e7e9ee; border-radius: 7px;
+}
+.ra-opt { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 5px; height: 24px; min-height: 24px; }
+.ra-opt:hover { background-color: #f2f4f8; }
+.ra-opt-on { background-color: #e8f1fe; }
+.ra-opt-tick { font-size: 11px; height: 14px; color: #0d6efd; width: 12px; min-width: 12px; }
+.ra-opt-t { font-size: 12px; height: 16px; color: #1a1d21; }

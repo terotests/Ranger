@@ -1,0 +1,91 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RaveRouter — where the app is, and where it may go
+; =============================================================================
+; A path, a history, and one guard: a protected route reached logged out
+; sends the app to the login route and remembers where it was going, and
+; `Login` takes it there. Nothing here draws; the runtime asks `current()`
+; and builds that route's layout and page.
+; =============================================================================
+
+Import "RaveDoc.rgr"
+Import "RaveAuth.rgr"
+
+class RaveRouter {
+    def app:RaveApp (new RaveApp(""))
+    def auth:RaveAuth (new RaveAuth())
+    def path:string "/"
+    def history:[string]
+    ; The protected path a logged-out visitor asked for, to go back to.
+    def returnTo:string ""
+    ; The last navigation that was refused, for the status strip.
+    def lastRefused:string ""
+
+    Constructor (a:RaveApp au:RaveAuth) {
+        app = a
+        auth = au
+    }
+
+    fn current:RaveRoute () {
+        return (app.routeAt(path))
+    }
+
+    fn currentTitle:string () {
+        def r:RaveRoute (this.current())
+        return r.title
+    }
+
+    ; Go there, subject to the guard. Answers whether the path changed.
+    fn navigate:boolean (to:string) {
+        if ((app.hasRoute(to)) == false) {
+            lastRefused = to
+            return false
+        }
+        def r:RaveRoute (app.routeAt(to))
+        def dest:string to
+        if (r.protected && (auth.loggedIn == false)) {
+            if (app.authEnabled == false) {
+                lastRefused = to
+                return false
+            }
+            returnTo = to
+            dest = app.loginRoute
+        }
+        if (dest == path) {
+            return false
+        }
+        push history path
+        path = dest
+        return true
+    }
+
+    fn back:boolean () {
+        if ((array_length history) == 0) {
+            return false
+        }
+        def prev:string (last history)
+        removeLast history
+        path = prev
+        return true
+    }
+
+    ; After `Login`: the page that was asked for, or the app's landing page.
+    fn afterLogin:boolean () {
+        def to:string app.afterLogin
+        if ((strlen returnTo) > 0) {
+            to = returnTo
+            returnTo = ""
+        }
+        return (this.navigate(to))
+    }
+
+    ; After `Logout`: off any protected page.
+    fn afterLogout:boolean () {
+        def r:RaveRoute (this.current())
+        if r.protected {
+            return (this.navigate("/"))
+        }
+        return false
+    }
+}

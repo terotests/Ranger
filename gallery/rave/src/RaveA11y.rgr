@@ -1,0 +1,197 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RaveA11y — accessibility as part of the structure, not an audit at the end
+; =============================================================================
+; The structure guarantees the easy half: a Button IS a button, a Dialog does
+; trap focus, an input carries its label. This file reports the half that
+; needs a person — an unlabelled field, text too faint on its background, a
+; focusable thing with no name — and answers the tab order so the editor can
+; draw it. Everything here reads the laid-out tree the runtime already has.
+; =============================================================================
+
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../evg/EVGFocus.rgr"
+
+class RaveA11y {
+
+    ; --- contrast -------------------------------------------------------------
+
+    sfn channel:double (v:double) {
+        def c:double (v / 255.0)
+        if (c <= 0.03928) {
+            return (c / 12.92)
+        }
+        ; ((c + 0.055) / 1.055) ^ 2.4, without a power operator: x^2.4 is
+        ; x² times the fifth root of x², and the fifth root is a Newton walk.
+        def base:double ((c + 0.055) / 1.055)
+        def sq:double (base * base)
+        return (sq * (RaveA11y.root5(sq)))
+    }
+
+    sfn root5:double (y:double) {
+        if (y <= 0.0) {
+            return 0.0
+        }
+        def r:double 1.0
+        def i:int 0
+        while (i < 40) {
+            def r4:double (((r * r) * r) * r)
+            r = (r - (((r4 * r) - y) / (5.0 * r4)))
+            i = (i + 1)
+        }
+        return r
+    }
+
+    sfn luminance:double (c:EVGColor) {
+        def r:double (RaveA11y.channel(c.r))
+        def g:double (RaveA11y.channel(c.g))
+        def b:double (RaveA11y.channel(c.b))
+        return (((0.2126 * r) + (0.7152 * g)) + (0.0722 * b))
+    }
+
+    sfn ratio:double (fg:EVGColor bg:EVGColor) {
+        def l1:double (RaveA11y.luminance(fg))
+        def l2:double (RaveA11y.luminance(bg))
+        if (l1 < l2) {
+            def t:double l1
+            l1 = l2
+            l2 = t
+        }
+        return ((l1 + 0.05) / (l2 + 0.05))
+    }
+
+    sfn tenths:string (v:double) {
+        def whole:int (to_int v)
+        def frac:int (to_int ((v - (to_double whole)) * 10.0))
+        return ((to_string whole) + "." + (to_string frac))
+    }
+
+    ; Every text node of the document whose colour sits under 4.5:1 on the
+    ; nearest painted background. Only nodes the document owns (`n<id>`) are
+    ; reported, so a caption the builder made for a button is judged as the
+    ; button.
+    sfn contrast:[string] (page:EVGElement) {
+        def out:[string]
+        def white:EVGColor (EVGColor.rgb(255 255 255))
+        RaveA11y.walkContrast(page white out)
+        return out
+    }
+
+    sfn ownedId:string (el:EVGElement) {
+        if ((strlen el.id) < 2) {
+            return ""
+        }
+        if ((charAt el.id 0) != 110) {
+            return ""
+        }
+        def c:int (charAt el.id 1)
+        if ((c < 48) || (c > 57)) {
+            return ""
+        }
+        return el.id
+    }
+
+    sfn walkContrast:void (el:EVGElement bg:EVGColor out:[string]) {
+        if (el.isHidden()) {
+            return
+        }
+        def here:EVGColor bg
+        def own@(optional):EVGColor el.backgroundColor
+        if own {
+            def o:EVGColor (unwrap own)
+            if (o.isSet && (o.a > 0.5)) {
+                here = o
+            }
+        }
+        if (el.isText()) {
+            if ((strlen (trim el.textContent)) > 0) {
+                def fgMaybe@(optional):EVGColor el.color
+                if fgMaybe {
+                    def fg:EVGColor (unwrap fgMaybe)
+                    if fg.isSet {
+                        def r:double (RaveA11y.ratio(fg here))
+                        if (r < 4.5) {
+                            def id:string (RaveA11y.ownedId(el))
+                            if ((strlen id) == 0) {
+                                if (el.hasParent()) {
+                                    def p:EVGElement (unwrap el.parent)
+                                    id = (RaveA11y.ownedId(p))
+                                }
+                            }
+                            if ((strlen id) > 0) {
+                                push out (id + ": text contrast " + (RaveA11y.tenths(r)) + ":1 on its background; 4.5:1 is the floor")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            RaveA11y.walkContrast((el.getChild(i)) here out)
+            i = (i + 1)
+        }
+    }
+
+    ; --- problems, by node --------------------------------------------------------
+
+    ; The node an `id: message` line is about, or "" for a whole-tree note.
+    sfn nodeOf:string (problem:string) {
+        def at:int (indexOf problem ": ")
+        if (at <= 0) {
+            return ""
+        }
+        def head:string (substring problem 0 at)
+        if ((strlen head) < 2) {
+            return ""
+        }
+        if ((charAt head 0) != 110) {
+            return ""
+        }
+        def i:int 1
+        while (i < (strlen head)) {
+            def c:int (charAt head i)
+            if ((c < 48) || (c > 57)) {
+                return ""
+            }
+            i = (i + 1)
+        }
+        return head
+    }
+
+    sfn messageOf:string (problem:string) {
+        def at:int (indexOf problem ": ")
+        if (at <= 0) {
+            return problem
+        }
+        return (substring problem (at + 2) (strlen problem))
+    }
+
+    sfn countFor:int (problems:[string] id:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length problems)) {
+            if ((RaveA11y.nodeOf((itemAt problems i))) == id) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; --- tab order -----------------------------------------------------------------
+
+    sfn tabOrder:[string] (page:EVGElement) {
+        def f (new EVGFocus())
+        f.scan(page)
+        def out:[string]
+        def i:int 0
+        while (i < (f.count())) {
+            push out (f.idAt(i))
+            i = (i + 1)
+        }
+        return out
+    }
+}
