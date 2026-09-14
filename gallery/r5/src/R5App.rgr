@@ -802,8 +802,8 @@ class R5App {
     fn syncDeckToMd:boolean () {
         def ok:boolean (md.syncDeckTextToMd())
         if (! ok) { return false }
-        this.syncMdToEditor()
         this.refreshDeckBaseKeys()
+        this.syncMdToEditor()
         chromeRev = (chromeRev + 1)
         return true
     }
