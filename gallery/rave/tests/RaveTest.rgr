@@ -459,6 +459,134 @@ class RaveTest {
         RaveTest.lintClean(c rt3 0 "the empty project lints clean")
     }
 
+    ; --- the ten-minute test ----------------------------------------------------------------
+
+    ; PLAN_RAVE's acceptance test for M5, as one script and in one order:
+    ;
+    ;   the wizard → a working app on the stage → run it → a protected page
+    ;   asks for a sign-in → sign in FROM THE KEYBOARD on the phone frame →
+    ;   the dashboard → settings → and every route, at every width, drawn
+    ;   with nothing the engine rejected and nothing the lint objects to.
+    ;
+    ; Nothing here reaches past the editor: every step is a press or a key,
+    ; the way a person would do it.
+    sfn tenMinuteTest:void (c:Check) {
+        print ""
+        print "--- the ten-minute test ---"
+        def ed (new RaveEditor())
+        ed.init((RaveTest.chromeCss()))
+        ed.setPageSize(1440.0 860.0)
+
+        ; --- the wizard ---------------------------------------------------------
+        ed.press("file:new")
+        ed.press("wiz:name")
+        ed.keyWith("a" false true)
+        RaveTest.typeText(ed "Northwind")
+        ed.keyWith("Enter" false false)
+        ed.press("wiz:start:dashboard")
+        ed.press("wiz:nav:sidebar")
+        c.ok("the wizard makes the project" (ed.press("wiz:create")))
+        def doc:RaveApp ed.doc
+        def rt:RaveRuntime (ed.runtime())
+        c.eqStr("…named as asked" doc.name "Northwind")
+        c.eqInt("…on three frames, one per target" (rt.viewCount()) 3)
+        def board:string (ed.boardJson())
+        c.ok("…and the first thing on the screen is the application" (RaveTest.includes(board "Welcome to Northwind")))
+        c.ok("…drawn at every width at once" (RaveTest.includes(board "\"view\":[")))
+
+        ; --- run it -------------------------------------------------------------
+        c.ok("Run hands the stage to the app" (ed.press("mode:run")))
+        c.eqStr("…starting at /" (ed.path()) "/")
+        c.ok("…logged out" (rt.auth.loggedIn == false))
+
+        ; --- a protected page asks for a sign-in --------------------------------
+        def toDash:int (doc.idWithAction("navigate" "/dashboard"))
+        def dashEl:string (RaveTest.elId(toDash))
+        def dx:double (ed.stageCentreX(0 dashEl))
+        def dy:double (ed.stageCentreY(0 dashEl))
+        c.ok("a press on Dashboard reaches the app" (ed.pointerDown(dx dy)))
+        c.eqStr("…and the guard sends it to the login page" (ed.path()) "/login")
+
+        ; --- sign in from the keyboard, on the phone ----------------------------
+        c.ok("the keyboard talks to the phone frame" (ed.press("vp:2")))
+        def loginRoute:RaveRoute (doc.routeAt("/login"))
+        def loginPage:RaveNode (doc.node(loginRoute.pageId))
+        def signIn:string (RaveTest.elId((doc.findWithAction(loginPage "login" ""))))
+        def steps:int 0
+        def reached:boolean false
+        while ((steps < 12) && (reached == false)) {
+            ed.keyWith("Tab" false false)
+            if ((rt.focusedId(2)) == signIn) {
+                reached = true
+            }
+            steps = (steps + 1)
+        }
+        c.ok("Tab reaches the Sign in button on the phone" reached)
+        c.ok("Enter presses it" (ed.keyWith("Enter" false false)))
+        c.ok("…and the session is signed in" rt.auth.loggedIn)
+        c.eqStr("…landing on the page that was asked for" (ed.path()) "/dashboard")
+
+        ; --- the phone is a phone -----------------------------------------------
+        def sidebar:string (RaveTest.elId((doc.idOfNamed("aside" "Sidebar"))))
+        c.ok("1440 keeps the sidebar" (rt.isShown(0 sidebar)))
+        c.ok("390 folds it away" ((rt.isShown(2 sidebar)) == false))
+        def dashRoute:RaveRoute (doc.routeAt("/dashboard"))
+        def dashPage:RaveNode (doc.node(dashRoute.pageId))
+        def card1:string (RaveTest.elId((doc.findIn(dashPage "section" "Revenue"))))
+        def card2:string (RaveTest.elId((doc.findIn(dashPage "section" "Users"))))
+        c.ok("1440 puts two cards on one row" (RaveTest.near((rt.topOf(0 card1)) (rt.topOf(0 card2)))))
+        c.ok("390 puts them one above the other" (((RaveTest.near((rt.topOf(2 card1)) (rt.topOf(2 card2)))) == false)))
+
+        ; --- and on to settings --------------------------------------------------
+        ed.press("vp:0")
+        def toSettings:string (RaveTest.elId((doc.idWithAction("navigate" "/settings"))))
+        def sx:double (ed.stageCentreX(0 toSettings))
+        def sy:double (ed.stageCentreY(0 toSettings))
+        c.ok("a press on Settings reaches the app" (ed.pointerDown(sx sy)))
+        c.eqStr("…at /settings" (ed.path()) "/settings")
+        c.ok("…and the form is drawn" (RaveTest.includes((ed.boardJson()) "Display name")))
+
+        ; --- every route, every width --------------------------------------------
+        def bad:[string]
+        def ri:int 0
+        while (ri < (array_length doc.routes)) {
+            def route:RaveRoute (itemAt doc.routes ri)
+            rt.jump(route.path)
+            ed.boardJson()
+            def v:int 0
+            while (v < 3) {
+                def problems:[string] (rt.lint(v))
+                def pi:int 0
+                while (pi < (array_length problems)) {
+                    push bad (route.path + " @" + (to_string v) + ": " + (itemAt problems pi))
+                    pi = (pi + 1)
+                }
+                def warn:int (rt.layoutWarningCount(v))
+                def wi:int 0
+                while (wi < warn) {
+                    push bad (route.path + " @" + (to_string v) + ": " + (rt.layoutWarning(v wi)))
+                    wi = (wi + 1)
+                }
+                v = (v + 1)
+            }
+            ri = (ri + 1)
+        }
+        c.eqInt("every route lints clean at every width, and the engine rejects nothing" (array_length bad) 0)
+        if ((array_length bad) > 0) {
+            RaveTest.printAll(bad)
+        }
+
+        ; --- and it is a document somebody can put away and open again ------------
+        def text:string (doc.toJson())
+        c.ok("the project saves" ((strlen text) > 1000))
+        def ed2 (new RaveEditor())
+        ed2.init((RaveTest.chromeCss()))
+        ed2.setPageSize(1440.0 860.0)
+        c.ok("…and opens" (ed2.openJson(text)))
+        c.eqStr("…as the same application" ed2.doc.name "Northwind")
+        c.eqStr("…with the same text" (ed2.doc.toJson()) text)
+    }
+
     ; --- the kit ---------------------------------------------------------------------------
 
     ; Every entry in the Components pane, dropped onto a page one at a time.
@@ -1112,6 +1240,7 @@ class RaveTest {
         RaveTest.layoutChecks(c)
         RaveTest.wizardChecks(c)
         RaveTest.kitChecks(c)
+        RaveTest.tenMinuteTest(c)
         RaveTest.editorChecks(c)
         RaveTest.inputChecks(c)
 

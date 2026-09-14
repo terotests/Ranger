@@ -433,7 +433,7 @@ Ranger functions that return a `RaveApp` (or a fragment inserted into one):
 
 | Pattern | What it produces |
 |---|---|
-| `Dashboard Shell` | layout: header + sidebar + main + footer; routes `/`, `/dashboard`, `/settings`, `/profile`; sidebar collapses to a top bar under `md` |
+| `Dashboard Shell` | layout: header + sidebar + main + footer; routes `/`, `/dashboard`, `/settings`, `/profile`; sidebar collapses to a top bar under `md`. `applyNav` then moves that one `nav` node where the wizard's answer says — the header for a top bar, a bar above the footer for tabs, away for none — rather than building a second one |
 | `Auth Flow` | `/login`, `/signup`, `/forgot`; `Login` action; all other routes protected |
 | `Settings Layout` | left tab list + right form area; stacks under `md` |
 | `Master / Detail` | list route + `/items/:id` route; two columns, one column on mobile with `Back` |
@@ -508,7 +508,7 @@ written as a smoke script.
 | **M2 Editing** ✅ | insert from Components (`RaveKit`), reorder / reparent by pick-and-drop on the stage and in Layers plus ↑ ↓ ← →, delete / duplicate / wrap, Design fields and cycle fields write rules, breakpoint chips + Responsive rows, CSS tab parsed through `parseDeclarations`, undo/redo over `OfficeHistory@(RaveOp)`, save/open `app.rave.json` (`RaveJson`) | every mutation round-trips through undo; a rule edited in CSS shows in Design and vice versa |
 | **M3 Run** ✅ | `Design \| Run` switch, stage presses and keys go to the runtime's active view, logged-in toggle, last-key badge in the strip, theme picker | the M0 script, driven through the editor's `press`/`keyWith`, with the stage in Run |
 | **M4 Accessibility** ✅ | A11y inspector tab (the active view's tree beside Layers, every problem clickable), ⚠ on layer rows, `RaveA11y.contrast` with a real gamma curve, tab-order badges on the stage | a pattern with a deliberately unlabelled input reports exactly one warning; Tab from the login field reaches the login button |
-| **M5 New project + patterns + kit** | the wizard; all six patterns; the kit table complete, new `*Ctl`s in `gallery/ui` with conformance specs | **the ten-minute test**: wizard → login → dashboard → settings → mobile → keyboard, as one script |
+| **M5 New project + patterns + kit** ✅ | the wizard (`File → New` as a sheet, four questions, `RavePatterns.fromChoices` as the answer); all six patterns; the kit table complete — thirty-six entries in six groups. The document gained what the patterns needed: collections with `repeat`, route parameters with `source`/`{field}`, overlays and toasts, nested layouts, and typing into the app's own inputs. The engine gained `viewportRoot`, so `fixed` means the frame it is in rather than the stage. The four anchored controls (Popover, Tooltip, HoverCard, Dropdown/Context menu) wait on an anchor in the document model — see `rave/README.md` | **the ten-minute test**: wizard → login → dashboard → settings → mobile → keyboard, as one script, plus every kit entry dropped and linted at three widths |
 | **M6 Export** | `File → Export`, the static app folder, `location.hash` routing | export a pattern, serve it, run the M0 script against `generated.js` |
 | **M7 Polish** | gradients, shadows, effects, image fills, component property panels, route graph diagram, dark theme editing | — |
 
