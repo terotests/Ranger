@@ -90,6 +90,9 @@ action is an `<on click="…" arg="…"/>` child. Every layout needs exactly one
 - **Accessibility is checked, not suggested.** Every input needs a `label`,
   every img an `alt`, every button words or a `label`, headings go down one
   level at a time, and text must reach 4.5:1 against its ground.
+- **A box is stretched across its parent unless it says otherwise.** A button
+  with `width: fit-content` in a column still fills the width; it needs
+  `align-self: flex-start` too, or the parent needs `align-items: flex-start`.
 - **`auth="on"` makes `protected="yes"` routes real.** A protected route
   reached logged out goes to the login route and comes back after `<on
   click="login"/>`.

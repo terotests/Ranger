@@ -32,6 +32,8 @@ The same thing from a terminal: `npm run rave -- check app.rave`,
   `repeat(auto-fit, …)`, `box-shadow`, `transform`, `transition` and the
   per-side border shorthands do not exist.** A rule that uses one is dropped
   silently, and `rave_check` is the only place that says so.
+- **A box is stretched across its parent unless it says otherwise** — a button
+  with `width: fit-content` needs `align-self: flex-start` as well.
 - **Accessibility is checked, not suggested**: every input a `label`, every img
   an `alt`, every button words or a `label`, headings one level at a time,
   4.5:1 contrast.
