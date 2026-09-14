@@ -18,10 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scaled picture of the file, the same idea as VS Code's and Monaco's: each
   token is a coloured speck, the slider is the viewport, a problem is a tick,
   and a click or a drag there jumps the view without moving the caret. The
-  strip is the whole file, so the pointer names the line that becomes the
-  top of the view — a finger on r5 is not converted into a line-by-line
-  flick. A panel too narrow to spare the strip hides it. The same map shows
-  on the r5 page, on the light theme.
+  picture keeps a compact scale (two pixels a line, shrinking only when the
+  file would not fit); the pointer's place on that picture, as a fraction of
+  its height, is how far the editor scrolls. On r5 a finger on the strip
+  stays a pointer, not a line-by-line flick. A panel too narrow to spare
+  the strip hides it. The same map shows on the r5 page, on the light theme.
 
 - **FigJam boards draw.** A sticky, a shape with text, a connector and a table
   carry no children: Figma builds their layers itself and a `.jam` ships only

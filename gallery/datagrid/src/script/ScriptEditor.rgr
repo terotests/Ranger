@@ -486,19 +486,42 @@ class ScriptEditor {
         return (py < bottom)
     }
 
-    ; Pixels of minimap height per source line. The strip is the whole file,
-    ; so a finger on the map is a place in the document — not a 2px band at
-    ; the top with a dead zone below it.
+    ; Pixels of minimap height per source line. Two is the usual size; a
+    ; file that would not fit is scaled so the picture still sits in the
+    ; strip. Short files stay a compact picture at the top — they are not
+    ; stretched to fill the editor.
     fn minimapScale:double () {
         def n:int (buf.lineCount())
-        def h:double (to_double layout.h)
         if (n < 1) {
-            return 1.0
+            return 2.0
+        }
+        def h:double (to_double layout.h)
+        if (h < 1.0) {
+            return 2.0
+        }
+        def px:double 2.0
+        def need:double ((to_double n) * px)
+        if (need > h) {
+            px = (h / (to_double n))
+        }
+        return px
+    }
+
+    ; How tall the specks actually are, which is what a pointer on the
+    ; strip is measured against. Empty space below a short file is not
+    ; part of the picture.
+    fn minimapPictureH:double () {
+        def n:int (buf.lineCount())
+        def px:double (this.minimapScale())
+        def h:double ((to_double n) * px)
+        def maxH:double (to_double layout.h)
+        if (h > maxH) {
+            return maxH
         }
         if (h < 1.0) {
             return 1.0
         }
-        return (h / (to_double n))
+        return h
     }
 
     fn minimapLineAt:int (py:int) {
@@ -525,12 +548,35 @@ class ScriptEditor {
         return line
     }
 
-    ; The line under the pointer becomes the top of the view. A click is a
-    ; jump to that place, not a relative nudge, so the finger names the
-    ; spot the document goes to.
+    ; The scrollbar square sits on the picture. The pointer's Y as a
+    ; fraction of that picture's height is the editor's scroll as a
+    ; fraction of how far it can go — empty space below the specks does
+    ; not stretch the mapping.
     fn jumpMinimap:void (py:int) {
-        def line:int (this.minimapLineAt(py))
-        layout.scrollLine = line
+        def n:int (buf.lineCount())
+        def vis:int (layout.visibleLineCount())
+        def maxScroll:int (n - vis)
+        if (maxScroll < 0) {
+            maxScroll = 0
+        }
+        def picH:double (this.minimapPictureH())
+        def local:double ((to_double py) - (to_double layout.y))
+        if (local < 0.0) {
+            local = 0.0
+        }
+        if (local > picH) {
+            local = picH
+        }
+        def t:double 0.0
+        if (picH > 0.0001) {
+            t = (local / picH)
+        }
+        if (t > 1.0) {
+            t = 1.0
+        }
+        def maxD:double (to_double maxScroll)
+        def scrolled:int (to_int ((t * maxD) + 0.5))
+        layout.scrollLine = scrolled
         layout.clampScroll(buf)
     }
 
@@ -1061,15 +1107,22 @@ class ScriptEditor {
         ; The slider: the visible window, drawn last so it tints the specks
         ; rather than hiding them.
         def vis:int (layout.visibleLineCount())
+        def picH:double (this.minimapPictureH())
         def sliderY:double (y0 + ((to_double layout.scrollLine) * scale))
         def sliderH:double ((to_double vis) * scale)
+        def picBottom:double (y0 + picH)
+        if (sliderH > picH) {
+            sliderH = picH
+        }
         if (sliderH < 8.0) {
             sliderH = 8.0
+            if (sliderH > picH) {
+                sliderH = picH
+            }
         }
         def sliderBottom:double (sliderY + sliderH)
-        def mapBottom:double (y0 + h0)
-        if (sliderBottom > mapBottom) {
-            sliderH = (mapBottom - sliderY)
+        if (sliderBottom > picBottom) {
+            sliderH = (picBottom - sliderY)
         }
         if (sliderY < y0) {
             sliderH = (sliderH - (y0 - sliderY))

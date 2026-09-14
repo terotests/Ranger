@@ -455,17 +455,24 @@ class ScriptEditorTest {
         c.ok("the bottom is near the end of the file" (bot > 40))
         def caretWas:int mm.sel.caret.line
         c.eqInt("starts unscrolled" mm.layout.scrollLine 0)
-        def pointed:int (mm.minimapLineAt(200))
-        c.ok("a click on the map is consumed" (mm.tryMinimapPointer(600 200)))
-        c.eqInt("and the view's top is the line under the pointer" mm.layout.scrollLine pointed)
+        def picH:double (mm.minimapPictureH())
+        c.ok("the picture is shorter than the editor" (picH < 400.0))
+        def halfY:int (to_int (picH / 2.0))
+        c.ok("a click on the picture is consumed" (mm.tryMinimapPointer(600 halfY)))
+        def halfAt:int mm.layout.scrollLine
+        c.ok("halfway down the picture is partway through the file" (halfAt > 10))
         c.eqInt("without moving the caret" mm.sel.caret.line caretWas)
-        def midAt:int mm.layout.scrollLine
-        mm.tryMinimapPointer(600 80)
+        mm.tryMinimapPointer(600 0)
+        c.eqInt("the top of the picture is the start of the file" mm.layout.scrollLine 0)
+        def picY:int (to_int picH)
+        mm.tryMinimapPointer(600 picY)
+        def endAt:int mm.layout.scrollLine
+        c.ok("the bottom of the picture is the end of the scroll" (endAt > halfAt))
+        mm.tryMinimapPointer(600 40)
         def higher:int mm.layout.scrollLine
-        mm.tryMinimapPointer(600 320)
+        mm.tryMinimapPointer(600 120)
         def lower:int mm.layout.scrollLine
-        c.ok("further down the map is further in the file" (lower > higher))
-        c.ok("and a drag toward the top goes back" (higher < midAt))
+        c.ok("further down the picture is further in the file" (lower > higher))
         mm.showMinimap = false
         c.eqInt("it can be turned off" (mm.minimapWidth()) 0)
         mm.showMinimap = true
