@@ -15,6 +15,7 @@
 <style class="brand">font-weight: 700; font-size: 16px; letter-spacing: 0.18em; color: var(--pitch-ink)</style>
 <style class="brand-sub">font-size: 10px; letter-spacing: 0.16em; color: var(--gold)</style>
 <style class="navlink">padding: 8px 12px; border-radius: 4px; color: var(--pitch-ink); cursor: pointer; font-size: 13px; letter-spacing: 0.04em</style>
+<style class="navlink" below="md">padding: 6px 8px; font-size: 12px</style>
 <style class="title">font-size: 36px; font-weight: 700; color: var(--ink); letter-spacing: -0.02em</style>
 <style class="subtitle">font-size: 16px; font-weight: 700; color: var(--ink)</style>
 <style class="muted">color: var(--muted)</style>
@@ -48,6 +49,21 @@
 <style class="shirt-num">font-size: 44px; font-weight: 700; color: var(--gold); letter-spacing: -0.04em</style>
 <style class="banner-name">font-size: 36px; font-weight: 700; color: var(--pitch-ink); letter-spacing: -0.03em</style>
 <style class="banner-meta">color: var(--pitch-ink); font-size: 15px</style>
+<style class="bowl">background-color: #081c14; padding: 12px; border-radius: 8px; gap: 8px</style>
+<style class="stand">background-color: var(--pitch-mid); color: var(--pitch-ink); align-items: center; justify-content: center; gap: 2px; border-radius: 4px; cursor: pointer; border: 1px solid var(--gold)</style>
+<style class="home">border: 2px solid var(--gold)</style>
+<style class="away">background-color: #1a241c; border: 1px solid var(--line)</style>
+<style class="vip">background-color: var(--pitch); border: 2px solid var(--gold)</style>
+<style class="stand-letter">font-size: 20px; font-weight: 700; color: var(--gold); letter-spacing: -0.03em</style>
+<style class="stand-name">font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: var(--pitch-ink)</style>
+<style class="track">background-color: #8b3a22; padding: 16px; border-radius: 4px; flex-grow: 1; min-width: 0; min-height: 0</style>
+<style class="field">background-color: var(--pitch-mid); flex-grow: 1; min-height: 0; border: 2px solid var(--pitch-ink); padding: 8px; justify-content: space-between; align-items: center</style>
+<style class="pen">width: 58%; height: 16%; border: 2px solid var(--pitch-ink); align-items: center</style>
+<style class="goal">width: 28%; height: 6px; background-color: var(--pitch-ink)</style>
+<style class="half-row">flex-direction: row; align-items: center; width: 100%</style>
+<style class="half">flex-grow: 1; height: 2px; background-color: var(--pitch-ink)</style>
+<style class="spot">width: 14px; height: 14px; border-radius: 999px; border: 2px solid var(--pitch-ink)</style>
+<style class="letter-xl">font-size: 56px; font-weight: 700; color: var(--gold); letter-spacing: -0.04em</style>
 
 <collection name="players" fields="id name number position club caps goals age bio">
   <row id="1" name="Lukas Hradecky" number="1" position="Maalivahti" club="Bayer Leverkusen" caps="94" goals="0" age="35" bio="Huuhkajien kapteeni. Seisoo linjalla rauhallisena ja puhuu puolustuksen kasaan."/>
@@ -60,9 +76,17 @@
   <row id="8" name="Oliver Antman" number="7" position="Hyökkääjä" club="Go Ahead Eagles" caps="18" goals="6" age="24" bio="Laita joka vie pallon linjan taa. Nuorin tässä kokoonpanossa, ja näkyy."/>
 </collection>
 
+<collection name="stands" fields="id letter name seats kind gate note">
+  <row id="a" letter="A" name="Pohjoiskaarre" seats="8 200" kind="Kotikatsomo" gate="A1–A4" note="Huuhkajien laulukuoro. Selkä pohjoiseen, kenttä edessä, torni vasemmalla."/>
+  <row id="b" letter="B" name="Itäkatsomo" seats="9 400" kind="Perhe" gate="B1–B6" note="Perhekatsomo. Vieraslohko B6:n päässä, juoksuradan takana."/>
+  <row id="c" letter="C" name="Eteläkaarre" seats="7 600" kind="Vieras" gate="C1–C3" note="Vierasjoukkueen kannattajat. Eteläkaarre, avoin taivas, ääni jää kentälle."/>
+  <row id="d" letter="D" name="Länsikatsomo" seats="11 000" kind="Pääkatsomo" gate="D1–D8" note="VIP, lehdistö ja torni. Paras näkymä keskikentälle, varjossa ilta-auringolta."/>
+</collection>
+
 <layout name="Shell" style="width: 100%; height: 100%; background-color: var(--bg); color: var(--ink); font-size: 14px">
   <header name="Header" label="Ylätunniste" style="flex-direction: column; height: 63px; background-color: var(--pitch)">
     <div name="Yläpalkki" style="flex-direction: row; align-items: center; justify-content: space-between; height: 60px; padding: 0 24px">
+      <media below="md" style="padding: 0 12px"/>
       <div name="Tunnus" style="flex-direction: row; align-items: center; gap: 12px">
         <div class="mark">H</div>
         <div name="Nimi" style="gap: 1px">
@@ -78,6 +102,9 @@
         </a>
         <a class="navlink">Pelaajat
           <on click="navigate" arg="/pelaajat"/>
+        </a>
+        <a class="navlink">Stadion
+          <on click="navigate" arg="/stadion"/>
         </a>
       </nav>
     </div>
@@ -318,6 +345,188 @@
   </section>
 </page>
 
+<page name="Stadion" style="gap: 16px">
+  <media below="md" style="gap: 10px"/>
+  <div name="Otsikko" style="gap: 4px">
+    <p class="kicker">HELSINKI · TÖÖLÖ · 1938</p>
+    <h1 class="title">Olympiastadion
+      <media below="md" style="font-size: 24px"/>
+    </h1>
+  </div>
+  <div name="Luvut" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px">
+    <media below="md" style="grid-template-columns: repeat(3, 1fr); gap: 8px"/>
+    <section class="stat" label="Paikkoja">
+      <div class="goldbar"></div>
+      <div class="stat-body">
+        <media below="md" style="padding: 10px 10px"/>
+        <p class="kicker">PAIKKAA</p>
+        <p class="stat-n">36 200
+          <media below="md" style="font-size: 20px"/>
+        </p>
+      </div>
+    </section>
+    <section class="stat" label="Katsomoita">
+      <div class="goldbar"></div>
+      <div class="stat-body">
+        <media below="md" style="padding: 10px 10px"/>
+        <p class="kicker">KATSOMOT</p>
+        <p class="stat-n">4
+          <media below="md" style="font-size: 20px"/>
+        </p>
+      </div>
+    </section>
+    <section class="stat" label="Seuraava ottelu">
+      <div class="goldbar"></div>
+      <div class="stat-body">
+        <media below="md" style="padding: 10px 10px"/>
+        <p class="kicker">14.10.</p>
+        <p class="stat-n">SLO
+          <media below="md" style="font-size: 20px"/>
+        </p>
+      </div>
+    </section>
+  </div>
+  <section class="bowl" name="Pohjapiirros" label="Olympiastadionin pohjapiirros" style="height: 400px">
+    <media below="md" style="height: 260px; padding: 8px; gap: 6px"/>
+    <media from="lg" style="height: 440px"/>
+    <a class="stand home" name="Pohjoinen" label="Pohjoiskaarre" style="height: 56px; flex-direction: row; gap: 12px">
+      <media below="md" style="height: 40px"/>
+      <span class="stand-letter">A</span>
+      <span class="stand-name">POHJOINEN · KOTI</span>
+      <on click="navigate" arg="/stadion/a"/>
+    </a>
+    <div name="Keskusta" style="flex-direction: row; flex-grow: 1; min-height: 0; gap: 8px">
+      <media below="md" style="gap: 6px"/>
+      <a class="stand vip" name="Länsi" label="Länsikatsomo" style="width: 72px">
+        <media below="md" style="width: 44px"/>
+        <span class="stand-letter">D</span>
+        <span class="stand-name">LÄNSI
+          <media below="md" style="display: none"/>
+        </span>
+        <span class="stand-name">VIP
+          <media below="md" style="display: none"/>
+        </span>
+        <on click="navigate" arg="/stadion/d"/>
+      </a>
+      <div class="track" name="Juoksurata" label="Juoksurata">
+        <media below="md" style="padding: 10px"/>
+        <div class="field" name="Kenttä" label="Pelialue">
+          <div class="pen" name="Pohjoinen rangaistusalue" style="justify-content: flex-start">
+            <div class="goal"></div>
+          </div>
+          <div class="half-row" name="Keskiviiva">
+            <div class="half"></div>
+            <div class="spot"></div>
+            <div class="half"></div>
+          </div>
+          <div class="pen" name="Eteläinen rangaistusalue" style="justify-content: flex-end">
+            <div class="goal"></div>
+          </div>
+        </div>
+      </div>
+      <a class="stand" name="Itä" label="Itäkatsomo" style="width: 72px">
+        <media below="md" style="width: 44px"/>
+        <span class="stand-letter">B</span>
+        <span class="stand-name">ITÄ
+          <media below="md" style="display: none"/>
+        </span>
+        <span class="stand-name">PERHE
+          <media below="md" style="display: none"/>
+        </span>
+        <on click="navigate" arg="/stadion/b"/>
+      </a>
+    </div>
+    <a class="stand away" name="Etelä" label="Eteläkaarre" style="height: 56px; flex-direction: row; gap: 12px">
+      <media below="md" style="height: 40px"/>
+      <span class="stand-letter">C</span>
+      <span class="stand-name">ETELÄ · VIERAS</span>
+      <on click="navigate" arg="/stadion/c"/>
+    </a>
+  </section>
+  <div name="Katsomot" repeat="stands" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px">
+    <media below="md" style="grid-template-columns: 1fr 1fr; gap: 8px"/>
+    <a class="pcard" label="{name}">
+      <media below="md" style="flex-direction: row; align-items: stretch"/>
+      <div class="card-head">
+        <media below="md" style="width: 48px; padding: 8px; justify-content: center"/>
+        <span class="num">{letter}</span>
+        <span class="role">{kind}
+          <media below="md" style="display: none"/>
+        </span>
+      </div>
+      <div class="card-body">
+        <media below="md" style="padding: 8px 10px; flex-grow: 1; min-width: 0; gap: 2px"/>
+        <h2 class="subtitle">{name}</h2>
+        <p class="muted">{gate}</p>
+        <div class="meta">
+          <media below="md" style="display: none"/>
+          <span class="meta-n">{seats}</span>
+        </div>
+      </div>
+      <on click="navigate" arg="/stadion/{id}"/>
+    </a>
+  </div>
+</page>
+
+<page name="Katsomo" source="stands" sourceKey="id" style="gap: 16px">
+  <a class="back">← Pohjapiirros
+    <on click="navigate" arg="/stadion"/>
+  </a>
+  <section class="banner" name="Katsomo" label="{name}">
+    <media below="md" style="flex-direction: column; align-items: flex-start; padding: 20px; gap: 16px"/>
+    <div class="shirt-xl">
+      <media below="md" style="width: 80px; height: 80px"/>
+      <span class="shirt-fin">KATSOMO</span>
+      <span class="letter-xl">{letter}
+        <media below="md" style="font-size: 40px"/>
+      </span>
+    </div>
+    <div name="Nimi" style="flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; flex-grow: 1">
+      <p class="kicker-gold">{kind}</p>
+      <div class="goldline"></div>
+      <h1 class="banner-name">{name}</h1>
+      <p class="banner-meta">Portti {gate}</p>
+    </div>
+  </section>
+  <div name="Tilastot" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px">
+    <media below="md" style="grid-template-columns: repeat(3, 1fr); gap: 8px"/>
+    <section class="stat" label="Paikkoja">
+      <div class="goldbar"></div>
+      <div class="stat-body">
+        <p class="kicker">PAIKKAA</p>
+        <p class="stat-n">{seats}</p>
+      </div>
+    </section>
+    <section class="stat" label="Tyyppi">
+      <div class="goldbar"></div>
+      <div class="stat-body">
+        <p class="kicker">TYYPPI</p>
+        <p class="stat-n">{kind}
+          <media below="md" style="font-size: 16px"/>
+        </p>
+      </div>
+    </section>
+    <section class="stat" label="Portti">
+      <div class="goldbar"></div>
+      <div class="stat-body">
+        <p class="kicker">PORTTI</p>
+        <p class="stat-n">{gate}
+          <media below="md" style="font-size: 16px"/>
+        </p>
+      </div>
+    </section>
+  </div>
+  <section class="stat" name="Teksti" label="Katsomo">
+    <div class="goldbar"></div>
+    <div class="stat-body">
+      <p class="kicker">NÄKYMÄ</p>
+      <p class="bio">{note}</p>
+    </div>
+  </section>
+</page>
+
 <route path="/" title="Joukkue" page="Joukkue" layout="Shell"/>
 <route path="/pelaajat" title="Pelaajat" page="Pelaajat" layout="Shell"/>
 <route path="/pelaajat/:id" title="Pelaaja" page="Pelaaja" layout="Shell"/>
+<route path="/stadion" title="Stadion" page="Stadion" layout="Shell"/>
+<route path="/stadion/:id" title="Katsomo" page="Katsomo" layout="Shell"/>
