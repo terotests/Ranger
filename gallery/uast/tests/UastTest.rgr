@@ -13,6 +13,7 @@ Import "../src/UastSample.rgr"
 Import "../src/UastCodeGraph.rgr"
 Import "../src/UastTypeScript.rgr"
 Import "../src/UastDump.rgr"
+Import "../src/UastQuery.rgr"
 
 class UastChecker {
     def passed:int 0
@@ -54,6 +55,8 @@ class UastTest {
         UastTest.testDynamic(c)
         UastTest.testTsMapping(c)
         UastTest.testEscapeHatch(c)
+        UastTest.testComments(c)
+        UastTest.testQuery(c)
         def code:int (c.report())
         if (code != 0) {
             exit 1
@@ -228,5 +231,58 @@ class UastTest {
         c.eqStr("kept nativeKind" stored.nativeKind "TSConditionalType")
         c.eqStr("origin frontend" stored.origin.frontend "typescript")
         c.eqInt("origin version" stored.origin.sourceVersion 1)
+    }
+
+    sfn testComments:void (c:UastChecker) {
+        print "== documentation overview on the property"
+        def r (new UastFrontendResult)
+        r.language = "ranger"
+        def cls:UNode (UNode.create("n:class:SheetView" (UastKind.ClassDecl()) "ranger" "class"))
+        cls.name = "SheetView"
+        r.addNode(cls)
+        def field:UNode (UNode.create("n:field:SheetView.sortHeadRows" (UastKind.FieldDecl()) "ranger" "def"))
+        field.name = "sortHeadRows"
+        field.comment = "Frozen rows, plus an inferred table header while sorting."
+        r.addNode(field)
+        def tn:UNode (UNode.create("n:type:SheetView.sortHeadRows" (UastKind.TypeRef()) "ranger" "type"))
+        tn.name = "int"
+        r.addNode(tn)
+        field.addRole((UastChildRole.typeRole()) tn.id)
+        cls.addRole((UastChildRole.field()) field.id)
+        def kind:UNode (UNode.create("n:field:SheetView.sortKind" (UastKind.FieldDecl()) "ranger" "def"))
+        kind.name = "sortKind"
+        kind.comment = "Sort keys, read once per row (decorate-sort-undecorate) and indexed by\nmodel row."
+        r.addNode(kind)
+        def kt:UNode (UNode.create("n:type:SheetView.sortKind" (UastKind.TypeRef()) "ranger" "type"))
+        kt.name = "[int]"
+        r.addNode(kt)
+        kind.addRole((UastChildRole.typeRole()) kt.id)
+        cls.addRole((UastChildRole.field()) kind.id)
+        def model:UastCodeModel (UastSemantic.fromResult(r))
+        def head:UastSymbol (model.symbolById("field:SheetView.sortHeadRows"))
+        c.eqStr("sortHeadRows overview" head.comment "Frozen rows, plus an inferred table header while sorting.")
+        def sk:UastSymbol (model.symbolById("field:SheetView.sortKind"))
+        c.ok("sortKind overview mentions Sort keys" ((indexOf sk.comment "Sort keys") >= 0))
+        c.ok("sortKind overview is not Frozen rows" ((indexOf sk.comment "Frozen rows") < 0))
+        def dump:string (UastDump.ofNode(model field.id))
+        c.ok("dump includes comment" ((indexOf dump "comment: Frozen rows") >= 0))
+    }
+
+    sfn testQuery:void (c:UastChecker) {
+        print "== query helpers"
+        def model:UastCodeModel (UastSample.zipWriter())
+        def zw:UNode (UastQuery.classNode(model "ZipWriter"))
+        c.eqStr("class name" zw.name "ZipWriter")
+        def crc:UNode (UastQuery.fieldNode(model "ZipWriter" "crc"))
+        c.eqStr("field crc" crc.name "crc")
+        def add:UNode (UastQuery.methodNode(model "ZipWriter" "addFile"))
+        c.eqStr("method addFile" add.name "addFile")
+        def calls:[UNode] (UastQuery.ofKindUnder(model add (UastKind.Call())))
+        c.ok("addFile has a Call" ((array_length calls) > 0))
+        if ((array_length calls) > 0) {
+            def call0:UNode (itemAt calls 0)
+            c.eqStr("callee member" (UastQuery.calleeMemberName(model call0)) "compute")
+            c.eqStr("callee receiver" (UastQuery.calleeReceiverName(model call0)) "crc")
+        }
     }
 }

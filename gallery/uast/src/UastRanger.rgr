@@ -6,7 +6,8 @@
 ;
 ; Emits UAST + compilerResolved hints. UastSemantic builds the CodeModel.
 ; This is the only UAST file that imports the compiler. Do not change
-; CodeNode; we only read it.
+; CodeNode's shape or CodeGraphBuilder; we only read the tree. Leading
+; `;` comments on a field/method are copied onto the UNode as `comment`.
 ; ============================================================================
 
 Import "UastFrontend.rgr"
@@ -16,6 +17,7 @@ Import "../../../compiler/VirtualCompiler.rgr"
 
 class UastRanger {
     def fileFilter:string ""
+    def walkSeq:int 0
 
     Constructor () {
     }
@@ -61,6 +63,7 @@ class UastRanger {
         node.name = cl.name
         node.span = (this.spanOfClass(cl))
         node.origin = (UastOrigin.create("ranger" file cl.name 0))
+        node.comment = (this.commentOfClass(cl))
         r.addNode(node)
         def fi:int 0
         while (fi < (array_length cl.variables)) {
@@ -77,6 +80,7 @@ class UastRanger {
         def node:UNode (UNode.create(("n:field:" + id) (UastKind.FieldDecl()) "ranger" "def"))
         node.name = v.name
         node.span = (this.spanOfParam(v))
+        node.comment = (this.commentOfParam(v))
         r.addNode(node)
         def tn:UNode (UNode.create(("n:type:" + id) (UastKind.TypeRef()) "ranger" "type"))
         tn.name = (this.typeOfParam(v))
@@ -93,6 +97,7 @@ class UastRanger {
             def node:UNode (UNode.create(("n:method:" + key) (UastKind.MethodDecl()) "ranger" "fn"))
             node.name = fn.name
             node.span = (this.spanOfFn(fn))
+            node.comment = (this.commentOfFn(fn))
             if isStatic {
                 node.addFlag("static")
             }
@@ -114,6 +119,10 @@ class UastRanger {
                 pn.addRole((UastChildRole.typeRole()) pt.id)
                 node.addRole((UastChildRole.parameter()) pn.id)
                 pi = (pi + 1)
+            }
+            if (null? fn.fnBody) {
+            } {
+                this.walkBlock(r node (unwrap fn.fnBody) key)
             }
             owner.addRole((UastChildRole.method()) node.id)
             i = (i + 1)
@@ -272,6 +281,218 @@ class UastRanger {
             return "void"
         }
         return nn.type_name
+    }
+
+    fn commentOfClass:string (cl:RangerAppClassDesc) {
+        if (null? cl.node) {
+            if (null? cl.classNode) {
+                return ""
+            }
+            return (this.commentsOn((unwrap cl.classNode)))
+        }
+        return (this.commentsOn((unwrap cl.node)))
+    }
+
+    fn commentOfParam:string (p:RangerAppParamDesc) {
+        if (null? p.node) {
+            return ""
+        }
+        return (this.commentsOn((unwrap p.node)))
+    }
+
+    fn commentOfFn:string (fn:RangerAppFunctionDesc) {
+        if (null? fn.node) {
+            return ""
+        }
+        return (this.commentsOn((unwrap fn.node)))
+    }
+
+    fn commentsOn:string (node:CodeNode) {
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length node.comments)) {
+            def c:CodeNode (itemAt node.comments i)
+            push parts (this.commentLine(c.string_value))
+            i = (i + 1)
+        }
+        return (join parts "\n")
+    }
+
+    fn commentLine:string (raw:string) {
+        def s:string raw
+        while ((strlen s) > 0) {
+            def ch:int (charAt s 0)
+            if ((ch == 32) || (ch == 9)) {
+                s = (substring s 1 (strlen s))
+            } {
+                break
+            }
+        }
+        return s
+    }
+
+    fn nextWalkId:string (prefix:string) {
+        walkSeq = (walkSeq + 1)
+        return (prefix + (to_string walkSeq))
+    }
+
+    fn walkBlock:void (r:UastFrontendResult method:UNode body:CodeNode key:string) {
+        def block:UNode (UNode.create(("n:body:" + key) (UastKind.Block()) "ranger" "block"))
+        r.addNode(block)
+        method.addRole((UastChildRole.body()) block.id)
+        def i:int 0
+        while (i < (array_length body.children)) {
+            this.walkExpr(r block (itemAt body.children i) key)
+            i = (i + 1)
+        }
+    }
+
+    fn walkExpr:void (r:UastFrontendResult owner:UNode node:CodeNode key:string) {
+        if (this.looksLikeCall(node)) {
+            this.emitCall(r owner node key (UastChildRole.element()))
+            return
+        }
+        def i:int 0
+        while (i < (array_length node.children)) {
+            this.walkExpr(r owner (itemAt node.children i) key)
+            i = (i + 1)
+        }
+    }
+
+    fn looksLikeCall:boolean (node:CodeNode) {
+        if node.has_call {
+            return true
+        }
+        if node.hasFnCall {
+            return true
+        }
+        def i:int 0
+        while (i < (array_length node.children)) {
+            def ch:CodeNode (itemAt node.children i)
+            if ch.is_call_args {
+                return true
+            }
+            i = (i + 1)
+        }
+        if ((array_length node.children) >= 2) {
+            def a:CodeNode (itemAt node.children 0)
+            def b:CodeNode (itemAt node.children 1)
+            if (a.parsed_type == RangerNodeType.VRef) {
+                if ((indexOf a.vref ".") >= 0) {
+                    if b.expression {
+                        if (b.is_block_node == false) {
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+        return false
+    }
+
+    fn emitCall:void (r:UastFrontendResult owner:UNode node:CodeNode key:string role:string) {
+        def callN:UNode (UNode.create((this.nextWalkId("n:call:")) (UastKind.Call()) "ranger" "call"))
+        callN.span = (this.spanOfNode(node))
+        r.addNode(callN)
+        owner.addRole(role callN.id)
+        def callee@(optional):CodeNode
+        def i:int 0
+        while (i < (array_length node.children)) {
+            def ch:CodeNode (itemAt node.children i)
+            if ch.is_call_args {
+                def ai:int 0
+                while (ai < (array_length ch.children)) {
+                    this.emitArg(r callN (itemAt ch.children ai) key)
+                    ai = (ai + 1)
+                }
+            } {
+                if (null? callee) {
+                    if (ch.parsed_type == RangerNodeType.VRef) {
+                        callee = ch
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (null? callee) {
+            if ((array_length node.children) > 0) {
+                def first:CodeNode (itemAt node.children 0)
+                if (first.parsed_type == RangerNodeType.VRef) {
+                    callee = first
+                }
+            }
+        }
+        if (null? callee) {
+            return
+        }
+        def cn:CodeNode (unwrap callee)
+        def mem:UNode (this.emitMember(r cn.ns cn))
+        callN.addRole((UastChildRole.callee()) mem.id)
+        if ((array_length node.children) >= 2) {
+            def maybeArgs:CodeNode (itemAt node.children 1)
+            if (maybeArgs.is_call_args == false) {
+                if maybeArgs.expression {
+                    if (maybeArgs.is_block_node == false) {
+                        def aj:int 0
+                        while (aj < (array_length maybeArgs.children)) {
+                            this.emitArg(r callN (itemAt maybeArgs.children aj) key)
+                            aj = (aj + 1)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn emitArg:void (r:UastFrontendResult callN:UNode node:CodeNode key:string) {
+        if (this.looksLikeCall(node)) {
+            this.emitCall(r callN node key (UastChildRole.argument()))
+            return
+        }
+        if (node.parsed_type == RangerNodeType.VRef) {
+            def arg:UNode (UNode.create((this.nextWalkId("n:arg:")) (UastKind.Identifier()) "ranger" "vref"))
+            arg.name = node.vref
+            arg.span = (this.spanOfNode(node))
+            r.addNode(arg)
+            callN.addRole((UastChildRole.argument()) arg.id)
+            return
+        }
+        def i:int 0
+        while (i < (array_length node.children)) {
+            this.emitArg(r callN (itemAt node.children i) key)
+            i = (i + 1)
+        }
+    }
+
+    fn emitMember:UNode (r:UastFrontendResult ns:[string] nn:CodeNode) {
+        def n:int (array_length ns)
+        if (n <= 1) {
+            def idn:UNode (UNode.create((this.nextWalkId("n:id:")) (UastKind.Identifier()) "ranger" "vref"))
+            if (n == 1) {
+                idn.name = (itemAt ns 0)
+            } {
+                idn.name = nn.vref
+            }
+            idn.span = (this.spanOfNode(nn))
+            r.addNode(idn)
+            return idn
+        }
+        def recvNs:[string]
+        def i:int 0
+        while (i < (n - 1)) {
+            push recvNs (itemAt ns i)
+            i = (i + 1)
+        }
+        def recv:UNode (this.emitMember(r recvNs nn))
+        def mem:UNode (UNode.create((this.nextWalkId("n:id:")) (UastKind.Identifier()) "ranger" "vref"))
+        mem.name = (itemAt ns (n - 1))
+        r.addNode(mem)
+        def acc:UNode (UNode.create((this.nextWalkId("n:mem:")) (UastKind.MemberAccess()) "ranger" "member"))
+        acc.span = (this.spanOfNode(nn))
+        r.addNode(acc)
+        acc.addRole((UastChildRole.receiver()) recv.id)
+        acc.addRole((UastChildRole.member()) mem.id)
+        return acc
     }
 
     sfn fromFile:UastCodeModel (path:string) {

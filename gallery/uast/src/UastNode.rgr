@@ -39,6 +39,9 @@ class UNode {
     def span:UastSpan (new UastSpan)
     def origin:UastOrigin (new UastOrigin)
     def children:[UChild]
+    ; Leading comments / documentation overview of this declaration.
+    ; Multiline; one `;` line per source line, joined with newline.
+    def comment:string ""
 
     Constructor () {
     }

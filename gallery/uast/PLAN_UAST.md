@@ -1,7 +1,7 @@
 # UAST — a language-analysis framework for Ranger
 
-**Status:** research branch, milestone 0 in tree (schema includes child
-roles, resolution/confidence, and `FrontendResult` → shared pipeline)
+**Status:** research branch, M1 in tree, M2 started (CodeNode walk +
+leading comments on the next property)
 **License:** AGPL-3.0-or-later (this directory is under `gallery/`)
 **Related:** [`gallery/codegraph`](../codegraph/README.md),
 [`gallery/ts_parser`](../ts_parser/README.md),
@@ -71,8 +71,24 @@ native AST   ≠   UAST (syntax)   ≠   CodeModel (meaning)   ≠   CodeGraph (
      ≠   ComponentEngine eval AST
 ```
 
-**Do not change `CodeNode`.** An adapter `CodeNode → UAST` is a different
-(and much safer) project than “the compiler now uses UAST.”
+**Do not change `CodeNode`’s shape or `CodeGraphBuilder`’s public
+contract.** An adapter `CodeNode → UAST` is a different (and much
+safer) project than “the compiler now uses UAST.” The one parser
+edit this work allows is *where* a `;` comment is stored: leading
+comments in a block attach to the **next** statement (the property
+or method they document), not to the block. AST `children` stay as
+they were.
+
+**Comments and documentation are first-class.** A language-analysis
+framework that cannot say what a field *means* is only half useful.
+Ranger `;` comments immediately above a `def` / `fn` are that
+field’s documentation overview (see `SheetView.sortHeadRows` /
+`sortKind` in `fixtures/sheet_view.rgr`). `doc { }` remains the
+public API tail (`PLAN_API_DOCS.md`); `;` comments document the
+implementation. UAST copies the leading-comment text onto the
+UNode and the CodeModel symbol as a multiline string. CodeGraph
+does not have to display it yet — the builder and UI contracts
+stay unchanged.
 
 **Import firewall:** `UastModel.rgr`, `UastSemantic.rgr`, `UastCodeGraph.rgr`
 and the UAST/schema files must not import any Ranger compiler type.
@@ -536,13 +552,15 @@ gallery/uast/
         UastCodeGraph.rgr     CodeModel → CodeGraph (no compiler import)
         UastDump.rgr          the Ranger/TS debug dump
         UastSample.rgr        ZipWriter FrontendResult fixture
+        UastQuery.rgr        class/method/field lookup, callee names
         UastRanger.rgr        compiler context → FrontendResult
         UastTypeScript.rgr    TSNode nativeKind → UNode kind
     tests/
         UastTest.rgr          schema, roles, dump, dynamic vs exact
-        UastRangerTest.rgr    compatibility + ZipWriter spec
+        UastRangerTest.rgr    compatibility + ZipWriter spec + comments
     fixtures/
         zip_writer.ts
+        sheet_view.rgr        leading comments on the right property
 ```
 
 Do not grow a viewer here until Ranger and TypeScript agree on ZipWriter.
@@ -578,7 +596,7 @@ frontend is not allowed to require `tsc`.
 | --- | --- | --- |
 | **0** | Schema + ZipWriter fixture + projector | **Child roles, SourceFile version, origin, resolution/confidence, FrontendResult pipeline** |
 | **1** | Ranger → FrontendResult → CodeModel | Keep. Two tests (compatibility + ZipWriter spec). Do not write compiler types into CodeModel. |
-| **2** | CodeNode → UAST walk | Keep (after M1 on purpose) |
+| **2** | CodeNode → UAST walk + comments on the next member | Leading `;` comments attach to the following property/method; UAST copies them. Do not change CodeGraphBuilder. |
 | **3** | TS parser → UAST | Keep |
 | **4** | TS scopes / refs | **Shared semantic pipeline becomes mandatory** (not per-frontend resolvers) |
 | **5** | imports / exports | **Workspace + two-phase declaration indexing** |
@@ -588,6 +606,8 @@ frontend is not allowed to require `tsc`.
 | **9** | Go | Keep. Python or Rust after that, not in this table |
 
 M0 is the fixture path (no compiler). M1 is started (`UastRanger` + golden).
+M2 walks method bodies (Call / MemberAccess) and treats comments as
+part of the node, not as trivia on the enclosing block.
 
 ---
 
@@ -661,7 +681,9 @@ It is: **Ranger gets a language-analysis framework.**
 ## 13. What this PR does *not* do
 
 - No CodeGraph UI changes, no UAST viewer chrome.
-- No edits to `compiler/` `CodeNode` or to `CodeGraphBuilder`’s public contract.
+- No change to `CodeNode` fields or to `CodeGraphBuilder`’s public contract.
+  The parser may move a `;` comment from the block onto the next sibling;
+  it must not add, remove, or reorder `children`.
 - No import of `gallery/ts_parser` into the UAST tests yet.
 - No TSX, no Go parser, no pretence of JS call resolution.
 - No merge of ComponentEngine’s eval AST into UNode.
@@ -671,3 +693,7 @@ The next useful screenshot is the same ZipWriter page, once from Ranger
 via `UastRanger` and once from `zip_writer.ts` via a TS adapter, plus
 the same dump shape on a Call/MemberAccess node. If those agree, the
 concept is proven.
+
+A documentation overview such as the comments above `SheetView.sortHeadRows`
+and `SheetView.sortKind` must appear on **those properties** in UAST,
+never on the class.

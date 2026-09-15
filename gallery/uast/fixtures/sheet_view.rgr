@@ -1,0 +1,34 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Fixture for leading-comment attachment. Comments immediately above a
+; property must land on that property, not the class body.
+
+class SheetView {
+    def model:int
+    def rowOrder:[int]
+    def colOrder:[int]
+    ; Frozen rows, plus an inferred table header while sorting.
+    def sortHeadRows:int 0
+    def rowOffsets:[int]
+    def colOffsets:[int]
+    def dirty:boolean true
+    ; Sort keys, read once per row (decorate-sort-undecorate) and indexed by
+    ; model row. The merge used to ask getCell for both sides of every
+    ; comparison: a 500k-row sort is ~9.5M comparisons, so ~19M map lookups
+    ; to answer questions about 500k distinct values.
+    def sortKind:[int]
+    def sortNum:[double]
+    def sortText:[string]
+
+    ; Rebuild rowOffsets from the model.
+    fn layout:void () {
+        this.touch()
+    }
+
+    fn touch:void () {
+        dirty = true
+    }
+}
+
+sfn main:void () {
+}

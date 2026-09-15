@@ -1,0 +1,113 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastQuery.rgr — find nodes in a CodeModel. No compiler import.
+; ============================================================================
+
+Import "UastModel.rgr"
+Import "UastKind.rgr"
+
+class UastQuery {
+    Constructor () {
+    }
+
+    sfn classNode:UNode (m:UastCodeModel name:string) {
+        return (m.nodeById("n:class:" + name))
+    }
+
+    sfn fieldNode:UNode (m:UastCodeModel className:string fieldName:string) {
+        def owner:UNode (UastQuery.classNode(m className))
+        def ids:[string] (owner.childIdsFor((UastChildRole.field())))
+        def i:int 0
+        while (i < (array_length ids)) {
+            def id:string (itemAt ids i)
+            if (m.mentionsNode(id)) {
+                def n:UNode (m.nodeById(id))
+                if (n.name == fieldName) {
+                    return n
+                }
+            }
+            i = (i + 1)
+        }
+        return (new UNode)
+    }
+
+    sfn methodNode:UNode (m:UastCodeModel className:string methodName:string) {
+        def owner:UNode (UastQuery.classNode(m className))
+        def ids:[string] (owner.childIdsFor((UastChildRole.method())))
+        def i:int 0
+        while (i < (array_length ids)) {
+            def id:string (itemAt ids i)
+            if (m.mentionsNode(id)) {
+                def n:UNode (m.nodeById(id))
+                if (n.name == methodName) {
+                    return n
+                }
+            }
+            i = (i + 1)
+        }
+        return (new UNode)
+    }
+
+    sfn ofKindUnder:[UNode] (m:UastCodeModel root:UNode kind:string) {
+        def out:[UNode]
+        UastQuery.collect(m root kind out)
+        return out
+    }
+
+    sfn collect:void (m:UastCodeModel root:UNode kind:string out:[UNode]) {
+        if (root.kind == kind) {
+            push out root
+        }
+        def i:int 0
+        while (i < (array_length root.children)) {
+            def ch:UChild (itemAt root.children i)
+            if (m.mentionsNode(ch.nodeId)) {
+                UastQuery.collect(m (m.nodeById(ch.nodeId)) kind out)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn calleeMemberName:string (m:UastCodeModel call:UNode) {
+        def cid:string (call.childIdFor((UastChildRole.callee())))
+        if ((m.mentionsNode(cid)) == false) {
+            return ""
+        }
+        def callee:UNode (m.nodeById(cid))
+        if (callee.kind == "MemberAccess") {
+            def mid:string (callee.childIdFor((UastChildRole.member())))
+            if (m.mentionsNode(mid)) {
+                def mem:UNode (m.nodeById(mid))
+                return mem.name
+            }
+        }
+        return callee.name
+    }
+
+    sfn calleeReceiverName:string (m:UastCodeModel call:UNode) {
+        def cid:string (call.childIdFor((UastChildRole.callee())))
+        if ((m.mentionsNode(cid)) == false) {
+            return ""
+        }
+        def callee:UNode (m.nodeById(cid))
+        if (callee.kind == "MemberAccess") {
+            def rid:string (callee.childIdFor((UastChildRole.receiver())))
+            if (m.mentionsNode(rid)) {
+                def recv:UNode (m.nodeById(rid))
+                if (recv.kind == "Identifier") {
+                    return recv.name
+                }
+                if (recv.kind == "MemberAccess") {
+                    def mid:string (recv.childIdFor((UastChildRole.member())))
+                    if (m.mentionsNode(mid)) {
+                        def mem:UNode (m.nodeById(mid))
+                        return mem.name
+                    }
+                }
+                return recv.name
+            }
+        }
+        return ""
+    }
+}

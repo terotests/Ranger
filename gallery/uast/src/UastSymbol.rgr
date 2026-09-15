@@ -22,6 +22,8 @@ class UastSymbol {
     def isStatic:boolean false
     def fileName:string ""
     def extendsName:string ""
+    ; Documentation overview copied from the declaration UNode.
+    def comment:string ""
 
     Constructor () {
     }

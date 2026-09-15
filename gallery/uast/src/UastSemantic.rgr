@@ -136,6 +136,7 @@ class UastSemantic {
         def s:UastSymbol (UastSymbol.create(id node.name kind node.language))
         s.declarationNode = node.id
         s.fileName = node.span.fileId
+        s.comment = node.comment
         m.addSymbol(s)
     }
 
@@ -154,6 +155,7 @@ class UastSemantic {
         s.declarationNode = node.id
         s.parentSymbol = ownerId
         s.fileName = node.span.fileId
+        s.comment = node.comment
         s.isStatic = (node.mentionsFlag("static"))
         def typeId:string (node.childIdFor((UastChildRole.typeRole())))
         if ((strlen typeId) > 0) {

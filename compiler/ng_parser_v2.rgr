@@ -44,6 +44,11 @@ class RangerLispParser {
   ; The call group most recently folded by insertCallOrNode, so parseBuf can
   ; close its source range once the argument list has been parsed.
   def last_call_group@(optional weak):CodeNode
+  ; Leading `;` comments in a block, held until the next statement. A comment
+  ; immediately above a `def` / `fn` is documentation of that member, not of
+  ; the class body. Trailing comments on a non-block stay on curr_node.
+  ; Children of the tree are unchanged — only `.comments` moves.
+  def pending_comments:[CodeNode]
 
   ; Accept LF, CRLF, and lone CR — normalize to LF before tokenization.
   ; Use split/join (linear) instead of repeated substring rebuilds (quadratic on
@@ -643,6 +648,9 @@ class RangerLispParser {
         return true
       }
     }
+    if (push_target.is_block_node) {
+      this.attachPendingComments(p_node)
+    }
     ; Not folded, but still an argument list when the name in front of it is a
     ; call the canonical shape already covers (a statement that STARTS with
     ; `recv.method(`). Marking it is what lets a bare call nested inside those
@@ -689,7 +697,21 @@ class RangerLispParser {
         p_node.parent = push_target
       }
     }
+    if (push_target.is_block_node) {
+      this.attachPendingComments(p_node)
+    }
     push push_target.children p_node
+  }
+
+  ; Move leading block comments onto the statement that follows them.
+  fn attachPendingComments:void (node@(lives):CodeNode) {
+    if ((array_length pending_comments) == 0) {
+      return
+    }
+    while ((array_length pending_comments) > 0) {
+      def c:CodeNode (array_extract pending_comments 0)
+      push node.comments c
+    }
   }
 
   fn parse_attributes:boolean (s:charbuffer) {
@@ -1042,7 +1064,9 @@ class RangerLispParser {
           }
         } 
 
-        ; multiline comments ? 
+        ; `;` to end of line. In a block this is a leading comment for the
+        ; next sibling (the property or method below). Otherwise it trails
+        ; the expression currently being parsed.
         if (c == 59) {
           sp = i + 1
           while ((i < len) && (((charAt s i)) > 31)) {
@@ -1055,7 +1079,11 @@ class RangerLispParser {
           new_node.parsed_type = RangerNodeType.Comment
           new_node.value_type = RangerNodeType.Comment
           new_node.string_value = (substring s sp i)
-          push curr_node.comments ( unwrap new_node)
+          if (curr_node.is_block_node) {
+            push pending_comments ( unwrap new_node)
+          } {
+            push curr_node.comments ( unwrap new_node)
+          }
           continue 
         }
 
@@ -1445,6 +1473,7 @@ class RangerLispParser {
           }
           if (curr_node.is_block_node == true) {
             def new_expr_node:CodeNode (new CodeNode(( unwrap code) sp ep))
+            this.attachPendingComments(new_expr_node)
             new_expr_node.parent = curr_node
             new_expr_node.expression = true
             push curr_node.children new_expr_node
@@ -1930,6 +1959,9 @@ class RangerLispParser {
 
         ; 
         if (   (c == 41) || (c == ((ccode "}")))) {
+          if (curr_node.is_block_node) {
+            this.attachPendingComments((unwrap curr_node))
+          }
           if ((c == ((ccode "}"))) && is_block_parent && (((array_length curr_node.children)) > 0)) {
             this.end_expression(false)
           }

@@ -36,6 +36,9 @@ class UastDump {
         if ((strlen node.nativeKind) > 0) {
             push lines ("  nativeKind: " + node.nativeKind)
         }
+        if ((strlen node.comment) > 0) {
+            push lines ("  comment: " + node.comment)
+        }
         def i:int 0
         while (i < (array_length node.children)) {
             def ch:UChild (itemAt node.children i)

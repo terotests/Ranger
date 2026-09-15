@@ -32,6 +32,13 @@ npm run uast:ranger    # compatibility vs CodeGraphBuilder + ZipWriter spec
 `uast:test` does not import the compiler. `uast:ranger` does — same
 split as `codegraph:test` / `codegraph:builder`.
 
+Do **not** change `CodeGraphBuilder` or the CodeGraph UI. UAST projects
+into the existing graph; it does not replace it.
+
+Comments immediately above a Ranger `def` / `fn` are that member’s
+documentation overview. They must not land on the class. See
+`fixtures/sheet_view.rgr` (`sortHeadRows`, `sortKind`).
+
 `UastModel` / `UastSemantic` / `UastCodeGraph` must not import compiler
 types. Only `UastRanger` may.
 
@@ -49,8 +56,10 @@ types. Only `UastRanger` may.
 | `src/UastDump.rgr` | the Ranger/TS debug dump |
 | `src/UastSample.rgr` | ZipWriter `FrontendResult` fixture |
 | `src/UastRanger.rgr` | compiler context → `FrontendResult` |
+| `src/UastQuery.rgr` | class / method / field lookup |
 | `src/UastTypeScript.rgr` | `TSNode.nodeType` → UAST kind |
 | `fixtures/zip_writer.ts` | the TypeScript twin of that fixture |
+| `fixtures/sheet_view.rgr` | leading comments on the correct property |
 
 ## Ranger first, TypeScript second
 

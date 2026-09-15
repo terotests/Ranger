@@ -18,6 +18,7 @@
 
 Import "../src/UastRanger.rgr"
 Import "../src/UastCodeGraph.rgr"
+Import "../src/UastQuery.rgr"
 Import "../../codegraph/src/CodeGraphBuilder.rgr"
 
 class UastRangerTest {
@@ -54,6 +55,8 @@ class UastRangerTest {
         failed = (failed + (UastRangerTest.diffGraph("compatibility calls.rgr" expected got)))
         failed = (failed + (UastRangerTest.checkZipWriterSpec()))
         failed = (failed + (UastRangerTest.checkZipWriterCompatibility()))
+        failed = (failed + (UastRangerTest.checkSheetViewComments()))
+        failed = (failed + (UastRangerTest.checkZipWriterWalk()))
         if (failed > 0) {
             print (("failed " + (to_string failed)))
             exit 1
@@ -101,6 +104,175 @@ class UastRangerTest {
             print "  ZipWriter fields as specified"
         }
         return n
+    }
+
+    sfn checkSheetViewComments:int () {
+        print "== SheetView comments land on the property"
+        def n:int 0
+        def root:CodeNode (UastRangerTest.parseFile("gallery/uast/fixtures/sheet_view.rgr"))
+        def body:CodeNode (UastRangerTest.classBody(root "SheetView"))
+        def head:CodeNode (UastRangerTest.findMember(body "def" "sortHeadRows"))
+        def kind:CodeNode (UastRangerTest.findMember(body "def" "sortKind"))
+        def model:CodeNode (UastRangerTest.findMember(body "def" "model"))
+        def layout:CodeNode (UastRangerTest.findMember(body "fn" "layout"))
+        def headText:string (UastRangerTest.commentText(head))
+        def kindText:string (UastRangerTest.commentText(kind))
+        def modelText:string (UastRangerTest.commentText(model))
+        def bodyText:string (UastRangerTest.commentText(body))
+        def layoutText:string (UastRangerTest.commentText(layout))
+        if ((indexOf headText "Frozen rows") < 0) {
+            print (("  FAIL sortHeadRows comment '" + headText) + "'")
+            n = (n + 1)
+        }
+        if ((indexOf kindText "Sort keys") < 0) {
+            print (("  FAIL sortKind comment '" + kindText) + "'")
+            n = (n + 1)
+        }
+        if ((indexOf kindText "500k distinct values") < 0) {
+            print "  FAIL sortKind missing later comment lines"
+            n = (n + 1)
+        }
+        if ((indexOf headText "Sort keys") >= 0) {
+            print "  FAIL sortHeadRows received sortKind's comment"
+            n = (n + 1)
+        }
+        if ((indexOf kindText "Frozen rows") >= 0) {
+            print "  FAIL sortKind received sortHeadRows's comment"
+            n = (n + 1)
+        }
+        if ((indexOf modelText "Frozen rows") >= 0) {
+            print "  FAIL model received a neighbour's comment"
+            n = (n + 1)
+        }
+        if ((indexOf bodyText "Frozen rows") >= 0) {
+            print "  FAIL class body kept the property comment"
+            n = (n + 1)
+        }
+        if ((indexOf layoutText "Rebuild rowOffsets") < 0) {
+            print (("  FAIL layout comment '" + layoutText) + "'")
+            n = (n + 1)
+        }
+        def um:UastCodeModel (UastRanger.fromFile("gallery/uast/fixtures/sheet_view.rgr"))
+        if ((indexOf um.title " FAIL ") >= 0) {
+            print ("  FAIL compile " + um.title)
+            n = (n + 1)
+            return n
+        }
+        def headSym:UastSymbol (um.symbolById("field:SheetView.sortHeadRows"))
+        if ((indexOf headSym.comment "Frozen rows") < 0) {
+            print (("  FAIL UAST sortHeadRows '" + headSym.comment) + "'")
+            n = (n + 1)
+        }
+        def kindSym:UastSymbol (um.symbolById("field:SheetView.sortKind"))
+        if ((indexOf kindSym.comment "Sort keys") < 0) {
+            print (("  FAIL UAST sortKind '" + kindSym.comment) + "'")
+            n = (n + 1)
+        }
+        if ((indexOf kindSym.comment "Frozen rows") >= 0) {
+            print "  FAIL UAST sortKind has Frozen rows"
+            n = (n + 1)
+        }
+        def fnNode:UNode (UastQuery.methodNode(um "SheetView" "layout"))
+        if ((indexOf fnNode.comment "Rebuild rowOffsets") < 0) {
+            print (("  FAIL UAST layout '" + fnNode.comment) + "'")
+            n = (n + 1)
+        }
+        if (n == 0) {
+            print "  comments on sortHeadRows, sortKind, layout"
+        }
+        return n
+    }
+
+    sfn checkZipWriterWalk:int () {
+        print "== CodeNode walk: ZipWriter.addFile calls"
+        def model:UastCodeModel (UastRanger.fromFile("gallery/zip/zip_tool.rgr"))
+        if ((indexOf model.title " FAIL ") >= 0) {
+            print ("  FAIL " + model.title)
+            return 1
+        }
+        def add:UNode (UastQuery.methodNode(model "ZipWriter" "addFile"))
+        if ((strlen add.name) == 0) {
+            print "  FAIL addFile UNode missing"
+            return 1
+        }
+        def calls:[UNode] (UastQuery.ofKindUnder(model add (UastKind.Call())))
+        def foundCompute:boolean false
+        def i:int 0
+        while (i < (array_length calls)) {
+            def callN:UNode (itemAt calls i)
+            def mem:string (UastQuery.calleeMemberName(model callN))
+            if (mem == "compute") {
+                foundCompute = true
+            }
+            i = (i + 1)
+        }
+        if (foundCompute == false) {
+            print (("  FAIL addFile walk found " + (to_string (array_length calls))) + " calls, none named compute")
+            return 1
+        }
+        print (("  addFile calls walked: " + (to_string (array_length calls))))
+        return 0
+    }
+
+    sfn parseFile:CodeNode (path:string) {
+        def env:InputEnv (new InputEnv())
+        env.use_real = true
+        def text@(optional):string (read_file env "." path)
+        if (null? text) {
+            return (new CodeNode((new SourceCode("")) 0 0))
+        }
+        def code:SourceCode (new SourceCode((unwrap text)))
+        code.filename = path
+        def parser:RangerLispParser (new RangerLispParser(code))
+        parser.parse(false)
+        if (null? parser.rootNode) {
+            return (new CodeNode(code 0 0))
+        }
+        return (unwrap parser.rootNode)
+    }
+
+    sfn classBody:CodeNode (root:CodeNode name:string) {
+        def i:int 0
+        while (i < (array_length root.children)) {
+            def st:CodeNode (itemAt root.children i)
+            if ((array_length st.children) >= 3) {
+                def kw:CodeNode (itemAt st.children 0)
+                def nm:CodeNode (itemAt st.children 1)
+                if ((kw.vref == "class") && (nm.vref == name)) {
+                    def last:CodeNode (itemAt st.children ((array_length st.children) - 1))
+                    return last
+                }
+            }
+            i = (i + 1)
+        }
+        return root
+    }
+
+    sfn findMember:CodeNode (block:CodeNode keyword:string name:string) {
+        def i:int 0
+        while (i < (array_length block.children)) {
+            def st:CodeNode (itemAt block.children i)
+            if ((array_length st.children) >= 2) {
+                def kw:CodeNode (itemAt st.children 0)
+                def nm:CodeNode (itemAt st.children 1)
+                if ((kw.vref == keyword) && (nm.vref == name)) {
+                    return st
+                }
+            }
+            i = (i + 1)
+        }
+        return (new CodeNode((new SourceCode("")) 0 0))
+    }
+
+    sfn commentText:string (node:CodeNode) {
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length node.comments)) {
+            def c:CodeNode (itemAt node.comments i)
+            push parts c.string_value
+            i = (i + 1)
+        }
+        return (join parts "\n")
     }
 
     sfn checkZipWriterCompatibility:int () {
