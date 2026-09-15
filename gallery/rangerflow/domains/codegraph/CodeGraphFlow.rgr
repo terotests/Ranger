@@ -1,0 +1,270 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CodeGraphFlow.rgr — a page of the call graph, as a RangerFlow drawing.
+; ============================================================================
+;
+; The window CodeGraphPages picked becomes a FlowGraph: class boxes, method
+; stadiums, type parallelograms, and pager arrows on the edge. Click events
+; on those nodes are how the reader moves — the session below is the host
+; that drains FlowEditor.clicks and swaps the graph.
+; ============================================================================
+
+Import "CodeGraphPages.rgr"
+Import "../../core/GraphModel.rgr"
+Import "../../core/FlowEvents.rgr"
+Import "../../core/FlowShapes.rgr"
+Import "../uml/UMLModel.rgr"
+Import "../../layout/LayeredLayout.rgr"
+Import "../../layout/EdgeLanes.rgr"
+Import "../../layout/OrthoRouter.rgr"
+
+class CodeGraphFlow {
+    Constructor () {
+    }
+
+    sfn build:FlowGraph (model:CodeGraph page:CodePage) {
+        def g (new FlowGraph)
+        def uml (new UMLToGraph)
+        def i:int 0
+        while (i < (array_length page.items)) {
+            def it:CodePageItem (itemAt page.items i)
+            def n:FlowNode (CodeGraphFlow.itemNode(model uml it))
+            g.addNode(n)
+            i = (i + 1)
+        }
+        g.reindex()
+        def k:int 0
+        while (k < (array_length page.links)) {
+            def link:CodePageLink (itemAt page.links k)
+            if (g.hasNode(link.fromId)) {
+                if (g.hasNode(link.toId)) {
+                    def e:FlowEdge (g.connect(link.fromId link.toId))
+                    e.edgeType = "smoothstep"
+                    e.label = link.label
+                    e.markerEnd = "arrowclosed"
+                    e.cssClass = "codegraph"
+                    if link.dashed {
+                        e.dash = 6.0
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        g.reindex()
+        CodeGraphFlow.layout(g)
+        return g
+    }
+
+    sfn itemNode:FlowNode (model:CodeGraph uml:UMLToGraph it:CodePageItem) {
+        if (it.itemKind == "umlclass") {
+            if (model.hasClass(it.id)) {
+                def c:CodeClass (model.classByName(it.id))
+                def u:UMLClass (CodeGraphFlow.asUml(c model))
+                def n:FlowNode (uml.classNode(u))
+                n.dataKind = it.dataKind
+                n.dataRef = it.dataRef
+                n.cssClass = "codegraph class"
+                n.tooltip = (c.name + " — click to open methods")
+                if ((strlen it.fill) > 0) {
+                    n.bgColor = it.fill
+                }
+                if ((strlen it.stroke) > 0) {
+                    n.borderColor = it.stroke
+                }
+                return n
+            }
+        }
+        def n2:FlowNode (FlowNode.create(it.id it.label 0.0 0.0))
+        n2.dataKind = it.dataKind
+        n2.dataRef = it.dataRef
+        n2.cssClass = ("codegraph " + it.itemKind)
+        n2.tooltip = it.extra
+        if ((strlen it.fill) > 0) {
+            n2.bgColor = it.fill
+        }
+        if ((strlen it.stroke) > 0) {
+            n2.borderColor = it.stroke
+        }
+        if (it.itemKind == "class") {
+            n2.shape = (FlowShape.rect())
+            n2.width = 170.0
+            n2.height = 48.0
+            if ((strlen it.extra) > 0) {
+                n2.tooltip = it.extra
+            }
+        }
+        if (it.itemKind == "method") {
+            n2.shape = (FlowShape.stadium())
+            n2.width = 210.0
+            n2.height = 40.0
+        }
+        if (it.itemKind == "type") {
+            n2.shape = (FlowShape.parallelogram())
+            n2.width = 150.0
+            n2.height = 40.0
+        }
+        if (it.itemKind == "pager") {
+            n2.shape = (FlowShape.hexagon())
+            n2.width = 160.0
+            n2.height = 44.0
+            n2.tooltip = "open the next chart"
+        }
+        if (it.itemKind == "back") {
+            n2.shape = (FlowShape.hexagon())
+            n2.width = 150.0
+            n2.height = 40.0
+            n2.tooltip = "go back"
+        }
+        return n2
+    }
+
+    sfn asUml:UMLClass (c:CodeClass model:CodeGraph) {
+        def u:UMLClass (UMLClass.create(c.name))
+        u.stereotype = c.stereotype
+        def fi:int 0
+        while (fi < (array_length c.fields)) {
+            def f:CodeField (itemAt c.fields fi)
+            u.attribute("-" f.name f.fieldType)
+            fi = (fi + 1)
+        }
+        def mi:int 0
+        def cap:int 8
+        while (mi < (array_length c.methodIds)) {
+            if (mi >= cap) {
+                u.operation("+" ("+" + (to_string ((array_length c.methodIds) - cap)) + " more") "" "")
+                mi = (array_length c.methodIds)
+            } {
+                def m:CodeMethod (model.methodById((itemAt c.methodIds mi)))
+                def vis:string "+"
+                if m.isStatic {
+                    vis = "+"
+                }
+                u.operation(vis m.name m.params m.returns)
+                mi = (mi + 1)
+            }
+        }
+        return u
+    }
+
+    sfn layout:void (g:FlowGraph) {
+        if ((g.nodeCount()) == 0) {
+            return
+        }
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = "TB"
+        lay.layerGap = 90.0
+        lay.nodeGap = 36.0
+        lay.run()
+        EdgeLanes.assign(g)
+        lay.routeLongEdges()
+        EdgeLanes.assign(g)
+        OrthoRouter.repairAll(g)
+    }
+}
+
+; The thing a host holds: the whole IR, the current window, and a history
+; stack so a click that drilled in can be undone.
+class CodeGraphSession {
+    def model:CodeGraph (new CodeGraph)
+    def pages:CodeGraphPages (new CodeGraphPages)
+    def pageId:string "overview:0"
+    def history:[string]
+    def historyAt:int 0
+    def status:string ""
+
+    Constructor () {
+    }
+
+    sfn of:CodeGraphSession (g:CodeGraph maxNodes:int) {
+        def s (new CodeGraphSession)
+        s.model = g
+        s.pages = (CodeGraphPages.of(g maxNodes))
+        s.pageId = (s.pages.overviewId(0))
+        push s.history s.pageId
+        s.historyAt = 0
+        s.status = (s.describe())
+        return s
+    }
+
+    fn currentPage:CodePage () {
+        return (pages.pageOf(pageId))
+    }
+
+    fn graph:FlowGraph () {
+        return (CodeGraphFlow.build(model (this.currentPage())))
+    }
+
+    fn describe:string () {
+        def p:CodePage (this.currentPage())
+        return (((((p.title + " · ") + (to_string (p.itemCount()))) + " boxes (max ") + (to_string pages.maxNodes)) + ") — click a class or a method to zoom in, an arrow to turn the page")
+    }
+
+    fn goTo:boolean (nextId:string) {
+        if ((strlen nextId) == 0) {
+            return false
+        }
+        if (nextId == pageId) {
+            return false
+        }
+        ; Drop the forward tail, the way a browser does when you click
+        ; after going back.
+        while ((array_length history) > (historyAt + 1)) {
+            removeLast history
+        }
+        push history nextId
+        historyAt = ((array_length history) - 1)
+        pageId = nextId
+        status = (this.describe())
+        return true
+    }
+
+    fn goBack:boolean () {
+        if (historyAt <= 0) {
+            return false
+        }
+        historyAt = (historyAt - 1)
+        pageId = (itemAt history historyAt)
+        status = (this.describe())
+        return true
+    }
+
+    fn goForward:boolean () {
+        if (historyAt >= ((array_length history) - 1)) {
+            return false
+        }
+        historyAt = (historyAt + 1)
+        pageId = (itemAt history historyAt)
+        status = (this.describe())
+        return true
+    }
+
+    ; True when the click changed the page — the host should rebuild the
+    ; FlowGraph. Background clicks and unknown kinds leave the drawing.
+    fn handleClick:boolean (ev:FlowHitEvent) {
+        if (ev.kind != "node") {
+            return false
+        }
+        if (ev.dataKind == "page") {
+            return (this.goTo(ev.dataRef))
+        }
+        if (ev.dataKind == "class") {
+            return (this.goTo(pages.classPageId(ev.dataRef)))
+        }
+        if (ev.dataKind == "method") {
+            return (this.goTo(pages.methodPageId(ev.dataRef)))
+        }
+        if (ev.dataKind == "umlclass") {
+            return (this.goTo(pages.classPageId(ev.dataRef)))
+        }
+        ; A node whose domain forgot to set dataKind still has an id that
+        ; might be a class or a method.
+        if (model.hasClass(ev.id)) {
+            return (this.goTo(pages.classPageId(ev.id)))
+        }
+        if (model.hasMethod(ev.id)) {
+            return (this.goTo(pages.methodPageId(ev.id)))
+        }
+        return false
+    }
+}

@@ -1,0 +1,153 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CodeGraphSample.rgr — a call graph with no compiler attached.
+; ============================================================================
+;
+; The WebGL page cannot run VirtualCompiler (that bundle is megabytes and
+; wants a filesystem). This is a stand-in that still pages: a shop domain
+; small enough to read, and a compiler-shaped graph large enough that the
+; overview has to turn.
+; ============================================================================
+
+Import "CodeGraphModel.rgr"
+
+class CodeGraphSample {
+    Constructor () {
+    }
+
+    ; A shop: orders, payments, catalogue. Fits on one overview, drills into
+    ; methods and types.
+    sfn shop:CodeGraph () {
+        def g (new CodeGraph)
+        g.title = "Shop"
+        def order:CodeClass (g.addClass("Order"))
+        order.addField("id" "string")
+        order.addField("items" "[LineItem]")
+        order.addField("customer" "Customer")
+        def item:CodeClass (g.addClass("LineItem"))
+        item.addField("product" "Product")
+        item.addField("qty" "int")
+        def product:CodeClass (g.addClass("Product"))
+        product.addField("sku" "string")
+        product.addField("price" "int")
+        def customer:CodeClass (g.addClass("Customer"))
+        customer.addField("email" "string")
+        def cart:CodeClass (g.addClass("Cart"))
+        cart.addField("lines" "[LineItem]")
+        def pay:CodeClass (g.addClass("Payment"))
+        pay.addField("amount" "int")
+        def gate:CodeClass (g.addClass("PaymentGateway"))
+        def tax:CodeClass (g.addClass("Tax"))
+        def ship:CodeClass (g.addClass("Shipment"))
+        def stock:CodeClass (g.addClass("Warehouse"))
+        def mail:CodeClass (g.addClass("Mailer"))
+        def log:CodeClass (g.addClass("AuditLog"))
+        def price:CodeClass (g.addClass("PriceList"))
+        def disc:CodeClass (g.addClass("Discount"))
+        def inv:CodeClass (g.addClass("Invoice"))
+        def addr:CodeClass (g.addClass("Address"))
+        addr.stereotype = "record"
+        addr.addField("city" "string")
+
+        def oTotal:CodeMethod (g.addMethod("Order" "total"))
+        oTotal.returns = "int"
+        def oAdd:CodeMethod (g.addMethod("Order" "addItem"))
+        oAdd.params = "item:LineItem"
+        def oPay:CodeMethod (g.addMethod("Order" "checkout"))
+        oPay.returns = "Payment"
+        def iPrice:CodeMethod (g.addMethod("LineItem" "lineTotal"))
+        iPrice.returns = "int"
+        def pPrice:CodeMethod (g.addMethod("Product" "priceFor"))
+        pPrice.params = "qty:int"
+        pPrice.returns = "int"
+        def cCart:CodeMethod (g.addMethod("Cart" "toOrder"))
+        cCart.returns = "Order"
+        def payRun:CodeMethod (g.addMethod("Payment" "capture"))
+        payRun.params = "gw:PaymentGateway"
+        payRun.returns = "boolean"
+        def gwCharge:CodeMethod (g.addMethod("PaymentGateway" "charge"))
+        gwCharge.params = "amount:int"
+        gwCharge.returns = "boolean"
+        def taxOf:CodeMethod (g.addMethod("Tax" "on"))
+        taxOf.params = "amount:int"
+        taxOf.returns = "int"
+        def shipRun:CodeMethod (g.addMethod("Shipment" "dispatch"))
+        shipRun.params = "order:Order"
+        def stockTake:CodeMethod (g.addMethod("Warehouse" "reserve"))
+        stockTake.params = "sku:string qty:int"
+        stockTake.returns = "boolean"
+        def mailSend:CodeMethod (g.addMethod("Mailer" "receipt"))
+        mailSend.params = "order:Order"
+        def logWrite:CodeMethod (g.addMethod("AuditLog" "record"))
+        logWrite.params = "what:string"
+        def priceGet:CodeMethod (g.addMethod("PriceList" "lookup"))
+        priceGet.params = "sku:string"
+        priceGet.returns = "int"
+        def discApply:CodeMethod (g.addMethod("Discount" "apply"))
+        discApply.params = "amount:int"
+        discApply.returns = "int"
+        def invMake:CodeMethod (g.addMethod("Invoice" "fromOrder"))
+        invMake.params = "order:Order"
+        invMake.returns = "Invoice"
+        def custMail:CodeMethod (g.addMethod("Customer" "notify"))
+        custMail.params = "msg:string"
+
+        g.linkCall(oPay.id oTotal.id)
+        g.linkCall(oPay.id payRun.id)
+        g.linkCall(oPay.id taxOf.id)
+        g.linkCall(oPay.id shipRun.id)
+        g.linkCall(oPay.id stockTake.id)
+        g.linkCall(oPay.id mailSend.id)
+        g.linkCall(oPay.id logWrite.id)
+        g.linkCall(oPay.id discApply.id)
+        g.linkCall(oPay.id invMake.id)
+        g.linkCall(oTotal.id iPrice.id)
+        g.linkCall(iPrice.id pPrice.id)
+        g.linkCall(pPrice.id priceGet.id)
+        g.linkCall(cCart.id oAdd.id)
+        g.linkCall(payRun.id gwCharge.id)
+        g.linkCall(mailSend.id custMail.id)
+        g.linkCall(invMake.id oTotal.id)
+        g.linkUse(oTotal.id "LineItem")
+        g.linkUse(oAdd.id "LineItem")
+        g.linkUse(oPay.id "Payment")
+        g.linkUse(oPay.id "PaymentGateway")
+        g.linkUse(iPrice.id "Product")
+        g.linkUse(shipRun.id "Address")
+        g.linkUse(cCart.id "Order")
+        g.linkUse(invMake.id "Customer")
+        return g
+    }
+
+    ; Forty classes so the overview has to page at a 24-node cap — the
+    ; situation a real compiler dump is in.
+    sfn manyClasses:CodeGraph (count:int) {
+        def g (new CodeGraph)
+        g.title = "Compiler"
+        if (count < 4) {
+            count = 4
+        }
+        def i:int 0
+        while (i < count) {
+            def name:string ("Unit" + (to_string i))
+            def c:CodeClass (g.addClass(name))
+            c.addField("ctx" "Context")
+            def m1:CodeMethod (g.addMethod(name "run"))
+            def m2:CodeMethod (g.addMethod(name "walk"))
+            g.linkCall(m1.id m2.id)
+            if (i > 0) {
+                def prev:string (("Unit" + (to_string (i - 1))) + ".run")
+                g.linkCall(m1.id prev)
+                c.extendsName = ("Unit" + (to_string (idiv i 4)))
+                if (c.extendsName == name) {
+                    c.extendsName = ""
+                }
+            }
+            g.linkUse(m2.id "Context")
+            i = (i + 1)
+        }
+        g.addClass("Context")
+        return g
+    }
+}

@@ -419,6 +419,13 @@ class FlowNode {
     ; tooltip that trains the reader to ignore tooltips.
     def tooltip:string ""
 
+    ; What a host can hang a click listener off. Empty until a domain fills
+    ; them: a call-graph node might say dataKind="class" and dataRef="Parser",
+    ; a pager arrow dataKind="page" and dataRef="overview:2". Copied onto the
+    ; FlowHitEvent so the host still has the address after the graph is gone.
+    def dataKind:string ""
+    def dataRef:string ""
+
     ; How to call attention to this node, over and above being selected —
     ; JointJS's highlighters. Empty is none.
     ;
@@ -1101,6 +1108,10 @@ class FlowEdge {
     def dash:double 0.0
     ; The class list a stylesheet matches this edge by. See `FlowNode.cssClass`.
     def cssClass:string ""
+    ; Same as FlowNode.dataKind / dataRef: optional address a click listener
+    ; can read without walking the domain model.
+    def dataKind:string ""
+    def dataRef:string ""
     ; Overrides for which side the edge attaches to; -1 = use the node's.
     def sourceHandle:int -1
     def targetHandle:int -1

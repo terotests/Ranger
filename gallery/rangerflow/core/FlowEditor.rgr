@@ -27,6 +27,7 @@
 
 Import "GraphModel.rgr"
 Import "FlowView.rgr"
+Import "FlowEvents.rgr"
 Import "EdgeRouter.rgr"
 Import "../layout/EdgeFacing.rgr"
 
@@ -585,6 +586,12 @@ class FlowEditor {
     def pinWhileDragging:boolean false
     def onGraphChanged:boolean false
 
+    ; Clicks the host can drain after pointerUp. A press that did not move
+    ; lands here; a drag does not. See FlowEvents.rgr.
+    def clicks:FlowEventSink (new FlowEventSink)
+    def pressHitKind:string ""
+    def pressHitId:string ""
+
     Constructor () {
     }
 
@@ -830,6 +837,8 @@ class FlowEditor {
         pressFlowX = (this.flowX(inp.x))
         pressFlowY = (this.flowY(inp.y))
         movedSincePress = false
+        pressHitKind = ""
+        pressHitId = ""
 
         ; The menu is on top of everything, so it gets first refusal on the
         ; press — including a press that lands outside it, which is how a menu
@@ -923,6 +932,8 @@ class FlowEditor {
         if connectOnClick {
             if (ni >= 0) {
                 def cn:FlowNode (graph.nodeAt(ni))
+                pressHitKind = "node"
+                pressHitId = cn.id
                 if ((strlen clickConnectFrom) == 0) {
                     clickConnectFrom = cn.id
                     graph.clearSelection()
@@ -939,6 +950,8 @@ class FlowEditor {
         }
         if (ni >= 0) {
             def n:FlowNode (graph.nodeAt(ni))
+            pressHitKind = "node"
+            pressHitId = n.id
             if (n.selectable) {
                 if (n.selected == false) {
                     if (inp.shift == false) {
@@ -962,6 +975,8 @@ class FlowEditor {
         def ei:int (this.edgeAt(inp.x inp.y))
         if (ei >= 0) {
             def e:FlowEdge (graph.edgeAt(ei))
+            pressHitKind = "edge"
+            pressHitId = e.id
             if (inp.shift == false) {
                 graph.clearSelection()
             }
@@ -987,6 +1002,8 @@ class FlowEditor {
             }
         }
         graph.clearSelection()
+        pressHitKind = "background"
+        pressHitId = ""
         if panOnDrag {
             mode = 1
         } {
@@ -1706,6 +1723,50 @@ class FlowEditor {
             view.connectFrom = ""
             view.connectValid = false
         }
+        ; A press that did not travel is a click. Recorded after the editor
+        ; has finished with the gesture, so a host that drains `clicks` and
+        ; replaces the graph is not racing the selection.
+        if (movedSincePress == false) {
+            this.emitClick(inp)
+        }
+    }
+
+    fn emitClick:void (inp:FlowInput) {
+        if ((strlen pressHitKind) == 0) {
+            return
+        }
+        def ev (new FlowHitEvent)
+        ev.kind = pressHitKind
+        ev.id = pressHitId
+        ev.x = inp.x
+        ev.y = inp.y
+        ev.flowX = pressFlowX
+        ev.flowY = pressFlowY
+        ev.shift = inp.shift
+        ev.ctrl = inp.ctrl
+        if (pressHitKind == "node") {
+            if (graph.hasNode(pressHitId)) {
+                def n:FlowNode (graph.nodeById(pressHitId))
+                ev.label = n.label
+                ev.dataKind = n.dataKind
+                ev.dataRef = n.dataRef
+            }
+        }
+        if (pressHitKind == "edge") {
+            def ei:int 0
+            while (ei < (graph.edgeCount())) {
+                def e:FlowEdge (graph.edgeAt(ei))
+                if (e.id == pressHitId) {
+                    ev.label = e.label
+                    ev.dataKind = e.dataKind
+                    ev.dataRef = e.dataRef
+                    ei = (graph.edgeCount())
+                } {
+                    ei = (ei + 1)
+                }
+            }
+        }
+        clicks.emit(ev)
     }
 
     fn endDrag:void () {

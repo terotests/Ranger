@@ -1,0 +1,96 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CodeGraphBuilderTest.rgr — the compiler's call graph, as a CodeGraph.
+; ============================================================================
+;
+; Runs VirtualCompiler over fixtures/codegraph/calls.rgr and checks that
+; RangerFlowParser's isCalling / isUsingClasses survived the copy.
+;
+;   npm run rangerflow:codegraph:builder
+; ============================================================================
+
+Import "../domains/codegraph/CodeGraphBuilder.rgr"
+Import "../domains/codegraph/CodeGraphPages.rgr"
+Import "../../../compiler/VirtualCompiler.rgr"
+
+class CodeGraphBuilderTest {
+    sfn main:void () {
+        def env:InputEnv (new InputEnv())
+        env.use_real = true
+        def params:CmdParams (new CmdParams())
+        push params.values "gallery/rangerflow/fixtures/codegraph/calls.rgr"
+        set params.params "l" "es6"
+        set params.params "o" "codegraph_builder_ignored.js"
+        set params.flags "no-color" true
+        env.commandLine = params
+        def vc:VirtualCompiler (new VirtualCompiler())
+        def res:CompilerResults (vc.run(env))
+        if res.hasErrors {
+            print ("compilation failed: " + res.errorMessage)
+            exit 1
+        }
+        def ctx:RangerAppWriterContext res.ctx
+        def b (new CodeGraphBuilder)
+        b.fileFilter = "calls.rgr"
+        def g:CodeGraph (b.fromContext(ctx))
+        def failed:int 0
+        if ((g.hasClass("Order")) == false) {
+            print "  FAIL Order class missing"
+            failed = (failed + 1)
+        }
+        if ((g.hasClass("LineItem")) == false) {
+            print "  FAIL LineItem class missing"
+            failed = (failed + 1)
+        }
+        if ((g.hasMethod("Order.total")) == false) {
+            print "  FAIL Order.total missing"
+            failed = (failed + 1)
+        }
+        if ((g.hasMethod("LineItem.lineTotal")) == false) {
+            print "  FAIL LineItem.lineTotal missing"
+            failed = (failed + 1)
+        }
+        if (g.hasMethod("Order.total")) {
+            def m:CodeMethod (g.methodById("Order.total"))
+            def found:boolean false
+            def i:int 0
+            while (i < (array_length m.calls)) {
+                if ((itemAt m.calls i) == "LineItem.lineTotal") {
+                    found = true
+                }
+                i = (i + 1)
+            }
+            if (found == false) {
+                print "  FAIL Order.total does not call LineItem.lineTotal"
+                print ("    calls: " + (join m.calls ", "))
+                failed = (failed + 1)
+            }
+            def usesItem:boolean false
+            def u:int 0
+            while (u < (array_length m.uses)) {
+                if ((itemAt m.uses u) == "LineItem") {
+                    usesItem = true
+                }
+                u = (u + 1)
+            }
+            if (usesItem == false) {
+                print "  FAIL Order.total does not record LineItem as a used type"
+                print ("    uses: " + (join m.uses ", "))
+                failed = (failed + 1)
+            }
+        }
+        def pages:CodeGraphPages (CodeGraphPages.of(g 24))
+        def overview:CodePage (pages.pageOf("overview:0"))
+        if ((overview.itemCount()) > 24) {
+            print "  FAIL overview exceeded the cap"
+            failed = (failed + 1)
+        }
+        print (("classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
+        if (failed > 0) {
+            print (("failed " + (to_string failed)))
+            exit 1
+        }
+        print "passed builder walk"
+    }
+}
