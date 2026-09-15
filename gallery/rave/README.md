@@ -18,7 +18,8 @@ frame, the dashboard, settings, and every route linting clean at every width
 ```bash
 npm run rave -- new app.rave --name "Acme" --start crud   # a project, from a terminal
 npm run rave -- check app.rave        # parse, build every route at every width, say everything
-npm run rave -- serve app.rave        # the editor at :8012, bound to that file
+npm run rave -- serve                 # the editor at :8012, on the Huuhkajat example
+npm run rave -- serve app.rave        # …or bound to a file of yours
 npm run rave -- spec                  # the format, exactly as the AI prompt states it
 npm run rave -- import file.fig       # a Figma file, read as an application
 
@@ -31,11 +32,13 @@ npm run rave:web           # build and serve on http://127.0.0.1:8012/
 Deployed at `/rave/`. **License:** AGPL-3.0-or-later (Gallery).
 
 A document that is an application, not the editor: `examples/huuhkajat.rave` —
-Huuhkajien pelaajasivu, `rave check` / `rave shot` without a browser.
+Huuhkajien pelaajasivu. The editor opens on it; the screens bar is how you
+move between Joukkue, Pelaajat and Stadion.
 
 ```bash
 npm run rave -- check gallery/rave/examples/huuhkajat.rave
 npm run rave -- shot gallery/rave/examples/huuhkajat.rave --route /pelaajat --width 1440
+npm run rave -- serve
 ```
 
 ## What is where
@@ -79,27 +82,29 @@ when `authenticated` or `unauthenticated`, and `login` / `logout` are actions.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ● Rave  Acme          Design | Run        logged out  Light  Undo Redo … │
+│ ● Rave  Huuhkajat     Design | Run        logged out  Light  Undo Redo … │
+├──────────────────────────────────────────────────────────────────────────┤
+│ SCREENS  Joukkue  Pelaajat  Pelaaja  Stadion  Katsomo                    │
 ├───────────┬──────────────────────────────────────────────┬───────────────┤
 │ Routes    │  desktop · 1440     tablet · 768   phone·390 │ Design CSS A11y│
 │ Components│  ┌──────────────┐   ┌────────┐    ┌────┐    │ div  Cards     │
 │ Layers    │  │ Header       │   │ Header │    │Head│    │ NODE  name …   │
-│  ↑↓←→ Wrap│  │ Side │ Main  │   │ Side│Mn│    │Main│    │ BREAKPOINT     │
-│  Dup Del  │  │      │ ▣ ▣ ▣ │   │     │▣▣│    │ ▣  │    │  base <768 …   │
-│ ▾ Shell   │  └──────────────┘   └────────┘    └────┘    │ LAYOUT Grid    │
-│   Header  │                                             │  Columns …     │
-│   Body    │            [ − 50% + Fit | Tab order ]      │ RESPONSIVE     │
-│    Sidebar│                                             │ ACTIONS        │
-│    Main   │                                             │ ACCESSIBILITY  │
+│  /        │  │ Side │ Main  │   │ Side│Mn│    │Main│    │ BREAKPOINT     │
+│  /pelaajat│  │      │ ▣ ▣ ▣ │   │     │▣▣│    │ ▣  │    │  base <768 …   │
+│  /stadion │  └──────────────┘   └────────┘    └────┘    │ LAYOUT Grid    │
+│ ▾ Shell   │                                             │  Columns …     │
+│   Header  │            [ − 50% + Fit | Tab order ]      │ RESPONSIVE     │
+│   Main    │                                             │ ACTIONS        │
 ├───────────┴──────────────────────────────────────────────┴───────────────┤
-│ Acme · design · /dashboard · views 3 · a11y 0 · rejected 0 · undo 4       │
+│ Huuhkajat · design · /stadion · views 3 · a11y 0 · rejected 0 · undo 0    │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
 - **The stage is the app.** The three viewports are the runtime's own
   laid-out trees in one scene, drawn through a camera (`RaveRuntime.sceneListJson`);
   the chrome is painted over them with the clear switched off, exactly as
-  Rafi paints its board. Drag to pan, scroll to zoom, `Fit` to see all three.
+  Rafi paints its board. The **screens bar** above the board is one chip per
+  route — press one to jump. Drag to pan, scroll to zoom, `Fit` to see all three.
 - **Selection is structural.** A node is picked on the stage or in Layers and
   boxed in every viewport. There are no resize handles: the gestures are
   `↑ ↓` (reorder), `← →` (out of / into a container), `Wrap`, `Dup`, `Del`,
@@ -244,7 +249,7 @@ editor knows how to say about one, `rave` says without a browser.
 | --- | --- |
 | `rave new <out.rave>` | the wizard's four questions as flags — `--start crud`, `--nav topbar`, `--no-auth`, `--targets "web tablet mobile"` |
 | `rave check <file>` | **the loop.** Parses, then builds every route at every width the project targets, and prints the parse errors with their line numbers, every declaration `EVGReject` refused, and every accessibility problem — then the routes themselves, so a shot does not have to guess. Ends `RAVE OK` or `RAVE FAIL n`, and exits non-zero |
-| `rave serve <file.rave>` | the editor at `:8012` **bound to that file** — it loads it, follows it when something else writes it, and writes it back when someone presses Save |
+| `rave serve [file.rave]` | the editor at `:8012`. No file: the Huuhkajat example. With a file: bound to it — loads it, follows it, writes it back on Save. The screens bar is how you move between routes |
 | `rave fmt` / `json` / `markup` | the same document, spelled the writer's way, as `app.rave.json`, or back |
 | `rave shot <file>` | one route at one width, as a PNG — `--route`, `--width`, `--out`, or `--all` for every route at every target width. No browser: the gallery's own software rasterizer paints the tree the layout kept. Prints a `MEASURE` of the same tree |
 | `rave measure <file>` | overflow, overlap, off the page, as the EVG agent reads the boxes. Exit non-zero when there is a finding |

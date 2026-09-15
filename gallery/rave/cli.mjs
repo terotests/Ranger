@@ -410,9 +410,10 @@ if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
       "                             overflow, overlap, off the page — boxes, not pixels",
       "  rave outline <file> [--route /x] [--width 1440] [--depth 6] [--at PATH]",
       "                             the laid-out tree, one line per node",
-      "  rave serve <file.rave> [--port 8012]",
+      "  rave serve [file.rave] [--port 8012]",
       "                             the editor, bound to that file: it loads it,",
-      "                             follows it when it changes, and writes it on Save",
+      "                             follows it when it changes, and writes it on Save.",
+      "                             No file: the Huuhkajat example.",
       "",
     ].join("\n"),
   );
@@ -445,13 +446,9 @@ if (cmd === "shot") {
   }
   process.exit(outline(file, rest));
 } else if (cmd === "serve") {
-  const file = rest.find((a) => !a.startsWith("--"));
+  const file = rest.find((a) => !a.startsWith("--")) || path.join(HERE, "examples", "huuhkajat.rave");
   const portAt = rest.indexOf("--port");
   const port = portAt >= 0 ? Number(rest[portAt + 1]) : 8012;
-  if (!file) {
-    process.stderr.write("usage: rave serve <file.rave> [--port 8012]\n");
-    process.exit(2);
-  }
   const bad = serve(file, port);
   if (bad !== null) process.exit(bad);
 } else if (DOC_COMMANDS.has(cmd)) {

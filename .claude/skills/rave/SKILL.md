@@ -17,6 +17,7 @@ npm run rave -- shot app.rave --width 390   # paint a route and look at it
 npm run rave -- measure app.rave --width 390  # overflow, overlap, off the page
 npm run rave -- outline app.rave --width 390  # the laid-out tree, one line per node
 npm run rave -- serve app.rave        # the editor at :8012, bound to the file
+npm run rave -- serve                 # the same editor, on the Huuhkajat example
 npm run rave -- spec                  # the format in full — read this before writing one
 ```
 
@@ -129,10 +130,12 @@ Look at what you made. `check` catches what is wrong; a picture and a measure
 catch what is merely bad.
 
 
-`rave serve app.rave` runs the editor at `http://127.0.0.1:8012/` bound to that
-file: it loads it, follows it when you write it, and writes it back when
-someone presses Save in the page. That is how an agent editing the file and a
-person watching the screen are one session.
+`rave serve` runs the editor at `http://127.0.0.1:8012/` on the Huuhkajat
+example. `rave serve app.rave` binds a file of yours: it loads it, follows it
+when you write it, and writes it back when someone presses Save in the page.
+That is how an agent editing the file and a person watching the screen are
+one session. The screens bar at the top of the stage is how you move between
+the document's routes.
 
 ## The Figma side
 

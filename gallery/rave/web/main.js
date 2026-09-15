@@ -18,6 +18,7 @@ import { createA11yMirror } from "./evg/gl/evg-a11y.js";
 import { installCanvasMeasurer } from "./evg/gl/evg-measure.js";
 import RaveModule, { RaveEditor } from "./generated-host.js";
 import { CSS } from "./generated.js";
+import { EXAMPLE } from "./generated-example.js";
 
 const stage = document.getElementById("stage");
 const canvas = document.getElementById("c");
@@ -28,6 +29,7 @@ installCanvasMeasurer(RaveModule);
 
 const app = new RaveEditor();
 app.init(CSS);
+if (EXAMPLE) app.openMarkup(EXAMPLE);
 window.__rave = app;
 
 const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true });
@@ -251,7 +253,7 @@ document.addEventListener("paste", (ev) => {
 const realPress = app.press.bind(app);
 app.press = (id) => {
   if (id === "file:open") {
-    fileEl.accept = ".json,.rave.json,application/json";
+    fileEl.accept = ".json,.rave,.rave.json,.fig,application/json";
     wantFig = false;
     fileEl.click();
     return false;
@@ -310,6 +312,8 @@ fileEl.addEventListener("change", async () => {
     const ab = await f.arrayBuffer();
     if (!ab._view) ab._view = new DataView(ab);
     app.importFig(ab, f.name);
+  } else if (/\.rave$/i.test(f.name) && !/\.json$/i.test(f.name)) {
+    app.openMarkup(await f.text());
   } else {
     app.openJson(await f.text());
   }
