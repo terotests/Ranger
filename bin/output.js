@@ -4533,6 +4533,7 @@ class CodeNode  {
     this.has_lambda = false;
     this.has_lambda_call = false;
     this.has_call = false;
+    this.is_call_args = false;
     this.rust_needs_preevaluate = false;
     this.rust_preevaluated_args = [];
     this.rust_use_tmpvar = "";
@@ -9771,6 +9772,15 @@ class RangerLispParser  {
     }
     return false;
   };
+  isFoldableInfixPred (pred) {
+    if ( pred < 1 ) {
+      return false;
+    }
+    if ( pred == 3 ) {
+      return false;
+    }
+    return true;
+  };
   isDotVRef (n) {
     if ( n.parsed_type != 11 ) {
       return false;
@@ -9790,6 +9800,77 @@ class RangerLispParser  {
     const ch0 = node.children[0];
     return this.isDotVRef(ch0);
   };
+  isCallChainOnNode (node) {
+    const cnt = node.children.length;
+    if ( cnt < 2 ) {
+      return false;
+    }
+    let idx = 0;
+    while (idx < cnt) {
+      if ( idx + 1 >= cnt ) {
+        return false;
+      }
+      const nameNode = node.children[idx];
+      const argNode = node.children[(idx + 1)];
+      if ( nameNode.parsed_type != 11 ) {
+        return false;
+      }
+      if ( nameNode.vref.length < 2 ) {
+        return false;
+      }
+      if ( idx == 0 ) {
+        if ( this.isDotVRef(nameNode) == false ) {
+          return false;
+        }
+        if ( nameNode.vref.charCodeAt(0 ) == (46) ) {
+          return false;
+        }
+      } else {
+        if ( nameNode.vref.charCodeAt(0 ) != (46) ) {
+          return false;
+        }
+      }
+      if ( nameNode.has_vref_annotation ) {
+        return false;
+      }
+      if ( nameNode.children.length > 0 ) {
+        return false;
+      }
+      if ( false == argNode.expression ) {
+        return false;
+      }
+      if ( argNode.is_block_node ) {
+        return false;
+      }
+      if ( argNode.parsed_type != 0 ) {
+        return false;
+      }
+      if ( argNode.sp != nameNode.ep ) {
+        return false;
+      }
+      idx = idx + 2;
+    };
+    return true;
+  };
+  foldCallChainToGroup (node) {
+    if ( this.isCallChainOnNode(node) == false ) {
+      return;
+    }
+    const cnt = node.children.length;
+    const firstCh = node.children[0];
+    const lastCh = node.children[(cnt - 1)];
+    const callGroup = new CodeNode(this.code, firstCh.sp, lastCh.ep);
+    callGroup.expression = true;
+    callGroup.parent = node;
+    let left = cnt;
+    while (left > 0) {
+      const moved = node.children.splice(0, 1).pop();
+      moved.parent = callGroup;
+      callGroup.children.push(moved);
+      left = left - 1;
+    };
+    node.children.push(callGroup);
+  };
   foldDotCallPairToGroup (node) {
     if ( this.isDotCallPairOnNode(node) == false ) {
       return;
@@ -9803,6 +9884,120 @@ class RangerLispParser  {
     callGroup.children.push(ch0);
     callGroup.children.push(ch1);
     node.children.push(callGroup);
+  };
+  isPlainDotCallee (n, paren_pos) {
+    if ( n.parsed_type != 11 ) {
+      return false;
+    }
+    if ( n.ep != paren_pos ) {
+      return false;
+    }
+    if ( n.type_name.length > 0 ) {
+      return false;
+    }
+    if ( n.has_vref_annotation ) {
+      return false;
+    }
+    if ( n.has_type_annotation ) {
+      return false;
+    }
+    if ( n.children.length > 0 ) {
+      return false;
+    }
+    if ( n.vref.length < 2 ) {
+      return false;
+    }
+    if ( n.vref.charCodeAt(0 ) == (46) ) {
+      return false;
+    }
+    return this.isDotVRef(n);
+  };
+  isChainTailCallee (n, paren_pos) {
+    if ( n.parsed_type != 11 ) {
+      return false;
+    }
+    if ( n.ep != paren_pos ) {
+      return false;
+    }
+    if ( n.vref.length < 2 ) {
+      return false;
+    }
+    if ( n.vref.charCodeAt(0 ) != (46) ) {
+      return false;
+    }
+    if ( n.has_vref_annotation ) {
+      return false;
+    }
+    if ( n.has_type_annotation ) {
+      return false;
+    }
+    if ( n.children.length > 0 ) {
+      return false;
+    }
+    return true;
+  };
+  insertCallOrNode (p_node) {
+    let push_target = this.curr_node;
+    if ( this.curr_node.infix_operator ) {
+      push_target = this.curr_node.infix_node;
+      if ( push_target.to_the_right ) {
+        push_target = push_target.right_node;
+        p_node.parent = push_target;
+      }
+    }
+    const cnt = push_target.children.length;
+    const inside_args = push_target.is_call_args;
+    let may_fold = cnt > 1;
+    if ( inside_args && cnt == 1 ) {
+      may_fold = true;
+    }
+    if ( cnt > 1 ) {
+      const beforeCallee = push_target.children[(cnt - 2)];
+      if ( beforeCallee.parsed_type == 11 ) {
+        if ( beforeCallee.vref == "new" ) {
+          may_fold = false;
+        }
+      }
+    }
+    if ( may_fold ) {
+      const callee = push_target.children[(cnt - 1)];
+      if ( cnt > 2 && this.isChainTailCallee(callee, this.i) ) {
+        const prevGroup = push_target.children[(cnt - 2)];
+        const continues = this.isCallChainOnNode(prevGroup);
+        if ( continues && callee.sp == prevGroup.ep ) {
+          const movedTail = push_target.children.splice((cnt - 1), 1).pop();
+          movedTail.parent = prevGroup;
+          p_node.parent = prevGroup;
+          p_node.is_call_args = true;
+          prevGroup.children.push(movedTail);
+          prevGroup.children.push(p_node);
+          this.last_call_group = prevGroup;
+          return true;
+        }
+      }
+      if ( this.isPlainDotCallee(callee, this.i) ) {
+        const callGroup = new CodeNode(this.code, callee.sp, this.i);
+        callGroup.expression = true;
+        callGroup.parent = push_target;
+        const moved = push_target.children.splice((cnt - 1), 1).pop();
+        moved.parent = callGroup;
+        p_node.parent = callGroup;
+        callGroup.children.push(moved);
+        callGroup.children.push(p_node);
+        p_node.is_call_args = true;
+        this.last_call_group = callGroup;
+        push_target.children.push(callGroup);
+        return true;
+      }
+    }
+    if ( cnt == 1 ) {
+      const onlyCh = push_target.children[0];
+      if ( this.isPlainDotCallee(onlyCh, this.i) ) {
+        p_node.is_call_args = true;
+      }
+    }
+    push_target.children.push(p_node);
+    return false;
   };
   tryCloseCallArgParenBeforeInfix () {
     const pr = this.curr_node.parent;
@@ -10087,6 +10282,8 @@ class RangerLispParser  {
     let last_i = 0;
     let had_lf = false;
     let disable_ops_set = disable_ops;
+    let did_fold_call = false;
+    let folded_call;
     const entry_depth = this.parents.length;
     while (this.i < this.__len) {
       if ( this.parents.length < entry_depth ) {
@@ -10168,7 +10365,15 @@ class RangerLispParser  {
             } else {
               const new_qnode = new CodeNode(this.code, this.i, this.i);
               new_qnode.expression = true;
-              this.insert_node(new_qnode);
+              did_fold_call = false;
+              if ( c == 40 && false == disable_ops_set ) {
+                did_fold_call = this.insertCallOrNode(new_qnode);
+              } else {
+                this.insert_node(new_qnode);
+              }
+              if ( did_fold_call ) {
+                folded_call = this.last_call_group;
+              }
               this.parents.push(new_qnode);
               this.curr_node = new_qnode;
             }
@@ -10177,6 +10382,11 @@ class RangerLispParser  {
             }
             this.i = 1 + this.i;
             this.parseBuf(s, disable_ops_set);
+            if ( did_fold_call ) {
+              const folded = folded_call;
+              folded.ep = this.i;
+              did_fold_call = false;
+            }
             continue;
           }
         }
@@ -10670,10 +10880,12 @@ class RangerLispParser  {
             if ( this.isComparisonOpPred(op_pred) ) {
               this.tryCloseCallArgParenBeforeInfix();
             }
-            if ( this.isComparisonOpPred(op_pred) && false == this.curr_node.infix_operator ) {
+            if ( this.isFoldableInfixPred(op_pred) && false == this.curr_node.infix_operator ) {
               const cn = this.curr_node;
               if ( this.isDotCallPairOnNode(cn) ) {
                 this.foldDotCallPairToGroup(cn);
+              } else {
+                this.foldCallChainToGroup(cn);
               }
             }
             let pTarget = this.curr_node;

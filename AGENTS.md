@@ -64,11 +64,12 @@ Ranger is **LISP / S-expression based**. Full answers with compiled output are i
 the [FAQ](https://terotests.github.io/Ranger/docs/faq/#why-does-my-call-not-compile).
 Short form:
 
-- **`return` a call → parenthesize it.** `return (this.helper())`, never
-  `return this.helper()`. The bare form fails on all targets with misleading
-  errors (often a phantom `function variable not found …` elsewhere). The call
-  must be the *direct* `( )` operand — bind first if you need arithmetic:
-  `def v:int (this.helper())` then `return (v + 0)`. See ISSUES.md #63.
+- **A call on a dotted receiver may be written bare.** `return this.helper()`,
+  `return P.staticHelper()`, `return a.b().c()` and `def v:int (this.helper() + 1)`
+  all parse: the parser folds a `(` that touches a dotted name onto that name.
+  `return (this.helper())` still works and is what older code says. A callee
+  that is **not** dotted — a lambda held in a local — still needs its own
+  parentheses: `return (fn1(3))`. See ISSUES.md #63.
 - **One statement per line.** `{ def c:int 5 return c }` is a parse error.
 - **Never start a statement with a parenthesised receiver.** Bind first:
   `def recv:T (expr)` then `recv.method()`. Inside an expression it is fine.
@@ -90,10 +91,9 @@ Short form:
   `collapse`, `mentions`, `squareRoot`). They were found one compile at a time
   while writing `gallery/evg/EVGPatch.rgr` and the Vega chart door; the list is
   what has been hit, not what exists.
-- **Arithmetic on a call result needs a variable.** `(w - (Foo.bar() + 8))`
-  fails to parse the `+`; bind the call first (`def b:int (Foo.bar())`) and do
-  the arithmetic on the name. The same applies to `(obj.method()).field` —
-  bind the object, then read the field.
+- **Arithmetic on a call result works** when the receiver is dotted:
+  `(w - (Foo.bar() + 8))` parses. `(obj.method()).field` still does not — bind
+  the object, then read the field.
 - No `abs` builtin; inline the absolute value. Prefer flattening over relying on
   the TSX interpreter's limited `extends` / `super`.
 

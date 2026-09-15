@@ -192,6 +192,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`return this.helper()` compiles.** A method call in return position,
+  written the way every C-family language writes it, used to fail analysis
+  with `Could not match argument types for return` followed by `Function does
+  not return any values!` — two messages, neither of which names the problem,
+  and on a class with inheritance often a phantom missing method in a
+  different file. It parsed as three sibling nodes rather than one call. The
+  parser now folds a `(` that TOUCHES a dotted name back onto that name, which
+  also retires the rule that arithmetic on a call result needs a temporary
+  local: `def v:int (this.helper() + 1)`, `return this.helper() + 10`,
+  `this.other(this.helper())` and `return a.b().c()` all parse now, and the
+  parenthesised spellings still mean exactly what they did. A callee that is
+  not dotted — a lambda in a local — still needs its own parentheses, because
+  an undotted name in front of a `(` is also how `new Type(...)` and a method
+  declaration are spelled. Gated on es6, Go, Python and Rust output, and by
+  the compiler rebuilding itself byte-identically from 50,000 lines of Ranger.
+  ISSUES.md #63.
+
 - **Editing the markdown while looking at a slide jumped the deck back to
   the first one.** Rebuilding the slides hands the editor a new presentation,
   and `attachPresentation` always opened on slide 1 — so a keystroke on slide

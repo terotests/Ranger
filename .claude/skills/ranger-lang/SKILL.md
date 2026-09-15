@@ -1,6 +1,6 @@
 ---
 name: ranger-lang
-description: Write or edit Ranger source (`.rgr`) without walking into the compiler errors that cost the most time — a parenthesised return, two statements on a line, a reserved method name, arithmetic on a call result. Use whenever creating or changing a `.rgr` file, and especially when a Ranger compile fails with an error that points at the wrong place ("function variable not found", "Class X does not have method Y", "Could not match argument types").
+description: Write or edit Ranger source (`.rgr`) without walking into the compiler errors that cost the most time — a call that needs its own parentheses, two statements on a line, a reserved method name, a parenthesised receiver. Use whenever creating or changing a `.rgr` file, and especially when a Ranger compile fails with an error that points at the wrong place ("function variable not found", "Class X does not have method Y", "Could not match argument types").
 ---
 
 # Writing Ranger
@@ -23,18 +23,20 @@ reads the log and fails properly.
 
 ## The errors that point at the wrong line
 
-**A returned call needs its own parentheses.**
-`return (this.helper())` — never `return this.helper()`. The bare form fails on
-every target, often reporting a phantom `function variable not found` in an
-unrelated function.
+**A returned call on a dotted receiver may be written bare.**
+`return this.helper()`, `return P.staticHelper()` and `return a.b().c()` all
+parse — the parser folds a `(` that touches a dotted name onto that name.
+`return (this.helper())` still works. A callee that is **not** dotted, such as a
+lambda held in a local, still needs its own parentheses: `return (fn1(3))`, and
+the bare form there fails with `Could not match argument types for return`.
 
 **One statement per line.** `{ el.x = 1  return true }` is a parse error.
 Alignment inside a one-line `if` body is a trap: `if (a) { x = 1  return true }`
 looks tidy and does not parse. A single statement is fine: `{ return a }`.
 
-**Arithmetic on a call result needs a variable first.**
-`(w - (Foo.bar() + 8))` does not parse. Bind it: `def b:int (Foo.bar())`, then
-`(w - (b + 8))`. Same for `(obj.method()).field`.
+**Arithmetic on a call result** works when the receiver is dotted:
+`(w - (Foo.bar() + 8))` parses, and so does `def v:int (this.h.value() * 5)`.
+`(obj.method()).field` still does not — bind the object, then read the field.
 
 **Never start a statement with a parenthesised receiver.** Bind first:
 `def recv:T (expr)` then `recv.method()`.

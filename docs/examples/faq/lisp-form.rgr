@@ -11,11 +11,11 @@ class Main {
     sfn main:void () {
         def helper:Helper (new Helper())
 
-        ; A call that gives a value needs its own parentheses.
+        ; A call gives a value. On a dotted receiver the parentheses around it
+        ; are optional, so `(helper.value())` and `helper.value()` are the same
+        ; call, and arithmetic may use one directly.
         def n (helper.value())
-
-        ; A returned call also needs them: `return helper.value()` does not compile.
-        def total (n + 1)
+        def total (helper.value() + 1)
         print ("total " + total)
     }
 }

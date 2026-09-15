@@ -41,6 +41,9 @@ class RangerLispParser {
   ; desugared into. Per parser instance, so per FILE; the temporaries are
   ; block locals, so two files never see each other's.
   def recv_tmp_count:int 0
+  ; The call group most recently folded by insertCallOrNode, so parseBuf can
+  ; close its source range once the argument list has been parsed.
+  def last_call_group@(optional weak):CodeNode
 
   ; Accept LF, CRLF, and lone CR — normalize to LF before tokenization.
   ; Use split/join (linear) instead of repeated substring rebuilds (quadratic on
@@ -379,6 +382,20 @@ class RangerLispParser {
     return false
   }
 
+  ; Infix operators whose left operand may be a call written without its own
+  ; parentheses. Everything but `=` (pred 3): an assignment's left side is a
+  ; target, never a call, and folding there would change what `a.b().c = v`
+  ; means (that shape is desugared further down instead).
+  fn isFoldableInfixPred:boolean (pred:int) {
+    if (pred < 1) {
+      return false
+    }
+    if (pred == 3) {
+      return false
+    }
+    return true
+  }
+
   fn isDotVRef:boolean (n:CodeNode) {
     if (n.parsed_type != RangerNodeType.VRef) {
       return false
@@ -400,6 +417,85 @@ class RangerLispParser {
     return (this.isDotVRef(ch0))
   }
 
+  ; A whole method chain standing alone in an expression:
+  ; `a.b(x).c(y)` parses flat, as name/arglist pairs. `isDotCallPairOnNode`
+  ; only recognises the one-call case, so a chain used as the left operand of
+  ; an infix operator still came apart. Every pair after the first leads with
+  ; a dot, and every arglist has to TOUCH the name in front of it, which is
+  ; what separates a chain from an operand followed by a group.
+  fn isCallChainOnNode:boolean (node:CodeNode) {
+    def cnt:int (array_length node.children)
+    if (cnt < 2) {
+      return false
+    }
+    def idx:int 0
+    while (idx < cnt) {
+      if ((idx + 1) >= cnt) {
+        return false
+      }
+      def nameNode:CodeNode (itemAt node.children idx)
+      def argNode:CodeNode (itemAt node.children (idx + 1))
+      if (nameNode.parsed_type != RangerNodeType.VRef) {
+        return false
+      }
+      if ((strlen nameNode.vref) < 2) {
+        return false
+      }
+      if (idx == 0) {
+        if ((this.isDotVRef(nameNode)) == false) {
+          return false
+        }
+        if ((charAt nameNode.vref 0) == ((ccode "."))) {
+          return false
+        }
+      } {
+        if ((charAt nameNode.vref 0) != ((ccode "."))) {
+          return false
+        }
+      }
+      if (nameNode.has_vref_annotation) {
+        return false
+      }
+      if ((array_length nameNode.children) > 0) {
+        return false
+      }
+      if (false == argNode.expression) {
+        return false
+      }
+      if (argNode.is_block_node) {
+        return false
+      }
+      if (argNode.parsed_type != RangerNodeType.NoType) {
+        return false
+      }
+      if (argNode.sp != nameNode.ep) {
+        return false
+      }
+      idx = idx + 2
+    }
+    return true
+  }
+
+  fn foldCallChainToGroup:void (node:CodeNode) {
+    if ((this.isCallChainOnNode(node)) == false) {
+      return
+    }
+    def cnt:int (array_length node.children)
+    def firstCh:CodeNode (itemAt node.children 0)
+    def lastCh:CodeNode (itemAt node.children (cnt - 1))
+    def callGroup@(temp lives):CodeNode (new CodeNode(( unwrap code) firstCh.sp lastCh.ep))
+    callGroup.expression = true
+    callGroup.parent = node
+    def left:int cnt
+    while (left > 0) {
+      def moved:CodeNode (array_extract node.children 0)
+      moved.parent = callGroup
+      push callGroup.children moved
+      left = left - 1
+    }
+    push node.children callGroup
+  }
+
   fn foldDotCallPairToGroup:void (node:CodeNode) {
     if ((this.isDotCallPairOnNode(node)) == false) {
       return
@@ -413,6 +509,152 @@ class RangerLispParser {
     push callGroup.children ch0
     push callGroup.children ch1
     push node.children callGroup
+  }
+
+  ; A name that is the RECEIVER of a call written without its own pair of
+  ; parentheses: dotted, and touching the `(` with no space in between.
+  ; `recv.method(...)` means the same call as `(recv.method(...))`, so the
+  ; parser folds the two into one node instead of leaving them as siblings —
+  ; the shape `return this.helper()` used to fail analysis with (ISSUES.md
+  ; #63), and the same shape is what made arithmetic on a call result need a
+  ; temporary variable.
+  ;
+  ; The three exclusions are what keep everything else parsing as before:
+  ; a name with a space before the `(` is an operand followed by a group, not
+  ; a call (`print (x)`); an undotted name is a form such as
+  ; `(new CodeNode(...))` or `fn name:int ()`; and a name that BEGINS with a
+  ; dot is the `.tail()` of a chain, which the chain fold below already owns.
+  fn isPlainDotCallee:boolean (n:CodeNode paren_pos:int) {
+    if (n.parsed_type != RangerNodeType.VRef) {
+      return false
+    }
+    if (n.ep != paren_pos) {
+      return false
+    }
+    if ((strlen n.type_name) > 0) {
+      return false
+    }
+    if (n.has_vref_annotation) {
+      return false
+    }
+    if (n.has_type_annotation) {
+      return false
+    }
+    if ((array_length n.children) > 0) {
+      return false
+    }
+    if ((strlen n.vref) < 2) {
+      return false
+    }
+    if ((charAt n.vref 0) == ((ccode "."))) {
+      return false
+    }
+    return (this.isDotVRef(n))
+  }
+
+  ; The `.method` of a chain whose receiver has already been folded into a
+  ; call group — `return a.b().c()` folds `a.b()` first, and this is what
+  ; carries the rest of the chain into that same group instead of leaving it
+  ; as loose siblings.
+  fn isChainTailCallee:boolean (n:CodeNode paren_pos:int) {
+    if (n.parsed_type != RangerNodeType.VRef) {
+      return false
+    }
+    if (n.ep != paren_pos) {
+      return false
+    }
+    if ((strlen n.vref) < 2) {
+      return false
+    }
+    if ((charAt n.vref 0) != ((ccode "."))) {
+      return false
+    }
+    if (n.has_vref_annotation) {
+      return false
+    }
+    if (n.has_type_annotation) {
+      return false
+    }
+    if ((array_length n.children) > 0) {
+      return false
+    }
+    return true
+  }
+
+  ; Attaches an opening `(` either as the argument list of the name in front
+  ; of it (a folded call) or, as before, as a plain sibling node. Returns true
+  ; when it folded; the new group is left in `last_call_group`.
+  fn insertCallOrNode:boolean ( p_node@(strong lives):CodeNode) {
+    def push_target@(optional weak lives):CodeNode curr_node
+    if (curr_node.infix_operator) {
+      push_target = curr_node.infix_node
+      if (push_target.to_the_right) {
+        push_target = push_target.right_node
+        p_node.parent = push_target
+      }
+    }
+    def cnt:int (array_length push_target.children)
+    def inside_args:boolean push_target.is_call_args
+    def may_fold:boolean (cnt > 1)
+    if (inside_args && (cnt == 1)) {
+      may_fold = true
+    }
+    ; `new Some.Name(args)` is a construction, not a call on a receiver: the
+    ; dotted name is the TYPE and the parentheses are the constructor's
+    ; arguments, which the `new` form already reads as its own children.
+    ; Folding them would leave `new` without its type. Found by compiling the
+    ; repository's own fixtures with the fold in place.
+    if (cnt > 1) {
+      def beforeCallee:CodeNode (itemAt push_target.children (cnt - 2))
+      if (beforeCallee.parsed_type == RangerNodeType.VRef) {
+        if (beforeCallee.vref == "new") {
+          may_fold = false
+        }
+      }
+    }
+    if (may_fold) {
+      def callee:CodeNode (itemAt push_target.children (cnt - 1))
+      if ((cnt > 2) && (this.isChainTailCallee(callee i))) {
+        def prevGroup:CodeNode (itemAt push_target.children (cnt - 2))
+        def continues:boolean (this.isCallChainOnNode(prevGroup))
+        if (continues && (callee.sp == prevGroup.ep)) {
+          def movedTail:CodeNode (array_extract push_target.children (cnt - 1))
+          movedTail.parent = prevGroup
+          p_node.parent = prevGroup
+          p_node.is_call_args = true
+          push prevGroup.children movedTail
+          push prevGroup.children p_node
+          last_call_group = prevGroup
+          return true
+        }
+      }
+      if (this.isPlainDotCallee(callee i)) {
+        def callGroup@(temp lives):CodeNode (new CodeNode(( unwrap code) callee.sp i))
+        callGroup.expression = true
+        callGroup.parent = push_target
+        def moved:CodeNode (array_extract push_target.children (cnt - 1))
+        moved.parent = callGroup
+        p_node.parent = callGroup
+        push callGroup.children moved
+        push callGroup.children p_node
+        p_node.is_call_args = true
+        last_call_group = callGroup
+        push push_target.children callGroup
+        return true
+      }
+    }
+    ; Not folded, but still an argument list when the name in front of it is a
+    ; call the canonical shape already covers (a statement that STARTS with
+    ; `recv.method(`). Marking it is what lets a bare call nested inside those
+    ; arguments fold.
+    if (cnt == 1) {
+      def onlyCh:CodeNode (itemAt push_target.children 0)
+      if (this.isPlainDotCallee(onlyCh i)) {
+        p_node.is_call_args = true
+      }
+    }
+    push push_target.children p_node
+    return false
   }
 
   fn tryCloseCallArgParenBeforeInfix:boolean () {
@@ -719,6 +961,8 @@ class RangerLispParser {
     def last_i:int 0
     def had_lf:boolean false
     def disable_ops_set disable_ops
+    def did_fold_call:boolean false
+    def folded_call@(optional weak):CodeNode
 
     ; ISSUES.md #70. Every one of the three recursion sites below pushes a node
     ; onto `parents` and then calls parseBuf. This records how deep `parents` was
@@ -829,7 +1073,15 @@ class RangerLispParser {
             } {
               def new_qnode@(lives):CodeNode (new CodeNode(( unwrap code) i i))
               new_qnode.expression = true
-              this.insert_node(new_qnode)
+              did_fold_call = false
+              if ((c == 40) && (false == disable_ops_set)) {
+                did_fold_call = (this.insertCallOrNode(new_qnode))
+              } {
+                this.insert_node(new_qnode)
+              }
+              if (did_fold_call) {
+                folded_call = last_call_group
+              }
               push parents new_qnode
               curr_node = new_qnode
             }
@@ -838,6 +1090,11 @@ class RangerLispParser {
             }
             i = 1 + i
             this.parseBuf(s disable_ops_set)
+            if (did_fold_call) {
+              def folded:CodeNode ( unwrap folded_call)
+              folded.ep = i
+              did_fold_call = false
+            }
             continue 
           }
         }
@@ -1417,10 +1674,18 @@ class RangerLispParser {
             if (this.isComparisonOpPred(op_pred)) {
               (this.tryCloseCallArgParenBeforeInfix())
             }
-            if ((this.isComparisonOpPred(op_pred)) && (false == curr_node.infix_operator)) {
+            ; A call at the START of an expression is already the canonical
+            ; `(name args)` shape, so insertCallOrNode leaves it alone — but
+            ; the infix rewriter below treats every child as an operand and
+            ; would tear `name` and `args` apart. Folding the pair into one
+            ; node first is what makes `(this.helper() + 1)` mean what it
+            ; reads as, instead of needing the call bound to a local.
+            if ((this.isFoldableInfixPred(op_pred)) && (false == curr_node.infix_operator)) {
               def cn@(lives):CodeNode (unwrap curr_node)
               if (this.isDotCallPairOnNode(cn)) {
                 (this.foldDotCallPairToGroup(cn))
+              } {
+                (this.foldCallChainToGroup(cn))
               }
             }
             def pTarget@(optional weak):CodeNode curr_node

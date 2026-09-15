@@ -25,9 +25,11 @@
 - Issue #78 (fixed): on Python a method whose name is a builtin was DECLARED under its renamed form and CALLED under its original one. `fn str` came out as `def _str`, and a chained `r.str(...)` called a method that does not exist — `AttributeError: 'LcRow' object has no attribute 'str'`. Every other writer reads `compiledName` at the call site; the Python writer wrote `method.vref`. Found by the phase-3 chain fixture, which is the first Ranger program to chain a call to such a method on Python (September 2026)
 
 - Issue #80 (fixed): a property read through `(expr).field` emitted the SOURCE spelling of the name, not the renamed one. `GetProperty` resolves the member and attaches the descriptor to the expression node but never to the property node itself, so a name that is a keyword of the target came out unrenamed. The TS engine writes `(fnV.functionNodeOf()).async` and `async` is a Python keyword, so **the engine had never once built for Python** — a `SyntaxError` the compiler reported as a successful build. The same property is renamed correctly at its declaration (`self._async`) and at ordinary reads (`member._async`). Fixed by attaching the descriptor to the property node and by making the Python and PHP writers read it, as every other writer already did. The engine now builds, runs, and answers 2,061 of its 2,066 conformance probes identically to JavaScript (September 2026)
+- Issue #63 (fixed): `return this.helper()` — a method call in return position written the way every C-family language writes it — failed type analysis, and said so twice in the wrong place (`Could not match argument types for return`, then `Function does not return any values!`, and often a phantom missing method in an unrelated function). The same shape is why arithmetic on a call result needed a temporary local. The parser now folds a `(` that TOUCHES a dotted name back onto that name and builds the call node itself, so the bare spelling and the parenthesised one are one program. Gated by output on es6, Go, Python and Rust (`tests/compiler-issue-63.test.ts`), and by the compiler rebuilding itself byte-identically — 50,000 lines of Ranger whose parse is unchanged (September 2026)
 - Issue #82 (fixed): the `es6` keyword table added in #76 renamed METHOD and PROPERTY names as well as bindings, so `EvHandle.null()` -- the constructor three suites and every JavaScript consumer of the engine module call -- became `EvHandle._null()`. JavaScript reserves its keywords only where a name may stand: `const null = 1` is a syntax error, `obj.null` and `static null() {}` are not. `transformWord` now splits into a binding transform and a member transform. Found by CI, not locally: `runtime-conformance.test.ts` rebuilt the engine module only when a `.rgr` under `migrate/src/` was newer, so after a COMPILER change it measured the engine built by the previous compiler and reported green. The compiler is in that dependency list now (September 2026)
 
 ### Still Open
+- Issue #86: on Rust a method named `self` is DECLARED as `self_` and CALLED as `_self`, so the generated crate does not compile (`no method named _self`). The two spellings come from two places: the language-wide `reserved_words` table in `Lang.rgr` maps `self -> _self` for every target, and the Rust writer's own word transform maps it to `self_` because `r#self` is not a legal raw identifier. Every other Rust keyword is consistent (`match` and `loop` are `r#match` / `r#loop` at both ends). Same family as #78 and #80; found while writing the #63 fixture, which had a method called `self` (September 2026)
 - Issue #85: an array literal passed to a call whose RESULT IS IMMEDIATELY DEREFERENCED is lost — the elements are emitted bare where the array should be. `(box.take(([] _:string ( "a" "b" )))).count()` becomes `box.take("a""b").count()`, which does not parse on JavaScript or PHP; the one-element form becomes `box.take("a")`, which parses and is silently wrong. Every target. The same array literal one line up, bound to a variable first, is correct (September 2026)
 - Issue #84: Rust drops a ONE-element inline array literal in argument position: `Take.f(([] _:string ( "a" )))` emits `Take::f("a")` where every other target emits the vector. Two elements are correct, so it is the arity, not the literal (September 2026)
 - Issue #83: the PHP writer turns a `$` inside a string literal into `\"`. `def s:string "literal $HOME stays"` comes out as `$s = "literal \"HOME stays";` — a parse error, and the escape that was intended (PHP interpolates `$` inside double quotes) is not what was written either (September 2026)
@@ -36,7 +38,6 @@
 - Issue #75 (partially fixed): any trailing block on a class declaration makes `EnterClass` take it for the class body. The real body is never flow-analysed, the compiler reports success, and the emitted method body is broken (`return+x1` for `return (x + 1)`). The `doc { … }` case is fixed by the detach pass; the arity check is still wrong for any other trailing token (August 2026)
 - Issue #74: Rust emits `&self` for a method whose only statement is a mutating call on a field object, so the output does not compile. Statement-position calls keep a node shape the mutability analysis does not read. Reproduces without generics (August 2026)
 - Issue #73: LLVM mishandles a collection nested inside a collection — `[[string]]` comes back with the inner array empty, and `[string:[string:int]]` segfaults once the inner map holds more than one entry. Reproduces without generics; same family as TARGET_NOTES #25/#26 (August 2026)
-- Issue #63: `return call()` (a bare/compound method-call in return position) fails type analysis — must be written `return (call())`. Low priority; clean workaround exists (see below).
 - Issue #59: System classes have hardcoded type handling (Design Issue)
 - Issue #15: Adding new primitive types requires changes in multiple files (partially addressed by `TTypeRegistry`; full `primitivetype` registry not done)
 
@@ -666,72 +667,88 @@ recv.method()
 
 ---
 
-## Issue #63: `return this.helper()` fails type analysis — parenthesize the call
+## Issue #63: `return this.helper()` failed type analysis (FIXED)
 
-**Status:** Open (low priority — clean workaround)
-**Severity:** Low (footgun, not a correctness bug)
-**Found:** July 2026
-**Targets:** all (es6, cpp, go — identical failure; it is a front-end analysis
-issue in the `[2/5] Analyzing code` phase, not codegen)
+**Status:** Fixed (September 2026)
+**Severity:** High for the person writing Ranger — the compiler was correct and
+the program was not, but the message pointed somewhere else entirely, and the
+rule it was enforcing had to be memorised from `AGENTS.md`.
+**Targets:** all (front-end, the `[2/5] Analyzing code` phase)
 
-### Description
+### What was wrong
 
-Returning the result of a **function/method call** directly in return position
-fails the compiler's argument-type matching for the `return` operator. The value
-must be bound to a local first, or the call wrapped so it is the *direct*
-parenthesized operand of `return`.
-
-This follows from Ranger's LISP / S-expression grammar (a call passed as an
-argument needs its own parentheses), so it is arguably by-design rather than a
-bug — but it is an easy mistake that produces two confusing, misleading errors
-(often surfacing at an *unrelated* inherited method, e.g. a phantom
-`function variable not found updateMatrixWorld`), so it is tracked here. We could
-make the bare form parse/analyze later; for now, parenthesize.
-
-### Error messages
+Ranger is an s-expression language, and a call used as a VALUE needs to be one
+node. `return this.helper()` parsed as three sibling nodes — `return`, the name
+`this.helper`, and an empty `()` — so the `return` operator saw two arguments
+where it takes one and refused to match. The flow analyser then never recorded a
+return either, so a second error followed the first:
 
 ```
 [FAIL] Could not match argument types for return
 [FAIL] Function does not return any values!
 ```
 
-(`return` is matched as an operator; when its argument is an unresolved call the
-match fails, so the flow analyser also never records a return → the second error.)
+Neither message names the real problem, and on a class with inheritance the
+failure often surfaced as a phantom `function variable not found <some other
+method>` in a different file.
 
-### Reproduction / boundary
+The same three-sibling shape is why arithmetic on a call result needed a
+temporary: in `(this.helper() + 1)` the infix rewriter treated `this.helper` and
+`()` as two separate operands and pulled them apart.
+
+### The fix
+
+`compiler/ng_parser_v2.rgr` folds the call back together while parsing. A `(`
+that **touches** a dotted name — no space in between — is that name's argument
+list, so the two become one call node before anything downstream sees them:
+
+- `insertCallOrNode` folds at the opening paren, which covers a call in operand
+  position (`return this.h.value()`, `f(a.b())`) and carries the rest of a
+  chain into the same node (`return a.b().c()`).
+- `foldCallChainToGroup` folds one token later, for a call that is already at
+  the start of its expression and would otherwise be taken apart by the infix
+  rewriter — `(this.h.value() + 1)`.
+
+Three exclusions keep everything else parsing exactly as it did, and each one is
+a shape that broke when it was missing:
+
+| Not folded | Why |
+| --- | --- |
+| `print (x)` — a space before the `(` | An operand followed by a group, not a call |
+| `new Value.Num(2.5)` | The dotted name is a TYPE and the parens are the constructor's arguments; folding left `new` without its type |
+| `.tail()` of a chain whose receiver is not a folded call | The existing chain handling owns that shape |
+
+### What works now
 
 ```
-class P {
-    fn helper:int () { return (3) }
-
-    fn bad:int  () { return this.helper() }        ; FAIL
-    fn ok1:int  () { return (this.helper()) }       ; PASS — call is the direct ( ) operand
-    fn bad2:int () { return (this.helper() + 0) }    ; FAIL — call nested in a compound expr
-    fn bad3:int () { return o.helper() }             ; FAIL — not this-specific
-    fn bad4:int () { return P.shelper() }            ; FAIL — static call too
-    fn ok2:int  () { def v:int (this.helper()) return v }  ; PASS — bind to a local first
-}
+return this.helper()                  ; the bare form
+return P.staticHelper()
+return this.helper() + 10             ; a call as an arithmetic operand
+def v:int (this.helper() + 1)         ; no temporary needed
+def v:int (100 - this.helper())
+this.other(this.helper())             ; a call as an argument
+return this.h.same().value()          ; a bare chain
+def v:int (this.h.same().value() * 5)
 ```
 
-| Pattern | Result |
-|---|---|
-| `return this.helper()` | FAIL |
-| `return (this.helper())` | PASS |
-| `return (this.helper() + 0)` | FAIL |
-| `return o.helper()` / `return P.sh()` | FAIL |
-| `def v:int (this.helper())` … `return v` | PASS |
+`tests/fixtures/issue_63_bare_call.rgr` is all of the above, asserted against
+the parenthesised spelling of the same expressions, on es6, Go, Python and Rust.
 
-### Workaround (use everywhere)
+### What still needs its own parentheses
 
-- Prefer: `return (this.helper())` — wrap the call so it is the direct operand.
-- If the return value is a compound expression containing a call, bind the call
-  to a typed local first: `def v:int (this.helper()) return (v + 0)`.
+A callee that is **not** dotted — a lambda in a local, say — is unchanged:
 
-### Where it lives
+```
+def fn1 (fn:int (p:int) { return (p + 1) })
+return (fn1(3))    ; the bare `return fn1(3)` still fails
+```
 
-`compiler/ng_FlowWork.rgr` (~line 722, `"Could not match argument types for " + …`)
-and the `return` handling above it; the missing-return error is
-`compiler/TFlow.rgr:20` (`didReturnAtIndex == -1`).
+An undotted name in operand position is also how `new Type(...)` and a method
+declaration are spelled, so the fold does not reach there. So do these, which
+are their own issues:
+
+- a statement that starts with a parenthesised receiver (#65)
+- `(expr).field` used as a call argument (#81)
 
 ---
 
