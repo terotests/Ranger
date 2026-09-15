@@ -383,6 +383,7 @@ class CodeGraphTest {
         c.ok("the class page still names Fat" (fg2.hasNode("Fat")))
         c.ok("and is taller than the catalogue slice" (n2.height > n.height))
         c.ok("but still capped" (n2.height < 420.0))
+        c.ok("and has no leftover-methods hexagon" ((fg2.hasNode("pager-methods")) == false))
         def fatPages:CodeGraphPages (CodeGraphPages.of(g 24))
         c.eqStr("capped fields are not methods" (fatPages.methodIdAtRow("Fat" 0)) "")
         c.eqStr("the leftover field row is not a method" (fatPages.methodIdAtRow("Fat" 8)) "")

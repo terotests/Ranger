@@ -417,19 +417,9 @@ class CodeGraphPages {
             }
             fi = (fi + 1)
         }
-        ; Methods already live in the UML body. Drawing them again as green
-        ; stadiums under the box only duplicates each operation as a line
-        ; and a capsule. A leftover pager still reaches methods past the cap.
+        ; Methods already live in the UML body. Do not add a leftover-methods
+        ; hexagon — that was a door onto the stadiums that are gone.
         def mids:[string] (c.methodIds)
-        def boxed:int (CodeGraphPages.umlMethodCap())
-        if (boxed > (array_length mids)) {
-            boxed = (array_length mids)
-        }
-        def leftover:int ((array_length mids) - boxed)
-        if (leftover > 0) {
-            def firstLeft:string (itemAt mids boxed)
-            page.addItem((this.pagerItem("pager-methods" ("→ " + (to_string leftover) + " more methods") (this.methodPageId(firstLeft)))))
-        }
         ; Types the methods of this class mention, if there is still room.
         def used:[string]
         def ui:int 0
