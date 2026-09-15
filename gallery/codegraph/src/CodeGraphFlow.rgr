@@ -326,16 +326,36 @@ class CodeGraphFlow {
         }
     }
 
+    ; After a drag: pick the facing port, then drop stored corridors on the
+    ; edges that touch the moved boxes so the next paint leaves the live
+    ; handles. Do not run OrthoRouter here — its visibility grid
+    ; (`markPassable`) is a Dijkstra over every box's sides, and a compiler
+    ; UML page with tall classes freezes the tab for seconds. Initial layout
+    ; still routes; a moved box keeps a cheap stepped line.
     sfn repairRoutes:void (g:FlowGraph) {
         CodeGraphFlow.faceFieldPorts(g)
         EdgeFacing.repairAll(g)
-        EdgeLanes.reset(g)
-        EdgeLanes.assign(g)
-        ; applyBroken only rewrites lines that currently cut a box. A drag
-        ; that left the corridor empty still needs new corners on the new
-        ; handles, so this is every unpinned orthogonal edge.
-        def r (new OrthoRouter)
-        r.applyAll(g)
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.pinnedRoute == false) {
+                def touched:boolean false
+                if (g.hasNode(e.source)) {
+                    def a:FlowNode (g.nodeById(e.source))
+                    if a.selected { touched = true }
+                }
+                if (g.hasNode(e.target)) {
+                    def b:FlowNode (g.nodeById(e.target))
+                    if b.selected { touched = true }
+                }
+                if touched {
+                    clear e.waypoints
+                    e.hasLaneX = false
+                    e.hasLaneY = false
+                }
+            }
+            k = (k + 1)
+        }
     }
 
     sfn packGrid:void (g:FlowGraph) {

@@ -303,6 +303,7 @@ class CodeGraphTest {
                     cust.x = (cust.x + 90.0)
                     cust.y = (cust.y + 40.0)
                     cust.syncFromModel()
+                    cust.selected = true
                     def path:EdgePath (EdgeRouter.route(fg e))
                     path.flatten(1)
                     c.ok("the drag still draws a path" ((path.pointCount()) >= 2))
@@ -312,6 +313,7 @@ class CodeGraphTest {
                         c.near("and still leaves Order" (path.px(0)) (fg.endpointX(e true)) 0.8)
                     }
                     CodeGraphFlow.repairRoutes(fg)
+                    c.ok("drop does not keep a Dijkstra corridor" ((array_length e.waypoints) == 0))
                     def path2:EdgePath (EdgeRouter.route(fg e))
                     path2.flatten(1)
                     c.ok("a repair still draws a path" ((path2.pointCount()) >= 2))
