@@ -13,9 +13,7 @@
 ; ============================================================================
 
 Import "CodeGraphModel.rgr"
-Import "../../../../compiler/ng_RangerAppWriterContext.rgr"
-Import "../../../../compiler/ng_RangerAppClassDesc.rgr"
-Import "../../../../compiler/ng_RangerAppFunctionDesc.rgr"
+Import "../../../../compiler/VirtualCompiler.rgr"
 
 class CodeGraphBuilder {
     ; When set, only classes whose source path contains this string are kept.

@@ -3065,7 +3065,9 @@ class RangerFlowWeb {
         ; would be measuring the layout rather than the editor. Paused for the
         ; duration and put back afterwards.
         def wasRunning:boolean simRunning
+        def wasNav:boolean codeNavOn
         simRunning = false
+        codeNavOn = false
         editor.fitView()
         ; A node whose middle can actually be clicked.
         ;
@@ -3389,6 +3391,41 @@ class RangerFlowWeb {
         }
         report = (report + "scene " + (to_string (strlen json)) + " bytes; ")
         simRunning = wasRunning
+        codeNavOn = wasNav
+        if codeNavOn {
+            def nav:string (this.navSmoke())
+            if ((indexOf nav "FAIL") == 0) {
+                return nav
+            }
+            report = (report + nav)
+        }
         return ("PASS " + report + (this.stats()))
+    }
+
+    ; After the editor self-test, prove a click on a class actually turns
+    ; the page — that is the whole point of this scenario.
+    fn navSmoke:string () {
+        editor.fitView()
+        if ((graph.hasNode("Order")) == false) {
+            return ""
+        }
+        def n:FlowNode (graph.nodeById("Order"))
+        def sx:double (editor.view.viewport.toScreenX((n.centerX())))
+        def sy:double (editor.view.viewport.toScreenY((n.centerY())))
+        this.pointerDown(sx sy false false)
+        this.pointerUp(sx sy false false)
+        if (codeNav.pageId != "class:Order") {
+            return ("FAIL click Order stayed on " + codeNav.pageId)
+        }
+        if ((graph.nodeCount()) < 3) {
+            return "FAIL Order page too small"
+        }
+        if ((this.codeBack()) == false) {
+            return "FAIL back from Order"
+        }
+        if (codeNav.pageId != "overview:0") {
+            return ("FAIL back stayed on " + codeNav.pageId)
+        }
+        return "nav ok; "
     }
 }

@@ -110,6 +110,8 @@ dropdown in the page switches between them, and `?scenario=` picks one on load:
 | [`?scenario=erd`](http://localhost:8080/?scenario=erd) | a 9-table database schema, parsed from `fixtures/ecommerce.sql`, crow's foot notation, field-level ports |
 | [`?scenario=uml`](http://localhost:8080/?scenario=uml) | a UML class diagram — the same compartment node with different words in it |
 | [`?scenario=codegraph`](http://localhost:8080/?scenario=codegraph) | a **paged call graph** of Ranger classes: at most 24 boxes, pager arrows on the edge, click a class to zoom into methods |
+
+![paged call graph of a shop domain, WebGL](artifacts/scenario_codegraph.png)
 | [`?scenario=force`](http://localhost:8080/?scenario=force) | React Flow's force-layout example: d3-force running live, and a node you drag pins while you hold it |
 | [`?scenario=flow`](http://localhost:8080/?scenario=flow) | a plain flowchart — the core with no domain on top of it |
 | [`?scenario=atk`](http://localhost:8080/?scenario=atk) | an ATK chart in the ISO 5807 shapes: diamond, drum, parallelogram, wavy-footed page |

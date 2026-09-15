@@ -52,7 +52,7 @@ class CodeGraphFlow {
             k = (k + 1)
         }
         g.reindex()
-        CodeGraphFlow.layout(g)
+        CodeGraphFlow.layout(g page.kind)
         return g
     }
 
@@ -80,6 +80,7 @@ class CodeGraphFlow {
         n2.dataRef = it.dataRef
         n2.cssClass = ("codegraph " + it.itemKind)
         n2.tooltip = it.extra
+        n2.textColor = "#0f172a"
         if ((strlen it.fill) > 0) {
             n2.bgColor = it.fill
         }
@@ -147,8 +148,19 @@ class CodeGraphFlow {
         return u
     }
 
-    sfn layout:void (g:FlowGraph) {
+    sfn layout:void (g:FlowGraph kind:string) {
         if ((g.nodeCount()) == 0) {
+            return
+        }
+        ; An overview is a catalogue: no edges, one Sugiyama rank, a strip
+        ; so wide that fitView shrinks the type below the size the renderer
+        ; will draw. A grid keeps the words readable.
+        if (kind == "overview") {
+            CodeGraphFlow.packGrid(g)
+            return
+        }
+        if ((g.edgeCount()) == 0) {
+            CodeGraphFlow.packGrid(g)
             return
         }
         def lay:LayeredLayout (LayeredLayout.of(g))
@@ -160,6 +172,34 @@ class CodeGraphFlow {
         lay.routeLongEdges()
         EdgeLanes.assign(g)
         OrthoRouter.repairAll(g)
+    }
+
+    sfn packGrid:void (g:FlowGraph) {
+        def n:int (g.nodeCount())
+        if (n == 0) {
+            return
+        }
+        def cols:int 4
+        if (n <= 8) {
+            cols = 3
+        }
+        if (n <= 3) {
+            cols = n
+        }
+        def gapX:double 40.0
+        def gapY:double 32.0
+        def i:int 0
+        while (i < n) {
+            def node:FlowNode (g.nodeAt(i))
+            def col:int (i % cols)
+            def row:int (idiv i cols)
+            def cw:double (node.width + gapX)
+            def rh:double (node.height + gapY)
+            node.x = ((to_double col) * cw)
+            node.y = ((to_double row) * rh)
+            i = (i + 1)
+        }
+        g.reindex()
     }
 }
 

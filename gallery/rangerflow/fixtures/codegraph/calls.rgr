@@ -43,6 +43,6 @@ class CodeGraphFixtureMain {
         def row (new LineItem)
         o.addItem(row)
         def c (new Checkout)
-        print (c.pay(o))
+        print (to_string (c.pay(o)))
     }
 }

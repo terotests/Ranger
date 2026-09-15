@@ -15,7 +15,6 @@
 Import "../domains/codegraph/CodeGraphBuilder.rgr"
 Import "../domains/codegraph/CodeGraphFlow.rgr"
 Import "../export/FlowExport.rgr"
-Import "../../../compiler/VirtualCompiler.rgr"
 
 class CodeGraphCli {
     sfn main:void () {
@@ -44,6 +43,7 @@ class CodeGraphCli {
         }
         def env:InputEnv (new InputEnv())
         env.use_real = true
+        env.setEnv("RANGER_LIB" "./compiler/;./lib/;./compiler")
         def params:CmdParams (new CmdParams())
         push params.values file
         set params.params "l" "es6"
@@ -57,10 +57,15 @@ class CodeGraphCli {
             print ("compilation failed: " + res.errorMessage)
             exit 1
         }
-        def ctx:RangerAppWriterContext res.ctx
+        def ctx@(optional):RangerAppWriterContext res.ctx
+        if (null? ctx) {
+            print "no compiler context"
+            exit 1
+        }
+        def appCtx:RangerAppWriterContext (unwrap ctx)
         def b (new CodeGraphBuilder)
         b.fileFilter = filter
-        def model:CodeGraph (b.fromContext(ctx))
+        def model:CodeGraph (b.fromContext(appCtx))
         model.title = file
         print (("  classes " + (to_string (model.classCount()))) + ", methods " + (to_string (model.methodCount())))
         def session:CodeGraphSession (CodeGraphSession.of(model maxNodes))

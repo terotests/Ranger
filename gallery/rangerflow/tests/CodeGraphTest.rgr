@@ -170,6 +170,8 @@ class CodeGraphTest {
         def fg:FlowGraph (session.graph())
         c.ok("rendered overview is capped" ((fg.nodeCount()) <= 20))
         c.ok("and has something to click" ((fg.nodeCount()) > 4))
+        def box:FlowRect (fg.bounds())
+        c.ok("overview is not a long strip" (box.w < (box.h * 4.0)))
         def ev (new FlowHitEvent)
         ev.kind = "node"
         ev.dataKind = "class"
