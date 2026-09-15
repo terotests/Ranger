@@ -1,0 +1,417 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastRangerTest.rgr — new pipeline vs CodeGraphBuilder.
+; ============================================================================
+;
+; Compiles fixtures with VirtualCompiler, builds a FrontendResult, runs
+; the shared semantic pipeline, projects to CodeGraph, and checks two
+; things separately:
+;
+;   1. Compatibility: projected graph == CodeGraphBuilder (reference
+;      implementation, not the semantic specification).
+;   2. Semantic expectation: ZipWriter has the fields the picture needs,
+;      even if the old builder were wrong.
+;
+;   npm run uast:ranger
+; ============================================================================
+
+Import "../src/UastRanger.rgr"
+Import "../src/UastCodeGraph.rgr"
+Import "../src/UastQuery.rgr"
+Import "../../codegraph/src/CodeGraphBuilder.rgr"
+
+class UastRangerTest {
+    sfn main:void () {
+        def env:InputEnv (new InputEnv())
+        env.use_real = true
+        env.setEnv("RANGER_LIB" "./compiler/;./lib/;./compiler")
+        def params:CmdParams (new CmdParams())
+        push params.values "gallery/codegraph/fixtures/calls.rgr"
+        set params.params "l" "es6"
+        set params.params "o" "uast_ranger_ignored.js"
+        set params.flags "no-color" true
+        env.commandLine = params
+        def vc:VirtualCompiler (new VirtualCompiler())
+        def res:CompilerResults (vc.run(env))
+        if res.hasErrors {
+            print ("compilation failed: " + res.errorMessage)
+            exit 1
+        }
+        def ctx@(optional):RangerAppWriterContext res.ctx
+        if (null? ctx) {
+            print "no compiler context"
+            exit 1
+        }
+        def appCtx:RangerAppWriterContext (unwrap ctx)
+        def b (new CodeGraphBuilder)
+        b.fileFilter = "calls.rgr"
+        def expected:CodeGraph (b.fromContext(appCtx))
+        def a (new UastRanger)
+        a.fileFilter = "calls.rgr"
+        def model:UastCodeModel (a.fromContext(appCtx))
+        def got:CodeGraph (UastToCodeGraph.project(model))
+        def failed:int 0
+        failed = (failed + (UastRangerTest.diffGraph("compatibility calls.rgr" expected got)))
+        failed = (failed + (UastRangerTest.checkZipWriterSpec()))
+        failed = (failed + (UastRangerTest.checkZipWriterCompatibility()))
+        failed = (failed + (UastRangerTest.checkSheetViewComments()))
+        failed = (failed + (UastRangerTest.checkZipWriterWalk()))
+        if (failed > 0) {
+            print (("failed " + (to_string failed)))
+            exit 1
+        }
+        print "passed ranger golden"
+    }
+
+    sfn checkZipWriterSpec:int () {
+        print "== semantic expectation ZipWriter"
+        def model:UastCodeModel (UastRanger.fromFile("gallery/zip/zip_tool.rgr"))
+        if ((indexOf model.title " FAIL ") >= 0) {
+            print ("  FAIL " + model.title)
+            return 1
+        }
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        def n:int 0
+        if ((g.hasClass("ZipWriter")) == false) {
+            print "  FAIL ZipWriter missing"
+            n = (n + 1)
+        }
+        if ((g.hasClass("ZipEntry")) == false) {
+            print "  FAIL ZipEntry missing"
+            n = (n + 1)
+        }
+        if ((g.hasClass("CRC32")) == false) {
+            print "  FAIL CRC32 missing"
+            n = (n + 1)
+        }
+        if (g.hasClass("ZipWriter")) {
+            def zw:CodeClass (g.classByName("ZipWriter"))
+            if ((UastRangerTest.hasField(zw "entries" "[ZipEntry]")) == false) {
+                print "  FAIL ZipWriter.entries : [ZipEntry]"
+                n = (n + 1)
+            }
+            if ((UastRangerTest.hasField(zw "output" "GrowableZipBuffer")) == false) {
+                print "  FAIL ZipWriter.output : GrowableZipBuffer"
+                n = (n + 1)
+            }
+            if ((UastRangerTest.hasField(zw "crc" "CRC32")) == false) {
+                print "  FAIL ZipWriter.crc : CRC32"
+                n = (n + 1)
+            }
+        }
+        if (n == 0) {
+            print "  ZipWriter fields as specified"
+        }
+        return n
+    }
+
+    sfn checkSheetViewComments:int () {
+        print "== SheetView comments land on the property"
+        def n:int 0
+        def root:CodeNode (UastRangerTest.parseFile("gallery/uast/fixtures/sheet_view.rgr"))
+        def body:CodeNode (UastRangerTest.classBody(root "SheetView"))
+        def head:CodeNode (UastRangerTest.findMember(body "def" "sortHeadRows"))
+        def kind:CodeNode (UastRangerTest.findMember(body "def" "sortKind"))
+        def model:CodeNode (UastRangerTest.findMember(body "def" "model"))
+        def layout:CodeNode (UastRangerTest.findMember(body "fn" "layout"))
+        def headText:string (UastRangerTest.commentText(head))
+        def kindText:string (UastRangerTest.commentText(kind))
+        def modelText:string (UastRangerTest.commentText(model))
+        def bodyText:string (UastRangerTest.commentText(body))
+        def layoutText:string (UastRangerTest.commentText(layout))
+        if ((indexOf headText "Frozen rows") < 0) {
+            print (("  FAIL sortHeadRows comment '" + headText) + "'")
+            n = (n + 1)
+        }
+        if ((indexOf kindText "Sort keys") < 0) {
+            print (("  FAIL sortKind comment '" + kindText) + "'")
+            n = (n + 1)
+        }
+        if ((indexOf kindText "500k distinct values") < 0) {
+            print "  FAIL sortKind missing later comment lines"
+            n = (n + 1)
+        }
+        if ((indexOf headText "Sort keys") >= 0) {
+            print "  FAIL sortHeadRows received sortKind's comment"
+            n = (n + 1)
+        }
+        if ((indexOf kindText "Frozen rows") >= 0) {
+            print "  FAIL sortKind received sortHeadRows's comment"
+            n = (n + 1)
+        }
+        if ((indexOf modelText "Frozen rows") >= 0) {
+            print "  FAIL model received a neighbour's comment"
+            n = (n + 1)
+        }
+        if ((indexOf bodyText "Frozen rows") >= 0) {
+            print "  FAIL class body kept the property comment"
+            n = (n + 1)
+        }
+        if ((indexOf layoutText "Rebuild rowOffsets") < 0) {
+            print (("  FAIL layout comment '" + layoutText) + "'")
+            n = (n + 1)
+        }
+        def um:UastCodeModel (UastRanger.fromFile("gallery/uast/fixtures/sheet_view.rgr"))
+        if ((indexOf um.title " FAIL ") >= 0) {
+            print ("  FAIL compile " + um.title)
+            n = (n + 1)
+            return n
+        }
+        def headSym:UastSymbol (um.symbolById("field:SheetView.sortHeadRows"))
+        if ((indexOf headSym.comment "Frozen rows") < 0) {
+            print (("  FAIL UAST sortHeadRows '" + headSym.comment) + "'")
+            n = (n + 1)
+        }
+        def kindSym:UastSymbol (um.symbolById("field:SheetView.sortKind"))
+        if ((indexOf kindSym.comment "Sort keys") < 0) {
+            print (("  FAIL UAST sortKind '" + kindSym.comment) + "'")
+            n = (n + 1)
+        }
+        if ((indexOf kindSym.comment "Frozen rows") >= 0) {
+            print "  FAIL UAST sortKind has Frozen rows"
+            n = (n + 1)
+        }
+        def fnNode:UNode (UastQuery.methodNode(um "SheetView" "layout"))
+        if ((indexOf fnNode.comment "Rebuild rowOffsets") < 0) {
+            print (("  FAIL UAST layout '" + fnNode.comment) + "'")
+            n = (n + 1)
+        }
+        if (n == 0) {
+            print "  comments on sortHeadRows, sortKind, layout"
+        }
+        return n
+    }
+
+    sfn checkZipWriterWalk:int () {
+        print "== CodeNode walk: ZipWriter.addFile calls"
+        def model:UastCodeModel (UastRanger.fromFile("gallery/zip/zip_tool.rgr"))
+        if ((indexOf model.title " FAIL ") >= 0) {
+            print ("  FAIL " + model.title)
+            return 1
+        }
+        def add:UNode (UastQuery.methodNode(model "ZipWriter" "addFile"))
+        if ((strlen add.name) == 0) {
+            print "  FAIL addFile UNode missing"
+            return 1
+        }
+        def calls:[UNode] (UastQuery.ofKindUnder(model add (UastKind.Call())))
+        def foundCompute:boolean false
+        def i:int 0
+        while (i < (array_length calls)) {
+            def callN:UNode (itemAt calls i)
+            def mem:string (UastQuery.calleeMemberName(model callN))
+            if (mem == "compute") {
+                foundCompute = true
+            }
+            i = (i + 1)
+        }
+        if (foundCompute == false) {
+            print (("  FAIL addFile walk found " + (to_string (array_length calls))) + " calls, none named compute")
+            return 1
+        }
+        print (("  addFile calls walked: " + (to_string (array_length calls))))
+        return 0
+    }
+
+    sfn parseFile:CodeNode (path:string) {
+        def env:InputEnv (new InputEnv())
+        env.use_real = true
+        def text@(optional):string (read_file env "." path)
+        if (null? text) {
+            return (new CodeNode((new SourceCode("")) 0 0))
+        }
+        def code:SourceCode (new SourceCode((unwrap text)))
+        code.filename = path
+        def parser:RangerLispParser (new RangerLispParser(code))
+        parser.parse(false)
+        if (null? parser.rootNode) {
+            return (new CodeNode(code 0 0))
+        }
+        return (unwrap parser.rootNode)
+    }
+
+    sfn classBody:CodeNode (root:CodeNode name:string) {
+        def i:int 0
+        while (i < (array_length root.children)) {
+            def st:CodeNode (itemAt root.children i)
+            if ((array_length st.children) >= 3) {
+                def kw:CodeNode (itemAt st.children 0)
+                def nm:CodeNode (itemAt st.children 1)
+                if ((kw.vref == "class") && (nm.vref == name)) {
+                    def last:CodeNode (itemAt st.children ((array_length st.children) - 1))
+                    return last
+                }
+            }
+            i = (i + 1)
+        }
+        return root
+    }
+
+    sfn findMember:CodeNode (block:CodeNode keyword:string name:string) {
+        def i:int 0
+        while (i < (array_length block.children)) {
+            def st:CodeNode (itemAt block.children i)
+            if ((array_length st.children) >= 2) {
+                def kw:CodeNode (itemAt st.children 0)
+                def nm:CodeNode (itemAt st.children 1)
+                if ((kw.vref == keyword) && (nm.vref == name)) {
+                    return st
+                }
+            }
+            i = (i + 1)
+        }
+        return (new CodeNode((new SourceCode("")) 0 0))
+    }
+
+    sfn commentText:string (node:CodeNode) {
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length node.comments)) {
+            def c:CodeNode (itemAt node.comments i)
+            push parts c.string_value
+            i = (i + 1)
+        }
+        return (join parts "\n")
+    }
+
+    sfn checkZipWriterCompatibility:int () {
+        print "== compatibility zip_tool.rgr vs CodeGraphBuilder"
+        def model:UastCodeModel (UastRanger.fromFile("gallery/zip/zip_tool.rgr"))
+        if ((indexOf model.title " FAIL ") >= 0) {
+            print ("  FAIL " + model.title)
+            return 1
+        }
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        def expected:CodeGraph (CodeGraphBuilder.fromFile("gallery/zip/zip_tool.rgr"))
+        if ((indexOf expected.title " FAIL ") >= 0) {
+            print ("  FAIL builder " + expected.title)
+            return 1
+        }
+        def n:int (UastRangerTest.diffGraph("compatibility zip_tool.rgr" expected g))
+        print (("  classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
+        return n
+    }
+
+    sfn hasField:boolean (c:CodeClass name:string fieldType:string) {
+        def i:int 0
+        while (i < (array_length c.fields)) {
+            def f:CodeField (itemAt c.fields i)
+            if ((f.name == name) && (f.fieldType == fieldType)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn diffGraph:int (label:string expected:CodeGraph got:CodeGraph) {
+        def n:int 0
+        print (("== golden " + label))
+        def i:int 0
+        while (i < (array_length expected.classes)) {
+            def c:CodeClass (itemAt expected.classes i)
+            if ((got.hasClass(c.name)) == false) {
+                print (("  FAIL missing class " + c.name))
+                n = (n + 1)
+            } {
+                def gc:CodeClass (got.classByName(c.name))
+                if (gc.extendsName != c.extendsName) {
+                    print ((((("  FAIL " + c.name) + " extends '") + gc.extendsName) + "' want '") + c.extendsName + "'")
+                    n = (n + 1)
+                }
+                if (gc.stereotype != c.stereotype) {
+                    print (("  FAIL " + c.name) + " stereotype mismatch")
+                    n = (n + 1)
+                }
+                def fi:int 0
+                while (fi < (array_length c.fields)) {
+                    def f:CodeField (itemAt c.fields fi)
+                    if ((UastRangerTest.hasField(gc f.name f.fieldType)) == false) {
+                        print ((((("  FAIL " + c.name) + ".") + f.name) + " : ") + f.fieldType)
+                        n = (n + 1)
+                    }
+                    fi = (fi + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        def gi:int 0
+        while (gi < (array_length got.classes)) {
+            def gc2:CodeClass (itemAt got.classes gi)
+            if ((expected.hasClass(gc2.name)) == false) {
+                print (("  FAIL extra class " + gc2.name))
+                n = (n + 1)
+            }
+            gi = (gi + 1)
+        }
+        def mi:int 0
+        while (mi < (array_length expected.methods)) {
+            def em:CodeMethod (itemAt expected.methods mi)
+            if ((got.hasMethod(em.id)) == false) {
+                print (("  FAIL missing method " + em.id))
+                n = (n + 1)
+            } {
+                def gm:CodeMethod (got.methodById(em.id))
+                if (gm.params != em.params) {
+                    print ((((("  FAIL " + em.id) + " params '") + gm.params) + "' want '") + em.params + "'")
+                    n = (n + 1)
+                }
+                if (gm.returns != em.returns) {
+                    print ((((("  FAIL " + em.id) + " returns '") + gm.returns) + "' want '") + em.returns + "'")
+                    n = (n + 1)
+                }
+                n = (n + (UastRangerTest.diffStrList((em.id + " calls") em.calls gm.calls)))
+                n = (n + (UastRangerTest.diffStrList((em.id + " uses") em.uses gm.uses)))
+            }
+            mi = (mi + 1)
+        }
+        def mj:int 0
+        while (mj < (array_length got.methods)) {
+            def gm2:CodeMethod (itemAt got.methods mj)
+            if ((expected.hasMethod(gm2.id)) == false) {
+                print (("  FAIL extra method " + gm2.id))
+                n = (n + 1)
+            }
+            mj = (mj + 1)
+        }
+        if (n == 0) {
+            print (("  classes " + (to_string (got.classCount()))) + ", methods " + (to_string (got.methodCount())) + " match")
+        }
+        return n
+    }
+
+    sfn diffStrList:int (label:string want:[string] got:[string]) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length want)) {
+            def w:string (itemAt want i)
+            if ((UastRangerTest.inList(got w)) == false) {
+                print (("  FAIL " + label) + " missing " + w)
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length got)) {
+            def g:string (itemAt got j)
+            if ((UastRangerTest.inList(want g)) == false) {
+                print (("  FAIL " + label) + " extra " + g)
+                n = (n + 1)
+            }
+            j = (j + 1)
+        }
+        return n
+    }
+
+    sfn inList:boolean (items:[string] v:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            if ((itemAt items i) == v) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

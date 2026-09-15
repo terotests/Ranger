@@ -1,0 +1,193 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastModel.rgr — CodeModel: what tools consume.
+; ============================================================================
+;
+; Must not import the Ranger compiler. Frontends produce FrontendResult;
+; UastSemantic writes this. CodeGraph sees this, not UAST.
+; ============================================================================
+
+Import "UastSource.rgr"
+Import "UastNode.rgr"
+Import "UastSymbol.rgr"
+Import "UastRelation.rgr"
+
+class UastCodeModel {
+    def title:string ""
+    def language:string ""
+    def files:[UastSourceFile]
+    def nodes:[UNode]
+    def nodeIndex:[string:int]
+    def symbols:[UastSymbol]
+    def symbolIndex:[string:int]
+    def references:[UastReference]
+    def relationships:[UastRelation]
+    def diagnostics:[UastDiagnostic]
+    def nextId:int 1
+
+    Constructor () {
+    }
+
+    fn freshId:string (prefix:string) {
+        def n:int nextId
+        nextId = (nextId + 1)
+        return (prefix + (to_string n))
+    }
+
+    fn addFile:UastSourceFile (path:string language:string) {
+        def id:string ("file:" + path)
+        def f:UastSourceFile (UastSourceFile.create(id path language))
+        push files f
+        return f
+    }
+
+    fn addNode:UNode (node:UNode) {
+        if ((strlen node.id) == 0) {
+            node.id = (this.freshId("n"))
+        }
+        if (has nodeIndex node.id) {
+            return node
+        }
+        set nodeIndex node.id (array_length nodes)
+        push nodes node
+        return node
+    }
+
+    fn addSymbol:UastSymbol (sym:UastSymbol) {
+        if ((strlen sym.id) == 0) {
+            sym.id = (this.freshId("s"))
+        }
+        if (has symbolIndex sym.id) {
+            return this.symbolById(sym.id)
+        }
+        set symbolIndex sym.id (array_length symbols)
+        push symbols sym
+        return sym
+    }
+
+    fn addRelation:UastRelation (rel:UastRelation) {
+        push relationships rel
+        return rel
+    }
+
+    fn addReference:UastReference (ref:UastReference) {
+        push references ref
+        return ref
+    }
+
+    fn addDiagnostic:void (d:UastDiagnostic) {
+        push diagnostics d
+    }
+
+    fn nodeById:UNode (id:string) {
+        if (has nodeIndex id) {
+            def i:int (unwrap (get nodeIndex id))
+            return (itemAt nodes i)
+        }
+        return (new UNode)
+    }
+
+    fn symbolById:UastSymbol (id:string) {
+        if (has symbolIndex id) {
+            def i:int (unwrap (get symbolIndex id))
+            return (itemAt symbols i)
+        }
+        return (new UastSymbol)
+    }
+
+    fn mentionsSymbol:boolean (id:string) {
+        return (has symbolIndex id)
+    }
+
+    fn mentionsNode:boolean (id:string) {
+        return (has nodeIndex id)
+    }
+
+    fn symbolCount:int () {
+        return (array_length symbols)
+    }
+
+    fn nodeCount:int () {
+        return (array_length nodes)
+    }
+
+    fn relationCount:int () {
+        return (array_length relationships)
+    }
+
+    fn unknownNodeCount:int () {
+        return (this.countKind("Unknown"))
+    }
+
+    fn languageSpecificCount:int () {
+        return (this.countKind("LanguageSpecific"))
+    }
+
+    fn countKind:int (kind:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def node:UNode (itemAt nodes i)
+            if (node.kind == kind) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn normalizedNodeCount:int () {
+        def n:int (array_length nodes)
+        n = (n - (this.unknownNodeCount()))
+        n = (n - (this.languageSpecificCount()))
+        return n
+    }
+
+    fn link:UastRelation (fromId:string toId:string kind:string resolution:string confidence:string) {
+        def rel:UastRelation (UastRelation.create(fromId toId kind resolution confidence))
+        this.addRelation(rel)
+        return rel
+    }
+
+    fn symbolDeclaredAt:string (nodeId:string) {
+        def i:int 0
+        while (i < (array_length symbols)) {
+            def s:UastSymbol (itemAt symbols i)
+            if (s.declarationNode == nodeId) {
+                return s.id
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn uniqueSymbolNamed:string (name:string) {
+        def found:string ""
+        def n:int 0
+        def i:int 0
+        while (i < (array_length symbols)) {
+            def s:UastSymbol (itemAt symbols i)
+            if (s.name == name) {
+                found = s.id
+                n = (n + 1)
+            }
+            def dotted:string ""
+            if ((strlen s.parentSymbol) > 0) {
+                if (has symbolIndex s.parentSymbol) {
+                    def p:UastSymbol (this.symbolById(s.parentSymbol))
+                    dotted = ((p.name + ".") + s.name)
+                    if (dotted == name) {
+                        found = s.id
+                        n = (n + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (n == 1) {
+            return found
+        }
+        return ""
+    }
+}

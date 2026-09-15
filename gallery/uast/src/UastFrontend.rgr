@@ -1,0 +1,126 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastFrontend.rgr — what a language plugin returns. Not a CodeModel.
+; ============================================================================
+;
+; Frontend
+;    ↓
+; FrontendResult { UAST, diagnostics, semanticHints }
+;    ↓
+; Shared Semantic Pipeline
+;    ↓
+; CodeModel
+;
+; Ranger may emit compilerResolved hints (it already knows). TypeScript
+; emits weaker frontendInferred hints. The pipeline owns the CodeModel.
+; This file must not import the Ranger compiler.
+; ============================================================================
+
+Import "UastSource.rgr"
+Import "UastNode.rgr"
+Import "UastRelation.rgr"
+
+class UastSemanticHint {
+    def nodeId:string ""
+    def kind:string ""
+    def target:string ""
+    def resolution:string ""
+    def confidence:string ""
+    def source:string ""
+
+    Constructor () {
+    }
+
+    sfn create:UastSemanticHint (nodeId:string kind:string target:string source:string resolution:string confidence:string) {
+        def h (new UastSemanticHint)
+        h.nodeId = nodeId
+        h.kind = kind
+        h.target = target
+        h.source = source
+        h.resolution = resolution
+        h.confidence = confidence
+        if ((strlen h.resolution) == 0) {
+            h.resolution = "unresolved"
+        }
+        if ((strlen h.confidence) == 0) {
+            h.confidence = "possible"
+        }
+        return h
+    }
+}
+
+class UastFrontendResult {
+    def language:string ""
+    def title:string ""
+    def files:[UastSourceFile]
+    def nodes:[UNode]
+    def nodeIndex:[string:int]
+    def hints:[UastSemanticHint]
+    def diagnostics:[UastDiagnostic]
+
+    Constructor () {
+    }
+
+    fn addFile:UastSourceFile (path:string language:string) {
+        def id:string ("file:" + path)
+        def f:UastSourceFile (UastSourceFile.create(id path language))
+        push files f
+        return f
+    }
+
+    fn addNode:UNode (node:UNode) {
+        if ((strlen node.id) == 0) {
+            return node
+        }
+        if (has nodeIndex node.id) {
+            return node
+        }
+        set nodeIndex node.id (array_length nodes)
+        push nodes node
+        return node
+    }
+
+    fn addHint:UastSemanticHint (hint:UastSemanticHint) {
+        push hints hint
+        return hint
+    }
+
+    fn addDiagnostic:void (d:UastDiagnostic) {
+        push diagnostics d
+    }
+
+    fn nodeById:UNode (id:string) {
+        if (has nodeIndex id) {
+            def i:int (unwrap (get nodeIndex id))
+            return (itemAt nodes i)
+        }
+        return (new UNode)
+    }
+
+    fn mentionsNode:boolean (id:string) {
+        return (has nodeIndex id)
+    }
+}
+
+class UastWorkspace {
+    def results:[UastFrontendResult]
+    def files:[UastSourceFile]
+
+    Constructor () {
+    }
+
+    fn addResult:void (result:UastFrontendResult) {
+        push results result
+        def i:int 0
+        while (i < (array_length result.files)) {
+            def f:UastSourceFile (itemAt result.files i)
+            push files f
+            i = (i + 1)
+        }
+    }
+
+    fn resultCount:int () {
+        return (array_length results)
+    }
+}

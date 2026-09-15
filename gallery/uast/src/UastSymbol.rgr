@@ -1,0 +1,66 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastSymbol.rgr — names with meaning, not AST shape.
+; ============================================================================
+;
+; Reference = syntax node → symbol (find-references, hover).
+; Relationship = semantic entity → semantic entity (calls, extends, usesType).
+; Both carry resolution (what happened) and confidence (how sure).
+; ============================================================================
+
+class UastSymbol {
+    def id:string ""
+    def name:string ""
+    def kind:string ""
+    def language:string ""
+    def declarationNode:string ""
+    def parentSymbol:string ""
+    def typeName:string ""
+    def params:string ""
+    def returns:string ""
+    def isStatic:boolean false
+    def fileName:string ""
+    def extendsName:string ""
+    ; Documentation overview copied from the declaration UNode.
+    def comment:string ""
+
+    Constructor () {
+    }
+
+    sfn create:UastSymbol (id:string name:string kind:string language:string) {
+        def s (new UastSymbol)
+        s.id = id
+        s.name = name
+        s.kind = kind
+        s.language = language
+        return s
+    }
+}
+
+class UastReference {
+    def sourceNode:string ""
+    def targetSymbol:string ""
+    def role:string ""
+    def resolution:string ""
+    def confidence:string ""
+
+    Constructor () {
+    }
+
+    sfn create:UastReference (sourceNode:string targetSymbol:string role:string resolution:string confidence:string) {
+        def r (new UastReference)
+        r.sourceNode = sourceNode
+        r.targetSymbol = targetSymbol
+        r.role = role
+        r.resolution = resolution
+        r.confidence = confidence
+        if ((strlen r.resolution) == 0) {
+            r.resolution = "resolved"
+        }
+        if ((strlen r.confidence) == 0) {
+            r.confidence = "exact"
+        }
+        return r
+    }
+}

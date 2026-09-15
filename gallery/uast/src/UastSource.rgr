@@ -1,0 +1,90 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastSource.rgr — file identity and source spans.
+; ============================================================================
+;
+; Canonical identity is startByte/endByte (UTF-8). Line/column is a display
+; value, not an identity — tools disagree about whether a column is a byte,
+; a code point, or a UTF-16 code unit (LSP/TS). coordinateEncoding names
+; the display convention. origin is never a raw parser pointer: it is
+; (frontend, artifactId, nativeNodeId, sourceVersion) and is invalid after
+; a reparse of that file version.
+; ============================================================================
+
+class UastSourceFile {
+    def id:string ""
+    def path:string ""
+    def language:string ""
+    def contentHash:string ""
+    def version:int 0
+
+    Constructor () {
+    }
+
+    sfn create:UastSourceFile (id:string path:string language:string) {
+        def f (new UastSourceFile)
+        f.id = id
+        f.path = path
+        f.language = language
+        return f
+    }
+}
+
+class UastSpan {
+    def fileId:string ""
+    def startByte:int 0
+    def endByte:int 0
+    def startLine:int 0
+    def startColumn:int 0
+    def endLine:int 0
+    def endColumn:int 0
+    ; Display convention for line/column. Bytes are always UTF-8 offsets.
+    def coordinateEncoding:string "utf16-code-units"
+
+    Constructor () {
+    }
+
+    sfn ofBytes:UastSpan (fileId:string startByte:int endByte:int startLine:int startColumn:int) {
+        def s (new UastSpan)
+        s.fileId = fileId
+        s.startByte = startByte
+        s.endByte = endByte
+        s.startLine = startLine
+        s.startColumn = startColumn
+        s.endLine = startLine
+        s.endColumn = startColumn
+        s.coordinateEncoding = "utf16-code-units"
+        return s
+    }
+
+    fn asString:string () {
+        if ((strlen fileId) == 0) {
+            return ""
+        }
+        return ((((((fileId + ":") + (to_string startLine)) + ":") + (to_string startColumn)) + "-") + (to_string endColumn))
+    }
+}
+
+class UastOrigin {
+    def frontend:string ""
+    def artifactId:string ""
+    def nativeNodeId:string ""
+    def sourceVersion:int 0
+
+    Constructor () {
+    }
+
+    sfn create:UastOrigin (frontend:string artifactId:string nativeNodeId:string sourceVersion:int) {
+        def o (new UastOrigin)
+        o.frontend = frontend
+        o.artifactId = artifactId
+        o.nativeNodeId = nativeNodeId
+        o.sourceVersion = sourceVersion
+        return o
+    }
+
+    fn asString:string () {
+        return ((((((frontend + ":") + artifactId) + ":") + nativeNodeId) + "@") + (to_string sourceVersion))
+    }
+}
