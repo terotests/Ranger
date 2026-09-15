@@ -1,0 +1,92 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; codegraph_cli.rgr — analyse a .rgr file and print / draw its call graph.
+; ============================================================================
+;
+;   npm run rangerflow:codegraph -- path/to/File.rgr
+;   npm run rangerflow:codegraph -- compiler/ng_RangerAppClassDesc.rgr --max=24
+;
+; Uses VirtualCompiler + RangerFlowParser's static call graph (isCalling,
+; isCalledBy, isUsingClasses), pages the result, and writes the current
+; window as SVG / EVG JSON so it can be opened without the compiler.
+; ============================================================================
+
+Import "../domains/codegraph/CodeGraphBuilder.rgr"
+Import "../domains/codegraph/CodeGraphFlow.rgr"
+Import "../export/FlowExport.rgr"
+
+class CodeGraphCli {
+    sfn main:void () {
+        if ((shell_arg_cnt) < 1) {
+            print "usage: codegraph_cli <file.rgr> [--max=N] [--filter=substr] [--page=id]"
+            return
+        }
+        def file:string (shell_arg 0)
+        def maxNodes:int 24
+        def filter:string ""
+        def pageId:string "overview:0"
+        def i:int 1
+        while (i < (shell_arg_cnt)) {
+            def a:string (shell_arg i)
+            if ((indexOf a "--max=") == 0) {
+                def raw:string (substring a 6 (strlen a))
+                maxNodes = (?? (str2int raw) 24)
+            }
+            if ((indexOf a "--filter=") == 0) {
+                filter = (substring a 9 (strlen a))
+            }
+            if ((indexOf a "--page=") == 0) {
+                pageId = (substring a 7 (strlen a))
+            }
+            i = (i + 1)
+        }
+        def env:InputEnv (new InputEnv())
+        env.use_real = true
+        env.setEnv("RANGER_LIB" "./compiler/;./lib/;./compiler")
+        def params:CmdParams (new CmdParams())
+        push params.values file
+        set params.params "l" "es6"
+        set params.params "o" "codegraph_cli_ignored.js"
+        set params.flags "no-color" true
+        env.commandLine = params
+        print ("analysing " + file)
+        def vc:VirtualCompiler (new VirtualCompiler())
+        def res:CompilerResults (vc.run(env))
+        if res.hasErrors {
+            print ("compilation failed: " + res.errorMessage)
+            exit 1
+        }
+        def ctx@(optional):RangerAppWriterContext res.ctx
+        if (null? ctx) {
+            print "no compiler context"
+            exit 1
+        }
+        def appCtx:RangerAppWriterContext (unwrap ctx)
+        def b (new CodeGraphBuilder)
+        b.fileFilter = filter
+        def model:CodeGraph (b.fromContext(appCtx))
+        model.title = file
+        print (("  classes " + (to_string (model.classCount()))) + ", methods " + (to_string (model.methodCount())))
+        def session:CodeGraphSession (CodeGraphSession.of(model maxNodes))
+        if (pageId != "overview:0") {
+            session.goTo(pageId)
+        }
+        print ("  page    " + session.pageId)
+        print ("  " + session.status)
+        def g:FlowGraph (session.graph())
+        print (("  drawn   " + (to_string (g.nodeCount()))) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "uml"
+        def ex (new FlowExport)
+        ex.mode = "fit"
+        ex.padding = 24.0
+        if ((dir_exists "gallery/rangerflow/out") == false) {
+            create_dir "gallery/rangerflow/out"
+        }
+        ex.writeSvg(v "gallery/rangerflow/out/codegraph.svg")
+        ex.writeEvgJson(v "gallery/rangerflow/out/codegraph.evg.json")
+        print "  wrote   gallery/rangerflow/out/codegraph.svg"
+        print "  wrote   gallery/rangerflow/out/codegraph.evg.json"
+    }
+}

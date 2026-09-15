@@ -13,6 +13,7 @@
 
 Import "../export/FlowExport.rgr"
 Import "../core/FlowEditor.rgr"
+Import "../core/FlowEvents.rgr"
 Import "../layout/ForceLayout.rgr"
 Import "../layout/LayeredLayout.rgr"
 Import "../layout/EdgeLanes.rgr"
@@ -6440,6 +6441,22 @@ class RangerFlowTest {
         ed.pointerUp(input)
         c.ok("clicking a node selects it" a.selected)
         c.ok("and reports no change to the graph" (ed.onGraphChanged == false))
+        c.ok("and the click sink heard the node" (ed.clicks.hasEvents()))
+        def hit:FlowHitEvent (ed.clicks.lastEvent())
+        c.eqStr("the click names the node" hit.id "a")
+        c.eqStr("and says it was a node" hit.kind "node")
+        ed.clicks.clear()
+
+        ; dataKind / dataRef ride along so a host can navigate without
+        ; looking the node up after the graph has been replaced.
+        a.dataKind = "class"
+        a.dataRef = "Order"
+        ed.pointerDown(input)
+        ed.pointerUp(input)
+        def hit2:FlowHitEvent (ed.clicks.lastEvent())
+        c.eqStr("the listener sees the domain kind" hit2.dataKind "class")
+        c.eqStr("and the domain address" hit2.dataRef "Order")
+        ed.clicks.clear()
 
         ; The same gesture with a move in the middle of it is an edit.
         ed.pointerDown(input)

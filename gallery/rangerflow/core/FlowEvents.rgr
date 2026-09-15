@@ -1,0 +1,168 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; FlowEvents.rgr — clicks on a drawing, for a host that is not the editor.
+; ============================================================================
+;
+; RangerFlow already selects, drags and connects. What it did not do is tell
+; anybody *outside* the editor that a box was clicked: a call-graph viewer
+; that turns a click into "open this class on the next page" had nowhere to
+; hang the listener. The sink below is that place.
+;
+;   browser / test  →  FlowEditor.pointerUp  →  FlowEventSink
+;                                              ↓
+;                                    host.drain() / toJson()
+;
+; A click is a press and a release with no movement. A drag is not a click,
+; a handle press is not a click, and a menu row is not a click — those are
+; the editor's own gestures. The sink only records what a reader pointed at
+; on purpose.
+;
+; Nodes and edges carry optional `dataKind` / `dataRef` (see GraphModel). A
+; domain fills them; the sink copies them onto the event so a host does not
+; have to look the node up again after the graph has been replaced.
+; ============================================================================
+
+class FlowHitEvent {
+    ; "node" | "edge" | "background"
+    def kind:string ""
+    def id:string ""
+    def label:string ""
+    ; Copied from the node or edge the click landed on.
+    def dataKind:string ""
+    def dataRef:string ""
+    ; Screen coordinates, the same space pointerDown/pointerUp use.
+    def x:double 0.0
+    def y:double 0.0
+    ; Flow-space coordinates of the press, so a host that rebuilds the graph
+    ; can still say where the click was.
+    def flowX:double 0.0
+    def flowY:double 0.0
+    def shift:boolean false
+    def ctrl:boolean false
+    def doubleClick:boolean false
+
+    Constructor () {
+    }
+
+    fn asJson:string () {
+        def out:string "{\"kind\":"
+        out = (out + (FlowHitEvent.jsonStr(kind)))
+        out = (out + ",\"id\":" + (FlowHitEvent.jsonStr(id)))
+        out = (out + ",\"label\":" + (FlowHitEvent.jsonStr(label)))
+        out = (out + ",\"dataKind\":" + (FlowHitEvent.jsonStr(dataKind)))
+        out = (out + ",\"dataRef\":" + (FlowHitEvent.jsonStr(dataRef)))
+        out = (out + ",\"x\":" + (to_string x))
+        out = (out + ",\"y\":" + (to_string y))
+        out = (out + ",\"flowX\":" + (to_string flowX))
+        out = (out + ",\"flowY\":" + (to_string flowY))
+        if shift {
+            out = (out + ",\"shift\":true")
+        } {
+            out = (out + ",\"shift\":false")
+        }
+        if ctrl {
+            out = (out + ",\"ctrl\":true")
+        } {
+            out = (out + ",\"ctrl\":false")
+        }
+        if doubleClick {
+            out = (out + ",\"doubleClick\":true")
+        } {
+            out = (out + ",\"doubleClick\":false")
+        }
+        return (out + "}")
+    }
+
+    sfn jsonStr:string (v:string) {
+        def out:string "\""
+        def i:int 0
+        while (i < (strlen v)) {
+            def c:int (charAt v i)
+            if (c == 34) {
+                out = (out + "\\\"")
+            } {
+                if (c == 92) {
+                    out = (out + "\\\\")
+                } {
+                    if (c == 10) {
+                        out = (out + "\\n")
+                    } {
+                        if (c < 32) {
+                            out = (out + " ")
+                        } {
+                            out = (out + (strfromcode c))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "\"")
+    }
+}
+
+; A drainable queue. The editor emits; the host reads. There is no callback
+; table because a function-typed field is the wrong tool here: the web page,
+; the SDL host and a unit test all want to poll after pointerUp, and a flag
+; plus a queue is what they already do for `onGraphChanged`.
+class FlowEventSink {
+    def events:[FlowHitEvent]
+    ; Off, nothing is recorded. A host that is not listening leaves it on —
+    ; an empty drain is cheaper than a missed click.
+    def enabled:boolean true
+
+    Constructor () {
+    }
+
+    fn emit:void (ev:FlowHitEvent) {
+        if (enabled == false) {
+            return
+        }
+        push events ev
+    }
+
+    fn count:int () {
+        return (array_length events)
+    }
+
+    fn at:FlowHitEvent (i:int) {
+        if (i < 0) {
+            return (new FlowHitEvent)
+        }
+        if (i >= (array_length events)) {
+            return (new FlowHitEvent)
+        }
+        return (itemAt events i)
+    }
+
+    fn lastEvent:FlowHitEvent () {
+        def n:int (array_length events)
+        if (n <= 0) {
+            return (new FlowHitEvent)
+        }
+        return (itemAt events (n - 1))
+    }
+
+    fn hasEvents:boolean () {
+        return ((array_length events) > 0)
+    }
+
+    fn clear:void () {
+        clear events
+    }
+
+    fn toJson:string () {
+        def out:string "["
+        def i:int 0
+        while (i < (array_length events)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            def ev:FlowHitEvent (itemAt events i)
+            out = (out + (ev.asJson()))
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+}

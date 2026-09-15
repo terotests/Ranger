@@ -1,0 +1,201 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CodeGraphTest.rgr — paging, clicks, and the shop fixture.
+; ============================================================================
+;
+; Does not import the compiler. The builder that walks RangerAppWriterContext
+; has its own suite (CodeGraphBuilderTest.rgr) so a paging failure does not
+; wait on a 3 MB frontend compile.
+;
+;   npm run rangerflow:codegraph:test
+; ============================================================================
+
+Import "../core/FlowEditor.rgr"
+Import "../core/FlowEvents.rgr"
+Import "../domains/codegraph/CodeGraphSample.rgr"
+Import "../domains/codegraph/CodeGraphPages.rgr"
+Import "../domains/codegraph/CodeGraphFlow.rgr"
+
+class CGChecker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn section:void (title:string) {
+        print ("== " + title)
+    }
+
+    fn report:int () {
+        print ""
+        print (("passed " + (to_string passed)) + ", failed " + (to_string failed))
+        if (failed > 0) {
+            return 1
+        }
+        return 0
+    }
+}
+
+class CodeGraphTest {
+    sfn main:void () {
+        def c (new CGChecker)
+        CodeGraphTest.testShop(c)
+        CodeGraphTest.testPaging(c)
+        CodeGraphTest.testClicks(c)
+        CodeGraphTest.testHistory(c)
+        CodeGraphTest.testRenderCap(c)
+        def code:int (c.report())
+        if (code != 0) {
+            exit 1
+        }
+    }
+
+    sfn testShop:void (c:CGChecker) {
+        c.section("shop fixture")
+        def g:CodeGraph (CodeGraphSample.shop())
+        c.ok("the shop has classes" ((g.classCount()) > 8))
+        c.ok("and methods" ((g.methodCount()) > 8))
+        c.ok("Order exists" (g.hasClass("Order")))
+        c.ok("Order.total exists" (g.hasMethod("Order.total")))
+        def m:CodeMethod (g.methodById("Order.total"))
+        c.ok("total calls something" ((array_length m.calls) > 0))
+        def pageMaker:CodeGraphPages (CodeGraphPages.of(g 24))
+        def overview:CodePage (pageMaker.pageOf("overview:0"))
+        c.ok("overview fits the cap" ((overview.itemCount()) <= 24))
+        c.ok("overview has class boxes" ((overview.itemCount()) > 3))
+        def classPage:CodePage (pageMaker.pageOf("class:Order"))
+        c.eqStr("class page id" classPage.kind "class")
+        c.ok("class page shows methods" ((classPage.itemCount()) > 2))
+        def methodPage:CodePage (pageMaker.pageOf("method:Order.checkout"))
+        c.eqStr("method page id" methodPage.kind "method")
+        c.ok("method page has neighbours" ((methodPage.itemCount()) > 3))
+    }
+
+    sfn testPaging:void (c:CGChecker) {
+        c.section("a 40-class graph pages")
+        def g:CodeGraph (CodeGraphSample.manyClasses(40))
+        c.eqInt("forty units plus Context" (g.classCount()) 41)
+        def pageMaker:CodeGraphPages (CodeGraphPages.of(g 12))
+        def p0:CodePage (pageMaker.pageOf("overview:0"))
+        c.ok("first page stays at or under 12" ((p0.itemCount()) <= 12))
+        def hasNext:boolean false
+        def i:int 0
+        while (i < (array_length p0.items)) {
+            def it:CodePageItem (itemAt p0.items i)
+            if (it.dataKind == "page") {
+                if ((indexOf it.dataRef "overview:") == 0) {
+                    if (it.dataRef != "overview:0") {
+                        hasNext = true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        c.ok("first page has a next-page arrow" hasNext)
+        def p1:CodePage (pageMaker.pageOf("overview:1"))
+        c.ok("second page is a different window" (p1.id != p0.id))
+        c.ok("and also stays under the cap" ((p1.itemCount()) <= 12))
+        def uml:CodePage (pageMaker.pageOf("uml:0"))
+        c.eqStr("UML page kind" uml.kind "uml")
+        c.ok("UML page is capped" ((uml.itemCount()) <= 12))
+    }
+
+    sfn testClicks:void (c:CGChecker) {
+        c.section("clicks navigate")
+        def g:CodeGraph (CodeGraphSample.shop())
+        def session:CodeGraphSession (CodeGraphSession.of(g 24))
+        c.eqStr("starts on overview" session.pageId "overview:0")
+        def ev (new FlowHitEvent)
+        ev.kind = "node"
+        ev.dataKind = "class"
+        ev.dataRef = "Order"
+        ev.id = "Order"
+        c.ok("clicking Order drills in" (session.handleClick(ev)))
+        c.eqStr("to the class page" session.pageId "class:Order")
+        def ev2 (new FlowHitEvent)
+        ev2.kind = "node"
+        ev2.dataKind = "method"
+        ev2.dataRef = "Order.checkout"
+        ev2.id = "Order.checkout"
+        c.ok("clicking a method drills further" (session.handleClick(ev2)))
+        c.eqStr("to the method page" session.pageId "method:Order.checkout")
+        def ev3 (new FlowHitEvent)
+        ev3.kind = "node"
+        ev3.dataKind = "page"
+        ev3.dataRef = "overview:0"
+        c.ok("a pager arrow jumps" (session.handleClick(ev3)))
+        c.eqStr("back to overview" session.pageId "overview:0")
+        def bg (new FlowHitEvent)
+        bg.kind = "background"
+        c.ok("a background click does nothing" ((session.handleClick(bg)) == false))
+    }
+
+    sfn testHistory:void (c:CGChecker) {
+        c.section("back and forward")
+        def g:CodeGraph (CodeGraphSample.shop())
+        def session:CodeGraphSession (CodeGraphSession.of(g 24))
+        def ev (new FlowHitEvent)
+        ev.kind = "node"
+        ev.dataKind = "class"
+        ev.dataRef = "Order"
+        session.handleClick(ev)
+        c.ok("back returns to overview" (session.goBack()))
+        c.eqStr("overview again" session.pageId "overview:0")
+        c.ok("forward restores the class page" (session.goForward()))
+        c.eqStr("class page again" session.pageId "class:Order")
+        c.ok("back at the start does nothing" ((session.goBack()) == true))
+        c.ok("and a second back is the end" ((session.goBack()) == false))
+    }
+
+    sfn testRenderCap:void (c:CGChecker) {
+        c.section("FlowGraph stays small")
+        def g:CodeGraph (CodeGraphSample.manyClasses(40))
+        def session:CodeGraphSession (CodeGraphSession.of(g 20))
+        def fg:FlowGraph (session.graph())
+        c.ok("rendered overview is capped" ((fg.nodeCount()) <= 20))
+        c.ok("and has something to click" ((fg.nodeCount()) > 4))
+        def box:FlowRect (fg.bounds())
+        c.ok("overview is not a long strip" (box.w < (box.h * 4.0)))
+        def ev (new FlowHitEvent)
+        ev.kind = "node"
+        ev.dataKind = "class"
+        ev.dataRef = "Unit0"
+        session.handleClick(ev)
+        def fg2:FlowGraph (session.graph())
+        c.ok("class page is also capped" ((fg2.nodeCount()) <= 20))
+        ; And a click on a real node of the overview, through the editor.
+        def session2:CodeGraphSession (CodeGraphSession.of((CodeGraphSample.shop()) 24))
+        def drawn:FlowGraph (session2.graph())
+        def ed:FlowEditor (FlowEditor.of(drawn))
+        ed.setSize(1000.0 800.0)
+        ed.fitView()
+        def n:FlowNode (drawn.nodeById("Order"))
+        def input (new FlowInput)
+        input.x = (ed.view.viewport.toScreenX((n.centerX())))
+        input.y = (ed.view.viewport.toScreenY((n.centerY())))
+        ed.pointerDown(input)
+        ed.pointerUp(input)
+        c.ok("the editor emits a click" (ed.clicks.hasEvents()))
+        def hit:FlowHitEvent (ed.clicks.lastEvent())
+        c.eqStr("on Order" hit.id "Order")
+        c.eqStr("kind class" hit.dataKind "class")
+        c.ok("and the session accepts it" (session2.handleClick(hit)))
+        c.eqStr("navigating to the class page" session2.pageId "class:Order")
+    }
+}

@@ -347,6 +347,12 @@ bind("snap", (e) => app.setSnap(e.target.checked));
 bind("rulers", (e) => app.setRulers(e.target.checked));
 bind("bridges", (e) => app.setBridges(e.target.checked));
 document.getElementById("fit").addEventListener("click", () => app.fitView());
+document.getElementById("codeback").addEventListener("click", () => {
+  if (app.codeBack()) app.fitView();
+});
+document.getElementById("codefwd").addEventListener("click", () => {
+  if (app.codeForward()) app.fitView();
+});
 
 // ---- the source panel ------------------------------------------------------
 // One textarea, two formats. The panel is the whole of the browser's share of

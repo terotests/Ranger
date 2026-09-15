@@ -67,6 +67,9 @@ Import "../layout/ForceLayout.rgr"
 Import "../layout/EdgeLanes.rgr"
 Import "../layout/OrthoRouter.rgr"
 Import "../layout/EdgeFacing.rgr"
+Import "../domains/codegraph/CodeGraphSample.rgr"
+Import "../domains/codegraph/CodeGraphFlow.rgr"
+Import "../core/FlowEvents.rgr"
 
 class RangerFlowWeb {
     def graph:FlowGraph (new FlowGraph)
@@ -97,6 +100,11 @@ class RangerFlowWeb {
     ; diagram and lets it be looked at: pan, zoom, nothing else. The changes a
     ; reader could make there would be saved nowhere, so they are not offered.
     def readOnly:boolean false
+    ; Call-graph paging. Off for every other scenario so a click there is
+    ; still just a selection.
+    def codeNav:CodeGraphSession (new CodeGraphSession)
+    def codeNavOn:boolean false
+    def lastClicksJson:string "[]"
 
     Constructor () {
     }
@@ -155,6 +163,22 @@ class RangerFlowWeb {
             return
         }
         editor.pointerUp(input)
+        lastClicksJson = (editor.clicks.toJson())
+        if codeNavOn {
+            def n:int (editor.clicks.count())
+            def i:int 0
+            def moved:boolean false
+            while (i < n) {
+                def ev:FlowHitEvent (editor.clicks.at(i))
+                if (codeNav.handleClick(ev)) {
+                    moved = true
+                }
+                i = (i + 1)
+            }
+            if moved {
+                this.showCodePage()
+            }
+        }
         ; Lanes and routes are only valid for the positions they were computed
         ; from, so a drag or a new connection invalidates both. The layout's
         ; routes are not recomputed — once a node has been moved by hand the
@@ -363,6 +387,10 @@ class RangerFlowWeb {
     ; foot, a class diagram wants top-to-bottom and UML, a force graph wants
     ; neither. `?scenario=uml` in the URL picks one, and so does the dropdown.
     fn loadScenario:boolean (name:string) {
+        codeNavOn = false
+        if (name == "codegraph") {
+            return (this.loadCodeGraph())
+        }
         if (name == "uml") {
             return (this.loadUml())
         }
@@ -411,6 +439,52 @@ class RangerFlowWeb {
             return (this.loadActivity())
         }
         return (this.loadSqlFixture())
+    }
+
+    fn loadCodeGraph:boolean () {
+        def model:CodeGraph (CodeGraphSample.shop())
+        codeNav = (CodeGraphSession.of(model 24))
+        codeNavOn = true
+        return (this.showCodePage())
+    }
+
+    fn showCodePage:boolean () {
+        def g:FlowGraph (codeNav.graph())
+        this.adopt(g)
+        editor.view.notation = "uml"
+        layoutName = "layered"
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = codeNav.status
+        return true
+    }
+
+    fn takeClicksJson:string () {
+        def s:string lastClicksJson
+        lastClicksJson = "[]"
+        return s
+    }
+
+    fn codeBack:boolean () {
+        if (codeNavOn == false) {
+            return false
+        }
+        if (codeNav.goBack()) {
+            this.showCodePage()
+            return true
+        }
+        return false
+    }
+
+    fn codeForward:boolean () {
+        if (codeNavOn == false) {
+            return false
+        }
+        if (codeNav.goForward()) {
+            this.showCodePage()
+            return true
+        }
+        return false
     }
 
     fn loadSqlFixture:boolean () {
@@ -2991,7 +3065,9 @@ class RangerFlowWeb {
         ; would be measuring the layout rather than the editor. Paused for the
         ; duration and put back afterwards.
         def wasRunning:boolean simRunning
+        def wasNav:boolean codeNavOn
         simRunning = false
+        codeNavOn = false
         editor.fitView()
         ; A node whose middle can actually be clicked.
         ;
@@ -3315,6 +3391,41 @@ class RangerFlowWeb {
         }
         report = (report + "scene " + (to_string (strlen json)) + " bytes; ")
         simRunning = wasRunning
+        codeNavOn = wasNav
+        if codeNavOn {
+            def nav:string (this.navSmoke())
+            if ((indexOf nav "FAIL") == 0) {
+                return nav
+            }
+            report = (report + nav)
+        }
         return ("PASS " + report + (this.stats()))
+    }
+
+    ; After the editor self-test, prove a click on a class actually turns
+    ; the page — that is the whole point of this scenario.
+    fn navSmoke:string () {
+        editor.fitView()
+        if ((graph.hasNode("Order")) == false) {
+            return ""
+        }
+        def n:FlowNode (graph.nodeById("Order"))
+        def sx:double (editor.view.viewport.toScreenX((n.centerX())))
+        def sy:double (editor.view.viewport.toScreenY((n.centerY())))
+        this.pointerDown(sx sy false false)
+        this.pointerUp(sx sy false false)
+        if (codeNav.pageId != "class:Order") {
+            return ("FAIL click Order stayed on " + codeNav.pageId)
+        }
+        if ((graph.nodeCount()) < 3) {
+            return "FAIL Order page too small"
+        }
+        if ((this.codeBack()) == false) {
+            return "FAIL back from Order"
+        }
+        if (codeNav.pageId != "overview:0") {
+            return ("FAIL back stayed on " + codeNav.pageId)
+        }
+        return "nav ok; "
     }
 }

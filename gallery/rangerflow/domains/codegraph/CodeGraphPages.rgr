@@ -1,0 +1,549 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CodeGraphPages.rgr — one chart of 20–30 boxes, not the whole program.
+; ============================================================================
+;
+; Drawing a thousand-node call graph is slow and unreadable. Each page is a
+; window: an overview of the busiest classes, one class and its neighbours,
+; or one method with its callers, callees and the types it uses. Anything
+; that does not fit becomes a pager arrow on the edge — click it, get the
+; next window. The IR stays whole; only the window is a FlowGraph.
+; ============================================================================
+
+Import "CodeGraphModel.rgr"
+
+class CodePageItem {
+    def id:string ""
+    def label:string ""
+    def itemKind:string ""
+    def dataKind:string ""
+    def dataRef:string ""
+    def extra:string ""
+    def fill:string ""
+    def stroke:string ""
+
+    Constructor () {
+    }
+
+    sfn create:CodePageItem (id:string label:string itemKind:string) {
+        def it (new CodePageItem)
+        it.id = id
+        it.label = label
+        it.itemKind = itemKind
+        it.dataKind = itemKind
+        it.dataRef = id
+        return it
+    }
+}
+
+class CodePageLink {
+    def fromId:string ""
+    def toId:string ""
+    def label:string ""
+    def dashed:boolean false
+
+    Constructor () {
+    }
+
+    sfn create:CodePageLink (fromId:string toId:string) {
+        def e (new CodePageLink)
+        e.fromId = fromId
+        e.toId = toId
+        return e
+    }
+}
+
+class CodePage {
+    def id:string ""
+    def title:string ""
+    def kind:string ""
+    def items:[CodePageItem]
+    def links:[CodePageLink]
+
+    Constructor () {
+    }
+
+    fn itemCount:int () {
+        return (array_length items)
+    }
+
+    fn addItem:CodePageItem (it:CodePageItem) {
+        push items it
+        return it
+    }
+
+    fn addLink:void (fromId:string toId:string) {
+        if (fromId == toId) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length links)) {
+            def e:CodePageLink (itemAt links i)
+            if (e.fromId == fromId) {
+                if (e.toId == toId) {
+                    return
+                }
+            }
+            i = (i + 1)
+        }
+        push links (CodePageLink.create(fromId toId))
+    }
+
+    fn addDashed:void (fromId:string toId:string label:string) {
+        def e:CodePageLink (CodePageLink.create(fromId toId))
+        e.dashed = true
+        e.label = label
+        push links e
+    }
+}
+
+class CodeGraphPages {
+    def model:CodeGraph (new CodeGraph)
+    ; 20–30 is the band that still lays out quickly and still reads. 24
+    ; leaves room for a couple of pager arrows on a typical overview.
+    def maxNodes:int 24
+
+    Constructor () {
+    }
+
+    sfn of:CodeGraphPages (g:CodeGraph maxNodes:int) {
+        def p (new CodeGraphPages)
+        p.model = g
+        if (maxNodes < 8) {
+            p.maxNodes = 8
+        } {
+            if (maxNodes > 40) {
+                p.maxNodes = 40
+            } {
+                p.maxNodes = maxNodes
+            }
+        }
+        return p
+    }
+
+    fn overviewId:string (index:int) {
+        return ("overview:" + (to_string index))
+    }
+
+    fn classPageId:string (name:string) {
+        return ("class:" + name)
+    }
+
+    fn methodPageId:string (methodId:string) {
+        return ("method:" + methodId)
+    }
+
+    fn umlPageId:string (index:int) {
+        return ("uml:" + (to_string index))
+    }
+
+    fn pageOf:CodePage (pageId:string) {
+        if ((strlen pageId) == 0) {
+            return (this.pageOf(this.overviewId(0)))
+        }
+        if ((indexOf pageId "overview:") == 0) {
+            def idx:int (this.intAfter(pageId "overview:"))
+            return (this.buildOverview(idx))
+        }
+        if ((indexOf pageId "uml:") == 0) {
+            def uidx:int (this.intAfter(pageId "uml:"))
+            return (this.buildUml(uidx))
+        }
+        if ((indexOf pageId "class:") == 0) {
+            def cname:string (substring pageId 6 (strlen pageId))
+            return (this.buildClass(cname))
+        }
+        if ((indexOf pageId "method:") == 0) {
+            def mid:string (substring pageId 7 (strlen pageId))
+            return (this.buildMethod(mid))
+        }
+        return (this.buildOverview(0))
+    }
+
+    fn intAfter:int (s:string prefix:string) {
+        def rest:string (substring s (strlen prefix) (strlen s))
+        return (?? (str2int rest) 0)
+    }
+
+    fn buildOverview:CodePage (index:int) {
+        def names:[string] (model.classNamesByDegree())
+        def page (new CodePage)
+        page.kind = "overview"
+        page.id = (this.overviewId(index))
+        def total:int (array_length names)
+        ; One slot for the UML door, one for a possible next-page arrow,
+        ; one for a previous-page arrow when we are not on the first page.
+        def reserved:int 2
+        if (index > 0) {
+            reserved = (reserved + 1)
+        }
+        def sliceSize:int (maxNodes - reserved)
+        if (sliceSize < 4) {
+            sliceSize = 4
+        }
+        def start:int (index * sliceSize)
+        if (start < 0) {
+            start = 0
+        }
+        if (start >= total) {
+            start = 0
+            index = 0
+            page.id = (this.overviewId(0))
+        }
+        def hasPrev:boolean (start > 0)
+        def last:int (start + sliceSize)
+        if (last > total) {
+            last = total
+        }
+        def hasNext:boolean (last < total)
+        page.title = (((model.title + " · classes ") + (to_string (start + 1))) + "–" + (to_string last) + " of " + (to_string total))
+        if hasPrev {
+            def prevIdx:int (index - 1)
+            if (prevIdx < 0) {
+                prevIdx = 0
+            }
+            page.addItem((this.pagerItem("pager-prev" ("← previous classes") (this.overviewId(prevIdx)))))
+        }
+        def i:int start
+        while (i < last) {
+            def name:string (itemAt names i)
+            def c:CodeClass (model.classByName(name))
+            def it:CodePageItem (CodePageItem.create(name name "class"))
+            it.extra = (((to_string (c.methodCount())) + " methods"))
+            it.fill = "#dbeafe"
+            it.stroke = "#1d4ed8"
+            page.addItem(it)
+            if ((strlen c.extendsName) > 0) {
+                def parent:string c.extendsName
+                def k:int start
+                def parentOnPage:boolean false
+                while (k < last) {
+                    if ((itemAt names k) == parent) {
+                        parentOnPage = true
+                    }
+                    k = (k + 1)
+                }
+                if parentOnPage {
+                    page.addLink(name parent)
+                }
+            }
+            i = (i + 1)
+        }
+        if hasNext {
+            page.addItem((this.pagerItem("pager-next" ("→ more classes (" + (to_string (total - last)) + ")") (this.overviewId((index + 1))))))
+        }
+        ; A door into the UML view of the same slice, so the two notations
+        ; share the paging rather than dumping every class on one chart.
+        def umlDoor:CodePageItem (this.pagerItem("pager-uml" "UML view →" (this.umlPageId(index))))
+        umlDoor.fill = "#ede9fe"
+        umlDoor.stroke = "#6d28d9"
+        page.addItem(umlDoor)
+        return page
+    }
+
+    fn buildUml:CodePage (index:int) {
+        def names:[string] (model.classNamesByDegree())
+        def page (new CodePage)
+        page.kind = "uml"
+        page.id = (this.umlPageId(index))
+        def budget:int (maxNodes - 2)
+        if (budget < 4) {
+            budget = 4
+        }
+        def total:int (array_length names)
+        def start:int (index * budget)
+        if (start >= total) {
+            start = 0
+            index = 0
+            page.id = (this.umlPageId(0))
+        }
+        def last:int (start + budget)
+        if (last > total) {
+            last = total
+        }
+        page.title = (((model.title + " · UML ") + (to_string (start + 1))) + "–" + (to_string last))
+        page.addItem((this.backItem("pager-back" "← classes" (this.overviewId(index)))))
+        def i:int start
+        while (i < last) {
+            def name:string (itemAt names i)
+            def c:CodeClass (model.classByName(name))
+            def it:CodePageItem (CodePageItem.create(name name "umlclass"))
+            it.dataKind = "class"
+            it.dataRef = name
+            it.extra = c.stereotype
+            it.fill = "#eff6ff"
+            it.stroke = "#1e3a8a"
+            page.addItem(it)
+            if ((strlen c.extendsName) > 0) {
+                def parent:string c.extendsName
+                if (this.nameInRange(names parent start last)) {
+                    page.addLink(name parent)
+                }
+            }
+            i = (i + 1)
+        }
+        if (last < total) {
+            page.addItem((this.pagerItem("pager-next" ("→ more UML (" + (to_string (total - last)) + ")") (this.umlPageId((index + 1))))))
+        }
+        if (start > 0) {
+            def prev:int (index - 1)
+            if (prev < 0) {
+                prev = 0
+            }
+            page.addItem((this.pagerItem("pager-prev" "← previous UML" (this.umlPageId(prev)))))
+        }
+        return page
+    }
+
+    fn buildClass:CodePage (name:string) {
+        def page (new CodePage)
+        page.kind = "class"
+        page.id = (this.classPageId(name))
+        if ((model.hasClass(name)) == false) {
+            page.title = (name + " (unknown)")
+            page.addItem((this.backItem("pager-back" "← overview" (this.overviewId(0)))))
+            return page
+        }
+        def c:CodeClass (model.classByName(name))
+        page.title = (name + " · " + (to_string (c.methodCount())) + " methods")
+        page.addItem((this.backItem("pager-back" "← overview" (this.overviewId(0)))))
+        def self:CodePageItem (CodePageItem.create(name name "umlclass"))
+        self.dataKind = "class"
+        self.dataRef = name
+        self.fill = "#dbeafe"
+        self.stroke = "#1d4ed8"
+        page.addItem(self)
+        if ((strlen c.extendsName) > 0) {
+            def pName:string c.extendsName
+            def parent:CodePageItem (CodePageItem.create(pName pName "class"))
+            parent.fill = "#e0e7ff"
+            parent.stroke = "#3730a3"
+            parent.extra = "extends"
+            page.addItem(parent)
+            page.addLink(name pName)
+        }
+        def budget:int (maxNodes - (page.itemCount()))
+        def mids:[string] (c.methodIds)
+        def shown:int 0
+        def mi:int 0
+        while (mi < (array_length mids)) {
+            if (shown >= budget) {
+                mi = (array_length mids)
+            } {
+                if ((page.itemCount()) >= (maxNodes - 1)) {
+                    mi = (array_length mids)
+                } {
+                    def mid:string (itemAt mids mi)
+                    def m:CodeMethod (model.methodById(mid))
+                    def it:CodePageItem (CodePageItem.create(mid (m.signature()) "method"))
+                    it.fill = "#dcfce7"
+                    it.stroke = "#15803d"
+                    page.addItem(it)
+                    page.addLink(name mid)
+                    shown = (shown + 1)
+                    mi = (mi + 1)
+                }
+            }
+        }
+        def leftover:int ((array_length mids) - shown)
+        if (leftover > 0) {
+            if ((array_length mids) > 0) {
+                def firstLeft:string (itemAt mids shown)
+                page.addItem((this.pagerItem("pager-methods" ("→ " + (to_string leftover) + " more methods") (this.methodPageId(firstLeft)))))
+            }
+        }
+        ; Types the methods of this class mention, if there is still room.
+        def used:[string]
+        def ui:int 0
+        while (ui < (array_length mids)) {
+            def um:CodeMethod (model.methodById((itemAt mids ui)))
+            def ti:int 0
+            while (ti < (array_length um.uses)) {
+                def tn:string (itemAt um.uses ti)
+                if (tn != name) {
+                    def already:boolean false
+                    def a:int 0
+                    while (a < (array_length used)) {
+                        if ((itemAt used a) == tn) {
+                            already = true
+                        }
+                        a = (a + 1)
+                    }
+                    if (already == false) {
+                        push used tn
+                    }
+                }
+                ti = (ti + 1)
+            }
+            ui = (ui + 1)
+        }
+        def ti2:int 0
+        while (ti2 < (array_length used)) {
+            if ((page.itemCount()) >= (maxNodes - 1)) {
+                def rest:int ((array_length used) - ti2)
+                page.addItem((this.pagerItem("pager-types" ("→ " + (to_string rest) + " more types") (this.classPageId(name)))))
+                ti2 = (array_length used)
+            } {
+                def tn2:string (itemAt used ti2)
+                def alreadyOn:boolean (this.pageHasId(page tn2))
+                if (alreadyOn == false) {
+                    def tItem:CodePageItem (CodePageItem.create(tn2 tn2 "type"))
+                    tItem.dataKind = "class"
+                    tItem.dataRef = tn2
+                    tItem.fill = "#fef3c7"
+                    tItem.stroke = "#b45309"
+                    page.addItem(tItem)
+                    page.addDashed(name tn2 "uses")
+                }
+                ti2 = (ti2 + 1)
+            }
+        }
+        return page
+    }
+
+    fn buildMethod:CodePage (methodId:string) {
+        def page (new CodePage)
+        page.kind = "method"
+        page.id = (this.methodPageId(methodId))
+        if ((model.hasMethod(methodId)) == false) {
+            page.title = (methodId + " (unknown)")
+            page.addItem((this.backItem("pager-back" "← overview" (this.overviewId(0)))))
+            return page
+        }
+        def m:CodeMethod (model.methodById(methodId))
+        page.title = (m.className + "." + (m.signature()))
+        page.addItem((this.backItem("pager-back" ("← " + m.className) (this.classPageId(m.className)))))
+        def self:CodePageItem (CodePageItem.create(methodId (m.signature()) "method"))
+        self.fill = "#bbf7d0"
+        self.stroke = "#166534"
+        page.addItem(self)
+        def owner:CodePageItem (CodePageItem.create(m.className m.className "class"))
+        owner.fill = "#dbeafe"
+        owner.stroke = "#1d4ed8"
+        page.addItem(owner)
+        page.addLink(m.className methodId)
+        def budget:int (maxNodes - (page.itemCount()))
+        def half:int (idiv budget 3)
+        if (half < 2) {
+            half = 2
+        }
+        this.addMethodList(page m.calledBy half "pager-callers" "← " " more callers" methodId true)
+        this.addMethodList(page m.calls half "pager-callees" "→ " " more callees" methodId false)
+        this.addTypeList(page m.uses half methodId)
+        return page
+    }
+
+    fn addMethodList:void (page:CodePage ids:[string] limit:int pagerId:string prefix:string suffix:string focusId:string incoming:boolean) {
+        def shown:int 0
+        def i:int 0
+        while (i < (array_length ids)) {
+            if (shown >= limit) {
+                i = (array_length ids)
+            } {
+                if ((page.itemCount()) >= (maxNodes - 1)) {
+                    i = (array_length ids)
+                } {
+                    def mid:string (itemAt ids i)
+                    def alreadyM:boolean (this.pageHasId(page mid))
+                    if (alreadyM == false) {
+                        if (model.hasMethod(mid)) {
+                            def om:CodeMethod (model.methodById(mid))
+                            def it:CodePageItem (CodePageItem.create(mid (om.className + "." + om.name) "method"))
+                            it.fill = "#dcfce7"
+                            it.stroke = "#15803d"
+                            page.addItem(it)
+                            if incoming {
+                                page.addLink(mid focusId)
+                            } {
+                                page.addLink(focusId mid)
+                            }
+                            shown = (shown + 1)
+                        }
+                    }
+                    i = (i + 1)
+                }
+            }
+        }
+        def leftover:int ((array_length ids) - shown)
+        if (leftover > 0) {
+            def nextId:string focusId
+            if (shown < (array_length ids)) {
+                nextId = (itemAt ids shown)
+            }
+            page.addItem((this.pagerItem(pagerId ((prefix + (to_string leftover)) + suffix) (this.methodPageId(nextId)))))
+        }
+    }
+
+    fn addTypeList:void (page:CodePage names:[string] limit:int focusId:string) {
+        def shown:int 0
+        def i:int 0
+        while (i < (array_length names)) {
+            if (shown >= limit) {
+                i = (array_length names)
+            } {
+                if ((page.itemCount()) >= maxNodes) {
+                    i = (array_length names)
+                } {
+                    def tn:string (itemAt names i)
+                    def alreadyT:boolean (this.pageHasId(page tn))
+                    if (alreadyT == false) {
+                        def it:CodePageItem (CodePageItem.create(tn tn "type"))
+                        it.dataKind = "class"
+                        it.dataRef = tn
+                        it.fill = "#fef3c7"
+                        it.stroke = "#b45309"
+                        page.addItem(it)
+                        page.addDashed(focusId tn "uses")
+                        shown = (shown + 1)
+                    }
+                    i = (i + 1)
+                }
+            }
+        }
+        def leftover:int ((array_length names) - shown)
+        if (leftover > 0) {
+            page.addItem((this.pagerItem("pager-types" ("→ " + (to_string leftover) + " more types") (this.methodPageId(focusId)))))
+        }
+    }
+
+    fn pagerItem:CodePageItem (id:string label:string target:string) {
+        def it:CodePageItem (CodePageItem.create(id label "pager"))
+        it.dataKind = "page"
+        it.dataRef = target
+        it.fill = "#f3f4f6"
+        it.stroke = "#4b5563"
+        return it
+    }
+
+    fn backItem:CodePageItem (id:string label:string target:string) {
+        def it:CodePageItem (this.pagerItem(id label target))
+        it.itemKind = "back"
+        it.fill = "#ede9fe"
+        it.stroke = "#6d28d9"
+        return it
+    }
+
+    fn pageHasId:boolean (page:CodePage id:string) {
+        def i:int 0
+        while (i < (array_length page.items)) {
+            def it:CodePageItem (itemAt page.items i)
+            if (it.id == id) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn nameInRange:boolean (names:[string] name:string start:int last:int) {
+        def i:int start
+        while (i < last) {
+            if ((itemAt names i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

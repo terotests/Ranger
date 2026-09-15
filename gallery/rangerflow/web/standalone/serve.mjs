@@ -34,6 +34,7 @@ const MIME = {
 const SCENARIOS = [
   ["erd", "database schema — 9 tables from a .sql file, crow's foot notation"],
   ["uml", "UML class diagram — the same compartment node, different words"],
+  ["codegraph", "paged call graph — classes and methods, click to zoom, arrows to turn the page"],
   ["force", "force layout — d3-force live, drag a node and it pins"],
   ["flow", "flowchart — the core with no domain on top of it"],
 ];

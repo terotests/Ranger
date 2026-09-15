@@ -1,0 +1,48 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; A tiny program whose call graph the builder test can name without walking
+; Lang.rgr. Order.total calls LineItem.lineTotal and mentions LineItem.
+
+class LineItem {
+    def qty:int 1
+    def sku:string "x"
+
+    fn lineTotal:int () {
+        return (qty * 3)
+    }
+}
+
+class Order {
+    def items:[LineItem]
+
+    fn addItem:void (item:LineItem) {
+        push items item
+    }
+
+    fn total:int () {
+        def sum:int 0
+        def i:int 0
+        while (i < (array_length items)) {
+            def row:LineItem (itemAt items i)
+            sum = (sum + (row.lineTotal()))
+            i = (i + 1)
+        }
+        return sum
+    }
+}
+
+class Checkout {
+    fn pay:int (order:Order) {
+        return (order.total())
+    }
+}
+
+class CodeGraphFixtureMain {
+    sfn main:void () {
+        def o (new Order)
+        def row (new LineItem)
+        o.addItem(row)
+        def c (new Checkout)
+        print (to_string (c.pay(o)))
+    }
+}

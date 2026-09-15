@@ -1,0 +1,307 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CodeGraphModel.rgr — classes, methods, calls and types, as data.
+; ============================================================================
+;
+; The Ranger compiler already knows who calls whom: after RangerFlowParser
+; walks a program, each RangerAppFunctionDesc holds `isCalling`, `isCalledBy`
+; and `isUsingClasses`. This file is that fact, stripped of the compiler so a
+; page of twenty boxes can be laid out without linking the frontend.
+;
+;   CodeGraphBuilder  (compiler ctx → this)
+;   CodeGraphSample   (a fixture, for the WebGL demo)
+;           ↓
+;      CodeGraph  ──► CodeGraphPages ──► FlowGraph ──► EVG / WebGL
+; ============================================================================
+
+class CodeField {
+    def name:string ""
+    def fieldType:string ""
+
+    Constructor () {
+    }
+
+    sfn create:CodeField (name:string fieldType:string) {
+        def f (new CodeField)
+        f.name = name
+        f.fieldType = fieldType
+        return f
+    }
+}
+
+class CodeMethod {
+    def id:string ""
+    def className:string ""
+    def name:string ""
+    def params:string ""
+    def returns:string ""
+    def isStatic:boolean false
+    ; Method ids this one calls, and the ones that call it.
+    def calls:[string]
+    def calledBy:[string]
+    ; Type / class names the body uses (fields, parameters, `new`).
+    def uses:[string]
+
+    Constructor () {
+    }
+
+    sfn create:CodeMethod (id:string className:string name:string) {
+        def m (new CodeMethod)
+        m.id = id
+        m.className = className
+        m.name = name
+        m.returns = "void"
+        return m
+    }
+
+    fn signature:string () {
+        return (name + "(" + params + "): " + returns)
+    }
+
+    fn addCall:void (methodId:string) {
+        if ((strlen methodId) == 0) {
+            return
+        }
+        if (methodId == id) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length calls)) {
+            if ((itemAt calls i) == methodId) {
+                return
+            }
+            i = (i + 1)
+        }
+        push calls methodId
+    }
+
+    fn addCaller:void (methodId:string) {
+        if ((strlen methodId) == 0) {
+            return
+        }
+        if (methodId == id) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length calledBy)) {
+            if ((itemAt calledBy i) == methodId) {
+                return
+            }
+            i = (i + 1)
+        }
+        push calledBy methodId
+    }
+
+    fn addUse:void (typeName:string) {
+        if ((strlen typeName) == 0) {
+            return
+        }
+        if (typeName == className) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length uses)) {
+            if ((itemAt uses i) == typeName) {
+                return
+            }
+            i = (i + 1)
+        }
+        push uses typeName
+    }
+
+    fn degree:int () {
+        return (((array_length calls) + (array_length calledBy)) + (array_length uses))
+    }
+}
+
+class CodeClass {
+    def name:string ""
+    def stereotype:string ""
+    def extendsName:string ""
+    def fields:[CodeField]
+    def methodIds:[string]
+    def fileName:string ""
+
+    Constructor () {
+    }
+
+    sfn create:CodeClass (name:string) {
+        def c (new CodeClass)
+        c.name = name
+        return c
+    }
+
+    fn addField:void (name:string fieldType:string) {
+        push fields (CodeField.create(name fieldType))
+    }
+
+    fn addMethodId:void (methodId:string) {
+        def i:int 0
+        while (i < (array_length methodIds)) {
+            if ((itemAt methodIds i) == methodId) {
+                return
+            }
+            i = (i + 1)
+        }
+        push methodIds methodId
+    }
+
+    fn methodCount:int () {
+        return (array_length methodIds)
+    }
+
+    fn fieldCount:int () {
+        return (array_length fields)
+    }
+}
+
+class CodeGraph {
+    def title:string ""
+    def classes:[CodeClass]
+    def classIndex:[string:int]
+    def methods:[CodeMethod]
+    def methodIndex:[string:int]
+
+    Constructor () {
+    }
+
+    fn classCount:int () {
+        return (array_length classes)
+    }
+
+    fn methodCount:int () {
+        return (array_length methods)
+    }
+
+    fn hasClass:boolean (name:string) {
+        return (has classIndex name)
+    }
+
+    fn hasMethod:boolean (id:string) {
+        return (has methodIndex id)
+    }
+
+    fn classAt:CodeClass (i:int) {
+        return (itemAt classes i)
+    }
+
+    fn methodAt:CodeMethod (i:int) {
+        return (itemAt methods i)
+    }
+
+    fn classByName:CodeClass (name:string) {
+        if (has classIndex name) {
+            def i:int (unwrap (get classIndex name))
+            return (itemAt classes i)
+        }
+        return (new CodeClass)
+    }
+
+    fn methodById:CodeMethod (id:string) {
+        if (has methodIndex id) {
+            def i:int (unwrap (get methodIndex id))
+            return (itemAt methods i)
+        }
+        return (new CodeMethod)
+    }
+
+    fn addClass:CodeClass (name:string) {
+        if (has classIndex name) {
+            return (this.classByName(name))
+        }
+        def c:CodeClass (CodeClass.create(name))
+        set classIndex name (array_length classes)
+        push classes c
+        return c
+    }
+
+    fn addMethod:CodeMethod (className:string name:string) {
+        def id:string (className + "." + name)
+        if (has methodIndex id) {
+            def n:int 2
+            def cand:string ((id + "#") + (to_string n))
+            while (has methodIndex cand) {
+                n = (n + 1)
+                cand = ((id + "#") + (to_string n))
+            }
+            id = cand
+        }
+        def m:CodeMethod (CodeMethod.create(id className name))
+        set methodIndex id (array_length methods)
+        push methods m
+        def c:CodeClass (this.addClass(className))
+        c.addMethodId(id)
+        return m
+    }
+
+    fn linkCall:void (fromId:string toId:string) {
+        if ((this.hasMethod(fromId)) == false) {
+            return
+        }
+        if ((this.hasMethod(toId)) == false) {
+            return
+        }
+        def a:CodeMethod (this.methodById(fromId))
+        def b:CodeMethod (this.methodById(toId))
+        a.addCall(toId)
+        b.addCaller(fromId)
+    }
+
+    fn linkUse:void (methodId:string typeName:string) {
+        if ((this.hasMethod(methodId)) == false) {
+            return
+        }
+        def m:CodeMethod (this.methodById(methodId))
+        m.addUse(typeName)
+        this.addClass(typeName)
+    }
+
+    ; Classes ordered by how connected they are, busiest first — the overview
+    ; chart wants the ones a reader will recognise, not alphabetical order.
+    fn classNamesByDegree:[string] () {
+        def names:[string]
+        def scores:[int]
+        def i:int 0
+        while (i < (array_length classes)) {
+            def c:CodeClass (itemAt classes i)
+            def score:int (c.methodCount())
+            if ((strlen c.extendsName) > 0) {
+                score = (score + 2)
+            }
+            def k:int 0
+            while (k < (array_length c.methodIds)) {
+                def mid:string (itemAt c.methodIds k)
+                def m:CodeMethod (this.methodById(mid))
+                score = (score + (m.degree()))
+                k = (k + 1)
+            }
+            push names c.name
+            push scores score
+            i = (i + 1)
+        }
+        return (CodeGraph.sortByScore(names scores))
+    }
+
+    sfn sortByScore:[string] (names:[string] scores:[int]) {
+        def n:int (array_length names)
+        def i:int 0
+        while (i < n) {
+            def j:int (i + 1)
+            while (j < n) {
+                def si:int (itemAt scores i)
+                def sj:int (itemAt scores j)
+                if (sj > si) {
+                    def tn:string (itemAt names i)
+                    set names i (itemAt names j)
+                    set names j tn
+                    set scores i sj
+                    set scores j si
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return names
+    }
+}

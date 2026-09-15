@@ -1,0 +1,195 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CodeGraphBuilder.rgr — RangerAppWriterContext → CodeGraph.
+; ============================================================================
+;
+; After VirtualCompiler has parsed and RangerFlowParser has walked the
+; program, every method already knows who it calls (`isCalling`), who calls
+; it (`isCalledBy`) and which classes its body mentions (`isDirectlyUsingClasses`).
+; This walk copies that static call graph out of the compiler and into the
+; IR the pager draws. It is the only file in this domain that imports the
+; compiler — the WebGL page never loads it.
+; ============================================================================
+
+Import "CodeGraphModel.rgr"
+Import "../../../../compiler/VirtualCompiler.rgr"
+
+class CodeGraphBuilder {
+    ; When set, only classes whose source path contains this string are kept.
+    ; Empty keeps every normal class the frontend collected (still skipping
+    ; Lang.rgr / stdops).
+    def fileFilter:string ""
+
+    Constructor () {
+    }
+
+    fn fromContext:CodeGraph (ctx:RangerAppWriterContext) {
+        def g (new CodeGraph)
+        g.title = "Ranger"
+        def ids:[string:string]
+        def i:int 0
+        while (i < (array_length ctx.definedClassList)) {
+            def cName:string (itemAt ctx.definedClassList i)
+            def cl:RangerAppClassDesc (unwrap (get ctx.definedClasses cName))
+            if (this.keepClass(cl)) {
+                def cc:CodeClass (g.addClass(cl.name))
+                cc.fileName = (this.fileOf(cl))
+                if cl.is_interface {
+                    cc.stereotype = "interface"
+                }
+                if ((array_length cl.extends_classes) > 0) {
+                    cc.extendsName = (itemAt cl.extends_classes 0)
+                }
+                def fi:int 0
+                while (fi < (array_length cl.variables)) {
+                    def v:RangerAppParamDesc (itemAt cl.variables fi)
+                    cc.addField(v.name (this.typeOfParam(v)))
+                    fi = (fi + 1)
+                }
+                this.collectFns(g cl cl.methods false ids)
+                this.collectFns(g cl cl.static_methods true ids)
+            }
+            i = (i + 1)
+        }
+        ; Second pass: the call and use edges, now that every method has an id.
+        def k:int 0
+        while (k < (array_length ctx.definedClassList)) {
+            def cName2:string (itemAt ctx.definedClassList k)
+            def cl2:RangerAppClassDesc (unwrap (get ctx.definedClasses cName2))
+            if (this.keepClass(cl2)) {
+                this.linkFns(g cl2 cl2.methods ids)
+                this.linkFns(g cl2 cl2.static_methods ids)
+            }
+            k = (k + 1)
+        }
+        return g
+    }
+
+    fn collectFns:void (g:CodeGraph cl:RangerAppClassDesc fns:[RangerAppFunctionDesc] isStatic:boolean ids:[string:string]) {
+        def i:int 0
+        while (i < (array_length fns)) {
+            def fn:RangerAppFunctionDesc (itemAt fns i)
+            def key:string (this.fnKey(cl fn))
+            def m:CodeMethod (g.addMethod(cl.name fn.name))
+            m.isStatic = isStatic
+            m.params = (this.paramSig(fn))
+            m.returns = (this.returnType(fn))
+            set ids key m.id
+            i = (i + 1)
+        }
+    }
+
+    fn linkFns:void (g:CodeGraph cl:RangerAppClassDesc fns:[RangerAppFunctionDesc] ids:[string:string]) {
+        def i:int 0
+        while (i < (array_length fns)) {
+            def fn:RangerAppFunctionDesc (itemAt fns i)
+            def key:string (this.fnKey(cl fn))
+            if (has ids key) {
+                def fromId:string (unwrap (get ids key))
+                def ci:int 0
+                while (ci < (array_length fn.isCalling)) {
+                    def other:RangerAppFunctionDesc (itemAt fn.isCalling ci)
+                    def ok:string (this.fnKeyOfDesc(other))
+                    if (has ids ok) {
+                        g.linkCall(fromId (unwrap (get ids ok)))
+                    }
+                    ci = (ci + 1)
+                }
+                def ui:int 0
+                while (ui < (array_length fn.isDirectlyUsingClasses)) {
+                    def used:RangerAppClassDesc (itemAt fn.isDirectlyUsingClasses ui)
+                    g.linkUse(fromId used.name)
+                    ui = (ui + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn fnKey:string (cl:RangerAppClassDesc fn:RangerAppFunctionDesc) {
+        return (((cl.name + "\t") + fn.name) + "\t" + (to_string (array_length fn.params)))
+    }
+
+    fn fnKeyOfDesc:string (fn:RangerAppFunctionDesc) {
+        def cName:string ""
+        if (null? fn.container_class) {
+            cName = ""
+        } {
+            def owner:RangerAppClassDesc (unwrap fn.container_class)
+            cName = owner.name
+        }
+        return (((cName + "\t") + fn.name) + "\t" + (to_string (array_length fn.params)))
+    }
+
+    fn keepClass:boolean (cl:RangerAppClassDesc) {
+        if ((cl.isNormalClass()) == false) {
+            return false
+        }
+        def file:string (this.fileOf(cl))
+        if ((indexOf file "Lang.rgr") >= 0) {
+            return false
+        }
+        if ((indexOf file "stdops.rgr") >= 0) {
+            return false
+        }
+        if ((indexOf file "stdlib.rgr") >= 0) {
+            return false
+        }
+        if ((strlen fileFilter) > 0) {
+            if ((indexOf file fileFilter) < 0) {
+                return false
+            }
+        }
+        return true
+    }
+
+    fn fileOf:string (cl:RangerAppClassDesc) {
+        if (null? cl.nameNode) {
+            return ""
+        }
+        def nn:CodeNode (unwrap cl.nameNode)
+        if (null? nn.code) {
+            return ""
+        }
+        return (nn.getFilename())
+    }
+
+    fn typeOfParam:string (p:RangerAppParamDesc) {
+        if (null? p.nameNode) {
+            return ""
+        }
+        def nn:CodeNode (unwrap p.nameNode)
+        if ((strlen nn.array_type) > 0) {
+            return ("[" + nn.array_type + "]")
+        }
+        return nn.type_name
+    }
+
+    fn paramSig:string (fn:RangerAppFunctionDesc) {
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length fn.params)) {
+            def p:RangerAppParamDesc (itemAt fn.params i)
+            def t:string (this.typeOfParam(p))
+            if ((strlen t) > 0) {
+                push parts (p.name + ":" + t)
+            } {
+                push parts p.name
+            }
+            i = (i + 1)
+        }
+        return (join parts ", ")
+    }
+
+    fn returnType:string (fn:RangerAppFunctionDesc) {
+        if (null? fn.nameNode) {
+            return "void"
+        }
+        def nn:CodeNode (unwrap fn.nameNode)
+        if ((strlen nn.type_name) == 0) {
+            return "void"
+        }
+        return nn.type_name
+    }
+}
