@@ -19,7 +19,8 @@ Import "../../../compiler/VirtualCompiler.rgr"
 class CodeGraphBuilder {
     ; When set, only classes whose source path contains this string are kept.
     ; Empty keeps every normal class the frontend collected (still skipping
-    ; Lang.rgr / stdops).
+    ; Lang.rgr / stdops). Open / analyzeSource leave this empty so imported
+    ; classes (DataGrid → SheetView) stay on the graph.
     def fileFilter:string ""
 
     Constructor () {
@@ -197,6 +198,10 @@ class CodeGraphBuilder {
     ; Compile a Ranger file from the real disk and copy its call graph.
     ; Used by the builder suite to walk gallery libraries (css, evg, zip).
     sfn fromFile:CodeGraph (path:string) {
+        return (CodeGraphBuilder.keepFromFile(path ""))
+    }
+
+    sfn keepFromFile:CodeGraph (path:string filter:string) {
         def empty (new CodeGraph)
         empty.title = path
         def env:InputEnv (new InputEnv)
@@ -226,6 +231,7 @@ class CodeGraphBuilder {
             return empty
         }
         def b (new CodeGraphBuilder)
+        b.fileFilter = filter
         def g:CodeGraph (b.fromContext(appCtx))
         g.title = path
         return g

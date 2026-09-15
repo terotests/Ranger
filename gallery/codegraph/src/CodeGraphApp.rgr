@@ -76,6 +76,7 @@ class CodeGraphApp extends EvgApp {
     def galleryFiles:[string:string]
     def exampleFiles:[string:string]
     def userFiles:[string:string]
+    def vfsHostDirs:[string]
 
     Constructor () {
     }
@@ -365,6 +366,8 @@ class CodeGraphApp extends EvgApp {
     fn clearUserFiles:void () {
         def empty:[string:string]
         userFiles = empty
+        def noDirs:[string]
+        vfsHostDirs = noDirs
     }
 
     fn hasUserFile:boolean (name:string) {
@@ -631,6 +634,23 @@ class CodeGraphApp extends EvgApp {
         return (unwrap t)
     }
 
+    fn rememberHostDir:void (dir:string) {
+        if ((strlen dir) == 0) {
+            return
+        }
+        if (dir == ".") {
+            return
+        }
+        def i:int 0
+        while (i < (array_length vfsHostDirs)) {
+            if ((itemAt vfsHostDirs i) == dir) {
+                return
+            }
+            i = (i + 1)
+        }
+        push vfsHostDirs dir
+    }
+
     fn ingestDiskFile:boolean (dir:string name:string) {
         if ((this.isRgr(name)) == false) {
             return false
@@ -645,6 +665,7 @@ class CodeGraphApp extends EvgApp {
         if ((strlen data) == 0) {
             return false
         }
+        this.rememberHostDir(dir)
         def specs:[string] (this.collectImportSpecs(data))
         this.setUserFile(name data)
         def i:int 0
@@ -809,7 +830,10 @@ class CodeGraphApp extends EvgApp {
     }
 
     fn analyzeSource:boolean (source:string filename:string) {
-        return (this.runAnalyze(source filename filename))
+        ; Keep every class the compile collected. Filtering to `filename` dropped
+        ; imported types (DataGrid → an empty SheetView box) even when VC had
+        ; already resolved the Import. Lang.rgr / stdops / stdlib stay skipped.
+        return (this.runAnalyze(source filename ""))
     }
 
     fn analyzeCompiler:boolean () {
@@ -951,6 +975,7 @@ class CodeGraphApp extends EvgApp {
         }
         this.installCompilerTree(fs)
         this.installGalleryTree(fs)
+        env.setResolver((this.makeVfsResolver()))
         def vc:VirtualCompiler (new VirtualCompiler)
         def res:CompilerResults (vc.run(env))
         def errText:string (this.compilerErrorText(res))
@@ -981,6 +1006,34 @@ class CodeGraphApp extends EvgApp {
             return false
         }
         return (this.applyGraph(g fname))
+    }
+
+    fn fillResolverMap:void (r:InputFileResolver src:[string:string]) {
+        def names:[string] (keys src)
+        def i:int 0
+        while (i < (array_length names)) {
+            def n:string (itemAt names i)
+            r.putFile(n (unwrap (get src n)))
+            i = (i + 1)
+        }
+    }
+
+    ; Import prep looks up a literal filename in libraryPaths. Anything the
+    ; flatten-into-VFS walk missed is still reachable if the host kept the
+    ; original directories — mergeImports then asks this resolver.
+    fn makeVfsResolver:InputFileResolver () {
+        def r (new InputFileResolver)
+        this.fillResolverMap(r rootFiles)
+        this.fillResolverMap(r libFiles)
+        this.fillResolverMap(r compilerFiles)
+        this.fillResolverMap(r userFiles)
+        this.fillResolverMap(r galleryFiles)
+        def i:int 0
+        while (i < (array_length vfsHostDirs)) {
+            r.addHostDir((itemAt vfsHostDirs i))
+            i = (i + 1)
+        }
+        return r
     }
 
     fn installUserTree:void (fs:InputFSFolder) {
