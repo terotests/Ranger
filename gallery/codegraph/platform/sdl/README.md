@@ -13,9 +13,11 @@ npm run codegraph:sdl
 SDL_VIDEODRIVER=dummy npm run codegraph:sdl:smoke
 ```
 
-Open a `.rgr` from the File menu or the **Open** toolbar button. Sibling
-Ranger files in that folder are copied into the VFS so `Import` resolves.
-`compiler/` and `lib/` are loaded from the repo into the same VFS.
+Open a `.rgr` from the File menu or the **Open** toolbar button. The host
+walks `Import` from that file (including `../css` / `../evg` style paths),
+rewrites those to basenames, and installs the closure in the VFS.
+`compiler/`, `lib/`, and the gallery css/evg/zip samples are loaded from the
+repo into the same VFS at start.
 
 macOS: needs SDL2 (`brew install sdl2`). Escape closes an open picker list,
 then the window.

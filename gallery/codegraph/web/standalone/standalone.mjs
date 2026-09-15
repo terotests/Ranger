@@ -139,7 +139,9 @@ openEl.addEventListener("change", async () => {
     app.setUserFile(f.name, text);
     if (/\.rgr$/i.test(f.name) && files.length === 1) entry = f;
   }
-  const text = await entry.text();
+  await installGalleryTree();
+  app.fillMissingUserImports();
+  const text = app.userFileText(entry.name) || (await entry.text());
   analyzing = true;
   try {
     app.analyzeSource(text, entry.name);
