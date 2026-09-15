@@ -1,0 +1,20 @@
+{
+  "name": "treeni",
+  "version": "0.1.0",
+  "entry": "src/TreeniWeekDemo.rgr",
+  "dependencies": {
+    "statechart": {
+      "git": "https://github.com/terotests/Ranger.git",
+      "rev": "REPLACE_WITH_COMMIT",
+      "subdir": "gallery/statechart"
+    },
+    "ui": {
+      "git": "https://github.com/terotests/Ranger.git",
+      "rev": "REPLACE_WITH_COMMIT",
+      "subdir": "gallery/ui"
+    },
+    "evg": {
+      "path": "../evg"
+    }
+  }
+}
