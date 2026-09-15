@@ -3,6 +3,11 @@
 ; ============================================================================
 ; UastSymbol.rgr — names with meaning, not AST shape.
 ; ============================================================================
+;
+; Reference = syntax node → symbol (find-references, hover).
+; Relationship = semantic entity → semantic entity (calls, extends, usesType).
+; Both carry resolution (what happened) and confidence (how sure).
+; ============================================================================
 
 class UastSymbol {
     def id:string ""
@@ -16,6 +21,7 @@ class UastSymbol {
     def returns:string ""
     def isStatic:boolean false
     def fileName:string ""
+    def extendsName:string ""
 
     Constructor () {
     }
@@ -34,17 +40,25 @@ class UastReference {
     def sourceNode:string ""
     def targetSymbol:string ""
     def role:string ""
+    def resolution:string ""
     def confidence:string ""
 
     Constructor () {
     }
 
-    sfn create:UastReference (sourceNode:string targetSymbol:string role:string confidence:string) {
+    sfn create:UastReference (sourceNode:string targetSymbol:string role:string resolution:string confidence:string) {
         def r (new UastReference)
         r.sourceNode = sourceNode
         r.targetSymbol = targetSymbol
         r.role = role
+        r.resolution = resolution
         r.confidence = confidence
+        if ((strlen r.resolution) == 0) {
+            r.resolution = "resolved"
+        }
+        if ((strlen r.confidence) == 0) {
+            r.confidence = "exact"
+        }
         return r
     }
 }

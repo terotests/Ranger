@@ -4,14 +4,30 @@
 ; UastNode.rgr — unified syntax node. Deliberately a bit dumb.
 ; ============================================================================
 ;
-; kind is the shared vocabulary (UastKind). language + nativeKind + origin
-; keep the native node findable. LanguageSpecific is the escape hatch so
-; UAST does not become TypeScriptAST + PythonAST + ….
+; Children are (role, nodeId) edges, not a positional list. Call has
+; callee/argument, MemberAccess has receiver/member — never children[0].
+; Nodes live in a flat CodeModel/FrontendResult index.
 ;
-; Children are nested. The CodeModel also keeps a flat id index.
+; LanguageSpecific = frontend understands the construct, UAST will not
+; normalize it. Unknown = the frontend did not understand the construct.
 ; ============================================================================
 
 Import "UastSource.rgr"
+
+class UChild {
+    def role:string ""
+    def nodeId:string ""
+
+    Constructor () {
+    }
+
+    sfn create:UChild (role:string nodeId:string) {
+        def c (new UChild)
+        c.role = role
+        c.nodeId = nodeId
+        return c
+    }
+}
 
 class UNode {
     def id:string ""
@@ -19,10 +35,10 @@ class UNode {
     def language:string ""
     def nativeKind:string ""
     def name:string ""
-    def origin:string ""
     def flags:[string]
     def span:UastSpan (new UastSpan)
-    def children:[UNode]
+    def origin:UastOrigin (new UastOrigin)
+    def children:[UChild]
 
     Constructor () {
     }
@@ -36,8 +52,11 @@ class UNode {
         return n
     }
 
-    fn addChild:void (child:UNode) {
-        push children child
+    fn addRole:void (role:string nodeId:string) {
+        if ((strlen nodeId) == 0) {
+            return
+        }
+        push children (UChild.create(role nodeId))
     }
 
     fn addFlag:void (flag:string) {
@@ -52,6 +71,42 @@ class UNode {
             i = (i + 1)
         }
         push flags flag
+    }
+
+    fn mentionsFlag:boolean (flag:string) {
+        def i:int 0
+        while (i < (array_length flags)) {
+            if ((itemAt flags i) == flag) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn childIdFor:string (role:string) {
+        def i:int 0
+        while (i < (array_length children)) {
+            def ch:UChild (itemAt children i)
+            if (ch.role == role) {
+                return ch.nodeId
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn childIdsFor:[string] (role:string) {
+        def ids:[string]
+        def i:int 0
+        while (i < (array_length children)) {
+            def ch:UChild (itemAt children i)
+            if (ch.role == role) {
+                push ids ch.nodeId
+            }
+            i = (i + 1)
+        }
+        return ids
     }
 
     fn childCount:int () {

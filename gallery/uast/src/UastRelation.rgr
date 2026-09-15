@@ -1,12 +1,14 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ============================================================================
-; UastRelation.rgr — edges of the semantic graph, plus diagnostics.
+; UastRelation.rgr — semantic-entity → semantic-entity, plus diagnostics.
 ; ============================================================================
 ;
-; confidence is required in spirit even when a frontend leaves it empty:
-; empty means exact. JS/TS adapters must set dynamic / unresolved rather
-; than invent a callee.
+; resolution  = resolved | partiallyResolved | dynamic | unresolved
+; confidence  = exact | inferred | possible
+;
+; Exact only when one unique declaration follows from facts the model
+; actually knows. Never upgrade a guess to exact.
 ; ============================================================================
 
 Import "UastSource.rgr"
@@ -15,17 +17,22 @@ class UastRelation {
     def fromId:string ""
     def toId:string ""
     def kind:string ""
+    def resolution:string ""
     def confidence:string ""
 
     Constructor () {
     }
 
-    sfn create:UastRelation (fromId:string toId:string kind:string confidence:string) {
+    sfn create:UastRelation (fromId:string toId:string kind:string resolution:string confidence:string) {
         def r (new UastRelation)
         r.fromId = fromId
         r.toId = toId
         r.kind = kind
+        r.resolution = resolution
         r.confidence = confidence
+        if ((strlen r.resolution) == 0) {
+            r.resolution = "resolved"
+        }
         if ((strlen r.confidence) == 0) {
             r.confidence = "exact"
         }

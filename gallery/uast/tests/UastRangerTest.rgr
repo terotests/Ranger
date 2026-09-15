@@ -4,9 +4,14 @@
 ; UastRangerTest.rgr — new pipeline vs CodeGraphBuilder.
 ; ============================================================================
 ;
-; Compiles fixtures with VirtualCompiler, builds a CodeModel, projects it,
-; and requires the same classes / fields / methods / calls / uses as the
-; existing CodeGraph path.
+; Compiles fixtures with VirtualCompiler, builds a FrontendResult, runs
+; the shared semantic pipeline, projects to CodeGraph, and checks two
+; things separately:
+;
+;   1. Compatibility: projected graph == CodeGraphBuilder (reference
+;      implementation, not the semantic specification).
+;   2. Semantic expectation: ZipWriter has the fields the picture needs,
+;      even if the old builder were wrong.
 ;
 ;   npm run uast:ranger
 ; ============================================================================
@@ -46,8 +51,9 @@ class UastRangerTest {
         def model:UastCodeModel (a.fromContext(appCtx))
         def got:CodeGraph (UastToCodeGraph.project(model))
         def failed:int 0
-        failed = (failed + (UastRangerTest.diffGraph("calls.rgr" expected got)))
-        failed = (failed + (UastRangerTest.checkZipWriter()))
+        failed = (failed + (UastRangerTest.diffGraph("compatibility calls.rgr" expected got)))
+        failed = (failed + (UastRangerTest.checkZipWriterSpec()))
+        failed = (failed + (UastRangerTest.checkZipWriterCompatibility()))
         if (failed > 0) {
             print (("failed " + (to_string failed)))
             exit 1
@@ -55,8 +61,8 @@ class UastRangerTest {
         print "passed ranger golden"
     }
 
-    sfn checkZipWriter:int () {
-        print "== gallery/zip/zip_tool.rgr ZipWriter"
+    sfn checkZipWriterSpec:int () {
+        print "== semantic expectation ZipWriter"
         def model:UastCodeModel (UastRanger.fromFile("gallery/zip/zip_tool.rgr"))
         if ((indexOf model.title " FAIL ") >= 0) {
             print ("  FAIL " + model.title)
@@ -91,13 +97,26 @@ class UastRangerTest {
                 n = (n + 1)
             }
         }
+        if (n == 0) {
+            print "  ZipWriter fields as specified"
+        }
+        return n
+    }
+
+    sfn checkZipWriterCompatibility:int () {
+        print "== compatibility zip_tool.rgr vs CodeGraphBuilder"
+        def model:UastCodeModel (UastRanger.fromFile("gallery/zip/zip_tool.rgr"))
+        if ((indexOf model.title " FAIL ") >= 0) {
+            print ("  FAIL " + model.title)
+            return 1
+        }
+        def g:CodeGraph (UastToCodeGraph.project(model))
         def expected:CodeGraph (CodeGraphBuilder.fromFile("gallery/zip/zip_tool.rgr"))
         if ((indexOf expected.title " FAIL ") >= 0) {
             print ("  FAIL builder " + expected.title)
-            n = (n + 1)
-        } {
-            n = (n + (UastRangerTest.diffGraph("zip_tool.rgr" expected g)))
+            return 1
         }
+        def n:int (UastRangerTest.diffGraph("compatibility zip_tool.rgr" expected g))
         print (("  classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
         return n
     }

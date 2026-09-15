@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ============================================================================
-; UastTest.rgr — schema, ZipWriter fixture, TS kind mapping.
+; UastTest.rgr — schema, ZipWriter fixture via shared pipeline, TS mapping.
 ; ============================================================================
 ;
 ; Does not import the compiler. The Ranger golden suite is UastRangerTest.
@@ -12,6 +12,7 @@
 Import "../src/UastSample.rgr"
 Import "../src/UastCodeGraph.rgr"
 Import "../src/UastTypeScript.rgr"
+Import "../src/UastDump.rgr"
 
 class UastChecker {
     def passed:int 0
@@ -48,6 +49,9 @@ class UastTest {
     sfn main:void () {
         def c (new UastChecker)
         UastTest.testZipWriter(c)
+        UastTest.testChildRoles(c)
+        UastTest.testDump(c)
+        UastTest.testDynamic(c)
         UastTest.testTsMapping(c)
         UastTest.testEscapeHatch(c)
         def code:int (c.report())
@@ -57,7 +61,7 @@ class UastTest {
     }
 
     sfn testZipWriter:void (c:UastChecker) {
-        print "== ZipWriter fixture"
+        print "== ZipWriter fixture (shared pipeline)"
         def model:UastCodeModel (UastSample.zipWriter())
         c.ok("ZipWriter symbol" (model.mentionsSymbol("class:ZipWriter")))
         c.ok("ZipEntry symbol" (model.mentionsSymbol("class:ZipEntry")))
@@ -73,6 +77,8 @@ class UastTest {
         c.eqStr("output type" output.typeName "GrowableZipBuffer")
         def crcField:UastSymbol (model.symbolById("field:ZipWriter.crc"))
         c.eqStr("crc type" crcField.typeName "CRC32")
+        def addFile:UastSymbol (model.symbolById("method:ZipWriter.addFile"))
+        c.eqStr("addFile params" addFile.params "name:string, fileData:buffer")
         def foundCall:boolean false
         def foundUse:boolean false
         def i:int 0
@@ -81,6 +87,7 @@ class UastTest {
             if ((rel.kind == "calls") && (rel.fromId == "method:ZipWriter.addFile") && (rel.toId == "method:CRC32.compute")) {
                 foundCall = true
                 c.eqStr("call confidence" rel.confidence "exact")
+                c.eqStr("call resolution" rel.resolution "resolved")
             }
             if ((rel.kind == "usesType") && (rel.fromId == "class:ZipWriter") && (rel.toId == "class:CRC32")) {
                 foundUse = true
@@ -131,6 +138,59 @@ class UastTest {
         c.eqStr("addFile UNode kind" addNode.kind (UastKind.MethodDecl()))
         c.eqStr("addFile nativeKind" addNode.nativeKind "fn")
         c.eqStr("addFile language" addNode.language "ranger")
+        def res:UastFrontendResult (UastSample.zipWriterResult())
+        def f0:UastSourceFile (itemAt res.files 0)
+        c.eqInt("source version" f0.version 1)
+        c.eqStr("span encoding" addNode.span.coordinateEncoding "utf16-code-units")
+    }
+
+    sfn testChildRoles:void (c:UastChecker) {
+        print "== child roles"
+        def model:UastCodeModel (UastSample.zipWriter())
+        def callN:UNode (model.nodeById("n:call:compute"))
+        c.eqStr("Call kind" callN.kind (UastKind.Call()))
+        def calleeId:string (callN.childIdFor((UastChildRole.callee())))
+        c.eqStr("callee role" calleeId "n:this.crc.compute")
+        def args:[string] (callN.childIdsFor((UastChildRole.argument())))
+        c.eqInt("one argument" (array_length args) 1)
+        def mem:UNode (model.nodeById("n:this.crc.compute"))
+        c.eqStr("receiver role" (mem.childIdFor((UastChildRole.receiver()))) "n:this.crc")
+        c.eqStr("member role" (mem.childIdFor((UastChildRole.member()))) "n:compute-id")
+        def zw:UNode (model.nodeById("n:ZipWriter"))
+        def fields:[string] (zw.childIdsFor((UastChildRole.field())))
+        c.eqInt("ZipWriter field children" (array_length fields) 4)
+    }
+
+    sfn testDump:void (c:UastChecker) {
+        print "== dump (Ranger and TS must share this shape)"
+        def model:UastCodeModel (UastSample.zipWriter())
+        def text:string (UastDump.ofNode(model "n:this.crc.compute"))
+        c.ok("dump kind" ((indexOf text "kind: MemberAccess") >= 0))
+        c.ok("dump receiver" ((indexOf text "receiver:") >= 0))
+        c.ok("dump member" ((indexOf text "member:") >= 0))
+        def callText:string (UastDump.ofNode(model "n:call:compute"))
+        c.ok("dump call target" ((indexOf callText "method:CRC32.compute") >= 0))
+        c.ok("dump resolved" ((indexOf callText "resolution: resolved") >= 0))
+        c.ok("dump exact" ((indexOf callText "confidence: exact") >= 0))
+        print callText
+    }
+
+    sfn testDynamic:void (c:UastChecker) {
+        print "== dynamic vs exact"
+        def model:UastCodeModel (UastSemantic.fromResult((UastSample.dynamicCallResult())))
+        def text:string (UastDump.ofNode(model "n:dyn"))
+        c.ok("dynamic resolution" ((indexOf text "resolution: dynamic") >= 0))
+        c.ok("possible confidence" ((indexOf text "confidence: possible") >= 0))
+        def exactCall:boolean false
+        def i:int 0
+        while (i < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships i)
+            if ((rel.kind == "calls") && (rel.confidence == "exact")) {
+                exactCall = true
+            }
+            i = (i + 1)
+        }
+        c.ok("no exact call from a guess" (exactCall == false))
     }
 
     sfn testTsMapping:void (c:UastChecker) {
@@ -149,16 +209,24 @@ class UastTest {
     }
 
     sfn testEscapeHatch:void (c:UastChecker) {
-        print "== LanguageSpecific escape hatch"
+        print "== LanguageSpecific vs Unknown"
         def m (new UastCodeModel)
         m.language = "typescript"
-        def node:UNode (UNode.create("n:cond" (UastKind.LanguageSpecific()) "typescript" "TSConditionalType"))
-        node.name = "X"
-        node.origin = "ts:ConditionalType"
-        m.addNode(node)
+        def spec:UNode (UNode.create("n:cond" (UastKind.LanguageSpecific()) "typescript" "TSConditionalType"))
+        spec.name = "X"
+        spec.origin = (UastOrigin.create("typescript" "zip_writer.ts" "ConditionalType" 1))
+        m.addNode(spec)
+        def unk:UNode (UNode.create("n:unk" (UastKind.Unknown()) "typescript" ""))
+        m.addNode(unk)
+        def cls:UNode (UNode.create("n:ok" (UastKind.ClassDecl()) "typescript" "ClassDeclaration"))
+        cls.name = "Ok"
+        m.addNode(cls)
+        c.eqInt("unknown count" (m.unknownNodeCount()) 1)
+        c.eqInt("language-specific count" (m.languageSpecificCount()) 1)
+        c.eqInt("normalized count" (m.normalizedNodeCount()) 1)
         def stored:UNode (m.nodeById("n:cond"))
-        c.eqInt("unknown/specific count" (m.unknownNodeCount()) 1)
         c.eqStr("kept nativeKind" stored.nativeKind "TSConditionalType")
-        c.eqStr("kept language" stored.language "typescript")
+        c.eqStr("origin frontend" stored.origin.frontend "typescript")
+        c.eqInt("origin version" stored.origin.sourceVersion 1)
     }
 }

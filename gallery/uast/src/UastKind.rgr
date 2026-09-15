@@ -4,10 +4,10 @@
 ; UastKind.rgr — small shared vocabulary.
 ; ============================================================================
 ;
-; Keep this list short. Language-only syntax goes under LanguageSpecific
-; with nativeKind preserved, not as a new universal kind. See PLAN_UAST.md.
-;
-; Method names avoid the compiler's reserved set (contains, has, first, …).
+; Add a common kind only when at least two frontends need the same concept
+; and shared analysis benefits. Parser-only syntax stays LanguageSpecific.
+; Relationship kinds are semantic-entity → semantic-entity. Syntax → symbol
+; is a Reference, never Relationship.defines / Relationship.references.
 ; ============================================================================
 
 class UastKind {
@@ -71,13 +71,42 @@ class UastKind {
     }
 }
 
+class UastChildRole {
+    Constructor () {
+    }
+
+    sfn nameRole:string () { return "name" }
+    sfn body:string () { return "body" }
+    sfn typeRole:string () { return "type" }
+    sfn value:string () { return "value" }
+    sfn initializer:string () { return "initializer" }
+
+    sfn receiver:string () { return "receiver" }
+    sfn member:string () { return "member" }
+    sfn callee:string () { return "callee" }
+    sfn argument:string () { return "argument" }
+
+    sfn condition:string () { return "condition" }
+    sfn thenBranch:string () { return "then" }
+    sfn elseBranch:string () { return "else" }
+
+    sfn parameter:string () { return "parameter" }
+    sfn typeParameter:string () { return "typeParameter" }
+
+    sfn left:string () { return "left" }
+    sfn right:string () { return "right" }
+    sfn element:string () { return "element" }
+
+    sfn field:string () { return "field" }
+    sfn method:string () { return "method" }
+    sfn returnType:string () { return "returnType" }
+}
+
 class UastRelKind {
     Constructor () {
     }
 
     sfn containsRel:string () { return "contains" }
-    sfn defines:string () { return "defines" }
-    sfn references:string () { return "references" }
     sfn calls:string () { return "calls" }
     sfn constructs:string () { return "constructs" }
     sfn reads:string () { return "reads" }
@@ -93,6 +122,16 @@ class UastRelKind {
     sfn usesType:string () { return "usesType" }
 }
 
+class UastResolution {
+    Constructor () {
+    }
+
+    sfn resolved:string () { return "resolved" }
+    sfn partiallyResolved:string () { return "partiallyResolved" }
+    sfn dynamic:string () { return "dynamic" }
+    sfn unresolved:string () { return "unresolved" }
+}
+
 class UastConfidence {
     Constructor () {
     }
@@ -100,8 +139,15 @@ class UastConfidence {
     sfn exact:string () { return "exact" }
     sfn inferred:string () { return "inferred" }
     sfn possible:string () { return "possible" }
-    sfn dynamic:string () { return "dynamic" }
-    sfn unresolved:string () { return "unresolved" }
+}
+
+class UastHintSource {
+    Constructor () {
+    }
+
+    sfn compilerResolved:string () { return "compilerResolved" }
+    sfn frontendInferred:string () { return "frontendInferred" }
+    sfn sharedResolver:string () { return "sharedResolver" }
 }
 
 class UastSymKind {

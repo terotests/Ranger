@@ -1,21 +1,16 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ============================================================================
-; UastRanger.rgr — RangerAppWriterContext → CodeModel.
+; UastRanger.rgr — Ranger compiler context → FrontendResult.
 ; ============================================================================
 ;
-; Same facts CodeGraphBuilder copies out of the compiler (classes, fields,
-; methods, isCalling, isDirectlyUsingClasses, extends), stored as symbols
-; and relations instead of being written straight into CodeGraph.
-;
-; Golden: UastToCodeGraph.project(UastRanger.fromContext(ctx)) agrees with
-; CodeGraphBuilder.fromContext(ctx) on the named fixtures.
-;
-; This file is the only UAST frontend that imports the compiler. Do not
-; change CodeNode; we only read it.
+; Emits UAST + compilerResolved hints. UastSemantic builds the CodeModel.
+; This is the only UAST file that imports the compiler. Do not change
+; CodeNode; we only read it.
 ; ============================================================================
 
-Import "UastModel.rgr"
+Import "UastFrontend.rgr"
+Import "UastSemantic.rgr"
 Import "UastKind.rgr"
 Import "../../../compiler/VirtualCompiler.rgr"
 
@@ -26,15 +21,19 @@ class UastRanger {
     }
 
     fn fromContext:UastCodeModel (ctx:RangerAppWriterContext) {
-        def m (new UastCodeModel)
-        m.title = "Ranger"
-        m.language = "ranger"
+        return (UastSemantic.fromResult((this.parseContext(ctx))))
+    }
+
+    fn parseContext:UastFrontendResult (ctx:RangerAppWriterContext) {
+        def r (new UastFrontendResult)
+        r.title = "Ranger"
+        r.language = "ranger"
         def i:int 0
         while (i < (array_length ctx.definedClassList)) {
             def cName:string (itemAt ctx.definedClassList i)
             def cl:RangerAppClassDesc (unwrap (get ctx.definedClasses cName))
             if (this.keepClass(cl)) {
-                this.addClass(m cl)
+                this.addClass(r cl)
             }
             i = (i + 1)
         }
@@ -43,56 +42,50 @@ class UastRanger {
             def cName2:string (itemAt ctx.definedClassList k)
             def cl2:RangerAppClassDesc (unwrap (get ctx.definedClasses cName2))
             if (this.keepClass(cl2)) {
-                this.linkClass(m cl2)
+                this.linkClass(r cl2)
             }
             k = (k + 1)
         }
-        return m
+        return r
     }
 
-    fn addClass:void (m:UastCodeModel cl:RangerAppClassDesc) {
+    fn addClass:void (r:UastFrontendResult cl:RangerAppClassDesc) {
         def file:string (this.fileOf(cl))
-        def kind:string (UastSymKind.classSym())
         def nodeKind:string (UastKind.ClassDecl())
+        def nativeKind:string "class"
         if cl.is_interface {
-            kind = (UastSymKind.interfaceSym())
             nodeKind = (UastKind.InterfaceDecl())
+            nativeKind = "interface"
         }
-        def node:UNode (UNode.create(("n:class:" + cl.name) nodeKind "ranger" "class"))
+        def node:UNode (UNode.create(("n:class:" + cl.name) nodeKind "ranger" nativeKind))
         node.name = cl.name
         node.span = (this.spanOfClass(cl))
-        node.origin = ("ranger:" + cl.name)
-        m.addNode(node)
-        def s:UastSymbol (UastSymbol.create(("class:" + cl.name) cl.name kind "ranger"))
-        s.declarationNode = node.id
-        s.fileName = file
-        m.addSymbol(s)
+        node.origin = (UastOrigin.create("ranger" file cl.name 0))
+        r.addNode(node)
         def fi:int 0
         while (fi < (array_length cl.variables)) {
             def v:RangerAppParamDesc (itemAt cl.variables fi)
-            this.addField(m s v)
+            this.addField(r node v)
             fi = (fi + 1)
         }
-        this.addFns(m s cl cl.methods false)
-        this.addFns(m s cl cl.static_methods true)
+        this.addFns(r node cl cl.methods false)
+        this.addFns(r node cl cl.static_methods true)
     }
 
-    fn addField:void (m:UastCodeModel owner:UastSymbol v:RangerAppParamDesc) {
+    fn addField:void (r:UastFrontendResult owner:UNode v:RangerAppParamDesc) {
         def id:string ((owner.name + ".") + v.name)
         def node:UNode (UNode.create(("n:field:" + id) (UastKind.FieldDecl()) "ranger" "def"))
         node.name = v.name
         node.span = (this.spanOfParam(v))
-        m.addNode(node)
-        def s:UastSymbol (UastSymbol.create(("field:" + id) v.name (UastSymKind.field()) "ranger"))
-        s.declarationNode = node.id
-        s.parentSymbol = owner.id
-        s.typeName = (this.typeOfParam(v))
-        s.fileName = owner.fileName
-        m.addSymbol(s)
-        m.link(owner.id s.id (UastRelKind.containsRel()) (UastConfidence.exact()))
+        r.addNode(node)
+        def tn:UNode (UNode.create(("n:type:" + id) (UastKind.TypeRef()) "ranger" "type"))
+        tn.name = (this.typeOfParam(v))
+        r.addNode(tn)
+        node.addRole((UastChildRole.typeRole()) tn.id)
+        owner.addRole((UastChildRole.field()) node.id)
     }
 
-    fn addFns:void (m:UastCodeModel owner:UastSymbol cl:RangerAppClassDesc fns:[RangerAppFunctionDesc] isStatic:boolean) {
+    fn addFns:void (r:UastFrontendResult owner:UNode cl:RangerAppClassDesc fns:[RangerAppFunctionDesc] isStatic:boolean) {
         def i:int 0
         while (i < (array_length fns)) {
             def fn:RangerAppFunctionDesc (itemAt fns i)
@@ -103,71 +96,76 @@ class UastRanger {
             if isStatic {
                 node.addFlag("static")
             }
-            m.addNode(node)
-            def s:UastSymbol (UastSymbol.create(("method:" + key) fn.name (UastSymKind.method()) "ranger"))
-            s.declarationNode = node.id
-            s.parentSymbol = owner.id
-            s.params = (this.paramSig(fn))
-            s.returns = (this.returnType(fn))
-            s.isStatic = isStatic
-            s.fileName = owner.fileName
-            m.addSymbol(s)
-            m.link(owner.id s.id (UastRelKind.containsRel()) (UastConfidence.exact()))
+            r.addNode(node)
+            def ret:UNode (UNode.create(("n:ret:" + key) (UastKind.TypeRef()) "ranger" "type"))
+            ret.name = (this.returnType(fn))
+            r.addNode(ret)
+            node.addRole((UastChildRole.returnType()) ret.id)
+            def pi:int 0
+            while (pi < (array_length fn.params)) {
+                def p:RangerAppParamDesc (itemAt fn.params pi)
+                def pid:string ((key + ".") + p.name)
+                def pn:UNode (UNode.create(("n:p:" + pid) (UastKind.Parameter()) "ranger" "param"))
+                pn.name = p.name
+                r.addNode(pn)
+                def pt:UNode (UNode.create(("n:pt:" + pid) (UastKind.TypeRef()) "ranger" "type"))
+                pt.name = (this.typeOfParam(p))
+                r.addNode(pt)
+                pn.addRole((UastChildRole.typeRole()) pt.id)
+                node.addRole((UastChildRole.parameter()) pn.id)
+                pi = (pi + 1)
+            }
+            owner.addRole((UastChildRole.method()) node.id)
             i = (i + 1)
         }
     }
 
-    fn linkClass:void (m:UastCodeModel cl:RangerAppClassDesc) {
-        def classId:string ("class:" + cl.name)
+    fn linkClass:void (r:UastFrontendResult cl:RangerAppClassDesc) {
+        def classNode:string ("n:class:" + cl.name)
+        def src:string (UastHintSource.compilerResolved())
+        def res:string (UastResolution.resolved())
+        def exact:string (UastConfidence.exact())
         if ((array_length cl.extends_classes) > 0) {
             def superName:string (itemAt cl.extends_classes 0)
-            def superId:string ("class:" + superName)
-            if ((m.mentionsSymbol(superId)) == false) {
-                def extra:UastSymbol (UastSymbol.create(superId superName (UastSymKind.classSym()) "ranger"))
-                extra.name = superName
-                m.addSymbol(extra)
-            }
-            m.link(classId superId (UastRelKind.extendsRel()) (UastConfidence.exact()))
+            r.addHint((UastSemanticHint.create(classNode (UastRelKind.extendsRel()) superName src res exact)))
         }
         def ii:int 0
         while (ii < (array_length cl.implements_interfaces)) {
             def iname:string (itemAt cl.implements_interfaces ii)
-            def iid:string ("class:" + iname)
-            if ((m.mentionsSymbol(iid)) == false) {
-                def isym:UastSymbol (UastSymbol.create(iid iname (UastSymKind.interfaceSym()) "ranger"))
-                m.addSymbol(isym)
-            }
-            m.link(classId iid (UastRelKind.implementsRel()) (UastConfidence.exact()))
+            r.addHint((UastSemanticHint.create(classNode (UastRelKind.implementsRel()) iname src res exact)))
             ii = (ii + 1)
         }
-        this.linkFns(m cl cl.methods)
-        this.linkFns(m cl cl.static_methods)
+        this.linkFns(r cl cl.methods)
+        this.linkFns(r cl cl.static_methods)
     }
 
-    fn linkFns:void (m:UastCodeModel cl:RangerAppClassDesc fns:[RangerAppFunctionDesc]) {
+    fn linkFns:void (r:UastFrontendResult cl:RangerAppClassDesc fns:[RangerAppFunctionDesc]) {
+        def src:string (UastHintSource.compilerResolved())
+        def res:string (UastResolution.resolved())
+        def exact:string (UastConfidence.exact())
         def i:int 0
         while (i < (array_length fns)) {
             def fn:RangerAppFunctionDesc (itemAt fns i)
-            def fromId:string ("method:" + (this.fnKey(cl fn)))
-            if (m.mentionsSymbol(fromId)) {
+            def fromNode:string ("n:method:" + (this.fnKey(cl fn)))
+            if (r.mentionsNode(fromNode)) {
                 def ci:int 0
                 while (ci < (array_length fn.isCalling)) {
                     def other:RangerAppFunctionDesc (itemAt fn.isCalling ci)
-                    def toId:string ("method:" + (this.fnKeyOfDesc(other)))
-                    if (m.mentionsSymbol(toId)) {
-                        m.link(fromId toId (UastRelKind.calls()) (UastConfidence.exact()))
+                    def toNode:string ("n:method:" + (this.fnKeyOfDesc(other)))
+                    if (r.mentionsNode(toNode)) {
+                        r.addHint((UastSemanticHint.create(fromNode (UastRelKind.calls()) toNode src res exact)))
                     }
                     ci = (ci + 1)
                 }
                 def ui:int 0
                 while (ui < (array_length fn.isDirectlyUsingClasses)) {
                     def used:RangerAppClassDesc (itemAt fn.isDirectlyUsingClasses ui)
-                    def usedId:string ("class:" + used.name)
-                    if ((m.mentionsSymbol(usedId)) == false) {
-                        def us:UastSymbol (UastSymbol.create(usedId used.name (UastSymKind.classSym()) "ranger"))
-                        m.addSymbol(us)
+                    def usedNode:string ("n:class:" + used.name)
+                    if (r.mentionsNode(usedNode)) {
+                        r.addHint((UastSemanticHint.create(fromNode (UastRelKind.usesType()) usedNode src res exact)))
+                    } {
+                        r.addHint((UastSemanticHint.create(fromNode (UastRelKind.usesType()) used.name src res exact)))
                     }
-                    m.link(fromId usedId (UastRelKind.usesType()) (UastConfidence.exact()))
                     ui = (ui + 1)
                 }
             }
@@ -263,22 +261,6 @@ class UastRanger {
             return ("[" + nn.array_type + "]")
         }
         return nn.type_name
-    }
-
-    fn paramSig:string (fn:RangerAppFunctionDesc) {
-        def parts:[string]
-        def i:int 0
-        while (i < (array_length fn.params)) {
-            def p:RangerAppParamDesc (itemAt fn.params i)
-            def t:string (this.typeOfParam(p))
-            if ((strlen t) > 0) {
-                push parts (p.name + ":" + t)
-            } {
-                push parts p.name
-            }
-            i = (i + 1)
-        }
-        return (join parts ", ")
     }
 
     fn returnType:string (fn:RangerAppFunctionDesc) {

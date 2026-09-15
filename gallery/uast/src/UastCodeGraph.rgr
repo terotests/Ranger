@@ -10,7 +10,6 @@
 ; ============================================================================
 
 Import "UastModel.rgr"
-Import "UastKind.rgr"
 Import "../../codegraph/src/CodeGraphModel.rgr"
 
 class UastToCodeGraph {
@@ -34,6 +33,7 @@ class UastToCodeGraph {
             if isType {
                 def cc:CodeClass (g.addClass(s.name))
                 cc.fileName = s.fileName
+                cc.extendsName = s.extendsName
                 if (s.kind == "interface") {
                     cc.stereotype = "interface"
                 }

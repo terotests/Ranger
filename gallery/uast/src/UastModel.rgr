@@ -1,11 +1,11 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ============================================================================
-; UastModel.rgr — CodeModel: files, UAST, symbols, relations, diagnostics.
+; UastModel.rgr — CodeModel: what tools consume.
 ; ============================================================================
 ;
-; This is what tools consume. CodeGraph does not walk UNodes; it gets this,
-; or a projection of this. analyze(source) → CodeModel is the public feature.
+; Must not import the Ranger compiler. Frontends produce FrontendResult;
+; UastSemantic writes this. CodeGraph sees this, not UAST.
 ; ============================================================================
 
 Import "UastSource.rgr"
@@ -51,12 +51,6 @@ class UastCodeModel {
         }
         set nodeIndex node.id (array_length nodes)
         push nodes node
-        def i:int 0
-        while (i < (array_length node.children)) {
-            def ch:UNode (itemAt node.children i)
-            this.addNode(ch)
-            i = (i + 1)
-        }
         return node
     }
 
@@ -123,14 +117,19 @@ class UastCodeModel {
     }
 
     fn unknownNodeCount:int () {
+        return (this.countKind("Unknown"))
+    }
+
+    fn languageSpecificCount:int () {
+        return (this.countKind("LanguageSpecific"))
+    }
+
+    fn countKind:int (kind:string) {
         def n:int 0
         def i:int 0
         while (i < (array_length nodes)) {
             def node:UNode (itemAt nodes i)
-            if (node.kind == "Unknown") {
-                n = (n + 1)
-            }
-            if (node.kind == "LanguageSpecific") {
+            if (node.kind == kind) {
                 n = (n + 1)
             }
             i = (i + 1)
@@ -138,9 +137,57 @@ class UastCodeModel {
         return n
     }
 
-    fn link:UastRelation (fromId:string toId:string kind:string confidence:string) {
-        def rel:UastRelation (UastRelation.create(fromId toId kind confidence))
+    fn normalizedNodeCount:int () {
+        def n:int (array_length nodes)
+        n = (n - (this.unknownNodeCount()))
+        n = (n - (this.languageSpecificCount()))
+        return n
+    }
+
+    fn link:UastRelation (fromId:string toId:string kind:string resolution:string confidence:string) {
+        def rel:UastRelation (UastRelation.create(fromId toId kind resolution confidence))
         this.addRelation(rel)
         return rel
+    }
+
+    fn symbolDeclaredAt:string (nodeId:string) {
+        def i:int 0
+        while (i < (array_length symbols)) {
+            def s:UastSymbol (itemAt symbols i)
+            if (s.declarationNode == nodeId) {
+                return s.id
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn uniqueSymbolNamed:string (name:string) {
+        def found:string ""
+        def n:int 0
+        def i:int 0
+        while (i < (array_length symbols)) {
+            def s:UastSymbol (itemAt symbols i)
+            if (s.name == name) {
+                found = s.id
+                n = (n + 1)
+            }
+            def dotted:string ""
+            if ((strlen s.parentSymbol) > 0) {
+                if (has symbolIndex s.parentSymbol) {
+                    def p:UastSymbol (this.symbolById(s.parentSymbol))
+                    dotted = ((p.name + ".") + s.name)
+                    if (dotted == name) {
+                        found = s.id
+                        n = (n + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (n == 1) {
+            return found
+        }
+        return ""
     }
 }
