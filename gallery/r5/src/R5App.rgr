@@ -6,13 +6,16 @@
 ;
 ;   ┌ rail (≥768px) ┐┌──────────── side ──────────────────────────────┐
 ;   │ Preview       ││ head: name · document.md | style.css · ‹ 1/3 › │
-;   │ Slides        │├───────────────────┬────────────────────────────┤
-;   │ Word          ││ ScriptEditor      │ the document, drawn by     │
-;   │ Source        ││ (markdown, with   │ MarkdownWeb — preview,     │
-;   │ …             ││  its tokens)      │ the deck or the Word page  │
-;   │ Open, Layout  │├───────────────────┴────────────────────────────┤
+;   │ Slides        │├───────────────────┬─┬──────────────────────────┤
+;   │ Word          ││ ScriptEditor      │░│ the document, drawn by   │
+;   │ Source        ││ (markdown, with   │░│ MarkdownWeb — preview,   │
+;   │ …             ││  its tokens)      │░│ the deck or the Word page│
+;   │ Open, Layout  │├───────────────────┴─┴──────────────────────────┤
 ;   │ Format, Export││ bottom bar (<768px): Edit Preview Slides Word ⋯ │
 ;   └───────────────┘└────────────────────────────────────────────────┘
+;
+; The ░ is a `ResizeCtl` separator from gallery/ui: drag it, or focus it and
+; use the arrows, and Source and Preview share the row by a percentage.
 ;
 ; The page that came before this one was an HTML form: two rows of selects
 ; and buttons over a textarea and a canvas, with a status line that did not
@@ -59,6 +62,8 @@ Import "../../evg/EVGA11yTree.rgr"
 Import "../../evg/EVGA11yFromTree.rgr"
 Import "../../evg/EVGHitTest.rgr"
 Import "../../evg/EVGColor.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../ui/src/ResizeCtl.rgr"
 
 treefactory R5 {
     child addChild
@@ -86,6 +91,8 @@ treefactory R5 {
     tag Split     EVGElement (props (className "r5-split"))
     tag Editor    EVGElement (props (className "r5-editor") (role "region") (a11yLabel "Source"))
     tag Pane      EVGElement (props (className "r5-pane") (role "region") (a11yLabel "Document"))
+    tag Sep       EVGElement (props (className "r5-sep") (role "separator"))
+    tag Grip      EVGElement (props (className "r5-grip") (a11yHidden true))
     tag Hint      EVGElement (props (className "r5-hint") (elementType 1))
 
     tag Overlay   EVGElement (props (className "r5-overlay") (role "button") (a11yLabel "Close the menu"))
@@ -178,6 +185,12 @@ class R5App {
     def edShown:boolean false
     def sizedW:double 0.0
     def sizedH:double 0.0
+    ; Source | Preview on a desk: `ResizeCtl` owns the percentages, the
+    ; separator is drawn here, and a drag is pixels converted against splitW.
+    def split:ResizeCtl (new ResizeCtl())
+    def splitW:double 0.0
+    def splitDrag:boolean false
+    def splitAt:double 0.0
 
     ; Scratch for a patch: where the two texts differ, and what goes in.
     def patchStart:int 0
@@ -278,6 +291,12 @@ class R5App {
         this.lightEditor()
         editor.init("")
         bufSynced = editor.buf.version
+        split.tid = "r5-split"
+        split.orientation = "horizontal"
+        def src:UiPanel (split.addPanel("source" 42.0))
+        src.minSize = 18.0
+        def prv:UiPanel (split.addPanel("preview" 58.0))
+        prv.minSize = 18.0
         md.init(w h)
         pageW = w
         pageH = h
@@ -735,6 +754,27 @@ class R5App {
         return (screen != "edit")
     }
 
+    ; Both panes on a desk: the separator sits between them. A phone is
+    ; full-screen tabs, and Source off is the document alone.
+    fn splitShown:boolean () {
+        if ((this.isWide()) == false) {
+            return false
+        }
+        return sourceOn
+    }
+
+    fn sourcePercent:int () {
+        if ((array_length split.panels) == 0) {
+            return 42
+        }
+        def p:UiPanel (itemAt split.panels 0)
+        return (to_int (p.size + 0.5))
+    }
+
+    fn sepId:string () {
+        return (split.sepTid(0))
+    }
+
     fn setMode:void (name:string) {
         mode = name
         if (name != "continuous") {
@@ -862,19 +902,31 @@ class R5App {
         }
         def side (tree R5 (Side))
         side.addChild((this.head()))
-        def split (tree R5 (Split))
+        def splitEl (tree R5 (Split (props (id "r5-split"))))
         if (this.editorShown()) {
             def ed (tree R5 (Editor (props (id "r5-editor"))))
             if (this.isWide()) {
                 ed.className = "r5-editor r5-editor-side"
+                if (this.splitShown()) {
+                    this.giveShare(ed 0)
+                }
             }
-            split.addChild(ed)
+            splitEl.addChild(ed)
+        }
+        if (this.splitShown()) {
+            splitEl.addChild((this.splitSep()))
         }
         if (this.paneVisible()) {
             def pane (tree R5 (Pane (props (id "r5-pane") (a11yLabel (this.paneName())))))
-            split.addChild(pane)
+            if (this.splitShown()) {
+                pane.className = "r5-pane r5-pane-side"
+                this.giveShare(pane 1)
+            } {
+                pane.className = "r5-pane r5-pane-fill"
+            }
+            splitEl.addChild(pane)
         }
-        side.addChild(split)
+        side.addChild(splitEl)
         if (! (this.isWide())) {
             side.addChild((this.nav()))
         }
@@ -895,6 +947,37 @@ class R5App {
             return "The document, in sheets"
         }
         return "The document"
+    }
+
+    ; A panel's share of the row, as flex-grow. The separator is a fixed
+    ; six pixels; `flex-basis: 0` is what makes the two percentages share
+    ; what is left, the way react-resizable-panels (and ResizeCtl) mean it.
+    ; Marked inline so `.r5-pane { flex-grow: 1 }` cannot freeze the split.
+    fn giveShare:void (el:EVGElement i:int) {
+        def p:UiPanel (itemAt split.panels i)
+        el.flex = p.size
+        el.flexShrink = 1.0
+        el.flexBasis = (EVGUnit.px(0.0))
+        el.markInline("flex-grow")
+        el.markInline("flex-shrink")
+        el.markInline("flex-basis")
+    }
+
+    fn splitSep:EVGElement () {
+        def before:UiPanel (itemAt split.panels 0)
+        def s (tree R5 (Sep (props (id (this.sepId())) (a11yLabel ("Resize " + before.value)))))
+        s.a11yOrientation = (split.sepOrientation())
+        s.a11yFocusable = true
+        s.a11yHasValue = true
+        s.a11yValueNow = (split.valueNowAt(0))
+        s.a11yHasRange = true
+        s.a11yValueMin = (split.valueMinAt(0))
+        s.a11yValueMax = (split.valueMaxAt(0))
+        s.cursor = "col-resize"
+        s.flexShrink = 0.0
+        s.markInline("flex-shrink")
+        s.addChild((tree R5 (Grip)))
+        return s
     }
 
     ; The desk's rail: the three documents, the source pane, and the menus.
@@ -1459,6 +1542,20 @@ class R5App {
 
     ; A key by the browser's name, to whichever pane has the keyboard.
     fn key:boolean (name:string shift:boolean ctrl:boolean) {
+        if (focus == "sep") {
+            def k:string ""
+            if (name == "left") { k = "ArrowLeft" }
+            if (name == "right") { k = "ArrowRight" }
+            if (name == "home") { k = "Home" }
+            if (name == "end") { k = "End" }
+            if (name == "enter") { k = "Enter" }
+            if ((strlen k) == 0) {
+                return false
+            }
+            split.keyDown((this.sepId()) k)
+            this.touch()
+            return true
+        }
         if (focus == "preview") {
             def took:boolean (md.key(name shift ctrl))
             this.syncDeckToMd()
@@ -1616,6 +1713,18 @@ class R5App {
             this.press(oid)
             return "chrome"
         }
+        if (this.splitShown()) {
+            def sid:string (this.hitId(x y))
+            if (sid == (this.sepId())) {
+                pressed = sid
+                hovered = sid
+                splitDrag = true
+                splitAt = x
+                this.setFocus("sep")
+                this.touch()
+                return "sep"
+            }
+        }
         if edShown {
             if (this.inEditor(x y)) {
                 def px:int (to_int x)
@@ -1650,6 +1759,20 @@ class R5App {
     }
 
     fn pointerMove:void (x:double y:double) {
+        if splitDrag {
+            def dx:double (x - splitAt)
+            if (dx == 0.0) {
+                return
+            }
+            splitAt = x
+            def w:double splitW
+            if (w < 1.0) {
+                w = 1.0
+            }
+            split.resizeBy(0 ((dx * 100.0) / w))
+            this.touch()
+            return
+        }
         if editorDrag {
             editor.pointerDrag(tr (to_int x) (to_int y))
             chromeRev = (chromeRev + 1)
@@ -1664,6 +1787,7 @@ class R5App {
 
     fn pointerUp:void () {
         editorDrag = false
+        splitDrag = false
         pressed = ""
     }
 
@@ -1671,6 +1795,7 @@ class R5App {
         hovered = ""
         pressed = ""
         editorDrag = false
+        splitDrag = false
     }
 
     ; A wheel over the editor scrolls it by lines; the host serves the pane.
@@ -1719,7 +1844,15 @@ class R5App {
 
     ; What the pointer looks like: over the editor, a text caret.
     fn cursorAt:string (x:double y:double) {
+        if splitDrag {
+            return "col-resize"
+        }
         if ((strlen menu) == 0) {
+            if (this.splitShown()) {
+                if ((this.hitId(x y)) == (this.sepId())) {
+                    return "col-resize"
+                }
+            }
             if edShown {
                 if (this.inEditor(x y)) {
                     if (editor.insideMinimap((to_int x) (to_int y))) {
@@ -1749,6 +1882,11 @@ class R5App {
             }
             if (el.id == pressed) {
                 el.isPressed = true
+            }
+            if (focus == "sep") {
+                if (el.id == (this.sepId())) {
+                    el.isFocused = true
+                }
             }
         }
         def i:int 0
@@ -1814,6 +1952,9 @@ class R5App {
             edY = el.calculatedY
             edW = el.calculatedWidth
             edH = el.calculatedHeight
+        }
+        if (el.id == "r5-split") {
+            splitW = el.calculatedWidth
         }
         def i:int 0
         while (i < (el.getChildCount())) {
@@ -1912,6 +2053,7 @@ class R5App {
         out = (out + ":" + (to_string blink))
         out = (out + ":" + menu + ":" + screen + ":" + editorDoc)
         out = (out + ":" + (? sourceOn "s" "-") + ":" + hovered + ":" + focus)
+        out = (out + ":" + (to_string (this.sourcePercent())))
         out = (out + ":" + (EVGDisplayList.num(pageW)) + "x" + (EVGDisplayList.num(pageH)))
         out = (out + ":" + (to_string md.listRev) + ":" + (EVGDisplayList.num((md.scrollPosition()))))
         out = (out + ":" + (to_string (md.edit.caret())) + "," + (to_string (md.edit.selStart())) + "," + (to_string (md.edit.selEnd())))

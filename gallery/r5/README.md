@@ -11,11 +11,11 @@ drawn by EVG, and it is live at
 ```
 ┌ rail (≥768px) ┐┌──────────── side ──────────────────────────────┐
 │ Preview       ││ head: name · document.md | style.css · ‹ 1/3 › │
-│ Slides        │├───────────────────┬────────────────────────────┤
-│ Word          ││ ScriptEditor      │ the document, drawn by     │
-│ Source        ││ (markdown, with   │ MarkdownWeb — preview,     │
-│ …             ││  its tokens)      │ the deck or the Word page  │
-│ Open, Layout  │├───────────────────┴────────────────────────────┤
+│ Slides        │├───────────────────┬─┬──────────────────────────┤
+│ Word          ││ ScriptEditor      │░│ the document, drawn by   │
+│ Source        ││ (markdown, with   │░│ MarkdownWeb — preview,   │
+│ …             ││  its tokens)      │░│ the deck or the Word page│
+│ Open, Layout  │├───────────────────┴─┴──────────────────────────┤
 │ Format, Export││ bottom bar (<768px): Edit Preview Slides Word ⋯ │
 └───────────────┘└────────────────────────────────────────────────┘
 ```
@@ -24,7 +24,10 @@ drawn by EVG, and it is live at
   are both in [`web/r5.css`](web/r5.css); `@media (max-width: 767px)` hides
   the rail and `@media (min-width: 768px)` hides the bar. On a phone the
   editor and the document are full-screen tabs; on a desk they are panes
-  side by side, and *Source* on the rail folds the editor away.
+  side by side, and *Source* on the rail folds the editor away. Between the
+  two panes is a `ResizeCtl` splitter (the same control `gallery/ui` measures
+  against react-resizable-panels): drag the handle, or focus it and use the
+  arrows, to change how much of the row Source and Preview each take.
 - **The choices are behind sheets.** *Open* (the samples, or a `.md` from
   the device), *Layout* (template, mode, paper), *Format* (bold, headings,
   lists, slide breaks, undo) and *Export* (PDF, HTML, PPTX) each open a sheet
