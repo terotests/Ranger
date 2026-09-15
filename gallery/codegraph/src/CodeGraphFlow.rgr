@@ -88,6 +88,24 @@ class CodeGraphFlow {
                 return n
             }
         }
+        if (it.itemKind == "backref") {
+            if (model.hasClass(it.id)) {
+                def bc:CodeClass (model.classByName(it.id))
+                def bu:UMLClass (CodeGraphFlow.asBackref(bc it.extra))
+                def bn:FlowNode (uml.classNode(bu))
+                bn.dataKind = it.dataKind
+                bn.dataRef = it.dataRef
+                bn.cssClass = "codegraph class"
+                bn.tooltip = (((bc.name + " refers to ") + it.extra) + " — click to open")
+                if ((strlen it.fill) > 0) {
+                    bn.bgColor = it.fill
+                }
+                if ((strlen it.stroke) > 0) {
+                    bn.borderColor = it.stroke
+                }
+                return bn
+            }
+        }
         def n2:FlowNode (FlowNode.create(it.id it.label 0.0 0.0))
         n2.dataKind = it.dataKind
         n2.dataRef = it.dataRef
@@ -131,6 +149,22 @@ class CodeGraphFlow {
             n2.tooltip = "go back"
         }
         return n2
+    }
+
+    ; Compact box: only the fields whose type is the class on screen.
+    sfn asBackref:UMLClass (c:CodeClass target:string) {
+        def u:UMLClass (UMLClass.create(c.name))
+        def fi:int 0
+        while (fi < (array_length c.fields)) {
+            def f:CodeField (itemAt c.fields fi)
+            def typeName:string (CodeGraphPages.classNameOfType(f.fieldType))
+            if (typeName == target) {
+                def mem:UMLMember (u.attribute("-" f.name f.fieldType))
+                mem.wantPort = true
+            }
+            fi = (fi + 1)
+        }
+        return u
     }
 
     sfn asUml:UMLClass (c:CodeClass model:CodeGraph compact:boolean) {

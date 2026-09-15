@@ -472,6 +472,10 @@ async function main() {
     app.loadSample(sample);
     sourceEl.value = "";
     sourceEl.disabled = true;
+    const open = params.get("open") || "";
+    if (open) {
+      app.openClass(open);
+    }
     app.fitView();
     syncChrome();
     return;

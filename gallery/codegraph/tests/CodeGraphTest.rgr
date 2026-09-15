@@ -63,6 +63,7 @@ class CodeGraphTest {
         def c (new CGChecker)
         CodeGraphTest.testShop(c)
         CodeGraphTest.testFieldLinks(c)
+        CodeGraphTest.testUsedBy(c)
         CodeGraphTest.testAssocPorts(c)
         CodeGraphTest.testZoomSelected(c)
         CodeGraphTest.testUmlCap(c)
@@ -164,6 +165,115 @@ class CodeGraphTest {
             ci = (ci + 1)
         }
         c.ok("the Order page also links customer → Customer" onClass)
+    }
+
+    sfn testUsedBy:void (c:CGChecker) {
+        c.section("incoming field users")
+        def g:CodeGraph (CodeGraphSample.shop())
+        def pages:CodeGraphPages (CodeGraphPages.of(g 24))
+        def users:[string] (pages.fieldUsersOf("Customer"))
+        c.eqInt("Order is the only Customer user" (array_length users) 1)
+        if ((array_length users) > 0) {
+            c.eqStr("and it is Order" (itemAt users 0) "Order")
+        }
+        def customer:CodePage (pages.pageOf("class:Customer"))
+        def orderKind:string ""
+        def hasOrder:boolean false
+        def hi:int 0
+        while (hi < (array_length customer.items)) {
+            def it:CodePageItem (itemAt customer.items hi)
+            if (it.id == "Order") {
+                hasOrder = true
+                orderKind = it.itemKind
+            }
+            hi = (hi + 1)
+        }
+        c.ok("the Customer page shows Order" hasOrder)
+        c.eqStr("as a compact backref" orderKind "backref")
+        def linked:boolean false
+        def li:int 0
+        while (li < (array_length customer.links)) {
+            def e:CodePageLink (itemAt customer.links li)
+            if (e.fromId == "Order") {
+                if (e.toId == "Customer") {
+                    if (e.kind == "assoc") {
+                        if (e.fieldName == "customer") {
+                            linked = true
+                        }
+                    }
+                }
+            }
+            li = (li + 1)
+        }
+        c.ok("Order.customer points at Customer" linked)
+        def lineItem:CodePage (pages.pageOf("class:LineItem"))
+        def hasOrderItems:boolean false
+        def hasCartLines:boolean false
+        def lj:int 0
+        while (lj < (array_length lineItem.links)) {
+            def e2:CodePageLink (itemAt lineItem.links lj)
+            if (e2.kind == "assoc") {
+                if (e2.toId == "LineItem") {
+                    if (e2.fromId == "Order") {
+                        if (e2.fieldName == "items") {
+                            hasOrderItems = true
+                        }
+                    }
+                    if (e2.fromId == "Cart") {
+                        if (e2.fieldName == "lines") {
+                            hasCartLines = true
+                        }
+                    }
+                }
+            }
+            lj = (lj + 1)
+        }
+        c.ok("LineItem is used by Order.items" hasOrderItems)
+        c.ok("and by Cart.lines" hasCartLines)
+        def session:CodeGraphSession (CodeGraphSession.of(g 24))
+        session.openInitial("class:Customer")
+        def fg:FlowGraph (session.graph())
+        c.ok("Order is drawn on the Customer page" (fg.hasNode("Order")))
+        c.ok("the association leaves Order.customer" (fg.hasPort("Order.customer:r")))
+        def orderBox:FlowNode (fg.nodeById("Order"))
+        def custBox:FlowNode (fg.nodeById("Customer"))
+        c.ok("Order sits above Customer" (orderBox.y < custBox.y))
+        def ev (new FlowHitEvent)
+        ev.kind = "node"
+        ev.dataKind = "class"
+        ev.dataRef = "Order"
+        ev.id = "Order"
+        c.ok("clicking Order walks back" (session.handleClick(ev)))
+        c.eqStr("to the Order page" session.pageId "class:Order")
+        def big:CodeGraph (CodeGraphSample.manyClasses(40))
+        def smallPages:CodeGraphPages (CodeGraphPages.of(big 12))
+        def ctxUsers:[string] (smallPages.fieldUsersOf("Context"))
+        c.ok("every Unit holds a Context" ((array_length ctxUsers) >= 40))
+        def ctxPage:CodePage (smallPages.pageOf("class:Context"))
+        c.ok("the Context page stays under the cap" ((ctxPage.itemCount()) <= 12))
+        def pagerTo:string ""
+        def pi:int 0
+        while (pi < (array_length ctxPage.items)) {
+            def pit:CodePageItem (itemAt ctxPage.items pi)
+            if (pit.dataKind == "page") {
+                if ((indexOf pit.dataRef "usedby:Context:") == 0) {
+                    pagerTo = pit.dataRef
+                }
+            }
+            pi = (pi + 1)
+        }
+        c.ok("leftover users open a used-by page" ((strlen pagerTo) > 0))
+        def used:CodePage (smallPages.pageOf("usedby:Context:0"))
+        c.eqStr("used-by kind" used.kind "usedby")
+        c.ok("used-by is also capped" ((used.itemCount()) <= 12))
+        def ev2 (new FlowHitEvent)
+        ev2.kind = "node"
+        ev2.dataKind = "page"
+        ev2.dataRef = pagerTo
+        def session2:CodeGraphSession (CodeGraphSession.of(big 12))
+        session2.openInitial("class:Context")
+        c.ok("the leftover pager navigates" (session2.handleClick(ev2)))
+        c.eqStr("onto the used-by page" session2.pageId pagerTo)
     }
 
     sfn testAssocPorts:void (c:CGChecker) {

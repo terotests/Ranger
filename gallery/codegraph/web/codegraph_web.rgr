@@ -675,6 +675,30 @@ class CodeGraphWeb {
         if (session.pageId != "class:LineItem") {
             return ("FAIL rail stayed on " + session.pageId)
         }
+        if ((graph.hasNode("Order")) == false) {
+            return "FAIL LineItem page has no Order user"
+        }
+        if ((graph.hasNode("Cart")) == false) {
+            return "FAIL LineItem page has no Cart user"
+        }
+        if ((graph.hasPort("Order.items:r")) == false) {
+            return "FAIL LineItem page missing Order.items port"
+        }
+        if ((graph.hasPort("Cart.lines:r")) == false) {
+            return "FAIL LineItem page missing Cart.lines port"
+        }
+        if ((this.openClass("Customer")) == false) {
+            return "FAIL rail openClass Customer"
+        }
+        if (session.pageId != "class:Customer") {
+            return ("FAIL Customer stayed on " + session.pageId)
+        }
+        if ((graph.hasNode("Order")) == false) {
+            return "FAIL Customer page has no Order user"
+        }
+        if ((graph.hasPort("Order.customer:r")) == false) {
+            return "FAIL Customer page missing Order.customer port"
+        }
         return ("PASS nav ok; " + (this.stats()))
     }
 }
