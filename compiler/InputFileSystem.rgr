@@ -27,15 +27,143 @@ class InputFSFile @serialize(true) {
   def base64bin false
 }
 
+; Optional miss-handler for the in-memory tree. `use_real = false` only looks
+; up a literal (path, name) pair; Import prep (`TFiles.searchEnv`) cannot walk
+; `..` or a host directory. A host (CodeGraph Open, a test) attaches this so
+; `file_exists` / `read_file` can still resolve a name from extra files or
+; real directories without flipping the whole env onto the real disk.
+class InputFileResolver @serialize(true) {
+  def files:[string:string]
+  def hostDirs:[string]
+
+  fn putFile:void (name:string data:string) {
+    if ((strlen name) == 0) {
+      return
+    }
+    set files name data
+    def base:string (this.baseName(name))
+    if (base != name) {
+      set files base data
+    }
+  }
+
+  fn addHostDir:void (dir:string) {
+    if ((strlen dir) == 0) {
+      return
+    }
+    def i:int 0
+    while (i < (array_length hostDirs)) {
+      if ((itemAt hostDirs i) == dir) {
+        return
+      }
+      i = (i + 1)
+    }
+    push hostDirs dir
+  }
+
+  fn knownName:boolean (name:string) {
+    if (has files name) {
+      return true
+    }
+    def base:string (this.baseName(name))
+    if (base != name) {
+      return (has files base)
+    }
+    return false
+  }
+
+  fn baseName:string (path:string) {
+    def n:int (strlen path)
+    def i:int (n - 1)
+    while (i >= 0) {
+      if ((charAt path i) == 47) {
+        return (substring path (i + 1) n)
+      }
+      i = (i - 1)
+    }
+    return path
+  }
+
+  fn exists:boolean (path:string name:string) {
+    if (this.knownName(name)) {
+      return true
+    }
+    return (this.hostHas(name))
+  }
+
+  fn tryRead@(optional):string (path:string name:string) {
+    if (has files name) {
+      return (get files name)
+    }
+    def base:string (this.baseName(name))
+    if (base != name) {
+      if (has files base) {
+        return (get files base)
+      }
+    }
+    def fromHost@(optional):string (this.hostRead(name))
+    if (null? fromHost) {
+      return fromHost
+    }
+    def data:string (unwrap fromHost)
+    this.putFile(name data)
+    return fromHost
+  }
+
+  fn hostHas:boolean (name:string) {
+    def i:int 0
+    while (i < (array_length hostDirs)) {
+      def dir:string (itemAt hostDirs i)
+      if (file_exists dir name) {
+        return true
+      }
+      def base:string (this.baseName(name))
+      if (base != name) {
+        if (file_exists dir base) {
+          return true
+        }
+      }
+      i = (i + 1)
+    }
+    return false
+  }
+
+  fn hostRead@(optional):string (name:string) {
+    def res@(optional):string
+    def i:int 0
+    while (i < (array_length hostDirs)) {
+      def dir:string (itemAt hostDirs i)
+      def t@(optional):string (read_file dir name)
+      if (null? t) {
+        def base:string (this.baseName(name))
+        if (base != name) {
+          t = (read_file dir base)
+        }
+      }
+      if (null? t) {
+      } {
+        return t
+      }
+      i = (i + 1)
+    }
+    return res
+  }
+}
+
 ; --> the running environment for the current setup... 
 class InputEnv @serialize(true) {
   def use_real false
   def filesystem:InputFSFolder
   def envVars:[string:string]
   def commandLine:CmdParams
+  def resolver@(optional):InputFileResolver
 
   fn setEnv (name:string value:string) {
     set envVars name value
+  }
+
+  fn setResolver:void (r:InputFileResolver) {
+    resolver = r
   }
 }
 
@@ -70,7 +198,14 @@ operator type:void all {
       return (file_exists path name)
     }
     def fo (find_file env path name)
-    return (!null? fo)
+    if(!null? fo) {
+      return true
+    }
+    if(null? env.resolver) {
+      return false
+    }
+    def r:InputFileResolver (unwrap env.resolver)
+    return (r.exists(path name))
   }
 
   fn find_file@(optional weak):InputFSFile (env:InputEnv path:string name:string) {
@@ -128,8 +263,13 @@ operator type:void all {
     def f (find_file env path name)
     if(!null? f) {
       resStr = f.data
+      return resStr
     }
-    return resStr
+    if(null? env.resolver) {
+      return resStr
+    }
+    def r:InputFileResolver (unwrap env.resolver)
+    return (r.tryRead(path name))
   }
   fn create_file@(optional weak):InputFSFile (fs:InputFSFolder name:string) {
 

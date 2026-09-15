@@ -95,6 +95,7 @@ class CodeGraphBuilderTest {
         failed = (failed + (CodeGraphBuilderTest.checkLib("gallery/css/CssCore.rgr" "CssSheet" "EVGColor")))
         failed = (failed + (CodeGraphBuilderTest.checkLib("gallery/zip/zip_tool.rgr" "ZipReader" "Inflate")))
         failed = (failed + (CodeGraphBuilderTest.checkLib("gallery/evg/EVGElement.rgr" "EVGElement" "EVGBox")))
+        failed = (failed + (CodeGraphBuilderTest.checkDataGrid()))
         if (failed > 0) {
             print (("failed " + (to_string failed)))
             exit 1
@@ -118,6 +119,52 @@ class CodeGraphBuilderTest {
         if ((g.hasClass(b)) == false) {
             print (("  FAIL " + b) + " missing from " + path)
             n = (n + 1)
+        }
+        print (("  classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
+        return n
+    }
+
+    ; Open DataGrid must keep imported classes (SheetView.model, not an empty
+    ; type stub). The explorer leaves fileFilter empty for the same reason.
+    sfn checkDataGrid:int () {
+        print "== gallery/datagrid/src/DataGrid.rgr"
+        def n:int 0
+        def g:CodeGraph (CodeGraphBuilder.fromFile("gallery/datagrid/src/DataGrid.rgr"))
+        if ((indexOf g.title " FAIL ") >= 0) {
+            print ("  FAIL " + g.title)
+            return 1
+        }
+        if ((g.hasClass("DataGrid")) == false) {
+            print "  FAIL DataGrid missing"
+            n = (n + 1)
+        }
+        if ((g.hasClass("SheetView")) == false) {
+            print "  FAIL SheetView missing from DataGrid Import closure"
+            n = (n + 1)
+        }
+        if ((g.hasClass("SpreadsheetModel")) == false) {
+            print "  FAIL SpreadsheetModel missing from DataGrid Import closure"
+            n = (n + 1)
+        }
+        if (g.hasClass("SheetView")) {
+            def sv:CodeClass (g.classByName("SheetView"))
+            def foundModel:boolean false
+            def fi:int 0
+            while (fi < (array_length sv.fields)) {
+                def f:CodeField (itemAt sv.fields fi)
+                if (f.name == "model") {
+                    foundModel = true
+                    if (f.fieldType != "SpreadsheetModel") {
+                        print ("  FAIL SheetView.model type " + f.fieldType)
+                        n = (n + 1)
+                    }
+                }
+                fi = (fi + 1)
+            }
+            if (foundModel == false) {
+                print "  FAIL SheetView.model field missing"
+                n = (n + 1)
+            }
         }
         print (("  classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
         return n

@@ -9,6 +9,8 @@
 ; Native Open gives an absolute path, so `Import "../../docx_viewer/src/X.rgr"`
 ; has to collapse `..` without dropping the leading `/`. `./foo.rgr` and
 ; `script/Bar.rgr` are rewritten to basenames because the VFS has no subdirs.
+; Import prep still misses some names; InputFileResolver is the host callback
+; mergeImports consults when the memory tree does not have the file.
 ;
 ;   npm run codegraph:app
 ; ============================================================================
@@ -289,6 +291,69 @@ class CodeGraphAppTest {
                 failed = (failed + 1)
             }
             print ("  ingest VlEvgList → " + (to_string (vl.userFileCount())) + " user files")
+        }
+
+        def env (new InputEnv)
+        env.use_real = false
+        env.filesystem = (new InputFSFolder)
+        def hostRes (new InputFileResolver)
+        hostRes.addHostDir("gallery/datagrid/src")
+        env.setResolver(hostRes)
+        if ((file_exists env "/" "SheetView.rgr") == false) {
+            print "  FAIL resolver missed SheetView.rgr from host dir"
+            failed = (failed + 1)
+        } {
+            def svBody@(optional):string (read_file env "/" "SheetView.rgr")
+            if (null? svBody) {
+                print "  FAIL resolver read SheetView.rgr empty"
+                failed = (failed + 1)
+            } {
+                def svText:string (unwrap svBody)
+                if ((indexOf svText "class SheetView") < 0) {
+                    print "  FAIL resolver SheetView contents"
+                    failed = (failed + 1)
+                }
+                if ((indexOf svText "def model:SpreadsheetModel") < 0) {
+                    print "  FAIL resolver missed SheetView.model"
+                    failed = (failed + 1)
+                }
+            }
+        }
+        if ((file_exists env "/" "../../office/editor/OfficeHistory.rgr") == false) {
+            print "  FAIL resolver missed relative OfficeHistory.rgr"
+            failed = (failed + 1)
+        }
+
+        def envMap (new InputEnv)
+        envMap.use_real = false
+        envMap.filesystem = (new InputFSFolder)
+        def mapRes (new InputFileResolver)
+        mapRes.putFile("SheetView.rgr" "class SheetView {\n    def model:SpreadsheetModel\n}\n")
+        envMap.setResolver(mapRes)
+        if ((file_exists envMap "/gallery/css/" "SheetView.rgr") == false) {
+            print "  FAIL resolver missed basename on a library subpath"
+            failed = (failed + 1)
+        }
+
+        def dg (new CodeGraphApp)
+        dg.start(800.0 600.0 (unwrap css))
+        if ((dg.ingestDiskTree("gallery/datagrid/src/DataGrid.rgr")) == false) {
+            print "  FAIL ingestDiskTree DataGrid.rgr"
+            failed = (failed + 1)
+        } {
+            if ((dg.hasUserFile("SheetView.rgr")) == false) {
+                print "  FAIL ingest missed SheetView.rgr"
+                failed = (failed + 1)
+            }
+            if ((dg.hasUserFile("SpreadsheetModel.rgr")) == false) {
+                print "  FAIL ingest missed SpreadsheetModel.rgr"
+                failed = (failed + 1)
+            }
+            if ((dg.hasUserFile("OfficeHistory.rgr")) == false) {
+                print "  FAIL ingest missed OfficeHistory.rgr from ../../office"
+                failed = (failed + 1)
+            }
+            print ("  ingest DataGrid → " + (to_string (dg.userFileCount())) + " user files")
         }
 
         if (failed > 0) {
