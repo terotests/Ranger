@@ -86,6 +86,11 @@ async function main() {
       console.error("expected " + want + " from " + lib);
       process.exit(1);
     }
+    const page = app.pageId();
+    if (page !== "class:" + want) {
+      console.error("expected page class:" + want + " from " + lib + ", got " + page);
+      process.exit(1);
+    }
   }
   console.log("  vc-node OK");
 }

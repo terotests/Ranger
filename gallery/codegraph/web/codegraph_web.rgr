@@ -147,8 +147,28 @@ class CodeGraphWeb {
         def ok:boolean (this.runAnalyze("" entry ""))
         if ok {
             sampleName = libName
+            def home:string (this.galleryHomeClass(libName))
+            if ((strlen home) > 0) {
+                if (session.model.hasClass(home)) {
+                    session.openInitial(session.pages.classPageId(home))
+                    return (this.showPage())
+                }
+            }
         }
         return ok
+    }
+
+    fn galleryHomeClass:string (libName:string) {
+        if (libName == "css") {
+            return "CssSheet"
+        }
+        if (libName == "evg") {
+            return "EVGElement"
+        }
+        if (libName == "zip") {
+            return "ZipReader"
+        }
+        return ""
     }
 
     fn runAnalyze:boolean (source:string filename:string filter:string) {

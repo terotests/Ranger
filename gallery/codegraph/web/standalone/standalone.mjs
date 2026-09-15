@@ -34,13 +34,13 @@ const EXAMPLES = {
 const GALLERY_LIBS = new Set(["css", "evg", "zip"]);
 const GALLERY_NOTES = {
   css: `; gallery/css — CssCore.rgr and the EVGColor / EVGUnit leaves it Imports.
-; Analyze walks the cascade (paged). Source lives under gallery/css/, not this box.
+; Opens on CssSheet. Source lives under gallery/css/, not this box.
 `,
   evg: `; gallery/evg — EVGElement.rgr and the files it Imports (box, colour, SVG).
-; Analyze walks the layout primitives (paged). Source lives under gallery/evg/.
+; Opens on EVGElement. Source lives under gallery/evg/.
 `,
   zip: `; gallery/zip — zip_tool.rgr, ZipReader, ZipWriter, Inflate.
-; Analyze walks the archive library (paged). Source lives under gallery/zip/.
+; Opens on ZipReader. Source lives under gallery/zip/.
 `,
 };
 const COMPILER_NOTE = `; Ranger compiler — VirtualCompiler.rgr and the files it Imports.

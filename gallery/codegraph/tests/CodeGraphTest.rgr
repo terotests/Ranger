@@ -65,6 +65,7 @@ class CodeGraphTest {
         CodeGraphTest.testFieldLinks(c)
         CodeGraphTest.testAssocPorts(c)
         CodeGraphTest.testZoomSelected(c)
+        CodeGraphTest.testUmlCap(c)
         CodeGraphTest.testPaging(c)
         CodeGraphTest.testClicks(c)
         CodeGraphTest.testHistory(c)
@@ -225,6 +226,25 @@ class CodeGraphTest {
         uml.id = "Order"
         c.ok("a click on a UML class does not leave the page" ((session.handleClick(uml)) == false))
         c.eqStr("still on UML" session.pageId "uml:0")
+    }
+
+    sfn testUmlCap:void (c:CGChecker) {
+        c.section("UML catalogue caps fat classes")
+        def g:CodeGraph (CodeGraphSample.fatClass())
+        def session:CodeGraphSession (CodeGraphSession.of(g 24))
+        session.openInitial(session.pages.umlPageId(0))
+        def fg:FlowGraph (session.graph())
+        c.ok("Fat is on the UML page" (fg.hasNode("Fat")))
+        c.ok("the association still has a row port" (fg.hasPort("Fat.peer:r")))
+        c.ok("a primitive field past the cap has no handle" ((fg.hasPort("Fat.f10:r")) == false))
+        def n:FlowNode (fg.nodeById("Fat"))
+        c.ok("the catalogue box is not a tower" (n.height < 260.0))
+        session.goTo(session.pages.classPageId("Fat"))
+        def fg2:FlowGraph (session.graph())
+        def n2:FlowNode (fg2.nodeById("Fat"))
+        c.ok("the class page still names Fat" (fg2.hasNode("Fat")))
+        c.ok("and is taller than the catalogue slice" (n2.height > n.height))
+        c.ok("but still capped" (n2.height < 420.0))
     }
 
     sfn testPaging:void (c:CGChecker) {

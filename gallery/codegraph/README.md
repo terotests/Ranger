@@ -56,7 +56,9 @@ Open `/codegraph/` and pick **calls.rgr**, **animals.rgr**, **css**, **evg**,
 The source is in the left rail; **Analyze with VirtualCompiler** rebuilds the
 graph from it. The compiler sample walks `VirtualCompiler.rgr` and every file
 it Imports — a large class graph, paged, and it takes a moment. `css` / `evg`
-/ `zip` are the same walk over smaller gallery libraries.
+/ `zip` are the same walk over smaller gallery libraries, and they open on
+CssSheet / EVGElement / ZipReader so the first drawing is a class page rather
+than a catalogue of every compartment.
 
 `?example=animals.rgr` opens the farm; `?example=compiler` walks the compiler;
 `?example=css` / `evg` / `zip` walk those libraries;
