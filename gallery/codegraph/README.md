@@ -1,9 +1,14 @@
 # CodeGraph — Ranger source as a paged call graph
 
 A **gallery app** of its own, not a RangerFlow demo. RangerFlow draws one
-window of the graph on the EVG WebGL canvas; the chrome around it is this
-application: a class list, a breadcrumb, history back/forward, an example
-picker and an UML toggle.
+window of the graph on the EVG WebGL canvas; The chrome around it is **Full EVG** (`gallery/ui` toolbar, example select, class tree) so the same `CodeGraphApp` paints in a tab and in an SDL2 desktop window. RangerFlow still draws the current window of the graph on the canvas region.
+
+Live example files (`fixtures/calls.rgr`, `fixtures/animals.rgr`) are
+compiled **in the tab** by VirtualCompiler — the same compiler the playground
+uses — then walked into the IR. Shop / 40-class fixtures stay as a
+no-compiler fallback. On the desktop, **Open** picks a `.rgr` from the real
+disk and copies it (plus sibling Ranger files) into that same in-memory
+filesystem.
 
 Live example files (`fixtures/calls.rgr`, `fixtures/animals.rgr`) are
 compiled **in the tab** by VirtualCompiler — the same compiler the playground
@@ -23,7 +28,7 @@ to thirty boxes do. Click a class in the rail or on the canvas to drill in.
                                     │
                           FlowGraph (RangerFlow, as a library)
                                     ▼
-                         EVG display list → WebGL
+                         EVG display list → WebGL / SDL2
 ```
 
 **License: AGPL-3.0-or-later** — see [`../LICENSE`](../LICENSE).
@@ -43,12 +48,15 @@ by the Pages workflow.
 ```bash
 npm run codegraph:test         # paging, clicks, history
 npm run codegraph:builder      # VirtualCompiler walk of fixtures/calls.rgr
+npm run codegraph:app          # Full EVG chrome + shop navigation
 npm run codegraph              # SVG of the shop overview + Order zoom
 npm run codegraph:analyze -- gallery/codegraph/fixtures/calls.rgr
 npm run codegraph:analyze -- compiler/ng_RangerAppClassDesc.rgr --max=24
 npm run codegraph:web          # build the page (compiler + examples)
 npm run codegraph:web:serve    # …and serve it (port 8081)
 npm run codegraph:web:test     # headless Chrome: click Order, go back, compile calls.rgr
+npm run codegraph:sdl          # native SDL2 window (macOS / Linux)
+npm run codegraph:sdl:smoke    # headless dummy video driver
 ```
 
 Open `/codegraph/` and pick **calls.rgr**, **animals.rgr**, **css**, **evg**,
@@ -101,7 +109,9 @@ and keeps classes whose source path matches the file you named.
 | `src/CodeGraphFlow.rgr` | page → FlowGraph, click session | no |
 | `src/CodeGraphSample.rgr` | shop + 40-class fixtures | no |
 | `src/CodeGraphBuilder.rgr` | `RangerAppWriterContext` → IR | **yes** |
-| `web/codegraph_web.rgr` | the explorer facade | **yes** (in-tab analyse) |
+| `src/CodeGraphApp.rgr` | Full EVG explorer (chrome + analyse) | **yes** (VFS analyse) |
+| `web/codegraph_web.rgr` | browser name for `CodeGraphApp` | **yes** |
+| `platform/sdl/codegraph_sdl.rgr` | SDL2 window, native file picker | **yes** (VFS from disk) |
 | `fixtures/calls.rgr` | Order / LineItem / Checkout | compiled live |
 | `fixtures/animals.rgr` | Farm.animals:[Animal], Dog / Cat | compiled live |
 | `gallery/css`, `evg`, `zip` | CssCore / EVGElement / ZipReader | compiled live |

@@ -130,7 +130,6 @@ async function main() {
     else if (!selftest.startsWith("PASS")) problems.push("self test failed: " + selftest.split("\n")[0]);
     if (!/nav ok/.test(selftest)) problems.push("click / back navigation did not run");
     if (!/vc ok/.test(selftest)) problems.push("VirtualCompiler did not analyse calls.rgr");
-    if (!/classes/.test(dom)) problems.push("the class list is missing from the page");
     if (problems.length) {
       for (const p of problems) console.error("  FAIL " + p);
       if (run.stderr) console.error(run.stderr.split("\n").slice(-6).join("\n"));

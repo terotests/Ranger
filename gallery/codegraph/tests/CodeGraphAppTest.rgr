@@ -1,0 +1,70 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CodeGraphAppTest.rgr — Full EVG chrome around the shop fixture.
+; ============================================================================
+;
+; Does not wait on a live VirtualCompiler analyse. The builder suite still
+; walks fixtures/calls.rgr; this checks the EVG shell: layout, display list,
+; class rail, and the same navigation self-test the page runs.
+;
+;   npm run codegraph:app
+; ============================================================================
+
+Import "../src/CodeGraphApp.rgr"
+
+class CodeGraphAppTest {
+    sfn main:void () {
+        def failed:int 0
+        def css@(optional):string (read_file "gallery/codegraph/web" "codegraph.css")
+        if (null? css) {
+            print "  FAIL missing gallery/codegraph/web/codegraph.css"
+            exit 1
+        }
+        def app (new CodeGraphApp)
+        app.start(1200.0 800.0 (unwrap css))
+        if ((app.pageId()) != "uml:0") {
+            print ("  FAIL start page " + (app.pageId()))
+            failed = (failed + 1)
+        }
+        def dl:EVGDisplayList (app.display())
+        if ((array_length dl.cmds) < 20) {
+            print ("  FAIL display list too small: " + (to_string (array_length dl.cmds)))
+            failed = (failed + 1)
+        }
+        if (app.canvasW < 100.0) {
+            print ("  FAIL canvas width " + (to_string app.canvasW))
+            failed = (failed + 1)
+        }
+        def hit:string (app.hitId(20.0 20.0))
+        if ((strlen hit) == 0) {
+            print "  FAIL header hit test empty"
+            failed = (failed + 1)
+        }
+        if ((app.openClass("Order")) == false) {
+            print "  FAIL openClass Order"
+            failed = (failed + 1)
+        }
+        if ((app.pageId()) != "class:Order") {
+            print ("  FAIL after openClass " + (app.pageId()))
+            failed = (failed + 1)
+        }
+        def names:string (app.classList())
+        if ((indexOf names "Order") < 0) {
+            print "  FAIL class list missing Order"
+            failed = (failed + 1)
+        }
+        def nav:string (app.selfTest())
+        if ((indexOf nav "PASS") != 0) {
+            print ("  FAIL selfTest " + nav)
+            failed = (failed + 1)
+        } {
+            print ("  " + nav)
+        }
+        if (failed > 0) {
+            print ("CodeGraphAppTest FAILED " + (to_string failed))
+            exit 1
+        }
+        print "CodeGraphAppTest ok"
+    }
+}
