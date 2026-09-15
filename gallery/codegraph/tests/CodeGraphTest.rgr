@@ -8,14 +8,14 @@
 ; has its own suite (CodeGraphBuilderTest.rgr) so a paging failure does not
 ; wait on a 3 MB frontend compile.
 ;
-;   npm run rangerflow:codegraph:test
+;   npm run codegraph:test
 ; ============================================================================
 
-Import "../core/FlowEditor.rgr"
-Import "../core/FlowEvents.rgr"
-Import "../domains/codegraph/CodeGraphSample.rgr"
-Import "../domains/codegraph/CodeGraphPages.rgr"
-Import "../domains/codegraph/CodeGraphFlow.rgr"
+Import "../../rangerflow/core/FlowEditor.rgr"
+Import "../../rangerflow/core/FlowEvents.rgr"
+Import "../src/CodeGraphSample.rgr"
+Import "../src/CodeGraphPages.rgr"
+Import "../src/CodeGraphFlow.rgr"
 
 class CGChecker {
     def passed:int 0
@@ -56,6 +56,7 @@ class CodeGraphTest {
     sfn main:void () {
         def c (new CGChecker)
         CodeGraphTest.testShop(c)
+        CodeGraphTest.testFieldLinks(c)
         CodeGraphTest.testPaging(c)
         CodeGraphTest.testClicks(c)
         CodeGraphTest.testHistory(c)
@@ -72,6 +73,8 @@ class CodeGraphTest {
         c.ok("the shop has classes" ((g.classCount()) > 8))
         c.ok("and methods" ((g.methodCount()) > 8))
         c.ok("Order exists" (g.hasClass("Order")))
+        def names:[string] (g.classNames())
+        c.ok("the class list names Order" ((indexOf (join names ",") "Order") >= 0))
         c.ok("Order.total exists" (g.hasMethod("Order.total")))
         def m:CodeMethod (g.methodById("Order.total"))
         c.ok("total calls something" ((array_length m.calls) > 0))
@@ -85,6 +88,61 @@ class CodeGraphTest {
         def methodPage:CodePage (pageMaker.pageOf("method:Order.checkout"))
         c.eqStr("method page id" methodPage.kind "method")
         c.ok("method page has neighbours" ((methodPage.itemCount()) > 3))
+    }
+
+    sfn testFieldLinks:void (c:CGChecker) {
+        c.section("field associations")
+        c.eqStr("[LineItem] names the class" (CodeGraphPages.classNameOfType("[LineItem]")) "LineItem")
+        c.eqStr("Customer stays a class name" (CodeGraphPages.classNameOfType("Customer")) "Customer")
+        c.eqStr("string is not a class" (CodeGraphPages.classNameOfType("string")) "")
+        c.eqStr("int is not a class" (CodeGraphPages.classNameOfType("int")) "")
+        def g:CodeGraph (CodeGraphSample.shop())
+        def order:CodeClass (g.classByName("Order"))
+        def hasCustomerField:boolean false
+        def fi:int 0
+        while (fi < (array_length order.fields)) {
+            def f:CodeField (itemAt order.fields fi)
+            if (f.name == "customer") {
+                if (f.fieldType == "Customer") {
+                    hasCustomerField = true
+                }
+            }
+            fi = (fi + 1)
+        }
+        c.ok("Order.customer is typed Customer" hasCustomerField)
+        def pages:CodeGraphPages (CodeGraphPages.of(g 24))
+        def uml:CodePage (pages.pageOf("uml:0"))
+        def linked:boolean false
+        def li:int 0
+        while (li < (array_length uml.links)) {
+            def e:CodePageLink (itemAt uml.links li)
+            if (e.fromId == "Order") {
+                if (e.toId == "Customer") {
+                    if (e.kind == "assoc") {
+                        if (e.fieldName == "customer") {
+                            linked = true
+                        }
+                    }
+                }
+            }
+            li = (li + 1)
+        }
+        c.ok("UML draws Order.customer → Customer" linked)
+        def classPage:CodePage (pages.pageOf("class:Order"))
+        def onClass:boolean false
+        def ci:int 0
+        while (ci < (array_length classPage.links)) {
+            def e2:CodePageLink (itemAt classPage.links ci)
+            if (e2.fromId == "Order") {
+                if (e2.toId == "Customer") {
+                    if (e2.kind == "assoc") {
+                        onClass = true
+                    }
+                }
+            }
+            ci = (ci + 1)
+        }
+        c.ok("the Order page also links customer → Customer" onClass)
     }
 
     sfn testPaging:void (c:CGChecker) {
@@ -155,6 +213,7 @@ class CodeGraphTest {
         ev.dataKind = "class"
         ev.dataRef = "Order"
         session.handleClick(ev)
+        c.ok("history can go back" (session.canBack()))
         c.ok("back returns to overview" (session.goBack()))
         c.eqStr("overview again" session.pageId "overview:0")
         c.ok("forward restores the class page" (session.goForward()))

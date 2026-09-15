@@ -4,17 +4,19 @@
 ; codegraph_cli.rgr — analyse a .rgr file and print / draw its call graph.
 ; ============================================================================
 ;
-;   npm run rangerflow:codegraph -- path/to/File.rgr
-;   npm run rangerflow:codegraph -- compiler/ng_RangerAppClassDesc.rgr --max=24
+;   npm run codegraph:analyze -- gallery/codegraph/fixtures/calls.rgr
+;   npm run codegraph:analyze -- compiler/ng_RangerAppClassDesc.rgr --max=24
 ;
-; Uses VirtualCompiler + RangerFlowParser's static call graph (isCalling,
-; isCalledBy, isUsingClasses), pages the result, and writes the current
-; window as SVG / EVG JSON so it can be opened without the compiler.
+; A compiler fragment (ng_RangerAppClassDesc.rgr and its siblings) has no
+; Import of the types it names. VirtualCompiler already loads those classes
+; for itself, through ng_RangerFlowParser; compiling the fragment as a
+; program does not. This CLI compiles that parser unit and filters to the
+; file you named.
 ; ============================================================================
 
-Import "../domains/codegraph/CodeGraphBuilder.rgr"
-Import "../domains/codegraph/CodeGraphFlow.rgr"
-Import "../export/FlowExport.rgr"
+Import "../src/CodeGraphBuilder.rgr"
+Import "../src/CodeGraphFlow.rgr"
+Import "../../rangerflow/export/FlowExport.rgr"
 
 class CodeGraphCli {
     sfn main:void () {
@@ -41,20 +43,33 @@ class CodeGraphCli {
             }
             i = (i + 1)
         }
+        def entry:string file
+        if (CodeGraphCli.isCompilerFragment(file)) {
+            def base:string (CodeGraphCli.baseName(file))
+            entry = "compiler/ng_RangerFlowParser.rgr"
+            if ((strlen filter) == 0) {
+                filter = base
+            }
+            print ((file + " is a compiler fragment — types live in sibling files."))
+            print (("compiling " + entry) + " and keeping classes from " + filter)
+        }
         def env:InputEnv (new InputEnv())
         env.use_real = true
         env.setEnv("RANGER_LIB" "./compiler/;./lib/;./compiler")
         def params:CmdParams (new CmdParams())
-        push params.values file
+        push params.values entry
         set params.params "l" "es6"
         set params.params "o" "codegraph_cli_ignored.js"
         set params.flags "no-color" true
         env.commandLine = params
-        print ("analysing " + file)
+        print ("analysing " + entry)
         def vc:VirtualCompiler (new VirtualCompiler())
         def res:CompilerResults (vc.run(env))
         if res.hasErrors {
             print ("compilation failed: " + res.errorMessage)
+            if (CodeGraphCli.isCompilerFragment(file)) {
+                print "a compiler fragment is not a standalone program; this CLI compiles compiler/ng_RangerFlowParser.rgr for those files"
+            }
             exit 1
         }
         def ctx@(optional):RangerAppWriterContext res.ctx
@@ -81,12 +96,48 @@ class CodeGraphCli {
         def ex (new FlowExport)
         ex.mode = "fit"
         ex.padding = 24.0
-        if ((dir_exists "gallery/rangerflow/out") == false) {
-            create_dir "gallery/rangerflow/out"
+        if ((dir_exists "gallery/codegraph/out") == false) {
+            create_dir "gallery/codegraph/out"
         }
-        ex.writeSvg(v "gallery/rangerflow/out/codegraph.svg")
-        ex.writeEvgJson(v "gallery/rangerflow/out/codegraph.evg.json")
-        print "  wrote   gallery/rangerflow/out/codegraph.svg"
-        print "  wrote   gallery/rangerflow/out/codegraph.evg.json"
+        ex.writeSvg(v "gallery/codegraph/out/codegraph.svg")
+        ex.writeEvgJson(v "gallery/codegraph/out/codegraph.evg.json")
+        print "  wrote   gallery/codegraph/out/codegraph.svg"
+        print "  wrote   gallery/codegraph/out/codegraph.evg.json"
+    }
+
+    sfn baseName:string (file:string) {
+        def parts:[string] (strsplit file "/")
+        def n:int (array_length parts)
+        if (n == 0) {
+            return file
+        }
+        return (itemAt parts (n - 1))
+    }
+
+    sfn isCompleteCompilerProgram:boolean (file:string) {
+        def b:string (CodeGraphCli.baseName(file))
+        if (b == "ng_Compiler.rgr") {
+            return true
+        }
+        if (b == "VirtualCompiler.rgr") {
+            return true
+        }
+        if (b == "ng_RangerFlowParser.rgr") {
+            return true
+        }
+        if (b == "ng_LiveCompiler.rgr") {
+            return true
+        }
+        return false
+    }
+
+    sfn isCompilerFragment:boolean (file:string) {
+        if ((indexOf file "compiler/") < 0) {
+            return false
+        }
+        if (CodeGraphCli.isCompleteCompilerProgram(file)) {
+            return false
+        }
+        return true
     }
 }

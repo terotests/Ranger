@@ -30,6 +30,8 @@ data_folder/
 # The firesim workbench's screenshots — the README shows them, and
 # `npm run firesim:demo:shots` regenerates them from the page in Chromium.
 !gallery/firesim/demo/shots/*.png
+# CodeGraph explorer screenshots — the README shows them.
+!gallery/codegraph/artifacts/*.png
 
 # MacOS
 .DS_Store

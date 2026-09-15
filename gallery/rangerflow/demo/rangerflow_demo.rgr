@@ -18,7 +18,6 @@
 ;   npm run rangerflow:demo -- --graphviz   a Graphviz DOT digraph, read from a
 ;                                           file — clusters, shapes, attributes
 ;   npm run rangerflow:demo -- --org        an organisation chart
-;   npm run rangerflow:demo -- --codegraph  a paged call graph of a shop domain
 ;   npm run rangerflow:demo -- --drag       drop every node everywhere, count
 ;                                           the routes left crossing a box
 ;
@@ -77,9 +76,6 @@ Import "../layout/LayeredLayout.rgr"
 Import "../layout/EdgeLanes.rgr"
 Import "../layout/OrthoRouter.rgr"
 Import "../layout/EdgeFacing.rgr"
-Import "../domains/codegraph/CodeGraphSample.rgr"
-Import "../domains/codegraph/CodeGraphFlow.rgr"
-Import "../core/FlowEvents.rgr"
 Import "../layout/ForceLayout.rgr"
 
 class RangerFlowDemo {
@@ -148,7 +144,6 @@ class RangerFlowDemo {
             }
             if (a == "--org")       { mode = "org" }
             if (a == "--process")   { mode = "process" }
-            if (a == "--codegraph") { mode = "codegraph" }
             if ((RangerFlowDemo.optionOf(a "--style=")) != "") {
                 styleName = (RangerFlowDemo.optionOf(a "--style="))
             }
@@ -185,7 +180,6 @@ class RangerFlowDemo {
         if (mode == "d2")        { d.runD2(d2Path styleName) }
         if (mode == "org")       { d.runOrg() }
         if (mode == "process")   { d.runProcess() }
-        if (mode == "codegraph") { d.runCodeGraph() }
     }
 
     ; ---------------------------------------------------------------- D2 ----
@@ -309,31 +303,6 @@ class RangerFlowDemo {
         def v:FlowView (FlowView.of(g))
         v.notation = "uml"
         this.writeAll(v g "rangerflow-uml" "RangerFlow — UML class diagram")
-    }
-
-    ; A paged call graph: classes, methods and types, at most 24 boxes, with
-    ; pager arrows for the rest. The drawing is one window of a larger IR.
-    fn runCodeGraph:void () {
-        print "== RangerFlow: call graph (paged) =="
-        def model:CodeGraph (CodeGraphSample.shop())
-        def session:CodeGraphSession (CodeGraphSession.of(model 24))
-        print ("  model  " + (to_string (model.classCount())) + " classes, " + (to_string (model.methodCount())) + " methods")
-        def g:FlowGraph (session.graph())
-        print ("  page   " + session.pageId + " — " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
-        def v:FlowView (FlowView.of(g))
-        v.notation = "uml"
-        this.writeAll(v g "rangerflow-codegraph" "RangerFlow — call graph")
-        def ev (new FlowHitEvent)
-        ev.kind = "node"
-        ev.dataKind = "class"
-        ev.dataRef = "Order"
-        if (session.handleClick(ev)) {
-            def g2:FlowGraph (session.graph())
-            print ("  zoom   " + session.pageId + " — " + (to_string (g2.nodeCount())) + " nodes")
-            def v2:FlowView (FlowView.of(g2))
-            v2.notation = "uml"
-            this.writeAll(v2 g2 "rangerflow-codegraph-order" "RangerFlow — Order")
-        }
     }
 
     ; ------------------------------------------------- force-layout parity ---

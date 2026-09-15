@@ -38,6 +38,7 @@ compiler — the long-form writeups live here.
 | [`pptx/android`](pptx/android/README.md) | The same PPTX viewer as an **Android app**: Ranger → Kotlin → `android.graphics`, plus a Java2D twin of the painter so the port can be checked without a device |
 | [`docx_viewer`](docx_viewer/README.md) | DOCX viewer + editing MVP: WordprocessingML → RichDocument → paginated layout → EVG; Word-style keyboard, multi-paragraph selection, and pastes a spreadsheet selection as a table |
 | [`rangerflow`](rangerflow/README.md) | React Flow-shaped interactive graph editor on EVG + WebGL, with a database ERD / UML class editor on top and PDF export. Share links embed in Confluence via a tiny Forge macro in [`rangerflow/forge`](rangerflow/forge/README.md) |
+| [`codegraph`](codegraph/README.md) | Call-graph explorer of Ranger source: VirtualCompiler in the tab walks example `.rgr` files into paged windows of ≤ 24 boxes, drawn on EVG + WebGL. [Live at /codegraph/](https://terotests.github.io/Ranger/codegraph/) |
 | [`datagrid`](datagrid/README.md) | EVG DataGrid / Excel-style spreadsheet viewer **and editor** (virtualized layout engine → display list → WebGL) |
 | [`rangerdbviewer`](rangerdbviewer/README.md) | A database workbench: open SQLite / DuckDB / RangerDB, introspect the real schema, browse it, draw it in RangerFlow and export it |
 | [`rangerdb`](rangerdb/README.md) | A database API with three engines behind it — a columnar engine written in Ranger, plus SQLite and DuckDB adapters — feeding the DataGrid |

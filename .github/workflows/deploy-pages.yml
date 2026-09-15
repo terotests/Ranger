@@ -53,6 +53,10 @@
 #                GPU. Every demo in the dropdown is checked on every push by
 #                `rangerflow:web:test`, which drives this same page in headless
 #                Chrome.
+#   /codegraph/ -> a call-graph explorer of Ranger source. VirtualCompiler in
+#                the tab walks example .rgr files (Order/LineItem, animals);
+#                class list, history, paged windows of ≤ 24 boxes. RangerFlow
+#                draws the window; the chrome is this app.
 #   /figma/   -> the Figma .fig / .deck reader: it opens on a real Figma
 #                export (fixtures/health.fig) and takes any other file you
 #                upload or paste in the tab, parsing it (ZIP → kiwi → node
@@ -150,6 +154,9 @@ on:
       # The graph editor at /rangerflow/ is built from these — the domains it
       # reads (SQL, UML, Mermaid), the layout and the exporters included.
       - "gallery/rangerflow/**"
+      # Call-graph explorer at /codegraph/. Uses RangerFlow as a drawing
+      # library; its chrome is not the RangerFlow editor.
+      - "gallery/codegraph/**"
       # The markdown viewer at /markdown/. It draws its diagrams through
       # rangerflow's Mermaid reader, which is why that path is above this one.
       - "gallery/markdown/**"
@@ -609,6 +616,29 @@ jobs:
           # renders nothing. The bundle is minified, so a class name is gone --
           # `framed-rectangle` is a shape alias only MermaidReader spells out.
           grep -q "framed-rectangle" "$GITHUB_WORKSPACE/_site/rangerflow/rangerflow_web.js"
+
+      # ---- CodeGraph at /codegraph/ ----------------------------------------
+      # A call-graph explorer with its own chrome (class list, breadcrumb,
+      # history, example source). VirtualCompiler in the tab walks .rgr
+      # files; RangerFlow is the drawing library, not the UI.
+      - name: Build the CodeGraph explorer
+        run: bash gallery/codegraph/web/standalone/build.sh --out "$GITHUB_WORKSPACE/_site/codegraph"
+
+      - name: Check the CodeGraph page has an engine
+        run: |
+          test -s "$GITHUB_WORKSPACE/_site/codegraph/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/codegraph/codegraph_web.js"
+          test -s "$GITHUB_WORKSPACE/_site/codegraph/standalone.mjs"
+          test -s "$GITHUB_WORKSPACE/_site/codegraph/node-shim.js"
+          test -s "$GITHUB_WORKSPACE/_site/codegraph/compileEnv.json"
+          test -s "$GITHUB_WORKSPACE/_site/codegraph/examples/calls.rgr"
+          test -s "$GITHUB_WORKSPACE/_site/codegraph/examples/animals.rgr"
+          test -s "$GITHUB_WORKSPACE/_site/codegraph/compilerSources.json"
+          grep -q "VirtualCompiler.rgr" "$GITHUB_WORKSPACE/_site/codegraph/compilerSources.json"
+          test -s "$GITHUB_WORKSPACE/_site/codegraph/gl/evg-webgl.js"
+          test -s "$GITHUB_WORKSPACE/_site/codegraph/fonts/NotoSans-Regular.ttf"
+          grep -q "CodeGraphWeb" "$GITHUB_WORKSPACE/_site/codegraph/codegraph_web.js"
+          grep -q "VirtualCompiler" "$GITHUB_WORKSPACE/_site/codegraph/codegraph_web.js"
 
       # Does the engine agree with ITSELF? The frame is published twice — as
       # JSON, where every field arrives with its name, and as packed

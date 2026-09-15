@@ -1,0 +1,50 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; codegraph_demo.rgr — SVG of the shop overview and an Order drill-in.
+; ============================================================================
+;
+;   npm run codegraph
+; ============================================================================
+
+Import "../src/CodeGraphSample.rgr"
+Import "../src/CodeGraphFlow.rgr"
+Import "../../rangerflow/export/FlowExport.rgr"
+Import "../../rangerflow/core/FlowEvents.rgr"
+
+class CodeGraphDemo {
+    sfn main:void () {
+        print "== CodeGraph: shop (paged) =="
+        def model:CodeGraph (CodeGraphSample.shop())
+        def session:CodeGraphSession (CodeGraphSession.of(model 24))
+        print ("  model  " + (to_string (model.classCount())) + " classes, " + (to_string (model.methodCount())) + " methods")
+        def g:FlowGraph (session.graph())
+        print ("  page   " + session.pageId + " — " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        CodeGraphDemo.writePage(session.graph() "codegraph" "CodeGraph — shop")
+        def ev (new FlowHitEvent)
+        ev.kind = "node"
+        ev.dataKind = "class"
+        ev.dataRef = "Order"
+        if (session.handleClick(ev)) {
+            def g2:FlowGraph (session.graph())
+            print ("  zoom   " + session.pageId + " — " + (to_string (g2.nodeCount())) + " nodes")
+            CodeGraphDemo.writePage(g2 "codegraph-order" "CodeGraph — Order")
+        }
+    }
+
+    sfn writePage:void (g:FlowGraph stem:string title:string) {
+        def outDir:string "gallery/codegraph/out"
+        if ((dir_exists outDir) == false) {
+            create_dir outDir
+        }
+        def v:FlowView (FlowView.of(g))
+        v.notation = "uml"
+        def ex (new FlowExport)
+        ex.mode = "fit"
+        ex.padding = 24.0
+        ex.writeSvg(v (outDir + "/" + stem + ".svg"))
+        ex.writeEvgJson(v (outDir + "/" + stem + ".evg.json"))
+        print ("  wrote  " + outDir + "/" + stem + ".svg")
+        print ("  title  " + title)
+    }
+}

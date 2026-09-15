@@ -4,10 +4,10 @@
 ; CodeGraphSample.rgr — a call graph with no compiler attached.
 ; ============================================================================
 ;
-; The WebGL page cannot run VirtualCompiler (that bundle is megabytes and
-; wants a filesystem). This is a stand-in that still pages: a shop domain
-; small enough to read, and a compiler-shaped graph large enough that the
-; overview has to turn.
+; Fixtures that still page when the in-tab VirtualCompiler is not the
+; thing being shown: a shop domain small enough to read, and a compiler-shaped
+; graph large enough that the overview has to turn. Live `.rgr` examples go
+; through CodeGraphBuilder instead.
 ; ============================================================================
 
 Import "CodeGraphModel.rgr"
