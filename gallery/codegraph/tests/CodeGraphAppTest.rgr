@@ -7,7 +7,8 @@
 ; Does not wait on a live VirtualCompiler analyse. The builder suite still
 ; walks fixtures/calls.rgr; this checks the EVG shell: layout, display list,
 ; Native Open gives an absolute path, so `Import "../../docx_viewer/src/X.rgr"`
-; has to collapse `..` without dropping the leading `/`.
+; has to collapse `..` without dropping the leading `/`. `./foo.rgr` and
+; `script/Bar.rgr` are rewritten to basenames because the VFS has no subdirs.
 ;
 ;   npm run codegraph:app
 ; ============================================================================
@@ -74,6 +75,27 @@ class CodeGraphAppTest {
         }
         if ((indexOf rw "Import \"Foo.rgr\"") < 0) {
             print "  FAIL rewrite dropped a same-dir Import"
+            failed = (failed + 1)
+        }
+        def rw2:string (app.rewriteRelativeImports("Import \"./rgba_fast_blit.rgr\"\nImport \"script/ScriptPreview.rgr\"\nImport \"SheetTable.rgr\"\n"))
+        if ((indexOf rw2 "Import \"rgba_fast_blit.rgr\"") < 0) {
+            print ("  FAIL rewrite missed ./rgba: " + rw2)
+            failed = (failed + 1)
+        }
+        if ((indexOf rw2 "Import \"./rgba_fast_blit.rgr\"") >= 0) {
+            print "  FAIL rewrite left ./rgba path"
+            failed = (failed + 1)
+        }
+        if ((indexOf rw2 "Import \"ScriptPreview.rgr\"") < 0) {
+            print ("  FAIL rewrite missed script/: " + rw2)
+            failed = (failed + 1)
+        }
+        if ((indexOf rw2 "Import \"script/ScriptPreview.rgr\"") >= 0) {
+            print "  FAIL rewrite left script/ path"
+            failed = (failed + 1)
+        }
+        if ((indexOf rw2 "Import \"SheetTable.rgr\"") < 0) {
+            print "  FAIL rewrite dropped a bare Import"
             failed = (failed + 1)
         }
         if ((app.collapsePath("gallery/css/../evg/EVGColor.rgr")) != "gallery/evg/EVGColor.rgr") {
@@ -173,6 +195,50 @@ class CodeGraphAppTest {
                 failed = (failed + 1)
             }
             print ("  ingest abs MdDeckSync → " + (to_string (deck.userFileCount())) + " user files")
+        }
+
+        def fb (new CodeGraphApp)
+        fb.start(800.0 600.0 (unwrap css))
+        if ((fb.ingestDiskTree("gallery/game_engine/framebuffer.rgr")) == false) {
+            print "  FAIL ingestDiskTree framebuffer.rgr"
+            failed = (failed + 1)
+        } {
+            if ((fb.hasUserFile("rgba_fast_blit.rgr")) == false) {
+                print "  FAIL ingest missed rgba_fast_blit.rgr from ./"
+                failed = (failed + 1)
+            }
+            def fbSrc:string (fb.userFileText("framebuffer.rgr"))
+            if ((indexOf fbSrc "Import \"./rgba_fast_blit.rgr\"") >= 0) {
+                print "  FAIL ingested framebuffer still has ./ Import"
+                failed = (failed + 1)
+            }
+            if ((indexOf fbSrc "Import \"rgba_fast_blit.rgr\"") < 0) {
+                print "  FAIL ingested framebuffer missing rewritten rgba Import"
+                failed = (failed + 1)
+            }
+            print ("  ingest framebuffer → " + (to_string (fb.userFileCount())) + " user files")
+        }
+
+        def wb (new CodeGraphApp)
+        wb.start(800.0 600.0 (unwrap css))
+        if ((wb.ingestDiskTree("gallery/datagrid/src/WorkbookModel.rgr")) == false) {
+            print "  FAIL ingestDiskTree WorkbookModel.rgr"
+            failed = (failed + 1)
+        } {
+            if ((wb.hasUserFile("GridScript.rgr")) == false) {
+                print "  FAIL ingest missed GridScript.rgr from script/"
+                failed = (failed + 1)
+            }
+            def wbSrc:string (wb.userFileText("WorkbookModel.rgr"))
+            if ((indexOf wbSrc "Import \"script/GridScript.rgr\"") >= 0) {
+                print "  FAIL ingested WorkbookModel still has script/ Import"
+                failed = (failed + 1)
+            }
+            if ((indexOf wbSrc "Import \"GridScript.rgr\"") < 0) {
+                print "  FAIL ingested WorkbookModel missing rewritten GridScript Import"
+                failed = (failed + 1)
+            }
+            print ("  ingest WorkbookModel → " + (to_string (wb.userFileCount())) + " user files")
         }
 
         if (failed > 0) {
