@@ -446,7 +446,7 @@ if (cmd === "shot") {
   }
   process.exit(outline(file, rest));
 } else if (cmd === "serve") {
-  const file = rest.find((a) => !a.startsWith("--")) || path.join(HERE, "examples", "huuhkajat.rave");
+  const file = fileArg(rest) || path.join(HERE, "examples", "huuhkajat.rave");
   const portAt = rest.indexOf("--port");
   const port = portAt >= 0 ? Number(rest[portAt + 1]) : 8012;
   const bad = serve(file, port);
