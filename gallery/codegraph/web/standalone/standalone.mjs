@@ -148,6 +148,15 @@ canvas.addEventListener("wheel", (ev) => {
   app.wheelGesture(x, y, ev.deltaX, ev.deltaY, ev.ctrlKey || ev.metaKey, ev.deltaMode === 1);
 }, { passive: false });
 
+function framePage() {
+  const id = app.pageId() || "";
+  if (id.startsWith("class:") || id.startsWith("method:")) {
+    if (!app.zoomToSelected()) app.fitView();
+    return;
+  }
+  app.fitView();
+}
+
 function fillClasses() {
   const names = (app.classList() || "").split("\n").filter(Boolean);
   const current = app.pageId();
@@ -159,7 +168,7 @@ function fillClasses() {
     if (current === "class:" + name) b.className = "current";
     b.addEventListener("click", () => {
       if (app.openClass(name)) {
-        app.fitView();
+        framePage();
         syncChrome();
       }
     });
@@ -275,7 +284,7 @@ async function analyzeCurrent(filename) {
     return !!ok;
   } finally {
     analyzing = false;
-    app.fitView();
+    framePage();
     syncChrome();
   }
 }
@@ -322,20 +331,20 @@ analyzeEl.addEventListener("click", async () => {
   }
 });
 backEl.addEventListener("click", () => {
-  if (app.goBack()) app.fitView();
+  if (app.goBack()) framePage();
   syncChrome();
 });
 fwdEl.addEventListener("click", () => {
-  if (app.goForward()) app.fitView();
+  if (app.goForward()) framePage();
   syncChrome();
 });
 document.getElementById("overview").addEventListener("click", () => {
-  if (app.goOverview()) app.fitView();
+  if (app.goOverview()) framePage();
   syncChrome();
 });
 umlEl.addEventListener("click", () => {
   app.setUml(!app.umlView());
-  app.fitView();
+  framePage();
   syncChrome();
 });
 document.getElementById("fit").addEventListener("click", () => app.fitView());
@@ -345,7 +354,7 @@ document.getElementById("zoomSel").addEventListener("click", () => {
 canvas.addEventListener("dblclick", (ev) => {
   const [x, y] = at(ev);
   if (app.openAt(x, y)) {
-    app.fitView();
+    framePage();
     syncChrome();
   }
 });

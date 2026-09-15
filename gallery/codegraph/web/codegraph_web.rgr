@@ -320,8 +320,32 @@ class CodeGraphWeb {
         editor.view.showControls = false
         editor.view.showNodeTools = false
         editor.fitView()
+        this.framePageFocus()
         status = session.status
         return true
+    }
+
+    ; A class page is a strip of methods plus every field type. fitView
+    ; shrinks the name off the screen; frame the class the page is about.
+    fn framePageFocus:void () {
+        def id:string session.pageId
+        def focus:string ""
+        if ((indexOf id "class:") == 0) {
+            focus = (substring id 6 (strlen id))
+        }
+        if ((indexOf id "method:") == 0) {
+            focus = (substring id 7 (strlen id))
+        }
+        if ((strlen focus) == 0) {
+            return
+        }
+        if ((graph.hasNode(focus)) == false) {
+            return
+        }
+        graph.clearSelection()
+        def n:FlowNode (graph.nodeById(focus))
+        n.selected = true
+        this.zoomToSelected()
     }
 
     fn classList:string () {
