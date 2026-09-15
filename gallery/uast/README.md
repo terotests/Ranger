@@ -81,6 +81,16 @@ the TypeScript acceptance criterion later.
 A UAST viewer — CodeGraph chrome over this `CodeModel` — comes after
 those two frontends agree on ZipWriter.
 
+## Apps without gallery sources
+
+Ranger has no `ranger install`. An app that writes `Import "WindowCtl.rgr"`
+or `Import "../evg/EVGElement.rgr"` only compiles when those `.rgr` files
+are on disk (this repo’s `gallery/ui`, `gallery/evg`, `gallery/statechart`,
+or a `RANGER_LIB` that points at them). A training repo that ships a
+precompiled EVG `.mjs` and not the sources will fail with `Could not
+import file …` — the web demo can still run. UAST cannot invent the
+missing tree; see [PLAN_UAST.md §14](./PLAN_UAST.md).
+
 ## See also
 
 - [`gallery/codegraph`](../codegraph/README.md) — the Ranger-only explorer this projects into

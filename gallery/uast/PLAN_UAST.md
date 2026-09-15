@@ -697,3 +697,57 @@ concept is proven.
 A documentation overview such as the comments above `SheetView.sortHeadRows`
 and `SheetView.sortKind` must appear on **those properties** in UAST,
 never on the class.
+
+---
+
+## 14. Apps that import gallery without shipping gallery
+
+Not in scope, and it will keep happening.
+
+A training app (HarjoitusChart, TreeniWeekDemo, `PORT=8788 npm run demo:web`)
+fails at compile with:
+
+```text
+[FAIL] Could not import file Statechart.rgr
+[FAIL] Could not import file WindowCtl.rgr
+[FAIL] Could not import file SliderCtl.rgr
+```
+
+The `Import` lines are bare names (`"Statechart.rgr"`, `"WindowCtl.rgr"`).
+The files live here as:
+
+```text
+gallery/statechart/src/Statechart.rgr
+gallery/ui/src/WindowCtl.rgr
+gallery/ui/src/SliderCtl.rgr
+gallery/evg/EVGElement.rgr
+…
+```
+
+Relative spellings such as `Import "../evg/EVGElement.rgr"` only work when
+the source tree has that sibling layout. Bare names only work when those
+directories are on `RANGER_LIB`. Ranger has **no package manager** — there
+is no `ranger install evg`, no registry, no lockfile. EVG was wired into
+that environment locally and never reached the training repo as source,
+not even as a submodule.
+
+`npm run demo:web` can still serve because a **precompiled `.mjs` that
+already contains EVG** was checked in. The `.rgr` that UAST and CodeGraph
+would walk is not there. The compiler, CodeGraphBuilder, and `UastRanger`
+all stop at the same `Could not import file` line.
+
+New applications will copy this pattern: ship the JS bundle, omit the
+Ranger/EVG/UI sources. Do **not** invent a package system in this PR.
+
+When M5 (workspace / imports) is built:
+
+- an unresolved `Import` is a diagnostic on that file, not a crash of the
+  whole analysis
+- a library map / VFS (CodeGraph already flattens `Import "../evg/…"` to a
+  basename when the file *is* present) can point a bare name at gallery
+  **if the sources are actually on disk**
+- a repo that only has `.mjs` cannot be analysed as Ranger; say so, and
+  analyse the JavaScript if a JS frontend exists
+
+Until then, analyse apps from **this** tree, where `gallery/evg` and
+`gallery/ui` are the real files.
