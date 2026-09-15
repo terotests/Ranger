@@ -12,7 +12,24 @@ class UastQuery {
     }
 
     sfn classNode:UNode (m:UastCodeModel name:string) {
-        return (m.nodeById("n:class:" + name))
+        def byId:string ("n:class:" + name)
+        if (m.mentionsNode(byId)) {
+            return (m.nodeById(byId))
+        }
+        def i:int 0
+        while (i < (array_length m.nodes)) {
+            def n:UNode (itemAt m.nodes i)
+            if (n.name == name) {
+                if (n.kind == "ClassDecl") {
+                    return n
+                }
+                if (n.kind == "InterfaceDecl") {
+                    return n
+                }
+            }
+            i = (i + 1)
+        }
+        return (new UNode)
     }
 
     sfn fieldNode:UNode (m:UastCodeModel className:string fieldName:string) {
