@@ -72,11 +72,11 @@ function engineClass() {
 
 let sceneStale = true;
 const VIEW_ONLY = new Set([
-  "wheelGesture", "fitView", "pointerMove",
+  "wheelGesture", "fitView", "zoomToSelected", "pointerMove",
   "statusText", "stats", "selfTest", "sceneJson", "frameView", "frameScene",
   "frameGrid", "tick", "viewGesture", "classList", "crumb", "pageId",
   "pageTitle", "titleText", "sampleId", "umlView", "canBack", "canForward",
-  "svg", "hasCompiler", "hasCompilerTree",
+  "svg", "hasCompiler", "hasCompilerTree", "hasSelection", "selectedId",
 ]);
 
 const rawApp = new (engineClass())();
@@ -171,6 +171,8 @@ function syncChrome() {
   backEl.disabled = !app.canBack();
   fwdEl.disabled = !app.canForward();
   umlEl.classList.toggle("on", !!app.umlView());
+  const zoomSel = document.getElementById("zoomSel");
+  if (zoomSel) zoomSel.disabled = !app.hasSelection();
   fillClasses();
 }
 
@@ -294,6 +296,16 @@ umlEl.addEventListener("click", () => {
   syncChrome();
 });
 document.getElementById("fit").addEventListener("click", () => app.fitView());
+document.getElementById("zoomSel").addEventListener("click", () => {
+  app.zoomToSelected();
+});
+canvas.addEventListener("dblclick", (ev) => {
+  const [x, y] = at(ev);
+  if (app.openAt(x, y)) {
+    app.fitView();
+    syncChrome();
+  }
+});
 document.getElementById("svg").addEventListener("click", () => {
   const blob = new Blob([app.svg()], { type: "image/svg+xml" });
   const a = document.createElement("a");
