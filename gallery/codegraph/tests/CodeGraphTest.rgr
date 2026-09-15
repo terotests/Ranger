@@ -337,10 +337,15 @@ class CodeGraphTest {
         ed.fitView()
         def n:FlowNode (fg.nodeById("Order"))
         n.selected = true
+        def zFit:double ed.view.viewport.zoom
+        def titleFit:double (n.headerHeight * zFit)
+        c.ok("a fitted UML page already has a readable title" (titleFit >= 10.0))
         ed.view.viewport.zoom = 0.04
         c.ok("it frames the box" (ed.zoomToSelected(0.3)))
+        def titlePx:double (n.headerHeight * ed.view.viewport.zoom)
+        c.ok("the title is at least ~10 px" (titlePx >= 9.5))
         def shown:double ((n.width * ed.view.viewport.zoom) / ed.view.width)
-        c.ok("at least 30% of the view across" (shown >= 0.29))
+        c.ok("and does not fill a third of the view" (shown < 0.29))
         def uml (new FlowHitEvent)
         uml.kind = "node"
         uml.dataKind = "class"
@@ -348,6 +353,17 @@ class CodeGraphTest {
         uml.id = "Order"
         c.ok("a click on a UML class does not leave the page" ((session.handleClick(uml)) == false))
         c.eqStr("still on UML" session.pageId "uml:0")
+        session.openInitial("class:Customer")
+        def fg2:FlowGraph (session.graph())
+        def ed2:FlowEditor (FlowEditor.of(fg2))
+        ed2.setSize(1000.0 800.0)
+        ed2.fitView()
+        def order:FlowNode (fg2.nodeById("Order"))
+        def cust:FlowNode (fg2.nodeById("Customer"))
+        def oy:double (ed2.view.viewport.toScreenY((order.centerY())))
+        def cy:double (ed2.view.viewport.toScreenY((cust.centerY())))
+        c.ok("Order stays on screen after fit" ((oy >= 0.0) && (oy <= 800.0)))
+        c.ok("and so does Customer" ((cy >= 0.0) && (cy <= 800.0)))
     }
 
     sfn testUmlCap:void (c:CGChecker) {
