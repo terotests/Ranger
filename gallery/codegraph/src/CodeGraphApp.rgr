@@ -548,6 +548,13 @@ class CodeGraphApp extends EvgApp {
         return specs
     }
 
+    fn vfsImportSpec:string (spec:string) {
+        if ((this.slashIn(spec)) >= 0) {
+            return (this.fileBaseName(spec))
+        }
+        return spec
+    }
+
     fn rewriteRelativeImports:string (src:string) {
         def out:string ""
         def remain:string src
@@ -576,11 +583,7 @@ class CodeGraphApp extends EvgApp {
                         } {
                             def spec:string (substring rest 0 q)
                             out = (out + "\"")
-                            if ((indexOf spec "..") == 0) {
-                                out = (out + (this.fileBaseName(spec)))
-                            } {
-                                out = (out + spec)
-                            }
+                            out = (out + (this.vfsImportSpec(spec)))
                             out = (out + "\"")
                             remain = (substring rest (q + 1) (strlen rest))
                         }
