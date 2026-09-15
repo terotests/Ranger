@@ -594,6 +594,12 @@ canvas.addEventListener("pointerdown", (ev) => {
       touchScroll = { y, acc: 0 };
     }
     focusKeys("editor");
+  } else if (where === "sep") {
+    // Capture so a drag that crosses into the preview overlay stays a
+    // splitter drag, not a click on the document.
+    ev.preventDefault();
+    try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
+    focusKeys("sep");
   } else if (where === "chrome") {
     ev.preventDefault();
     handleRequests();
@@ -913,6 +919,25 @@ function selftest() {
     check("the document arrived as text runs", doc.list.cmds.filter((c) => c.k === 3).length > 10);
     check("a mermaid fence arrived as geometry", doc.list.cmds.some((c) => c.k === 6 || c.k === 7));
     check("the pane is where the layout put it", pane.shown && pane.w > 100 && pane.h > 100 && (wide ? pane.x > 72 : pane.x === 0));
+    if (wide) {
+      const sepId = app.sepId();
+      const sepX = pane.x - 3;
+      const sepY = pane.y + Math.min(40, pane.h / 2);
+      check("the splitter sits between source and preview", app.hitId(sepX, sepY) === sepId, app.hitId(sepX, sepY));
+      check("over the splitter the pointer is col-resize", app.cursorAt(sepX, sepY) === "col-resize");
+      const x0 = pane.x;
+      const share0 = app.sourcePercent();
+      app.pointerDown(sepX, sepY, false, 1);
+      app.pointerMove(sepX + 80, sepY);
+      app.pointerUp();
+      window.__redraw();
+      check("dragging the splitter changes the preview width", pane.x !== x0 && app.sourcePercent() !== share0, `${share0}% → ${app.sourcePercent()}%`);
+      app.setFocus("sep");
+      const afterDrag = app.sourcePercent();
+      app.key("left", false, false);
+      window.__redraw();
+      check("arrow keys move the splitter", app.sourcePercent() < afterDrag, `${afterDrag}% → ${app.sourcePercent()}%`);
+    }
     app.press(wide ? "r5-menu-layout" : "r5-nav-more");
     window.__redraw();
     t = texts(window.__lastChrome);

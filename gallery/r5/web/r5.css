@@ -219,6 +219,7 @@
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
+  align-items: stretch;
   flex-grow: 1;
   min-height: 0;
   width: 100%;
@@ -231,18 +232,46 @@
   min-width: 0;
 }
 .r5-editor-side {
-  width: 42%;
-  min-width: 260px;
-  max-width: 720px;
-  border-right: 1px solid var(--line);
+  min-width: 0;
+  overflow: hidden;
+  height: 100%;
 }
 
 /* NO BACKGROUND. The document is drawn under the chrome, and this is the
    hole it shows through. */
 .r5-pane {
-  flex-grow: 1;
   min-width: 0;
   height: 100%;
+}
+.r5-pane-fill { flex-grow: 1; }
+.r5-pane-side {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The divider between Source and Preview. Six pixels of hit area around a
+   one-pixel line, the same shape gallery/ui's ResizeDemo draws. A divider
+   in a horizontal group is a VERTICAL line — that is the separator's
+   aria-orientation, and why the grip stands up. */
+.r5-sep {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 6px;
+  min-width: 6px;
+  background-color: var(--panel-2);
+  cursor: col-resize;
+}
+.r5-sep:hover { background-color: var(--line); }
+.r5-sep:focus { background-color: var(--accent-soft); }
+
+.r5-grip {
+  width: 4px;
+  height: 24px;
+  border-radius: 2px;
+  background-color: var(--ink-mute);
 }
 
 .r5-hint {
