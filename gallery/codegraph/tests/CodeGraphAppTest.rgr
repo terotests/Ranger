@@ -241,6 +241,56 @@ class CodeGraphAppTest {
             print ("  ingest WorkbookModel → " + (to_string (wb.userFileCount())) + " user files")
         }
 
+        def vl (new CodeGraphApp)
+        vl.start(800.0 600.0 (unwrap css))
+        if ((vl.ingestDiskTree("gallery/vela/src/VlEvgList.rgr")) == false) {
+            print "  FAIL ingestDiskTree VlEvgList.rgr"
+            failed = (failed + 1)
+        } {
+            if ((vl.hasUserFile("VlCommand.rgr")) == false) {
+                print "  FAIL ingest missed VlCommand.rgr"
+                failed = (failed + 1)
+            }
+            if ((vl.hasUserFile("VlShape.rgr")) == false) {
+                print "  FAIL ingest missed VlShape.rgr"
+                failed = (failed + 1)
+            }
+            if ((vl.hasUserFile("PathBuilder.rgr")) == false) {
+                print "  FAIL ingest missed PathBuilder.rgr from ../../evg"
+                failed = (failed + 1)
+            }
+            if ((vl.hasUserFile("SVGPathParser.rgr")) == false) {
+                print "  FAIL ingest missed SVGPathParser.rgr from ../../evg"
+                failed = (failed + 1)
+            }
+            if ((vl.hasUserFile("EVGDisplayList.rgr")) == false) {
+                print "  FAIL ingest missed EVGDisplayList.rgr from ../../evg"
+                failed = (failed + 1)
+            }
+            if ((vl.hasUserFile("EVGColor.rgr")) == false) {
+                print "  FAIL ingest missed EVGColor.rgr from ../../evg"
+                failed = (failed + 1)
+            }
+            if ((vl.hasUserFile("UITextRenderer.rgr")) == false) {
+                print "  FAIL ingest missed UITextRenderer.rgr from ../../game_engine/ui"
+                failed = (failed + 1)
+            }
+            def vlSrc:string (vl.userFileText("VlEvgList.rgr"))
+            if ((indexOf vlSrc "Import \"../../evg/PathBuilder.rgr\"") >= 0) {
+                print "  FAIL ingested VlEvgList still has ../../evg Import"
+                failed = (failed + 1)
+            }
+            if ((indexOf vlSrc "Import \"PathBuilder.rgr\"") < 0) {
+                print "  FAIL ingested VlEvgList missing rewritten PathBuilder Import"
+                failed = (failed + 1)
+            }
+            if ((indexOf vlSrc "Import \"UITextRenderer.rgr\"") < 0) {
+                print "  FAIL ingested VlEvgList missing rewritten UITextRenderer Import"
+                failed = (failed + 1)
+            }
+            print ("  ingest VlEvgList → " + (to_string (vl.userFileCount())) + " user files")
+        }
+
         if (failed > 0) {
             print ("CodeGraphAppTest FAILED " + (to_string failed))
             exit 1

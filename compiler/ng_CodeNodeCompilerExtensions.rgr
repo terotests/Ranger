@@ -111,10 +111,32 @@ extension CodeNode {
   }
   
   
+  fn rangerDoubleLiteral:string (v:double) {
+    def s:string (double2str v)
+    def sci:boolean false
+    if ((indexOf s "e") >= 0) {
+      sci = true
+    }
+    if ((indexOf s "E") >= 0) {
+      sci = true
+    }
+    if sci {
+      def n:int (to_int v)
+      if ((to_double n) == v) {
+        return ((to_string n) + ".0")
+      }
+      return s
+    }
+    if ((indexOf s ".") < 0) {
+      return (s + ".0")
+    }
+    return s
+  }
+
   fn writeCode:void (wr:CodeWriter) {
     switch value_type {
       case RangerNodeType.Double {
-        wr.out((double2str double_value) false)
+        wr.out((this.rangerDoubleLiteral(double_value)) false)
       }
       case RangerNodeType.String {
         wr.out(((strfromcode 34) + string_value + (strfromcode 34)) false)

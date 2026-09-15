@@ -602,10 +602,16 @@ class CodeGraphApp extends EvgApp {
         if (base == "Lang.rgr") {
             return true
         }
-        if ((indexOf spec "compiler/") >= 0) {
+        if ((indexOf spec "compiler/") == 0) {
             return true
         }
-        if ((indexOf spec "lib/") >= 0) {
+        if ((indexOf spec "/compiler/") >= 0) {
+            return true
+        }
+        if ((indexOf spec "lib/") == 0) {
+            return true
+        }
+        if ((indexOf spec "/lib/") >= 0) {
             return true
         }
         if (has compilerFiles base) {
