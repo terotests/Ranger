@@ -477,6 +477,16 @@ class ScriptEditorTest {
         c.eqInt("it can be turned off" (mm.minimapWidth()) 0)
         mm.showMinimap = true
 
+        print "== a minimap letter is a faint cell, not a bar =="
+        def dotInk:double (ScriptEditor.minimapInk(46))
+        def iInk:double (ScriptEditor.minimapInk(73))
+        def rInk:double (ScriptEditor.minimapInk(82))
+        c.ok("a dot is almost empty" ((dotInk > 0.01) && (dotInk < 0.05)))
+        c.ok("an I is a thin stem" ((iInk > 0.08) && (iInk < 0.13)))
+        c.ok("an R fills more of the cell" ((rInk > 0.18) && (rInk < 0.23)))
+        c.ok("and more than an I" (rInk > iInk))
+        c.ok("a space is no speck" ((ScriptEditor.minimapInk(32)) < 0.001))
+
         print ""
         print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))
         if (c.failed > 0) {
