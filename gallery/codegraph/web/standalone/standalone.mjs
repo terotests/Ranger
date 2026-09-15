@@ -151,7 +151,7 @@ canvas.addEventListener("wheel", (ev) => {
 function framePage() {
   const id = app.pageId() || "";
   if (id.startsWith("class:") || id.startsWith("method:")) {
-    if (!app.zoomToSelected()) app.fitView();
+    // showPage already fitted; zoom-to-selected at 30% hid neighbours.
     return;
   }
   app.fitView();
@@ -484,6 +484,11 @@ async function main() {
   if (example === "compiler" || GALLERY_LIBS.has(example) || EXAMPLES[example]) {
     sampleEl.value = example;
     await loadExample(example);
+  }
+  const openClass = params.get("open") || "";
+  if (openClass) {
+    app.openClass(openClass);
+    syncChrome();
   }
 }
 

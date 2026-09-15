@@ -3399,32 +3399,55 @@ class FlowEditor {
         view.viewport.fitRect(r view.width view.height 0.1)
     }
 
-    ; Frame the first selected node so its width is at least `minFrac` of the
-    ; view (0.3 → 30%). Already-larger boxes keep their zoom and are only
-    ; centred — or pinned to the top when they are taller than the view.
+    sfn titleBand:double (n:FlowNode) {
+        def titleH:double 28.0
+        if (n.headerHeight > 1.0) {
+            titleH = n.headerHeight
+        } {
+            if (n.height < titleH) {
+                titleH = n.height
+            }
+        }
+        if (titleH < 8.0) { titleH = 8.0 }
+        return titleH
+    }
+
+    fn selectedTitlePx:double () {
+        def n:FlowNode (this.selectedNode())
+        if ((strlen n.id) == 0) {
+            return 0.0
+        }
+        return ((FlowEditor.titleBand(n)) * view.viewport.zoom)
+    }
+
+    ; Raise zoom only until the selected title is ~10 px. Filling 30% of the
+    ; view (or requiring 18 px) hid neighbours that already fitted. `minFrac`
+    ; is kept for callers and ignored.
     fn zoomToSelected:boolean (minFrac:double) {
         def n:FlowNode (this.selectedNode())
         if ((strlen n.id) == 0) {
             return false
         }
-        def frac:double minFrac
-        if (frac < 0.05) { frac = 0.05 }
-        if (frac > 0.9) { frac = 0.9 }
         def vw:double view.width
         def vh:double view.height
         if (vw < 1.0) { return false }
         if (n.width < 1.0) { return false }
+        def titleH:double (FlowEditor.titleBand(n))
+        def zTitle:double (10.0 / titleH)
         def vp:FlowViewport view.viewport
-        def want:double ((frac * vw) / n.width)
-        def shown:double ((n.width * vp.zoom) / vw)
-        if (shown < frac) {
-            vp.zoom = (vp.clampZoom(want))
-        }
         def z:double vp.zoom
+        if (z < zTitle) {
+            z = zTitle
+        }
+        if (z > 1.0) {
+            if (zTitle <= 1.0) { z = 1.0 }
+        }
+        z = (vp.clampZoom(z))
+        vp.zoom = z
+        def pad:double 24.0
         def cx:double (n.centerX())
         vp.x = ((vw * 0.5) - (cx * z))
         def scaledH:double (n.height * z)
-        def pad:double 24.0
         if (scaledH <= (vh - (pad * 2.0))) {
             vp.y = ((vh * 0.5) - ((n.centerY()) * z))
         } {

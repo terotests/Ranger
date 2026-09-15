@@ -325,8 +325,9 @@ class CodeGraphWeb {
         return true
     }
 
-    ; A class page is a strip of methods plus every field type. fitView
-    ; shrinks the name off the screen; frame the class the page is about.
+    ; Select the class this page is about. Keep the fitted drawing when the
+    ; name is still readable (~10 px). Only then zoom in — 30% of the view
+    ; hid neighbours that already fitted.
     fn framePageFocus:void () {
         def id:string session.pageId
         def focus:string ""
@@ -345,7 +346,9 @@ class CodeGraphWeb {
         graph.clearSelection()
         def n:FlowNode (graph.nodeById(focus))
         n.selected = true
-        this.zoomToSelected()
+        if ((editor.selectedTitlePx()) < 10.0) {
+            this.zoomToSelected()
+        }
     }
 
     fn classList:string () {
@@ -645,9 +648,15 @@ class CodeGraphWeb {
         if ((this.zoomToSelected()) == false) {
             return "FAIL zoom to selected"
         }
+        def title0:double (n.headerHeight * editor.view.viewport.zoom)
+        if (n.headerHeight > 1.0) {
+            if (title0 < 9.5) {
+                return ("FAIL zoomed Order title is only " + (to_string title0) + " px")
+            }
+        }
         def shown:double ((n.width * editor.view.viewport.zoom) / editor.view.width)
-        if (shown < 0.29) {
-            return ("FAIL zoomed Order is only " + (to_string shown) + " of the view")
+        if (shown >= 0.29) {
+            return ("FAIL zoomed Order still fills " + (to_string shown) + " of the view")
         }
         def sx2:double (editor.view.viewport.toScreenX((n.centerX())))
         def sy2:double (editor.view.viewport.toScreenY((n.centerY())))
@@ -687,6 +696,14 @@ class CodeGraphWeb {
         if ((graph.hasPort("Cart.lines:r")) == false) {
             return "FAIL LineItem page missing Cart.lines port"
         }
+        def orderOnLine:FlowNode (graph.nodeById("Order"))
+        def oLineY:double (editor.view.viewport.toScreenY((orderOnLine.centerY())))
+        if (oLineY < 0.0) {
+            return "FAIL Order user panned off the LineItem page"
+        }
+        if (oLineY > viewH) {
+            return "FAIL Order user panned off the LineItem page"
+        }
         if ((this.openClass("Customer")) == false) {
             return "FAIL rail openClass Customer"
         }
@@ -698,6 +715,14 @@ class CodeGraphWeb {
         }
         if ((graph.hasPort("Order.customer:r")) == false) {
             return "FAIL Customer page missing Order.customer port"
+        }
+        def orderOnCust:FlowNode (graph.nodeById("Order"))
+        def oCustY:double (editor.view.viewport.toScreenY((orderOnCust.centerY())))
+        if (oCustY < 0.0) {
+            return "FAIL Order user panned off the Customer page"
+        }
+        if (oCustY > viewH) {
+            return "FAIL Order user panned off the Customer page"
         }
         return ("PASS nav ok; " + (this.stats()))
     }
