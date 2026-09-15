@@ -6,8 +6,8 @@
 ;
 ; Does not wait on a live VirtualCompiler analyse. The builder suite still
 ; walks fixtures/calls.rgr; this checks the EVG shell: layout, display list,
-; class rail, the same navigation self-test the page runs, and that Open-style
-; disk ingest follows `Import "../evg/…"` into the VFS.
+; Native Open gives an absolute path, so `Import "../../docx_viewer/src/X.rgr"`
+; has to collapse `..` without dropping the leading `/`.
 ;
 ;   npm run codegraph:app
 ; ============================================================================
@@ -80,6 +80,16 @@ class CodeGraphAppTest {
             print ("  FAIL collapsePath " + (app.collapsePath("gallery/css/../evg/EVGColor.rgr")))
             failed = (failed + 1)
         }
+        def mdRel:string (app.joinPath("gallery/markdown/src" "../../docx_viewer/src/RichDocument.rgr"))
+        if (mdRel != "gallery/docx_viewer/src/RichDocument.rgr") {
+            print ("  FAIL joinPath ../.. relative " + mdRel)
+            failed = (failed + 1)
+        }
+        def mdAbs:string (app.joinPath("/Users/x/Ranger/gallery/markdown/src" "../../docx_viewer/src/RichDocument.rgr"))
+        if (mdAbs != "/Users/x/Ranger/gallery/docx_viewer/src/RichDocument.rgr") {
+            print ("  FAIL joinPath ../.. absolute " + mdAbs)
+            failed = (failed + 1)
+        }
 
         def disk (new CodeGraphApp)
         disk.start(800.0 600.0 (unwrap css))
@@ -109,6 +119,60 @@ class CodeGraphAppTest {
                 failed = (failed + 1)
             }
             print ("  ingest CssCore → " + (to_string (disk.userFileCount())) + " user files")
+        }
+
+        def md (new CodeGraphApp)
+        md.start(800.0 600.0 (unwrap css))
+        if ((md.ingestDiskTree("gallery/markdown/src/MdToDocx.rgr")) == false) {
+            print "  FAIL ingestDiskTree MdToDocx.rgr"
+            failed = (failed + 1)
+        } {
+            if ((md.hasUserFile("RichDocument.rgr")) == false) {
+                print "  FAIL ingest missed RichDocument.rgr from ../../docx_viewer"
+                failed = (failed + 1)
+            }
+            if ((md.hasUserFile("Vfs.rgr")) == false) {
+                print "  FAIL ingest missed Vfs.rgr from ../../vfs"
+                failed = (failed + 1)
+            }
+            def mdSrc:string (md.userFileText("MdToDocx.rgr"))
+            if ((indexOf mdSrc "Import \"RichDocument.rgr\"") < 0) {
+                print "  FAIL ingested MdToDocx missing rewritten RichDocument Import"
+                failed = (failed + 1)
+            }
+            print ("  ingest MdToDocx → " + (to_string (md.userFileCount())) + " user files")
+        }
+
+        def absApp (new CodeGraphApp)
+        absApp.start(800.0 600.0 (unwrap css))
+        def absPath:string ((current_directory) + "/gallery/markdown/src/MdToDocx.rgr")
+        if ((absApp.ingestDiskTree(absPath)) == false) {
+            print ("  FAIL ingestDiskTree absolute MdToDocx " + absPath)
+            failed = (failed + 1)
+        } {
+            if ((absApp.hasUserFile("RichDocument.rgr")) == false) {
+                print "  FAIL absolute ingest missed RichDocument.rgr"
+                failed = (failed + 1)
+            }
+            if ((absApp.hasUserFile("Vfs.rgr")) == false) {
+                print "  FAIL absolute ingest missed Vfs.rgr"
+                failed = (failed + 1)
+            }
+            print ("  ingest abs MdToDocx → " + (to_string (absApp.userFileCount())) + " user files")
+        }
+
+        def deck (new CodeGraphApp)
+        deck.start(800.0 600.0 (unwrap css))
+        def absDeck:string ((current_directory) + "/gallery/markdown/src/MdDeckSync.rgr")
+        if ((deck.ingestDiskTree(absDeck)) == false) {
+            print "  FAIL ingestDiskTree absolute MdDeckSync.rgr"
+            failed = (failed + 1)
+        } {
+            if ((deck.hasUserFile("PptxModel.rgr")) == false) {
+                print "  FAIL absolute ingest missed PptxModel.rgr"
+                failed = (failed + 1)
+            }
+            print ("  ingest abs MdDeckSync → " + (to_string (deck.userFileCount())) + " user files")
         }
 
         if (failed > 0) {

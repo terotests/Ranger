@@ -428,8 +428,20 @@ class CodeGraphApp extends EvgApp {
         return (substring p 0 cut)
     }
 
+    fn isAbsPath:boolean (path:string) {
+        def p:string (this.slashPath(path))
+        if ((strlen p) == 0) {
+            return false
+        }
+        if ((indexOf p "/") == 0) {
+            return true
+        }
+        return false
+    }
+
     fn collapsePath:string (path:string) {
         def raw:string (this.slashPath(path))
+        def abs:boolean (this.isAbsPath(raw))
         def parts:[string] (strsplit raw "/")
         def out:[string]
         def i:int 0
@@ -443,7 +455,9 @@ class CodeGraphApp extends EvgApp {
                         if ((array_length out) > 0) {
                             removeLast out
                         } {
-                            push out p
+                            if (abs == false) {
+                                push out p
+                            }
                         }
                     } {
                         push out p
@@ -452,7 +466,11 @@ class CodeGraphApp extends EvgApp {
             }
             i = (i + 1)
         }
-        return (join out "/")
+        def joined:string (join out "/")
+        if abs {
+            return ("/" + joined)
+        }
+        return joined
     }
 
     fn joinPath:string (dir:string spec:string) {
