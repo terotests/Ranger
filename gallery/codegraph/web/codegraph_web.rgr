@@ -62,6 +62,11 @@ class CodeGraphWeb {
         editor = (FlowEditor.of(graph))
         editor.setSize(viewW viewH)
         editor.view.notation = "uml"
+        ; The explorer chrome is HTML (class list, history). RangerFlow's
+        ; editor strip — add-shape, minimap — is the wrong UI here.
+        editor.view.showMinimap = false
+        editor.view.showControls = false
+        editor.view.showNodeTools = false
         editor.fitView()
         status = session.status
         return true

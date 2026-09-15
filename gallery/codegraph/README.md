@@ -23,6 +23,8 @@ to thirty boxes do. Click a class in the rail or on the canvas to drill in.
 
 **License: AGPL-3.0-or-later** — see [`../LICENSE`](../LICENSE).
 
+![the explorer: class list on the left, one page of the shop on the canvas](artifacts/codegraph_shop.png)
+
 ## Run
 
 ```bash
