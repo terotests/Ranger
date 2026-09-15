@@ -23,6 +23,7 @@ Import "PptxModel.rgr"
 Import "PptxTextEdit.rgr"
 Import "PptxResolver.rgr"
 Import "../../office/editor/OfficeHistory.rgr"
+Import "../../office/text/OfficeCaretMotion.rgr"
 
 ; A rectangle in slide points. Ranger returns one value; a bounding box is four.
 class PptxEditRect {
@@ -3172,15 +3173,32 @@ class PptxEditor {
         }
     }
 
-    fn selectAllText:void () {
-        def hit@(optional):PptxShape (this.editingShape())
-        if (null? hit) {
-            return
+        fn selectAllText:void () {
+            def hit@(optional):PptxShape (this.editingShape())
+            if (null? hit) {
+                return
+            }
+            def sh:PptxShape (unwrap hit)
+            anchor = (PptxTextEdit.docStart(sh.text))
+            caret = (PptxTextEdit.docEnd(sh.text))
         }
-        def sh:PptxShape (unwrap hit)
-        anchor = (PptxTextEdit.docStart(sh.text))
-        caret = (PptxTextEdit.docEnd(sh.text))
-    }
+
+        ; The word under the caret, selected — what a double-click takes.
+        fn selectWord:void () {
+            def hit@(optional):PptxShape (this.editingShape())
+            if (null? hit) {
+                return
+            }
+            def sh:PptxShape (unwrap hit)
+            def line:string (PptxTextEdit.paraText(sh.text caret.para))
+            def ends:[int]
+            OfficeCaretMotion.wordAt(line caret.col ends)
+            if ((array_length ends) < 2) {
+                return
+            }
+            anchor = (PptxTextPos.of(caret.para (itemAt ends 0)))
+            caret = (PptxTextPos.of(caret.para (itemAt ends 1)))
+        }
 
     ; "left" "right" "up" "down" "home" "end" "wordLeft" "wordRight"
     fn moveCaretBy:boolean (dir:string extend:boolean) {

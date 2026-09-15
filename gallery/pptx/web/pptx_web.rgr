@@ -154,6 +154,13 @@ class PptxWeb {
         return took
     }
 
+    ; A double-click in a text box takes the word under the pointer.
+    fn selectWordAt:boolean (x:int y:int) {
+        def took:boolean (app.selectWordAt(x y))
+        app.render()
+        return took
+    }
+
     fn key:void (name:string) {
         this.keyMod(name false false)
     }

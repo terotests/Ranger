@@ -4778,6 +4778,33 @@ class PptxApp {
         return true
     }
 
+    ; A double-click on a word, once a caret is in the box — paint the word
+    ; rather than just sitting in it.
+    fn selectWordAt:boolean (px:int py:int) {
+        if (editor.isEditingText()) {
+            def edited@(optional):PptxShape (editor.editingShape())
+            if (!null? edited) {
+                def es:PptxShape (unwrap edited)
+                def sxPt:double (this.screenToSlideX(px))
+                def syPt:double (this.screenToSlideY(py))
+                if (PptxEditor.containsPoint(es sxPt syPt)) {
+                    def at:PptxTextPos (this.caretFromPoint(es px py))
+                    editor.setCaretPos(at.para at.col false)
+                    editor.selectWord()
+                    return true
+                }
+            }
+        }
+        if ((this.startTextEditAt(px py)) == false) {
+            return false
+        }
+        if (editor.isEditingText()) {
+            editor.selectWord()
+            return true
+        }
+        return false
+    }
+
     fn startTextEdit:boolean () {
         if ((editor.selectionCount()) != 1) {
             return false

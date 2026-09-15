@@ -408,6 +408,17 @@ export function attachPointer({ canvas, web, sceneSize, draw, afterInput, onFile
   canvas.addEventListener("pointermove", onMove);
   canvas.addEventListener("pointerup", onUp);
   canvas.addEventListener("pointercancel", onCancel);
+  // PointerEvent.detail is always 0, so a double-click cannot be seen from
+  // pointerdown. `dblclick` is a MouseEvent and carries the count.
+  const onDblClick = async (ev) => {
+    const { x, y } = coords(ev);
+    if (web.selectWordAt && web.selectWordAt(x, y)) {
+      settled();
+      await redraw();
+      settled();
+    }
+  };
+  canvas.addEventListener("dblclick", onDblClick);
 
   return {
     detach() {
@@ -417,6 +428,7 @@ export function attachPointer({ canvas, web, sceneSize, draw, afterInput, onFile
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp);
       canvas.removeEventListener("pointercancel", onCancel);
+      canvas.removeEventListener("dblclick", onDblClick);
     },
     /** An event's position in the display list's own coordinates. A page with
      *  a wheel or a context menu of its own needs the same arithmetic. */

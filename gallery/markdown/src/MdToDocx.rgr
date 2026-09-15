@@ -33,6 +33,7 @@ Import "MdEmbedKinds.rgr"
 Import "MdEmbed.rgr"
 Import "../../docx_viewer/src/RichDocument.rgr"
 Import "../../vfs/src/Vfs.rgr"
+Import "MdDocSync.rgr"
 
 class MdDocResult {
     def paragraphs:int 0
@@ -185,6 +186,7 @@ class MdToDocx {
             base.fontSizePt = (style.headingSize(node.level))
             base.bold = true
             this.inline(node p base)
+            MdDocSync.stamp(p node)
             result.headings = (result.headings + 1)
             return
         }
@@ -204,6 +206,9 @@ class MdToDocx {
             }
             def base:TextSpan (this.spanFor(false false false ""))
             this.inline(node p base)
+            if (listKind == 0) {
+                MdDocSync.stamp(p node)
+            }
             return
         }
         if (kind == "list") {

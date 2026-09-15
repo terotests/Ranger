@@ -103,6 +103,12 @@ class Paragraph {
     ; Latin brand name and is otherwise Arabic — which direction the line
     ; reads in, because the text alone would say the wrong one.
     def bidi:int -1
+    ; A heading (or paragraph) the markdown exporter placed, stamped with the
+    ; source span of its INNER text — the same maps a slide title carries, so
+    ; a retype in Word can patch document.md.
+    def mdSrcStart:int -1
+    def mdSrcEnd:int -1
+    def mdLastText:string ""
 
     ; ALL of this paragraph's formatting onto another, which is what splitting
     ; one in half needs.

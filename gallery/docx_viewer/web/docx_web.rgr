@@ -211,6 +211,13 @@ class DocxWeb {
         }
     }
 
+    ; A double-click takes the word under the caret.
+    fn selectWordAt:boolean (x:int y:int) {
+        this.framePointer(x y true true false false)
+        viewer.edit.selectWord()
+        return true
+    }
+
     fn typeText:void (s:string) {
         viewer.typeText(s)
     }

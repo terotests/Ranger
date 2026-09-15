@@ -125,6 +125,12 @@ class R5DocBase {
         from = source
         taken = true
     }
+
+    fn setKeyAt:void (i:int key:string) {
+        if (i < 0) { return }
+        if (i >= (array_length keys)) { return }
+        set_at keys i key
+    }
 }
 
 class R5Merge {
