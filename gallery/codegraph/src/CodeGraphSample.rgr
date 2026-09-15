@@ -150,4 +150,20 @@ class CodeGraphSample {
         g.addClass("Context")
         return g
     }
+
+    ; Enough fields and methods that an uncapped UML box would be a tower.
+    sfn fatClass:CodeGraph () {
+        def g (new CodeGraph)
+        g.title = "Fat"
+        def fat:CodeClass (g.addClass("Fat"))
+        fat.addField("peer" "Peer")
+        def k:int 0
+        while (k < 24) {
+            fat.addField(("f" + (to_string k)) "int")
+            g.addMethod("Fat" ("m" + (to_string k)))
+            k = (k + 1)
+        }
+        g.addClass("Peer")
+        return g
+    }
 }

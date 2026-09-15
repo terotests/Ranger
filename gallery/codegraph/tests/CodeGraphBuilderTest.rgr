@@ -4,8 +4,8 @@
 ; CodeGraphBuilderTest.rgr — the compiler's call graph, as a CodeGraph.
 ; ============================================================================
 ;
-; Runs VirtualCompiler over fixtures/calls.rgr and checks that
-; RangerFlowParser's isCalling / isUsingClasses survived the copy.
+; Runs VirtualCompiler over fixtures/calls.rgr and a few gallery libraries
+; (css, zip, evg) so the explorer's extra examples stay honest.
 ;
 ;   npm run codegraph:builder
 ; ============================================================================
@@ -92,10 +92,34 @@ class CodeGraphBuilderTest {
             failed = (failed + 1)
         }
         print (("classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
+        failed = (failed + (CodeGraphBuilderTest.checkLib("gallery/css/CssCore.rgr" "CssSheet" "EVGColor")))
+        failed = (failed + (CodeGraphBuilderTest.checkLib("gallery/zip/zip_tool.rgr" "ZipReader" "Inflate")))
+        failed = (failed + (CodeGraphBuilderTest.checkLib("gallery/evg/EVGElement.rgr" "EVGElement" "EVGBox")))
         if (failed > 0) {
             print (("failed " + (to_string failed)))
             exit 1
         }
         print "passed builder walk"
+    }
+
+    ; Compile a gallery library and require two classes on the graph.
+    sfn checkLib:int (path:string a:string b:string) {
+        print ("== " + path)
+        def g:CodeGraph (CodeGraphBuilder.fromFile(path))
+        if ((indexOf g.title " FAIL ") >= 0) {
+            print ("  FAIL " + g.title)
+            return 1
+        }
+        def n:int 0
+        if ((g.hasClass(a)) == false) {
+            print (("  FAIL " + a) + " missing from " + path)
+            n = (n + 1)
+        }
+        if ((g.hasClass(b)) == false) {
+            print (("  FAIL " + b) + " missing from " + path)
+            n = (n + 1)
+        }
+        print (("  classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
+        return n
     }
 }

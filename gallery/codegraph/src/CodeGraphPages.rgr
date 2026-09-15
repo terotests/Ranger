@@ -372,35 +372,18 @@ class CodeGraphPages {
             }
             fi = (fi + 1)
         }
-        def budget:int (maxNodes - (page.itemCount()))
+        ; Methods already live in the UML body. Drawing them again as green
+        ; stadiums under the box only duplicates each operation as a line
+        ; and a capsule. A leftover pager still reaches methods past the cap.
         def mids:[string] (c.methodIds)
-        def shown:int 0
-        def mi:int 0
-        while (mi < (array_length mids)) {
-            if (shown >= budget) {
-                mi = (array_length mids)
-            } {
-                if ((page.itemCount()) >= (maxNodes - 1)) {
-                    mi = (array_length mids)
-                } {
-                    def mid:string (itemAt mids mi)
-                    def m:CodeMethod (model.methodById(mid))
-                    def it:CodePageItem (CodePageItem.create(mid (m.signature()) "method"))
-                    it.fill = "#dcfce7"
-                    it.stroke = "#15803d"
-                    page.addItem(it)
-                    page.addLink(name mid)
-                    shown = (shown + 1)
-                    mi = (mi + 1)
-                }
-            }
+        def boxed:int (CodeGraphPages.umlMethodCap())
+        if (boxed > (array_length mids)) {
+            boxed = (array_length mids)
         }
-        def leftover:int ((array_length mids) - shown)
+        def leftover:int ((array_length mids) - boxed)
         if (leftover > 0) {
-            if ((array_length mids) > 0) {
-                def firstLeft:string (itemAt mids shown)
-                page.addItem((this.pagerItem("pager-methods" ("→ " + (to_string leftover) + " more methods") (this.methodPageId(firstLeft)))))
-            }
+            def firstLeft:string (itemAt mids boxed)
+            page.addItem((this.pagerItem("pager-methods" ("→ " + (to_string leftover) + " more methods") (this.methodPageId(firstLeft)))))
         }
         ; Types the methods of this class mention, if there is still room.
         def used:[string]
@@ -578,6 +561,65 @@ class CodeGraphPages {
             }
             i = (i + 1)
         }
+    }
+
+    ; How many attributes / operations the UML box lists before "+ N more".
+    sfn umlAttrCap:int () {
+        return 8
+    }
+
+    sfn umlMethodCap:int () {
+        return 8
+    }
+
+    sfn umlCatalogueAttrCap:int () {
+        return 4
+    }
+
+    sfn umlCatalogueMethodCap:int () {
+        return 3
+    }
+
+    sfn umlAttrRowCount:int (c:CodeClass compact:boolean) {
+        def cap:int (CodeGraphPages.umlAttrCap())
+        if compact {
+            cap = (CodeGraphPages.umlCatalogueAttrCap())
+        }
+        def n:int (array_length c.fields)
+        def shown:int n
+        if (shown > cap) {
+            shown = cap
+        }
+        if (n > shown) {
+            return (shown + 1)
+        }
+        return shown
+    }
+
+    ; Compartment row → method id. Attributes (and the "+ N more" field row)
+    ; occupy the first rows, in the same order asUml writes them. -1 / a field
+    ; row / the leftover operation row are not methods.
+    fn methodIdAtRow:string (className:string row:int) {
+        if (row < 0) {
+            return ""
+        }
+        if ((model.hasClass(className)) == false) {
+            return ""
+        }
+        def c:CodeClass (model.classByName(className))
+        def attrRows:int (CodeGraphPages.umlAttrRowCount(c false))
+        if (row < attrRows) {
+            return ""
+        }
+        def mi:int (row - attrRows)
+        def cap:int (CodeGraphPages.umlMethodCap())
+        if (mi >= cap) {
+            return ""
+        }
+        if (mi >= (array_length c.methodIds)) {
+            return ""
+        }
+        return (itemAt c.methodIds mi)
     }
 
     ; "Customer" or "[LineItem]" → the class name, or empty for a primitive.

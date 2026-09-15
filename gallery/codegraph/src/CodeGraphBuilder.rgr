@@ -193,4 +193,41 @@ class CodeGraphBuilder {
         }
         return nn.type_name
     }
+
+    ; Compile a Ranger file from the real disk and copy its call graph.
+    ; Used by the builder suite to walk gallery libraries (css, evg, zip).
+    sfn fromFile:CodeGraph (path:string) {
+        def empty (new CodeGraph)
+        empty.title = path
+        def env:InputEnv (new InputEnv)
+        env.use_real = true
+        env.setEnv("RANGER_LIB" "./compiler/;./lib/;./compiler")
+        def params:CmdParams (new CmdParams)
+        push params.values path
+        set params.params "l" "es6"
+        set params.params "o" "codegraph_gallery_ignored.js"
+        set params.flags "no-color" true
+        env.commandLine = params
+        def vc:VirtualCompiler (new VirtualCompiler)
+        def res:CompilerResults (vc.run(env))
+        if res.hasErrors {
+            empty.title = ((path + " FAIL ") + res.errorMessage)
+            return empty
+        }
+        def ctx@(optional):RangerAppWriterContext res.ctx
+        if (null? ctx) {
+            empty.title = (path + " FAIL no context")
+            return empty
+        }
+        def appCtx:RangerAppWriterContext (unwrap ctx)
+        if ((array_length appCtx.compilerErrors) > 0) {
+            def err:RangerCompilerMessage (itemAt appCtx.compilerErrors 0)
+            empty.title = ((path + " FAIL ") + err.description)
+            return empty
+        }
+        def b (new CodeGraphBuilder)
+        def g:CodeGraph (b.fromContext(appCtx))
+        g.title = path
+        return g
+    }
 }

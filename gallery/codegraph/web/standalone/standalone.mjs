@@ -31,6 +31,18 @@ const EXAMPLES = {
   "calls.rgr": "./examples/calls.rgr",
   "animals.rgr": "./examples/animals.rgr",
 };
+const GALLERY_LIBS = new Set(["css", "evg", "zip"]);
+const GALLERY_NOTES = {
+  css: `; gallery/css — CssCore.rgr and the EVGColor / EVGUnit leaves it Imports.
+; Opens on CssSheet. Source lives under gallery/css/, not this box.
+`,
+  evg: `; gallery/evg — EVGElement.rgr and the files it Imports (box, colour, SVG).
+; Opens on EVGElement. Source lives under gallery/evg/.
+`,
+  zip: `; gallery/zip — zip_tool.rgr, ZipReader, ZipWriter, Inflate.
+; Opens on ZipReader. Source lives under gallery/zip/.
+`,
+};
 const COMPILER_NOTE = `; Ranger compiler — VirtualCompiler.rgr and the files it Imports.
 ; Analyze walks every class (paged, ≤ 24 boxes). This takes a moment.
 ; The sources are loaded from compiler/, not typed in this box.
@@ -76,7 +88,7 @@ const VIEW_ONLY = new Set([
   "statusText", "stats", "selfTest", "sceneJson", "frameView", "frameScene",
   "frameGrid", "tick", "viewGesture", "classList", "crumb", "pageId",
   "pageTitle", "titleText", "sampleId", "umlView", "canBack", "canForward",
-  "svg", "hasCompiler", "hasCompilerTree", "hasSelection", "selectedId",
+  "svg", "hasCompiler", "hasCompilerTree", "hasGalleryTree", "hasSelection", "selectedId",
 ]);
 
 const rawApp = new (engineClass())();
@@ -136,6 +148,15 @@ canvas.addEventListener("wheel", (ev) => {
   app.wheelGesture(x, y, ev.deltaX, ev.deltaY, ev.ctrlKey || ev.metaKey, ev.deltaMode === 1);
 }, { passive: false });
 
+function framePage() {
+  const id = app.pageId() || "";
+  if (id.startsWith("class:") || id.startsWith("method:")) {
+    if (!app.zoomToSelected()) app.fitView();
+    return;
+  }
+  app.fitView();
+}
+
 function fillClasses() {
   const names = (app.classList() || "").split("\n").filter(Boolean);
   const current = app.pageId();
@@ -147,7 +168,7 @@ function fillClasses() {
     if (current === "class:" + name) b.className = "current";
     b.addEventListener("click", () => {
       if (app.openClass(name)) {
-        app.fitView();
+        framePage();
         syncChrome();
       }
     });
@@ -165,7 +186,9 @@ function syncChrome() {
   const canAnalyze = app.hasCompiler() && (
     id === "compiler"
       ? app.hasCompilerTree()
-      : sourceEl.value.trim().length > 0
+      : GALLERY_LIBS.has(id)
+        ? true
+        : sourceEl.value.trim().length > 0
   );
   analyzeEl.disabled = analyzing || !canAnalyze;
   backEl.disabled = !app.canBack();
@@ -221,6 +244,26 @@ async function installCompilerTree() {
   await compilerTreePromise;
 }
 
+let galleryTreePromise = null;
+
+async function installGalleryTree() {
+  if (app.hasGalleryTree()) return;
+  if (!galleryTreePromise) {
+    galleryTreePromise = (async () => {
+      const res = await fetch("./gallerySources.json");
+      if (!res.ok) {
+        throw new Error("gallerySources.json " + res.status);
+      }
+      const pack = await res.json();
+      const files = pack.files || pack;
+      for (const name of Object.keys(files)) {
+        app.setGalleryFile(name, files[name]);
+      }
+    })();
+  }
+  await galleryTreePromise;
+}
+
 async function analyzeCurrent(filename) {
   if (!app.hasCompiler()) {
     statusEl.textContent = "compiler libraries not loaded";
@@ -233,11 +276,15 @@ async function analyzeCurrent(filename) {
       await installCompilerTree();
       return !!(await Promise.resolve(app.analyzeCompiler()));
     }
+    if (GALLERY_LIBS.has(filename)) {
+      await installGalleryTree();
+      return !!(await Promise.resolve(app.analyzeGallery(filename)));
+    }
     const ok = await Promise.resolve(app.analyzeSource(sourceEl.value, filename));
     return !!ok;
   } finally {
     analyzing = false;
-    app.fitView();
+    framePage();
     syncChrome();
   }
 }
@@ -247,6 +294,11 @@ async function loadExample(name) {
   if (name === "compiler") {
     sourceEl.value = COMPILER_NOTE;
     await analyzeCurrent("compiler");
+    return;
+  }
+  if (GALLERY_LIBS.has(name)) {
+    sourceEl.value = GALLERY_NOTES[name] || ("; gallery/" + name + "\n");
+    await analyzeCurrent(name);
     return;
   }
   sourceEl.value = await fetchExample(name);
@@ -279,20 +331,20 @@ analyzeEl.addEventListener("click", async () => {
   }
 });
 backEl.addEventListener("click", () => {
-  if (app.goBack()) app.fitView();
+  if (app.goBack()) framePage();
   syncChrome();
 });
 fwdEl.addEventListener("click", () => {
-  if (app.goForward()) app.fitView();
+  if (app.goForward()) framePage();
   syncChrome();
 });
 document.getElementById("overview").addEventListener("click", () => {
-  if (app.goOverview()) app.fitView();
+  if (app.goOverview()) framePage();
   syncChrome();
 });
 umlEl.addEventListener("click", () => {
   app.setUml(!app.umlView());
-  app.fitView();
+  framePage();
   syncChrome();
 });
 document.getElementById("fit").addEventListener("click", () => app.fitView());
@@ -302,7 +354,7 @@ document.getElementById("zoomSel").addEventListener("click", () => {
 canvas.addEventListener("dblclick", (ev) => {
   const [x, y] = at(ev);
   if (app.openAt(x, y)) {
-    app.fitView();
+    framePage();
     syncChrome();
   }
 });
@@ -425,7 +477,7 @@ async function main() {
     return;
   }
   const example = params.get("example") || "calls.rgr";
-  if (example === "compiler" || EXAMPLES[example]) {
+  if (example === "compiler" || GALLERY_LIBS.has(example) || EXAMPLES[example]) {
     sampleEl.value = example;
     await loadExample(example);
   }

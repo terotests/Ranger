@@ -65,6 +65,7 @@ class CodeGraphTest {
         CodeGraphTest.testFieldLinks(c)
         CodeGraphTest.testAssocPorts(c)
         CodeGraphTest.testZoomSelected(c)
+        CodeGraphTest.testUmlCap(c)
         CodeGraphTest.testPaging(c)
         CodeGraphTest.testClicks(c)
         CodeGraphTest.testHistory(c)
@@ -92,7 +93,19 @@ class CodeGraphTest {
         c.ok("overview has class boxes" ((overview.itemCount()) > 3))
         def classPage:CodePage (pageMaker.pageOf("class:Order"))
         c.eqStr("class page id" classPage.kind "class")
-        c.ok("class page shows methods" ((classPage.itemCount()) > 2))
+        def hasStadium:boolean false
+        def si:int 0
+        while (si < (array_length classPage.items)) {
+            def sit:CodePageItem (itemAt classPage.items si)
+            if (sit.itemKind == "method") {
+                hasStadium = true
+            }
+            si = (si + 1)
+        }
+        c.ok("class page does not redraw methods as stadiums" (hasStadium == false))
+        c.eqStr("email is a field row" (pageMaker.methodIdAtRow("Customer" 0)) "")
+        c.eqStr("notify is the first operation" (pageMaker.methodIdAtRow("Customer" 1)) "Customer.notify")
+        c.eqStr("Order.total follows the three fields" (pageMaker.methodIdAtRow("Order" 3)) "Order.total")
         def methodPage:CodePage (pageMaker.pageOf("method:Order.checkout"))
         c.eqStr("method page id" methodPage.kind "method")
         c.ok("method page has neighbours" ((methodPage.itemCount()) > 3))
@@ -227,6 +240,29 @@ class CodeGraphTest {
         c.eqStr("still on UML" session.pageId "uml:0")
     }
 
+    sfn testUmlCap:void (c:CGChecker) {
+        c.section("UML catalogue caps fat classes")
+        def g:CodeGraph (CodeGraphSample.fatClass())
+        def session:CodeGraphSession (CodeGraphSession.of(g 24))
+        session.openInitial(session.pages.umlPageId(0))
+        def fg:FlowGraph (session.graph())
+        c.ok("Fat is on the UML page" (fg.hasNode("Fat")))
+        c.ok("the association still has a row port" (fg.hasPort("Fat.peer:r")))
+        c.ok("a primitive field past the cap has no handle" ((fg.hasPort("Fat.f10:r")) == false))
+        def n:FlowNode (fg.nodeById("Fat"))
+        c.ok("the catalogue box is not a tower" (n.height < 260.0))
+        session.goTo(session.pages.classPageId("Fat"))
+        def fg2:FlowGraph (session.graph())
+        def n2:FlowNode (fg2.nodeById("Fat"))
+        c.ok("the class page still names Fat" (fg2.hasNode("Fat")))
+        c.ok("and is taller than the catalogue slice" (n2.height > n.height))
+        c.ok("but still capped" (n2.height < 420.0))
+        def fatPages:CodeGraphPages (CodeGraphPages.of(g 24))
+        c.eqStr("capped fields are not methods" (fatPages.methodIdAtRow("Fat" 0)) "")
+        c.eqStr("the leftover field row is not a method" (fatPages.methodIdAtRow("Fat" 8)) "")
+        c.eqStr("the first operation follows the capped fields" (fatPages.methodIdAtRow("Fat" 9)) "Fat.m0")
+    }
+
     sfn testPaging:void (c:CGChecker) {
         c.section("a 40-class graph pages")
         def g:CodeGraph (CodeGraphSample.manyClasses(40))
@@ -268,6 +304,8 @@ class CodeGraphTest {
         ev.id = "Order"
         c.ok("clicking Order drills in" (session.handleClick(ev)))
         c.eqStr("to the class page" session.pageId "class:Order")
+        def orderGraph:FlowGraph (session.graph())
+        c.ok("the class page has no checkout stadium" ((orderGraph.hasNode("Order.checkout")) == false))
         def ev2 (new FlowHitEvent)
         ev2.kind = "node"
         ev2.dataKind = "method"

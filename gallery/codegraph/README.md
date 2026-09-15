@@ -51,12 +51,17 @@ npm run codegraph:web:serve    # …and serve it (port 8081)
 npm run codegraph:web:test     # headless Chrome: click Order, go back, compile calls.rgr
 ```
 
-Open `/codegraph/` and pick **calls.rgr**, **animals.rgr**, or **Ranger compiler**.
+Open `/codegraph/` and pick **calls.rgr**, **animals.rgr**, **css**, **evg**,
+**zip**, or **Ranger compiler**.
 The source is in the left rail; **Analyze with VirtualCompiler** rebuilds the
 graph from it. The compiler sample walks `VirtualCompiler.rgr` and every file
-it Imports — a large class graph, paged, and it takes a moment.
+it Imports — a large class graph, paged, and it takes a moment. `css` / `evg`
+/ `zip` are the same walk over smaller gallery libraries, and they open on
+CssSheet / EVGElement / ZipReader so the first drawing is a class page rather
+than a catalogue of every compartment.
 
 `?example=animals.rgr` opens the farm; `?example=compiler` walks the compiler;
+`?example=css` / `evg` / `zip` walk those libraries;
 `?sample=shop` skips the compiler and loads the fixture (UML with field links).
 
 ## What to click
@@ -65,7 +70,7 @@ it Imports — a large class graph, paged, and it takes a moment.
 | --- | --- |
 | a **class** in the left rail | that class: fields, methods, types it uses |
 | a **class** box on the canvas | the same |
-| a **method** stadium | callers, callees, data structures |
+| a **method row** in a UML box | callers, callees, types that method uses |
 | a **hexagon arrow** on the edge | the next / previous window of the same view |
 | **UML** | the overview as compartment UML boxes |
 | **← / →** | history back / forward |
@@ -97,6 +102,7 @@ and keeps classes whose source path matches the file you named.
 | `web/codegraph_web.rgr` | the explorer facade | **yes** (in-tab analyse) |
 | `fixtures/calls.rgr` | Order / LineItem / Checkout | compiled live |
 | `fixtures/animals.rgr` | Farm.animals:[Animal], Dog / Cat | compiled live |
+| `gallery/css`, `evg`, `zip` | CssCore / EVGElement / ZipReader | compiled live |
 
 RangerFlow is imported as a **library** (`gallery/rangerflow/core`, layout,
 export). This app does not live in RangerFlow's demo dropdown.

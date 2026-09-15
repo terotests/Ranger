@@ -30,7 +30,10 @@ class CodeGraphFlow {
         def i:int 0
         while (i < (array_length page.items)) {
             def it:CodePageItem (itemAt page.items i)
-            def n:FlowNode (CodeGraphFlow.itemNode(model uml it))
+            ; A UML catalogue of twenty fat classes is unreadably small after
+            ; fitView. Compact compartments there; a class page keeps more.
+            def compact:boolean (page.kind == "uml")
+            def n:FlowNode (CodeGraphFlow.itemNode(model uml it compact))
             g.addNode(n)
             i = (i + 1)
         }
@@ -66,16 +69,16 @@ class CodeGraphFlow {
         return g
     }
 
-    sfn itemNode:FlowNode (model:CodeGraph uml:UMLToGraph it:CodePageItem) {
+    sfn itemNode:FlowNode (model:CodeGraph uml:UMLToGraph it:CodePageItem compact:boolean) {
         if (it.itemKind == "umlclass") {
             if (model.hasClass(it.id)) {
                 def c:CodeClass (model.classByName(it.id))
-                def u:UMLClass (CodeGraphFlow.asUml(c model))
+                def u:UMLClass (CodeGraphFlow.asUml(c model compact))
                 def n:FlowNode (uml.classNode(u))
                 n.dataKind = it.dataKind
                 n.dataRef = it.dataRef
                 n.cssClass = "codegraph class"
-                n.tooltip = (c.name + " — click to select, double-click to open methods")
+                n.tooltip = (c.name + " — click a method row to open it")
                 if ((strlen it.fill) > 0) {
                     n.bgColor = it.fill
                 }
@@ -130,28 +133,49 @@ class CodeGraphFlow {
         return n2
     }
 
-    sfn asUml:UMLClass (c:CodeClass model:CodeGraph) {
+    sfn asUml:UMLClass (c:CodeClass model:CodeGraph compact:boolean) {
         def u:UMLClass (UMLClass.create(c.name))
         u.stereotype = c.stereotype
+        def attrCap:int (CodeGraphPages.umlAttrCap())
+        def opCap:int (CodeGraphPages.umlMethodCap())
+        if compact {
+            attrCap = (CodeGraphPages.umlCatalogueAttrCap())
+            opCap = (CodeGraphPages.umlCatalogueMethodCap())
+        }
+        ; Association fields first so Order.customer still has a row port
+        ; when the rest of a fat class is folded into "+ N more".
+        def assoc:[CodeField]
+        def rest:[CodeField]
         def fi:int 0
         while (fi < (array_length c.fields)) {
             def f:CodeField (itemAt c.fields fi)
-            def mem:UMLMember (u.attribute("-" f.name f.fieldType))
             def typeName:string (CodeGraphPages.classNameOfType(f.fieldType))
-            if ((strlen typeName) == 0) {
-                mem.wantPort = false
-            } {
-                if ((model.hasClass(typeName)) == false) {
-                    mem.wantPort = false
+            def isAssoc:boolean false
+            if ((strlen typeName) > 0) {
+                if (model.hasClass(typeName)) {
+                    isAssoc = true
                 }
+            }
+            if isAssoc {
+                push assoc f
+            } {
+                push rest f
             }
             fi = (fi + 1)
         }
+        def shown:int 0
+        shown = (CodeGraphFlow.addUmlFields(u model assoc shown attrCap))
+        shown = (CodeGraphFlow.addUmlFields(u model rest shown attrCap))
+        def leftover:int ((array_length c.fields) - shown)
+        if (leftover > 0) {
+            def moreA:UMLMember (u.attribute("" ("+" + (to_string leftover) + " more") ""))
+            moreA.wantPort = false
+        }
         def mi:int 0
-        def cap:int 8
+        def opsShown:int 0
         while (mi < (array_length c.methodIds)) {
-            if (mi >= cap) {
-                def more:UMLMember (u.operation("+" ("+" + (to_string ((array_length c.methodIds) - cap)) + " more") "" ""))
+            if (opsShown >= opCap) {
+                def more:UMLMember (u.operation("+" ("+" + (to_string ((array_length c.methodIds) - opCap)) + " more") "" ""))
                 more.wantPort = false
                 mi = (array_length c.methodIds)
             } {
@@ -162,10 +186,34 @@ class CodeGraphFlow {
                 }
                 def op:UMLMember (u.operation(vis m.name m.params m.returns))
                 op.wantPort = false
+                opsShown = (opsShown + 1)
                 mi = (mi + 1)
             }
         }
         return u
+    }
+
+    sfn addUmlFields:int (u:UMLClass model:CodeGraph fields:[CodeField] shown:int cap:int) {
+        def i:int 0
+        def n:int shown
+        while (i < (array_length fields)) {
+            if (n >= cap) {
+                return n
+            }
+            def f:CodeField (itemAt fields i)
+            def mem:UMLMember (u.attribute("-" f.name f.fieldType))
+            def typeName:string (CodeGraphPages.classNameOfType(f.fieldType))
+            if ((strlen typeName) == 0) {
+                mem.wantPort = false
+            } {
+                if ((model.hasClass(typeName)) == false) {
+                    mem.wantPort = false
+                }
+            }
+            n = (n + 1)
+            i = (i + 1)
+        }
+        return n
     }
 
     sfn layout:void (g:FlowGraph kind:string) {
@@ -331,7 +379,14 @@ class CodeGraphSession {
 
     fn describe:string () {
         def p:CodePage (this.currentPage())
-        return (((((p.title + " · ") + (to_string (p.itemCount()))) + " boxes (max ") + (to_string pages.maxNodes)) + ") — click a UML class to select it, Zoom to selected to read it, double-click to open methods")
+        def head:string ((((p.title + " · ") + (to_string (p.itemCount()))) + " boxes (max ") + (to_string pages.maxNodes))
+        if (p.kind == "class") {
+            return (head + ") — click a method row to open it, a related class to walk there")
+        }
+        if (p.kind == "uml") {
+            return (head + ") — click a UML class to select it, Zoom to selected to read it, double-click to open")
+        }
+        return (head + ") — click a box to open it")
     }
 
     fn goTo:boolean (nextId:string) {
