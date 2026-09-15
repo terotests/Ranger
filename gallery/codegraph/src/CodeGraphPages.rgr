@@ -42,6 +42,9 @@ class CodePageLink {
     def toId:string ""
     def label:string ""
     def dashed:boolean false
+    ; "" call-graph, "inherit", "assoc" (a field whose type is another class)
+    def kind:string ""
+    def fieldName:string ""
 
     Constructor () {
     }
@@ -95,6 +98,34 @@ class CodePage {
         e.dashed = true
         e.label = label
         push links e
+    }
+
+    fn addInherit:void (fromId:string toId:string) {
+        def e:CodePageLink (CodePageLink.create(fromId toId))
+        e.kind = "inherit"
+        push links e
+    }
+
+    fn addAssoc:void (fromId:string toId:string fieldName:string) {
+        if (fromId == toId) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length links)) {
+            def e:CodePageLink (itemAt links i)
+            if (e.fromId == fromId) {
+                if (e.toId == toId) {
+                    if (e.fieldName == fieldName) {
+                        return
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def n:CodePageLink (CodePageLink.create(fromId toId))
+        n.kind = "assoc"
+        n.fieldName = fieldName
+        push links n
     }
 }
 
@@ -216,16 +247,8 @@ class CodeGraphPages {
             page.addItem(it)
             if ((strlen c.extendsName) > 0) {
                 def parent:string c.extendsName
-                def k:int start
-                def parentOnPage:boolean false
-                while (k < last) {
-                    if ((itemAt names k) == parent) {
-                        parentOnPage = true
-                    }
-                    k = (k + 1)
-                }
-                if parentOnPage {
-                    page.addLink(name parent)
+                if (this.nameInRange(names parent start last)) {
+                    page.addInherit(name parent)
                 }
             }
             i = (i + 1)
@@ -247,7 +270,7 @@ class CodeGraphPages {
         def page (new CodePage)
         page.kind = "uml"
         page.id = (this.umlPageId(index))
-        def budget:int (maxNodes - 2)
+        def budget:int (maxNodes - 1)
         if (budget < 4) {
             budget = 4
         }
@@ -263,7 +286,6 @@ class CodeGraphPages {
             last = total
         }
         page.title = (((model.title + " · UML ") + (to_string (start + 1))) + "–" + (to_string last))
-        page.addItem((this.backItem("pager-back" "← classes" (this.overviewId(index)))))
         def i:int start
         while (i < last) {
             def name:string (itemAt names i)
@@ -278,11 +300,12 @@ class CodeGraphPages {
             if ((strlen c.extendsName) > 0) {
                 def parent:string c.extendsName
                 if (this.nameInRange(names parent start last)) {
-                    page.addLink(name parent)
+                    page.addInherit(name parent)
                 }
             }
             i = (i + 1)
         }
+        this.addFieldLinks(page names start last)
         if (last < total) {
             page.addItem((this.pagerItem("pager-next" ("→ more UML (" + (to_string (total - last)) + ")") (this.umlPageId((index + 1))))))
         }
@@ -307,7 +330,7 @@ class CodeGraphPages {
         }
         def c:CodeClass (model.classByName(name))
         page.title = (name + " · " + (to_string (c.methodCount())) + " methods")
-        page.addItem((this.backItem("pager-back" "← overview" (this.overviewId(0)))))
+        page.addItem((this.backItem("pager-back" "← UML" (this.umlPageId(0)))))
         def self:CodePageItem (CodePageItem.create(name name "umlclass"))
         self.dataKind = "class"
         self.dataRef = name
@@ -316,12 +339,38 @@ class CodeGraphPages {
         page.addItem(self)
         if ((strlen c.extendsName) > 0) {
             def pName:string c.extendsName
-            def parent:CodePageItem (CodePageItem.create(pName pName "class"))
+            def parent:CodePageItem (CodePageItem.create(pName pName "umlclass"))
+            parent.dataKind = "class"
+            parent.dataRef = pName
             parent.fill = "#e0e7ff"
             parent.stroke = "#3730a3"
             parent.extra = "extends"
             page.addItem(parent)
-            page.addLink(name pName)
+            page.addInherit(name pName)
+        }
+        ; Field types that name another class — Order.customer → Customer.
+        def fi:int 0
+        while (fi < (array_length c.fields)) {
+            def f:CodeField (itemAt c.fields fi)
+            def tName:string (CodeGraphPages.classNameOfType(f.fieldType))
+            if ((strlen tName) > 0) {
+                if (tName != name) {
+                    if ((this.pageHasId(page tName)) == false) {
+                        if ((page.itemCount()) < (maxNodes - 1)) {
+                            def tItem:CodePageItem (CodePageItem.create(tName tName "umlclass"))
+                            tItem.dataKind = "class"
+                            tItem.dataRef = tName
+                            tItem.fill = "#eff6ff"
+                            tItem.stroke = "#1e3a8a"
+                            page.addItem(tItem)
+                        }
+                    }
+                    if (this.pageHasId(page tName)) {
+                        page.addAssoc(name tName f.name)
+                    }
+                }
+            }
+            fi = (fi + 1)
         }
         def budget:int (maxNodes - (page.itemCount()))
         def mids:[string] (c.methodIds)
@@ -505,6 +554,58 @@ class CodeGraphPages {
         if (leftover > 0) {
             page.addItem((this.pagerItem("pager-types" ("→ " + (to_string leftover) + " more types") (this.methodPageId(focusId)))))
         }
+    }
+
+    fn addFieldLinks:void (page:CodePage names:[string] start:int last:int) {
+        def i:int start
+        while (i < last) {
+            def name:string (itemAt names i)
+            if (model.hasClass(name)) {
+                def c:CodeClass (model.classByName(name))
+                def fi:int 0
+                while (fi < (array_length c.fields)) {
+                    def f:CodeField (itemAt c.fields fi)
+                    def tName:string (CodeGraphPages.classNameOfType(f.fieldType))
+                    if ((strlen tName) > 0) {
+                        if (tName != name) {
+                            if (this.nameInRange(names tName start last)) {
+                                page.addAssoc(name tName f.name)
+                            }
+                        }
+                    }
+                    fi = (fi + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; "Customer" or "[LineItem]" → the class name, or empty for a primitive.
+    sfn classNameOfType:string (fieldType:string) {
+        def t:string fieldType
+        def n:int (strlen t)
+        if (n >= 3) {
+            if ((charAt t 0) == (ccode "[")) {
+                if ((charAt t (n - 1)) == (ccode "]")) {
+                    t = (substring t 1 (n - 1))
+                    n = (strlen t)
+                }
+            }
+        }
+        if (n == 0) {
+            return ""
+        }
+        if (t == "string") { return "" }
+        if (t == "int") { return "" }
+        if (t == "double") { return "" }
+        if (t == "boolean") { return "" }
+        if (t == "void") { return "" }
+        if (t == "char") { return "" }
+        if (t == "charbuffer") { return "" }
+        if (t == "buffer") { return "" }
+        if (t == "any") { return "" }
+        if (t == "enum") { return "" }
+        return t
     }
 
     fn pagerItem:CodePageItem (id:string label:string target:string) {

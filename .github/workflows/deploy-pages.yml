@@ -633,6 +633,8 @@ jobs:
           test -s "$GITHUB_WORKSPACE/_site/codegraph/compileEnv.json"
           test -s "$GITHUB_WORKSPACE/_site/codegraph/examples/calls.rgr"
           test -s "$GITHUB_WORKSPACE/_site/codegraph/examples/animals.rgr"
+          test -s "$GITHUB_WORKSPACE/_site/codegraph/compilerSources.json"
+          grep -q "VirtualCompiler.rgr" "$GITHUB_WORKSPACE/_site/codegraph/compilerSources.json"
           test -s "$GITHUB_WORKSPACE/_site/codegraph/gl/evg-webgl.js"
           test -s "$GITHUB_WORKSPACE/_site/codegraph/fonts/NotoSans-Regular.ttf"
           grep -q "CodeGraphWeb" "$GITHUB_WORKSPACE/_site/codegraph/codegraph_web.js"

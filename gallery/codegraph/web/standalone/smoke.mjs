@@ -139,12 +139,20 @@ async function main() {
     const shot = argVal("--shot", "");
     if (shot) {
       fs.mkdirSync(path.dirname(path.resolve(shot)), { recursive: true });
-      await runChrome(chrome, [
-        ...CHROME_FLAGS, "--virtual-time-budget=15000",
-        "--window-size=1440,900", "--screenshot=" + path.resolve(shot),
-        `http://127.0.0.1:${PORT}/index.html`,
-      ]);
-      console.log("  wrote " + shot);
+      const shotDir = path.dirname(path.resolve(shot));
+      const shots = [
+        [path.resolve(shot), "http://127.0.0.1:" + PORT + "/index.html"],
+        [path.join(shotDir, "codegraph_shop.png"), "http://127.0.0.1:" + PORT + "/index.html?sample=shop"],
+        [path.join(shotDir, "codegraph_animals.png"), "http://127.0.0.1:" + PORT + "/index.html?example=animals.rgr"],
+      ];
+      for (const [file, url] of shots) {
+        await runChrome(chrome, [
+          ...CHROME_FLAGS, "--virtual-time-budget=15000",
+          "--window-size=1440,900", "--screenshot=" + file,
+          url,
+        ]);
+        console.log("  wrote " + file);
+      }
     }
     console.log("  OK");
   } finally {

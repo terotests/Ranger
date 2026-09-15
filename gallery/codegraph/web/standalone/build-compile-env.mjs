@@ -26,13 +26,10 @@ function readRgr(relPath) {
   return fs.readFileSync(full, "utf8");
 }
 
-const libFiles = [
-  "stdlib.rgr",
-  "stdops.rgr",
-  "RangerProcess.rgr",
-  "Timers.rgr",
-  "JSON.rgr",
-];
+const libDir = path.join(rangerRoot, "lib");
+const libFiles = fs.readdirSync(libDir)
+  .filter((name) => name.endsWith(".rgr") && name !== "shell_test.rgr")
+  .sort();
 
 const env = {
   use_real: false,

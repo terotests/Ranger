@@ -35,6 +35,7 @@ class CodeGraphWeb {
     def status:string ""
     def rootFiles:[string:string]
     def libFiles:[string:string]
+    def compilerFiles:[string:string]
 
     Constructor () {
     }
@@ -58,8 +59,16 @@ class CodeGraphWeb {
         set libFiles name data
     }
 
+    fn setCompilerFile:void (name:string data:string) {
+        set compilerFiles name data
+    }
+
     fn hasCompiler:boolean () {
         return (has rootFiles "Lang.rgr")
+    }
+
+    fn hasCompilerTree:boolean () {
+        return (has compilerFiles "VirtualCompiler.rgr")
     }
 
     fn loadSample:boolean (name:string) {
@@ -71,32 +80,55 @@ class CodeGraphWeb {
             model = (CodeGraphSample.shop())
             sampleName = "shop"
         }
-        umlOn = false
+        umlOn = true
         session = (CodeGraphSession.of(model 24))
+        session.openInitial(session.pages.umlPageId(0))
         return (this.showPage())
     }
 
     fn applyGraph:boolean (g:CodeGraph name:string) {
         sampleName = name
-        umlOn = false
+        umlOn = true
         session = (CodeGraphSession.of(g 24))
+        session.openInitial(session.pages.umlPageId(0))
         return (this.showPage())
     }
 
     ; Compile `source` with the in-memory VirtualCompiler (Lang.rgr + /lib/
     ; installed through setRootFile / setLibFile) and replace the drawing.
     fn analyzeSource:boolean (source:string filename:string) {
-        if ((this.hasCompiler()) == false) {
-            status = "compiler libraries not loaded"
+        return (this.runAnalyze(source filename filename))
+    }
+
+    ; The compiler's own tree: VirtualCompiler.rgr plus every file it Imports,
+    ; already installed with setCompilerFile. fileFilter stays empty so every
+    ; compiler class is kept, not just the entry file.
+    fn analyzeCompiler:boolean () {
+        if ((this.hasCompilerTree()) == false) {
+            status = "compiler sources not loaded"
             return false
         }
-        if ((strlen source) == 0) {
-            status = "no source"
+        def ok:boolean (this.runAnalyze("" "VirtualCompiler.rgr" ""))
+        if ok {
+            sampleName = "compiler"
+        }
+        return ok
+    }
+
+    fn runAnalyze:boolean (source:string filename:string filter:string) {
+        if ((this.hasCompiler()) == false) {
+            status = "compiler libraries not loaded"
             return false
         }
         def fname:string filename
         if ((strlen fname) == 0) {
             fname = "example.rgr"
+        }
+        if ((strlen source) == 0) {
+            if ((strlen filter) > 0) {
+                status = "no source"
+                return false
+            }
         }
         status = ("compiling " + fname + "…")
         def env:InputEnv (new InputEnv)
@@ -104,7 +136,7 @@ class CodeGraphWeb {
         def fs:InputFSFolder (new InputFSFolder)
         fs.name = ""
         env.filesystem = fs
-        env.setEnv("RANGER_LIB" "/;/lib/")
+        env.setEnv("RANGER_LIB" "/;/lib/;/compiler/")
         def params:CmdParams (new CmdParams)
         push params.values fname
         set params.params "l" "es6"
@@ -118,7 +150,9 @@ class CodeGraphWeb {
             create_file fs rn (unwrap (get rootFiles rn))
             ri = (ri + 1)
         }
-        create_file fs fname source
+        if ((strlen source) > 0) {
+            create_file fs fname source
+        }
         def libF@(optional):InputFSFolder (create_folder fs "lib")
         if (null? libF) {
             status = "could not create lib folder"
@@ -132,6 +166,7 @@ class CodeGraphWeb {
             create_file libDir ln (unwrap (get libFiles ln))
             li = (li + 1)
         }
+        this.installCompilerTree(fs)
         def vc:VirtualCompiler (new VirtualCompiler)
         def res:CompilerResults (vc.run(env))
         if res.hasErrors {
@@ -150,7 +185,7 @@ class CodeGraphWeb {
             return false
         }
         def b (new CodeGraphBuilder)
-        b.fileFilter = fname
+        b.fileFilter = filter
         def g:CodeGraph (b.fromContext(appCtx))
         g.title = fname
         if ((g.classCount()) == 0) {
@@ -158,6 +193,24 @@ class CodeGraphWeb {
             return false
         }
         return (this.applyGraph(g fname))
+    }
+
+    fn installCompilerTree:void (fs:InputFSFolder) {
+        def names:[string] (keys compilerFiles)
+        if ((array_length names) == 0) {
+            return
+        }
+        def compF@(optional):InputFSFolder (create_folder fs "compiler")
+        if (null? compF) {
+            return
+        }
+        def compDir:InputFSFolder (unwrap compF)
+        def i:int 0
+        while (i < (array_length names)) {
+            def n:string (itemAt names i)
+            create_file compDir n (unwrap (get compilerFiles n))
+            i = (i + 1)
+        }
     }
 
     fn showPage:boolean () {
@@ -364,8 +417,11 @@ class CodeGraphWeb {
         }
         this.loadSample("shop")
         editor.fitView()
+        if (session.pageId != "uml:0") {
+            return ("FAIL shop did not open UML (on " + session.pageId + ")")
+        }
         if ((graph.hasNode("Order")) == false) {
-            return "FAIL shop overview has no Order"
+            return "FAIL shop UML has no Order"
         }
         def n:FlowNode (graph.nodeById("Order"))
         def sx:double (editor.view.viewport.toScreenX((n.centerX())))
@@ -381,7 +437,7 @@ class CodeGraphWeb {
         if ((this.goBack()) == false) {
             return "FAIL back from Order"
         }
-        if (session.pageId != "overview:0") {
+        if (session.pageId != "uml:0") {
             return ("FAIL back stayed on " + session.pageId)
         }
         if ((this.openClass("LineItem")) == false) {

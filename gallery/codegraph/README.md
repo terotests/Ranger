@@ -32,9 +32,11 @@ The same page is published at
 **[terotests.github.io/Ranger/codegraph/](https://terotests.github.io/Ranger/codegraph/)**
 by the Pages workflow.
 
-![the explorer after VirtualCompiler walked calls.rgr: Order, LineItem, Checkout](artifacts/codegraph_calls.png)
+![calls.rgr after VirtualCompiler: Order.items points at LineItem](artifacts/codegraph_calls.png)
 
-![the explorer: class list on the left, one page of the shop on the canvas](artifacts/codegraph_shop.png)
+![animals.rgr: Farm.animals:[Animal] and Dog/Cat inherit Animal](artifacts/codegraph_animals.png)
+
+![the shop fixture as UML, field types drawn as associations](artifacts/codegraph_shop.png)
 
 ## Run
 
@@ -49,10 +51,13 @@ npm run codegraph:web:serve    # …and serve it (port 8081)
 npm run codegraph:web:test     # headless Chrome: click Order, go back, compile calls.rgr
 ```
 
-Open `/codegraph/` and pick **calls.rgr** or **animals.rgr**. The source is in
-the left rail; **Analyze with VirtualCompiler** rebuilds the graph from it.
-`?example=animals.rgr` opens that file; `?sample=shop` skips the compiler and
-loads the fixture.
+Open `/codegraph/` and pick **calls.rgr**, **animals.rgr**, or **Ranger compiler**.
+The source is in the left rail; **Analyze with VirtualCompiler** rebuilds the
+graph from it. The compiler sample walks `VirtualCompiler.rgr` and every file
+it Imports — a large class graph, paged, and it takes a moment.
+
+`?example=animals.rgr` opens the farm; `?example=compiler` walks the compiler;
+`?sample=shop` skips the compiler and loads the fixture (UML with field links).
 
 ## What to click
 
@@ -91,7 +96,7 @@ and keeps classes whose source path matches the file you named.
 | `src/CodeGraphBuilder.rgr` | `RangerAppWriterContext` → IR | **yes** |
 | `web/codegraph_web.rgr` | the explorer facade | **yes** (in-tab analyse) |
 | `fixtures/calls.rgr` | Order / LineItem / Checkout | compiled live |
-| `fixtures/animals.rgr` | Animal / Dog / Cat / Farm | compiled live |
+| `fixtures/animals.rgr` | Farm.animals:[Animal], Dog / Cat | compiled live |
 
 RangerFlow is imported as a **library** (`gallery/rangerflow/core`, layout,
 export). This app does not live in RangerFlow's demo dropdown.

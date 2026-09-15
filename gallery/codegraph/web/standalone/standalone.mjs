@@ -31,6 +31,10 @@ const EXAMPLES = {
   "calls.rgr": "./examples/calls.rgr",
   "animals.rgr": "./examples/animals.rgr",
 };
+const COMPILER_NOTE = `; Ranger compiler — VirtualCompiler.rgr and the files it Imports.
+; Analyze walks every class (paged, ≤ 24 boxes). This takes a moment.
+; The sources are loaded from compiler/, not typed in this box.
+`;
 
 const gl = canvas.getContext("webgl2", {
   antialias: true,
@@ -72,7 +76,7 @@ const VIEW_ONLY = new Set([
   "statusText", "stats", "selfTest", "sceneJson", "frameView", "frameScene",
   "frameGrid", "tick", "viewGesture", "classList", "crumb", "pageId",
   "pageTitle", "titleText", "sampleId", "umlView", "canBack", "canForward",
-  "svg", "hasCompiler",
+  "svg", "hasCompiler", "hasCompilerTree",
 ]);
 
 const rawApp = new (engineClass())();
@@ -158,7 +162,12 @@ function syncChrome() {
     sampleEl.value = id;
   }
   sourceEl.disabled = FIXTURES.has(id);
-  analyzeEl.disabled = analyzing || !app.hasCompiler() || sourceEl.value.trim().length === 0;
+  const canAnalyze = app.hasCompiler() && (
+    id === "compiler"
+      ? app.hasCompilerTree()
+      : sourceEl.value.trim().length > 0
+  );
+  analyzeEl.disabled = analyzing || !canAnalyze;
   backEl.disabled = !app.canBack();
   fwdEl.disabled = !app.canForward();
   umlEl.classList.toggle("on", !!app.umlView());
@@ -190,6 +199,26 @@ async function fetchExample(name) {
   return res.text();
 }
 
+let compilerTreePromise = null;
+
+async function installCompilerTree() {
+  if (app.hasCompilerTree()) return;
+  if (!compilerTreePromise) {
+    compilerTreePromise = (async () => {
+      const res = await fetch("./compilerSources.json");
+      if (!res.ok) {
+        throw new Error("compilerSources.json " + res.status);
+      }
+      const pack = await res.json();
+      const files = pack.files || pack;
+      for (const name of Object.keys(files)) {
+        app.setCompilerFile(name, files[name]);
+      }
+    })();
+  }
+  await compilerTreePromise;
+}
+
 async function analyzeCurrent(filename) {
   if (!app.hasCompiler()) {
     statusEl.textContent = "compiler libraries not loaded";
@@ -198,6 +227,10 @@ async function analyzeCurrent(filename) {
   analyzing = true;
   analyzeEl.disabled = true;
   try {
+    if (filename === "compiler") {
+      await installCompilerTree();
+      return !!(await Promise.resolve(app.analyzeCompiler()));
+    }
     const ok = await Promise.resolve(app.analyzeSource(sourceEl.value, filename));
     return !!ok;
   } finally {
@@ -209,6 +242,11 @@ async function analyzeCurrent(filename) {
 
 async function loadExample(name) {
   sourceEl.disabled = false;
+  if (name === "compiler") {
+    sourceEl.value = COMPILER_NOTE;
+    await analyzeCurrent("compiler");
+    return;
+  }
   sourceEl.value = await fetchExample(name);
   await analyzeCurrent(name);
 }
@@ -230,9 +268,10 @@ sampleEl.addEventListener("change", async () => {
   }
 });
 analyzeEl.addEventListener("click", async () => {
-  const id = FIXTURES.has(sampleEl.value) ? "example.rgr" : sampleEl.value;
+  const id = sampleEl.value;
+  const file = FIXTURES.has(id) ? "example.rgr" : id;
   try {
-    await analyzeCurrent(id);
+    await analyzeCurrent(file);
   } catch (err) {
     statusEl.textContent = String(err && err.message ? err.message : err);
   }
@@ -374,7 +413,7 @@ async function main() {
     return;
   }
   const example = params.get("example") || "calls.rgr";
-  if (EXAMPLES[example]) {
+  if (example === "compiler" || EXAMPLES[example]) {
     sampleEl.value = example;
     await loadExample(example);
   }

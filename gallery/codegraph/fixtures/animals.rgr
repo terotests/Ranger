@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
-; A small inheritance program the in-tab VirtualCompiler can walk. Farm.morning
-; calls Dog.speak / Cat.speak and Dog.chase; Dog.chase mentions Cat.
+; A small inheritance program the in-tab VirtualCompiler can walk. Farm holds
+; animals:[Animal]; morning calls Dog.speak / Cat.speak and Dog.chase.
 
 class Animal {
     def name:string ""
@@ -32,6 +32,8 @@ class Dog {
 }
 
 class Farm {
+    def animals:[Animal]
+
     fn morning:void (dog:Dog cat:Cat) {
         print (dog.speak())
         print (cat.speak())
