@@ -5,8 +5,9 @@
 ; ============================================================================
 ;
 ; Drawing a thousand-node call graph is slow and unreadable. Each page is a
-; window: an overview of the busiest classes, one class and its neighbours,
-; or one method with its callers, callees and the types it uses. Anything
+; window: an overview of the busiest classes, one class and the types that
+; point at it, or one method with its callers, callees and the types it uses.
+; Anything
 ; that does not fit becomes a pager arrow on the edge — click it, get the
 ; next window. The IR stays whole; only the window is a FlowGraph.
 ; ============================================================================
@@ -169,6 +170,10 @@ class CodeGraphPages {
         return ("uml:" + (to_string index))
     }
 
+    fn usedByPageId:string (name:string index:int) {
+        return (("usedby:" + name) + ":" + (to_string index))
+    }
+
     fn pageOf:CodePage (pageId:string) {
         if ((strlen pageId) == 0) {
             return (this.pageOf(this.overviewId(0)))
@@ -181,6 +186,9 @@ class CodeGraphPages {
             def uidx:int (this.intAfter(pageId "uml:"))
             return (this.buildUml(uidx))
         }
+        if ((indexOf pageId "usedby:") == 0) {
+            return (this.buildUsedBy((this.usedByName(pageId)) (this.usedByIndex(pageId))))
+        }
         if ((indexOf pageId "class:") == 0) {
             def cname:string (substring pageId 6 (strlen pageId))
             return (this.buildClass(cname))
@@ -190,6 +198,36 @@ class CodeGraphPages {
             return (this.buildMethod(mid))
         }
         return (this.buildOverview(0))
+    }
+
+    ; usedby:CodeNode:0 → the class in the middle, then the page index.
+    fn usedByName:string (pageId:string) {
+        def rest:string (substring pageId 7 (strlen pageId))
+        def cut:int (this.lastColonAt(rest))
+        if (cut < 1) {
+            return rest
+        }
+        return (substring rest 0 cut)
+    }
+
+    fn usedByIndex:int (pageId:string) {
+        def rest:string (substring pageId 7 (strlen pageId))
+        def cut:int (this.lastColonAt(rest))
+        if (cut < 0) {
+            return 0
+        }
+        return (?? (str2int (substring rest (cut + 1) (strlen rest))) 0)
+    }
+
+    fn lastColonAt:int (s:string) {
+        def i:int ((strlen s) - 1)
+        while (i >= 0) {
+            if ((charAt s i) == (ccode ":")) {
+                return i
+            }
+            i = (i - 1)
+        }
+        return -1
     }
 
     fn intAfter:int (s:string prefix:string) {
@@ -331,6 +369,9 @@ class CodeGraphPages {
         def c:CodeClass (model.classByName(name))
         page.title = (name + " · " + (to_string (c.methodCount())) + " methods")
         page.addItem((this.backItem("pager-back" "← UML" (this.umlPageId(0)))))
+        ; Classes whose fields are typed as this one sit above it, so the
+        ; arrows run down into the box the reader already has on screen.
+        this.addIncomingUsers(page name)
         def self:CodePageItem (CodePageItem.create(name name "umlclass"))
         self.dataKind = "class"
         self.dataRef = name
@@ -339,14 +380,18 @@ class CodeGraphPages {
         page.addItem(self)
         if ((strlen c.extendsName) > 0) {
             def pName:string c.extendsName
-            def parent:CodePageItem (CodePageItem.create(pName pName "umlclass"))
-            parent.dataKind = "class"
-            parent.dataRef = pName
-            parent.fill = "#e0e7ff"
-            parent.stroke = "#3730a3"
-            parent.extra = "extends"
-            page.addItem(parent)
-            page.addInherit(name pName)
+            if ((this.pageHasId(page pName)) == false) {
+                def parent:CodePageItem (CodePageItem.create(pName pName "umlclass"))
+                parent.dataKind = "class"
+                parent.dataRef = pName
+                parent.fill = "#e0e7ff"
+                parent.stroke = "#3730a3"
+                parent.extra = "extends"
+                page.addItem(parent)
+            }
+            if (this.pageHasId(page pName)) {
+                page.addInherit(name pName)
+            }
         }
         ; Field types that name another class — Order.customer → Customer.
         def fi:int 0
@@ -430,6 +475,157 @@ class CodeGraphPages {
                 }
                 ti2 = (ti2 + 1)
             }
+        }
+        return page
+    }
+
+    ; How many referring classes fit above the focus before the chart
+    ; stops being a class page and becomes a catalogue.
+    fn incomingCap:int () {
+        def cap:int (idiv maxNodes 3)
+        if (cap > 8) {
+            cap = 8
+        }
+        if (cap < 2) {
+            cap = 2
+        }
+        return cap
+    }
+
+    ; Classes that have a field whose type is `target`, source order.
+    fn fieldUsersOf:[string] (target:string) {
+        def names:[string]
+        def i:int 0
+        while (i < (model.classCount())) {
+            def c:CodeClass (model.classAt(i))
+            if (c.name != target) {
+                def hit:boolean false
+                def fi:int 0
+                while (fi < (array_length c.fields)) {
+                    def f:CodeField (itemAt c.fields fi)
+                    def tName:string (CodeGraphPages.classNameOfType(f.fieldType))
+                    if (tName == target) {
+                        hit = true
+                    }
+                    fi = (fi + 1)
+                }
+                if hit {
+                    push names c.name
+                }
+            }
+            i = (i + 1)
+        }
+        return names
+    }
+
+    fn addBackref:void (page:CodePage userName:string target:string) {
+        if ((this.pageHasId(page userName)) == false) {
+            def it:CodePageItem (CodePageItem.create(userName userName "backref"))
+            it.dataKind = "class"
+            it.dataRef = userName
+            it.extra = target
+            it.fill = "#fdf2f8"
+            it.stroke = "#9d174d"
+            page.addItem(it)
+        }
+        if (model.hasClass(userName)) {
+            def c:CodeClass (model.classByName(userName))
+            def fi:int 0
+            while (fi < (array_length c.fields)) {
+                def f:CodeField (itemAt c.fields fi)
+                def tName:string (CodeGraphPages.classNameOfType(f.fieldType))
+                if (tName == target) {
+                    page.addAssoc(userName target f.name)
+                }
+                fi = (fi + 1)
+            }
+        }
+    }
+
+    fn addIncomingUsers:void (page:CodePage name:string) {
+        def users:[string] (this.fieldUsersOf(name))
+        def userCap:int (this.incomingCap())
+        def shown:int 0
+        def i:int 0
+        while (i < (array_length users)) {
+            if (shown >= userCap) {
+                i = (array_length users)
+            } {
+                if ((page.itemCount()) >= (maxNodes - 4)) {
+                    i = (array_length users)
+                } {
+                    this.addBackref(page (itemAt users i) name)
+                    shown = (shown + 1)
+                    i = (i + 1)
+                }
+            }
+        }
+        def leftover:int ((array_length users) - shown)
+        if (leftover > 0) {
+            page.addItem((this.pagerItem("pager-users" ("← " + (to_string leftover) + " more users") (this.usedByPageId(name 0)))))
+        }
+    }
+
+    fn buildUsedBy:CodePage (name:string index:int) {
+        def page (new CodePage)
+        page.kind = "usedby"
+        page.id = (this.usedByPageId(name index))
+        if ((model.hasClass(name)) == false) {
+            page.title = (name + " (unknown)")
+            page.addItem((this.backItem("pager-back" "← overview" (this.overviewId(0)))))
+            return page
+        }
+        def users:[string] (this.fieldUsersOf(name))
+        def total:int (array_length users)
+        def reserved:int 3
+        if (index > 0) {
+            reserved = (reserved + 1)
+        }
+        def sliceSize:int (maxNodes - reserved)
+        if (sliceSize < 4) {
+            sliceSize = 4
+        }
+        def start:int (index * sliceSize)
+        if (start < 0) {
+            start = 0
+        }
+        if (start >= total) {
+            start = 0
+            index = 0
+            page.id = (this.usedByPageId(name 0))
+        }
+        def last:int (start + sliceSize)
+        if (last > total) {
+            last = total
+        }
+        def hasPrev:boolean (start > 0)
+        def hasNext:boolean (last < total)
+        def fromLabel:string "0"
+        if (last > 0) {
+            fromLabel = (to_string (start + 1))
+        }
+        page.title = (((name + " · used by ") + fromLabel) + "–" + (to_string last) + " of " + (to_string total))
+        page.addItem((this.backItem("pager-back" ("← " + name) (this.classPageId(name)))))
+        if hasPrev {
+            def prevIdx:int (index - 1)
+            if (prevIdx < 0) {
+                prevIdx = 0
+            }
+            page.addItem((this.pagerItem("pager-prev" "← previous users" (this.usedByPageId(name prevIdx)))))
+        }
+        def self:CodePageItem (CodePageItem.create(name name "umlclass"))
+        self.dataKind = "class"
+        self.dataRef = name
+        self.fill = "#dbeafe"
+        self.stroke = "#1d4ed8"
+        page.addItem(self)
+        def i:int start
+        while (i < last) {
+            this.addBackref(page (itemAt users i) name)
+            i = (i + 1)
+        }
+        if hasNext {
+            page.addItem((this.pagerItem("pager-next" ("→ " + (to_string (total - last)) + " more users") (this.usedByPageId(name (index + 1))))))
         }
         return page
     }
