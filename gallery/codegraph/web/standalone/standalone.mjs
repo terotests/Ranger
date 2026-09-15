@@ -124,8 +124,24 @@ canvas.addEventListener("wheel", (ev) => {
 }, { passive: false });
 
 window.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape") app.keyWith("Escape", ev.shiftKey, ev.ctrlKey || ev.metaKey);
-  sceneStale = true;
+  const ctrl = ev.ctrlKey || ev.metaKey;
+  if (ev.key === "Escape") {
+    app.keyWith("Escape", ev.shiftKey, ctrl);
+    sceneStale = true;
+    return;
+  }
+  if (app.focusedField() !== "cg-class-filter") return;
+  if (ev.key.length === 1 && !ctrl) {
+    app.typeText(ev.key);
+    ev.preventDefault();
+    sceneStale = true;
+    return;
+  }
+  if (ev.key === "Backspace" || ev.key === "Delete" || ev.key === "ArrowLeft" || ev.key === "ArrowRight" || ev.key === "Home" || ev.key === "End") {
+    app.keyWith(ev.key, ev.shiftKey, ctrl);
+    ev.preventDefault();
+    sceneStale = true;
+  }
 });
 
 openEl.addEventListener("change", async () => {

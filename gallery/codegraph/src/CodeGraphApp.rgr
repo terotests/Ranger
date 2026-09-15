@@ -67,7 +67,9 @@ class CodeGraphApp extends EvgApp {
     def capClasses:LabelCtl (new LabelCtl)
     def bar:ToolbarCtl (new ToolbarCtl)
     def sampleSel:SelectCtl (new SelectCtl)
+    def classSearch:InputCtl (new InputCtl)
     def classTree:TreeCtl (new TreeCtl)
+    def classScrollEl:EVGElement (EVGElement.createDiv())
     def umlToggle:ToggleCtl (new ToggleCtl)
 
     def rootFiles:[string:string]
@@ -241,13 +243,24 @@ class CodeGraphApp extends EvgApp {
         capClEl.className = "cg-cap"
         this.mount(railEl capClasses)
 
+        classSearch.tid = "cg-class-filter"
+        classSearch.name = "Filter classes"
+        classSearch.kind = "search"
+        classSearch.placeholder = "Search classes"
+        this.dressClassSearch()
+        this.mount(railEl classSearch)
+
+        classScrollEl.id = "cg-class-scroll"
+        classScrollEl.className = "cg-class-scroll"
+        railEl.addChild(classScrollEl)
+
         classTree.tid = "cg-classes"
         classTree.name = "classes"
         classTree.rootValue = "root"
         classTree.selectable = true
         classTree.addNode("root" "classes")
         classTree.build()
-        this.mount(railEl classTree)
+        this.mount(classScrollEl classTree)
 
         statusLbl.tid = "cg-status"
         statusLbl.name = "ready"
@@ -304,7 +317,7 @@ class CodeGraphApp extends EvgApp {
     }
 
     fn refreshClasses:void () {
-        def names:[string] (session.model.classNames())
+        def names:[string] (this.listedClassNames())
         def none:[UiTreeNode]
         classTree.nodes = none
         def rootNode:UiTreeNode (classTree.addNode("root" "classes"))
@@ -1160,8 +1173,94 @@ class CodeGraphApp extends EvgApp {
         }
     }
 
+    fn dressClassSearch:void () {
+        classSearch.build()
+        this.markClassSearch()
+    }
+
+    fn markClassSearch:void () {
+        def searchEl:EVGElement (unwrap classSearch.rootEl)
+        UiTree.addClass(searchEl "cg-class-search")
+    }
+
+    fn setClassFilter:void (q:string) {
+        classSearch.value = q
+        classSearch.caret = (strlen q)
+        classSearch.anchor = (strlen q)
+        this.dressClassSearch()
+        this.refreshClasses()
+    }
+
+    fn listedClassNames:[string] () {
+        def raw:[string] (session.model.classNames())
+        def sorted:[string] (this.sortClassNames(raw))
+        def q:string (to_lowercase classSearch.value)
+        if ((strlen q) == 0) {
+            return sorted
+        }
+        def out:[string]
+        def i:int 0
+        while (i < (array_length sorted)) {
+            def n:string (itemAt sorted i)
+            if ((indexOf (to_lowercase n) q) >= 0) {
+                push out n
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn sortClassNames:[string] (names:[string]) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length names)) {
+            push out (itemAt names i)
+            i = (i + 1)
+        }
+        def n:int (array_length out)
+        def a:int 0
+        while (a < n) {
+            def b:int (a + 1)
+            while (b < n) {
+                def x:string (itemAt out a)
+                def y:string (itemAt out b)
+                if (this.classNameBefore(y x)) {
+                    set_at out a y
+                    set_at out b x
+                }
+                b = (b + 1)
+            }
+            a = (a + 1)
+        }
+        return out
+    }
+
+    ; Ranger's `<` is for numbers. Alphabetical order is a loop over the two
+    ; strings, case-folded so SheetView sits with sheetView.
+    fn classNameBefore:boolean (a:string b:string) {
+        def la:string (to_lowercase a)
+        def lb:string (to_lowercase b)
+        def n:int (strlen la)
+        if ((strlen lb) < n) {
+            n = (strlen lb)
+        }
+        def i:int 0
+        while (i < n) {
+            def ca:int (charAt la i)
+            def cb:int (charAt lb i)
+            if (ca < cb) {
+                return true
+            }
+            if (ca > cb) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return ((strlen la) < (strlen lb))
+    }
+
     fn classList:string () {
-        def names:[string] (session.model.classNames())
+        def names:[string] (this.listedClassNames())
         return (join names "\n")
     }
 
@@ -1404,19 +1503,19 @@ class CodeGraphApp extends EvgApp {
             this.graphWheel(x y delta)
             return
         }
-        this.scrollRail(delta)
+        this.scrollClassList(delta)
     }
 
-    fn scrollRail:void (delta:double) {
-        def top:double (railEl.scrollTop + delta)
+    fn scrollClassList:void (delta:double) {
+        def top:double (classScrollEl.scrollTop + delta)
         if (top < 0.0) {
             top = 0.0
         }
-        def max:double (railEl.maxScrollTop())
+        def max:double (classScrollEl.maxScrollTop())
         if (top > max) {
             top = max
         }
-        railEl.scrollTop = top
+        classScrollEl.scrollTop = top
     }
 
     fn preferMethodRow:void (ev:FlowHitEvent) {
@@ -1580,8 +1679,32 @@ class CodeGraphApp extends EvgApp {
                 return true
             }
         }
+        def before:string classSearch.value
         ui.keyWith(k shift ctrl)
+        this.markClassSearch()
+        if (classSearch.value != before) {
+            this.refreshClasses()
+        }
         return true
+    }
+
+    fn typeText:boolean (text:string) {
+        def before:string classSearch.value
+        ui.type(text)
+        this.markClassSearch()
+        if (classSearch.value != before) {
+            this.refreshClasses()
+            return true
+        }
+        return ((strlen ui.focusId) > 0)
+    }
+
+    fn focusedField:string () {
+        return ui.focusId
+    }
+
+    fn hasField:boolean (tid:string) {
+        return (tid == "cg-class-filter")
     }
 
     fn display:EVGDisplayList () {

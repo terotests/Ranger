@@ -58,6 +58,48 @@ class CodeGraphAppTest {
             print "  FAIL class list missing Order"
             failed = (failed + 1)
         }
+        def addrAt:int (indexOf names "Address")
+        def orderAt:int (indexOf names "Order")
+        if (addrAt < 0) {
+            print "  FAIL class list missing Address"
+            failed = (failed + 1)
+        }
+        if (orderAt < addrAt) {
+            print "  FAIL class list is not alphabetical"
+            failed = (failed + 1)
+        }
+        if ((app.press("cg-class-filter")) == false) {
+            print "  FAIL focus class search"
+            failed = (failed + 1)
+        }
+        if ((app.typeText("ord")) == false) {
+            print "  FAIL type into class search"
+            failed = (failed + 1)
+        }
+        def filtered:string (app.classList())
+        if ((indexOf filtered "Order") < 0) {
+            print "  FAIL search missed Order"
+            failed = (failed + 1)
+        }
+        if ((indexOf filtered "Address") >= 0) {
+            print "  FAIL search still lists Address"
+            failed = (failed + 1)
+        }
+        app.setClassFilter("")
+        if ((app.loadSample("many")) == false) {
+            print "  FAIL loadSample many"
+            failed = (failed + 1)
+        }
+        def ignoreDl:EVGDisplayList (app.display())
+        if ((app.classScrollEl.maxScrollTop()) <= 0.0) {
+            print "  FAIL class list has no scrollbar room"
+            failed = (failed + 1)
+        }
+        if (app.classScrollEl.overflow != "auto") {
+            print ("  FAIL class list overflow " + app.classScrollEl.overflow)
+            failed = (failed + 1)
+        }
+        app.loadSample("shop")
         def nav:string (app.selfTest())
         if ((indexOf nav "PASS") != 0) {
             print ("  FAIL selfTest " + nav)

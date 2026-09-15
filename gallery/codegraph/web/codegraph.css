@@ -48,12 +48,61 @@
   padding: 8px 0px;
   gap: 6px;
   background-color: rgb(255, 255, 255);
+  overflow: hidden;
 }
 
 .cg-cap {
   color: rgb(100, 116, 139);
   font-size: 11px;
   padding: 6px 12px 0px;
+  flex-shrink: 0;
+}
+
+.cg-class-search {
+  margin: 0px 12px;
+  flex-shrink: 0;
+}
+
+.cg-class-scroll {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-height: 0px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(148, 163, 184) rgb(241, 245, 249);
+}
+
+.ui-input {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  position: relative;
+  height: 28px;
+  padding: 0px 8px;
+  border: 1px solid rgb(213, 218, 226);
+  border-radius: 5px;
+  background-color: rgb(248, 250, 252);
+  overflow: hidden;
+}
+
+.ui-input-text {
+  color: rgb(15, 23, 42);
+  font-size: 13px;
+  height: 16px;
+}
+
+.ui-input-placeholder {
+  color: rgb(148, 163, 184);
+}
+
+.ui-input-caret {
+  position: absolute;
+  top: 6px;
+  width: 1px;
+  height: 16px;
+  background-color: rgb(37, 99, 235);
 }
 
 .cg-canvas {
@@ -98,6 +147,7 @@
   display: flex;
   flex-direction: column;
   padding: 0px 12px;
+  flex-shrink: 0;
 }
 
 .ui-select-trigger {
