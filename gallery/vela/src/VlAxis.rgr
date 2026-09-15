@@ -1104,7 +1104,7 @@ class VlAxis {
         while (a < 0.0) {
             a = (a + 360.0)
         }
-        while (! (a < 360.0)) {
+        while (a >= 360.0) {
             a = (a - 360.0)
         }
         if (a == 0.0) {
