@@ -73,7 +73,7 @@
   #sharebox button { padding: 3px 9px; border: 1px solid #ccd3dd; border-radius: 5px;
                      background: #fff; cursor: pointer; }
   #sharebox .hint { margin: 0; color: #6b7280; font-size: 12px; }
-  #shareconfluence { font-weight: 600; }
+  #shareconfluence, #sharepng { font-weight: 600; }
   /* Embedded: the diagram and one way out of the frame. */
   body.embed header, body.embed #tools, body.embed #srcbox, body.embed footer,
   body.embed #sharebox { display: none !important; }
@@ -177,8 +177,8 @@
   <label class="field">Embed — view only, for an iframe. Paste this in Confluence too.
     <span class="line"><input id="shareembed" readonly><button type="button" data-copy="shareembed">copy</button></span>
   </label>
-  <p class="hint"><button type="button" id="shareconfluence">Copy for Confluence</button> · <a id="sharepreview" target="_blank" rel="noopener">Open the embed view</a> · <span id="sharenote"></span></p>
-  <p class="hint">Paste either link into Confluence: with the RangerFlow app installed, the diagram appears. No <code>/iframe</code>, no sizes. The diagram travels after the <code>#</code>, so nothing is uploaded — and a later edit needs a new link.</p>
+  <p class="hint"><button type="button" id="shareconfluence">Copy for Confluence</button> · <button type="button" id="sharepng">Copy picture</button> · <a id="sharepreview" target="_blank" rel="noopener">Open the embed view</a> · <span id="sharenote"></span></p>
+  <p class="hint">A pasted github.io link becomes a <em>Smart Link</em>, not a diagram. Confluence says it <em>can't display content from this type of terotests.github.io link</em> — GitHub Pages is not an embed provider, and the part after <code>#</code> never leaves the browser, so the card cannot be the drawing. With the RangerFlow app installed, paste becomes the live diagram. Without it, <strong>Copy picture</strong> and paste a PNG.</p>
 </div>
 
 <div id="tools">

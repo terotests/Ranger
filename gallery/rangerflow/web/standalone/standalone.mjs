@@ -142,9 +142,18 @@ function resize() {
   // An embed has no fit button and a host that may resize the frame at any
   // time, so every new size is a new fit.
   if (embedMode) app.fitView();
+  reportEmbedSize();
 }
 
 let sizeWatch = null;
+
+/** Tell a parent Forge macro how tall this frame wants to be. The type string
+ *  is the contract with gallery/rangerflow/forge/src/share-url.mjs. */
+function reportEmbedSize() {
+  if (!embedMode || window.parent === window) return;
+  const h = Math.ceil(document.documentElement.getBoundingClientRect().height);
+  window.parent.postMessage({ type: "rangerflow:embed-size", height: h }, "*");
+}
 
 /** How far the buffer has drifted from the element, as a ratio. 1 is honest. */
 function sizeDrift() {
@@ -464,6 +473,38 @@ document.getElementById("svg").addEventListener("click", () => {
   URL.revokeObjectURL(a.href);
 });
 
+/** Rasterise the SVG export so Confluence can take a PNG paste. Smart Links
+ *  refuse github.io, and they never see `#rf=`, so a picture is the fallback
+ *  that actually lands on the page without the Forge app. */
+function pngBlobFromSvg(svgText) {
+  const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(svgBlob);
+  const img = new Image();
+  const done = new Promise((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error("the SVG could not be drawn"));
+  });
+  img.src = url;
+  return done.then(() => {
+    const w = Math.max(1, img.naturalWidth || img.width);
+    const h = Math.max(1, img.naturalHeight || img.height);
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0);
+    URL.revokeObjectURL(url);
+    return new Promise((resolve, reject) => {
+      c.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("PNG"))), "image/png");
+    });
+  }, (err) => {
+    URL.revokeObjectURL(url);
+    throw err;
+  });
+}
+
 // ---- sharing ---------------------------------------------------------------
 // The diagram as edited — every move, rename and route — travels in the link
 // itself: `FlowDocument` JSON, deflated, base64url, after `#rf=`. The part of
@@ -601,6 +642,7 @@ document.getElementById("share").addEventListener("click", async () => {
 
 async function copyForConfluence(btn) {
   const { link, embed } = await fillShareLinks();
+  shareBox.hidden = false;
   const label = btn.textContent;
   try {
     await navigator.clipboard.writeText(embed);
@@ -617,6 +659,22 @@ async function copyForConfluence(btn) {
 
 document.getElementById("confluence").addEventListener("click", (ev) => copyForConfluence(ev.target));
 document.getElementById("shareconfluence").addEventListener("click", (ev) => copyForConfluence(ev.target));
+
+async function copyPicture(btn) {
+  const label = btn.textContent;
+  try {
+    const blob = await pngBlobFromSvg(app.svg());
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+    btn.textContent = "copied — paste in Confluence";
+    shareNote.textContent = "PNG on the clipboard · paste into the page (a picture, not a live view)";
+  } catch (_) {
+    btn.textContent = "could not copy PNG";
+    shareNote.textContent = "download SVG instead, or allow clipboard access";
+  }
+  setTimeout(() => { btn.textContent = label; }, 2200);
+}
+
+document.getElementById("sharepng").addEventListener("click", (ev) => copyPicture(ev.target));
 
 for (const btn of shareBox.querySelectorAll("[data-copy]")) {
   btn.addEventListener("click", async () => {
@@ -910,6 +968,11 @@ async function boot() {
     syncControls();
     app.fitView();
     fitSoon();
+  }
+
+  if (embedMode) {
+    reportEmbedSize();
+    setTimeout(reportEmbedSize, 400);
   }
 
   if (new URLSearchParams(location.search).has("selftest")) {
