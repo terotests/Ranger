@@ -18,6 +18,7 @@ Import "../../rangerflow/domains/uml/UMLModel.rgr"
 Import "../../rangerflow/layout/LayeredLayout.rgr"
 Import "../../rangerflow/layout/EdgeLanes.rgr"
 Import "../../rangerflow/layout/OrthoRouter.rgr"
+Import "../../rangerflow/layout/EdgeFacing.rgr"
 
 class CodeGraphFlow {
     Constructor () {
@@ -62,7 +63,6 @@ class CodeGraphFlow {
         }
         g.reindex()
         CodeGraphFlow.layout(g page.kind)
-        CodeGraphFlow.faceFieldPorts(g)
         return g
     }
 
@@ -75,7 +75,7 @@ class CodeGraphFlow {
                 n.dataKind = it.dataKind
                 n.dataRef = it.dataRef
                 n.cssClass = "codegraph class"
-                n.tooltip = (c.name + " — click to open methods")
+                n.tooltip = (c.name + " — click to select, double-click to open methods")
                 if ((strlen it.fill) > 0) {
                     n.bgColor = it.fill
                 }
@@ -136,14 +136,23 @@ class CodeGraphFlow {
         def fi:int 0
         while (fi < (array_length c.fields)) {
             def f:CodeField (itemAt c.fields fi)
-            u.attribute("-" f.name f.fieldType)
+            def mem:UMLMember (u.attribute("-" f.name f.fieldType))
+            def typeName:string (CodeGraphPages.classNameOfType(f.fieldType))
+            if ((strlen typeName) == 0) {
+                mem.wantPort = false
+            } {
+                if ((model.hasClass(typeName)) == false) {
+                    mem.wantPort = false
+                }
+            }
             fi = (fi + 1)
         }
         def mi:int 0
         def cap:int 8
         while (mi < (array_length c.methodIds)) {
             if (mi >= cap) {
-                u.operation("+" ("+" + (to_string ((array_length c.methodIds) - cap)) + " more") "" "")
+                def more:UMLMember (u.operation("+" ("+" + (to_string ((array_length c.methodIds) - cap)) + " more") "" ""))
+                more.wantPort = false
                 mi = (array_length c.methodIds)
             } {
                 def m:CodeMethod (model.methodById((itemAt c.methodIds mi)))
@@ -151,7 +160,8 @@ class CodeGraphFlow {
                 if m.isStatic {
                     vis = "+"
                 }
-                u.operation(vis m.name m.params m.returns)
+                def op:UMLMember (u.operation(vis m.name m.params m.returns))
+                op.wantPort = false
                 mi = (mi + 1)
             }
         }
@@ -184,15 +194,20 @@ class CodeGraphFlow {
         }
         lay.nodeGap = 36.0
         lay.run()
+        ; Pick the field-port side, then the class-box side, BEFORE the
+        ; router writes corners. A port flipped after routing leaves the
+        ; stored path on the old handle, which is how a line misses its box.
+        CodeGraphFlow.faceFieldPorts(g)
+        EdgeFacing.repairAll(g)
         EdgeLanes.assign(g)
         lay.routeLongEdges()
         EdgeLanes.assign(g)
         OrthoRouter.repairAll(g)
     }
 
-    ; Row ports are named Class.field:l / :r. After layout, pick the side
-    ; that faces the other class so the line leaves the field instead of
-    ; crossing the box.
+    ; Row ports are named Class.field:l / :r. After the boxes have positions,
+    ; pick the side that faces the other class so the line leaves the field
+    ; instead of crossing the box.
     sfn faceFieldPorts:void (g:FlowGraph) {
         def k:int 0
         while (k < (g.edgeCount())) {
@@ -200,21 +215,45 @@ class CodeGraphFlow {
             def sp:string e.sourcePort
             if ((strlen sp) > 2) {
                 def cut:int ((strlen sp) - 2)
-                def base:string (substring sp 0 cut)
-                if (g.hasNode(e.source)) {
-                    if (g.hasNode(e.target)) {
-                        def s:FlowNode (g.nodeById(e.source))
-                        def t:FlowNode (g.nodeById(e.target))
-                        if ((t.centerX()) >= (s.centerX())) {
-                            e.sourcePort = (base + ":r")
-                        } {
-                            e.sourcePort = (base + ":l")
+                def tail:string (substring sp cut (strlen sp))
+                def isSide:boolean false
+                if (tail == ":l") { isSide = true }
+                if (tail == ":r") { isSide = true }
+                if isSide {
+                    def base:string (substring sp 0 cut)
+                    def leftId:string (base + ":l")
+                    def rightId:string (base + ":r")
+                    if (g.hasPort(leftId)) {
+                        if (g.hasPort(rightId)) {
+                            if (g.hasNode(e.source)) {
+                                if (g.hasNode(e.target)) {
+                                    def s:FlowNode (g.nodeById(e.source))
+                                    def t:FlowNode (g.nodeById(e.target))
+                                    if ((t.centerX()) >= (s.centerX())) {
+                                        e.sourcePort = rightId
+                                    } {
+                                        e.sourcePort = leftId
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
             k = (k + 1)
         }
+    }
+
+    sfn repairRoutes:void (g:FlowGraph) {
+        CodeGraphFlow.faceFieldPorts(g)
+        EdgeFacing.repairAll(g)
+        EdgeLanes.reset(g)
+        EdgeLanes.assign(g)
+        ; applyBroken only rewrites lines that currently cut a box. A drag
+        ; that left the corridor empty still needs new corners on the new
+        ; handles, so this is every unpinned orthogonal edge.
+        def r (new OrthoRouter)
+        r.applyAll(g)
     }
 
     sfn packGrid:void (g:FlowGraph) {
@@ -292,7 +331,7 @@ class CodeGraphSession {
 
     fn describe:string () {
         def p:CodePage (this.currentPage())
-        return (((((p.title + " · ") + (to_string (p.itemCount()))) + " boxes (max ") + (to_string pages.maxNodes)) + ") — click a class or a method to zoom in, an arrow to turn the page")
+        return (((((p.title + " · ") + (to_string (p.itemCount()))) + " boxes (max ") + (to_string pages.maxNodes)) + ") — click a UML class to select it, Zoom to selected to read it, double-click to open methods")
     }
 
     fn goTo:boolean (nextId:string) {
@@ -351,18 +390,31 @@ class CodeGraphSession {
         if (ev.dataKind == "page") {
             return (this.goTo(ev.dataRef))
         }
-        if (ev.dataKind == "class") {
-            return (this.goTo(pages.classPageId(ev.dataRef)))
-        }
         if (ev.dataKind == "method") {
             return (this.goTo(pages.methodPageId(ev.dataRef)))
         }
-        if (ev.dataKind == "umlclass") {
-            return (this.goTo(pages.classPageId(ev.dataRef)))
+        ; On a UML page a class box is selected, not opened — Zoom to selected
+        ; needs something still on the drawing. Double-click (openAt) drills.
+        ; Overview name-boxes and related classes on a class page still open.
+        def classBox:boolean false
+        if (ev.dataKind == "class") { classBox = true }
+        if (ev.dataKind == "umlclass") { classBox = true }
+        if classBox {
+            if ((indexOf pageId "uml:") == 0) {
+                return false
+            }
+            def ref:string ev.dataRef
+            if ((strlen ref) == 0) {
+                ref = ev.id
+            }
+            return (this.goTo(pages.classPageId(ref)))
         }
         ; A node whose domain forgot to set dataKind still has an id that
         ; might be a class or a method.
         if (model.hasClass(ev.id)) {
+            if ((indexOf pageId "uml:") == 0) {
+                return false
+            }
             return (this.goTo(pages.classPageId(ev.id)))
         }
         if (model.hasMethod(ev.id)) {

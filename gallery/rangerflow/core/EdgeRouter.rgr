@@ -1346,23 +1346,108 @@ class EdgeRouter {
         return 0
     }
 
+    ; Stored corners, with the first and last points moved onto the ports the
+    ; edge is actually attached to. A drag moves a box; it does not rewrite
+    ; every corridor. Drawing still has to leave the handle that is on the
+    ; box now, or the line stays behind in empty canvas.
+    sfn liveCorners:[double] (g:FlowGraph e:FlowEdge) {
+        def src:[double] e.waypoints
+        def n:int (array_length src)
+        def out:[double]
+        def i:int 0
+        while (i < n) {
+            push out (itemAt src i)
+            i = (i + 1)
+        }
+        if (n < 4) {
+            return out
+        }
+        def x1:double (g.endpointX(e true))
+        def y1:double (g.endpointY(e true))
+        def x2:double (g.endpointX(e false))
+        def y2:double (g.endpointY(e false))
+        def ortho:boolean true
+        if (e.edgeType == "curve") { ortho = false }
+        if (e.edgeType == "bezier") { ortho = false }
+        if (e.edgeType == "straight") { ortho = false }
+        if (ortho == false) {
+            set_at out 0 x1
+            set_at out 1 y1
+            set_at out (n - 2) x2
+            set_at out (n - 1) y2
+            return out
+        }
+        if (n == 6) {
+            def px0:double (itemAt out 0)
+            def py0:double (itemAt out 1)
+            def px1:double (itemAt out 2)
+            def py1:double (itemAt out 3)
+            def firstH:boolean ((fabs (py1 - py0)) <= (fabs (px1 - px0)))
+            set_at out 0 x1
+            set_at out 1 y1
+            set_at out 4 x2
+            set_at out 5 y2
+            if firstH {
+                set_at out 2 x2
+                set_at out 3 y1
+            } {
+                set_at out 2 x1
+                set_at out 3 y2
+            }
+            return out
+        }
+        def ox0:double (itemAt out 0)
+        def oy0:double (itemAt out 1)
+        set_at out 0 x1
+        set_at out 1 y1
+        if (n == 4) {
+            set_at out 2 x2
+            set_at out 3 y2
+            return out
+        }
+        def ox1:double (itemAt out 2)
+        def oy1:double (itemAt out 3)
+        if ((fabs (oy1 - oy0)) <= (fabs (ox1 - ox0))) {
+            set_at out 3 y1
+        } {
+            set_at out 2 x1
+        }
+        def last:int (n - 2)
+        def prev:int (n - 4)
+        def oxL:double (itemAt out last)
+        def oyL:double (itemAt out (last + 1))
+        def oxP:double (itemAt out prev)
+        def oyP:double (itemAt out (prev + 1))
+        set_at out last x2
+        set_at out (last + 1) y2
+        if ((fabs (oyL - oyP)) <= (fabs (oxL - oxP))) {
+            set_at out (prev + 1) y2
+        } {
+            set_at out prev x2
+        }
+        return out
+    }
+
     sfn route:EdgePath (g:FlowGraph e:FlowEdge) {
         ; Waypoints win over everything. An edge the layered layout routed has
         ; already been told where to go — around the nodes standing in its way
-        ; — and recomputing a route here would throw that away.
+        ; — and recomputing a route here would throw that away. The ends are
+        ; still the live ports: a box that moved keeps its corridor, but the
+        ; line has to leave the handle that is on the box now.
         if ((array_length e.waypoints) >= 4) {
+            def pts:[double] (EdgeRouter.liveCorners(g e))
             ; A curve connector asked to pass through vertices is the one case
             ; where "something already routed this" is not the end of it: the
             ; corners are where it goes, and the kind is how it gets there.
             if (e.edgeType == "curve") {
-                return (EdgeRouter.curveThrough(e.waypoints 1.0))
+                return (EdgeRouter.curveThrough(pts 1.0))
             }
             if (e.edgeType == "metro") {
-                def merged:[double] (EdgeRouter.mergeRuns(e.waypoints))
+                def merged:[double] (EdgeRouter.mergeRuns(pts))
                 def cut:[double] (EdgeRouter.metroPoints(merged 14.0))
                 return (EdgeRouter.polyPath(cut))
             }
-            return (EdgeRouter.bendPath(e.waypoints 5.0))
+            return (EdgeRouter.bendPath(pts 5.0))
         }
         def x1:double (g.endpointX(e true))
         def y1:double (g.endpointY(e true))
@@ -1386,12 +1471,8 @@ class EdgeRouter {
     sfn cornersFor:[double] (g:FlowGraph e:FlowEdge) {
         def out:[double]
         if ((array_length e.waypoints) >= 4) {
-            def w:int 0
-            while (w < (array_length e.waypoints)) {
-                push out (itemAt e.waypoints w)
-                w = (w + 1)
-            }
-            return (EdgeRouter.mergeRuns(out))
+            def live:[double] (EdgeRouter.liveCorners(g e))
+            return (EdgeRouter.mergeRuns(live))
         }
         def kind:string e.edgeType
         def stepped:boolean false
