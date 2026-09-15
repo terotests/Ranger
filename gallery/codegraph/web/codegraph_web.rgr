@@ -223,9 +223,43 @@ class CodeGraphWeb {
         editor.view.showMinimap = false
         editor.view.showControls = false
         editor.view.showNodeTools = false
-        editor.fitView()
+        this.focusPage()
         status = session.status
         return true
+    }
+
+    fn pageFocusId:string () {
+        def id:string session.pageId
+        if ((indexOf id "class:") == 0) {
+            return (substring id 6 (strlen id))
+        }
+        if ((indexOf id "method:") == 0) {
+            return (substring id 7 (strlen id))
+        }
+        return ""
+    }
+
+    fn selectAndZoom:boolean (id:string) {
+        if ((strlen id) == 0) {
+            return false
+        }
+        if ((graph.hasNode(id)) == false) {
+            return false
+        }
+        graph.clearSelection()
+        def n:FlowNode (graph.nodeById(id))
+        n.selected = true
+        return (this.zoomToSelected())
+    }
+
+    ; A class or method page frames that box so its title is readable. An
+    ; overview or UML catalogue still fits the whole window.
+    fn focusPage:void () {
+        def id:string (this.pageFocusId())
+        if (this.selectAndZoom(id)) {
+            return
+        }
+        editor.fitView()
     }
 
     fn classList:string () {
@@ -275,7 +309,11 @@ class CodeGraphWeb {
         if ((session.model.hasClass(name)) == false) {
             return false
         }
-        if (session.goTo(session.pages.classPageId(name))) {
+        def dest:string (session.pages.classPageId(name))
+        if (session.pageId == dest) {
+            return (this.selectAndZoom(name))
+        }
+        if (session.goTo(dest)) {
             return (this.showPage())
         }
         return false
@@ -358,6 +396,12 @@ class CodeGraphWeb {
         }
         if moved {
             this.showPage()
+        } {
+            if (n > 0) {
+                if (this.hasSelection()) {
+                    this.zoomToSelected()
+                }
+            }
         }
         editor.clicks.clear()
     }
@@ -515,6 +559,26 @@ class CodeGraphWeb {
         }
         if (session.pageId != "class:LineItem") {
             return ("FAIL rail stayed on " + session.pageId)
+        }
+        if ((graph.hasNode("LineItem")) == false) {
+            return "FAIL LineItem page has no LineItem"
+        }
+        def li:FlowNode (graph.nodeById("LineItem"))
+        if (li.selected == false) {
+            return "FAIL rail did not select LineItem"
+        }
+        def titlePx:double (li.headerHeight * editor.view.viewport.zoom)
+        if (li.headerHeight > 1.0) {
+            if (titlePx < 17.0) {
+                return ("FAIL LineItem title is only " + (to_string titlePx) + " px")
+            }
+        }
+        def top:double (editor.view.viewport.toScreenY(li.y))
+        if (top < -1.0) {
+            return "FAIL LineItem title is above the view"
+        }
+        if (top > editor.view.height) {
+            return "FAIL LineItem title is below the view"
         }
         return ("PASS nav ok; " + (this.stats()))
     }

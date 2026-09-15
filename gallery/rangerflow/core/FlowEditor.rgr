@@ -3399,9 +3399,10 @@ class FlowEditor {
         view.viewport.fitRect(r view.width view.height 0.1)
     }
 
-    ; Frame the first selected node so its width is at least `minFrac` of the
-    ; view (0.3 → 30%). Already-larger boxes keep their zoom and are only
-    ; centred — or pinned to the top when they are taller than the view.
+    ; Frame the first selected node so its name is readable. Width is at least
+    ; `minFrac` of the view (0.3 → 30%), and the header band is at least 18 px
+    ; on screen. If the whole box fits at that zoom it is centred; if not, the
+    ; title is pinned to the top so a tall UML class is still named.
     fn zoomToSelected:boolean (minFrac:double) {
         def n:FlowNode (this.selectedNode())
         if ((strlen n.id) == 0) {
@@ -3414,17 +3415,29 @@ class FlowEditor {
         def vh:double view.height
         if (vw < 1.0) { return false }
         if (n.width < 1.0) { return false }
-        def vp:FlowViewport view.viewport
-        def want:double ((frac * vw) / n.width)
-        def shown:double ((n.width * vp.zoom) / vw)
-        if (shown < frac) {
-            vp.zoom = (vp.clampZoom(want))
+        def titleH:double 28.0
+        if (n.headerHeight > 1.0) {
+            titleH = n.headerHeight
+        } {
+            if (n.height < titleH) {
+                titleH = n.height
+            }
         }
+        if (titleH < 8.0) { titleH = 8.0 }
+        def vp:FlowViewport view.viewport
+        def zNeed:double ((frac * vw) / n.width)
+        def zTitle:double (18.0 / titleH)
+        if (zTitle > zNeed) { zNeed = zTitle }
         def z:double vp.zoom
+        if (z < zNeed) {
+            z = zNeed
+        }
+        z = (vp.clampZoom(z))
+        vp.zoom = z
         def cx:double (n.centerX())
         vp.x = ((vw * 0.5) - (cx * z))
-        def scaledH:double (n.height * z)
         def pad:double 24.0
+        def scaledH:double (n.height * z)
         if (scaledH <= (vh - (pad * 2.0))) {
             vp.y = ((vh * 0.5) - ((n.centerY()) * z))
         } {

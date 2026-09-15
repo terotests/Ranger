@@ -218,6 +218,18 @@ class CodeGraphTest {
         c.ok("it frames the box" (ed.zoomToSelected(0.3)))
         def shown:double ((n.width * ed.view.viewport.zoom) / ed.view.width)
         c.ok("at least 30% of the view across" (shown >= 0.29))
+        n.width = 220.0
+        n.height = 900.0
+        n.headerHeight = 28.0
+        n.x = 0.0
+        n.y = 0.0
+        ed.setSize(640.0 360.0)
+        ed.view.viewport.zoom = 0.04
+        c.ok("a tall class still frames" (ed.zoomToSelected(0.3)))
+        def titlePx:double (n.headerHeight * ed.view.viewport.zoom)
+        c.ok("its header is readable" (titlePx >= 17.5))
+        def top:double (ed.view.viewport.toScreenY(n.y))
+        c.ok("and the title is on screen" ((top >= 0.0) && (top < 80.0)))
         def uml (new FlowHitEvent)
         uml.kind = "node"
         uml.dataKind = "class"
