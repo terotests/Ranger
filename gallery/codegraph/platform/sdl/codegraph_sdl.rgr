@@ -8,8 +8,10 @@
 ;   display() → EVGDisplayList → EvgGlPainter → OpenGL
 ;
 ; A Ranger file is analysed through the in-memory VirtualCompiler filesystem.
-; The host fills that VFS from the real disk (compiler, lib, sibling `.rgr`
-; files next to the one you open). The same app runs in a tab.
+; The host fills that VFS from the real disk (compiler, lib, gallery css/evg/zip,
+; and the Import closure of the file you open — including `../`). Relative
+; Imports are rewritten to basenames because the in-memory RANGER_LIB does not
+; walk `..`. The same app runs in a tab.
 ;
 ; Usage (after build.sh):
 ;   ./tmp/codegraph-sdl/codegraph_sdl
@@ -150,37 +152,37 @@ class CodeGraphSdl {
         }
         app.setExampleFile("calls.rgr" (this.loadText("gallery/codegraph/fixtures" "calls.rgr")))
         app.setExampleFile("animals.rgr" (this.loadText("gallery/codegraph/fixtures" "animals.rgr")))
-        print ("  VFS lang=" + (to_string (app.hasCompiler())) + " compiler=" + (to_string (app.hasCompilerTree())))
+        app.loadGalleryTree()
+        print ("  VFS lang=" + (to_string (app.hasCompiler())) + " compiler=" + (to_string (app.hasCompilerTree())) + " gallery=" + (to_string (app.hasGalleryTree())))
     }
 
     fn openRangerPath:boolean (path:string) {
         if ((strlen path) == 0) {
             return false
         }
-        def dir:string (this.dirOf(path))
-        def name:string (this.baseOf(path))
-        def source:string (this.loadText(dir name))
-        if ((strlen source) == 0) {
+        print ("  ingest " + path)
+        app.clearUserFiles()
+        if ((app.ingestDiskTree(path)) == false) {
             app.status = ("could not read " + path)
             app.refreshChrome()
             print ("  " + app.status)
             return false
         }
-        app.clearUserFiles()
+        def dir:string (this.dirOf(path))
         def names:[string] (list_dir_files dir)
         def i:int 0
         while (i < (array_length names)) {
             def n:string (itemAt names i)
             if (this.isRgr(n)) {
-                def data:string (this.loadText(dir n))
-                if ((strlen data) > 0) {
-                    app.setUserFile(n data)
-                }
+                app.ingestDiskFile(dir n)
             }
             i = (i + 1)
         }
-        print ("  analyse " + path + " via VFS")
-        return (app.analyzeSource(source name))
+        app.fillMissingUserImports()
+        def name:string (this.baseOf(path))
+        def ok:boolean (app.analyzeSource((app.userFileText(name)) name))
+        print ("  VFS user files=" + (to_string (app.userFileCount())) + " · " + (app.statusText()))
+        return ok
     }
 
     fn pickAndOpen:void () {

@@ -6,7 +6,8 @@
 ;
 ; Does not wait on a live VirtualCompiler analyse. The builder suite still
 ; walks fixtures/calls.rgr; this checks the EVG shell: layout, display list,
-; class rail, and the same navigation self-test the page runs.
+; class rail, the same navigation self-test the page runs, and that Open-style
+; disk ingest follows `Import "../evg/…"` into the VFS.
 ;
 ;   npm run codegraph:app
 ; ============================================================================
@@ -61,6 +62,55 @@ class CodeGraphAppTest {
         } {
             print ("  " + nav)
         }
+
+        def rw:string (app.rewriteRelativeImports("Import \"../evg/EVGColor.rgr\"\nImport \"Foo.rgr\"\n"))
+        if ((indexOf rw "Import \"EVGColor.rgr\"") < 0) {
+            print ("  FAIL rewrite missed ../evg: " + rw)
+            failed = (failed + 1)
+        }
+        if ((indexOf rw "Import \"../evg/EVGColor.rgr\"") >= 0) {
+            print "  FAIL rewrite left ../evg path"
+            failed = (failed + 1)
+        }
+        if ((indexOf rw "Import \"Foo.rgr\"") < 0) {
+            print "  FAIL rewrite dropped a same-dir Import"
+            failed = (failed + 1)
+        }
+        if ((app.collapsePath("gallery/css/../evg/EVGColor.rgr")) != "gallery/evg/EVGColor.rgr") {
+            print ("  FAIL collapsePath " + (app.collapsePath("gallery/css/../evg/EVGColor.rgr")))
+            failed = (failed + 1)
+        }
+
+        def disk (new CodeGraphApp)
+        disk.start(800.0 600.0 (unwrap css))
+        if ((disk.ingestDiskTree("gallery/css/CssCore.rgr")) == false) {
+            print "  FAIL ingestDiskTree CssCore.rgr"
+            failed = (failed + 1)
+        } {
+            if ((disk.hasUserFile("CssCore.rgr")) == false) {
+                print "  FAIL ingest missed CssCore.rgr"
+                failed = (failed + 1)
+            }
+            if ((disk.hasUserFile("EVGColor.rgr")) == false) {
+                print "  FAIL ingest missed EVGColor.rgr from ../evg"
+                failed = (failed + 1)
+            }
+            if ((disk.hasUserFile("EVGUnit.rgr")) == false) {
+                print "  FAIL ingest missed EVGUnit.rgr from ../evg"
+                failed = (failed + 1)
+            }
+            def cssSrc:string (disk.userFileText("CssCore.rgr"))
+            if ((indexOf cssSrc "Import \"../evg/EVGColor.rgr\"") >= 0) {
+                print "  FAIL ingested CssCore still has ../evg Import"
+                failed = (failed + 1)
+            }
+            if ((indexOf cssSrc "Import \"EVGColor.rgr\"") < 0) {
+                print "  FAIL ingested CssCore missing rewritten EVGColor Import"
+                failed = (failed + 1)
+            }
+            print ("  ingest CssCore → " + (to_string (disk.userFileCount())) + " user files")
+        }
+
         if (failed > 0) {
             print ("CodeGraphAppTest FAILED " + (to_string failed))
             exit 1

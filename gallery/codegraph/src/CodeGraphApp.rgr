@@ -351,7 +351,7 @@ class CodeGraphApp extends EvgApp {
     }
 
     fn setGalleryFile:void (path:string data:string) {
-        set galleryFiles path data
+        set galleryFiles path (this.rewriteRelativeImports(data))
     }
 
     fn setExampleFile:void (name:string data:string) {
@@ -359,12 +359,391 @@ class CodeGraphApp extends EvgApp {
     }
 
     fn setUserFile:void (name:string data:string) {
-        set userFiles name data
+        set userFiles name (this.rewriteRelativeImports(data))
     }
 
     fn clearUserFiles:void () {
         def empty:[string:string]
         userFiles = empty
+    }
+
+    fn hasUserFile:boolean (name:string) {
+        return (has userFiles name)
+    }
+
+    fn userFileText:string (name:string) {
+        if (has userFiles name) {
+            return (unwrap (get userFiles name))
+        }
+        return ""
+    }
+
+    fn userFileCount:int () {
+        def names:[string] (keys userFiles)
+        return (array_length names)
+    }
+
+    fn isRgr:boolean (name:string) {
+        def n:int (strlen name)
+        if (n < 4) {
+            return false
+        }
+        return ((substring name (n - 4) n) == ".rgr")
+    }
+
+    fn slashPath:string (path:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen path)
+        while (i < n) {
+            def ch:int (charAt path i)
+            if (ch == 92) {
+                out = (out + "/")
+            } {
+                out = (out + (substring path i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn fileBaseName:string (path:string) {
+        def p:string (this.slashPath(path))
+        def cut:int (this.slashIn(p))
+        if (cut < 0) {
+            return p
+        }
+        return (substring p (cut + 1) (strlen p))
+    }
+
+    fn fileDirName:string (path:string) {
+        def p:string (this.slashPath(path))
+        def cut:int (this.slashIn(p))
+        if (cut < 0) {
+            return "."
+        }
+        if (cut == 0) {
+            return "/"
+        }
+        return (substring p 0 cut)
+    }
+
+    fn collapsePath:string (path:string) {
+        def raw:string (this.slashPath(path))
+        def parts:[string] (strsplit raw "/")
+        def out:[string]
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (itemAt parts i)
+            if ((strlen p) == 0) {
+            } {
+                if (p == ".") {
+                } {
+                    if (p == "..") {
+                        if ((array_length out) > 0) {
+                            removeLast out
+                        } {
+                            push out p
+                        }
+                    } {
+                        push out p
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (join out "/")
+    }
+
+    fn joinPath:string (dir:string spec:string) {
+        def s:string (this.slashPath(spec))
+        if ((strlen s) == 0) {
+            return (this.collapsePath(dir))
+        }
+        if ((indexOf s "/") == 0) {
+            return (this.collapsePath(s))
+        }
+        if ((strlen dir) == 0) {
+            return (this.collapsePath(s))
+        }
+        if (dir == ".") {
+            return (this.collapsePath(s))
+        }
+        return (this.collapsePath((dir + "/") + s))
+    }
+
+    fn skipWs:int (s:string i:int) {
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if ((ch == 32) || (ch == 9) || (ch == 10) || (ch == 13)) {
+                i = (i + 1)
+            } {
+                return i
+            }
+        }
+        return i
+    }
+
+    fn importAt:boolean (src:string at:int) {
+        if (at == 0) {
+            return true
+        }
+        def ch:int (charAt src (at - 1))
+        if ((ch == 10) || (ch == 13) || (ch == 32) || (ch == 9)) {
+            return true
+        }
+        return false
+    }
+
+    fn collectImportSpecs:[string] (src:string) {
+        def specs:[string]
+        def remain:string src
+        while ((strlen remain) > 0) {
+            def hit:int (indexOf remain "Import")
+            if (hit < 0) {
+                return specs
+            }
+            def after:string (substring remain (hit + 6) (strlen remain))
+            if (this.importAt(remain hit)) {
+                def j:int (this.skipWs(after 0))
+                if (j < (strlen after)) {
+                    if ((charAt after j) == 34) {
+                        def rest:string (substring after (j + 1) (strlen after))
+                        def q:int (indexOf rest "\"")
+                        if (q > 0) {
+                            push specs (substring rest 0 q)
+                            remain = (substring rest (q + 1) (strlen rest))
+                        } {
+                            remain = after
+                        }
+                    } {
+                        remain = after
+                    }
+                } {
+                    remain = after
+                }
+            } {
+                remain = after
+            }
+        }
+        return specs
+    }
+
+    fn rewriteRelativeImports:string (src:string) {
+        def out:string ""
+        def remain:string src
+        while ((strlen remain) > 0) {
+            def hit:int (indexOf remain "Import")
+            if (hit < 0) {
+                return (out + remain)
+            }
+            out = (out + (substring remain 0 (hit + 6)))
+            def after:string (substring remain (hit + 6) (strlen remain))
+            if ((this.importAt(remain hit)) == false) {
+                remain = after
+            } {
+                def j:int (this.skipWs(after 0))
+                out = (out + (substring after 0 j))
+                if (j >= (strlen after)) {
+                    remain = ""
+                } {
+                    if ((charAt after j) != 34) {
+                        remain = (substring after j (strlen after))
+                    } {
+                        def rest:string (substring after (j + 1) (strlen after))
+                        def q:int (indexOf rest "\"")
+                        if (q < 0) {
+                            remain = (substring after j (strlen after))
+                        } {
+                            def spec:string (substring rest 0 q)
+                            out = (out + "\"")
+                            if ((indexOf spec "..") == 0) {
+                                out = (out + (this.fileBaseName(spec)))
+                            } {
+                                out = (out + spec)
+                            }
+                            out = (out + "\"")
+                            remain = (substring rest (q + 1) (strlen rest))
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    fn skipEnvImport:boolean (spec:string) {
+        def base:string (this.fileBaseName(spec))
+        if ((this.isRgr(base)) == false) {
+            return true
+        }
+        if (base == "Lang.rgr") {
+            return true
+        }
+        if ((indexOf spec "compiler/") >= 0) {
+            return true
+        }
+        if ((indexOf spec "lib/") >= 0) {
+            return true
+        }
+        if (has compilerFiles base) {
+            return true
+        }
+        if (has libFiles base) {
+            return true
+        }
+        return false
+    }
+
+    fn readDisk:string (dir:string name:string) {
+        def t@(optional):string (read_file dir name)
+        if (null? t) {
+            return ""
+        }
+        return (unwrap t)
+    }
+
+    fn ingestDiskFile:boolean (dir:string name:string) {
+        if ((this.isRgr(name)) == false) {
+            return false
+        }
+        if (has userFiles name) {
+            return true
+        }
+        if (this.skipEnvImport(name)) {
+            return true
+        }
+        def data:string (this.readDisk(dir name))
+        if ((strlen data) == 0) {
+            return false
+        }
+        def specs:[string] (this.collectImportSpecs(data))
+        this.setUserFile(name data)
+        def i:int 0
+        while (i < (array_length specs)) {
+            def spec:string (itemAt specs i)
+            if ((this.skipEnvImport(spec)) == false) {
+                def full:string (this.joinPath(dir spec))
+                if ((indexOf full "..") != 0) {
+                    this.ingestDiskFile((this.fileDirName(full)) (this.fileBaseName(full)))
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    fn ingestDiskTree:boolean (path:string) {
+        def dir:string (this.fileDirName(path))
+        def name:string (this.fileBaseName(path))
+        return (this.ingestDiskFile(dir name))
+    }
+
+    fn galleryRelOk:boolean (rel:string) {
+        if ((indexOf rel "css/") == 0) {
+            return true
+        }
+        if ((indexOf rel "evg/") == 0) {
+            return true
+        }
+        if ((indexOf rel "zip/") == 0) {
+            return true
+        }
+        return false
+    }
+
+    fn ingestGalleryFile:void (rel:string) {
+        if (has galleryFiles rel) {
+            return
+        }
+        if ((this.galleryRelOk(rel)) == false) {
+            return
+        }
+        if ((this.slashIn((this.fileDirName(rel)))) >= 0) {
+            return
+        }
+        def dir:string ("gallery/" + (this.fileDirName(rel)))
+        def name:string (this.fileBaseName(rel))
+        def data:string (this.readDisk(dir name))
+        if ((strlen data) == 0) {
+            return
+        }
+        def specs:[string] (this.collectImportSpecs(data))
+        this.setGalleryFile(rel data)
+        def i:int 0
+        while (i < (array_length specs)) {
+            def spec:string (itemAt specs i)
+            if ((this.skipEnvImport(spec)) == false) {
+                def next:string (this.joinPath((this.fileDirName(rel)) spec))
+                if ((indexOf next "..") != 0) {
+                    this.ingestGalleryFile(next)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn loadGalleryTree:void () {
+        this.ingestGalleryFile("css/CssCore.rgr")
+        this.ingestGalleryFile("evg/EVGElement.rgr")
+        this.ingestGalleryFile("zip/zip_tool.rgr")
+    }
+
+    fn galleryFileByBase:string (base:string) {
+        def names:[string] (keys galleryFiles)
+        def i:int 0
+        while (i < (array_length names)) {
+            def rel:string (itemAt names i)
+            if ((this.fileBaseName(rel)) == base) {
+                return (unwrap (get galleryFiles rel))
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn fillMissingUserImports:void () {
+        def queue:[string] (keys userFiles)
+        def i:int 0
+        while (i < (array_length queue)) {
+            def name:string (itemAt queue i)
+            def src:string (unwrap (get userFiles name))
+            def specs:[string] (this.collectImportSpecs(src))
+            def s:int 0
+            while (s < (array_length specs)) {
+                def spec:string (itemAt specs s)
+                def base:string (this.fileBaseName(spec))
+                if ((this.skipEnvImport(spec)) == false) {
+                    if ((has userFiles base) == false) {
+                        def gal:string (this.galleryFileByBase(base))
+                        if ((strlen gal) > 0) {
+                            this.setUserFile(base gal)
+                            push queue base
+                        }
+                    }
+                }
+                s = (s + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn openDiskPath:boolean (path:string) {
+        this.clearUserFiles()
+        if ((this.ingestDiskTree(path)) == false) {
+            status = ("could not read " + path)
+            this.refreshChrome()
+            return false
+        }
+        this.fillMissingUserImports()
+        def name:string (this.fileBaseName(path))
+        if (has userFiles name) {
+            return (this.analyzeSource((this.userFileText(name)) name))
+        }
+        status = ("could not ingest " + path)
+        this.refreshChrome()
+        return false
     }
 
     fn hasCompiler:boolean () {
@@ -526,7 +905,7 @@ class CodeGraphApp extends EvgApp {
             ri = (ri + 1)
         }
         if ((strlen source) > 0) {
-            create_file fs fname source
+            create_file fs fname (this.rewriteRelativeImports(source))
         }
         this.installUserTree(fs)
         def libF@(optional):InputFSFolder (create_folder fs "lib")
@@ -547,8 +926,9 @@ class CodeGraphApp extends EvgApp {
         this.installGalleryTree(fs)
         def vc:VirtualCompiler (new VirtualCompiler)
         def res:CompilerResults (vc.run(env))
+        def errText:string (this.compilerErrorText(res))
         if res.hasErrors {
-            status = res.errorMessage
+            status = errText
             this.refreshChrome()
             return false
         }
@@ -560,8 +940,7 @@ class CodeGraphApp extends EvgApp {
         }
         def appCtx:RangerAppWriterContext (unwrap ctx)
         if ((array_length appCtx.compilerErrors) > 0) {
-            def err:RangerCompilerMessage (itemAt appCtx.compilerErrors 0)
-            status = err.description
+            status = errText
             this.refreshChrome()
             return false
         }
@@ -642,6 +1021,23 @@ class CodeGraphApp extends EvgApp {
             i = (i + 1)
         }
         return cut
+    }
+
+    fn compilerErrorText:string (res:CompilerResults) {
+        def ctx@(optional):RangerAppWriterContext res.ctx
+        if ((null? ctx) == false) {
+            def appCtx:RangerAppWriterContext (unwrap ctx)
+            if ((array_length appCtx.compilerErrors) > 0) {
+                def err:RangerCompilerMessage (itemAt appCtx.compilerErrors 0)
+                if ((strlen err.description) > 0) {
+                    return err.description
+                }
+            }
+        }
+        if ((strlen res.errorMessage) > 0) {
+            return res.errorMessage
+        }
+        return "compile failed"
     }
 
     ; --- graph page ---------------------------------------------------------

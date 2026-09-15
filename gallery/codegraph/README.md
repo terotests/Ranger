@@ -7,8 +7,8 @@ Live example files (`fixtures/calls.rgr`, `fixtures/animals.rgr`) are
 compiled **in the tab** by VirtualCompiler — the same compiler the playground
 uses — then walked into the IR. Shop / 40-class fixtures stay as a
 no-compiler fallback. On the desktop, **Open** picks a `.rgr` from the real
-disk and copies it (plus sibling Ranger files) into that same in-memory
-filesystem.
+disk and walks its `Import` closure into that same in-memory filesystem
+(rewriting `Import "../evg/EVGColor.rgr"` to a basename the VFS can find).
 
 Live example files (`fixtures/calls.rgr`, `fixtures/animals.rgr`) are
 compiled **in the tab** by VirtualCompiler — the same compiler the playground
