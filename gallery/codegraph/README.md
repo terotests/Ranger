@@ -32,6 +32,8 @@ The same page is published at
 **[terotests.github.io/Ranger/codegraph/](https://terotests.github.io/Ranger/codegraph/)**
 by the Pages workflow.
 
+![the explorer after VirtualCompiler walked calls.rgr: Order, LineItem, Checkout](artifacts/codegraph_calls.png)
+
 ![the explorer: class list on the left, one page of the shop on the canvas](artifacts/codegraph_shop.png)
 
 ## Run
