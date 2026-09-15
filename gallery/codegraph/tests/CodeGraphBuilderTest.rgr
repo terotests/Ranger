@@ -4,14 +4,14 @@
 ; CodeGraphBuilderTest.rgr — the compiler's call graph, as a CodeGraph.
 ; ============================================================================
 ;
-; Runs VirtualCompiler over fixtures/codegraph/calls.rgr and checks that
+; Runs VirtualCompiler over fixtures/calls.rgr and checks that
 ; RangerFlowParser's isCalling / isUsingClasses survived the copy.
 ;
-;   npm run rangerflow:codegraph:builder
+;   npm run codegraph:builder
 ; ============================================================================
 
-Import "../domains/codegraph/CodeGraphBuilder.rgr"
-Import "../domains/codegraph/CodeGraphPages.rgr"
+Import "../src/CodeGraphBuilder.rgr"
+Import "../src/CodeGraphPages.rgr"
 
 class CodeGraphBuilderTest {
     sfn main:void () {
@@ -19,7 +19,7 @@ class CodeGraphBuilderTest {
         env.use_real = true
         env.setEnv("RANGER_LIB" "./compiler/;./lib/;./compiler")
         def params:CmdParams (new CmdParams())
-        push params.values "gallery/rangerflow/fixtures/codegraph/calls.rgr"
+        push params.values "gallery/codegraph/fixtures/calls.rgr"
         set params.params "l" "es6"
         set params.params "o" "codegraph_builder_ignored.js"
         set params.flags "no-color" true

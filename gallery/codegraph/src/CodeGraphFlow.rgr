@@ -11,13 +11,13 @@
 ; ============================================================================
 
 Import "CodeGraphPages.rgr"
-Import "../../core/GraphModel.rgr"
-Import "../../core/FlowEvents.rgr"
-Import "../../core/FlowShapes.rgr"
-Import "../uml/UMLModel.rgr"
-Import "../../layout/LayeredLayout.rgr"
-Import "../../layout/EdgeLanes.rgr"
-Import "../../layout/OrthoRouter.rgr"
+Import "../../rangerflow/core/GraphModel.rgr"
+Import "../../rangerflow/core/FlowEvents.rgr"
+Import "../../rangerflow/core/FlowShapes.rgr"
+Import "../../rangerflow/domains/uml/UMLModel.rgr"
+Import "../../rangerflow/layout/LayeredLayout.rgr"
+Import "../../rangerflow/layout/EdgeLanes.rgr"
+Import "../../rangerflow/layout/OrthoRouter.rgr"
 
 class CodeGraphFlow {
     Constructor () {
@@ -277,6 +277,14 @@ class CodeGraphSession {
         pageId = (itemAt history historyAt)
         status = (this.describe())
         return true
+    }
+
+    fn canBack:boolean () {
+        return (historyAt > 0)
+    }
+
+    fn canForward:boolean () {
+        return (historyAt < ((array_length history) - 1))
     }
 
     ; True when the click changed the page — the host should rebuild the

@@ -170,6 +170,18 @@ class CodeGraph {
         return (array_length classes)
     }
 
+    ; Names in source order, for a class list beside the drawing.
+    fn classNames:[string] () {
+        def names:[string]
+        def i:int 0
+        while (i < (array_length classes)) {
+            def c:CodeClass (itemAt classes i)
+            push names c.name
+            i = (i + 1)
+        }
+        return names
+    }
+
     fn methodCount:int () {
         return (array_length methods)
     }

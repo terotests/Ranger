@@ -8,14 +8,14 @@
 ; has its own suite (CodeGraphBuilderTest.rgr) so a paging failure does not
 ; wait on a 3 MB frontend compile.
 ;
-;   npm run rangerflow:codegraph:test
+;   npm run codegraph:test
 ; ============================================================================
 
-Import "../core/FlowEditor.rgr"
-Import "../core/FlowEvents.rgr"
-Import "../domains/codegraph/CodeGraphSample.rgr"
-Import "../domains/codegraph/CodeGraphPages.rgr"
-Import "../domains/codegraph/CodeGraphFlow.rgr"
+Import "../../rangerflow/core/FlowEditor.rgr"
+Import "../../rangerflow/core/FlowEvents.rgr"
+Import "../src/CodeGraphSample.rgr"
+Import "../src/CodeGraphPages.rgr"
+Import "../src/CodeGraphFlow.rgr"
 
 class CGChecker {
     def passed:int 0
@@ -72,6 +72,8 @@ class CodeGraphTest {
         c.ok("the shop has classes" ((g.classCount()) > 8))
         c.ok("and methods" ((g.methodCount()) > 8))
         c.ok("Order exists" (g.hasClass("Order")))
+        def names:[string] (g.classNames())
+        c.ok("the class list names Order" ((indexOf (join names ",") "Order") >= 0))
         c.ok("Order.total exists" (g.hasMethod("Order.total")))
         def m:CodeMethod (g.methodById("Order.total"))
         c.ok("total calls something" ((array_length m.calls) > 0))
@@ -155,6 +157,7 @@ class CodeGraphTest {
         ev.dataKind = "class"
         ev.dataRef = "Order"
         session.handleClick(ev)
+        c.ok("history can go back" (session.canBack()))
         c.ok("back returns to overview" (session.goBack()))
         c.eqStr("overview again" session.pageId "overview:0")
         c.ok("forward restores the class page" (session.goForward()))

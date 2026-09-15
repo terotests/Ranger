@@ -1,0 +1,287 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; codegraph_web.rgr — the call-graph explorer, in a tab.
+; ============================================================================
+;
+; This is not a RangerFlow demo. RangerFlow draws the current window of the
+; graph; the chrome around it is this app: a class list, a breadcrumb, history
+; back/forward, a sample picker, an UML toggle. Clicking a class in the rail
+; or on the canvas drills in; the host never guesses from geometry.
+;
+;   browser event → CodeGraphWeb → CodeGraphSession + FlowEditor
+;   FlowEditor.frameJson() → EVGDisplayList → evg-webgl.js
+; ============================================================================
+
+Import "../../rangerflow/core/FlowEditor.rgr"
+Import "../../rangerflow/core/FlowEvents.rgr"
+Import "../src/CodeGraphSample.rgr"
+Import "../src/CodeGraphFlow.rgr"
+
+class CodeGraphWeb {
+    def session:CodeGraphSession (new CodeGraphSession)
+    def graph:FlowGraph (new FlowGraph)
+    def editor:FlowEditor (new FlowEditor)
+    def input:FlowInput (new FlowInput)
+    def viewW:double 1200.0
+    def viewH:double 800.0
+    def sampleName:string "shop"
+    def umlOn:boolean false
+    def status:string ""
+
+    Constructor () {
+    }
+
+    fn init:void (w:double h:double) {
+        this.loadSample("shop")
+        this.resize(w h)
+    }
+
+    fn resize:void (w:double h:double) {
+        viewW = w
+        viewH = h
+        editor.setSize(w h)
+    }
+
+    fn loadSample:boolean (name:string) {
+        def model:CodeGraph (new CodeGraph)
+        if (name == "many") {
+            model = (CodeGraphSample.manyClasses(40))
+            sampleName = "many"
+        } {
+            model = (CodeGraphSample.shop())
+            sampleName = "shop"
+        }
+        umlOn = false
+        session = (CodeGraphSession.of(model 24))
+        return (this.showPage())
+    }
+
+    fn showPage:boolean () {
+        graph = (session.graph())
+        editor = (FlowEditor.of(graph))
+        editor.setSize(viewW viewH)
+        editor.view.notation = "uml"
+        editor.fitView()
+        status = session.status
+        return true
+    }
+
+    fn classList:string () {
+        def names:[string] (session.model.classNames())
+        return (join names "\n")
+    }
+
+    fn titleText:string () {
+        return session.model.title
+    }
+
+    fn pageId:string () {
+        return session.pageId
+    }
+
+    fn pageTitle:string () {
+        def p:CodePage (session.currentPage())
+        return p.title
+    }
+
+    fn crumb:string () {
+        def p:CodePage (session.currentPage())
+        return (((session.model.title + " / ") + p.kind) + " / " + p.title)
+    }
+
+    fn statusText:string () {
+        return status
+    }
+
+    fn sampleId:string () {
+        return sampleName
+    }
+
+    fn umlView:boolean () {
+        return umlOn
+    }
+
+    fn canBack:boolean () {
+        return (session.canBack())
+    }
+
+    fn canForward:boolean () {
+        return (session.canForward())
+    }
+
+    fn openClass:boolean (name:string) {
+        if ((session.model.hasClass(name)) == false) {
+            return false
+        }
+        if (session.goTo(session.pages.classPageId(name))) {
+            return (this.showPage())
+        }
+        return false
+    }
+
+    fn goOverview:boolean () {
+        def next:string (session.pages.overviewId(0))
+        if umlOn {
+            next = (session.pages.umlPageId(0))
+        }
+        if (session.goTo(next)) {
+            return (this.showPage())
+        }
+        return false
+    }
+
+    fn setUml:boolean (on:boolean) {
+        if (on == umlOn) {
+            return false
+        }
+        umlOn = on
+        def next:string (session.pages.overviewId(0))
+        if umlOn {
+            next = (session.pages.umlPageId(0))
+        }
+        session.goTo(next)
+        return (this.showPage())
+    }
+
+    fn goBack:boolean () {
+        if (session.goBack()) {
+            return (this.showPage())
+        }
+        return false
+    }
+
+    fn goForward:boolean () {
+        if (session.goForward()) {
+            return (this.showPage())
+        }
+        return false
+    }
+
+    fn pointerDown:void (x:double y:double shift:boolean ctrl:boolean) {
+        input.x = x
+        input.y = y
+        input.shift = shift
+        input.ctrl = ctrl
+        input.secondary = false
+        editor.pointerDown(input)
+    }
+
+    fn pointerMove:void (x:double y:double shift:boolean ctrl:boolean) {
+        input.x = x
+        input.y = y
+        input.shift = shift
+        input.ctrl = ctrl
+        editor.pointerMove(input)
+    }
+
+    fn pointerUp:void (x:double y:double shift:boolean ctrl:boolean) {
+        input.x = x
+        input.y = y
+        input.shift = shift
+        input.ctrl = ctrl
+        editor.pointerUp(input)
+        def n:int (editor.clicks.count())
+        def i:int 0
+        def moved:boolean false
+        while (i < n) {
+            def ev:FlowHitEvent (editor.clicks.at(i))
+            if (session.handleClick(ev)) {
+                moved = true
+            }
+            i = (i + 1)
+        }
+        if moved {
+            this.showPage()
+        }
+        editor.clicks.clear()
+    }
+
+    fn wheel:void (x:double y:double delta:double) {
+        input.x = x
+        input.y = y
+        editor.wheel(input delta)
+    }
+
+    fn wheelGesture:void (x:double y:double dx:double dy:double pinch:boolean lineMode:boolean) {
+        editor.wheelGesture(x y dx dy pinch lineMode)
+    }
+
+    fn fitView:void () {
+        editor.fitView()
+    }
+
+    fn viewGesture:boolean () {
+        return (editor.viewGesture())
+    }
+
+    fn frameScene:string () {
+        return (editor.frameJson())
+    }
+
+    fn frameView:string () {
+        return (editor.viewFrameJson())
+    }
+
+    fn frameGrid:string () {
+        return (editor.gridFrameJson())
+    }
+
+    fn sceneJson:string () {
+        return (editor.sceneJson())
+    }
+
+    fn svg:string () {
+        def sc:FlowScene (editor.view.buildForExport(24.0))
+        return (sc.toSvg())
+    }
+
+    fn tick:boolean () {
+        return false
+    }
+
+    fn stats:string () {
+        def v:FlowView editor.view
+        def out:string ("nodes=" + (to_string (graph.nodeCount())))
+        out = (out + " edges=" + (to_string (graph.edgeCount())))
+        out = (out + " drawn=" + (to_string v.drawnNodes))
+        out = (out + " page=" + session.pageId)
+        return out
+    }
+
+    ; `?selftest=1` — click Order, land on its page, go back.
+    fn selfTest:string () {
+        if ((graph.nodeCount()) == 0) {
+            return "FAIL no nodes"
+        }
+        this.loadSample("shop")
+        editor.fitView()
+        if ((graph.hasNode("Order")) == false) {
+            return "FAIL shop overview has no Order"
+        }
+        def n:FlowNode (graph.nodeById("Order"))
+        def sx:double (editor.view.viewport.toScreenX((n.centerX())))
+        def sy:double (editor.view.viewport.toScreenY((n.centerY())))
+        this.pointerDown(sx sy false false)
+        this.pointerUp(sx sy false false)
+        if (session.pageId != "class:Order") {
+            return ("FAIL click Order stayed on " + session.pageId)
+        }
+        if ((graph.nodeCount()) < 3) {
+            return "FAIL Order page too small"
+        }
+        if ((this.goBack()) == false) {
+            return "FAIL back from Order"
+        }
+        if (session.pageId != "overview:0") {
+            return ("FAIL back stayed on " + session.pageId)
+        }
+        if ((this.openClass("LineItem")) == false) {
+            return "FAIL rail openClass LineItem"
+        }
+        if (session.pageId != "class:LineItem") {
+            return ("FAIL rail stayed on " + session.pageId)
+        }
+        return ("PASS nav ok; " + (this.stats()))
+    }
+}

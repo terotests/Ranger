@@ -13,7 +13,7 @@
 ; ============================================================================
 
 Import "CodeGraphModel.rgr"
-Import "../../../../compiler/VirtualCompiler.rgr"
+Import "../../../compiler/VirtualCompiler.rgr"
 
 class CodeGraphBuilder {
     ; When set, only classes whose source path contains this string are kept.
