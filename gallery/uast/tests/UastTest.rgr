@@ -1,0 +1,164 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastTest.rgr — schema, ZipWriter fixture, TS kind mapping.
+; ============================================================================
+;
+; Does not import the compiler. The Ranger golden suite is UastRangerTest.
+;
+;   npm run uast:test
+; ============================================================================
+
+Import "../src/UastSample.rgr"
+Import "../src/UastCodeGraph.rgr"
+Import "../src/UastTypeScript.rgr"
+
+class UastChecker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn report:int () {
+        print ""
+        print (("passed " + (to_string passed)) + ", failed " + (to_string failed))
+        if (failed > 0) {
+            return 1
+        }
+        return 0
+    }
+}
+
+class UastTest {
+    sfn main:void () {
+        def c (new UastChecker)
+        UastTest.testZipWriter(c)
+        UastTest.testTsMapping(c)
+        UastTest.testEscapeHatch(c)
+        def code:int (c.report())
+        if (code != 0) {
+            exit 1
+        }
+    }
+
+    sfn testZipWriter:void (c:UastChecker) {
+        print "== ZipWriter fixture"
+        def model:UastCodeModel (UastSample.zipWriter())
+        c.ok("ZipWriter symbol" (model.mentionsSymbol("class:ZipWriter")))
+        c.ok("ZipEntry symbol" (model.mentionsSymbol("class:ZipEntry")))
+        c.ok("GrowableZipBuffer symbol" (model.mentionsSymbol("class:GrowableZipBuffer")))
+        c.ok("CRC32 symbol" (model.mentionsSymbol("class:CRC32")))
+        c.ok("addFile symbol" (model.mentionsSymbol("method:ZipWriter.addFile")))
+        c.ok("compute symbol" (model.mentionsSymbol("method:CRC32.compute")))
+        def zip:UastSymbol (model.symbolById("class:ZipWriter"))
+        c.eqStr("ZipWriter file" zip.fileName "gallery/zip/ZipWriter.rgr")
+        def entries:UastSymbol (model.symbolById("field:ZipWriter.entries"))
+        c.eqStr("entries type" entries.typeName "[ZipEntry]")
+        def output:UastSymbol (model.symbolById("field:ZipWriter.output"))
+        c.eqStr("output type" output.typeName "GrowableZipBuffer")
+        def crcField:UastSymbol (model.symbolById("field:ZipWriter.crc"))
+        c.eqStr("crc type" crcField.typeName "CRC32")
+        def foundCall:boolean false
+        def foundUse:boolean false
+        def i:int 0
+        while (i < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships i)
+            if ((rel.kind == "calls") && (rel.fromId == "method:ZipWriter.addFile") && (rel.toId == "method:CRC32.compute")) {
+                foundCall = true
+                c.eqStr("call confidence" rel.confidence "exact")
+            }
+            if ((rel.kind == "usesType") && (rel.fromId == "class:ZipWriter") && (rel.toId == "class:CRC32")) {
+                foundUse = true
+            }
+            i = (i + 1)
+        }
+        c.ok("addFile calls CRC32.compute" foundCall)
+        c.ok("ZipWriter usesType CRC32" foundUse)
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        c.ok("projected ZipWriter" (g.hasClass("ZipWriter")))
+        c.ok("projected ZipEntry" (g.hasClass("ZipEntry")))
+        c.ok("projected GrowableZipBuffer" (g.hasClass("GrowableZipBuffer")))
+        c.ok("projected CRC32" (g.hasClass("CRC32")))
+        c.ok("projected addFile" (g.hasMethod("ZipWriter.addFile")))
+        c.ok("projected compute" (g.hasMethod("CRC32.compute")))
+        def zw:CodeClass (g.classByName("ZipWriter"))
+        c.eqInt("ZipWriter field count" (zw.fieldCount()) 4)
+        def hasEntries:boolean false
+        def fi:int 0
+        while (fi < (array_length zw.fields)) {
+            def f:CodeField (itemAt zw.fields fi)
+            if ((f.name == "entries") && (f.fieldType == "[ZipEntry]")) {
+                hasEntries = true
+            }
+            fi = (fi + 1)
+        }
+        c.ok("projected entries : [ZipEntry]" hasEntries)
+        def add:CodeMethod (g.methodById("ZipWriter.addFile"))
+        def callsCompute:boolean false
+        def ci:int 0
+        while (ci < (array_length add.calls)) {
+            if ((itemAt add.calls ci) == "CRC32.compute") {
+                callsCompute = true
+            }
+            ci = (ci + 1)
+        }
+        c.ok("projected addFile → CRC32.compute" callsCompute)
+        def usesEntry:boolean false
+        def ui:int 0
+        while (ui < (array_length add.uses)) {
+            if ((itemAt add.uses ui) == "ZipEntry") {
+                usesEntry = true
+            }
+            ui = (ui + 1)
+        }
+        c.ok("projected addFile uses ZipEntry" usesEntry)
+        def addNode:UNode (model.nodeById("n:ZipWriter.addFile"))
+        c.eqStr("addFile UNode kind" addNode.kind (UastKind.MethodDecl()))
+        c.eqStr("addFile nativeKind" addNode.nativeKind "fn")
+        c.eqStr("addFile language" addNode.language "ranger")
+    }
+
+    sfn testTsMapping:void (c:UastChecker) {
+        print "== TS nativeKind mapping"
+        c.eqStr("ClassDeclaration" (UastTypeScript.kindFromNative("ClassDeclaration")) (UastKind.ClassDecl()))
+        c.eqStr("TSInterfaceDeclaration" (UastTypeScript.kindFromNative("TSInterfaceDeclaration")) (UastKind.InterfaceDecl()))
+        c.eqStr("TSTypeAliasDeclaration" (UastTypeScript.kindFromNative("TSTypeAliasDeclaration")) (UastKind.TypeDecl()))
+        c.eqStr("MethodDefinition" (UastTypeScript.kindFromNative("MethodDefinition")) (UastKind.MethodDecl()))
+        c.eqStr("CallExpression" (UastTypeScript.kindFromNative("CallExpression")) (UastKind.Call()))
+        c.eqStr("ArrowFunctionExpression" (UastTypeScript.kindFromNative("ArrowFunctionExpression")) (UastKind.Lambda()))
+        c.eqStr("TSTypeReference" (UastTypeScript.kindFromNative("TSTypeReference")) (UastKind.TypeRef()))
+        c.eqStr("ImportDeclaration" (UastTypeScript.kindFromNative("ImportDeclaration")) (UastKind.Import()))
+        c.eqStr("TSConditionalType" (UastTypeScript.kindFromNative("TSConditionalType")) (UastKind.LanguageSpecific()))
+        c.eqStr("TSMappedType" (UastTypeScript.kindFromNative("TSMappedType")) (UastKind.LanguageSpecific()))
+        c.eqStr("empty" (UastTypeScript.kindFromNative("")) (UastKind.Unknown()))
+    }
+
+    sfn testEscapeHatch:void (c:UastChecker) {
+        print "== LanguageSpecific escape hatch"
+        def m (new UastCodeModel)
+        m.language = "typescript"
+        def node:UNode (UNode.create("n:cond" (UastKind.LanguageSpecific()) "typescript" "TSConditionalType"))
+        node.name = "X"
+        node.origin = "ts:ConditionalType"
+        m.addNode(node)
+        def stored:UNode (m.nodeById("n:cond"))
+        c.eqInt("unknown/specific count" (m.unknownNodeCount()) 1)
+        c.eqStr("kept nativeKind" stored.nativeKind "TSConditionalType")
+        c.eqStr("kept language" stored.language "typescript")
+    }
+}

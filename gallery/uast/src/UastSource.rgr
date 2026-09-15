@@ -1,0 +1,60 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastSource.rgr — file identity and source spans.
+; ============================================================================
+;
+; Spans are non-negotiable. Clicking a CodeGraph node has to jump to a
+; range, not a name. Ranger CodeNode already has sp/ep/row/col/filename;
+; TSNode has start/end/line/col. Adapters copy, they do not invent a
+; second coordinate system.
+; ============================================================================
+
+class UastSourceFile {
+    def id:string ""
+    def path:string ""
+    def language:string ""
+
+    Constructor () {
+    }
+
+    sfn create:UastSourceFile (id:string path:string language:string) {
+        def f (new UastSourceFile)
+        f.id = id
+        f.path = path
+        f.language = language
+        return f
+    }
+}
+
+class UastSpan {
+    def fileId:string ""
+    def startByte:int 0
+    def endByte:int 0
+    def startLine:int 0
+    def startColumn:int 0
+    def endLine:int 0
+    def endColumn:int 0
+
+    Constructor () {
+    }
+
+    sfn ofBytes:UastSpan (fileId:string startByte:int endByte:int startLine:int startColumn:int) {
+        def s (new UastSpan)
+        s.fileId = fileId
+        s.startByte = startByte
+        s.endByte = endByte
+        s.startLine = startLine
+        s.startColumn = startColumn
+        s.endLine = startLine
+        s.endColumn = startColumn
+        return s
+    }
+
+    fn asString:string () {
+        if ((strlen fileId) == 0) {
+            return ""
+        }
+        return ((((fileId + ":") + (to_string startLine)) + ":") + (to_string startColumn))
+    }
+}

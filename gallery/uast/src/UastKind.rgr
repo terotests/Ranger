@@ -1,0 +1,121 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastKind.rgr — small shared vocabulary.
+; ============================================================================
+;
+; Keep this list short. Language-only syntax goes under LanguageSpecific
+; with nativeKind preserved, not as a new universal kind. See PLAN_UAST.md.
+;
+; Method names avoid the compiler's reserved set (contains, has, first, …).
+; ============================================================================
+
+class UastKind {
+    Constructor () {
+    }
+
+    sfn Module:string () { return "Module" }
+
+    sfn ClassDecl:string () { return "ClassDecl" }
+    sfn InterfaceDecl:string () { return "InterfaceDecl" }
+    sfn EnumDecl:string () { return "EnumDecl" }
+    sfn TypeDecl:string () { return "TypeDecl" }
+    sfn FunctionDecl:string () { return "FunctionDecl" }
+    sfn MethodDecl:string () { return "MethodDecl" }
+    sfn FieldDecl:string () { return "FieldDecl" }
+    sfn VariableDecl:string () { return "VariableDecl" }
+    sfn Parameter:string () { return "Parameter" }
+
+    sfn Block:string () { return "Block" }
+    sfn If:string () { return "If" }
+    sfn Switch:string () { return "Switch" }
+    sfn For:string () { return "For" }
+    sfn While:string () { return "While" }
+    sfn Try:string () { return "Try" }
+    sfn Return:string () { return "Return" }
+    sfn Throw:string () { return "Throw" }
+
+    sfn Call:string () { return "Call" }
+    sfn MemberAccess:string () { return "MemberAccess" }
+    sfn IndexAccess:string () { return "IndexAccess" }
+    sfn Assign:string () { return "Assign" }
+    sfn BinaryOp:string () { return "BinaryOp" }
+    sfn UnaryOp:string () { return "UnaryOp" }
+    sfn Lambda:string () { return "Lambda" }
+    sfn New:string () { return "New" }
+    sfn Identifier:string () { return "Identifier" }
+    sfn Literal:string () { return "Literal" }
+
+    sfn TypeRef:string () { return "TypeRef" }
+    sfn FunctionType:string () { return "FunctionType" }
+    sfn UnionType:string () { return "UnionType" }
+    sfn GenericType:string () { return "GenericType" }
+
+    sfn Import:string () { return "Import" }
+    sfn Export:string () { return "Export" }
+
+    sfn Unknown:string () { return "Unknown" }
+    sfn LanguageSpecific:string () { return "LanguageSpecific" }
+
+    sfn isDecl:boolean (kind:string) {
+        if (kind == "ClassDecl") { return true }
+        if (kind == "InterfaceDecl") { return true }
+        if (kind == "EnumDecl") { return true }
+        if (kind == "TypeDecl") { return true }
+        if (kind == "FunctionDecl") { return true }
+        if (kind == "MethodDecl") { return true }
+        if (kind == "FieldDecl") { return true }
+        if (kind == "VariableDecl") { return true }
+        if (kind == "Parameter") { return true }
+        return false
+    }
+}
+
+class UastRelKind {
+    Constructor () {
+    }
+
+    sfn containsRel:string () { return "contains" }
+    sfn defines:string () { return "defines" }
+    sfn references:string () { return "references" }
+    sfn calls:string () { return "calls" }
+    sfn constructs:string () { return "constructs" }
+    sfn reads:string () { return "reads" }
+    sfn writes:string () { return "writes" }
+    sfn imports:string () { return "imports" }
+    sfn exports:string () { return "exports" }
+    sfn extendsRel:string () { return "extends" }
+    sfn implementsRel:string () { return "implements" }
+    sfn overrides:string () { return "overrides" }
+    sfn typeOf:string () { return "typeOf" }
+    sfn returnsRel:string () { return "returns" }
+    sfn parameterType:string () { return "parameterType" }
+    sfn usesType:string () { return "usesType" }
+}
+
+class UastConfidence {
+    Constructor () {
+    }
+
+    sfn exact:string () { return "exact" }
+    sfn inferred:string () { return "inferred" }
+    sfn possible:string () { return "possible" }
+    sfn dynamic:string () { return "dynamic" }
+    sfn unresolved:string () { return "unresolved" }
+}
+
+class UastSymKind {
+    Constructor () {
+    }
+
+    sfn module:string () { return "module" }
+    sfn classSym:string () { return "class" }
+    sfn interfaceSym:string () { return "interface" }
+    sfn enumSym:string () { return "enum" }
+    sfn typeSym:string () { return "type" }
+    sfn functionSym:string () { return "function" }
+    sfn method:string () { return "method" }
+    sfn field:string () { return "field" }
+    sfn variable:string () { return "variable" }
+    sfn parameter:string () { return "parameter" }
+}

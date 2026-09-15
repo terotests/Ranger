@@ -1,0 +1,50 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastRelation.rgr — edges of the semantic graph, plus diagnostics.
+; ============================================================================
+;
+; confidence is required in spirit even when a frontend leaves it empty:
+; empty means exact. JS/TS adapters must set dynamic / unresolved rather
+; than invent a callee.
+; ============================================================================
+
+Import "UastSource.rgr"
+
+class UastRelation {
+    def fromId:string ""
+    def toId:string ""
+    def kind:string ""
+    def confidence:string ""
+
+    Constructor () {
+    }
+
+    sfn create:UastRelation (fromId:string toId:string kind:string confidence:string) {
+        def r (new UastRelation)
+        r.fromId = fromId
+        r.toId = toId
+        r.kind = kind
+        r.confidence = confidence
+        if ((strlen r.confidence) == 0) {
+            r.confidence = "exact"
+        }
+        return r
+    }
+}
+
+class UastDiagnostic {
+    def message:string ""
+    def severity:string ""
+    def span:UastSpan (new UastSpan)
+
+    Constructor () {
+    }
+
+    sfn create:UastDiagnostic (message:string severity:string) {
+        def d (new UastDiagnostic)
+        d.message = message
+        d.severity = severity
+        return d
+    }
+}

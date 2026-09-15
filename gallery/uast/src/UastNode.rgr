@@ -1,0 +1,60 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastNode.rgr — unified syntax node. Deliberately a bit dumb.
+; ============================================================================
+;
+; kind is the shared vocabulary (UastKind). language + nativeKind + origin
+; keep the native node findable. LanguageSpecific is the escape hatch so
+; UAST does not become TypeScriptAST + PythonAST + ….
+;
+; Children are nested. The CodeModel also keeps a flat id index.
+; ============================================================================
+
+Import "UastSource.rgr"
+
+class UNode {
+    def id:string ""
+    def kind:string ""
+    def language:string ""
+    def nativeKind:string ""
+    def name:string ""
+    def origin:string ""
+    def flags:[string]
+    def span:UastSpan (new UastSpan)
+    def children:[UNode]
+
+    Constructor () {
+    }
+
+    sfn create:UNode (id:string kind:string language:string nativeKind:string) {
+        def n (new UNode)
+        n.id = id
+        n.kind = kind
+        n.language = language
+        n.nativeKind = nativeKind
+        return n
+    }
+
+    fn addChild:void (child:UNode) {
+        push children child
+    }
+
+    fn addFlag:void (flag:string) {
+        if ((strlen flag) == 0) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length flags)) {
+            if ((itemAt flags i) == flag) {
+                return
+            }
+            i = (i + 1)
+        }
+        push flags flag
+    }
+
+    fn childCount:int () {
+        return (array_length children)
+    }
+}

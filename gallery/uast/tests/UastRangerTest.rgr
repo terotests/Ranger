@@ -1,0 +1,226 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastRangerTest.rgr — new pipeline vs CodeGraphBuilder.
+; ============================================================================
+;
+; Compiles fixtures with VirtualCompiler, builds a CodeModel, projects it,
+; and requires the same classes / fields / methods / calls / uses as the
+; existing CodeGraph path.
+;
+;   npm run uast:ranger
+; ============================================================================
+
+Import "../src/UastRanger.rgr"
+Import "../src/UastCodeGraph.rgr"
+Import "../../codegraph/src/CodeGraphBuilder.rgr"
+
+class UastRangerTest {
+    sfn main:void () {
+        def env:InputEnv (new InputEnv())
+        env.use_real = true
+        env.setEnv("RANGER_LIB" "./compiler/;./lib/;./compiler")
+        def params:CmdParams (new CmdParams())
+        push params.values "gallery/codegraph/fixtures/calls.rgr"
+        set params.params "l" "es6"
+        set params.params "o" "uast_ranger_ignored.js"
+        set params.flags "no-color" true
+        env.commandLine = params
+        def vc:VirtualCompiler (new VirtualCompiler())
+        def res:CompilerResults (vc.run(env))
+        if res.hasErrors {
+            print ("compilation failed: " + res.errorMessage)
+            exit 1
+        }
+        def ctx@(optional):RangerAppWriterContext res.ctx
+        if (null? ctx) {
+            print "no compiler context"
+            exit 1
+        }
+        def appCtx:RangerAppWriterContext (unwrap ctx)
+        def b (new CodeGraphBuilder)
+        b.fileFilter = "calls.rgr"
+        def expected:CodeGraph (b.fromContext(appCtx))
+        def a (new UastRanger)
+        a.fileFilter = "calls.rgr"
+        def model:UastCodeModel (a.fromContext(appCtx))
+        def got:CodeGraph (UastToCodeGraph.project(model))
+        def failed:int 0
+        failed = (failed + (UastRangerTest.diffGraph("calls.rgr" expected got)))
+        failed = (failed + (UastRangerTest.checkZipWriter()))
+        if (failed > 0) {
+            print (("failed " + (to_string failed)))
+            exit 1
+        }
+        print "passed ranger golden"
+    }
+
+    sfn checkZipWriter:int () {
+        print "== gallery/zip/zip_tool.rgr ZipWriter"
+        def model:UastCodeModel (UastRanger.fromFile("gallery/zip/zip_tool.rgr"))
+        if ((indexOf model.title " FAIL ") >= 0) {
+            print ("  FAIL " + model.title)
+            return 1
+        }
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        def n:int 0
+        if ((g.hasClass("ZipWriter")) == false) {
+            print "  FAIL ZipWriter missing"
+            n = (n + 1)
+        }
+        if ((g.hasClass("ZipEntry")) == false) {
+            print "  FAIL ZipEntry missing"
+            n = (n + 1)
+        }
+        if ((g.hasClass("CRC32")) == false) {
+            print "  FAIL CRC32 missing"
+            n = (n + 1)
+        }
+        if (g.hasClass("ZipWriter")) {
+            def zw:CodeClass (g.classByName("ZipWriter"))
+            if ((UastRangerTest.hasField(zw "entries" "[ZipEntry]")) == false) {
+                print "  FAIL ZipWriter.entries : [ZipEntry]"
+                n = (n + 1)
+            }
+            if ((UastRangerTest.hasField(zw "output" "GrowableZipBuffer")) == false) {
+                print "  FAIL ZipWriter.output : GrowableZipBuffer"
+                n = (n + 1)
+            }
+            if ((UastRangerTest.hasField(zw "crc" "CRC32")) == false) {
+                print "  FAIL ZipWriter.crc : CRC32"
+                n = (n + 1)
+            }
+        }
+        def expected:CodeGraph (CodeGraphBuilder.fromFile("gallery/zip/zip_tool.rgr"))
+        if ((indexOf expected.title " FAIL ") >= 0) {
+            print ("  FAIL builder " + expected.title)
+            n = (n + 1)
+        } {
+            n = (n + (UastRangerTest.diffGraph("zip_tool.rgr" expected g)))
+        }
+        print (("  classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
+        return n
+    }
+
+    sfn hasField:boolean (c:CodeClass name:string fieldType:string) {
+        def i:int 0
+        while (i < (array_length c.fields)) {
+            def f:CodeField (itemAt c.fields i)
+            if ((f.name == name) && (f.fieldType == fieldType)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn diffGraph:int (label:string expected:CodeGraph got:CodeGraph) {
+        def n:int 0
+        print (("== golden " + label))
+        def i:int 0
+        while (i < (array_length expected.classes)) {
+            def c:CodeClass (itemAt expected.classes i)
+            if ((got.hasClass(c.name)) == false) {
+                print (("  FAIL missing class " + c.name))
+                n = (n + 1)
+            } {
+                def gc:CodeClass (got.classByName(c.name))
+                if (gc.extendsName != c.extendsName) {
+                    print ((((("  FAIL " + c.name) + " extends '") + gc.extendsName) + "' want '") + c.extendsName + "'")
+                    n = (n + 1)
+                }
+                if (gc.stereotype != c.stereotype) {
+                    print (("  FAIL " + c.name) + " stereotype mismatch")
+                    n = (n + 1)
+                }
+                def fi:int 0
+                while (fi < (array_length c.fields)) {
+                    def f:CodeField (itemAt c.fields fi)
+                    if ((UastRangerTest.hasField(gc f.name f.fieldType)) == false) {
+                        print ((((("  FAIL " + c.name) + ".") + f.name) + " : ") + f.fieldType)
+                        n = (n + 1)
+                    }
+                    fi = (fi + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        def gi:int 0
+        while (gi < (array_length got.classes)) {
+            def gc2:CodeClass (itemAt got.classes gi)
+            if ((expected.hasClass(gc2.name)) == false) {
+                print (("  FAIL extra class " + gc2.name))
+                n = (n + 1)
+            }
+            gi = (gi + 1)
+        }
+        def mi:int 0
+        while (mi < (array_length expected.methods)) {
+            def em:CodeMethod (itemAt expected.methods mi)
+            if ((got.hasMethod(em.id)) == false) {
+                print (("  FAIL missing method " + em.id))
+                n = (n + 1)
+            } {
+                def gm:CodeMethod (got.methodById(em.id))
+                if (gm.params != em.params) {
+                    print ((((("  FAIL " + em.id) + " params '") + gm.params) + "' want '") + em.params + "'")
+                    n = (n + 1)
+                }
+                if (gm.returns != em.returns) {
+                    print ((((("  FAIL " + em.id) + " returns '") + gm.returns) + "' want '") + em.returns + "'")
+                    n = (n + 1)
+                }
+                n = (n + (UastRangerTest.diffStrList((em.id + " calls") em.calls gm.calls)))
+                n = (n + (UastRangerTest.diffStrList((em.id + " uses") em.uses gm.uses)))
+            }
+            mi = (mi + 1)
+        }
+        def mj:int 0
+        while (mj < (array_length got.methods)) {
+            def gm2:CodeMethod (itemAt got.methods mj)
+            if ((expected.hasMethod(gm2.id)) == false) {
+                print (("  FAIL extra method " + gm2.id))
+                n = (n + 1)
+            }
+            mj = (mj + 1)
+        }
+        if (n == 0) {
+            print (("  classes " + (to_string (got.classCount()))) + ", methods " + (to_string (got.methodCount())) + " match")
+        }
+        return n
+    }
+
+    sfn diffStrList:int (label:string want:[string] got:[string]) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length want)) {
+            def w:string (itemAt want i)
+            if ((UastRangerTest.inList(got w)) == false) {
+                print (("  FAIL " + label) + " missing " + w)
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length got)) {
+            def g:string (itemAt got j)
+            if ((UastRangerTest.inList(want g)) == false) {
+                print (("  FAIL " + label) + " extra " + g)
+                n = (n + 1)
+            }
+            j = (j + 1)
+        }
+        return n
+    }
+
+    sfn inList:boolean (items:[string] v:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            if ((itemAt items i) == v) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

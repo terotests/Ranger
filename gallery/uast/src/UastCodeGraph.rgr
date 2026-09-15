@@ -1,0 +1,112 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastCodeGraph.rgr — CodeModel → gallery/codegraph CodeGraph.
+; ============================================================================
+;
+; CodeGraph stays a presentation IR. This projector is the contract so a
+; later UAST viewer can reuse the existing pager / UML / WebGL chrome
+; without teaching it UNodes.
+; ============================================================================
+
+Import "UastModel.rgr"
+Import "UastKind.rgr"
+Import "../../codegraph/src/CodeGraphModel.rgr"
+
+class UastToCodeGraph {
+    Constructor () {
+    }
+
+    sfn project:CodeGraph (model:UastCodeModel) {
+        def g (new CodeGraph)
+        g.title = model.title
+        def methodIds:[string:string]
+        def i:int 0
+        while (i < (array_length model.symbols)) {
+            def s:UastSymbol (itemAt model.symbols i)
+            def isType:boolean false
+            if (s.kind == "class") {
+                isType = true
+            }
+            if (s.kind == "interface") {
+                isType = true
+            }
+            if isType {
+                def cc:CodeClass (g.addClass(s.name))
+                cc.fileName = s.fileName
+                if (s.kind == "interface") {
+                    cc.stereotype = "interface"
+                }
+            }
+            i = (i + 1)
+        }
+        def f:int 0
+        while (f < (array_length model.symbols)) {
+            def fs:UastSymbol (itemAt model.symbols f)
+            if (fs.kind == "field") {
+                def ownerName:string (UastToCodeGraph.parentName(model fs))
+                if ((strlen ownerName) > 0) {
+                    def owner:CodeClass (g.addClass(ownerName))
+                    owner.addField(fs.name fs.typeName)
+                }
+            }
+            f = (f + 1)
+        }
+        def m:int 0
+        while (m < (array_length model.symbols)) {
+            def ms:UastSymbol (itemAt model.symbols m)
+            if (ms.kind == "method") {
+                def cls:string (UastToCodeGraph.parentName(model ms))
+                if ((strlen cls) == 0) {
+                    cls = ms.name
+                }
+                def cm:CodeMethod (g.addMethod(cls ms.name))
+                cm.isStatic = ms.isStatic
+                cm.params = ms.params
+                if ((strlen ms.returns) > 0) {
+                    cm.returns = ms.returns
+                }
+                set methodIds ms.id cm.id
+            }
+            m = (m + 1)
+        }
+        def r:int 0
+        while (r < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships r)
+            if (rel.kind == "extends") {
+                if ((model.mentionsSymbol(rel.fromId)) && (model.mentionsSymbol(rel.toId))) {
+                    def fromS:UastSymbol (model.symbolById(rel.fromId))
+                    def toS:UastSymbol (model.symbolById(rel.toId))
+                    def cls2:CodeClass (g.addClass(fromS.name))
+                    cls2.extendsName = toS.name
+                }
+            }
+            if (rel.kind == "calls") {
+                if ((has methodIds rel.fromId) && (has methodIds rel.toId)) {
+                    g.linkCall((unwrap (get methodIds rel.fromId)) (unwrap (get methodIds rel.toId)))
+                }
+            }
+            if (rel.kind == "usesType") {
+                if (has methodIds rel.fromId) {
+                    if (model.mentionsSymbol(rel.toId)) {
+                        def ts:UastSymbol (model.symbolById(rel.toId))
+                        g.linkUse((unwrap (get methodIds rel.fromId)) ts.name)
+                    }
+                }
+            }
+            r = (r + 1)
+        }
+        return g
+    }
+
+    sfn parentName:string (model:UastCodeModel sym:UastSymbol) {
+        if ((strlen sym.parentSymbol) == 0) {
+            return ""
+        }
+        if ((model.mentionsSymbol(sym.parentSymbol)) == false) {
+            return ""
+        }
+        def p:UastSymbol (model.symbolById(sym.parentSymbol))
+        return p.name
+    }
+}

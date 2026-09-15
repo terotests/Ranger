@@ -1,0 +1,50 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastSymbol.rgr — names with meaning, not AST shape.
+; ============================================================================
+
+class UastSymbol {
+    def id:string ""
+    def name:string ""
+    def kind:string ""
+    def language:string ""
+    def declarationNode:string ""
+    def parentSymbol:string ""
+    def typeName:string ""
+    def params:string ""
+    def returns:string ""
+    def isStatic:boolean false
+    def fileName:string ""
+
+    Constructor () {
+    }
+
+    sfn create:UastSymbol (id:string name:string kind:string language:string) {
+        def s (new UastSymbol)
+        s.id = id
+        s.name = name
+        s.kind = kind
+        s.language = language
+        return s
+    }
+}
+
+class UastReference {
+    def sourceNode:string ""
+    def targetSymbol:string ""
+    def role:string ""
+    def confidence:string ""
+
+    Constructor () {
+    }
+
+    sfn create:UastReference (sourceNode:string targetSymbol:string role:string confidence:string) {
+        def r (new UastReference)
+        r.sourceNode = sourceNode
+        r.targetSymbol = targetSymbol
+        r.role = role
+        r.confidence = confidence
+        return r
+    }
+}

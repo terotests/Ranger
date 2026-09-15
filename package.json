@@ -326,6 +326,8 @@
     "codegraph:sdl": "bash gallery/codegraph/platform/sdl/build.sh",
     "codegraph:sdl:run": "bash gallery/codegraph/platform/sdl/build.sh --run",
     "codegraph:sdl:smoke": "bash gallery/codegraph/platform/sdl/build.sh && SDL_VIDEODRIVER=dummy ./tmp/codegraph-sdl/codegraph_sdl --frames 20",
+    "uast:test": "bash scripts/rgr-suite.sh ./gallery/uast/tests/UastTest.rgr ./gallery/uast/bin UastTest.js",
+    "uast:ranger": "bash scripts/rgr-suite.sh ./gallery/uast/tests/UastRangerTest.rgr ./gallery/uast/bin UastRangerTest.js",
     "rangerflow:force": "npm run rangerflow:build && node ./gallery/rangerflow/bin/rangerflow_demo.js --force",
     "rangerflow:drag": "npm run rangerflow:build && node ./gallery/rangerflow/bin/rangerflow_demo.js --drag",
     "rangerflow:flowchart": "npm run rangerflow:build && node ./gallery/rangerflow/bin/rangerflow_demo.js --flowchart",

@@ -1,0 +1,94 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastSample.rgr — ZipWriter as a CodeModel, no parser involved.
+; ============================================================================
+;
+; The picture CodeGraph already draws from gallery/zip/ZipWriter.rgr:
+;
+;   ZipWriter
+;       entries : [ZipEntry]
+;       output  : GrowableZipBuffer
+;       crc     : CRC32
+;       addFile --calls--> CRC32.compute     exact
+;
+; Milestone 0: this fixture projects to that page. Milestone 1: UastRanger
+; must produce the same facts from the real .rgr. Milestone 3: the TS
+; adapter aims at fixtures/zip_writer.ts (which calls crc.update).
+; ============================================================================
+
+Import "UastModel.rgr"
+Import "UastKind.rgr"
+
+class UastSample {
+    Constructor () {
+    }
+
+    sfn zipWriter:UastCodeModel () {
+        def m (new UastCodeModel)
+        m.title = "ZipWriter"
+        m.language = "ranger"
+        m.addFile("gallery/zip/ZipWriter.rgr" "ranger")
+        def zip:UastSymbol (UastSample.klass(m "ZipWriter" "gallery/zip/ZipWriter.rgr"))
+        def entry:UastSymbol (UastSample.klass(m "ZipEntry" "gallery/zip/ZipEntry.rgr"))
+        def buf:UastSymbol (UastSample.klass(m "GrowableZipBuffer" "gallery/zip/ZipBuffer.rgr"))
+        def crc:UastSymbol (UastSample.klass(m "CRC32" "gallery/zip/CRC32.rgr"))
+        UastSample.field(m zip "entries" "[ZipEntry]")
+        UastSample.field(m zip "output" "GrowableZipBuffer")
+        UastSample.field(m zip "comment" "string")
+        UastSample.field(m zip "crc" "CRC32")
+        def addFile:UastSymbol (UastSample.method(m zip "addFile" "name:string, fileData:buffer" "void" false))
+        def compute:UastSymbol (UastSample.method(m crc "compute" "data:buffer" "int" false))
+        m.link(zip.id entry.id (UastRelKind.usesType()) (UastConfidence.exact()))
+        m.link(zip.id buf.id (UastRelKind.usesType()) (UastConfidence.exact()))
+        m.link(zip.id crc.id (UastRelKind.usesType()) (UastConfidence.exact()))
+        m.link(addFile.id compute.id (UastRelKind.calls()) (UastConfidence.exact()))
+        m.link(addFile.id entry.id (UastRelKind.usesType()) (UastConfidence.exact()))
+        m.link(addFile.id crc.id (UastRelKind.constructs()) (UastConfidence.exact()))
+        return m
+    }
+
+    sfn klass:UastSymbol (m:UastCodeModel name:string fileName:string) {
+        def node:UNode (UNode.create(("n:" + name) (UastKind.ClassDecl()) "ranger" "class"))
+        node.name = name
+        node.span.fileId = fileName
+        m.addNode(node)
+        def s:UastSymbol (UastSymbol.create(("class:" + name) name (UastSymKind.classSym()) "ranger"))
+        s.declarationNode = node.id
+        s.fileName = fileName
+        m.addSymbol(s)
+        return s
+    }
+
+    sfn field:UastSymbol (m:UastCodeModel owner:UastSymbol name:string typeName:string) {
+        def id:string ((owner.name + ".") + name)
+        def node:UNode (UNode.create(("n:" + id) (UastKind.FieldDecl()) "ranger" "def"))
+        node.name = name
+        m.addNode(node)
+        def s:UastSymbol (UastSymbol.create(("field:" + id) name (UastSymKind.field()) "ranger"))
+        s.declarationNode = node.id
+        s.parentSymbol = owner.id
+        s.typeName = typeName
+        s.fileName = owner.fileName
+        m.addSymbol(s)
+        m.link(owner.id s.id (UastRelKind.containsRel()) (UastConfidence.exact()))
+        return s
+    }
+
+    sfn method:UastSymbol (m:UastCodeModel owner:UastSymbol name:string params:string returns:string isStatic:boolean) {
+        def id:string ((owner.name + ".") + name)
+        def node:UNode (UNode.create(("n:" + id) (UastKind.MethodDecl()) "ranger" "fn"))
+        node.name = name
+        m.addNode(node)
+        def s:UastSymbol (UastSymbol.create(("method:" + id) name (UastSymKind.method()) "ranger"))
+        s.declarationNode = node.id
+        s.parentSymbol = owner.id
+        s.params = params
+        s.returns = returns
+        s.isStatic = isStatic
+        s.fileName = owner.fileName
+        m.addSymbol(s)
+        m.link(owner.id s.id (UastRelKind.containsRel()) (UastConfidence.exact()))
+        return s
+    }
+}
