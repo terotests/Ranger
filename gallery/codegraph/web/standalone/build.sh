@@ -84,6 +84,7 @@ cp "$FONT_SRC/NotoSans-Italic.ttf" "$OUT/fonts/NotoSans-Italic.ttf"
 
 node "$WEB/build-compile-env.mjs" "$OUT/compileEnv.json"
 node "$WEB/build-compiler-sources.mjs" "$OUT/compilerSources.json"
+node "$WEB/build-gallery-sources.mjs" "$OUT/gallerySources.json"
 
 STAMP=$(node -e "
   const fs = require('fs'), crypto = require('crypto');
@@ -126,6 +127,6 @@ fi
 
 node "$WEB/vc-node.mjs" "$OUT" || exit 1
 
-printf '  %s\n' "$OUT/index.html" "$OUT/codegraph_web.js" "$OUT/standalone.mjs" "$OUT/compileEnv.json" "$OUT/compilerSources.json"
+printf '  %s\n' "$OUT/index.html" "$OUT/codegraph_web.js" "$OUT/standalone.mjs" "$OUT/compileEnv.json" "$OUT/compilerSources.json" "$OUT/gallerySources.json"
 echo "build $STAMP"
 echo "open it with:  python3 -m http.server -d $OUT 8081"

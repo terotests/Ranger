@@ -31,6 +31,18 @@ const EXAMPLES = {
   "calls.rgr": "./examples/calls.rgr",
   "animals.rgr": "./examples/animals.rgr",
 };
+const GALLERY_LIBS = new Set(["css", "evg", "zip"]);
+const GALLERY_NOTES = {
+  css: `; gallery/css — CssCore.rgr and the EVGColor / EVGUnit leaves it Imports.
+; Analyze walks the cascade (paged). Source lives under gallery/css/, not this box.
+`,
+  evg: `; gallery/evg — EVGElement.rgr and the files it Imports (box, colour, SVG).
+; Analyze walks the layout primitives (paged). Source lives under gallery/evg/.
+`,
+  zip: `; gallery/zip — zip_tool.rgr, ZipReader, ZipWriter, Inflate.
+; Analyze walks the archive library (paged). Source lives under gallery/zip/.
+`,
+};
 const COMPILER_NOTE = `; Ranger compiler — VirtualCompiler.rgr and the files it Imports.
 ; Analyze walks every class (paged, ≤ 24 boxes). This takes a moment.
 ; The sources are loaded from compiler/, not typed in this box.
@@ -76,7 +88,7 @@ const VIEW_ONLY = new Set([
   "statusText", "stats", "selfTest", "sceneJson", "frameView", "frameScene",
   "frameGrid", "tick", "viewGesture", "classList", "crumb", "pageId",
   "pageTitle", "titleText", "sampleId", "umlView", "canBack", "canForward",
-  "svg", "hasCompiler", "hasCompilerTree", "hasSelection", "selectedId",
+  "svg", "hasCompiler", "hasCompilerTree", "hasGalleryTree", "hasSelection", "selectedId",
 ]);
 
 const rawApp = new (engineClass())();
@@ -165,7 +177,9 @@ function syncChrome() {
   const canAnalyze = app.hasCompiler() && (
     id === "compiler"
       ? app.hasCompilerTree()
-      : sourceEl.value.trim().length > 0
+      : GALLERY_LIBS.has(id)
+        ? true
+        : sourceEl.value.trim().length > 0
   );
   analyzeEl.disabled = analyzing || !canAnalyze;
   backEl.disabled = !app.canBack();
@@ -221,6 +235,26 @@ async function installCompilerTree() {
   await compilerTreePromise;
 }
 
+let galleryTreePromise = null;
+
+async function installGalleryTree() {
+  if (app.hasGalleryTree()) return;
+  if (!galleryTreePromise) {
+    galleryTreePromise = (async () => {
+      const res = await fetch("./gallerySources.json");
+      if (!res.ok) {
+        throw new Error("gallerySources.json " + res.status);
+      }
+      const pack = await res.json();
+      const files = pack.files || pack;
+      for (const name of Object.keys(files)) {
+        app.setGalleryFile(name, files[name]);
+      }
+    })();
+  }
+  await galleryTreePromise;
+}
+
 async function analyzeCurrent(filename) {
   if (!app.hasCompiler()) {
     statusEl.textContent = "compiler libraries not loaded";
@@ -232,6 +266,10 @@ async function analyzeCurrent(filename) {
     if (filename === "compiler") {
       await installCompilerTree();
       return !!(await Promise.resolve(app.analyzeCompiler()));
+    }
+    if (GALLERY_LIBS.has(filename)) {
+      await installGalleryTree();
+      return !!(await Promise.resolve(app.analyzeGallery(filename)));
     }
     const ok = await Promise.resolve(app.analyzeSource(sourceEl.value, filename));
     return !!ok;
@@ -247,6 +285,11 @@ async function loadExample(name) {
   if (name === "compiler") {
     sourceEl.value = COMPILER_NOTE;
     await analyzeCurrent("compiler");
+    return;
+  }
+  if (GALLERY_LIBS.has(name)) {
+    sourceEl.value = GALLERY_NOTES[name] || ("; gallery/" + name + "\n");
+    await analyzeCurrent(name);
     return;
   }
   sourceEl.value = await fetchExample(name);
@@ -425,7 +468,7 @@ async function main() {
     return;
   }
   const example = params.get("example") || "calls.rgr";
-  if (example === "compiler" || EXAMPLES[example]) {
+  if (example === "compiler" || GALLERY_LIBS.has(example) || EXAMPLES[example]) {
     sampleEl.value = example;
     await loadExample(example);
   }

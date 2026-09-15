@@ -36,6 +36,7 @@ class CodeGraphWeb {
     def rootFiles:[string:string]
     def libFiles:[string:string]
     def compilerFiles:[string:string]
+    def galleryFiles:[string:string]
 
     Constructor () {
     }
@@ -63,12 +64,20 @@ class CodeGraphWeb {
         set compilerFiles name data
     }
 
+    fn setGalleryFile:void (path:string data:string) {
+        set galleryFiles path data
+    }
+
     fn hasCompiler:boolean () {
         return (has rootFiles "Lang.rgr")
     }
 
     fn hasCompilerTree:boolean () {
         return (has compilerFiles "VirtualCompiler.rgr")
+    }
+
+    fn hasGalleryTree:boolean () {
+        return (has galleryFiles "css/CssCore.rgr")
     }
 
     fn loadSample:boolean (name:string) {
@@ -115,6 +124,33 @@ class CodeGraphWeb {
         return ok
     }
 
+    ; css / evg / zip — packed beside the compiler sources, same in-tab walk.
+    fn analyzeGallery:boolean (libName:string) {
+        if ((this.hasGalleryTree()) == false) {
+            status = "gallery sources not loaded"
+            return false
+        }
+        def entry:string ""
+        if (libName == "css") {
+            entry = "CssCore.rgr"
+        }
+        if (libName == "evg") {
+            entry = "EVGElement.rgr"
+        }
+        if (libName == "zip") {
+            entry = "zip_tool.rgr"
+        }
+        if ((strlen entry) == 0) {
+            status = ("unknown gallery lib " + libName)
+            return false
+        }
+        def ok:boolean (this.runAnalyze("" entry ""))
+        if ok {
+            sampleName = libName
+        }
+        return ok
+    }
+
     fn runAnalyze:boolean (source:string filename:string filter:string) {
         if ((this.hasCompiler()) == false) {
             status = "compiler libraries not loaded"
@@ -136,7 +172,7 @@ class CodeGraphWeb {
         def fs:InputFSFolder (new InputFSFolder)
         fs.name = ""
         env.filesystem = fs
-        env.setEnv("RANGER_LIB" "/;/lib/;/compiler/")
+        env.setEnv("RANGER_LIB" "/;/lib/;/compiler/;/gallery/css/;/gallery/evg/;/gallery/zip/")
         def params:CmdParams (new CmdParams)
         push params.values fname
         set params.params "l" "es6"
@@ -167,6 +203,7 @@ class CodeGraphWeb {
             li = (li + 1)
         }
         this.installCompilerTree(fs)
+        this.installGalleryTree(fs)
         def vc:VirtualCompiler (new VirtualCompiler)
         def res:CompilerResults (vc.run(env))
         if res.hasErrors {
@@ -211,6 +248,45 @@ class CodeGraphWeb {
             create_file compDir n (unwrap (get compilerFiles n))
             i = (i + 1)
         }
+    }
+
+    fn installGalleryTree:void (fs:InputFSFolder) {
+        def names:[string] (keys galleryFiles)
+        if ((array_length names) == 0) {
+            return
+        }
+        def galF@(optional):InputFSFolder (create_folder fs "gallery")
+        if (null? galF) {
+            return
+        }
+        def gallery:InputFSFolder (unwrap galF)
+        def i:int 0
+        while (i < (array_length names)) {
+            def rel:string (itemAt names i)
+            def cut:int (this.slashIn(rel))
+            if (cut > 0) {
+                def dirName:string (substring rel 0 cut)
+                def fileName:string (substring rel (cut + 1) (strlen rel))
+                def subF@(optional):InputFSFolder (create_folder gallery dirName)
+                if ((null? subF) == false) {
+                    def sub:InputFSFolder (unwrap subF)
+                    create_file sub fileName (unwrap (get galleryFiles rel))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn slashIn:int (s:string) {
+        def i:int 0
+        def cut:int -1
+        while (i < (strlen s)) {
+            if ((charAt s i) == (ccode "/")) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        return cut
     }
 
     fn showPage:boolean () {
