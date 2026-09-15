@@ -249,11 +249,16 @@ class CodeGraphWeb {
         graph.clearSelection()
         def n:FlowNode (graph.nodeById(id))
         n.selected = true
-        return (this.zoomToSelected())
+        editor.fitView()
+        if ((editor.selectedTitlePx()) < 10.0) {
+            return (this.zoomToSelected())
+        }
+        return true
     }
 
-    ; A class or method page frames that box so its title is readable. An
-    ; overview or UML catalogue still fits the whole window.
+    ; A class page fits the whole drawing when the name is still readable
+    ; (~10 px). A giant compiler class that would shrink below that is framed
+    ; so the title stays on screen.
     fn focusPage:void () {
         def id:string (this.pageFocusId())
         if (this.selectAndZoom(id)) {
@@ -533,9 +538,11 @@ class CodeGraphWeb {
         if ((this.zoomToSelected()) == false) {
             return "FAIL zoom to selected"
         }
-        def shown:double ((n.width * editor.view.viewport.zoom) / editor.view.width)
-        if (shown < 0.29) {
-            return ("FAIL zoomed Order is only " + (to_string shown) + " of the view")
+        def title0:double (n.headerHeight * editor.view.viewport.zoom)
+        if (n.headerHeight > 1.0) {
+            if (title0 < 9.5) {
+                return ("FAIL zoomed Order title is only " + (to_string title0) + " px")
+            }
         }
         def sx2:double (editor.view.viewport.toScreenX((n.centerX())))
         def sy2:double (editor.view.viewport.toScreenY((n.centerY())))
@@ -569,7 +576,7 @@ class CodeGraphWeb {
         }
         def titlePx:double (li.headerHeight * editor.view.viewport.zoom)
         if (li.headerHeight > 1.0) {
-            if (titlePx < 17.0) {
+            if (titlePx < 9.5) {
                 return ("FAIL LineItem title is only " + (to_string titlePx) + " px")
             }
         }

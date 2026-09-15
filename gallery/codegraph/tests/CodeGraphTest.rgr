@@ -216,8 +216,11 @@ class CodeGraphTest {
         n.selected = true
         ed.view.viewport.zoom = 0.04
         c.ok("it frames the box" (ed.zoomToSelected(0.3)))
-        def shown:double ((n.width * ed.view.viewport.zoom) / ed.view.width)
-        c.ok("at least 30% of the view across" (shown >= 0.29))
+        def titlePx0:double (n.headerHeight * ed.view.viewport.zoom)
+        if (n.headerHeight < 1.0) {
+            titlePx0 = (28.0 * ed.view.viewport.zoom)
+        }
+        c.ok("a tiny view is raised to a readable title" (titlePx0 >= 9.5))
         n.width = 220.0
         n.height = 900.0
         n.headerHeight = 28.0
@@ -227,9 +230,14 @@ class CodeGraphTest {
         ed.view.viewport.zoom = 0.04
         c.ok("a tall class still frames" (ed.zoomToSelected(0.3)))
         def titlePx:double (n.headerHeight * ed.view.viewport.zoom)
-        c.ok("its header is readable" (titlePx >= 17.5))
+        c.ok("its header stays around 10 px" ((titlePx >= 9.5) && (titlePx < 22.0)))
         def top:double (ed.view.viewport.toScreenY(n.y))
         c.ok("and the title is on screen" ((top >= 0.0) && (top < 80.0)))
+        n.height = 120.0
+        ed.setSize(1000.0 800.0)
+        c.ok("a short class is fitted" (ed.zoomToSelected(0.3)))
+        def fittedH:double (n.height * ed.view.viewport.zoom)
+        c.ok("and fits in the view" (fittedH <= 800.0))
         def uml (new FlowHitEvent)
         uml.kind = "node"
         uml.dataKind = "class"

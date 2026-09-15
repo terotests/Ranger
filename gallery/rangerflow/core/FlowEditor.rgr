@@ -3399,22 +3399,7 @@ class FlowEditor {
         view.viewport.fitRect(r view.width view.height 0.1)
     }
 
-    ; Frame the first selected node so its name is readable. Width is at least
-    ; `minFrac` of the view (0.3 → 30%), and the header band is at least 18 px
-    ; on screen. If the whole box fits at that zoom it is centred; if not, the
-    ; title is pinned to the top so a tall UML class is still named.
-    fn zoomToSelected:boolean (minFrac:double) {
-        def n:FlowNode (this.selectedNode())
-        if ((strlen n.id) == 0) {
-            return false
-        }
-        def frac:double minFrac
-        if (frac < 0.05) { frac = 0.05 }
-        if (frac > 0.9) { frac = 0.9 }
-        def vw:double view.width
-        def vh:double view.height
-        if (vw < 1.0) { return false }
-        if (n.width < 1.0) { return false }
+    sfn titleBand:double (n:FlowNode) {
         def titleH:double 28.0
         if (n.headerHeight > 1.0) {
             titleH = n.headerHeight
@@ -3424,19 +3409,51 @@ class FlowEditor {
             }
         }
         if (titleH < 8.0) { titleH = 8.0 }
-        def vp:FlowViewport view.viewport
-        def zNeed:double ((frac * vw) / n.width)
-        def zTitle:double (18.0 / titleH)
-        if (zTitle > zNeed) { zNeed = zTitle }
-        def z:double vp.zoom
-        if (z < zNeed) {
-            z = zNeed
+        return titleH
+    }
+
+    fn selectedTitlePx:double () {
+        def n:FlowNode (this.selectedNode())
+        if ((strlen n.id) == 0) {
+            return 0.0
         }
+        return ((FlowEditor.titleBand(n)) * view.viewport.zoom)
+    }
+
+    ; Frame the selected node so it fits if the title stays readable (~10 px
+    ; on screen is enough). Only zoom in past that when even a fitted box
+    ; would be smaller; then pin the title at the top. `minFrac` is kept for
+    ; callers and ignored — filling 30% of the view hid neighbours that still
+    ; fit at a readable size.
+    fn zoomToSelected:boolean (minFrac:double) {
+        def n:FlowNode (this.selectedNode())
+        if ((strlen n.id) == 0) {
+            return false
+        }
+        def vw:double view.width
+        def vh:double view.height
+        if (vw < 1.0) { return false }
+        if (n.width < 1.0) { return false }
+        def titleH:double (FlowEditor.titleBand(n))
+        def zTitle:double (10.0 / titleH)
+        def pad:double 24.0
+        def roomW:double (vw - (pad * 2.0))
+        def roomH:double (vh - (pad * 2.0))
+        if (roomW < 1.0) { roomW = 1.0 }
+        if (roomH < 1.0) { roomH = 1.0 }
+        def zFit:double (roomW / n.width)
+        def zH:double (roomH / n.height)
+        if (zH < zFit) { zFit = zH }
+        def z:double zFit
+        if (z < zTitle) { z = zTitle }
+        if (z > 1.0) {
+            if (zTitle <= 1.0) { z = 1.0 }
+        }
+        def vp:FlowViewport view.viewport
         z = (vp.clampZoom(z))
         vp.zoom = z
         def cx:double (n.centerX())
         vp.x = ((vw * 0.5) - (cx * z))
-        def pad:double 24.0
         def scaledH:double (n.height * z)
         if (scaledH <= (vh - (pad * 2.0))) {
             vp.y = ((vh * 0.5) - ((n.centerY()) * z))
