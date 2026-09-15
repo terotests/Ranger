@@ -147,7 +147,6 @@ function fillClasses() {
     if (current === "class:" + name) b.className = "current";
     b.addEventListener("click", () => {
       if (app.openClass(name)) {
-        app.fitView();
         syncChrome();
       }
     });
@@ -279,20 +278,16 @@ analyzeEl.addEventListener("click", async () => {
   }
 });
 backEl.addEventListener("click", () => {
-  if (app.goBack()) app.fitView();
-  syncChrome();
+  if (app.goBack()) syncChrome();
 });
 fwdEl.addEventListener("click", () => {
-  if (app.goForward()) app.fitView();
-  syncChrome();
+  if (app.goForward()) syncChrome();
 });
 document.getElementById("overview").addEventListener("click", () => {
-  if (app.goOverview()) app.fitView();
-  syncChrome();
+  if (app.goOverview()) syncChrome();
 });
 umlEl.addEventListener("click", () => {
   app.setUml(!app.umlView());
-  app.fitView();
   syncChrome();
 });
 document.getElementById("fit").addEventListener("click", () => app.fitView());
@@ -302,7 +297,6 @@ document.getElementById("zoomSel").addEventListener("click", () => {
 canvas.addEventListener("dblclick", (ev) => {
   const [x, y] = at(ev);
   if (app.openAt(x, y)) {
-    app.fitView();
     syncChrome();
   }
 });

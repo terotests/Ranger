@@ -223,9 +223,48 @@ class CodeGraphWeb {
         editor.view.showMinimap = false
         editor.view.showControls = false
         editor.view.showNodeTools = false
-        editor.fitView()
+        this.focusPage()
         status = session.status
         return true
+    }
+
+    fn pageFocusId:string () {
+        def id:string session.pageId
+        if ((indexOf id "class:") == 0) {
+            return (substring id 6 (strlen id))
+        }
+        if ((indexOf id "method:") == 0) {
+            return (substring id 7 (strlen id))
+        }
+        return ""
+    }
+
+    fn selectAndZoom:boolean (id:string) {
+        if ((strlen id) == 0) {
+            return false
+        }
+        if ((graph.hasNode(id)) == false) {
+            return false
+        }
+        graph.clearSelection()
+        def n:FlowNode (graph.nodeById(id))
+        n.selected = true
+        editor.fitView()
+        if ((editor.selectedTitlePx()) < 10.0) {
+            return (this.zoomToSelected())
+        }
+        return true
+    }
+
+    ; A class page fits the whole drawing when the name is still readable
+    ; (~10 px). A giant compiler class that would shrink below that is framed
+    ; so the title stays on screen.
+    fn focusPage:void () {
+        def id:string (this.pageFocusId())
+        if (this.selectAndZoom(id)) {
+            return
+        }
+        editor.fitView()
     }
 
     fn classList:string () {
@@ -275,7 +314,11 @@ class CodeGraphWeb {
         if ((session.model.hasClass(name)) == false) {
             return false
         }
-        if (session.goTo(session.pages.classPageId(name))) {
+        def dest:string (session.pages.classPageId(name))
+        if (session.pageId == dest) {
+            return (this.selectAndZoom(name))
+        }
+        if (session.goTo(dest)) {
             return (this.showPage())
         }
         return false
@@ -358,6 +401,12 @@ class CodeGraphWeb {
         }
         if moved {
             this.showPage()
+        } {
+            if (n > 0) {
+                if (this.hasSelection()) {
+                    this.zoomToSelected()
+                }
+            }
         }
         editor.clicks.clear()
     }
@@ -489,9 +538,11 @@ class CodeGraphWeb {
         if ((this.zoomToSelected()) == false) {
             return "FAIL zoom to selected"
         }
-        def shown:double ((n.width * editor.view.viewport.zoom) / editor.view.width)
-        if (shown < 0.29) {
-            return ("FAIL zoomed Order is only " + (to_string shown) + " of the view")
+        def title0:double (n.headerHeight * editor.view.viewport.zoom)
+        if (n.headerHeight > 1.0) {
+            if (title0 < 9.5) {
+                return ("FAIL zoomed Order title is only " + (to_string title0) + " px")
+            }
         }
         def sx2:double (editor.view.viewport.toScreenX((n.centerX())))
         def sy2:double (editor.view.viewport.toScreenY((n.centerY())))
@@ -515,6 +566,26 @@ class CodeGraphWeb {
         }
         if (session.pageId != "class:LineItem") {
             return ("FAIL rail stayed on " + session.pageId)
+        }
+        if ((graph.hasNode("LineItem")) == false) {
+            return "FAIL LineItem page has no LineItem"
+        }
+        def li:FlowNode (graph.nodeById("LineItem"))
+        if (li.selected == false) {
+            return "FAIL rail did not select LineItem"
+        }
+        def titlePx:double (li.headerHeight * editor.view.viewport.zoom)
+        if (li.headerHeight > 1.0) {
+            if (titlePx < 9.5) {
+                return ("FAIL LineItem title is only " + (to_string titlePx) + " px")
+            }
+        }
+        def top:double (editor.view.viewport.toScreenY(li.y))
+        if (top < -1.0) {
+            return "FAIL LineItem title is above the view"
+        }
+        if (top > editor.view.height) {
+            return "FAIL LineItem title is below the view"
         }
         return ("PASS nav ok; " + (this.stats()))
     }
