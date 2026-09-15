@@ -60,6 +60,33 @@ async function main() {
     console.error("expected Order, LineItem, Checkout from calls.rgr");
     process.exit(1);
   }
+  const gallery = JSON.parse(mustRead("gallerySources.json"));
+  const packed = gallery.files || gallery;
+  for (const name of Object.keys(packed)) {
+    app.setGalleryFile(name, packed[name]);
+  }
+  if (!app.hasGalleryTree()) {
+    console.error("gallerySources.json did not install CssCore.rgr");
+    process.exit(1);
+  }
+  const libs = [
+    ["css", "CssSheet"],
+    ["zip", "ZipReader"],
+    ["evg", "EVGElement"],
+  ];
+  for (const [lib, want] of libs) {
+    const lok = await Promise.resolve(app.analyzeGallery(lib));
+    const names = (app.classList() || "").split("\n").filter(Boolean);
+    console.log("  vc-node " + lib + ": " + names.slice(0, 8).join(", ") + (names.length > 8 ? "…" : ""));
+    if (!lok) {
+      console.error("analyzeGallery(" + lib + ") failed: " + app.statusText());
+      process.exit(1);
+    }
+    if (!names.includes(want)) {
+      console.error("expected " + want + " from " + lib);
+      process.exit(1);
+    }
+  }
   console.log("  vc-node OK");
 }
 
