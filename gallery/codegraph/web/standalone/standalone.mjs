@@ -488,6 +488,7 @@ async function main() {
   const openClass = params.get("open") || "";
   if (openClass) {
     app.openClass(openClass);
+    syncChrome();
   }
 }
 
