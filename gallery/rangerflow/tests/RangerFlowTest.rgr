@@ -117,6 +117,7 @@ class RangerFlowTest {
         RangerFlowTest.testGraph(c)
         RangerFlowTest.testCompartments(c)
         RangerFlowTest.testEdgeRouter(c)
+        RangerFlowTest.testLiveCorners(c)
         RangerFlowTest.testDecoration(c)
         RangerFlowTest.testForce(c)
         RangerFlowTest.testLayered(c)
@@ -1416,6 +1417,44 @@ class RangerFlowTest {
         c.eqInt("smoothstep quads" (RangerFlowTest.countOf(d "Q")) 2)
         def angle:double (ss.angleAtEnd())
         c.near("arrives horizontally" angle 0.0 0.001)
+    }
+
+    sfn testLiveCorners:void (c:Checker) {
+        c.section("a routed edge follows a dragged box")
+        def g (new FlowGraph)
+        def a:FlowNode (g.node("a" "a" 0.0 0.0))
+        def b:FlowNode (g.node("b" "b" 280.0 10.0))
+        a.width = 100.0
+        a.height = 60.0
+        b.width = 100.0
+        b.height = 60.0
+        def e:FlowEdge (g.connect("a" "b"))
+        e.edgeType = "smoothstep"
+        e.sourceHandle = 1
+        e.targetHandle = 3
+        g.reindex()
+        push e.waypoints 100.0
+        push e.waypoints 30.0
+        push e.waypoints 180.0
+        push e.waypoints 30.0
+        push e.waypoints 180.0
+        push e.waypoints 40.0
+        push e.waypoints 280.0
+        push e.waypoints 40.0
+        b.x = 400.0
+        b.y = 80.0
+        b.syncFromModel()
+        def x2:double (g.endpointX(e false))
+        def y2:double (g.endpointY(e false))
+        def storedX:double (itemAt e.waypoints 6)
+        c.ok("the stored last corner is still where it was routed" ((fabs (storedX - x2)) > 1.0))
+        def p:EdgePath (EdgeRouter.route(g e))
+        p.flatten(1)
+        def last:int ((p.pointCount()) - 1)
+        c.near("but the drawn path arrives at the box" (p.px(last)) x2 0.6)
+        c.near("on the handle that is on the box now" (p.py(last)) y2 0.6)
+        def x1:double (g.endpointX(e true))
+        c.near("and still leaves the source" (p.px(0)) x1 0.6)
     }
 
     sfn allAxisAligned:boolean (p:EdgePath) {

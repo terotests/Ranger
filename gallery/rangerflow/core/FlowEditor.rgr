@@ -3399,6 +3399,40 @@ class FlowEditor {
         view.viewport.fitRect(r view.width view.height 0.1)
     }
 
+    ; Frame the first selected node so its width is at least `minFrac` of the
+    ; view (0.3 → 30%). Already-larger boxes keep their zoom and are only
+    ; centred — or pinned to the top when they are taller than the view.
+    fn zoomToSelected:boolean (minFrac:double) {
+        def n:FlowNode (this.selectedNode())
+        if ((strlen n.id) == 0) {
+            return false
+        }
+        def frac:double minFrac
+        if (frac < 0.05) { frac = 0.05 }
+        if (frac > 0.9) { frac = 0.9 }
+        def vw:double view.width
+        def vh:double view.height
+        if (vw < 1.0) { return false }
+        if (n.width < 1.0) { return false }
+        def vp:FlowViewport view.viewport
+        def want:double ((frac * vw) / n.width)
+        def shown:double ((n.width * vp.zoom) / vw)
+        if (shown < frac) {
+            vp.zoom = (vp.clampZoom(want))
+        }
+        def z:double vp.zoom
+        def cx:double (n.centerX())
+        vp.x = ((vw * 0.5) - (cx * z))
+        def scaledH:double (n.height * z)
+        def pad:double 24.0
+        if (scaledH <= (vh - (pad * 2.0))) {
+            vp.y = ((vh * 0.5) - ((n.centerY()) * z))
+        } {
+            vp.y = (pad - (n.y * z))
+        }
+        return true
+    }
+
     fn zoomIn:void () {
         def cx:double (view.width * 0.5)
         def cy:double (view.height * 0.5)

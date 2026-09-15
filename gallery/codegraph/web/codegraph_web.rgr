@@ -342,6 +342,10 @@ class CodeGraphWeb {
         input.shift = shift
         input.ctrl = ctrl
         editor.pointerUp(input)
+        if (editor.onGraphChanged) {
+            editor.onGraphChanged = false
+            CodeGraphFlow.repairRoutes(graph)
+        }
         def n:int (editor.clicks.count())
         def i:int 0
         def moved:boolean false
@@ -370,6 +374,53 @@ class CodeGraphWeb {
 
     fn fitView:void () {
         editor.fitView()
+    }
+
+    fn zoomToSelected:boolean () {
+        return (editor.zoomToSelected(0.3))
+    }
+
+    fn hasSelection:boolean () {
+        return ((strlen (editor.selectedNodeId())) > 0)
+    }
+
+    fn selectedId:string () {
+        return (editor.selectedNodeId())
+    }
+
+    ; Double-click: open the class or method under the pointer. A single
+    ; click on a UML box only selects it, so Zoom to selected can frame it.
+    fn openAt:boolean (x:double y:double) {
+        def fx:double (editor.flowX(x))
+        def fy:double (editor.flowY(y))
+        def ni:int (graph.nodeAtPoint(fx fy))
+        if (ni < 0) {
+            return false
+        }
+        def n:FlowNode (graph.nodeAt(ni))
+        def kind:string n.dataKind
+        def classBox:boolean false
+        if (kind == "umlclass") { classBox = true }
+        if (kind == "class") { classBox = true }
+        if classBox {
+            def ref:string n.dataRef
+            if ((strlen ref) == 0) {
+                ref = n.id
+            }
+            if (session.goTo(session.pages.classPageId(ref))) {
+                return (this.showPage())
+            }
+            return false
+        }
+        def ev (new FlowHitEvent)
+        ev.kind = "node"
+        ev.id = n.id
+        ev.dataKind = n.dataKind
+        ev.dataRef = n.dataRef
+        if (session.handleClick(ev)) {
+            return (this.showPage())
+        }
+        return false
     }
 
     fn viewGesture:boolean () {
@@ -428,8 +479,27 @@ class CodeGraphWeb {
         def sy:double (editor.view.viewport.toScreenY((n.centerY())))
         this.pointerDown(sx sy false false)
         this.pointerUp(sx sy false false)
+        if (session.pageId != "uml:0") {
+            return ("FAIL click Order left UML (on " + session.pageId + ")")
+        }
+        if ((this.hasSelection()) == false) {
+            return "FAIL click Order did not select it"
+        }
+        editor.view.viewport.zoom = 0.05
+        if ((this.zoomToSelected()) == false) {
+            return "FAIL zoom to selected"
+        }
+        def shown:double ((n.width * editor.view.viewport.zoom) / editor.view.width)
+        if (shown < 0.29) {
+            return ("FAIL zoomed Order is only " + (to_string shown) + " of the view")
+        }
+        def sx2:double (editor.view.viewport.toScreenX((n.centerX())))
+        def sy2:double (editor.view.viewport.toScreenY((n.centerY())))
+        if ((this.openAt(sx2 sy2)) == false) {
+            return "FAIL double-click Order"
+        }
         if (session.pageId != "class:Order") {
-            return ("FAIL click Order stayed on " + session.pageId)
+            return ("FAIL openAt Order stayed on " + session.pageId)
         }
         if ((graph.nodeCount()) < 3) {
             return "FAIL Order page too small"

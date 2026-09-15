@@ -33,6 +33,9 @@ class UMLMember {
     ; attribute or operation
     def isOperation:boolean false
     def parameters:string ""
+    ; False for a row that should not grow handles — primitives on a
+    ; CodeGraph class, operations that are not associations.
+    def wantPort:boolean true
 
     Constructor () {
     }
@@ -274,7 +277,9 @@ class UMLToGraph {
             detail = (": " + m.memberType)
         }
         def row:FlowRow (FlowRow.create(m.visibility (m.signature()) detail ""))
-        row.portId = (c.name + "." + m.name)
+        if m.wantPort {
+            row.portId = (c.name + "." + m.name)
+        }
         if m.isStatic {
             row.emphasis = 1
         }
