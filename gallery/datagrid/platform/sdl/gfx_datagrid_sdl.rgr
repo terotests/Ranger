@@ -485,6 +485,28 @@ static std::string dgfx_pick_open_file(const std::string& title) {
 #endif
 }
 
+static std::string dgfx_pick_open_any(const std::string& title) {
+#if defined(__APPLE__)
+    std::string script = std::string(\"POSIX path of (choose file with prompt \")
+        + dgfx_as_string(title) + \")\";
+    return dgfx_run_capture(\"osascript -e \" + dgfx_shell_quote(script) + \" 2>/dev/null\");
+#else
+    if (dgfx_have(\"zenity\")) {
+        return dgfx_run_capture(std::string(\"zenity --file-selection --title=\")
+            + dgfx_shell_quote(title)
+            + \" --file-filter=\" + dgfx_shell_quote(\"Ranger | *.rgr\")
+            + \" --file-filter=\" + dgfx_shell_quote(\"All files | *\")
+            + \" 2>/dev/null\");
+    }
+    if (dgfx_have(\"kdialog\")) {
+        return dgfx_run_capture(std::string(\"kdialog --getopenfilename . \")
+            + dgfx_shell_quote(\"*.rgr|Ranger\")
+            + \" --title \" + dgfx_shell_quote(title) + \" 2>/dev/null\");
+    }
+    return std::string();
+#endif
+}
+
 static std::string dgfx_pick_save_file(const std::string& title, const std::string& suggested) {
 #if defined(__APPLE__)
     std::string script = std::string(\"POSIX path of (choose file name with prompt \")
@@ -739,6 +761,14 @@ static void dgfx_close() {
     dgfx_pick_open_file _:string (title:string) {
         templates {
             cpp ( "dgfx_pick_open_file(" (e 1) ")" (imp "<SDL2/SDL.h>") (imp "<string>") (imp "<cstdio>") (imp "<cstdlib>") )
+            es6 ( "\"\"" )
+        }
+    }
+
+    ; Any file, not a workbook. CodeGraph uses this for `.rgr` sources.
+    dgfx_pick_open_any _:string (title:string) {
+        templates {
+            cpp ( "dgfx_pick_open_any(" (e 1) ")" (imp "<SDL2/SDL.h>") (imp "<string>") (imp "<cstdio>") (imp "<cstdlib>") )
             es6 ( "\"\"" )
         }
     }

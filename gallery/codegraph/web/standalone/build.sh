@@ -72,9 +72,11 @@ fi
 cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 cp "$WEB/node-shim.js" "$OUT/node-shim.js"
+cp gallery/codegraph/web/codegraph.css "$OUT/codegraph.css"
 mkdir -p "$OUT/gl" "$OUT/fonts" "$OUT/evg" "$OUT/examples"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 cp gallery/evg/gl/evg-view.js "$OUT/gl/evg-view.js"
+cp gallery/evg/gl/evg-list.js "$OUT/gl/evg-list.js"
 cp gallery/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
 cp gallery/codegraph/fixtures/*.rgr "$OUT/examples/"
 FONT_SRC=gallery/pdf_writer/assets/fonts/Noto_Sans
@@ -89,7 +91,7 @@ node "$WEB/build-gallery-sources.mjs" "$OUT/gallerySources.json"
 STAMP=$(node -e "
   const fs = require('fs'), crypto = require('crypto');
   const h = crypto.createHash('sha1');
-  for (const f of ['$OUT/codegraph_web.js', '$OUT/standalone.mjs', '$OUT/node-shim.js', '$OUT/gl/evg-webgl.js', '$OUT/gl/evg-view.js']) {
+  for (const f of ['$OUT/codegraph_web.js', '$OUT/standalone.mjs', '$OUT/node-shim.js', '$OUT/gl/evg-webgl.js', '$OUT/gl/evg-view.js', '$OUT/gl/evg-list.js', '$OUT/codegraph.css']) {
     h.update(fs.readFileSync(f));
   }
   process.stdout.write(h.digest('hex').slice(0, 10));
@@ -101,7 +103,8 @@ node -e "
   fs.writeFileSync('$OUT/index.html', html);
   const mjs = fs.readFileSync('$OUT/standalone.mjs', 'utf8')
     .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp)
-    .replace('./gl/evg-view.js', './gl/evg-view.js?v=' + stamp);
+    .replace('./gl/evg-view.js', './gl/evg-view.js?v=' + stamp)
+    .replace('./gl/evg-list.js', './gl/evg-list.js?v=' + stamp);
   fs.writeFileSync('$OUT/standalone.mjs', mjs);
 " || exit 1
 
@@ -116,7 +119,7 @@ fi
 
 node gallery/evg/web/tools/inline-assets.mjs \
   --html "$OUT/index.html" \
-  --preload-stamped "standalone.mjs,gl/evg-webgl.js,gl/evg-view.js" \
+  --preload-stamped "standalone.mjs,gl/evg-webgl.js,gl/evg-view.js,gl/evg-list.js" \
   --preload "evg/assets-client.mjs,compileEnv.json,examples/calls.rgr" \
   --stamp "$STAMP" || exit 1
 

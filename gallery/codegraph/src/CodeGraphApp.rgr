@@ -1,0 +1,1282 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CodeGraphApp — Full EVG explorer: gallery/ui chrome + RangerFlow canvas.
+; ============================================================================
+;
+; The same IR, pager and VirtualCompiler walk the HTML page used. The chrome
+; is EVG, so one display list is what a browser, an SDL2 window and a native
+; host all paint. A Ranger file is analysed through the in-memory filesystem
+; (`InputEnv.use_real = false`) on every platform — the desktop host fills
+; that VFS from the real disk; the tab fills it from packed JSON.
+;
+;   host event → CodeGraphApp (UiHost chrome | FlowEditor canvas)
+;   display()  → EVGDisplayList → WebGL / EvgGlPainter
+; ============================================================================
+
+Import "../../evg/EvgApp.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../ui/src/UiHost.rgr"
+Import "../../rangerflow/core/FlowEditor.rgr"
+Import "../../rangerflow/core/FlowEvents.rgr"
+Import "CodeGraphSample.rgr"
+Import "CodeGraphFlow.rgr"
+Import "CodeGraphBuilder.rgr"
+
+class CodeGraphApp extends EvgApp {
+    def session:CodeGraphSession (new CodeGraphSession)
+    def graph:FlowGraph (new FlowGraph)
+    def editor:FlowEditor (new FlowEditor)
+    def input:FlowInput (new FlowInput)
+    def ui:UiHost (new UiHost)
+
+    def pageW:double 1200.0
+    def pageH:double 800.0
+    def railW:double 260.0
+    def headerH:double 52.0
+    def footerH:double 28.0
+    def canvasX:double 260.0
+    def canvasY:double 52.0
+    def canvasW:double 940.0
+    def canvasH:double 720.0
+    def viewW:double 940.0
+    def viewH:double 720.0
+
+    def sampleName:string "shop"
+    def umlOn:boolean false
+    def status:string ""
+    def chromeReady:boolean false
+    def wantOpenFile:boolean false
+    def lastClickMs:double 0.0
+    def lastClickX:double 0.0
+    def lastClickY:double 0.0
+    def clockMs:double 0.0
+    def shiftOn:boolean false
+    def ctrlOn:boolean false
+
+    def headerEl:EVGElement (EVGElement.createDiv())
+    def bodyEl:EVGElement (EVGElement.createDiv())
+    def railEl:EVGElement (EVGElement.createDiv())
+    def canvasEl:EVGElement (EVGElement.createDiv())
+    def footerEl:EVGElement (EVGElement.createDiv())
+    def brand:LabelCtl (new LabelCtl)
+    def crumbLbl:LabelCtl (new LabelCtl)
+    def statusLbl:LabelCtl (new LabelCtl)
+    def capExample:LabelCtl (new LabelCtl)
+    def capClasses:LabelCtl (new LabelCtl)
+    def bar:ToolbarCtl (new ToolbarCtl)
+    def sampleSel:SelectCtl (new SelectCtl)
+    def classTree:TreeCtl (new TreeCtl)
+    def umlToggle:ToggleCtl (new ToggleCtl)
+
+    def rootFiles:[string:string]
+    def libFiles:[string:string]
+    def compilerFiles:[string:string]
+    def galleryFiles:[string:string]
+    def exampleFiles:[string:string]
+    def userFiles:[string:string]
+
+    Constructor () {
+    }
+
+    fn start:void (w:double h:double css:string) {
+        pageW = w
+        pageH = h
+        if ((strlen css) > 0) {
+            ui.addStyleSheet(css)
+        }
+        this.buildChrome()
+        this.setPageSize(w h)
+        this.loadSample("shop")
+    }
+
+    fn init:void (w:double h:double) {
+        this.start(w h "")
+    }
+
+    fn widthPx:double () {
+        return pageW
+    }
+
+    fn heightPx:double () {
+        return pageH
+    }
+
+    fn setPageSize:void (w:double h:double) {
+        if (w < 320.0) {
+            w = 320.0
+        }
+        if (h < 240.0) {
+            h = 240.0
+        }
+        pageW = w
+        pageH = h
+        railW = 260.0
+        if (w < 720.0) {
+            railW = 200.0
+        }
+        headerH = 52.0
+        footerH = 28.0
+        canvasW = (w - railW)
+        if (canvasW < 200.0) {
+            canvasW = 200.0
+        }
+        canvasH = ((h - headerH) - footerH)
+        if (canvasH < 160.0) {
+            canvasH = 160.0
+        }
+        canvasX = railW
+        canvasY = headerH
+        viewW = canvasW
+        viewH = canvasH
+        ui.setPageSize(w h)
+        this.applyChromeSizes()
+        editor.setSize(viewW viewH)
+    }
+
+    fn applyChromeSizes:void () {
+        if (chromeReady == false) {
+            return
+        }
+        def root@(optional):EVGElement ui.root
+        if (null? root) {
+            return
+        }
+        this.sizeBox((unwrap root) pageW pageH)
+        this.sizeBox(headerEl pageW headerH)
+        this.sizeBox(bodyEl pageW canvasH)
+        this.sizeBox(railEl railW canvasH)
+        this.sizeBox(canvasEl canvasW canvasH)
+        this.sizeBox(footerEl pageW footerH)
+    }
+
+    fn sizeBox:void (el:EVGElement w:double h:double) {
+        el.setAttribute("width" ((to_string (to_int w)) + "px"))
+        el.setAttribute("height" ((to_string (to_int h)) + "px"))
+    }
+
+    fn mount:void (parent:EVGElement c:UiCtl) {
+        push ui.ctls c
+        def el:EVGElement (unwrap c.rootEl)
+        parent.addChild(el)
+    }
+
+    fn buildChrome:void () {
+        def rootOpt@(optional):EVGElement ui.root
+        if (null? rootOpt) {
+            return
+        }
+        def root:EVGElement (unwrap rootOpt)
+        root.id = "root"
+        root.className = "cg-root"
+        UiTree.clearChildren(root)
+
+        headerEl.id = "cg-header"
+        headerEl.className = "cg-header"
+        bodyEl.id = "cg-body"
+        bodyEl.className = "cg-body"
+        railEl.id = "cg-rail"
+        railEl.className = "cg-rail"
+        canvasEl.id = "cg-canvas"
+        canvasEl.className = "cg-canvas"
+        footerEl.id = "cg-footer"
+        footerEl.className = "cg-footer"
+
+        brand.tid = "cg-brand"
+        brand.name = "CodeGraph"
+        brand.build()
+        this.mount(headerEl brand)
+
+        crumbLbl.tid = "cg-crumb"
+        crumbLbl.name = "loading…"
+        crumbLbl.build()
+        def crumbEl:EVGElement (unwrap crumbLbl.rootEl)
+        crumbEl.className = "cg-crumb"
+        this.mount(headerEl crumbLbl)
+
+        bar.tid = "cg-bar"
+        bar.name = "explorer"
+        bar.addItem("open" "Open" false)
+        bar.addItem("back" "←" true)
+        bar.addItem("fwd" "→" true)
+        bar.addItem("overview" "overview" false)
+        bar.addItem("fit" "fit" false)
+        bar.addItem("zoom" "zoom" false)
+        bar.addItem("analyze" "Analyze" false)
+        bar.build()
+        this.mount(headerEl bar)
+
+        umlToggle.tid = "cg-uml"
+        umlToggle.name = "UML"
+        umlToggle.build()
+        this.mount(headerEl umlToggle)
+
+        capExample.tid = "cg-cap-example"
+        capExample.name = "EXAMPLE"
+        capExample.build()
+        def capExEl:EVGElement (unwrap capExample.rootEl)
+        capExEl.className = "cg-cap"
+        this.mount(railEl capExample)
+
+        sampleSel.tid = "cg-sample"
+        sampleSel.name = "example program"
+        sampleSel.addItem("calls.rgr" "calls.rgr — Order / LineItem" false)
+        sampleSel.addItem("animals.rgr" "animals.rgr — Farm / Animal" false)
+        sampleSel.addItem("css" "css — CssCore" false)
+        sampleSel.addItem("evg" "evg — EVGElement" false)
+        sampleSel.addItem("zip" "zip — ZipReader" false)
+        sampleSel.addItem("compiler" "Ranger compiler" false)
+        sampleSel.addItem("shop" "Shop fixture (no compiler)" false)
+        sampleSel.addItem("many" "40 classes (paging)" false)
+        sampleSel.value = "shop"
+        sampleSel.build()
+        this.mount(railEl sampleSel)
+
+        capClasses.tid = "cg-cap-classes"
+        capClasses.name = "CLASSES"
+        capClasses.build()
+        def capClEl:EVGElement (unwrap capClasses.rootEl)
+        capClEl.className = "cg-cap"
+        this.mount(railEl capClasses)
+
+        classTree.tid = "cg-classes"
+        classTree.name = "classes"
+        classTree.rootValue = "root"
+        classTree.selectable = true
+        classTree.addNode("root" "classes")
+        classTree.build()
+        this.mount(railEl classTree)
+
+        statusLbl.tid = "cg-status"
+        statusLbl.name = "ready"
+        statusLbl.build()
+        def stEl:EVGElement (unwrap statusLbl.rootEl)
+        stEl.className = "cg-status"
+        this.mount(footerEl statusLbl)
+
+        root.addChild(headerEl)
+        bodyEl.addChild(railEl)
+        bodyEl.addChild(canvasEl)
+        root.addChild(bodyEl)
+        root.addChild(footerEl)
+        chromeReady = true
+        this.applyChromeSizes()
+    }
+
+    fn refreshChrome:void () {
+        if (chromeReady == false) {
+            return
+        }
+        crumbLbl.name = (this.crumb())
+        crumbLbl.build()
+        def crumbEl:EVGElement (unwrap crumbLbl.rootEl)
+        crumbEl.className = "cg-crumb"
+        statusLbl.name = status
+        statusLbl.build()
+        def stEl:EVGElement (unwrap statusLbl.rootEl)
+        stEl.className = "cg-status"
+        umlToggle.on = umlOn
+        umlToggle.build()
+        sampleSel.value = sampleName
+        sampleSel.build()
+        this.syncToolbar()
+        this.refreshClasses()
+    }
+
+    fn syncToolbar:void () {
+        def i:int 0
+        while (i < (array_length bar.items)) {
+            def it:UiItem (itemAt bar.items i)
+            if (it.value == "back") {
+                it.disabled = ((this.canBack()) == false)
+            }
+            if (it.value == "fwd") {
+                it.disabled = ((this.canForward()) == false)
+            }
+            if (it.value == "zoom") {
+                it.disabled = ((this.hasSelection()) == false)
+            }
+            i = (i + 1)
+        }
+        bar.build()
+    }
+
+    fn refreshClasses:void () {
+        def names:[string] (session.model.classNames())
+        def none:[UiTreeNode]
+        classTree.nodes = none
+        def rootNode:UiTreeNode (classTree.addNode("root" "classes"))
+        def i:int 0
+        while (i < (array_length names)) {
+            def n:string (itemAt names i)
+            classTree.addNode(n n)
+            TreeCtl.addKid(rootNode n)
+            i = (i + 1)
+        }
+        def current:string ""
+        if ((indexOf session.pageId "class:") == 0) {
+            current = (substring session.pageId 6 (strlen session.pageId))
+        }
+        if ((strlen current) > 0) {
+            classTree.selectOnly(current)
+            classTree.activeValue = current
+        } {
+            classTree.clearSelection()
+            classTree.activeValue = ""
+        }
+        classTree.build()
+        if ((strlen current) > 0) {
+            def ni:int (classTree.nodeAt(current))
+            if (ni >= 0) {
+                def node:UiTreeNode (itemAt classTree.nodes ni)
+                def el:EVGElement (unwrap node.el)
+                UiTree.addClass(el "cg-class-current")
+            }
+        }
+    }
+
+    ; --- VirtualCompiler VFS ------------------------------------------------
+
+    fn setRootFile:void (name:string data:string) {
+        set rootFiles name data
+    }
+
+    fn setLibFile:void (name:string data:string) {
+        set libFiles name data
+    }
+
+    fn setCompilerFile:void (name:string data:string) {
+        set compilerFiles name data
+    }
+
+    fn setGalleryFile:void (path:string data:string) {
+        set galleryFiles path data
+    }
+
+    fn setExampleFile:void (name:string data:string) {
+        set exampleFiles name data
+    }
+
+    fn setUserFile:void (name:string data:string) {
+        set userFiles name data
+    }
+
+    fn clearUserFiles:void () {
+        def empty:[string:string]
+        userFiles = empty
+    }
+
+    fn hasCompiler:boolean () {
+        return (has rootFiles "Lang.rgr")
+    }
+
+    fn hasCompilerTree:boolean () {
+        return (has compilerFiles "VirtualCompiler.rgr")
+    }
+
+    fn hasGalleryTree:boolean () {
+        return (has galleryFiles "css/CssCore.rgr")
+    }
+
+    fn loadSample:boolean (name:string) {
+        def model:CodeGraph (new CodeGraph)
+        if (name == "many") {
+            model = (CodeGraphSample.manyClasses(40))
+            sampleName = "many"
+        } {
+            model = (CodeGraphSample.shop())
+            sampleName = "shop"
+        }
+        umlOn = true
+        session = (CodeGraphSession.of(model 24))
+        session.openInitial(session.pages.umlPageId(0))
+        return (this.showPage())
+    }
+
+    fn applyGraph:boolean (g:CodeGraph name:string) {
+        sampleName = name
+        umlOn = true
+        session = (CodeGraphSession.of(g 24))
+        session.openInitial(session.pages.umlPageId(0))
+        return (this.showPage())
+    }
+
+    fn analyzeSource:boolean (source:string filename:string) {
+        return (this.runAnalyze(source filename filename))
+    }
+
+    fn analyzeCompiler:boolean () {
+        if ((this.hasCompilerTree()) == false) {
+            status = "compiler sources not loaded"
+            this.refreshChrome()
+            return false
+        }
+        def ok:boolean (this.runAnalyze("" "VirtualCompiler.rgr" ""))
+        if ok {
+            sampleName = "compiler"
+        }
+        return ok
+    }
+
+    fn analyzeGallery:boolean (libName:string) {
+        if ((this.hasGalleryTree()) == false) {
+            status = "gallery sources not loaded"
+            this.refreshChrome()
+            return false
+        }
+        def entry:string ""
+        if (libName == "css") {
+            entry = "CssCore.rgr"
+        }
+        if (libName == "evg") {
+            entry = "EVGElement.rgr"
+        }
+        if (libName == "zip") {
+            entry = "zip_tool.rgr"
+        }
+        if ((strlen entry) == 0) {
+            status = ("unknown gallery lib " + libName)
+            this.refreshChrome()
+            return false
+        }
+        def ok:boolean (this.runAnalyze("" entry ""))
+        if ok {
+            sampleName = libName
+            def home:string (this.galleryHomeClass(libName))
+            if ((strlen home) > 0) {
+                if (session.model.hasClass(home)) {
+                    session.openInitial(session.pages.classPageId(home))
+                    return (this.showPage())
+                }
+            }
+        }
+        return ok
+    }
+
+    fn galleryHomeClass:string (libName:string) {
+        if (libName == "css") {
+            return "CssSheet"
+        }
+        if (libName == "evg") {
+            return "EVGElement"
+        }
+        if (libName == "zip") {
+            return "ZipReader"
+        }
+        return ""
+    }
+
+    fn pickSample:boolean (name:string) {
+        if ((name == "shop") || (name == "many")) {
+            return (this.loadSample(name))
+        }
+        if ((name == "css") || (name == "evg") || (name == "zip")) {
+            return (this.analyzeGallery(name))
+        }
+        if (name == "compiler") {
+            return (this.analyzeCompiler())
+        }
+        if (has exampleFiles name) {
+            return (this.analyzeSource((unwrap (get exampleFiles name)) name))
+        }
+        if (has userFiles name) {
+            return (this.analyzeSource((unwrap (get userFiles name)) name))
+        }
+        status = ("no source for " + name)
+        this.refreshChrome()
+        return false
+    }
+
+    fn runAnalyze:boolean (source:string filename:string filter:string) {
+        if ((this.hasCompiler()) == false) {
+            status = "compiler libraries not loaded"
+            this.refreshChrome()
+            return false
+        }
+        def fname:string filename
+        if ((strlen fname) == 0) {
+            fname = "example.rgr"
+        }
+        if ((strlen source) == 0) {
+            if ((strlen filter) > 0) {
+                status = "no source"
+                this.refreshChrome()
+                return false
+            }
+        }
+        status = ("compiling " + fname + "…")
+        def env:InputEnv (new InputEnv)
+        env.use_real = false
+        def fs:InputFSFolder (new InputFSFolder)
+        fs.name = ""
+        env.filesystem = fs
+        env.setEnv("RANGER_LIB" "/;/lib/;/compiler/;/gallery/css/;/gallery/evg/;/gallery/zip/")
+        def params:CmdParams (new CmdParams)
+        push params.values fname
+        set params.params "l" "es6"
+        set params.params "o" "ignored.js"
+        set params.flags "no-color" true
+        env.commandLine = params
+        def rootNames:[string] (keys rootFiles)
+        def ri:int 0
+        while (ri < (array_length rootNames)) {
+            def rn:string (itemAt rootNames ri)
+            create_file fs rn (unwrap (get rootFiles rn))
+            ri = (ri + 1)
+        }
+        if ((strlen source) > 0) {
+            create_file fs fname source
+        }
+        this.installUserTree(fs)
+        def libF@(optional):InputFSFolder (create_folder fs "lib")
+        if (null? libF) {
+            status = "could not create lib folder"
+            this.refreshChrome()
+            return false
+        }
+        def libDir:InputFSFolder (unwrap libF)
+        def libNames:[string] (keys libFiles)
+        def li:int 0
+        while (li < (array_length libNames)) {
+            def ln:string (itemAt libNames li)
+            create_file libDir ln (unwrap (get libFiles ln))
+            li = (li + 1)
+        }
+        this.installCompilerTree(fs)
+        this.installGalleryTree(fs)
+        def vc:VirtualCompiler (new VirtualCompiler)
+        def res:CompilerResults (vc.run(env))
+        if res.hasErrors {
+            status = res.errorMessage
+            this.refreshChrome()
+            return false
+        }
+        def ctx@(optional):RangerAppWriterContext res.ctx
+        if (null? ctx) {
+            status = "no compiler context"
+            this.refreshChrome()
+            return false
+        }
+        def appCtx:RangerAppWriterContext (unwrap ctx)
+        if ((array_length appCtx.compilerErrors) > 0) {
+            def err:RangerCompilerMessage (itemAt appCtx.compilerErrors 0)
+            status = err.description
+            this.refreshChrome()
+            return false
+        }
+        def b (new CodeGraphBuilder)
+        b.fileFilter = filter
+        def g:CodeGraph (b.fromContext(appCtx))
+        g.title = fname
+        if ((g.classCount()) == 0) {
+            status = "no classes in compiled source"
+            this.refreshChrome()
+            return false
+        }
+        return (this.applyGraph(g fname))
+    }
+
+    fn installUserTree:void (fs:InputFSFolder) {
+        def names:[string] (keys userFiles)
+        def i:int 0
+        while (i < (array_length names)) {
+            def n:string (itemAt names i)
+            create_file fs n (unwrap (get userFiles n))
+            i = (i + 1)
+        }
+    }
+
+    fn installCompilerTree:void (fs:InputFSFolder) {
+        def names:[string] (keys compilerFiles)
+        if ((array_length names) == 0) {
+            return
+        }
+        def compF@(optional):InputFSFolder (create_folder fs "compiler")
+        if (null? compF) {
+            return
+        }
+        def compDir:InputFSFolder (unwrap compF)
+        def i:int 0
+        while (i < (array_length names)) {
+            def n:string (itemAt names i)
+            create_file compDir n (unwrap (get compilerFiles n))
+            i = (i + 1)
+        }
+    }
+
+    fn installGalleryTree:void (fs:InputFSFolder) {
+        def names:[string] (keys galleryFiles)
+        if ((array_length names) == 0) {
+            return
+        }
+        def galF@(optional):InputFSFolder (create_folder fs "gallery")
+        if (null? galF) {
+            return
+        }
+        def gallery:InputFSFolder (unwrap galF)
+        def i:int 0
+        while (i < (array_length names)) {
+            def rel:string (itemAt names i)
+            def cut:int (this.slashIn(rel))
+            if (cut > 0) {
+                def dirName:string (substring rel 0 cut)
+                def fileName:string (substring rel (cut + 1) (strlen rel))
+                def subF@(optional):InputFSFolder (create_folder gallery dirName)
+                if ((null? subF) == false) {
+                    def sub:InputFSFolder (unwrap subF)
+                    create_file sub fileName (unwrap (get galleryFiles rel))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn slashIn:int (s:string) {
+        def i:int 0
+        def cut:int -1
+        while (i < (strlen s)) {
+            if ((charAt s i) == (ccode "/")) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        return cut
+    }
+
+    ; --- graph page ---------------------------------------------------------
+
+    fn showPage:boolean () {
+        graph = (session.graph())
+        editor = (FlowEditor.of(graph))
+        editor.setSize(viewW viewH)
+        editor.view.notation = "uml"
+        editor.view.showMinimap = false
+        editor.view.showControls = false
+        editor.view.showNodeTools = false
+        editor.fitView()
+        this.framePageFocus()
+        status = session.status
+        this.refreshChrome()
+        return true
+    }
+
+    fn framePageFocus:void () {
+        def id:string session.pageId
+        def focus:string ""
+        if ((indexOf id "class:") == 0) {
+            focus = (substring id 6 (strlen id))
+        }
+        if ((indexOf id "method:") == 0) {
+            focus = (substring id 7 (strlen id))
+        }
+        if ((strlen focus) == 0) {
+            return
+        }
+        if ((graph.hasNode(focus)) == false) {
+            return
+        }
+        graph.clearSelection()
+        def n:FlowNode (graph.nodeById(focus))
+        n.selected = true
+        if ((editor.selectedTitlePx()) < 10.0) {
+            this.zoomToSelected()
+        }
+    }
+
+    fn classList:string () {
+        def names:[string] (session.model.classNames())
+        return (join names "\n")
+    }
+
+    fn titleText:string () {
+        return session.model.title
+    }
+
+    fn pageId:string () {
+        return session.pageId
+    }
+
+    fn pageTitle:string () {
+        def p:CodePage (session.currentPage())
+        return p.title
+    }
+
+    fn crumb:string () {
+        def p:CodePage (session.currentPage())
+        return (((session.model.title + " / ") + p.kind) + " / " + p.title)
+    }
+
+    fn statusText:string () {
+        return status
+    }
+
+    fn sampleId:string () {
+        return sampleName
+    }
+
+    fn umlView:boolean () {
+        return umlOn
+    }
+
+    fn canBack:boolean () {
+        return (session.canBack())
+    }
+
+    fn canForward:boolean () {
+        return (session.canForward())
+    }
+
+    fn openClass:boolean (name:string) {
+        if ((session.model.hasClass(name)) == false) {
+            return false
+        }
+        if (session.goTo(session.pages.classPageId(name))) {
+            return (this.showPage())
+        }
+        return false
+    }
+
+    fn goOverview:boolean () {
+        def next:string (session.pages.overviewId(0))
+        if umlOn {
+            next = (session.pages.umlPageId(0))
+        }
+        if (session.goTo(next)) {
+            return (this.showPage())
+        }
+        return false
+    }
+
+    fn setUml:boolean (on:boolean) {
+        if (on == umlOn) {
+            return false
+        }
+        umlOn = on
+        def next:string (session.pages.overviewId(0))
+        if umlOn {
+            next = (session.pages.umlPageId(0))
+        }
+        session.goTo(next)
+        return (this.showPage())
+    }
+
+    fn goBack:boolean () {
+        if (session.goBack()) {
+            return (this.showPage())
+        }
+        return false
+    }
+
+    fn goForward:boolean () {
+        if (session.goForward()) {
+            return (this.showPage())
+        }
+        return false
+    }
+
+    fn fitView:void () {
+        editor.fitView()
+    }
+
+    fn zoomToSelected:boolean () {
+        return (editor.zoomToSelected(0.3))
+    }
+
+    fn hasSelection:boolean () {
+        return ((strlen (editor.selectedNodeId())) > 0)
+    }
+
+    fn selectedId:string () {
+        return (editor.selectedNodeId())
+    }
+
+    fn viewGesture:boolean () {
+        return (editor.viewGesture())
+    }
+
+    fn sceneName:string () {
+        return session.pageId
+    }
+
+    ; --- canvas pointer (page coordinates) ----------------------------------
+
+    fn inCanvas:boolean (px:double py:double) {
+        if (px < canvasX) {
+            return false
+        }
+        if (py < canvasY) {
+            return false
+        }
+        if (px >= (canvasX + canvasW)) {
+            return false
+        }
+        if (py >= (canvasY + canvasH)) {
+            return false
+        }
+        return true
+    }
+
+    fn localX:double (px:double) {
+        return (px - canvasX)
+    }
+
+    fn localY:double (py:double) {
+        return (py - canvasY)
+    }
+
+    fn graphDown:void (px:double py:double shift:boolean ctrl:boolean) {
+        shiftOn = shift
+        ctrlOn = ctrl
+        input.x = (this.localX(px))
+        input.y = (this.localY(py))
+        input.shift = shift
+        input.ctrl = ctrl
+        input.secondary = false
+        editor.pointerDown(input)
+    }
+
+    fn graphMove:void (px:double py:double shift:boolean ctrl:boolean) {
+        input.x = (this.localX(px))
+        input.y = (this.localY(py))
+        input.shift = shift
+        input.ctrl = ctrl
+        editor.pointerMove(input)
+    }
+
+    fn graphUp:void (px:double py:double shift:boolean ctrl:boolean) {
+        input.x = (this.localX(px))
+        input.y = (this.localY(py))
+        input.shift = shift
+        input.ctrl = ctrl
+        editor.pointerUp(input)
+        if (editor.onGraphChanged) {
+            editor.onGraphChanged = false
+            CodeGraphFlow.repairRoutes(graph)
+        }
+        def lx:double input.x
+        def ly:double input.y
+        def dbl:boolean false
+        def dt:double (clockMs - lastClickMs)
+        if (dt < 400.0) {
+            def dx:double (lx - lastClickX)
+            def dy:double (ly - lastClickY)
+            if (((dx * dx) + (dy * dy)) < 36.0) {
+                dbl = true
+            }
+        }
+        lastClickMs = clockMs
+        lastClickX = lx
+        lastClickY = ly
+        if dbl {
+            this.openAt(lx ly)
+            editor.clicks.clear()
+            this.refreshChrome()
+            return
+        }
+        def n:int (editor.clicks.count())
+        def i:int 0
+        def moved:boolean false
+        while (i < n) {
+            def ev:FlowHitEvent (editor.clicks.at(i))
+            this.preferMethodRow(ev)
+            if (session.handleClick(ev)) {
+                moved = true
+            }
+            i = (i + 1)
+        }
+        if moved {
+            this.showPage()
+        } {
+            this.refreshChrome()
+        }
+        editor.clicks.clear()
+    }
+
+    fn graphWheel:void (px:double py:double delta:double) {
+        input.x = (this.localX(px))
+        input.y = (this.localY(py))
+        editor.wheel(input delta)
+    }
+
+    fn wheelGesture:void (x:double y:double dx:double dy:double pinch:boolean lineMode:boolean) {
+        editor.wheelGesture(x y dx dy pinch lineMode)
+    }
+
+    fn pointerDown:void (x:double y:double shift:boolean ctrl:boolean) {
+        if (this.inCanvas(x y)) {
+            this.graphDown(x y shift ctrl)
+            return
+        }
+        this.press((this.hitId(x y)))
+    }
+
+    fn pointerMove:void (x:double y:double shift:boolean ctrl:boolean) {
+        if (this.inCanvas(x y)) {
+            this.graphMove(x y shift ctrl)
+        }
+    }
+
+    fn pointerUp:void (x:double y:double shift:boolean ctrl:boolean) {
+        if (this.inCanvas(x y)) {
+            this.graphUp(x y shift ctrl)
+        }
+    }
+
+    fn wheel:void (x:double y:double delta:double) {
+        if (this.inCanvas(x y)) {
+            this.graphWheel(x y delta)
+            return
+        }
+        this.scrollRail(delta)
+    }
+
+    fn scrollRail:void (delta:double) {
+        def top:double (railEl.scrollTop + delta)
+        if (top < 0.0) {
+            top = 0.0
+        }
+        def max:double (railEl.maxScrollTop())
+        if (top > max) {
+            top = max
+        }
+        railEl.scrollTop = top
+    }
+
+    fn preferMethodRow:void (ev:FlowHitEvent) {
+        if (ev.kind != "node") {
+            return
+        }
+        if ((indexOf session.pageId "class:") != 0) {
+            return
+        }
+        def mid:string (this.methodAt(ev.id ev.flowY))
+        if ((strlen mid) == 0) {
+            return
+        }
+        ev.dataKind = "method"
+        ev.dataRef = mid
+        ev.id = mid
+    }
+
+    fn methodAt:string (nodeId:string flowY:double) {
+        if ((graph.hasNode(nodeId)) == false) {
+            return ""
+        }
+        def n:FlowNode (graph.nodeById(nodeId))
+        def row:int (editor.rowAtPoint(n flowY))
+        return (session.pages.methodIdAtRow(nodeId row))
+    }
+
+    fn openAt:boolean (x:double y:double) {
+        def fx:double (editor.flowX(x))
+        def fy:double (editor.flowY(y))
+        def ni:int (graph.nodeAtPoint(fx fy))
+        if (ni < 0) {
+            return false
+        }
+        def n:FlowNode (graph.nodeAt(ni))
+        def kind:string n.dataKind
+        def classBox:boolean false
+        if (kind == "umlclass") { classBox = true }
+        if (kind == "class") { classBox = true }
+        if classBox {
+            if ((indexOf session.pageId "class:") == 0) {
+                def mid:string (this.methodAt(n.id fy))
+                if ((strlen mid) > 0) {
+                    if (session.goTo(session.pages.methodPageId(mid))) {
+                        return (this.showPage())
+                    }
+                }
+            }
+            def ref:string n.dataRef
+            if ((strlen ref) == 0) {
+                ref = n.id
+            }
+            if (session.goTo(session.pages.classPageId(ref))) {
+                return (this.showPage())
+            }
+            return false
+        }
+        def ev (new FlowHitEvent)
+        ev.kind = "node"
+        ev.id = n.id
+        ev.dataKind = n.dataKind
+        ev.dataRef = n.dataRef
+        if (session.handleClick(ev)) {
+            return (this.showPage())
+        }
+        return false
+    }
+
+    ; --- EvgApp -------------------------------------------------------------
+
+    fn hitId:string (px:double py:double) {
+        ui.layout()
+        def tid:string (ui.hitTest(px py))
+        if ((strlen tid) > 0) {
+            return tid
+        }
+        if (this.inCanvas(px py)) {
+            return "cg-canvas"
+        }
+        return ""
+    }
+
+    fn press:boolean (id:string) {
+        if (id == "cg-canvas") {
+            return false
+        }
+        if ((strlen id) == 0) {
+            return false
+        }
+        def oldSample:string sampleSel.value
+        def oldClass:string classTree.activeValue
+        ui.click(id)
+        if ((indexOf id "cg-bar-") == 0) {
+            this.runToolbar(bar.rovingValue)
+        }
+        if (id == "cg-uml") {
+            this.setUml(umlToggle.on)
+        }
+        if (sampleSel.value != oldSample) {
+            this.pickSample(sampleSel.value)
+        }
+        if (classTree.activeValue != oldClass) {
+            if ((strlen classTree.activeValue) > 0) {
+                if (classTree.activeValue != "root") {
+                    this.openClass(classTree.activeValue)
+                }
+            }
+        }
+        return true
+    }
+
+    fn runToolbar:void (op:string) {
+        if (op == "open") {
+            wantOpenFile = true
+            return
+        }
+        if (op == "back") {
+            this.goBack()
+            return
+        }
+        if (op == "fwd") {
+            this.goForward()
+            return
+        }
+        if (op == "overview") {
+            this.goOverview()
+            return
+        }
+        if (op == "fit") {
+            this.fitView()
+            return
+        }
+        if (op == "zoom") {
+            this.zoomToSelected()
+            this.refreshChrome()
+            return
+        }
+        if (op == "analyze") {
+            this.pickSample(sampleName)
+            return
+        }
+    }
+
+    fn consumeOpenFile:boolean () {
+        if wantOpenFile {
+            wantOpenFile = false
+            return true
+        }
+        return false
+    }
+
+    fn tick:boolean (dtMs:double) {
+        clockMs = (clockMs + dtMs)
+        return (ui.tick(dtMs))
+    }
+
+    fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
+        if (k == "Escape") {
+            if sampleSel.open {
+                sampleSel.closeList()
+                return true
+            }
+        }
+        ui.keyWith(k shift ctrl)
+        return true
+    }
+
+    fn display:EVGDisplayList () {
+        def dl:EVGDisplayList (ui.displayList())
+        def page@(optional):EVGElement ui.lastPage
+        if page {
+            def hit@(optional):EVGElement (ui.findEl((unwrap page) "cg-canvas"))
+            if hit {
+                def box:EVGElement (unwrap hit)
+                canvasX = box.calculatedX
+                canvasY = box.calculatedY
+                canvasW = box.calculatedWidth
+                canvasH = box.calculatedHeight
+                if (canvasW < 8.0) {
+                    canvasW = viewW
+                }
+                if (canvasH < 8.0) {
+                    canvasH = viewH
+                }
+                viewW = canvasW
+                viewH = canvasH
+                editor.setSize(viewW viewH)
+            }
+        }
+        def sc:FlowScene (editor.view.build())
+        def graphDl:EVGDisplayList (sc.toDisplayList())
+        graphDl.offsetBy(canvasX canvasY)
+        dl.addClip(canvasX canvasY canvasW canvasH)
+        dl.appendFrom(graphDl)
+        dl.addClipEnd()
+        return dl
+    }
+
+    fn stats:string () {
+        def v:FlowView editor.view
+        def out:string ("nodes=" + (to_string (graph.nodeCount())))
+        out = (out + " edges=" + (to_string (graph.edgeCount())))
+        out = (out + " drawn=" + (to_string v.drawnNodes))
+        out = (out + " page=" + session.pageId)
+        return out
+    }
+
+    fn svg:string () {
+        def sc:FlowScene (editor.view.buildForExport(24.0))
+        return (sc.toSvg())
+    }
+
+    fn frameJson:string () {
+        return (editor.frameJson())
+    }
+
+    fn frameView:string () {
+        return (editor.viewFrameJson())
+    }
+
+    fn frameScene:string () {
+        return (editor.frameJson())
+    }
+
+    fn frameGrid:string () {
+        return (editor.gridFrameJson())
+    }
+
+    fn sceneJson:string () {
+        return (editor.sceneJson())
+    }
+
+    ; `?selftest=1` — click Order, land on its page, go back.
+    fn selfTest:string () {
+        if ((graph.nodeCount()) == 0) {
+            return "FAIL no nodes"
+        }
+        this.loadSample("shop")
+        editor.fitView()
+        if (session.pageId != "uml:0") {
+            return ("FAIL shop did not open UML (on " + session.pageId + ")")
+        }
+        if ((graph.hasNode("Order")) == false) {
+            return "FAIL shop UML has no Order"
+        }
+        def n:FlowNode (graph.nodeById("Order"))
+        def sx:double (editor.view.viewport.toScreenX((n.centerX())))
+        def sy:double (editor.view.viewport.toScreenY((n.centerY())))
+        this.graphDown((canvasX + sx) (canvasY + sy) false false)
+        this.graphUp((canvasX + sx) (canvasY + sy) false false)
+        if (session.pageId != "uml:0") {
+            return ("FAIL click Order left UML (on " + session.pageId + ")")
+        }
+        if ((this.hasSelection()) == false) {
+            return "FAIL click Order did not select it"
+        }
+        editor.view.viewport.zoom = 0.05
+        if ((this.zoomToSelected()) == false) {
+            return "FAIL zoom to selected"
+        }
+        def title0:double (n.headerHeight * editor.view.viewport.zoom)
+        if (n.headerHeight > 1.0) {
+            if (title0 < 9.5) {
+                return ("FAIL zoomed Order title is only " + (to_string title0) + " px")
+            }
+        }
+        def shown:double ((n.width * editor.view.viewport.zoom) / editor.view.width)
+        if (shown >= 0.29) {
+            return ("FAIL zoomed Order still fills " + (to_string shown) + " of the view")
+        }
+        def sx2:double (editor.view.viewport.toScreenX((n.centerX())))
+        def sy2:double (editor.view.viewport.toScreenY((n.centerY())))
+        if ((this.openAt(sx2 sy2)) == false) {
+            return "FAIL double-click Order"
+        }
+        if (session.pageId != "class:Order") {
+            return ("FAIL openAt Order stayed on " + session.pageId)
+        }
+        if ((graph.nodeCount()) < 3) {
+            return "FAIL Order page too small"
+        }
+        if (graph.hasNode("Order.checkout")) {
+            return "FAIL Order page still draws method stadiums"
+        }
+        if ((this.goBack()) == false) {
+            return "FAIL back from Order"
+        }
+        if (session.pageId != "uml:0") {
+            return ("FAIL back stayed on " + session.pageId)
+        }
+        if ((this.openClass("LineItem")) == false) {
+            return "FAIL rail openClass LineItem"
+        }
+        if (session.pageId != "class:LineItem") {
+            return ("FAIL rail stayed on " + session.pageId)
+        }
+        if ((graph.hasNode("Order")) == false) {
+            return "FAIL LineItem page has no Order user"
+        }
+        if ((graph.hasNode("Cart")) == false) {
+            return "FAIL LineItem page has no Cart user"
+        }
+        if ((graph.hasPort("Order.items:r")) == false) {
+            return "FAIL LineItem page missing Order.items port"
+        }
+        if ((graph.hasPort("Cart.lines:r")) == false) {
+            return "FAIL LineItem page missing Cart.lines port"
+        }
+        def orderOnLine:FlowNode (graph.nodeById("Order"))
+        def oLineY:double (editor.view.viewport.toScreenY((orderOnLine.centerY())))
+        if (oLineY < 0.0) {
+            return "FAIL Order user panned off the LineItem page"
+        }
+        if (oLineY > viewH) {
+            return "FAIL Order user panned off the LineItem page"
+        }
+        if ((this.openClass("Customer")) == false) {
+            return "FAIL rail openClass Customer"
+        }
+        if (session.pageId != "class:Customer") {
+            return ("FAIL Customer stayed on " + session.pageId)
+        }
+        if ((graph.hasNode("Order")) == false) {
+            return "FAIL Customer page has no Order user"
+        }
+        if ((graph.hasPort("Order.customer:r")) == false) {
+            return "FAIL Customer page missing Order.customer port"
+        }
+        def orderOnCust:FlowNode (graph.nodeById("Order"))
+        def oCustY:double (editor.view.viewport.toScreenY((orderOnCust.centerY())))
+        if (oCustY < 0.0) {
+            return "FAIL Order user panned off the Customer page"
+        }
+        if (oCustY > viewH) {
+            return "FAIL Order user panned off the Customer page"
+        }
+        return ("PASS nav ok; " + (this.stats()))
+    }
+}

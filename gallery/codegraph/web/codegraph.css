@@ -1,0 +1,174 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * CodeGraph Full EVG chrome. Controllers write ui-* classes; this sheet
+ * sizes the shell and colours the gallery/ui widgets the explorer uses.
+ */
+
+.cg-root {
+  display: flex;
+  flex-direction: column;
+  padding: 0px;
+  gap: 0px;
+  background-color: rgb(238, 241, 246);
+}
+
+.cg-header {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 0px 12px;
+  gap: 10px;
+  background-color: rgb(30, 41, 59);
+}
+
+.cg-brand {
+  color: rgb(248, 250, 252);
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.cg-crumb {
+  color: rgb(203, 213, 225);
+  font-size: 12px;
+}
+
+.cg-body {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  padding: 0px;
+  gap: 0px;
+  background-color: rgb(238, 241, 246);
+}
+
+.cg-rail {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0px;
+  gap: 6px;
+  background-color: rgb(255, 255, 255);
+}
+
+.cg-cap {
+  color: rgb(100, 116, 139);
+  font-size: 11px;
+  padding: 6px 12px 0px;
+}
+
+.cg-canvas {
+  background-color: rgb(247, 248, 250);
+}
+
+.cg-footer {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 0px 14px;
+  background-color: rgb(255, 255, 255);
+}
+
+.cg-status {
+  color: rgb(100, 116, 139);
+  font-size: 12px;
+}
+
+.ui-toolbar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.ui-toolbar-button {
+  border: 1px solid rgb(71, 85, 105);
+  padding: 4px 9px;
+  border-radius: 5px;
+  background-color: rgb(51, 65, 85);
+  color: rgb(248, 250, 252);
+  font-size: 13px;
+}
+
+.ui-toolbar-button-disabled {
+  opacity: 0.4;
+}
+
+.ui-select {
+  display: flex;
+  flex-direction: column;
+  padding: 0px 12px;
+}
+
+.ui-select-trigger {
+  border: 1px solid rgb(213, 218, 226);
+  padding: 5px 8px;
+  border-radius: 5px;
+  background-color: rgb(248, 250, 252);
+  color: rgb(15, 23, 42);
+  font-size: 13px;
+}
+
+.ui-select-value {
+  color: rgb(15, 23, 42);
+  font-size: 13px;
+}
+
+.ui-select-content {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgb(203, 213, 225);
+  border-radius: 6px;
+  background-color: rgb(255, 255, 255);
+  padding: 4px;
+}
+
+.ui-select-item {
+  padding: 6px 10px;
+  border-radius: 4px;
+  color: rgb(15, 23, 42);
+  font-size: 13px;
+}
+
+.ui-select-item-state-checked {
+  background-color: rgb(224, 231, 255);
+}
+
+.ui-tree {
+  display: flex;
+  flex-direction: column;
+  padding: 0px 6px 8px;
+}
+
+.ui-tree-item {
+  padding: 5px 8px;
+  border-radius: 4px;
+  color: rgb(26, 31, 43);
+  font-size: 13px;
+  height: 26px;
+}
+
+.cg-class-current {
+  background-color: rgb(37, 99, 235);
+  color: rgb(255, 255, 255);
+}
+
+.ui-label {
+  color: rgb(51, 65, 85);
+  font-size: 13px;
+}
+
+.ui-toggle {
+  border: 1px solid rgb(71, 85, 105);
+  padding: 4px 9px;
+  border-radius: 5px;
+  background-color: rgb(51, 65, 85);
+  color: rgb(248, 250, 252);
+  font-size: 13px;
+}
+
+.ui-toggle-state-on {
+  background-color: rgb(37, 99, 235);
+  border-color: rgb(37, 99, 235);
+  color: rgb(255, 255, 255);
+}

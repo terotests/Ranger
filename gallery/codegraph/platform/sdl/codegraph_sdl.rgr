@@ -1,0 +1,500 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; codegraph_sdl — CodeGraph in a desktop window, SDL2 + OpenGL.
+; ============================================================================
+;
+;   SDL event → CodeGraphApp (UiHost chrome | FlowEditor canvas)
+;   display() → EVGDisplayList → EvgGlPainter → OpenGL
+;
+; A Ranger file is analysed through the in-memory VirtualCompiler filesystem.
+; The host fills that VFS from the real disk (compiler, lib, sibling `.rgr`
+; files next to the one you open). The same app runs in a tab.
+;
+; Usage (after build.sh):
+;   ./tmp/codegraph-sdl/codegraph_sdl
+;   ./tmp/codegraph-sdl/codegraph_sdl gallery/codegraph/fixtures/calls.rgr
+;   SDL_VIDEODRIVER=dummy ./tmp/codegraph-sdl/codegraph_sdl --frames 20
+; ============================================================================
+
+Import "../../src/CodeGraphApp.rgr"
+Import "../../../evg/EVGTextMeasurer.rgr"
+Import "../../../datagrid/platform/sdl/gfx_datagrid_sdl.rgr"
+Import "../../../datagrid/platform/sdl/EvgGlPainter.rgr"
+Import "../../../../lib/ranger-dir.rgr"
+
+class CodeGraphSdl {
+    def app:CodeGraphApp (new CodeGraphApp)
+    def painter:EvgGlPainter (new EvgGlPainter)
+    def tr:UITextRenderer (new UITextRenderer)
+    def images:GridImages (new GridImages)
+
+    def cssPath:string "gallery/codegraph/web"
+    def cssName:string "codegraph.css"
+    def fontDir:string "gallery/pdf_writer/assets/fonts"
+    def openPathArg:string ""
+
+    def pw:int 1280
+    def ph:int 800
+    def frames:int 0
+    def hasWindow:boolean false
+    def wantQuit:boolean false
+    def prevDown:boolean false
+    def graphDrag:boolean false
+    def prevX:int 0
+    def prevY:int 0
+    def lastMs:double 0.0
+
+    Constructor () {
+    }
+
+    fn isRgr:boolean (name:string) {
+        def n:int (strlen name)
+        if (n < 4) {
+            return false
+        }
+        return ((substring name (n - 4) n) == ".rgr")
+    }
+
+    fn skipCompiler:boolean (name:string) {
+        if ((this.isRgr(name)) == false) {
+            return true
+        }
+        if (name == "Lang.rgr") {
+            return true
+        }
+        if ((indexOf name "test_") == 0) {
+            return true
+        }
+        if ((indexOf name "issue_") == 0) {
+            return true
+        }
+        if (name == "feature_tests.rgr") {
+            return true
+        }
+        if ((indexOf name "_backup.") >= 0) {
+            return true
+        }
+        return false
+    }
+
+    fn lastSlash:int (s:string) {
+        def i:int 0
+        def cut:int -1
+        while (i < (strlen s)) {
+            if ((charAt s i) == (ccode "/")) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        return cut
+    }
+
+    fn dirOf:string (path:string) {
+        def cut:int (this.lastSlash(path))
+        if (cut < 0) {
+            return "."
+        }
+        if (cut == 0) {
+            return "/"
+        }
+        return (substring path 0 cut)
+    }
+
+    fn baseOf:string (path:string) {
+        def cut:int (this.lastSlash(path))
+        if (cut < 0) {
+            return path
+        }
+        return (substring path (cut + 1) (strlen path))
+    }
+
+    fn loadText:string (dir:string name:string) {
+        def t@(optional):string (read_file dir name)
+        if (null? t) {
+            return ""
+        }
+        return (unwrap t)
+    }
+
+    fn loadVfs:void () {
+        def lang:string (this.loadText("compiler" "Lang.rgr"))
+        if ((strlen lang) > 0) {
+            app.setRootFile("Lang.rgr" lang)
+        }
+        def libNames:[string] (list_dir_files "lib")
+        def li:int 0
+        while (li < (array_length libNames)) {
+            def ln:string (itemAt libNames li)
+            if (this.isRgr(ln)) {
+                if (ln != "shell_test.rgr") {
+                    def data:string (this.loadText("lib" ln))
+                    if ((strlen data) > 0) {
+                        app.setLibFile(ln data)
+                    }
+                }
+            }
+            li = (li + 1)
+        }
+        def compNames:[string] (list_dir_files "compiler")
+        def ci:int 0
+        while (ci < (array_length compNames)) {
+            def cn:string (itemAt compNames ci)
+            if ((this.skipCompiler(cn)) == false) {
+                def cdata:string (this.loadText("compiler" cn))
+                if ((strlen cdata) > 0) {
+                    app.setCompilerFile(cn cdata)
+                }
+            }
+            ci = (ci + 1)
+        }
+        app.setExampleFile("calls.rgr" (this.loadText("gallery/codegraph/fixtures" "calls.rgr")))
+        app.setExampleFile("animals.rgr" (this.loadText("gallery/codegraph/fixtures" "animals.rgr")))
+        print ("  VFS lang=" + (to_string (app.hasCompiler())) + " compiler=" + (to_string (app.hasCompilerTree())))
+    }
+
+    fn openRangerPath:boolean (path:string) {
+        if ((strlen path) == 0) {
+            return false
+        }
+        def dir:string (this.dirOf(path))
+        def name:string (this.baseOf(path))
+        def source:string (this.loadText(dir name))
+        if ((strlen source) == 0) {
+            app.status = ("could not read " + path)
+            app.refreshChrome()
+            print ("  " + app.status)
+            return false
+        }
+        app.clearUserFiles()
+        def names:[string] (list_dir_files dir)
+        def i:int 0
+        while (i < (array_length names)) {
+            def n:string (itemAt names i)
+            if (this.isRgr(n)) {
+                def data:string (this.loadText(dir n))
+                if ((strlen data) > 0) {
+                    app.setUserFile(n data)
+                }
+            }
+            i = (i + 1)
+        }
+        print ("  analyse " + path + " via VFS")
+        return (app.analyzeSource(source name))
+    }
+
+    fn pickAndOpen:void () {
+        def path:string (dgfx_pick_open_any "Open a Ranger file")
+        if ((strlen path) == 0) {
+            return
+        }
+        this.openRangerPath(path)
+    }
+
+    fn startApp:boolean () {
+        def css:string (this.loadText(cssPath cssName))
+        if ((strlen css) == 0) {
+            print ("  missing " + cssPath + "/" + cssName)
+            return false
+        }
+        app.start((to_double pw) (to_double ph) css)
+        this.loadVfs()
+        if ((strlen openPathArg) > 0) {
+            this.openRangerPath(openPathArg)
+        }
+        return true
+    }
+
+    fn openWindow:void () {
+        def ok:int (dgfx_open "CodeGraph — Ranger call graph" pw ph)
+        if (ok == 1) {
+            hasWindow = true
+            dgfx_install_menus
+        } {
+            print "  dgfx_open failed (no display?) — running headless"
+        }
+    }
+
+    fn syncWindowSize:void () {
+        def ww:int (dgfx_window_width)
+        def wh:int (dgfx_window_height)
+        if (ww < 240) {
+            return
+        }
+        if (wh < 240) {
+            return
+        }
+        if (ww == pw) {
+            if (wh == ph) {
+                return
+            }
+        }
+        pw = ww
+        ph = wh
+        app.setPageSize((to_double pw) (to_double ph))
+    }
+
+    fn pumpInput:void () {
+        dgfx_poll
+        this.syncWindowSize()
+        def menu:int (dgfx_pop_menu_action)
+        if (menu == 1) {
+            this.pickAndOpen()
+        }
+        if (menu == 4) {
+            wantQuit = true
+        }
+        def mx:int (dgfx_mouse_x)
+        def my:int (dgfx_mouse_y)
+        def btn:int (dgfx_mouse_buttons)
+        def down:boolean false
+        if ((bit_and btn 1) != 0) {
+            down = true
+        }
+        def shift:boolean (dgfx_shift_down)
+        def ctrl:boolean (dgfx_ctrl_down)
+        def px:double (to_double mx)
+        def py:double (to_double my)
+        if down {
+            if (prevDown == false) {
+                def id:string (app.hitId(px py))
+                if (id == "cg-canvas") {
+                    graphDrag = true
+                    app.graphDown(px py shift ctrl)
+                } {
+                    graphDrag = false
+                    app.press(id)
+                    if (app.consumeOpenFile()) {
+                        this.pickAndOpen()
+                    }
+                }
+            } {
+                if graphDrag {
+                    app.graphMove(px py shift ctrl)
+                }
+            }
+        } {
+            if prevDown {
+                if graphDrag {
+                    app.graphUp(px py shift ctrl)
+                    graphDrag = false
+                    if (app.consumeOpenFile()) {
+                        this.pickAndOpen()
+                    }
+                }
+            }
+        }
+        prevX = mx
+        prevY = my
+        prevDown = down
+        def wy:int (dgfx_wheel)
+        if (wy != 0) {
+            app.wheel(px py (0.0 - (to_double wy)))
+        }
+        def text:string (dgfx_take_text)
+        if ((strlen text) > 0) {
+            app.typeText(text)
+        }
+        def k:int (dgfx_pop_key)
+        while (k != 0) {
+            this.handleKey(k)
+            k = (dgfx_pop_key)
+        }
+    }
+
+    fn handleKey:void (k:int) {
+        if (k == 4) {
+            if (this.sampleSelOpen()) {
+                app.keyWith("Escape" false false)
+                return
+            }
+            wantQuit = true
+            return
+        }
+        if (k == 1) {
+            app.keyWith("Backspace" false false)
+            return
+        }
+    }
+
+    fn sampleSelOpen:boolean () {
+        return app.sampleSel.open
+    }
+
+    fn drawFrame:void () {
+        def now:double (wall_clock_ms)
+        def dt:double 16.0
+        if (lastMs > 0.0) {
+            dt = (now - lastMs)
+        }
+        lastMs = now
+        app.tick(dt)
+        def dl:EVGDisplayList (app.display())
+        if hasWindow {
+            painter.draw(dl pw ph tr images)
+        }
+        frames = (frames + 1)
+    }
+
+    fn run:int (maxFrames:int) {
+        painter.fontFamily = "Noto Sans"
+        if ((this.startApp()) == false) {
+            return 1
+        }
+        this.openWindow()
+        def running:boolean true
+        while (running) {
+            this.pumpInput()
+            this.drawFrame()
+            if (dgfx_should_close) {
+                running = false
+            }
+            if wantQuit {
+                running = false
+            }
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) {
+                    running = false
+                }
+            }
+            if hasWindow {
+                dgfx_delay 16
+            }
+        }
+        if hasWindow {
+            dgfx_close
+        }
+        print ("  " + (app.statusText()) + " · " + (app.stats()) + " · frames=" + (to_string frames))
+        return 0
+    }
+
+    sfn openFaces:UITextRenderer (fontDir:string) {
+        def tr (new UITextRenderer)
+        tr.addFontDir(fontDir)
+        def family:string "Noto Sans"
+        def dir:string "Noto_Sans"
+        def reg:buffer (buffer_read_file (fontDir + "/" + dir) "NotoSans-Regular.ttf")
+        if ((buffer_length reg) == 0) {
+            print ("  missing face in " + fontDir)
+            return tr
+        }
+        tr.loadFontBytes(family reg)
+        CodeGraphSdl.relabel(tr family "Regular")
+        def bld:buffer (buffer_read_file (fontDir + "/" + dir) "NotoSans-Bold.ttf")
+        if ((buffer_length bld) > 0) {
+            tr.addFaceBytes(bld)
+            CodeGraphSdl.relabel(tr family "Bold")
+        }
+        tr.fontFamily = family
+        tr.applyFace()
+        EVGDefaultMeasurer.install(tr.measurer)
+        return tr
+    }
+
+    sfn relabel:void (tr:UITextRenderer family:string style:string) {
+        def n:int (array_length tr.fm.fonts)
+        if (n == 0) {
+            return
+        }
+        def f:TrueTypeFont (itemAt tr.fm.fonts (n - 1))
+        f.fontFamily = family
+        f.fontStyle = style
+    }
+
+    sfn isNumber:boolean (a:string) {
+        if ((strlen a) == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < (strlen a)) {
+            def ch:int (charAt a i)
+            if (ch < 48) {
+                return false
+            }
+            if (ch > 57) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    sfn beforeX:int (text:string fallback:int) {
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            if ((substring text i (i + 1)) == "x") {
+                def a:string (substring text 0 i)
+                if (CodeGraphSdl.isNumber(a)) {
+                    return (?? (str2int a) fallback)
+                }
+                return fallback
+            }
+            i = (i + 1)
+        }
+        return fallback
+    }
+
+    sfn afterX:int (text:string fallback:int) {
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            if ((substring text i (i + 1)) == "x") {
+                def a:string (substring text (i + 1) n)
+                if (CodeGraphSdl.isNumber(a)) {
+                    return (?? (str2int a) fallback)
+                }
+                return fallback
+            }
+            i = (i + 1)
+        }
+        return fallback
+    }
+
+    sfn main:void () {
+        print "== CodeGraph — SDL2 / OpenGL =="
+        def fontDir:string "gallery/pdf_writer/assets/fonts"
+        def maxFrames:int 0
+        def w:int 1280
+        def h:int 800
+        def path:string ""
+        def i:int 0
+        def n:int (shell_arg_cnt)
+        while (i < n) {
+            def a:string (shell_arg i)
+            if (a == "--frames") {
+                i = (i + 1)
+                def fa:string (shell_arg i)
+                maxFrames = (?? (str2int fa) 0)
+            } {
+                if (a == "--size") {
+                    i = (i + 1)
+                    def s:string (shell_arg i)
+                    w = (CodeGraphSdl.beforeX(s w))
+                    h = (CodeGraphSdl.afterX(s h))
+                } {
+                    if (a == "--fonts") {
+                        i = (i + 1)
+                        fontDir = (shell_arg i)
+                    } {
+                        if ((indexOf a "--") != 0) {
+                            path = a
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def tr:UITextRenderer (CodeGraphSdl.openFaces(fontDir))
+        def host (new CodeGraphSdl)
+        host.tr = tr
+        host.pw = w
+        host.ph = h
+        host.fontDir = fontDir
+        host.openPathArg = path
+        def code:int (host.run(maxFrames))
+        if (code != 0) {
+            exit 1
+        }
+    }
+}
