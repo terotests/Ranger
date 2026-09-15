@@ -223,6 +223,10 @@ class CodeGraphWeb {
         editor.view.showMinimap = false
         editor.view.showControls = false
         editor.view.showNodeTools = false
+        ; Line hops (`bridgeInto`) walk every earlier segment for every edge.
+        ; On a paged compiler UML that is hundreds of milliseconds per frame,
+        ; which is why a drag froze the tab until the next paint finished.
+        editor.view.bridgeEdges = false
         editor.fitView()
         status = session.status
         return true
