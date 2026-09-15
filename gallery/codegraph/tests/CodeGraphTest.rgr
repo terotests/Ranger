@@ -93,7 +93,19 @@ class CodeGraphTest {
         c.ok("overview has class boxes" ((overview.itemCount()) > 3))
         def classPage:CodePage (pageMaker.pageOf("class:Order"))
         c.eqStr("class page id" classPage.kind "class")
-        c.ok("class page shows methods" ((classPage.itemCount()) > 2))
+        def hasStadium:boolean false
+        def si:int 0
+        while (si < (array_length classPage.items)) {
+            def sit:CodePageItem (itemAt classPage.items si)
+            if (sit.itemKind == "method") {
+                hasStadium = true
+            }
+            si = (si + 1)
+        }
+        c.ok("class page does not redraw methods as stadiums" (hasStadium == false))
+        c.eqStr("email is a field row" (pageMaker.methodIdAtRow("Customer" 0)) "")
+        c.eqStr("notify is the first operation" (pageMaker.methodIdAtRow("Customer" 1)) "Customer.notify")
+        c.eqStr("Order.total follows the three fields" (pageMaker.methodIdAtRow("Order" 3)) "Order.total")
         def methodPage:CodePage (pageMaker.pageOf("method:Order.checkout"))
         c.eqStr("method page id" methodPage.kind "method")
         c.ok("method page has neighbours" ((methodPage.itemCount()) > 3))
@@ -245,6 +257,10 @@ class CodeGraphTest {
         c.ok("the class page still names Fat" (fg2.hasNode("Fat")))
         c.ok("and is taller than the catalogue slice" (n2.height > n.height))
         c.ok("but still capped" (n2.height < 420.0))
+        def fatPages:CodeGraphPages (CodeGraphPages.of(g 24))
+        c.eqStr("capped fields are not methods" (fatPages.methodIdAtRow("Fat" 0)) "")
+        c.eqStr("the leftover field row is not a method" (fatPages.methodIdAtRow("Fat" 8)) "")
+        c.eqStr("the first operation follows the capped fields" (fatPages.methodIdAtRow("Fat" 9)) "Fat.m0")
     }
 
     sfn testPaging:void (c:CGChecker) {
@@ -288,6 +304,8 @@ class CodeGraphTest {
         ev.id = "Order"
         c.ok("clicking Order drills in" (session.handleClick(ev)))
         c.eqStr("to the class page" session.pageId "class:Order")
+        def orderGraph:FlowGraph (session.graph())
+        c.ok("the class page has no checkout stadium" ((orderGraph.hasNode("Order.checkout")) == false))
         def ev2 (new FlowHitEvent)
         ev2.kind = "node"
         ev2.dataKind = "method"

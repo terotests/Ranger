@@ -471,6 +471,7 @@ class CodeGraphWeb {
         def moved:boolean false
         while (i < n) {
             def ev:FlowHitEvent (editor.clicks.at(i))
+            this.preferMethodRow(ev)
             if (session.handleClick(ev)) {
                 moved = true
             }
@@ -508,6 +509,33 @@ class CodeGraphWeb {
         return (editor.selectedNodeId())
     }
 
+    ; On a class page the methods are the UML rows, not extra stadiums.
+    ; A click on an operation row is a method click.
+    fn preferMethodRow:void (ev:FlowHitEvent) {
+        if (ev.kind != "node") {
+            return
+        }
+        if ((indexOf session.pageId "class:") != 0) {
+            return
+        }
+        def mid:string (this.methodAt(ev.id ev.flowY))
+        if ((strlen mid) == 0) {
+            return
+        }
+        ev.dataKind = "method"
+        ev.dataRef = mid
+        ev.id = mid
+    }
+
+    fn methodAt:string (nodeId:string flowY:double) {
+        if ((graph.hasNode(nodeId)) == false) {
+            return ""
+        }
+        def n:FlowNode (graph.nodeById(nodeId))
+        def row:int (editor.rowAtPoint(n flowY))
+        return (session.pages.methodIdAtRow(nodeId row))
+    }
+
     ; Double-click: open the class or method under the pointer. A single
     ; click on a UML box only selects it, so Zoom to selected can frame it.
     fn openAt:boolean (x:double y:double) {
@@ -523,6 +551,14 @@ class CodeGraphWeb {
         if (kind == "umlclass") { classBox = true }
         if (kind == "class") { classBox = true }
         if classBox {
+            if ((indexOf session.pageId "class:") == 0) {
+                def mid:string (this.methodAt(n.id fy))
+                if ((strlen mid) > 0) {
+                    if (session.goTo(session.pages.methodPageId(mid))) {
+                        return (this.showPage())
+                    }
+                }
+            }
             def ref:string n.dataRef
             if ((strlen ref) == 0) {
                 ref = n.id
@@ -623,6 +659,9 @@ class CodeGraphWeb {
         }
         if ((graph.nodeCount()) < 3) {
             return "FAIL Order page too small"
+        }
+        if (graph.hasNode("Order.checkout")) {
+            return "FAIL Order page still draws method stadiums"
         }
         if ((this.goBack()) == false) {
             return "FAIL back from Order"

@@ -70,7 +70,7 @@ than a catalogue of every compartment.
 | --- | --- |
 | a **class** in the left rail | that class: fields, methods, types it uses |
 | a **class** box on the canvas | the same |
-| a **method** stadium | callers, callees, data structures |
+| a **method row** in a UML box | callers, callees, types that method uses |
 | a **hexagon arrow** on the edge | the next / previous window of the same view |
 | **UML** | the overview as compartment UML boxes |
 | **← / →** | history back / forward |
