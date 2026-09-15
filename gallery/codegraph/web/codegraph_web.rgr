@@ -6,8 +6,12 @@
 ;
 ; This is not a RangerFlow demo. RangerFlow draws the current window of the
 ; graph; the chrome around it is this app: a class list, a breadcrumb, history
-; back/forward, a sample picker, an UML toggle. Clicking a class in the rail
+; back/forward, an example picker, an UML toggle. Clicking a class in the rail
 ; or on the canvas drills in; the host never guesses from geometry.
+;
+; Live examples (calls.rgr, animals.rgr) are compiled in the tab by
+; VirtualCompiler, then walked by CodeGraphBuilder. Shop / 40-class fixtures
+; stay as a no-compiler fallback.
 ;
 ;   browser event → CodeGraphWeb → CodeGraphSession + FlowEditor
 ;   FlowEditor.frameJson() → EVGDisplayList → evg-webgl.js
@@ -17,6 +21,7 @@ Import "../../rangerflow/core/FlowEditor.rgr"
 Import "../../rangerflow/core/FlowEvents.rgr"
 Import "../src/CodeGraphSample.rgr"
 Import "../src/CodeGraphFlow.rgr"
+Import "../src/CodeGraphBuilder.rgr"
 
 class CodeGraphWeb {
     def session:CodeGraphSession (new CodeGraphSession)
@@ -28,6 +33,8 @@ class CodeGraphWeb {
     def sampleName:string "shop"
     def umlOn:boolean false
     def status:string ""
+    def rootFiles:[string:string]
+    def libFiles:[string:string]
 
     Constructor () {
     }
@@ -43,6 +50,18 @@ class CodeGraphWeb {
         editor.setSize(w h)
     }
 
+    fn setRootFile:void (name:string data:string) {
+        set rootFiles name data
+    }
+
+    fn setLibFile:void (name:string data:string) {
+        set libFiles name data
+    }
+
+    fn hasCompiler:boolean () {
+        return (has rootFiles "Lang.rgr")
+    }
+
     fn loadSample:boolean (name:string) {
         def model:CodeGraph (new CodeGraph)
         if (name == "many") {
@@ -55,6 +74,90 @@ class CodeGraphWeb {
         umlOn = false
         session = (CodeGraphSession.of(model 24))
         return (this.showPage())
+    }
+
+    fn applyGraph:boolean (g:CodeGraph name:string) {
+        sampleName = name
+        umlOn = false
+        session = (CodeGraphSession.of(g 24))
+        return (this.showPage())
+    }
+
+    ; Compile `source` with the in-memory VirtualCompiler (Lang.rgr + /lib/
+    ; installed through setRootFile / setLibFile) and replace the drawing.
+    fn analyzeSource:boolean (source:string filename:string) {
+        if ((this.hasCompiler()) == false) {
+            status = "compiler libraries not loaded"
+            return false
+        }
+        if ((strlen source) == 0) {
+            status = "no source"
+            return false
+        }
+        def fname:string filename
+        if ((strlen fname) == 0) {
+            fname = "example.rgr"
+        }
+        status = ("compiling " + fname + "…")
+        def env:InputEnv (new InputEnv)
+        env.use_real = false
+        def fs:InputFSFolder (new InputFSFolder)
+        fs.name = ""
+        env.filesystem = fs
+        env.setEnv("RANGER_LIB" "/;/lib/")
+        def params:CmdParams (new CmdParams)
+        push params.values fname
+        set params.params "l" "es6"
+        set params.params "o" "ignored.js"
+        set params.flags "no-color" true
+        env.commandLine = params
+        def rootNames:[string] (keys rootFiles)
+        def ri:int 0
+        while (ri < (array_length rootNames)) {
+            def rn:string (itemAt rootNames ri)
+            create_file fs rn (unwrap (get rootFiles rn))
+            ri = (ri + 1)
+        }
+        create_file fs fname source
+        def libF@(optional):InputFSFolder (create_folder fs "lib")
+        if (null? libF) {
+            status = "could not create lib folder"
+            return false
+        }
+        def libDir:InputFSFolder (unwrap libF)
+        def libNames:[string] (keys libFiles)
+        def li:int 0
+        while (li < (array_length libNames)) {
+            def ln:string (itemAt libNames li)
+            create_file libDir ln (unwrap (get libFiles ln))
+            li = (li + 1)
+        }
+        def vc:VirtualCompiler (new VirtualCompiler)
+        def res:CompilerResults (vc.run(env))
+        if res.hasErrors {
+            status = res.errorMessage
+            return false
+        }
+        def ctx@(optional):RangerAppWriterContext res.ctx
+        if (null? ctx) {
+            status = "no compiler context"
+            return false
+        }
+        def appCtx:RangerAppWriterContext (unwrap ctx)
+        if ((array_length appCtx.compilerErrors) > 0) {
+            def err:RangerCompilerMessage (itemAt appCtx.compilerErrors 0)
+            status = err.description
+            return false
+        }
+        def b (new CodeGraphBuilder)
+        b.fileFilter = fname
+        def g:CodeGraph (b.fromContext(appCtx))
+        g.title = fname
+        if ((g.classCount()) == 0) {
+            status = "no classes in compiled source"
+            return false
+        }
+        return (this.applyGraph(g fname))
     }
 
     fn showPage:boolean () {

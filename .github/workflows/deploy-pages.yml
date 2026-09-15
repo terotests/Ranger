@@ -53,9 +53,10 @@
 #                GPU. Every demo in the dropdown is checked on every push by
 #                `rangerflow:web:test`, which drives this same page in headless
 #                Chrome.
-#   /codegraph/ -> a call-graph explorer of Ranger source: class list, history,
-#                paged windows of ≤ 24 boxes. RangerFlow draws the window;
-#                the chrome is this app.
+#   /codegraph/ -> a call-graph explorer of Ranger source. VirtualCompiler in
+#                the tab walks example .rgr files (Order/LineItem, animals);
+#                class list, history, paged windows of ≤ 24 boxes. RangerFlow
+#                draws the window; the chrome is this app.
 #   /figma/   -> the Figma .fig / .deck reader: it opens on a real Figma
 #                export (fixtures/health.fig) and takes any other file you
 #                upload or paste in the tab, parsing it (ZIP → kiwi → node
@@ -618,7 +619,8 @@ jobs:
 
       # ---- CodeGraph at /codegraph/ ----------------------------------------
       # A call-graph explorer with its own chrome (class list, breadcrumb,
-      # history). RangerFlow is the drawing library, not the UI.
+      # history, example source). VirtualCompiler in the tab walks .rgr
+      # files; RangerFlow is the drawing library, not the UI.
       - name: Build the CodeGraph explorer
         run: bash gallery/codegraph/web/standalone/build.sh --out "$GITHUB_WORKSPACE/_site/codegraph"
 
@@ -627,9 +629,14 @@ jobs:
           test -s "$GITHUB_WORKSPACE/_site/codegraph/index.html"
           test -s "$GITHUB_WORKSPACE/_site/codegraph/codegraph_web.js"
           test -s "$GITHUB_WORKSPACE/_site/codegraph/standalone.mjs"
+          test -s "$GITHUB_WORKSPACE/_site/codegraph/node-shim.js"
+          test -s "$GITHUB_WORKSPACE/_site/codegraph/compileEnv.json"
+          test -s "$GITHUB_WORKSPACE/_site/codegraph/examples/calls.rgr"
+          test -s "$GITHUB_WORKSPACE/_site/codegraph/examples/animals.rgr"
           test -s "$GITHUB_WORKSPACE/_site/codegraph/gl/evg-webgl.js"
           test -s "$GITHUB_WORKSPACE/_site/codegraph/fonts/NotoSans-Regular.ttf"
           grep -q "CodeGraphWeb" "$GITHUB_WORKSPACE/_site/codegraph/codegraph_web.js"
+          grep -q "VirtualCompiler" "$GITHUB_WORKSPACE/_site/codegraph/codegraph_web.js"
 
       # Does the engine agree with ITSELF? The frame is published twice — as
       # JSON, where every field arrives with its name, and as packed

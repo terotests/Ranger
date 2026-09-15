@@ -9,7 +9,7 @@
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; font: 13px/1.4 "IBM Plex Sans", system-ui, sans-serif; }
     body { display: grid; grid-template-rows: 52px 1fr 28px;
-           grid-template-columns: 240px 1fr;
+           grid-template-columns: 280px 1fr;
            background: #eef1f6; color: #1a1f2b; }
     header { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center;
              padding: 0 14px; background: #1e293b; color: #f8fafc;
@@ -28,6 +28,14 @@
     #rail .cap { padding: 10px 12px 4px; color: #64748b; font-size: 11px;
                  letter-spacing: .08em; text-transform: uppercase; }
     #rail select { margin: 0 12px 8px; font: inherit; padding: 4px 6px; }
+    #source { margin: 0 12px 8px; min-height: 140px; max-height: 36vh; resize: vertical;
+              font: 11px/1.35 ui-monospace, "IBM Plex Mono", Menlo, monospace;
+              border: 1px solid #d5dae2; border-radius: 4px; padding: 6px;
+              background: #f8fafc; color: inherit; }
+    #analyze { margin: 0 12px 10px; font: inherit; padding: 4px 9px;
+               border: 1px solid #94a3b8; border-radius: 5px; background: #e8eef8;
+               color: inherit; cursor: pointer; }
+    #analyze:disabled { opacity: .5; cursor: default; }
     #classes { flex: 1; overflow: auto; padding: 0 6px 12px; }
     #classes button { display: block; width: 100%; text-align: left; font: inherit;
                       padding: 5px 8px; margin: 1px 0; border: 0; border-radius: 4px;
@@ -42,13 +50,15 @@
     #selftest { display: none; }
     @media (max-width: 720px) {
       body { grid-template-columns: 1fr; grid-template-rows: 52px auto 1fr 28px; }
-      #rail { max-height: 32vh; border-right: 0; border-bottom: 1px solid #d5dae2; }
+      #rail { max-height: 42vh; border-right: 0; border-bottom: 1px solid #d5dae2; }
       header { flex-wrap: wrap; height: auto; padding: 8px 12px; }
     }
     @media (prefers-color-scheme: dark) {
       body { background: #0f172a; color: #e2e8f0; }
       #rail, footer { background: #1e293b; border-color: #334155; }
       #wrap { background: #12151c; }
+      #source { background: #0f172a; border-color: #334155; }
+      #analyze { background: #334155; border-color: #475569; }
       #classes button:hover { background: #334155; }
     }
   </style>
@@ -65,11 +75,15 @@
     <button type="button" id="svg">SVG</button>
   </header>
   <aside id="rail">
-    <div class="cap">sample</div>
-    <select id="sample" aria-label="sample graph">
-      <option value="shop">Shop domain</option>
+    <div class="cap">example</div>
+    <select id="sample" aria-label="example program">
+      <option value="calls.rgr">calls.rgr — Order / LineItem</option>
+      <option value="animals.rgr">animals.rgr — inheritance</option>
+      <option value="shop">Shop fixture (no compiler)</option>
       <option value="many">40 classes (paging)</option>
     </select>
+    <textarea id="source" spellcheck="false" aria-label="Ranger source"></textarea>
+    <button type="button" id="analyze">Analyze with VirtualCompiler</button>
     <div class="cap">classes</div>
     <div id="classes"></div>
   </aside>
@@ -83,6 +97,7 @@
     <span id="build">build __BUILD__</span>
   </footer>
   <pre id="selftest"></pre>
+  <script src="./node-shim.js?v=__BUILD__"></script>
   <script src="./codegraph_web.js?v=__BUILD__"></script>
   <script type="module" src="./standalone.mjs?v=__BUILD__"></script>
 </body>

@@ -4,8 +4,8 @@
  *   INPUT   browser event → CodeGraphWeb → FlowEditor
  *   RENDER  FlowEditor.frameJson() → EVGDisplayList → evg-webgl.js
  *
- * The chrome (class list, breadcrumb, history) is this page. RangerFlow only
- * draws the current window of the graph.
+ * Live examples are compiled here by VirtualCompiler (compileEnv.json +
+ * examples/*.rgr). RangerFlow only draws the current window of the graph.
  */
 import { prepareDisplayList } from "./gl/evg-webgl.js";
 import { createViewKeeper } from "./gl/evg-view.js";
@@ -19,10 +19,18 @@ const cmdsEl = document.getElementById("cmds");
 const crumbEl = document.getElementById("crumb");
 const classesEl = document.getElementById("classes");
 const sampleEl = document.getElementById("sample");
+const sourceEl = document.getElementById("source");
+const analyzeEl = document.getElementById("analyze");
 const backEl = document.getElementById("back");
 const fwdEl = document.getElementById("fwd");
 const umlEl = document.getElementById("uml");
 const selfTestEl = document.getElementById("selftest");
+
+const FIXTURES = new Set(["shop", "many"]);
+const EXAMPLES = {
+  "calls.rgr": "./examples/calls.rgr",
+  "animals.rgr": "./examples/animals.rgr",
+};
 
 const gl = canvas.getContext("webgl2", {
   antialias: true,
@@ -64,7 +72,7 @@ const VIEW_ONLY = new Set([
   "statusText", "stats", "selfTest", "sceneJson", "frameView", "frameScene",
   "frameGrid", "tick", "viewGesture", "classList", "crumb", "pageId",
   "pageTitle", "titleText", "sampleId", "umlView", "canBack", "canForward",
-  "svg",
+  "svg", "hasCompiler",
 ]);
 
 const rawApp = new (engineClass())();
@@ -86,6 +94,7 @@ const app = new Proxy(rawApp, {
   },
 });
 let dpr = Math.min(window.devicePixelRatio || 1, 2);
+let analyzing = false;
 
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -144,17 +153,89 @@ function fillClasses() {
 
 function syncChrome() {
   crumbEl.textContent = app.crumb();
-  sampleEl.value = app.sampleId();
+  const id = app.sampleId();
+  if ([...sampleEl.options].some((o) => o.value === id)) {
+    sampleEl.value = id;
+  }
+  sourceEl.disabled = FIXTURES.has(id);
+  analyzeEl.disabled = analyzing || !app.hasCompiler() || sourceEl.value.trim().length === 0;
   backEl.disabled = !app.canBack();
   fwdEl.disabled = !app.canForward();
   umlEl.classList.toggle("on", !!app.umlView());
   fillClasses();
 }
 
-sampleEl.addEventListener("change", () => {
-  app.loadSample(sampleEl.value);
-  app.fitView();
-  syncChrome();
+async function installCompilerEnv() {
+  const res = await fetch("./compileEnv.json");
+  if (!res.ok) {
+    throw new Error("compileEnv.json " + res.status + " — run: npm run codegraph:web");
+  }
+  const env = await res.json();
+  for (const f of env.filesystem.files || []) {
+    app.setRootFile(f.name, f.data);
+  }
+  const lib = (env.filesystem.folders || []).find((x) => x.name === "lib");
+  if (lib) {
+    for (const f of lib.files || []) {
+      app.setLibFile(f.name, f.data);
+    }
+  }
+}
+
+async function fetchExample(name) {
+  const url = EXAMPLES[name];
+  if (!url) throw new Error("unknown example " + name);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(url + " " + res.status);
+  return res.text();
+}
+
+async function analyzeCurrent(filename) {
+  if (!app.hasCompiler()) {
+    statusEl.textContent = "compiler libraries not loaded";
+    return false;
+  }
+  analyzing = true;
+  analyzeEl.disabled = true;
+  try {
+    const ok = await Promise.resolve(app.analyzeSource(sourceEl.value, filename));
+    return !!ok;
+  } finally {
+    analyzing = false;
+    app.fitView();
+    syncChrome();
+  }
+}
+
+async function loadExample(name) {
+  sourceEl.disabled = false;
+  sourceEl.value = await fetchExample(name);
+  await analyzeCurrent(name);
+}
+
+sampleEl.addEventListener("change", async () => {
+  const id = sampleEl.value;
+  if (FIXTURES.has(id)) {
+    sourceEl.value = "";
+    sourceEl.disabled = true;
+    app.loadSample(id);
+    app.fitView();
+    syncChrome();
+    return;
+  }
+  try {
+    await loadExample(id);
+  } catch (err) {
+    statusEl.textContent = String(err && err.message ? err.message : err);
+  }
+});
+analyzeEl.addEventListener("click", async () => {
+  const id = FIXTURES.has(sampleEl.value) ? "example.rgr" : sampleEl.value;
+  try {
+    await analyzeCurrent(id);
+  } catch (err) {
+    statusEl.textContent = String(err && err.message ? err.message : err);
+  }
 });
 backEl.addEventListener("click", () => {
   if (app.goBack()) app.fitView();
@@ -247,26 +328,56 @@ function frame() {
   requestAnimationFrame(frame);
 }
 
+async function runSelfTest() {
+  const nav = app.selfTest();
+  let line = nav;
+  try {
+    sourceEl.value = await fetchExample("calls.rgr");
+    const ok = await Promise.resolve(app.analyzeSource(sourceEl.value, "calls.rgr"));
+    const classes = app.classList() || "";
+    if (!ok) {
+      line = "FAIL vc " + (app.statusText() || "analyze returned false");
+    } else if (classes.indexOf("Order") < 0 || classes.indexOf("LineItem") < 0) {
+      line = "FAIL vc classes: " + classes.replace(/\n/g, ", ");
+    } else if (nav.startsWith("PASS")) {
+      line = nav + "; vc ok";
+    }
+  } catch (err) {
+    line = "FAIL vc " + (err && err.message ? err.message : err);
+  }
+  selfTestEl.textContent = line;
+  selfTestEl.style.display = "block";
+  statusEl.textContent = line;
+  syncChrome();
+}
+
 async function main() {
   await loadFonts();
   resize();
   app.init(canvas.clientWidth, canvas.clientHeight);
   app.fitView();
   syncChrome();
+  requestAnimationFrame(frame);
+  await installCompilerEnv();
   const params = new URLSearchParams(location.search);
-  if (params.get("sample")) {
-    app.loadSample(params.get("sample"));
+  if (params.has("selftest")) {
+    await runSelfTest();
+    return;
+  }
+  const sample = params.get("sample");
+  if (sample && FIXTURES.has(sample)) {
+    app.loadSample(sample);
+    sourceEl.value = "";
+    sourceEl.disabled = true;
     app.fitView();
     syncChrome();
+    return;
   }
-  if (params.has("selftest")) {
-    const line = app.selfTest();
-    selfTestEl.textContent = line;
-    selfTestEl.style.display = "block";
-    statusEl.textContent = line;
-    syncChrome();
+  const example = params.get("example") || "calls.rgr";
+  if (EXAMPLES[example]) {
+    sampleEl.value = example;
+    await loadExample(example);
   }
-  requestAnimationFrame(frame);
 }
 
 main().catch((err) => {

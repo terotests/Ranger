@@ -2,8 +2,13 @@
 
 A **gallery app** of its own, not a RangerFlow demo. RangerFlow draws one
 window of the graph on the EVG WebGL canvas; the chrome around it is this
-application: a class list, a breadcrumb, history back/forward, a sample
+application: a class list, a breadcrumb, history back/forward, an example
 picker and an UML toggle.
+
+Live example files (`fixtures/calls.rgr`, `fixtures/animals.rgr`) are
+compiled **in the tab** by VirtualCompiler — the same compiler the playground
+uses — then walked into the IR. Shop / 40-class fixtures stay as a
+no-compiler fallback.
 
 A thousand-node dump does not fit on a chart and is slow to lay out. Twenty
 to thirty boxes do. Click a class in the rail or on the canvas to drill in.
@@ -23,6 +28,10 @@ to thirty boxes do. Click a class in the rail or on the canvas to drill in.
 
 **License: AGPL-3.0-or-later** — see [`../LICENSE`](../LICENSE).
 
+The same page is published at
+**[terotests.github.io/Ranger/codegraph/](https://terotests.github.io/Ranger/codegraph/)**
+by the Pages workflow.
+
 ![the explorer: class list on the left, one page of the shop on the canvas](artifacts/codegraph_shop.png)
 
 ## Run
@@ -33,15 +42,15 @@ npm run codegraph:builder      # VirtualCompiler walk of fixtures/calls.rgr
 npm run codegraph              # SVG of the shop overview + Order zoom
 npm run codegraph:analyze -- gallery/codegraph/fixtures/calls.rgr
 npm run codegraph:analyze -- compiler/ng_RangerAppClassDesc.rgr --max=24
-npm run codegraph:web          # build the page
+npm run codegraph:web          # build the page (compiler + examples)
 npm run codegraph:web:serve    # …and serve it (port 8081)
-npm run codegraph:web:test     # headless Chrome: click Order, go back
+npm run codegraph:web:test     # headless Chrome: click Order, go back, compile calls.rgr
 ```
 
-The WebGL page loads a **sample** (a shop domain, or 40 classes so the
-overview has to page). It does not run VirtualCompiler in the tab — that
-bundle is megabytes and wants a filesystem. `codegraph:analyze` is the CLI
-that walks a real `.rgr` file.
+Open `/codegraph/` and pick **calls.rgr** or **animals.rgr**. The source is in
+the left rail; **Analyze with VirtualCompiler** rebuilds the graph from it.
+`?example=animals.rgr` opens that file; `?sample=shop` skips the compiler and
+loads the fixture.
 
 ## What to click
 
@@ -78,7 +87,9 @@ and keeps classes whose source path matches the file you named.
 | `src/CodeGraphFlow.rgr` | page → FlowGraph, click session | no |
 | `src/CodeGraphSample.rgr` | shop + 40-class fixtures | no |
 | `src/CodeGraphBuilder.rgr` | `RangerAppWriterContext` → IR | **yes** |
-| `web/codegraph_web.rgr` | the explorer facade | no |
+| `web/codegraph_web.rgr` | the explorer facade | **yes** (in-tab analyse) |
+| `fixtures/calls.rgr` | Order / LineItem / Checkout | compiled live |
+| `fixtures/animals.rgr` | Animal / Dog / Cat / Farm | compiled live |
 
 RangerFlow is imported as a **library** (`gallery/rangerflow/core`, layout,
 export). This app does not live in RangerFlow's demo dropdown.

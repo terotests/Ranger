@@ -9,7 +9,8 @@
 ; it (`isCalledBy`) and which classes its body mentions (`isDirectlyUsingClasses`).
 ; This walk copies that static call graph out of the compiler and into the
 ; IR the pager draws. It is the only file in this domain that imports the
-; compiler — the WebGL page never loads it.
+; compiler. The WebGL explorer imports it so a tab can analyse example `.rgr`
+; files the same way the CLI does.
 ; ============================================================================
 
 Import "CodeGraphModel.rgr"

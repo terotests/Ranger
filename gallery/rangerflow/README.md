@@ -30,7 +30,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 npm run rangerflow:test        # 1493 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
-npm run codegraph:web:serve    # call graphs are a separate app: gallery/codegraph
+npm run codegraph:web:serve    # call graphs: gallery/codegraph (VirtualCompiler in the tab)
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
 npm run rangerflow:mermaid     # a Mermaid flowchart, read from fixtures/order_flow.mmd
 npm run rangerflow:plantuml    # a PlantUML sequence diagram, from fixtures/order_flow.puml

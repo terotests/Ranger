@@ -22,6 +22,8 @@ const MIME = {
   ".html": "text/html; charset=utf-8",
   ".mjs": "text/javascript; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".rgr": "text/plain; charset=utf-8",
   ".ttf": "font/ttf",
   ".png": "image/png",
 };
@@ -78,7 +80,7 @@ function runChrome(bin, args) {
       },
     });
     let out = "", err = "";
-    const kill = setTimeout(() => child.kill("SIGKILL"), 120000);
+    const kill = setTimeout(() => child.kill("SIGKILL"), 180000);
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
     child.on("close", (status) => { clearTimeout(kill); resolve({ stdout: out, stderr: err, status }); });
@@ -111,7 +113,7 @@ async function main() {
   try {
     const url = `http://127.0.0.1:${PORT}/index.html?selftest=1`;
     const run = await runChrome(chrome, [
-      ...CHROME_FLAGS, "--virtual-time-budget=40000", "--dump-dom", url,
+      ...CHROME_FLAGS, "--virtual-time-budget=90000", "--dump-dom", url,
     ]);
     const dom = run.stdout || "";
     const selftest = (dom.match(/<pre id="selftest"[^>]*>([\s\S]*?)<\/pre>/) || [])[1] || "";
@@ -127,6 +129,7 @@ async function main() {
     if (!selftest) problems.push("the page ran no self test");
     else if (!selftest.startsWith("PASS")) problems.push("self test failed: " + selftest.split("\n")[0]);
     if (!/nav ok/.test(selftest)) problems.push("click / back navigation did not run");
+    if (!/vc ok/.test(selftest)) problems.push("VirtualCompiler did not analyse calls.rgr");
     if (!/classes/.test(dom)) problems.push("the class list is missing from the page");
     if (problems.length) {
       for (const p of problems) console.error("  FAIL " + p);
