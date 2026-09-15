@@ -677,7 +677,7 @@
     "rafi:test": "npm run rafi:page --silent && node gallery/figma/web/rafi/smoke.mjs",
     "rave:build": "rm -f ./gallery/rave/bin/RaveEditor.cjs && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/rave/src/RaveEditor.rgr -d=./gallery/rave/bin -o=RaveEditor.cjs",
     "rave:page": "npm run rave:build --silent && node gallery/rave/web/build.mjs",
-    "rave:web": "npm run rave:page --silent && python3 -m http.server -d gallery/rave/web 8012",
+    "rave:web": "node gallery/rave/cli.mjs serve",
     "rave:smoke": "npm run rave:page --silent && node gallery/rave/web/smoke.mjs",
     "rave:cli:build": "rm -f ./gallery/rave/bin/rave_cli.js && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rave/src/rave_cli.rgr -d=./gallery/rave/bin -o=rave_cli.js -nodecli",
     "rave": "node gallery/rave/cli.mjs",

@@ -601,6 +601,21 @@ class RaveTest {
         c.eqInt("forty bad lines keep six" (r5.errorCount()) 6)
         c.eqInt("…and count the rest" (r5.moreCount()) 34)
         c.eqInt("…forty in total" (r5.totalErrors()) 40)
+
+        ; --- a path is a vector, not a box ---------------------------------------
+        def pathMark:string "<app name=\"Vec\"/>\n<page name=\"Home\">\n  <path d=\"M 4 4 L 20 4 L 20 20 Z\" viewBox=\"0 0 24 24\" style=\"width: 48px; height: 48px; fill: #c9a227\" label=\"Mark\"/>\n</page>\n<route path=\"/\" title=\"Home\" page=\"Home\"/>\n"
+        def rPath (new RaveTextReader())
+        def vec:RaveApp (rPath.readDoc(pathMark))
+        c.eqInt("a path parses" (rPath.errorCount()) 0)
+        def vecPage:RaveNode (RaveTest.pageOfRoute(vec "/"))
+        def vecPath:RaveNode (itemAt vecPage.children 0)
+        c.eqStr("…as a path" vecPath.tag "path")
+        c.eqStr("…and keeps its d" vecPath.d "M 4 4 L 20 4 L 20 20 Z")
+        def written:string (RaveText.writeApp(vec))
+        c.ok("…through a round trip" (RaveTest.includes(written "d=\"M 4 4 L 20 4 L 20 20 Z\"")))
+        def rtPath (new RaveRuntime(vec))
+        def vp:int (rtPath.addView("desktop" 400.0 300.0 false))
+        RaveTest.noRejections(c rtPath vp "…and fill is a colour the engine knows")
     }
 
     ; --- the AI menu ----------------------------------------------------------------------
@@ -1249,6 +1264,14 @@ class RaveTest {
         c.ok("the chrome is drawn" ((strlen dl) > 400))
         c.ok("…with Routes / Components / Layers" ((RaveTest.includes(dl "Routes")) && (RaveTest.includes(dl "Layers"))))
         c.ok("…and Design | Run" ((RaveTest.includes(dl "Design")) && (RaveTest.includes(dl "Run"))))
+        c.ok("the Routes pane is the one that is open" (RaveTest.includes(dl "/dashboard")))
+        c.ok("the screens bar names the pages" ((RaveTest.includes(dl "SCREENS")) && (RaveTest.includes(dl "Home")) && (RaveTest.includes(dl "Dashboard"))))
+        c.ok("a screen chip moves the stage" (ed.press("route:/settings")))
+        c.eqStr("…to that screen" (ed.path()) "/settings")
+        def settingsBoard:string (ed.boardJson())
+        c.ok("…and draws it" (RaveTest.includes(settingsBoard "Settings")))
+        c.ok("another chip comes back" (ed.press("route:/")))
+        c.eqStr("…to the first screen" (ed.path()) "/")
         def board:string (ed.boardJson())
         c.ok("the stage draws the app" (RaveTest.includes(board "Welcome to Acme")))
         c.ok("…through a camera" (RaveTest.includes(board "\"view\":[")))
@@ -1613,6 +1636,41 @@ class RaveTest {
         c.eqStr("…until undone" (doc.styleOf(cardsNode "" "display")) "grid")
     }
 
+    ; The bundled example is what the editor opens on, and it has several
+    ; screens. What is checked is that the markup loads and the screens bar
+    ; is how you move between them.
+    sfn exampleChecks:void (c:Check) {
+        print "the bundled example"
+        def src@(optional):string (read_file "gallery/rave/examples" "huuhkajat.rave")
+        if (null? src) {
+            c.ok("the Huuhkajat example is on disk" false)
+            return
+        }
+        def ed (new RaveEditor())
+        ed.init((RaveTest.chromeCss()))
+        ed.setPageSize(1440.0 860.0)
+        c.ok("the bundled example opens" (ed.openMarkup((unwrap src))))
+        c.eqStr("…as Huuhkajat" ed.doc.name "Huuhkajat")
+        c.eqInt("…with five screens" (array_length ed.doc.routes) 5)
+        def chrome:string (ed.displayListJson())
+        c.ok("the screens bar lists them" ((RaveTest.includes(chrome "Joukkue")) && (RaveTest.includes(chrome "Pelaajat")) && (RaveTest.includes(chrome "Stadion"))))
+        def home:string (ed.boardJson())
+        c.ok("the first screen is drawn" (RaveTest.includes(home "Huuhkajat")))
+        c.ok("a screen chip reaches the squad" (ed.press("route:/pelaajat")))
+        c.eqStr("…at /pelaajat" (ed.path()) "/pelaajat")
+        def squad:string (ed.boardJson())
+        c.ok("…and draws the players" (RaveTest.includes(squad "Pukki")))
+        c.ok("another chip reaches the stadium" (ed.press("route:/stadion")))
+        c.eqStr("…at /stadion" (ed.path()) "/stadion")
+        def stad:string (ed.boardJson())
+        c.ok("…and draws Olympiastadion" (RaveTest.includes(stad "Olympiastadion")))
+        c.ok("a pattern screen previews a row" (ed.press("route:/pelaajat/:id")))
+        c.ok("…the first player" (RaveTest.includes((ed.boardJson()) "Hradecky")))
+        def rt:RaveRuntime (ed.runtime())
+        ed.boardJson()
+        c.eqInt("the example costs the engine no rejections" (rt.layoutWarningCount(0)) 0)
+    }
+
     sfn main:void () {
         def c (new Check())
 
@@ -1768,6 +1826,7 @@ class RaveTest {
         RaveTest.textChecks(c)
         RaveTest.aiChecks(c)
         RaveTest.editorChecks(c)
+        RaveTest.exampleChecks(c)
         RaveTest.inputChecks(c)
 
         print ""

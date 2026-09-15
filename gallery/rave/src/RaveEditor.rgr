@@ -9,6 +9,7 @@
 ;
 ;   LEFT RAIL    Routes / Components / Layers, not Pages / Layers
 ;   STAGE        one route at several widths at once, from ONE tree
+;   SCREENS      a chip per route over the stage, so you can move between them
 ;   TOP          Design | Run: the same document, running
 ;
 ; The stage is the runtime's scene drawn through a camera; the chrome is
@@ -64,8 +65,9 @@ class RaveEditor {
 
     ; design | run
     def mode:string "design"
-    ; routes | components | layers
-    def leftPane:string "layers"
+    ; routes | components | layers — routes first, so the screens are
+    ; the thing you see, not something you have to go looking for
+    def leftPane:string "routes"
     ; design | css | a11y
     def rightPane:string "design"
     ; the selected node, 0 for none
@@ -2610,11 +2612,12 @@ class RaveEditor {
         def r:RaveRuntime (unwrap rt)
         host.addChild((this.cap("ROUTES" (to_string (array_length doc.routes)))))
         def list:EVGElement (RaveEditor.box("ra-pages" "" "list" "Routes"))
+        def at:int (doc.matchIndex((r.path())))
         def i:int 0
         while (i < (array_length doc.routes)) {
             def route:RaveRoute (itemAt doc.routes i)
             def cls:string "ra-pagerow"
-            if (route.path == (r.path())) {
+            if (i == at) {
                 cls = "ra-pagerow ra-pagerow-on"
             }
             def row:EVGElement (RaveEditor.box(cls ("route:" + route.path) "button" (route.path + " " + route.title)))
@@ -2808,11 +2811,35 @@ class RaveEditor {
         return (unwrap had)
     }
 
+    ; The screens of this document as a strip over the stage: one chip per
+    ; route, so moving between pages does not need the Routes pane. A
+    ; pattern such as `/pelaajat/:id` is still a screen — jump previews the
+    ; first row.
+    fn screensBar:EVGElement () {
+        def r:RaveRuntime (unwrap rt)
+        def bar:EVGElement (RaveEditor.box("ra-screens" "" "tablist" "Screens"))
+        bar.addChild((RaveEditor.quiet("ra-screens-lab" "SCREENS")))
+        def at:int (doc.matchIndex((r.path())))
+        def i:int 0
+        while (i < (array_length doc.routes)) {
+            def route:RaveRoute (itemAt doc.routes i)
+            def label:string route.title
+            if ((strlen label) == 0) {
+                label = route.path
+            }
+            def on:boolean (i == at)
+            bar.addChild((this.chip(("route:" + route.path) (RaveEditor.cut(label 18)) on)))
+            i = (i + 1)
+        }
+        return bar
+    }
+
     ; --- stage ----------------------------------------------------------------
 
     fn stage:EVGElement () {
         def r:RaveRuntime (unwrap rt)
         def st:EVGElement (RaveEditor.box("ra-stage" "" "" ""))
+        st.addChild((this.screensBar()))
         def board:EVGElement (RaveEditor.box("ra-board" "board" "img" "The stage"))
         ; Labels over each viewport and a box round the selection in each,
         ; in window pixels, from the boxes the LAST layout read.

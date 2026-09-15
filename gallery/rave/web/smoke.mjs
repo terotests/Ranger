@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const { RaveEditor } = await import(path.join(HERE, "generated-host.js"));
 const { CSS } = await import(path.join(HERE, "generated.js"));
+const { EXAMPLE } = await import(path.join(HERE, "generated-example.js"));
 
 const W = 1440;
 const H = 860;
@@ -35,6 +36,8 @@ const ok = (name, cond, extra) => {
 
 const app = new RaveEditor();
 app.init(CSS);
+ok("the bundled example opens", app.openMarkup(EXAMPLE));
+ok("…as Huuhkajat", app.doc.name === "Huuhkajat", app.doc.name);
 app.setPageSize(W, H);
 
 const doc = JSON.parse(app.displayListJson());
@@ -52,7 +55,13 @@ const board = JSON.parse(app.boardJson());
 const bcmds = (board.list && board.list.cmds) || [];
 ok("the stage has a list of its own", bcmds.length > 30, `${bcmds.length} commands`);
 ok("…with a camera on it", Array.isArray(board.list.view), JSON.stringify(board.list.view));
-ok("…showing the landing page", JSON.stringify(bcmds).includes("Welcome to Acme"));
+ok("…showing Huuhkajat", JSON.stringify(bcmds).includes("Huuhkajat"));
+ok("the screens bar is on the stage", app.displayListJson().includes("SCREENS") && app.displayListJson().includes("Joukkue"));
+ok("a screen chip reaches the squad", app.press("route:/pelaajat") && app.path() === "/pelaajat");
+ok("…and draws the players", JSON.stringify(JSON.parse(app.boardJson()).list.cmds).includes("Pukki"));
+ok("another chip reaches the stadium", app.press("route:/stadion") && app.path() === "/stadion");
+ok("…and draws Olympiastadion", JSON.stringify(JSON.parse(app.boardJson()).list.cmds).includes("Olympiastadion"));
+app.press("route:/");
 const covering = cmds.filter((c) => c.k === 0 && c.x <= bx + 1 && c.y <= by + 1 && c.w >= bw && c.h >= bh);
 ok("the chrome leaves the stage showing", covering.length === 0, `${covering.length} cover the stage`);
 // The strip counts what the engine refused, and the chrome must not be the
@@ -64,7 +73,7 @@ ok("the chrome costs no engine rejections", app.runtime().layoutWarningCount(0) 
 
 // --- the rails answer to a click ------------------------------------------------------
 ok("Routes is a tab", app.press("tab:routes"));
-ok("…and it lists the routes", app.displayListJson().includes("/settings"));
+ok("…and it lists the routes", app.displayListJson().includes("/stadion") && app.displayListJson().includes("/pelaajat"));
 ok("Components is a tab", app.press("tab:components"));
 ok("…and it lists the kit", app.displayListJson().includes("Button"));
 app.press("tab:layers");
@@ -79,26 +88,30 @@ ok("a row selects", app.press("tree:" + ids[1].slice(1)));
 ok("…and the inspector names it", app.displayListJson().includes("Header"));
 
 // --- sign in, from the page's own doors ---------------------------------------------------
-app.press("mode:run");
-ok("Run is a mode", app.modeNow() === "run");
-app.press("route:/login");
-ok("the app is at /login", app.path() === "/login");
-app.keyWith("Tab", false, false);
-app.keyWith("Tab", false, false);
-app.keyWith("Tab", false, false);
-ok("Enter on the button signs in", app.keyWith("Enter", false, false));
-ok("…and lands on the dashboard", app.path() === "/dashboard", app.path());
-ok("…which the stage draws", JSON.stringify(JSON.parse(app.boardJson()).list.cmds).includes("Log out"));
+// The bundled example has no login; the starter is the one that signs in.
+const starter = new RaveEditor();
+starter.init(CSS);
+starter.setPageSize(W, H);
+starter.press("mode:run");
+ok("Run is a mode", starter.modeNow() === "run");
+starter.press("route:/login");
+ok("the app is at /login", starter.path() === "/login");
+starter.keyWith("Tab", false, false);
+starter.keyWith("Tab", false, false);
+starter.keyWith("Tab", false, false);
+ok("Enter on the button signs in", starter.keyWith("Enter", false, false));
+ok("…and lands on the dashboard", starter.path() === "/dashboard", starter.path());
+ok("…which the stage draws", JSON.stringify(JSON.parse(starter.boardJson()).list.cmds).includes("Log out"));
 
 // --- the AI menu: a prompt out, an answer back ---------------------------------------------
-ok("AI opens a sheet", app.press("ai:open"));
-const aiPrompt = app.aiPrompt();
+ok("AI opens a sheet", starter.press("ai:open"));
+const aiPrompt = starter.aiPrompt();
 ok("the prompt carries the format", aiPrompt.includes("RAVE MARKUP"));
 ok("…and the document as it stands", aiPrompt.includes('<route path="/dashboard"'));
-app.press("ai:scope:page");
+starter.press("ai:scope:page");
 ok(
   "an answer in that markup is taken, <page> wrapper and all",
-  app.applyAiText(
+  starter.applyAiText(
     [
       '<style class="note">padding: 16px; border-radius: 10px; background-color: #eef3ff</style>',
       '<page name="Home">',
@@ -108,11 +121,11 @@ ok(
       '',
     ].join("\n"),
   ),
-  app.aiErrorCount() ? app.aiErrorAt(0) : null,
+  starter.aiErrorCount() ? starter.aiErrorAt(0) : null,
 );
-ok("…and the stage draws it", JSON.stringify(JSON.parse(app.boardJson()).list.cmds).includes("Pasted back"));
-ok("…as one undo step", app.press("undo"));
-app.press("mode:design");
+ok("…and the stage draws it", JSON.stringify(JSON.parse(starter.boardJson()).list.cmds).includes("Pasted back"));
+ok("…as one undo step", starter.press("undo"));
+starter.press("mode:design");
 
 // --- a Figma file, imported through the same door the page uses ----------------------------
 const figPath = path.join(HERE, "..", "..", "figma", "fixtures", "health.fig");

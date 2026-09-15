@@ -55,8 +55,9 @@ ok("…echoing the version the host asked for", hello.result.protocolVersion ===
 
 const listed = await call("tools/list", {});
 const names = (listed.result.tools || []).map((t) => t.name);
-ok("the tools are listed", names.length === 9, names.join(", "));
+ok("the tools are listed", names.length === 11, names.join(", "));
 ok("…with schemas", listed.result.tools.every((t) => t.inputSchema && t.inputSchema.type === "object"));
+ok("…including measure and outline", names.includes("rave_measure") && names.includes("rave_outline"));
 
 const made = await call("tools/call", {
   name: "rave_new",
@@ -65,6 +66,7 @@ const made = await call("tools/call", {
 ok("rave_new makes a project", !made.result.isError, made.result.content[0].text);
 ok("…in the directory the server was started in", fs.existsSync(path.join(dir, "app.rave")));
 ok("…and answers with its check", /RAVE OK/.test(made.result.content[0].text));
+ok("…naming the routes, so a shot does not have to guess", /\/items/.test(made.result.content[0].text), made.result.content[0].text);
 
 const read = await call("tools/call", { name: "rave_read", arguments: { path: "app.rave" } });
 ok("rave_read is the markup", read.result.content[0].text.startsWith("<app "));
@@ -108,6 +110,30 @@ const shot = await call("tools/call", {
 const image = (shot.result.content || []).find((c) => c.type === "image");
 ok("rave_shot comes back as a picture", !!image, JSON.stringify(shot.result).slice(0, 300));
 ok("…a real PNG", !!image && Buffer.from(image.data, "base64").subarray(1, 4).toString() === "PNG");
+ok("…naming the route, not a deleted temp file", / at 390/.test(shot.result.content[0].text) && !/\/tmp\/rave-shot-/.test(shot.result.content[0].text), shot.result.content[0].text);
+ok("…and measuring the same tree", /MEASURE 0 findings/.test(shot.result.content[0].text), shot.result.content[0].text);
+
+const outlined = await call("tools/call", { name: "rave_outline", arguments: { path: "app.rave", width: 390, depth: 2 } });
+ok("rave_outline is the laid-out tree", /#page-shot/.test(outlined.result.content[0].text), outlined.result.content[0].text);
+
+const measured = await call("tools/call", { name: "rave_measure", arguments: { path: "app.rave", width: 390 } });
+ok("rave_measure is quiet on a sound page", measured.result.isError !== true && /MEASURE 0 findings/.test(measured.result.content[0].text), measured.result.content[0].text);
+
+const wide = await call("tools/call", {
+  name: "rave_write",
+  arguments: {
+    path: "wide.rave",
+    markup:
+      '<app name="Wide"/>\n<page name="Home">' +
+      '<div name="Too wide" style="width: 800px; height: 40px; background-color: #111318"></div>' +
+      "</page>\n<route path=\"/\" title=\"Home\" page=\"Home\"/>\n",
+  },
+});
+ok("a wide box still parses", /RAVE OK/.test(wide.result.content[0].text), wide.result.content[0].text);
+const wideMeasure = await call("tools/call", { name: "rave_measure", arguments: { path: "wide.rave", width: 390 } });
+ok("rave_measure says when a box does not fit", wideMeasure.result.isError === true, wideMeasure.result.content[0].text);
+ok("…as MEASURE, not raw JSON", /MEASURE 1 finding/.test(wideMeasure.result.content[0].text), wideMeasure.result.content[0].text);
+ok("…naming overflow or the page edge", /overflow|past the page/.test(wideMeasure.result.content[0].text), wideMeasure.result.content[0].text);
 
 const missing = await call("tools/call", { name: "nope", arguments: {} });
 ok("a tool that is not there is an error, not a crash", !!missing.error);

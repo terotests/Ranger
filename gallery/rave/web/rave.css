@@ -158,12 +158,18 @@
 /* Rulers along two edges and the board between them, drawn from the same view
    the board is, so a tick is where the board says it is. */
 .ra-stage { display: flex; flex-direction: column; flex-grow: 1; height: 100%; min-width: 0; overflow: hidden; }
+.ra-screens {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 6px; padding: 6px 10px; height: 36px; min-height: 36px;
+  background-color: #ffffff; border: 1px solid #e7e9ee; overflow: auto;
+}
+.ra-screens-lab { font-size: 10px; font-weight: bold; height: 12px; color: #aab0bb; letter-spacing: 0.9px; }
 .ra-ruler-row { display: flex; flex-direction: row; flex-wrap: nowrap; height: 20px; min-height: 20px; }
 .ra-corner { width: 20px; min-width: 20px; height: 100%; background-color: #ffffff; border: 1px solid #e7e9ee; border: 1px solid #e7e9ee; }
 .ra-ruler-top { flex-grow: 1; height: 100%; position: relative; overflow: hidden; background-color: #ffffff; border: 1px solid #e7e9ee; }
 .ra-board-row { display: flex; flex-direction: row; flex-wrap: nowrap; flex-grow: 1; min-height: 0; }
 .ra-ruler-left { width: 20px; min-width: 20px; height: 100%; position: relative; overflow: hidden; background-color: #ffffff; border: 1px solid #e7e9ee; }
-.ra-board { flex-grow: 1; height: 100%; position: relative; min-width: 0; }
+.ra-board { flex-grow: 1; min-height: 0; position: relative; min-width: 0; }
 .ra-tick { font-size: 9px; height: 11px; color: #aab0bb; position: absolute; }
 .ra-page-row-gap { height: 0; }
 

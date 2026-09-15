@@ -107,7 +107,9 @@ screen" — or "what is in this .fig" — use it rather than hand-written HTML.
     npm run rave -- spec                       the format, once
     npm run rave -- new app.rave --start crud
     npm run rave -- check app.rave             THE LOOP: never finish on RAVE FAIL
-    npm run rave -- shot app.rave --width 390  paint a route and look at it
+    npm run rave -- shot app.rave --width 390  paint a route; includes MEASURE
+    npm run rave -- measure app.rave --width 390   overflow, overlap, off the page
+    npm run rave -- outline app.rave --width 390   the laid-out tree
     npm run rave -- serve app.rave             the editor, bound to the file
     npm run figma -- check app.fig             a .fig, read the whole way
 
