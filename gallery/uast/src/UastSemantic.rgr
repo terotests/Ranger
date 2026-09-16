@@ -100,6 +100,9 @@ class UastSemantic {
             if (node.kind == "InterfaceDecl") {
                 UastSemantic.addTypeSymbol(m node (UastSymKind.interfaceSym()))
             }
+            if (node.kind == "FunctionDecl") {
+                UastSemantic.addFnSymbol(m node)
+            }
             i = (i + 1)
         }
         def j:int 0
@@ -182,11 +185,46 @@ class UastSemantic {
 
     sfn addTypeSymbol:void (m:UastCodeModel node:UNode kind:string) {
         def id:string ("class:" + node.name)
+        id = (UastSemantic.uniquifyId(m id))
         def s:UastSymbol (UastSymbol.create(id node.name kind node.language))
         s.declarationNode = node.id
         s.fileName = node.span.fileId
         s.comment = node.comment
         m.addSymbol(s)
+    }
+
+    sfn addFnSymbol:void (m:UastCodeModel node:UNode) {
+        def nm:string node.name
+        if ((strlen nm) == 0) {
+            nm = "default"
+        }
+        def id:string ("function:" + nm)
+        id = (UastSemantic.uniquifyId(m id))
+        def s:UastSymbol (UastSymbol.create(id nm (UastSymKind.functionSym()) node.language))
+        s.declarationNode = node.id
+        s.fileName = node.span.fileId
+        s.comment = node.comment
+        def retId:string (node.childIdFor((UastChildRole.returnType())))
+        if ((strlen retId) > 0) {
+            if (m.mentionsNode(retId)) {
+                def rn:UNode (m.nodeById(retId))
+                s.returns = rn.name
+            }
+        }
+        m.addSymbol(s)
+    }
+
+    sfn uniquifyId:string (m:UastCodeModel id:string) {
+        if ((m.mentionsSymbol(id)) == false) {
+            return id
+        }
+        def n:int 2
+        def cand:string ((id + "#") + (to_string n))
+        while (m.mentionsSymbol(cand)) {
+            n = (n + 1)
+            cand = ((id + "#") + (to_string n))
+        }
+        return cand
     }
 
     sfn addMember:void (m:UastCodeModel node:UNode ownerId:string ownerName:string kind:string prefix:string) {
@@ -436,7 +474,7 @@ class UastSemantic {
                     ni = (ni + 1)
                 }
             }
-            if (node.kind == "ClassDecl") {
+            if ((node.kind == "ClassDecl") || (node.kind == "InterfaceDecl") || (node.kind == "FunctionDecl")) {
                 if (node.mentionsFlag("export")) {
                     UastSemantic.markExported(m node.id node.span.fileId)
                 }
@@ -508,7 +546,14 @@ class UastSemantic {
         def i:int 0
         while (i < (array_length m.nodes)) {
             def n:UNode (itemAt m.nodes i)
+            def isFn:boolean false
             if (n.kind == "MethodDecl") {
+                isFn = true
+            }
+            if (n.kind == "FunctionDecl") {
+                isFn = true
+            }
+            if isFn {
                 if (UastSemantic.subtreeMentions(m n nodeId)) {
                     return (m.symbolDeclaredAt(n.id))
                 }
@@ -655,7 +700,17 @@ class UastSemantic {
             def mem:string (UastSemantic.uniqueChildNamed(m clsId n.name))
             if ((strlen mem) > 0) {
                 UastSemantic.addExactRef(m n.id mem "ref")
+                return
             }
+        }
+        def typeId:string ("class:" + n.name)
+        if (m.mentionsSymbol(typeId)) {
+            UastSemantic.addExactRef(m n.id typeId "ref")
+            return
+        }
+        def fnId:string (UastSemantic.uniqueFnNamed(m n.name))
+        if ((strlen fnId) > 0) {
+            UastSemantic.addExactRef(m n.id fnId "ref")
         }
     }
 
@@ -810,6 +865,26 @@ class UastSemantic {
         while (i < (array_length m.symbols)) {
             def s:UastSymbol (itemAt m.symbols i)
             if (s.parentSymbol == parentId) {
+                if (s.name == name) {
+                    found = s.id
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if (n == 1) {
+            return found
+        }
+        return ""
+    }
+
+    sfn uniqueFnNamed:string (m:UastCodeModel name:string) {
+        def found:string ""
+        def n:int 0
+        def i:int 0
+        while (i < (array_length m.symbols)) {
+            def s:UastSymbol (itemAt m.symbols i)
+            if (s.kind == "function") {
                 if (s.name == name) {
                     found = s.id
                     n = (n + 1)

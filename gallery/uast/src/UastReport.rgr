@@ -1,0 +1,88 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastReport.rgr — PLAN §11 metrics on a CodeModel.
+; ============================================================================
+;
+; files parsed, declarations, symbols, resolved refs, exact calls,
+; normalized coverage, language-specific, unknown. No compiler, no parser.
+; ============================================================================
+
+Import "UastModel.rgr"
+
+class UastReport {
+    Constructor () {
+    }
+
+    sfn of:string (m:UastCodeModel) {
+        def lines:[string]
+        push lines ("title: " + m.title)
+        push lines ("language: " + m.language)
+        push lines ("files parsed: " + (to_string (array_length m.files)))
+        push lines ("top-level declarations: " + (to_string (UastReport.topDecls(m))))
+        push lines ("symbols indexed: " + (to_string (array_length m.symbols)))
+        push lines ("references: " + (to_string (array_length m.references)))
+        push lines ("references resolved: " + (to_string (UastReport.countRefs(m "resolved"))))
+        push lines ("calls exact: " + (to_string (UastReport.countRels(m "calls" "exact"))))
+        push lines ("calls inferred: " + (to_string (UastReport.countRels(m "calls" "inferred"))))
+        push lines ("normalized nodes: " + (to_string (m.normalizedNodeCount())))
+        push lines ("language-specific: " + (to_string (m.languageSpecificCount())))
+        push lines ("unknown: " + (to_string (m.unknownNodeCount())))
+        push lines ("diagnostics: " + (to_string (array_length m.diagnostics)))
+        push lines ("classes / interfaces:" )
+        def i:int 0
+        while (i < (array_length m.symbols)) {
+            def s:UastSymbol (itemAt m.symbols i)
+            if ((s.kind == "class") || (s.kind == "interface") || (s.kind == "function")) {
+                def extra:string ""
+                if ((strlen s.extendsName) > 0) {
+                    extra = (" extends " + s.extendsName)
+                }
+                push lines ((("  " + s.kind) + " " + s.name) + extra)
+            }
+            i = (i + 1)
+        }
+        return (join lines "\n")
+    }
+
+    sfn topDecls:int (m:UastCodeModel) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length m.nodes)) {
+            def node:UNode (itemAt m.nodes i)
+            if ((node.kind == "ClassDecl") || (node.kind == "InterfaceDecl") || (node.kind == "FunctionDecl")) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn countRefs:int (m:UastCodeModel resolution:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length m.references)) {
+            def ref:UastReference (itemAt m.references i)
+            if (ref.resolution == resolution) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn countRels:int (m:UastCodeModel kind:string confidence:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length m.relationships)) {
+            def rel:UastRelation (itemAt m.relationships i)
+            if (rel.kind == kind) {
+                if (rel.confidence == confidence) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+}

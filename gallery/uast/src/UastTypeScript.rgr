@@ -26,6 +26,7 @@ class UastTypeScript {
         if (nativeKind == "FunctionExpression") { return UastKind.FunctionDecl() }
         if (nativeKind == "MethodDefinition") { return UastKind.MethodDecl() }
         if (nativeKind == "TSDeclareMethod") { return UastKind.MethodDecl() }
+        if (nativeKind == "TSMethodSignature") { return UastKind.MethodDecl() }
         if (nativeKind == "PropertyDefinition") { return UastKind.FieldDecl() }
         if (nativeKind == "TSPropertySignature") { return UastKind.FieldDecl() }
         if (nativeKind == "VariableDeclaration") { return UastKind.VariableDecl() }

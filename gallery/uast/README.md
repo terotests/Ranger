@@ -27,7 +27,8 @@ The plan: [`PLAN_UAST.md`](./PLAN_UAST.md).
 ```bash
 npm run uast:test      # schema, scopes/refs, workspace imports, shared calls
 npm run uast:ranger    # compatibility vs CodeGraphBuilder + ZipWriter spec
-npm run uast:ts        # ts_parser → ZipWriter.ts (no tsc)
+npm run uast:ts        # ts_parser → ZipWriter.ts + fromDir (no tsc)
+npm run uast:analyze -- gallery/uast/fixtures
 ```
 
 `uast:test` does not import the compiler. `uast:ranger` does — same
@@ -60,9 +61,12 @@ types. Only `UastRanger` may.
 | `src/UastRanger.rgr` | compiler context → `FrontendResult` |
 | `src/UastQuery.rgr` | class / method / field lookup, `refTarget` |
 | `src/UastTypeScript.rgr` | `TSNode.nodeType` → UAST kind |
-| `src/UastTs.rgr` | ts_parser → `FrontendResult` (no compiler, no `tsc`) |
+| `src/UastTs.rgr` | ts_parser → `FrontendResult` (no compiler, no `tsc`); `fromDir` |
+| `src/UastReport.rgr` | PLAN §11 metrics |
+| `tools/UastAnalyze.rgr` | CLI: TypeScript tree → report + CodeGraph projector |
 | `fixtures/zip_writer.ts` | the TypeScript twin of that fixture |
 | `fixtures/foo_a.ts`, `foo_b.ts` | two-file import/export + missing module |
+| `fixtures/shapes.ts` | interface, `extends`, `function`, `export default` |
 | `fixtures/sheet_view.rgr` | leading comments on the correct property |
 
 ## Ranger first, TypeScript second

@@ -1,7 +1,7 @@
 # UAST — a language-analysis framework for Ranger
 
-**Status:** research branch, M6 started (shared call resolution +
-workspace imports + Ranger/TS ZipWriter)
+**Status:** research branch, M7 started (TS fromDir + projector CLI +
+shared call resolution + workspace imports + Ranger/TS ZipWriter)
 **License:** AGPL-3.0-or-later (this directory is under `gallery/`)
 **Related:** [`gallery/codegraph`](../codegraph/README.md),
 [`gallery/ts_parser`](../ts_parser/README.md),
@@ -638,6 +638,12 @@ when that unique declaration follows from the model (enclosing class +
 receiver type), not a globally unique method name. `UastTs` no longer
 emits `frontendInferred` call hints. IndexAccess stays `dynamic` /
 `possible`. Ranger `compilerResolved` hints still apply.
+M7 is started: `UastTs.fromDir` walks a TypeScript tree (skips
+`node_modules` / `dist` / `.git`), indexes `FunctionDecl` /
+`InterfaceDecl` / `export default` / `extends`, and
+`npm run uast:analyze` prints PLAN §11 metrics then projects into the
+existing CodeGraph IR. No CodeGraphBuilder or UI change. A real
+open-source TypeScript repo is analysed in `/tmp` and is not vendored.
 
 ---
 

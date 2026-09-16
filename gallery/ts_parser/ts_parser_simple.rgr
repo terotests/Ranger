@@ -2234,6 +2234,11 @@ class TSParserSimple {
       prop.optional = true
       this.advance()
     }
+
+    ; Method signature: name(params): returnType
+    if (this.matchValue("(")) {
+      return (this.parseMethodSignature(prop.name prop.optional startPos startLine startCol))
+    }
     
     ; Type annotation
     if (this.matchValue(":")) {

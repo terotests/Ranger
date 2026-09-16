@@ -204,6 +204,8 @@ class UastTest {
         c.eqStr("ClassDeclaration" (UastTypeScript.kindFromNative("ClassDeclaration")) (UastKind.ClassDecl()))
         c.eqStr("TSInterfaceDeclaration" (UastTypeScript.kindFromNative("TSInterfaceDeclaration")) (UastKind.InterfaceDecl()))
         c.eqStr("TSTypeAliasDeclaration" (UastTypeScript.kindFromNative("TSTypeAliasDeclaration")) (UastKind.TypeDecl()))
+        c.eqStr("FunctionDeclaration" (UastTypeScript.kindFromNative("FunctionDeclaration")) (UastKind.FunctionDecl()))
+        c.eqStr("TSMethodSignature" (UastTypeScript.kindFromNative("TSMethodSignature")) (UastKind.MethodDecl()))
         c.eqStr("MethodDefinition" (UastTypeScript.kindFromNative("MethodDefinition")) (UastKind.MethodDecl()))
         c.eqStr("Identifier" (UastTypeScript.kindFromNative("Identifier")) (UastKind.Identifier()))
         c.eqStr("ThisExpression" (UastTypeScript.kindFromNative("ThisExpression")) (UastKind.Identifier()))

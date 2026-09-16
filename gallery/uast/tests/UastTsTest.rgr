@@ -46,6 +46,8 @@ class UastTsTest {
         def c (new UastTsChecker)
         UastTsTest.testZipWriter(c)
         UastTsTest.testWorkspace(c)
+        UastTsTest.testShapes(c)
+        UastTsTest.testFromDir(c)
         def code:int (c.report())
         if (code != 0) {
             exit 1
@@ -175,5 +177,59 @@ class UastTsTest {
         c.ok("new Foo binds class" foundFoo)
         c.ok("unresolved ./nope" (UastQuery.diagnosticMentions(model "unresolved import ./nope")))
         c.ok("Uses survived missing import" (model.mentionsSymbol("class:Uses")))
+    }
+
+    sfn testShapes:void (c:UastTsChecker) {
+        print "== shapes.ts interface / extends / function / export default"
+        def model:UastCodeModel (UastTs.fromFile("gallery/uast/fixtures/shapes.ts"))
+        if ((indexOf model.title " FAIL ") >= 0) {
+            print ("  FAIL " + model.title)
+            c.ok("parse shapes.ts" false)
+            return
+        }
+        c.ok("Named interface symbol" (model.mentionsSymbol("class:Named")))
+        def named:UastSymbol (model.symbolById("class:Named"))
+        c.eqStr("Named kind" named.kind "interface")
+        c.ok("Named.size method" (model.mentionsSymbol("method:Named.size")))
+        c.ok("Base class" (model.mentionsSymbol("class:Base")))
+        c.ok("Child class" (model.mentionsSymbol("class:Child")))
+        c.ok("DefaultBox class" (model.mentionsSymbol("class:DefaultBox")))
+        c.ok("makeChild function" (model.mentionsSymbol("function:makeChild")))
+        def child:UastSymbol (model.symbolById("class:Child"))
+        c.eqStr("Child extends Base" child.extendsName "Base")
+        def foundExt:boolean false
+        def foundCall:boolean false
+        def ri:int 0
+        while (ri < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships ri)
+            if ((rel.kind == "extends") && (rel.fromId == "class:Child") && (rel.toId == "class:Base")) {
+                foundExt = true
+            }
+            if ((rel.kind == "calls") && (rel.fromId == "method:DefaultBox.wrap") && (rel.toId == "function:makeChild")) {
+                foundCall = true
+            }
+            ri = (ri + 1)
+        }
+        c.ok("Child extends Base rel" foundExt)
+        c.ok("wrap calls makeChild" foundCall)
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        c.ok("projected Child" (g.hasClass("Child")))
+        c.ok("projected Named" (g.hasClass("Named")))
+        c.ok("projected DefaultBox" (g.hasClass("DefaultBox")))
+        c.ok("projected wrap" (g.hasMethod("DefaultBox.wrap")))
+    }
+
+    sfn testFromDir:void (c:UastTsChecker) {
+        print "== fromDir gallery/uast/fixtures"
+        def model:UastCodeModel (UastTs.fromDir("gallery/uast/fixtures"))
+        c.ok("ZipWriter from dir" (model.mentionsSymbol("class:ZipWriter")))
+        c.ok("Foo from dir" (model.mentionsSymbol("class:Foo")))
+        c.ok("Uses from dir" (model.mentionsSymbol("class:Uses")))
+        c.ok("Child from dir" (model.mentionsSymbol("class:Child")))
+        c.ok("makeChild from dir" (model.mentionsSymbol("function:makeChild")))
+        c.ok("at least 4 ts files" ((array_length model.files) >= 4))
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        c.ok("dir projected ZipWriter" (g.hasClass("ZipWriter")))
+        c.ok("dir projected Child" (g.hasClass("Child")))
     }
 }
