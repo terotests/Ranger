@@ -55,6 +55,10 @@ npm run codegraph:app          # Full EVG chrome + shop navigation
 npm run codegraph              # SVG of the shop overview + Order zoom
 npm run codegraph:analyze -- gallery/codegraph/fixtures/calls.rgr
 npm run codegraph:analyze -- compiler/ng_RangerAppClassDesc.rgr --max=24
+npm run codegraph:bench        # JS wall-clock stages (fixtures/calls.rgr)
+npm run codegraph:bench:rt     # JS stages for gallery/realtrainer
+npm run codegraph:bench:cpp    # same bench compiled to C++
+npm run codegraph:bench:cpp:rt # C++ stages for gallery/realtrainer
 npm run codegraph:web          # build the page (compiler + examples)
 npm run codegraph:web:serve    # …and serve it (port 8081)
 npm run codegraph:web:test     # headless Chrome: click Order, go back, compile calls.rgr
@@ -74,6 +78,14 @@ than a catalogue of every compartment.
 `?example=animals.rgr` opens the farm; `?example=compiler` walks the compiler;
 `?example=css` / `evg` / `zip` walk those libraries;
 `?sample=shop` skips the compiler and loads the fixture (UML with field links).
+
+Opening a large app such as `gallery/realtrainer/src/RealTrainerDemo.rgr` is
+VirtualCompiler on that file plus its Import closure, then UAST semantic,
+then a 24-box UML page. `codegraph:bench` / `codegraph:bench:cpp` print a
+`BENCH` line per stage (compile, parse, members, layout, …) on JavaScript
+and C++ so the wait is not a black box. `codegraph:analyze` also recompiles
+the CLI from Ranger on every run; the bench times analysis only.
+
 
 ## What to click
 
