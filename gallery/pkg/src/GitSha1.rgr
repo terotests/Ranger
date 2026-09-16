@@ -8,18 +8,23 @@
 
 class GitSha1 {
     ; Force 32-bit wrap. JS `| 0` is ToInt32; Go/Rust int is 64-bit, so
-    ; SHA-1 constants like 4023233417 would otherwise keep growing.
+    ; SHA-1 IVs like 4023233417 would otherwise keep growing. The mask is
+    ; built from 65535: Java/C# Integer cannot spell 4294967295 as a literal.
+    sfn mask32:int () {
+        return (bit_or 65535 (bit_shl 65535 16))
+    }
+
     sfn add32:int (a:int b:int) {
-        return (bit_and (a + b) 4294967295)
+        return (bit_and (a + b) (GitSha1.mask32()))
     }
 
     sfn not32:int (x:int) {
-        return (bit_and (bit_not x) 4294967295)
+        return (bit_and (bit_not x) (GitSha1.mask32()))
     }
 
     sfn rotl:int (x:int n:int) {
-        def u:int (bit_and x 4294967295)
-        return (bit_and (bit_or (bit_shl u n) (bit_ushr u (32 - n))) 4294967295)
+        def u:int (bit_and x (GitSha1.mask32()))
+        return (bit_and (bit_or (bit_shl u n) (bit_ushr u (32 - n))) (GitSha1.mask32()))
     }
 
     sfn copyRange:buffer (data:buffer start:int count:int) {
@@ -146,10 +151,10 @@ class GitSha1 {
         def msgLen:int (pos + 8)
 
         def h0:int 1732584193
-        def h1:int 4023233417
-        def h2:int 2562383102
+        def h1:int (0 - 271733879)
+        def h2:int (0 - 1732584194)
         def h3:int 271733878
-        def h4:int 3285377520
+        def h4:int (0 - 1009589776)
 
         def w:[int]
         def wi:int 0
@@ -189,11 +194,11 @@ class GitSha1 {
                 }
                 if ((t >= 40) && (t < 60)) {
                     f = (bit_or (bit_or (bit_and b c) (bit_and b d)) (bit_and c d))
-                    k = 2400959708
+                    k = (0 - 1894007588)
                 }
                 if (t >= 60) {
                     f = (bit_xor (bit_xor b c) d)
-                    k = 3395469782
+                    k = (0 - 899497514)
                 }
                 def temp:int (GitSha1.add32((GitSha1.add32((GitSha1.add32((GitSha1.add32((GitSha1.rotl(a 5)) f)) e)) k)) (itemAt w t)))
                 e = d
