@@ -6203,7 +6203,16 @@ void r_buffer_write_file(const std::string& path, const std::string& filename, c
 }
 ")
                 )
-                java7 ( "java.nio.file.Files.write(java.nio.file.Paths.get(" (e 1) " + \"/\" + " (e 2) "), " (e 3) ");" )
+                java7 ( "r_buffer_write_file(" (e 1) ", " (e 2) ", " (e 3) ")"
+                (create_polyfill "
+static void r_buffer_write_file(String path, String filename, byte[] data) {
+  try {
+    java.nio.file.Files.write(java.nio.file.Paths.get(path + \"/\" + filename), data);
+  } catch (Exception e) {
+  }
+}
+")
+                )
                 python ( "open(" (e 1) " + '/' + " (e 2) ", 'wb').write(" (e 3) ")" )
                 swift6 ( "try? Data(" (e 3) ").write(to: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))" (imp "Foundation") )
                 csharp ( "System.IO.File.WriteAllBytes(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ")" )
@@ -6229,7 +6238,17 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
 }
 ")
                 )
-                java7 ( "java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(" (e 1) " + \"/\" + " (e 2) "))" )
+                java7 ( "r_buffer_read_file(" (e 1) ", " (e 2) ")"
+                (create_polyfill "
+static byte[] r_buffer_read_file(String path, String filename) {
+  try {
+    return java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path + \"/\" + filename));
+  } catch (Exception e) {
+    return new byte[0];
+  }
+}
+")
+                )
                 python ( "bytearray(open(" (e 1) " + '/' + " (e 2) ", 'rb').read())" )
                 swift6 ( "(try? Data(contentsOf: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))).map { Array($0) } ?? []" (imp "Foundation") )
                 csharp ( "System.IO.File.ReadAllBytes(" (e 1) " + \"/\" + " (e 2) ")" )
