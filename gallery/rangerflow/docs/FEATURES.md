@@ -30,7 +30,7 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Zoom at the cursor | ✓ | the flow point under the pointer is invariant — asserted |
 | Zoom limits | ✓ | `minZoom` / `maxZoom` |
 | Fit to screen | ✓ | `fitView(padding)`, `f` or `Ctrl+0` |
-| Zoom in / out controls | ✓ | the four-button control panel, hit-tested in the core |
+| Zoom in / out controls | ✓ | the floating − % + Fit bar, one ×1.25 step, hit-tested in the core |
 | Drag a node | ✓ | |
 | Drag several selected nodes | ✓ | one undo entry for the whole group |
 | Click to select | ✓ | |
@@ -53,7 +53,7 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Markers (arrow, closed arrow) | ✓ | plus crow's foot and UML ornaments |
 | Background: dots, lines, cross, none | ✓ | anchored to flow space, so it slides under a pan |
 | MiniMap | ✓ | union of graph and viewport, so it works when you pan away |
-| Controls panel | ✓ | zoom in / out / fit / toggle minimap |
+| Controls panel | ✓ | − / percent / + / Fit / Map, a pill over the board |
 | Viewport-limited rendering | ✓ | off-screen nodes dropped while building; counted |
 | Dark mode | ✓ | one theme object, read by the renderer *and* the exporters |
 | Hidden nodes / edges | ✓ | `hidden` respected by draw, hit test and bounds |

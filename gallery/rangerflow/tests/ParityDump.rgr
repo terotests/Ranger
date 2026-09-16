@@ -1843,17 +1843,18 @@ class ParityDump {
         }
         this.probe("fitView" centred "fitView centres the graph in the viewport")
 
-        ; the controls panel
+        ; the floating zoom bar — − % + Fit | Map, centred on the board
         def ed3:FlowEditor (this.twoNodeEditor())
         ed3.view.showControls = true
         def z0:double ed3.view.viewport.zoom
+        def v3:FlowView ed3.view
         def btn (new FlowInput)
-        btn.x = 26.0
-        btn.y = ((600.0 - 112.0) + 14.0)
+        btn.x = ((v3.controlToolLeft(2)) + ((v3.controlToolWidth(2)) * 0.5))
+        btn.y = ((v3.controlToolTop()) + ((FlowView.controlToolH()) * 0.5))
         ed3.pointerDown(btn)
         ed3.pointerUp(btn)
         this.probe("controlsZoomIn" (ed3.view.viewport.zoom > z0) "the + button zooms in")
-        btn.y = ((600.0 - 112.0) + 70.0)
+        btn.x = ((v3.controlToolLeft(3)) + ((v3.controlToolWidth(3)) * 0.5))
         ed3.pointerDown(btn)
         ed3.pointerUp(btn)
         def r3:FlowRect (ed3.graph.bounds())
