@@ -87,6 +87,13 @@ class UiHost {
     def transitions:EVGTransition (new EVGTransition())
     def pageWidth:double 480.0
     def pageHeight:double 320.0
+    ; Off unless an app asks: a list is also what the PDF/PNG targets and
+    ; the conformance oracles draw from, and a bar in those is a difference
+    ; nobody asked for. `scrollbarState` is EVGDisplayList's 0/1/2 (rest /
+    ; scrolling / pointer on it). A sidebar that should look like
+    ; `overflow: auto` wants 1 so the track is up.
+    def showScrollbars:boolean false
+    def scrollbarState:int 0
 
     Constructor () {
         root = (EVGElement.createDiv())
@@ -967,6 +974,8 @@ class UiHost {
         def dl (new EVGDisplayList())
         def te (engineLay.getTextEngine())
         dl.setTextEngine(te)
+        dl.setScrollbars(showScrollbars)
+        dl.setScrollbarState(scrollbarState)
         dl.build(page)
         return dl
     }

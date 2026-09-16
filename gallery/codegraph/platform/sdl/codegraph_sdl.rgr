@@ -300,16 +300,24 @@ class CodeGraphSdl {
         def wx:double (dgfx_wheel_x_precise)
         def wy:double (dgfx_wheel_precise)
         if ((wx != 0.0) || (wy != 0.0)) {
-            ; Same sign as the browser host: +deltaY is scroll down. SDL
-            ; NORMAL +y is away from the user (up). Trackpad preciseY carries
-            ; speed; a wheel notch is ~1.0 and becomes a 100 px line delta.
+            ; Same axis as the browser host's WheelEvent.deltaY, which is
+            ; what FlowEditor and the class list already speak. dgfx un-flips
+            ; SDL_MOUSEWHEEL_FLIPPED (macOS natural scrolling) back to NORMAL:
+            ; positive Y is away from the user. WheelEvent uses the same
+            ; words for +deltaY — "away from the user" / scroll down — so a
+            ; two-finger swipe that drags the content with the fingers in
+            ; the tab does the same here. Inverting Y made the SDL window
+            ; run the opposite way of the web host.
+            ;
+            ; Trackpad preciseY carries speed; a wheel notch is ~1.0 and
+            ; becomes a 100 px line delta.
             def lineMode:boolean (CodeGraphSdl.wheelIsLine(wx wy))
             def scale:double 40.0
             if lineMode {
                 scale = 100.0
             }
             def dx:double (wx * scale)
-            def dy:double ((0.0 - wy) * scale)
+            def dy:double (wy * scale)
             if (app.inCanvas(px py)) {
                 app.wheelGesture((app.localX(px)) (app.localY(py)) dx dy ctrl lineMode)
             } {

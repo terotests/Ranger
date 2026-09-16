@@ -92,6 +92,11 @@ class CodeGraphApp extends EvgApp {
         if ((strlen css) > 0) {
             ui.addStyleSheet(css)
         }
+        ; The class list is `overflow: auto`. EVG paints the bar only when
+        ; the display list is asked to; state 1 keeps the track up so the
+        ; sheet's `scrollbar-color` is visible, not overlay-hidden-until-scroll.
+        ui.showScrollbars = true
+        ui.scrollbarState = 1
         this.buildChrome()
         this.setPageSize(w h)
         this.loadSample("shop")
