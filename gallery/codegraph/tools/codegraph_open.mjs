@@ -45,24 +45,32 @@ function suite(src, outDir, outJs, extra) {
 let target = args[0];
 const rest = args.slice(1);
 
-if (isGitUrl(target)) {
-  suite("./gallery/pkg/src/pkg_tool.rgr", "./gallery/pkg/bin", "pkg_tool.js", []);
-  const out = mkdtempSync(join(tmpdir(), "codegraph-git-"));
-  console.log("cloning", target, "->", out);
-  run("node", ["gallery/pkg/tools/clone.mjs", target, "HEAD", out]);
-  target = out;
-  if (existsSync(join(out, "ranger.json")) === false) {
-    const names = readdirSync(out);
-    const rgr = names.find((n) => n.endsWith(".rgr"));
-    if (rgr) {
-      target = join(out, rgr);
+try {
+  if (isGitUrl(target)) {
+    const toolJs = join(root, "gallery/pkg/bin/pkg_tool.js");
+    if (existsSync(toolJs) === false) {
+      suite("./gallery/pkg/src/pkg_tool.rgr", "./gallery/pkg/bin", "pkg_tool.js", []);
+    }
+    const out = mkdtempSync(join(tmpdir(), "codegraph-git-"));
+    console.log("cloning", target, "->", out);
+    run("node", ["gallery/pkg/tools/clone.mjs", target, "HEAD", out]);
+    target = out;
+    if (existsSync(join(out, "ranger.json")) === false) {
+      const names = readdirSync(out);
+      const rgr = names.find((n) => n.endsWith(".rgr"));
+      if (rgr) {
+        target = join(out, rgr);
+      }
     }
   }
-}
 
-suite(
-  "./gallery/codegraph/tools/codegraph_cli.rgr",
-  "./gallery/codegraph/bin",
-  "codegraph_cli.js",
-  [target, ...rest]
-);
+  suite(
+    "./gallery/codegraph/tools/codegraph_cli.rgr",
+    "./gallery/codegraph/bin",
+    "codegraph_cli.js",
+    [target, ...rest]
+  );
+} catch (err) {
+  const status = err && typeof err.status === "number" ? err.status : 1;
+  process.exit(status === 0 ? 1 : status);
+}
