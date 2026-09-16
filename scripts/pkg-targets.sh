@@ -32,6 +32,14 @@ compile_one() {
     fail=$((fail + 1))
     return 1
   fi
+  # Java writes one file per class; -o=App.java is not the file on disk.
+  if [ "$lang" = "java7" ]; then
+    if ls "$dir"/*.java >/dev/null 2>&1; then
+      echo "COMPILE OK    $lang  $src"
+      compiled=$((compiled + 1))
+      return 0
+    fi
+  fi
   if [ ! -f "$dest" ]; then
     echo "COMPILE FAIL  $lang  $src  (no $dest)"
     echo "$log" | tail -20
@@ -176,7 +184,7 @@ if have g++ && [ -f "$ROOT_OUT/cpp/App.cpp" ]; then
 fi
 
 compile_one java7   tests/fixtures/pkg/app/App.rgr "$ROOT_OUT/java7-app/App.java"   App.java
-if have javac && have java && [ -f "$ROOT_OUT/java7-app/App.java" ]; then
+if have javac && have java && ls "$ROOT_OUT/java7-app"/*.java >/dev/null 2>&1; then
   mkdir -p "$ROOT_OUT/java7-app/classes"
   if javac -d "$ROOT_OUT/java7-app/classes" "$ROOT_OUT/java7-app"/*.java 2>"$ROOT_OUT/java7-app/javac.log"; then
     run_app java7 java -cp "$ROOT_OUT/java7-app/classes" PkgApp
