@@ -6203,7 +6203,7 @@ void r_buffer_write_file(const std::string& path, const std::string& filename, c
 }
 ")
                 )
-                java7 ( "r_buffer_write_file(" (e 1) ", " (e 2) ", " (e 3) ")"
+                java7 ( "r_buffer_write_file(" (e 1) ", " (e 2) ", " (e 3) ");"
                 (create_polyfill "
 static void r_buffer_write_file(String path, String filename, byte[] data) {
   try {
