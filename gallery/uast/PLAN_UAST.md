@@ -651,6 +651,10 @@ function / `const` arrow / class `render` components are declarations;
 `<Card />` lowers to a Call (host tags like `div` stay markup). Shared
 `resolveCalls` binds JSX to `function:Card`. The projector draws
 PascalCase functions as CodeGraph classes with stereotype `component`.
+Tried on emilkowalski/sonner in `/tmp` (not vendored): Loader and
+other function components, JSX calls such as getLoadingIcon → Loader.
+Parser diagnostics remain on some of that tree (`'use client'`, typed
+rest parameters); missing `react` / `react-dom` stay unresolved.
 JSX node types stay `LanguageSpecific` in the mapping — the adapter
 does the lowering. No CodeGraphBuilder or UI change.
 

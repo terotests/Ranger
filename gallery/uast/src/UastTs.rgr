@@ -427,18 +427,18 @@ class UastTs {
         while (i < (array_length ts.children)) {
             def d:TSNode (itemAt ts.children i)
             if (d.nodeType == "VariableDeclarator") {
-                if (UastTs.isComponentName(d.name)) {
-                    if (null? d.init) {
-                    } {
-                        def init:TSNode (unwrap d.init)
-                        def isFn:boolean false
-                        if (init.nodeType == "ArrowFunctionExpression") {
-                            isFn = true
-                        }
-                        if (init.nodeType == "FunctionExpression") {
-                            isFn = true
-                        }
-                        if isFn {
+                if (null? d.init) {
+                } {
+                    def init:TSNode (unwrap d.init)
+                    def isFn:boolean false
+                    if (init.nodeType == "ArrowFunctionExpression") {
+                        isFn = true
+                    }
+                    if (init.nodeType == "FunctionExpression") {
+                        isFn = true
+                    }
+                    if isFn {
+                        if ((strlen d.name) > 0) {
                             def fnN:UNode (this.addNamedFn(r init d.name))
                             if exported {
                                 fnN.addFlag("export")
