@@ -334,6 +334,7 @@ class UastTsTest {
         c.ok("ClientBanner" (model.mentionsSymbol("function:ClientBanner")))
         c.ok("box generic function" (model.mentionsSymbol("function:box")))
         c.ok("identity generic arrow" (model.mentionsSymbol("function:identity")))
+        c.ok("isNum type predicate arrow" (model.mentionsSymbol("function:isNum")))
         c.ok("no parse diagnostic" ((UastQuery.diagnosticMentions(model "Parse error")) == false))
         c.ok("no unknown type" ((UastQuery.diagnosticMentions(model "Unknown type")) == false))
     }

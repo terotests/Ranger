@@ -490,7 +490,11 @@ class UastTs {
         }
         def program:TSNode (parser.parseProgram())
         if (parser.errorCount > 0) {
-            r.addDiagnostic((UastDiagnostic.create(parser.firstErrorText "error")))
+            def msg:string parser.firstErrorText
+            if (parser.firstErrorLine >= 0) {
+                msg = (((msg + " at ") + fileName) + ":") + (to_string (parser.firstErrorLine + 1))
+            }
+            r.addDiagnostic((UastDiagnostic.create(msg "error")))
         }
         this.collectClassNames(program)
         this.walkProgram(r program)

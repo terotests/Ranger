@@ -19,6 +19,7 @@ function box<T>(value: T): T {
 
 const boxed = box<{ x: number; y: string } | null>(null);
 const identity = <T>(value: T) => value;
+const isNum = (value: any): value is number => typeof value === 'number';
 
 export function ClientBanner() {
   return <div className={cn('ok')} />;

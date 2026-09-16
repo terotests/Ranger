@@ -6600,32 +6600,15 @@ class TSParserSimple {
       ; (Punctuator guard: never mistake a string literal "<" for type args.)
       if ((tokVal == "<") && ((this.peekType()) == "Punctuator")) {
         def shouldParseAsGenericCall false
-        
-        ; In non-TSX mode, < after identifier/call is likely generic
-        if (this.tsxMode == false) {
-          ; Check if followed by valid type args pattern - identifier then > or ,
-          def next1 (this.peekAheadValue(1))
-          def next2 (this.peekAheadValue(2))
-          if ((next2 == ">") || (next2 == ",") || (next2 == "extends")) {
-            shouldParseAsGenericCall = true
-          }
+        def next1 (this.peekAheadValue(1))
+        def next1T (this.peekNextType())
+        ; JSX tags start with a name. `{` / `(` / literals are type arguments:
+        ; `useRef<{ x: number; y: number }>()`, `useState<'x' | 'y'>()`.
+        if ((next1 == "{") || ((next1 == "(") || ((next1T == "String") || (next1T == "Number")))) {
+          shouldParseAsGenericCall = true
         } {
-          ; TSX mode - use lookahead heuristic
-          ; Only try generic call if:
-          ; 1. The expr is an identifier starting with lowercase (functions are usually lowercase)
-          ; 2. Lookahead shows pattern like <Type>( 
-          if (expr.nodeType == "Identifier") {
-            if (this.startsWithLowerCase(expr.name)) {
-              if (this.looksLikeGenericCall()) {
-                shouldParseAsGenericCall = true
-              }
-            }
-          }
-          ; Also handle member expressions like obj.method<T>()
-          if (expr.nodeType == "MemberExpression") {
-            if (this.looksLikeGenericCall()) {
-              shouldParseAsGenericCall = true
-            }
+          if (this.looksLikeGenericCall()) {
+            shouldParseAsGenericCall = true
           }
         }
         
@@ -7945,9 +7928,9 @@ class TSParserSimple {
     ; the alternate into a type expression.
     if (this.matchValue(":")) {
       if ((ternaryConsequentDepth == 0) && (caseTestDepth == 0)) {
-        this.advance()
-        ; Skip the type
-        this.parseType()
+        ; Return type, including predicates: `(x): x is T =>`. parseType()
+        ; stopped at `is` and the lookahead then missed `=>`.
+        this.parseTypeAnnotation()
       }
     }
     
@@ -8054,10 +8037,9 @@ class TSParserSimple {
       push node.params param
     }
     
-    ; Optional return type annotation
+    ; Optional return type annotation, including `x is T` predicates
     if (this.matchValue(":")) {
-      this.advance()
-      def retType (this.parseType())
+      def retType (this.parseTypeAnnotation())
       node.typeAnnotation = retType
     }
     
