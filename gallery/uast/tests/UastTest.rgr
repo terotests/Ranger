@@ -217,6 +217,8 @@ class UastTest {
         c.eqStr("ImportDeclaration" (UastTypeScript.kindFromNative("ImportDeclaration")) (UastKind.Import()))
         c.eqStr("TSConditionalType" (UastTypeScript.kindFromNative("TSConditionalType")) (UastKind.LanguageSpecific()))
         c.eqStr("TSMappedType" (UastTypeScript.kindFromNative("TSMappedType")) (UastKind.LanguageSpecific()))
+        c.eqStr("JSXElement" (UastTypeScript.kindFromNative("JSXElement")) (UastKind.LanguageSpecific()))
+        c.eqStr("JSXFragment" (UastTypeScript.kindFromNative("JSXFragment")) (UastKind.LanguageSpecific()))
         c.eqStr("empty" (UastTypeScript.kindFromNative("")) (UastKind.Unknown()))
     }
 

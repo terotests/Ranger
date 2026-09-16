@@ -38,6 +38,13 @@ class UastToCodeGraph {
                     cc.stereotype = "interface"
                 }
             }
+            if (s.kind == "function") {
+                if (UastToCodeGraph.pascalName(s.name)) {
+                    def fc:CodeClass (g.addClass(s.name))
+                    fc.fileName = s.fileName
+                    fc.stereotype = "component"
+                }
+            }
             i = (i + 1)
         }
         def f:int 0
@@ -67,6 +74,15 @@ class UastToCodeGraph {
                     cm.returns = ms.returns
                 }
                 set methodIds ms.id cm.id
+            }
+            if (ms.kind == "function") {
+                if (UastToCodeGraph.pascalName(ms.name)) {
+                    def fm:CodeMethod (g.addMethod(ms.name "render"))
+                    if ((strlen ms.returns) > 0) {
+                        fm.returns = ms.returns
+                    }
+                    set methodIds ms.id fm.id
+                }
             }
             m = (m + 1)
         }
@@ -108,5 +124,16 @@ class UastToCodeGraph {
         }
         def p:UastSymbol (model.symbolById(sym.parentSymbol))
         return p.name
+    }
+
+    sfn pascalName:boolean (name:string) {
+        if ((strlen name) == 0) {
+            return false
+        }
+        def ch:int (charAt name 0)
+        if ((ch >= 65) && (ch <= 90)) {
+            return true
+        }
+        return false
     }
 }

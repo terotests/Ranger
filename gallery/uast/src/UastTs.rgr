@@ -80,7 +80,7 @@ class UastTs {
         def m:UastCodeModel (UastSemantic.fromWorkspace(ws))
         m.title = root
         if ((array_length files) == 0) {
-            m.addDiagnostic((UastDiagnostic.create(("no .ts files under " + root) "error")))
+            m.addDiagnostic((UastDiagnostic.create(("no .ts/.tsx files under " + root) "error")))
         }
         return m
     }
@@ -142,10 +142,35 @@ class UastTs {
                 return false
             }
         }
+        if (UastTs.isTsxFile(name)) {
+            return true
+        }
         if (n >= 3) {
             if ((substring name (n - 3) n) == ".ts") {
                 return true
             }
+        }
+        return false
+    }
+
+    sfn isTsxFile:boolean (name:string) {
+        def n:int (strlen name)
+        if (n < 4) {
+            return false
+        }
+        if ((substring name (n - 4) n) == ".tsx") {
+            return true
+        }
+        return false
+    }
+
+    sfn isComponentName:boolean (name:string) {
+        if ((strlen name) == 0) {
+            return false
+        }
+        def ch:int (charAt name 0)
+        if ((ch >= 65) && (ch <= 90)) {
+            return true
         }
         return false
     }
@@ -208,6 +233,9 @@ class UastTs {
         def parser:TSParserSimple (new TSParserSimple())
         parser.initParser(tokens)
         parser.setQuiet(true)
+        if (UastTs.isTsxFile(path)) {
+            parser.setTsxMode(true)
+        }
         def program:TSNode (parser.parseProgram())
         if (parser.errorCount > 0) {
             r.addDiagnostic((UastDiagnostic.create(parser.firstErrorText "error")))
@@ -272,6 +300,9 @@ class UastTs {
             }
             if (st.nodeType == "FunctionDeclaration") {
                 this.addFunction(r st)
+            }
+            if (st.nodeType == "VariableDeclaration") {
+                this.addVarDecls(r st false)
             }
             if (st.nodeType == "TSTypeAliasDeclaration") {
                 this.addTypeAlias(r st)
@@ -347,14 +378,21 @@ class UastTs {
     }
 
     fn addFunction:UNode (r:UastFrontendResult ts:TSNode) {
+        return (this.addNamedFn(r ts ts.name))
+    }
+
+    fn addNamedFn:UNode (r:UastFrontendResult ts:TSNode name:string) {
         def node:UNode (UNode.create((this.nextId("n:fn:")) (UastKind.FunctionDecl()) "typescript" ts.nodeType))
-        node.name = ts.name
+        node.name = name
         if ((strlen node.name) == 0) {
             node.name = "default"
         }
         node.span = (this.spanOf(ts))
         node.origin = (UastOrigin.create("typescript" fileName node.name 1))
         node.comment = (this.commentsBefore(ts.start))
+        if (UastTs.isComponentName(node.name)) {
+            node.addFlag("component")
+        }
         r.addNode(node)
         def ret:UNode (UNode.create((this.nextId("n:ret:")) (UastKind.TypeRef()) "typescript" "type"))
         ret.name = (this.typeNameOf(ts.typeAnnotation))
@@ -382,6 +420,35 @@ class UastTs {
         node.addRole((UastChildRole.body()) block.id)
         this.walkStmt(r block bodyTs)
         return node
+    }
+
+    fn addVarDecls:void (r:UastFrontendResult ts:TSNode exported:boolean) {
+        def i:int 0
+        while (i < (array_length ts.children)) {
+            def d:TSNode (itemAt ts.children i)
+            if (d.nodeType == "VariableDeclarator") {
+                if (UastTs.isComponentName(d.name)) {
+                    if (null? d.init) {
+                    } {
+                        def init:TSNode (unwrap d.init)
+                        def isFn:boolean false
+                        if (init.nodeType == "ArrowFunctionExpression") {
+                            isFn = true
+                        }
+                        if (init.nodeType == "FunctionExpression") {
+                            isFn = true
+                        }
+                        if isFn {
+                            def fnN:UNode (this.addNamedFn(r init d.name))
+                            if exported {
+                                fnN.addFlag("export")
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
     }
 
     fn addTypeAlias:UNode (r:UastFrontendResult ts:TSNode) {
@@ -484,6 +551,9 @@ class UastTs {
                 ty.addFlag("export")
                 node.addRole((UastChildRole.element()) ty.id)
             }
+            if (decl.nodeType == "VariableDeclaration") {
+                this.addVarDecls(r decl true)
+            }
         }
         def i:int 0
         while (i < (array_length ts.children)) {
@@ -571,6 +641,21 @@ class UastTs {
             owner.addRole((UastChildRole.element()) newN.id)
             return
         }
+        if (ts.nodeType == "JSXElement") {
+            this.walkJsx(r owner ts)
+            return
+        }
+        if (ts.nodeType == "JSXFragment") {
+            this.walkJsxChildren(r owner ts)
+            return
+        }
+        if (ts.nodeType == "JSXExpressionContainer") {
+            if (null? ts.left) {
+                return
+            }
+            this.walkStmt(r owner (unwrap ts.left))
+            return
+        }
         if (ts.nodeType == "ExpressionStatement") {
             if (null? ts.left) {
                 return
@@ -639,6 +724,54 @@ class UastTs {
             ai = (ai + 1)
         }
         return newN
+    }
+
+    fn walkJsx:void (r:UastFrontendResult owner:UNode ts:TSNode) {
+        def tag:string ""
+        if (null? ts.left) {
+        } {
+            def opening:TSNode (unwrap ts.left)
+            tag = opening.name
+            def ai:int 0
+            while (ai < (array_length opening.children)) {
+                def attr:TSNode (itemAt opening.children ai)
+                if (null? attr.right) {
+                } {
+                    this.walkStmt(r owner (unwrap attr.right))
+                }
+                if (null? attr.left) {
+                } {
+                    this.walkStmt(r owner (unwrap attr.left))
+                }
+                ai = (ai + 1)
+            }
+        }
+        if (UastTs.isComponentName(tag)) {
+            def callN:UNode (this.buildJsxCall(r ts tag))
+            owner.addRole((UastChildRole.element()) callN.id)
+        }
+        this.walkJsxChildren(r owner ts)
+    }
+
+    fn walkJsxChildren:void (r:UastFrontendResult owner:UNode ts:TSNode) {
+        def i:int 0
+        while (i < (array_length ts.children)) {
+            this.walkStmt(r owner (itemAt ts.children i))
+            i = (i + 1)
+        }
+    }
+
+    fn buildJsxCall:UNode (r:UastFrontendResult ts:TSNode tag:string) {
+        def callN:UNode (UNode.create((this.nextId("n:jsx:")) (UastKind.Call()) "typescript" "JSXElement"))
+        callN.span = (this.spanOf(ts))
+        callN.name = tag
+        r.addNode(callN)
+        def idn:UNode (UNode.create((this.nextId("n:id:")) (UastKind.Identifier()) "typescript" "JSXIdentifier"))
+        idn.name = tag
+        idn.span = (this.spanOf(ts))
+        r.addNode(idn)
+        callN.addRole((UastChildRole.callee()) idn.id)
+        return callN
     }
 
     fn buildExpr:UNode (r:UastFrontendResult ts:TSNode) {

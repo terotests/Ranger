@@ -73,6 +73,9 @@ class UastTypeScript {
         if (nativeKind == "NumericLiteral") { return UastKind.Literal() }
         if (nativeKind == "BooleanLiteral") { return UastKind.Literal() }
         if (nativeKind == "NullLiteral") { return UastKind.Literal() }
+        if (nativeKind == "JSXElement") { return UastKind.LanguageSpecific() }
+        if (nativeKind == "JSXFragment") { return UastKind.LanguageSpecific() }
+        if (nativeKind == "JSXIdentifier") { return UastKind.Identifier() }
         if ((strlen nativeKind) == 0) {
             return UastKind.Unknown()
         }

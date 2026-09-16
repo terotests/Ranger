@@ -47,6 +47,7 @@ class UastTsTest {
         UastTsTest.testZipWriter(c)
         UastTsTest.testWorkspace(c)
         UastTsTest.testShapes(c)
+        UastTsTest.testTsx(c)
         UastTsTest.testFromDir(c)
         def code:int (c.report())
         if (code != 0) {
@@ -253,5 +254,70 @@ class UastTsTest {
         def g:CodeGraph (UastToCodeGraph.project(model))
         c.ok("dir projected ZipWriter" (g.hasClass("ZipWriter")))
         c.ok("dir projected Child" (g.hasClass("Child")))
+        c.ok("Card from dir" (model.mentionsSymbol("function:Card")))
+        c.ok("Page from dir" (model.mentionsSymbol("function:Page")))
+    }
+
+    sfn testTsx:void (c:UastTsChecker) {
+        print "== tsx function / arrow / class components"
+        def ws (new UastWorkspace)
+        ws.addResult((UastTs.parseFile("gallery/uast/fixtures/card.tsx")))
+        ws.addResult((UastTs.parseFile("gallery/uast/fixtures/page.tsx")))
+        ws.addResult((UastTs.parseFile("gallery/uast/fixtures/banner.tsx")))
+        ws.addResult((UastTs.parseFile("gallery/uast/fixtures/panel.tsx")))
+        def model:UastCodeModel (UastSemantic.fromWorkspace(ws))
+        c.ok("Card function" (model.mentionsSymbol("function:Card")))
+        c.ok("Page function" (model.mentionsSymbol("function:Page")))
+        c.ok("Banner arrow component" (model.mentionsSymbol("function:Banner")))
+        c.ok("Panel class" (model.mentionsSymbol("class:Panel")))
+        c.ok("CardProps type" (model.mentionsSymbol("class:CardProps")))
+        def foundPage:boolean false
+        def foundBanner:boolean false
+        def foundPanel:boolean false
+        def ri:int 0
+        while (ri < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships ri)
+            if ((rel.kind == "calls") && (rel.fromId == "function:Page") && (rel.toId == "function:Card")) {
+                foundPage = true
+            }
+            if ((rel.kind == "calls") && (rel.fromId == "function:Banner") && (rel.toId == "function:Card")) {
+                foundBanner = true
+            }
+            if ((rel.kind == "calls") && (rel.fromId == "method:Panel.render") && (rel.toId == "function:Card")) {
+                foundPanel = true
+            }
+            ri = (ri + 1)
+        }
+        c.ok("Page JSX calls Card" foundPage)
+        c.ok("Banner JSX calls Card" foundBanner)
+        c.ok("Panel.render JSX calls Card" foundPanel)
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        c.ok("projected Card component" (g.hasClass("Card")))
+        c.ok("projected Page component" (g.hasClass("Page")))
+        c.ok("projected Banner component" (g.hasClass("Banner")))
+        c.ok("projected Panel" (g.hasClass("Panel")))
+        c.ok("projected Card.render" (g.hasMethod("Card.render")))
+        c.ok("projected Page.render" (g.hasMethod("Page.render")))
+        c.ok("projected Panel.render" (g.hasMethod("Panel.render")))
+        def pageFn:UNode (new UNode)
+        def ni:int 0
+        while (ni < (array_length model.nodes)) {
+            def n:UNode (itemAt model.nodes ni)
+            if ((n.kind == "FunctionDecl") && (n.name == "Page")) {
+                pageFn = n
+            }
+            ni = (ni + 1)
+        }
+        def jsxCalls:[UNode] (UastQuery.ofKindUnder(model pageFn (UastKind.Call())))
+        c.ok("Page has a JSX Call" ((array_length jsxCalls) > 0))
+        if ((array_length jsxCalls) > 0) {
+            def call0:UNode (itemAt jsxCalls 0)
+            c.eqStr("jsx nativeKind" call0.nativeKind "JSXElement")
+            c.eqStr("jsx callee Card" (UastQuery.calleeMemberName(model call0)) "Card")
+            def dump:string (UastDump.ofNode(model call0.id))
+            print dump
+            c.ok("jsx dump exact" ((indexOf dump "confidence: exact") >= 0))
+            c.ok("jsx dump function:Card" ((indexOf dump "function:Card") >= 0))
+        }
     }
 }
