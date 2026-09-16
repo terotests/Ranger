@@ -686,13 +686,23 @@ frontend. Classes / structs, fields, methods, namespaces, `enum class`,
 and quoted `#include` walk into the same CodeModel. `this->crc.update(data)`
 is a Call whose dump matches the ZipWriter TS/Ranger shape (`method:CRC32.update`,
 exact). `<vector>` and other system headers stay diagnostics; there is
-no clang and no package manager. `npm run uast:cpp` / `uast:analyze --
-gallery/uast/fixtures/cpp`.
+no clang and no package manager. Angle-bracket includes resolve when the
+path is already in the workspace (`<AK/Array.h>`). `npm run uast:cpp` /
+`uast:analyze -- gallery/uast/fixtures/cpp`.
 Tried on p-ranav/argparse in `/tmp` (not vendored): `Argument` /
 `ArgumentParser`, template structs such as `HasContainerTraits`,
 `HasContainerTraits<T>::value`, `if constexpr`, and `>>` as two template
 closes. System headers stay diagnostics. Remaining parse noise is a
 lambda inside `repr`; analysis continues.
+Tried on skift-org/skift (`src/kernel`, not vendored): C++20 `import` /
+`export module` skipped, `[[gnu::packed]]`, `asm volatile`, `try$`.
+`Io` / `Vmm` / `Pmm` / `Task` / `Domain` / `Object`, exact calls such as
+`Io.read → Io.in` and `Task.ret → signal`.
+Tried on SerenityOS `AK/` (sparse `/tmp` checkout, not vendored): 243
+files, `Array` / `HashMap` / `Optional` / `RefPtr` / `String` /
+`ByteBuffer`, 435 exact calls (`Array.from_span → TypedTransfer.copy`).
+`<AK/...>` includes bind in-workspace; remaining parse noise does not
+stop analysis.
 
 ---
 

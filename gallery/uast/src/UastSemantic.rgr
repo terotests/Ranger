@@ -1156,6 +1156,13 @@ class UastSemantic {
     }
 
     sfn resolveModulePath:string (m:UastCodeModel fromFile:string spec:string) {
+        def nspec:int (strlen spec)
+        if (nspec >= 2) {
+            if (((charAt spec 0) == 60) && ((charAt spec (nspec - 1)) == 62)) {
+                def inner:string (substring spec 1 (nspec - 1))
+                return (UastSemantic.findWorkspaceFile(m inner false))
+            }
+        }
         def allowBase:boolean true
         if ((strlen spec) > 0) {
             if ((charAt spec 0) == ((ccode "."))) {

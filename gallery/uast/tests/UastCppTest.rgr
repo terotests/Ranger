@@ -129,6 +129,7 @@ class UastCppTest {
         c.ok("ping_all" (model.mentionsSymbol("function:ping_all")))
         c.ok("ZipWriter from dir" (model.mentionsSymbol("class:ZipWriter")))
         c.ok("no unresolved helper.hpp" ((UastQuery.diagnosticMentions(model "unresolved import helper.hpp")) == false))
+        c.ok("angle helper.hpp in workspace" ((UastQuery.diagnosticMentions(model "unresolved import <helper.hpp>")) == false))
         c.ok("system vector stays diagnostic" (UastQuery.diagnosticMentions(model "unresolved import <vector>")))
         def foundPing:boolean false
         def ri:int 0

@@ -336,11 +336,25 @@ class CppParser {
         if (typ == "Preprocessor") {
             return (this.parsePreprocessor())
         }
+        if ((v == "module") || (v == "import")) {
+            return (this.parseModuleDirective())
+        }
+        if (v == "export") {
+            def nxt:string (this.peekNextValue())
+            if ((nxt == "module") || (nxt == "import")) {
+                return (this.parseModuleDirective())
+            }
+            this.advance()
+            return (this.parseTop())
+        }
         if (v == "namespace") {
             return (this.parseNamespace())
         }
         if (v == "static_assert") {
             return (this.parseStaticAssert())
+        }
+        if ((v == "asm") || ((v == "__asm__") || (v == "__asm"))) {
+            return (this.parseAsm())
         }
         if (v == "template") {
             this.advance()
@@ -412,6 +426,24 @@ class CppParser {
         return n
     }
 
+    fn parseModuleDirective:CppNode () {
+        def tok:CppToken (this.peek())
+        def n (this.nodeFromTok("ModuleDeclaration" tok))
+        this.eatValue("export")
+        if ((this.peekValue()) == "import") {
+            this.advance()
+            n.nodeType = "ImportDeclaration"
+            n.kind = "module"
+        } {
+            this.eatValue("module")
+        }
+        while (((this.matchValue(";")) == false) && ((this.isAtEnd()) == false)) {
+            this.advance()
+        }
+        this.eatValue(";")
+        return n
+    }
+
     fn includePath:string (rest:string) {
         def q:int (indexOf rest "\"")
         def a:int (indexOf rest "<")
@@ -463,6 +495,7 @@ class CppParser {
         def kw:CppToken (this.advance())
         def n (this.nodeFromTok("ClassDeclaration" kw))
         n.kind = kw.value
+        this.skipAttributes()
         if (this.matchValue("alignas")) {
             this.advance()
             this.skipBalanced("(" ")")
@@ -595,6 +628,20 @@ class CppParser {
     fn parseStaticAssert:CppNode () {
         def tok:CppToken (this.advance())
         def n (this.nodeFromTok("StaticAssert" tok))
+        if (this.matchValue("(")) {
+            this.skipBalanced("(" ")")
+        }
+        this.eatValue(";")
+        return n
+    }
+
+    fn parseAsm:CppNode () {
+        def tok:CppToken (this.advance())
+        def n (this.nodeFromTok("AsmStatement" tok))
+        this.eatValue("volatile")
+        this.eatValue("goto")
+        this.eatValue("inline")
+        this.eatValue("volatile")
         if (this.matchValue("(")) {
             this.skipBalanced("(" ")")
         }
@@ -816,7 +863,11 @@ class CppParser {
             return true
         }
         if (this.matchValue("(")) {
-            return true
+            def nxt:string (this.peekNextValue())
+            if ((nxt == "*") || ((nxt == "&") || (nxt == "("))) {
+                return true
+            }
+            return false
         }
         return false
     }
@@ -1029,6 +1080,9 @@ class CppParser {
         }
         field.name = name
         field.typeAnnotation = typeN
+        if (this.eatValue(":")) {
+            def _w:CppNode (this.parseExpr())
+        }
         if (this.matchValue("[")) {
             this.skipBalanced("[" "]")
         }
@@ -1127,6 +1181,9 @@ class CppParser {
         }
         if (v == "static_assert") {
             return (this.parseStaticAssert())
+        }
+        if ((v == "asm") || ((v == "__asm__") || (v == "__asm"))) {
+            return (this.parseAsm())
         }
         if (v == "for") {
             return (this.parseFor())
@@ -1575,6 +1632,12 @@ class CppParser {
         if (v == "enum") { return false }
         if (v == "namespace") { return false }
         if (v == "using") { return false }
+        if (v == "import") { return false }
+        if (v == "module") { return false }
+        if (v == "export") { return false }
+        if (v == "asm") { return false }
+        if (v == "__asm__") { return false }
+        if (v == "__asm") { return false }
         if (v == "new") { return false }
         if (v == "delete") { return false }
         return true

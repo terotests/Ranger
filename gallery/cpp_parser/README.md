@@ -9,8 +9,9 @@ It tokenises C++17 source (comments, raw strings, preprocessor lines) and
 builds a small AST: `#include`, `namespace`, `class` / `struct`, fields,
 methods, free functions, and enough expressions that `this->crc.update(data)`
 is a Call. Templates are parsed as syntax on the declaration, not instantiated.
-System headers (`#include <vector>`) stay diagnostics; quoted includes resolve
-against files already in the UAST workspace.
+C++20 `import` / `export module` lines are skipped. System headers
+(`#include <vector>`) stay diagnostics; quoted includes and angle-bracket
+paths that already exist in the UAST workspace (`<AK/Array.h>`) resolve.
 
 ```bash
 npm run uast:cpp

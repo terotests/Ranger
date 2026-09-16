@@ -104,6 +104,9 @@ class CppLexer {
         if (c == 95) {
             return true
         }
+        if (c == 36) {
+            return true
+        }
         if (c > 127) {
             return true
         }
@@ -164,12 +167,14 @@ class CppLexer {
         if (w == "goto") { return true }
         if (w == "if") { return true }
         if (w == "inline") { return true }
+        if (w == "import") { return true }
         if (w == "int") { return true }
         if (w == "long") { return true }
         if (w == "mutable") { return true }
         if (w == "namespace") { return true }
         if (w == "new") { return true }
         if (w == "noexcept") { return true }
+        if (w == "module") { return true }
         if (w == "not") { return true }
         if (w == "not_eq") { return true }
         if (w == "nullptr") { return true }
