@@ -1,0 +1,238 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CodeGraphBench.rgr — wall-clock stages for opening a Ranger file.
+; ============================================================================
+;
+; Same pipeline as CodeGraphBuilder.fromFile / the SDL Open path, with a
+; timer on each step so JS and C++ hosts can be compared.
+;
+;   npm run codegraph:bench
+;   npm run codegraph:bench -- gallery/realtrainer/src/RealTrainerDemo.rgr
+;   npm run codegraph:bench:cpp
+;   npm run codegraph:bench:cpp -- gallery/realtrainer/src/RealTrainerDemo.rgr
+;
+; Lines starting BENCH are the machine-readable result. `total` is compile
+; through first UML layout — what you wait for when a project opens.
+; ============================================================================
+
+Import "../../../compiler/VirtualCompiler.rgr"
+Import "../../uast/src/UastRanger.rgr"
+Import "../../uast/src/UastSemantic.rgr"
+Import "../../uast/src/UastCodeGraph.rgr"
+Import "../src/CodeGraphModel.rgr"
+Import "../src/CodeGraphFlow.rgr"
+
+class CodeGraphBench {
+    sfn main:void () {
+        def path:string "gallery/codegraph/fixtures/calls.rgr"
+        if ((shell_arg_cnt) >= 1) {
+            path = (shell_arg 0)
+        }
+        print "# CodeGraph analyzer bench"
+        print ("# target " + path)
+        CodeGraphBench.run(path)
+    }
+
+    sfn padName:string (name:string) {
+        def out:string name
+        while ((strlen out) < 24) {
+            out = (out + " ")
+        }
+        return out
+    }
+
+    sfn emit:void (name:string t0:double t1:double) {
+        def ms:double (t1 - t0)
+        print ((("BENCH  " + (CodeGraphBench.padName(name))) + "  ") + (to_string ms))
+    }
+
+    sfn compileCtx:RangerAppWriterContext (path:string) {
+        def env:InputEnv (new InputEnv)
+        env.use_real = true
+        env.setEnv("RANGER_LIB" "./compiler/;./lib/;./compiler")
+        def params:CmdParams (new CmdParams)
+        push params.values path
+        set params.params "l" "es6"
+        set params.params "d" "/tmp"
+        set params.params "o" "codegraph_bench_ignored.js"
+        set params.flags "no-color" true
+        env.commandLine = params
+        def vc:VirtualCompiler (new VirtualCompiler)
+        def res:CompilerResults (vc.run(env))
+        if res.hasErrors {
+            print (("FAIL compile " + path) + " " + res.errorMessage)
+            exit 1
+        }
+        def ctx@(optional):RangerAppWriterContext res.ctx
+        if (null? ctx) {
+            print ("FAIL no context " + path)
+            exit 1
+        }
+        def appCtx:RangerAppWriterContext (unwrap ctx)
+        if ((array_length appCtx.compilerErrors) > 0) {
+            def err:RangerCompilerMessage (itemAt appCtx.compilerErrors 0)
+            print (("FAIL " + path) + " " + err.description)
+            exit 1
+        }
+        return appCtx
+    }
+
+    sfn modelFromParse:UastCodeModel (parsed:UastFrontendResult) {
+        def m (new UastCodeModel)
+        m.title = parsed.title
+        m.language = parsed.language
+        def fi:int 0
+        while (fi < (array_length parsed.files)) {
+            def f:UastSourceFile (itemAt parsed.files fi)
+            push m.files f
+            fi = (fi + 1)
+        }
+        def ni:int 0
+        while (ni < (array_length parsed.nodes)) {
+            def node:UNode (itemAt parsed.nodes ni)
+            m.addNode(node)
+            ni = (ni + 1)
+        }
+        def di:int 0
+        while (di < (array_length parsed.diagnostics)) {
+            def d:UastDiagnostic (itemAt parsed.diagnostics di)
+            m.addDiagnostic(d)
+            di = (di + 1)
+        }
+        return m
+    }
+
+    sfn resolveMembers:void (m:UastCodeModel) {
+        def i:int 0
+        while (i < (array_length m.nodes)) {
+            def n:UNode (itemAt m.nodes i)
+            def isFn:boolean false
+            if (n.kind == "MethodDecl") {
+                isFn = true
+            }
+            if (n.kind == "FunctionDecl") {
+                isFn = true
+            }
+            if isFn {
+                UastSemantic.walkResolveMembers(m n)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn run:void (path:string) {
+        def tAll:double (wall_clock_ms)
+
+        def t0:double (wall_clock_ms)
+        def ctx:RangerAppWriterContext (CodeGraphBench.compileCtx(path))
+        def t1:double (wall_clock_ms)
+        CodeGraphBench.emit("compile" t0 t1)
+        print (("BENCH  meta defined_classes     " + (to_string (array_length ctx.definedClassList))))
+
+        def front (new UastRanger)
+        def t2:double (wall_clock_ms)
+        def parsed:UastFrontendResult (front.parseContext(ctx))
+        def t3:double (wall_clock_ms)
+        CodeGraphBench.emit("uast.parse" t2 t3)
+        print (("BENCH  meta uast_nodes          " + (to_string (array_length parsed.nodes))))
+        print (("BENCH  meta uast_files          " + (to_string (array_length parsed.files))))
+        print (("BENCH  meta uast_hints          " + (to_string (array_length parsed.hints))))
+
+        def t4:double (wall_clock_ms)
+        def model:UastCodeModel (CodeGraphBench.modelFromParse(parsed))
+        def t5:double (wall_clock_ms)
+        CodeGraphBench.emit("semantic.copy" t4 t5)
+
+        def t6:double (wall_clock_ms)
+        UastSemantic.indexDeclarations(model)
+        def t7:double (wall_clock_ms)
+        CodeGraphBench.emit("semantic.index" t6 t7)
+
+        def t8:double (wall_clock_ms)
+        UastSemantic.applyContains(model)
+        def t9:double (wall_clock_ms)
+        CodeGraphBench.emit("semantic.contains" t8 t9)
+
+        def tLook:double (wall_clock_ms)
+        UastSemantic.indexLookups(model)
+        def tLook1:double (wall_clock_ms)
+        CodeGraphBench.emit("semantic.lookups" tLook tLook1)
+
+        def t10:double (wall_clock_ms)
+        UastSemantic.applyHints(model parsed)
+        def t11:double (wall_clock_ms)
+        CodeGraphBench.emit("semantic.hints" t10 t11)
+
+        def t12:double (wall_clock_ms)
+        UastSemantic.resolveImports(model)
+        def t13:double (wall_clock_ms)
+        CodeGraphBench.emit("semantic.imports" t12 t13)
+
+        def t14:double (wall_clock_ms)
+        UastSemantic.resolveTypeRefs(model)
+        def t15:double (wall_clock_ms)
+        CodeGraphBench.emit("semantic.types" t14 t15)
+
+        def t16:double (wall_clock_ms)
+        UastSemantic.resolveIdents(model)
+        def t17:double (wall_clock_ms)
+        CodeGraphBench.emit("semantic.idents" t16 t17)
+
+        def t18:double (wall_clock_ms)
+        UastSemantic.inferNewTypes(model)
+        def t19:double (wall_clock_ms)
+        CodeGraphBench.emit("semantic.infer" t18 t19)
+
+        def t20:double (wall_clock_ms)
+        CodeGraphBench.resolveMembers(model)
+        def t21:double (wall_clock_ms)
+        CodeGraphBench.emit("semantic.members" t20 t21)
+
+        def t22:double (wall_clock_ms)
+        UastSemantic.resolveMembersFixpoint(model)
+        def t23:double (wall_clock_ms)
+        CodeGraphBench.emit("semantic.fixpoint" t22 t23)
+
+        def t24:double (wall_clock_ms)
+        UastSemantic.resolveCalls(model)
+        def t25:double (wall_clock_ms)
+        CodeGraphBench.emit("semantic.calls" t24 t25)
+
+        def t26:double (wall_clock_ms)
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        g.title = path
+        def t27:double (wall_clock_ms)
+        CodeGraphBench.emit("project" t26 t27)
+        print (("BENCH  meta classes             " + (to_string (g.classCount()))))
+        print (("BENCH  meta methods             " + (to_string (g.methodCount()))))
+
+        if ((g.classCount()) == 0) {
+            print ("FAIL no classes in " + path)
+            exit 1
+        }
+
+        def t28:double (wall_clock_ms)
+        def session:CodeGraphSession (CodeGraphSession.of(g 24))
+        session.openInitial(session.pages.umlPageId(0))
+        def t29:double (wall_clock_ms)
+        CodeGraphBench.emit("pages" t28 t29)
+
+        def t30:double (wall_clock_ms)
+        def fg:FlowGraph (session.graph())
+        def t31:double (wall_clock_ms)
+        CodeGraphBench.emit("layout" t30 t31)
+        print (("BENCH  meta drawn_nodes         " + (to_string (fg.nodeCount()))))
+        print (("BENCH  meta drawn_edges         " + (to_string (fg.edgeCount()))))
+
+        def tEnd:double (wall_clock_ms)
+        CodeGraphBench.emit("total" tAll tEnd)
+
+        if ((indexOf path "calls.rgr") >= 0) {
+            if ((g.hasClass("Order")) == false) {
+                print "FAIL expected class Order"
+                exit 1
+            }
+        }
+    }
+}
