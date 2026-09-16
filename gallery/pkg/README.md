@@ -203,6 +203,7 @@ proves nothing.
 
 ```bash
 npm run pkg:test
+npm run pkg:test:targets   # every Ranger language; run where the toolchain is installed
 ```
 
 **License: AGPL-3.0-or-later** (this directory is under `gallery/`).

@@ -293,7 +293,8 @@ class PkgTest {
         def lines:[string] (strsplit text "\n")
         def head:string ""
         def helloSha:string ""
-        def helloText:string (buffer_to_string ((buffer_read_file "gallery/pkg/fixtures" "hello.txt")))
+        def helloBuf:buffer (buffer_read_file "gallery/pkg/fixtures" "hello.txt")
+        def helloText:string (buffer_to_string helloBuf)
         def i:int 0
         while (i < (array_length lines)) {
             def line:string (itemAt lines i)

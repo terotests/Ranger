@@ -7,12 +7,19 @@
 ; inside 32-bit lanes the same way gallery/zip/CRC32.rgr does.
 
 class GitSha1 {
+    ; Force 32-bit wrap. JS `| 0` is ToInt32; Go/Rust int is 64-bit, so
+    ; SHA-1 constants like 4023233417 would otherwise keep growing.
     sfn add32:int (a:int b:int) {
-        return (bit_or (a + b) 0)
+        return (bit_and (a + b) 4294967295)
+    }
+
+    sfn not32:int (x:int) {
+        return (bit_and (bit_not x) 4294967295)
     }
 
     sfn rotl:int (x:int n:int) {
-        return (bit_or (bit_shl x n) (bit_ushr x (32 - n)))
+        def u:int (bit_and x 4294967295)
+        return (bit_and (bit_or (bit_shl u n) (bit_ushr u (32 - n))) 4294967295)
     }
 
     sfn copyRange:buffer (data:buffer start:int count:int) {
@@ -173,7 +180,7 @@ class GitSha1 {
                 def f:int 0
                 def k:int 0
                 if (t < 20) {
-                    f = (bit_or (bit_and b c) (bit_and (bit_not b) d))
+                    f = (bit_or (bit_and b c) (bit_and (GitSha1.not32(b)) d))
                     k = 1518500249
                 }
                 if ((t >= 20) && (t < 40)) {
