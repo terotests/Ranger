@@ -5,9 +5,15 @@
 ;   pkg_tool sha1 <file>
 ;   pkg_tool refs <advertise.bin>
 ;   pkg_tool want <advertise.bin> <rev> <want.bin>
+;   pkg_tool want-trees <advertise.bin> <rev> <want.bin>
+;   pkg_tool want-shallow <advertise.bin> <rev> <want.bin>
+;   pkg_tool want-sha <sha> <want.bin>
+;   pkg_tool want-v2 <sha> <want.bin> [filter]
 ;   pkg_tool unpack <pack>
 ;   pkg_tool checkout <pack> <rev> [subdir] <out-dir>
 ;   pkg_tool fetch-checkout <response.bin> <rev> [subdir] <out-dir>
+;   pkg_tool sparse-tree <response.bin> <commit> [subdir]
+;   pkg_tool fetch-merge <trees.bin> <blobs.bin> <commit> [subdir] <out-dir>
 ;   pkg_tool resolve <ranger.json> <import> [importer]
 ;   pkg_tool tree <ranger.json>
 ;   pkg_tool lock <ranger.json>
@@ -49,13 +55,36 @@ class PkgTool {
         return (buffer_read_file (itemAt parts 0) (itemAt parts 1))
     }
 
+    sfn loadPack:GitPack (path:string) {
+        def data:buffer (PkgTool.readFile(path))
+        def sb:GitSideband (GitPktIO.demux(data))
+        def raw:buffer data
+        if sb.ok {
+            if ((buffer_length sb.pack) > 0) {
+                raw = sb.pack
+            }
+        }
+        return (GitPackIO.parse(raw))
+    }
+
+    sfn writeWant:void (w:GitWant dest:string) {
+        def parts:[string] (PkgTool.splitPath(dest))
+        buffer_write_file (itemAt parts 0) (itemAt parts 1) w.body
+    }
+
     sfn usage:void () {
         print "pkg_tool sha1 <file>"
         print "pkg_tool refs <advertise.bin>"
         print "pkg_tool want <advertise.bin> <rev> <want.bin>"
+        print "pkg_tool want-trees <advertise.bin> <rev> <want.bin>"
+        print "pkg_tool want-shallow <advertise.bin> <rev> <want.bin>"
+        print "pkg_tool want-sha <sha> <want.bin>"
+        print "pkg_tool want-v2 <sha> <want.bin> [filter]"
         print "pkg_tool unpack <pack>"
         print "pkg_tool checkout <pack> <sha> [subdir] <out-dir>"
         print "pkg_tool fetch-checkout <response.bin> <sha> [subdir] <out-dir>"
+        print "pkg_tool sparse-tree <response.bin> <commit> [subdir]"
+        print "pkg_tool fetch-merge <trees.bin> <blobs.bin> <commit> [subdir] <out-dir>"
         print "pkg_tool resolve <ranger.json> <import> [importer]"
         print "pkg_tool tree <ranger.json>"
         print "pkg_tool lock <ranger.json>"
@@ -103,8 +132,55 @@ class PkgTool {
                 return
             }
             print w.sha
-            def dest:[string] (PkgTool.splitPath((shell_arg 3)))
-            buffer_write_file (itemAt dest 0) (itemAt dest 1) w.body
+            PkgTool.writeWant(w (shell_arg 3))
+            return
+        }
+        if (cmd == "want-trees") {
+            def advT:GitAdvertisement (GitPktIO.parseAdvertisement((PkgTool.readFile((shell_arg 1)))))
+            def wt:GitWant (GitPktIO.buildWantTrees(advT (shell_arg 2)))
+            if (wt.ok == false) {
+                print ("FAIL " + wt.err)
+                return
+            }
+            print wt.sha
+            PkgTool.writeWant(wt (shell_arg 3))
+            return
+        }
+        if (cmd == "want-shallow") {
+            def advSh:GitAdvertisement (GitPktIO.parseAdvertisement((PkgTool.readFile((shell_arg 1)))))
+            def shaSh:string (GitPktIO.findRef(advSh (shell_arg 2)))
+            def extrasSh:[string]
+            def wsh:GitWant (GitPktIO.buildWantFetch(shaSh 1 "" extrasSh))
+            if (wsh.ok == false) {
+                print ("FAIL " + wsh.err)
+                return
+            }
+            print wsh.sha
+            PkgTool.writeWant(wsh (shell_arg 3))
+            return
+        }
+        if (cmd == "want-sha") {
+            def ws:GitWant (GitPktIO.buildWantSha((shell_arg 1)))
+            if (ws.ok == false) {
+                print ("FAIL " + ws.err)
+                return
+            }
+            print ws.sha
+            PkgTool.writeWant(ws (shell_arg 2))
+            return
+        }
+        if (cmd == "want-v2") {
+            def filt:string ""
+            if (n >= 4) {
+                filt = (shell_arg 3)
+            }
+            def wv:GitWant (GitPktIO.buildFetchV2((shell_arg 1) 1 filt))
+            if (wv.ok == false) {
+                print ("FAIL " + wv.err)
+                return
+            }
+            print wv.sha
+            PkgTool.writeWant(wv (shell_arg 2))
             return
         }
         if (cmd == "unpack") {
@@ -173,6 +249,56 @@ class PkgTool {
             create_dir out2
             store2.writeDisk(mem2 out2)
             print ("files " + (to_string (array_length mem2.files)))
+            return
+        }
+        if (cmd == "sparse-tree") {
+            def packS:GitPack (PkgTool.loadPack((shell_arg 1)))
+            if (packS.ok == false) {
+                print ("FAIL " + packS.err)
+                return
+            }
+            def subS:string ""
+            if (n >= 4) {
+                subS = (shell_arg 3)
+            }
+            def storeS (new GitStore(packS))
+            def treeSha:string (storeS.treeAt((shell_arg 2) subS))
+            if (storeS.ok == false) {
+                print ("FAIL " + storeS.err)
+                return
+            }
+            print ("tree " + treeSha)
+            return
+        }
+        if (cmd == "fetch-merge") {
+            if (n < 5) {
+                PkgTool.usage()
+                return
+            }
+            def packA:GitPack (PkgTool.loadPack((shell_arg 1)))
+            def packB:GitPack (PkgTool.loadPack((shell_arg 2)))
+            def merged:GitPack (GitPackIO.merge(packA packB))
+            if (merged.ok == false) {
+                print ("FAIL " + merged.err)
+                return
+            }
+            def shaM:string (shell_arg 3)
+            def subM:string ""
+            def outM:string (shell_arg 4)
+            if (n >= 6) {
+                subM = (shell_arg 4)
+                outM = (shell_arg 5)
+            }
+            def storeM (new GitStore(merged))
+            def memM:GitMem (storeM.checkout(shaM subM))
+            if (storeM.ok == false) {
+                print ("FAIL " + storeM.err)
+                return
+            }
+            create_dir outM
+            storeM.writeDisk(memM outM)
+            print ("files " + (to_string (array_length memM.files)))
+            print ("objects " + (to_string merged.count))
             return
         }
         if (cmd == "resolve") {

@@ -47,7 +47,9 @@ That is the same stance as ZIP and Zstandard in this gallery.
   and optionally writes a directory. `subdir` is how a git dependency
   names `gallery/evg` inside Ranger.git.
 - **S3 — pkt-line + smart HTTP.** Advertisement, want/done,
-  side-band-64k. Node `git-http.mjs` is the pipe.
+  side-band-64k. Node `git-http.mjs` is the pipe. Sparse fetch: `deepen 1` +
+  `filter blob:none`, then `want` the `subdir` tree SHA (protocol v2
+  `command=fetch` is `pkg_tool want-v2`).
 - **S4 — manifest / lock / resolver.** `pkg:name`, `pkg:name/path`,
   `./relative`. Path deps. Lock dump. Vendor copy.
 - **S5 — compiler hook.** `cmdImport` resolves `pkg:` and `./` through `compiler/PkgImport.rgr` (MIT): walk up to `ranger.json`, path deps, `vendor/ranger/<name>`, lockfile sha256 cache. Fetching still lives in `gallery/pkg`.

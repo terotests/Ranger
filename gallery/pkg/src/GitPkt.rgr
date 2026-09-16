@@ -132,6 +132,13 @@ class GitPktIO {
                 push pkt.raw (GitSha1.copyRange(data at 4))
                 at = (at + 4)
             } {
+                ; protocol v2: 0001 delim, 0002 response-end — four bytes, no body
+                if ((len == 1) || (len == 2)) {
+                    push pkt.isFlush true
+                    push pkt.lines ""
+                    push pkt.raw (GitSha1.copyRange(data at 4))
+                    at = (at + 4)
+                } {
                 if (len < 4) {
                     pkt.ok = false
                     pkt.err = "pkt-line length < 4"
@@ -147,6 +154,7 @@ class GitPktIO {
                 push pkt.lines (GitSha1.ascii(body 0 (buffer_length body)))
                 push pkt.isFlush false
                 at = (at + len)
+                }
             }
         }
         return pkt
@@ -259,6 +267,71 @@ class GitPktIO {
         return ""
     }
 
+    sfn hasToken:boolean (caps:string name:string) {
+        def n:int (strlen caps)
+        def m:int (strlen name)
+        if (m == 0) {
+            return false
+        }
+        def i:int 0
+        while (i <= (n - m)) {
+            if ((substring caps i (i + m)) == name) {
+                def left:boolean false
+                if (i == 0) {
+                    left = true
+                } {
+                    def lc:int (charAt caps (i - 1))
+                    if ((lc == 32) || (lc == 10) || (lc == 0)) {
+                        left = true
+                    }
+                }
+                def right:boolean false
+                if ((i + m) == n) {
+                    right = true
+                } {
+                    def rc:int (charAt caps (i + m))
+                    if ((rc == 32) || (rc == 10) || (rc == 0) || (rc == 61)) {
+                        right = true
+                    }
+                }
+                if (left && right) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn joinBuf:buffer (parts:[buffer]) {
+        def total:int 0
+        def i:int 0
+        while (i < (array_length parts)) {
+            total = (total + (buffer_length (itemAt parts i)))
+            i = (i + 1)
+        }
+        def out:buffer (buffer_alloc total)
+        def at:int 0
+        i = 0
+        while (i < (array_length parts)) {
+            def p:buffer (itemAt parts i)
+            def pn:int (buffer_length p)
+            buffer_copy out at p 0 pn
+            at = (at + pn)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn encodeDelim:buffer () {
+        def raw:buffer (buffer_alloc 4)
+        buffer_set raw 0 48
+        buffer_set raw 1 48
+        buffer_set raw 2 48
+        buffer_set raw 3 49
+        return raw
+    }
+
     sfn buildWant:GitWant (adv:GitAdvertisement spec:string) {
         def w (new GitWant)
         def sha:string (GitPktIO.findRef(adv spec))
@@ -267,19 +340,91 @@ class GitPktIO {
             w.err = ("unknown rev: " + spec)
             return w
         }
+        def extras:[string]
+        return (GitPktIO.buildWantFetch(sha 0 "" extras))
+    }
+
+    ; v1 want/done. deepen 1 drops history; filter blob:none drops blobs
+    ; (trees stay). Extra SHAs are further `want` lines — GitHub advertises
+    ; allow-reachable-sha1-in-want so a tree SHA is enough for a subdir.
+    sfn buildWantFetch:GitWant (sha:string deepen:int filter:string extras:[string]) {
+        def w (new GitWant)
+        if ((strlen sha) != 40) {
+            w.ok = false
+            w.err = "want needs a 40-char sha"
+            return w
+        }
         w.sha = sha
-        def caps:string "multi_ack_detailed no-done side-band-64k ofs-delta thin-pack agent=ranger-pkg/0.1"
-        def first:string ("want " + sha + " " + caps + "\n")
-        def done:string "done\n"
-        def a:buffer (GitPktIO.encodeLine(first))
-        def b:buffer (GitPktIO.encodeFlush())
-        def c:buffer (GitPktIO.encodeLine(done))
-        def total:int (((buffer_length a) + (buffer_length b)) + (buffer_length c))
-        def body:buffer (buffer_alloc total)
-        buffer_copy body 0 a 0 (buffer_length a)
-        buffer_copy body (buffer_length a) b 0 (buffer_length b)
-        buffer_copy body ((buffer_length a) + (buffer_length b)) c 0 (buffer_length c)
-        w.body = body
+        def caps:string "multi_ack_detailed no-done side-band-64k ofs-delta agent=ranger-pkg/0.1"
+        if (deepen > 0) {
+            caps = (caps + " shallow")
+        }
+        if ((strlen filter) > 0) {
+            caps = (caps + " filter")
+        }
+        def parts:[buffer]
+        push parts (GitPktIO.encodeLine(("want " + sha + " " + caps + "\n")))
+        def i:int 0
+        while (i < (array_length extras)) {
+            push parts (GitPktIO.encodeLine(("want " + (itemAt extras i) + "\n")))
+            i = (i + 1)
+        }
+        if (deepen > 0) {
+            push parts (GitPktIO.encodeLine(("deepen " + (to_string deepen) + "\n")))
+        }
+        if ((strlen filter) > 0) {
+            push parts (GitPktIO.encodeLine(("filter " + filter + "\n")))
+        }
+        push parts (GitPktIO.encodeFlush())
+        push parts (GitPktIO.encodeLine("done\n"))
+        w.body = (GitPktIO.joinBuf(parts))
+        return w
+    }
+
+    sfn buildWantTrees:GitWant (adv:GitAdvertisement spec:string) {
+        def w (new GitWant)
+        def sha:string (GitPktIO.findRef(adv spec))
+        if ((strlen sha) != 40) {
+            w.ok = false
+            w.err = ("unknown rev: " + spec)
+            return w
+        }
+        def extras:[string]
+        def filter:string ""
+        if (GitPktIO.hasToken(adv.caps "filter")) {
+            filter = "blob:none"
+        }
+        return (GitPktIO.buildWantFetch(sha 1 filter extras))
+    }
+
+    sfn buildWantSha:GitWant (sha:string) {
+        def extras:[string]
+        return (GitPktIO.buildWantFetch(sha 0 "" extras))
+    }
+
+    ; Protocol v2 fetch (gitprotocol-v2). Same deepen/filter as v1; GitHub
+    ; wants the argument pkt-lines without a trailing LF.
+    sfn buildFetchV2:GitWant (sha:string deepen:int filter:string) {
+        def w (new GitWant)
+        if ((strlen sha) != 40) {
+            w.ok = false
+            w.err = "want needs a 40-char sha"
+            return w
+        }
+        w.sha = sha
+        def parts:[buffer]
+        push parts (GitPktIO.encodeLine("command=fetch"))
+        push parts (GitPktIO.encodeDelim())
+        push parts (GitPktIO.encodeLine(("want " + sha)))
+        if (deepen > 0) {
+            push parts (GitPktIO.encodeLine(("deepen " + (to_string deepen))))
+        }
+        if ((strlen filter) > 0) {
+            push parts (GitPktIO.encodeLine(("filter " + filter)))
+        }
+        push parts (GitPktIO.encodeLine("done"))
+        push parts (GitPktIO.encodeFlush())
+        w.body = (GitPktIO.joinBuf(parts))
         return w
     }
 

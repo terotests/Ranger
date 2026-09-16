@@ -62,7 +62,7 @@ checks out the tree:
 ```bash
 npm run pkg:tool
 node gallery/pkg/tools/clone.mjs https://github.com/terotests/Ranger.git \
-  HEAD /tmp/ranger-src gallery/pkg
+  HEAD /tmp/ranger-evg gallery/evg
 ```
 
 ## What a package is
@@ -129,6 +129,17 @@ or `RANGER_PKG_CACHE` / `~/.cache/ranger/packages/<sha256>` from `ranger.lock`.
 It does not fetch Git — that stays in this directory. `rgrc` reads the nearest
 `ranger.json` automatically.
 
+A Git dependency with `subdir` is **not** a full clone. Deno never clones for
+HTTP imports either: it GETs the files the module graph names. Here the graph
+is a Git tree. `clone.mjs` does two smart-HTTP rounds:
+
+1. `deepen 1` + `filter blob:none` — one commit and its trees (~280 KB on Ranger.git)
+2. `want` the subtree SHA (`allow-reachable-sha1-in-want`) — blobs under that path (~2.5 MB for `gallery/evg`)
+
+Protocol v2 `command=fetch` with the same deepen/filter is `pkg_tool want-v2`.
+GitHub still speaks v1 with `filter` / `shallow`; that is what `clone.mjs` posts
+today. Without `subdir`, one `deepen 1` snapshot of the whole tree.
+
 Gallery `PackageResolver` is the same idea for tools (`pkg_tool resolve`,
 `install`, `cache-put`, `vendor`).
 
@@ -156,9 +167,15 @@ Gallery `PackageResolver` is the same idea for tools (`pkg_tool resolve`,
 pkg_tool sha1 <file>
 pkg_tool refs <advertise.bin>
 pkg_tool want <advertise.bin> <rev> <want.bin>
+pkg_tool want-trees <advertise.bin> <rev> <want.bin>
+pkg_tool want-shallow <advertise.bin> <rev> <want.bin>
+pkg_tool want-sha <sha> <want.bin>
+pkg_tool want-v2 <sha> <want.bin> [filter]
 pkg_tool unpack <pack>
 pkg_tool checkout <pack> <sha> [subdir] <out-dir>
 pkg_tool fetch-checkout <response.bin> <sha> [subdir] <out-dir>
+pkg_tool sparse-tree <response.bin> <commit> [subdir]
+pkg_tool fetch-merge <trees.bin> <blobs.bin> <commit> [subdir] <out-dir>
 pkg_tool resolve <ranger.json> <import> [importer]
 pkg_tool tree <ranger.json>
 pkg_tool lock <ranger.json>
@@ -174,7 +191,7 @@ can be a JSON index of git URLs; the protocol here would not change.
 
 - Semver ranges (`^1.2`, `>=3 <4`)
 - Package namespaces / colliding `class Button`
-- Auth, SSH, shallow-from-have, protocol v2
+- Auth, SSH, incremental `have` against a stored pack
 - `rgrc pkg add` as a compiler subcommand (the library is here first)
 - Copying `node_modules`-style trees by default — cache + optional `vendor`
 

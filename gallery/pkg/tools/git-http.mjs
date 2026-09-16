@@ -47,6 +47,9 @@ function fetchBytes(url, { method = "GET", body, contentType } = {}) {
             Accept: contentType
               ? "application/x-git-upload-pack-result"
               : "application/x-git-upload-pack-advertisement",
+            ...(process.env.GIT_PROTOCOL
+              ? { "Git-Protocol": process.env.GIT_PROTOCOL }
+              : {}),
             ...(body
               ? {
                   "Content-Type": contentType,
@@ -113,7 +116,8 @@ if (cmd === "post" && url) {
   process.exit(0);
 }
 
-console.error(`usage:
+  console.error(`usage:
   git-http.mjs advertise <git-url> [out.bin]
-  git-http.mjs post <git-url> <want.bin> [out.bin]`);
+  git-http.mjs post <git-url> <want.bin> [out.bin]
+  GIT_PROTOCOL=version=2 git-http.mjs …`);
 process.exit(2);

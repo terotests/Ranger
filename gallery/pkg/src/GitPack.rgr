@@ -291,4 +291,38 @@ class GitPackIO {
         }
         return res
     }
+
+    sfn merge:GitPack (a:GitPack b:GitPack) {
+        def out (new GitPack)
+        if (a.ok == false) {
+            out.ok = false
+            out.err = a.err
+            return out
+        }
+        if (b.ok == false) {
+            out.ok = false
+            out.err = b.err
+            return out
+        }
+        def i:int 0
+        while (i < (array_length a.objects)) {
+            def o:GitObj (itemAt a.objects i)
+            push out.objects o
+            set out.bySha o.sha o
+            i = (i + 1)
+        }
+        i = 0
+        while (i < (array_length b.objects)) {
+            def o2:GitObj (itemAt b.objects i)
+            if (has out.bySha o2.sha) {
+            } {
+                push out.objects o2
+                set out.bySha o2.sha o2
+            }
+            i = (i + 1)
+        }
+        out.count = (array_length out.objects)
+        out.ok = true
+        return out
+    }
 }

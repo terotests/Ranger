@@ -140,6 +140,36 @@ class PkgTest {
         this.eqStr("want sha" w.sha sha)
         this.check("want body" ((buffer_length w.body) > 20))
 
+        def delim:buffer (GitPktIO.encodeDelim())
+        this.eqStr("delim" (GitSha1.ascii(delim 0 4)) "0001")
+        def delimParts:[buffer]
+        push delimParts delim
+        push delimParts (GitPktIO.encodeFlush())
+        def delimPkt:buffer (GitPktIO.joinBuf(delimParts))
+        def dparse:GitPkt (GitPktIO.parse(delimPkt))
+        this.check("delim parse" dparse.ok)
+
+        def refLineF:string (sha + " refs/heads/master" + (strfromcode 0) + "side-band-64k ofs-delta filter shallow\n")
+        def encF:buffer (GitPktIO.encodeLine(refLineF))
+        def advFParts:[buffer]
+        push advFParts encF
+        push advFParts flush2
+        def advFBuf:buffer (GitPktIO.joinBuf(advFParts))
+        def advF:GitAdvertisement (GitPktIO.parseAdvertisement(advFBuf))
+        this.check("filter cap" (GitPktIO.hasToken(advF.caps "filter")))
+        this.check("no false filter" ((GitPktIO.hasToken("filters" "filter")) == false))
+        def wt:GitWant (GitPktIO.buildWantTrees(advF "master"))
+        this.check("want-trees ok" wt.ok)
+        def wtText:string (GitSha1.ascii(wt.body 0 (buffer_length wt.body)))
+        this.check("want-trees deepen" ((indexOf wtText "deepen 1") >= 0))
+        this.check("want-trees filter" ((indexOf wtText "filter blob:none") >= 0))
+        def wv:GitWant (GitPktIO.buildFetchV2(sha 1 "blob:none"))
+        this.check("want-v2 ok" wv.ok)
+        def v2Text:string (GitSha1.ascii(wv.body 0 (buffer_length wv.body)))
+        this.check("want-v2 command" ((indexOf v2Text "command=fetch") >= 0))
+        this.check("want-v2 delim" ((indexOf v2Text "0001") >= 0))
+        this.check("want-v2 filter" ((indexOf v2Text "filter blob:none") >= 0))
+
         ; Sideband channel 1 carrying PACK magic.
         def packBits:buffer (buffer_alloc 5)
         buffer_set packBits 0 1
@@ -312,6 +342,13 @@ class PkgTest {
             def sub:GitMem (store.checkout(head "src"))
             this.check("subdir checkout" ((array_length sub.files) >= 1))
             this.check("subdir strips prefix" (has sub.byPath "Main.rgr"))
+            def srcTree:string (store.treeAt(head "src"))
+            this.check("treeAt src" ((strlen srcTree) == 40))
+            def fromTree:GitMem (store.checkout(srcTree ""))
+            this.check("checkout treeAt" (has fromTree.byPath "Main.rgr"))
+            def merged:GitPack (GitPackIO.merge(pack pack))
+            this.check("merge self count" (merged.count == pack.count))
+            this.check("merge ok" merged.ok)
         }
         def deltaPacked:buffer (buffer_read_file "gallery/pkg/fixtures" "tiny-delta.pack")
         if ((buffer_length deltaPacked) > 32) {

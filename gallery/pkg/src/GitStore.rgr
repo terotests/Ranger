@@ -152,7 +152,9 @@ class GitStore {
                 path = (prefix + "/" + e.name)
             }
             if e.isTree {
-                this.walk(mem e.sha path want)
+                if (this.mayEnter(path want)) {
+                    this.walk(mem e.sha path want)
+                }
             } {
                 if (this.underSubdir(path want)) {
                     def blob@(optional):GitObj (this.takeObj(e.sha))
@@ -173,6 +175,124 @@ class GitStore {
             }
             i = (i + 1)
         }
+    }
+
+    fn mayEnter:boolean (path:string want:string) {
+        if ((strlen want) == 0) {
+            return true
+        }
+        if (this.underSubdir(path want)) {
+            return true
+        }
+        def pn:int (strlen path)
+        def wn:int (strlen want)
+        if (wn > pn) {
+            if ((substring want 0 pn) == path) {
+                if ((charAt want pn) == 47) {
+                    return true
+                }
+            }
+        }
+        return (path == want)
+    }
+
+    fn splitSegs:[string] (path:string) {
+        def parts:[string]
+        def n:int (strlen path)
+        def start:int 0
+        def i:int 0
+        while (i <= n) {
+            if ((i == n) || ((charAt path i) == 47)) {
+                def piece:string (substring path start i)
+                if ((strlen piece) > 0) {
+                    push parts piece
+                }
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return parts
+    }
+
+    fn asTreeSha:string (sha:string) {
+        def obj@(optional):GitObj (this.takeObj(sha))
+        if (null? obj) {
+            ok = false
+            err = ("object not in pack: " + sha)
+            return ""
+        }
+        def o:GitObj (unwrap obj)
+        if (o.kind == 2) {
+            return sha
+        }
+        if (o.kind == 1) {
+            return (this.commitTree(o.data))
+        }
+        if (o.kind == 4) {
+            def tagText:string (buffer_to_string o.data)
+            if ((strlen tagText) >= 48) {
+                if ((substring tagText 0 7) == "object ") {
+                    def inner:string (substring tagText 7 47)
+                    def inn@(optional):GitObj (this.takeObj(inner))
+                    if (null? inn) {
+                        return inner
+                    }
+                    def io:GitObj (unwrap inn)
+                    if (io.kind == 1) {
+                        return (this.commitTree(io.data))
+                    }
+                    if (io.kind == 2) {
+                        return inner
+                    }
+                }
+            }
+        }
+        return sha
+    }
+
+    ; Tree SHA of `subdir` under a commit/tree already in the pack.
+    ; Round 1 of a sparse fetch is `filter blob:none`; this finds the
+    ; directory to `want` in round 2 (reachable tree SHA, blobs included).
+    fn treeAt:string (sha:string subdir:string) {
+        def cur:string (this.asTreeSha(sha))
+        if ((strlen cur) == 0) {
+            return ""
+        }
+        if ((strlen subdir) == 0) {
+            return cur
+        }
+        def segs:[string] (this.splitSegs(subdir))
+        def s:int 0
+        while (s < (array_length segs)) {
+            def part:string (itemAt segs s)
+            def obj@(optional):GitObj (this.takeObj(cur))
+            if (null? obj) {
+                ok = false
+                err = ("tree missing: " + cur)
+                return ""
+            }
+            def o:GitObj (unwrap obj)
+            def tree:GitTree (this.parseTree(o.data))
+            def found:string ""
+            def i:int 0
+            while (i < (array_length tree.entries)) {
+                def e:GitEntry (itemAt tree.entries i)
+                if (e.name == part) {
+                    if e.isTree {
+                        found = e.sha
+                    }
+                }
+                i = (i + 1)
+            }
+            if ((strlen found) == 0) {
+                ok = false
+                err = ("no subtree " + part + " in " + subdir)
+                return ""
+            }
+            cur = found
+            s = (s + 1)
+        }
+        return cur
     }
 
     fn underSubdir:boolean (path:string want:string) {
