@@ -117,6 +117,38 @@ class CppParser {
         return ""
     }
 
+    fn peekNthValue:string (n:int) {
+        def saved:int pos
+        def i:int 0
+        while (i < n) {
+            if (this.isAtEnd()) {
+                pos = saved
+                return ""
+            }
+            this.advance()
+            i = (i + 1)
+        }
+        def v:string (this.peekValue())
+        pos = saved
+        return v
+    }
+
+    fn peekNthType:string (n:int) {
+        def saved:int pos
+        def i:int 0
+        while (i < n) {
+            if (this.isAtEnd()) {
+                pos = saved
+                return ""
+            }
+            this.advance()
+            i = (i + 1)
+        }
+        def t:string (this.peekType())
+        pos = saved
+        return t
+    }
+
     fn isAtEnd:boolean () {
         this.skipComments()
         def t:CppToken (this.rawPeek())
@@ -219,20 +251,135 @@ class CppParser {
         }
     }
 
-    fn skipAttributes:void () {
-        while ((this.matchValue("[")) && ((this.peekNextValue()) == "[")) {
-            this.advance()
-            this.advance()
-            def depth:int 2
-            while ((depth > 0) && ((this.isAtEnd()) == false)) {
-                def v:string (this.peekValue())
-                if (v == "[") {
-                    depth = (depth + 1)
+    fn skipGnuAttribute:void () {
+        while (true) {
+            def v:string (this.peekValue())
+            def hit:boolean false
+            if (v == "__attribute__") { hit = true }
+            if (v == "__attribute") { hit = true }
+            if (v == "__declspec") { hit = true }
+            if (v == "__extension__") { hit = true }
+            if hit {
+                this.advance()
+                if (this.matchValue("(")) {
+                    this.skipBalanced("(" ")")
                 }
-                if (v == "]") {
-                    depth = (depth - 1)
+            } {
+                return
+            }
+        }
+    }
+
+    fn isShoutIdent:boolean (w:string) {
+        def n:int (strlen w)
+        if (n < 2) {
+            return false
+        }
+        def letters:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt w i)
+            if ((c >= 65) && (c <= 90)) {
+                letters = (letters + 1)
+            } {
+                if ((c == 95) || ((c >= 48) && (c <= 57))) {
+                } {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        if (letters < 2) {
+            return false
+        }
+        return true
+    }
+
+    fn skipShoutSpecs:void () {
+        def guard:int 0
+        while (guard < 8) {
+            guard = (guard + 1)
+            if ((this.peekType()) != "Identifier") {
+                return
+            }
+            def v:string (this.peekValue())
+            if ((this.isShoutIdent(v)) == false) {
+                return
+            }
+            def n1:string (this.peekNthValue(1))
+            if (this.isTypeKeyword(n1)) {
+                this.advance()
+            } {
+                if ((n1 == "*") || ((n1 == "&") || ((n1 == "&&") || ((n1 == "(") || ((n1 == ";") || ((n1 == "=") || ((n1 == "{") || (n1 == ":")))))))) {
+                    return
+                }
+                def n2:string (this.peekNthValue(2))
+                if ((n2 == "(") || (n2 == ";")) {
+                    return
+                }
+                if ((strlen n1) == 0) {
+                    return
                 }
                 this.advance()
+            }
+        }
+    }
+
+    fn skipRequires:void () {
+        if ((this.matchValue("requires")) == false) {
+            return
+        }
+        this.advance()
+        if (this.matchValue("(")) {
+            this.skipBalanced("(" ")")
+        }
+        if ((this.peekType()) == "Identifier") {
+            this.scanQualified()
+        }
+        if (this.matchValue("{")) {
+            this.skipBalanced("{" "}")
+        }
+        def g:int 0
+        while (g < 4) {
+            g = (g + 1)
+            if ((this.matchValue("&&")) || (this.matchValue("||"))) {
+                this.advance()
+                if (this.matchValue("(")) {
+                    this.skipBalanced("(" ")")
+                } {
+                    if ((this.peekType()) == "Identifier") {
+                        this.scanQualified()
+                    }
+                }
+            } {
+                return
+            }
+        }
+    }
+
+    fn skipAttributes:void () {
+        def round:int 0
+        while (round < 4) {
+            round = (round + 1)
+            def before:int pos
+            this.skipGnuAttribute()
+            while ((this.matchValue("[")) && ((this.peekNextValue()) == "[")) {
+                this.advance()
+                this.advance()
+                def depth:int 2
+                while ((depth > 0) && ((this.isAtEnd()) == false)) {
+                    def v:string (this.peekValue())
+                    if (v == "[") {
+                        depth = (depth + 1)
+                    }
+                    if (v == "]") {
+                        depth = (depth - 1)
+                    }
+                    this.advance()
+                }
+            }
+            if (pos == before) {
+                return
             }
         }
     }
@@ -286,6 +433,8 @@ class CppParser {
         if (w == "enum") { return true }
         if (w == "union") { return true }
         if (w == "decltype") { return true }
+        if (w == "__int128") { return true }
+        if (w == "__uint128_t") { return true }
         return false
     }
 
@@ -331,6 +480,8 @@ class CppParser {
 
     fn parseTop:CppNode () {
         this.skipAttributes()
+        this.skipShoutSpecs()
+        this.skipRequires()
         def v:string (this.peekValue())
         def typ:string (this.peekType())
         if (typ == "Preprocessor") {
@@ -359,8 +510,10 @@ class CppParser {
         if (v == "template") {
             this.advance()
             this.skipBalanced("<" ">")
-            this.eatValue("concept")
             return (this.parseTop())
+        }
+        if (v == "concept") {
+            return (this.parseConcept())
         }
         if ((v == "class") || ((v == "struct") || (v == "union"))) {
             return (this.parseClass())
@@ -374,7 +527,7 @@ class CppParser {
         if (v == "typedef") {
             return (this.parseTypedef())
         }
-        if ((v == "extern") && ((this.peekNextValue()) == "\"")) {
+        if ((v == "extern") && ((this.peekNthType(1)) == "String")) {
             this.advance()
             this.advance()
             if (this.matchValue("{")) {
@@ -386,6 +539,25 @@ class CppParser {
                 return wrap
             }
             return (this.parseTop())
+        }
+        if ((this.peekType()) == "Identifier") {
+            if ((this.peekNextValue()) == "(") {
+                def savedDg:int pos
+                this.advance()
+                this.skipBalanced("(" ")")
+                this.eatValue("const")
+                this.eatValue("explicit")
+                this.skipRequires()
+                if (this.matchValue("->")) {
+                    this.advance()
+                    def _dg:CppNode (this.parseTypeName())
+                    this.eatValue(";")
+                    def g (new CppNode)
+                    g.nodeType = "DeductionGuide"
+                    return g
+                }
+                pos = savedDg
+            }
         }
         if (this.looksLikeDecl()) {
             return (this.parseDecl(false))
@@ -649,6 +821,39 @@ class CppParser {
         return n
     }
 
+    fn parseConcept:CppNode () {
+        def tok:CppToken (this.advance())
+        def n (this.nodeFromTok("TypeAlias" tok))
+        if ((this.peekType()) == "Identifier") {
+            def nt:CppToken (this.advance())
+            n.name = nt.value
+        }
+        this.eatValue("=")
+        def brace:int 0
+        def paren:int 0
+        while ((this.isAtEnd()) == false) {
+            def v:string (this.peekValue())
+            if (v == "{") {
+                brace = (brace + 1)
+            }
+            if (v == "}") {
+                brace = (brace - 1)
+            }
+            if (v == "(") {
+                paren = (paren + 1)
+            }
+            if (v == ")") {
+                paren = (paren - 1)
+            }
+            if ((v == ";") && ((brace <= 0) && (paren <= 0))) {
+                this.advance()
+                return n
+            }
+            this.advance()
+        }
+        return n
+    }
+
     fn parseTypedef:CppNode () {
         def tok:CppToken (this.advance())
         def n (this.nodeFromTok("TypeAlias" tok))
@@ -663,6 +868,8 @@ class CppParser {
 
     fn parseMember:CppNode (access:string) {
         this.skipAttributes()
+        this.skipShoutSpecs()
+        this.skipRequires()
         def v:string (this.peekValue())
         if (v == "template") {
             this.advance()
@@ -807,6 +1014,8 @@ class CppParser {
         }
         this.eatValue("override")
         this.eatValue("final")
+        this.skipRequires()
+        this.skipAttributes()
         this.eatValue("=default")
         if (this.matchValue("=")) {
             def nv:string (this.peekNextValue())
@@ -835,6 +1044,10 @@ class CppParser {
                 break
             }
         }
+        while (this.isSpecifier((this.peekValue()))) {
+            this.advance()
+        }
+        this.skipShoutSpecs()
         if ((this.peekType()) == "Eof") {
             return false
         }
@@ -928,19 +1141,35 @@ class CppParser {
         n.line = tok.line
         n.col = tok.col
         def parts:[string]
+        if ((this.peekValue()) == "decltype") {
+            this.advance()
+            if (this.matchValue("(")) {
+                this.skipBalanced("(" ")")
+            }
+            push parts "decltype"
+        }
         while (this.isSpecifier((this.peekValue()))) {
             if (((this.peekValue()) == "const") || ((this.peekValue()) == "volatile")) {
                 push parts (this.peekValue())
             }
             this.advance()
         }
+        this.skipShoutSpecs()
         while (this.isTypeKeyword((this.peekValue()))) {
             def kw:string (this.peekValue())
-            if ((kw == "class") || ((kw == "struct") || ((kw == "enum") || ((kw == "typename") || (kw == "union"))))) {
+            if ((kw == "decltype")) {
                 this.advance()
+                if (this.matchValue("(")) {
+                    this.skipBalanced("(" ")")
+                }
+                push parts "decltype"
             } {
-                push parts kw
-                this.advance()
+                if ((kw == "class") || ((kw == "struct") || ((kw == "enum") || ((kw == "typename") || (kw == "union"))))) {
+                    this.advance()
+                } {
+                    push parts kw
+                    this.advance()
+                }
             }
         }
         if ((array_length parts) == 0) {
@@ -1103,6 +1332,7 @@ class CppParser {
             return params
         }
         while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
+            this.skipAttributes()
             if (this.eatValue("...")) {
                 def rest (new CppNode)
                 rest.nodeType = "RestElement"
@@ -1125,17 +1355,44 @@ class CppParser {
                     p.line = pt.line
                     p.col = pt.col
                 }
+                if (this.matchValue("(")) {
+                    this.skipBalanced("(" ")")
+                    if (this.matchValue("(")) {
+                        this.skipBalanced("(" ")")
+                    }
+                }
+                if (this.matchValue("[")) {
+                    this.skipBalanced("[" "]")
+                }
                 if (this.eatValue("=")) {
                     p.init = (this.parseExpr())
                 }
                 push params p
             } {
-                if ((this.peekType()) == "Identifier") {
-                    def pt2:CppToken (this.advance())
-                    def p2 (this.nodeFromTok("Identifier" pt2))
-                    push params p2
+                if ((this.isTypeKeyword((this.peekValue()))) || (((this.peekType()) == "Identifier") || ((this.peekValue()) == "::"))) {
+                    def ptype2:CppNode (this.parseTypeName())
+                    def pu (new CppNode)
+                    pu.nodeType = "Identifier"
+                    pu.typeAnnotation = ptype2
+                    if ((this.peekType()) == "Identifier") {
+                        def ptn:CppToken (this.advance())
+                        pu.name = ptn.value
+                    }
+                    if (this.matchValue("(")) {
+                        this.skipBalanced("(" ")")
+                        if (this.matchValue("(")) {
+                            this.skipBalanced("(" ")")
+                        }
+                    }
+                    push params pu
                 } {
-                    this.advance()
+                    if ((this.peekType()) == "Identifier") {
+                        def pt2:CppToken (this.advance())
+                        def p2 (this.nodeFromTok("Identifier" pt2))
+                        push params p2
+                    } {
+                        this.advance()
+                    }
                 }
             }
             if (this.eatValue(",")) {
@@ -1197,6 +1454,12 @@ class CppParser {
         if (v == "switch") {
             return (this.parseSwitch())
         }
+        if (v == "co_return") {
+            return (this.parseReturn())
+        }
+        if (v == "co_yield") {
+            return (this.parseReturn())
+        }
         if (v == "return") {
             return (this.parseReturn())
         }
@@ -1247,7 +1510,29 @@ class CppParser {
         this.eatValue("constexpr")
         this.eatValue("consteval")
         this.eatValue("(")
-        n.left = (this.parseExpr())
+        if (this.looksLikeDecl()) {
+            def pd:int 1
+            while ((pd > 0) && ((this.isAtEnd()) == false)) {
+                def iv:string (this.peekValue())
+                if (iv == "(") {
+                    pd = (pd + 1)
+                }
+                if (iv == ")") {
+                    pd = (pd - 1)
+                    if (pd == 0) {
+                        break
+                    }
+                }
+                if ((iv == ";") && (pd == 1)) {
+                    this.advance()
+                    break
+                }
+                this.advance()
+            }
+        }
+        if ((this.matchValue(")")) == false) {
+            n.left = (this.parseExpr())
+        }
         this.eatValue(")")
         n.body = (this.parseStatement())
         if (this.eatValue("else")) {
@@ -1330,7 +1615,7 @@ class CppParser {
     fn parseAssign:CppNode () {
         def left:CppNode (this.parseTernary())
         def v:string (this.peekValue())
-        if ((v == "=") || ((v == "+=") || ((v == "-=") || ((v == "*=") || ((v == "/=") || (v == "%=")))))) {
+        if ((v == "=") || ((v == "+=") || ((v == "-=") || ((v == "*=") || ((v == "/=") || ((v == "%=") || ((v == "<<=") || ((v == ">>=") || ((v == "&=") || ((v == "|=") || (v == "^="))))))))))) {
             def op:CppToken (this.advance())
             def n (this.nodeFromTok("AssignmentExpression" op))
             n.value = op.value
@@ -1393,9 +1678,18 @@ class CppParser {
 
     fn parseUnary:CppNode () {
         def v:string (this.peekValue())
+        if (v == "co_await") {
+            def op:CppToken (this.advance())
+            def n (this.nodeFromTok("UnaryExpression" op))
+            n.left = (this.parseUnary())
+            return n
+        }
         if ((v == "!") || ((v == "~") || ((v == "-") || ((v == "+") || ((v == "*") || ((v == "&") || ((v == "++") || ((v == "--") || ((v == "sizeof") || (v == "alignof")))))))))) {
             def op:CppToken (this.advance())
             def n (this.nodeFromTok("UnaryExpression" op))
+            if ((op.value == "sizeof") || (op.value == "alignof")) {
+                this.eatValue("...")
+            }
             n.left = (this.parseUnary())
             return n
         }
@@ -1569,6 +1863,57 @@ class CppParser {
         return args
     }
 
+    fn looksLikeCast:boolean () {
+        def saved:int pos
+        if ((this.eatValue("(")) == false) {
+            pos = saved
+            return false
+        }
+        this.eatValue("typename")
+        while (this.isSpecifier((this.peekValue()))) {
+            this.advance()
+        }
+        def okType:boolean false
+        if (this.isTypeKeyword((this.peekValue()))) {
+            okType = true
+            this.advance()
+            while (this.isTypeKeyword((this.peekValue()))) {
+                this.advance()
+            }
+        } {
+            if (((this.peekType()) == "Identifier") || ((this.peekValue()) == "::")) {
+                okType = true
+                this.scanQualified()
+            }
+        }
+        if okType {
+            if (this.matchValue("<")) {
+                this.skipBalanced("<" ">")
+            }
+            while ((this.matchValue("*")) || ((this.matchValue("&")) || ((this.matchValue("&&")) || ((this.matchValue("const")) || (this.matchValue("volatile")))))) {
+                this.advance()
+            }
+        }
+        if ((this.eatValue(")")) == false) {
+            pos = saved
+            return false
+        }
+        def after:string (this.peekValue())
+        def afterTyp:string (this.peekType())
+        def ok:boolean false
+        if (afterTyp == "Identifier") {
+            ok = true
+        }
+        if (afterTyp == "Keyword") {
+            ok = true
+        }
+        if ((after == "(") || ((after == "{") || ((after == "*") || ((after == "&") || ((after == "++") || (after == "--")))))) {
+            ok = true
+        }
+        pos = saved
+        return ok
+    }
+
     fn parsePrimary:CppNode () {
         def tok:CppToken (this.peek())
         def typ:string tok.tokenType
@@ -1591,7 +1936,34 @@ class CppParser {
             this.advance()
             return (this.nodeFromTok("Literal" tok))
         }
+        if (v == "{") {
+            def n (this.nodeFromTok("InitList" tok))
+            this.skipBalanced("{" "}")
+            return n
+        }
+        if (v == "typename") {
+            this.advance()
+            return (this.parsePrimary())
+        }
+        if (v == "decltype") {
+            this.advance()
+            if (this.matchValue("(")) {
+                this.skipBalanced("(" ")")
+            }
+            def dt (this.nodeFromTok("TypeReference" tok))
+            dt.name = "decltype"
+            return dt
+        }
         if (v == "(") {
+            if (this.looksLikeCast()) {
+                this.advance()
+                def cty:CppNode (this.parseTypeName())
+                this.eatValue(")")
+                def cst (this.nodeFromTok("CastExpression" tok))
+                cst.left = (this.parseUnary())
+                cst.typeAnnotation = cty
+                return cst
+            }
             this.advance()
             def inner:CppNode (this.parseExpr())
             this.eatValue(")")
@@ -1640,6 +2012,12 @@ class CppParser {
         if (v == "__asm") { return false }
         if (v == "new") { return false }
         if (v == "delete") { return false }
+        if (v == "requires") { return false }
+        if (v == "typename") { return false }
+        if (v == "decltype") { return false }
+        if (v == "co_return") { return false }
+        if (v == "co_await") { return false }
+        if (v == "co_yield") { return false }
         return true
     }
 

@@ -47,6 +47,7 @@ class UastCppTest {
         UastCppTest.testShapes(c)
         UastCppTest.testIncludes(c)
         UastCppTest.testTemplates(c)
+        UastCppTest.testOsPatterns(c)
         def code:int (c.report())
         if (code != 0) {
             exit 1
@@ -154,5 +155,15 @@ class UastCppTest {
         def field:UastSymbol (model.symbolById("field:Wrapped.field"))
         c.ok("field type keeps nested name" ((indexOf field.typeName "HasContainerTraits") >= 0))
         c.ok("ping method" (model.mentionsSymbol("method:Wrapped.ping")))
+    }
+
+    sfn testOsPatterns:void (c:UastCppChecker) {
+        print "== os_patterns.hpp requires / attributes / casts"
+        def model:UastCodeModel (UastCpp.fromFile("gallery/uast/fixtures/cpp/os_patterns.hpp"))
+        c.ok("no parse diagnostic" ((UastQuery.diagnosticMentions(model "Parse error")) == false))
+        c.ok("Vector" (model.mentionsSymbol("class:Vector")))
+        c.ok("Vector.data" (model.mentionsSymbol("method:Vector.data")))
+        c.ok("Vector.shl" (model.mentionsSymbol("method:Vector.shl")))
+        c.ok("die" (model.mentionsSymbol("function:die")))
     }
 }

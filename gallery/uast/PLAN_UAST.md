@@ -695,14 +695,15 @@ Tried on p-ranav/argparse in `/tmp` (not vendored): `Argument` /
 closes. System headers stay diagnostics. Remaining parse noise is a
 lambda inside `repr`; analysis continues.
 Tried on skift-org/skift (`src/kernel`, not vendored): C++20 `import` /
-`export module` skipped, `[[gnu::packed]]`, `asm volatile`, `try$`.
-`Io` / `Vmm` / `Pmm` / `Task` / `Domain` / `Object`, exact calls such as
-`Io.read → Io.in` and `Task.ret → signal`.
+`export module` skipped, `[[gnu::packed]]`, `asm volatile`, `try$`,
+`requires`, GNU `__attribute__`. `Io` / `Vmm` / `Pmm` / `Task` /
+`Domain` / `Object`, 64 exact calls (`Io.read → Io.in`, `Task.ret → signal`).
 Tried on SerenityOS `AK/` (sparse `/tmp` checkout, not vendored): 243
-files, `Array` / `HashMap` / `Optional` / `RefPtr` / `String` /
-`ByteBuffer`, 435 exact calls (`Array.from_span → TypedTransfer.copy`).
-`<AK/...>` includes bind in-workspace; remaining parse noise does not
-stop analysis.
+files, 6404 symbols, 2078 projected methods, `Vector` / `Array` /
+`HashMap` / `Optional` / `RefPtr` / `String` / `ByteBuffer`, 581 exact
+calls (`Array.from_span → TypedTransfer.copy`). `<AK/...>` includes bind
+in-workspace. Remaining parse noise is pack expansions, GNU statement
+expressions, and similar; analysis continues.
 
 ---
 
