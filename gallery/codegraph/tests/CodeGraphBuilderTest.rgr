@@ -97,6 +97,7 @@ class CodeGraphBuilderTest {
         failed = (failed + (CodeGraphBuilderTest.checkLib("gallery/evg/EVGElement.rgr" "EVGElement" "EVGBox")))
         failed = (failed + (CodeGraphBuilderTest.checkDataGrid()))
         failed = (failed + (CodeGraphBuilderTest.checkPkg()))
+        failed = (failed + (CodeGraphBuilderTest.checkOpenRgrFile()))
         if (failed > 0) {
             print (("failed " + (to_string failed)))
             exit 1
@@ -214,6 +215,32 @@ class CodeGraphBuilderTest {
                 print "  FAIL ranger.json path missed Greeter"
                 n = (n + 1)
             }
+        }
+        print (("  classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
+        return n
+    }
+
+    ; Opening a .rgr must not demand ranger.json. dir_exists(file) is true
+    ; on the native SDL target, which used to send calls.rgr through fromDir.
+    sfn checkOpenRgrFile:int () {
+        print "== fromPath gallery/codegraph/fixtures/calls.rgr (no ranger.json)"
+        def n:int 0
+        def g:CodeGraph (CodeGraphBuilder.fromPath("gallery/codegraph/fixtures/calls.rgr"))
+        if ((indexOf g.title " FAIL ") >= 0) {
+            print ("  FAIL " + g.title)
+            return 1
+        }
+        if ((indexOf g.title "no ranger.json") >= 0) {
+            print "  FAIL a .rgr file required ranger.json"
+            n = (n + 1)
+        }
+        if ((g.hasClass("Order")) == false) {
+            print "  FAIL Order missing from calls.rgr"
+            n = (n + 1)
+        }
+        if ((g.hasClass("LineItem")) == false) {
+            print "  FAIL LineItem missing from calls.rgr"
+            n = (n + 1)
         }
         print (("  classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
         return n

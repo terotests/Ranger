@@ -47,6 +47,10 @@ class CodeGraphBuilder {
     ; A directory, ranger.json, or a `.rgr` entry. Git URLs are cloned by
     ; the CLI wrapper (`tools/codegraph_open.mjs`), not here — this only
     ; reads what is already on disk, including `pkg:` path/vendor/cache.
+    ;
+    ; A `.rgr` file does not need ranger.json — packages are optional.
+    ; `dir_exists` on several targets is "path exists" (a file counts), so
+    ; we must not treat `calls.rgr` as a project directory.
     sfn fromPath:CodeGraph (path:string) {
         def p:string (CodeGraphBuilder.slashPath(path))
         if (CodeGraphBuilder.isGitUrl(p)) {
@@ -58,10 +62,18 @@ class CodeGraphBuilder {
         if (base == "ranger.json") {
             return (CodeGraphBuilder.fromDir((CodeGraphBuilder.fileDirName(p))))
         }
-        if (dir_exists p) {
-            return (CodeGraphBuilder.fromDir(p))
+        if (CodeGraphBuilder.isRgr(base)) {
+            return (CodeGraphBuilder.fromFile(p))
         }
-        return (CodeGraphBuilder.fromFile(p))
+        return (CodeGraphBuilder.fromDir(p))
+    }
+
+    sfn isRgr:boolean (name:string) {
+        def n:int (strlen name)
+        if (n < 4) {
+            return false
+        }
+        return ((substring name (n - 4) n) == ".rgr")
     }
 
     sfn fromDir:CodeGraph (dir:string) {
