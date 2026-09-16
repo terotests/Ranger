@@ -87,7 +87,8 @@ class UastTsTest {
             print dump
             c.ok("dump kind Call" ((indexOf dump "kind: Call") >= 0))
             c.ok("dump MemberAccess" ((indexOf dump "MemberAccess") >= 0))
-            c.ok("dump inferred" ((indexOf dump "confidence: inferred") >= 0))
+            c.ok("dump exact" ((indexOf dump "confidence: exact") >= 0))
+            c.ok("dump not a unique-name guess" ((indexOf dump "confidence: inferred") < 0))
             c.ok("dump resolved" ((indexOf dump "resolution: resolved") >= 0))
             c.ok("dump target CRC32.update" ((indexOf dump "method:CRC32.update") >= 0))
             def calleeId:string (call0.childIdFor((UastChildRole.callee())))
@@ -121,7 +122,7 @@ class UastTsTest {
             }
             if ((rel.kind == "calls") && (rel.fromId == "method:ZipWriter.addFile") && (rel.toId == "method:CRC32.update")) {
                 foundCall = true
-                c.eqStr("call confidence" rel.confidence "inferred")
+                c.eqStr("call confidence" rel.confidence "exact")
             }
             ri = (ri + 1)
         }

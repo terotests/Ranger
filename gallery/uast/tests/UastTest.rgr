@@ -59,6 +59,7 @@ class UastTest {
         UastTest.testQuery(c)
         UastTest.testScopes(c)
         UastTest.testWorkspace(c)
+        UastTest.testCalls(c)
         def code:int (c.report())
         if (code != 0) {
             exit 1
@@ -347,5 +348,53 @@ class UastTest {
         c.ok("unresolved ./nope" (UastQuery.diagnosticMentions(model "unresolved import ./nope")))
         c.ok("unresolved WindowCtl.rgr" (UastQuery.diagnosticMentions(model "WindowCtl.rgr")))
         c.ok("analysis continued" (model.mentionsSymbol("class:Uses")))
+    }
+
+    sfn testCalls:void (c:UastChecker) {
+        print "== calls in the shared pipeline"
+        def two:UastCodeModel (UastSample.twoFoo())
+        def aToA:boolean false
+        def aToB:boolean false
+        def bToB:boolean false
+        def bToA:boolean false
+        def i:int 0
+        while (i < (array_length two.relationships)) {
+            def rel:UastRelation (itemAt two.relationships i)
+            if (rel.kind == "calls") {
+                if ((rel.fromId == "method:Alpha.run") && (rel.toId == "method:Alpha.foo")) {
+                    aToA = true
+                    c.eqStr("Alpha.run → Alpha.foo confidence" rel.confidence "exact")
+                    c.eqStr("Alpha.run → Alpha.foo resolution" rel.resolution "resolved")
+                }
+                if ((rel.fromId == "method:Alpha.run") && (rel.toId == "method:Beta.foo")) {
+                    aToB = true
+                }
+                if ((rel.fromId == "method:Beta.run") && (rel.toId == "method:Beta.foo")) {
+                    bToB = true
+                }
+                if ((rel.fromId == "method:Beta.run") && (rel.toId == "method:Alpha.foo")) {
+                    bToA = true
+                }
+            }
+            i = (i + 1)
+        }
+        c.ok("Alpha.run calls Alpha.foo" aToA)
+        c.ok("Beta.run calls Beta.foo" bToB)
+        c.ok("Alpha.run does not call Beta.foo" (aToB == false))
+        c.ok("Beta.run does not call Alpha.foo" (bToA == false))
+        c.eqStr("Alpha call dump" (UastQuery.refTarget(two "n:alpha-call")) "method:Alpha.foo")
+        c.eqStr("Beta call dump" (UastQuery.refTarget(two "n:beta-call")) "method:Beta.foo")
+        def ws:UastCodeModel (UastSample.fooWorkspace())
+        def hello:boolean false
+        def hi:int 0
+        while (hi < (array_length ws.relationships)) {
+            def href:UastRelation (itemAt ws.relationships hi)
+            if ((href.kind == "calls") && (href.fromId == "method:Uses.make") && (href.toId == "method:Foo.hello")) {
+                hello = true
+                c.eqStr("Uses.make → Foo.hello confidence" href.confidence "exact")
+            }
+            hi = (hi + 1)
+        }
+        c.ok("Uses.make calls Foo.hello" hello)
     }
 }

@@ -9,6 +9,7 @@
 ; 3. contains from child roles
 ; 4. apply semanticHints
 ; 5. resolve Import / Identifier / TypeRef / MemberAccess
+; 6. resolve Call → calls (M6): exact only when the unique method is known
 ;
 ; Exact only when the target resolves to one unique symbol. Member names
 ; resolve on the typed receiver’s class, not a global unique name. Imports
@@ -587,6 +588,7 @@ class UastSemantic {
             i = (i + 1)
         }
         UastSemantic.resolveMembersFixpoint(m)
+        UastSemantic.resolveCalls(m)
     }
 
     sfn resolveTypeRefs:void (m:UastCodeModel) {
@@ -1211,5 +1213,60 @@ class UastSemantic {
             return
         }
         push parts part
+    }
+
+    sfn resolveCalls:void (m:UastCodeModel) {
+        def i:int 0
+        while (i < (array_length m.nodes)) {
+            def n:UNode (itemAt m.nodes i)
+            if (n.kind == "Call") {
+                UastSemantic.resolveOneCall(m n)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn resolveOneCall:void (m:UastCodeModel n:UNode) {
+        def cid:string (n.childIdFor((UastChildRole.callee())))
+        if ((m.mentionsNode(cid)) == false) {
+            return
+        }
+        def callee:UNode (m.nodeById(cid))
+        if (callee.kind == "IndexAccess") {
+            return
+        }
+        def target:string (UastSemantic.refTargetOf(m cid))
+        if ((strlen target) == 0) {
+            if (callee.kind == "MemberAccess") {
+                def mid:string (callee.childIdFor((UastChildRole.member())))
+                target = (UastSemantic.refTargetOf(m mid))
+            }
+        }
+        if ((strlen target) == 0) {
+            return
+        }
+        if ((m.mentionsSymbol(target)) == false) {
+            return
+        }
+        def s:UastSymbol (m.symbolById(target))
+        def isFn:boolean false
+        if (s.kind == "method") {
+            isFn = true
+        }
+        if (s.kind == "function") {
+            isFn = true
+        }
+        if (isFn == false) {
+            return
+        }
+        UastSemantic.addExactRef(m n.id target "call")
+        def fromId:string (UastSemantic.enclosingMethod(m n.id))
+        if ((strlen fromId) == 0) {
+            return
+        }
+        if (UastSemantic.mentionsRel(m fromId target (UastRelKind.calls()))) {
+            return
+        }
+        m.link(fromId target (UastRelKind.calls()) (UastResolution.resolved()) (UastConfidence.exact()))
     }
 }

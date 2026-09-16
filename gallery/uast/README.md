@@ -25,7 +25,7 @@ The plan: [`PLAN_UAST.md`](./PLAN_UAST.md).
 ## Run
 
 ```bash
-npm run uast:test      # schema, child roles, dump, scopes/refs, workspace imports
+npm run uast:test      # schema, scopes/refs, workspace imports, shared calls
 npm run uast:ranger    # compatibility vs CodeGraphBuilder + ZipWriter spec
 npm run uast:ts        # ts_parser → ZipWriter.ts (no tsc)
 ```

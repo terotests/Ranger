@@ -77,7 +77,6 @@ class UastTs {
         }
         this.collectClassNames(program)
         this.walkProgram(r program)
-        this.linkCalls(r)
         return r
     }
 
@@ -404,64 +403,6 @@ class UastTs {
         r.addNode(mem)
         acc.addRole((UastChildRole.member()) mem.id)
         return acc
-    }
-
-    fn linkCalls:void (r:UastFrontendResult) {
-        def src:string (UastHintSource.frontendInferred())
-        def res:string (UastResolution.resolved())
-        def inf:string (UastConfidence.inferred())
-        def i:int 0
-        while (i < (array_length r.nodes)) {
-            def n:UNode (itemAt r.nodes i)
-            if (n.kind == "Call") {
-                def memName:string (this.calleeMemberOf(r n))
-                if ((strlen memName) > 0) {
-                    def target:string (this.uniqueMethodNamed(r memName))
-                    if ((strlen target) > 0) {
-                        r.addHint((UastSemanticHint.create(n.id (UastRelKind.calls()) target src res inf)))
-                    } {
-                        r.addHint((UastSemanticHint.create(n.id (UastRelKind.calls()) memName src (UastResolution.unresolved()) (UastConfidence.possible()))))
-                    }
-                }
-            }
-            i = (i + 1)
-        }
-    }
-
-    fn calleeMemberOf:string (r:UastFrontendResult call:UNode) {
-        def cid:string (call.childIdFor((UastChildRole.callee())))
-        if ((r.mentionsNode(cid)) == false) {
-            return ""
-        }
-        def callee:UNode (r.nodeById(cid))
-        if (callee.kind == "MemberAccess") {
-            def mid:string (callee.childIdFor((UastChildRole.member())))
-            if (r.mentionsNode(mid)) {
-                def mem:UNode (r.nodeById(mid))
-                return mem.name
-            }
-        }
-        return callee.name
-    }
-
-    fn uniqueMethodNamed:string (r:UastFrontendResult name:string) {
-        def found:string ""
-        def n:int 0
-        def i:int 0
-        while (i < (array_length r.nodes)) {
-            def node:UNode (itemAt r.nodes i)
-            if (node.kind == "MethodDecl") {
-                if (node.name == name) {
-                    found = node.id
-                    n = (n + 1)
-                }
-            }
-            i = (i + 1)
-        }
-        if (n == 1) {
-            return found
-        }
-        return ""
     }
 
     fn typeNameOf:string (ann@(optional):TSNode) {

@@ -1,7 +1,7 @@
 # UAST — a language-analysis framework for Ranger
 
-**Status:** research branch, M5 started (workspace imports/exports +
-shared pipeline scopes; Ranger walk + comments + TypeScript ZipWriter)
+**Status:** research branch, M6 started (shared call resolution +
+workspace imports + Ranger/TS ZipWriter)
 **License:** AGPL-3.0-or-later (this directory is under `gallery/`)
 **Related:** [`gallery/codegraph`](../codegraph/README.md),
 [`gallery/ts_parser`](../ts_parser/README.md),
@@ -631,8 +631,13 @@ M5 is started: `UastSemantic.fromWorkspace` indexes modules and exports,
 then `resolveImports` binds named specifiers to exported symbols. Paths
 are resolved only against files already in the workspace (`./foo_a` →
 `foo_a.ts`). `import { Z } from "./nope"` and bare `WindowCtl.rgr` become
-diagnostics; `class:Foo` is still indexed. Call `Relationship`s stay
-frontend hints until M6.
+diagnostics; `class:Foo` is still indexed.
+M6 is started: `UastSemantic.resolveCalls` writes `calls` from a Call
+whose callee MemberAccess already resolved to a unique method. Exact
+when that unique declaration follows from the model (enclosing class +
+receiver type), not a globally unique method name. `UastTs` no longer
+emits `frontendInferred` call hints. IndexAccess stays `dynamic` /
+`possible`. Ranger `compilerResolved` hints still apply.
 
 ---
 
