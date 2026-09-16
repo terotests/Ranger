@@ -239,7 +239,10 @@ class CodeGraphApp extends EvgApp {
         sampleSel.addItem("evg" "evg — EVGElement" false)
         sampleSel.addItem("zip" "zip — ZipReader" false)
         sampleSel.addItem("cpp" "cpp — ZipWriter" false)
-        sampleSel.addItem("compiler" "Ranger compiler" false)
+        ; VirtualCompiler is already in the binary because Open on a `.rgr`
+        ; file compiles through CodeGraphBuilder. A menu item that walks
+        ; `VirtualCompiler.rgr` does not add those C++ lines — it just
+        ; dumps the whole compiler as a paged graph. Use Open for that.
         sampleSel.addItem("shop" "Shop fixture (no compiler)" false)
         sampleSel.addItem("many" "40 classes (paging)" false)
         sampleSel.value = "shop"

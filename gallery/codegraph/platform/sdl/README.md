@@ -21,7 +21,9 @@ it with `gallery/pkg` (`clone.mjs`), then analyses Ranger, C++ (UAST `fromDir`
 when the tree has headers/sources and no TypeScript), or TypeScript.
 A Git URL as the command-line argument does the same clone. The example
 menu **cpp — ZipWriter** opens `gallery/uast/fixtures/cpp/zip_writer.hpp`
-from disk (run the binary from the repo root).
+from disk (run the binary from the repo root). The EXAMPLE list does not
+include the Ranger compiler — that walk is Open on `compiler/VirtualCompiler.rgr`.
+VirtualCompiler is already linked because `.rgr` Open compiles through it.
 
 Needs `node` on PATH. First Git URL clone builds `gallery/pkg/bin/pkg_tool.js`
 if it is missing. Run the binary from the repo root.

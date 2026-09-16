@@ -14,6 +14,8 @@
 ; ============================================================================
 
 Import "CodeGraphModel.rgr"
+; LiveCompiler pulls every language writer. That is most of the generated
+; C++ in the SDL binary; CodeGraph only needs a parse/walk for `.rgr` Open.
 Import "../../../compiler/VirtualCompiler.rgr"
 Import "../../uast/src/UastRanger.rgr"
 Import "../../uast/src/UastCodeGraph.rgr"
