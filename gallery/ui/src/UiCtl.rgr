@@ -252,6 +252,16 @@ class UiCtl {
         return ""
     }
 
+    ; A pointer hit an owned node. Return the tid that should take focus and
+    ; activate — the text inside an input, or the value label inside a select
+    ; trigger, is not itself focusable.
+    fn hitFocusId:string (hit:string) {
+        if (this.isFocusable(hit)) {
+            return hit
+        }
+        return ""
+    }
+
     ; A click carrying the two modifiers a multi-select cares about.
     ;
     ; Defaults to the plain activation, so every control that does not have a

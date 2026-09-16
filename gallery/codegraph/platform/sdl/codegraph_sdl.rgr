@@ -297,9 +297,24 @@ class CodeGraphSdl {
         prevX = mx
         prevY = my
         prevDown = down
-        def wy:int (dgfx_wheel)
-        if (wy != 0) {
-            app.wheel(px py (0.0 - (to_double wy)))
+        def wx:double (dgfx_wheel_x_precise)
+        def wy:double (dgfx_wheel_precise)
+        if ((wx != 0.0) || (wy != 0.0)) {
+            ; Same sign as the browser host: +deltaY is scroll down. SDL
+            ; NORMAL +y is away from the user (up). Trackpad preciseY carries
+            ; speed; a wheel notch is ~1.0 and becomes a 100 px line delta.
+            def lineMode:boolean (CodeGraphSdl.wheelIsLine(wx wy))
+            def scale:double 40.0
+            if lineMode {
+                scale = 100.0
+            }
+            def dx:double (wx * scale)
+            def dy:double ((0.0 - wy) * scale)
+            if (app.inCanvas(px py)) {
+                app.wheelGesture((app.localX(px)) (app.localY(py)) dx dy ctrl lineMode)
+            } {
+                app.wheel(px py dy)
+            }
         }
         def text:string (dgfx_take_text)
         if ((strlen text) > 0) {
@@ -307,12 +322,26 @@ class CodeGraphSdl {
         }
         def k:int (dgfx_pop_key)
         while (k != 0) {
-            this.handleKey(k)
+            this.handleKey(k shift ctrl)
             k = (dgfx_pop_key)
         }
     }
 
-    fn handleKey:void (k:int) {
+    sfn wheelIsLine:boolean (dx:double dy:double) {
+        if ((fabs dx) > 0.0001) {
+            return false
+        }
+        def whole:double (to_double (to_int dy))
+        if ((fabs (dy - whole)) > 0.0001) {
+            return false
+        }
+        if ((fabs dy) < 0.99) {
+            return false
+        }
+        return true
+    }
+
+    fn handleKey:void (k:int shift:boolean ctrl:boolean) {
         if (k == 4) {
             if (this.sampleSelOpen()) {
                 app.keyWith("Escape" false false)
@@ -322,7 +351,27 @@ class CodeGraphSdl {
             return
         }
         if (k == 1) {
-            app.keyWith("Backspace" false false)
+            app.keyWith("Backspace" shift ctrl)
+            return
+        }
+        if (k == 5) {
+            app.keyWith("ArrowLeft" shift ctrl)
+            return
+        }
+        if (k == 6) {
+            app.keyWith("ArrowRight" shift ctrl)
+            return
+        }
+        if (k == 9) {
+            app.keyWith("Delete" shift ctrl)
+            return
+        }
+        if (k == 10) {
+            app.keyWith("Home" shift ctrl)
+            return
+        }
+        if (k == 11) {
+            app.keyWith("End" shift ctrl)
             return
         }
     }

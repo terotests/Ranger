@@ -278,6 +278,22 @@ class SelectCtl extends UiCtl {
         return a
     }
 
+    fn hitFocusId:string (hit:string) {
+        if (this.isFocusable(hit)) {
+            return hit
+        }
+        if disabled {
+            return ""
+        }
+        if (hit == tid) {
+            return (this.triggerTid())
+        }
+        if (hit == (this.valueTid())) {
+            return (this.triggerTid())
+        }
+        return ""
+    }
+
     fn isFocusable:boolean (target:string) {
         if disabled {
             return false

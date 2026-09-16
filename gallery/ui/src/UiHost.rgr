@@ -545,13 +545,17 @@ class UiHost {
         def maybe@(optional):UiCtl (this.ctlFor(target))
         if maybe {
             def c:UiCtl (unwrap maybe)
-            if (c.isFocusable(target)) {
-                focusId = target
-                c.onFocus(target)
+            def at:string (c.hitFocusId(target))
+            if ((strlen at) == 0) {
+                at = target
+            }
+            if (c.isFocusable(at)) {
+                focusId = at
+                c.onFocus(at)
                 ; An activation may move focus itself — opening a dialog puts
                 ; it on the close button, and the host should not have to know
                 ; that a dialog is what happened.
-                def next:string (c.activateWith(target shift ctrl))
+                def next:string (c.activateWith(at shift ctrl))
                 if ((strlen next) > 0) {
                     focusId = next
                 }

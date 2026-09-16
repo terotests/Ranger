@@ -87,6 +87,8 @@ static int g_dgfx_mouse_y = 0;
 static int g_dgfx_mouse_btn = 0;
 static int g_dgfx_wheel_y = 0;
 static int g_dgfx_wheel_x = 0;
+static double g_dgfx_wheel_y_f = 0.0;
+static double g_dgfx_wheel_x_f = 0.0;
 
 static GLuint g_dgfx_program = 0;
 static GLint g_dgfx_pos_attr = -1;
@@ -269,12 +271,18 @@ static void dgfx_pump() {
         if (ev.type == SDL_MOUSEWHEEL) {
             int wy = ev.wheel.y;
             int wx = ev.wheel.x;
+            double wyf = ev.wheel.preciseY;
+            double wxf = ev.wheel.preciseX;
             if (ev.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
                 wy = -wy;
                 wx = -wx;
+                wyf = -wyf;
+                wxf = -wxf;
             }
             g_dgfx_wheel_y += wy;
             g_dgfx_wheel_x += wx;
+            g_dgfx_wheel_y_f += wyf;
+            g_dgfx_wheel_x_f += wxf;
         }
         // Auto-repeat included, deliberately. `ev.key.repeat` is set on the
         // events the OS generates while a key is held down, and dropping them
@@ -749,6 +757,20 @@ static void dgfx_close() {
         templates {
             cpp ( "([]{ int w = g_dgfx_wheel_x; g_dgfx_wheel_x = 0; return w; }())" (imp "<SDL2/SDL.h>") )
             es6 ( "0" )
+        }
+    }
+
+    dgfx_wheel_precise _:double () {
+        templates {
+            cpp ( "([]{ double w = g_dgfx_wheel_y_f; g_dgfx_wheel_y_f = 0.0; return w; }())" (imp "<SDL2/SDL.h>") )
+            es6 ( "0.0" )
+        }
+    }
+
+    dgfx_wheel_x_precise _:double () {
+        templates {
+            cpp ( "([]{ double w = g_dgfx_wheel_x_f; g_dgfx_wheel_x_f = 0.0; return w; }())" (imp "<SDL2/SDL.h>") )
+            es6 ( "0.0" )
         }
     }
 
