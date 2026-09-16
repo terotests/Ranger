@@ -68,7 +68,7 @@ types. Only `UastRanger` may.
 | `fixtures/foo_a.ts`, `foo_b.ts` | two-file import/export + missing module |
 | `fixtures/shapes.ts` | interface, `extends`, `function`, `export default` |
 | `fixtures/card.tsx`, `page.tsx`, `banner.tsx`, `panel.tsx` | function / arrow / class React components |
-| `fixtures/client.tsx` | `'use client'`, typed rest, qualified types |
+| `fixtures/client.tsx` | `'use client'`, typed rest, qualified types, member generic calls |
 | `fixtures/dts_app/` | fake `node_modules/react` + `react-dom` `.d.ts` |
 
 ## Ranger first, TypeScript second

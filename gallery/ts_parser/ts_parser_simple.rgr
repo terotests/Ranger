@@ -6595,24 +6595,10 @@ class TSParserSimple {
     while (keepParsing) {
       def tokVal (this.peekValue())
       
-      ; Generic function call with type arguments: foo<T>(x)
+      ; Generic function call with type arguments: foo<T>(x), React.useRef<T>(x)
       ; In TSX mode, use heuristics to disambiguate from JSX
       ; (Punctuator guard: never mistake a string literal "<" for type args.)
-      if ((tokVal == "<") && ((this.peekType()) == "Punctuator")) {
-        def shouldParseAsGenericCall false
-        def next1 (this.peekAheadValue(1))
-        def next1T (this.peekNextType())
-        ; JSX tags start with a name. `{` / `(` / literals are type arguments:
-        ; `useRef<{ x: number; y: number }>()`, `useState<'x' | 'y'>()`.
-        if ((next1 == "{") || ((next1 == "(") || ((next1T == "String") || (next1T == "Number")))) {
-          shouldParseAsGenericCall = true
-        } {
-          if (this.looksLikeGenericCall()) {
-            shouldParseAsGenericCall = true
-          }
-        }
-        
-        if (shouldParseAsGenericCall) {
+      if (this.looksLikeGenericCallOpener()) {
           ; Parse type arguments <T, U, ...> directly into call node
           this.advance() ; consume <
           
@@ -6658,7 +6644,6 @@ class TSParserSimple {
             this.expectValue(")")
             expr = call
           }
-        }
       }
       
       ; Re-check tokVal in case we consumed tokens above
@@ -6903,11 +6888,16 @@ class TSParserSimple {
         expr = update
       }
       
-      ; Check if we should continue
+      ; Check if we should continue. Generic `<` after a member (`React.useRef<T>`)
+      ; is postfix, not a comparison; without it the loop stops and `{ x: number; }`
+      ; is parsed as an object literal and fails on `;`.
       def newTokVal (this.peekValue())
       def newTokType (this.peekType())
       if ((newTokVal != "(") && (newTokVal != ".") && (newTokVal != "?.") && (newTokVal != "[") && (newTokVal != "!") && (newTokVal != "as") && (newTokVal != "satisfies") && (newTokVal != "++") && (newTokVal != "--") && (newTokType != "Template")) {
-        keepParsing = false
+        def genericPostfix (this.looksLikeGenericCallOpener())
+        if (genericPostfix == false) {
+          keepParsing = false
+        }
       }
     }
     
@@ -8249,6 +8239,24 @@ class TSParserSimple {
     return false
   }
   
+  ; Current token is `<` starting type arguments of a call, not JSX / comparison.
+  fn looksLikeGenericCallOpener:boolean () {
+    if ((this.peekValue()) != "<") {
+      return false
+    }
+    if ((this.peekType()) != "Punctuator") {
+      return false
+    }
+    def next1 (this.peekAheadValue(1))
+    def next1T (this.peekNextType())
+    ; JSX tags start with a name. `{` / `(` / literals are type arguments:
+    ; `useRef<{ x: number; y: number }>()`, `useState<'x' | 'y'>()`.
+    if ((next1 == "{") || ((next1 == "(") || ((next1T == "String") || (next1T == "Number")))) {
+      return true
+    }
+    return (this.looksLikeGenericCall())
+  }
+
   ; === Helper: lookahead to check if < starts a generic call like foo<T>(x) ===
   ; Returns true if this looks like a generic function call, not JSX
   ; Simple heuristic: scan for matching > then check for (

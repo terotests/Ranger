@@ -324,7 +324,7 @@ class UastTsTest {
     }
 
     sfn testClientGrammar:void (c:UastTsChecker) {
-        print "== 'use client' / typed rest / qualified types"
+        print "== 'use client' / typed rest / qualified types / member generics"
         def model:UastCodeModel (UastTs.fromFile("gallery/uast/fixtures/client.tsx"))
         c.ok("cn function" (model.mentionsSymbol("function:cn")))
         c.ok("Handler type" (model.mentionsSymbol("class:Handler")))

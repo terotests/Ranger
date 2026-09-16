@@ -660,7 +660,8 @@ Tried on emilkowalski/sonner in `/tmp` (not vendored): Loader and
 other function components, JSX calls such as getLoadingIcon → Loader.
 `'use client'`, typed rest parameters, parenthesized union arrays,
 qualified types (`JSX.Element`, `React.ReactNode`), leading `|` unions,
-and keyword / quoted keys in type literals parse. Bare `react` /
+keyword / quoted keys in type literals, and member generic calls
+(`React.useRef<{ x: number }>(null)`) parse. Bare `react` /
 `react-dom` resolve when a `.d.ts` is on disk (package `types` field,
 `index.d.ts`, or `@types`); they stay diagnostics when it is not.
 JSX node types stay `LanguageSpecific` in the mapping — the adapter

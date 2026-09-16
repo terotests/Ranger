@@ -18,6 +18,8 @@ function box<T>(value: T): T {
 }
 
 const boxed = box<{ x: number; y: string } | null>(null);
+const boxedMember = React.useRef<{ x: number; y: number } | null>(null);
+const boxedStr = React.useState<'on' | 'off'>('off');
 const identity = <T>(value: T) => value;
 const isNum = (value: any): value is number => typeof value === 'number';
 
