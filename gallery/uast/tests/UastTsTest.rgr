@@ -13,6 +13,7 @@ Import "../src/UastTs.rgr"
 Import "../src/UastCodeGraph.rgr"
 Import "../src/UastDump.rgr"
 Import "../src/UastQuery.rgr"
+Import "../../codegraph/src/CodeGraphModel.rgr"
 
 class UastTsChecker {
     def passed:int 0
@@ -50,6 +51,7 @@ class UastTsTest {
         UastTsTest.testTsx(c)
         UastTsTest.testClientGrammar(c)
         UastTsTest.testPackageDts(c)
+        UastTsTest.testAppComponent(c)
         UastTsTest.testFromDir(c)
         def code:int (c.report())
         if (code != 0) {
@@ -301,6 +303,16 @@ class UastTsTest {
         c.ok("projected Card.render" (g.hasMethod("Card.render")))
         c.ok("projected Page.render" (g.hasMethod("Page.render")))
         c.ok("projected Panel.render" (g.hasMethod("Panel.render")))
+        def pageRender:CodeMethod (g.methodById("Page.render"))
+        def pageCallsCard:boolean false
+        def pci:int 0
+        while (pci < (array_length pageRender.calls)) {
+            if ((itemAt pageRender.calls pci) == "Card.render") {
+                pageCallsCard = true
+            }
+            pci = (pci + 1)
+        }
+        c.ok("Page.render calls Card.render" pageCallsCard)
         def pageFn:UNode (new UNode)
         def ni:int 0
         while (ni < (array_length model.nodes)) {
@@ -369,5 +381,104 @@ class UastTsTest {
         c.ok("no unresolved react" ((UastQuery.diagnosticMentions(model "unresolved import react from")) == false))
         c.ok("no unresolved react-dom" ((UastQuery.diagnosticMentions(model "unresolved import react-dom from")) == false))
         c.ok("default React export" ((UastQuery.diagnosticMentions(model "React is not exported")) == false))
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        c.ok("projected Page component" (g.hasClass("Page")))
+        c.ok("projected App component" (g.hasClass("App")))
+        c.ok("library ReactElement stays off the graph" ((g.hasClass("ReactElement")) == false))
+        def reactLib:UastSymbol (model.symbolById("class:ReactElement"))
+        c.ok("ReactElement isLibrary" reactLib.isLibrary)
+        def pageSym:UastSymbol (model.symbolById("function:Page"))
+        c.ok("Page is not library" (pageSym.isLibrary == false))
+    }
+
+    sfn testAppComponent:void (c:UastTsChecker) {
+        print "== App.tsx hooks / imports / handlers, not React.Component"
+        def model:UastCodeModel (UastTs.fromDir("gallery/uast/fixtures/dts_app"))
+        c.ok("App function" (model.mentionsSymbol("function:App")))
+        c.ok("GameView function" (model.mentionsSymbol("function:GameView")))
+        c.ok("StoryList function" (model.mentionsSymbol("function:StoryList")))
+        c.ok("config state field" (model.mentionsSymbol("field:App.config")))
+        c.ok("stories state field" (model.mentionsSymbol("field:App.stories")))
+        c.ok("handleSelect method" (model.mentionsSymbol("method:App.handleSelect")))
+        c.ok("setConfig method" (model.mentionsSymbol("method:App.setConfig")))
+        c.ok("useEffect method" (model.mentionsSymbol("method:App.useEffect")))
+        def appSym:UastSymbol (model.symbolById("function:App"))
+        c.ok("App is not library" (appSym.isLibrary == false))
+        def foundGame:boolean false
+        def foundList:boolean false
+        def foundLoad:boolean false
+        def ri:int 0
+        while (ri < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships ri)
+            if ((rel.kind == "calls") && (rel.fromId == "function:App") && (rel.toId == "function:GameView")) {
+                foundGame = true
+            }
+            if ((rel.kind == "calls") && (rel.fromId == "function:App") && (rel.toId == "function:StoryList")) {
+                foundList = true
+            }
+            if ((rel.kind == "calls") && (rel.fromId == "function:App") && (rel.toId == "function:loadStories")) {
+                foundLoad = true
+            }
+            ri = (ri + 1)
+        }
+        c.ok("App JSX calls GameView" foundGame)
+        c.ok("App JSX calls StoryList" foundList)
+        c.ok("App calls loadStories" foundLoad)
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        c.ok("projected App" (g.hasClass("App")))
+        c.ok("projected GameView" (g.hasClass("GameView")))
+        c.ok("projected StoryList" (g.hasClass("StoryList")))
+        c.ok("React Component not on the graph" ((g.hasClass("Component")) == false))
+        c.ok("ReactElement not on the graph" ((g.hasClass("ReactElement")) == false))
+        c.ok("App.render" (g.hasMethod("App.render")))
+        c.ok("App.handleSelect" (g.hasMethod("App.handleSelect")))
+        c.ok("App.useEffect" (g.hasMethod("App.useEffect")))
+        c.ok("App.setConfig" (g.hasMethod("App.setConfig")))
+        def appCls:CodeClass (g.classByName("App"))
+        c.ok("App import GameView field" (UastTsTest.hasField(appCls "GameView" "GameView")))
+        c.ok("App import StoryList field" (UastTsTest.hasField(appCls "StoryList" "StoryList")))
+        c.ok("App import loadStories field" (UastTsTest.hasField(appCls "loadStories" "")))
+        c.ok("App config field" (UastTsTest.hasNamedField(appCls "config")))
+        c.ok("App stories field" (UastTsTest.hasNamedField(appCls "stories")))
+        def appRender:CodeMethod (g.methodById("App.render"))
+        c.ok("App.render calls GameView.render" (UastTsTest.callsMethod(appRender "GameView.render")))
+        c.ok("App.render calls StoryList.render" (UastTsTest.callsMethod(appRender "StoryList.render")))
+    }
+
+    sfn hasField:boolean (cls:CodeClass name:string fieldType:string) {
+        def i:int 0
+        while (i < (array_length cls.fields)) {
+            def f:CodeField (itemAt cls.fields i)
+            if (f.name == name) {
+                if (f.fieldType == fieldType) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn hasNamedField:boolean (cls:CodeClass name:string) {
+        def i:int 0
+        while (i < (array_length cls.fields)) {
+            def f:CodeField (itemAt cls.fields i)
+            if (f.name == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn callsMethod:boolean (m:CodeMethod id:string) {
+        def i:int 0
+        while (i < (array_length m.calls)) {
+            if ((itemAt m.calls i) == id) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 }

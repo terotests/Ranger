@@ -24,6 +24,9 @@ class UastSymbol {
     def extendsName:string ""
     ; Documentation overview copied from the declaration UNode.
     def comment:string ""
+    ; True when the declaration lives in package `.d.ts` / `node_modules`,
+    ; not in the application's own sources. CodeGraph hides these by default.
+    def isLibrary:boolean false
 
     Constructor () {
     }

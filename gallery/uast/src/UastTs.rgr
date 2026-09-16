@@ -8,6 +8,8 @@
 ; Ranger compiler. Hints are frontendInferred: the pipeline owns exact.
 ; Bare npm imports load an on-disk package `.d.ts` into the workspace when
 ; one exists; `fromDir` still skips `node_modules` as application source.
+; Symbols from those files are flagged `library` so CodeGraph can keep
+; React's `Component` out of an `App.tsx` neighbourhood.
 ; ============================================================================
 
 Import "UastFrontend.rgr"
@@ -422,6 +424,10 @@ class UastTs {
         return false
     }
 
+    sfn isLibraryPath:boolean (path:string) {
+        return (UastSemantic.libraryPath(path))
+    }
+
     sfn isComponentName:boolean (name:string) {
         if ((strlen name) == 0) {
             return false
@@ -615,6 +621,9 @@ class UastTs {
         node.span = (this.spanOf(ts))
         node.origin = (UastOrigin.create("typescript" fileName ts.name 1))
         node.comment = (this.commentsBefore(ts.start))
+        if (UastTs.isLibraryPath(fileName)) {
+            node.addFlag("library")
+        }
         r.addNode(node)
         this.addHeritage(r node ts)
         if (null? ts.body) {
@@ -641,6 +650,9 @@ class UastTs {
         node.span = (this.spanOf(ts))
         node.origin = (UastOrigin.create("typescript" fileName ts.name 1))
         node.comment = (this.commentsBefore(ts.start))
+        if (UastTs.isLibraryPath(fileName)) {
+            node.addFlag("library")
+        }
         r.addNode(node)
         this.addHeritage(r node ts)
         if (null? ts.body) {
@@ -677,6 +689,9 @@ class UastTs {
         if (UastTs.isComponentName(node.name)) {
             node.addFlag("component")
         }
+        if (UastTs.isLibraryPath(fileName)) {
+            node.addFlag("library")
+        }
         r.addNode(node)
         def ret:UNode (UNode.create((this.nextId("n:ret:")) (UastKind.TypeRef()) "typescript" "type"))
         ret.name = (this.typeNameOf(ts.typeAnnotation))
@@ -703,6 +718,7 @@ class UastTs {
         r.addNode(block)
         node.addRole((UastChildRole.body()) block.id)
         this.walkStmt(r block bodyTs)
+        this.collectFnMembers(r node bodyTs)
         return node
     }
 
@@ -741,6 +757,9 @@ class UastTs {
         node.span = (this.spanOf(ts))
         node.origin = (UastOrigin.create("typescript" fileName ts.name 1))
         node.comment = (this.commentsBefore(ts.start))
+        if (UastTs.isLibraryPath(fileName)) {
+            node.addFlag("library")
+        }
         r.addNode(node)
         def tn:UNode (UNode.create((this.nextId("n:alias:")) (UastKind.TypeRef()) "typescript" "type"))
         tn.name = (this.typeNameOf(ts.typeAnnotation))
@@ -946,6 +965,7 @@ class UastTs {
         if (ts.nodeType == "CallExpression") {
             def callN:UNode (this.buildCall(r ts))
             owner.addRole((UastChildRole.element()) callN.id)
+            this.walkFnArgs(r owner ts)
             return
         }
         if (ts.nodeType == "NewExpression") {
@@ -983,6 +1003,33 @@ class UastTs {
             }
             return
         }
+        if (ts.nodeType == "VariableDeclarator") {
+            if (null? ts.init) {
+            } {
+                this.walkStmt(r owner (unwrap ts.init))
+            }
+            if (null? ts.left) {
+            } {
+                this.walkStmt(r owner (unwrap ts.left))
+            }
+            return
+        }
+        if (null? ts.init) {
+        } {
+            this.walkStmt(r owner (unwrap ts.init))
+        }
+        if (null? ts.test) {
+        } {
+            this.walkStmt(r owner (unwrap ts.test))
+        }
+        if (null? ts.consequent) {
+        } {
+            this.walkStmt(r owner (unwrap ts.consequent))
+        }
+        if (null? ts.alternate) {
+        } {
+            this.walkStmt(r owner (unwrap ts.alternate))
+        }
         if (null? ts.left) {
         } {
             this.walkStmt(r owner (unwrap ts.left))
@@ -1000,6 +1047,368 @@ class UastTs {
             this.walkStmt(r owner (itemAt ts.children ci))
             ci = (ci + 1)
         }
+    }
+
+    fn walkFnArgs:void (r:UastFrontendResult owner:UNode ts:TSNode) {
+        def ai:int 0
+        while (ai < (array_length ts.children)) {
+            def arg:TSNode (itemAt ts.children ai)
+            if (this.isFnNode(arg)) {
+                this.walkStmt(r owner arg)
+            }
+            ai = (ai + 1)
+        }
+    }
+
+    fn isFnNode:boolean (ts:TSNode) {
+        if (ts.nodeType == "ArrowFunctionExpression") {
+            return true
+        }
+        if (ts.nodeType == "FunctionExpression") {
+            return true
+        }
+        if (ts.nodeType == "FunctionDeclaration") {
+            return true
+        }
+        return false
+    }
+
+    fn collectFnMembers:void (r:UastFrontendResult owner:UNode ts:TSNode) {
+        if (ts.nodeType == "VariableDeclaration") {
+            def i:int 0
+            while (i < (array_length ts.children)) {
+                this.collectVarMember(r owner (itemAt ts.children i))
+                i = (i + 1)
+            }
+            return
+        }
+        if (ts.nodeType == "FunctionDeclaration") {
+            if ((strlen ts.name) > 0) {
+                this.addLocalMethod(r owner ts.name ts)
+            }
+            return
+        }
+        if (ts.nodeType == "JSXElement") {
+            this.collectJsxHandlers(r owner ts)
+        }
+        if (ts.nodeType == "CallExpression") {
+            def stmtHook:string (this.calleeIdent(ts))
+            if (this.isHookName(stmtHook)) {
+                if ((stmtHook == "useEffect") || (stmtHook == "useLayoutEffect")) {
+                    this.addLocalMethod(r owner stmtHook ts)
+                }
+            }
+        }
+        if (null? ts.init) {
+        } {
+            this.collectFnMembers(r owner (unwrap ts.init))
+        }
+        if (null? ts.left) {
+        } {
+            this.collectFnMembers(r owner (unwrap ts.left))
+        }
+        if (null? ts.right) {
+        } {
+            this.collectFnMembers(r owner (unwrap ts.right))
+        }
+        if (null? ts.body) {
+        } {
+            this.collectFnMembers(r owner (unwrap ts.body))
+        }
+        if (null? ts.consequent) {
+        } {
+            this.collectFnMembers(r owner (unwrap ts.consequent))
+        }
+        if (null? ts.alternate) {
+        } {
+            this.collectFnMembers(r owner (unwrap ts.alternate))
+        }
+        def ci:int 0
+        while (ci < (array_length ts.children)) {
+            this.collectFnMembers(r owner (itemAt ts.children ci))
+            ci = (ci + 1)
+        }
+    }
+
+    fn collectVarMember:void (r:UastFrontendResult owner:UNode d:TSNode) {
+        if (d.nodeType != "VariableDeclarator") {
+            return
+        }
+        if (null? d.init) {
+            return
+        }
+        def init:TSNode (unwrap d.init)
+        if (this.isFnNode(init)) {
+            if ((strlen d.name) > 0) {
+                this.addLocalMethod(r owner d.name init)
+            }
+            return
+        }
+        if (init.nodeType != "CallExpression") {
+            return
+        }
+        def hook:string (this.calleeIdent(init))
+        if (this.isHookName(hook) == false) {
+            return
+        }
+        def ty:string (this.hookTypeName(init d))
+        if (hook == "useCallback") {
+            if ((strlen d.name) > 0) {
+                this.addLocalMethod(r owner d.name init)
+            }
+            return
+        }
+        if (hook == "useEffect") {
+            this.addLocalMethod(r owner hook init)
+            return
+        }
+        if (hook == "useLayoutEffect") {
+            this.addLocalMethod(r owner hook init)
+            return
+        }
+        def names:[string]
+        if (null? d.left) {
+            if ((strlen d.name) > 0) {
+                push names d.name
+            }
+        } {
+            this.collectBindingNames((unwrap d.left) names)
+        }
+        def ni:int 0
+        while (ni < (array_length names)) {
+            def nm:string (itemAt names ni)
+            if (ni == 0) {
+                this.addLocalField(r owner nm ty)
+            } {
+                if (this.looksLikeSetter(nm)) {
+                    this.addLocalMethod(r owner nm init)
+                } {
+                    this.addLocalField(r owner nm ty)
+                }
+            }
+            ni = (ni + 1)
+        }
+        if ((array_length names) == 0) {
+            this.addLocalMethod(r owner hook init)
+        }
+    }
+
+    fn collectJsxHandlers:void (r:UastFrontendResult owner:UNode ts:TSNode) {
+        if (null? ts.left) {
+        } {
+            def opening:TSNode (unwrap ts.left)
+            def ai:int 0
+            while (ai < (array_length opening.children)) {
+                def attr:TSNode (itemAt opening.children ai)
+                if (this.isEventAttr(attr.name)) {
+                    if (null? attr.right) {
+                    } {
+                        def val:TSNode (unwrap attr.right)
+                        def expr:TSNode val
+                        if (val.nodeType == "JSXExpressionContainer") {
+                            if (null? val.left) {
+                            } {
+                                expr = (unwrap val.left)
+                            }
+                        }
+                        if (this.isFnNode(expr)) {
+                            this.addLocalMethod(r owner attr.name expr)
+                        }
+                    }
+                }
+                ai = (ai + 1)
+            }
+        }
+    }
+
+    fn isEventAttr:boolean (name:string) {
+        if ((strlen name) < 3) {
+            return false
+        }
+        if ((charAt name 0) != ((ccode "o"))) {
+            return false
+        }
+        if ((charAt name 1) != ((ccode "n"))) {
+            return false
+        }
+        def ch:int (charAt name 2)
+        if ((ch >= 65) && (ch <= 90)) {
+            return true
+        }
+        return false
+    }
+
+    fn looksLikeSetter:boolean (name:string) {
+        if ((strlen name) < 4) {
+            return false
+        }
+        if ((substring name 0 3) != "set") {
+            return false
+        }
+        def ch:int (charAt name 3)
+        if ((ch >= 65) && (ch <= 90)) {
+            return true
+        }
+        return false
+    }
+
+    fn isHookName:boolean (name:string) {
+        if ((strlen name) < 4) {
+            return false
+        }
+        if ((substring name 0 3) != "use") {
+            return false
+        }
+        def ch:int (charAt name 3)
+        if ((ch >= 65) && (ch <= 90)) {
+            return true
+        }
+        return false
+    }
+
+    fn calleeIdent:string (ts:TSNode) {
+        if (null? ts.left) {
+            return ts.name
+        }
+        def c:TSNode (unwrap ts.left)
+        if ((strlen c.name) > 0) {
+            return c.name
+        }
+        return ts.name
+    }
+
+    fn hookTypeName:string (call:TSNode d:TSNode) {
+        def fromAnn:string (this.typeNameOf(d.typeAnnotation))
+        if ((strlen fromAnn) > 0) {
+            return fromAnn
+        }
+        if ((array_length call.params) > 0) {
+            def arg:TSNode (itemAt call.params 0)
+            if ((strlen arg.name) > 0) {
+                return arg.name
+            }
+        }
+        return ""
+    }
+
+    fn collectBindingNames:void (ts:TSNode out:[string]) {
+        if (ts.nodeType == "AssignmentPattern") {
+            if (null? ts.left) {
+            } {
+                this.collectBindingNames((unwrap ts.left) out)
+            }
+            return
+        }
+        if ((ts.nodeType == "ArrayPattern") || (ts.nodeType == "ObjectPattern")) {
+            def i:int 0
+            while (i < (array_length ts.children)) {
+                this.collectBindingNames((itemAt ts.children i) out)
+                i = (i + 1)
+            }
+            if (null? ts.left) {
+            } {
+                this.collectBindingNames((unwrap ts.left) out)
+            }
+            return
+        }
+        if (ts.nodeType == "Property") {
+            if (null? ts.right) {
+                if ((strlen ts.name) > 0) {
+                    push out ts.name
+                }
+            } {
+                this.collectBindingNames((unwrap ts.right) out)
+            }
+            return
+        }
+        if (ts.nodeType == "RestElement") {
+            if ((strlen ts.name) > 0) {
+                push out ts.name
+            } {
+                if (null? ts.left) {
+                } {
+                    this.collectBindingNames((unwrap ts.left) out)
+                }
+            }
+            return
+        }
+        if ((strlen ts.name) > 0) {
+            push out ts.name
+        }
+    }
+
+    fn addLocalField:void (r:UastFrontendResult owner:UNode name:string typeName:string) {
+        if ((strlen name) == 0) {
+            return
+        }
+        if (this.ownerMentions(r owner (UastChildRole.field()) name)) {
+            return
+        }
+        def node:UNode (UNode.create((this.nextId("n:field:")) (UastKind.FieldDecl()) "typescript" "hook"))
+        node.name = name
+        node.span = owner.span
+        r.addNode(node)
+        def tn:UNode (UNode.create((this.nextId("n:type:")) (UastKind.TypeRef()) "typescript" "type"))
+        tn.name = typeName
+        r.addNode(tn)
+        node.addRole((UastChildRole.typeRole()) tn.id)
+        owner.addRole((UastChildRole.field()) node.id)
+    }
+
+    fn addLocalMethod:void (r:UastFrontendResult owner:UNode name:string ts:TSNode) {
+        if ((strlen name) == 0) {
+            return
+        }
+        if (this.ownerMentions(r owner (UastChildRole.method()) name)) {
+            return
+        }
+        def node:UNode (UNode.create((this.nextId("n:method:")) (UastKind.MethodDecl()) "typescript" ts.nodeType))
+        node.name = name
+        node.span = (this.spanOf(ts))
+        r.addNode(node)
+        def ret:UNode (UNode.create((this.nextId("n:ret:")) (UastKind.TypeRef()) "typescript" "type"))
+        ret.name = (this.typeNameOf(ts.typeAnnotation))
+        r.addNode(ret)
+        node.addRole((UastChildRole.returnType()) ret.id)
+        def fnTs:TSNode ts
+        if (ts.nodeType == "CallExpression") {
+            if ((array_length ts.children) > 0) {
+                def arg0:TSNode (itemAt ts.children 0)
+                if (this.isFnNode(arg0)) {
+                    fnTs = arg0
+                }
+            }
+        }
+        def pi:int 0
+        while (pi < (array_length fnTs.params)) {
+            def p:TSNode (itemAt fnTs.params pi)
+            def pn:UNode (UNode.create((this.nextId("n:p:")) (UastKind.Parameter()) "typescript" "param"))
+            pn.name = p.name
+            r.addNode(pn)
+            def pt:UNode (UNode.create((this.nextId("n:pt:")) (UastKind.TypeRef()) "typescript" "type"))
+            pt.name = (this.typeNameOf(p.typeAnnotation))
+            r.addNode(pt)
+            pn.addRole((UastChildRole.typeRole()) pt.id)
+            node.addRole((UastChildRole.parameter()) pn.id)
+            pi = (pi + 1)
+        }
+        owner.addRole((UastChildRole.method()) node.id)
+    }
+
+    fn ownerMentions:boolean (r:UastFrontendResult owner:UNode role:string name:string) {
+        def ids:[string] (owner.childIdsFor(role))
+        def i:int 0
+        while (i < (array_length ids)) {
+            def id:string (itemAt ids i)
+            if (r.mentionsNode(id)) {
+                def n:UNode (r.nodeById(id))
+                if (n.name == name) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     fn buildCall:UNode (r:UastFrontendResult ts:TSNode) {
