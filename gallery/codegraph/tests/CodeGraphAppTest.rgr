@@ -71,6 +71,20 @@ class CodeGraphAppTest {
             print "  FAIL shop UML has no Order"
             failed = (failed + 1)
         }
+        if (app.editor.view.showControls == false) {
+            print "  FAIL the floating zoom bar is off"
+            failed = (failed + 1)
+        }
+        def z0:double app.editor.view.viewport.zoom
+        def plusX:double ((app.editor.view.controlToolLeft(2)) + ((app.editor.view.controlToolWidth(2)) * 0.5))
+        def plusY:double ((app.editor.view.controlToolTop()) + 14.0)
+        app.pointerDown((app.canvasX + plusX) (app.canvasY + plusY) false false)
+        app.pointerUp((app.canvasX + plusX) (app.canvasY + plusY) false false)
+        if (app.editor.view.viewport.zoom <= z0) {
+            print ("  FAIL floating + did not zoom (still " + (to_string app.editor.view.viewport.zoom) + ")")
+            failed = (failed + 1)
+        }
+        app.fitView()
         def hit:string (app.hitId(20.0 20.0))
         if ((strlen hit) == 0) {
             print "  FAIL header hit test empty"

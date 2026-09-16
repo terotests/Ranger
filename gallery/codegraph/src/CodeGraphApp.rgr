@@ -1153,7 +1153,10 @@ class CodeGraphApp extends EvgApp {
         editor.setSize(viewW viewH)
         editor.view.notation = "uml"
         editor.view.showMinimap = false
-        editor.view.showControls = false
+        ; The floating − % + Fit bar is RangerFlow's own chrome, the same pill
+        ; Rafi and Rave sit over the board. Node tools stay off: this canvas
+        ; opens a class, it does not connect or delete boxes.
+        editor.view.showControls = true
         editor.view.showNodeTools = false
         editor.fitView()
         if ((indexOf session.pageId "uml:") == 0) {
