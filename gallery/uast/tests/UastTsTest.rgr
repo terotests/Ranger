@@ -335,6 +335,8 @@ class UastTsTest {
         c.ok("box generic function" (model.mentionsSymbol("function:box")))
         c.ok("identity generic arrow" (model.mentionsSymbol("function:identity")))
         c.ok("isNum type predicate arrow" (model.mentionsSymbol("function:isNum")))
+        c.ok("lessThan comparison not generic" (model.mentionsSymbol("function:lessThan")))
+        c.ok("named function expression" (model.mentionsSymbol("function:NamedFn")))
         c.ok("no parse diagnostic" ((UastQuery.diagnosticMentions(model "Parse error")) == false))
         c.ok("no unknown type" ((UastQuery.diagnosticMentions(model "Unknown type")) == false))
     }
@@ -344,8 +346,10 @@ class UastTsTest {
         def model:UastCodeModel (UastTs.fromDir("gallery/uast/fixtures/dts_app"))
         c.ok("createElement from react .d.ts" (model.mentionsSymbol("function:createElement")))
         c.ok("useState from react .d.ts" (model.mentionsSymbol("function:useState")))
+        c.ok("useRef from react .d.ts" (model.mentionsSymbol("function:useRef")))
         c.ok("render from react-dom .d.ts" (model.mentionsSymbol("function:render")))
         c.ok("ReactElement interface" (model.mentionsSymbol("class:ReactElement")))
+        c.ok("React namespace" (model.mentionsSymbol("class:React")))
         c.ok("Page function" (model.mentionsSymbol("function:Page")))
         def foundCreate:boolean false
         def foundRender:boolean false
@@ -364,5 +368,6 @@ class UastTsTest {
         c.ok("mount calls render" foundRender)
         c.ok("no unresolved react" ((UastQuery.diagnosticMentions(model "unresolved import react from")) == false))
         c.ok("no unresolved react-dom" ((UastQuery.diagnosticMentions(model "unresolved import react-dom from")) == false))
+        c.ok("default React export" ((UastQuery.diagnosticMentions(model "React is not exported")) == false))
     }
 }

@@ -1,6 +1,7 @@
 'use client';
 
-import { createElement, useState } from 'react';
+import React from 'react';
+import { createElement, useState, useRef } from 'react';
 import { render } from 'react-dom';
 
 export function Page() {
@@ -13,4 +14,8 @@ export function mount(el: any) {
 
 export function useCount() {
   return useState(0);
+}
+
+export function usePos() {
+  return useRef(null);
 }

@@ -573,7 +573,20 @@ class UastTs {
         if ((st.nodeType == "ExportNamedDeclaration") || (st.nodeType == "ExportDefaultDeclaration")) {
             this.addExport(r st)
         }
+        if (st.nodeType == "TSNamespaceExportDeclaration") {
+            this.addNamedExport(r st st.name)
+        }
+        if (st.nodeType == "TSExportAssignment") {
+            def assignName:string ""
+            if (null? st.left) {
+            } {
+                def left:TSNode (unwrap st.left)
+                assignName = left.name
+            }
+            this.addNamedExport(r st assignName)
+        }
         if (st.nodeType == "TSModuleDeclaration") {
+            this.addNamespace(r st)
             if (null? st.body) {
             } {
                 def body:TSNode (unwrap st.body)
@@ -728,6 +741,34 @@ class UastTs {
         r.addNode(tn)
         node.addRole((UastChildRole.typeRole()) tn.id)
         return node
+    }
+
+    fn addNamespace:void (r:UastFrontendResult ts:TSNode) {
+        if ((strlen ts.name) == 0) {
+            return
+        }
+        if ((charAt ts.name 0) == 34) {
+            return
+        }
+        def node:UNode (UNode.create((this.nextId("n:ns:")) (UastKind.TypeDecl()) "typescript" ts.nodeType))
+        node.name = ts.name
+        node.span = (this.spanOf(ts))
+        node.origin = (UastOrigin.create("typescript" fileName ts.name 1))
+        r.addNode(node)
+    }
+
+    fn addNamedExport:void (r:UastFrontendResult ts:TSNode name:string) {
+        if ((strlen name) == 0) {
+            return
+        }
+        def node:UNode (UNode.create((this.nextId("n:export:")) (UastKind.Export()) "typescript" ts.nodeType))
+        node.span = (this.spanOf(ts))
+        r.addNode(node)
+        def idn:UNode (UNode.create((this.nextId("n:id:")) (UastKind.Identifier()) "typescript" "ExportSpecifier"))
+        idn.name = name
+        idn.span = node.span
+        r.addNode(idn)
+        node.addRole((UastChildRole.nameRole()) idn.id)
     }
 
     fn addHeritage:void (r:UastFrontendResult node:UNode ts:TSNode) {

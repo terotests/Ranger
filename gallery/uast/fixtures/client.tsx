@@ -23,6 +23,21 @@ const boxedStr = React.useState<'on' | 'off'>('off');
 const identity = <T>(value: T) => value;
 const isNum = (value: any): value is number => typeof value === 'number';
 
+function lessThan(n: number) {
+  return n < 0 || n < 1;
+}
+
+const NamedFn = function NamedFn() {
+  return 1;
+};
+
+const Wrapped = React.forwardRef<HTMLElement, object>(function Wrapped(_props: object, _ref: unknown) {
+  return <div />;
+});
+
 export function ClientBanner() {
   return <div className={cn('ok')} />;
 }
+
+export { box, type Lead };
+export { type Click, type Handler } from './types';

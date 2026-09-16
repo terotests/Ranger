@@ -2015,6 +2015,18 @@ class TSParserSimple {
       while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
         def spec (new TSNode())
         spec.nodeType = "ExportSpecifier"
+        def typeOnly false
+        
+        ; TS 4.5: `export { type Foo }` / `export { foo, type Bar }`.
+        ; `export { type }` and `export { type as x }` export a binding named type.
+        if (this.matchValue("type")) {
+          def afterType (this.peekNextValue())
+          if ((afterType != "as") && ((afterType != ",") && (afterType != "}"))) {
+            this.advance()
+            typeOnly = true
+            spec.kind = "type"
+          }
+        }
         
         def localName (this.expectModuleExportName())
         spec.name = localName.value
@@ -2029,7 +2041,10 @@ class TSParserSimple {
           spec.value = localName.value
         }
         this.registerExportName(spec.value)
-        push this.pendingExportRefs localName.value
+        ; A type-only specifier does not need a value binding.
+        if (typeOnly == false) {
+          push this.pendingExportRefs localName.value
+        }
         
         push specifiers spec
         
@@ -4403,8 +4418,12 @@ class TSParserSimple {
     this.popScope()
     if (node.kind != "overload") {
       ; A function declaration binds its name in the enclosing scope, and hoists
-      ; like a var.
-      this.declareBinding("f" node.name)
+      ; like a var. A named function *expression* (`const Toaster = function Toaster(){}`)
+      ; must not: the name is local to the function, and binding it here clashes
+      ; with the const.
+      if (isFnExpression == false) {
+        this.declareBinding("f" node.name)
+      }
     }
     this.allowSuperCall = savedSuperCall
     this.allowSuperProperty = savedSuperProp
@@ -8240,19 +8259,14 @@ class TSParserSimple {
   }
   
   ; Current token is `<` starting type arguments of a call, not JSX / comparison.
+  ; `yDelta < 0` is a comparison: a number (or identifier) after `<` is not
+  ; enough. Only treat it as a call when a matching `>` is followed by `(`.
   fn looksLikeGenericCallOpener:boolean () {
     if ((this.peekValue()) != "<") {
       return false
     }
     if ((this.peekType()) != "Punctuator") {
       return false
-    }
-    def next1 (this.peekAheadValue(1))
-    def next1T (this.peekNextType())
-    ; JSX tags start with a name. `{` / `(` / literals are type arguments:
-    ; `useRef<{ x: number; y: number }>()`, `useState<'x' | 'y'>()`.
-    if ((next1 == "{") || ((next1 == "(") || ((next1T == "String") || (next1T == "Number")))) {
-      return true
     }
     return (this.looksLikeGenericCall())
   }
