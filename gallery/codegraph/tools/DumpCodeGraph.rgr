@@ -1,0 +1,93 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DumpCodeGraph — SoftCanvas PNG of the explorer with the source pane open.
+; ============================================================================
+;
+;   node gallery/codegraph/bin/DumpCodeGraph.js
+; ============================================================================
+
+Import "../src/CodeGraphApp.rgr"
+Import "../../datagrid/src/SoftPainter.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "../../evg/EVGTextMeasurer.rgr"
+Import "../../game_engine/ui/UITextRenderer.rgr"
+
+class DumpCodeGraph {
+
+    sfn openFaces:UITextRenderer (fontDir:string) {
+        def tr (new UITextRenderer)
+        tr.addFontDir(fontDir)
+        def family:string "Open Sans"
+        def dir:string "Open_Sans"
+        def reg:buffer (buffer_read_file (fontDir + "/" + dir) "OpenSans-Regular.ttf")
+        if ((buffer_length reg) == 0) {
+            print ("  missing face in " + fontDir)
+            return tr
+        }
+        tr.loadFontBytes(family reg)
+        def n:int (array_length tr.fm.fonts)
+        if (n > 0) {
+            def f:TrueTypeFont (itemAt tr.fm.fonts (n - 1))
+            f.fontFamily = family
+            f.fontStyle = "Regular"
+        }
+        def bld:buffer (buffer_read_file (fontDir + "/" + dir) "OpenSans-Bold.ttf")
+        if ((buffer_length bld) > 0) {
+            tr.addFaceBytes(bld)
+            def n2:int (array_length tr.fm.fonts)
+            if (n2 > 0) {
+                def fb:TrueTypeFont (itemAt tr.fm.fonts (n2 - 1))
+                fb.fontFamily = family
+                fb.fontStyle = "Bold"
+            }
+        }
+        tr.fontFamily = family
+        tr.applyFace()
+        EVGDefaultMeasurer.install(tr.measurer)
+        return tr
+    }
+
+    sfn writePng:void (painter:SoftPainter dir:string file:string w:int h:int) {
+        def rb (new RasterBuffer)
+        rb.width = w
+        rb.height = h
+        rb.pixels = (painter.canvas.raw())
+        def png (new PNGEncoder)
+        png.encode(rb dir file)
+        print ("wrote " + dir + "/" + file)
+    }
+
+    sfn main:void () {
+        def css@(optional):string (read_file "gallery/codegraph/web" "codegraph.css")
+        if (null? css) {
+            print "missing gallery/codegraph/web/codegraph.css"
+            return
+        }
+        def w:int 1440
+        def h:int 900
+        def tr:UITextRenderer (DumpCodeGraph.openFaces("gallery/pdf_writer/assets/fonts"))
+        def app (new CodeGraphApp)
+        app.codeTr = tr
+        app.start((to_double w) (to_double h) (unwrap css))
+        app.codeView.fontFamily = "Open Sans"
+        if ((app.openDiskPath("gallery/uast/fixtures/cpp/zip_writer.hpp")) == false) {
+            print ("open failed: " + app.statusText())
+            return
+        }
+        if ((app.openClass("ZipWriter")) == false) {
+            print "openClass ZipWriter failed"
+            return
+        }
+        def dl:EVGDisplayList (app.display())
+        def painter (new SoftPainter)
+        painter.begin(w h tr)
+        painter.fontFamily = "Open Sans"
+        painter.draw(dl)
+        DumpCodeGraph.writePng(painter "gallery/codegraph/artifacts" "codegraph_source_zipwriter.png" w h)
+        DumpCodeGraph.writePng(painter "/opt/cursor/artifacts/screenshots" "codegraph_source_zipwriter.png" w h)
+        print (("caretLine=" + (to_string app.codeView.sel.caret.line)) + " path=" + app.sourcePath)
+        print (app.stats())
+    }
+}

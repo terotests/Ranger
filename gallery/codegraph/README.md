@@ -46,6 +46,8 @@ by the Pages workflow.
 
 ![the shop fixture as UML, field types drawn as associations](artifacts/codegraph_shop.png)
 
+![ZipWriter class page with the source pane scrolled to `class ZipWriter`](artifacts/codegraph_source_zipwriter.png)
+
 ## Run
 
 ```bash
