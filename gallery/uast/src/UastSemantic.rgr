@@ -122,6 +122,9 @@ class UastSemantic {
             if (owner.kind == "InterfaceDecl") {
                 isType = true
             }
+            if (owner.kind == "FunctionDecl") {
+                isType = true
+            }
             if isType {
                 def ownerId:string (m.symbolDeclaredAt(owner.id))
                 def fields:[string] (owner.childIdsFor((UastChildRole.field())))
@@ -197,6 +200,10 @@ class UastSemantic {
         s.declarationNode = node.id
         s.fileName = node.span.fileId
         s.comment = node.comment
+        s.isLibrary = (UastSemantic.libraryPath(s.fileName))
+        if (node.mentionsFlag("library")) {
+            s.isLibrary = true
+        }
         m.addSymbol(s)
     }
 
@@ -211,6 +218,10 @@ class UastSemantic {
         s.declarationNode = node.id
         s.fileName = node.span.fileId
         s.comment = node.comment
+        s.isLibrary = (UastSemantic.libraryPath(s.fileName))
+        if (node.mentionsFlag("library")) {
+            s.isLibrary = true
+        }
         def retId:string (node.childIdFor((UastChildRole.returnType())))
         if ((strlen retId) > 0) {
             if (m.mentionsNode(retId)) {
@@ -219,6 +230,25 @@ class UastSemantic {
             }
         }
         m.addSymbol(s)
+    }
+
+    sfn libraryPath:boolean (path:string) {
+        if ((strlen path) == 0) {
+            return false
+        }
+        if ((indexOf path "/node_modules/") >= 0) {
+            return true
+        }
+        if ((indexOf path "node_modules/") == 0) {
+            return true
+        }
+        def n:int (strlen path)
+        if (n >= 5) {
+            if ((substring path (n - 5) n) == ".d.ts") {
+                return true
+            }
+        }
+        return false
     }
 
     sfn uniquifyId:string (m:UastCodeModel id:string) {
@@ -251,6 +281,10 @@ class UastSemantic {
         s.fileName = node.span.fileId
         s.comment = node.comment
         s.isStatic = (node.mentionsFlag("static"))
+        s.isLibrary = (UastSemantic.libraryPath(s.fileName))
+        if (node.mentionsFlag("library")) {
+            s.isLibrary = true
+        }
         def typeId:string (node.childIdFor((UastChildRole.typeRole())))
         if ((strlen typeId) > 0) {
             if (m.mentionsNode(typeId)) {
@@ -1386,6 +1420,12 @@ class UastSemantic {
     }
 
     sfn collapsePath:string (path:string) {
+        def abs:boolean false
+        if ((strlen path) > 0) {
+            if ((charAt path 0) == ((ccode "/"))) {
+                abs = true
+            }
+        }
         def parts:[string]
         def cur:string ""
         def i:int 0
@@ -1399,7 +1439,11 @@ class UastSemantic {
             i = (i + 1)
         }
         UastSemantic.pushSeg(parts cur)
-        return (join parts "/")
+        def out:string (join parts "/")
+        if abs {
+            return ("/" + out)
+        }
+        return out
     }
 
     sfn pushSeg:void (parts:[string] part:string) {
