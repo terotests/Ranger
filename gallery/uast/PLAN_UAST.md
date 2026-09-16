@@ -642,8 +642,10 @@ M7 is started: `UastTs.fromDir` walks a TypeScript tree (skips
 `node_modules` / `dist` / `.git`), indexes `FunctionDecl` /
 `InterfaceDecl` / `export default` / `extends`, and
 `npm run uast:analyze` prints PLAN §11 metrics then projects into the
-existing CodeGraph IR. No CodeGraphBuilder or UI change. A real
-open-source TypeScript repo is analysed in `/tmp` and is not vendored.
+existing CodeGraph IR. No CodeGraphBuilder or UI change. Tried on
+sindresorhus/p-queue in `/tmp` (not vendored): `PQueue` / `PriorityQueue`
+classes, type aliases, `.js`→`.ts` workspace imports, exact internal
+calls. Missing npm packages stay diagnostics.
 
 ---
 

@@ -33,7 +33,7 @@ class UastReport {
         def i:int 0
         while (i < (array_length m.symbols)) {
             def s:UastSymbol (itemAt m.symbols i)
-            if ((s.kind == "class") || (s.kind == "interface") || (s.kind == "function")) {
+            if ((s.kind == "class") || (s.kind == "interface") || (s.kind == "function") || (s.kind == "type")) {
                 def extra:string ""
                 if ((strlen s.extendsName) > 0) {
                     extra = (" extends " + s.extendsName)
@@ -50,7 +50,7 @@ class UastReport {
         def i:int 0
         while (i < (array_length m.nodes)) {
             def node:UNode (itemAt m.nodes i)
-            if ((node.kind == "ClassDecl") || (node.kind == "InterfaceDecl") || (node.kind == "FunctionDecl")) {
+            if ((node.kind == "ClassDecl") || (node.kind == "InterfaceDecl") || (node.kind == "FunctionDecl") || (node.kind == "TypeDecl")) {
                 n = (n + 1)
             }
             i = (i + 1)

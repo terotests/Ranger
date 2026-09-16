@@ -142,6 +142,7 @@ class UastTsTest {
         def ws (new UastWorkspace)
         ws.addResult((UastTs.parseFile("gallery/uast/fixtures/foo_a.ts")))
         ws.addResult((UastTs.parseFile("gallery/uast/fixtures/foo_b.ts")))
+        ws.addResult((UastTs.parseFile("gallery/uast/fixtures/foo_js.ts")))
         def model:UastCodeModel (UastSemantic.fromWorkspace(ws))
         if ((indexOf model.title " FAIL ") >= 0) {
             print ("  FAIL " + model.title)
@@ -175,6 +176,23 @@ class UastTsTest {
         }
         c.ok("import ./foo_a present" foundImp)
         c.ok("new Foo binds class" foundFoo)
+        c.ok("ViaJs class" (model.mentionsSymbol("class:ViaJs")))
+        def foundJs:boolean false
+        def ji:int 0
+        while (ji < (array_length model.nodes)) {
+            def jn:UNode (itemAt model.nodes ji)
+            if (jn.kind == "Import") {
+                if (jn.name == "./foo_a.js") {
+                    foundJs = true
+                    def jnames:[string] (jn.childIdsFor((UastChildRole.nameRole())))
+                    if ((array_length jnames) > 0) {
+                        c.eqStr("import Foo from .js → class" (UastQuery.refTarget(model (itemAt jnames 0))) "class:Foo")
+                    }
+                }
+            }
+            ji = (ji + 1)
+        }
+        c.ok("import ./foo_a.js present" foundJs)
         c.ok("unresolved ./nope" (UastQuery.diagnosticMentions(model "unresolved import ./nope")))
         c.ok("Uses survived missing import" (model.mentionsSymbol("class:Uses")))
     }
@@ -195,6 +213,9 @@ class UastTsTest {
         c.ok("Child class" (model.mentionsSymbol("class:Child")))
         c.ok("DefaultBox class" (model.mentionsSymbol("class:DefaultBox")))
         c.ok("makeChild function" (model.mentionsSymbol("function:makeChild")))
+        c.ok("Label type alias" (model.mentionsSymbol("class:Label")))
+        def label:UastSymbol (model.symbolById("class:Label"))
+        c.eqStr("Label kind" label.kind "type")
         def child:UastSymbol (model.symbolById("class:Child"))
         c.eqStr("Child extends Base" child.extendsName "Base")
         def foundExt:boolean false
@@ -227,7 +248,8 @@ class UastTsTest {
         c.ok("Uses from dir" (model.mentionsSymbol("class:Uses")))
         c.ok("Child from dir" (model.mentionsSymbol("class:Child")))
         c.ok("makeChild from dir" (model.mentionsSymbol("function:makeChild")))
-        c.ok("at least 4 ts files" ((array_length model.files) >= 4))
+        c.ok("ViaJs from dir" (model.mentionsSymbol("class:ViaJs")))
+        c.ok("at least 5 ts files" ((array_length model.files) >= 5))
         def g:CodeGraph (UastToCodeGraph.project(model))
         c.ok("dir projected ZipWriter" (g.hasClass("ZipWriter")))
         c.ok("dir projected Child" (g.hasClass("Child")))

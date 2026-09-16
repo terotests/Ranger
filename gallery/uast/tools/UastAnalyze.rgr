@@ -28,16 +28,13 @@ class UastAnalyze {
         def g:CodeGraph (UastToCodeGraph.project(model))
         print ""
         print (("projected classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
-        def mi:int 0
-        while (mi < (array_length g.methods)) {
-            def meth:CodeMethod (itemAt g.methods mi)
-            def ci:int 0
-            while (ci < (array_length meth.calls)) {
-                def toId:string (itemAt meth.calls ci)
-                print ((("  " + meth.id) + " -> ") + toId)
-                ci = (ci + 1)
+        def ri:int 0
+        while (ri < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships ri)
+            if (rel.kind == "calls") {
+                print ((("  " + rel.fromId) + " -> ") + rel.toId)
             }
-            mi = (mi + 1)
+            ri = (ri + 1)
         }
         def di:int 0
         def shown:int 0

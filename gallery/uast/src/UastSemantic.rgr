@@ -103,6 +103,9 @@ class UastSemantic {
             if (node.kind == "FunctionDecl") {
                 UastSemantic.addFnSymbol(m node)
             }
+            if (node.kind == "TypeDecl") {
+                UastSemantic.addTypeSymbol(m node (UastSymKind.typeSym()))
+            }
             i = (i + 1)
         }
         def j:int 0
@@ -474,7 +477,7 @@ class UastSemantic {
                     ni = (ni + 1)
                 }
             }
-            if ((node.kind == "ClassDecl") || (node.kind == "InterfaceDecl") || (node.kind == "FunctionDecl")) {
+            if ((node.kind == "ClassDecl") || (node.kind == "InterfaceDecl") || (node.kind == "FunctionDecl") || (node.kind == "TypeDecl")) {
                 if (node.mentionsFlag("export")) {
                     UastSemantic.markExported(m node.id node.span.fileId)
                 }
@@ -1193,6 +1196,12 @@ class UastSemantic {
             if (pn == (norm + ".js")) {
                 return p
             }
+            def fromJs:string (UastSemantic.jsToTs(norm))
+            if ((strlen fromJs) > 0) {
+                if (pn == fromJs) {
+                    return p
+                }
+            }
             i = (i + 1)
         }
         if allowBasename {
@@ -1212,6 +1221,17 @@ class UastSemantic {
             if (n == 1) {
                 return found
             }
+        }
+        return ""
+    }
+
+    sfn jsToTs:string (path:string) {
+        def n:int (strlen path)
+        if (n < 3) {
+            return ""
+        }
+        if ((substring path (n - 3) n) == ".js") {
+            return ((substring path 0 (n - 3)) + ".ts")
         }
         return ""
     }

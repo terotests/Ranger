@@ -273,6 +273,9 @@ class UastTs {
             if (st.nodeType == "FunctionDeclaration") {
                 this.addFunction(r st)
             }
+            if (st.nodeType == "TSTypeAliasDeclaration") {
+                this.addTypeAlias(r st)
+            }
             if (st.nodeType == "ImportDeclaration") {
                 this.addImport(r st)
             }
@@ -381,6 +384,20 @@ class UastTs {
         return node
     }
 
+    fn addTypeAlias:UNode (r:UastFrontendResult ts:TSNode) {
+        def node:UNode (UNode.create((this.nextId("n:type:")) (UastKind.TypeDecl()) "typescript" ts.nodeType))
+        node.name = ts.name
+        node.span = (this.spanOf(ts))
+        node.origin = (UastOrigin.create("typescript" fileName ts.name 1))
+        node.comment = (this.commentsBefore(ts.start))
+        r.addNode(node)
+        def tn:UNode (UNode.create((this.nextId("n:alias:")) (UastKind.TypeRef()) "typescript" "type"))
+        tn.name = (this.typeNameOf(ts.typeAnnotation))
+        r.addNode(tn)
+        node.addRole((UastChildRole.typeRole()) tn.id)
+        return node
+    }
+
     fn addHeritage:void (r:UastFrontendResult node:UNode ts:TSNode) {
         if (null? ts.left) {
         } {
@@ -462,6 +479,11 @@ class UastTs {
                 fnN.addFlag("export")
                 node.addRole((UastChildRole.element()) fnN.id)
             }
+            if (decl.nodeType == "TSTypeAliasDeclaration") {
+                def ty:UNode (this.addTypeAlias(r decl))
+                ty.addFlag("export")
+                node.addRole((UastChildRole.element()) ty.id)
+            }
         }
         def i:int 0
         while (i < (array_length ts.children)) {
@@ -496,10 +518,11 @@ class UastTs {
     }
 
     fn addMethod:void (r:UastFrontendResult owner:UNode ts:TSNode) {
+        if ((strlen ts.name) == 0) {
+            return
+        }
         if (ts.name == "constructor") {
-            if (ts.kind == "constructor") {
-                return
-            }
+            return
         }
         def node:UNode (UNode.create((this.nextId("n:method:")) (UastKind.MethodDecl()) "typescript" ts.nodeType))
         node.name = ts.name

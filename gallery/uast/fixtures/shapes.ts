@@ -19,6 +19,8 @@ export function makeChild(): Child {
     return new Child()
 }
 
+export type Label = string
+
 export default class DefaultBox {
     wrap(): Child {
         return makeChild()
