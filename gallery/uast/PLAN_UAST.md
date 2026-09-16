@@ -1,7 +1,7 @@
 # UAST — a language-analysis framework for Ranger
 
-**Status:** research branch, M3 started (Ranger walk + comments +
-TypeScript ZipWriter via `ts_parser`)
+**Status:** research branch, M4 started (shared pipeline scopes +
+references; Ranger walk + comments + TypeScript ZipWriter via `ts_parser`)
 **License:** AGPL-3.0-or-later (this directory is under `gallery/`)
 **Related:** [`gallery/codegraph`](../codegraph/README.md),
 [`gallery/ts_parser`](../ts_parser/README.md),
@@ -557,7 +557,7 @@ gallery/uast/
         UastCodeGraph.rgr     CodeModel → CodeGraph (no compiler import)
         UastDump.rgr          the Ranger/TS debug dump
         UastSample.rgr        ZipWriter FrontendResult fixture
-        UastQuery.rgr        class/method/field lookup, callee names
+        UastQuery.rgr        class/method/field lookup, callee names, refTarget
         UastRanger.rgr        compiler context → FrontendResult
         UastTypeScript.rgr    TSNode nativeKind → UNode kind
         UastTs.rgr            ts_parser → FrontendResult
@@ -619,6 +619,11 @@ M3 is started: `UastTs` + `npm run uast:ts`. The dump of
 `this.crc.update(data)` is the same shape as Ranger’s
 `this.crc.compute`, with `confidence: inferred` because the hint
 is `frontendInferred`.
+M4 is started: `UastSemantic.resolveRefs` indexes `Parameter` symbols
+and resolves `this`, parameters, `TypeRef`, and `MemberAccess` on a
+typed receiver. Exact when the unique member follows from the model
+(enclosing class, not a globally unique method name). Call
+`Relationship`s stay frontend hints until M6.
 
 ---
 

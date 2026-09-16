@@ -57,6 +57,7 @@ class UastTest {
         UastTest.testEscapeHatch(c)
         UastTest.testComments(c)
         UastTest.testQuery(c)
+        UastTest.testScopes(c)
         def code:int (c.report())
         if (code != 0) {
             exit 1
@@ -202,6 +203,8 @@ class UastTest {
         c.eqStr("TSInterfaceDeclaration" (UastTypeScript.kindFromNative("TSInterfaceDeclaration")) (UastKind.InterfaceDecl()))
         c.eqStr("TSTypeAliasDeclaration" (UastTypeScript.kindFromNative("TSTypeAliasDeclaration")) (UastKind.TypeDecl()))
         c.eqStr("MethodDefinition" (UastTypeScript.kindFromNative("MethodDefinition")) (UastKind.MethodDecl()))
+        c.eqStr("Identifier" (UastTypeScript.kindFromNative("Identifier")) (UastKind.Identifier()))
+        c.eqStr("ThisExpression" (UastTypeScript.kindFromNative("ThisExpression")) (UastKind.Identifier()))
         c.eqStr("CallExpression" (UastTypeScript.kindFromNative("CallExpression")) (UastKind.Call()))
         c.eqStr("ArrowFunctionExpression" (UastTypeScript.kindFromNative("ArrowFunctionExpression")) (UastKind.Lambda()))
         c.eqStr("TSTypeReference" (UastTypeScript.kindFromNative("TSTypeReference")) (UastKind.TypeRef()))
@@ -286,5 +289,30 @@ class UastTest {
             c.eqStr("callee member" (UastQuery.calleeMemberName(model call0)) "compute")
             c.eqStr("callee receiver" (UastQuery.calleeReceiverName(model call0)) "crc")
         }
+    }
+
+    sfn testScopes:void (c:UastChecker) {
+        print "== scopes and references (shared pipeline)"
+        def model:UastCodeModel (UastSample.zipWriter())
+        c.ok("fileData param symbol" (model.mentionsSymbol("param:ZipWriter.addFile.fileData")))
+        c.ok("name param symbol" (model.mentionsSymbol("param:ZipWriter.addFile.name")))
+        c.eqStr("this → ZipWriter" (UastQuery.refTarget(model "n:this")) "class:ZipWriter")
+        c.eqStr("crc member → field" (UastQuery.refTarget(model "n:crc-id")) "field:ZipWriter.crc")
+        c.eqStr("this.crc → field" (UastQuery.refTarget(model "n:this.crc")) "field:ZipWriter.crc")
+        c.eqStr("compute member → method" (UastQuery.refTarget(model "n:compute-id")) "method:CRC32.compute")
+        c.eqStr("this.crc.compute → method" (UastQuery.refTarget(model "n:this.crc.compute")) "method:CRC32.compute")
+        c.eqStr("fileData arg → param" (UastQuery.refTarget(model "n:arg-data")) "param:ZipWriter.addFile.fileData")
+        def crcType:UNode (model.nodeById("n:type:ZipWriter.crc"))
+        c.eqStr("crc TypeRef → CRC32" (UastQuery.refTarget(model crcType.id)) "class:CRC32")
+        def two:UastCodeModel (UastSample.twoFoo())
+        c.ok("Alpha.foo" (two.mentionsSymbol("method:Alpha.foo")))
+        c.ok("Beta.foo" (two.mentionsSymbol("method:Beta.foo")))
+        c.eqStr("foo is not globally unique" (two.uniqueSymbolNamed("foo")) "")
+        c.eqStr("Alpha this → Alpha" (UastQuery.refTarget(two "n:alpha-this")) "class:Alpha")
+        c.eqStr("Beta this → Beta" (UastQuery.refTarget(two "n:beta-this")) "class:Beta")
+        c.eqStr("Alpha this.foo → Alpha.foo" (UastQuery.refTarget(two "n:alpha-mem")) "method:Alpha.foo")
+        c.eqStr("Beta this.foo → Beta.foo" (UastQuery.refTarget(two "n:beta-mem")) "method:Beta.foo")
+        c.ok("member foo is not the run param" ((UastQuery.refTarget(two "n:alpha-mem")) != "param:Alpha.run.foo"))
+        c.ok("run param is indexed" (two.mentionsSymbol("param:Alpha.run.foo")))
     }
 }

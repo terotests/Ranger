@@ -247,6 +247,9 @@ class UastTs {
         if ((strlen idn.name) == 0) {
             idn.name = ts.value
         }
+        if (ts.nodeType == "ThisExpression") {
+            idn.name = "this"
+        }
         idn.span = (this.spanOf(ts))
         r.addNode(idn)
         return idn

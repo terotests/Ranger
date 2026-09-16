@@ -5,13 +5,15 @@
 ; ============================================================================
 ;
 ; 1. copy UAST
-; 2. index declarations from ClassDecl / FieldDecl / MethodDecl
+; 2. index declarations from ClassDecl / FieldDecl / MethodDecl / Parameter
 ; 3. contains from child roles
 ; 4. apply semanticHints (calls, usesType, extends, …)
+; 5. resolve Identifier / TypeRef / MemberAccess (M4)
 ;
-; Exact only when the target resolves to one unique symbol. This file must
-; not import the Ranger compiler — UastRanger feeds hints, it does not
-; write CodeModel itself.
+; Exact only when the target resolves to one unique symbol. Member names
+; resolve on the typed receiver’s class, not a global unique name. This
+; file must not import the Ranger compiler — UastRanger feeds hints, it
+; does not write CodeModel itself.
 ; ============================================================================
 
 Import "UastModel.rgr"
@@ -47,6 +49,7 @@ class UastSemantic {
         UastSemantic.indexDeclarations(m)
         UastSemantic.applyContains(m)
         UastSemantic.applyHints(m result)
+        UastSemantic.resolveRefs(m)
         return m
     }
 
@@ -129,6 +132,47 @@ class UastSemantic {
             }
             j = (j + 1)
         }
+        UastSemantic.indexParams(m)
+    }
+
+    sfn indexParams:void (m:UastCodeModel) {
+        def i:int 0
+        while (i < (array_length m.nodes)) {
+            def node:UNode (itemAt m.nodes i)
+            def isFn:boolean false
+            if (node.kind == "MethodDecl") {
+                isFn = true
+            }
+            if (node.kind == "FunctionDecl") {
+                isFn = true
+            }
+            if isFn {
+                def ownerId:string (m.symbolDeclaredAt(node.id))
+                if ((strlen ownerId) > 0) {
+                    def ownerKey:string (UastSemantic.memberKey(ownerId))
+                    def params:[string] (node.childIdsFor((UastChildRole.parameter())))
+                    def pi:int 0
+                    while (pi < (array_length params)) {
+                        def pid:string (itemAt params pi)
+                        if (m.mentionsNode(pid)) {
+                            UastSemantic.addParam(m (m.nodeById(pid)) ownerId ownerKey)
+                        }
+                        pi = (pi + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn memberKey:string (symId:string) {
+        if ((indexOf symId "method:") == 0) {
+            return (substring symId 7)
+        }
+        if ((indexOf symId "function:") == 0) {
+            return (substring symId 9)
+        }
+        return symId
     }
 
     sfn addTypeSymbol:void (m:UastCodeModel node:UNode kind:string) {
@@ -195,6 +239,32 @@ class UastSemantic {
             pi = (pi + 1)
         }
         s.params = (join parts ", ")
+        m.addSymbol(s)
+    }
+
+    sfn addParam:void (m:UastCodeModel node:UNode ownerId:string ownerKey:string) {
+        def id:string ((("param:" + ownerKey) + ".") + node.name)
+        if (m.mentionsSymbol(id)) {
+            def n:int 2
+            def cand:string ((id + "#") + (to_string n))
+            while (m.mentionsSymbol(cand)) {
+                n = (n + 1)
+                cand = ((id + "#") + (to_string n))
+            }
+            id = cand
+        }
+        def s:UastSymbol (UastSymbol.create(id node.name (UastSymKind.parameter()) node.language))
+        s.declarationNode = node.id
+        s.parentSymbol = ownerId
+        s.fileName = node.span.fileId
+        s.comment = node.comment
+        def typeId:string (node.childIdFor((UastChildRole.typeRole())))
+        if ((strlen typeId) > 0) {
+            if (m.mentionsNode(typeId)) {
+                def tn:UNode (m.nodeById(typeId))
+                s.typeName = tn.name
+            }
+        }
         m.addSymbol(s)
     }
 
@@ -354,5 +424,287 @@ class UastSemantic {
             return (substring target 6)
         }
         return target
+    }
+
+    sfn resolveRefs:void (m:UastCodeModel) {
+        UastSemantic.resolveTypeRefs(m)
+        UastSemantic.resolveIdents(m)
+        def i:int 0
+        while (i < (array_length m.nodes)) {
+            def n:UNode (itemAt m.nodes i)
+            def isFn:boolean false
+            if (n.kind == "MethodDecl") {
+                isFn = true
+            }
+            if (n.kind == "FunctionDecl") {
+                isFn = true
+            }
+            if isFn {
+                UastSemantic.walkResolveMembers(m n)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn resolveTypeRefs:void (m:UastCodeModel) {
+        def i:int 0
+        while (i < (array_length m.nodes)) {
+            def n:UNode (itemAt m.nodes i)
+            if (n.kind == "TypeRef") {
+                def bare:string (UastSemantic.typeBareName(n.name))
+                if ((strlen bare) > 0) {
+                    def sid:string ("class:" + bare)
+                    if (m.mentionsSymbol(sid)) {
+                        UastSemantic.addExactRef(m n.id sid "type")
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn resolveIdents:void (m:UastCodeModel) {
+        def i:int 0
+        while (i < (array_length m.nodes)) {
+            def n:UNode (itemAt m.nodes i)
+            if (n.kind == "Identifier") {
+                if ((UastSemantic.usedAsMember(m n.id)) == false) {
+                    UastSemantic.resolveIdent(m n)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn resolveIdent:void (m:UastCodeModel n:UNode) {
+        if (n.name == "this") {
+            def cls:string (UastSemantic.enclosingClass(m n.id))
+            if ((strlen cls) > 0) {
+                UastSemantic.addExactRef(m n.id cls "ref")
+            }
+            return
+        }
+        def methodId:string (UastSemantic.enclosingMethod(m n.id))
+        if ((strlen methodId) > 0) {
+            def paramId:string (UastSemantic.childSymbolNamed(m methodId n.name "parameter"))
+            if ((strlen paramId) > 0) {
+                UastSemantic.addExactRef(m n.id paramId "ref")
+                return
+            }
+        }
+        def clsId:string (UastSemantic.enclosingClass(m n.id))
+        if ((strlen clsId) > 0) {
+            def mem:string (UastSemantic.uniqueChildNamed(m clsId n.name))
+            if ((strlen mem) > 0) {
+                UastSemantic.addExactRef(m n.id mem "ref")
+            }
+        }
+    }
+
+    sfn walkResolveMembers:void (m:UastCodeModel n:UNode) {
+        def i:int 0
+        while (i < (array_length n.children)) {
+            def ch:UChild (itemAt n.children i)
+            if (m.mentionsNode(ch.nodeId)) {
+                UastSemantic.walkResolveMembers(m (m.nodeById(ch.nodeId)))
+            }
+            i = (i + 1)
+        }
+        if (n.kind == "MemberAccess") {
+            UastSemantic.resolveMemberAccess(m n)
+        }
+    }
+
+    sfn resolveMemberAccess:void (m:UastCodeModel n:UNode) {
+        def recvId:string (n.childIdFor((UastChildRole.receiver())))
+        def memId:string (n.childIdFor((UastChildRole.member())))
+        if ((strlen memId) == 0) {
+            return
+        }
+        if ((m.mentionsNode(memId)) == false) {
+            return
+        }
+        def mem:UNode (m.nodeById(memId))
+        def typeName:string (UastSemantic.typeNameOfNode(m recvId))
+        def bare:string (UastSemantic.typeBareName(typeName))
+        if ((strlen bare) == 0) {
+            return
+        }
+        def classId:string ("class:" + bare)
+        if ((m.mentionsSymbol(classId)) == false) {
+            return
+        }
+        def target:string (UastSemantic.uniqueChildNamed(m classId mem.name))
+        if ((strlen target) == 0) {
+            return
+        }
+        UastSemantic.addExactRef(m n.id target "ref")
+        UastSemantic.addExactRef(m memId target "ref")
+    }
+
+    sfn typeNameOfNode:string (m:UastCodeModel nodeId:string) {
+        if ((m.mentionsNode(nodeId)) == false) {
+            return ""
+        }
+        def target:string (UastSemantic.refTargetOf(m nodeId))
+        if ((strlen target) > 0) {
+            if (m.mentionsSymbol(target)) {
+                def s:UastSymbol (m.symbolById(target))
+                if ((s.kind == "class") || (s.kind == "interface")) {
+                    return s.name
+                }
+                if ((strlen s.typeName) > 0) {
+                    return s.typeName
+                }
+                if ((strlen s.returns) > 0) {
+                    return s.returns
+                }
+            }
+        }
+        def node:UNode (m.nodeById(nodeId))
+        if (node.kind == "Identifier") {
+            if (node.name == "this") {
+                def cls:string (UastSemantic.enclosingClass(m nodeId))
+                if (m.mentionsSymbol(cls)) {
+                    def cs:UastSymbol (m.symbolById(cls))
+                    return cs.name
+                }
+            }
+        }
+        if (node.kind == "TypeRef") {
+            return node.name
+        }
+        return ""
+    }
+
+    sfn typeBareName:string (name:string) {
+        if ((strlen name) < 2) {
+            return name
+        }
+        if ((charAt name 0) == ((ccode "["))) {
+            return (substring name 1 ((strlen name) - 1))
+        }
+        return name
+    }
+
+    sfn usedAsMember:boolean (m:UastCodeModel nodeId:string) {
+        def i:int 0
+        while (i < (array_length m.nodes)) {
+            def n:UNode (itemAt m.nodes i)
+            if (n.kind == "MemberAccess") {
+                def mid:string (n.childIdFor((UastChildRole.member())))
+                if (mid == nodeId) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn enclosingClass:string (m:UastCodeModel nodeId:string) {
+        def mid:string (UastSemantic.enclosingMethod(m nodeId))
+        if ((strlen mid) > 0) {
+            def ms:UastSymbol (m.symbolById(mid))
+            if ((strlen ms.parentSymbol) > 0) {
+                return ms.parentSymbol
+            }
+        }
+        def i:int 0
+        while (i < (array_length m.nodes)) {
+            def n:UNode (itemAt m.nodes i)
+            if ((n.kind == "ClassDecl") || (n.kind == "InterfaceDecl")) {
+                if (UastSemantic.subtreeMentions(m n nodeId)) {
+                    return (m.symbolDeclaredAt(n.id))
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn childSymbolNamed:string (m:UastCodeModel parentId:string name:string kind:string) {
+        def found:string ""
+        def n:int 0
+        def i:int 0
+        while (i < (array_length m.symbols)) {
+            def s:UastSymbol (itemAt m.symbols i)
+            if (s.parentSymbol == parentId) {
+                if (s.kind == kind) {
+                    if (s.name == name) {
+                        found = s.id
+                        n = (n + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (n == 1) {
+            return found
+        }
+        return ""
+    }
+
+    sfn uniqueChildNamed:string (m:UastCodeModel parentId:string name:string) {
+        def found:string ""
+        def n:int 0
+        def i:int 0
+        while (i < (array_length m.symbols)) {
+            def s:UastSymbol (itemAt m.symbols i)
+            if (s.parentSymbol == parentId) {
+                if (s.name == name) {
+                    found = s.id
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if (n == 1) {
+            return found
+        }
+        return ""
+    }
+
+    sfn addExactRef:void (m:UastCodeModel nodeId:string target:string role:string) {
+        if ((strlen nodeId) == 0) {
+            return
+        }
+        if ((strlen target) == 0) {
+            return
+        }
+        if (UastSemantic.mentionsRefTo(m nodeId target)) {
+            return
+        }
+        def res:string (UastResolution.resolved())
+        def exact:string (UastConfidence.exact())
+        m.addReference((UastReference.create(nodeId target role res exact)))
+    }
+
+    sfn mentionsRefTo:boolean (m:UastCodeModel nodeId:string target:string) {
+        def i:int 0
+        while (i < (array_length m.references)) {
+            def ref:UastReference (itemAt m.references i)
+            if (ref.sourceNode == nodeId) {
+                if (ref.targetSymbol == target) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn refTargetOf:string (m:UastCodeModel nodeId:string) {
+        def i:int 0
+        while (i < (array_length m.references)) {
+            def ref:UastReference (itemAt m.references i)
+            if (ref.sourceNode == nodeId) {
+                if ((strlen ref.targetSymbol) > 0) {
+                    return ref.targetSymbol
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
     }
 }

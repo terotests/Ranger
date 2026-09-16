@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ============================================================================
-; UastQuery.rgr — find nodes in a CodeModel. No compiler import.
+; UastQuery.rgr — find nodes and reference targets in a CodeModel.
 ; ============================================================================
 
 Import "UastModel.rgr"
@@ -124,6 +124,20 @@ class UastQuery {
                 }
                 return recv.name
             }
+        }
+        return ""
+    }
+
+    sfn refTarget:string (m:UastCodeModel nodeId:string) {
+        def i:int 0
+        while (i < (array_length m.references)) {
+            def ref:UastReference (itemAt m.references i)
+            if (ref.sourceNode == nodeId) {
+                if ((strlen ref.targetSymbol) > 0) {
+                    return ref.targetSymbol
+                }
+            }
+            i = (i + 1)
         }
         return ""
     }

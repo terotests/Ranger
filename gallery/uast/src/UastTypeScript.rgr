@@ -31,6 +31,7 @@ class UastTypeScript {
         if (nativeKind == "VariableDeclaration") { return UastKind.VariableDecl() }
         if (nativeKind == "VariableDeclarator") { return UastKind.VariableDecl() }
         if (nativeKind == "Identifier") { return UastKind.Identifier() }
+        if (nativeKind == "ThisExpression") { return UastKind.Identifier() }
         if (nativeKind == "CallExpression") { return UastKind.Call() }
         if (nativeKind == "NewExpression") { return UastKind.New() }
         if (nativeKind == "MemberExpression") { return UastKind.MemberAccess() }

@@ -167,4 +167,46 @@ class UastSample {
         addFile.addRole((UastChildRole.body()) body.id)
         return callN
     }
+
+    sfn twoFoo:UastCodeModel () {
+        return (UastSemantic.fromResult((UastSample.twoFooResult())))
+    }
+
+    sfn twoFooResult:UastFrontendResult () {
+        def r (new UastFrontendResult)
+        r.title = "two-foo"
+        r.language = "ranger"
+        r.addFile("two_foo.rgr" "ranger")
+        def alpha:UNode (UastSample.klass(r "Alpha" "two_foo.rgr"))
+        def beta:UNode (UastSample.klass(r "Beta" "two_foo.rgr"))
+        UastSample.method(r alpha "foo" "void")
+        UastSample.method(r beta "foo" "void")
+        def runA:UNode (UastSample.method(r alpha "run" "void"))
+        UastSample.param(r runA "foo" "int")
+        def runB:UNode (UastSample.method(r beta "run" "void"))
+        UastSample.thisMemberCall(r runA "foo" "n:alpha")
+        UastSample.thisMemberCall(r runB "foo" "n:beta")
+        return r
+    }
+
+    sfn thisMemberCall:UNode (r:UastFrontendResult method:UNode memberName:string idPrefix:string) {
+        def thiz:UNode (UNode.create((idPrefix + "-this") (UastKind.Identifier()) r.language "vref"))
+        thiz.name = "this"
+        r.addNode(thiz)
+        def memId:UNode (UNode.create((idPrefix + "-mem") (UastKind.Identifier()) r.language "vref"))
+        memId.name = memberName
+        r.addNode(memId)
+        def acc:UNode (UNode.create((idPrefix + "-access") (UastKind.MemberAccess()) r.language "member"))
+        r.addNode(acc)
+        acc.addRole((UastChildRole.receiver()) thiz.id)
+        acc.addRole((UastChildRole.member()) memId.id)
+        def callN:UNode (UNode.create((idPrefix + "-call") (UastKind.Call()) r.language "call"))
+        r.addNode(callN)
+        callN.addRole((UastChildRole.callee()) acc.id)
+        def body:UNode (UNode.create((idPrefix + "-body") (UastKind.Block()) r.language "block"))
+        r.addNode(body)
+        body.addRole((UastChildRole.element()) callN.id)
+        method.addRole((UastChildRole.body()) body.id)
+        return callN
+    }
 }

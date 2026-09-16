@@ -25,7 +25,7 @@ The plan: [`PLAN_UAST.md`](./PLAN_UAST.md).
 ## Run
 
 ```bash
-npm run uast:test      # schema, child roles, dump, dynamic vs exact
+npm run uast:test      # schema, child roles, dump, dynamic vs exact, scopes/refs
 npm run uast:ranger    # compatibility vs CodeGraphBuilder + ZipWriter spec
 npm run uast:ts        # ts_parser → ZipWriter.ts (no tsc)
 ```
@@ -58,7 +58,7 @@ types. Only `UastRanger` may.
 | `src/UastDump.rgr` | the Ranger/TS debug dump |
 | `src/UastSample.rgr` | ZipWriter `FrontendResult` fixture |
 | `src/UastRanger.rgr` | compiler context → `FrontendResult` |
-| `src/UastQuery.rgr` | class / method / field lookup |
+| `src/UastQuery.rgr` | class / method / field lookup, `refTarget` |
 | `src/UastTypeScript.rgr` | `TSNode.nodeType` → UAST kind |
 | `src/UastTs.rgr` | ts_parser → `FrontendResult` (no compiler, no `tsc`) |
 | `fixtures/zip_writer.ts` | the TypeScript twin of that fixture |

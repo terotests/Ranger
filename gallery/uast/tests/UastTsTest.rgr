@@ -89,6 +89,26 @@ class UastTsTest {
             c.ok("dump inferred" ((indexOf dump "confidence: inferred") >= 0))
             c.ok("dump resolved" ((indexOf dump "resolution: resolved") >= 0))
             c.ok("dump target CRC32.update" ((indexOf dump "method:CRC32.update") >= 0))
+            def calleeId:string (call0.childIdFor((UastChildRole.callee())))
+            c.eqStr("update MemberAccess → method" (UastQuery.refTarget(model calleeId)) "method:CRC32.update")
+            if (model.mentionsNode(calleeId)) {
+                def callee:UNode (model.nodeById(calleeId))
+                def memId:string (callee.childIdFor((UastChildRole.member())))
+                c.eqStr("update ident → method" (UastQuery.refTarget(model memId)) "method:CRC32.update")
+                def recvId:string (callee.childIdFor((UastChildRole.receiver())))
+                if (model.mentionsNode(recvId)) {
+                    def recv:UNode (model.nodeById(recvId))
+                    c.eqStr("this.crc → field" (UastQuery.refTarget(model recvId)) "field:ZipWriter.crc")
+                    def thisId:string (recv.childIdFor((UastChildRole.receiver())))
+                    c.eqStr("this → ZipWriter" (UastQuery.refTarget(model thisId)) "class:ZipWriter")
+                    def crcId:string (recv.childIdFor((UastChildRole.member())))
+                    c.eqStr("crc ident → field" (UastQuery.refTarget(model crcId)) "field:ZipWriter.crc")
+                }
+            }
+            def args:[string] (call0.childIdsFor((UastChildRole.argument())))
+            if ((array_length args) > 0) {
+                c.eqStr("data arg → param" (UastQuery.refTarget(model (itemAt args 0))) "param:ZipWriter.addFile.data")
+            }
         }
         def foundUse:boolean false
         def foundCall:boolean false
