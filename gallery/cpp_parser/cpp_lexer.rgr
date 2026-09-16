@@ -301,7 +301,16 @@ class CppLexer {
                 this.advanceCh()
             }
         }
+        this.readLiteralSuffix()
         return (this.makeTok(typ value start startLine startCol))
+    }
+
+    fn readLiteralSuffix:void () {
+        if (this.isIdentStart((this.peekCh()))) {
+            while (this.isIdentPart((this.peekCh()))) {
+                this.advanceCh()
+            }
+        }
     }
 
     fn readRawString:CppToken (start:int startLine:int startCol:int) {
@@ -341,10 +350,12 @@ class CppLexer {
                     this.advanceCh()
                     c2 = (c2 + 1)
                 }
+                this.readLiteralSuffix()
                 return (this.makeTok("String" value start startLine startCol))
             }
             value = (value + (this.advanceCh()))
         }
+        this.readLiteralSuffix()
         return (this.makeTok("String" value start startLine startCol))
     }
 
@@ -398,6 +409,14 @@ class CppLexer {
         if ((value == "R") || ((value == "LR") || ((value == "uR") || ((value == "UR") || (value == "u8R"))))) {
             if ((this.peekCh()) == "\"") {
                 return (this.readRawString(start startLine startCol))
+            }
+        }
+        if ((value == "L") || ((value == "u") || ((value == "U") || (value == "u8")))) {
+            if ((this.peekCh()) == "\"") {
+                return (this.readString(start startLine startCol "\"" "String"))
+            }
+            if ((this.peekCh()) == "'") {
+                return (this.readString(start startLine startCol "'" "Char"))
             }
         }
         def typ:string "Identifier"

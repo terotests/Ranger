@@ -165,5 +165,18 @@ class UastCppTest {
         c.ok("Vector.data" (model.mentionsSymbol("method:Vector.data")))
         c.ok("Vector.shl" (model.mentionsSymbol("method:Vector.shl")))
         c.ok("die" (model.mentionsSymbol("function:die")))
+        c.ok("PmmFlags enum" (model.mentionsSymbol("class:PmmFlags")))
+        c.ok("Gdt" (model.mentionsSymbol("class:Gdt")))
+        c.ok("to_array_impl" (model.mentionsSymbol("function:to_array_impl")))
+        c.ok("bit_cast" (model.mentionsSymbol("function:bit_cast")))
+        c.ok("binary_search" (model.mentionsSymbol("function:binary_search")))
+        c.ok("unref" (model.mentionsSymbol("function:unref")))
+        c.ok("allocate" (model.mentionsSymbol("function:allocate")))
+        c.ok("read_object" (model.mentionsSymbol("function:read_object")))
+        c.ok("popcount_if" (model.mentionsSymbol("function:popcount_if")))
+        c.ok("ByteString" (model.mentionsSymbol("class:ByteString")))
+        c.ok("split_pair" (model.mentionsSymbol("function:split_pair")))
+        c.ok("mapped" (model.mentionsSymbol("function:mapped")))
+        c.ok("Integral concept" (model.mentionsSymbol("class:Integral")))
     }
 }

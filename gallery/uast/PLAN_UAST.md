@@ -693,17 +693,26 @@ Tried on p-ranav/argparse in `/tmp` (not vendored): `Argument` /
 `ArgumentParser`, template structs such as `HasContainerTraits`,
 `HasContainerTraits<T>::value`, `if constexpr`, and `>>` as two template
 closes. System headers stay diagnostics. Remaining parse noise is a
-lambda inside `repr`; analysis continues.
+lambda inside `repr` and test-harness macros; analysis continues.
 Tried on skift-org/skift (`src/kernel`, not vendored): C++20 `import` /
 `export module` skipped, `[[gnu::packed]]`, `asm volatile`, `try$`,
-`requires`, GNU `__attribute__`. `Io` / `Vmm` / `Pmm` / `Task` /
-`Domain` / `Object`, 64 exact calls (`Io.read → Io.in`, `Task.ret → signal`).
+`requires`, GNU `__attribute__`, `enum struct`, `not` / `and`, nested
+enums, qualified namespaces. `Io` / `Vmm` / `Pmm` / `Task` / `Gdt` /
+`Domain` / `Object`, 55 files, 1611 symbols, 303 projected methods, 197
+exact calls (`Io.read → Io.in`, `GdtDesc.load → _gdtLoad`). Remaining
+parse noise is unexpanded macros (`CR(0)`, `FOREACH_TYPE`) and similar;
+analysis continues.
 Tried on SerenityOS `AK/` (sparse `/tmp` checkout, not vendored): 243
-files, 6404 symbols, 2078 projected methods, `Vector` / `Array` /
-`HashMap` / `Optional` / `RefPtr` / `String` / `ByteBuffer`, 581 exact
+files, 7372 symbols, 2247 projected methods, `Vector` / `Array` /
+`HashMap` / `Optional` / `RefPtr` / `String` / `ByteBuffer`, 660 exact
 calls (`Array.from_span → TypedTransfer.copy`). `<AK/...>` includes bind
-in-workspace. Remaining parse noise is pack expansions, GNU statement
-expressions, and similar; analysis continues.
+in-workspace. Recovered OS patterns: `T (&&a)[N]`, `"="sv` user-defined
+literals, `(void*)1` casts, `sizeof(unsigned int)`, comma not treated as
+a binary operator (enums and default arguments), `memcpy(&x)` vs
+function-pointer declarators, goto labels, `auto [a, b]`,
+`namespace AK::Concepts`, `Class::operator==`, `.template as<T>()`,
+`if constexpr (requires { … })`. Remaining parse noise is macros and
+preprocessor-inside-enum leftovers; analysis continues.
 
 ---
 

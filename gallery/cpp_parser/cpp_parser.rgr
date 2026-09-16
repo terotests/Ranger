@@ -640,6 +640,13 @@ class CppParser {
         if ((this.peekType()) == "Identifier") {
             def nameTok:CppToken (this.advance())
             n.name = nameTok.value
+            while (this.matchValue("::")) {
+                this.advance()
+                if ((this.peekType()) == "Identifier") {
+                    def moreNs:CppToken (this.advance())
+                    n.name = ((n.name + "::") + moreNs.value)
+                }
+            }
         }
         if (this.eatValue("{")) {
             def body (new CppNode)
@@ -678,6 +685,14 @@ class CppParser {
         if ((this.peekType()) == "Identifier") {
             def nameTok:CppToken (this.advance())
             n.name = nameTok.value
+            while (this.matchValue("::")) {
+                this.advance()
+                this.eatValue("template")
+                if ((this.peekType()) == "Identifier") {
+                    def more:CppToken (this.advance())
+                    n.name = ((n.name + "::") + more.value)
+                }
+            }
         }
         if (this.matchValue("<")) {
             this.skipBalanced("<" ">")
@@ -721,6 +736,20 @@ class CppParser {
             n.body = body
             currentClass = saved
         }
+        if ((this.peekType()) == "Identifier") {
+            def inst:CppToken (this.advance())
+            if ((strlen n.name) == 0) {
+                n.nodeType = "VariableDeclaration"
+                n.name = inst.value
+            }
+            if (this.eatValue("=")) {
+                n.init = (this.parseAssign())
+            } {
+                if (this.matchValue("{")) {
+                    this.skipBalanced("{" "}")
+                }
+            }
+        }
         this.eatValue(";")
         return n
     }
@@ -762,17 +791,24 @@ class CppParser {
         }
         if (this.eatValue("{")) {
             while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
-                if ((this.peekType()) == "Identifier") {
-                    def et:CppToken (this.advance())
-                    def en (this.nodeFromTok("EnumMember" et))
-                    if (this.eatValue("=")) {
-                        en.init = (this.parseExpr())
-                    }
-                    push n.children en
-                }
-                if (this.eatValue(",")) {
+                if ((this.peekType()) == "Preprocessor") {
+                    this.advance()
                 } {
-                    break
+                    if ((this.peekType()) == "Identifier") {
+                        def et:CppToken (this.advance())
+                        def en (this.nodeFromTok("EnumMember" et))
+                        if (this.eatValue("=")) {
+                            en.init = (this.parseAssign())
+                        }
+                        push n.children en
+                    }
+                    if (this.eatValue(",")) {
+                    } {
+                        if ((this.peekType()) == "Preprocessor") {
+                        } {
+                            break
+                        }
+                    }
                 }
             }
             this.eatValue("}")
@@ -1075,14 +1111,68 @@ class CppParser {
         if ((this.peekType()) == "Identifier") {
             return true
         }
+        if (this.matchValue("[")) {
+            return true
+        }
         if (this.matchValue("(")) {
             def nxt:string (this.peekNextValue())
-            if ((nxt == "*") || ((nxt == "&") || (nxt == "("))) {
-                return true
+            if ((nxt == "*") || ((nxt == "&") || ((nxt == "&&") || (nxt == "(")))) {
+                this.skipBalanced("(" ")")
+                if ((this.matchValue("(")) || (this.matchValue("["))) {
+                    return true
+                }
+                return false
             }
             return false
         }
         return false
+    }
+
+    fn skipArrayDims:void () {
+        while (this.matchValue("[")) {
+            this.skipBalanced("[" "]")
+        }
+    }
+
+    fn looksLikeDirectInit:boolean () {
+        def saved:int pos
+        if ((this.eatValue("(")) == false) {
+            pos = saved
+            return false
+        }
+        if (this.matchValue(")")) {
+            pos = saved
+            return false
+        }
+        def nxt:string (this.peekValue())
+        def ntyp:string (this.peekType())
+        def n1:string (this.peekNextValue())
+        def ok:boolean false
+        if (this.isTypeKeyword(nxt)) {
+            pos = saved
+            return false
+        }
+        if ((ntyp == "Number") || ((ntyp == "String") || (ntyp == "Char"))) {
+            ok = true
+        }
+        if ((nxt == "{") || ((nxt == "this") || ((nxt == "*") || ((nxt == "&") || ((nxt == "++") || (nxt == "--")))))) {
+            ok = true
+        }
+        if ((ntyp == "Identifier") || (ntyp == "Keyword")) {
+            if ((n1 == "[") || ((n1 == ".") || ((n1 == "->") || ((n1 == "++") || (n1 == "--"))))) {
+                ok = true
+            }
+            if (n1 == "(") {
+                def n2:string (this.peekNthValue(2))
+                if ((n2 == "*") || ((n2 == "&") || ((n2 == "&&") || (n2 == "(")))) {
+                    ok = false
+                } {
+                    ok = true
+                }
+            }
+        }
+        pos = saved
+        return ok
     }
 
     fn scanQualified:void () {
@@ -1275,16 +1365,37 @@ class CppParser {
             name = nt.value
             while (this.matchValue("::")) {
                 this.advance()
+                if ((this.peekValue()) == "operator") {
+                    return (this.parseOperator(""))
+                }
                 if ((this.peekType()) == "Identifier") {
                     def nt2:CppToken (this.advance())
                     name = ((name + "::") + nt2.value)
                 }
             }
         }
+        if (((strlen name) == 0) && (this.matchValue("["))) {
+            this.skipBalanced("[" "]")
+            def bind (this.nodeFromTok("VariableDeclaration" tok))
+            bind.typeAnnotation = typeN
+            if (this.eatValue("=")) {
+                bind.init = (this.parseAssign())
+            }
+            this.eatValue(";")
+            return bind
+        }
         if (this.matchValue("<")) {
             this.skipBalanced("<" ">")
         }
         if (this.matchValue("(")) {
+            if ((inClass == false) && (this.looksLikeDirectInit())) {
+                def varN (this.nodeFromTok("VariableDeclaration" tok))
+                varN.name = name
+                varN.typeAnnotation = typeN
+                this.skipBalanced("(" ")")
+                this.eatValue(";")
+                return varN
+            }
             def fnN (this.nodeFromTok("FunctionDeclaration" tok))
             if inClass {
                 fnN.nodeType = "MethodDefinition"
@@ -1316,10 +1427,23 @@ class CppParser {
             this.skipBalanced("[" "]")
         }
         if (this.eatValue("=")) {
-            field.init = (this.parseExpr())
+            field.init = (this.parseAssign())
         } {
             if (this.matchValue("{")) {
                 this.skipBalanced("{" "}")
+            }
+        }
+        while (this.eatValue(",")) {
+            if ((this.peekType()) == "Identifier") {
+                this.advance()
+            }
+            this.skipArrayDims()
+            if (this.eatValue("=")) {
+                def _extra:CppNode (this.parseAssign())
+            } {
+                if (this.matchValue("{")) {
+                    this.skipBalanced("{" "}")
+                }
             }
         }
         this.eatValue(";")
@@ -1361,11 +1485,11 @@ class CppParser {
                         this.skipBalanced("(" ")")
                     }
                 }
-                if (this.matchValue("[")) {
-                    this.skipBalanced("[" "]")
+                this.skipArrayDims()
+                if (this.eatValue("...")) {
                 }
                 if (this.eatValue("=")) {
-                    p.init = (this.parseExpr())
+                    p.init = (this.parseAssign())
                 }
                 push params p
             } {
@@ -1383,6 +1507,12 @@ class CppParser {
                         if (this.matchValue("(")) {
                             this.skipBalanced("(" ")")
                         }
+                    }
+                    this.skipArrayDims()
+                    if (this.eatValue("...")) {
+                    }
+                    if (this.eatValue("=")) {
+                        pu.init = (this.parseAssign())
                     }
                     push params pu
                 } {
@@ -1429,6 +1559,12 @@ class CppParser {
         def typ:string (this.peekType())
         if (typ == "Preprocessor") {
             return (this.parsePreprocessor())
+        }
+        if (v == ";") {
+            this.advance()
+            def emptyS (new CppNode)
+            emptyS.nodeType = "EmptyStatement"
+            return emptyS
         }
         if (v == "{") {
             return (this.parseBlock())
@@ -1487,8 +1623,35 @@ class CppParser {
             this.eatValue(";")
             return th
         }
-        if ((v == "class") || ((v == "struct") || ((v == "enum") || (v == "using")))) {
+        if ((v == "class") || ((v == "struct") || ((v == "enum") || ((v == "using") || (v == "union"))))) {
             return (this.parseTop())
+        }
+        if (v == "goto") {
+            this.advance()
+            if ((this.peekType()) == "Identifier") {
+                this.advance()
+            }
+            this.eatValue(";")
+            def gt (new CppNode)
+            gt.nodeType = "GotoStatement"
+            return gt
+        }
+        if ((v == "case") || (v == "default")) {
+            while (((this.matchValue(":")) == false) && ((this.isAtEnd()) == false)) {
+                if (this.matchValue("{")) {
+                    break
+                }
+                this.advance()
+            }
+            this.eatValue(":")
+            return (this.parseStatement())
+        }
+        if ((typ == "Identifier") && ((this.peekNextValue()) == ":")) {
+            if ((this.peekNthValue(2)) != ":") {
+                this.advance()
+                this.advance()
+                return (this.parseStatement())
+            }
         }
         if (this.looksLikeDecl()) {
             return (this.parseDecl(false))
@@ -1615,7 +1778,7 @@ class CppParser {
     fn parseAssign:CppNode () {
         def left:CppNode (this.parseTernary())
         def v:string (this.peekValue())
-        if ((v == "=") || ((v == "+=") || ((v == "-=") || ((v == "*=") || ((v == "/=") || ((v == "%=") || ((v == "<<=") || ((v == ">>=") || ((v == "&=") || ((v == "|=") || (v == "^="))))))))))) {
+        if ((v == "=") || ((v == "+=") || ((v == "-=") || ((v == "*=") || ((v == "/=") || ((v == "%=") || ((v == "<<=") || ((v == ">>=") || ((v == "&=") || ((v == "|=") || ((v == "^=") || ((v == "and_eq") || ((v == "or_eq") || (v == "xor_eq")))))))))))))) {
             def op:CppToken (this.advance())
             def n (this.nodeFromTok("AssignmentExpression" op))
             n.value = op.value
@@ -1642,7 +1805,7 @@ class CppParser {
 
     fn parseBin:CppNode () {
         def left:CppNode (this.parseUnary())
-        while ((this.isBinOp((this.peekValue()))) && ((this.peekType()) == "Punctuator")) {
+        while (this.isBinOp((this.peekValue()))) {
             def op:CppToken (this.advance())
             def n (this.nodeFromTok("BinaryExpression" op))
             n.value = op.value
@@ -1661,18 +1824,23 @@ class CppParser {
         if (v == "%") { return true }
         if (v == "==") { return true }
         if (v == "!=") { return true }
+        if (v == "not_eq") { return true }
         if (v == "<") { return true }
         if (v == ">") { return true }
         if (v == "<=") { return true }
         if (v == ">=") { return true }
         if (v == "&&") { return true }
         if (v == "||") { return true }
+        if (v == "and") { return true }
+        if (v == "or") { return true }
         if (v == "&") { return true }
         if (v == "|") { return true }
         if (v == "^") { return true }
+        if (v == "bitand") { return true }
+        if (v == "bitor") { return true }
+        if (v == "xor") { return true }
         if (v == "<<") { return true }
         if (v == ">>") { return true }
-        if (v == ",") { return true }
         return false
     }
 
@@ -1684,11 +1852,15 @@ class CppParser {
             n.left = (this.parseUnary())
             return n
         }
-        if ((v == "!") || ((v == "~") || ((v == "-") || ((v == "+") || ((v == "*") || ((v == "&") || ((v == "++") || ((v == "--") || ((v == "sizeof") || (v == "alignof")))))))))) {
+        if ((v == "!") || ((v == "not") || ((v == "~") || ((v == "compl") || ((v == "-") || ((v == "+") || ((v == "*") || ((v == "&") || ((v == "++") || ((v == "--") || ((v == "sizeof") || (v == "alignof")))))))))))) {
             def op:CppToken (this.advance())
             def n (this.nodeFromTok("UnaryExpression" op))
             if ((op.value == "sizeof") || (op.value == "alignof")) {
                 this.eatValue("...")
+                if (this.matchValue("(")) {
+                    this.skipBalanced("(" ")")
+                    return n
+                }
             }
             n.left = (this.parseUnary())
             return n
@@ -1724,6 +1896,7 @@ class CppParser {
             def v:string (this.peekValue())
             if ((v == ".") || (v == "->") || (v == "::")) {
                 this.advance()
+                this.eatValue("template")
                 def mem (new CppNode)
                 mem.nodeType = "MemberExpression"
                 mem.left = expr
@@ -1770,13 +1943,17 @@ class CppParser {
                             u.left = expr
                             expr = u
                         } {
-                            if ((v == "<") && (this.looksLikeTemplateArgs())) {
-                                this.skipBalanced("<" ">")
+                            if (v == "...") {
+                                this.advance()
                             } {
-                                if (v == "{") {
-                                    this.skipBalanced("{" "}")
+                                if ((v == "<") && (this.looksLikeTemplateArgs())) {
+                                    this.skipBalanced("<" ">")
                                 } {
-                                    keep = false
+                                    if (v == "{") {
+                                        this.skipBalanced("{" "}")
+                                    } {
+                                        keep = false
+                                    }
                                 }
                             }
                         }
@@ -1907,6 +2084,15 @@ class CppParser {
         if (afterTyp == "Keyword") {
             ok = true
         }
+        if (afterTyp == "Number") {
+            ok = true
+        }
+        if (afterTyp == "String") {
+            ok = true
+        }
+        if (afterTyp == "Char") {
+            ok = true
+        }
         if ((after == "(") || ((after == "{") || ((after == "*") || ((after == "&") || ((after == "++") || (after == "--")))))) {
             ok = true
         }
@@ -1954,7 +2140,17 @@ class CppParser {
             dt.name = "decltype"
             return dt
         }
+        if (v == "requires") {
+            this.skipRequires()
+            return (this.nodeFromTok("RequiresExpression" tok))
+        }
         if (v == "(") {
+            if ((this.peekNextValue()) == "{") {
+                this.advance()
+                this.skipBalanced("{" "}")
+                this.eatValue(")")
+                return (this.nodeFromTok("StmtExpr" tok))
+            }
             if (this.looksLikeCast()) {
                 this.advance()
                 def cty:CppNode (this.parseTypeName())
@@ -2002,6 +2198,27 @@ class CppParser {
         if (v == "class") { return false }
         if (v == "struct") { return false }
         if (v == "enum") { return false }
+        if (v == "union") { return false }
+        if (v == "goto") { return false }
+        if (v == "case") { return false }
+        if (v == "default") { return false }
+        if (v == "not") { return false }
+        if (v == "compl") { return false }
+        if (v == "and") { return false }
+        if (v == "or") { return false }
+        if (v == "void") { return false }
+        if (v == "int") { return false }
+        if (v == "bool") { return false }
+        if (v == "char") { return false }
+        if (v == "float") { return false }
+        if (v == "double") { return false }
+        if (v == "long") { return false }
+        if (v == "short") { return false }
+        if (v == "unsigned") { return false }
+        if (v == "signed") { return false }
+        if (v == "auto") { return false }
+        if (v == "const") { return false }
+        if (v == "volatile") { return false }
         if (v == "namespace") { return false }
         if (v == "using") { return false }
         if (v == "import") { return false }

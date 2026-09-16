@@ -223,6 +223,21 @@ class UastCpp {
         if (name == "cmake-build-release") { return true }
         if (name == "vcpkg_installed") { return true }
         if (name == "coverage") { return true }
+        if (name == "LICENSE") { return true }
+        if (name == "LICENCE") { return true }
+        if (name == "COPYING") { return true }
+        if (name == "CONTRIBUTING") { return true }
+        if (name == "CHANGELOG") { return true }
+        if (name == "README") { return true }
+        if (name == "Makefile") { return true }
+        if (name == "Dockerfile") { return true }
+        if (name == "AUTHORS") { return true }
+        if (name == "NOTICE") { return true }
+        if (name == "SECURITY") { return true }
+        if (name == "WORKSPACE") { return true }
+        if (name == "BUILD") { return true }
+        if (name == "Gemfile") { return true }
+        if (name == "Rakefile") { return true }
         if ((strlen name) > 0) {
             if ((charAt name 0) == ((ccode "."))) {
                 return true
@@ -415,6 +430,10 @@ class UastCpp {
     }
 
     fn addClass:UNode (r:UastFrontendResult ts:CppNode) {
+        if ((strlen ts.name) == 0) {
+            def skip (new UNode)
+            return skip
+        }
         def node:UNode (UNode.create((this.nextId("n:class:")) (UastKind.ClassDecl()) "cpp" ts.nodeType))
         node.name = ts.name
         node.span = (this.spanOf(ts))
@@ -440,6 +459,9 @@ class UastCpp {
             }
             if (mem.nodeType == "ClassDeclaration") {
                 this.addClass(r mem)
+            }
+            if (mem.nodeType == "EnumDeclaration") {
+                this.addEnum(r mem)
             }
             mi = (mi + 1)
         }
