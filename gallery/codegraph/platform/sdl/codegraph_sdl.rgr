@@ -23,7 +23,6 @@ Import "../../src/CodeGraphApp.rgr"
 Import "../../../evg/EVGTextMeasurer.rgr"
 Import "../../../datagrid/platform/sdl/gfx_datagrid_sdl.rgr"
 Import "../../../datagrid/platform/sdl/EvgGlPainter.rgr"
-Import "../../../../lib/ranger-dir.rgr"
 
 class CodeGraphSdl {
     def app:CodeGraphApp (new CodeGraphApp)
@@ -164,7 +163,7 @@ class CodeGraphSdl {
             print ("  clone " + path)
             app.status = ("cloning " + path + "…")
             app.refreshChrome()
-            def dest:string (dgfx_clone_git(path))
+            def dest:string (dgfx_clone_git path)
             if ((strlen dest) == 0) {
                 app.status = ("could not clone " + path)
                 app.refreshChrome()
@@ -189,7 +188,7 @@ class CodeGraphSdl {
     }
 
     fn pickGitUrl:void () {
-        def url:string (dgfx_prompt_text("Git URL" "HTTPS Git repository to analyse"))
+        def url:string (dgfx_prompt_text "Git URL" "HTTPS Git repository to analyse")
         if ((strlen url) == 0) {
             return
         }
