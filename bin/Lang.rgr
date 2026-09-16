@@ -6203,7 +6203,7 @@ void r_buffer_write_file(const std::string& path, const std::string& filename, c
 }
 ")
                 )
-                java7 ( "java.nio.file.Files.write(java.nio.file.Paths.get(" (e 1) " + \"/\" + " (e 2) "), " (e 3) ")" )
+                java7 ( "java.nio.file.Files.write(java.nio.file.Paths.get(" (e 1) " + \"/\" + " (e 2) "), " (e 3) ");" )
                 python ( "open(" (e 1) " + '/' + " (e 2) ", 'wb').write(" (e 3) ")" )
                 swift6 ( "try? Data(" (e 3) ").write(to: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))" (imp "Foundation") )
                 csharp ( "System.IO.File.WriteAllBytes(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ")" )
@@ -6248,7 +6248,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 go ( "copy(" (e 1) "[" (e 2) ":], " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "])" )
                 rust ( (e 1) "[" (idx 2) "..(" (e 2) "+" (e 5) ") as usize].copy_from_slice(&" (e 3) "[" (idx 4) "..(" (e 4) "+" (e 5) ") as usize])" )
                 cpp ( "std::copy(" (e 3) ".begin()+" (e 4) ", " (e 3) ".begin()+" (e 4) "+" (e 5) ", " (e 1) ".begin()+" (e 2) ")" (imp "<algorithm>") )
-                java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
                 csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
