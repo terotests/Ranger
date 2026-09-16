@@ -86,6 +86,11 @@ then a 24-box UML page. `codegraph:bench` / `codegraph:bench:cpp` print a
 and C++ so the wait is not a black box. `codegraph:analyze` also recompiles
 the CLI from Ranger on every run; the bench times analysis only.
 
+On RealTrainerDemo the old Identifier walk rescanned the whole UAST per
+name (`usedAsMember` / `enclosingMethod`) — about six minutes of
+`semantic.idents` in JavaScript. `indexLookups` builds owner/member/ref
+maps once; the same open is then compile plus a much smaller ident pass.
+
 
 ## What to click
 

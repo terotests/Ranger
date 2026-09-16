@@ -17,6 +17,10 @@
 ; may add on-disk package `.d.ts` files before this pipeline runs; there is
 ; still no package manager. Unresolved Import is a diagnostic, not a crash.
 ; This file must not import the Ranger compiler.
+;
+; Identifier / Call resolution used to rescan every node per name
+; (`usedAsMember`, `enclosingMethod`). `indexLookups` fills owner / member /
+; ref maps first so a 100k-node tree (RealTrainerDemo) stays linear.
 ; ============================================================================
 
 Import "UastModel.rgr"
