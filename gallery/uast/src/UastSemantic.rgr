@@ -1190,6 +1190,9 @@ class UastSemantic {
             if (pn == (norm + ".ts")) {
                 return p
             }
+            if (pn == (norm + ".tsx")) {
+                return p
+            }
             if (pn == (norm + ".rgr")) {
                 return p
             }
@@ -1199,6 +1202,12 @@ class UastSemantic {
             def fromJs:string (UastSemantic.jsToTs(norm))
             if ((strlen fromJs) > 0) {
                 if (pn == fromJs) {
+                    return p
+                }
+            }
+            def fromTsx:string (UastSemantic.jsToTsx(norm))
+            if ((strlen fromTsx) > 0) {
+                if (pn == fromTsx) {
                     return p
                 }
             }
@@ -1232,6 +1241,17 @@ class UastSemantic {
         }
         if ((substring path (n - 3) n) == ".js") {
             return ((substring path 0 (n - 3)) + ".ts")
+        }
+        return ""
+    }
+
+    sfn jsToTsx:string (path:string) {
+        def n:int (strlen path)
+        if (n < 3) {
+            return ""
+        }
+        if ((substring path (n - 3) n) == ".js") {
+            return ((substring path 0 (n - 3)) + ".tsx")
         }
         return ""
     }

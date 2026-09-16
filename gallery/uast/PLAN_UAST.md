@@ -1,7 +1,8 @@
 # UAST — a language-analysis framework for Ranger
 
-**Status:** research branch, M7 started (TS fromDir + projector CLI +
-shared call resolution + workspace imports + Ranger/TS ZipWriter)
+**Status:** research branch, M8 started (TSX components + TS fromDir +
+projector CLI + shared call resolution + workspace imports + Ranger/TS
+ZipWriter)
 **License:** AGPL-3.0-or-later (this directory is under `gallery/`)
 **Related:** [`gallery/codegraph`](../codegraph/README.md),
 [`gallery/ts_parser`](../ts_parser/README.md),
@@ -645,7 +646,13 @@ M7 is started: `UastTs.fromDir` walks a TypeScript tree (skips
 existing CodeGraph IR. No CodeGraphBuilder or UI change. Tried on
 sindresorhus/p-queue in `/tmp` (not vendored): `PQueue` / `PriorityQueue`
 classes, type aliases, `.js`→`.ts` workspace imports, exact internal
-calls. Missing npm packages stay diagnostics.
+M8 is started: `.tsx` files enable `ts_parser` TSX mode. PascalCase
+function / `const` arrow / class `render` components are declarations;
+`<Card />` lowers to a Call (host tags like `div` stay markup). Shared
+`resolveCalls` binds JSX to `function:Card`. The projector draws
+PascalCase functions as CodeGraph classes with stereotype `component`.
+JSX node types stay `LanguageSpecific` in the mapping — the adapter
+does the lowering. No CodeGraphBuilder or UI change.
 
 ---
 
@@ -724,7 +731,7 @@ It is: **Ranger gets a language-analysis framework.**
   it must not add, remove, or reorder `children`.
 - No import of `gallery/ts_parser` into `uast:test`. The TS walk lives
   in `uast:ts` (`UastTs.rgr`), the same split as `uast:ranger`.
-- No TSX, no Go parser, no pretence of JS call resolution.
+- No Go parser, no pretence of JS call resolution.
 - No merge of ComponentEngine’s eval AST into UNode.
 - No LSP, incremental parsing, data-flow, SSA, or a full type checker.
 

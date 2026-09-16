@@ -67,7 +67,7 @@ types. Only `UastRanger` may.
 | `fixtures/zip_writer.ts` | the TypeScript twin of that fixture |
 | `fixtures/foo_a.ts`, `foo_b.ts` | two-file import/export + missing module |
 | `fixtures/shapes.ts` | interface, `extends`, `function`, `export default` |
-| `fixtures/sheet_view.rgr` | leading comments on the correct property |
+| `fixtures/card.tsx`, `page.tsx`, `banner.tsx`, `panel.tsx` | function / arrow / class React components |
 
 ## Ranger first, TypeScript second
 
