@@ -216,6 +216,16 @@ class CodeGraphBuilderTest {
                 n = (n + 1)
             }
         }
+        def viaRgr:CodeGraph (CodeGraphBuilder.fromPath("tests/fixtures/pkg/app/App.rgr"))
+        if ((indexOf viaRgr.title " FAIL ") >= 0) {
+            print ("  FAIL App.rgr " + viaRgr.title)
+            n = (n + 1)
+        } {
+            if ((viaRgr.hasClass("Greeter")) == false) {
+                print "  FAIL App.rgr fromPath missed pkg:util Greeter"
+                n = (n + 1)
+            }
+        }
         print (("  classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
         return n
     }
