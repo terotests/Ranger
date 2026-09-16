@@ -1,7 +1,7 @@
 # UAST — a language-analysis framework for Ranger
 
-**Status:** research branch, M4 started (shared pipeline scopes +
-references; Ranger walk + comments + TypeScript ZipWriter via `ts_parser`)
+**Status:** research branch, M5 started (workspace imports/exports +
+shared pipeline scopes; Ranger walk + comments + TypeScript ZipWriter)
 **License:** AGPL-3.0-or-later (this directory is under `gallery/`)
 **Related:** [`gallery/codegraph`](../codegraph/README.md),
 [`gallery/ts_parser`](../ts_parser/README.md),
@@ -514,7 +514,10 @@ resolve references
 resolve calls
 ```
 
-`UastWorkspace` is in the tree now. M0–M4 may still be one file.
+`UastWorkspace` is in the tree now. M5 indexes every file first, then
+resolves `Import` specifiers against workspace paths only. A missing
+module is a diagnostic; analysis of the other files continues. There is
+no `ranger install` and no `node_modules` walk.
 
 A related, later problem is not TypeScript modules but **Ranger apps that
 do not ship their gallery sources** (bare `Import "WindowCtl.rgr"`, a
@@ -567,6 +570,7 @@ gallery/uast/
         UastTsTest.rgr        zip_writer.ts via ts_parser
     fixtures/
         zip_writer.ts
+        foo_a.ts / foo_b.ts   export Foo + import { Foo } / unresolved ./nope
         sheet_view.rgr        leading comments on the right property
 ```
 
@@ -622,8 +626,13 @@ is `frontendInferred`.
 M4 is started: `UastSemantic.resolveRefs` indexes `Parameter` symbols
 and resolves `this`, parameters, `TypeRef`, and `MemberAccess` on a
 typed receiver. Exact when the unique member follows from the model
-(enclosing class, not a globally unique method name). Call
-`Relationship`s stay frontend hints until M6.
+(enclosing class, not a globally unique method name).
+M5 is started: `UastSemantic.fromWorkspace` indexes modules and exports,
+then `resolveImports` binds named specifiers to exported symbols. Paths
+are resolved only against files already in the workspace (`./foo_a` →
+`foo_a.ts`). `import { Z } from "./nope"` and bare `WindowCtl.rgr` become
+diagnostics; `class:Foo` is still indexed. Call `Relationship`s stay
+frontend hints until M6.
 
 ---
 

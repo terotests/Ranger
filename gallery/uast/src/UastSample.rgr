@@ -209,4 +209,96 @@ class UastSample {
         method.addRole((UastChildRole.body()) body.id)
         return callN
     }
+
+    sfn fooWorkspace:UastCodeModel () {
+        def ws (new UastWorkspace)
+        ws.addResult((UastSample.fooAResult()))
+        ws.addResult((UastSample.fooBResult()))
+        return (UastSemantic.fromWorkspace(ws))
+    }
+
+    sfn fooAResult:UastFrontendResult () {
+        def r (new UastFrontendResult)
+        r.title = "foo_a.ts"
+        r.language = "typescript"
+        r.addFile("foo_a.ts" "typescript")
+        def foo:UNode (UastSample.klass(r "Foo" "foo_a.ts"))
+        foo.language = "typescript"
+        foo.addFlag("export")
+        UastSample.method(r foo "hello" "void")
+        def exp:UNode (UNode.create("n:export:Foo" (UastKind.Export()) "typescript" "ExportNamedDeclaration"))
+        exp.span.fileId = "foo_a.ts"
+        r.addNode(exp)
+        exp.addRole((UastChildRole.element()) foo.id)
+        return r
+    }
+
+    sfn fooBResult:UastFrontendResult () {
+        def r (new UastFrontendResult)
+        r.title = "foo_b.ts"
+        r.language = "typescript"
+        r.addFile("foo_b.ts" "typescript")
+        def imp:UNode (UNode.create("n:import:foo_a" (UastKind.Import()) "typescript" "ImportDeclaration"))
+        imp.name = "./foo_a"
+        imp.span.fileId = "foo_b.ts"
+        r.addNode(imp)
+        def impFoo:UNode (UNode.create("n:import:Foo" (UastKind.Identifier()) "typescript" "Identifier"))
+        impFoo.name = "Foo"
+        impFoo.span.fileId = "foo_b.ts"
+        r.addNode(impFoo)
+        imp.addRole((UastChildRole.nameRole()) impFoo.id)
+        def miss:UNode (UNode.create("n:import:nope" (UastKind.Import()) "typescript" "ImportDeclaration"))
+        miss.name = "./nope"
+        miss.span.fileId = "foo_b.ts"
+        r.addNode(miss)
+        def missZ:UNode (UNode.create("n:import:Z" (UastKind.Identifier()) "typescript" "Identifier"))
+        missZ.name = "Z"
+        missZ.span.fileId = "foo_b.ts"
+        r.addNode(missZ)
+        miss.addRole((UastChildRole.nameRole()) missZ.id)
+        def bare:UNode (UNode.create("n:import:WindowCtl" (UastKind.Import()) "ranger" "Import"))
+        bare.name = "WindowCtl.rgr"
+        bare.span.fileId = "foo_b.ts"
+        r.addNode(bare)
+        def uses:UNode (UastSample.klass(r "Uses" "foo_b.ts"))
+        uses.language = "typescript"
+        def make:UNode (UastSample.method(r uses "make" "Foo"))
+        def fooId:UNode (UNode.create("n:new-Foo-id" (UastKind.Identifier()) "typescript" "Identifier"))
+        fooId.name = "Foo"
+        fooId.span.fileId = "foo_b.ts"
+        r.addNode(fooId)
+        def nw:UNode (UNode.create("n:new-Foo" (UastKind.New()) "typescript" "NewExpression"))
+        nw.span.fileId = "foo_b.ts"
+        r.addNode(nw)
+        nw.addRole((UastChildRole.callee()) fooId.id)
+        def vx:UNode (UNode.create("n:var-x" (UastKind.VariableDecl()) "typescript" "VariableDeclarator"))
+        vx.name = "x"
+        vx.span.fileId = "foo_b.ts"
+        r.addNode(vx)
+        vx.addRole((UastChildRole.initializer()) nw.id)
+        def xid:UNode (UNode.create("n:x-id" (UastKind.Identifier()) "typescript" "Identifier"))
+        xid.name = "x"
+        xid.span.fileId = "foo_b.ts"
+        r.addNode(xid)
+        def hid:UNode (UNode.create("n:hello-id" (UastKind.Identifier()) "typescript" "Identifier"))
+        hid.name = "hello"
+        hid.span.fileId = "foo_b.ts"
+        r.addNode(hid)
+        def acc:UNode (UNode.create("n:x.hello" (UastKind.MemberAccess()) "typescript" "MemberExpression"))
+        acc.span.fileId = "foo_b.ts"
+        r.addNode(acc)
+        acc.addRole((UastChildRole.receiver()) xid.id)
+        acc.addRole((UastChildRole.member()) hid.id)
+        def callN:UNode (UNode.create("n:call-hello" (UastKind.Call()) "typescript" "CallExpression"))
+        callN.span.fileId = "foo_b.ts"
+        r.addNode(callN)
+        callN.addRole((UastChildRole.callee()) acc.id)
+        def body:UNode (UNode.create("n:make-body" (UastKind.Block()) "typescript" "BlockStatement"))
+        body.span.fileId = "foo_b.ts"
+        r.addNode(body)
+        body.addRole((UastChildRole.element()) vx.id)
+        body.addRole((UastChildRole.element()) callN.id)
+        make.addRole((UastChildRole.body()) body.id)
+        return r
+    }
 }

@@ -5,15 +5,16 @@
 ; ============================================================================
 ;
 ; 1. copy UAST
-; 2. index declarations from ClassDecl / FieldDecl / MethodDecl / Parameter
+; 2. index declarations (class / field / method / parameter / module / export)
 ; 3. contains from child roles
-; 4. apply semanticHints (calls, usesType, extends, …)
-; 5. resolve Identifier / TypeRef / MemberAccess (M4)
+; 4. apply semanticHints
+; 5. resolve Import / Identifier / TypeRef / MemberAccess
 ;
 ; Exact only when the target resolves to one unique symbol. Member names
-; resolve on the typed receiver’s class, not a global unique name. This
-; file must not import the Ranger compiler — UastRanger feeds hints, it
-; does not write CodeModel itself.
+; resolve on the typed receiver’s class, not a global unique name. Imports
+; resolve only against files already in the workspace — no package manager.
+; Unresolved Import is a diagnostic, not a crash. This file must not import
+; the Ranger compiler.
 ; ============================================================================
 
 Import "UastModel.rgr"
@@ -88,6 +89,7 @@ class UastSemantic {
     }
 
     sfn indexDeclarations:void (m:UastCodeModel) {
+        UastSemantic.indexModules(m)
         def i:int 0
         while (i < (array_length m.nodes)) {
             def node:UNode (itemAt m.nodes i)
@@ -133,6 +135,8 @@ class UastSemantic {
             j = (j + 1)
         }
         UastSemantic.indexParams(m)
+        UastSemantic.indexVariables(m)
+        UastSemantic.indexExports(m)
     }
 
     sfn indexParams:void (m:UastCodeModel) {
@@ -363,6 +367,142 @@ class UastSemantic {
         return (UastSemantic.enclosingMethod(m nodeId))
     }
 
+    sfn indexModules:void (m:UastCodeModel) {
+        def i:int 0
+        while (i < (array_length m.files)) {
+            def f:UastSourceFile (itemAt m.files i)
+            def id:string ("module:" + f.path)
+            if ((m.mentionsSymbol(id)) == false) {
+                def s:UastSymbol (UastSymbol.create(id f.path (UastSymKind.module()) m.language))
+                s.fileName = f.path
+                m.addSymbol(s)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn indexVariables:void (m:UastCodeModel) {
+        def i:int 0
+        while (i < (array_length m.nodes)) {
+            def node:UNode (itemAt m.nodes i)
+            if (node.kind == "VariableDecl") {
+                def id:string ((("var:" + node.span.fileId) + ".") + node.name)
+                if (m.mentionsSymbol(id)) {
+                    def n:int 2
+                    def cand:string ((id + "#") + (to_string n))
+                    while (m.mentionsSymbol(cand)) {
+                        n = (n + 1)
+                        cand = ((id + "#") + (to_string n))
+                    }
+                    id = cand
+                }
+                def s:UastSymbol (UastSymbol.create(id node.name (UastSymKind.variable()) node.language))
+                s.declarationNode = node.id
+                s.fileName = node.span.fileId
+                def typeId:string (node.childIdFor((UastChildRole.typeRole())))
+                if ((strlen typeId) > 0) {
+                    if (m.mentionsNode(typeId)) {
+                        def tn:UNode (m.nodeById(typeId))
+                        s.typeName = tn.name
+                    }
+                }
+                m.addSymbol(s)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn indexExports:void (m:UastCodeModel) {
+        def i:int 0
+        while (i < (array_length m.nodes)) {
+            def node:UNode (itemAt m.nodes i)
+            if (node.kind == "Export") {
+                def elem:string (node.childIdFor((UastChildRole.element())))
+                if ((strlen elem) > 0) {
+                    UastSemantic.markExported(m elem node.span.fileId)
+                }
+                def names:[string] (node.childIdsFor((UastChildRole.nameRole())))
+                def ni:int 0
+                while (ni < (array_length names)) {
+                    def nid:string (itemAt names ni)
+                    if (m.mentionsNode(nid)) {
+                        def ident:UNode (m.nodeById(nid))
+                        def sid:string (UastSemantic.declInFileNamed(m node.span.fileId ident.name))
+                        if ((strlen sid) > 0) {
+                            UastSemantic.addExportLink(m node.span.fileId sid)
+                        }
+                    }
+                    ni = (ni + 1)
+                }
+            }
+            if (node.kind == "ClassDecl") {
+                if (node.mentionsFlag("export")) {
+                    UastSemantic.markExported(m node.id node.span.fileId)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn markExported:void (m:UastCodeModel nodeId:string fileId:string) {
+        def sid:string (m.symbolDeclaredAt(nodeId))
+        if ((strlen sid) == 0) {
+            return
+        }
+        UastSemantic.addExportLink(m fileId sid)
+    }
+
+    sfn addExportLink:void (m:UastCodeModel fileId:string symbolId:string) {
+        def mod:string ("module:" + fileId)
+        if ((m.mentionsSymbol(mod)) == false) {
+            return
+        }
+        if (UastSemantic.mentionsRel(m mod symbolId (UastRelKind.exports()))) {
+            return
+        }
+        def res:string (UastResolution.resolved())
+        def exact:string (UastConfidence.exact())
+        m.link(mod symbolId (UastRelKind.exports()) res exact)
+    }
+
+    sfn declInFileNamed:string (m:UastCodeModel fileId:string name:string) {
+        def found:string ""
+        def n:int 0
+        def i:int 0
+        while (i < (array_length m.symbols)) {
+            def s:UastSymbol (itemAt m.symbols i)
+            if (s.fileName == fileId) {
+                if (s.name == name) {
+                    if ((s.kind == "class") || (s.kind == "interface") || (s.kind == "function") || (s.kind == "type")) {
+                        found = s.id
+                        n = (n + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (n == 1) {
+            return found
+        }
+        return ""
+    }
+
+    sfn mentionsRel:boolean (m:UastCodeModel fromId:string toId:string kind:string) {
+        def i:int 0
+        while (i < (array_length m.relationships)) {
+            def rel:UastRelation (itemAt m.relationships i)
+            if (rel.fromId == fromId) {
+                if (rel.toId == toId) {
+                    if (rel.kind == kind) {
+                        return true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     sfn enclosingMethod:string (m:UastCodeModel nodeId:string) {
         def i:int 0
         while (i < (array_length m.nodes)) {
@@ -427,8 +567,10 @@ class UastSemantic {
     }
 
     sfn resolveRefs:void (m:UastCodeModel) {
+        UastSemantic.resolveImports(m)
         UastSemantic.resolveTypeRefs(m)
         UastSemantic.resolveIdents(m)
+        UastSemantic.inferNewTypes(m)
         def i:int 0
         while (i < (array_length m.nodes)) {
             def n:UNode (itemAt m.nodes i)
@@ -444,6 +586,7 @@ class UastSemantic {
             }
             i = (i + 1)
         }
+        UastSemantic.resolveMembersFixpoint(m)
     }
 
     sfn resolveTypeRefs:void (m:UastCodeModel) {
@@ -489,6 +632,19 @@ class UastSemantic {
             def paramId:string (UastSemantic.childSymbolNamed(m methodId n.name "parameter"))
             if ((strlen paramId) > 0) {
                 UastSemantic.addExactRef(m n.id paramId "ref")
+                return
+            }
+        }
+        def fileId:string n.span.fileId
+        if ((strlen fileId) > 0) {
+            def imported:string (UastSemantic.importBinding(m fileId n.name))
+            if ((strlen imported) > 0) {
+                UastSemantic.addExactRef(m n.id imported "ref")
+                return
+            }
+            def varId:string (UastSemantic.fileVarNamed(m fileId n.name))
+            if ((strlen varId) > 0) {
+                UastSemantic.addExactRef(m n.id varId "ref")
                 return
             }
         }
@@ -706,5 +862,354 @@ class UastSemantic {
             i = (i + 1)
         }
         return ""
+    }
+
+    sfn resolveImports:void (m:UastCodeModel) {
+        def i:int 0
+        while (i < (array_length m.nodes)) {
+            def n:UNode (itemAt m.nodes i)
+            if (n.kind == "Import") {
+                UastSemantic.resolveOneImport(m n)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn resolveOneImport:void (m:UastCodeModel n:UNode) {
+        def spec:string n.name
+        if ((strlen spec) == 0) {
+            return
+        }
+        def fromFile:string n.span.fileId
+        def targetFile:string (UastSemantic.resolveModulePath(m fromFile spec))
+        if ((strlen targetFile) == 0) {
+            def d:UastDiagnostic (UastDiagnostic.create((("unresolved import " + spec) + " from " + fromFile) "error"))
+            d.span.fileId = fromFile
+            m.addDiagnostic(d)
+            return
+        }
+        def names:[string] (n.childIdsFor((UastChildRole.nameRole())))
+        if ((array_length names) == 0) {
+            def fromMod:string ("module:" + fromFile)
+            def toMod:string ("module:" + targetFile)
+            if ((m.mentionsSymbol(fromMod)) && (m.mentionsSymbol(toMod))) {
+                if ((UastSemantic.mentionsRel(m fromMod toMod (UastRelKind.imports()))) == false) {
+                    m.link(fromMod toMod (UastRelKind.imports()) (UastResolution.resolved()) (UastConfidence.exact()))
+                }
+            }
+            return
+        }
+        def ni:int 0
+        while (ni < (array_length names)) {
+            def nid:string (itemAt names ni)
+            if (m.mentionsNode(nid)) {
+                def ident:UNode (m.nodeById(nid))
+                def target:string (UastSemantic.importableNamed(m targetFile ident.name))
+                if ((strlen target) > 0) {
+                    UastSemantic.addExactRef(m nid target "import")
+                    UastSemantic.addExactRef(m n.id target "import")
+                    def fromMod:string ("module:" + fromFile)
+                    if (m.mentionsSymbol(fromMod)) {
+                        if ((UastSemantic.mentionsRel(m fromMod target (UastRelKind.imports()))) == false) {
+                            m.link(fromMod target (UastRelKind.imports()) (UastResolution.resolved()) (UastConfidence.exact()))
+                        }
+                    }
+                } {
+                    def d2:UastDiagnostic (UastDiagnostic.create(((ident.name + " is not exported from ") + targetFile) "error"))
+                    d2.span.fileId = fromFile
+                    m.addDiagnostic(d2)
+                }
+            }
+            ni = (ni + 1)
+        }
+    }
+
+    sfn importableNamed:string (m:UastCodeModel filePath:string name:string) {
+        def mod:string ("module:" + filePath)
+        def hasExports:boolean false
+        def ei:int 0
+        while (ei < (array_length m.relationships)) {
+            def rel:UastRelation (itemAt m.relationships ei)
+            if (rel.fromId == mod) {
+                if (rel.kind == "exports") {
+                    hasExports = true
+                }
+            }
+            ei = (ei + 1)
+        }
+        if hasExports {
+            def fi:int 0
+            while (fi < (array_length m.relationships)) {
+                def erel:UastRelation (itemAt m.relationships fi)
+                if (erel.fromId == mod) {
+                    if (erel.kind == "exports") {
+                        if (m.mentionsSymbol(erel.toId)) {
+                            def s:UastSymbol (m.symbolById(erel.toId))
+                            if (s.name == name) {
+                                return erel.toId
+                            }
+                        }
+                    }
+                }
+                fi = (fi + 1)
+            }
+            return ""
+        }
+        return (UastSemantic.declInFileNamed(m filePath name))
+    }
+
+    sfn importBinding:string (m:UastCodeModel fileId:string name:string) {
+        def i:int 0
+        while (i < (array_length m.nodes)) {
+            def n:UNode (itemAt m.nodes i)
+            if (n.kind == "Import") {
+                if (n.span.fileId == fileId) {
+                    def names:[string] (n.childIdsFor((UastChildRole.nameRole())))
+                    def ni:int 0
+                    while (ni < (array_length names)) {
+                        def nid:string (itemAt names ni)
+                        if (m.mentionsNode(nid)) {
+                            def ident:UNode (m.nodeById(nid))
+                            if (ident.name == name) {
+                                def t:string (UastSemantic.refTargetOf(m nid))
+                                if ((strlen t) > 0) {
+                                    return t
+                                }
+                            }
+                        }
+                        ni = (ni + 1)
+                    }
+                    if ((array_length names) == 0) {
+                        def specFile:string (UastSemantic.resolveModulePath(m fileId n.name))
+                        if ((strlen specFile) > 0) {
+                            def t2:string (UastSemantic.importableNamed(m specFile name))
+                            if ((strlen t2) > 0) {
+                                return t2
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn fileVarNamed:string (m:UastCodeModel fileId:string name:string) {
+        def found:string ""
+        def n:int 0
+        def i:int 0
+        while (i < (array_length m.symbols)) {
+            def s:UastSymbol (itemAt m.symbols i)
+            if (s.kind == "variable") {
+                if (s.fileName == fileId) {
+                    if (s.name == name) {
+                        found = s.id
+                        n = (n + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (n == 1) {
+            return found
+        }
+        return ""
+    }
+
+    sfn inferNewTypes:void (m:UastCodeModel) {
+        def i:int 0
+        while (i < (array_length m.nodes)) {
+            def n:UNode (itemAt m.nodes i)
+            if (n.kind == "VariableDecl") {
+                def sid:string (m.symbolDeclaredAt(n.id))
+                if ((strlen sid) > 0) {
+                    def s:UastSymbol (m.symbolById(sid))
+                    if ((strlen s.typeName) == 0) {
+                        def initId:string (n.childIdFor((UastChildRole.initializer())))
+                        if (m.mentionsNode(initId)) {
+                            def initN:UNode (m.nodeById(initId))
+                            if (initN.kind == "New") {
+                                def calleeId:string (initN.childIdFor((UastChildRole.callee())))
+                                def t:string (UastSemantic.typeNameOfNode(m calleeId))
+                                if ((strlen t) > 0) {
+                                    s.typeName = (UastSemantic.typeBareName(t))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn resolveMembersFixpoint:void (m:UastCodeModel) {
+        def guard:int 0
+        def changed:boolean true
+        while changed {
+            if (guard > 8) {
+                break
+            }
+            guard = (guard + 1)
+            changed = false
+            def i:int 0
+            while (i < (array_length m.nodes)) {
+                def n:UNode (itemAt m.nodes i)
+                if (n.kind == "MemberAccess") {
+                    def had:boolean ((strlen (UastSemantic.refTargetOf(m n.id))) > 0)
+                    UastSemantic.resolveMemberAccess(m n)
+                    if had {
+                    } {
+                        if ((strlen (UastSemantic.refTargetOf(m n.id))) > 0) {
+                            changed = true
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+        }
+    }
+
+    sfn resolveModulePath:string (m:UastCodeModel fromFile:string spec:string) {
+        def allowBase:boolean true
+        if ((strlen spec) > 0) {
+            if ((charAt spec 0) == ((ccode "."))) {
+                allowBase = false
+            }
+            if ((charAt spec 0) == ((ccode "/"))) {
+                allowBase = false
+            }
+        }
+        def joined:string spec
+        if allowBase {
+            joined = spec
+        } {
+            joined = (UastSemantic.joinPath((UastSemantic.dirOf(fromFile)) spec))
+        }
+        def hit:string (UastSemantic.findWorkspaceFile(m joined false))
+        if ((strlen hit) > 0) {
+            return hit
+        }
+        if allowBase {
+            return (UastSemantic.findWorkspaceFile(m spec true))
+        }
+        return ""
+    }
+
+    sfn findWorkspaceFile:string (m:UastCodeModel want:string allowBasename:boolean) {
+        def norm:string (UastSemantic.collapsePath(want))
+        def i:int 0
+        while (i < (array_length m.files)) {
+            def f:UastSourceFile (itemAt m.files i)
+            def p:string f.path
+            def pn:string (UastSemantic.collapsePath(p))
+            if (pn == norm) {
+                return p
+            }
+            if (pn == (norm + ".ts")) {
+                return p
+            }
+            if (pn == (norm + ".rgr")) {
+                return p
+            }
+            if (pn == (norm + ".js")) {
+                return p
+            }
+            i = (i + 1)
+        }
+        if allowBasename {
+            def base:string (UastSemantic.baseName(want))
+            def n:int 0
+            def found:string ""
+            def j:int 0
+            while (j < (array_length m.files)) {
+                def f2:UastSourceFile (itemAt m.files j)
+                def p2:string f2.path
+                if ((UastSemantic.baseName(p2)) == base) {
+                    found = p2
+                    n = (n + 1)
+                }
+                j = (j + 1)
+            }
+            if (n == 1) {
+                return found
+            }
+        }
+        return ""
+    }
+
+    sfn dirOf:string (path:string) {
+        def slash:int (0 - 1)
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == ((ccode "/"))) {
+                slash = i
+            }
+            i = (i + 1)
+        }
+        if (slash < 0) {
+            return ""
+        }
+        return (substring path 0 slash)
+    }
+
+    sfn baseName:string (path:string) {
+        def slash:int (0 - 1)
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == ((ccode "/"))) {
+                slash = i
+            }
+            i = (i + 1)
+        }
+        if (slash < 0) {
+            return path
+        }
+        return (substring path (slash + 1) (strlen path))
+    }
+
+    sfn joinPath:string (dir:string rel:string) {
+        def r:string rel
+        if ((indexOf r "./") == 0) {
+            r = (substring r 2 (strlen r))
+        }
+        if ((strlen dir) == 0) {
+            return (UastSemantic.collapsePath(r))
+        }
+        return (UastSemantic.collapsePath((dir + "/") + r))
+    }
+
+    sfn collapsePath:string (path:string) {
+        def parts:[string]
+        def cur:string ""
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == ((ccode "/"))) {
+                UastSemantic.pushSeg(parts cur)
+                cur = ""
+            } {
+                cur = (cur + (substring path i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        UastSemantic.pushSeg(parts cur)
+        return (join parts "/")
+    }
+
+    sfn pushSeg:void (parts:[string] part:string) {
+        if ((strlen part) == 0) {
+            return
+        }
+        if (part == ".") {
+            return
+        }
+        if (part == "..") {
+            if ((array_length parts) > 0) {
+                removeLast parts
+            }
+            return
+        }
+        push parts part
     }
 }

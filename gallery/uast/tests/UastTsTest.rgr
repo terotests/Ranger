@@ -45,6 +45,7 @@ class UastTsTest {
     sfn main:void () {
         def c (new UastTsChecker)
         UastTsTest.testZipWriter(c)
+        UastTsTest.testWorkspace(c)
         def code:int (c.report())
         if (code != 0) {
             exit 1
@@ -131,5 +132,47 @@ class UastTsTest {
         c.ok("projected CRC32" (g.hasClass("CRC32")))
         c.ok("projected addFile" (g.hasMethod("ZipWriter.addFile")))
         c.ok("projected update" (g.hasMethod("CRC32.update")))
+    }
+
+    sfn testWorkspace:void (c:UastTsChecker) {
+        print "== foo_a.ts / foo_b.ts workspace"
+        def ws (new UastWorkspace)
+        ws.addResult((UastTs.parseFile("gallery/uast/fixtures/foo_a.ts")))
+        ws.addResult((UastTs.parseFile("gallery/uast/fixtures/foo_b.ts")))
+        def model:UastCodeModel (UastSemantic.fromWorkspace(ws))
+        if ((indexOf model.title " FAIL ") >= 0) {
+            print ("  FAIL " + model.title)
+            c.ok("parse workspace" false)
+            return
+        }
+        c.ok("Foo exported" (model.mentionsSymbol("class:Foo")))
+        c.ok("Uses class" (model.mentionsSymbol("class:Uses")))
+        c.ok("Foo.hello" (model.mentionsSymbol("method:Foo.hello")))
+        def foundImp:boolean false
+        def foundFoo:boolean false
+        def ni:int 0
+        while (ni < (array_length model.nodes)) {
+            def n:UNode (itemAt model.nodes ni)
+            if (n.kind == "Import") {
+                if (n.name == "./foo_a") {
+                    foundImp = true
+                    def names:[string] (n.childIdsFor((UastChildRole.nameRole())))
+                    if ((array_length names) > 0) {
+                        c.eqStr("import Foo → class" (UastQuery.refTarget(model (itemAt names 0))) "class:Foo")
+                    }
+                }
+            }
+            if (n.kind == "New") {
+                def cid:string (n.childIdFor((UastChildRole.callee())))
+                if ((UastQuery.refTarget(model cid)) == "class:Foo") {
+                    foundFoo = true
+                }
+            }
+            ni = (ni + 1)
+        }
+        c.ok("import ./foo_a present" foundImp)
+        c.ok("new Foo binds class" foundFoo)
+        c.ok("unresolved ./nope" (UastQuery.diagnosticMentions(model "unresolved import ./nope")))
+        c.ok("Uses survived missing import" (model.mentionsSymbol("class:Uses")))
     }
 }

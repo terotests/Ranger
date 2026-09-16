@@ -58,6 +58,7 @@ class UastTest {
         UastTest.testComments(c)
         UastTest.testQuery(c)
         UastTest.testScopes(c)
+        UastTest.testWorkspace(c)
         def code:int (c.report())
         if (code != 0) {
             exit 1
@@ -314,5 +315,37 @@ class UastTest {
         c.eqStr("Beta this.foo → Beta.foo" (UastQuery.refTarget(two "n:beta-mem")) "method:Beta.foo")
         c.ok("member foo is not the run param" ((UastQuery.refTarget(two "n:alpha-mem")) != "param:Alpha.run.foo"))
         c.ok("run param is indexed" (two.mentionsSymbol("param:Alpha.run.foo")))
+    }
+
+    sfn testWorkspace:void (c:UastChecker) {
+        print "== workspace imports and exports"
+        def model:UastCodeModel (UastSample.fooWorkspace())
+        c.ok("Foo from a.ts" (model.mentionsSymbol("class:Foo")))
+        c.ok("Uses from b.ts" (model.mentionsSymbol("class:Uses")))
+        c.ok("Foo.hello" (model.mentionsSymbol("method:Foo.hello")))
+        c.ok("module a" (model.mentionsSymbol("module:foo_a.ts")))
+        c.ok("module b" (model.mentionsSymbol("module:foo_b.ts")))
+        c.eqStr("import Foo specifier" (UastQuery.refTarget(model "n:import:Foo")) "class:Foo")
+        c.eqStr("new Foo → class" (UastQuery.refTarget(model "n:new-Foo-id")) "class:Foo")
+        c.eqStr("x → var" (UastQuery.refTarget(model "n:x-id")) "var:foo_b.ts.x")
+        c.eqStr("x.hello → method" (UastQuery.refTarget(model "n:hello-id")) "method:Foo.hello")
+        def foundImp:boolean false
+        def foundExp:boolean false
+        def ri:int 0
+        while (ri < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships ri)
+            if ((rel.kind == "imports") && (rel.fromId == "module:foo_b.ts") && (rel.toId == "class:Foo")) {
+                foundImp = true
+            }
+            if ((rel.kind == "exports") && (rel.fromId == "module:foo_a.ts") && (rel.toId == "class:Foo")) {
+                foundExp = true
+            }
+            ri = (ri + 1)
+        }
+        c.ok("b imports Foo" foundImp)
+        c.ok("a exports Foo" foundExp)
+        c.ok("unresolved ./nope" (UastQuery.diagnosticMentions(model "unresolved import ./nope")))
+        c.ok("unresolved WindowCtl.rgr" (UastQuery.diagnosticMentions(model "WindowCtl.rgr")))
+        c.ok("analysis continued" (model.mentionsSymbol("class:Uses")))
     }
 }
