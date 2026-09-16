@@ -236,6 +236,14 @@ class UastCpp {
         if (name == "SECURITY") { return true }
         if (name == "WORKSPACE") { return true }
         if (name == "BUILD") { return true }
+        if (name == "INSTALL") { return true }
+        if (name == "NEWS") { return true }
+        if (name == "TODO") { return true }
+        if (name == "VERSION") { return true }
+        if (name == "CHANGES") { return true }
+        if (name == "configure") { return true }
+        if (name == "Doxyfile") { return true }
+        if (name == "GNUmakefile") { return true }
         if (name == "Gemfile") { return true }
         if (name == "Rakefile") { return true }
         if ((strlen name) > 0) {
@@ -243,7 +251,35 @@ class UastCpp {
                 return true
             }
         }
+        if ((UastCpp.looksLikeFile(name)) == false) {
+            if (UastCpp.isShoutingName(name)) {
+                return true
+            }
+        }
         return false
+    }
+
+    ; INSTALL / NEWS / TODO: Autotools files with no extension. `dir_exists`
+    ; on the JS and C++ targets is "path exists", so treating them as folders
+    ; makes list_dir_files throw ENOTDIR. Real folders are rarely ALL CAPS.
+    sfn isShoutingName:boolean (name:string) {
+        def n:int (strlen name)
+        if (n == 0) {
+            return false
+        }
+        def letters:int 0
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt name i)
+            if ((ch >= 97) && (ch <= 122)) {
+                return false
+            }
+            if ((ch >= 65) && (ch <= 90)) {
+                letters = (letters + 1)
+            }
+            i = (i + 1)
+        }
+        return (letters > 0)
     }
 
     sfn isCppFile:boolean (name:string) {
