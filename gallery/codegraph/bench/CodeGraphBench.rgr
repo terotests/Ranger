@@ -154,6 +154,11 @@ class CodeGraphBench {
         def t9:double (wall_clock_ms)
         CodeGraphBench.emit("semantic.contains" t8 t9)
 
+        def tLook:double (wall_clock_ms)
+        UastSemantic.indexLookups(model)
+        def tLook1:double (wall_clock_ms)
+        CodeGraphBench.emit("semantic.lookups" tLook tLook1)
+
         def t10:double (wall_clock_ms)
         UastSemantic.applyHints(model parsed)
         def t11:double (wall_clock_ms)

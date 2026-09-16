@@ -25,6 +25,14 @@ class UastCodeModel {
     def relationships:[UastRelation]
     def diagnostics:[UastDiagnostic]
     def nextId:int 1
+    ; Filled by UastSemantic.indexLookups. Owner / member / rel tests on a
+    ; 100k-node tree must not rescan the whole model per Identifier.
+    def memberNameIds:[string:boolean]
+    def ownerMethod:[string:string]
+    def ownerClass:[string:string]
+    def refTarget:[string:string]
+    def refPair:[string:boolean]
+    def relPair:[string:boolean]
 
     Constructor () {
     }
@@ -147,7 +155,16 @@ class UastCodeModel {
     fn link:UastRelation (fromId:string toId:string kind:string resolution:string confidence:string) {
         def rel:UastRelation (UastRelation.create(fromId toId kind resolution confidence))
         this.addRelation(rel)
+        set relPair (UastCodeModel.relKey(fromId toId kind)) true
         return rel
+    }
+
+    sfn relKey:string (fromId:string toId:string kind:string) {
+        return (((((fromId + "\t") + kind) + "\t") + toId))
+    }
+
+    sfn refKey:string (nodeId:string target:string) {
+        return ((nodeId + "\t") + target)
     }
 
     fn symbolDeclaredAt:string (nodeId:string) {

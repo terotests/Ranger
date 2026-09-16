@@ -33,7 +33,8 @@ if [[ "$HOST" != "cpp" ]]; then
   exit 2
 fi
 
-OUT_DIR="$ROOT/tmp/codegraph-bench"
+# Ranger's -d joins onto cwd and drops a leading /, so this must be relative.
+OUT_DIR="tmp/codegraph-bench"
 CPP_FILE="$OUT_DIR/CodeGraphBench.cpp"
 BIN_FILE="$OUT_DIR/codegraph_bench"
 CXX_OPT="${CXX_OPT:--O1}"
