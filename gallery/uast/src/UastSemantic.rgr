@@ -1173,9 +1173,59 @@ class UastSemantic {
             return hit
         }
         if allowBase {
+            def pkg:string (UastSemantic.findWorkspacePackage(m spec))
+            if ((strlen pkg) > 0) {
+                return pkg
+            }
             return (UastSemantic.findWorkspaceFile(m spec true))
         }
         return ""
+    }
+
+    sfn findWorkspacePackage:string (m:UastCodeModel spec:string) {
+        if ((strlen spec) == 0) {
+            return ""
+        }
+        def dirNeedle:string (("/node_modules/" + spec) + "/")
+        def fileNeedle:string (("/node_modules/" + spec) + ".d.ts")
+        def typesNeedle:string (("/node_modules/@types/" + spec) + "/")
+        def prefer:string ""
+        def found:string ""
+        def i:int 0
+        while (i < (array_length m.files)) {
+            def f:UastSourceFile (itemAt m.files i)
+            def p:string ("/" + (UastSemantic.collapsePath(f.path)))
+            def hit:boolean false
+            if ((indexOf p dirNeedle) >= 0) {
+                hit = true
+            }
+            def flen:int (strlen fileNeedle)
+            def plen:int (strlen p)
+            if (plen >= flen) {
+                if ((substring p (plen - flen) plen) == fileNeedle) {
+                    hit = true
+                }
+            }
+            if ((indexOf p typesNeedle) >= 0) {
+                hit = true
+            }
+            if hit {
+                def base:string (UastSemantic.baseName(p))
+                if ((base == "index.d.ts") || (base == "index.ts")) {
+                    if ((strlen prefer) == 0) {
+                        prefer = f.path
+                    }
+                }
+                if ((strlen found) == 0) {
+                    found = f.path
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen prefer) > 0) {
+            return prefer
+        }
+        return found
     }
 
     sfn findWorkspaceFile:string (m:UastCodeModel want:string allowBasename:boolean) {

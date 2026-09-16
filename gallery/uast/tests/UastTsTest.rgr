@@ -359,7 +359,7 @@ class UastTsTest {
         }
         c.ok("Page calls createElement" foundCreate)
         c.ok("mount calls render" foundRender)
-        c.ok("no unresolved react" ((UastQuery.diagnosticMentions(model "unresolved import react")) == false))
-        c.ok("no unresolved react-dom" ((UastQuery.diagnosticMentions(model "unresolved import react-dom")) == false))
+        c.ok("no unresolved react" ((UastQuery.diagnosticMentions(model "unresolved import react from")) == false))
+        c.ok("no unresolved react-dom" ((UastQuery.diagnosticMentions(model "unresolved import react-dom from")) == false))
     }
 }

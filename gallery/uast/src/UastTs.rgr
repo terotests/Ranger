@@ -310,7 +310,9 @@ class UastTs {
 
     sfn firstExistingDts:string (base:string) {
         if (UastTs.diskFile(base)) {
-            return base
+            if (UastTs.looksLikeFile((UastSemantic.baseName(base)))) {
+                return base
+            }
         }
         if (UastTs.diskFile((base + ".d.ts"))) {
             return (base + ".d.ts")
@@ -496,31 +498,26 @@ class UastTs {
     }
 
     fn fileKey:string () {
-        def p:string fileName
-        def slash:int (0 - 1)
-        def i:int 0
-        while (i < (strlen p)) {
-            if ((charAt p i) == ((ccode "/"))) {
-                slash = i
-            }
-            i = (i + 1)
-        }
-        def base:string p
-        if (slash >= 0) {
-            base = (substring p (slash + 1) (strlen p))
-        }
+        def base:string (UastTs.pathBase(fileName))
+        def stem:string base
         def dot:int (0 - 1)
         def j:int 0
         while (j < (strlen base)) {
             if ((charAt base j) == ((ccode "."))) {
-                dot = j
+                if (dot < 0) {
+                    dot = j
+                }
             }
             j = (j + 1)
         }
         if (dot > 0) {
-            return (substring base 0 dot)
+            stem = (substring base 0 dot)
         }
-        return base
+        def parent:string (UastSemantic.baseName((UastSemantic.dirOf(fileName))))
+        if ((strlen parent) == 0) {
+            return stem
+        }
+        return ((parent + "_") + stem)
     }
 
     fn collectClassNames:void (program:TSNode) {
