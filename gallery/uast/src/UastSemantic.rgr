@@ -13,9 +13,10 @@
 ;
 ; Exact only when the target resolves to one unique symbol. Member names
 ; resolve on the typed receiver’s class, not a global unique name. Imports
-; resolve only against files already in the workspace — no package manager.
-; Unresolved Import is a diagnostic, not a crash. This file must not import
-; the Ranger compiler.
+; resolve against files already in the workspace. The TypeScript frontend
+; may add on-disk package `.d.ts` files before this pipeline runs; there is
+; still no package manager. Unresolved Import is a diagnostic, not a crash.
+; This file must not import the Ranger compiler.
 ; ============================================================================
 
 Import "UastModel.rgr"
@@ -1191,6 +1192,9 @@ class UastSemantic {
                 return p
             }
             if (pn == (norm + ".tsx")) {
+                return p
+            }
+            if (pn == (norm + ".d.ts")) {
                 return p
             }
             if (pn == (norm + ".rgr")) {

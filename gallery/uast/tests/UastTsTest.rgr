@@ -48,6 +48,8 @@ class UastTsTest {
         UastTsTest.testWorkspace(c)
         UastTsTest.testShapes(c)
         UastTsTest.testTsx(c)
+        UastTsTest.testClientGrammar(c)
+        UastTsTest.testPackageDts(c)
         UastTsTest.testFromDir(c)
         def code:int (c.report())
         if (code != 0) {
@@ -319,5 +321,45 @@ class UastTsTest {
             c.ok("jsx dump exact" ((indexOf dump "confidence: exact") >= 0))
             c.ok("jsx dump function:Card" ((indexOf dump "function:Card") >= 0))
         }
+    }
+
+    sfn testClientGrammar:void (c:UastTsChecker) {
+        print "== 'use client' / typed rest / qualified types"
+        def model:UastCodeModel (UastTs.fromFile("gallery/uast/fixtures/client.tsx"))
+        c.ok("cn function" (model.mentionsSymbol("function:cn")))
+        c.ok("Handler type" (model.mentionsSymbol("class:Handler")))
+        c.ok("Lead type" (model.mentionsSymbol("class:Lead")))
+        c.ok("Obj type" (model.mentionsSymbol("class:Obj")))
+        c.ok("Click type" (model.mentionsSymbol("class:Click")))
+        c.ok("ClientBanner" (model.mentionsSymbol("function:ClientBanner")))
+        c.ok("no parse diagnostic" ((UastQuery.diagnosticMentions(model "Parse error")) == false))
+        c.ok("no unknown type" ((UastQuery.diagnosticMentions(model "Unknown type")) == false))
+    }
+
+    sfn testPackageDts:void (c:UastTsChecker) {
+        print "== package .d.ts lookup"
+        def model:UastCodeModel (UastTs.fromDir("gallery/uast/fixtures/dts_app"))
+        c.ok("createElement from react .d.ts" (model.mentionsSymbol("function:createElement")))
+        c.ok("useState from react .d.ts" (model.mentionsSymbol("function:useState")))
+        c.ok("render from react-dom .d.ts" (model.mentionsSymbol("function:render")))
+        c.ok("ReactElement interface" (model.mentionsSymbol("class:ReactElement")))
+        c.ok("Page function" (model.mentionsSymbol("function:Page")))
+        def foundCreate:boolean false
+        def foundRender:boolean false
+        def ri:int 0
+        while (ri < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships ri)
+            if ((rel.kind == "calls") && (rel.fromId == "function:Page") && (rel.toId == "function:createElement")) {
+                foundCreate = true
+            }
+            if ((rel.kind == "calls") && (rel.fromId == "function:mount") && (rel.toId == "function:render")) {
+                foundRender = true
+            }
+            ri = (ri + 1)
+        }
+        c.ok("Page calls createElement" foundCreate)
+        c.ok("mount calls render" foundRender)
+        c.ok("no unresolved react" ((UastQuery.diagnosticMentions(model "unresolved import react")) == false))
+        c.ok("no unresolved react-dom" ((UastQuery.diagnosticMentions(model "unresolved import react-dom")) == false))
     }
 }

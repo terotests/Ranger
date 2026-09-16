@@ -1,6 +1,10 @@
 
 # Dependency directories
 node_modules/
+# Tiny fake packages used by gallery/uast dts_app tests. The frontend looks
+# these up on demand; it does not walk node_modules as application source.
+!gallery/uast/fixtures/dts_app/node_modules/
+!gallery/uast/fixtures/dts_app/node_modules/**
 
 # folder files
 data_folder/

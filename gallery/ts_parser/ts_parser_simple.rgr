@@ -1030,6 +1030,17 @@ class TSParserSimple {
     return false
   }
 
+  ; Type-literal / interface keys may be reserved words (`delete?: boolean`)
+  ; or string/number literals (`'quoted-key': T`). Those are not bindings.
+  fn expectTypeMemberName:Token () {
+    if (this.isMemberKeyToken()) {
+      def tok (this.peek())
+      this.advance()
+      return tok
+    }
+    return (this.expect("Identifier"))
+  }
+
   ; `get`/`set` followed by a property key and a parameter list is an ACCESSOR,
   ; and the key may be a keyword, a string or a number: `({ get null() {} })`,
   ; `({ set "a"(v) {} })`, `({ get 10() {} })`. Only an Identifier key was
@@ -1947,6 +1958,31 @@ class TSParserSimple {
     
     def v (this.peekValue())
     
+    ; export = expr  (CommonJS / .d.ts)
+    if (v == "=") {
+      this.advance()
+      node.nodeType = "TSExportAssignment"
+      def assignExpr (this.parseExpr())
+      node.left = assignExpr
+      if (this.matchValue(";")) {
+        this.advance()
+      }
+      return node
+    }
+
+    ; export as namespace Name  (.d.ts UMD global)
+    if (v == "as") {
+      this.advance()
+      this.expectValue("namespace")
+      def nsName (this.expect("Identifier"))
+      node.nodeType = "TSNamespaceExportDeclaration"
+      node.name = nsName.value
+      if (this.matchValue(";")) {
+        this.advance()
+      }
+      return node
+    }
+
     ; export default
     if (v == "default") {
       node.nodeType = "ExportDefaultDeclaration"
@@ -2217,6 +2253,11 @@ class TSParserSimple {
     if (this.matchValue("new")) {
       return (this.parseConstructSignature(startPos startLine startCol))
     }
+
+    ; Generic call signature: <T>(x: T): U
+    if (this.matchValue("<")) {
+      return (this.parseCallSignature(startPos startLine startCol))
+    }
     
     def prop (new TSNode())
     prop.nodeType = "TSPropertySignature"
@@ -2226,7 +2267,7 @@ class TSParserSimple {
     prop.readonly = isReadonly
     
     ; Property name
-    def nameTok (this.expect("Identifier"))
+    def nameTok (this.expectTypeMemberName())
     prop.name = nameTok.value
     
     ; Optional marker
@@ -4761,6 +4802,10 @@ class TSParserSimple {
   }
   
   fn parseUnionType:TSNode () {
+    ; Leading `|` is legal: `type T = | A | B`
+    if (this.matchValue("|")) {
+      this.advance()
+    }
     def left (this.parseIntersectionType())
     
     if (this.matchValue("|")) {
@@ -4784,6 +4829,10 @@ class TSParserSimple {
   }
   
   fn parseIntersectionType:TSNode () {
+    ; Leading `&` is legal: `type T = & A & B`
+    if (this.matchValue("&")) {
+      this.advance()
+    }
     def left (this.parseArrayType())
     
     if (this.matchValue("&")) {
@@ -5118,6 +5167,18 @@ class TSParserSimple {
     
     def nameTok (this.expect("Identifier"))
     ref.name = nameTok.value
+
+    ; Qualified name: React.ReactNode, JSX.Element, Foo.Bar<T>
+    while (this.matchValue(".")) {
+      this.advance()
+      if (this.isNameToken()) {
+        def part (this.peek())
+        this.advance()
+        ref.name = ((ref.name + ".") + part.value)
+      } {
+        break
+      }
+    }
     
     ; Generic type arguments
     if (this.matchValue("<")) {
@@ -5285,6 +5346,11 @@ class TSParserSimple {
       voidNode.nodeType = "TSVoidKeyword"
       return voidNode
     }
+
+    ; Rest parameter: (...args: T) => U
+    if (this.matchValue("...")) {
+      return (this.parseFunctionType(startPos startLine startCol))
+    }
     
     ; Check if this looks like function params (identifier followed by : or ?)
     def isIdentifier (this.matchType("Identifier"))
@@ -5369,37 +5435,39 @@ class TSParserSimple {
     funcType.start = startPos
     funcType.line = startLine
     funcType.col = startCol
+
+    def savedRest:boolean this.sawRestParam
+    this.sawRestParam = false
     
-    ; Parse function type parameters
+    ; Parse function type parameters, including rest: (...args: T) => U
     while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length funcType.params) > 0) {
         this.expectValue(",")
           if (this.matchValue(")")) { break }
       }
-      
-      def param (new TSNode())
-      param.nodeType = "Parameter"
-      
-      def nameTok (this.expect("Identifier"))
-      param.name = nameTok.value
-      param.start = nameTok.start
-      param.line = nameTok.line
-      param.col = nameTok.col
-      
-      ; Optional marker
-      if (this.matchValue("?")) {
-        param.optional = true
+
+      ; `this` in a function type is a parameter name, not a reserved binding.
+      if (this.peekValue() == "this") {
+        def thisParam (new TSNode())
+        thisParam.nodeType = "Parameter"
+        def thisTok (this.peek())
+        thisParam.name = "this"
+        thisParam.start = thisTok.start
+        thisParam.line = thisTok.line
+        thisParam.col = thisTok.col
         this.advance()
+        if (this.matchValue(":")) {
+          def thisType (this.parseTypeAnnotation())
+          thisParam.typeAnnotation = thisType
+        }
+        push funcType.params thisParam
+      } {
+        def param (this.parseParam())
+        push funcType.params param
       }
-      
-      ; Type annotation
-      if (this.matchValue(":")) {
-        def typeAnnot (this.parseTypeAnnotation())
-        param.typeAnnotation = typeAnnot
-      }
-      
-      push funcType.params param
     }
+
+    this.sawRestParam = savedRest
     
     this.expectValue(")")
     
@@ -5554,6 +5622,16 @@ class TSParserSimple {
       }
     }
     
+    ; Call signature (params): Type or <T>(params): Type
+    if ((this.matchValue("(")) || (this.matchValue("<"))) {
+      return (this.parseCallSignature(startPos startLine startCol))
+    }
+
+    ; Construct signature new (params): Type
+    if (this.matchValue("new")) {
+      return (this.parseConstructSignature(startPos startLine startCol))
+    }
+
     ; Check for index signature or mapped type: [key: type]: type or [K in keyof T]: T[K]
     if (this.matchValue("[")) {
       ; Need to look ahead to determine if this is mapped type or index signature
@@ -5573,8 +5651,8 @@ class TSParserSimple {
       return (this.parseIndexSignatureRest(isReadonly paramName startPos startLine startCol))
     }
     
-    ; Property or method name
-    def nameTok (this.expect("Identifier"))
+    ; Property or method name — reserved words and quoted keys are legal here
+    def nameTok (this.expectTypeMemberName())
     def memberName nameTok.value
     
     ; Check for optional marker

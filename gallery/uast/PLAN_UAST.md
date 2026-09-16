@@ -516,9 +516,13 @@ resolve calls
 ```
 
 `UastWorkspace` is in the tree now. M5 indexes every file first, then
-resolves `Import` specifiers against workspace paths only. A missing
-module is a diagnostic; analysis of the other files continues. There is
-no `ranger install` and no `node_modules` walk.
+resolves `Import` specifiers against workspace paths. The TypeScript
+frontend may first load on-disk package `.d.ts` files for a bare
+specifier (`node_modules/<pkg>`, `package.json` `types`/`typings`,
+`@types/<pkg>`) and add those files to the workspace. Application
+`fromDir` still skips `node_modules` as source. A missing module is a
+diagnostic; analysis of the other files continues. There is no
+`ranger install` and no package manager.
 
 A related, later problem is not TypeScript modules but **Ranger apps that
 do not ship their gallery sources** (bare `Import "WindowCtl.rgr"`, a
@@ -654,8 +658,11 @@ function / `const` arrow / class `render` components are declarations;
 PascalCase functions as CodeGraph classes with stereotype `component`.
 Tried on emilkowalski/sonner in `/tmp` (not vendored): Loader and
 other function components, JSX calls such as getLoadingIcon → Loader.
-Parser diagnostics remain on some of that tree (`'use client'`, typed
-rest parameters); missing `react` / `react-dom` stay unresolved.
+`'use client'`, typed rest parameters, parenthesized union arrays,
+qualified types (`JSX.Element`, `React.ReactNode`), leading `|` unions,
+and keyword / quoted keys in type literals parse. Bare `react` /
+`react-dom` resolve when a `.d.ts` is on disk (package `types` field,
+`index.d.ts`, or `@types`); they stay diagnostics when it is not.
 JSX node types stay `LanguageSpecific` in the mapping — the adapter
 does the lowering. No CodeGraphBuilder or UI change.
 
