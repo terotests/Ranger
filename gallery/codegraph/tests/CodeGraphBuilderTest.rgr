@@ -96,6 +96,7 @@ class CodeGraphBuilderTest {
         failed = (failed + (CodeGraphBuilderTest.checkLib("gallery/zip/zip_tool.rgr" "ZipReader" "Inflate")))
         failed = (failed + (CodeGraphBuilderTest.checkLib("gallery/evg/EVGElement.rgr" "EVGElement" "EVGBox")))
         failed = (failed + (CodeGraphBuilderTest.checkDataGrid()))
+        failed = (failed + (CodeGraphBuilderTest.checkPkg()))
         if (failed > 0) {
             print (("failed " + (to_string failed)))
             exit 1
@@ -163,6 +164,54 @@ class CodeGraphBuilderTest {
             }
             if (foundModel == false) {
                 print "  FAIL SheetView.model field missing"
+                n = (n + 1)
+            }
+        }
+        print (("  classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
+        return n
+    }
+
+    ; ranger.json + Import "pkg:util" must keep Greeter (the package) and
+    ; LocalMark (a ./ relative file) on the same graph as PkgApp.
+    sfn checkPkg:int () {
+        print "== tests/fixtures/pkg/app (pkg: + ranger.json)"
+        def n:int 0
+        if (CodeGraphBuilder.isGitUrl("https://github.com/terotests/Ranger.git") == false) {
+            print "  FAIL https Git URL not recognised"
+            n = (n + 1)
+        }
+        if (CodeGraphBuilder.isGitUrl("git@github.com:terotests/Ranger.git") == false) {
+            print "  FAIL git@ URL not recognised"
+            n = (n + 1)
+        }
+        if (CodeGraphBuilder.isGitUrl("tests/fixtures/pkg/app/App.rgr")) {
+            print "  FAIL local path treated as Git URL"
+            n = (n + 1)
+        }
+        def g:CodeGraph (CodeGraphBuilder.fromPath("tests/fixtures/pkg/app"))
+        if ((indexOf g.title " FAIL ") >= 0) {
+            print ("  FAIL " + g.title)
+            return (n + 1)
+        }
+        if ((g.hasClass("PkgApp")) == false) {
+            print "  FAIL PkgApp missing"
+            n = (n + 1)
+        }
+        if ((g.hasClass("Greeter")) == false) {
+            print "  FAIL Greeter missing from pkg:util"
+            n = (n + 1)
+        }
+        if ((g.hasClass("LocalMark")) == false) {
+            print "  FAIL LocalMark missing from ./Local.rgr"
+            n = (n + 1)
+        }
+        def viaJson:CodeGraph (CodeGraphBuilder.fromPath("tests/fixtures/pkg/app/ranger.json"))
+        if ((indexOf viaJson.title " FAIL ") >= 0) {
+            print ("  FAIL ranger.json " + viaJson.title)
+            n = (n + 1)
+        } {
+            if ((viaJson.hasClass("Greeter")) == false) {
+                print "  FAIL ranger.json path missed Greeter"
                 n = (n + 1)
             }
         }

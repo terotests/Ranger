@@ -1189,6 +1189,91 @@ static class RgHash {
 }
 ")
                 )
+                ; Java writes one file per class; utilities land inside that
+                ; class, so a static helper here is visible at the call site.
+                java7 ( "rg_sha256_hex(" (e 1) ")"
+                (create_polyfill "
+static String rg_sha256_hex(String input) {
+  try {
+    byte[] d = java.security.MessageDigest.getInstance(\"SHA-256\").digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < d.length; i++) { sb.append(String.format(\"%02x\", d[i] & 0xff)); }
+    return sb.toString();
+  } catch (java.security.NoSuchAlgorithmException e) {
+    return \"\";
+  }
+}
+")
+                )
+                ; CryptoKit / CommonCrypto are Apple-only; Linux Swift has
+                ; neither, so the digest is spelled out like dart/cpp/rust.
+                swift6 ( "rg_sha256_hex(" (e 1) ")"
+                (create_polyfill "
+func rg_sha256_hex(_ input: String) -> String {
+    let k: [UInt32] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2]
+    var h: [UInt32] = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]
+    var msg = Array(input.utf8)
+    let bitlen = UInt64(msg.count) * 8
+    msg.append(0x80)
+    while msg.count % 64 != 56 { msg.append(0) }
+    var si = 7
+    while si >= 0 {
+        msg.append(UInt8(truncatingIfNeeded: (bitlen >> (UInt64(si) * 8)) & 0xff))
+        si -= 1
+    }
+    var w = [UInt32](repeating: 0, count: 64)
+    var off = 0
+    while off < msg.count {
+        var t = 0
+        while t < 16 {
+            w[t] = (UInt32(msg[off + t * 4]) << 24) | (UInt32(msg[off + t * 4 + 1]) << 16)
+                | (UInt32(msg[off + t * 4 + 2]) << 8) | UInt32(msg[off + t * 4 + 3])
+            t += 1
+        }
+        t = 16
+        while t < 64 {
+            let x = w[t - 15]
+            let y = w[t - 2]
+            let s0 = ((x >> 7) | (x &<< 25)) ^ ((x >> 18) | (x &<< 14)) ^ (x >> 3)
+            let s1 = ((y >> 17) | (y &<< 15)) ^ ((y >> 19) | (y &<< 13)) ^ (y >> 10)
+            w[t] = w[t - 16] &+ s0 &+ w[t - 7] &+ s1
+            t += 1
+        }
+        var a = h[0]; var b = h[1]; var c = h[2]; var d = h[3]
+        var e = h[4]; var f = h[5]; var g = h[6]; var hh = h[7]
+        t = 0
+        while t < 64 {
+            let S1 = ((e >> 6) | (e &<< 26)) ^ ((e >> 11) | (e &<< 21)) ^ ((e >> 25) | (e &<< 7))
+            let ch = (e & f) ^ ((~e) & g)
+            let t1 = hh &+ S1 &+ ch &+ k[t] &+ w[t]
+            let S0 = ((a >> 2) | (a &<< 30)) ^ ((a >> 13) | (a &<< 19)) ^ ((a >> 22) | (a &<< 10))
+            let mj = (a & b) ^ (a & c) ^ (b & c)
+            let t2 = S0 &+ mj
+            hh = g; g = f; f = e; e = d &+ t1; d = c; c = b; b = a; a = t1 &+ t2
+            t += 1
+        }
+        h[0] = h[0] &+ a; h[1] = h[1] &+ b; h[2] = h[2] &+ c; h[3] = h[3] &+ d
+        h[4] = h[4] &+ e; h[5] = h[5] &+ f; h[6] = h[6] &+ g; h[7] = h[7] &+ hh
+        off += 64
+    }
+    var out = \"\"
+    for v in h {
+        var hex = String(v, radix: 16)
+        while hex.count < 8 { hex = \"0\" + hex }
+        out += hex
+    }
+    return out
+}
+")
+                )
             }
         }
 
@@ -4366,6 +4451,7 @@ inline std::string r_double_to_string(double v) {
                 swift6 ( "Int(bitPattern: UInt(bitPattern: " (e 1) ") >> UInt(" (e 2) "))" )
                 kotlin ( "((" (e 1) ") ushr (" (e 2) "))" )
                 csharp ( "(int)((uint)(" (e 1) ") >> (int)(" (e 2) "))" )
+                php ( "((" (e 1) " & 0xFFFFFFFF) >> (" (e 2) "))" )
                 * ( "(" (e 1) " >>> " (e 2) ")" )
             }
         }
@@ -5907,6 +5993,40 @@ static bool r_regex_test_i(string pattern, string s) {
                 swift3 ( "[UInt8](repeating: 0, count: Int(" (e 1) "))" )
                 kotlin ( "ByteArray(" (e 1) ")" )
                 csharp ( "new byte[" (e 1) "]" )
+                php ( "r_buf_alloc(" (e 1) ")"
+                (create_polyfill "
+class r_buf { public $d = ''; }
+function r_buf_alloc($n) {
+    $b = new r_buf();
+    $n = (int)$n;
+    if ($n < 0) { $n = 0; }
+    $b->d = str_repeat(\"\\0\", $n);
+    return $b;
+}
+function r_buf_copy($dest, $dOff, $src, $sOff, $len) {
+    for ($i = 0; $i < $len; $i++) {
+        $dest->d[$dOff + $i] = $src->d[$sOff + $i];
+    }
+}
+function r_buf_from_string($s) {
+    $b = new r_buf();
+    $b->d = $s;
+    return $b;
+}
+function r_buf_read_file($path, $filename) {
+    $b = new r_buf();
+    $p = $path . '/' . $filename;
+    $d = @file_get_contents($p);
+    $b->d = ($d === false) ? '' : $d;
+    return $b;
+}
+function r_buf_slice($buf, $start, $end) {
+    $b = new r_buf();
+    $b->d = substr($buf->d, $start, $end - $start);
+    return $b;
+}
+")
+                )
             }
         }
 
@@ -5925,6 +6045,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 swift6 ( (e 1) ".count" )
                 csharp ( (e 1) ".Length" )
                 kotlin ( (e 1) ".size" )
+                php ( "strlen(" (e 1) "->d)" )
             }
         }
 
@@ -5943,6 +6064,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 swift6 ( "Int(" (e 1) "[Int(" (e 2) ")])" )
                 csharp ( "((int)" (e 1) "[" (e 2) "])" )
                 kotlin ( "(" (e 1) "[" (e 2) "].toInt() and 0xFF)" )
+                php ( "ord(" (e 1) "->d[" (e 2) "])" )
             }
         }
 
@@ -5955,12 +6077,13 @@ static bool r_regex_test_i(string pattern, string s) {
                 go ( (e 1) "[" (e 2) "] = byte(" (e 3) ")" )
                 rust ( (e 1) "[" (idx 2) "] = " (u8v 3) )
                 cpp ( (e 1) "[" (e 2) "] = static_cast<uint8_t>(" (e 3) ")" )
-                java7 ( (e 1) "[(int)" (e 2) "] = (byte)" (e 3) )
+                java7 ( (e 1) "[(int)" (e 2) "] = (byte)(int)(" (e 3) ");" )
                 python ( (e 1) "[" (e 2) "] = " (e 3) )
                 dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                 swift6 ( (e 1) "[Int(" (e 2) ")] = UInt8(" (e 3) ")" )
                 csharp ( (e 1) "[" (e 2) "] = (byte)" (e 3) ";" )
                 kotlin ( (e 1) "[" (e 2) "] = (" (e 3) ").toByte()" )
+                php ( (e 1) "->d[" (e 2) "] = chr(" (e 3) " & 255);" )
             }
         }
 
@@ -5978,6 +6101,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 swift6 ( "Array(" (e 1) ".utf8)" )
                 csharp ( "System.Text.Encoding.UTF8.GetBytes(" (e 1) ")" )
                 kotlin ( (e 1) ".toByteArray(Charsets.UTF_8)" )
+                php ( "r_buf_from_string(" (e 1) ")" )
             }
         }
 
@@ -6007,13 +6131,24 @@ static bool r_regex_test_i(string pattern, string s) {
                 es6 ( "(function(b){ var v = (b instanceof Uint8Array) ? b : new Uint8Array(b); var s = \"\"; var i = 0; var n = v.length; var c = 32768; while (i < n) { var e = i + c; if (e > n) { e = n; } s += String.fromCharCode.apply(null, v.subarray(i, e)); i = e; } return s; })(" (e 1) ")" )
                 go ( "string(" (e 1) ")" )
                 rust ( "String::from_utf8_lossy(&" (e 1) ").to_string()" )
-                cpp ( "std::string(" (e 1) ".begin(), " (e 1) ".end())" )
+                ; Helper takes the vector once. `std::string(expr.begin(),
+                ; expr.end())` evaluates expr twice, so a temporary from
+                ; buffer_read_file is two different vectors and the
+                ; iterators are already dangling.
+                cpp ( "r_buffer_to_string(" (e 1) ")" (imp "<string>") (imp "<vector>") (imp "<cstdint>")
+(create_polyfill "
+std::string r_buffer_to_string(const std::vector<uint8_t>& data) {
+    return std::string(data.begin(), data.end());
+}
+")
+                )
                 java7 ( "new String(" (e 1) ", java.nio.charset.StandardCharsets.UTF_8)" )
                 python ( (e 1) ".decode('utf-8')" )
                 dart ( (imp "dart:convert") "utf8.decode(" (e 1) ")" )
                 swift6 ( "String(bytes: " (e 1) ", encoding: .utf8) ?? \"\"" )
                 csharp ( "System.Text.Encoding.UTF8.GetString(" (e 1) ")" )
                 kotlin ( "String(" (e 1) ", Charsets.UTF_8)" )
+                php ( (e 1) "->d" )
             }
         }
 
@@ -6049,6 +6184,7 @@ std::string r_buffer_to_base64(const std::vector<uint8_t>& data) {
                 swift6 ( "Data(" (e 1) ").base64EncodedString()" (imp "Foundation") )
                 csharp ( "Convert.ToBase64String(" (e 1) ")" )
                 kotlin ( "java.util.Base64.getEncoder().encodeToString(" (e 1) ")" )
+                php ( "base64_encode(" (e 1) "->d)" )
             }
         }
 
@@ -6068,11 +6204,22 @@ void r_buffer_write_file(const std::string& path, const std::string& filename, c
 }
 ")
                 )
-                java7 ( "java.nio.file.Files.write(java.nio.file.Paths.get(" (e 1) " + \"/\" + " (e 2) "), " (e 3) ")" )
+                java7 ( "r_buffer_write_file(" (e 1) ", " (e 2) ", " (e 3) ");"
+                (create_polyfill "
+static void r_buffer_write_file(String path, String filename, byte[] data) {
+  try {
+    java.nio.file.Files.write(java.nio.file.Paths.get(path + \"/\" + filename), data);
+  } catch (Exception e) {
+  }
+}
+")
+                )
                 python ( "open(" (e 1) " + '/' + " (e 2) ", 'wb').write(" (e 3) ")" )
                 swift6 ( "try? Data(" (e 3) ").write(to: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))" (imp "Foundation") )
                 csharp ( "System.IO.File.WriteAllBytes(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ")" )
                 kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").writeBytes(" (e 3) ")" )
+                dart ( (imp "dart:io") "File((" (e 1) ") + \"/\" + (" (e 2) ")).writeAsBytesSync(" (e 3) ")" )
+                php ( "file_put_contents(" (e 1) " . '/' . " (e 2) ", " (e 3) "->d);" )
             }
         }
 
@@ -6092,12 +6239,23 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
 }
 ")
                 )
-                java7 ( "java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(" (e 1) " + \"/\" + " (e 2) "))" )
+                java7 ( "r_buffer_read_file(" (e 1) ", " (e 2) ")"
+                (create_polyfill "
+static byte[] r_buffer_read_file(String path, String filename) {
+  try {
+    return java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path + \"/\" + filename));
+  } catch (Exception e) {
+    return new byte[0];
+  }
+}
+")
+                )
                 python ( "bytearray(open(" (e 1) " + '/' + " (e 2) ", 'rb').read())" )
                 swift6 ( "(try? Data(contentsOf: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))).map { Array($0) } ?? []" (imp "Foundation") )
                 csharp ( "System.IO.File.ReadAllBytes(" (e 1) " + \"/\" + " (e 2) ")" )
                 kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").readBytes()" )
                 dart ( (imp "dart:io") (imp "dart:typed_data") "(() { try { return File((" (e 1) ") + \"/\" + (" (e 2) ")).readAsBytesSync(); } catch (_) { return Uint8List(0); } })()" )
+                php ( "r_buf_read_file(" (e 1) ", " (e 2) ")" )
             }
         }
 
@@ -6110,11 +6268,12 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 go ( "copy(" (e 1) "[" (e 2) ":], " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "])" )
                 rust ( (e 1) "[" (idx 2) "..(" (e 2) "+" (e 5) ") as usize].copy_from_slice(&" (e 3) "[" (idx 4) "..(" (e 4) "+" (e 5) ") as usize])" )
                 cpp ( "std::copy(" (e 3) ".begin()+" (e 4) ", " (e 3) ".begin()+" (e 4) "+" (e 5) ", " (e 1) ".begin()+" (e 2) ")" (imp "<algorithm>") )
-                java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
                 csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
                 kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
+                php ( "r_buf_copy(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ");" )
             }
         }
 
@@ -6128,7 +6287,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 go ( "for i := " (e 3) "; i < " (e 4) "; i++ { " (e 1) "[i] = byte(" (e 2) ") }" )
                 rust ( (e 1) "[" (idx 3) ".." (idx 4) "].fill(" (u8v 2) ")" )
                 cpp ( "std::fill(" (e 1) ".begin()+" (e 3) ", " (e 1) ".begin()+" (e 4) ", static_cast<uint8_t>(" (e 2) "))" (imp "<algorithm>") )
-                java7 ( "java.util.Arrays.fill(" (e 1) ", (int)" (e 3) ", (int)" (e 4) ", (byte)" (e 2) ")" )
+                java7 ( "java.util.Arrays.fill(" (e 1) ", (int)" (e 3) ", (int)" (e 4) ", (byte)" (e 2) ");" )
                 python ( (e 1) "[" (e 3) ":" (e 4) "] = [" (e 2) "] * (" (e 4) " - " (e 3) ")" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 3) ")..<Int(" (e 4) "), with: repeatElement(UInt8(" (e 2) "), count: Int(" (e 4) "-" (e 3) ")))" )
                 csharp ( "Array.Fill(" (e 1) ", (byte)" (e 2) ", (int)" (e 3) ", (int)(" (e 4) "-" (e 3) "))" )
@@ -6150,6 +6309,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 swift6 ( "Array(" (e 1) "[Int(" (e 2) ")..<Int(" (e 3) ")])" )
                 csharp ( (e 1) "[((int)" (e 2) ")..((int)" (e 3) ")]" )
                 kotlin ( (e 1) ".copyOfRange(" (e 2) ", " (e 3) ")" )
+                php ( "r_buf_slice(" (e 1) ", " (e 2) ", " (e 3) ")" )
             }
         }
 
@@ -10707,6 +10867,8 @@ systemclass buffer {
     swift6 "[UInt8]"
     csharp "byte[]"
     kotlin ByteArray
+    dart Uint8List
+    php r_buf
     scala "Array[Byte]"
     llvm i64
 }

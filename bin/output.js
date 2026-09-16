@@ -283,6 +283,183 @@ InputFSFile.fromDictionary = function(dict) {
   }
   return obj;
 };
+class InputFileResolver  {
+  constructor() {
+    this.files = {};
+    this.hostDirs = [];
+  }
+  putFile (name, data) {
+    if ( name.length == 0 ) {
+      return;
+    }
+    this.files[name] = data;
+    const base = this.baseName(name);
+    if ( base != name ) {
+      this.files[base] = data;
+    }
+  };
+  addHostDir (dir) {
+    if ( dir.length == 0 ) {
+      return;
+    }
+    let i = 0;
+    while (i < this.hostDirs.length) {
+      if ( this.hostDirs[i] == dir ) {
+        return;
+      }
+      i = i + 1;
+    };
+    this.hostDirs.push(dir);
+  };
+  knownName (name) {
+    if ( ( typeof(this.files[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.files, name) ) ) {
+      return true;
+    }
+    const base = this.baseName(name);
+    if ( base != name ) {
+      return ( typeof(this.files[base] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.files, base) );
+    }
+    return false;
+  };
+  baseName (path) {
+    const n = path.length;
+    let i = n - 1;
+    while (i >= 0) {
+      if ( path.charCodeAt(i ) == 47 ) {
+        return path.substring((i + 1), n );
+      }
+      i = i - 1;
+    };
+    return path;
+  };
+  exists (path, name) {
+    if ( this.knownName(name) ) {
+      return true;
+    }
+    return this.hostHas(name);
+  };
+  async tryRead (path, name) {
+    if ( ( typeof(this.files[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.files, name) ) ) {
+      return ( Object.prototype.hasOwnProperty.call(this.files, name) ? this.files[name] : undefined );
+    }
+    const base = this.baseName(name);
+    if ( base != name ) {
+      if ( ( typeof(this.files[base] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.files, base) ) ) {
+        return ( Object.prototype.hasOwnProperty.call(this.files, base) ? this.files[base] : undefined );
+      }
+    }
+    const fromHost = await this.hostRead(name);
+    if ( typeof(fromHost) === "undefined" ) {
+      return fromHost;
+    }
+    const data = fromHost;
+    this.putFile(name, data);
+    return fromHost;
+  };
+  hostHas (name) {
+    let i = 0;
+    while (i < this.hostDirs.length) {
+      const dir = this.hostDirs[i];
+      if ( require("fs").existsSync(dir + "/" + name ) ) {
+        return true;
+      }
+      const base = this.baseName(name);
+      if ( base != name ) {
+        if ( require("fs").existsSync(dir + "/" + base ) ) {
+          return true;
+        }
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  async hostRead (name) {
+    let res;
+    let i = 0;
+    while (i < this.hostDirs.length) {
+      const dir = this.hostDirs[i];
+      let t = await (new Promise(resolve => { require('fs').readFile(
+        dir + '/' + name,
+        'utf8',
+        (err,data)=>{ resolve(data) }
+      ) } ));
+      if ( typeof(t) === "undefined" ) {
+        const base = this.baseName(name);
+        if ( base != name ) {
+          t = await (new Promise(resolve => { require('fs').readFile(
+            dir + '/' + base,
+            'utf8',
+            (err,data)=>{ resolve(data) }
+          ) } ));
+        }
+      }
+      if ( typeof(t) === "undefined" ) {
+      } else {
+        return t;
+      }
+      i = i + 1;
+    };
+    return res;
+  };
+  toDictionary () {
+    let res = {};
+    try {
+      let values = {};
+      const keyList = Object.keys(this.files);
+      for ( let index = 0; index < keyList.length; index++) {
+        var keyname = keyList[index];
+        const item = ( Object.prototype.hasOwnProperty.call(this.files, keyname) ? this.files[keyname] : undefined );
+        values[keyname] = item;
+      };
+      res["files"] = values;
+      let values_1 = [];
+      for ( let i = 0; i < this.hostDirs.length; i++) {
+        var item_1 = this.hostDirs[i];
+        values_1.push(item_1);
+      };
+      res["hostDirs"] = values_1;
+    } catch(e) {
+    }
+    return res;
+  };
+}
+InputFileResolver.fromDictionary = function(dict) {
+  const obj = new InputFileResolver();
+  try {
+    const values = (dict["files"] instanceof Object ) ? dict ["files"] : undefined ;
+    if ( (typeof(values) !== "undefined" && values != null )  ) {
+      const theObjfiles = values;
+      const obj_keys = Object.keys(theObjfiles);
+      const key_len = obj_keys.length;
+      let key_i = 0;
+      while (key_i < key_len) {
+        const item = obj_keys[key_i];
+        const v = (typeof (theObjfiles [item]) != "string" ) ? undefined : theObjfiles [item] 
+        ;
+        if ( (typeof(v) !== "undefined" && v != null )  ) {
+          obj.files[item] = v;
+        }
+        key_i = key_i + 1;
+      };
+    }
+    const values_1 = (dict["hostDirs"] instanceof Array ) ? dict ["hostDirs"] : undefined ;
+    if ( (typeof(values_1) !== "undefined" && values_1 != null )  ) {
+      const arr = values_1;
+      const arr_len = arr.length;
+      let arr_i = 0;
+      while (arr_i < arr_len) {
+        const item_1 = arr[arr_i];
+        if( typeof(item_1) === 'string' ) /* union case for string */ {
+          var oo = item_1;
+          obj.hostDirs.push(oo);
+        };
+        arr_i = arr_i + 1;
+      };
+    }
+  } catch(e) {
+  }
+  return obj;
+};
 class InputEnv  {
   constructor() {
     this.use_real = false;
@@ -290,6 +467,9 @@ class InputEnv  {
   }
   setEnv (name, value) {
     this.envVars[name] = value;
+  };
+  setResolver (r) {
+    this.resolver = r;
   };
   toDictionary () {
     let res = {};
@@ -308,6 +488,9 @@ class InputEnv  {
       res["envVars"] = values;
       if ( (typeof(this.commandLine) !== "undefined" && this.commandLine != null )  ) {
         res["commandLine"] = this.commandLine.toDictionary();
+      }
+      if ( (typeof(this.resolver) !== "undefined" && this.resolver != null )  ) {
+        res["resolver"] = this.resolver.toDictionary();
       }
     } catch(e) {
     }
@@ -346,6 +529,11 @@ InputEnv.fromDictionary = function(dict) {
     if ( (typeof(theValue_1) !== "undefined" && theValue_1 != null )  ) {
       const newObj_1 = CmdParams.fromDictionary(theValue_1);
       obj.commandLine = newObj_1;
+    }
+    const theValue_2 = (dict["resolver"] instanceof Object ) ? dict ["resolver"] : undefined ;
+    if ( (typeof(theValue_2) !== "undefined" && theValue_2 != null )  ) {
+      const newObj_2 = InputFileResolver.fromDictionary(theValue_2);
+      obj.resolver = newObj_2;
     }
   } catch(e) {
   }
@@ -5052,10 +5240,31 @@ class CodeNode  {
   isAPrimitiveType () {
     return TTypes.isPrimitive(TTypes.nameToValue(this.array_type));
   };
+  rangerDoubleLiteral (v) {
+    const s = (v.toString());
+    let sci = false;
+    if ( s.indexOf("e") >= 0 ) {
+      sci = true;
+    }
+    if ( s.indexOf("E") >= 0 ) {
+      sci = true;
+    }
+    if ( sci ) {
+      const n = Math.floor( v);
+      if ( n == v ) {
+        return (n.toString()) + ".0";
+      }
+      return s;
+    }
+    if ( s.indexOf(".") < 0 ) {
+      return s + ".0";
+    }
+    return s;
+  };
   writeCode (wr) {
     switch (this.value_type ) { 
       case 2 : 
-        wr.out((this.double_value.toString()), false);
+        wr.out(this.rangerDoubleLiteral(this.double_value), false);
         break;
       case 4 : 
         wr.out((String.fromCharCode(34) + this.string_value) + String.fromCharCode(34), false);
@@ -13731,6 +13940,497 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     };
     return "";
   };
+  class PkgHit  {
+    constructor() {
+      this.ok = false;
+      this.err = "";
+      this.dir = "";
+      this.name = "";
+      this.packageId = "";
+    }
+  }
+  class PkgJVal  {
+    constructor() {
+      this.kind = "null";
+      this.str = "";
+      this.keys = [];
+      this.vals = [];
+    }
+  }
+  class PkgJRead  {
+    constructor() {
+      this.text = "";
+      this.i = 0;
+      this.n = 0;
+      this.ok = true;
+    }
+    parse (src) {
+      this.text = src;
+      this.i = 0;
+      this.n = src.length;
+      this.ok = true;
+      this.skipWs();
+      return this.val();
+    };
+    skipWs () {
+      while (this.i < this.n) {
+        if ( this.text.charCodeAt(this.i ) <= 32 ) {
+          this.i = this.i + 1;
+        } else {
+          return;
+        }
+      };
+    };
+    val () {
+      this.skipWs();
+      const v = new PkgJVal();
+      if ( this.i >= this.n ) {
+        this.ok = false;
+        return v;
+      }
+      const c = this.text.charCodeAt(this.i );
+      if ( c == 123 ) {
+        return this.obj();
+      }
+      if ( c == 34 ) {
+        v.kind = "str";
+        v.str = this.quoted();
+        return v;
+      }
+      if ( c == 116 ) {
+        v.kind = "bool";
+        this.i = this.i + 4;
+        return v;
+      }
+      if ( c == 102 ) {
+        v.kind = "bool";
+        this.i = this.i + 5;
+        return v;
+      }
+      if ( c == 110 ) {
+        this.i = this.i + 4;
+        return v;
+      }
+      v.kind = "int";
+      while (this.i < this.n) {
+        const d = this.text.charCodeAt(this.i );
+        if ( d >= 48 && d <= 57 ) {
+          this.i = this.i + 1;
+        } else {
+          if ( d == 45 ) {
+            this.i = this.i + 1;
+          } else {
+            return v;
+          }
+        }
+      };
+      return v;
+    };
+    obj () {
+      const v = new PkgJVal();
+      v.kind = "obj";
+      this.i = this.i + 1;
+      this.skipWs();
+      while (this.i < this.n) {
+        const c = this.text.charCodeAt(this.i );
+        if ( c == 125 ) {
+          this.i = this.i + 1;
+          return v;
+        }
+        if ( c == 44 ) {
+          this.i = this.i + 1;
+          this.skipWs();
+        } else {
+          const key = this.quoted();
+          this.skipWs();
+          if ( this.i < this.n ) {
+            if ( this.text.charCodeAt(this.i ) == 58 ) {
+              this.i = this.i + 1;
+            }
+          }
+          const child = this.val();
+          v.keys.push(key);
+          v.vals.push(child);
+          this.skipWs();
+        }
+      };
+      this.ok = false;
+      return v;
+    };
+    quoted () {
+      this.skipWs();
+      if ( this.i >= this.n ) {
+        return "";
+      }
+      if ( this.text.charCodeAt(this.i ) != 34 ) {
+        this.ok = false;
+        return "";
+      }
+      this.i = this.i + 1;
+      let s = "";
+      while (this.i < this.n) {
+        const c = this.text.charCodeAt(this.i );
+        if ( c == 34 ) {
+          this.i = this.i + 1;
+          return s;
+        }
+        if ( c == 92 ) {
+          this.i = this.i + 1;
+          if ( this.i < this.n ) {
+            s = s + String.fromCharCode(this.text.charCodeAt(this.i ));
+            this.i = this.i + 1;
+          }
+        } else {
+          s = s + String.fromCharCode(c);
+          this.i = this.i + 1;
+        }
+      };
+      this.ok = false;
+      return s;
+    };
+  }
+  PkgJRead.child = function(obj, key) {
+    let res;
+    let k = 0;
+    while (k < obj.keys.length) {
+      if ( obj.keys[k] == key ) {
+        res = obj.vals[k];
+        return res;
+      }
+      k = k + 1;
+    };
+    return res;
+  };
+  PkgJRead.strOf = function(obj, key) {
+    const hit = PkgJRead.child(obj, key);
+    if ( typeof(hit) === "undefined" ) {
+      return "";
+    }
+    const v = hit;
+    if ( v.kind == "str" ) {
+      return v.str;
+    }
+    return "";
+  };
+  class PkgImport  {
+    constructor() {
+    }
+  }
+  PkgImport.isPkg = function(spec) {
+    if ( spec.length < 4 ) {
+      return false;
+    }
+    return spec.substring(0, 4 ) == "pkg:";
+  };
+  PkgImport.stripDot = function(spec) {
+    if ( spec.length >= 2 ) {
+      if ( spec.substring(0, 2 ) == "./" ) {
+        return spec.substring(2, spec.length );
+      }
+    }
+    return spec;
+  };
+  PkgImport.cacheRoot = function() {
+    const envHit = process.env["RANGER_PKG_CACHE"];
+    if ( (typeof(envHit) !== "undefined" && envHit != null )  ) {
+      const e = envHit;
+      if ( e.length > 0 ) {
+        return e;
+      }
+    }
+    const homeHit = process.env["HOME"];
+    if ( (typeof(homeHit) !== "undefined" && homeHit != null )  ) {
+      const h = homeHit;
+      if ( h.length > 0 ) {
+        return h + "/.cache/ranger/packages";
+      }
+    }
+    return ".ranger-cache/packages";
+  };
+  PkgImport.joinPath = function(a, b) {
+    if ( a.length == 0 ) {
+      return b;
+    }
+    if ( b.length == 0 ) {
+      return a;
+    }
+    const n = a.length;
+    let left = a;
+    if ( a.charCodeAt((n - 1) ) == 47 ) {
+      left = a.substring(0, (n - 1) );
+    }
+    if ( b.charCodeAt(0 ) == 47 ) {
+      return b;
+    }
+    return (left + "/") + b;
+  };
+  PkgImport.foldPath = function(path) {
+    let abs = false;
+    if ( path.length > 0 ) {
+      if ( path.charCodeAt(0 ) == 47 ) {
+        abs = true;
+      }
+    }
+    let parts = [];
+    const n = path.length;
+    let start = 0;
+    let i = 0;
+    while (i <= n) {
+      if ( i == n || path.charCodeAt(i ) == 47 ) {
+        const piece = path.substring(start, i );
+        if ( piece.length == 0 ) {
+        } else {
+          if ( piece == "." ) {
+          } else {
+            if ( piece == ".." ) {
+              if ( parts.length > 0 ) {
+                parts.pop();
+              }
+            } else {
+              parts.push(piece);
+            }
+          }
+        }
+        start = i + 1;
+      }
+      i = i + 1;
+    };
+    let out = "";
+    if ( abs ) {
+      out = "/";
+    }
+    let p = 0;
+    while (p < parts.length) {
+      if ( out.length > 0 ) {
+        if ( out != "/" ) {
+          out = out + "/";
+        }
+      }
+      out = out + parts[p];
+      p = p + 1;
+    };
+    if ( abs ) {
+      if ( out.length == 0 ) {
+        return "/";
+      }
+    }
+    return out;
+  };
+  PkgImport.splitName = function(path) {
+    let dir = ".";
+    let name = path;
+    const n = path.length;
+    let i = n - 1;
+    while (i >= 0) {
+      if ( path.charCodeAt(i ) == 47 ) {
+        dir = path.substring(0, i );
+        name = path.substring((i + 1), n );
+        i = 0 - 1;
+      } else {
+        i = i - 1;
+      }
+    };
+    let parts = [];
+    parts.push(dir);
+    parts.push(name);
+    return parts;
+  };
+  PkgImport.parentDir = function(dir) {
+    const n = dir.length;
+    if ( n <= 1 ) {
+      return "";
+    }
+    let i = n - 1;
+    while (i >= 0) {
+      if ( dir.charCodeAt(i ) == 47 ) {
+        if ( i == 0 ) {
+          return "/";
+        }
+        return dir.substring(0, i );
+      }
+      i = i - 1;
+    };
+    return "";
+  };
+  PkgImport.findManifestDir = function(env, start, paths) {
+    const d = PkgImport.walkUp(env, start);
+    if ( d.length > 0 ) {
+      return d;
+    }
+    let i = 0;
+    while (i < paths.length) {
+      const p = paths[i];
+      const found = PkgImport.walkUp(env, p);
+      if ( found.length > 0 ) {
+        return found;
+      }
+      i = i + 1;
+    };
+    return "";
+  };
+  PkgImport.walkUp = function(env, start) {
+    let dir = start;
+    let guard = 0;
+    while (dir.length > 0) {
+      if ( operatorsOf_8.filec95exists_9(env, dir, "ranger.json") ) {
+        return dir;
+      }
+      const parent = PkgImport.parentDir(dir);
+      if ( parent == dir ) {
+        return "";
+      }
+      dir = parent;
+      guard = guard + 1;
+      if ( guard > 48 ) {
+        return "";
+      }
+    };
+    return "";
+  };
+  PkgImport.readText = async function(env, dir, name) {
+    if ( operatorsOf_8.filec95exists_9(env, dir, name) ) {
+      const c = await operatorsOf_8.readc95file_9(env, dir, name);
+      if ( (typeof(c) !== "undefined" && c != null )  ) {
+        return c;
+      }
+    }
+    return "";
+  };
+  PkgImport.findChar = function(s, code) {
+    const n = s.length;
+    let i = 0;
+    while (i < n) {
+      if ( s.charCodeAt(i ) == code ) {
+        return i;
+      }
+      i = i + 1;
+    };
+    return 0 - 1;
+  };
+  PkgImport.resolve = async function(env, startDir, spec, libraryPaths) {
+    const hit = new PkgHit();
+    if ( PkgImport.isPkg(spec) == false ) {
+      hit.ok = true;
+      hit.name = PkgImport.stripDot(spec);
+      return hit;
+    }
+    const rest = spec.substring(4, spec.length );
+    let pkgName = rest;
+    let sub = "";
+    const slash = PkgImport.findChar(rest, 47);
+    if ( slash >= 0 ) {
+      pkgName = rest.substring(0, slash );
+      sub = rest.substring((slash + 1), rest.length );
+    }
+    const manDir = PkgImport.findManifestDir(env, startDir, libraryPaths);
+    if ( manDir.length == 0 ) {
+      hit.err = "no ranger.json for " + spec;
+      return hit;
+    }
+    const manText = await PkgImport.readText(env, manDir, "ranger.json");
+    const reader = new PkgJRead();
+    const man = reader.parse(manText);
+    if ( reader.ok == false ) {
+      hit.err = ("could not parse " + manDir) + "/ranger.json";
+      return hit;
+    }
+    const rootName = PkgJRead.strOf(man, "name");
+    let pkgRoot = "";
+    let entry = "";
+    if ( pkgName == rootName ) {
+      pkgRoot = manDir;
+      entry = PkgJRead.strOf(man, "entry");
+    } else {
+      const deps = PkgJRead.child(man, "dependencies");
+      if ( typeof(deps) === "undefined" ) {
+        hit.err = ("package " + pkgName) + " is not in ranger.json";
+        return hit;
+      }
+      const depMap = deps;
+      const specObj = PkgJRead.child(depMap, pkgName);
+      if ( typeof(specObj) === "undefined" ) {
+        hit.err = ("package " + pkgName) + " is not a dependency";
+        return hit;
+      }
+      const dep = specObj;
+      const pathDep = PkgJRead.strOf(dep, "path");
+      if ( pathDep.length > 0 ) {
+        pkgRoot = PkgImport.foldPath(PkgImport.joinPath(manDir, pathDep));
+      } else {
+        const vendorDir = PkgImport.joinPath(manDir, ("vendor/ranger/" + pkgName));
+        if ( operatorsOf_8.filec95exists_9(env, vendorDir, "ranger.json") ) {
+          pkgRoot = vendorDir;
+        } else {
+          const lockText = await PkgImport.readText(env, manDir, "ranger.lock");
+          const fromLock = PkgImport.lockRoot(env, lockText, pkgName, manDir);
+          if ( fromLock.length > 0 ) {
+            pkgRoot = fromLock;
+          }
+        }
+      }
+      if ( pkgRoot.length == 0 ) {
+        hit.err = ("package " + pkgName) + " is not on disk; path/vendor/cache it first";
+        return hit;
+      }
+      const childMan = await PkgImport.readText(env, pkgRoot, "ranger.json");
+      if ( childMan.length > 0 ) {
+        const r2 = new PkgJRead();
+        const croot = r2.parse(childMan);
+        if ( r2.ok ) {
+          entry = PkgJRead.strOf(croot, "entry");
+        }
+      }
+    }
+    let logical = sub;
+    if ( logical.length == 0 ) {
+      logical = entry;
+    }
+    if ( logical.length == 0 ) {
+      hit.err = ("package " + pkgName) + " has no entry";
+      return hit;
+    }
+    logical = PkgImport.foldPath(logical);
+    const full = PkgImport.joinPath(pkgRoot, logical);
+    const parts = PkgImport.splitName(full);
+    hit.dir = parts[0];
+    hit.name = parts[1];
+    hit.packageId = pkgName;
+    if ( operatorsOf_8.filec95exists_9(env, hit.dir, hit.name) ) {
+      hit.ok = true;
+      return hit;
+    }
+    hit.err = (("package " + pkgName) + " has no ") + logical;
+    return hit;
+  };
+  PkgImport.lockRoot = function(env, lockText, pkgName, manDir) {
+    if ( lockText.length == 0 ) {
+      return "";
+    }
+    const reader = new PkgJRead();
+    const lock = reader.parse(lockText);
+    if ( reader.ok == false ) {
+      return "";
+    }
+    const pkgs = PkgJRead.child(lock, "packages");
+    if ( typeof(pkgs) === "undefined" ) {
+      return "";
+    }
+    const _map = pkgs;
+    const ent = PkgJRead.child(_map, pkgName);
+    if ( typeof(ent) === "undefined" ) {
+      return "";
+    }
+    const e = ent;
+    const pathDep = PkgJRead.strOf(e, "path");
+    if ( pathDep.length > 0 ) {
+      return PkgImport.foldPath(PkgImport.joinPath(manDir, pathDep));
+    }
+    const hash = PkgJRead.strOf(e, "sha256");
+    if ( hash.length > 0 ) {
+      return PkgImport.joinPath(PkgImport.cacheRoot(), hash);
+    }
+    return "";
+  };
   class ClassJoinPoint  {
     constructor() {
     }
@@ -17607,6 +18307,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       };
     };
+    async prepareImport (ctx, spec) {
+      const hit = new PkgHit();
+      hit.ok = true;
+      hit.name = PkgImport.stripDot(spec);
+      const envOpt = ctx.getEnv();
+      if ( typeof(envOpt) === "undefined" ) {
+        hit.ok = false;
+        hit.err = "Environment not defined";
+        return hit;
+      }
+      if ( PkgImport.isPkg(spec) == false ) {
+        return hit;
+      }
+      const env = envOpt;
+      const rootCtx = ctx.getRoot();
+      let startDir = ".";
+      const lp = rootCtx.libraryPaths.length;
+      if ( lp > 0 ) {
+        startDir = rootCtx.libraryPaths[(lp - 1)];
+      }
+      return await PkgImport.resolve(env, startDir, spec, rootCtx.libraryPaths);
+    };
     async mergeImports (node, ctx, wr) {
       const envOpt = ctx.getEnv();
       if ( typeof(envOpt) === "undefined" ) {
@@ -17644,12 +18366,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const rootCtx = ctx.getRoot();
         let importFileDir = "";
         if ( source_code.length == 0 ) {
-          const filePathIs = TFiles.searchEnv(
-            env,
-            rootCtx.libraryPaths,
-            import_file
-          );
-          if ( operatorsOf_8.filec95exists_9(env, filePathIs, import_file) == false ) {
+          let searchName = PkgImport.stripDot(import_file);
+          let searchPaths = [];
+          if ( PkgImport.isPkg(import_file) ) {
+            const hit = await this.prepareImport(ctx, import_file);
+            if ( hit.ok == false ) {
+              ctx.addError(node, hit.err);
+              return;
+            }
+            searchName = hit.name;
+            if ( hit.dir.length > 0 ) {
+              searchPaths.push(hit.dir);
+            }
+          }
+          let pi = 0;
+          while (pi < rootCtx.libraryPaths.length) {
+            searchPaths.push(rootCtx.libraryPaths[pi]);
+            pi = pi + 1;
+          };
+          const filePathIs = TFiles.searchEnv(env, searchPaths, searchName);
+          if ( operatorsOf_8.filec95exists_9(env, filePathIs, searchName) == false ) {
             if ( ctx.hasCompilerFlag("verbose") ) {
               console.log("import did not find the file: " + import_file);
             }
@@ -17662,10 +18398,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const c = await operatorsOf_8.readc95file_9(
             env,
             filePathIs,
-            import_file
+            searchName
           );
           source_code = c;
-          const fullPath = (filePathIs + "/") + import_file;
+          const fullPath = (filePathIs + "/") + searchName;
           importFileDir = require("path").dirname(fullPath);
           if ( ctx.hasCompilerFlag("verbose") ) {
             console.log("  -> file read OK, importFileDir=" + importFileDir);
@@ -20947,26 +21683,40 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
         const env = envOpt;
         const rootCtx = ctx.getRoot();
-        const filePathIs = TFiles.searchEnv(
-          env,
-          rootCtx.libraryPaths,
-          import_file
-        );
-        if ( operatorsOf_8.filec95exists_9(env, filePathIs, import_file) == false ) {
+        let searchName = PkgImport.stripDot(import_file);
+        let searchPaths = [];
+        if ( PkgImport.isPkg(import_file) ) {
+          const hit = await this.prepareImport(ctx, import_file);
+          if ( hit.ok == false ) {
+            ctx.addError(node, hit.err);
+            return;
+          }
+          searchName = hit.name;
+          if ( hit.dir.length > 0 ) {
+            searchPaths.push(hit.dir);
+          }
+        }
+        let wi = 0;
+        while (wi < rootCtx.libraryPaths.length) {
+          searchPaths.push(rootCtx.libraryPaths[wi]);
+          wi = wi + 1;
+        };
+        const filePathIs = TFiles.searchEnv(env, searchPaths, searchName);
+        if ( operatorsOf_8.filec95exists_9(env, filePathIs, searchName) == false ) {
           ctx.addError(node, "Could not import file " + import_file);
           return;
         }
         const c = await operatorsOf_8.readc95file_9(
           env,
           filePathIs,
-          import_file
+          searchName
         );
         const code = new SourceCode(c);
         code.filename = import_file;
         const parser = new RangerLispParser(code);
         parser.parse(ctx.hasCompilerFlag("no-op-transform"));
         const rnode = parser.rootNode;
-        const fullPath = (filePathIs + "/") + import_file;
+        const fullPath = (filePathIs + "/") + searchName;
         const importFileDir = require("path").dirname(fullPath);
         if ( importFileDir.length > 0 ) {
           rootCtx.libraryPaths.push(importFileDir);
@@ -73867,8 +74617,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             );
                                                             if ( (typeof(f_4) !== "undefined" && f_4 != null )  ) {
                                                               resStr = f_4.data;
+                                                              return resStr;
                                                             }
-                                                            return resStr;
+                                                            if ( typeof(env.resolver) === "undefined" ) {
+                                                              return resStr;
+                                                            }
+                                                            const r = env.resolver;
+                                                            return await r.tryRead(path, name);
                                                           };
                                                           class operatorsOf_8  {
                                                             constructor() {
@@ -73928,8 +74683,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             );
                                                             if ( (typeof(f_5) !== "undefined" && f_5 != null )  ) {
                                                               resStr_1 = f_5.data;
+                                                              return resStr_1;
                                                             }
-                                                            return resStr_1;
+                                                            if ( typeof(env.resolver) === "undefined" ) {
+                                                              return resStr_1;
+                                                            }
+                                                            const r_1 = env.resolver;
+                                                            return await r_1.tryRead(path, name);
                                                           };
                                                           operatorsOf_8.filec95exists_9 = function(env, path, name) {
                                                             if ( env.use_real ) {
@@ -73940,7 +74700,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               path,
                                                               name
                                                             );
-                                                            return (typeof(fo) !== "undefined" && fo != null ) ;
+                                                            if ( (typeof(fo) !== "undefined" && fo != null )  ) {
+                                                              return true;
+                                                            }
+                                                            if ( typeof(env.resolver) === "undefined" ) {
+                                                              return false;
+                                                            }
+                                                            const r_2 = env.resolver;
+                                                            return r_2.exists(path, name);
                                                           };
                                                           operatorsOf_8.installc95directory_51 = function(env) {
                                                             if ( env.use_real ) {

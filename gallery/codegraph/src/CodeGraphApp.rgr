@@ -4,14 +4,16 @@
 ; CodeGraphApp — Full EVG explorer: gallery/ui chrome + RangerFlow canvas.
 ; ============================================================================
 ;
-; The same IR, pager and VirtualCompiler walk the HTML page used. The chrome
-; is EVG, so one display list is what a browser, an SDL2 window and a native
-; host all paint. A Ranger file is analysed through the in-memory filesystem
-; (`InputEnv.use_real = false`) on every platform — the desktop host fills
-; that VFS from the real disk; the tab fills it from packed JSON.
+; The same IR and pager the HTML page uses. The chrome is EVG, so one
+; display list is what a browser, an SDL2 window and a native host all
+; paint. Desktop Open uses CodeGraphBuilder.fromPath (real disk, ranger.json,
+; `pkg:`). In-tab examples still compile through the in-memory filesystem.
 ;
 ;   host event → CodeGraphApp (UiHost chrome | FlowEditor canvas)
 ;   display()  → EVGDisplayList → WebGL / EvgGlPainter
+;
+; Desktop Open uses CodeGraphBuilder.fromPath (real disk, ranger.json, pkg:).
+; In-tab examples still compile through the VFS.
 ; ============================================================================
 
 Import "../../evg/EvgApp.rgr"
@@ -792,19 +794,22 @@ class CodeGraphApp extends EvgApp {
 
     fn openDiskPath:boolean (path:string) {
         this.clearUserFiles()
-        if ((this.ingestDiskTree(path)) == false) {
-            status = ("could not read " + path)
+        def g:CodeGraph (CodeGraphBuilder.fromPath(path))
+        if ((indexOf g.title " FAIL ") >= 0) {
+            status = g.title
             this.refreshChrome()
             return false
         }
-        this.fillMissingUserImports()
-        def name:string (this.fileBaseName(path))
-        if (has userFiles name) {
-            return (this.analyzeSource((this.userFileText(name)) name))
+        if ((g.classCount()) == 0) {
+            status = ("no classes in " + path)
+            this.refreshChrome()
+            return false
         }
-        status = ("could not ingest " + path)
-        this.refreshChrome()
-        return false
+        def name:string (this.fileBaseName(path))
+        if ((strlen name) == 0) {
+            name = path
+        }
+        return (this.applyGraph(g name))
     }
 
     fn hasCompiler:boolean () {

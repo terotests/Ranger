@@ -1,0 +1,11 @@
+; SPDX-License-Identifier: MIT
+
+Import "pkg:util"
+Import "./Local.rgr"
+
+class PkgApp {
+    sfn main:void () {
+        print (Greeter.hello())
+        print (LocalMark.tag())
+    }
+}

@@ -27,6 +27,7 @@ Import "ng_RangerAppOperatorDesc.rgr"
 Import "TFiles.rgr"
 Import "TTypes.rgr"
 Import "TTypeRegistry.rgr"
+Import "PkgImport.rgr"
 
 Import "FlowEnterVarDef.rgr"
 
@@ -4611,6 +4612,29 @@ class RangerFlowParser {
     }
   }
 
+  fn prepareImport:PkgHit (ctx:RangerAppWriterContext spec:string) {
+    def hit (new PkgHit)
+    hit.ok = true
+    hit.name = (PkgImport.stripDot(spec))
+    def envOpt (ctx.getEnv())
+    if (null? envOpt) {
+      hit.ok = false
+      hit.err = "Environment not defined"
+      return hit
+    }
+    if ((PkgImport.isPkg(spec)) == false) {
+      return hit
+    }
+    def env (unwrap envOpt)
+    def rootCtx (ctx.getRoot())
+    def startDir:string "."
+    def lp:int (array_length rootCtx.libraryPaths)
+    if (lp > 0) {
+      startDir = (itemAt rootCtx.libraryPaths (lp - 1))
+    }
+    return (PkgImport.resolve(env startDir spec rootCtx.libraryPaths))
+  }
+
   fn mergeImports:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def envOpt (ctx.getEnv())
@@ -4654,8 +4678,26 @@ class RangerFlowParser {
       def importFileDir:string ""
       
       if( (strlen source_code) == 0 ) {
-        def filePathIs (TFiles.searchEnv( env rootCtx.libraryPaths import_file ))
-        if( ( file_exists env filePathIs import_file ) == false ) {
+        def searchName:string (PkgImport.stripDot(import_file))
+        def searchPaths:[string]
+        if (PkgImport.isPkg(import_file)) {
+          def hit:PkgHit (this.prepareImport(ctx import_file))
+          if (hit.ok == false) {
+            ctx.addError(node hit.err)
+            return
+          }
+          searchName = hit.name
+          if ((strlen hit.dir) > 0) {
+            push searchPaths hit.dir
+          }
+        }
+        def pi:int 0
+        while (pi < (array_length rootCtx.libraryPaths)) {
+          push searchPaths (itemAt rootCtx.libraryPaths pi)
+          pi = (pi + 1)
+        }
+        def filePathIs (TFiles.searchEnv( env searchPaths searchName ))
+        if( ( file_exists env filePathIs searchName ) == false ) {
           if(ctx.hasCompilerFlag("verbose")) {
             print "import did not find the file: " + import_file
           }
@@ -4665,11 +4707,11 @@ class RangerFlowParser {
         if(ctx.hasCompilerFlag("verbose")) {
           print "importing " + import_file + " from " + filePathIs
         }
-        def c:string (read_file env filePathIs import_file)
+        def c:string (read_file env filePathIs searchName)
         source_code = (unwrap c)
         
         ; Extract directory of imported file for recursive imports
-        def fullPath:string (filePathIs + "/" + import_file)
+        def fullPath:string (filePathIs + "/" + searchName)
         importFileDir = (path_dirname fullPath)
         if(ctx.hasCompilerFlag("verbose")) {
           print "  -> file read OK, importFileDir=" + importFileDir
@@ -8285,13 +8327,31 @@ class RangerFlowParser {
       }
       def env (unwrap envOpt)
       def rootCtx (ctx.getRoot())
-      def filePathIs (TFiles.searchEnv( env rootCtx.libraryPaths import_file ))
+      def searchName:string (PkgImport.stripDot(import_file))
+      def searchPaths:[string]
+      if (PkgImport.isPkg(import_file)) {
+        def hit:PkgHit (this.prepareImport(ctx import_file))
+        if (hit.ok == false) {
+          ctx.addError(node hit.err)
+          return
+        }
+        searchName = hit.name
+        if ((strlen hit.dir) > 0) {
+          push searchPaths hit.dir
+        }
+      }
+      def wi:int 0
+      while (wi < (array_length rootCtx.libraryPaths)) {
+        push searchPaths (itemAt rootCtx.libraryPaths wi)
+        wi = (wi + 1)
+      }
+      def filePathIs (TFiles.searchEnv( env searchPaths searchName ))
 
-      if( ( file_exists env filePathIs import_file ) == false ) {
+      if( ( file_exists env filePathIs searchName ) == false ) {
         ctx.addError(node ('Could not import file '  + import_file))
         return
       }
-      def c:string (read_file env filePathIs import_file)
+      def c:string (read_file env filePathIs searchName)
       def code:SourceCode (new SourceCode ( (unwrap c)))
       code.filename = import_file
       def parser:RangerLispParser (new RangerLispParser (code))
@@ -8299,7 +8359,7 @@ class RangerFlowParser {
       def rnode:CodeNode parser.rootNode
       
       ; Add the imported file's directory to library paths for recursive imports
-      def fullPath:string (filePathIs + "/" + import_file)
+      def fullPath:string (filePathIs + "/" + searchName)
       def importFileDir:string (path_dirname fullPath)
       if ((strlen importFileDir) > 0) {
         push rootCtx.libraryPaths importFileDir

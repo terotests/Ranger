@@ -5,7 +5,9 @@
 ; ============================================================================
 ;
 ;   npm run codegraph:analyze -- gallery/codegraph/fixtures/calls.rgr
+;   npm run codegraph:analyze -- tests/fixtures/pkg/app
 ;   npm run codegraph:analyze -- compiler/ng_RangerAppClassDesc.rgr --max=24
+;   npm run codegraph:analyze -- https://github.com/org/repo.git
 ;
 ; A compiler fragment (ng_RangerAppClassDesc.rgr and its siblings) has no
 ; Import of the types it names. VirtualCompiler already loads those classes
@@ -21,7 +23,7 @@ Import "../../rangerflow/export/FlowExport.rgr"
 class CodeGraphCli {
     sfn main:void () {
         if ((shell_arg_cnt) < 1) {
-            print "usage: codegraph_cli <file.rgr> [--max=N] [--filter=substr] [--page=id]"
+            print "usage: codegraph_cli <file.rgr|dir|ranger.json> [--max=N] [--filter=substr] [--page=id]"
             return
         }
         def file:string (shell_arg 0)
@@ -43,45 +45,32 @@ class CodeGraphCli {
             }
             i = (i + 1)
         }
-        def entry:string file
+        def model:CodeGraph (new CodeGraph)
         if (CodeGraphCli.isCompilerFragment(file)) {
             def base:string (CodeGraphCli.baseName(file))
-            entry = "compiler/ng_RangerFlowParser.rgr"
+            def entry:string "compiler/ng_RangerFlowParser.rgr"
             if ((strlen filter) == 0) {
                 filter = base
             }
             print ((file + " is a compiler fragment — types live in sibling files."))
             print (("compiling " + entry) + " and keeping classes from " + filter)
+            model = (CodeGraphBuilder.keepFromFile(entry filter))
+            model.title = file
+        } {
+            print ("analysing " + file)
+            model = (CodeGraphBuilder.fromPath(file))
         }
-        def env:InputEnv (new InputEnv())
-        env.use_real = true
-        env.setEnv("RANGER_LIB" "./compiler/;./lib/;./compiler")
-        def params:CmdParams (new CmdParams())
-        push params.values entry
-        set params.params "l" "es6"
-        set params.params "o" "codegraph_cli_ignored.js"
-        set params.flags "no-color" true
-        env.commandLine = params
-        print ("analysing " + entry)
-        def vc:VirtualCompiler (new VirtualCompiler())
-        def res:CompilerResults (vc.run(env))
-        if res.hasErrors {
-            print ("compilation failed: " + res.errorMessage)
+        if ((indexOf model.title " FAIL ") >= 0) {
+            print ("compilation failed: " + model.title)
             if (CodeGraphCli.isCompilerFragment(file)) {
                 print "a compiler fragment is not a standalone program; this CLI compiles compiler/ng_RangerFlowParser.rgr for those files"
             }
             exit 1
         }
-        def ctx@(optional):RangerAppWriterContext res.ctx
-        if (null? ctx) {
-            print "no compiler context"
+        if ((model.classCount()) == 0) {
+            print ("no classes in " + file)
             exit 1
         }
-        def appCtx:RangerAppWriterContext (unwrap ctx)
-        def b (new CodeGraphBuilder)
-        b.fileFilter = filter
-        def model:CodeGraph (b.fromContext(appCtx))
-        model.title = file
         print (("  classes " + (to_string (model.classCount()))) + ", methods " + (to_string (model.methodCount())))
         def session:CodeGraphSession (CodeGraphSession.of(model maxNodes))
         if (pageId != "overview:0") {

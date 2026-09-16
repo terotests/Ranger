@@ -7,11 +7,10 @@
 ;   SDL event → CodeGraphApp (UiHost chrome | FlowEditor canvas)
 ;   display() → EVGDisplayList → EvgGlPainter → OpenGL
 ;
-; A Ranger file is analysed through the in-memory VirtualCompiler filesystem.
-; The host fills that VFS from the real disk (compiler, lib, gallery css/evg/zip,
-; and the Import closure of the file you open — including `../`). Relative
-; Imports are rewritten to basenames because the in-memory RANGER_LIB does not
-; walk `..`. The same app runs in a tab.
+; A Ranger file is analysed through UAST after VirtualCompiler has walked
+; it. Desktop Open uses the real disk (`CodeGraphBuilder.fromPath`) so
+; ranger.json and `Import "pkg:…"` resolve the same way as `rgrc`. In-tab
+; examples still fill a VFS. The same app runs in a tab.
 ;
 ; Usage (after build.sh):
 ;   ./tmp/codegraph-sdl/codegraph_sdl
@@ -160,28 +159,9 @@ class CodeGraphSdl {
         if ((strlen path) == 0) {
             return false
         }
-        print ("  ingest " + path)
-        app.clearUserFiles()
-        if ((app.ingestDiskTree(path)) == false) {
-            app.status = ("could not read " + path)
-            app.refreshChrome()
-            print ("  " + app.status)
-            return false
-        }
-        def dir:string (this.dirOf(path))
-        def names:[string] (list_dir_files dir)
-        def i:int 0
-        while (i < (array_length names)) {
-            def n:string (itemAt names i)
-            if (this.isRgr(n)) {
-                app.ingestDiskFile(dir n)
-            }
-            i = (i + 1)
-        }
-        app.fillMissingUserImports()
-        def name:string (this.baseOf(path))
-        def ok:boolean (app.analyzeSource((app.userFileText(name)) name))
-        print ("  VFS user files=" + (to_string (app.userFileCount())) + " · " + (app.statusText()))
+        print ("  open " + path)
+        def ok:boolean (app.openDiskPath(path))
+        print ("  " + (app.statusText()))
         return ok
     }
 

@@ -420,11 +420,27 @@ class Inflate {
     }
     
     fn decompress:buffer (data:buffer) {
+        return this.decompressFrom(data 0)
+    }
+
+    ; Inflate a DEFLATE stream that begins at `offset` inside `data` and
+    ; runs until BFINAL. Used by ZIP (offset 0, known length) and by Git
+    ; zlib wrappers (offset after the 2-byte CMF/FLG, unknown length —
+    ; the next object in a pack starts at inputPos after this returns).
+    fn decompressFrom:buffer (data:buffer offset:int) {
         input = data
         def dataLen:int (buffer_length data)
+        def from:int offset
+        if (from < 0) {
+            from = 0
+        }
+        if (from > dataLen) {
+            from = dataLen
+        }
+        def rest:int (dataLen - from)
         ; Deflate typically expands 2-4x; start generous to avoid re-growth.
-        this.resetOutput(dataLen * 4)
-        reader.init(data 0 dataLen)
+        this.resetOutput(rest * 4)
+        reader.init(data from rest)
         
         this.buildFixedTables()
         
@@ -452,6 +468,13 @@ class Inflate {
         }
         
         return (this.finalOutput())
+    }
+
+    ; Absolute byte index in the input after the last DEFLATE bit.
+    ; Unused bits in that last byte have already been skipped: the next
+    ; zlib Adler-32 (or the next Git pack object) starts here.
+    fn inputPos:int () {
+        return reader.getBytePosition()
     }
     
     fn decompressStored:void () {

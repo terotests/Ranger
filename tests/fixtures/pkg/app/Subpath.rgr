@@ -1,0 +1,9 @@
+; SPDX-License-Identifier: MIT
+
+Import "pkg:util/Greeter.rgr"
+
+class SubpathApp {
+    sfn main:void () {
+        print (Greeter.hello())
+    }
+}
