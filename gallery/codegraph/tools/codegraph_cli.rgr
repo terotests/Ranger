@@ -5,6 +5,7 @@
 ; ============================================================================
 ;
 ;   npm run codegraph:analyze -- gallery/codegraph/fixtures/calls.rgr
+;   npm run codegraph:analyze -- gallery/uast/fixtures/cpp
 ;   npm run codegraph:analyze -- tests/fixtures/pkg/app
 ;   npm run codegraph:analyze -- compiler/ng_RangerAppClassDesc.rgr --max=24
 ;   npm run codegraph:analyze -- https://github.com/org/repo.git
@@ -23,7 +24,7 @@ Import "../../rangerflow/export/FlowExport.rgr"
 class CodeGraphCli {
     sfn main:void () {
         if ((shell_arg_cnt) < 1) {
-            print "usage: codegraph_cli <file.rgr|dir|ranger.json> [--max=N] [--filter=substr] [--page=id]"
+            print "usage: codegraph_cli <file.rgr|dir|ranger.json|file.hpp> [--max=N] [--filter=substr] [--page=id]"
             return
         }
         def file:string (shell_arg 0)

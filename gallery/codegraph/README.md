@@ -67,15 +67,23 @@ npm run codegraph:sdl:smoke    # headless dummy video driver
 ```
 
 Open `/codegraph/` and pick **calls.rgr**, **animals.rgr**, **css**, **evg**,
-**zip**, or **Ranger compiler**.
+**zip**, or **cpp**.
 The source is in the left rail; **Analyze with VirtualCompiler** rebuilds the
-graph from it. The compiler sample walks `VirtualCompiler.rgr` and every file
-it Imports — a large class graph, paged, and it takes a moment. `css` / `evg`
-/ `zip` are the same walk over smaller gallery libraries, and they open on
+graph from it. `css` / `evg` / `zip` walk those gallery libraries and open on
 CssSheet / EVGElement / ZipReader so the first drawing is a class page rather
-than a catalogue of every compartment.
+than a catalogue of every compartment. **cpp** is the UAST C++ frontend on
+`gallery/uast/fixtures/cpp/zip_writer.hpp` (desktop Open / Git URL use the
+same `fromAny` path for a real `.hpp` tree).
 
-`?example=animals.rgr` opens the farm; `?example=compiler` walks the compiler;
+The generated SDL C++ already contains VirtualCompiler because Open on a
+`.rgr` file has to compile Ranger — about two fifths of `codegraph_sdl.cpp`
+is that import (language writers included). Putting the compiler itself on
+the EXAMPLE menu does not add those lines; it only asks the in-process
+compiler to analyse `VirtualCompiler.rgr`, which is a huge paged graph.
+Open `compiler/VirtualCompiler.rgr` (or `?example=compiler` on the web page)
+if you actually want that dump.
+
+`?example=animals.rgr` opens the farm;
 `?example=css` / `evg` / `zip` walk those libraries;
 `?sample=shop` skips the compiler and loads the fixture (UML with field links).
 

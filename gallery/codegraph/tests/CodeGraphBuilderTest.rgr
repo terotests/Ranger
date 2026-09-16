@@ -99,6 +99,7 @@ class CodeGraphBuilderTest {
         failed = (failed + (CodeGraphBuilderTest.checkPkg()))
         failed = (failed + (CodeGraphBuilderTest.checkOpenRgrFile()))
         failed = (failed + (CodeGraphBuilderTest.checkOpenTs()))
+        failed = (failed + (CodeGraphBuilderTest.checkOpenCpp()))
         if (failed > 0) {
             print (("failed " + (to_string failed)))
             exit 1
@@ -274,6 +275,40 @@ class CodeGraphBuilderTest {
             n = (n + 1)
         }
         print (("  classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
+        return n
+    }
+
+    sfn checkOpenCpp:int () {
+        print "== fromAny gallery/uast/fixtures/cpp (C++)"
+        def n:int 0
+        def fileG:CodeGraph (CodeGraphBuilder.fromAny("gallery/uast/fixtures/cpp/zip_writer.hpp"))
+        if ((indexOf fileG.title " FAIL ") >= 0) {
+            print ("  FAIL " + fileG.title)
+            return 1
+        }
+        if ((fileG.hasClass("ZipWriter")) == false) {
+            print "  FAIL ZipWriter missing from zip_writer.hpp"
+            n = (n + 1)
+        }
+        if ((fileG.hasClass("CRC32")) == false) {
+            print "  FAIL CRC32 missing from zip_writer.hpp"
+            n = (n + 1)
+        }
+        print (("  file classes " + (to_string (fileG.classCount()))) + ", methods " + (to_string (fileG.methodCount())))
+        def dirG:CodeGraph (CodeGraphBuilder.fromAny("gallery/uast/fixtures/cpp"))
+        if ((indexOf dirG.title " FAIL ") >= 0) {
+            print ("  FAIL dir " + dirG.title)
+            return (n + 1)
+        }
+        if ((dirG.hasClass("ZipWriter")) == false) {
+            print "  FAIL ZipWriter missing from C++ fixtures dir"
+            n = (n + 1)
+        }
+        if ((dirG.hasClass("Child")) == false) {
+            print "  FAIL Child missing from C++ fixtures dir"
+            n = (n + 1)
+        }
+        print (("  dir classes " + (to_string (dirG.classCount()))) + ", methods " + (to_string (dirG.methodCount())))
         return n
     }
 }

@@ -8,15 +8,19 @@
 ; This file compiles a Ranger program (VirtualCompiler still owns `pkg:`
 ; imports via ranger.json / vendor / cache), then projects the UAST
 ; CodeModel into the IR the pager draws. Open a `.rgr` file, a directory
-; with ranger.json, or that manifest itself — imported packages stay on
-; the graph the same way DataGrid → SheetView does.
+; with ranger.json, a C++ header/source (or a tree of them), or that
+; manifest itself — imported packages stay on the graph the same way
+; DataGrid → SheetView does.
 ; ============================================================================
 
 Import "CodeGraphModel.rgr"
+; LiveCompiler pulls every language writer. That is most of the generated
+; C++ in the SDL binary; CodeGraph only needs a parse/walk for `.rgr` Open.
 Import "../../../compiler/VirtualCompiler.rgr"
 Import "../../uast/src/UastRanger.rgr"
 Import "../../uast/src/UastCodeGraph.rgr"
 Import "../../uast/src/UastTs.rgr"
+Import "../../uast/src/UastCpp.rgr"
 
 class CodeGraphBuilder {
     ; When set, only classes whose source path contains this string are kept.
@@ -70,7 +74,9 @@ class CodeGraphBuilder {
     }
 
     ; Hosts (SDL, CLI) use this: Ranger when there is a .rgr / ranger.json,
-    ; otherwise the TypeScript UAST frontend. Git URLs must be cloned first.
+    ; C++ when the path is a .h/.hpp/.cc/.cpp (or a tree of those and no
+    ; TypeScript), otherwise the TypeScript UAST frontend. Git URLs must
+    ; be cloned first.
     sfn fromAny:CodeGraph (path:string) {
         def p:string (CodeGraphBuilder.slashPath(path))
         if (CodeGraphBuilder.isGitUrl(p)) {
@@ -88,15 +94,36 @@ class CodeGraphBuilder {
         if (UastTs.isTsSource(base)) {
             return (CodeGraphBuilder.fromTs(p))
         }
+        if (UastCpp.isCppFile(base)) {
+            return (CodeGraphBuilder.fromCpp(p))
+        }
         def man:string (CodeGraphBuilder.readDisk(p "ranger.json"))
         if ((strlen man) > 0) {
             return (CodeGraphBuilder.fromDir(p))
+        }
+        if (UastCpp.looksLikeCpp(p)) {
+            return (CodeGraphBuilder.fromCpp(p))
         }
         return (CodeGraphBuilder.fromTs(p))
     }
 
     sfn fromTs:CodeGraph (path:string) {
         def model:UastCodeModel (UastTs.fromPath(path))
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        g.title = path
+        if ((strlen model.title) > 0) {
+            g.title = model.title
+        }
+        if ((g.classCount()) == 0) {
+            def empty (new CodeGraph)
+            empty.title = (path + " FAIL no classes")
+            return empty
+        }
+        return g
+    }
+
+    sfn fromCpp:CodeGraph (path:string) {
+        def model:UastCodeModel (UastCpp.fromPath(path))
         def g:CodeGraph (UastToCodeGraph.project(model))
         g.title = path
         if ((strlen model.title) > 0) {
