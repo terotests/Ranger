@@ -46,7 +46,7 @@ by the Pages workflow.
 
 ![the shop fixture as UML, field types drawn as associations](artifacts/codegraph_shop.png)
 
-![ZipWriter class page with the source pane scrolled to `class ZipWriter`](artifacts/codegraph_source_zipwriter.png)
+![EVGElement.setAttribute selected: source pane shows the method body](artifacts/codegraph_source_evgelement_setattr.png)
 
 ## Run
 

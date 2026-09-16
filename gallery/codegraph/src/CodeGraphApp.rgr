@@ -8,7 +8,8 @@
 ; display list is what a browser, an SDL2 window and a native host all
 ; paint. The body is a ResizeCtl group: class rail | UML canvas | source.
 ; Clicking a class, field or method opens that file in ScriptEditor and
-; scrolls to the declaration line.
+; scrolls so the declaration is near the top of the pane — the method
+; body is visible immediately, not one line below the fold.
 ;
 ;   host event → CodeGraphApp (UiHost chrome | FlowEditor | ScriptEditor)
 ;   display()  → EVGDisplayList → WebGL / EvgGlPainter
@@ -68,6 +69,7 @@ class CodeGraphApp extends EvgApp {
     def codeTr:UITextRenderer (new UITextRenderer)
     def sourcePath:string ""
     def lastOpenPath:string ""
+    def sourceJump:boolean false
 
     def sampleName:string "shop"
     def umlOn:boolean false
@@ -1506,6 +1508,16 @@ class CodeGraphApp extends EvgApp {
         return false
     }
 
+    fn openMethod:boolean (id:string) {
+        if ((session.model.hasMethod(id)) == false) {
+            return false
+        }
+        if (session.goTo(session.pages.methodPageId(id))) {
+            return (this.showPage())
+        }
+        return false
+    }
+
     fn goOverview:boolean () {
         def next:string (session.pages.overviewId(0))
         if umlOn {
@@ -1702,6 +1714,25 @@ class CodeGraphApp extends EvgApp {
         }
         def line:int (this.bufferLine(fileName startLine))
         codeView.moveCaret(line 0 false)
+        ; `ensureCaretVisible` pins the caret on the last row, so the
+        ; method body would sit one line below the fold. Jump on the next
+        ; paint, after `setBounds` has the real pane height, with a couple
+        ; of lines of context so the declaration is near the top.
+        sourceJump = true
+    }
+
+    fn applySourceJump:void () {
+        if (sourceJump == false) {
+            return
+        }
+        sourceJump = false
+        codeView.layout.syncMetrics(codeTr)
+        def line:int codeView.sel.caret.line
+        def top:int (line - 2)
+        if (top < 0) {
+            top = 0
+        }
+        codeView.layout.jumpToLine(codeView.buf top)
     }
 
     fn bufferLine:int (fileName:string startLine:int) {
@@ -2252,6 +2283,7 @@ class CodeGraphApp extends EvgApp {
         dl.appendFrom(graphDl)
         dl.addClipEnd()
         codeView.setBounds((to_int sourceX) (to_int sourceY) (to_int sourceW) (to_int sourceH))
+        this.applySourceJump()
         def blink:int (to_int (clockMs / 500.0))
         codeView.paint(dl codeTr blink)
         return dl

@@ -70,6 +70,35 @@ class CodeGraphAppTest {
             print ("  FAIL revealAt caret line " + (to_string app.codeView.sel.caret.line))
             failed = (failed + 1)
         }
+        def deep:string ""
+        def di:int 0
+        while (di < 80) {
+            deep = (deep + (("fn m" + (to_string di)) + ":void () {\n"))
+            deep = (deep + "    return\n")
+            deep = (deep + "}\n")
+            di = (di + 1)
+        }
+        app.setUserFile("Deep.rgr" deep)
+        app.revealAt("Deep.rgr" 90)
+        def jumpDl:EVGDisplayList (app.display())
+        if (app.codeView.sel.caret.line != 90) {
+            print ("  FAIL deep caret line " + (to_string app.codeView.sel.caret.line))
+            failed = (failed + 1)
+        }
+        def firstVis:int (app.codeView.layout.firstVisible())
+        if (firstVis > 90) {
+            print ("  FAIL method line is above the source pane, first=" + (to_string firstVis))
+            failed = (failed + 1)
+        }
+        if (firstVis < 85) {
+            print ("  FAIL method body is not at the top after select, first=" + (to_string firstVis))
+            failed = (failed + 1)
+        }
+        def lastVis:int (app.codeView.layout.lastVisible(app.codeView.buf))
+        if (lastVis <= 90) {
+            print ("  FAIL method body is below the fold, last=" + (to_string lastVis))
+            failed = (failed + 1)
+        }
         if ((app.press("cg-class-filter-text")) == false) {
             print "  FAIL press search placeholder"
             failed = (failed + 1)
