@@ -16,6 +16,7 @@ Import "CodeGraphModel.rgr"
 Import "../../../compiler/VirtualCompiler.rgr"
 Import "../../uast/src/UastRanger.rgr"
 Import "../../uast/src/UastCodeGraph.rgr"
+Import "../../uast/src/UastTs.rgr"
 
 class CodeGraphBuilder {
     ; When set, only classes whose source path contains this string are kept.
@@ -66,6 +67,47 @@ class CodeGraphBuilder {
             return (CodeGraphBuilder.fromFile(p))
         }
         return (CodeGraphBuilder.fromDir(p))
+    }
+
+    ; Hosts (SDL, CLI) use this: Ranger when there is a .rgr / ranger.json,
+    ; otherwise the TypeScript UAST frontend. Git URLs must be cloned first.
+    sfn fromAny:CodeGraph (path:string) {
+        def p:string (CodeGraphBuilder.slashPath(path))
+        if (CodeGraphBuilder.isGitUrl(p)) {
+            def empty (new CodeGraph)
+            empty.title = (p + " FAIL clone a Git URL first")
+            return empty
+        }
+        def base:string (CodeGraphBuilder.fileBaseName(p))
+        if (base == "ranger.json") {
+            return (CodeGraphBuilder.fromDir((CodeGraphBuilder.fileDirName(p))))
+        }
+        if (CodeGraphBuilder.isRgr(base)) {
+            return (CodeGraphBuilder.fromFile(p))
+        }
+        if (UastTs.isTsSource(base)) {
+            return (CodeGraphBuilder.fromTs(p))
+        }
+        def man:string (CodeGraphBuilder.readDisk(p "ranger.json"))
+        if ((strlen man) > 0) {
+            return (CodeGraphBuilder.fromDir(p))
+        }
+        return (CodeGraphBuilder.fromTs(p))
+    }
+
+    sfn fromTs:CodeGraph (path:string) {
+        def model:UastCodeModel (UastTs.fromPath(path))
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        g.title = path
+        if ((strlen model.title) > 0) {
+            g.title = model.title
+        }
+        if ((g.classCount()) == 0) {
+            def empty (new CodeGraph)
+            empty.title = (path + " FAIL no classes")
+            return empty
+        }
+        return g
     }
 
     sfn isRgr:boolean (name:string) {

@@ -91,6 +91,9 @@ canvas.addEventListener("pointerdown", (ev) => {
     graphDrag = false;
     app.press(id);
     if (app.consumeOpenFile()) openEl.click();
+    if (app.consumeOpenGitUrl()) {
+      window.alert("Git URL clone is the desktop SDL / CLI host (codegraph_sdl / npm run codegraph:analyze).");
+    }
   }
   sceneStale = true;
   syncChrome();
@@ -108,6 +111,9 @@ canvas.addEventListener("pointerup", (ev) => {
     app.graphUp(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
     graphDrag = false;
     if (app.consumeOpenFile()) openEl.click();
+    if (app.consumeOpenGitUrl()) {
+      window.alert("Git URL clone is the desktop SDL / CLI host (codegraph_sdl / npm run codegraph:analyze).");
+    }
   }
   sceneStale = true;
   syncChrome();

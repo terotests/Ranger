@@ -98,6 +98,7 @@ class CodeGraphBuilderTest {
         failed = (failed + (CodeGraphBuilderTest.checkDataGrid()))
         failed = (failed + (CodeGraphBuilderTest.checkPkg()))
         failed = (failed + (CodeGraphBuilderTest.checkOpenRgrFile()))
+        failed = (failed + (CodeGraphBuilderTest.checkOpenTs()))
         if (failed > 0) {
             print (("failed " + (to_string failed)))
             exit 1
@@ -250,6 +251,26 @@ class CodeGraphBuilderTest {
         }
         if ((g.hasClass("LineItem")) == false) {
             print "  FAIL LineItem missing from calls.rgr"
+            n = (n + 1)
+        }
+        print (("  classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
+        return n
+    }
+
+    sfn checkOpenTs:int () {
+        print "== fromAny gallery/uast/fixtures (TypeScript)"
+        def n:int 0
+        def g:CodeGraph (CodeGraphBuilder.fromAny("gallery/uast/fixtures"))
+        if ((indexOf g.title " FAIL ") >= 0) {
+            print ("  FAIL " + g.title)
+            return 1
+        }
+        if ((g.hasClass("ZipWriter")) == false) {
+            print "  FAIL ZipWriter missing from TypeScript fixtures"
+            n = (n + 1)
+        }
+        if ((g.hasClass("CRC32")) == false) {
+            print "  FAIL CRC32 missing from TypeScript fixtures"
             n = (n + 1)
         }
         print (("  classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
