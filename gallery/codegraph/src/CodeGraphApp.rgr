@@ -1151,6 +1151,7 @@ class CodeGraphApp extends EvgApp {
         editor.view.showControls = false
         editor.view.showNodeTools = false
         editor.fitView()
+        editor.ensureMinBoxPx(350.0)
         this.framePageFocus()
         status = session.status
         this.refreshChrome()

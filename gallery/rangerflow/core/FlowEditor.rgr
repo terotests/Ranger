@@ -3399,6 +3399,60 @@ class FlowEditor {
         view.viewport.fitRect(r view.width view.height 0.1)
     }
 
+    ; The narrowest real box (skip ports / crumbs). Used so a default zoom
+    ; can keep class titles readable after fitView shrinks a wide UML page.
+    fn narrowestBoxWidth:double () {
+        def minW:double 0.0
+        def i:int 0
+        def n:int (graph.nodeCount())
+        while (i < n) {
+            def node:FlowNode (graph.nodeAt(i))
+            def w:double node.width
+            if (w >= 80.0) {
+                if (minW < 1.0) {
+                    minW = w
+                } {
+                    if (w < minW) {
+                        minW = w
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return minW
+    }
+
+    ; Raise zoom until that box is at least minPx on screen, keeping the
+    ; view centre. Never ask for a box wider than the viewport.
+    fn ensureMinBoxPx:void (minPx:double) {
+        def vw:double view.width
+        if (vw < 1.0) {
+            return
+        }
+        def cap:double (vw - 48.0)
+        if (minPx > cap) {
+            minPx = cap
+        }
+        if (minPx < 8.0) {
+            return
+        }
+        def boxW:double (this.narrowestBoxWidth())
+        if (boxW < 1.0) {
+            return
+        }
+        def z:double view.viewport.zoom
+        if (z < 0.000001) {
+            return
+        }
+        def shown:double (boxW * z)
+        if (shown >= minPx) {
+            return
+        }
+        def want:double (minPx / boxW)
+        def next:double (view.viewport.clampZoom(want))
+        view.viewport.zoomAt((vw * 0.5) (view.height * 0.5) (next / z))
+    }
+
     sfn titleBand:double (n:FlowNode) {
         def titleH:double 28.0
         if (n.headerHeight > 1.0) {
