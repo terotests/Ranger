@@ -238,6 +238,7 @@ class CodeGraphApp extends EvgApp {
         sampleSel.addItem("css" "css — CssCore" false)
         sampleSel.addItem("evg" "evg — EVGElement" false)
         sampleSel.addItem("zip" "zip — ZipReader" false)
+        sampleSel.addItem("cpp" "cpp — ZipWriter" false)
         sampleSel.addItem("compiler" "Ranger compiler" false)
         sampleSel.addItem("shop" "Shop fixture (no compiler)" false)
         sampleSel.addItem("many" "40 classes (paging)" false)
@@ -928,6 +929,9 @@ class CodeGraphApp extends EvgApp {
         }
         if ((name == "css") || (name == "evg") || (name == "zip")) {
             return (this.analyzeGallery(name))
+        }
+        if (name == "cpp") {
+            return (this.openDiskPath("gallery/uast/fixtures/cpp/zip_writer.hpp"))
         }
         if (name == "compiler") {
             return (this.analyzeCompiler())

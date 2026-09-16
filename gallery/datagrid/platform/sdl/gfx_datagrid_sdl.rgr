@@ -503,12 +503,14 @@ static std::string dgfx_pick_open_any(const std::string& title) {
         return dgfx_run_capture(std::string(\"zenity --file-selection --title=\")
             + dgfx_shell_quote(title)
             + \" --file-filter=\" + dgfx_shell_quote(\"Ranger | *.rgr\")
+            + \" --file-filter=\" + dgfx_shell_quote(\"C++ | *.h *.hpp *.hh *.cc *.cpp *.cxx\")
+            + \" --file-filter=\" + dgfx_shell_quote(\"TypeScript | *.ts *.tsx\")
             + \" --file-filter=\" + dgfx_shell_quote(\"All files | *\")
             + \" 2>/dev/null\");
     }
     if (dgfx_have(\"kdialog\")) {
         return dgfx_run_capture(std::string(\"kdialog --getopenfilename . \")
-            + dgfx_shell_quote(\"*.rgr|Ranger\")
+            + dgfx_shell_quote(\"*.rgr *.h *.hpp *.hh *.cc *.cpp *.cxx *.ts *.tsx|Ranger C++ TypeScript\")
             + \" --title \" + dgfx_shell_quote(title) + \" 2>/dev/null\");
     }
     return std::string();

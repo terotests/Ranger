@@ -8,13 +8,14 @@
 ;   display() → EVGDisplayList → EvgGlPainter → OpenGL
 ;
 ; A Ranger file is analysed through UAST after VirtualCompiler has walked
-; it. Desktop Open uses the real disk (`CodeGraphBuilder.fromPath`) so
-; ranger.json and `Import "pkg:…"` resolve the same way as `rgrc`. In-tab
-; examples still fill a VFS. The same app runs in a tab.
+; it. C++ / TypeScript trees go through UastCpp / UastTs. Desktop Open uses
+; the real disk (`CodeGraphBuilder.fromAny`) so ranger.json, `Import "pkg:…"`,
+; and a folder of .hpp/.cpp files all work. In-tab examples still fill a VFS.
 ;
 ; Usage (after build.sh):
 ;   ./tmp/codegraph-sdl/codegraph_sdl
 ;   ./tmp/codegraph-sdl/codegraph_sdl gallery/codegraph/fixtures/calls.rgr
+;   ./tmp/codegraph-sdl/codegraph_sdl gallery/uast/fixtures/cpp/zip_writer.hpp
 ;   ./tmp/codegraph-sdl/codegraph_sdl https://github.com/org/repo.git
 ;   SDL_VIDEODRIVER=dummy ./tmp/codegraph-sdl/codegraph_sdl --frames 20
 ; ============================================================================
@@ -180,7 +181,7 @@ class CodeGraphSdl {
     }
 
     fn pickAndOpen:void () {
-        def path:string (dgfx_pick_open_any "Open a Ranger or TypeScript file")
+        def path:string (dgfx_pick_open_any "Open a Ranger, C++, or TypeScript file")
         if ((strlen path) == 0) {
             return
         }

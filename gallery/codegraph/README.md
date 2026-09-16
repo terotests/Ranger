@@ -67,13 +67,15 @@ npm run codegraph:sdl:smoke    # headless dummy video driver
 ```
 
 Open `/codegraph/` and pick **calls.rgr**, **animals.rgr**, **css**, **evg**,
-**zip**, or **Ranger compiler**.
+**zip**, **cpp**, or **Ranger compiler**.
 The source is in the left rail; **Analyze with VirtualCompiler** rebuilds the
 graph from it. The compiler sample walks `VirtualCompiler.rgr` and every file
 it Imports — a large class graph, paged, and it takes a moment. `css` / `evg`
 / `zip` are the same walk over smaller gallery libraries, and they open on
 CssSheet / EVGElement / ZipReader so the first drawing is a class page rather
-than a catalogue of every compartment.
+than a catalogue of every compartment. **cpp** is the UAST C++ frontend on
+`gallery/uast/fixtures/cpp/zip_writer.hpp` (desktop Open / Git URL use the
+same `fromAny` path for a real `.hpp` tree).
 
 `?example=animals.rgr` opens the farm; `?example=compiler` walks the compiler;
 `?example=css` / `evg` / `zip` walk those libraries;
