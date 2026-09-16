@@ -646,6 +646,7 @@ M7 is started: `UastTs.fromDir` walks a TypeScript tree (skips
 existing CodeGraph IR. No CodeGraphBuilder or UI change. Tried on
 sindresorhus/p-queue in `/tmp` (not vendored): `PQueue` / `PriorityQueue`
 classes, type aliases, `.js`→`.ts` workspace imports, exact internal
+calls. Missing npm packages stay diagnostics.
 M8 is started: `.tsx` files enable `ts_parser` TSX mode. PascalCase
 function / `const` arrow / class `render` components are declarations;
 `<Card />` lowers to a Call (host tags like `div` stay markup). Shared
