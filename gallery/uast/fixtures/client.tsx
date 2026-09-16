@@ -13,6 +13,13 @@ type Obj = {
 };
 type Click = (event: React.MouseEvent<HTMLButtonElement, MouseEvent>) => void;
 
+function box<T>(value: T): T {
+  return value;
+}
+
+const boxed = box<{ x: number; y: string } | null>(null);
+const identity = <T>(value: T) => value;
+
 export function ClientBanner() {
   return <div className={cn('ok')} />;
 }

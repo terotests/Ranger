@@ -7146,6 +7146,14 @@ class TSParserSimple {
       return objLit
     }
     
+    ; Generic arrow: <T>(x: T) => body. Checked before JSX so `<T>(x) =>` is
+    ; not read as a component tag in TSX.
+    if (tokVal == "<") {
+      if (this.looksLikeGenericArrow()) {
+        return (this.parseArrowFunction())
+      }
+    }
+
     ; JSX element in TSX mode
     if ((this.tsxMode == true) && (tokVal == "<")) {
       ; Check if this looks like JSX (not a comparison)
@@ -7975,12 +7983,17 @@ class TSParserSimple {
     if (this.matchValue("async")) {
       this.advance()
       node.kind = "async"
-      ; The FLAG as well as the kind string. The evaluator asks `node.async`,
-      ; the way it does of every other function form, and an async arrow that
-      ; only set `kind` looked synchronous to it.
       node.async = true
     }
-    
+
+    ; Generic type parameters: <T>(x: T) => x
+    if (this.matchValue("<")) {
+      def typeParams (this.parseTypeParams())
+      for typeParams tp:TSNode i {
+        push node.children tp
+      }
+    }
+
     ; An arrow's parameters and its body share one scope.
     this.pushScope(true)
     ; An arrow inherits `super` lexically but is still a break/continue boundary.
@@ -8260,7 +8273,7 @@ class TSParserSimple {
   fn looksLikeGenericCall:boolean () {
     def depth 1
     def offset 1
-    def maxLookahead 20
+    def maxLookahead 80
     
     while ((depth > 0) && (offset < maxLookahead)) {
       def ahead (this.peekAheadValue(offset))
@@ -8273,10 +8286,10 @@ class TSParserSimple {
       if (ahead == ">") {
         depth = (depth - 1)
       }
-      ; If we see things that can't appear in type arguments, bail
-      if ((ahead == "{") || (ahead == "}") || (ahead == ";") || (ahead == "=>")) {
-        return false
-      }
+      ; If we see things that can't appear in type arguments, bail.
+      ; `{` / `;` / `=>` ARE legal there (`useRef<{ x: number; y: string }>`,
+      ; `useState<() => void>`), so they must not reject the generic call;
+      ; that is how those were read as object literals and failed on `;`.
       offset = (offset + 1)
     }
     
@@ -8286,6 +8299,73 @@ class TSParserSimple {
       def afterClose (this.peekAheadValue(offset))
       if (afterClose == "(") {
         return true
+      }
+    }
+    return false
+  }
+
+  ; `<T>(x: T) =>` or `<T>(x): R =>`. Distinguishes a generic arrow from JSX
+  ; `<T>(child)`: after the matching paren the arrow still needs `=>`.
+  fn looksLikeGenericArrow:boolean () {
+    if ((this.peekValue()) != "<") {
+      return false
+    }
+    def depth 1
+    def offset 1
+    def maxLookahead 80
+    while ((depth > 0) && (offset < maxLookahead)) {
+      def ahead (this.peekAheadValue(offset))
+      if (ahead == "") {
+        return false
+      }
+      if (ahead == "<") {
+        depth = (depth + 1)
+      }
+      if (ahead == ">") {
+        depth = (depth - 1)
+      }
+      offset = (offset + 1)
+    }
+    if (depth != 0) {
+      return false
+    }
+    if ((this.peekAheadValue(offset)) != "(") {
+      return false
+    }
+    def pdepth 1
+    offset = (offset + 1)
+    def pmax 160
+    while ((pdepth > 0) && (offset < pmax)) {
+      def v (this.peekAheadValue(offset))
+      if (v == "") {
+        return false
+      }
+      if (v == "(") {
+        pdepth = (pdepth + 1)
+      }
+      if (v == ")") {
+        pdepth = (pdepth - 1)
+      }
+      offset = (offset + 1)
+    }
+    if (pdepth != 0) {
+      return false
+    }
+    def next (this.peekAheadValue(offset))
+    if (next == "=>") {
+      return true
+    }
+    if (next == ":") {
+      def k 1
+      while (k < 80) {
+        def nv (this.peekAheadValue((offset + k)))
+        if (nv == "=>") {
+          return true
+        }
+        if (nv == "") {
+          return false
+        }
+        k = (k + 1)
       }
     }
     return false
