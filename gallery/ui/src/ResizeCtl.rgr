@@ -77,6 +77,10 @@ class ResizeCtl extends UiCtl {
     ; stop — there is no roving one — so this is only used by F6 and by the
     ; key handler to know which separator it was given.
     def sepFocus:int (0 - 1)
+    ; `resizeBy` rebuilds the tree by default. A host that mounts its own
+    ; widgets inside the panel bodies turns this off and updates flex itself,
+    ; otherwise every drag would throw those children away.
+    def rebuildOnResize:boolean true
 
     Constructor () {
         rootEl = (EVGElement.createDiv())
@@ -236,7 +240,9 @@ class ResizeCtl extends UiCtl {
                 j = (j + 1)
             }
         }
-        this.build()
+        if rebuildOnResize {
+            this.build()
+        }
     }
 
     ; `aria-valuenow`: the size of the panel BEFORE the separator.

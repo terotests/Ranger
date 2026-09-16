@@ -204,6 +204,8 @@ class UastSemantic {
         def s:UastSymbol (UastSymbol.create(id node.name kind node.language))
         s.declarationNode = node.id
         s.fileName = node.span.fileId
+        s.startLine = node.span.startLine
+        s.startColumn = node.span.startColumn
         s.comment = node.comment
         s.isLibrary = (UastSemantic.libraryPath(s.fileName))
         if (node.mentionsFlag("library")) {
@@ -222,6 +224,8 @@ class UastSemantic {
         def s:UastSymbol (UastSymbol.create(id nm (UastSymKind.functionSym()) node.language))
         s.declarationNode = node.id
         s.fileName = node.span.fileId
+        s.startLine = node.span.startLine
+        s.startColumn = node.span.startColumn
         s.comment = node.comment
         s.isLibrary = (UastSemantic.libraryPath(s.fileName))
         if (node.mentionsFlag("library")) {
@@ -284,6 +288,8 @@ class UastSemantic {
         s.declarationNode = node.id
         s.parentSymbol = ownerId
         s.fileName = node.span.fileId
+        s.startLine = node.span.startLine
+        s.startColumn = node.span.startColumn
         s.comment = node.comment
         s.isStatic = (node.mentionsFlag("static"))
         s.isLibrary = (UastSemantic.libraryPath(s.fileName))
@@ -346,6 +352,8 @@ class UastSemantic {
         s.declarationNode = node.id
         s.parentSymbol = ownerId
         s.fileName = node.span.fileId
+        s.startLine = node.span.startLine
+        s.startColumn = node.span.startColumn
         s.comment = node.comment
         def typeId:string (node.childIdFor((UastChildRole.typeRole())))
         if ((strlen typeId) > 0) {
@@ -484,6 +492,8 @@ class UastSemantic {
                 def s:UastSymbol (UastSymbol.create(id node.name (UastSymKind.variable()) node.language))
                 s.declarationNode = node.id
                 s.fileName = node.span.fileId
+                s.startLine = node.span.startLine
+                s.startColumn = node.span.startColumn
                 def typeId:string (node.childIdFor((UastChildRole.typeRole())))
                 if ((strlen typeId) > 0) {
                     if (m.mentionsNode(typeId)) {

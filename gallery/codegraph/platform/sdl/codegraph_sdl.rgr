@@ -42,7 +42,6 @@ class CodeGraphSdl {
     def hasWindow:boolean false
     def wantQuit:boolean false
     def prevDown:boolean false
-    def graphDrag:boolean false
     def prevX:int 0
     def prevY:int 0
     def lastMs:double 0.0
@@ -203,6 +202,7 @@ class CodeGraphSdl {
             return false
         }
         app.start((to_double pw) (to_double ph) css)
+        app.codeTr = tr
         this.loadVfs()
         if ((strlen openPathArg) > 0) {
             this.openRangerPath(openPathArg)
@@ -262,36 +262,24 @@ class CodeGraphSdl {
         def py:double (to_double my)
         if down {
             if (prevDown == false) {
-                def id:string (app.hitId(px py))
-                if (id == "cg-canvas") {
-                    graphDrag = true
-                    app.graphDown(px py shift ctrl)
-                } {
-                    graphDrag = false
-                    app.press(id)
-                    if (app.consumeOpenFile()) {
-                        this.pickAndOpen()
-                    }
-                    if (app.consumeOpenGitUrl()) {
-                        this.pickGitUrl()
-                    }
+                app.pointerDown(px py shift ctrl)
+                if (app.consumeOpenFile()) {
+                    this.pickAndOpen()
+                }
+                if (app.consumeOpenGitUrl()) {
+                    this.pickGitUrl()
                 }
             } {
-                if graphDrag {
-                    app.graphMove(px py shift ctrl)
-                }
+                app.pointerMove(px py shift ctrl)
             }
         } {
             if prevDown {
-                if graphDrag {
-                    app.graphUp(px py shift ctrl)
-                    graphDrag = false
-                    if (app.consumeOpenFile()) {
-                        this.pickAndOpen()
-                    }
-                    if (app.consumeOpenGitUrl()) {
-                        this.pickGitUrl()
-                    }
+                app.pointerUp(px py shift ctrl)
+                if (app.consumeOpenFile()) {
+                    this.pickAndOpen()
+                }
+                if (app.consumeOpenGitUrl()) {
+                    this.pickGitUrl()
                 }
             }
         }

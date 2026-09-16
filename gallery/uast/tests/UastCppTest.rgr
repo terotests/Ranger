@@ -30,6 +30,10 @@ class UastCppChecker {
         this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
     }
 
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
     fn report:int () {
         print ""
         print (("passed " + (to_string passed)) + ", failed " + (to_string failed))
@@ -108,8 +112,16 @@ class UastCppTest {
         }
         c.ok("ZipWriter usesType CRC32" foundUse)
         c.ok("addFile calls CRC32.update" foundCall)
+        def zipSym:UastSymbol (model.symbolById("class:ZipWriter"))
+        c.eqInt("ZipWriter startLine" zipSym.startLine 16)
+        def addSym:UastSymbol (model.symbolById("method:ZipWriter.addFile"))
+        c.eqInt("addFile startLine" addSym.startLine 23)
         def g:CodeGraph (UastToCodeGraph.project(model))
         c.ok("projected ZipWriter" ((g.classCount()) >= 4))
+        if (g.hasClass("ZipWriter")) {
+            def zwc:CodeClass (g.classByName("ZipWriter"))
+            c.eqInt("projected ZipWriter startLine" zwc.startLine 16)
+        }
     }
 
     sfn testShapes:void (c:UastCppChecker) {

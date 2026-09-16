@@ -50,7 +50,6 @@ function engineClass() {
 const app = new (engineClass())();
 let dpr = Math.min(window.devicePixelRatio || 1, 2);
 let cssText = "";
-let graphDrag = false;
 let sceneStale = true;
 let frame = null;
 let analyzing = false;
@@ -83,37 +82,25 @@ function at(ev) {
 canvas.addEventListener("pointerdown", (ev) => {
   canvas.setPointerCapture(ev.pointerId);
   const [x, y] = at(ev);
-  const id = app.hitId(x, y);
-  if (id === "cg-canvas") {
-    graphDrag = true;
-    app.graphDown(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
-  } else {
-    graphDrag = false;
-    app.press(id);
-    if (app.consumeOpenFile()) openEl.click();
-    if (app.consumeOpenGitUrl()) {
-      window.alert("Git URL clone is the desktop SDL / CLI host (codegraph_sdl / npm run codegraph:analyze).");
-    }
+  app.pointerDown(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
+  if (app.consumeOpenFile()) openEl.click();
+  if (app.consumeOpenGitUrl()) {
+    window.alert("Git URL clone is the desktop SDL / CLI host (codegraph_sdl / npm run codegraph:analyze).");
   }
   sceneStale = true;
   syncChrome();
 });
 canvas.addEventListener("pointermove", (ev) => {
   const [x, y] = at(ev);
-  if (graphDrag) {
-    app.graphMove(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
-    sceneStale = true;
-  }
+  app.pointerMove(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
+  sceneStale = true;
 });
 canvas.addEventListener("pointerup", (ev) => {
   const [x, y] = at(ev);
-  if (graphDrag) {
-    app.graphUp(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
-    graphDrag = false;
-    if (app.consumeOpenFile()) openEl.click();
-    if (app.consumeOpenGitUrl()) {
-      window.alert("Git URL clone is the desktop SDL / CLI host (codegraph_sdl / npm run codegraph:analyze).");
-    }
+  app.pointerUp(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
+  if (app.consumeOpenFile()) openEl.click();
+  if (app.consumeOpenGitUrl()) {
+    window.alert("Git URL clone is the desktop SDL / CLI host (codegraph_sdl / npm run codegraph:analyze).");
   }
   sceneStale = true;
   syncChrome();
@@ -134,6 +121,16 @@ window.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") {
     app.keyWith("Escape", ev.shiftKey, ctrl);
     sceneStale = true;
+    return;
+  }
+  const focus = app.focusedField() || "";
+  const onSep = String(focus).indexOf("cg-split-sep") === 0;
+  if (onSep) {
+    if (ev.key === "ArrowLeft" || ev.key === "ArrowRight" || ev.key === "Home" || ev.key === "End") {
+      app.keyWith(ev.key, ev.shiftKey, ctrl);
+      ev.preventDefault();
+      sceneStale = true;
+    }
     return;
   }
   if (app.focusedField() !== "cg-class-filter") return;

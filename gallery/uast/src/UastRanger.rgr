@@ -231,6 +231,14 @@ class UastRanger {
     }
 
     fn spanOfClass:UastSpan (cl:RangerAppClassDesc) {
+        if (null? cl.classNode) {
+        } {
+            return (this.spanOfNode((unwrap cl.classNode)))
+        }
+        if (null? cl.node) {
+        } {
+            return (this.spanOfNode((unwrap cl.node)))
+        }
         if (null? cl.nameNode) {
             return (new UastSpan)
         }
@@ -253,12 +261,22 @@ class UastRanger {
 
     fn spanOfNode:UastSpan (nn:CodeNode) {
         def file:string ""
+        def line:int nn.row
+        def col:int nn.col
         if (null? nn.code) {
             file = ""
         } {
+            def src:SourceCode (unwrap nn.code)
             file = (nn.getFilename())
+            if ((strlen file) == 0) {
+                file = src.filename
+            }
+            def fromSp:int (src.getLine(nn.sp))
+            if (fromSp >= 0) {
+                line = fromSp
+            }
         }
-        return (UastSpan.ofBytes(file nn.sp nn.ep nn.row nn.col))
+        return (UastSpan.ofBytes(file nn.sp nn.ep line col))
     }
 
     fn typeOfParam:string (p:RangerAppParamDesc) {
