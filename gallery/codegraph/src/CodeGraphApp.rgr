@@ -50,6 +50,7 @@ class CodeGraphApp extends EvgApp {
     def status:string ""
     def chromeReady:boolean false
     def wantOpenFile:boolean false
+    def wantOpenGitUrl:boolean false
     def lastClickMs:double 0.0
     def lastClickX:double 0.0
     def lastClickY:double 0.0
@@ -203,6 +204,7 @@ class CodeGraphApp extends EvgApp {
         bar.tid = "cg-bar"
         bar.name = "explorer"
         bar.addItem("open" "Open" false)
+        bar.addItem("giturl" "Git URL" false)
         bar.addItem("back" "←" true)
         bar.addItem("fwd" "→" true)
         bar.addItem("overview" "overview" false)
@@ -794,7 +796,7 @@ class CodeGraphApp extends EvgApp {
 
     fn openDiskPath:boolean (path:string) {
         this.clearUserFiles()
-        def g:CodeGraph (CodeGraphBuilder.fromPath(path))
+        def g:CodeGraph (CodeGraphBuilder.fromAny(path))
         if ((indexOf g.title " FAIL ") >= 0) {
             status = g.title
             this.refreshChrome()
@@ -1149,6 +1151,9 @@ class CodeGraphApp extends EvgApp {
         editor.view.showControls = false
         editor.view.showNodeTools = false
         editor.fitView()
+        if ((indexOf session.pageId "uml:") == 0) {
+            editor.ensureMinZoom(1.0)
+        }
         this.framePageFocus()
         status = session.status
         this.refreshChrome()
@@ -1637,6 +1642,10 @@ class CodeGraphApp extends EvgApp {
             wantOpenFile = true
             return
         }
+        if (op == "giturl") {
+            wantOpenGitUrl = true
+            return
+        }
         if (op == "back") {
             this.goBack()
             return
@@ -1667,6 +1676,14 @@ class CodeGraphApp extends EvgApp {
     fn consumeOpenFile:boolean () {
         if wantOpenFile {
             wantOpenFile = false
+            return true
+        }
+        return false
+    }
+
+    fn consumeOpenGitUrl:boolean () {
+        if wantOpenGitUrl {
+            wantOpenGitUrl = false
             return true
         }
         return false

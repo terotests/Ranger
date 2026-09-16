@@ -40,6 +40,15 @@ class CodeGraphAppTest {
             print ("  FAIL canvas width " + (to_string app.canvasW))
             failed = (failed + 1)
         }
+        if (app.graph.hasNode("Order")) {
+            if (app.editor.view.viewport.zoom < 0.99) {
+                print ("  FAIL UML zoom is " + (to_string app.editor.view.viewport.zoom))
+                failed = (failed + 1)
+            }
+        } {
+            print "  FAIL shop UML has no Order"
+            failed = (failed + 1)
+        }
         def hit:string (app.hitId(20.0 20.0))
         if ((strlen hit) == 0) {
             print "  FAIL header hit test empty"

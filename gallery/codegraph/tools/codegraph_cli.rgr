@@ -58,7 +58,7 @@ class CodeGraphCli {
             model.title = file
         } {
             print ("analysing " + file)
-            model = (CodeGraphBuilder.fromPath(file))
+            model = (CodeGraphBuilder.fromAny(file))
         }
         if ((indexOf model.title " FAIL ") >= 0) {
             print ("compilation failed: " + model.title)

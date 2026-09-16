@@ -8,11 +8,13 @@ compiled **in the tab** by VirtualCompiler — the same compiler the playground
 uses — then walked into the IR through UAST. Shop / 40-class fixtures stay as a
 no-compiler fallback. On the desktop, **Open** picks a `.rgr`, a directory with
 `ranger.json`, or that manifest; `Import "pkg:…"` resolves the same way `rgrc`
-does (path / vendor / cache). A Git HTTPS URL can be cloned first:
+does (path / vendor / cache). Desktop **Git URL** clones with `gallery/pkg`
+then analyses Ranger or TypeScript. CLI:
 
 ```bash
 npm run codegraph:analyze -- tests/fixtures/pkg/app
 npm run codegraph:analyze -- https://github.com/org/repo.git
+./tmp/codegraph-sdl/codegraph_sdl https://github.com/org/repo.git
 ```
 
 A thousand-node dump does not fit on a chart and is slow to lay out. Twenty

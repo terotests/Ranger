@@ -24,7 +24,7 @@ operators {
             cpp ( "(dgfx_should_close() != 0)"
                   (imp "<SDL2/SDL.h>") (imp "<cstdint>") (imp "<string>")
                   (imp "<cstdio>") (imp "<cstdlib>") (imp "<cstring>")
-                  (imp "<vector>")
+                  (imp "<unistd.h>") (imp "<vector>")
 (polyfill "after_imports" "
 #if defined(__APPLE__)
 #include <OpenGL/gl3.h>
@@ -507,6 +507,47 @@ static std::string dgfx_pick_open_any(const std::string& title) {
 #endif
 }
 
+static std::string dgfx_prompt_text(const std::string& title, const std::string& message) {
+#if defined(__APPLE__)
+    std::string script = std::string(\"text returned of (display dialog \")
+        + dgfx_as_string(message)
+        + \" default answer \" + dgfx_as_string(\"https://\")
+        + \" with title \" + dgfx_as_string(title) + \")\";
+    return dgfx_run_capture(\"osascript -e \" + dgfx_shell_quote(script) + \" 2>/dev/null\");
+#else
+    if (dgfx_have(\"zenity\")) {
+        return dgfx_run_capture(std::string(\"zenity --entry --title=\")
+            + dgfx_shell_quote(title)
+            + \" --text=\" + dgfx_shell_quote(message)
+            + \" --entry-text=https:// 2>/dev/null\");
+    }
+    if (dgfx_have(\"kdialog\")) {
+        return dgfx_run_capture(std::string(\"kdialog --title \")
+            + dgfx_shell_quote(title)
+            + \" --inputbox \" + dgfx_shell_quote(message)
+            + \" https:// 2>/dev/null\");
+    }
+    return std::string();
+#endif
+}
+
+static std::string dgfx_clone_git(const std::string& url) {
+    if (url.empty()) { return std::string(); }
+    const char* tmp = getenv(\"TMPDIR\");
+    if (tmp == nullptr) { tmp = \"/tmp\"; }
+    std::string tmpl = std::string(tmp) + \"/codegraph-git-XXXXXX\";
+    std::vector<char> buf(tmpl.begin(), tmpl.end());
+    buf.push_back(0);
+    char* dir = mkdtemp(buf.data());
+    if (dir == nullptr) { return std::string(); }
+    std::string dest(dir);
+    std::string cmd = std::string(\"node gallery/pkg/tools/clone.mjs \")
+        + dgfx_shell_quote(url) + \" HEAD \" + dgfx_shell_quote(dest);
+    int rc = system(cmd.c_str());
+    if (rc != 0) { return std::string(); }
+    return dest;
+}
+
 static std::string dgfx_pick_save_file(const std::string& title, const std::string& suggested) {
 #if defined(__APPLE__)
     std::string script = std::string(\"POSIX path of (choose file name with prompt \")
@@ -769,6 +810,20 @@ static void dgfx_close() {
     dgfx_pick_open_any _:string (title:string) {
         templates {
             cpp ( "dgfx_pick_open_any(" (e 1) ")" (imp "<SDL2/SDL.h>") (imp "<string>") (imp "<cstdio>") (imp "<cstdlib>") )
+            es6 ( "\"\"" )
+        }
+    }
+
+    dgfx_prompt_text _:string (title:string message:string) {
+        templates {
+            cpp ( "dgfx_prompt_text(" (e 1) ", " (e 2) ")" (imp "<SDL2/SDL.h>") (imp "<string>") (imp "<cstdio>") (imp "<cstdlib>") )
+            es6 ( "\"\"" )
+        }
+    }
+
+    dgfx_clone_git _:string (url:string) {
+        templates {
+            cpp ( "dgfx_clone_git(" (e 1) ")" (imp "<SDL2/SDL.h>") (imp "<string>") (imp "<cstdio>") (imp "<cstdlib>") (imp "<unistd.h>") (imp "<vector>") )
             es6 ( "\"\"" )
         }
     }

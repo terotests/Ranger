@@ -15,6 +15,7 @@
 ; Usage (after build.sh):
 ;   ./tmp/codegraph-sdl/codegraph_sdl
 ;   ./tmp/codegraph-sdl/codegraph_sdl gallery/codegraph/fixtures/calls.rgr
+;   ./tmp/codegraph-sdl/codegraph_sdl https://github.com/org/repo.git
 ;   SDL_VIDEODRIVER=dummy ./tmp/codegraph-sdl/codegraph_sdl --frames 20
 ; ============================================================================
 
@@ -22,7 +23,6 @@ Import "../../src/CodeGraphApp.rgr"
 Import "../../../evg/EVGTextMeasurer.rgr"
 Import "../../../datagrid/platform/sdl/gfx_datagrid_sdl.rgr"
 Import "../../../datagrid/platform/sdl/EvgGlPainter.rgr"
-Import "../../../../lib/ranger-dir.rgr"
 
 class CodeGraphSdl {
     def app:CodeGraphApp (new CodeGraphApp)
@@ -159,6 +159,20 @@ class CodeGraphSdl {
         if ((strlen path) == 0) {
             return false
         }
+        if (CodeGraphBuilder.isGitUrl(path)) {
+            print ("  clone " + path)
+            app.status = ("cloning " + path + "…")
+            app.refreshChrome()
+            def dest:string (dgfx_clone_git path)
+            if ((strlen dest) == 0) {
+                app.status = ("could not clone " + path)
+                app.refreshChrome()
+                print ("  " + app.status)
+                return false
+            }
+            print ("  cloned " + dest)
+            path = dest
+        }
         print ("  open " + path)
         def ok:boolean (app.openDiskPath(path))
         print ("  " + (app.statusText()))
@@ -166,11 +180,19 @@ class CodeGraphSdl {
     }
 
     fn pickAndOpen:void () {
-        def path:string (dgfx_pick_open_any "Open a Ranger file")
+        def path:string (dgfx_pick_open_any "Open a Ranger or TypeScript file")
         if ((strlen path) == 0) {
             return
         }
         this.openRangerPath(path)
+    }
+
+    fn pickGitUrl:void () {
+        def url:string (dgfx_prompt_text "Git URL" "HTTPS Git repository to analyse")
+        if ((strlen url) == 0) {
+            return
+        }
+        this.openRangerPath(url)
     }
 
     fn startApp:boolean () {
@@ -249,6 +271,9 @@ class CodeGraphSdl {
                     if (app.consumeOpenFile()) {
                         this.pickAndOpen()
                     }
+                    if (app.consumeOpenGitUrl()) {
+                        this.pickGitUrl()
+                    }
                 }
             } {
                 if graphDrag {
@@ -262,6 +287,9 @@ class CodeGraphSdl {
                     graphDrag = false
                     if (app.consumeOpenFile()) {
                         this.pickAndOpen()
+                    }
+                    if (app.consumeOpenGitUrl()) {
+                        this.pickGitUrl()
                     }
                 }
             }

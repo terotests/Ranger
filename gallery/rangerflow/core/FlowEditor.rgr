@@ -3399,6 +3399,24 @@ class FlowEditor {
         view.viewport.fitRect(r view.width view.height 0.1)
     }
 
+    ; After fitView shrinks a wide UML page, raise zoom back to at least
+    ; minZ (1.0 = designed 13 px type). Keep the view centre.
+    fn ensureMinZoom:void (minZ:double) {
+        def vw:double view.width
+        if (vw < 1.0) {
+            return
+        }
+        def z:double view.viewport.zoom
+        if (z < 0.000001) {
+            return
+        }
+        if (z >= minZ) {
+            return
+        }
+        def next:double (view.viewport.clampZoom(minZ))
+        view.viewport.zoomAt((vw * 0.5) (view.height * 0.5) (next / z))
+    }
+
     sfn titleBand:double (n:FlowNode) {
         def titleH:double 28.0
         if (n.headerHeight > 1.0) {
