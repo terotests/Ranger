@@ -318,7 +318,7 @@
     "codegraph": "bash scripts/rgr-suite.sh ./gallery/codegraph/demo/codegraph_demo.rgr ./gallery/codegraph/bin codegraph_demo.js",
     "codegraph:test": "bash scripts/rgr-suite.sh ./gallery/codegraph/tests/CodeGraphTest.rgr ./gallery/codegraph/bin CodeGraphTest.js",
     "codegraph:builder": "bash scripts/rgr-suite.sh ./gallery/codegraph/tests/CodeGraphBuilderTest.rgr ./gallery/codegraph/bin CodeGraphBuilderTest.js",
-    "codegraph:analyze": "bash scripts/rgr-suite.sh ./gallery/codegraph/tools/codegraph_cli.rgr ./gallery/codegraph/bin codegraph_cli.js",
+    "codegraph:analyze": "node gallery/codegraph/tools/codegraph_open.mjs",
     "codegraph:web": "bash gallery/codegraph/web/standalone/build.sh",
     "codegraph:web:serve": "bash gallery/codegraph/web/standalone/build.sh && python3 -m http.server -d gallery/codegraph/web/standalone/dist 8081",
     "codegraph:web:test": "bash gallery/codegraph/web/standalone/build.sh && node gallery/codegraph/web/standalone/smoke.mjs",

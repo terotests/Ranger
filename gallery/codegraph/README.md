@@ -5,22 +5,23 @@ window of the graph on the EVG WebGL canvas; The chrome around it is **Full EVG*
 
 Live example files (`fixtures/calls.rgr`, `fixtures/animals.rgr`) are
 compiled **in the tab** by VirtualCompiler — the same compiler the playground
-uses — then walked into the IR. Shop / 40-class fixtures stay as a
-no-compiler fallback. On the desktop, **Open** picks a `.rgr` from the real
-disk and walks its `Import` closure into that same in-memory filesystem
-(rewriting `Import "../evg/EVGColor.rgr"` to a basename the VFS can find).
+uses — then walked into the IR through UAST. Shop / 40-class fixtures stay as a
+no-compiler fallback. On the desktop, **Open** picks a `.rgr`, a directory with
+`ranger.json`, or that manifest; `Import "pkg:…"` resolves the same way `rgrc`
+does (path / vendor / cache). A Git HTTPS URL can be cloned first:
 
-Live example files (`fixtures/calls.rgr`, `fixtures/animals.rgr`) are
-compiled **in the tab** by VirtualCompiler — the same compiler the playground
-uses — then walked into the IR. Shop / 40-class fixtures stay as a
-no-compiler fallback.
+```bash
+npm run codegraph:analyze -- tests/fixtures/pkg/app
+npm run codegraph:analyze -- https://github.com/org/repo.git
+```
 
 A thousand-node dump does not fit on a chart and is slow to lay out. Twenty
 to thirty boxes do. Click a class in the rail or on the canvas to drill in.
 
 ```text
-  .rgr  ──VirtualCompiler──►  RangerFlowParser walk
-                                    │  isCalling / isCalledBy / isUsingClasses
+  .rgr / ranger.json / pkg:  ──VirtualCompiler──►  UastRanger
+                                    │
+                          shared UAST pipeline
                                     ▼
                                CodeGraph (IR)
                                     │
@@ -108,10 +109,11 @@ and keeps classes whose source path matches the file you named.
 | `src/CodeGraphPages.rgr` | windows of ≤ N nodes, pager arrows | no |
 | `src/CodeGraphFlow.rgr` | page → FlowGraph, click session | no |
 | `src/CodeGraphSample.rgr` | shop + 40-class fixtures | no |
-| `src/CodeGraphBuilder.rgr` | `RangerAppWriterContext` → IR | **yes** |
+| `src/CodeGraphBuilder.rgr` | compile → UAST → IR; `fromPath` opens ranger.json / `pkg:` | **yes** |
 | `src/CodeGraphApp.rgr` | Full EVG explorer (chrome + analyse) | **yes** (VFS analyse) |
 | `web/codegraph_web.rgr` | browser name for `CodeGraphApp` | **yes** |
-| `platform/sdl/codegraph_sdl.rgr` | SDL2 window, native file picker | **yes** (VFS from disk) |
+| `platform/sdl/codegraph_sdl.rgr` | SDL2 window, native file picker | **yes** |
+| `tools/codegraph_open.mjs` | CLI wrapper; clones a Git URL via gallery/pkg | no |
 | `fixtures/calls.rgr` | Order / LineItem / Checkout | compiled live |
 | `fixtures/animals.rgr` | Farm.animals:[Animal], Dog / Cat | compiled live |
 | `gallery/css`, `evg`, `zip` | CssCore / EVGElement / ZipReader | compiled live |
@@ -121,4 +123,5 @@ export). This app does not live in RangerFlow's demo dropdown.
 
 A language-analysis layer that *projects into* this IR — so TypeScript and
 later Go can reuse the same class/method page — is [`gallery/uast`](../uast/README.md).
-CodeGraph stays the presentation. UAST does not replace `CodeGraphBuilder`.
+`CodeGraphBuilder` compiles Ranger (including `pkg:` imports) and asks UAST
+to fill the graph. It does not walk `RangerAppClassDesc` itself.
