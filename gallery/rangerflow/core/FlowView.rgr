@@ -2504,44 +2504,189 @@ class FlowView {
     }
 
     ; ------------------------------------------------------------ controls ---
-    fn paintControls:void (sc:FlowScene) {
-        def size:double 28.0
-        def margin:double 12.0
-        def x:double margin
-        def y:double ((height - (size * 4.0)) - margin)
-        def labels:[string] ([] _:string ( "+" "−" "⤢" "◱" ))
-        def i:int 0
-        while (i < 4) {
-            def by:double (y + ((to_double i) * size))
-            def b:SceneItem (sc.rect(x by size size theme.panelFill))
-            b.stroke = theme.panelBorder
-            b.strokeWidth = 1.0
-            b.tag = ("chrome:btn" + (to_string i))
-            def g:string (itemAt labels i)
-            def gw:double (this.textWidth(g 14.0))
-            def t:SceneItem (sc.text(g (x + ((size - gw) * 0.5)) (by + 6.0) gw 14.0 theme.nodeText))
-            t.fontFamily = theme.fontFamily
-            t.tag = ("chrome:btn" + (to_string i))
-            i = (i + 1)
-        }
+    ; A Figma-like pill that floats over the board, the same chrome Rafi and
+    ; Rave sit on their stage: −, the zoom as a percent, +, Fit, then a
+    ; separator and Map. One zoom level is ×1.25, the step those two use.
+    ; Geometry lives in one place so the drawing and the hit test cannot drift.
+    sfn zoomStep:double () {
+        return 1.25
     }
 
-    ; Which control button, if any, a screen point is on. -1 for none.
+    sfn zoomPct:string (z:double) {
+        return ((to_string (to_int ((z * 100.0) + 0.5))) + "%")
+    }
+
+    sfn controlCount:int () {
+        return 5
+    }
+
+    sfn controlPad:double () {
+        return 4.0
+    }
+
+    sfn controlGap:double () {
+        return 2.0
+    }
+
+    sfn controlBarH:double () {
+        return 38.0
+    }
+
+    sfn controlToolH:double () {
+        return 28.0
+    }
+
+    fn controlToolWidth:double (i:int) {
+        if (i == 0) {
+            return 28.0
+        }
+        if (i == 1) {
+            return 52.0
+        }
+        if (i == 2) {
+            return 28.0
+        }
+        def label:string "Fit"
+        if (i == 4) {
+            label = "Map"
+        }
+        def w:double ((this.textWidth(label 12.0)) + 16.0)
+        if (w < 28.0) {
+            return 28.0
+        }
+        return w
+    }
+
+    fn controlInnerW:double () {
+        def w:double 0.0
+        def k:int 0
+        while (k < (FlowView.controlCount())) {
+            if (k > 0) {
+                w = (w + (FlowView.controlGap()))
+            }
+            if (k == 4) {
+                w = (w + 1.0)
+                w = (w + (FlowView.controlGap()))
+            }
+            w = (w + (this.controlToolWidth(k)))
+            k = (k + 1)
+        }
+        return w
+    }
+
+    fn controlBarW:double () {
+        return ((this.controlInnerW()) + ((FlowView.controlPad()) * 2.0))
+    }
+
+    fn controlBarX:double () {
+        def w:double (this.controlBarW())
+        def left:double ((width - w) * 0.5)
+        if (left < 8.0) {
+            left = 8.0
+        }
+        return left
+    }
+
+    fn controlBarY:double () {
+        def top:double (height - 54.0)
+        if (top < 8.0) {
+            top = 8.0
+        }
+        return top
+    }
+
+    fn controlToolTop:double () {
+        return ((this.controlBarY()) + (FlowView.controlPad()))
+    }
+
+    fn controlToolLeft:double (i:int) {
+        def x:double ((this.controlBarX()) + (FlowView.controlPad()))
+        def k:int 0
+        while (k < i) {
+            x = (x + (this.controlToolWidth(k)))
+            x = (x + (FlowView.controlGap()))
+            if (k == 3) {
+                x = (x + 1.0)
+                x = (x + (FlowView.controlGap()))
+            }
+            k = (k + 1)
+        }
+        return x
+    }
+
+    fn paintControlTool:void (sc:FlowScene i:int label:string on:boolean) {
+        def x:double (this.controlToolLeft(i))
+        def y:double (this.controlToolTop())
+        def w:double (this.controlToolWidth(i))
+        def h:double (FlowView.controlToolH())
+        def ink:string theme.nodeMutedText
+        if (i == 1) {
+            ink = theme.nodeText
+        }
+        if on {
+            def b:SceneItem (sc.rect(x y w h theme.selectedBorder))
+            b.radius = 7.0
+            b.tag = ("chrome:btn" + (to_string i))
+            ink = "#ffffff"
+        }
+        def gw:double (this.textWidth(label 12.0))
+        def t:SceneItem (sc.text(label (x + ((w - gw) * 0.5)) (y + 6.0) gw 12.0 ink))
+        t.fontFamily = theme.fontFamily
+        t.tag = ("chrome:btn" + (to_string i))
+    }
+
+    fn paintControls:void (sc:FlowScene) {
+        def bx:double (this.controlBarX())
+        def by:double (this.controlBarY())
+        def bw:double (this.controlBarW())
+        def bh:double (FlowView.controlBarH())
+        def bar:SceneItem (sc.rect(bx by bw bh theme.panelFill))
+        bar.radius = 10.0
+        bar.stroke = theme.panelBorder
+        bar.strokeWidth = 1.0
+        bar.tag = "chrome"
+        this.paintControlTool(sc 0 "−" false)
+        this.paintControlTool(sc 1 (FlowView.zoomPct(viewport.zoom)) false)
+        this.paintControlTool(sc 2 "+" false)
+        this.paintControlTool(sc 3 "Fit" false)
+        def sepX:double ((this.controlToolLeft(3)) + (this.controlToolWidth(3)) + (FlowView.controlGap()))
+        def sep:SceneItem (sc.rect(sepX (by + 10.0) 1.0 18.0 theme.panelBorder))
+        sep.tag = "chrome"
+        this.paintControlTool(sc 4 "Map" showMinimap)
+    }
+
+    ; Which control, if any, a screen point is on. 0 −, 1 the percent, 2 +,
+    ; 3 Fit, 4 Map. 5 is the pill's padding — a press there is swallowed so it
+    ; does not pan the diagram underneath. -1 for none.
     fn controlAt:int (px:double py:double) {
         if (showControls == false) {
             return -1
         }
-        def size:double 28.0
-        def margin:double 12.0
-        def x:double margin
-        def y:double ((height - (size * 4.0)) - margin)
-        if (px < x) { return -1 }
-        if (px > (x + size)) { return -1 }
-        if (py < y) { return -1 }
-        if (py > (y + (size * 4.0))) { return -1 }
-        def idx:int (to_int ((py - y) / size))
-        if (idx < 0) { return -1 }
-        if (idx > 3) { return -1 }
-        return idx
+        def bx:double (this.controlBarX())
+        def by:double (this.controlBarY())
+        def bw:double (this.controlBarW())
+        def bh:double (FlowView.controlBarH())
+        if (px < bx) { return -1 }
+        if (px > (bx + bw)) { return -1 }
+        if (py < by) { return -1 }
+        if (py > (by + bh)) { return -1 }
+        def i:int 0
+        while (i < (FlowView.controlCount())) {
+            def x:double (this.controlToolLeft(i))
+            def w:double (this.controlToolWidth(i))
+            def y:double (this.controlToolTop())
+            def h:double (FlowView.controlToolH())
+            if (px >= x) {
+                if (px < (x + w)) {
+                    if (py >= y) {
+                        if (py < (y + h)) {
+                            return i
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return 5
     }
 }

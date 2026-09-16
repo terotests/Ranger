@@ -3338,6 +3338,14 @@ class FlowEditor {
             this.fitView()
             return true
         }
+        if ((key == "+") || (key == "=")) {
+            this.zoomIn()
+            return true
+        }
+        if ((key == "-") || (key == "_")) {
+            this.zoomOut()
+            return true
+        }
         return false
     }
 
@@ -3477,20 +3485,33 @@ class FlowEditor {
     fn zoomIn:void () {
         def cx:double (view.width * 0.5)
         def cy:double (view.height * 0.5)
-        view.viewport.zoomAt(cx cy 1.2)
+        view.viewport.zoomAt(cx cy (FlowView.zoomStep()))
     }
 
     fn zoomOut:void () {
         def cx:double (view.width * 0.5)
         def cy:double (view.height * 0.5)
-        view.viewport.zoomAt(cx cy (1.0 / 1.2))
+        view.viewport.zoomAt(cx cy (1.0 / (FlowView.zoomStep())))
+    }
+
+    ; Set the zoom to a level about the middle of the board, the way Rafi's
+    ; percent button goes to 100%.
+    fn zoomTo:void (want:double) {
+        def z:double view.viewport.zoom
+        if (z <= 0.0) {
+            return
+        }
+        def cx:double (view.width * 0.5)
+        def cy:double (view.height * 0.5)
+        view.viewport.zoomAt(cx cy (want / z))
     }
 
     fn pressControl:void (btn:int) {
-        if (btn == 0) { this.zoomIn() }
-        if (btn == 1) { this.zoomOut() }
-        if (btn == 2) { this.fitView() }
-        if (btn == 3) {
+        if (btn == 0) { this.zoomOut() }
+        if (btn == 1) { this.zoomTo(1.0) }
+        if (btn == 2) { this.zoomIn() }
+        if (btn == 3) { this.fitView() }
+        if (btn == 4) {
             view.showMinimap = (view.showMinimap == false)
         }
     }

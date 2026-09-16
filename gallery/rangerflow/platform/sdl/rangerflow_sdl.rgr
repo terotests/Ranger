@@ -22,7 +22,7 @@
 ;   ./tmp/rangerflow-sdl/rangerflow_sdl [schema.sql] [frames]
 ;   SDL_VIDEODRIVER=dummy ./tmp/rangerflow-sdl/rangerflow_sdl … 30   # headless
 ;
-; Keys: f fit · l layout (layered / force) · n notation · t theme · e edge type
+; Keys: f fit · + / − zoom · l layout (layered / force) · n notation · t theme · e edge type
 ;       g background · m minimap · a select all · z undo · y redo
 ;       Delete remove selection · Esc / q quit
 ; ============================================================================
@@ -246,6 +246,16 @@ class RangerFlowSdl {
         if (c == "f") {
             editor.fitView()
             status = "fit"
+            return
+        }
+        if ((c == "+") || (c == "=")) {
+            editor.zoomIn()
+            status = "zoom in"
+            return
+        }
+        if (c == "-") {
+            editor.zoomOut()
+            status = "zoom out"
             return
         }
         if (c == "l") {

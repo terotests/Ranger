@@ -114,6 +114,7 @@ class RangerFlowTest {
     sfn main:void () {
         def c (new Checker)
         RangerFlowTest.testViewport(c)
+        RangerFlowTest.testControls(c)
         RangerFlowTest.testGraph(c)
         RangerFlowTest.testCompartments(c)
         RangerFlowTest.testEdgeRouter(c)
@@ -1314,6 +1315,68 @@ class RangerFlowTest {
         c.near("touching rectangles share no area" (touching.overlapArea(apart)) 0.0 0.000001)
         def over:FlowRect (FlowRect.create(50.0 50.0 100.0 100.0))
         c.near("overlap area" (touching.overlapArea(over)) 2500.0 0.000001)
+    }
+
+    ; The floating zoom bar: −, the percent, +, Fit, Map. Same pill Rafi and
+    ; Rave float over the board, one ×1.25 step per click.
+    sfn testControls:void (c:Checker) {
+        c.section("controls")
+        def g (new FlowGraph)
+        def a:FlowNode (g.node("a" "A" 0.0 0.0))
+        a.width = 150.0
+        a.height = 50.0
+        def b:FlowNode (g.node("b" "B" 300.0 0.0))
+        b.width = 150.0
+        b.height = 50.0
+        g.reindex()
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(1000.0 600.0)
+        ed.view.showControls = true
+        ed.view.showMinimap = true
+        def v:FlowView ed.view
+        def hitY:double ((v.controlToolTop()) + 8.0)
+        def hit0:double ((v.controlToolLeft(0)) + 8.0)
+        def hit2:double ((v.controlToolLeft(2)) + 8.0)
+        def hit3:double ((v.controlToolLeft(3)) + 8.0)
+        c.eqInt("− is the first tool" (v.controlAt(hit0 hitY)) 0)
+        c.eqInt("+ is the third" (v.controlAt(hit2 hitY)) 2)
+        c.eqInt("Fit follows it" (v.controlAt(hit3 hitY)) 3)
+        c.ok("the bar sits on the board" ((v.controlBarY()) > 500.0))
+        c.ok("and is centred" ((fabs ((v.controlBarX()) - ((1000.0 - (v.controlBarW())) * 0.5))) < 0.5))
+        c.eqStr("the percent is the zoom" (FlowView.zoomPct(1.0)) "100%")
+        def inp (new FlowInput)
+        inp.x = ((v.controlToolLeft(2)) + ((v.controlToolWidth(2)) * 0.5))
+        inp.y = ((v.controlToolTop()) + ((FlowView.controlToolH()) * 0.5))
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        c.near("plus is one zoom level" v.viewport.zoom (FlowView.zoomStep()) 0.0001)
+        inp.x = ((v.controlToolLeft(0)) + ((v.controlToolWidth(0)) * 0.5))
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        c.near("minus undoes it" v.viewport.zoom 1.0 0.0001)
+        v.viewport.zoom = 0.5
+        inp.x = ((v.controlToolLeft(1)) + ((v.controlToolWidth(1)) * 0.5))
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        c.near("the percent goes to 100%" v.viewport.zoom 1.0 0.0001)
+        ed.keyDown("+" false false)
+        c.near("plus key is the same step" v.viewport.zoom (FlowView.zoomStep()) 0.0001)
+        ed.keyDown("-" false false)
+        c.near("minus key too" v.viewport.zoom 1.0 0.0001)
+        inp.x = ((v.controlToolLeft(4)) + ((v.controlToolWidth(4)) * 0.5))
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        c.ok("Map hides the minimap" (v.showMinimap == false))
+        ; A press on the pill's padding is not a pan of the diagram under it.
+        def beforeX:double v.viewport.x
+        def padX:double ((v.controlBarX()) + 2.0)
+        def padY:double ((v.controlBarY()) + 2.0)
+        inp.x = padX
+        inp.y = padY
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        c.near("padding does not pan" v.viewport.x beforeX 0.0001)
+        c.eqInt("and names the bar" (v.controlAt(inp.x inp.y)) 5)
     }
 
     ; --------------------------------------------------------------- graph --
