@@ -16,6 +16,7 @@ Import "../src/UastTs.rgr"
 Import "../src/UastCpp.rgr"
 Import "../src/UastReport.rgr"
 Import "../src/UastCodeGraph.rgr"
+Import "../../codegraph/src/CodeGraphModel.rgr"
 
 class UastAnalyze {
     sfn main:void () {
@@ -37,6 +38,32 @@ class UastAnalyze {
         def g:CodeGraph (UastToCodeGraph.project(model))
         print ""
         print (("projected classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
+        def ci:int 0
+        while (ci < (g.classCount())) {
+            def c:CodeClass (g.classAt(ci))
+            if (c.stereotype == "component") {
+                print (("  «component» " + c.name) + "  " + c.fileName)
+                def fi:int 0
+                while (fi < (array_length c.fields)) {
+                    def f:CodeField (itemAt c.fields fi)
+                    def ty:string f.fieldType
+                    if ((strlen ty) > 0) {
+                        print (("    - " + f.name) + " : " + ty)
+                    } {
+                        print ("    - " + f.name)
+                    }
+                    fi = (fi + 1)
+                }
+                def mi:int 0
+                while (mi < (array_length c.methodIds)) {
+                    def mid:string (itemAt c.methodIds mi)
+                    def m:CodeMethod (g.methodById(mid))
+                    print ("    + " + (m.signature()))
+                    mi = (mi + 1)
+                }
+            }
+            ci = (ci + 1)
+        }
         def ri:int 0
         while (ri < (array_length model.relationships)) {
             def rel:UastRelation (itemAt model.relationships ri)

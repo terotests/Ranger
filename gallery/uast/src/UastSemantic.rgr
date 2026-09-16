@@ -1420,6 +1420,12 @@ class UastSemantic {
     }
 
     sfn collapsePath:string (path:string) {
+        def abs:boolean false
+        if ((strlen path) > 0) {
+            if ((charAt path 0) == ((ccode "/"))) {
+                abs = true
+            }
+        }
         def parts:[string]
         def cur:string ""
         def i:int 0
@@ -1433,7 +1439,11 @@ class UastSemantic {
             i = (i + 1)
         }
         UastSemantic.pushSeg(parts cur)
-        return (join parts "/")
+        def out:string (join parts "/")
+        if abs {
+            return ("/" + out)
+        }
+        return out
     }
 
     sfn pushSeg:void (parts:[string] part:string) {

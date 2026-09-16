@@ -73,7 +73,7 @@ types. Only `UastRanger` may.
 | `fixtures/shapes.ts` | interface, `extends`, `function`, `export default` |
 | `fixtures/card.tsx`, `page.tsx`, `banner.tsx`, `panel.tsx` | function / arrow / class React components |
 | `fixtures/client.tsx` | `'use client'`, typed rest, qualified types, member generic calls |
-| `fixtures/dts_app/` | fake `node_modules/react` + `react-dom` `.d.ts`; `App.tsx` uses hooks, local imports, and child components |
+| `fixtures/dts_app/` | fake `node_modules/react` + `react-dom` `.d.ts`; `App.tsx` is [koodisampo](https://github.com/terotests/koodisampo) `web/src/App.tsx` (hooks, `./components`, `./hooks`, `./db`, `./types`) |
 
 ## Ranger first, TypeScript second
 

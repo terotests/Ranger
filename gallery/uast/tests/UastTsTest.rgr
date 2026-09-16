@@ -13,6 +13,7 @@ Import "../src/UastTs.rgr"
 Import "../src/UastCodeGraph.rgr"
 Import "../src/UastDump.rgr"
 Import "../src/UastQuery.rgr"
+Import "../src/UastSemantic.rgr"
 Import "../../codegraph/src/CodeGraphModel.rgr"
 
 class UastTsChecker {
@@ -393,13 +394,19 @@ class UastTsTest {
 
     sfn testAppComponent:void (c:UastTsChecker) {
         print "== App.tsx hooks / imports / handlers, not React.Component"
+        c.eqStr("abs join keeps slash" (UastSemantic.joinPath("/tmp/app/src" "./components/GameView")) "/tmp/app/src/components/GameView")
         def model:UastCodeModel (UastTs.fromDir("gallery/uast/fixtures/dts_app"))
         c.ok("App function" (model.mentionsSymbol("function:App")))
         c.ok("GameView function" (model.mentionsSymbol("function:GameView")))
         c.ok("StoryList function" (model.mentionsSymbol("function:StoryList")))
+        c.ok("useAppNavigation function" (model.mentionsSymbol("function:useAppNavigation")))
         c.ok("config state field" (model.mentionsSymbol("field:App.config")))
         c.ok("stories state field" (model.mentionsSymbol("field:App.stories")))
-        c.ok("handleSelect method" (model.mentionsSymbol("method:App.handleSelect")))
+        c.ok("nav hook field" (model.mentionsSymbol("field:App.nav")))
+        c.ok("refreshProgress method" (model.mentionsSymbol("method:App.refreshProgress")))
+        c.ok("loadIndex method" (model.mentionsSymbol("method:App.loadIndex")))
+        c.ok("exitGame method" (model.mentionsSymbol("method:App.exitGame")))
+        c.ok("toggleSource method" (model.mentionsSymbol("method:App.toggleSource")))
         c.ok("setConfig method" (model.mentionsSymbol("method:App.setConfig")))
         c.ok("useEffect method" (model.mentionsSymbol("method:App.useEffect")))
         def appSym:UastSymbol (model.symbolById("function:App"))
@@ -407,6 +414,7 @@ class UastTsTest {
         def foundGame:boolean false
         def foundList:boolean false
         def foundLoad:boolean false
+        def foundNav:boolean false
         def ri:int 0
         while (ri < (array_length model.relationships)) {
             def rel:UastRelation (itemAt model.relationships ri)
@@ -416,14 +424,18 @@ class UastTsTest {
             if ((rel.kind == "calls") && (rel.fromId == "function:App") && (rel.toId == "function:StoryList")) {
                 foundList = true
             }
-            if ((rel.kind == "calls") && (rel.fromId == "function:App") && (rel.toId == "function:loadStories")) {
+            if ((rel.kind == "calls") && (rel.fromId == "function:App") && (rel.toId == "function:loadStoryIndex")) {
                 foundLoad = true
+            }
+            if ((rel.kind == "calls") && (rel.fromId == "function:App") && (rel.toId == "function:useAppNavigation")) {
+                foundNav = true
             }
             ri = (ri + 1)
         }
         c.ok("App JSX calls GameView" foundGame)
         c.ok("App JSX calls StoryList" foundList)
-        c.ok("App calls loadStories" foundLoad)
+        c.ok("App calls loadStoryIndex" foundLoad)
+        c.ok("App calls useAppNavigation" foundNav)
         def g:CodeGraph (UastToCodeGraph.project(model))
         c.ok("projected App" (g.hasClass("App")))
         c.ok("projected GameView" (g.hasClass("GameView")))
@@ -431,18 +443,25 @@ class UastTsTest {
         c.ok("React Component not on the graph" ((g.hasClass("Component")) == false))
         c.ok("ReactElement not on the graph" ((g.hasClass("ReactElement")) == false))
         c.ok("App.render" (g.hasMethod("App.render")))
-        c.ok("App.handleSelect" (g.hasMethod("App.handleSelect")))
+        c.ok("App.refreshProgress" (g.hasMethod("App.refreshProgress")))
+        c.ok("App.exitGame" (g.hasMethod("App.exitGame")))
         c.ok("App.useEffect" (g.hasMethod("App.useEffect")))
         c.ok("App.setConfig" (g.hasMethod("App.setConfig")))
         def appCls:CodeClass (g.classByName("App"))
         c.ok("App import GameView field" (UastTsTest.hasField(appCls "GameView" "GameView")))
         c.ok("App import StoryList field" (UastTsTest.hasField(appCls "StoryList" "StoryList")))
-        c.ok("App import loadStories field" (UastTsTest.hasField(appCls "loadStories" "")))
+        c.ok("App import loadStoryIndex field" (UastTsTest.hasField(appCls "loadStoryIndex" "")))
+        c.ok("App import useAppNavigation field" (UastTsTest.hasField(appCls "useAppNavigation" "")))
         c.ok("App config field" (UastTsTest.hasNamedField(appCls "config")))
-        c.ok("App stories field" (UastTsTest.hasNamedField(appCls "stories")))
+        c.ok("App nav field" (UastTsTest.hasNamedField(appCls "nav")))
         def appRender:CodeMethod (g.methodById("App.render"))
         c.ok("App.render calls GameView.render" (UastTsTest.callsMethod(appRender "GameView.render")))
         c.ok("App.render calls StoryList.render" (UastTsTest.callsMethod(appRender "StoryList.render")))
+        def abs:string ((current_directory) + "/gallery/uast/fixtures/dts_app/App.tsx")
+        def absModel:UastCodeModel (UastTs.fromFile(abs))
+        c.ok("absolute App.tsx loads GameView" (absModel.mentionsSymbol("function:GameView")))
+        c.ok("absolute App.tsx loads StoryList" (absModel.mentionsSymbol("function:StoryList")))
+        c.ok("absolute path does not drop ./components" ((UastQuery.diagnosticMentions(absModel "unresolved import ./components/GameView")) == false))
     }
 
     sfn hasField:boolean (cls:CodeClass name:string fieldType:string) {

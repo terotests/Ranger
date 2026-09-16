@@ -1,4 +1,4 @@
-import type { StorySummary } from './types'
+import type { StorySummary } from '../types/story'
 
 export function StoryList(props: { stories: StorySummary[] }) {
   const handleClick = () => {
