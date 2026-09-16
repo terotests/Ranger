@@ -1,0 +1,402 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastTest.rgr — schema, ZipWriter fixture via shared pipeline, TS mapping.
+; ============================================================================
+;
+; Does not import the compiler. The Ranger golden suite is UastRangerTest.
+;
+;   npm run uast:test
+; ============================================================================
+
+Import "../src/UastSample.rgr"
+Import "../src/UastCodeGraph.rgr"
+Import "../src/UastTypeScript.rgr"
+Import "../src/UastDump.rgr"
+Import "../src/UastQuery.rgr"
+
+class UastChecker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn report:int () {
+        print ""
+        print (("passed " + (to_string passed)) + ", failed " + (to_string failed))
+        if (failed > 0) {
+            return 1
+        }
+        return 0
+    }
+}
+
+class UastTest {
+    sfn main:void () {
+        def c (new UastChecker)
+        UastTest.testZipWriter(c)
+        UastTest.testChildRoles(c)
+        UastTest.testDump(c)
+        UastTest.testDynamic(c)
+        UastTest.testTsMapping(c)
+        UastTest.testEscapeHatch(c)
+        UastTest.testComments(c)
+        UastTest.testQuery(c)
+        UastTest.testScopes(c)
+        UastTest.testWorkspace(c)
+        UastTest.testCalls(c)
+        def code:int (c.report())
+        if (code != 0) {
+            exit 1
+        }
+    }
+
+    sfn testZipWriter:void (c:UastChecker) {
+        print "== ZipWriter fixture (shared pipeline)"
+        def model:UastCodeModel (UastSample.zipWriter())
+        c.ok("ZipWriter symbol" (model.mentionsSymbol("class:ZipWriter")))
+        c.ok("ZipEntry symbol" (model.mentionsSymbol("class:ZipEntry")))
+        c.ok("GrowableZipBuffer symbol" (model.mentionsSymbol("class:GrowableZipBuffer")))
+        c.ok("CRC32 symbol" (model.mentionsSymbol("class:CRC32")))
+        c.ok("addFile symbol" (model.mentionsSymbol("method:ZipWriter.addFile")))
+        c.ok("compute symbol" (model.mentionsSymbol("method:CRC32.compute")))
+        def zip:UastSymbol (model.symbolById("class:ZipWriter"))
+        c.eqStr("ZipWriter file" zip.fileName "gallery/zip/ZipWriter.rgr")
+        def entries:UastSymbol (model.symbolById("field:ZipWriter.entries"))
+        c.eqStr("entries type" entries.typeName "[ZipEntry]")
+        def output:UastSymbol (model.symbolById("field:ZipWriter.output"))
+        c.eqStr("output type" output.typeName "GrowableZipBuffer")
+        def crcField:UastSymbol (model.symbolById("field:ZipWriter.crc"))
+        c.eqStr("crc type" crcField.typeName "CRC32")
+        def addFile:UastSymbol (model.symbolById("method:ZipWriter.addFile"))
+        c.eqStr("addFile params" addFile.params "name:string, fileData:buffer")
+        def foundCall:boolean false
+        def foundUse:boolean false
+        def i:int 0
+        while (i < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships i)
+            if ((rel.kind == "calls") && (rel.fromId == "method:ZipWriter.addFile") && (rel.toId == "method:CRC32.compute")) {
+                foundCall = true
+                c.eqStr("call confidence" rel.confidence "exact")
+                c.eqStr("call resolution" rel.resolution "resolved")
+            }
+            if ((rel.kind == "usesType") && (rel.fromId == "class:ZipWriter") && (rel.toId == "class:CRC32")) {
+                foundUse = true
+            }
+            i = (i + 1)
+        }
+        c.ok("addFile calls CRC32.compute" foundCall)
+        c.ok("ZipWriter usesType CRC32" foundUse)
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        c.ok("projected ZipWriter" (g.hasClass("ZipWriter")))
+        c.ok("projected ZipEntry" (g.hasClass("ZipEntry")))
+        c.ok("projected GrowableZipBuffer" (g.hasClass("GrowableZipBuffer")))
+        c.ok("projected CRC32" (g.hasClass("CRC32")))
+        c.ok("projected addFile" (g.hasMethod("ZipWriter.addFile")))
+        c.ok("projected compute" (g.hasMethod("CRC32.compute")))
+        def zw:CodeClass (g.classByName("ZipWriter"))
+        c.eqInt("ZipWriter field count" (zw.fieldCount()) 4)
+        def hasEntries:boolean false
+        def fi:int 0
+        while (fi < (array_length zw.fields)) {
+            def f:CodeField (itemAt zw.fields fi)
+            if ((f.name == "entries") && (f.fieldType == "[ZipEntry]")) {
+                hasEntries = true
+            }
+            fi = (fi + 1)
+        }
+        c.ok("projected entries : [ZipEntry]" hasEntries)
+        def add:CodeMethod (g.methodById("ZipWriter.addFile"))
+        def callsCompute:boolean false
+        def ci:int 0
+        while (ci < (array_length add.calls)) {
+            if ((itemAt add.calls ci) == "CRC32.compute") {
+                callsCompute = true
+            }
+            ci = (ci + 1)
+        }
+        c.ok("projected addFile → CRC32.compute" callsCompute)
+        def usesEntry:boolean false
+        def ui:int 0
+        while (ui < (array_length add.uses)) {
+            if ((itemAt add.uses ui) == "ZipEntry") {
+                usesEntry = true
+            }
+            ui = (ui + 1)
+        }
+        c.ok("projected addFile uses ZipEntry" usesEntry)
+        def addNode:UNode (model.nodeById("n:ZipWriter.addFile"))
+        c.eqStr("addFile UNode kind" addNode.kind (UastKind.MethodDecl()))
+        c.eqStr("addFile nativeKind" addNode.nativeKind "fn")
+        c.eqStr("addFile language" addNode.language "ranger")
+        def res:UastFrontendResult (UastSample.zipWriterResult())
+        def f0:UastSourceFile (itemAt res.files 0)
+        c.eqInt("source version" f0.version 1)
+        c.eqStr("span encoding" addNode.span.coordinateEncoding "utf16-code-units")
+    }
+
+    sfn testChildRoles:void (c:UastChecker) {
+        print "== child roles"
+        def model:UastCodeModel (UastSample.zipWriter())
+        def callN:UNode (model.nodeById("n:call:compute"))
+        c.eqStr("Call kind" callN.kind (UastKind.Call()))
+        def calleeId:string (callN.childIdFor((UastChildRole.callee())))
+        c.eqStr("callee role" calleeId "n:this.crc.compute")
+        def args:[string] (callN.childIdsFor((UastChildRole.argument())))
+        c.eqInt("one argument" (array_length args) 1)
+        def mem:UNode (model.nodeById("n:this.crc.compute"))
+        c.eqStr("receiver role" (mem.childIdFor((UastChildRole.receiver()))) "n:this.crc")
+        c.eqStr("member role" (mem.childIdFor((UastChildRole.member()))) "n:compute-id")
+        def zw:UNode (model.nodeById("n:ZipWriter"))
+        def fields:[string] (zw.childIdsFor((UastChildRole.field())))
+        c.eqInt("ZipWriter field children" (array_length fields) 4)
+    }
+
+    sfn testDump:void (c:UastChecker) {
+        print "== dump (Ranger and TS must share this shape)"
+        def model:UastCodeModel (UastSample.zipWriter())
+        def text:string (UastDump.ofNode(model "n:this.crc.compute"))
+        c.ok("dump kind" ((indexOf text "kind: MemberAccess") >= 0))
+        c.ok("dump receiver" ((indexOf text "receiver:") >= 0))
+        c.ok("dump member" ((indexOf text "member:") >= 0))
+        def callText:string (UastDump.ofNode(model "n:call:compute"))
+        c.ok("dump call target" ((indexOf callText "method:CRC32.compute") >= 0))
+        c.ok("dump resolved" ((indexOf callText "resolution: resolved") >= 0))
+        c.ok("dump exact" ((indexOf callText "confidence: exact") >= 0))
+        print callText
+    }
+
+    sfn testDynamic:void (c:UastChecker) {
+        print "== dynamic vs exact"
+        def model:UastCodeModel (UastSemantic.fromResult((UastSample.dynamicCallResult())))
+        def text:string (UastDump.ofNode(model "n:dyn"))
+        c.ok("dynamic resolution" ((indexOf text "resolution: dynamic") >= 0))
+        c.ok("possible confidence" ((indexOf text "confidence: possible") >= 0))
+        def exactCall:boolean false
+        def i:int 0
+        while (i < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships i)
+            if ((rel.kind == "calls") && (rel.confidence == "exact")) {
+                exactCall = true
+            }
+            i = (i + 1)
+        }
+        c.ok("no exact call from a guess" (exactCall == false))
+    }
+
+    sfn testTsMapping:void (c:UastChecker) {
+        print "== TS nativeKind mapping"
+        c.eqStr("ClassDeclaration" (UastTypeScript.kindFromNative("ClassDeclaration")) (UastKind.ClassDecl()))
+        c.eqStr("TSInterfaceDeclaration" (UastTypeScript.kindFromNative("TSInterfaceDeclaration")) (UastKind.InterfaceDecl()))
+        c.eqStr("TSTypeAliasDeclaration" (UastTypeScript.kindFromNative("TSTypeAliasDeclaration")) (UastKind.TypeDecl()))
+        c.eqStr("FunctionDeclaration" (UastTypeScript.kindFromNative("FunctionDeclaration")) (UastKind.FunctionDecl()))
+        c.eqStr("TSMethodSignature" (UastTypeScript.kindFromNative("TSMethodSignature")) (UastKind.MethodDecl()))
+        c.eqStr("MethodDefinition" (UastTypeScript.kindFromNative("MethodDefinition")) (UastKind.MethodDecl()))
+        c.eqStr("Identifier" (UastTypeScript.kindFromNative("Identifier")) (UastKind.Identifier()))
+        c.eqStr("ThisExpression" (UastTypeScript.kindFromNative("ThisExpression")) (UastKind.Identifier()))
+        c.eqStr("CallExpression" (UastTypeScript.kindFromNative("CallExpression")) (UastKind.Call()))
+        c.eqStr("ArrowFunctionExpression" (UastTypeScript.kindFromNative("ArrowFunctionExpression")) (UastKind.Lambda()))
+        c.eqStr("TSTypeReference" (UastTypeScript.kindFromNative("TSTypeReference")) (UastKind.TypeRef()))
+        c.eqStr("TSArrayType" (UastTypeScript.kindFromNative("TSArrayType")) (UastKind.TypeRef()))
+        c.eqStr("TSStringKeyword" (UastTypeScript.kindFromNative("TSStringKeyword")) (UastKind.TypeRef()))
+        c.eqStr("ImportDeclaration" (UastTypeScript.kindFromNative("ImportDeclaration")) (UastKind.Import()))
+        c.eqStr("TSConditionalType" (UastTypeScript.kindFromNative("TSConditionalType")) (UastKind.LanguageSpecific()))
+        c.eqStr("TSMappedType" (UastTypeScript.kindFromNative("TSMappedType")) (UastKind.LanguageSpecific()))
+        c.eqStr("empty" (UastTypeScript.kindFromNative("")) (UastKind.Unknown()))
+    }
+
+    sfn testEscapeHatch:void (c:UastChecker) {
+        print "== LanguageSpecific vs Unknown"
+        def m (new UastCodeModel)
+        m.language = "typescript"
+        def spec:UNode (UNode.create("n:cond" (UastKind.LanguageSpecific()) "typescript" "TSConditionalType"))
+        spec.name = "X"
+        spec.origin = (UastOrigin.create("typescript" "zip_writer.ts" "ConditionalType" 1))
+        m.addNode(spec)
+        def unk:UNode (UNode.create("n:unk" (UastKind.Unknown()) "typescript" ""))
+        m.addNode(unk)
+        def cls:UNode (UNode.create("n:ok" (UastKind.ClassDecl()) "typescript" "ClassDeclaration"))
+        cls.name = "Ok"
+        m.addNode(cls)
+        c.eqInt("unknown count" (m.unknownNodeCount()) 1)
+        c.eqInt("language-specific count" (m.languageSpecificCount()) 1)
+        c.eqInt("normalized count" (m.normalizedNodeCount()) 1)
+        def stored:UNode (m.nodeById("n:cond"))
+        c.eqStr("kept nativeKind" stored.nativeKind "TSConditionalType")
+        c.eqStr("origin frontend" stored.origin.frontend "typescript")
+        c.eqInt("origin version" stored.origin.sourceVersion 1)
+    }
+
+    sfn testComments:void (c:UastChecker) {
+        print "== documentation overview on the property"
+        def r (new UastFrontendResult)
+        r.language = "ranger"
+        def cls:UNode (UNode.create("n:class:SheetView" (UastKind.ClassDecl()) "ranger" "class"))
+        cls.name = "SheetView"
+        r.addNode(cls)
+        def field:UNode (UNode.create("n:field:SheetView.sortHeadRows" (UastKind.FieldDecl()) "ranger" "def"))
+        field.name = "sortHeadRows"
+        field.comment = "Frozen rows, plus an inferred table header while sorting."
+        r.addNode(field)
+        def tn:UNode (UNode.create("n:type:SheetView.sortHeadRows" (UastKind.TypeRef()) "ranger" "type"))
+        tn.name = "int"
+        r.addNode(tn)
+        field.addRole((UastChildRole.typeRole()) tn.id)
+        cls.addRole((UastChildRole.field()) field.id)
+        def kind:UNode (UNode.create("n:field:SheetView.sortKind" (UastKind.FieldDecl()) "ranger" "def"))
+        kind.name = "sortKind"
+        kind.comment = "Sort keys, read once per row (decorate-sort-undecorate) and indexed by\nmodel row."
+        r.addNode(kind)
+        def kt:UNode (UNode.create("n:type:SheetView.sortKind" (UastKind.TypeRef()) "ranger" "type"))
+        kt.name = "[int]"
+        r.addNode(kt)
+        kind.addRole((UastChildRole.typeRole()) kt.id)
+        cls.addRole((UastChildRole.field()) kind.id)
+        def model:UastCodeModel (UastSemantic.fromResult(r))
+        def head:UastSymbol (model.symbolById("field:SheetView.sortHeadRows"))
+        c.eqStr("sortHeadRows overview" head.comment "Frozen rows, plus an inferred table header while sorting.")
+        def sk:UastSymbol (model.symbolById("field:SheetView.sortKind"))
+        c.ok("sortKind overview mentions Sort keys" ((indexOf sk.comment "Sort keys") >= 0))
+        c.ok("sortKind overview is not Frozen rows" ((indexOf sk.comment "Frozen rows") < 0))
+        def dump:string (UastDump.ofNode(model field.id))
+        c.ok("dump includes comment" ((indexOf dump "comment: Frozen rows") >= 0))
+    }
+
+    sfn testQuery:void (c:UastChecker) {
+        print "== query helpers"
+        def model:UastCodeModel (UastSample.zipWriter())
+        def zw:UNode (UastQuery.classNode(model "ZipWriter"))
+        c.eqStr("class name" zw.name "ZipWriter")
+        def crc:UNode (UastQuery.fieldNode(model "ZipWriter" "crc"))
+        c.eqStr("field crc" crc.name "crc")
+        def add:UNode (UastQuery.methodNode(model "ZipWriter" "addFile"))
+        c.eqStr("method addFile" add.name "addFile")
+        def calls:[UNode] (UastQuery.ofKindUnder(model add (UastKind.Call())))
+        c.ok("addFile has a Call" ((array_length calls) > 0))
+        if ((array_length calls) > 0) {
+            def call0:UNode (itemAt calls 0)
+            c.eqStr("callee member" (UastQuery.calleeMemberName(model call0)) "compute")
+            c.eqStr("callee receiver" (UastQuery.calleeReceiverName(model call0)) "crc")
+        }
+    }
+
+    sfn testScopes:void (c:UastChecker) {
+        print "== scopes and references (shared pipeline)"
+        def model:UastCodeModel (UastSample.zipWriter())
+        c.ok("fileData param symbol" (model.mentionsSymbol("param:ZipWriter.addFile.fileData")))
+        c.ok("name param symbol" (model.mentionsSymbol("param:ZipWriter.addFile.name")))
+        c.eqStr("this → ZipWriter" (UastQuery.refTarget(model "n:this")) "class:ZipWriter")
+        c.eqStr("crc member → field" (UastQuery.refTarget(model "n:crc-id")) "field:ZipWriter.crc")
+        c.eqStr("this.crc → field" (UastQuery.refTarget(model "n:this.crc")) "field:ZipWriter.crc")
+        c.eqStr("compute member → method" (UastQuery.refTarget(model "n:compute-id")) "method:CRC32.compute")
+        c.eqStr("this.crc.compute → method" (UastQuery.refTarget(model "n:this.crc.compute")) "method:CRC32.compute")
+        c.eqStr("fileData arg → param" (UastQuery.refTarget(model "n:arg-data")) "param:ZipWriter.addFile.fileData")
+        def crcType:UNode (model.nodeById("n:type:ZipWriter.crc"))
+        c.eqStr("crc TypeRef → CRC32" (UastQuery.refTarget(model crcType.id)) "class:CRC32")
+        def two:UastCodeModel (UastSample.twoFoo())
+        c.ok("Alpha.foo" (two.mentionsSymbol("method:Alpha.foo")))
+        c.ok("Beta.foo" (two.mentionsSymbol("method:Beta.foo")))
+        c.eqStr("foo is not globally unique" (two.uniqueSymbolNamed("foo")) "")
+        c.eqStr("Alpha this → Alpha" (UastQuery.refTarget(two "n:alpha-this")) "class:Alpha")
+        c.eqStr("Beta this → Beta" (UastQuery.refTarget(two "n:beta-this")) "class:Beta")
+        c.eqStr("Alpha this.foo → Alpha.foo" (UastQuery.refTarget(two "n:alpha-mem")) "method:Alpha.foo")
+        c.eqStr("Beta this.foo → Beta.foo" (UastQuery.refTarget(two "n:beta-mem")) "method:Beta.foo")
+        c.ok("member foo is not the run param" ((UastQuery.refTarget(two "n:alpha-mem")) != "param:Alpha.run.foo"))
+        c.ok("run param is indexed" (two.mentionsSymbol("param:Alpha.run.foo")))
+    }
+
+    sfn testWorkspace:void (c:UastChecker) {
+        print "== workspace imports and exports"
+        def model:UastCodeModel (UastSample.fooWorkspace())
+        c.ok("Foo from a.ts" (model.mentionsSymbol("class:Foo")))
+        c.ok("Uses from b.ts" (model.mentionsSymbol("class:Uses")))
+        c.ok("Foo.hello" (model.mentionsSymbol("method:Foo.hello")))
+        c.ok("module a" (model.mentionsSymbol("module:foo_a.ts")))
+        c.ok("module b" (model.mentionsSymbol("module:foo_b.ts")))
+        c.eqStr("import Foo specifier" (UastQuery.refTarget(model "n:import:Foo")) "class:Foo")
+        c.eqStr("new Foo → class" (UastQuery.refTarget(model "n:new-Foo-id")) "class:Foo")
+        c.eqStr("x → var" (UastQuery.refTarget(model "n:x-id")) "var:foo_b.ts.x")
+        c.eqStr("x.hello → method" (UastQuery.refTarget(model "n:hello-id")) "method:Foo.hello")
+        def foundImp:boolean false
+        def foundExp:boolean false
+        def ri:int 0
+        while (ri < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships ri)
+            if ((rel.kind == "imports") && (rel.fromId == "module:foo_b.ts") && (rel.toId == "class:Foo")) {
+                foundImp = true
+            }
+            if ((rel.kind == "exports") && (rel.fromId == "module:foo_a.ts") && (rel.toId == "class:Foo")) {
+                foundExp = true
+            }
+            ri = (ri + 1)
+        }
+        c.ok("b imports Foo" foundImp)
+        c.ok("a exports Foo" foundExp)
+        c.ok("unresolved ./nope" (UastQuery.diagnosticMentions(model "unresolved import ./nope")))
+        c.ok("unresolved WindowCtl.rgr" (UastQuery.diagnosticMentions(model "WindowCtl.rgr")))
+        c.ok("analysis continued" (model.mentionsSymbol("class:Uses")))
+    }
+
+    sfn testCalls:void (c:UastChecker) {
+        print "== calls in the shared pipeline"
+        def two:UastCodeModel (UastSample.twoFoo())
+        def aToA:boolean false
+        def aToB:boolean false
+        def bToB:boolean false
+        def bToA:boolean false
+        def i:int 0
+        while (i < (array_length two.relationships)) {
+            def rel:UastRelation (itemAt two.relationships i)
+            if (rel.kind == "calls") {
+                if ((rel.fromId == "method:Alpha.run") && (rel.toId == "method:Alpha.foo")) {
+                    aToA = true
+                    c.eqStr("Alpha.run → Alpha.foo confidence" rel.confidence "exact")
+                    c.eqStr("Alpha.run → Alpha.foo resolution" rel.resolution "resolved")
+                }
+                if ((rel.fromId == "method:Alpha.run") && (rel.toId == "method:Beta.foo")) {
+                    aToB = true
+                }
+                if ((rel.fromId == "method:Beta.run") && (rel.toId == "method:Beta.foo")) {
+                    bToB = true
+                }
+                if ((rel.fromId == "method:Beta.run") && (rel.toId == "method:Alpha.foo")) {
+                    bToA = true
+                }
+            }
+            i = (i + 1)
+        }
+        c.ok("Alpha.run calls Alpha.foo" aToA)
+        c.ok("Beta.run calls Beta.foo" bToB)
+        c.ok("Alpha.run does not call Beta.foo" (aToB == false))
+        c.ok("Beta.run does not call Alpha.foo" (bToA == false))
+        c.eqStr("Alpha call dump" (UastQuery.refTarget(two "n:alpha-call")) "method:Alpha.foo")
+        c.eqStr("Beta call dump" (UastQuery.refTarget(two "n:beta-call")) "method:Beta.foo")
+        def ws:UastCodeModel (UastSample.fooWorkspace())
+        def hello:boolean false
+        def hi:int 0
+        while (hi < (array_length ws.relationships)) {
+            def href:UastRelation (itemAt ws.relationships hi)
+            if ((href.kind == "calls") && (href.fromId == "method:Uses.make") && (href.toId == "method:Foo.hello")) {
+                hello = true
+                c.eqStr("Uses.make → Foo.hello confidence" href.confidence "exact")
+            }
+            hi = (hi + 1)
+        }
+        c.ok("Uses.make calls Foo.hello" hello)
+    }
+}

@@ -118,3 +118,7 @@ and keeps classes whose source path matches the file you named.
 
 RangerFlow is imported as a **library** (`gallery/rangerflow/core`, layout,
 export). This app does not live in RangerFlow's demo dropdown.
+
+A language-analysis layer that *projects into* this IR — so TypeScript and
+later Go can reuse the same class/method page — is [`gallery/uast`](../uast/README.md).
+CodeGraph stays the presentation. UAST does not replace `CodeGraphBuilder`.

@@ -1,0 +1,819 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastTs.rgr — ts_parser TSNode → FrontendResult.
+; ============================================================================
+;
+; The only UAST file that imports gallery/ts_parser. Does not import the
+; Ranger compiler. Hints are frontendInferred: the pipeline owns exact.
+; ============================================================================
+
+Import "UastFrontend.rgr"
+Import "UastSemantic.rgr"
+Import "UastKind.rgr"
+Import "UastTypeScript.rgr"
+Import "../../ts_parser/ts_parser_simple.rgr"
+Import "../../../lib/ranger-dir.rgr"
+
+class UastTs {
+    def fileName:string ""
+    def source:string ""
+    def tokens:[Token]
+    def seq:int 0
+    def classNames:[string]
+
+    Constructor () {
+    }
+
+    sfn fromSource:UastCodeModel (source:string fileName:string) {
+        def b (new UastTs)
+        return (UastSemantic.fromResult((b.parse(source fileName))))
+    }
+
+    sfn parseSource:UastFrontendResult (source:string fileName:string) {
+        def b (new UastTs)
+        return (b.parse(source fileName))
+    }
+
+    sfn parseFile:UastFrontendResult (path:string) {
+        def text@(optional):string (UastTs.readSource(path))
+        if (null? text) {
+            def empty (new UastFrontendResult)
+            empty.title = (path + " FAIL missing file")
+            empty.language = "typescript"
+            empty.addDiagnostic((UastDiagnostic.create(("could not read " + path) "error")))
+            return empty
+        }
+        return (UastTs.parseSource((unwrap text) path))
+    }
+
+    sfn fromFile:UastCodeModel (path:string) {
+        def text@(optional):string (UastTs.readSource(path))
+        if (null? text) {
+            def empty (new UastCodeModel)
+            empty.title = (path + " FAIL missing file")
+            empty.language = "typescript"
+            empty.addDiagnostic((UastDiagnostic.create(("could not read " + path) "error")))
+            return empty
+        }
+        return (UastTs.fromSource((unwrap text) path))
+    }
+
+    sfn fromPath:UastCodeModel (path:string) {
+        def base:string (UastTs.pathBase(path))
+        if (UastTs.isTsSource(base)) {
+            return (UastTs.fromFile(path))
+        }
+        return (UastTs.fromDir(path))
+    }
+
+    sfn fromDir:UastCodeModel (root:string) {
+        def ws (new UastWorkspace)
+        def files:[string]
+        UastTs.collectTsFiles(root files 0)
+        def i:int 0
+        while (i < (array_length files)) {
+            def path:string (itemAt files i)
+            ws.addResult((UastTs.parseFile(path)))
+            i = (i + 1)
+        }
+        def m:UastCodeModel (UastSemantic.fromWorkspace(ws))
+        m.title = root
+        if ((array_length files) == 0) {
+            m.addDiagnostic((UastDiagnostic.create(("no .ts files under " + root) "error")))
+        }
+        return m
+    }
+
+    sfn collectTsFiles:void (dir:string out:[string] depth:int) {
+        if (depth > 12) {
+            return
+        }
+        if ((dir_exists dir) == false) {
+            return
+        }
+        def names:[string] (list_dir_files dir)
+        def i:int 0
+        while (i < (array_length names)) {
+            def name:string (itemAt names i)
+            if (UastTs.skipDirName(name)) {
+            } {
+                def joined:string ((dir + "/") + name)
+                if (UastTs.isTsSource(name)) {
+                    push out joined
+                } {
+                    if (UastTs.looksLikeFile(name)) {
+                    } {
+                        if (dir_exists joined) {
+                            UastTs.collectTsFiles(joined out (depth + 1))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn skipDirName:boolean (name:string) {
+        if (name == "node_modules") {
+            return true
+        }
+        if (name == "dist") {
+            return true
+        }
+        if (name == "coverage") {
+            return true
+        }
+        if (name == "build") {
+            return true
+        }
+        if ((strlen name) > 0) {
+            if ((charAt name 0) == ((ccode "."))) {
+                return true
+            }
+        }
+        return false
+    }
+
+    sfn isTsSource:boolean (name:string) {
+        def n:int (strlen name)
+        if (n >= 5) {
+            if ((substring name (n - 5) n) == ".d.ts") {
+                return false
+            }
+        }
+        if (n >= 3) {
+            if ((substring name (n - 3) n) == ".ts") {
+                return true
+            }
+        }
+        return false
+    }
+
+    sfn looksLikeFile:boolean (name:string) {
+        def i:int 1
+        while (i < (strlen name)) {
+            if ((charAt name i) == ((ccode "."))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn pathBase:string (path:string) {
+        def slash:int (0 - 1)
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == ((ccode "/"))) {
+                slash = i
+            }
+            i = (i + 1)
+        }
+        if (slash < 0) {
+            return path
+        }
+        return (substring path (slash + 1) (strlen path))
+    }
+
+    sfn readSource@(optional):string (path:string) {
+        def cut:int (0 - 1)
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == ((ccode "/"))) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        def dir:string "."
+        def name:string path
+        if (cut >= 0) {
+            dir = (substring path 0 cut)
+            name = (substring path (cut + 1) (strlen path))
+        }
+        def text@(optional):string (read_file dir name)
+        return text
+    }
+
+    fn parse:UastFrontendResult (src:string path:string) {
+        source = src
+        fileName = path
+        def r (new UastFrontendResult)
+        r.title = path
+        r.language = "typescript"
+        def file:UastSourceFile (r.addFile(path "typescript"))
+        file.version = 1
+        def lexer:TSLexer (new TSLexer(src))
+        tokens = (lexer.tokenize())
+        def parser:TSParserSimple (new TSParserSimple())
+        parser.initParser(tokens)
+        parser.setQuiet(true)
+        def program:TSNode (parser.parseProgram())
+        if (parser.errorCount > 0) {
+            r.addDiagnostic((UastDiagnostic.create(parser.firstErrorText "error")))
+        }
+        this.collectClassNames(program)
+        this.walkProgram(r program)
+        return r
+    }
+
+    fn fileKey:string () {
+        def p:string fileName
+        def slash:int (0 - 1)
+        def i:int 0
+        while (i < (strlen p)) {
+            if ((charAt p i) == ((ccode "/"))) {
+                slash = i
+            }
+            i = (i + 1)
+        }
+        def base:string p
+        if (slash >= 0) {
+            base = (substring p (slash + 1) (strlen p))
+        }
+        def dot:int (0 - 1)
+        def j:int 0
+        while (j < (strlen base)) {
+            if ((charAt base j) == ((ccode "."))) {
+                dot = j
+            }
+            j = (j + 1)
+        }
+        if (dot > 0) {
+            return (substring base 0 dot)
+        }
+        return base
+    }
+
+    fn collectClassNames:void (program:TSNode) {
+        def i:int 0
+        while (i < (array_length program.children)) {
+            def st:TSNode (itemAt program.children i)
+            this.noteTypeName(st)
+            if ((st.nodeType == "ExportNamedDeclaration") || (st.nodeType == "ExportDefaultDeclaration")) {
+                if (null? st.left) {
+                } {
+                    this.noteTypeName((unwrap st.left))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn walkProgram:void (r:UastFrontendResult program:TSNode) {
+        def i:int 0
+        while (i < (array_length program.children)) {
+            def st:TSNode (itemAt program.children i)
+            if (st.nodeType == "ClassDeclaration") {
+                this.addClass(r st)
+            }
+            if (st.nodeType == "TSInterfaceDeclaration") {
+                this.addInterface(r st)
+            }
+            if (st.nodeType == "FunctionDeclaration") {
+                this.addFunction(r st)
+            }
+            if (st.nodeType == "TSTypeAliasDeclaration") {
+                this.addTypeAlias(r st)
+            }
+            if (st.nodeType == "ImportDeclaration") {
+                this.addImport(r st)
+            }
+            if ((st.nodeType == "ExportNamedDeclaration") || (st.nodeType == "ExportDefaultDeclaration")) {
+                this.addExport(r st)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn noteTypeName:void (ts:TSNode) {
+        if ((ts.nodeType == "ClassDeclaration") || (ts.nodeType == "TSInterfaceDeclaration")) {
+            if ((strlen ts.name) > 0) {
+                push classNames ts.name
+            }
+        }
+    }
+
+    fn addClass:UNode (r:UastFrontendResult ts:TSNode) {
+        def node:UNode (UNode.create((this.nextId("n:class:")) (UastKind.ClassDecl()) "typescript" ts.nodeType))
+        node.name = ts.name
+        node.span = (this.spanOf(ts))
+        node.origin = (UastOrigin.create("typescript" fileName ts.name 1))
+        node.comment = (this.commentsBefore(ts.start))
+        r.addNode(node)
+        this.addHeritage(r node ts)
+        if (null? ts.body) {
+            return node
+        }
+        def body:TSNode (unwrap ts.body)
+        def mi:int 0
+        while (mi < (array_length body.children)) {
+            def mem:TSNode (itemAt body.children mi)
+            if (mem.nodeType == "PropertyDefinition") {
+                this.addField(r node mem)
+            }
+            if (mem.nodeType == "MethodDefinition") {
+                this.addMethod(r node mem)
+            }
+            mi = (mi + 1)
+        }
+        return node
+    }
+
+    fn addInterface:UNode (r:UastFrontendResult ts:TSNode) {
+        def node:UNode (UNode.create((this.nextId("n:iface:")) (UastKind.InterfaceDecl()) "typescript" ts.nodeType))
+        node.name = ts.name
+        node.span = (this.spanOf(ts))
+        node.origin = (UastOrigin.create("typescript" fileName ts.name 1))
+        node.comment = (this.commentsBefore(ts.start))
+        r.addNode(node)
+        this.addHeritage(r node ts)
+        if (null? ts.body) {
+            return node
+        }
+        def body:TSNode (unwrap ts.body)
+        def mi:int 0
+        while (mi < (array_length body.children)) {
+            def mem:TSNode (itemAt body.children mi)
+            if (mem.nodeType == "TSPropertySignature") {
+                this.addField(r node mem)
+            }
+            if (mem.nodeType == "TSMethodSignature") {
+                this.addMethod(r node mem)
+            }
+            mi = (mi + 1)
+        }
+        return node
+    }
+
+    fn addFunction:UNode (r:UastFrontendResult ts:TSNode) {
+        def node:UNode (UNode.create((this.nextId("n:fn:")) (UastKind.FunctionDecl()) "typescript" ts.nodeType))
+        node.name = ts.name
+        if ((strlen node.name) == 0) {
+            node.name = "default"
+        }
+        node.span = (this.spanOf(ts))
+        node.origin = (UastOrigin.create("typescript" fileName node.name 1))
+        node.comment = (this.commentsBefore(ts.start))
+        r.addNode(node)
+        def ret:UNode (UNode.create((this.nextId("n:ret:")) (UastKind.TypeRef()) "typescript" "type"))
+        ret.name = (this.typeNameOf(ts.typeAnnotation))
+        r.addNode(ret)
+        node.addRole((UastChildRole.returnType()) ret.id)
+        def pi:int 0
+        while (pi < (array_length ts.params)) {
+            def p:TSNode (itemAt ts.params pi)
+            def pn:UNode (UNode.create((this.nextId("n:p:")) (UastKind.Parameter()) "typescript" "param"))
+            pn.name = p.name
+            r.addNode(pn)
+            def pt:UNode (UNode.create((this.nextId("n:pt:")) (UastKind.TypeRef()) "typescript" "type"))
+            pt.name = (this.typeNameOf(p.typeAnnotation))
+            r.addNode(pt)
+            pn.addRole((UastChildRole.typeRole()) pt.id)
+            node.addRole((UastChildRole.parameter()) pn.id)
+            pi = (pi + 1)
+        }
+        if (null? ts.body) {
+            return node
+        }
+        def bodyTs:TSNode (unwrap ts.body)
+        def block:UNode (UNode.create((this.nextId("n:body:")) (UastKind.Block()) "typescript" "BlockStatement"))
+        r.addNode(block)
+        node.addRole((UastChildRole.body()) block.id)
+        this.walkStmt(r block bodyTs)
+        return node
+    }
+
+    fn addTypeAlias:UNode (r:UastFrontendResult ts:TSNode) {
+        def node:UNode (UNode.create((this.nextId("n:type:")) (UastKind.TypeDecl()) "typescript" ts.nodeType))
+        node.name = ts.name
+        node.span = (this.spanOf(ts))
+        node.origin = (UastOrigin.create("typescript" fileName ts.name 1))
+        node.comment = (this.commentsBefore(ts.start))
+        r.addNode(node)
+        def tn:UNode (UNode.create((this.nextId("n:alias:")) (UastKind.TypeRef()) "typescript" "type"))
+        tn.name = (this.typeNameOf(ts.typeAnnotation))
+        r.addNode(tn)
+        node.addRole((UastChildRole.typeRole()) tn.id)
+        return node
+    }
+
+    fn addHeritage:void (r:UastFrontendResult node:UNode ts:TSNode) {
+        if (null? ts.left) {
+        } {
+            this.addExtendsHint(r node (this.heritageNameOf((unwrap ts.left))))
+        }
+        if (node.kind == "InterfaceDecl") {
+            def i:int 0
+            while (i < (array_length ts.children)) {
+                def ch:TSNode (itemAt ts.children i)
+                if (ch.nodeType == "TSExpressionWithTypeArguments") {
+                    this.addExtendsHint(r node (this.heritageNameOf(ch)))
+                }
+                i = (i + 1)
+            }
+        }
+    }
+
+    fn addExtendsHint:void (r:UastFrontendResult node:UNode superName:string) {
+        if ((strlen superName) == 0) {
+            return
+        }
+        def src:string (UastHintSource.frontendInferred())
+        r.addHint((UastSemanticHint.create(node.id (UastRelKind.extendsRel()) superName src (UastResolution.resolved()) (UastConfidence.inferred()))))
+    }
+
+    fn heritageNameOf:string (ts:TSNode) {
+        if (ts.nodeType == "TSExpressionWithTypeArguments") {
+            if (null? ts.left) {
+                return ts.name
+            }
+            return (this.heritageNameOf((unwrap ts.left)))
+        }
+        if ((strlen ts.name) > 0) {
+            return ts.name
+        }
+        return ts.value
+    }
+
+    fn addImport:void (r:UastFrontendResult ts:TSNode) {
+        def node:UNode (UNode.create((this.nextId("n:import:")) (UastKind.Import()) "typescript" ts.nodeType))
+        node.span = (this.spanOf(ts))
+        if (null? ts.left) {
+        } {
+            def src:TSNode (unwrap ts.left)
+            node.name = src.value
+        }
+        r.addNode(node)
+        def i:int 0
+        while (i < (array_length ts.children)) {
+            def spec:TSNode (itemAt ts.children i)
+            def idn:UNode (UNode.create((this.nextId("n:id:")) (UastKind.Identifier()) "typescript" spec.nodeType))
+            idn.name = spec.name
+            idn.span = (this.spanOf(ts))
+            r.addNode(idn)
+            node.addRole((UastChildRole.nameRole()) idn.id)
+            i = (i + 1)
+        }
+    }
+
+    fn addExport:void (r:UastFrontendResult ts:TSNode) {
+        def node:UNode (UNode.create((this.nextId("n:export:")) (UastKind.Export()) "typescript" ts.nodeType))
+        node.span = (this.spanOf(ts))
+        r.addNode(node)
+        if (null? ts.left) {
+        } {
+            def decl:TSNode (unwrap ts.left)
+            if (decl.nodeType == "ClassDeclaration") {
+                def cls:UNode (this.addClass(r decl))
+                cls.addFlag("export")
+                node.addRole((UastChildRole.element()) cls.id)
+            }
+            if (decl.nodeType == "TSInterfaceDeclaration") {
+                def iface:UNode (this.addInterface(r decl))
+                iface.addFlag("export")
+                node.addRole((UastChildRole.element()) iface.id)
+            }
+            if (decl.nodeType == "FunctionDeclaration") {
+                def fnN:UNode (this.addFunction(r decl))
+                fnN.addFlag("export")
+                node.addRole((UastChildRole.element()) fnN.id)
+            }
+            if (decl.nodeType == "TSTypeAliasDeclaration") {
+                def ty:UNode (this.addTypeAlias(r decl))
+                ty.addFlag("export")
+                node.addRole((UastChildRole.element()) ty.id)
+            }
+        }
+        def i:int 0
+        while (i < (array_length ts.children)) {
+            def spec:TSNode (itemAt ts.children i)
+            def idn:UNode (UNode.create((this.nextId("n:id:")) (UastKind.Identifier()) "typescript" spec.nodeType))
+            idn.name = spec.name
+            idn.span = (this.spanOf(ts))
+            r.addNode(idn)
+            node.addRole((UastChildRole.nameRole()) idn.id)
+            i = (i + 1)
+        }
+    }
+
+    fn addField:void (r:UastFrontendResult owner:UNode ts:TSNode) {
+        def node:UNode (UNode.create((this.nextId("n:field:")) (UastKind.FieldDecl()) "typescript" ts.nodeType))
+        node.name = ts.name
+        node.span = (this.spanOf(ts))
+        node.comment = (this.commentsBefore(ts.start))
+        if (ts.kind == "static") {
+            node.addFlag("static")
+        }
+        r.addNode(node)
+        def tn:UNode (UNode.create((this.nextId("n:type:")) (UastKind.TypeRef()) "typescript" "type"))
+        tn.name = (this.typeNameOf(ts.typeAnnotation))
+        r.addNode(tn)
+        node.addRole((UastChildRole.typeRole()) tn.id)
+        owner.addRole((UastChildRole.field()) node.id)
+        if (this.mentionsClass(tn.name)) {
+            def src:string (UastHintSource.frontendInferred())
+            r.addHint((UastSemanticHint.create(owner.id (UastRelKind.usesType()) tn.name src (UastResolution.resolved()) (UastConfidence.inferred()))))
+        }
+    }
+
+    fn addMethod:void (r:UastFrontendResult owner:UNode ts:TSNode) {
+        if ((strlen ts.name) == 0) {
+            return
+        }
+        if (ts.name == "constructor") {
+            return
+        }
+        def node:UNode (UNode.create((this.nextId("n:method:")) (UastKind.MethodDecl()) "typescript" ts.nodeType))
+        node.name = ts.name
+        node.span = (this.spanOf(ts))
+        node.comment = (this.commentsBefore(ts.start))
+        if (ts.kind == "static") {
+            node.addFlag("static")
+        }
+        r.addNode(node)
+        def ret:UNode (UNode.create((this.nextId("n:ret:")) (UastKind.TypeRef()) "typescript" "type"))
+        ret.name = (this.typeNameOf(ts.typeAnnotation))
+        r.addNode(ret)
+        node.addRole((UastChildRole.returnType()) ret.id)
+        def pi:int 0
+        while (pi < (array_length ts.params)) {
+            def p:TSNode (itemAt ts.params pi)
+            def pn:UNode (UNode.create((this.nextId("n:p:")) (UastKind.Parameter()) "typescript" "param"))
+            pn.name = p.name
+            r.addNode(pn)
+            def pt:UNode (UNode.create((this.nextId("n:pt:")) (UastKind.TypeRef()) "typescript" "type"))
+            pt.name = (this.typeNameOf(p.typeAnnotation))
+            r.addNode(pt)
+            pn.addRole((UastChildRole.typeRole()) pt.id)
+            node.addRole((UastChildRole.parameter()) pn.id)
+            pi = (pi + 1)
+        }
+        owner.addRole((UastChildRole.method()) node.id)
+        if (null? ts.body) {
+            return
+        }
+        def bodyTs:TSNode (unwrap ts.body)
+        def block:UNode (UNode.create((this.nextId("n:body:")) (UastKind.Block()) "typescript" "BlockStatement"))
+        r.addNode(block)
+        node.addRole((UastChildRole.body()) block.id)
+        this.walkStmt(r block bodyTs)
+    }
+
+    fn walkStmt:void (r:UastFrontendResult owner:UNode ts:TSNode) {
+        if (ts.nodeType == "CallExpression") {
+            def callN:UNode (this.buildCall(r ts))
+            owner.addRole((UastChildRole.element()) callN.id)
+            return
+        }
+        if (ts.nodeType == "NewExpression") {
+            def newN:UNode (this.buildNew(r ts))
+            owner.addRole((UastChildRole.element()) newN.id)
+            return
+        }
+        if (ts.nodeType == "ExpressionStatement") {
+            if (null? ts.left) {
+                return
+            }
+            this.walkStmt(r owner (unwrap ts.left))
+            return
+        }
+        if (ts.nodeType == "BlockStatement") {
+            def i:int 0
+            while (i < (array_length ts.children)) {
+                this.walkStmt(r owner (itemAt ts.children i))
+                i = (i + 1)
+            }
+            return
+        }
+        if (null? ts.left) {
+        } {
+            this.walkStmt(r owner (unwrap ts.left))
+        }
+        if (null? ts.right) {
+        } {
+            this.walkStmt(r owner (unwrap ts.right))
+        }
+        if (null? ts.body) {
+        } {
+            this.walkStmt(r owner (unwrap ts.body))
+        }
+        def ci:int 0
+        while (ci < (array_length ts.children)) {
+            this.walkStmt(r owner (itemAt ts.children ci))
+            ci = (ci + 1)
+        }
+    }
+
+    fn buildCall:UNode (r:UastFrontendResult ts:TSNode) {
+        def callN:UNode (UNode.create((this.nextId("n:call:")) (UastKind.Call()) "typescript" "CallExpression"))
+        callN.span = (this.spanOf(ts))
+        r.addNode(callN)
+        if (null? ts.left) {
+        } {
+            def callee:UNode (this.buildExpr(r (unwrap ts.left)))
+            callN.addRole((UastChildRole.callee()) callee.id)
+        }
+        def ai:int 0
+        while (ai < (array_length ts.children)) {
+            def arg:UNode (this.buildExpr(r (itemAt ts.children ai)))
+            callN.addRole((UastChildRole.argument()) arg.id)
+            ai = (ai + 1)
+        }
+        return callN
+    }
+
+    fn buildNew:UNode (r:UastFrontendResult ts:TSNode) {
+        def newN:UNode (UNode.create((this.nextId("n:new:")) (UastKind.New()) "typescript" "NewExpression"))
+        newN.span = (this.spanOf(ts))
+        r.addNode(newN)
+        if (null? ts.left) {
+        } {
+            def callee:UNode (this.buildExpr(r (unwrap ts.left)))
+            newN.addRole((UastChildRole.callee()) callee.id)
+        }
+        def ai:int 0
+        while (ai < (array_length ts.children)) {
+            def arg:UNode (this.buildExpr(r (itemAt ts.children ai)))
+            newN.addRole((UastChildRole.argument()) arg.id)
+            ai = (ai + 1)
+        }
+        return newN
+    }
+
+    fn buildExpr:UNode (r:UastFrontendResult ts:TSNode) {
+        if (ts.nodeType == "MemberExpression") {
+            return (this.buildMember(r ts))
+        }
+        if (ts.nodeType == "CallExpression") {
+            return (this.buildCall(r ts))
+        }
+        if (ts.nodeType == "NewExpression") {
+            return (this.buildNew(r ts))
+        }
+        def idn:UNode (UNode.create((this.nextId("n:id:")) (UastKind.Identifier()) "typescript" ts.nodeType))
+        idn.name = ts.name
+        if ((strlen idn.name) == 0) {
+            idn.name = ts.value
+        }
+        if (ts.nodeType == "ThisExpression") {
+            idn.name = "this"
+        }
+        idn.span = (this.spanOf(ts))
+        r.addNode(idn)
+        return idn
+    }
+
+    fn buildMember:UNode (r:UastFrontendResult ts:TSNode) {
+        def acc:UNode (UNode.create((this.nextId("n:mem:")) (UastKind.MemberAccess()) "typescript" "MemberExpression"))
+        acc.span = (this.spanOf(ts))
+        r.addNode(acc)
+        if (null? ts.left) {
+        } {
+            def recv:UNode (this.buildExpr(r (unwrap ts.left)))
+            acc.addRole((UastChildRole.receiver()) recv.id)
+        }
+        def mem:UNode (UNode.create((this.nextId("n:id:")) (UastKind.Identifier()) "typescript" "Identifier"))
+        mem.name = ts.name
+        r.addNode(mem)
+        acc.addRole((UastChildRole.member()) mem.id)
+        return acc
+    }
+
+    fn typeNameOf:string (ann@(optional):TSNode) {
+        if (null? ann) {
+            return ""
+        }
+        def t:TSNode (unwrap ann)
+        if (t.nodeType == "TSTypeAnnotation") {
+            if (null? t.typeAnnotation) {
+                return ""
+            }
+            return (this.typeNameOf(t.typeAnnotation))
+        }
+        if (t.nodeType == "TSArrayType") {
+            if (null? t.left) {
+                return "[]"
+            }
+            return ("[" + (this.typeNameOf(t.left)) + "]")
+        }
+        if (t.nodeType == "TSTypeReference") {
+            return t.name
+        }
+        if (t.nodeType == "TSStringKeyword") {
+            return "string"
+        }
+        if (t.nodeType == "TSNumberKeyword") {
+            return "number"
+        }
+        if (t.nodeType == "TSBooleanKeyword") {
+            return "boolean"
+        }
+        if (t.nodeType == "TSVoidKeyword") {
+            return "void"
+        }
+        if (t.nodeType == "TSAnyKeyword") {
+            return "any"
+        }
+        if ((strlen t.name) > 0) {
+            return t.name
+        }
+        return t.nodeType
+    }
+
+    fn mentionsClass:boolean (name:string) {
+        def bare:string name
+        if ((strlen name) >= 2) {
+            if ((charAt name 0) == ((ccode "["))) {
+                bare = (substring name 1 ((strlen name) - 1))
+            }
+        }
+        def i:int 0
+        while (i < (array_length classNames)) {
+            if ((itemAt classNames i) == bare) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn commentsBefore:string (start:int) {
+        def lastSig:int (0 - 1)
+        def i:int 0
+        while (i < (array_length tokens)) {
+            def t:Token (itemAt tokens i)
+            if (t.start >= start) {
+                break
+            }
+            if ((t.tokenType == "LineComment") || (t.tokenType == "BlockComment")) {
+            } {
+                lastSig = i
+            }
+            i = (i + 1)
+        }
+        def parts:[string]
+        def lastEnd:int 0
+        if (lastSig >= 0) {
+            def sig:Token (itemAt tokens lastSig)
+            lastEnd = sig.end
+        }
+        def j:int (lastSig + 1)
+        while (j < i) {
+            def c:Token (itemAt tokens j)
+            if ((c.tokenType == "LineComment") || (c.tokenType == "BlockComment")) {
+                push parts (this.commentLine(c.value))
+                lastEnd = c.end
+            }
+            j = (j + 1)
+        }
+        if ((array_length parts) == 0) {
+            return ""
+        }
+        if (this.hasBlankLine(lastEnd start)) {
+            return ""
+        }
+        return (join parts "\n")
+    }
+
+    fn hasBlankLine:boolean (fromPos:int toPos:int) {
+        if (toPos <= fromPos) {
+            return false
+        }
+        def gap:string (substring source fromPos toPos)
+        def nls:int 0
+        def k:int 0
+        while (k < (strlen gap)) {
+            if ((charAt gap k) == 10) {
+                nls = (nls + 1)
+            }
+            k = (k + 1)
+        }
+        if (nls >= 2) {
+            return true
+        }
+        return false
+    }
+
+    fn commentLine:string (raw:string) {
+        def s:string raw
+        while ((strlen s) > 0) {
+            def ch:int (charAt s 0)
+            if ((ch == 32) || (ch == 9) || (ch == 42)) {
+                s = (substring s 1 (strlen s))
+            } {
+                break
+            }
+        }
+        return s
+    }
+
+    fn spanOf:UastSpan (ts:TSNode) {
+        return (UastSpan.ofBytes(fileName ts.start ts.end ts.line ts.col))
+    }
+
+    fn nextId:string (prefix:string) {
+        seq = (seq + 1)
+        return (((prefix + (this.fileKey())) + ":") + (to_string seq))
+    }
+}

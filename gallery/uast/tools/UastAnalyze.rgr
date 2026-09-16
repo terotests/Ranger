@@ -1,0 +1,52 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastAnalyze.rgr — TypeScript tree → CodeModel → CodeGraph projector.
+; ============================================================================
+;
+;   npm run uast:analyze -- gallery/uast/fixtures
+;   npm run uast:analyze -- /tmp/some-ts-repo
+;
+; Does not change CodeGraphBuilder or the explorer UI. The projector is the
+; M7 contract: TS CodeGraph is the existing IR, filled from UAST.
+; ============================================================================
+
+Import "../src/UastTs.rgr"
+Import "../src/UastReport.rgr"
+Import "../src/UastCodeGraph.rgr"
+
+class UastAnalyze {
+    sfn main:void () {
+        if ((shell_arg_cnt) < 1) {
+            print "usage: uast_analyze <dir-or-file.ts>"
+            exit 1
+        }
+        def path:string (shell_arg 0)
+        print ("analysing " + path)
+        def model:UastCodeModel (UastTs.fromPath(path))
+        print (UastReport.of(model))
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        print ""
+        print (("projected classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
+        def ri:int 0
+        while (ri < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships ri)
+            if (rel.kind == "calls") {
+                print ((("  " + rel.fromId) + " -> ") + rel.toId)
+            }
+            ri = (ri + 1)
+        }
+        def di:int 0
+        def shown:int 0
+        while (di < (array_length model.diagnostics)) {
+            if (shown >= 12) {
+                print (("  … " + (to_string ((array_length model.diagnostics) - shown))) + " more diagnostics")
+                break
+            }
+            def d:UastDiagnostic (itemAt model.diagnostics di)
+            print ("  diagnostic: " + d.message)
+            shown = (shown + 1)
+            di = (di + 1)
+        }
+    }
+}

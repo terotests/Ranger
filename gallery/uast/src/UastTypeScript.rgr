@@ -1,0 +1,81 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastTypeScript.rgr — TSNode nativeKind → UAST kind.
+; ============================================================================
+;
+; Does not import gallery/ts_parser. The mapping is the adapter's contract;
+; the parser walk comes in milestone 3. Unknown ESTree/TS kinds fall through
+; to LanguageSpecific so UAST does not grow a TypeScript node per syntax.
+; ============================================================================
+
+Import "UastKind.rgr"
+
+class UastTypeScript {
+    Constructor () {
+    }
+
+    sfn kindFromNative:string (nativeKind:string) {
+        if (nativeKind == "Program") { return UastKind.Module() }
+        if (nativeKind == "ClassDeclaration") { return UastKind.ClassDecl() }
+        if (nativeKind == "ClassExpression") { return UastKind.ClassDecl() }
+        if (nativeKind == "TSInterfaceDeclaration") { return UastKind.InterfaceDecl() }
+        if (nativeKind == "TSEnumDeclaration") { return UastKind.EnumDecl() }
+        if (nativeKind == "TSTypeAliasDeclaration") { return UastKind.TypeDecl() }
+        if (nativeKind == "FunctionDeclaration") { return UastKind.FunctionDecl() }
+        if (nativeKind == "FunctionExpression") { return UastKind.FunctionDecl() }
+        if (nativeKind == "MethodDefinition") { return UastKind.MethodDecl() }
+        if (nativeKind == "TSDeclareMethod") { return UastKind.MethodDecl() }
+        if (nativeKind == "TSMethodSignature") { return UastKind.MethodDecl() }
+        if (nativeKind == "PropertyDefinition") { return UastKind.FieldDecl() }
+        if (nativeKind == "TSPropertySignature") { return UastKind.FieldDecl() }
+        if (nativeKind == "VariableDeclaration") { return UastKind.VariableDecl() }
+        if (nativeKind == "VariableDeclarator") { return UastKind.VariableDecl() }
+        if (nativeKind == "Identifier") { return UastKind.Identifier() }
+        if (nativeKind == "ThisExpression") { return UastKind.Identifier() }
+        if (nativeKind == "CallExpression") { return UastKind.Call() }
+        if (nativeKind == "NewExpression") { return UastKind.New() }
+        if (nativeKind == "MemberExpression") { return UastKind.MemberAccess() }
+        if (nativeKind == "OptionalMemberExpression") { return UastKind.MemberAccess() }
+        if (nativeKind == "AssignmentExpression") { return UastKind.Assign() }
+        if (nativeKind == "BinaryExpression") { return UastKind.BinaryOp() }
+        if (nativeKind == "UnaryExpression") { return UastKind.UnaryOp() }
+        if (nativeKind == "UpdateExpression") { return UastKind.UnaryOp() }
+        if (nativeKind == "ArrowFunctionExpression") { return UastKind.Lambda() }
+        if (nativeKind == "BlockStatement") { return UastKind.Block() }
+        if (nativeKind == "IfStatement") { return UastKind.If() }
+        if (nativeKind == "SwitchStatement") { return UastKind.Switch() }
+        if (nativeKind == "ForStatement") { return UastKind.For() }
+        if (nativeKind == "ForInStatement") { return UastKind.For() }
+        if (nativeKind == "ForOfStatement") { return UastKind.For() }
+        if (nativeKind == "WhileStatement") { return UastKind.While() }
+        if (nativeKind == "DoWhileStatement") { return UastKind.While() }
+        if (nativeKind == "TryStatement") { return UastKind.Try() }
+        if (nativeKind == "ReturnStatement") { return UastKind.Return() }
+        if (nativeKind == "ThrowStatement") { return UastKind.Throw() }
+        if (nativeKind == "ImportDeclaration") { return UastKind.Import() }
+        if (nativeKind == "ExportNamedDeclaration") { return UastKind.Export() }
+        if (nativeKind == "ExportDefaultDeclaration") { return UastKind.Export() }
+        if (nativeKind == "ExportAllDeclaration") { return UastKind.Export() }
+        if (nativeKind == "TSTypeReference") { return UastKind.TypeRef() }
+        if (nativeKind == "TSArrayType") { return UastKind.TypeRef() }
+        if (nativeKind == "TSStringKeyword") { return UastKind.TypeRef() }
+        if (nativeKind == "TSNumberKeyword") { return UastKind.TypeRef() }
+        if (nativeKind == "TSBooleanKeyword") { return UastKind.TypeRef() }
+        if (nativeKind == "TSVoidKeyword") { return UastKind.TypeRef() }
+        if (nativeKind == "TSAnyKeyword") { return UastKind.TypeRef() }
+        if (nativeKind == "TSUnionType") { return UastKind.UnionType() }
+        if (nativeKind == "TSFunctionType") { return UastKind.FunctionType() }
+        if (nativeKind == "ArrayExpression") { return UastKind.Literal() }
+        if (nativeKind == "ObjectExpression") { return UastKind.Literal() }
+        if (nativeKind == "Literal") { return UastKind.Literal() }
+        if (nativeKind == "StringLiteral") { return UastKind.Literal() }
+        if (nativeKind == "NumericLiteral") { return UastKind.Literal() }
+        if (nativeKind == "BooleanLiteral") { return UastKind.Literal() }
+        if (nativeKind == "NullLiteral") { return UastKind.Literal() }
+        if ((strlen nativeKind) == 0) {
+            return UastKind.Unknown()
+        }
+        return UastKind.LanguageSpecific()
+    }
+}

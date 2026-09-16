@@ -1,0 +1,94 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastDump.rgr — the acceptance dump that must work for Ranger and TS.
+; ============================================================================
+;
+; Node 183
+;   kind: MemberAccess
+;   span: zip_writer.ts:17:9-17:24
+;   receiver: Identifier this.crc
+;   member: Identifier update
+; Resolution:
+;   CRC32.update
+;   resolution: resolved
+;   confidence: exact
+; ============================================================================
+
+Import "UastModel.rgr"
+
+class UastDump {
+    Constructor () {
+    }
+
+    sfn ofNode:string (model:UastCodeModel nodeId:string) {
+        if ((model.mentionsNode(nodeId)) == false) {
+            return ("missing node " + nodeId)
+        }
+        def node:UNode (model.nodeById(nodeId))
+        def lines:[string]
+        push lines ("Node " + node.id)
+        push lines ("  kind: " + node.kind)
+        push lines ("  span: " + (node.span.asString()))
+        if ((strlen node.name) > 0) {
+            push lines ("  name: " + node.name)
+        }
+        if ((strlen node.nativeKind) > 0) {
+            push lines ("  nativeKind: " + node.nativeKind)
+        }
+        if ((strlen node.comment) > 0) {
+            push lines ("  comment: " + node.comment)
+        }
+        def i:int 0
+        while (i < (array_length node.children)) {
+            def ch:UChild (itemAt node.children i)
+            def desc:string ch.nodeId
+            if (model.mentionsNode(ch.nodeId)) {
+                def cn:UNode (model.nodeById(ch.nodeId))
+                desc = ((cn.kind + " ") + cn.name)
+            }
+            push lines ((("  " + ch.role) + ": ") + desc)
+            i = (i + 1)
+        }
+        push lines "Resolution:"
+        def found:boolean false
+        def r:int 0
+        while (r < (array_length model.references)) {
+            def ref:UastReference (itemAt model.references r)
+            if (ref.sourceNode == nodeId) {
+                def tname:string ref.targetSymbol
+                if ((strlen tname) == 0) {
+                    tname = "?"
+                }
+                if (model.mentionsSymbol(ref.targetSymbol)) {
+                    def ts:UastSymbol (model.symbolById(ref.targetSymbol))
+                    tname = ts.id
+                }
+                push lines ("  " + tname)
+                push lines ("  resolution: " + ref.resolution)
+                push lines ("  confidence: " + ref.confidence)
+                found = true
+            }
+            r = (r + 1)
+        }
+        if (found == false) {
+            def k:int 0
+            while (k < (array_length model.relationships)) {
+                def rel:UastRelation (itemAt model.relationships k)
+                def fromDecl:string (model.symbolDeclaredAt(nodeId))
+                if ((rel.fromId == fromDecl) || (rel.fromId == nodeId)) {
+                    push lines ("  " + rel.toId)
+                    push lines ("  kind: " + rel.kind)
+                    push lines ("  resolution: " + rel.resolution)
+                    push lines ("  confidence: " + rel.confidence)
+                    found = true
+                }
+                k = (k + 1)
+            }
+        }
+        if (found == false) {
+            push lines "  (none)"
+        }
+        return (join lines "\n")
+    }
+}

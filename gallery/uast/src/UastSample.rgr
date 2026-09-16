@@ -1,0 +1,304 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastSample.rgr — ZipWriter as FrontendResult, then shared pipeline.
+; ============================================================================
+;
+; Builds UAST + compilerResolved hints, not a CodeModel. UastSemantic
+; indexes declarations and applies hints. The Call tree is the dump
+; fixture: this.crc.compute(fileData).
+; ============================================================================
+
+Import "UastFrontend.rgr"
+Import "UastSemantic.rgr"
+Import "UastKind.rgr"
+
+class UastSample {
+    Constructor () {
+    }
+
+    sfn zipWriter:UastCodeModel () {
+        return (UastSemantic.fromResult((UastSample.zipWriterResult())))
+    }
+
+    sfn zipWriterResult:UastFrontendResult () {
+        def r (new UastFrontendResult)
+        r.title = "ZipWriter"
+        r.language = "ranger"
+        def file:UastSourceFile (r.addFile("gallery/zip/ZipWriter.rgr" "ranger"))
+        file.version = 1
+        file.contentHash = "fixture"
+        def zip:UNode (UastSample.klass(r "ZipWriter" "gallery/zip/ZipWriter.rgr"))
+        def entry:UNode (UastSample.klass(r "ZipEntry" "gallery/zip/ZipEntry.rgr"))
+        def buf:UNode (UastSample.klass(r "GrowableZipBuffer" "gallery/zip/ZipBuffer.rgr"))
+        def crc:UNode (UastSample.klass(r "CRC32" "gallery/zip/CRC32.rgr"))
+        UastSample.field(r zip "entries" "[ZipEntry]")
+        UastSample.field(r zip "output" "GrowableZipBuffer")
+        UastSample.field(r zip "comment" "string")
+        UastSample.field(r zip "crc" "CRC32")
+        def addFile:UNode (UastSample.method(r zip "addFile" "void"))
+        UastSample.param(r addFile "name" "string")
+        UastSample.param(r addFile "fileData" "buffer")
+        def compute:UNode (UastSample.method(r crc "compute" "int"))
+        UastSample.param(r compute "data" "buffer")
+        def callNode:UNode (UastSample.computeCall(r addFile))
+        def src:string (UastHintSource.compilerResolved())
+        def res:string (UastResolution.resolved())
+        def exact:string (UastConfidence.exact())
+        r.addHint((UastSemanticHint.create(zip.id (UastRelKind.usesType()) entry.id src res exact)))
+        r.addHint((UastSemanticHint.create(zip.id (UastRelKind.usesType()) buf.id src res exact)))
+        r.addHint((UastSemanticHint.create(zip.id (UastRelKind.usesType()) crc.id src res exact)))
+        r.addHint((UastSemanticHint.create(callNode.id (UastRelKind.calls()) compute.id src res exact)))
+        r.addHint((UastSemanticHint.create(addFile.id (UastRelKind.usesType()) entry.id src res exact)))
+        r.addHint((UastSemanticHint.create(addFile.id (UastRelKind.constructs()) entry.id src res exact)))
+        return r
+    }
+
+    sfn dynamicCallResult:UastFrontendResult () {
+        def r (new UastFrontendResult)
+        r.title = "dynamic"
+        r.language = "typescript"
+        r.addFile("dyn.ts" "typescript")
+        def fn:UNode (UNode.create("n:fn" (UastKind.FunctionDecl()) "typescript" "FunctionDeclaration"))
+        fn.name = "run"
+        r.addNode(fn)
+        def idx:UNode (UNode.create("n:idx" (UastKind.IndexAccess()) "typescript" "MemberExpression"))
+        r.addNode(idx)
+        def obj:UNode (UNode.create("n:obj" (UastKind.Identifier()) "typescript" "Identifier"))
+        obj.name = "obj"
+        r.addNode(obj)
+        def key:UNode (UNode.create("n:key" (UastKind.Identifier()) "typescript" "Identifier"))
+        key.name = "name"
+        r.addNode(key)
+        idx.addRole((UastChildRole.receiver()) obj.id)
+        idx.addRole((UastChildRole.member()) key.id)
+        def callN:UNode (UNode.create("n:dyn" (UastKind.Call()) "typescript" "CallExpression"))
+        r.addNode(callN)
+        callN.addRole((UastChildRole.callee()) idx.id)
+        def body:UNode (UNode.create("n:body" (UastKind.Block()) "typescript" "BlockStatement"))
+        r.addNode(body)
+        body.addRole((UastChildRole.element()) callN.id)
+        fn.addRole((UastChildRole.body()) body.id)
+        r.addHint((UastSemanticHint.create(callN.id (UastRelKind.calls()) "" (UastHintSource.frontendInferred()) (UastResolution.dynamic()) (UastConfidence.possible()))))
+        return r
+    }
+
+    sfn klass:UNode (r:UastFrontendResult name:string fileName:string) {
+        def node:UNode (UNode.create(("n:" + name) (UastKind.ClassDecl()) "ranger" "class"))
+        node.name = name
+        node.span.fileId = fileName
+        node.origin = (UastOrigin.create("ranger" fileName name 1))
+        r.addNode(node)
+        return node
+    }
+
+    sfn field:UNode (r:UastFrontendResult owner:UNode name:string typeName:string) {
+        def id:string ((owner.name + ".") + name)
+        def node:UNode (UNode.create(("n:" + id) (UastKind.FieldDecl()) "ranger" "def"))
+        node.name = name
+        node.span.fileId = owner.span.fileId
+        r.addNode(node)
+        def tn:UNode (UNode.create((("n:type:" + id)) (UastKind.TypeRef()) "ranger" "type"))
+        tn.name = typeName
+        r.addNode(tn)
+        node.addRole((UastChildRole.typeRole()) tn.id)
+        owner.addRole((UastChildRole.field()) node.id)
+        return node
+    }
+
+    sfn method:UNode (r:UastFrontendResult owner:UNode name:string returns:string) {
+        def id:string ((owner.name + ".") + name)
+        def node:UNode (UNode.create(("n:" + id) (UastKind.MethodDecl()) "ranger" "fn"))
+        node.name = name
+        node.span.fileId = owner.span.fileId
+        r.addNode(node)
+        def ret:UNode (UNode.create((("n:ret:" + id)) (UastKind.TypeRef()) "ranger" "type"))
+        ret.name = returns
+        r.addNode(ret)
+        node.addRole((UastChildRole.returnType()) ret.id)
+        owner.addRole((UastChildRole.method()) node.id)
+        return node
+    }
+
+    sfn param:UNode (r:UastFrontendResult method:UNode name:string typeName:string) {
+        def id:string (((method.id + ".") + name))
+        def node:UNode (UNode.create(("n:p:" + id) (UastKind.Parameter()) "ranger" "param"))
+        node.name = name
+        r.addNode(node)
+        def tn:UNode (UNode.create((("n:pt:" + id)) (UastKind.TypeRef()) "ranger" "type"))
+        tn.name = typeName
+        r.addNode(tn)
+        node.addRole((UastChildRole.typeRole()) tn.id)
+        method.addRole((UastChildRole.parameter()) node.id)
+        return node
+    }
+
+    sfn computeCall:UNode (r:UastFrontendResult addFile:UNode) {
+        def thiz:UNode (UNode.create("n:this" (UastKind.Identifier()) "ranger" "vref"))
+        thiz.name = "this"
+        r.addNode(thiz)
+        def crcId:UNode (UNode.create("n:crc-id" (UastKind.Identifier()) "ranger" "vref"))
+        crcId.name = "crc"
+        r.addNode(crcId)
+        def recv:UNode (UNode.create("n:this.crc" (UastKind.MemberAccess()) "ranger" "member"))
+        recv.span = (UastSpan.ofBytes("gallery/zip/ZipWriter.rgr" 0 0 36 9))
+        r.addNode(recv)
+        recv.addRole((UastChildRole.receiver()) thiz.id)
+        recv.addRole((UastChildRole.member()) crcId.id)
+        def mem:UNode (UNode.create("n:compute-id" (UastKind.Identifier()) "ranger" "vref"))
+        mem.name = "compute"
+        r.addNode(mem)
+        def callee:UNode (UNode.create("n:this.crc.compute" (UastKind.MemberAccess()) "ranger" "member"))
+        callee.span = (UastSpan.ofBytes("gallery/zip/ZipWriter.rgr" 0 0 36 9))
+        r.addNode(callee)
+        callee.addRole((UastChildRole.receiver()) recv.id)
+        callee.addRole((UastChildRole.member()) mem.id)
+        def arg:UNode (UNode.create("n:arg-data" (UastKind.Identifier()) "ranger" "vref"))
+        arg.name = "fileData"
+        r.addNode(arg)
+        def callN:UNode (UNode.create("n:call:compute" (UastKind.Call()) "ranger" "call"))
+        callN.span = (UastSpan.ofBytes("gallery/zip/ZipWriter.rgr" 0 0 36 9))
+        r.addNode(callN)
+        callN.addRole((UastChildRole.callee()) callee.id)
+        callN.addRole((UastChildRole.argument()) arg.id)
+        def body:UNode (UNode.create("n:addFile-body" (UastKind.Block()) "ranger" "block"))
+        r.addNode(body)
+        body.addRole((UastChildRole.element()) callN.id)
+        addFile.addRole((UastChildRole.body()) body.id)
+        return callN
+    }
+
+    sfn twoFoo:UastCodeModel () {
+        return (UastSemantic.fromResult((UastSample.twoFooResult())))
+    }
+
+    sfn twoFooResult:UastFrontendResult () {
+        def r (new UastFrontendResult)
+        r.title = "two-foo"
+        r.language = "ranger"
+        r.addFile("two_foo.rgr" "ranger")
+        def alpha:UNode (UastSample.klass(r "Alpha" "two_foo.rgr"))
+        def beta:UNode (UastSample.klass(r "Beta" "two_foo.rgr"))
+        UastSample.method(r alpha "foo" "void")
+        UastSample.method(r beta "foo" "void")
+        def runA:UNode (UastSample.method(r alpha "run" "void"))
+        UastSample.param(r runA "foo" "int")
+        def runB:UNode (UastSample.method(r beta "run" "void"))
+        UastSample.thisMemberCall(r runA "foo" "n:alpha")
+        UastSample.thisMemberCall(r runB "foo" "n:beta")
+        return r
+    }
+
+    sfn thisMemberCall:UNode (r:UastFrontendResult method:UNode memberName:string idPrefix:string) {
+        def thiz:UNode (UNode.create((idPrefix + "-this") (UastKind.Identifier()) r.language "vref"))
+        thiz.name = "this"
+        r.addNode(thiz)
+        def memId:UNode (UNode.create((idPrefix + "-mem") (UastKind.Identifier()) r.language "vref"))
+        memId.name = memberName
+        r.addNode(memId)
+        def acc:UNode (UNode.create((idPrefix + "-access") (UastKind.MemberAccess()) r.language "member"))
+        r.addNode(acc)
+        acc.addRole((UastChildRole.receiver()) thiz.id)
+        acc.addRole((UastChildRole.member()) memId.id)
+        def callN:UNode (UNode.create((idPrefix + "-call") (UastKind.Call()) r.language "call"))
+        r.addNode(callN)
+        callN.addRole((UastChildRole.callee()) acc.id)
+        def body:UNode (UNode.create((idPrefix + "-body") (UastKind.Block()) r.language "block"))
+        r.addNode(body)
+        body.addRole((UastChildRole.element()) callN.id)
+        method.addRole((UastChildRole.body()) body.id)
+        return callN
+    }
+
+    sfn fooWorkspace:UastCodeModel () {
+        def ws (new UastWorkspace)
+        ws.addResult((UastSample.fooAResult()))
+        ws.addResult((UastSample.fooBResult()))
+        return (UastSemantic.fromWorkspace(ws))
+    }
+
+    sfn fooAResult:UastFrontendResult () {
+        def r (new UastFrontendResult)
+        r.title = "foo_a.ts"
+        r.language = "typescript"
+        r.addFile("foo_a.ts" "typescript")
+        def foo:UNode (UastSample.klass(r "Foo" "foo_a.ts"))
+        foo.language = "typescript"
+        foo.addFlag("export")
+        UastSample.method(r foo "hello" "void")
+        def exp:UNode (UNode.create("n:export:Foo" (UastKind.Export()) "typescript" "ExportNamedDeclaration"))
+        exp.span.fileId = "foo_a.ts"
+        r.addNode(exp)
+        exp.addRole((UastChildRole.element()) foo.id)
+        return r
+    }
+
+    sfn fooBResult:UastFrontendResult () {
+        def r (new UastFrontendResult)
+        r.title = "foo_b.ts"
+        r.language = "typescript"
+        r.addFile("foo_b.ts" "typescript")
+        def imp:UNode (UNode.create("n:import:foo_a" (UastKind.Import()) "typescript" "ImportDeclaration"))
+        imp.name = "./foo_a"
+        imp.span.fileId = "foo_b.ts"
+        r.addNode(imp)
+        def impFoo:UNode (UNode.create("n:import:Foo" (UastKind.Identifier()) "typescript" "Identifier"))
+        impFoo.name = "Foo"
+        impFoo.span.fileId = "foo_b.ts"
+        r.addNode(impFoo)
+        imp.addRole((UastChildRole.nameRole()) impFoo.id)
+        def miss:UNode (UNode.create("n:import:nope" (UastKind.Import()) "typescript" "ImportDeclaration"))
+        miss.name = "./nope"
+        miss.span.fileId = "foo_b.ts"
+        r.addNode(miss)
+        def missZ:UNode (UNode.create("n:import:Z" (UastKind.Identifier()) "typescript" "Identifier"))
+        missZ.name = "Z"
+        missZ.span.fileId = "foo_b.ts"
+        r.addNode(missZ)
+        miss.addRole((UastChildRole.nameRole()) missZ.id)
+        def bare:UNode (UNode.create("n:import:WindowCtl" (UastKind.Import()) "ranger" "Import"))
+        bare.name = "WindowCtl.rgr"
+        bare.span.fileId = "foo_b.ts"
+        r.addNode(bare)
+        def uses:UNode (UastSample.klass(r "Uses" "foo_b.ts"))
+        uses.language = "typescript"
+        def make:UNode (UastSample.method(r uses "make" "Foo"))
+        def fooId:UNode (UNode.create("n:new-Foo-id" (UastKind.Identifier()) "typescript" "Identifier"))
+        fooId.name = "Foo"
+        fooId.span.fileId = "foo_b.ts"
+        r.addNode(fooId)
+        def nw:UNode (UNode.create("n:new-Foo" (UastKind.New()) "typescript" "NewExpression"))
+        nw.span.fileId = "foo_b.ts"
+        r.addNode(nw)
+        nw.addRole((UastChildRole.callee()) fooId.id)
+        def vx:UNode (UNode.create("n:var-x" (UastKind.VariableDecl()) "typescript" "VariableDeclarator"))
+        vx.name = "x"
+        vx.span.fileId = "foo_b.ts"
+        r.addNode(vx)
+        vx.addRole((UastChildRole.initializer()) nw.id)
+        def xid:UNode (UNode.create("n:x-id" (UastKind.Identifier()) "typescript" "Identifier"))
+        xid.name = "x"
+        xid.span.fileId = "foo_b.ts"
+        r.addNode(xid)
+        def hid:UNode (UNode.create("n:hello-id" (UastKind.Identifier()) "typescript" "Identifier"))
+        hid.name = "hello"
+        hid.span.fileId = "foo_b.ts"
+        r.addNode(hid)
+        def acc:UNode (UNode.create("n:x.hello" (UastKind.MemberAccess()) "typescript" "MemberExpression"))
+        acc.span.fileId = "foo_b.ts"
+        r.addNode(acc)
+        acc.addRole((UastChildRole.receiver()) xid.id)
+        acc.addRole((UastChildRole.member()) hid.id)
+        def callN:UNode (UNode.create("n:call-hello" (UastKind.Call()) "typescript" "CallExpression"))
+        callN.span.fileId = "foo_b.ts"
+        r.addNode(callN)
+        callN.addRole((UastChildRole.callee()) acc.id)
+        def body:UNode (UNode.create("n:make-body" (UastKind.Block()) "typescript" "BlockStatement"))
+        body.span.fileId = "foo_b.ts"
+        r.addNode(body)
+        body.addRole((UastChildRole.element()) vx.id)
+        body.addRole((UastChildRole.element()) callN.id)
+        make.addRole((UastChildRole.body()) body.id)
+        return r
+    }
+}

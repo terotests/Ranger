@@ -1,0 +1,257 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastTsTest.rgr — ts_parser → FrontendResult → CodeModel (milestone 3).
+; ============================================================================
+;
+; Imports gallery/ts_parser. The schema suite (uast:test) does not.
+;
+;   npm run uast:ts
+; ============================================================================
+
+Import "../src/UastTs.rgr"
+Import "../src/UastCodeGraph.rgr"
+Import "../src/UastDump.rgr"
+Import "../src/UastQuery.rgr"
+
+class UastTsChecker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn report:int () {
+        print ""
+        print (("passed " + (to_string passed)) + ", failed " + (to_string failed))
+        if (failed > 0) {
+            return 1
+        }
+        return 0
+    }
+}
+
+class UastTsTest {
+    sfn main:void () {
+        def c (new UastTsChecker)
+        UastTsTest.testZipWriter(c)
+        UastTsTest.testWorkspace(c)
+        UastTsTest.testShapes(c)
+        UastTsTest.testFromDir(c)
+        def code:int (c.report())
+        if (code != 0) {
+            exit 1
+        }
+    }
+
+    sfn testZipWriter:void (c:UastTsChecker) {
+        print "== zip_writer.ts via ts_parser"
+        def model:UastCodeModel (UastTs.fromFile("gallery/uast/fixtures/zip_writer.ts"))
+        if ((indexOf model.title " FAIL ") >= 0) {
+            print ("  FAIL " + model.title)
+            c.ok("parse zip_writer.ts" false)
+            return
+        }
+        c.ok("ZipWriter symbol" (model.mentionsSymbol("class:ZipWriter")))
+        c.ok("ZipEntry symbol" (model.mentionsSymbol("class:ZipEntry")))
+        c.ok("GrowableZipBuffer symbol" (model.mentionsSymbol("class:GrowableZipBuffer")))
+        c.ok("CRC32 symbol" (model.mentionsSymbol("class:CRC32")))
+        c.ok("addFile symbol" (model.mentionsSymbol("method:ZipWriter.addFile")))
+        c.ok("update symbol" (model.mentionsSymbol("method:CRC32.update")))
+        def entries:UastSymbol (model.symbolById("field:ZipWriter.entries"))
+        c.eqStr("entries type" entries.typeName "[ZipEntry]")
+        def output:UastSymbol (model.symbolById("field:ZipWriter.output"))
+        c.eqStr("output type" output.typeName "GrowableZipBuffer")
+        def crcField:UastSymbol (model.symbolById("field:ZipWriter.crc"))
+        c.eqStr("crc type" crcField.typeName "CRC32")
+        c.ok("crc comment on the field" ((indexOf crcField.comment "Cyclic redundancy") >= 0))
+        def zipEntry:UastSymbol (model.symbolById("class:ZipEntry"))
+        c.ok("file banner is not ZipEntry's comment" ((indexOf zipEntry.comment "Twin of") < 0))
+        def addFile:UNode (UastQuery.methodNode(model "ZipWriter" "addFile"))
+        c.eqStr("addFile name" addFile.name "addFile")
+        def calls:[UNode] (UastQuery.ofKindUnder(model addFile (UastKind.Call())))
+        c.ok("addFile has a Call" ((array_length calls) > 0))
+        if ((array_length calls) > 0) {
+            def call0:UNode (itemAt calls 0)
+            c.eqStr("callee member" (UastQuery.calleeMemberName(model call0)) "update")
+            c.eqStr("callee receiver" (UastQuery.calleeReceiverName(model call0)) "crc")
+            def dump:string (UastDump.ofNode(model call0.id))
+            print dump
+            c.ok("dump kind Call" ((indexOf dump "kind: Call") >= 0))
+            c.ok("dump MemberAccess" ((indexOf dump "MemberAccess") >= 0))
+            c.ok("dump exact" ((indexOf dump "confidence: exact") >= 0))
+            c.ok("dump not a unique-name guess" ((indexOf dump "confidence: inferred") < 0))
+            c.ok("dump resolved" ((indexOf dump "resolution: resolved") >= 0))
+            c.ok("dump target CRC32.update" ((indexOf dump "method:CRC32.update") >= 0))
+            def calleeId:string (call0.childIdFor((UastChildRole.callee())))
+            c.eqStr("update MemberAccess → method" (UastQuery.refTarget(model calleeId)) "method:CRC32.update")
+            if (model.mentionsNode(calleeId)) {
+                def callee:UNode (model.nodeById(calleeId))
+                def memId:string (callee.childIdFor((UastChildRole.member())))
+                c.eqStr("update ident → method" (UastQuery.refTarget(model memId)) "method:CRC32.update")
+                def recvId:string (callee.childIdFor((UastChildRole.receiver())))
+                if (model.mentionsNode(recvId)) {
+                    def recv:UNode (model.nodeById(recvId))
+                    c.eqStr("this.crc → field" (UastQuery.refTarget(model recvId)) "field:ZipWriter.crc")
+                    def thisId:string (recv.childIdFor((UastChildRole.receiver())))
+                    c.eqStr("this → ZipWriter" (UastQuery.refTarget(model thisId)) "class:ZipWriter")
+                    def crcId:string (recv.childIdFor((UastChildRole.member())))
+                    c.eqStr("crc ident → field" (UastQuery.refTarget(model crcId)) "field:ZipWriter.crc")
+                }
+            }
+            def args:[string] (call0.childIdsFor((UastChildRole.argument())))
+            if ((array_length args) > 0) {
+                c.eqStr("data arg → param" (UastQuery.refTarget(model (itemAt args 0))) "param:ZipWriter.addFile.data")
+            }
+        }
+        def foundUse:boolean false
+        def foundCall:boolean false
+        def ri:int 0
+        while (ri < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships ri)
+            if ((rel.kind == "usesType") && (rel.fromId == "class:ZipWriter") && (rel.toId == "class:CRC32")) {
+                foundUse = true
+            }
+            if ((rel.kind == "calls") && (rel.fromId == "method:ZipWriter.addFile") && (rel.toId == "method:CRC32.update")) {
+                foundCall = true
+                c.eqStr("call confidence" rel.confidence "exact")
+            }
+            ri = (ri + 1)
+        }
+        c.ok("ZipWriter usesType CRC32" foundUse)
+        c.ok("addFile calls CRC32.update" foundCall)
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        c.ok("projected ZipWriter" (g.hasClass("ZipWriter")))
+        c.ok("projected CRC32" (g.hasClass("CRC32")))
+        c.ok("projected addFile" (g.hasMethod("ZipWriter.addFile")))
+        c.ok("projected update" (g.hasMethod("CRC32.update")))
+    }
+
+    sfn testWorkspace:void (c:UastTsChecker) {
+        print "== foo_a.ts / foo_b.ts workspace"
+        def ws (new UastWorkspace)
+        ws.addResult((UastTs.parseFile("gallery/uast/fixtures/foo_a.ts")))
+        ws.addResult((UastTs.parseFile("gallery/uast/fixtures/foo_b.ts")))
+        ws.addResult((UastTs.parseFile("gallery/uast/fixtures/foo_js.ts")))
+        def model:UastCodeModel (UastSemantic.fromWorkspace(ws))
+        if ((indexOf model.title " FAIL ") >= 0) {
+            print ("  FAIL " + model.title)
+            c.ok("parse workspace" false)
+            return
+        }
+        c.ok("Foo exported" (model.mentionsSymbol("class:Foo")))
+        c.ok("Uses class" (model.mentionsSymbol("class:Uses")))
+        c.ok("Foo.hello" (model.mentionsSymbol("method:Foo.hello")))
+        def foundImp:boolean false
+        def foundFoo:boolean false
+        def ni:int 0
+        while (ni < (array_length model.nodes)) {
+            def n:UNode (itemAt model.nodes ni)
+            if (n.kind == "Import") {
+                if (n.name == "./foo_a") {
+                    foundImp = true
+                    def names:[string] (n.childIdsFor((UastChildRole.nameRole())))
+                    if ((array_length names) > 0) {
+                        c.eqStr("import Foo → class" (UastQuery.refTarget(model (itemAt names 0))) "class:Foo")
+                    }
+                }
+            }
+            if (n.kind == "New") {
+                def cid:string (n.childIdFor((UastChildRole.callee())))
+                if ((UastQuery.refTarget(model cid)) == "class:Foo") {
+                    foundFoo = true
+                }
+            }
+            ni = (ni + 1)
+        }
+        c.ok("import ./foo_a present" foundImp)
+        c.ok("new Foo binds class" foundFoo)
+        c.ok("ViaJs class" (model.mentionsSymbol("class:ViaJs")))
+        def foundJs:boolean false
+        def ji:int 0
+        while (ji < (array_length model.nodes)) {
+            def jn:UNode (itemAt model.nodes ji)
+            if (jn.kind == "Import") {
+                if (jn.name == "./foo_a.js") {
+                    foundJs = true
+                    def jnames:[string] (jn.childIdsFor((UastChildRole.nameRole())))
+                    if ((array_length jnames) > 0) {
+                        c.eqStr("import Foo from .js → class" (UastQuery.refTarget(model (itemAt jnames 0))) "class:Foo")
+                    }
+                }
+            }
+            ji = (ji + 1)
+        }
+        c.ok("import ./foo_a.js present" foundJs)
+        c.ok("unresolved ./nope" (UastQuery.diagnosticMentions(model "unresolved import ./nope")))
+        c.ok("Uses survived missing import" (model.mentionsSymbol("class:Uses")))
+    }
+
+    sfn testShapes:void (c:UastTsChecker) {
+        print "== shapes.ts interface / extends / function / export default"
+        def model:UastCodeModel (UastTs.fromFile("gallery/uast/fixtures/shapes.ts"))
+        if ((indexOf model.title " FAIL ") >= 0) {
+            print ("  FAIL " + model.title)
+            c.ok("parse shapes.ts" false)
+            return
+        }
+        c.ok("Named interface symbol" (model.mentionsSymbol("class:Named")))
+        def named:UastSymbol (model.symbolById("class:Named"))
+        c.eqStr("Named kind" named.kind "interface")
+        c.ok("Named.size method" (model.mentionsSymbol("method:Named.size")))
+        c.ok("Base class" (model.mentionsSymbol("class:Base")))
+        c.ok("Child class" (model.mentionsSymbol("class:Child")))
+        c.ok("DefaultBox class" (model.mentionsSymbol("class:DefaultBox")))
+        c.ok("makeChild function" (model.mentionsSymbol("function:makeChild")))
+        c.ok("Label type alias" (model.mentionsSymbol("class:Label")))
+        def label:UastSymbol (model.symbolById("class:Label"))
+        c.eqStr("Label kind" label.kind "type")
+        def child:UastSymbol (model.symbolById("class:Child"))
+        c.eqStr("Child extends Base" child.extendsName "Base")
+        def foundExt:boolean false
+        def foundCall:boolean false
+        def ri:int 0
+        while (ri < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships ri)
+            if ((rel.kind == "extends") && (rel.fromId == "class:Child") && (rel.toId == "class:Base")) {
+                foundExt = true
+            }
+            if ((rel.kind == "calls") && (rel.fromId == "method:DefaultBox.wrap") && (rel.toId == "function:makeChild")) {
+                foundCall = true
+            }
+            ri = (ri + 1)
+        }
+        c.ok("Child extends Base rel" foundExt)
+        c.ok("wrap calls makeChild" foundCall)
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        c.ok("projected Child" (g.hasClass("Child")))
+        c.ok("projected Named" (g.hasClass("Named")))
+        c.ok("projected DefaultBox" (g.hasClass("DefaultBox")))
+        c.ok("projected wrap" (g.hasMethod("DefaultBox.wrap")))
+    }
+
+    sfn testFromDir:void (c:UastTsChecker) {
+        print "== fromDir gallery/uast/fixtures"
+        def model:UastCodeModel (UastTs.fromDir("gallery/uast/fixtures"))
+        c.ok("ZipWriter from dir" (model.mentionsSymbol("class:ZipWriter")))
+        c.ok("Foo from dir" (model.mentionsSymbol("class:Foo")))
+        c.ok("Uses from dir" (model.mentionsSymbol("class:Uses")))
+        c.ok("Child from dir" (model.mentionsSymbol("class:Child")))
+        c.ok("makeChild from dir" (model.mentionsSymbol("function:makeChild")))
+        c.ok("ViaJs from dir" (model.mentionsSymbol("class:ViaJs")))
+        c.ok("at least 5 ts files" ((array_length model.files) >= 5))
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        c.ok("dir projected ZipWriter" (g.hasClass("ZipWriter")))
+        c.ok("dir projected Child" (g.hasClass("Child")))
+    }
+}
