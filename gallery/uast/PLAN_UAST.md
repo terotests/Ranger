@@ -1,7 +1,8 @@
 # UAST — a language-analysis framework for Ranger
 
-**Status:** research branch, M7 started (TS fromDir + projector CLI +
-shared call resolution + workspace imports + Ranger/TS ZipWriter)
+**Status:** research branch, M8 started (TSX components + TS fromDir +
+projector CLI + shared call resolution + workspace imports + Ranger/TS
+ZipWriter)
 **License:** AGPL-3.0-or-later (this directory is under `gallery/`)
 **Related:** [`gallery/codegraph`](../codegraph/README.md),
 [`gallery/ts_parser`](../ts_parser/README.md),
@@ -515,9 +516,13 @@ resolve calls
 ```
 
 `UastWorkspace` is in the tree now. M5 indexes every file first, then
-resolves `Import` specifiers against workspace paths only. A missing
-module is a diagnostic; analysis of the other files continues. There is
-no `ranger install` and no `node_modules` walk.
+resolves `Import` specifiers against workspace paths. The TypeScript
+frontend may first load on-disk package `.d.ts` files for a bare
+specifier (`node_modules/<pkg>`, `package.json` `types`/`typings`,
+`@types/<pkg>`) and add those files to the workspace. Application
+`fromDir` still skips `node_modules` as source. A missing module is a
+diagnostic; analysis of the other files continues. There is no
+`ranger install` and no package manager.
 
 A related, later problem is not TypeScript modules but **Ranger apps that
 do not ship their gallery sources** (bare `Import "WindowCtl.rgr"`, a
@@ -646,6 +651,23 @@ existing CodeGraph IR. No CodeGraphBuilder or UI change. Tried on
 sindresorhus/p-queue in `/tmp` (not vendored): `PQueue` / `PriorityQueue`
 classes, type aliases, `.js`→`.ts` workspace imports, exact internal
 calls. Missing npm packages stay diagnostics.
+M8 is started: `.tsx` files enable `ts_parser` TSX mode. PascalCase
+function / `const` arrow / class `render` components are declarations;
+`<Card />` lowers to a Call (host tags like `div` stay markup). Shared
+`resolveCalls` binds JSX to `function:Card`. The projector draws
+PascalCase functions as CodeGraph classes with stereotype `component`.
+Tried on emilkowalski/sonner in `/tmp` (not vendored): Loader and
+other function components, JSX calls such as getLoadingIcon → Loader.
+`'use client'`, typed rest parameters, parenthesized union arrays,
+qualified types (`JSX.Element`, `React.ReactNode`), leading `|` unions,
+keyword / quoted keys in type literals, member generic calls
+(`React.useRef<{ x: number }>(null)`), `n < 0` comparisons, named
+function expressions, and `export { type Foo }` parse. Bare `react` /
+`react-dom` resolve when a `.d.ts` is on disk (package `types` field,
+`index.d.ts`, or `@types`, including `export as namespace`); they stay
+diagnostics when it is not.
+JSX node types stay `LanguageSpecific` in the mapping — the adapter
+does the lowering. No CodeGraphBuilder or UI change.
 
 ---
 
@@ -724,7 +746,7 @@ It is: **Ranger gets a language-analysis framework.**
   it must not add, remove, or reorder `children`.
 - No import of `gallery/ts_parser` into `uast:test`. The TS walk lives
   in `uast:ts` (`UastTs.rgr`), the same split as `uast:ranger`.
-- No TSX, no Go parser, no pretence of JS call resolution.
+- No Go parser, no pretence of JS call resolution.
 - No merge of ComponentEngine’s eval AST into UNode.
 - No LSP, incremental parsing, data-flow, SSA, or a full type checker.
 

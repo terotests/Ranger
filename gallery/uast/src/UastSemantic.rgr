@@ -13,9 +13,10 @@
 ;
 ; Exact only when the target resolves to one unique symbol. Member names
 ; resolve on the typed receiver’s class, not a global unique name. Imports
-; resolve only against files already in the workspace — no package manager.
-; Unresolved Import is a diagnostic, not a crash. This file must not import
-; the Ranger compiler.
+; resolve against files already in the workspace. The TypeScript frontend
+; may add on-disk package `.d.ts` files before this pipeline runs; there is
+; still no package manager. Unresolved Import is a diagnostic, not a crash.
+; This file must not import the Ranger compiler.
 ; ============================================================================
 
 Import "UastModel.rgr"
@@ -1172,9 +1173,59 @@ class UastSemantic {
             return hit
         }
         if allowBase {
+            def pkg:string (UastSemantic.findWorkspacePackage(m spec))
+            if ((strlen pkg) > 0) {
+                return pkg
+            }
             return (UastSemantic.findWorkspaceFile(m spec true))
         }
         return ""
+    }
+
+    sfn findWorkspacePackage:string (m:UastCodeModel spec:string) {
+        if ((strlen spec) == 0) {
+            return ""
+        }
+        def dirNeedle:string (("/node_modules/" + spec) + "/")
+        def fileNeedle:string (("/node_modules/" + spec) + ".d.ts")
+        def typesNeedle:string (("/node_modules/@types/" + spec) + "/")
+        def prefer:string ""
+        def found:string ""
+        def i:int 0
+        while (i < (array_length m.files)) {
+            def f:UastSourceFile (itemAt m.files i)
+            def p:string ("/" + (UastSemantic.collapsePath(f.path)))
+            def hit:boolean false
+            if ((indexOf p dirNeedle) >= 0) {
+                hit = true
+            }
+            def flen:int (strlen fileNeedle)
+            def plen:int (strlen p)
+            if (plen >= flen) {
+                if ((substring p (plen - flen) plen) == fileNeedle) {
+                    hit = true
+                }
+            }
+            if ((indexOf p typesNeedle) >= 0) {
+                hit = true
+            }
+            if hit {
+                def base:string (UastSemantic.baseName(p))
+                if ((base == "index.d.ts") || (base == "index.ts")) {
+                    if ((strlen prefer) == 0) {
+                        prefer = f.path
+                    }
+                }
+                if ((strlen found) == 0) {
+                    found = f.path
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen prefer) > 0) {
+            return prefer
+        }
+        return found
     }
 
     sfn findWorkspaceFile:string (m:UastCodeModel want:string allowBasename:boolean) {
@@ -1190,6 +1241,12 @@ class UastSemantic {
             if (pn == (norm + ".ts")) {
                 return p
             }
+            if (pn == (norm + ".tsx")) {
+                return p
+            }
+            if (pn == (norm + ".d.ts")) {
+                return p
+            }
             if (pn == (norm + ".rgr")) {
                 return p
             }
@@ -1199,6 +1256,12 @@ class UastSemantic {
             def fromJs:string (UastSemantic.jsToTs(norm))
             if ((strlen fromJs) > 0) {
                 if (pn == fromJs) {
+                    return p
+                }
+            }
+            def fromTsx:string (UastSemantic.jsToTsx(norm))
+            if ((strlen fromTsx) > 0) {
+                if (pn == fromTsx) {
                     return p
                 }
             }
@@ -1232,6 +1295,17 @@ class UastSemantic {
         }
         if ((substring path (n - 3) n) == ".js") {
             return ((substring path 0 (n - 3)) + ".ts")
+        }
+        return ""
+    }
+
+    sfn jsToTsx:string (path:string) {
+        def n:int (strlen path)
+        if (n < 3) {
+            return ""
+        }
+        if ((substring path (n - 3) n) == ".js") {
+            return ((substring path 0 (n - 3)) + ".tsx")
         }
         return ""
     }
