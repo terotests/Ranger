@@ -40,6 +40,28 @@ class CodeGraphAppTest {
             print ("  FAIL canvas width " + (to_string app.canvasW))
             failed = (failed + 1)
         }
+        if ((app.press("cg-class-filter-text")) == false) {
+            print "  FAIL press search placeholder"
+            failed = (failed + 1)
+        }
+        if ((app.focusedField()) != "cg-class-filter") {
+            print ("  FAIL search click focused " + (app.focusedField()))
+            failed = (failed + 1)
+        }
+        if ((app.typeText("x")) == false) {
+            print "  FAIL type into search after clicking the placeholder"
+            failed = (failed + 1)
+        }
+        app.setClassFilter("")
+        if ((app.press("cg-sample-value")) == false) {
+            print "  FAIL press example value label"
+            failed = (failed + 1)
+        }
+        if (app.sampleSel.open == false) {
+            print "  FAIL example select did not open"
+            failed = (failed + 1)
+        }
+        app.sampleSel.closeList()
         if (app.graph.hasNode("Order")) {
             if (app.editor.view.viewport.zoom < 0.99) {
                 print ("  FAIL UML zoom is " + (to_string app.editor.view.viewport.zoom))
