@@ -4451,6 +4451,7 @@ inline std::string r_double_to_string(double v) {
                 swift6 ( "Int(bitPattern: UInt(bitPattern: " (e 1) ") >> UInt(" (e 2) "))" )
                 kotlin ( "((" (e 1) ") ushr (" (e 2) "))" )
                 csharp ( "(int)((uint)(" (e 1) ") >> (int)(" (e 2) "))" )
+                php ( "((" (e 1) " & 0xFFFFFFFF) >> (" (e 2) "))" )
                 * ( "(" (e 1) " >>> " (e 2) ")" )
             }
         }
@@ -6218,7 +6219,7 @@ static void r_buffer_write_file(String path, String filename, byte[] data) {
                 csharp ( "System.IO.File.WriteAllBytes(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ")" )
                 kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").writeBytes(" (e 3) ")" )
                 dart ( (imp "dart:io") "File((" (e 1) ") + \"/\" + (" (e 2) ")).writeAsBytesSync(" (e 3) ")" )
-                php ( "file_put_contents(" (e 1) " . '/' . " (e 2) ", " (e 3) "->d)" )
+                php ( "file_put_contents(" (e 1) " . '/' . " (e 2) ", " (e 3) "->d);" )
             }
         }
 
@@ -6272,7 +6273,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
                 csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
                 kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
-                php ( "r_buf_copy(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
+                php ( "r_buf_copy(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ");" )
             }
         }
 
