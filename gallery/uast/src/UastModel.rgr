@@ -33,6 +33,11 @@ class UastCodeModel {
     def refTarget:[string:string]
     def refPair:[string:boolean]
     def relPair:[string:boolean]
+    def uniqueFn:[string:string]
+    def uniqueChild:[string:string]
+    def uniqueKindChild:[string:string]
+    def uniqueFileVar:[string:string]
+    def importNodeIds:[string]
 
     Constructor () {
     }

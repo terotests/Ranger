@@ -658,11 +658,49 @@ class UastSemantic {
         def methods:[string:string]
         def classes:[string:string]
         def pairs:[string:boolean]
+        def fnCount:[string:int]
+        def childCount:[string:int]
+        def kindCount:[string:int]
+        def varCount:[string:int]
+        def imports:[string]
         def si:int 0
         while (si < (array_length m.symbols)) {
             def s:UastSymbol (itemAt m.symbols si)
             if ((strlen s.declarationNode) > 0) {
                 set atDecl s.declarationNode s.id
+            }
+            if (s.kind == "function") {
+                if (has fnCount s.name) {
+                    def fn:int (unwrap (get fnCount s.name))
+                    set fnCount s.name (fn + 1)
+                } {
+                    set fnCount s.name 1
+                }
+            }
+            if (s.kind == "variable") {
+                def vk:string ((s.fileName + "\t") + s.name)
+                if (has varCount vk) {
+                    def vn:int (unwrap (get varCount vk))
+                    set varCount vk (vn + 1)
+                } {
+                    set varCount vk 1
+                }
+            }
+            if ((strlen s.parentSymbol) > 0) {
+                def ck0:string ((s.parentSymbol + "\t") + s.name)
+                if (has childCount ck0) {
+                    def cn:int (unwrap (get childCount ck0))
+                    set childCount ck0 (cn + 1)
+                } {
+                    set childCount ck0 1
+                }
+                def kk0:string ((((s.parentSymbol + "\t") + s.kind) + "\t") + s.name)
+                if (has kindCount kk0) {
+                    def kn:int (unwrap (get kindCount kk0))
+                    set kindCount kk0 (kn + 1)
+                } {
+                    set kindCount kk0 1
+                }
             }
             si = (si + 1)
         }
@@ -674,6 +712,9 @@ class UastSemantic {
                 if ((strlen mid) > 0) {
                     set memberIds mid true
                 }
+            }
+            if (n.kind == "Import") {
+                push imports n.id
             }
             def c:int 0
             while (c < (array_length n.children)) {
@@ -753,6 +794,49 @@ class UastSemantic {
         m.relPair = pairs
         m.refTarget = targets
         m.refPair = rpair
+        def uFn:[string:string]
+        def uChild:[string:string]
+        def uKind:[string:string]
+        def uVar:[string:string]
+        def sj:int 0
+        while (sj < (array_length m.symbols)) {
+            def sy:UastSymbol (itemAt m.symbols sj)
+            if (sy.kind == "function") {
+                if (has fnCount sy.name) {
+                    if ((unwrap (get fnCount sy.name)) == 1) {
+                        set uFn sy.name sy.id
+                    }
+                }
+            }
+            if (sy.kind == "variable") {
+                def vk2:string ((sy.fileName + "\t") + sy.name)
+                if (has varCount vk2) {
+                    if ((unwrap (get varCount vk2)) == 1) {
+                        set uVar vk2 sy.id
+                    }
+                }
+            }
+            if ((strlen sy.parentSymbol) > 0) {
+                def ck:string ((sy.parentSymbol + "\t") + sy.name)
+                if (has childCount ck) {
+                    if ((unwrap (get childCount ck)) == 1) {
+                        set uChild ck sy.id
+                    }
+                }
+                def kk:string ((((sy.parentSymbol + "\t") + sy.kind) + "\t") + sy.name)
+                if (has kindCount kk) {
+                    if ((unwrap (get kindCount kk)) == 1) {
+                        set uKind kk sy.id
+                    }
+                }
+            }
+            sj = (sj + 1)
+        }
+        m.uniqueFn = uFn
+        m.uniqueChild = uChild
+        m.uniqueKindChild = uKind
+        m.uniqueFileVar = uVar
+        m.importNodeIds = imports
     }
 
     sfn resolveRefs:void (m:UastCodeModel) {
@@ -945,63 +1029,24 @@ class UastSemantic {
     }
 
     sfn childSymbolNamed:string (m:UastCodeModel parentId:string name:string kind:string) {
-        def found:string ""
-        def n:int 0
-        def i:int 0
-        while (i < (array_length m.symbols)) {
-            def s:UastSymbol (itemAt m.symbols i)
-            if (s.parentSymbol == parentId) {
-                if (s.kind == kind) {
-                    if (s.name == name) {
-                        found = s.id
-                        n = (n + 1)
-                    }
-                }
-            }
-            i = (i + 1)
-        }
-        if (n == 1) {
-            return found
+        def key:string ((((parentId + "\t") + kind) + "\t") + name)
+        if (has m.uniqueKindChild key) {
+            return (unwrap (get m.uniqueKindChild key))
         }
         return ""
     }
 
     sfn uniqueChildNamed:string (m:UastCodeModel parentId:string name:string) {
-        def found:string ""
-        def n:int 0
-        def i:int 0
-        while (i < (array_length m.symbols)) {
-            def s:UastSymbol (itemAt m.symbols i)
-            if (s.parentSymbol == parentId) {
-                if (s.name == name) {
-                    found = s.id
-                    n = (n + 1)
-                }
-            }
-            i = (i + 1)
-        }
-        if (n == 1) {
-            return found
+        def key:string ((parentId + "\t") + name)
+        if (has m.uniqueChild key) {
+            return (unwrap (get m.uniqueChild key))
         }
         return ""
     }
 
     sfn uniqueFnNamed:string (m:UastCodeModel name:string) {
-        def found:string ""
-        def n:int 0
-        def i:int 0
-        while (i < (array_length m.symbols)) {
-            def s:UastSymbol (itemAt m.symbols i)
-            if (s.kind == "function") {
-                if (s.name == name) {
-                    found = s.id
-                    n = (n + 1)
-                }
-            }
-            i = (i + 1)
-        }
-        if (n == 1) {
-            return found
+        if (has m.uniqueFn name) {
+            return (unwrap (get m.uniqueFn name))
         }
         return ""
     }
@@ -1132,9 +1177,10 @@ class UastSemantic {
 
     sfn importBinding:string (m:UastCodeModel fileId:string name:string) {
         def i:int 0
-        while (i < (array_length m.nodes)) {
-            def n:UNode (itemAt m.nodes i)
-            if (n.kind == "Import") {
+        while (i < (array_length m.importNodeIds)) {
+            def iid:string (itemAt m.importNodeIds i)
+            if (m.mentionsNode(iid)) {
+                def n:UNode (m.nodeById(iid))
                 if (n.span.fileId == fileId) {
                     def names:[string] (n.childIdsFor((UastChildRole.nameRole())))
                     def ni:int 0
@@ -1168,23 +1214,9 @@ class UastSemantic {
     }
 
     sfn fileVarNamed:string (m:UastCodeModel fileId:string name:string) {
-        def found:string ""
-        def n:int 0
-        def i:int 0
-        while (i < (array_length m.symbols)) {
-            def s:UastSymbol (itemAt m.symbols i)
-            if (s.kind == "variable") {
-                if (s.fileName == fileId) {
-                    if (s.name == name) {
-                        found = s.id
-                        n = (n + 1)
-                    }
-                }
-            }
-            i = (i + 1)
-        }
-        if (n == 1) {
-            return found
+        def key:string ((fileId + "\t") + name)
+        if (has m.uniqueFileVar key) {
+            return (unwrap (get m.uniqueFileVar key))
         }
         return ""
     }
