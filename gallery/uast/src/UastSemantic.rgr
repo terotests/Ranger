@@ -107,6 +107,9 @@ class UastSemantic {
             if (node.kind == "TypeDecl") {
                 UastSemantic.addTypeSymbol(m node (UastSymKind.typeSym()))
             }
+            if (node.kind == "EnumDecl") {
+                UastSemantic.addTypeSymbol(m node (UastSymKind.enumSym()))
+            }
             i = (i + 1)
         }
         def j:int 0
@@ -1250,6 +1253,21 @@ class UastSemantic {
             if (pn == (norm + ".rgr")) {
                 return p
             }
+            if (pn == (norm + ".hpp")) {
+                return p
+            }
+            if (pn == (norm + ".hh")) {
+                return p
+            }
+            if (pn == (norm + ".h")) {
+                return p
+            }
+            if (pn == (norm + ".cpp")) {
+                return p
+            }
+            if (pn == (norm + ".cc")) {
+                return p
+            }
             if (pn == (norm + ".js")) {
                 return p
             }
@@ -1263,6 +1281,15 @@ class UastSemantic {
             if ((strlen fromTsx) > 0) {
                 if (pn == fromTsx) {
                     return p
+                }
+            }
+            def nlen:int (strlen norm)
+            def plen:int (strlen pn)
+            if ((plen > nlen) && (nlen > 0)) {
+                if ((substring pn (plen - nlen) plen) == norm) {
+                    if ((charAt pn ((plen - nlen) - 1)) == 47) {
+                        return p
+                    }
                 }
             }
             i = (i + 1)

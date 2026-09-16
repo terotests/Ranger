@@ -1,0 +1,157 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastCppTest.rgr — C++17 parser → FrontendResult → CodeModel.
+; ============================================================================
+;
+;   npm run uast:cpp
+; ============================================================================
+
+Import "../src/UastCpp.rgr"
+Import "../src/UastCodeGraph.rgr"
+Import "../src/UastDump.rgr"
+Import "../src/UastQuery.rgr"
+Import "../src/UastKind.rgr"
+
+class UastCppChecker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn report:int () {
+        print ""
+        print (("passed " + (to_string passed)) + ", failed " + (to_string failed))
+        if (failed > 0) {
+            return 1
+        }
+        return 0
+    }
+}
+
+class UastCppTest {
+    sfn main:void () {
+        def c (new UastCppChecker)
+        UastCppTest.testZipWriter(c)
+        UastCppTest.testShapes(c)
+        UastCppTest.testIncludes(c)
+        UastCppTest.testTemplates(c)
+        def code:int (c.report())
+        if (code != 0) {
+            exit 1
+        }
+    }
+
+    sfn testZipWriter:void (c:UastCppChecker) {
+        print "== zip_writer.hpp via cpp_parser"
+        def model:UastCodeModel (UastCpp.fromFile("gallery/uast/fixtures/cpp/zip_writer.hpp"))
+        if ((indexOf model.title " FAIL ") >= 0) {
+            print ("  FAIL " + model.title)
+            c.ok("parse zip_writer.hpp" false)
+            return
+        }
+        c.ok("no parse diagnostic" ((UastQuery.diagnosticMentions(model "Parse error")) == false))
+        c.ok("ZipWriter symbol" (model.mentionsSymbol("class:ZipWriter")))
+        c.ok("ZipEntry symbol" (model.mentionsSymbol("class:ZipEntry")))
+        c.ok("GrowableZipBuffer symbol" (model.mentionsSymbol("class:GrowableZipBuffer")))
+        c.ok("CRC32 symbol" (model.mentionsSymbol("class:CRC32")))
+        c.ok("addFile symbol" (model.mentionsSymbol("method:ZipWriter.addFile")))
+        c.ok("update symbol" (model.mentionsSymbol("method:CRC32.update")))
+        def entries:UastSymbol (model.symbolById("field:ZipWriter.entries"))
+        c.ok("entries type mentions ZipEntry" ((indexOf entries.typeName "ZipEntry") >= 0))
+        def output:UastSymbol (model.symbolById("field:ZipWriter.output"))
+        c.eqStr("output type" output.typeName "GrowableZipBuffer")
+        def crcField:UastSymbol (model.symbolById("field:ZipWriter.crc"))
+        c.eqStr("crc type" crcField.typeName "CRC32")
+        c.ok("crc comment on the field" ((indexOf crcField.comment "Cyclic redundancy") >= 0))
+        def addFile:UNode (UastQuery.methodNode(model "ZipWriter" "addFile"))
+        c.eqStr("addFile name" addFile.name "addFile")
+        def calls:[UNode] (UastQuery.ofKindUnder(model addFile (UastKind.Call())))
+        c.ok("addFile has a Call" ((array_length calls) > 0))
+        if ((array_length calls) > 0) {
+            def call0:UNode (itemAt calls 0)
+            c.eqStr("callee member" (UastQuery.calleeMemberName(model call0)) "update")
+            c.eqStr("callee receiver" (UastQuery.calleeReceiverName(model call0)) "crc")
+            def dump:string (UastDump.ofNode(model call0.id))
+            print dump
+            c.ok("dump kind Call" ((indexOf dump "kind: Call") >= 0))
+            c.ok("dump MemberAccess" ((indexOf dump "MemberAccess") >= 0))
+            c.ok("dump exact" ((indexOf dump "confidence: exact") >= 0))
+            c.ok("dump resolved" ((indexOf dump "resolution: resolved") >= 0))
+            c.ok("dump target CRC32.update" ((indexOf dump "method:CRC32.update") >= 0))
+        }
+        def foundUse:boolean false
+        def foundCall:boolean false
+        def ri:int 0
+        while (ri < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships ri)
+            if ((rel.kind == "usesType") && (rel.fromId == "class:ZipWriter") && (rel.toId == "class:CRC32")) {
+                foundUse = true
+            }
+            if ((rel.kind == "calls") && (rel.fromId == "method:ZipWriter.addFile") && (rel.toId == "method:CRC32.update")) {
+                foundCall = true
+            }
+            ri = (ri + 1)
+        }
+        c.ok("ZipWriter usesType CRC32" foundUse)
+        c.ok("addFile calls CRC32.update" foundCall)
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        c.ok("projected ZipWriter" ((g.classCount()) >= 4))
+    }
+
+    sfn testShapes:void (c:UastCppChecker) {
+        print "== shapes.hpp inheritance / enum / namespace"
+        def model:UastCodeModel (UastCpp.fromFile("gallery/uast/fixtures/cpp/shapes.hpp"))
+        c.ok("Base" (model.mentionsSymbol("class:Base")))
+        c.ok("Child" (model.mentionsSymbol("class:Child")))
+        c.ok("Color enum" (model.mentionsSymbol("class:Color")))
+        def child:UastSymbol (model.symbolById("class:Child"))
+        c.eqStr("Child extends Base" child.extendsName "Base")
+        c.ok("Buffer in namespace" (model.mentionsSymbol("class:Buffer")))
+        c.ok("no parse diagnostic" ((UastQuery.diagnosticMentions(model "Parse error")) == false))
+    }
+
+    sfn testIncludes:void (c:UastCppChecker) {
+        print "== quoted include / system header diagnostic"
+        def model:UastCodeModel (UastCpp.fromDir("gallery/uast/fixtures/cpp"))
+        c.ok("Helper from header" (model.mentionsSymbol("class:Helper")))
+        c.ok("ping_all" (model.mentionsSymbol("function:ping_all")))
+        c.ok("ZipWriter from dir" (model.mentionsSymbol("class:ZipWriter")))
+        c.ok("no unresolved helper.hpp" ((UastQuery.diagnosticMentions(model "unresolved import helper.hpp")) == false))
+        c.ok("system vector stays diagnostic" (UastQuery.diagnosticMentions(model "unresolved import <vector>")))
+        def foundPing:boolean false
+        def ri:int 0
+        while (ri < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships ri)
+            if ((rel.kind == "calls") && (rel.fromId == "function:ping_all") && (rel.toId == "method:Helper.ping")) {
+                foundPing = true
+            }
+            ri = (ri + 1)
+        }
+        c.ok("ping_all calls Helper.ping" foundPing)
+    }
+
+    sfn testTemplates:void (c:UastCppChecker) {
+        print "== templates.hpp qualified template types"
+        def model:UastCodeModel (UastCpp.fromFile("gallery/uast/fixtures/cpp/templates.hpp"))
+        c.ok("no parse diagnostic" ((UastQuery.diagnosticMentions(model "Parse error")) == false))
+        c.ok("HasContainerTraits" (model.mentionsSymbol("class:HasContainerTraits")))
+        c.ok("Wrapped" (model.mentionsSymbol("class:Wrapped")))
+        c.ok("check_trait" (model.mentionsSymbol("function:check_trait")))
+        c.ok("describe" (model.mentionsSymbol("function:describe")))
+        def field:UastSymbol (model.symbolById("field:Wrapped.field"))
+        c.ok("field type keeps nested name" ((indexOf field.typeName "HasContainerTraits") >= 0))
+        c.ok("ping method" (model.mentionsSymbol("method:Wrapped.ping")))
+    }
+}

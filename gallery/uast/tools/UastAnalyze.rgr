@@ -1,29 +1,38 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ============================================================================
-; UastAnalyze.rgr — TypeScript tree → CodeModel → CodeGraph projector.
+; UastAnalyze.rgr — TypeScript or C++ tree → CodeModel → CodeGraph projector.
 ; ============================================================================
 ;
 ;   npm run uast:analyze -- gallery/uast/fixtures
-;   npm run uast:analyze -- /tmp/some-ts-repo
+;   npm run uast:analyze -- gallery/uast/fixtures/cpp
+;   npm run uast:analyze -- /tmp/some-ts-or-cpp-repo
 ;
 ; Does not change CodeGraphBuilder or the explorer UI. The projector is the
 ; M7 contract: TS CodeGraph is the existing IR, filled from UAST.
 ; ============================================================================
 
 Import "../src/UastTs.rgr"
+Import "../src/UastCpp.rgr"
 Import "../src/UastReport.rgr"
 Import "../src/UastCodeGraph.rgr"
 
 class UastAnalyze {
     sfn main:void () {
         if ((shell_arg_cnt) < 1) {
-            print "usage: uast_analyze <dir-or-file.ts>"
+            print "usage: uast_analyze <dir-or-file>"
             exit 1
         }
         def path:string (shell_arg 0)
         print ("analysing " + path)
-        def model:UastCodeModel (UastTs.fromPath(path))
+        if (UastCpp.looksLikeCpp(path)) {
+            UastAnalyze.writeReport((UastCpp.fromPath(path)))
+        } {
+            UastAnalyze.writeReport((UastTs.fromPath(path)))
+        }
+    }
+
+    sfn writeReport:void (model:UastCodeModel) {
         print (UastReport.of(model))
         def g:CodeGraph (UastToCodeGraph.project(model))
         print ""
