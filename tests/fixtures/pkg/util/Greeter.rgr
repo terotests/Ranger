@@ -1,0 +1,7 @@
+; SPDX-License-Identifier: MIT
+
+class Greeter {
+    sfn hello:string () {
+        return "pkg-import-ok"
+    }
+}

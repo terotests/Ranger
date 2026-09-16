@@ -12,6 +12,8 @@
 ;   pkg_tool tree <ranger.json>
 ;   pkg_tool lock <ranger.json>
 ;   pkg_tool vendor <ranger.json> <out-dir>
+;   pkg_tool cache-put <pack> <sha> [subdir] <cache-root>
+;   pkg_tool install <ranger.json>
 
 Import "GitSha1.rgr"
 Import "GitPkt.rgr"
@@ -19,6 +21,7 @@ Import "GitPack.rgr"
 Import "GitStore.rgr"
 Import "PkgManifest.rgr"
 Import "PkgResolver.rgr"
+Import "PkgCache.rgr"
 
 class PkgTool {
     sfn splitPath:[string] (path:string) {
@@ -57,6 +60,8 @@ class PkgTool {
         print "pkg_tool tree <ranger.json>"
         print "pkg_tool lock <ranger.json>"
         print "pkg_tool vendor <ranger.json> <out-dir>"
+        print "pkg_tool cache-put <pack> <sha> [subdir] <cache-root>"
+        print "pkg_tool install <ranger.json>"
     }
 
     sfn m@(main):void () {
@@ -217,6 +222,48 @@ class PkgTool {
             resv4.loadRoot(src4 (itemAt parts4 0))
             resv4.vendorTo((shell_arg 2))
             print ("vendor " + (shell_arg 2))
+            return
+        }
+        if (cmd == "cache-put") {
+            if (n < 4) {
+                PkgTool.usage()
+                return
+            }
+            def pack5:GitPack (GitPackIO.parse((PkgTool.readFile((shell_arg 1)))))
+            if (pack5.ok == false) {
+                print ("FAIL " + pack5.err)
+                return
+            }
+            def sha5:string (shell_arg 2)
+            def sub5:string ""
+            def cacheDir:string (shell_arg 3)
+            if (n >= 5) {
+                sub5 = (shell_arg 3)
+                cacheDir = (shell_arg 4)
+            }
+            def store5 (new GitStore(pack5))
+            def mem5:GitMem (store5.checkout(sha5 sub5))
+            if (store5.ok == false) {
+                print ("FAIL " + store5.err)
+                return
+            }
+            create_dir cacheDir
+            def hash5:string (PkgCache.put(mem5 cacheDir))
+            print ("sha256 " + hash5)
+            print ("files " + (to_string (array_length mem5.files)))
+            return
+        }
+        if (cmd == "install") {
+            def manPath5:string (shell_arg 1)
+            def parts5:[string] (PkgTool.splitPath(manPath5))
+            def src5:string (buffer_to_string ((buffer_read_file (itemAt parts5 0) (itemAt parts5 1))))
+            def resv5 (new PackageResolver)
+            resv5.loadRoot(src5 (itemAt parts5 0))
+            def lock5:PkgLock (resv5.makeLock())
+            def dumped:string (PkgManifestIO.dumpLock(lock5))
+            def lockBuf:buffer (buffer_from_string dumped)
+            buffer_write_file (itemAt parts5 0) "ranger.lock" lockBuf
+            print ("wrote " + (itemAt parts5 0) + "/ranger.lock")
             return
         }
         PkgTool.usage()

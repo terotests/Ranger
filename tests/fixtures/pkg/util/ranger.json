@@ -1,0 +1,6 @@
+{
+  "name": "util",
+  "version": "0.1.0",
+  "entry": "Greeter.rgr",
+  "license": "MIT"
+}

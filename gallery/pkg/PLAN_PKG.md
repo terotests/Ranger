@@ -25,7 +25,7 @@ Order, smallest first:
 4. Git + path resolver + cache
 5. `pkg:` imports
 6. `vendor`
-7. Compiler `cmdImport` calls the resolver (later; not from `gallery/`)
+7. Compiler `cmdImport` resolves `pkg:` via `compiler/PkgImport.rgr` (MIT)
 8. Registry / semver / namespaces — **not now**
 
 ## Licensing
@@ -50,11 +50,8 @@ That is the same stance as ZIP and Zstandard in this gallery.
   side-band-64k. Node `git-http.mjs` is the pipe.
 - **S4 — manifest / lock / resolver.** `pkg:name`, `pkg:name/path`,
   `./relative`. Path deps. Lock dump. Vendor copy.
-- **S5 — compiler hook.** `ImportRequest → ResolvedSource` mounted on
-  `InputFS` as `/app/…` and `/packages/evg/…`. Lives in `compiler/` or
-  an `import_loader` plugin so `gallery/` is not imported from MIT code.
-- **S6 — cache keyed by lock sha256.** `~/.cache/ranger/packages/<hash>/`
-  shared across projects; the project keeps `ranger.json` + `ranger.lock`.
+- **S5 — compiler hook.** `cmdImport` resolves `pkg:` and `./` through `compiler/PkgImport.rgr` (MIT): walk up to `ranger.json`, path deps, `vendor/ranger/<name>`, lockfile sha256 cache. Fetching still lives in `gallery/pkg`.
+- **S6 — cache keyed by lock sha256.** `PkgCache.put` writes a Git checkout under `<cacheRoot>/<sha256>/`. `pkg_tool cache-put` / `install`.
 
 ## Non-goals (still)
 

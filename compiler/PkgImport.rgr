@@ -1,0 +1,519 @@
+; SPDX-License-Identifier: MIT
+
+; Resolve `Import "pkg:name"` against ranger.json / ranger.lock / vendor /
+; the content-addressed cache. The compiler must not import gallery/ (AGPL).
+; Fetching a Git pack stays in gallery/pkg; this only looks up files that
+; are already on disk.
+;
+; JSON is a tiny object/string/int reader so this file does not pull
+; compiler/ng_jsonParser.rgr (that parser is not part of the compiler
+; compile graph and does not type-check there).
+
+Import "InputFileSystem.rgr"
+
+class PkgHit {
+  def ok:boolean false
+  def err:string ""
+  def dir:string ""
+  def name:string ""
+  def packageId:string ""
+}
+
+class PkgJVal {
+  def kind:string "null"
+  def str:string ""
+  def keys:[string]
+  def vals:[PkgJVal]
+}
+
+class PkgJRead {
+  def text:string ""
+  def i:int 0
+  def n:int 0
+  def ok:boolean true
+
+  fn parse:PkgJVal (src:string) {
+    text = src
+    i = 0
+    n = (strlen src)
+    ok = true
+    this.skipWs()
+    return this.val()
+  }
+
+  fn skipWs:void () {
+    while (i < n) {
+      if ((charAt text i) <= 32) {
+        i = (i + 1)
+      } {
+        return
+      }
+    }
+  }
+
+  fn val:PkgJVal () {
+    this.skipWs()
+    def v (new PkgJVal)
+    if (i >= n) {
+      ok = false
+      return v
+    }
+    def c:int (charAt text i)
+    if (c == 123) {
+      return this.obj()
+    }
+    if (c == 34) {
+      v.kind = "str"
+      v.str = (this.quoted())
+      return v
+    }
+    if (c == 116) {
+      v.kind = "bool"
+      i = (i + 4)
+      return v
+    }
+    if (c == 102) {
+      v.kind = "bool"
+      i = (i + 5)
+      return v
+    }
+    if (c == 110) {
+      i = (i + 4)
+      return v
+    }
+    v.kind = "int"
+    while (i < n) {
+      def d:int (charAt text i)
+      if ((d >= 48) && (d <= 57)) {
+        i = (i + 1)
+      } {
+        if (d == 45) {
+          i = (i + 1)
+        } {
+          return v
+        }
+      }
+    }
+    return v
+  }
+
+  fn obj:PkgJVal () {
+    def v (new PkgJVal)
+    v.kind = "obj"
+    i = (i + 1)
+    this.skipWs()
+    while (i < n) {
+      def c:int (charAt text i)
+      if (c == 125) {
+        i = (i + 1)
+        return v
+      }
+      if (c == 44) {
+        i = (i + 1)
+        this.skipWs()
+      } {
+        def key:string (this.quoted())
+        this.skipWs()
+        if (i < n) {
+          if ((charAt text i) == 58) {
+            i = (i + 1)
+          }
+        }
+        def child:PkgJVal (this.val())
+        push v.keys key
+        push v.vals child
+        this.skipWs()
+      }
+    }
+    ok = false
+    return v
+  }
+
+  fn quoted:string () {
+    this.skipWs()
+    if (i >= n) {
+      return ""
+    }
+    if ((charAt text i) != 34) {
+      ok = false
+      return ""
+    }
+    i = (i + 1)
+    def s:string ""
+    while (i < n) {
+      def c:int (charAt text i)
+      if (c == 34) {
+        i = (i + 1)
+        return s
+      }
+      if (c == 92) {
+        i = (i + 1)
+        if (i < n) {
+          s = (s + (strfromcode (charAt text i)))
+          i = (i + 1)
+        }
+      } {
+        s = (s + (strfromcode c))
+        i = (i + 1)
+      }
+    }
+    ok = false
+    return s
+  }
+
+  sfn child@(optional):PkgJVal (obj:PkgJVal key:string) {
+    def res@(optional):PkgJVal
+    def k:int 0
+    while (k < (array_length obj.keys)) {
+      if ((itemAt obj.keys k) == key) {
+        res = (itemAt obj.vals k)
+        return res
+      }
+      k = (k + 1)
+    }
+    return res
+  }
+
+  sfn strOf:string (obj:PkgJVal key:string) {
+    def hit@(optional):PkgJVal (PkgJRead.child(obj key))
+    if (null? hit) {
+      return ""
+    }
+    def v:PkgJVal (unwrap hit)
+    if (v.kind == "str") {
+      return v.str
+    }
+    return ""
+  }
+}
+
+class PkgImport {
+
+  sfn isPkg:boolean (spec:string) {
+    if ((strlen spec) < 4) {
+      return false
+    }
+    return ((substring spec 0 4) == "pkg:")
+  }
+
+  sfn stripDot:string (spec:string) {
+    if ((strlen spec) >= 2) {
+      if ((substring spec 0 2) == "./") {
+        return (substring spec 2 (strlen spec))
+      }
+    }
+    return spec
+  }
+
+  sfn cacheRoot:string () {
+    def envHit@(optional):string (env_var "RANGER_PKG_CACHE")
+    if (!null? envHit) {
+      def e:string (unwrap envHit)
+      if ((strlen e) > 0) {
+        return e
+      }
+    }
+    def homeHit@(optional):string (env_var "HOME")
+    if (!null? homeHit) {
+      def h:string (unwrap homeHit)
+      if ((strlen h) > 0) {
+        return (h + "/.cache/ranger/packages")
+      }
+    }
+    return ".ranger-cache/packages"
+  }
+
+  sfn joinPath:string (a:string b:string) {
+    if ((strlen a) == 0) {
+      return b
+    }
+    if ((strlen b) == 0) {
+      return a
+    }
+    def n:int (strlen a)
+    def left:string a
+    if ((charAt a (n - 1)) == 47) {
+      left = (substring a 0 (n - 1))
+    }
+    if ((charAt b 0) == 47) {
+      return b
+    }
+    return (left + "/" + b)
+  }
+
+  sfn foldPath:string (path:string) {
+    def abs:boolean false
+    if ((strlen path) > 0) {
+      if ((charAt path 0) == 47) {
+        abs = true
+      }
+    }
+    def parts:[string]
+    def n:int (strlen path)
+    def start:int 0
+    def i:int 0
+    while (i <= n) {
+      if ((i == n) || ((charAt path i) == 47)) {
+        def piece:string (substring path start i)
+        if ((strlen piece) == 0) {
+        } {
+          if (piece == ".") {
+          } {
+            if (piece == "..") {
+              if ((array_length parts) > 0) {
+                removeLast parts
+              }
+            } {
+              push parts piece
+            }
+          }
+        }
+        start = (i + 1)
+      }
+      i = (i + 1)
+    }
+    def out:string ""
+    if abs {
+      out = "/"
+    }
+    def p:int 0
+    while (p < (array_length parts)) {
+      if ((strlen out) > 0) {
+        if (out != "/") {
+          out = (out + "/")
+        }
+      }
+      out = (out + (itemAt parts p))
+      p = (p + 1)
+    }
+    if (abs) {
+      if ((strlen out) == 0) {
+        return "/"
+      }
+    }
+    return out
+  }
+
+  sfn splitName:[string] (path:string) {
+    def dir:string "."
+    def name:string path
+    def n:int (strlen path)
+    def i:int (n - 1)
+    while (i >= 0) {
+      if ((charAt path i) == 47) {
+        dir = (substring path 0 i)
+        name = (substring path (i + 1) n)
+        i = (0 - 1)
+      } {
+        i = (i - 1)
+      }
+    }
+    def parts:[string]
+    push parts dir
+    push parts name
+    return parts
+  }
+
+  sfn parentDir:string (dir:string) {
+    def n:int (strlen dir)
+    if (n <= 1) {
+      return ""
+    }
+    def i:int (n - 1)
+    while (i >= 0) {
+      if ((charAt dir i) == 47) {
+        if (i == 0) {
+          return "/"
+        }
+        return (substring dir 0 i)
+      }
+      i = (i - 1)
+    }
+    return ""
+  }
+
+  sfn findManifestDir:string (env:InputEnv start:string paths:[string]) {
+    def d:string (PkgImport.walkUp(env start))
+    if ((strlen d) > 0) {
+      return d
+    }
+    def i:int 0
+    while (i < (array_length paths)) {
+      def p:string (itemAt paths i)
+      def found:string (PkgImport.walkUp(env p))
+      if ((strlen found) > 0) {
+        return found
+      }
+      i = (i + 1)
+    }
+    return ""
+  }
+
+  sfn walkUp:string (env:InputEnv start:string) {
+    def dir:string start
+    def guard:int 0
+    while ((strlen dir) > 0) {
+      if (file_exists env dir "ranger.json") {
+        return dir
+      }
+      def parent:string (PkgImport.parentDir(dir))
+      if (parent == dir) {
+        return ""
+      }
+      dir = parent
+      guard = (guard + 1)
+      if (guard > 48) {
+        return ""
+      }
+    }
+    return ""
+  }
+
+  sfn readText:string (env:InputEnv dir:string name:string) {
+    if (file_exists env dir name) {
+      def c@(optional):string (read_file env dir name)
+      if (!null? c) {
+        return (unwrap c)
+      }
+    }
+    return ""
+  }
+
+  sfn findChar:int (s:string code:int) {
+    def n:int (strlen s)
+    def i:int 0
+    while (i < n) {
+      if ((charAt s i) == code) {
+        return i
+      }
+      i = (i + 1)
+    }
+    return (0 - 1)
+  }
+
+  sfn resolve:PkgHit (env:InputEnv startDir:string spec:string libraryPaths:[string]) {
+    def hit (new PkgHit)
+    if ((PkgImport.isPkg(spec)) == false) {
+      hit.ok = true
+      hit.name = (PkgImport.stripDot(spec))
+      return hit
+    }
+    def rest:string (substring spec 4 (strlen spec))
+    def pkgName:string rest
+    def sub:string ""
+    def slash:int (PkgImport.findChar(rest 47))
+    if (slash >= 0) {
+      pkgName = (substring rest 0 slash)
+      sub = (substring rest (slash + 1) (strlen rest))
+    }
+    def manDir:string (PkgImport.findManifestDir(env startDir libraryPaths))
+    if ((strlen manDir) == 0) {
+      hit.err = ("no ranger.json for " + spec)
+      return hit
+    }
+    def manText:string (PkgImport.readText(env manDir "ranger.json"))
+    def reader (new PkgJRead)
+    def man:PkgJVal (reader.parse(manText))
+    if (reader.ok == false) {
+      hit.err = ("could not parse " + manDir + "/ranger.json")
+      return hit
+    }
+    def rootName:string (PkgJRead.strOf(man "name"))
+    def pkgRoot:string ""
+    def entry:string ""
+    if (pkgName == rootName) {
+      pkgRoot = manDir
+      entry = (PkgJRead.strOf(man "entry"))
+    } {
+      def deps@(optional):PkgJVal (PkgJRead.child(man "dependencies"))
+      if (null? deps) {
+        hit.err = ("package " + pkgName + " is not in ranger.json")
+        return hit
+      }
+      def depMap:PkgJVal (unwrap deps)
+      def specObj@(optional):PkgJVal (PkgJRead.child(depMap pkgName))
+      if (null? specObj) {
+        hit.err = ("package " + pkgName + " is not a dependency")
+        return hit
+      }
+      def dep:PkgJVal (unwrap specObj)
+      def pathDep:string (PkgJRead.strOf(dep "path"))
+      if ((strlen pathDep) > 0) {
+        pkgRoot = (PkgImport.foldPath((PkgImport.joinPath(manDir pathDep))))
+      } {
+        def vendorDir:string (PkgImport.joinPath(manDir ("vendor/ranger/" + pkgName)))
+        if (file_exists env vendorDir "ranger.json") {
+          pkgRoot = vendorDir
+        } {
+          def lockText:string (PkgImport.readText(env manDir "ranger.lock"))
+          def fromLock:string (PkgImport.lockRoot(env lockText pkgName manDir))
+          if ((strlen fromLock) > 0) {
+            pkgRoot = fromLock
+          }
+        }
+      }
+      if ((strlen pkgRoot) == 0) {
+        hit.err = ("package " + pkgName + " is not on disk; path/vendor/cache it first")
+        return hit
+      }
+      def childMan:string (PkgImport.readText(env pkgRoot "ranger.json"))
+      if ((strlen childMan) > 0) {
+        def r2 (new PkgJRead)
+        def croot:PkgJVal (r2.parse(childMan))
+        if r2.ok {
+          entry = (PkgJRead.strOf(croot "entry"))
+        }
+      }
+    }
+    def logical:string sub
+    if ((strlen logical) == 0) {
+      logical = entry
+    }
+    if ((strlen logical) == 0) {
+      hit.err = ("package " + pkgName + " has no entry")
+      return hit
+    }
+    logical = (PkgImport.foldPath(logical))
+    def full:string (PkgImport.joinPath(pkgRoot logical))
+    def parts:[string] (PkgImport.splitName(full))
+    hit.dir = (itemAt parts 0)
+    hit.name = (itemAt parts 1)
+    hit.packageId = pkgName
+    if (file_exists env hit.dir hit.name) {
+      hit.ok = true
+      return hit
+    }
+    hit.err = ("package " + pkgName + " has no " + logical)
+    return hit
+  }
+
+  sfn lockRoot:string (env:InputEnv lockText:string pkgName:string manDir:string) {
+    if ((strlen lockText) == 0) {
+      return ""
+    }
+    def reader (new PkgJRead)
+    def lock:PkgJVal (reader.parse(lockText))
+    if (reader.ok == false) {
+      return ""
+    }
+    def pkgs@(optional):PkgJVal (PkgJRead.child(lock "packages"))
+    if (null? pkgs) {
+      return ""
+    }
+    def map:PkgJVal (unwrap pkgs)
+    def ent@(optional):PkgJVal (PkgJRead.child(map pkgName))
+    if (null? ent) {
+      return ""
+    }
+    def e:PkgJVal (unwrap ent)
+    def pathDep:string (PkgJRead.strOf(e "path"))
+    if ((strlen pathDep) > 0) {
+      return (PkgImport.foldPath((PkgImport.joinPath(manDir pathDep))))
+    }
+    def hash:string (PkgJRead.strOf(e "sha256"))
+    if ((strlen hash) > 0) {
+      return (PkgImport.joinPath((PkgImport.cacheRoot()) hash))
+    }
+    return ""
+  }
+}

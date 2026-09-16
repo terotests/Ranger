@@ -1,0 +1,93 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Content-addressed source cache. A Git checkout (or any GitMem) is written
+; once under cacheRoot/<sha256>/ and ranger.lock points at that hash.
+; Several projects share the same tree; nothing copies into node_modules.
+
+Import "GitStore.rgr"
+Import "PkgManifest.rgr"
+
+class PkgCache {
+    sfn lessStr:boolean (a:string b:string) {
+        def na:int (strlen a)
+        def nb:int (strlen b)
+        def n:int na
+        if (nb < na) {
+            n = nb
+        }
+        def i:int 0
+        while (i < n) {
+            def ca:int (charAt a i)
+            def cb:int (charAt b i)
+            if (ca < cb) {
+                return true
+            }
+            if (cb < ca) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return (na < nb)
+    }
+
+    sfn hashMem:string (mem:GitMem) {
+        def names:[string]
+        def i:int 0
+        while (i < (array_length mem.paths)) {
+            push names (itemAt mem.paths i)
+            i = (i + 1)
+        }
+        def n:int (array_length names)
+        def a:int 0
+        while (a < n) {
+            def b:int (a + 1)
+            while (b < n) {
+                def sa:string (itemAt names a)
+                def sb:string (itemAt names b)
+                if (PkgCache.lessStr(sb sa)) {
+                    set names a sb
+                    set names b sa
+                }
+                b = (b + 1)
+            }
+            a = (a + 1)
+        }
+        def acc:string ""
+        i = 0
+        while (i < n) {
+            def p:string (itemAt names i)
+            acc = (acc + p + "\n")
+            if (has mem.byPath p) {
+                def f:GitFile (unwrap (get mem.byPath p))
+                acc = (acc + (buffer_to_string f.data) + "\n")
+            }
+            i = (i + 1)
+        }
+        if ((strlen acc) == 0) {
+            return ""
+        }
+        return (sha256 acc)
+    }
+
+    sfn put:string (mem:GitMem cacheRoot:string) {
+        def hash:string (PkgCache.hashMem(mem))
+        if ((strlen hash) == 0) {
+            return ""
+        }
+        def dest:string (cacheRoot + "/" + hash)
+        create_dir dest
+        def store (new GitStore((new GitPack)))
+        store.writeDisk(mem dest)
+        return hash
+    }
+
+    sfn lockFor:PkgLockEnt (name:string git:string rev:string subdir:string hash:string) {
+        def e (new PkgLockEnt)
+        e.name = name
+        e.git = git
+        e.rev = rev
+        e.subdir = subdir
+        e.sha256 = hash
+        return e
+    }
+}

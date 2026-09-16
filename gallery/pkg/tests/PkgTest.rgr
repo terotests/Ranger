@@ -11,6 +11,7 @@ Import "../src/GitStore.rgr"
 Import "../src/PkgJson.rgr"
 Import "../src/PkgManifest.rgr"
 Import "../src/PkgResolver.rgr"
+Import "../src/PkgCache.rgr"
 
 class PkgTest {
     def passed:int 0
@@ -61,6 +62,8 @@ class PkgTest {
         this.testResolver()
         print "pkg git pack"
         this.testPack()
+        print "pkg cache"
+        this.testCache()
         print ""
         if (failed == 0) {
             print ("ALL PASS  " + (to_string passed))
@@ -324,5 +327,43 @@ class PkgTest {
                 }
             }
         }
+    }
+
+    fn testCache:void () {
+        def packed:buffer (buffer_read_file "gallery/pkg/fixtures" "tiny.pack")
+        def meta:buffer (buffer_read_file "gallery/pkg/fixtures" "tiny.meta.txt")
+        if ((buffer_length packed) < 32) {
+            print "  SKIP  cache (no tiny.pack)"
+            return
+        }
+        def pack:GitPack (GitPackIO.parse(packed))
+        this.check("cache pack ok" pack.ok)
+        def text:string (buffer_to_string meta)
+        def lines:[string] (strsplit text "\n")
+        def head:string ""
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            if ((strlen line) > 5) {
+                if ((substring line 0 5) == "head ") {
+                    head = (substring line 5 (strlen line))
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen head) != 40) {
+            this.check("cache head" false)
+            return
+        }
+        def store (new GitStore(pack))
+        def mem:GitMem (store.checkout(head "src"))
+        this.check("cache checkout" store.ok)
+        def hash:string (PkgCache.hashMem(mem))
+        this.check("cache hash length" ((strlen hash) == 64))
+        def dest:string "/tmp/ranger-pkg-cache-test"
+        create_dir dest
+        def stored:string (PkgCache.put(mem dest))
+        this.eqStr("cache put hash" stored hash)
+        this.check("cache wrote Main.rgr" (file_exists (dest + "/" + stored) "Main.rgr"))
     }
 }

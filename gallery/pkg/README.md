@@ -121,14 +121,16 @@ Import "pkg:evg/EVGElement.rgr"      ; a file inside it
 ```
 
 Relative `../evg/EVGElement.rgr` is a monorepo accident, not a dependency.
-The resolver refuses a `./` import that climbs out of the package.
+The gallery resolver refuses a `./` import that climbs out of the package.
 
-The compiler is not wired yet. `PackageResolver.resolve` is the component
-`cmdImport` should call; until then this suite and `pkg_tool resolve`
-exercise the same `ImportRequest → ResolvedSource` shape. Compiler code
-must not import `gallery/` (AGENTS.md), so the eventual hook is either a
-copy of these types under `compiler/` or the existing `import_loader`
-plugin.
+The compiler **does** resolve `pkg:` and `./` now: `compiler/PkgImport.rgr`
+(MIT) walks up to `ranger.json`, then a path dependency, `vendor/ranger/<name>`,
+or `RANGER_PKG_CACHE` / `~/.cache/ranger/packages/<sha256>` from `ranger.lock`.
+It does not fetch Git — that stays in this directory. `rgrc` reads the nearest
+`ranger.json` automatically.
+
+Gallery `PackageResolver` is the same idea for tools (`pkg_tool resolve`,
+`install`, `cache-put`, `vendor`).
 
 ## Layout
 
@@ -142,6 +144,7 @@ plugin.
 | `src/PkgJson.rgr` | small JSON reader |
 | `src/PkgManifest.rgr` | `ranger.json` / `ranger.lock` |
 | `src/PkgResolver.rgr` | `pkg:` and relative imports, lock, vendor |
+| `src/PkgCache.rgr` | content-addressed checkout cache |
 | `src/pkg_tool.rgr` | CLI |
 | `tools/git-http.mjs` | HTTPS GET/POST only |
 | `tools/clone.mjs` | advertise → want → pack → checkout |
@@ -160,6 +163,8 @@ pkg_tool resolve <ranger.json> <import> [importer]
 pkg_tool tree <ranger.json>
 pkg_tool lock <ranger.json>
 pkg_tool vendor <ranger.json> <out-dir>
+pkg_tool cache-put <pack> <sha> [subdir] <cache-root>
+pkg_tool install <ranger.json>
 ```
 
 There is no daemon, no login, no `publish`, no registry. A later registry
