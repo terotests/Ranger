@@ -1,12 +1,13 @@
 # UAST — a language-analysis framework for Ranger
 
-**Status:** research branch, M8 started (TSX components + TS fromDir +
+**Status:** research branch, M9 started (C++17 frontend + TSX + TS fromDir +
 projector CLI + shared call resolution + workspace imports + Ranger/TS
 ZipWriter)
 **License:** AGPL-3.0-or-later (this directory is under `gallery/`)
 **Related:** [`gallery/codegraph`](../codegraph/README.md),
 [`gallery/ts_parser`](../ts_parser/README.md),
 [`gallery/js_parser`](../js_parser/README.md),
+[`gallery/cpp_parser`](../cpp_parser/README.md),
 [`PLAN_TS_PARSER.md`](../../PLAN_TS_PARSER.md),
 [`PLAN_JS_PARSER.md`](../../PLAN_JS_PARSER.md)
 
@@ -168,6 +169,7 @@ source = compilerResolved | frontendInferred | sharedResolver
 ```text
 TypeScript  →  ts_parser TSNode  →  TS adapter  →  FrontendResult
 Ranger      →  VirtualCompiler   →  UastRanger  →  FrontendResult
+C++17       →  cpp_parser        →  UastCpp     →  FrontendResult
 Go later    →  Go parser         →  Go adapter  →  FrontendResult
 ```
 
@@ -531,19 +533,23 @@ manager task for this branch.
 
 ---
 
-## 7. A third language, later: Go — then a harder fourth
+## 7. A harder third language: C++17 — then Go / Python / Rust
 
-Ranger + TypeScript + Go is **proof of architecture** (Go is not a JS
-AST with flags). It is not yet proof of abstraction.
+Ranger + TypeScript + C++ is **proof of architecture** (C++ is not a JS
+AST with flags). It is not yet proof of abstraction. The C++ frontend
+targets **C++17 or newer**: classes, namespaces, quoted includes, and
+`this->` calls. It does not run `clang`, instantiate templates, or
+walk system headers.
 
-After Go works, take a deliberately harder language:
+After that, other languages still stress different axes:
 
 | Language | Stresses |
 | --- | --- |
-| **Python** | not declaration-heavy; dynamic/monkey; decorators; nested scopes; implicit instance |
-| **Rust** | traits; associated functions; patterns; expressions-as-control-flow; lifetimes/generics; macros as a boundary |
+| **Go** | packages; methods on named types; interfaces without inheritance |
+| **Python** | not declaration-heavy; dynamic/monkey; decorators; nested scopes |
+| **Rust** | traits; associated functions; patterns; lifetimes/generics; macros |
 
-Do not declare UAST “universal” after Go.
+Do not declare UAST “universal” after C++.
 
 ---
 
@@ -569,12 +575,19 @@ gallery/uast/
         UastRanger.rgr        compiler context → FrontendResult
         UastTypeScript.rgr    TSNode nativeKind → UNode kind
         UastTs.rgr            ts_parser → FrontendResult
+        UastCpp.rgr           cpp_parser → FrontendResult
     tests/
         UastTest.rgr          schema, roles, dump, dynamic vs exact
         UastRangerTest.rgr    compatibility + ZipWriter spec + comments
         UastTsTest.rgr        zip_writer.ts via ts_parser
+        UastCppTest.rgr       zip_writer.hpp via cpp_parser
     fixtures/
         zip_writer.ts
+        cpp/zip_writer.hpp    C++17 ZipWriter twin (`this->crc.update`)
+        cpp/shapes.hpp        inheritance, enum class, namespace
+        cpp/helper.hpp        quoted include target
+        cpp/user.cpp          #include "helper.hpp" vs <vector>
+        cpp/templates.hpp     HasContainerTraits<T>::value, if constexpr
         foo_a.ts / foo_b.ts   export Foo + import { Foo } / unresolved ./nope
         sheet_view.rgr        leading comments on the right property
 ```
@@ -619,7 +632,7 @@ frontend is not allowed to require `tsc`.
 | **6** | calls | **resolution ≠ confidence**; exact only if unique known declaration |
 | **7** | TS CodeGraph in the existing explorer | Keep; projector only |
 | **8** | TSX | Keep late |
-| **9** | Go | Keep. Python or Rust after that, not in this table |
+| **9** | C++17 | Hard language: not a JS AST. Parser in `gallery/cpp_parser`, adapter `UastCpp`. No clang. Go / Python / Rust after that |
 
 M0 is the fixture path (no compiler). M1 is started (`UastRanger` + golden).
 M2 walks method bodies (Call / MemberAccess) and treats comments as
@@ -668,6 +681,38 @@ function expressions, and `export { type Foo }` parse. Bare `react` /
 diagnostics when it is not.
 JSX node types stay `LanguageSpecific` in the mapping — the adapter
 does the lowering. No CodeGraphBuilder or UI change.
+M9 is started: a C++17 parser (`gallery/cpp_parser`) and `UastCpp`
+frontend. Classes / structs, fields, methods, namespaces, `enum class`,
+and quoted `#include` walk into the same CodeModel. `this->crc.update(data)`
+is a Call whose dump matches the ZipWriter TS/Ranger shape (`method:CRC32.update`,
+exact). `<vector>` and other system headers stay diagnostics; there is
+no clang and no package manager. Angle-bracket includes resolve when the
+path is already in the workspace (`<AK/Array.h>`). `npm run uast:cpp` /
+`uast:analyze -- gallery/uast/fixtures/cpp`.
+Tried on p-ranav/argparse in `/tmp` (not vendored): `Argument` /
+`ArgumentParser`, template structs such as `HasContainerTraits`,
+`HasContainerTraits<T>::value`, `if constexpr`, and `>>` as two template
+closes. System headers stay diagnostics. Remaining parse noise is a
+lambda inside `repr` and test-harness macros; analysis continues.
+Tried on skift-org/skift (`src/kernel`, not vendored): C++20 `import` /
+`export module` skipped, `[[gnu::packed]]`, `asm volatile`, `try$`,
+`requires`, GNU `__attribute__`, `enum struct`, `not` / `and`, nested
+enums, qualified namespaces. `Io` / `Vmm` / `Pmm` / `Task` / `Gdt` /
+`Domain` / `Object`, 55 files, 1611 symbols, 303 projected methods, 197
+exact calls (`Io.read → Io.in`, `GdtDesc.load → _gdtLoad`). Remaining
+parse noise is unexpanded macros (`CR(0)`, `FOREACH_TYPE`) and similar;
+analysis continues.
+Tried on SerenityOS `AK/` (sparse `/tmp` checkout, not vendored): 243
+files, 7372 symbols, 2247 projected methods, `Vector` / `Array` /
+`HashMap` / `Optional` / `RefPtr` / `String` / `ByteBuffer`, 660 exact
+calls (`Array.from_span → TypedTransfer.copy`). `<AK/...>` includes bind
+in-workspace. Recovered OS patterns: `T (&&a)[N]`, `"="sv` user-defined
+literals, `(void*)1` casts, `sizeof(unsigned int)`, comma not treated as
+a binary operator (enums and default arguments), `memcpy(&x)` vs
+function-pointer declarators, goto labels, `auto [a, b]`,
+`namespace AK::Concepts`, `Class::operator==`, `.template as<T>()`,
+`if constexpr (requires { … })`. Remaining parse noise is macros and
+preprocessor-inside-enum leftovers; analysis continues.
 
 ---
 
@@ -746,7 +791,9 @@ It is: **Ranger gets a language-analysis framework.**
   it must not add, remove, or reorder `children`.
 - No import of `gallery/ts_parser` into `uast:test`. The TS walk lives
   in `uast:ts` (`UastTs.rgr`), the same split as `uast:ranger`.
-- No Go parser, no pretence of JS call resolution.
+- No import of `gallery/cpp_parser` into `uast:test`. The C++ walk lives
+  in `uast:cpp` (`UastCpp.rgr`).
+- No clang, no C++ package manager, no pretence of JS call resolution.
 - No merge of ComponentEngine’s eval AST into UNode.
 - No LSP, incremental parsing, data-flow, SSA, or a full type checker.
 

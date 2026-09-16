@@ -127,6 +127,12 @@ class UastTs {
         if (name == "build") {
             return true
         }
+        if (name == "LICENSE") {
+            return true
+        }
+        if (name == "Makefile") {
+            return true
+        }
         if ((strlen name) > 0) {
             if ((charAt name 0) == ((ccode "."))) {
                 return true

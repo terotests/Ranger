@@ -1,0 +1,16 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; C++ tokens for the UAST frontend. Comments are kept so leading
+; documentation can attach to the next declaration.
+
+class CppToken {
+    def tokenType:string ""
+    def value:string ""
+    def line:int 0
+    def col:int 0
+    def start:int 0
+    def end:int 0
+
+    Constructor () {
+    }
+}

@@ -28,7 +28,9 @@ The plan: [`PLAN_UAST.md`](./PLAN_UAST.md).
 npm run uast:test      # schema, scopes/refs, workspace imports, shared calls
 npm run uast:ranger    # compatibility vs CodeGraphBuilder + ZipWriter spec
 npm run uast:ts        # ts_parser → ZipWriter.ts + fromDir (no tsc)
+npm run uast:cpp       # cpp_parser → zip_writer.hpp (C++17, no clang)
 npm run uast:analyze -- gallery/uast/fixtures
+npm run uast:analyze -- gallery/uast/fixtures/cpp
 ```
 
 `uast:test` does not import the compiler. `uast:ranger` does — same
@@ -62,9 +64,11 @@ types. Only `UastRanger` may.
 | `src/UastQuery.rgr` | class / method / field lookup, `refTarget` |
 | `src/UastTypeScript.rgr` | `TSNode.nodeType` → UAST kind |
 | `src/UastTs.rgr` | ts_parser → `FrontendResult` (no compiler, no `tsc`); `fromDir` |
+| `src/UastCpp.rgr` | cpp_parser → `FrontendResult` (no compiler, no `clang`); `fromDir` |
 | `src/UastReport.rgr` | PLAN §11 metrics |
-| `tools/UastAnalyze.rgr` | CLI: TypeScript tree → report + CodeGraph projector |
+| `tools/UastAnalyze.rgr` | CLI: TypeScript or C++ tree → report + CodeGraph projector |
 | `fixtures/zip_writer.ts` | the TypeScript twin of that fixture |
+| `fixtures/cpp/zip_writer.hpp` | the C++17 twin (`this->crc.update`) |
 | `fixtures/foo_a.ts`, `foo_b.ts` | two-file import/export + missing module |
 | `fixtures/shapes.ts` | interface, `extends`, `function`, `export default` |
 | `fixtures/card.tsx`, `page.tsx`, `banner.tsx`, `panel.tsx` | function / arrow / class React components |
@@ -105,4 +109,5 @@ missing tree; see [PLAN_UAST.md §14](./PLAN_UAST.md).
 
 - [`gallery/codegraph`](../codegraph/README.md) — the Ranger-only explorer this projects into
 - [`gallery/ts_parser`](../ts_parser/README.md) — TypeScript/TSX parser, second frontend
+- [`gallery/cpp_parser`](../cpp_parser/README.md) — C++17 parser, third frontend
 - [`gallery/js_parser`](../js_parser/README.md) — JS substrate

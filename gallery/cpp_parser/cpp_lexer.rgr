@@ -1,0 +1,498 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; C++17 lexer. Comments are tokens. A `#` at the start of a line is one
+; Preprocessor token (the rest of the logical line, backslash-continued).
+
+Import "cpp_token.rgr"
+
+class CppLexer {
+    def source:string ""
+    def pos:int 0
+    def line:int 1
+    def col:int 1
+    def len:int 0
+    def atLineStart:boolean true
+
+    Constructor (src:string) {
+        source = src
+        len = (strlen src)
+    }
+
+    fn peekCh:string () {
+        if (pos >= len) {
+            return ""
+        }
+        return (at source pos)
+    }
+
+    fn peekAt:string (offset:int) {
+        def idx (pos + offset)
+        if (idx >= len) {
+            return ""
+        }
+        return (at source idx)
+    }
+
+    fn advanceCh:string () {
+        if (pos >= len) {
+            return ""
+        }
+        def ch:string (at source pos)
+        pos = (pos + 1)
+        if (ch == "\n") {
+            line = (line + 1)
+            col = 1
+            atLineStart = true
+        } {
+            col = (col + 1)
+            if ((ch == " ") || (ch == "\t") || (ch == "\r")) {
+            } {
+                atLineStart = false
+            }
+        }
+        return ch
+    }
+
+    fn makeTok:CppToken (typ:string value:string start:int startLine:int startCol:int) {
+        def t (new CppToken)
+        t.tokenType = typ
+        t.value = value
+        t.start = start
+        t.end = pos
+        t.line = startLine
+        t.col = startCol
+        return t
+    }
+
+    fn skipSpaces:void () {
+        while (pos < len) {
+            def ch:string (this.peekCh())
+            if ((ch == " ") || (ch == "\t") || (ch == "\r")) {
+                this.advanceCh()
+            } {
+                if (ch == "\n") {
+                    this.advanceCh()
+                } {
+                    return
+                }
+            }
+        }
+    }
+
+    fn isDigit:boolean (ch:string) {
+        if ((strlen ch) == 0) {
+            return false
+        }
+        def c:int (charAt ch 0)
+        if ((c >= 48) && (c <= 57)) {
+            return true
+        }
+        return false
+    }
+
+    fn isIdentStart:boolean (ch:string) {
+        if ((strlen ch) == 0) {
+            return false
+        }
+        def c:int (charAt ch 0)
+        if ((c >= 65) && (c <= 90)) {
+            return true
+        }
+        if ((c >= 97) && (c <= 122)) {
+            return true
+        }
+        if (c == 95) {
+            return true
+        }
+        if (c == 36) {
+            return true
+        }
+        if (c > 127) {
+            return true
+        }
+        return false
+    }
+
+    fn isIdentPart:boolean (ch:string) {
+        if (this.isIdentStart(ch)) {
+            return true
+        }
+        return (this.isDigit(ch))
+    }
+
+    fn isKeyword:boolean (w:string) {
+        if (w == "alignas") { return true }
+        if (w == "alignof") { return true }
+        if (w == "and") { return true }
+        if (w == "and_eq") { return true }
+        if (w == "asm") { return true }
+        if (w == "auto") { return true }
+        if (w == "bitand") { return true }
+        if (w == "bitor") { return true }
+        if (w == "bool") { return true }
+        if (w == "break") { return true }
+        if (w == "case") { return true }
+        if (w == "catch") { return true }
+        if (w == "char") { return true }
+        if (w == "char8_t") { return true }
+        if (w == "char16_t") { return true }
+        if (w == "char32_t") { return true }
+        if (w == "class") { return true }
+        if (w == "compl") { return true }
+        if (w == "concept") { return true }
+        if (w == "const") { return true }
+        if (w == "consteval") { return true }
+        if (w == "constexpr") { return true }
+        if (w == "constinit") { return true }
+        if (w == "const_cast") { return true }
+        if (w == "continue") { return true }
+        if (w == "co_await") { return true }
+        if (w == "co_return") { return true }
+        if (w == "co_yield") { return true }
+        if (w == "decltype") { return true }
+        if (w == "default") { return true }
+        if (w == "delete") { return true }
+        if (w == "do") { return true }
+        if (w == "double") { return true }
+        if (w == "dynamic_cast") { return true }
+        if (w == "else") { return true }
+        if (w == "enum") { return true }
+        if (w == "explicit") { return true }
+        if (w == "export") { return true }
+        if (w == "extern") { return true }
+        if (w == "false") { return true }
+        if (w == "float") { return true }
+        if (w == "for") { return true }
+        if (w == "friend") { return true }
+        if (w == "goto") { return true }
+        if (w == "if") { return true }
+        if (w == "inline") { return true }
+        if (w == "import") { return true }
+        if (w == "int") { return true }
+        if (w == "long") { return true }
+        if (w == "mutable") { return true }
+        if (w == "namespace") { return true }
+        if (w == "new") { return true }
+        if (w == "noexcept") { return true }
+        if (w == "module") { return true }
+        if (w == "not") { return true }
+        if (w == "not_eq") { return true }
+        if (w == "nullptr") { return true }
+        if (w == "operator") { return true }
+        if (w == "or") { return true }
+        if (w == "or_eq") { return true }
+        if (w == "private") { return true }
+        if (w == "protected") { return true }
+        if (w == "public") { return true }
+        if (w == "register") { return true }
+        if (w == "reinterpret_cast") { return true }
+        if (w == "requires") { return true }
+        if (w == "return") { return true }
+        if (w == "short") { return true }
+        if (w == "signed") { return true }
+        if (w == "sizeof") { return true }
+        if (w == "static") { return true }
+        if (w == "static_assert") { return true }
+        if (w == "static_cast") { return true }
+        if (w == "struct") { return true }
+        if (w == "switch") { return true }
+        if (w == "template") { return true }
+        if (w == "this") { return true }
+        if (w == "thread_local") { return true }
+        if (w == "throw") { return true }
+        if (w == "true") { return true }
+        if (w == "try") { return true }
+        if (w == "typedef") { return true }
+        if (w == "typeid") { return true }
+        if (w == "typename") { return true }
+        if (w == "union") { return true }
+        if (w == "unsigned") { return true }
+        if (w == "using") { return true }
+        if (w == "virtual") { return true }
+        if (w == "void") { return true }
+        if (w == "volatile") { return true }
+        if (w == "wchar_t") { return true }
+        if (w == "while") { return true }
+        if (w == "xor") { return true }
+        if (w == "xor_eq") { return true }
+        if (w == "override") { return true }
+        if (w == "final") { return true }
+        return false
+    }
+
+    fn readLineComment:CppToken (start:int startLine:int startCol:int) {
+        this.advanceCh()
+        this.advanceCh()
+        def value:string ""
+        while (pos < len) {
+            def ch:string (this.peekCh())
+            if (ch == "\n") {
+                break
+            }
+            value = (value + ch)
+            this.advanceCh()
+        }
+        return (this.makeTok("LineComment" value start startLine startCol))
+    }
+
+    fn readBlockComment:CppToken (start:int startLine:int startCol:int) {
+        this.advanceCh()
+        this.advanceCh()
+        def value:string ""
+        while (pos < len) {
+            def ch:string (this.peekCh())
+            def n:string (this.peekAt(1))
+            if ((ch == "*") && (n == "/")) {
+                this.advanceCh()
+                this.advanceCh()
+                return (this.makeTok("BlockComment" value start startLine startCol))
+            }
+            value = (value + ch)
+            this.advanceCh()
+        }
+        return (this.makeTok("BlockComment" value start startLine startCol))
+    }
+
+    fn readPreprocessor:CppToken (start:int startLine:int startCol:int) {
+        def value:string ""
+        while (pos < len) {
+            def ch:string (this.peekCh())
+            if (ch == "\n") {
+                def last:int (strlen value)
+                if (last > 0) {
+                    if ((charAt value (last - 1)) == 92) {
+                        value = (substring value 0 (last - 1))
+                        this.advanceCh()
+                    } {
+                        break
+                    }
+                } {
+                    break
+                }
+            } {
+                value = (value + ch)
+                this.advanceCh()
+            }
+        }
+        atLineStart = true
+        return (this.makeTok("Preprocessor" value start startLine startCol))
+    }
+
+    fn readString:CppToken (start:int startLine:int startCol:int quote:string typ:string) {
+        this.advanceCh()
+        def value:string ""
+        while (pos < len) {
+            def ch:string (this.peekCh())
+            if (ch == quote) {
+                this.advanceCh()
+                break
+            }
+            if (ch == "\\") {
+                value = (value + ch)
+                this.advanceCh()
+                if (pos < len) {
+                    value = (value + (this.advanceCh()))
+                }
+            } {
+                if (ch == "\n") {
+                    break
+                }
+                value = (value + ch)
+                this.advanceCh()
+            }
+        }
+        this.readLiteralSuffix()
+        return (this.makeTok(typ value start startLine startCol))
+    }
+
+    fn readLiteralSuffix:void () {
+        if (this.isIdentStart((this.peekCh()))) {
+            while (this.isIdentPart((this.peekCh()))) {
+                this.advanceCh()
+            }
+        }
+    }
+
+    fn readRawString:CppToken (start:int startLine:int startCol:int) {
+        ; Prefix already consumed; current token is the opening quote of R"delim( ).
+        this.advanceCh()
+        def delim:string ""
+        while (pos < len) {
+            def ch:string (this.peekCh())
+            if (ch == "(") {
+                break
+            }
+            if (ch == "\"") {
+                break
+            }
+            delim = (delim + ch)
+            this.advanceCh()
+        }
+        if ((this.peekCh()) == "(") {
+            this.advanceCh()
+        }
+        def closer:string ((")" + delim) + "\"")
+        def value:string ""
+        def clen:int (strlen closer)
+        while (pos < len) {
+            def hit:boolean true
+            def k:int 0
+            while (k < clen) {
+                if ((this.peekAt(k)) != (at closer k)) {
+                    hit = false
+                    break
+                }
+                k = (k + 1)
+            }
+            if hit {
+                def c2:int 0
+                while (c2 < clen) {
+                    this.advanceCh()
+                    c2 = (c2 + 1)
+                }
+                this.readLiteralSuffix()
+                return (this.makeTok("String" value start startLine startCol))
+            }
+            value = (value + (this.advanceCh()))
+        }
+        this.readLiteralSuffix()
+        return (this.makeTok("String" value start startLine startCol))
+    }
+
+    fn readNumber:CppToken (start:int startLine:int startCol:int) {
+        def value:string ""
+        while (pos < len) {
+            def ch:string (this.peekCh())
+            if (this.isDigit(ch)) {
+                value = (value + (this.advanceCh()))
+            } {
+                if ((ch == ".") || ((ch == "x") || ((ch == "X") || ((ch == "b") || (ch == "B"))))) {
+                    value = (value + (this.advanceCh()))
+                } {
+                    if ((ch == "e") || ((ch == "E") || ((ch == "p") || (ch == "P")))) {
+                        value = (value + (this.advanceCh()))
+                        def s:string (this.peekCh())
+                        if ((s == "+") || (s == "-")) {
+                            value = (value + (this.advanceCh()))
+                        }
+                    } {
+                        if (ch == "'") {
+                            def n:string (this.peekAt(1))
+                            if (this.isIdentPart(n)) {
+                                this.advanceCh()
+                            } {
+                                break
+                            }
+                        } {
+                            if (this.isIdentStart(ch)) {
+                                value = (value + (this.advanceCh()))
+                            } {
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return (this.makeTok("Number" value start startLine startCol))
+    }
+
+    fn readIdent:CppToken (start:int startLine:int startCol:int) {
+        def value:string ""
+        while (pos < len) {
+            if (this.isIdentPart((this.peekCh()))) {
+                value = (value + (this.advanceCh()))
+            } {
+                break
+            }
+        }
+        if ((value == "R") || ((value == "LR") || ((value == "uR") || ((value == "UR") || (value == "u8R"))))) {
+            if ((this.peekCh()) == "\"") {
+                return (this.readRawString(start startLine startCol))
+            }
+        }
+        if ((value == "L") || ((value == "u") || ((value == "U") || (value == "u8")))) {
+            if ((this.peekCh()) == "\"") {
+                return (this.readString(start startLine startCol "\"" "String"))
+            }
+            if ((this.peekCh()) == "'") {
+                return (this.readString(start startLine startCol "'" "Char"))
+            }
+        }
+        def typ:string "Identifier"
+        if (this.isKeyword(value)) {
+            typ = "Keyword"
+        }
+        return (this.makeTok(typ value start startLine startCol))
+    }
+
+    fn readPunct:CppToken (start:int startLine:int startCol:int) {
+        def two:string ((this.peekCh()) + (this.peekAt(1)))
+        def three:string (two + (this.peekAt(2)))
+        def op:string ""
+        if ((three == "<<=") || ((three == ">>=") || ((three == "->*") || ((three == "<=>") || (three == "..."))))) {
+            op = three
+        } {
+            if ((two == "::") || ((two == "->") || ((two == "++") || ((two == "--") || ((two == "<<") || ((two == ">>") || ((two == "<=") || ((two == ">=") || ((two == "==") || ((two == "!=") || ((two == "&&") || ((two == "||") || ((two == "+=") || ((two == "-=") || ((two == "*=") || ((two == "/=") || ((two == "%=") || ((two == "&=") || ((two == "|=") || ((two == "^=") || ((two == ".*") || (two == "##")))))))))))))))))))))) {
+                op = two
+            } {
+                op = (this.peekCh())
+            }
+        }
+        def i:int 0
+        while (i < (strlen op)) {
+            this.advanceCh()
+            i = (i + 1)
+        }
+        return (this.makeTok("Punctuator" op start startLine startCol))
+    }
+
+    fn nextToken:CppToken () {
+        this.skipSpaces()
+        if (pos >= len) {
+            return (this.makeTok("Eof" "" pos line col))
+        }
+        def start:int pos
+        def startLine:int line
+        def startCol:int col
+        def ch:string (this.peekCh())
+        def n:string (this.peekAt(1))
+        if ((ch == "/") && (n == "/")) {
+            return (this.readLineComment(start startLine startCol))
+        }
+        if ((ch == "/") && (n == "*")) {
+            return (this.readBlockComment(start startLine startCol))
+        }
+        if ((ch == "#") && atLineStart) {
+            return (this.readPreprocessor(start startLine startCol))
+        }
+        if (ch == "\"") {
+            return (this.readString(start startLine startCol "\"" "String"))
+        }
+        if (ch == "'") {
+            return (this.readString(start startLine startCol "'" "Char"))
+        }
+        if (this.isDigit(ch)) {
+            return (this.readNumber(start startLine startCol))
+        }
+        if ((ch == ".") && (this.isDigit(n))) {
+            return (this.readNumber(start startLine startCol))
+        }
+        if (this.isIdentStart(ch)) {
+            return (this.readIdent(start startLine startCol))
+        }
+        return (this.readPunct(start startLine startCol))
+    }
+
+    fn tokenize:[CppToken] () {
+        def tokens:[CppToken]
+        while (true) {
+            def tok:CppToken (this.nextToken())
+            push tokens tok
+            if (tok.tokenType == "Eof") {
+                break
+            }
+        }
+        return tokens
+    }
+}
