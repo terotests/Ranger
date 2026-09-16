@@ -342,9 +342,8 @@ class CodeGraphTest {
         def zFit:double ed.view.viewport.zoom
         def titleFit:double (n.headerHeight * zFit)
         c.ok("a fitted UML page already has a readable title" (titleFit >= 10.0))
-        ed.ensureMinBoxPx(350.0)
-        def boxPx:double (n.width * ed.view.viewport.zoom)
-        c.ok("default zoom makes a class box at least 350 px" (boxPx >= 349.5))
+        ed.ensureMinZoom(1.0)
+        c.ok("default UML zoom is at least 1:1" (ed.view.viewport.zoom >= 0.99))
         ed.view.viewport.zoom = 0.04
         c.ok("it frames the box" (ed.zoomToSelected(0.3)))
         def titlePx:double (n.headerHeight * ed.view.viewport.zoom)

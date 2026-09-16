@@ -1152,7 +1152,7 @@ class CodeGraphApp extends EvgApp {
         editor.view.showNodeTools = false
         editor.fitView()
         if ((indexOf session.pageId "uml:") == 0) {
-            editor.ensureMinBoxPx(350.0)
+            editor.ensureMinZoom(1.0)
         }
         this.framePageFocus()
         status = session.status

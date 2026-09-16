@@ -41,10 +41,8 @@ class CodeGraphAppTest {
             failed = (failed + 1)
         }
         if (app.graph.hasNode("Order")) {
-            def umlBox:FlowNode (app.graph.nodeById("Order"))
-            def boxPx:double (umlBox.width * app.editor.view.viewport.zoom)
-            if (boxPx < 349.0) {
-                print ("  FAIL UML box is only " + (to_string boxPx) + " px wide")
+            if (app.editor.view.viewport.zoom < 0.99) {
+                print ("  FAIL UML zoom is " + (to_string app.editor.view.viewport.zoom))
                 failed = (failed + 1)
             }
         } {
