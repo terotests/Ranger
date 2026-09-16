@@ -132,6 +132,9 @@ class UastTs {
         if (name == "LICENSE") {
             return true
         }
+        if (name == "INSTALL") {
+            return true
+        }
         if (name == "Makefile") {
             return true
         }

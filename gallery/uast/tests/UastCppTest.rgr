@@ -48,6 +48,7 @@ class UastCppTest {
         UastCppTest.testIncludes(c)
         UastCppTest.testTemplates(c)
         UastCppTest.testOsPatterns(c)
+        UastCppTest.testWalkInstall(c)
         def code:int (c.report())
         if (code != 0) {
             exit 1
@@ -178,5 +179,19 @@ class UastCppTest {
         c.ok("split_pair" (model.mentionsSymbol("function:split_pair")))
         c.ok("mapped" (model.mentionsSymbol("function:mapped")))
         c.ok("Integral concept" (model.mentionsSymbol("class:Integral")))
+    }
+
+    ; Autotools trees keep an extensionless INSTALL file next to include/.
+    sfn testWalkInstall:void (c:UastCppChecker) {
+        print "== cpp_walk INSTALL file is not a directory"
+        c.ok("looksLikeCpp" (UastCpp.looksLikeCpp("gallery/uast/fixtures/cpp_walk")))
+        def model:UastCodeModel (UastCpp.fromDir("gallery/uast/fixtures/cpp_walk"))
+        if ((indexOf model.title " FAIL ") >= 0) {
+            print ("  FAIL " + model.title)
+            c.ok("fromDir cpp_walk" false)
+            return
+        }
+        c.ok("WalkBox" (model.mentionsSymbol("class:WalkBox")))
+        c.ok("WalkBox.area" (model.mentionsSymbol("method:WalkBox.area")))
     }
 }
