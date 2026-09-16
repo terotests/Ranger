@@ -55,12 +55,12 @@ node gallery/pkg/bin/pkg_tool.js checkout gallery/pkg/fixtures/tiny.pack \
   $(awk '/^head /{print $2}' gallery/pkg/fixtures/tiny.meta.txt) /tmp/tiny
 ```
 
-Clone a **public** HTTPS repo (needs the tool built). Node fetches bytes;
-Ranger parses the advertisement, builds the want, demuxes side-band, and
-checks out the tree:
+Clone a **public** HTTPS repo. Node fetches bytes; Ranger parses the
+advertisement, builds the want, demuxes side-band, and checks out the
+tree. `clone.mjs` builds `pkg_tool.js` on first use if `gallery/pkg/bin`
+is empty (that directory is gitignored).
 
 ```bash
-npm run pkg:tool
 node gallery/pkg/tools/clone.mjs https://github.com/terotests/Ranger.git \
   HEAD /tmp/ranger-evg gallery/evg
 ```

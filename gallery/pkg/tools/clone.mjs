@@ -13,7 +13,7 @@
 // snapshot of the whole tree (deepen 1, still every file at that commit).
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, statSync } from "node:fs";
+import { mkdtempSync, mkdirSync, statSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,6 +32,47 @@ if (!gitUrl) {
   console.error("usage: clone.mjs <git-url> [rev] [outdir] [subdir]");
   process.exit(2);
 }
+
+function ensureTool() {
+  if (existsSync(tool)) {
+    return;
+  }
+  console.error("building gallery/pkg/bin/pkg_tool.js");
+  mkdirSync(dirname(tool), { recursive: true });
+  const env = {
+    ...process.env,
+    RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr",
+  };
+  let log = "";
+  try {
+    log = execFileSync(
+      "node",
+      [
+        "bin/output.js",
+        "-es6",
+        "./gallery/pkg/src/pkg_tool.rgr",
+        "-d=./gallery/pkg/bin",
+        "-o=pkg_tool.js",
+        "-nodecli",
+      ],
+      { cwd: root, encoding: "utf8", env }
+    );
+  } catch (err) {
+    log =
+      String(err.stdout || "") +
+      String(err.stderr || "") +
+      String(err.message || err);
+  }
+  if (log.includes("Compilation FAILED") || existsSync(tool) === false) {
+    if (log) {
+      console.error(log);
+    }
+    console.error("failed to build gallery/pkg/bin/pkg_tool.js");
+    process.exit(1);
+  }
+}
+
+ensureTool();
 
 function runTool(args) {
   return execFileSync("node", [tool, ...args], { cwd: root, encoding: "utf8" });
