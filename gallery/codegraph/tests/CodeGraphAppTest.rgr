@@ -130,6 +130,26 @@ class CodeGraphAppTest {
             print ("  FAIL class list overflow " + app.classScrollEl.overflow)
             failed = (failed + 1)
         }
+        ; +deltaY is the browser / SDL NORMAL axis: away from the user,
+        ; content follows a finger moving up. The SDL host used to negate it.
+        def top0:double app.classScrollEl.scrollTop
+        app.wheel(20.0 400.0 80.0)
+        def scrolledDl:EVGDisplayList (app.display())
+        if (app.classScrollEl.scrollTop <= top0) {
+            print ("  FAIL class list +deltaY did not scroll down, top=" + (to_string app.classScrollEl.scrollTop))
+            failed = (failed + 1)
+        }
+        def thumbs:string (scrolledDl.thumbsJson())
+        if ((indexOf thumbs "\"w\":") < 0) {
+            print ("  FAIL class list has no scrollbar thumb " + thumbs)
+            failed = (failed + 1)
+        }
+        def vy0:double app.editor.view.viewport.y
+        app.wheelGesture(40.0 40.0 0.0 24.0 false false)
+        if (app.editor.view.viewport.y >= vy0) {
+            print ("  FAIL canvas +deltaY did not pan with the fingers, y=" + (to_string app.editor.view.viewport.y))
+            failed = (failed + 1)
+        }
         app.loadSample("shop")
         def nav:string (app.selfTest())
         if ((indexOf nav "PASS") != 0) {

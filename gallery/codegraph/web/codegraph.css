@@ -68,6 +68,8 @@
   flex-direction: column;
   flex-grow: 1;
   min-height: 0px;
+  /* EVG has no overflow-y; `overflow` other than visible is the scroller.
+   * The thumb is painted by EVGDisplayList from these scrollbar-* values. */
   overflow: auto;
   scrollbar-width: thin;
   scrollbar-color: rgb(148, 163, 184) rgb(241, 245, 249);
