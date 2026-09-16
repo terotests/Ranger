@@ -87,9 +87,10 @@ and C++ so the wait is not a black box. `codegraph:analyze` also recompiles
 the CLI from Ranger on every run; the bench times analysis only.
 
 On RealTrainerDemo the old Identifier walk rescanned the whole UAST per
-name (`usedAsMember` / `enclosingMethod`) — about six minutes of
-`semantic.idents` in JavaScript. `indexLookups` builds owner/member/ref
-maps once; the same open is then compile plus a much smaller ident pass.
+name (`usedAsMember` / `enclosingMethod` / `importBinding`) — about eight
+minutes in JavaScript, six of them `semantic.idents`. `indexLookups`
+builds owner / member / import / name maps once. After that, opening is
+mostly VirtualCompiler: ~12 s in JS, ~5 s in C++ (`codegraph:bench:cpp:rt`).
 
 
 ## What to click
