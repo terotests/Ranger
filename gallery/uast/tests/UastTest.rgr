@@ -205,6 +205,8 @@ class UastTest {
         c.eqStr("CallExpression" (UastTypeScript.kindFromNative("CallExpression")) (UastKind.Call()))
         c.eqStr("ArrowFunctionExpression" (UastTypeScript.kindFromNative("ArrowFunctionExpression")) (UastKind.Lambda()))
         c.eqStr("TSTypeReference" (UastTypeScript.kindFromNative("TSTypeReference")) (UastKind.TypeRef()))
+        c.eqStr("TSArrayType" (UastTypeScript.kindFromNative("TSArrayType")) (UastKind.TypeRef()))
+        c.eqStr("TSStringKeyword" (UastTypeScript.kindFromNative("TSStringKeyword")) (UastKind.TypeRef()))
         c.eqStr("ImportDeclaration" (UastTypeScript.kindFromNative("ImportDeclaration")) (UastKind.Import()))
         c.eqStr("TSConditionalType" (UastTypeScript.kindFromNative("TSConditionalType")) (UastKind.LanguageSpecific()))
         c.eqStr("TSMappedType" (UastTypeScript.kindFromNative("TSMappedType")) (UastKind.LanguageSpecific()))

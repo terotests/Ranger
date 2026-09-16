@@ -27,10 +27,12 @@ The plan: [`PLAN_UAST.md`](./PLAN_UAST.md).
 ```bash
 npm run uast:test      # schema, child roles, dump, dynamic vs exact
 npm run uast:ranger    # compatibility vs CodeGraphBuilder + ZipWriter spec
+npm run uast:ts        # ts_parser → ZipWriter.ts (no tsc)
 ```
 
 `uast:test` does not import the compiler. `uast:ranger` does — same
-split as `codegraph:test` / `codegraph:builder`.
+split as `codegraph:test` / `codegraph:builder`. `uast:ts` imports
+`gallery/ts_parser` and walks `fixtures/zip_writer.ts`.
 
 Do **not** change `CodeGraphBuilder` or the CodeGraph UI. UAST projects
 into the existing graph; it does not replace it.
@@ -58,6 +60,7 @@ types. Only `UastRanger` may.
 | `src/UastRanger.rgr` | compiler context → `FrontendResult` |
 | `src/UastQuery.rgr` | class / method / field lookup |
 | `src/UastTypeScript.rgr` | `TSNode.nodeType` → UAST kind |
+| `src/UastTs.rgr` | ts_parser → `FrontendResult` (no compiler, no `tsc`) |
 | `fixtures/zip_writer.ts` | the TypeScript twin of that fixture |
 | `fixtures/sheet_view.rgr` | leading comments on the correct property |
 

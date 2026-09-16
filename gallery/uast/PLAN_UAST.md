@@ -1,7 +1,7 @@
 # UAST — a language-analysis framework for Ranger
 
-**Status:** research branch, M1 in tree, M2 started (CodeNode walk +
-leading comments on the next property)
+**Status:** research branch, M3 started (Ranger walk + comments +
+TypeScript ZipWriter via `ts_parser`)
 **License:** AGPL-3.0-or-later (this directory is under `gallery/`)
 **Related:** [`gallery/codegraph`](../codegraph/README.md),
 [`gallery/ts_parser`](../ts_parser/README.md),
@@ -516,6 +516,11 @@ resolve calls
 
 `UastWorkspace` is in the tree now. M0–M4 may still be one file.
 
+A related, later problem is not TypeScript modules but **Ranger apps that
+do not ship their gallery sources** (bare `Import "WindowCtl.rgr"`, a
+checked-in EVG `.mjs`, no submodule). That is §14. It is not a package
+manager task for this branch.
+
 ---
 
 ## 7. A third language, later: Go — then a harder fourth
@@ -555,9 +560,11 @@ gallery/uast/
         UastQuery.rgr        class/method/field lookup, callee names
         UastRanger.rgr        compiler context → FrontendResult
         UastTypeScript.rgr    TSNode nativeKind → UNode kind
+        UastTs.rgr            ts_parser → FrontendResult
     tests/
         UastTest.rgr          schema, roles, dump, dynamic vs exact
         UastRangerTest.rgr    compatibility + ZipWriter spec + comments
+        UastTsTest.rgr        zip_writer.ts via ts_parser
     fixtures/
         zip_writer.ts
         sheet_view.rgr        leading comments on the right property
@@ -597,7 +604,7 @@ frontend is not allowed to require `tsc`.
 | **0** | Schema + ZipWriter fixture + projector | **Child roles, SourceFile version, origin, resolution/confidence, FrontendResult pipeline** |
 | **1** | Ranger → FrontendResult → CodeModel | Keep. Two tests (compatibility + ZipWriter spec). Do not write compiler types into CodeModel. |
 | **2** | CodeNode → UAST walk + comments on the next member | Leading `;` comments attach to the following property/method; UAST copies them. Do not change CodeGraphBuilder. |
-| **3** | TS parser → UAST | Keep |
+| **3** | TS parser → UAST | `UastTs` walks `TSNode`; `uast:ts` on `zip_writer.ts`. No `tsc`. |
 | **4** | TS scopes / refs | **Shared semantic pipeline becomes mandatory** (not per-frontend resolvers) |
 | **5** | imports / exports | **Workspace + two-phase declaration indexing** |
 | **6** | calls | **resolution ≠ confidence**; exact only if unique known declaration |
@@ -608,6 +615,10 @@ frontend is not allowed to require `tsc`.
 M0 is the fixture path (no compiler). M1 is started (`UastRanger` + golden).
 M2 walks method bodies (Call / MemberAccess) and treats comments as
 part of the node, not as trivia on the enclosing block.
+M3 is started: `UastTs` + `npm run uast:ts`. The dump of
+`this.crc.update(data)` is the same shape as Ranger’s
+`this.crc.compute`, with `confidence: inferred` because the hint
+is `frontendInferred`.
 
 ---
 
@@ -684,7 +695,8 @@ It is: **Ranger gets a language-analysis framework.**
 - No change to `CodeNode` fields or to `CodeGraphBuilder`’s public contract.
   The parser may move a `;` comment from the block onto the next sibling;
   it must not add, remove, or reorder `children`.
-- No import of `gallery/ts_parser` into the UAST tests yet.
+- No import of `gallery/ts_parser` into `uast:test`. The TS walk lives
+  in `uast:ts` (`UastTs.rgr`), the same split as `uast:ranger`.
 - No TSX, no Go parser, no pretence of JS call resolution.
 - No merge of ComponentEngine’s eval AST into UNode.
 - No LSP, incremental parsing, data-flow, SSA, or a full type checker.

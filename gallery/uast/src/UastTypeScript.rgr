@@ -56,6 +56,12 @@ class UastTypeScript {
         if (nativeKind == "ExportDefaultDeclaration") { return UastKind.Export() }
         if (nativeKind == "ExportAllDeclaration") { return UastKind.Export() }
         if (nativeKind == "TSTypeReference") { return UastKind.TypeRef() }
+        if (nativeKind == "TSArrayType") { return UastKind.TypeRef() }
+        if (nativeKind == "TSStringKeyword") { return UastKind.TypeRef() }
+        if (nativeKind == "TSNumberKeyword") { return UastKind.TypeRef() }
+        if (nativeKind == "TSBooleanKeyword") { return UastKind.TypeRef() }
+        if (nativeKind == "TSVoidKeyword") { return UastKind.TypeRef() }
+        if (nativeKind == "TSAnyKeyword") { return UastKind.TypeRef() }
         if (nativeKind == "TSUnionType") { return UastKind.UnionType() }
         if (nativeKind == "TSFunctionType") { return UastKind.FunctionType() }
         if (nativeKind == "ArrayExpression") { return UastKind.Literal() }

@@ -17,6 +17,7 @@ class CRC32 {
 class ZipWriter {
     entries: ZipEntry[]
     output: GrowableZipBuffer
+    // Cyclic redundancy used while writing local headers.
     crc: CRC32
 
     addFile(name: string, data: Buffer) {
