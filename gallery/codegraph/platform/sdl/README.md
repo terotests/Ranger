@@ -19,8 +19,8 @@ prompts for an HTTPS repository, clones it with `gallery/pkg` (`clone.mjs`),
 then analyses Ranger (`ranger.json` / `.rgr`) or TypeScript (UAST `fromDir`).
 A Git URL as the command-line argument does the same clone.
 
-Needs `node` on PATH and a built `gallery/pkg/bin/pkg_tool.js`
-(`npm run pkg:tool` once). Run the binary from the repo root.
+Needs `node` on PATH. First Git URL clone builds `gallery/pkg/bin/pkg_tool.js`
+if it is missing. Run the binary from the repo root.
 
 macOS: needs SDL2 (`brew install sdl2`). Escape closes an open picker list,
 then the window.
