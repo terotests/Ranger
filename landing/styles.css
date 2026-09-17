@@ -376,7 +376,7 @@ code:not(pre code) {
 
 /* ------------------------------------------------------------- proofs --- */
 
-.proofs { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 0; margin-top: 44px; }
+.proofs { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 0; margin-top: 44px; }
 .proof { padding: 28px 30px; border-top: 1px solid var(--line-2); border-right: 1px solid var(--line); }
 .proof:first-child { padding-left: 0; }
 .proof .label { color: var(--gold); }
@@ -427,9 +427,12 @@ code:not(pre code) {
 }
 .more li {
   border-top: 1px solid var(--line); padding: 11px 0;
-  display: flex; gap: 12px; align-items: baseline; font-size: 14px;
+  /* Two columns rather than a flex row: a long name used to squeeze its own
+     description into a ribbon four words wide. */
+  display: grid; grid-template-columns: 10.5em 1fr; gap: 14px;
+  align-items: baseline; font-size: 14px;
 }
-.more a { color: var(--paper); text-decoration: none; white-space: nowrap; font-weight: 500; }
+.more a { color: var(--paper); text-decoration: none; font-weight: 500; }
 .more a:hover { color: var(--gold); }
 .more span { color: var(--dimmer); }
 

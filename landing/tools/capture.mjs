@@ -1,7 +1,7 @@
 /**
- * capture.mjs — take the two front-page pictures that are not committed
- * anywhere else: the Fig reader with a real Figma export open, and the game
- * engine running in a tab.
+ * capture.mjs — take the front-page pictures that are not committed anywhere
+ * else: the Fig reader with a real Figma export open, the game engine running
+ * in a tab, and the markdown reader with its diagrams drawn.
  *
  *   node landing/tools/capture.mjs          # build the demos, then shoot them
  *   node landing/tools/capture.mjs --no-build
@@ -116,6 +116,21 @@ const browser = await chromium.launch({
   });
   await page.close(); s.close();
   console.log("  game.png");
+}
+
+// ---- the markdown reader, with the mermaid document open -----------------
+{
+  const dir = path.join(ROOT, ".landing_tmp/r5");
+  if (build) run("bash", ["gallery/r5/web/build.sh", "--out", dir]);
+  const s = await serve(dir);
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
+  await page.goto(`http://localhost:${s.port}/`, { waitUntil: "networkidle" });
+  // The document is parsed, laid out and painted in the tab; give the GPU
+  // path time to put the diagrams on the page before the shutter.
+  await page.waitForTimeout(9000);
+  await page.screenshot({ path: path.join(OUT, "r5.png") });
+  await page.close(); s.close();
+  console.log("  r5.png");
 }
 
 await browser.close();

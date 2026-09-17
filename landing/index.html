@@ -96,7 +96,7 @@
 <!-- ====================================================================== -->
 <section class="section section--gold" id="native">
   <div class="wrap">
-    <p class="label reveal">Not chat — the mobile question, again</p>
+    <p class="label reveal">The mobile question, again</p>
     <h2 class="display display--lg reveal">Back to native,<br>without going back to two codebases.</h2>
 
     <div class="cols cols--3 rules">
@@ -212,12 +212,12 @@
 <section class="section section--dark" id="targets">
   <div class="wrap">
     <p class="label reveal">Targets</p>
-    <h2 class="display display--lg reveal">Fourteen back ends,<br>and an honest table of how far each one goes.</h2>
+    <h2 class="display display--lg reveal">Fourteen back ends,<br>and a table of how far each one goes.</h2>
     <p class="lead lead--wide reveal">
-      Target quality is not uniform and the project says so out loud. These are the tiers
-      from <a class="u" href="https://github.com/terotests/Ranger/blob/master/TARGET_NOTES.md">TARGET_NOTES.md</a>,
+      Target quality varies by language and by feature area. These are the tiers from
+      <a class="u" href="https://github.com/terotests/Ranger/blob/master/TARGET_NOTES.md">TARGET_NOTES.md</a>,
       kept by a test that fails when a target gets <em>better</em> as well as when it gets
-      worse — so the record can never quietly drift away from the measurement.
+      worse, so the record cannot drift away from the measurement.
     </p>
 
     <div class="tiers">
@@ -277,10 +277,9 @@
     <p class="label reveal">Platforms</p>
     <h2 class="display display--lg reveal">From a watch to a Raspberry Pi<br>to a browser tab.</h2>
     <p class="lead lead--wide reveal">
-      A target language is not a platform. What makes a program actually run somewhere is
-      the plumbing around it — the build, the host, the way it talks to the screen and the
-      filesystem — and that plumbing is in the repository, written in Ranger, for each of
-      these.
+      Getting a program to run somewhere takes more than a target language: a build, a
+      host, and a way to talk to the screen and the filesystem. That plumbing is in the
+      repository, written in Ranger, for each of these.
     </p>
 
     <div class="plats">
@@ -348,8 +347,8 @@
           on the device — wasm3 included, so WASM games load from committed modules with no
           Rust toolchain on the board — and wires an autostart. Or you take the offline
           aarch64 bundle, which is a terminal build that needs no SDL at all. Develop on
-          the desktop, run the same logic on the hardware: that is the engine's stated
-          purpose rather than a side effect.
+          the desktop and run the same logic on the hardware — which is what the engine was
+          built for.
         </p>
       </article>
 
@@ -376,11 +375,11 @@
 <section class="section section--dark" id="proof">
   <div class="wrap">
     <p class="label reveal">Proof</p>
-    <h2 class="display display--lg reveal">Portability is a claim.<br>Here is how it is checked.</h2>
+    <h2 class="display display--lg reveal">What the four gates<br>on every push measure.</h2>
     <p class="lead lead--wide reveal">
-      Every cross-language compiler says the output is equivalent. The difference is
-      whether anything fails when it stops being true. Four gates run on every push, and
-      each of them is the kind that fails loudly.
+      Equivalent output across a dozen languages is easy to assert and hard to keep. These
+      four run on every push and break the build when they stop agreeing, which is the only
+      reason the numbers on this page are worth reading.
     </p>
 
     <div class="proofs">
@@ -445,9 +444,9 @@
       Two more, for the rendering stack: EVG's SVG painter and its WebGL painter share no
       code and are differenced pixel for pixel over the same frames — 0.022% on a sheet
       built to exercise every draw command, 0.000% on every slide of a real
-      <code>.pptx</code> deck. And the bitmap tracer that drew the letter on this page is
-      compiled to Node, Python, C++ and Rust, with a smoke test asserting all four write
-      the byte-identical SVG for the same input.
+      <code>.pptx</code> deck. And the bitmap tracer that turned Ranger's logo into the
+      vector on this page is compiled to Node, Python, C++ and Rust, with a smoke test
+      asserting all four write the byte-identical SVG for the same input.
     </p>
   </div>
 </section>
@@ -578,35 +577,28 @@
         </figure>
       </a>
 
-      <a class="gal__item reveal" href="pptx/">
+      <a class="gal__item reveal" href="r5/">
         <figure>
-          <img src="assets/shots/pptx.jpg" alt="A PowerPoint deck open in the browser editor with a shape selected." loading="lazy" width="1280" height="720">
+          <img src="assets/shots/r5.jpg" alt="A markdown document beside its rendered page, with flowchart, sequence and class diagrams drawn on it." loading="lazy" width="1440" height="900">
           <figcaption>
-            <p class="label">pptx/ · pptx-wasm/</p>
-            <h3>PowerPoint, in a tab</h3>
-            <p>OPC/ZIP → PresentationML → display list → WebGL 2, open and ready to edit.
-               At <code>pptx-wasm/</code> the same source is compiled through C++ to
-               WebAssembly instead of to JavaScript — one page, two back ends, comparable.</p>
+            <p class="label">r5/ · markdown/</p>
+            <h3>The markdown reader</h3>
+            <p>A CommonMark parser written in Ranger, laid out by its own line breaker and
+               drawn on the GPU. <code>```mermaid</code> fences go through RangerFlow's reader
+               and land on the page as geometry rather than as pictures, and
+               <strong>Download PDF</strong> builds the file in the tab — sheets, page breaks,
+               embedded fonts, no server.</p>
           </figcaption>
         </figure>
       </a>
 
-      <a class="gal__item reveal" href="codegraph/">
-        <figure>
-          <img src="assets/shots/codegraph.jpg" alt="A call graph and UML view of Ranger source." loading="lazy" width="1280" height="800">
-          <figcaption>
-            <p class="label">codegraph/</p>
-            <h3>CodeGraph</h3>
-            <p>The compiler's own front end, in the tab, walking <code>.rgr</code> files
-               into a call graph and a class diagram.</p>
-          </figcaption>
-        </figure>
-      </a>
     </div>
 
     <ul class="more reveal">
-      <li><a href="markdown/">Markdown viewer</a><span>a CommonMark parser in Ranger, its own line breaker, PDF built in the tab</span></li>
-      <li><a href="r5/">r5</a><span>the same engine under a chrome that is itself a Ranger program</span></li>
+      <li><a href="pptx/">PowerPoint</a><span>a deck parsed and drawn in the tab, open and ready to edit</span></li>
+      <li><a href="pptx-wasm/">…on WebAssembly</a><span>the same editor through C++ instead of JavaScript — two back ends, one page</span></li>
+      <li><a href="codegraph/">CodeGraph</a><span>the compiler's own front end walking <code>.rgr</code> files into a call graph</span></li>
+      <li><a href="markdown/">Markdown viewer</a><span>the same engine without the Ranger-written chrome around it</span></li>
       <li><a href="rave/">Rave</a><span>routes, components and layers; design and run over one document</span></li>
       <li><a href="rafi/">Rafi</a><span>the Fig reader with its chrome in Ranger, on one canvas</span></li>
       <li><a href="firesim/">Firesim</a><span>Firestore and the Identity Toolkit, simulated, inside a tab</span></li>
@@ -686,7 +678,7 @@ npx rgrc -l=swift6 hello.rgr</code></pre>
         <p class="label">02</p>
         <h3>Point the agent at what is already there</h3>
         <p>
-          <code>AGENTS.md</code> is written for agents rather than about them: the git
+          <code>AGENTS.md</code> is instructions for an agent working here: the git
           rules, the licence boundary between <code>lib/</code> and <code>gallery/</code>,
           and the Ranger mistakes whose error messages point at the wrong line.
           <code>ai/</code> holds the offline notes — a syntax card, the grammar, how to ask
@@ -700,9 +692,10 @@ npx rgrc -l=swift6 hello.rgr</code></pre>
 
       <article class="step reveal">
         <p class="label">03</p>
-        <h3>Start from an example, not an empty file</h3>
+        <h3>Start from an example</h3>
         <p>
-          <code>gallery/</code> is the corpus: parsers for TypeScript, C++ and JavaScript, a
+          Opening an empty file is the slow way in. <code>gallery/</code> is the corpus:
+          parsers for TypeScript, C++ and JavaScript, a
           spreadsheet, a PowerPoint stack, a game engine, a chart runtime, a node-graph
           editor, a Figma reader. Ask the agent to find the one nearest what you want and
           to change that. Each project has its own README and a command that runs it, so
@@ -738,14 +731,14 @@ npx rgrc -l=cpp    Cart.rgr</code></pre>
     </p>
 
     <div class="warning reveal">
-      <p class="label">One honest paragraph before you start</p>
+      <p class="label">Where it stands today</p>
       <p>
         Ranger is <strong>experimental</strong>. Target quality varies by language and by
         feature area, several gallery projects need toolchains you may not have, and you
-        should expect to fix a bug or add a capability now and then. It is more convincing
-        today as a portable-algorithm compiler and DSL toolchain than as a drop-in
-        replacement for a mainstream application language — and it is used that way, daily,
-        on programs as large as itself.
+        should expect to fix a bug or add a capability now and then. It is stronger as a
+        portable-algorithm compiler and DSL toolchain than as a drop-in replacement for a
+        mainstream application language — and it is used that way, daily, on programs as
+        large as itself.
       </p>
     </div>
   </div>

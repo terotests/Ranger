@@ -103,7 +103,7 @@ for (const leftover of ["hero.tsx", "hero.css"]) {
 // A page that ships without its backdrop or its letter is a broken page, so
 // say which piece is missing here rather than in somebody's browser.
 for (const need of ["assets/hero/hero.json", "assets/ranger-mark.svg", "assets/gl/evg-webgl.js",
-                    "assets/shots/figma.jpg", "assets/targets.js"]) {
+                    "assets/shots/figma.jpg", "assets/shots/r5.jpg", "assets/targets.js"]) {
   const at = path.join(OUT, need);
   if (!fs.existsSync(at) || fs.statSync(at).size === 0) throw new Error(`the build wrote no ${need}`);
 }

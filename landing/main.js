@@ -54,39 +54,60 @@ const DATA = window.RANGER_TARGETS;
 
 const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 
+/*
+ * Lower-case only. A capitalised word is coloured as a type by the pass
+ * below, and a name listed in both places would come out wrapped twice.
+ */
 const KEYWORDS = {
-  ranger: /\b(class|extension|fn|sfn|def|return|if|while|for|push|new|this|true|false|null|break|continue|switch|case|Constructor|Extends|idiv|unwrap|wrap)\b/g,
-  swift: /\b(func|class|final|var|let|return|if|else|for|in|while|import|struct|enum|public|private|override|self|true|false|nil|inout|Void)\b/g,
-  kotlin: /\b(fun|class|val|var|return|if|else|for|in|while|import|object|override|this|true|false|null|Unit|open)\b/g,
+  ranger: /\b(class|extension|fn|sfn|def|return|if|while|for|push|new|this|true|false|null|break|continue|switch|case|idiv|unwrap|wrap)\b/g,
+  swift: /\b(func|class|final|var|let|return|if|else|for|in|while|import|struct|enum|public|private|override|self|true|false|nil|inout)\b/g,
+  kotlin: /\b(fun|class|val|var|return|if|else|for|in|while|import|object|override|this|true|false|null|open)\b/g,
   js: /\b(function|class|const|let|var|return|if|else|for|of|in|while|new|this|true|false|null|undefined|export|import|extends|typeof)\b/g,
   ts: /\b(function|class|const|let|var|return|if|else|for|of|in|while|new|this|true|false|null|undefined|export|import|extends|typeof|public|private|readonly|interface|number|string|boolean|void|any)\b/g,
   csharp: /\b(using|namespace|public|private|class|void|return|if|else|for|foreach|in|while|new|this|true|false|null|static|override|int|string|bool|double|var)\b/g,
   cpp: /\b(class|public|private|struct|return|if|else|for|while|new|this|true|false|nullptr|const|auto|void|int|double|bool|template|typename|static|std|include)\b/g,
   php: /\b(class|function|public|private|return|if|else|for|foreach|as|while|new|this|true|false|null|static|echo|array)\b/g,
-  rust: /\b(fn|pub|struct|impl|let|mut|return|if|else|for|in|while|match|self|true|false|None|Some|use|crate|i64|f64|bool|String|Vec|Rc|RefCell)\b/g,
+  rust: /\b(fn|pub|struct|impl|let|mut|return|if|else|for|in|while|match|self|true|false|use|crate|i64|f64|bool)\b/g,
+};
+
+/*
+ * What is taken whole and never looked into again: a comment, or a string.
+ * A keyword inside a comment has to stay a comment and a number inside a
+ * string has to stay a string. `;` opens a comment on Ranger only, where a
+ * line beginning with one is the form the sources use; in every other
+ * language here it ends a statement.
+ */
+const OPAQUE = {
+  ranger: /^[ \t]*;[^\n]*|"(?:[^"\\\n]|\\.)*"/gm,
+  other: /\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\\n]|\\.)*"/g,
 };
 
 function highlight(code, lang) {
-  let out = esc(code);
-  // Comments and strings first, then wrap them so a later pass cannot reach
-  // inside: a keyword inside a comment must stay a comment.
-  const stash = [];
-  const keep = (html) => `\u0000${stash.push(html) - 1}\u0000`;
-  out = out
-    .replace(/(^|\n)(\s*)(;[^\n]*)/g, (m, nl, sp, c) => nl + sp + keep(`<span class="c">${c}</span>`))
-    .replace(/\/\/[^\n]*/g, (m) => keep(`<span class="c">${m}</span>`))
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => keep(`<span class="c">${m}</span>`))
-    .replace(/#[^\n]*/g, (m) => (lang === "php" ? m : keep(`<span class="c">${m}</span>`)))
-    .replace(/"(?:[^"\\\n]|\\.)*"/g, (m) => keep(`<span class="s">${m}</span>`));
-
   const kw = KEYWORDS[lang];
-  if (kw) out = out.replace(kw, '<span class="k">$&</span>');
-  out = out.replace(/\b\d+(?:\.\d+)?\b/g, '<span class="n">$&</span>');
-  // A capitalised word is a type in every one of these languages often enough
-  // to be worth the colour.
-  out = out.replace(/\b([A-Z][A-Za-z0-9_]{1,})\b/g, '<span class="t">$1</span>');
 
-  return out.replace(/\u0000(\d+)\u0000/g, (m, i) => stash[+i]);
+  // The colour is decided on the text BETWEEN the opaque runs, and the runs
+  // themselves are emitted as they are. An earlier version stashed each run
+  // behind a numbered placeholder and put them back at the end — and the
+  // number pass coloured the index inside the placeholder, because an index
+  // is a number too, so the placeholder never matched again and an empty
+  // string arrived on the page as the digit 0. There is no placeholder now.
+  const paint = (text) => {
+    let out = esc(text);
+    if (kw) out = out.replace(kw, '<span class="k">$&</span>');
+    out = out.replace(/\b\d+(?:\.\d+)?\b/g, '<span class="n">$&</span>');
+    // A capitalised word is a type in every one of these languages often
+    // enough to be worth the colour.
+    return out.replace(/\b([A-Z][A-Za-z0-9_]{1,})\b/g, '<span class="t">$1</span>');
+  };
+
+  let out = "";
+  let at = 0;
+  for (const m of code.matchAll(OPAQUE[lang === "ranger" ? "ranger" : "other"])) {
+    out += paint(code.slice(at, m.index));
+    out += `<span class="${m[0].trimStart().startsWith('"') ? "s" : "c"}">${esc(m[0])}</span>`;
+    at = m.index + m[0].length;
+  }
+  return out + paint(code.slice(at));
 }
 
 const srcEl = document.getElementById("srcCode");
