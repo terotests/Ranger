@@ -13,8 +13,8 @@
 ; The host fills in `focused` and `visible`, which it alone knows.
 ; =============================================================================
 
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
 Import "UiTree.rgr"
 
 ; Tri-state, spelled as EVGA11yTri: 0 = not applicable, 1 = no, 2 = yes,

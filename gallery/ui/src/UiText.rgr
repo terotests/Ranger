@@ -23,7 +23,7 @@
 ; module). A helper that made its own engine would measure in the wrong one.
 ; =============================================================================
 
-Import "../../evg/EVGTextEngine.rgr"
+Import "pkg:evg/EVGTextEngine.rgr"
 
 class UiText {
 

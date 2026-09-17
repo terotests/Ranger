@@ -212,3 +212,7 @@ gallery/vfs/bin/
 
 # Screens exported for inspection — regenerate with `npm run rt:evg`.
 gallery/realtrainer/out/
+gallery/pkg/bin/
+gallery/pkg/npm/dist/
+gallery/pkg/npm/README.md
+gallery/pkg/npm/LICENSE

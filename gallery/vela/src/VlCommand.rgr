@@ -24,7 +24,7 @@
 Import "VlJson.rgr"
 Import "VlScene.rgr"
 Import "VlShape.rgr"
-Import "../../evg/PathBuilder.rgr"
+Import "pkg:evg/PathBuilder.rgr"
 
 ; op: "rect" | "line" | "text" | "path" | "symbol" | "image" | "group-begin" | "group-end"
 class VlDrawCommand {

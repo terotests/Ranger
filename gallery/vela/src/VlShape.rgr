@@ -23,7 +23,7 @@
 ; ==============================================================================
 
 Import "VlMath.rgr"
-Import "../../evg/PathBuilder.rgr"
+Import "pkg:evg/PathBuilder.rgr"
 
 class VlShape {
 

@@ -9711,6 +9711,7 @@ class RangerLispParser  {
     this.had_error = false;
     this.disableOperators = false;
     this.recv_tmp_count = 0;
+    this.pending_comments = [];
     this.source_text = RangerLispParser.normalizeLineEndings(code_module.code);
     this.buff = this.source_text;
     this.code = code_module;
@@ -10199,6 +10200,9 @@ class RangerLispParser  {
         return true;
       }
     }
+    if ( push_target.is_block_node ) {
+      this.attachPendingComments(p_node);
+    }
     if ( cnt == 1 ) {
       const onlyCh = push_target.children[0];
       if ( this.isPlainDotCallee(onlyCh, this.i) ) {
@@ -10239,7 +10243,19 @@ class RangerLispParser  {
         p_node.parent = push_target;
       }
     }
+    if ( push_target.is_block_node ) {
+      this.attachPendingComments(p_node);
+    }
     push_target.children.push(p_node);
+  };
+  attachPendingComments (node) {
+    if ( this.pending_comments.length == 0 ) {
+      return;
+    }
+    while (this.pending_comments.length > 0) {
+      const c = this.pending_comments.splice(0, 1).pop();
+      node.comments.push(c);
+    };
   };
   parse_attributes (s) {
     let last_i = 0;
@@ -10559,7 +10575,11 @@ class RangerLispParser  {
           new_node.parsed_type = 12;
           new_node.value_type = 12;
           new_node.string_value = s.substring(sp, this.i );
-          this.curr_node.comments.push(new_node);
+          if ( this.curr_node.is_block_node ) {
+            this.pending_comments.push(new_node);
+          } else {
+            this.curr_node.comments.push(new_node);
+          }
           continue;
         }
         if ( this.i < this.__len - 1 ) {
@@ -10880,6 +10900,7 @@ class RangerLispParser  {
           }
           if ( this.curr_node.is_block_node == true ) {
             const new_expr_node = new CodeNode(this.code, sp, ep);
+            this.attachPendingComments(new_expr_node);
             new_expr_node.parent = this.curr_node;
             new_expr_node.expression = true;
             this.curr_node.children.push(new_expr_node);
@@ -11280,6 +11301,9 @@ class RangerLispParser  {
           }
         }
         if ( c == 41 || c == (125) ) {
+          if ( this.curr_node.is_block_node ) {
+            this.attachPendingComments(this.curr_node);
+          }
           if ( (c == (125) && is_block_parent) && this.curr_node.children.length > 0 ) {
             this.end_expression(false);
           }
@@ -14307,6 +14331,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     };
     return 0 - 1;
   };
+  PkgImport.manifestChain = function(env, startDir, libraryPaths) {
+    let dirs = [];
+    const first = PkgImport.walkUp(env, startDir);
+    if ( first.length > 0 ) {
+      dirs.push(first);
+    }
+    let i = libraryPaths.length - 1;
+    while (i >= 0) {
+      const cand = PkgImport.walkUp(env, libraryPaths[i]);
+      if ( cand.length > 0 ) {
+        if ( dirs.indexOf(cand) < 0 ) {
+          dirs.push(cand);
+        }
+      }
+      i = i - 1;
+    };
+    return dirs;
+  };
   PkgImport.resolve = async function(env, startDir, spec, libraryPaths) {
     const hit = new PkgHit();
     if ( PkgImport.isPkg(spec) == false ) {
@@ -14314,6 +14356,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       hit.name = PkgImport.stripDot(spec);
       return hit;
     }
+    const dirs = PkgImport.manifestChain(env, startDir, libraryPaths);
+    if ( dirs.length == 0 ) {
+      hit.err = "no ranger.json for " + spec;
+      return hit;
+    }
+    let firstErr = "";
+    let di = 0;
+    while (di < dirs.length) {
+      const got = await PkgImport.resolveIn(env, dirs[di], spec);
+      if ( got.ok ) {
+        return got;
+      }
+      if ( firstErr.length == 0 ) {
+        firstErr = got.err;
+      }
+      di = di + 1;
+    };
+    hit.err = firstErr;
+    return hit;
+  };
+  PkgImport.resolveIn = async function(env, manDir, spec) {
+    const hit = new PkgHit();
     const rest = spec.substring(4, spec.length );
     let pkgName = rest;
     let sub = "";
@@ -14321,11 +14385,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     if ( slash >= 0 ) {
       pkgName = rest.substring(0, slash );
       sub = rest.substring((slash + 1), rest.length );
-    }
-    const manDir = PkgImport.findManifestDir(env, startDir, libraryPaths);
-    if ( manDir.length == 0 ) {
-      hit.err = "no ranger.json for " + spec;
-      return hit;
     }
     const manText = await PkgImport.readText(env, manDir, "ranger.json");
     const reader = new PkgJRead();
@@ -14355,8 +14414,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const dep = specObj;
       const pathDep = PkgJRead.strOf(dep, "path");
       if ( pathDep.length > 0 ) {
-        pkgRoot = PkgImport.foldPath(PkgImport.joinPath(manDir, pathDep));
-      } else {
+        const cand = PkgImport.foldPath(PkgImport.joinPath(manDir, pathDep));
+        if ( operatorsOf_8.filec95exists_9(env, cand, "ranger.json") ) {
+          pkgRoot = cand;
+        }
+      }
+      if ( pkgRoot.length == 0 ) {
         const vendorDir = PkgImport.joinPath(manDir, ("vendor/ranger/" + pkgName));
         if ( operatorsOf_8.filec95exists_9(env, vendorDir, "ranger.json") ) {
           pkgRoot = vendorDir;
@@ -18395,6 +18458,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( ctx.hasCompilerFlag("verbose") ) {
             console.log((("importing " + import_file) + " from ") + filePathIs);
           }
+          const seenKey = "@" + PkgImport.foldPath(((filePathIs + "/") + searchName));
+          if ( ( typeof(ctx.already_imported[seenKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, seenKey) ) ) {
+            return;
+          }
+          ctx.already_imported[seenKey] = true;
           const c = await operatorsOf_8.readc95file_9(
             env,
             filePathIs,
@@ -21706,6 +21774,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           ctx.addError(node, "Could not import file " + import_file);
           return;
         }
+        const seenKey2 = "@" + PkgImport.foldPath(((filePathIs + "/") + searchName));
+        if ( ( typeof(ctx.already_imported[seenKey2] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, seenKey2) ) ) {
+          for ( let i2 = 0; i2 < node.children.length; i2++) {
+            var item2 = node.children[i2];
+            await this.WalkCollectMethods(item2, ctx, wr);
+          };
+          return;
+        }
+        ctx.already_imported[seenKey2] = true;
         const c = await operatorsOf_8.readc95file_9(
           env,
           filePathIs,

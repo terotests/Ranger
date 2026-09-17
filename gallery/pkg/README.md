@@ -124,10 +124,26 @@ Relative `../evg/EVGElement.rgr` is a monorepo accident, not a dependency.
 The gallery resolver refuses a `./` import that climbs out of the package.
 
 The compiler **does** resolve `pkg:` and `./` now: `compiler/PkgImport.rgr`
-(MIT) walks up to `ranger.json`, then a path dependency, `vendor/ranger/<name>`,
-or `RANGER_PKG_CACHE` / `~/.cache/ranger/packages/<sha256>` from `ranger.lock`.
-It does not fetch Git — that stays in this directory. `rgrc` reads the nearest
-`ranger.json` automatically.
+(MIT) walks up to `ranger.json`, then a path dependency that is actually on
+disk, `vendor/ranger/<name>`, or `RANGER_PKG_CACHE` /
+`~/.cache/ranger/packages/<sha256>` from `ranger.lock`. It does not fetch Git —
+that stays in this directory. `rgrc` reads the nearest `ranger.json`
+automatically.
+
+One manifest is not enough once a dependency is fetched. A package in the
+cache carries its own repository's `ranger.json`, whose sibling path
+dependencies (`"evg": { "path": "../evg" }`) do not exist beside a cache
+entry. So resolution walks a **chain**: the manifest of the package the
+importing file sits in, then the manifests of the files that imported it,
+ending at the project the compile started from — whose lock knows where
+every package landed. `gallery/ui` resolves `pkg:evg` through its own
+manifest inside the tree, and through the application's lock outside it,
+with no change to the source.
+
+Two spellings of the same file — `../../evg/EVGElement.rgr` from inside the
+tree and `pkg:evg/EVGElement.rgr` from a package — are one import. The
+compiler keys `already_imported` on the folded path as well as the string,
+so a tree can move to `pkg:` one file at a time instead of all at once.
 
 A Git dependency with `subdir` is **not** a full clone. Deno never clones for
 HTTP imports either: it GETs the files the module graph names. Here the graph
@@ -159,7 +175,9 @@ Gallery `PackageResolver` is the same idea for tools (`pkg_tool resolve`,
 | `src/pkg_tool.rgr` | CLI |
 | `tools/git-http.mjs` | HTTPS GET/POST only |
 | `tools/clone.mjs` | advertise → want → pack → checkout |
+| `tools/install.mjs` | `ranger.json` → fetch every dep → cache → `ranger.lock` |
 | `tools/make-fixtures.mjs` | corpus from git / Node crypto |
+| `npm/` | the publishable `ranger-pkg` package |
 
 ## Commands
 
@@ -181,18 +199,60 @@ pkg_tool tree <ranger.json>
 pkg_tool lock <ranger.json>
 pkg_tool vendor <ranger.json> <out-dir>
 pkg_tool cache-put <pack> <sha> [subdir] <cache-root>
+pkg_tool cache-merge <trees.bin> <blobs.bin> <commit> [subdir] <cache-root>
 pkg_tool install <ranger.json>
 ```
 
+`pkg_tool install` dumps a lock of what is **already mounted**; it does not
+fetch. The command that walks the graph is `tools/install.mjs`:
+
+```bash
+npm run pkg:install -- path/to/ranger.json          # or --vendor, --cache=<dir>
+```
+
+For every `git` dependency it sparse-fetches the pinned revision, writes the
+checkout into the cache `compiler/PkgImport.rgr` reads (`RANGER_PKG_CACHE`,
+else `~/.cache/ranger/packages/<sha256>`), recurses into that package's own
+`ranger.json`, and records `rev` + `sha256` in `ranger.lock`. A branch or tag
+in `ranger.json` is pinned to the commit it resolved to. After that `rgrc`
+compiles `pkg:` imports with no Ranger tree in sight.
+
 There is no daemon, no login, no `publish`, no registry. A later registry
 can be a JSON index of git URLs; the protocol here would not change.
+
+## Shipping it
+
+The compiler on npm (`ranger-compiler`, MIT) **resolves** `pkg:` and `./` — it
+does not fetch, because the Git client is here, under the gallery's AGPL. A
+project that only has `rgrc` therefore cannot get its dependencies onto disk.
+That gap closes by publishing this directory as its own package:
+
+```bash
+npm run pkg:npm:build     # gallery/pkg/npm/dist: pkg_tool.js + the .mjs pipes
+npm run pkg:npm:pack      # a tarball in ./tmp to try before publishing
+```
+
+```bash
+npx ranger-pkg install            # fetch + lock, from a project's ranger.json
+npx ranger-pkg clone <url> HEAD <dir> <subdir>
+npx ranger-pkg resolve ranger.json pkg:evg/EVGElement.rgr
+```
+
+`ranger-pkg` is AGPL-3.0-or-later, like the rest of `gallery/`. Using it to
+fetch sources does not touch the licence of what you compile, the same way
+`rgrc` does not.
 
 ## What this does not do
 
 - Semver ranges (`^1.2`, `>=3 <4`)
 - Package namespaces / colliding `class Button`
 - Auth, SSH, incremental `have` against a stored pack
-- `rgrc pkg add` as a compiler subcommand (the library is here first)
+- `rgrc install` / `rgrc pkg add` as compiler subcommands. `rgrc` is MIT and
+  this client is AGPL, so the fetch cannot move into the compiler binary as
+  things stand — `ranger-pkg` is the separable half. Folding it in means
+  either relicensing the client (it is a clean-room read of published
+  formats, and `GitZlib` is the only thing tying it to `gallery/zip`) or
+  having `rgrc install` shell out to `ranger-pkg` when it is installed.
 - Copying `node_modules`-style trees by default — cache + optional `vendor`
 
 ## Tests

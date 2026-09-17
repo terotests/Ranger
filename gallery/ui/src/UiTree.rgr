@@ -17,8 +17,8 @@
 ; style and a test can read), spelled the way a class-first engine reads it.
 ; =============================================================================
 
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
 Import "UiCtl.rgr"
 
 class UiTree {

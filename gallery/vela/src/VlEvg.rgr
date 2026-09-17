@@ -38,7 +38,7 @@ Import "VlJson.rgr"
 Import "VlCommand.rgr"
 Import "VlText.rgr"
 Import "VlShape.rgr"
-Import "../../evg/PathBuilder.rgr"
+Import "pkg:evg/PathBuilder.rgr"
 
 class VlEvgWriter {
     def indentText:string "        "

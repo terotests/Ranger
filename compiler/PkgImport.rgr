@@ -391,6 +391,30 @@ class PkgImport {
     return (0 - 1)
   }
 
+  ; Every manifest that could answer this import, nearest first: the package
+  ; the importing file sits in, then the manifests of the files that imported
+  ; it, ending at the project the compile started from. A dependency fetched
+  ; into the cache carries the manifest of its own repository, whose path
+  ; dependencies do not exist there -- the project's lock does, one step up.
+  sfn manifestChain:[string] (env:InputEnv startDir:string libraryPaths:[string]) {
+    def dirs:[string]
+    def first:string (PkgImport.walkUp(env startDir))
+    if ((strlen first) > 0) {
+      push dirs first
+    }
+    def i:int ((array_length libraryPaths) - 1)
+    while (i >= 0) {
+      def cand:string (PkgImport.walkUp(env (itemAt libraryPaths i)))
+      if ((strlen cand) > 0) {
+        if ((indexOf dirs cand) < 0) {
+          push dirs cand
+        }
+      }
+      i = (i - 1)
+    }
+    return dirs
+  }
+
   sfn resolve:PkgHit (env:InputEnv startDir:string spec:string libraryPaths:[string]) {
     def hit (new PkgHit)
     if ((PkgImport.isPkg(spec)) == false) {
@@ -398,6 +422,29 @@ class PkgImport {
       hit.name = (PkgImport.stripDot(spec))
       return hit
     }
+    def dirs:[string] (PkgImport.manifestChain(env startDir libraryPaths))
+    if ((array_length dirs) == 0) {
+      hit.err = ("no ranger.json for " + spec)
+      return hit
+    }
+    def firstErr:string ""
+    def di:int 0
+    while (di < (array_length dirs)) {
+      def got:PkgHit (PkgImport.resolveIn(env (itemAt dirs di) spec))
+      if got.ok {
+        return got
+      }
+      if ((strlen firstErr) == 0) {
+        firstErr = got.err
+      }
+      di = (di + 1)
+    }
+    hit.err = firstErr
+    return hit
+  }
+
+  sfn resolveIn:PkgHit (env:InputEnv manDir:string spec:string) {
+    def hit (new PkgHit)
     def rest:string (substring spec 4 (strlen spec))
     def pkgName:string rest
     def sub:string ""
@@ -405,11 +452,6 @@ class PkgImport {
     if (slash >= 0) {
       pkgName = (substring rest 0 slash)
       sub = (substring rest (slash + 1) (strlen rest))
-    }
-    def manDir:string (PkgImport.findManifestDir(env startDir libraryPaths))
-    if ((strlen manDir) == 0) {
-      hit.err = ("no ranger.json for " + spec)
-      return hit
     }
     def manText:string (PkgImport.readText(env manDir "ranger.json"))
     def reader (new PkgJRead)
@@ -439,8 +481,15 @@ class PkgImport {
       def dep:PkgJVal (unwrap specObj)
       def pathDep:string (PkgJRead.strOf(dep "path"))
       if ((strlen pathDep) > 0) {
-        pkgRoot = (PkgImport.foldPath((PkgImport.joinPath(manDir pathDep))))
-      } {
+        def cand:string (PkgImport.foldPath((PkgImport.joinPath(manDir pathDep))))
+        ; A path dependency that is not on disk is not an answer. A package
+        ; fetched into the cache keeps its repository's manifest, so its
+        ; sibling paths point outside the cache entry.
+        if (file_exists env cand "ranger.json") {
+          pkgRoot = cand
+        }
+      }
+      if ((strlen pkgRoot) == 0) {
         def vendorDir:string (PkgImport.joinPath(manDir ("vendor/ranger/" + pkgName)))
         if (file_exists env vendorDir "ranger.json") {
           pkgRoot = vendorDir

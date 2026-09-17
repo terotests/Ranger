@@ -27,7 +27,7 @@
 ; Checked on Node by `ios/ranger/check_ios.rgr` — 82 assertions, driving this
 ; class through the iOS subclass — so a Mac is needed only for the Swift.
 
-Import "../../evg/EvgViewport.rgr"
+Import "pkg:evg/EvgViewport.rgr"
 Import "../demo/DashboardDemo.rgr"
 
 class UiWindowHost {

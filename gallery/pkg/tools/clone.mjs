@@ -20,7 +20,9 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../../..");
-const tool = join(root, "gallery/pkg/bin/pkg_tool.js");
+const packaged = join(here, "pkg_tool.cjs");
+const inTree = join(root, "gallery/pkg/bin/pkg_tool.js");
+const tool = existsSync(packaged) ? packaged : inTree;
 const http = join(here, "git-http.mjs");
 
 const gitUrl = process.argv[2];

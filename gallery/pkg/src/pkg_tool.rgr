@@ -19,6 +19,7 @@
 ;   pkg_tool lock <ranger.json>
 ;   pkg_tool vendor <ranger.json> <out-dir>
 ;   pkg_tool cache-put <pack> <sha> [subdir] <cache-root>
+;   pkg_tool cache-merge <trees.bin> <blobs.bin> <commit> [subdir] <cache-root>
 ;   pkg_tool install <ranger.json>
 
 Import "GitSha1.rgr"
@@ -90,6 +91,7 @@ class PkgTool {
         print "pkg_tool lock <ranger.json>"
         print "pkg_tool vendor <ranger.json> <out-dir>"
         print "pkg_tool cache-put <pack> <sha> [subdir] <cache-root>"
+        print "pkg_tool cache-merge <trees.bin> <blobs.bin> <commit> [subdir] <cache-root>"
         print "pkg_tool install <ranger.json>"
     }
 
@@ -377,6 +379,41 @@ class PkgTool {
             def hash5:string (PkgCache.put(mem5 cacheDir))
             print ("sha256 " + hash5)
             print ("files " + (to_string (array_length mem5.files)))
+            return
+        }
+        if (cmd == "cache-merge") {
+            if (n < 5) {
+                PkgTool.usage()
+                return
+            }
+            def packC1:GitPack (PkgTool.loadPack((shell_arg 1)))
+            def packC2:GitPack (PkgTool.loadPack((shell_arg 2)))
+            def mergedC:GitPack (GitPackIO.merge(packC1 packC2))
+            if (mergedC.ok == false) {
+                print ("FAIL " + mergedC.err)
+                return
+            }
+            def shaC:string (shell_arg 3)
+            def subC:string ""
+            def cacheC:string (shell_arg 4)
+            if (n >= 6) {
+                subC = (shell_arg 4)
+                cacheC = (shell_arg 5)
+            }
+            def storeC (new GitStore(mergedC))
+            def memC:GitMem (storeC.checkout(shaC subC))
+            if (storeC.ok == false) {
+                print ("FAIL " + storeC.err)
+                return
+            }
+            create_dir cacheC
+            def hashC:string (PkgCache.put(memC cacheC))
+            if ((strlen hashC) == 0) {
+                print "FAIL empty checkout"
+                return
+            }
+            print ("sha256 " + hashC)
+            print ("files " + (to_string (array_length memC.files)))
             return
         }
         if (cmd == "install") {

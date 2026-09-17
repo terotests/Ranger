@@ -48,8 +48,8 @@
 
 Import "UiCtl.rgr"
 Import "UiTree.rgr"
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
 
 ; One node of the source data. Children by VALUE, not by reference, because
 ; that is the shape the library's data loader has and the shape a fixture can

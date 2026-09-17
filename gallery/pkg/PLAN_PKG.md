@@ -53,7 +53,21 @@ That is the same stance as ZIP and Zstandard in this gallery.
 - **S4 — manifest / lock / resolver.** `pkg:name`, `pkg:name/path`,
   `./relative`. Path deps. Lock dump. Vendor copy.
 - **S5 — compiler hook.** `cmdImport` resolves `pkg:` and `./` through `compiler/PkgImport.rgr` (MIT): walk up to `ranger.json`, path deps, `vendor/ranger/<name>`, lockfile sha256 cache. Fetching still lives in `gallery/pkg`.
-- **S6 — cache keyed by lock sha256.** `PkgCache.put` writes a Git checkout under `<cacheRoot>/<sha256>/`. `pkg_tool cache-put` / `install`.
+- **S6 — cache keyed by lock sha256.** `PkgCache.put` writes a Git checkout under `<cacheRoot>/<sha256>/`. `pkg_tool cache-put` / `cache-merge`.
+- **S7 — an install that fetches.** `tools/install.mjs` walks the dependency
+  graph, sparse-fetches every `git` dep at its pinned revision into the cache,
+  recurses into each fetched package's own `ranger.json`, and writes
+  `ranger.lock` with `rev` + `sha256`. `pkg_tool install` only ever dumped a
+  lock of what was already mounted.
+- **S8 — resolution across package boundaries.** A cached package keeps its
+  repository's manifest, so `PkgImport` tries the manifest chain (nearest
+  package → importers → project) instead of the nearest manifest alone, skips
+  a path dependency that is not on disk, and dedups imports by folded path so
+  `../../evg/X.rgr` and `pkg:evg/X.rgr` are one file. `gallery/ui`,
+  `gallery/statechart` and `gallery/vela` now import their siblings as `pkg:`.
+- **S9 — ship the fetcher.** `gallery/pkg/npm` publishes this directory as
+  `ranger-pkg` (AGPL), because `ranger-compiler` (MIT) can resolve `pkg:` but
+  not fetch it.
 
 ## Non-goals (still)
 

@@ -36,7 +36,7 @@ Import "VlScene.rgr"
 Import "VlBounds.rgr"
 Import "VlText.rgr"
 Import "VlShape.rgr"
-Import "../../evg/PathBuilder.rgr"
+Import "pkg:evg/PathBuilder.rgr"
 
 class VlViewBox {
 

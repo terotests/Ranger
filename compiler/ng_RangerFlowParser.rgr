@@ -4707,6 +4707,16 @@ class RangerFlowParser {
         if(ctx.hasCompilerFlag("verbose")) {
           print "importing " + import_file + " from " + filePathIs
         }
+        ; The same file reached under two spellings -- `../../evg/X.rgr` from
+        ; inside the tree and `pkg:evg/X.rgr` from a package -- is one file.
+        ; Keyed on the import string alone it is parsed twice and every class
+        ; in it is defined twice, so a tree cannot move to `pkg:` one file at
+        ; a time. Key the folded path as well.
+        def seenKey:string ("@" + (PkgImport.foldPath((filePathIs + "/" + searchName))))
+        if (has ctx.already_imported seenKey) {
+          return
+        }
+        set ctx.already_imported seenKey true
         def c:string (read_file env filePathIs searchName)
         source_code = (unwrap c)
         
@@ -8351,6 +8361,14 @@ class RangerFlowParser {
         ctx.addError(node ('Could not import file '  + import_file))
         return
       }
+      def seenKey2:string ("@" + (PkgImport.foldPath((filePathIs + "/" + searchName))))
+      if (has ctx.already_imported seenKey2) {
+        for node.children item2:CodeNode i2 {
+          this.WalkCollectMethods(item2 ctx wr)
+        }
+        return
+      }
+      set ctx.already_imported seenKey2 true
       def c:string (read_file env filePathIs searchName)
       def code:SourceCode (new SourceCode ( (unwrap c)))
       code.filename = import_file
