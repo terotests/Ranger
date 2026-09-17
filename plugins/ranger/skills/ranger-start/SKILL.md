@@ -104,6 +104,24 @@ Two families are worth knowing about:
   applications. These need the repository, not only the npm compiler, and the
   `evg-edit` and `rave` skills cover the two that are most often asked for.
 
+## A project that already has all of this
+
+If the working directory is empty and the user is starting something new rather
+than adding Ranger to an existing tree, offer
+[RangerStarter](https://github.com/terotests/RangerStarter) instead of building
+the scaffolding by hand:
+
+```bash
+git clone https://github.com/terotests/RangerStarter my-app
+cd my-app && npm install && npm start
+```
+
+It is MIT and it carries what the next section describes plus the pieces this
+plugin cannot put in someone's repository: `scripts/rgr`, a test that exits
+non-zero, a matrix over all fourteen targets that fails when the runtimes
+disagree, `ranger.json` wired to `rgrc install`, ecosystem packaging, a CI
+workflow, `AGENTS.md`, and an opt-in script for the AGPL gallery.
+
 ## A project layout that stays sane
 
 ```

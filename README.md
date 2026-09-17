@@ -104,7 +104,10 @@ rgr run Calc.rgr -l=python    # …the same source, through Python
 rgr run Calc.rgr -l=go        # …and Go
 ```
 
-[`plugins/ranger/README.md`](plugins/ranger/README.md) lists what is in it.
+[`plugins/ranger/README.md`](plugins/ranger/README.md) lists what is in it, and
+[RangerStarter](https://github.com/terotests/RangerStarter) is the same thing as
+a project you clone: the skills are already in `.claude/skills/`, and `npm start`
+prints on a cold checkout.
 
 ## Where To Start
 
@@ -188,6 +191,20 @@ Regenerate the fixture list with `node scripts/generate-conformance-table.mjs`.
 <!-- END CONFORMANCE_TABLE -->
 
 ## Quick start
+
+You do not need this repository to write a program in Ranger. This is the
+compiler, the gallery and their own test corpus — what you clone to work *on*
+Ranger. To start a program *in* it,
+[RangerStarter](https://github.com/terotests/RangerStarter) is a project already
+built around the npm compiler: two source files, a test, a build loop that fails
+when the compile fails, all fourteen targets, and the agent skills. MIT.
+
+```bash
+git clone https://github.com/terotests/RangerStarter my-app
+cd my-app && npm install
+npm start          # hei maailma
+npm run targets    # the same source as Swift, Kotlin, Rust, Go, C++, …
+```
 
 Source files use the `.rgr` extension (`.clj` is the legacy extension and still
 works) and the CLI is `rgrc`:

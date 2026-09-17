@@ -16,6 +16,13 @@ npm init -y && npm i -D ranger-compiler
 
 …and ask for a program. The first one compiles and runs in about a second.
 
+Starting something new rather than adding Ranger to an existing tree?
+[RangerStarter](https://github.com/terotests/RangerStarter) is a clone-and-go
+version of the same thing — these skills already in `.claude/skills/`, plus the
+parts a plugin cannot put in your repository: `scripts/rgr`, a test that exits
+non-zero, a matrix over all fourteen targets, `ranger.json`, ecosystem
+packaging, CI, and an opt-in script for the AGPL gallery. MIT.
+
 ## What is in it
 
 | | |
