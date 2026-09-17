@@ -315,7 +315,9 @@ class CodeGraphSdl {
         }
         def text:string (dgfx_take_text)
         if ((strlen text) > 0) {
-            app.typeText(text)
+            ; SDL sends Ctrl+letter as text with the modifier still held —
+            ; that is the only way Ctrl+F reaches the source pane's find bar.
+            app.typeTextWith(text ctrl)
         }
         def k:int (dgfx_pop_key)
         while (k != 0) {
@@ -344,7 +346,16 @@ class CodeGraphSdl {
                 app.keyWith("Escape" false false)
                 return
             }
+            ; Escape closes the find bar before it closes the window.
+            if ((strlen (app.findStatus())) > 0) {
+                app.keyWith("Escape" shift ctrl)
+                return
+            }
             wantQuit = true
+            return
+        }
+        if (k == 2) {
+            app.keyWith("Enter" shift ctrl)
             return
         }
         if (k == 1) {

@@ -1,0 +1,35 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UastDirOps.rgr — "is this path a directory?", for the workspace walkers.
+; ============================================================================
+;
+; `dir_exists` only answers "the path exists": `existsSync` on node, a bare
+; `stat() == 0` on C++. A plain file with no extension — tinyxml2 ships a
+; Doxygen config called `dox` — therefore answered true, and the walker then
+; called `list_dir_files` on it and died with ENOTDIR.
+;
+; lib/ranger-dir.rgr declares `is_directory`, but nothing after
+; `list_dir_files` in that operators block ever reaches the operator table,
+; so the name does not resolve. This file declares the one operator the
+; UAST walkers need, for the two targets CodeGraph builds: node (CLI, web)
+; and C++ (the SDL desktop binary).
+; ============================================================================
+
+operators {
+    is_dir_path cmdFiles:boolean (path:string) {
+        templates {
+            es6 ( "require(\"fs\").existsSync(" (e 1) ") && require(\"fs\").statSync(" (e 1) ").isDirectory()" )
+            cpp ( "r_uast_is_dir_path(" (e 1) ")" (imp "<sys/stat.h>") (imp "<string>")
+(create_polyfill "
+bool r_uast_is_dir_path(const std::string& name)
+{
+  struct stat st;
+  if (stat(name.c_str(), &st) != 0) { return false; }
+  return S_ISDIR(st.st_mode);
+}
+")
+            )
+        }
+    }
+}

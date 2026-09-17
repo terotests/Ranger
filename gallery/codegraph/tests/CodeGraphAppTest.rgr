@@ -224,6 +224,69 @@ class CodeGraphAppTest {
             failed = (failed + 1)
         }
         app.loadSample("shop")
+
+        ; The `code` button puts the source pane away and gives its width to
+        ; the chart, and gives it back on the next press.
+        def srcShare:double (app.splitSizeAt(2))
+        if ((app.setSourceVisible(false)) == false) {
+            print "  FAIL hiding the source pane did nothing"
+            failed = (failed + 1)
+        }
+        if ((app.splitSizeAt(2)) > 0.01) {
+            print ("  FAIL source pane still " + (to_string (app.splitSizeAt(2))) + "%")
+            failed = (failed + 1)
+        }
+        if (app.sourceVisible()) {
+            print "  FAIL source pane reports itself visible while hidden"
+            failed = (failed + 1)
+        }
+        app.setSourceVisible(true)
+        if (((app.splitSizeAt(2)) - srcShare) > 0.01) {
+            print ("  FAIL source pane came back at " + (to_string (app.splitSizeAt(2))) + "%")
+            failed = (failed + 1)
+        }
+        if (((app.splitSizeAt(2)) - srcShare) < -0.01) {
+            print ("  FAIL source pane came back at " + (to_string (app.splitSizeAt(2))) + "%")
+            failed = (failed + 1)
+        }
+
+        ; Ctrl+F is the source pane's find bar, not a class filter.
+        app.openClass("Order")
+        if ((app.typeTextWith("f" true)) == false) {
+            print "  FAIL Ctrl+F did not open the find bar"
+            failed = (failed + 1)
+        }
+        if ((strlen (app.findStatus())) == 0) {
+            print "  FAIL no find status while the bar is up"
+            failed = (failed + 1)
+        }
+        app.typeTextWith("x" false)
+        if ((indexOf (app.findStatus()) "x") < 0) {
+            print ("  FAIL typing did not reach the query: " + (app.findStatus()))
+            failed = (failed + 1)
+        }
+        app.keyWith("Escape" false false)
+        if ((strlen (app.findStatus())) > 0) {
+            print "  FAIL Escape left the find bar up"
+            failed = (failed + 1)
+        }
+
+        ; A class name double-clicked in the source opens that class.
+        app.goOverview()
+        if ((app.openWord("LineItem*")) == false) {
+            print "  FAIL openWord LineItem*"
+            failed = (failed + 1)
+        }
+        if ((app.pageId()) != "class:LineItem") {
+            print ("  FAIL openWord went to " + (app.pageId()))
+            failed = (failed + 1)
+        }
+        if (app.openWord("notAClassName")) {
+            print "  FAIL openWord took a word that is not a class"
+            failed = (failed + 1)
+        }
+
+        app.loadSample("shop")
         def nav:string (app.selfTest())
         if ((indexOf nav "PASS") != 0) {
             print ("  FAIL selfTest " + nav)

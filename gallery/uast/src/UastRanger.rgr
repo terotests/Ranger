@@ -53,6 +53,7 @@ class UastRanger {
 
     fn addClass:void (r:UastFrontendResult cl:RangerAppClassDesc) {
         def file:string (this.fileOf(cl))
+        this.noteFile(r cl)
         def nodeKind:string (UastKind.ClassDecl())
         def nativeKind:string "class"
         if cl.is_interface {
@@ -217,6 +218,22 @@ class UastRanger {
             }
         }
         return true
+    }
+
+    ; The compiler still holds the text it parsed. Carry it along so the
+    ; viewer can show the declaration without hunting for the file again —
+    ; the path here is whatever the import wrote (`../../vela/src/VlJson.rgr`),
+    ; which is not a path anything else can resolve.
+    fn noteFile:void (r:UastFrontendResult cl:RangerAppClassDesc) {
+        if (null? cl.nameNode) {
+            return
+        }
+        def nn:CodeNode (unwrap cl.nameNode)
+        if (null? nn.code) {
+            return
+        }
+        def sc:SourceCode (unwrap nn.code)
+        r.noteSource(sc.filename "ranger" sc.code)
     }
 
     fn fileOf:string (cl:RangerAppClassDesc) {

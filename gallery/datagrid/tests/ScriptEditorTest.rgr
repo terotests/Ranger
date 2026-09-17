@@ -487,6 +487,42 @@ class ScriptEditorTest {
         c.ok("and more than an I" (rInk > iInk))
         c.ok("a space is no speck" ((ScriptEditor.minimapInk(32)) < 0.001))
 
+        print "== a tab is four columns of space, not an empty box =="
+        def tabs:ScriptEditor (new ScriptEditor)
+        tabs.init("class A {\n\tint x;\n\t\tint y;\n}\nab\tc\n")
+        c.eqStr("one tab indents to four" (tabs.buf.lineAt(1)) "    int x;")
+        c.eqStr("two tabs to eight" (tabs.buf.lineAt(2)) "        int y;")
+        c.eqStr("a tab mid-line goes to the next stop" (tabs.buf.lineAt(4)) "ab  c")
+        c.ok("no tab survives" ((indexOf (tabs.text()) "\t") < 0))
+
+        print "== Ctrl+F finds, wraps, and counts =="
+        def fd:ScriptEditor (new ScriptEditor)
+        fd.init("alpha beta\ngamma alpha\ndelta\nAlpha again\n")
+        c.ok("Ctrl+F opens the bar" (fd.handleCtrlChar(102)))
+        c.ok("and it is up" (fd.findActive()))
+        fd.handleText("alpha")
+        c.eqStr("the keys go to the query, not the document" (fd.text()) "alpha beta\ngamma alpha\ndelta\nAlpha again\n")
+        c.eqInt("three matches, case-insensitive" fd.findTotal 3)
+        c.eqInt("the first is on line 0" fd.sel.caret.line 0)
+        c.eqInt("and it is selected" fd.sel.caret.col 5)
+        c.eqInt("showing 1 of 3" fd.findOrdinal 1)
+        fd.findNext(false)
+        c.eqInt("next is on line 1" fd.sel.caret.line 1)
+        c.eqInt("2 of 3" fd.findOrdinal 2)
+        fd.findNext(false)
+        c.eqInt("then line 3" fd.sel.caret.line 3)
+        fd.findNext(false)
+        c.eqInt("and it wraps to the top" fd.sel.caret.line 0)
+        fd.findNext(true)
+        c.eqInt("backwards wraps too" fd.sel.caret.line 3)
+        fd.handleKey((UIKey.backspace()) false false)
+        c.eqStr("backspace edits the query" fd.findQuery "alph")
+        c.eqStr("still not the document" (fd.buf.lineAt(0)) "alpha beta")
+        fd.handleKey((UIKey.escape()) false false)
+        c.ok("Escape closes it" ((fd.findActive()) == false))
+        fd.handleText("z")
+        c.eqStr("and the keys go back to the document, over the match" (fd.buf.lineAt(3)) "za again")
+
         print ""
         print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))
         if (c.failed > 0) {

@@ -100,6 +100,18 @@ class CodeGraphApp extends EvgApp {
     def classSearch:InputCtl (new InputCtl)
     def classTree:TreeCtl (new TreeCtl)
     def classScrollEl:EVGElement (EVGElement.createDiv())
+    ; A layout that lays nothing out: it exists to hand over the text engine
+    ; the caret is measured with, which is a fact about a string and a font
+    ; and needs no page.
+    def caretMeasurer:EVGLayout (new EVGLayout)
+    ; The one menu item that stands for "the file you opened", so the example
+    ; select still has something to show its name.
+    def openedItem:string ""
+    ; The source pane's share while it is put away, so pressing `code` again
+    ; gives back the width it had rather than a default.
+    def sourceHidden:boolean false
+    def sourceShare:double 30.0
+    def sourceFloor:double 12.0
     def umlToggle:ToggleCtl (new ToggleCtl)
 
     def rootFiles:[string:string]
@@ -267,13 +279,6 @@ class CodeGraphApp extends EvgApp {
         brand.build()
         this.mount(headerEl brand)
 
-        crumbLbl.tid = "cg-crumb"
-        crumbLbl.name = "loading…"
-        crumbLbl.build()
-        def crumbEl:EVGElement (unwrap crumbLbl.rootEl)
-        crumbEl.className = "cg-crumb"
-        this.mount(headerEl crumbLbl)
-
         bar.tid = "cg-bar"
         bar.name = "explorer"
         bar.addItem("open" "Open" false)
@@ -284,6 +289,10 @@ class CodeGraphApp extends EvgApp {
         bar.addItem("fit" "fit" false)
         bar.addItem("zoom" "zoom" false)
         bar.addItem("analyze" "Analyze" false)
+        ; Nothing could put the source pane away, and the separator is six
+        ; pixels wide — on the desktop that is a target you have to aim at.
+        ; A button says what it does and hits every time.
+        bar.addItem("code" "code" false)
         bar.build()
         this.mount(headerEl bar)
 
@@ -342,6 +351,20 @@ class CodeGraphApp extends EvgApp {
         classTree.addNode("root" "classes")
         classTree.build()
         this.mount(classScrollEl classTree)
+
+        ; The path of what is open used to sit in the header, between the
+        ; brand and the buttons, and it grew with the path: a temp checkout
+        ; pushed Open, Git URL and the rest off to the right, and they moved
+        ; every time a different file was opened. Toolbar buttons that will
+        ; not hold still are worse than a path you have to look down for, so
+        ; the path reads along the footer in grey and the buttons keep their
+        ; place. The footer has room for more of them later.
+        crumbLbl.tid = "cg-crumb"
+        crumbLbl.name = "loading…"
+        crumbLbl.build()
+        def crumbEl:EVGElement (unwrap crumbLbl.rootEl)
+        crumbEl.className = "cg-crumb"
+        this.mount(footerEl crumbLbl)
 
         statusLbl.tid = "cg-status"
         statusLbl.name = "ready"
@@ -427,7 +450,7 @@ class CodeGraphApp extends EvgApp {
                     s.flexShrink = 0.0
                     s.markInline("flex-shrink")
                     s.cursor = "col-resize"
-                    this.sizeBox(s 6.0 canvasH)
+                    this.sizeBox(s 10.0 canvasH)
                 }
             }
             i = (i + 1)
@@ -473,10 +496,51 @@ class CodeGraphApp extends EvgApp {
         stEl.className = "cg-status"
         umlToggle.on = umlOn
         umlToggle.build()
-        sampleSel.value = sampleName
-        sampleSel.build()
+        this.syncSampleSelect()
         this.syncToolbar()
         this.refreshClasses()
+    }
+
+    ; Open and Git URL put a path in `sampleName`, and a path is not one of
+    ; the menu's items — so the trigger drew an empty label and the box
+    ; collapsed to a sliver. What is open is always an item, even when it is
+    ; a file: named by its basename, kept at the top, replaced on the next
+    ; Open rather than piling up.
+    fn syncSampleSelect:void () {
+        if ((sampleSel.indexOfValue(sampleName)) < 0) {
+            def label:string (this.fileBaseName((this.slashPath(sampleName))))
+            if ((strlen label) == 0) {
+                label = sampleName
+            }
+            this.setOpenedItem(sampleName label)
+        }
+        sampleSel.value = sampleName
+        sampleSel.build()
+    }
+
+    fn setOpenedItem:void (value:string label:string) {
+        def fresh (new UiItem)
+        fresh.value = value
+        fresh.name = ("opened · " + label)
+        def all:[UiItem]
+        push all fresh
+        def i:int 0
+        while (i < (array_length sampleSel.items)) {
+            def it:UiItem (itemAt sampleSel.items i)
+            def drop:boolean false
+            if (it.value == value) {
+                drop = true
+            }
+            if (it.value == openedItem) {
+                drop = true
+            }
+            if (drop == false) {
+                push all it
+            }
+            i = (i + 1)
+        }
+        sampleSel.items = all
+        openedItem = value
     }
 
     fn syncToolbar:void () {
@@ -491,6 +555,12 @@ class CodeGraphApp extends EvgApp {
             }
             if (it.value == "zoom") {
                 it.disabled = ((this.hasSelection()) == false)
+            }
+            if (it.value == "code") {
+                it.name = "code"
+                if sourceHidden {
+                    it.name = "code ▸"
+                }
             }
             i = (i + 1)
         }
@@ -1115,6 +1185,11 @@ class CodeGraphApp extends EvgApp {
         if (has userFiles name) {
             return (this.analyzeSource((unwrap (get userFiles name)) name))
         }
+        ; The "opened ·" item: a path on the real disk, which is what Open
+        ; and Git URL leave behind. Picking it again re-reads it.
+        if (name == openedItem) {
+            return (this.openDiskPath(name))
+        }
         status = ("no source for " + name)
         this.refreshChrome()
         return false
@@ -1370,6 +1445,10 @@ class CodeGraphApp extends EvgApp {
     }
 
     fn dressClassSearch:void () {
+        ; The measurement and the drawing have to agree about the font, or the
+        ; caret lands beside the letter it is supposed to be in front of.
+        ; 13px is what `.ui-input-text` says in codegraph.css.
+        classSearch.fontSize = 13.0
         classSearch.build()
         this.markClassSearch()
     }
@@ -1377,6 +1456,28 @@ class CodeGraphApp extends EvgApp {
     fn markClassSearch:void () {
         def searchEl:EVGElement (unwrap classSearch.rootEl)
         UiTree.addClass(searchEl "cg-class-search")
+        this.placeSearchCaret()
+    }
+
+    ; `InputCtl.build()` makes the caret element but cannot place it: where a
+    ; caret sits is a measurement of the text in front of it, and a control
+    ; has no measurer. The page owns that — gallery/ui's form demos do the
+    ; same — and without it the bar stayed pinned to the left edge of the
+    ; field however far into the word you had typed or arrowed.
+    fn placeSearchCaret:void () {
+        def car:EVGElement (unwrap classSearch.caretEl)
+        if (ui.focusId != classSearch.tid) {
+            ; Two carets on a page is two claims about where typing goes.
+            car.width = (EVGUnit.px(0.0))
+            car.markInline("width")
+            return
+        }
+        car.width = (EVGUnit.px(1.0))
+        car.markInline("width")
+        def eng:EVGTextEngine (caretMeasurer.getTextEngine())
+        def cx:double (classSearch.caretXAt(eng classSearch.caret))
+        car.left = (EVGUnit.px((cx - classSearch.scrollX)))
+        car.markInline("left")
     }
 
     fn setClassFilter:void (q:string) {
@@ -1475,7 +1576,23 @@ class CodeGraphApp extends EvgApp {
 
     fn crumb:string () {
         def p:CodePage (session.currentPage())
-        return (((session.model.title + " / ") + p.kind) + " / " + p.title)
+        def where:string ((p.kind + " / ") + p.title)
+        return ((CodeGraphApp.elide(session.model.title 96) + "  ·  ") + where)
+    }
+
+    ; A clone lands in a temp directory whose name is longer than the window.
+    ; Keep the head and the tail — the tail is the part that says which file.
+    sfn elide:string (text:string maxLen:int) {
+        def n:int (strlen text)
+        if (n <= maxLen) {
+            return text
+        }
+        def tail:int (idiv (maxLen * 2) 3)
+        def head:int ((maxLen - tail) - 1)
+        if (head < 1) {
+            head = 1
+        }
+        return (((substring text 0 head) + "…") + (substring text (n - tail) n))
     }
 
     fn statusText:string () {
@@ -1767,6 +1884,13 @@ class CodeGraphApp extends EvgApp {
         }
         def p:string (this.slashPath(path))
         def base:string (this.fileBaseName(p))
+        ; What the analyser read is the truth. A class from an import names
+        ; its file the way the import wrote it (`../../vela/src/VlJson.rgr`);
+        ; no amount of re-rooting finds that on disk from here.
+        def carried:string (session.model.sourceOf(p))
+        if ((strlen carried) > 0) {
+            return carried
+        }
         if (has userFiles p) {
             return (unwrap (get userFiles p))
         }
@@ -1972,6 +2096,7 @@ class CodeGraphApp extends EvgApp {
         }
         if sourceDrag {
             sourceDrag = false
+            this.sourceClick(x y)
             return
         }
         if graphDrag {
@@ -1982,6 +2107,71 @@ class CodeGraphApp extends EvgApp {
         if (this.inCanvas(x y)) {
             this.graphUp(x y shift ctrl)
         }
+    }
+
+    ; A double-click in the source takes the word under the pointer, and if
+    ; the graph has a class by that name the chart goes there. Reading a file
+    ; and wanting to see what a type is made of is the same question the rail
+    ; answers; this is the same answer, without leaving the line you are on.
+    fn sourceClick:void (x:double y:double) {
+        def dt:double (clockMs - lastClickMs)
+        def dx:double (x - lastClickX)
+        def dy:double (y - lastClickY)
+        def dbl:boolean false
+        if (dt < 400.0) {
+            if (((dx * dx) + (dy * dy)) < 36.0) {
+                dbl = true
+            }
+        }
+        lastClickMs = clockMs
+        lastClickX = x
+        lastClickY = y
+        if (dbl == false) {
+            return
+        }
+        codeView.selectWordAt(codeTr (to_int x) (to_int y))
+        def word:string (codeView.selectionText())
+        if ((this.openWord(word)) == false) {
+            return
+        }
+        this.refreshChrome()
+    }
+
+    ; The word as written, then without a leading `*`/`&` and a trailing `*`,
+    ; which is how a C++ file spells a type in a declaration.
+    fn openWord:boolean (word:string) {
+        def name:string (CodeGraphApp.trimWord(word))
+        if ((strlen name) == 0) {
+            return false
+        }
+        if ((session.model.hasClass(name)) == false) {
+            return false
+        }
+        if ((this.pageId()) == ("class:" + name)) {
+            return false
+        }
+        return (this.openClass(name))
+    }
+
+    sfn trimWord:string (word:string) {
+        def s:string word
+        while ((strlen s) > 0) {
+            def last:int (charAt s ((strlen s) - 1))
+            if ((last == 42) || ((last == 38) || ((last == 32) || ((last == 9) || ((last == 58) || (last == 59)))))) {
+                s = (substring s 0 ((strlen s) - 1))
+            } {
+                break
+            }
+        }
+        while ((strlen s) > 0) {
+            def first:int (charAt s 0)
+            if ((first == 42) || ((first == 38) || ((first == 32) || ((first == 9) || (first == 58))))) {
+                s = (substring s 1 (strlen s))
+            } {
+                break
+            }
+        }
+        return s
     }
 
     fn wheel:void (x:double y:double delta:double) {
@@ -2214,6 +2404,47 @@ class CodeGraphApp extends EvgApp {
             this.pickSample(sampleName)
             return
         }
+        if (op == "code") {
+            this.setSourceVisible(sourceHidden)
+            return
+        }
+    }
+
+    ; Give the source pane's share to the graph, and hand it back on the next
+    ; press. `resizeBy` cascades into the panels after the separator, so the
+    ; floor has to come off first — `minSize` is what stops a DRAG from
+    ; swallowing a pane, and this is not a drag.
+    fn setSourceVisible:boolean (on:boolean) {
+        if ((array_length split.panels) < 3) {
+            return false
+        }
+        def src:UiPanel (itemAt split.panels 2)
+        if on {
+            if (sourceHidden == false) {
+                return false
+            }
+            src.minSize = sourceFloor
+            split.resizeBy(1 (0.0 - sourceShare))
+            sourceHidden = false
+        } {
+            if sourceHidden {
+                return false
+            }
+            sourceShare = src.size
+            sourceFloor = src.minSize
+            src.minSize = 0.0
+            split.resizeBy(1 sourceShare)
+            sourceHidden = true
+        }
+        this.dressSplit()
+        this.estimatePaneSizes()
+        this.applyChromeSizes()
+        this.syncToolbar()
+        return true
+    }
+
+    fn sourceVisible:boolean () {
+        return (sourceHidden == false)
     }
 
     fn consumeOpenFile:boolean () {
@@ -2244,6 +2475,23 @@ class CodeGraphApp extends EvgApp {
                 return true
             }
         }
+        ; Ctrl+F puts a find bar over the source. While it is up those three
+        ; keys are the bar's — everything else keeps its meaning, so the
+        ; chrome still answers the arrows and the wheel.
+        if (codeView.findActive()) {
+            if (k == "Escape") {
+                codeView.closeFind()
+                return true
+            }
+            if (k == "Enter") {
+                codeView.findNext(shift)
+                return true
+            }
+            if (k == "Backspace") {
+                codeView.findBackspace()
+                return true
+            }
+        }
         def before:string classSearch.value
         ui.keyWith(k shift ctrl)
         this.dressSplit()
@@ -2255,6 +2503,22 @@ class CodeGraphApp extends EvgApp {
     }
 
     fn typeText:boolean (text:string) {
+        return (this.typeTextWith(text false))
+    }
+
+    ; A host that knows whether Ctrl was held calls this one. SDL delivers
+    ; Ctrl+letter as text with the modifier still down, which is how Ctrl+F
+    ; gets here at all.
+    fn typeTextWith:boolean (text:string ctrl:boolean) {
+        if ((strlen text) == 0) {
+            return false
+        }
+        if ctrl {
+            return (codeView.handleCtrlChar((charAt text 0)))
+        }
+        if (codeView.findActive()) {
+            return (codeView.handleText(text))
+        }
         def before:string classSearch.value
         ui.type(text)
         this.markClassSearch()
@@ -2263,6 +2527,14 @@ class CodeGraphApp extends EvgApp {
             return true
         }
         return ((strlen ui.focusId) > 0)
+    }
+
+    ; What the find bar has selected, so a host can say so.
+    fn findStatus:string () {
+        if ((codeView.findActive()) == false) {
+            return ""
+        }
+        return (codeView.findStatus())
     }
 
     fn focusedField:string () {

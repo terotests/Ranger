@@ -18,6 +18,10 @@ class UastSourceFile {
     def language:string ""
     def contentHash:string ""
     def version:int 0
+    ; The text the spans point into. A span is only useful next to the
+    ; source it indexes, and the frontend has just read that source — a
+    ; viewer should not have to guess its way back to it through the disk.
+    def text:string ""
 
     Constructor () {
     }

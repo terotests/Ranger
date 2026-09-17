@@ -381,11 +381,20 @@ class SoftPainter {
             ; these two the browser would show a chart and the PNG would show
             ; an empty box, which is the disagreement the display list exists
             ; to prevent.
-            if (c.kind == 6) {
-                this.fillRings(c)
-            }
-            if (c.kind == 7) {
-                this.strokeRings(c)
+            ; Vector ink has no rectangle for `intersectClip` to narrow, so
+            ; the fill is told where the ink may land instead. Without it a
+            ; graph edge routed outside its pane was drawn across the
+            ; neighbour — CodeGraph's class rail had UML edges over the names.
+            if ((c.kind == 6) || (c.kind == 7)) {
+                if (this.hasClip()) {
+                    ctx.setPixelClip((this.clipX0()) (this.clipY0()) (this.clipX1()) (this.clipY1()))
+                }
+                if (c.kind == 6) {
+                    this.fillRings(c)
+                } {
+                    this.strokeRings(c)
+                }
+                ctx.clearPixelClip()
             }
             i = (i + 1)
         }

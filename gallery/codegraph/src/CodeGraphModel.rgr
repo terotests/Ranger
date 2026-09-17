@@ -167,8 +167,62 @@ class CodeGraph {
     def classIndex:[string:int]
     def methods:[CodeMethod]
     def methodIndex:[string:int]
+    ; The text of every file the analysis read, keyed by the path the
+    ; classes and methods name. `fileName` on a class is whatever the
+    ; frontend saw — a path relative to an import, a temp checkout — so
+    ; looking the file up again on disk is guesswork. The analyser had it
+    ; open; it hands it over.
+    def sources:[string:string]
+    def sourceBase:[string:string]
 
     Constructor () {
+    }
+
+    fn addSource:void (path:string text:string) {
+        if ((strlen path) == 0) {
+            return
+        }
+        if ((strlen text) == 0) {
+            return
+        }
+        set sources path text
+        def base:string (CodeGraph.baseNameOf(path))
+        if ((has sourceBase base) == false) {
+            set sourceBase base text
+        }
+    }
+
+    ; The file's text, by the path a class or method names, or by its
+    ; basename when the caller has a differently-rooted path for it.
+    fn sourceOf:string (path:string) {
+        if (has sources path) {
+            return (unwrap (get sources path))
+        }
+        def base:string (CodeGraph.baseNameOf(path))
+        if (has sourceBase base) {
+            return (unwrap (get sourceBase base))
+        }
+        return ""
+    }
+
+    fn sourceCount:int () {
+        return (array_length (keys sources))
+    }
+
+    sfn baseNameOf:string (path:string) {
+        def cut:int (0 - 1)
+        def i:int 0
+        while (i < (strlen path)) {
+            def ch:int (charAt path i)
+            if ((ch == 47) || (ch == 92)) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return path
+        }
+        return (substring path (cut + 1) (strlen path))
     }
 
     fn classCount:int () {

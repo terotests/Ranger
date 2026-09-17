@@ -54,8 +54,31 @@ class UIContext {
     def tr:UITextRenderer (new UITextRenderer)
     def theme:UITheme (new UITheme)
     def frame:int 0        ; frame counter, drives caret blink etc.
+    ; A pixel-level clip for the scanline fills. `fillRect` and the text runs
+    ; are cut by their callers, which know the rectangle they are drawing; a
+    ; polygon has no rectangle to narrow, so the fill itself has to be told
+    ; where the ink may land. Off by default: a caller that never sets it
+    ; draws exactly what it drew before.
+    def clipOn:boolean false
+    def clipX0:int 0
+    def clipY0:int 0
+    def clipX1:int 0
+    def clipY1:int 0
 
     Constructor () {
+    }
+
+    ; Right and bottom are EXCLUSIVE, the way a clip rectangle's x+w is.
+    fn setPixelClip:void (x0:int y0:int x1:int y1:int) {
+        clipOn = true
+        clipX0 = x0
+        clipY0 = y0
+        clipX1 = x1
+        clipY1 = y1
+    }
+
+    fn clearPixelClip:void () {
+        clipOn = false
     }
 
     fn attach:void (c:SoftCanvas) {
@@ -65,6 +88,12 @@ class UIContext {
     ; --- low-level fills -------------------------------------------------------
     fn blendPixel:void (x:int y:int r:int g:int b:int a:int) {
         if (a <= 0) { return }
+        if clipOn {
+            if (x < clipX0) { return }
+            if (y < clipY0) { return }
+            if (x >= clipX1) { return }
+            if (y >= clipY1) { return }
+        }
         def cw:int (canvas.getWidth())
         def ch:int (canvas.getHeight())
         if (x < 0) { return }

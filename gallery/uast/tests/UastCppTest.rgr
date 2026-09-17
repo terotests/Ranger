@@ -53,6 +53,7 @@ class UastCppTest {
         UastCppTest.testTemplates(c)
         UastCppTest.testOsPatterns(c)
         UastCppTest.testWalkInstall(c)
+        UastCppTest.testLibraryHeader(c)
         def code:int (c.report())
         if (code != 0) {
             exit 1
@@ -191,6 +192,76 @@ class UastCppTest {
         c.ok("split_pair" (model.mentionsSymbol("function:split_pair")))
         c.ok("mapped" (model.mentionsSymbol("function:mapped")))
         c.ok("Integral concept" (model.mentionsSymbol("class:Integral")))
+    }
+
+    ; The shapes a shipped library uses: `class LIB_API LibNode`, a forward
+    ; declaration and a `friend` for the same name, `const T*` returns, and
+    ; members defined out of line in the .cpp.
+    sfn testLibraryHeader:void (c:UastCppChecker) {
+        print "== cpp_lib export macro, forward decls, out-of-line members"
+        def model:UastCodeModel (UastCpp.fromDir("gallery/uast/fixtures/cpp_lib"))
+        if ((indexOf model.title " FAIL ") >= 0) {
+            print ("  FAIL " + model.title)
+            c.ok("fromDir cpp_lib" false)
+            return
+        }
+        c.ok("no parse diagnostic" ((UastQuery.diagnosticMentions(model "Parse error")) == false))
+        c.ok("LibNode" (model.mentionsSymbol("class:LibNode")))
+        c.ok("no LIB_API class" ((model.mentionsSymbol("class:LIB_API")) == false))
+        c.ok("LibNode.Print" (model.mentionsSymbol("method:LibNode.Print")))
+        c.ok("LibNode.Parent" (model.mentionsSymbol("method:LibNode.Parent")))
+        c.ok("LibPrinter.PushText" (model.mentionsSymbol("method:LibPrinter.PushText")))
+        c.ok("Print uses LibPrinter" (UastCppTest.linksTo(model "method:LibNode.Print" "usesType" "LibPrinter")))
+        c.ok("Accept is a method of LibDocument" (UastCppTest.methodOf(model "Accept" "LibDocument")))
+        c.ok("Depth is a method of LibDocument" (UastCppTest.methodOf(model "Depth" "LibDocument")))
+        c.ok("no LibDocument::Accept function" ((UastCppTest.hasFunctionNamed(model "LibDocument::Accept")) == false))
+    }
+
+    ; A method symbol with this name whose parent is the named class.
+    sfn methodOf:boolean (model:UastCodeModel name:string className:string) {
+        def i:int 0
+        while (i < (array_length model.symbols)) {
+            def s:UastSymbol (itemAt model.symbols i)
+            if ((s.kind == "method") && (s.name == name)) {
+                if (model.mentionsSymbol(s.parentSymbol)) {
+                    def p:UastSymbol (model.symbolById(s.parentSymbol))
+                    if (p.name == className) {
+                        return true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn hasFunctionNamed:boolean (model:UastCodeModel name:string) {
+        def i:int 0
+        while (i < (array_length model.symbols)) {
+            def s:UastSymbol (itemAt model.symbols i)
+            if ((s.kind == "function") && (s.name == name)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn linksTo:boolean (model:UastCodeModel fromId:string kind:string toName:string) {
+        def i:int 0
+        while (i < (array_length model.relationships)) {
+            def rel:UastRelation (itemAt model.relationships i)
+            if ((rel.kind == kind) && (rel.fromId == fromId)) {
+                if (model.mentionsSymbol(rel.toId)) {
+                    def t:UastSymbol (model.symbolById(rel.toId))
+                    if (t.name == toName) {
+                        return true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     ; Autotools trees keep an extensionless INSTALL file next to include/.

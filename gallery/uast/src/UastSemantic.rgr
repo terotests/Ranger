@@ -153,9 +153,93 @@ class UastSemantic {
             }
             j = (j + 1)
         }
+        UastSemantic.attachQualifiedFns(m)
         UastSemantic.indexParams(m)
         UastSemantic.indexVariables(m)
         UastSemantic.indexExports(m)
+    }
+
+    ; C++ declares a member in the header and defines it in the .cpp:
+    ;
+    ;     bool XMLDocument::Accept( XMLVisitor* visitor ) const { … }
+    ;
+    ; The frontend sees a free function whose name happens to contain `::`.
+    ; Left alone it became a box of its own on the class diagram — a class
+    ; called `XMLDocument::Accept` next to the real `XMLDocument`. Re-home
+    ; it onto the type it names, keeping the symbol id so the call and
+    ; usesType relationships already recorded against it stay valid.
+    sfn attachQualifiedFns:void (m:UastCodeModel) {
+        def i:int 0
+        while (i < (array_length m.symbols)) {
+            def s:UastSymbol (itemAt m.symbols i)
+            if (s.kind == "function") {
+                def cut:int (UastSemantic.lastScopeCut(s.name))
+                if (cut > 0) {
+                    def ownerPath:string (substring s.name 0 cut)
+                    def memberName:string (substring s.name (cut + 2) (strlen s.name))
+                    def ownerId:string (UastSemantic.typeSymbolNamed(m ownerPath))
+                    if ((strlen ownerId) == 0) {
+                        def tail:int (UastSemantic.lastScopeCut(ownerPath))
+                        if (tail > 0) {
+                            ownerId = (UastSemantic.typeSymbolNamed(m (substring ownerPath (tail + 2) (strlen ownerPath))))
+                        }
+                    }
+                    if ((strlen ownerId) > 0) {
+                        if ((strlen memberName) > 0) {
+                            s.kind = (UastSymKind.method())
+                            s.name = memberName
+                            s.parentSymbol = ownerId
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Index of the last `::` in a qualified name, or -1.
+    sfn lastScopeCut:int (name:string) {
+        def cut:int (0 - 1)
+        def i:int 0
+        while (i < ((strlen name) - 1)) {
+            if ((charAt name i) == 58) {
+                if ((charAt name (i + 1)) == 58) {
+                    cut = i
+                }
+            }
+            i = (i + 1)
+        }
+        return cut
+    }
+
+    ; The declared class / interface / enum with this name, preferring the
+    ; one that is not a bare forward declaration.
+    sfn typeSymbolNamed:string (m:UastCodeModel name:string) {
+        if ((strlen name) == 0) {
+            return ""
+        }
+        def fallback:string ""
+        def i:int 0
+        while (i < (array_length m.symbols)) {
+            def s:UastSymbol (itemAt m.symbols i)
+            if (s.name == name) {
+                def isType:boolean false
+                if (s.kind == "class") { isType = true }
+                if (s.kind == "interface") { isType = true }
+                if (s.kind == "enum") { isType = true }
+                if isType {
+                    if (s.isForwardDecl) {
+                        if ((strlen fallback) == 0) {
+                            fallback = s.id
+                        }
+                    } {
+                        return s.id
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return fallback
     }
 
     sfn indexParams:void (m:UastCodeModel) {
@@ -211,6 +295,7 @@ class UastSemantic {
         if (node.mentionsFlag("library")) {
             s.isLibrary = true
         }
+        s.isForwardDecl = (node.mentionsFlag("forward"))
         m.addSymbol(s)
     }
 
@@ -238,7 +323,41 @@ class UastSemantic {
                 s.returns = rn.name
             }
         }
+        s.params = (UastSemantic.paramsOf(m node))
+        s.isDefinition = (UastSemantic.hasBody(node))
         m.addSymbol(s)
+    }
+
+    ; `name:type, name:type`, the signature a UML box prints.
+    sfn paramsOf:string (m:UastCodeModel node:UNode) {
+        def params:[string] (node.childIdsFor((UastChildRole.parameter())))
+        def parts:[string]
+        def pi:int 0
+        while (pi < (array_length params)) {
+            def pid:string (itemAt params pi)
+            if (m.mentionsNode(pid)) {
+                def pn:UNode (m.nodeById(pid))
+                def pt:string ""
+                def ptype:string (pn.childIdFor((UastChildRole.typeRole())))
+                if ((strlen ptype) > 0) {
+                    if (m.mentionsNode(ptype)) {
+                        def ptn:UNode (m.nodeById(ptype))
+                        pt = ptn.name
+                    }
+                }
+                if ((strlen pt) > 0) {
+                    push parts (pn.name + ":" + pt)
+                } {
+                    push parts pn.name
+                }
+            }
+            pi = (pi + 1)
+        }
+        return (join parts ", ")
+    }
+
+    sfn hasBody:boolean (node:UNode) {
+        return ((strlen (node.childIdFor((UastChildRole.body())))) > 0)
     }
 
     sfn libraryPath:boolean (path:string) {
@@ -310,30 +429,8 @@ class UastSemantic {
                 s.returns = rn.name
             }
         }
-        def params:[string] (node.childIdsFor((UastChildRole.parameter())))
-        def parts:[string]
-        def pi:int 0
-        while (pi < (array_length params)) {
-            def pid:string (itemAt params pi)
-            if (m.mentionsNode(pid)) {
-                def pn:UNode (m.nodeById(pid))
-                def pt:string ""
-                def ptype:string (pn.childIdFor((UastChildRole.typeRole())))
-                if ((strlen ptype) > 0) {
-                    if (m.mentionsNode(ptype)) {
-                        def ptn:UNode (m.nodeById(ptype))
-                        pt = ptn.name
-                    }
-                }
-                if ((strlen pt) > 0) {
-                    push parts (pn.name + ":" + pt)
-                } {
-                    push parts pn.name
-                }
-            }
-            pi = (pi + 1)
-        }
-        s.params = (join parts ", ")
+        s.params = (UastSemantic.paramsOf(m node))
+        s.isDefinition = (UastSemantic.hasBody(node))
         m.addSymbol(s)
     }
 

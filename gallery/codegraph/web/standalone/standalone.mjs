@@ -123,6 +123,29 @@ window.addEventListener("keydown", (ev) => {
     sceneStale = true;
     return;
   }
+  // Ctrl+F is the source pane's find bar, and the browser's own find would
+  // search the page around the canvas rather than the file in it.
+  if (ctrl && ev.key.length === 1) {
+    if (app.typeTextWith(ev.key, true)) {
+      ev.preventDefault();
+      sceneStale = true;
+      return;
+    }
+  }
+  if (app.findStatus()) {
+    if (ev.key === "Enter" || ev.key === "Backspace") {
+      app.keyWith(ev.key, ev.shiftKey, ctrl);
+      ev.preventDefault();
+      sceneStale = true;
+      return;
+    }
+    if (ev.key.length === 1 && !ctrl) {
+      app.typeText(ev.key);
+      ev.preventDefault();
+      sceneStale = true;
+      return;
+    }
+  }
   const focus = app.focusedField() || "";
   const onSep = String(focus).indexOf("cg-split-sep") === 0;
   if (onSep) {

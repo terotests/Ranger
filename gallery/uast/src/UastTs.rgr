@@ -18,6 +18,7 @@ Import "UastKind.rgr"
 Import "UastTypeScript.rgr"
 Import "../../ts_parser/ts_parser_simple.rgr"
 Import "../../../lib/ranger-dir.rgr"
+Import "UastDirOps.rgr"
 
 class UastTs {
     def fileName:string ""
@@ -91,7 +92,7 @@ class UastTs {
         if (depth > 12) {
             return
         }
-        if ((dir_exists dir) == false) {
+        if ((UastTs.isDirPath(dir)) == false) {
             return
         }
         def names:[string] (list_dir_files dir)
@@ -106,7 +107,7 @@ class UastTs {
                 } {
                     if (UastTs.looksLikeFile(name)) {
                     } {
-                        if (dir_exists joined) {
+                        if (UastTs.isDirPath(joined)) {
                             UastTs.collectTsFiles(joined out (depth + 1))
                         }
                     }
@@ -114,6 +115,11 @@ class UastTs {
             }
             i = (i + 1)
         }
+    }
+
+    ; See UastCpp.isDirPath: `dir_exists` only answers "the path exists".
+    sfn isDirPath:boolean (path:string) {
+        return (is_dir_path path)
     }
 
     sfn skipDirName:boolean (name:string) {
@@ -495,6 +501,7 @@ class UastTs {
         r.language = "typescript"
         def file:UastSourceFile (r.addFile(path "typescript"))
         file.version = 1
+        file.text = src
         def lexer:TSLexer (new TSLexer(src))
         tokens = (lexer.tokenize())
         def parser:TSParserSimple (new TSParserSimple())
