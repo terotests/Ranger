@@ -28,10 +28,11 @@
     <a href="#platforms">Platforms</a>
     <a href="#proof">Proof</a>
     <a href="#gallery">Gallery</a>
+    <a href="playground/">Playground</a>
   </nav>
   <div class="nav__cta">
     <a class="btn btn--ghost" href="docs/">Docs</a>
-    <a class="btn btn--solid" href="playground/">Playground</a>
+    <a class="btn btn--solid" href="#start">Get started</a>
     <a class="btn btn--icon" href="https://github.com/terotests/Ranger" aria-label="Ranger on GitHub">
       <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
     </a>
@@ -76,9 +77,9 @@
     </div>
 
     <div class="hero__actions">
-      <a class="btn btn--solid btn--lg" href="playground/">Open the playground</a>
+      <a class="btn btn--solid btn--lg" href="#start">Get started</a>
       <a class="btn btn--line btn--lg" href="docs/">Read the docs</a>
-      <code class="hero__cmd">npm install -g ranger-compiler</code>
+      <code class="hero__cmd">git clone https://github.com/terotests/Ranger</code>
     </div>
   </div>
 
@@ -654,33 +655,87 @@ npm run evg:trace:cli:smoke       <span class="c"># four targets, one file, comp
 </section>
 
 <!-- ====================================================================== -->
-<!-- Start                                                                  -->
+<!-- Getting started                                                        -->
 <!-- ====================================================================== -->
 <section class="section section--start" id="start">
   <div class="wrap">
-    <p class="label reveal">Start</p>
-    <h2 class="display display--lg reveal">Three ways in.</h2>
+    <p class="label reveal">Getting started</p>
+    <h2 class="display display--lg reveal">From zero to a Ranger program,<br>with an agent beside you.</h2>
+    <p class="lead lead--wide reveal">
+      Ranger is small, it is a Lisp wearing braces, and it has 838 operators. That used to
+      mean a climb before you wrote anything useful. It does not now — the repository
+      carries the context a coding agent needs, on purpose, so the shortest way in is to
+      clone it and let the agent read it with you.
+    </p>
 
-    <div class="starts">
-      <a class="start reveal" href="playground/">
-        <h3>The playground</h3>
-        <p>The compiler itself, running in your tab. Type Ranger on the left, switch the
-           target language on the right, install nothing.</p>
-        <span class="start__go">Open it →</span>
-      </a>
-      <a class="start reveal" href="docs/">
-        <h3>The documentation</h3>
-        <p>Install, first program, types, optionals, traits, generics — and the operator
-           reference, generated from the sources of the commit that published it.</p>
-        <span class="start__go">Read it →</span>
-      </a>
-      <a class="start reveal" href="https://github.com/terotests/Ranger">
-        <h3>The repository</h3>
-        <p>The compiler, the standard library, the gallery, the tests, and the plans
-           written before the code. Clone it and run <code>npm test</code>.</p>
-        <span class="start__go">Browse it →</span>
-      </a>
+    <div class="steps">
+      <article class="step reveal">
+        <p class="label">01</p>
+        <h3>Clone it and build</h3>
+        <p>
+          Node is the compiler's official host and the only thing the compiler itself
+          needs. Nothing about the language is installed globally: the compiler in the
+          checkout is the one your program is compiled with.
+        </p>
+        <pre class="code code--plain"><code>git clone https://github.com/terotests/Ranger
+cd Ranger &amp;&amp; npm install
+npx rgrc -l=swift6 hello.rgr</code></pre>
+      </article>
+
+      <article class="step reveal">
+        <p class="label">02</p>
+        <h3>Point the agent at what is already there</h3>
+        <p>
+          <code>AGENTS.md</code> is written for agents rather than about them: the git
+          rules, the licence boundary between <code>lib/</code> and <code>gallery/</code>,
+          and the Ranger mistakes whose error messages point at the wrong line.
+          <code>ai/</code> holds the offline notes — a syntax card, the grammar, how to ask
+          the compiler about itself. And <code>.claude/skills/</code> ships skills the
+          repository loads by itself: <strong>ranger-lang</strong> for writing
+          <code>.rgr</code> without the parenthesis traps, <strong>evg-edit</strong> for
+          changing a laid-out document without guessing at it, <strong>rave</strong> for
+          the app format.
+        </p>
+      </article>
+
+      <article class="step reveal">
+        <p class="label">03</p>
+        <h3>Start from an example, not an empty file</h3>
+        <p>
+          <code>gallery/</code> is the corpus: parsers for TypeScript, C++ and JavaScript, a
+          spreadsheet, a PowerPoint stack, a game engine, a chart runtime, a node-graph
+          editor, a Figma reader. Ask the agent to find the one nearest what you want and
+          to change that. Each project has its own README and a command that runs it, so
+          the loop from “change this” to “look at the output” is short — which is exactly
+          what an agent needs to work well.
+        </p>
+      </article>
+
+      <article class="step reveal">
+        <p class="label">04</p>
+        <h3>Compile it where you are going</h3>
+        <p>
+          One flag decides the target, and the output is ordinary source you read in the
+          diff. Code that runs on ES6 can still fail on C++, Rust or Swift until the
+          ownership annotations say where the object graph has a cycle — that is the usual
+          answer, and the FAQ names the error messages that point somewhere other than the
+          mistake.
+        </p>
+        <pre class="code code--plain"><code>npx rgrc -l=kotlin Cart.rgr
+npx rgrc -l=csharp Cart.rgr
+npx rgrc -l=cpp    Cart.rgr</code></pre>
+      </article>
     </div>
+
+    <p class="footnote reveal">
+      Reading first: the <a class="u" href="docs/">documentation</a> has install, types,
+      optionals, traits, generics and the operator reference generated from the sources of
+      the commit that published it, and the
+      <a class="u" href="https://github.com/terotests/Ranger/blob/master/AGENTS.md">FAQ it links</a>
+      is the shortest path past the errors that cost a cycle. Trying before cloning: the
+      <a class="u" href="playground/">playground</a> compiles Ranger in your browser with
+      nothing installed.
+    </p>
 
     <div class="warning reveal">
       <p class="label">One honest paragraph before you start</p>

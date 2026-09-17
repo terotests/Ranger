@@ -42,8 +42,15 @@ is the project's avatar at 304 × 304, the same shield as
 `tools/logo.mjs` hands it to `gallery/evg/tools/evg_trace_cli.rgr` — the bitmap
 tracer — which posterises it into flat colour regions, walks each region's
 edges, finds the corners, fits cubics between them, and writes each layer back
-as one evenodd path. What comes out is `assets/ranger-mark.svg`: a real vector
-logo, three layers, about 7 KB, sharp at any size. It is the mark in the
+as one evenodd path. Three of its settings are what make the outline come out
+clean rather than dashed, and each is there for a reason the first attempt
+showed: the palette is **pinned** to the shield's own four colours instead of
+quantised out of the picture, `lumaWeight 1` stops the half-lit pixels around
+the rim reading as the dark letter, and `turdsize 12` drops the specks the
+anti-aliased band still leaves. The paper layer is dropped and the rest are
+clipped to the silhouette, so nothing escapes past the outline. What comes out
+is `assets/ranger-mark.svg`: a real vector logo, three layers, about 3 KB,
+sharp at any size. It is the mark in the
 navigation bar and the footer, the tab icon, the drawing in the colophon, and
 the shield inside the rippling backdrop, so those four cannot drift apart.
 

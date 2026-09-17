@@ -444,13 +444,15 @@ code:not(pre code) {
 
 /* ------------------------------------------------------------- start ---- */
 
-.starts { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 16px; margin-top: 44px; }
-.start { display: block; text-decoration: none; border: 1px solid var(--line); padding: 26px; background: var(--ink-3);
-         transition: border-color .2s, transform .2s; }
-.start:hover { border-color: var(--gold); transform: translateY(-3px); }
-.start h3 { font: 650 21px/1.2 var(--sans); letter-spacing: -.02em; margin: 0 0 10px; }
-.start p { margin: 0 0 16px; color: var(--dim); font-size: 15px; }
-.start__go { color: var(--gold); font-size: 14.5px; font-weight: 500; }
+/* The numbered path in, laid out like the proof blocks: a rule over each
+   step, the number in the label slot, and room for a command block. */
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 0; margin-top: 44px; }
+.step { padding: 28px 30px 32px; border-top: 1px solid var(--line-2); border-right: 1px solid var(--line); }
+.step:first-child { padding-left: 0; }
+.step h3 { font: 650 20px/1.25 var(--sans); letter-spacing: -.015em; margin: 0 0 12px; }
+.step p:not(.label) { color: var(--dim); font-size: 15.5px; margin: 0; }
+.step .code--plain { margin-top: 18px; font-size: 12.2px; }
+@media (max-width: 800px) { .step { padding-inline: 0; border-right: 0; } }
 
 .warning { margin-top: 44px; border: 1px solid var(--line-2); border-left: 3px solid var(--gold); padding: 24px 26px; }
 .warning p:not(.label) { color: var(--dim); font-size: 15.5px; max-width: 84ch; margin: 0; }
