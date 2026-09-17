@@ -26,12 +26,38 @@ Import "CodeGraphBuilder.rgr"
 Import "CodeGraphFlow.rgr"
 Import "../../../lib/Shell.rgr"
 
+; One line of `git log`, for a commit picker.
+class GitCommitInfo {
+    def sha:string ""
+    def short:string ""
+    def subject:string ""
+
+    Constructor () {
+    }
+
+    fn label:string () {
+        def s:string subject
+        if ((strlen s) > 48) {
+            s = ((substring s 0 47) + "…")
+        }
+        return ((short + "  ") + s)
+    }
+}
+
 class CodeGraphGit {
     def sh:Shell (new Shell)
     ; Why the last call answered an empty graph, for the status line.
     def lastError:string ""
     ; The files `git diff --name-only` listed, for the status line.
     def changedFiles:[string]
+    ; What resolvePullRequest found: "PR #12 · <title>", and the two shas.
+    def prLabel:string ""
+    def prBase:string ""
+    def prHead:string ""
+    ; The two sides of the last diffSession as full shas ("" = working
+    ; tree), so a picker can show which commits are on screen.
+    def lastBase:string ""
+    def lastHead:string ""
 
     Constructor () {
     }
@@ -92,6 +118,19 @@ class CodeGraphGit {
         return ((indexOf base ".") > 0)
     }
 
+    fn fullSha:string (root:string rev:string) {
+        if ((strlen rev) == 0) {
+            return ""
+        }
+        def argv:[string]
+        push argv "-C"
+        push argv root
+        push argv "rev-parse"
+        push argv "--verify"
+        push argv (rev + "^{commit}")
+        return (sh.text("git" argv))
+    }
+
     fn resolve:string (root:string rev:string) {
         def argv:[string]
         push argv "-C"
@@ -145,6 +184,343 @@ class CodeGraphGit {
             i = (i + 1)
         }
         return out
+    }
+
+    ; The last N commits of the checked-out branch, newest first.
+    fn commits:[GitCommitInfo] (root:string n:int) {
+        def out:[GitCommitInfo]
+        def argv:[string]
+        push argv "-C"
+        push argv root
+        push argv "log"
+        push argv "--format=%H%x09%h%x09%s"
+        push argv ("-n" + (to_string n))
+        def res:ShellResult (sh.capture("git" argv))
+        if (res.failed()) {
+            return out
+        }
+        def lines:[string] (res.outLines())
+        def i:int 0
+        while (i < (array_length lines)) {
+            def parts:[string] (strsplit (itemAt lines i) "\t")
+            if ((array_length parts) >= 2) {
+                def c (new GitCommitInfo)
+                c.sha = (itemAt parts 0)
+                c.short = (itemAt parts 1)
+                if ((array_length parts) >= 3) {
+                    c.subject = (itemAt parts 2)
+                }
+                push out c
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- pull requests -------------------------------------------------------
+    ;
+    ; "12", "#12", "pull/12", or the PR's URL. GitHub serves a pull request's
+    ; head as `refs/pull/N/head` and GitLab a merge request's as
+    ; `refs/merge-requests/N/head`, so the commits come from the remote
+    ; with plain git. The base is the merge base of that head and the
+    ; branch the PR targets — the same two commits the PR page diffs. The
+    ; target branch is asked from `gh` when it is installed; otherwise
+    ; it is the remote's default branch.
+
+    sfn isPullRequestSpec:boolean (spec:string) {
+        if ((indexOf spec "..") >= 0) {
+            return false
+        }
+        if ((indexOf spec "/pull/") >= 0) {
+            return true
+        }
+        if ((indexOf spec "/merge_requests/") >= 0) {
+            return true
+        }
+        if ((indexOf spec "#") == 0) {
+            return true
+        }
+        if ((indexOf spec "pull/") == 0) {
+            return true
+        }
+        return (CodeGraphGit.allDigits(spec))
+    }
+
+    sfn allDigits:boolean (s:string) {
+        if ((strlen s) == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:int (charAt s i)
+            if ((ch < 48) || (ch > 57)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; The number in any of the accepted spellings, or "".
+    sfn pullNumberOf:string (spec:string) {
+        def s:string spec
+        if ((indexOf s "#") == 0) {
+            s = (substring s 1 (strlen s))
+        }
+        def marks:[string]
+        push marks "/pull/"
+        push marks "/merge_requests/"
+        push marks "pull/"
+        def mi:int 0
+        while (mi < (array_length marks)) {
+            def mark:string (itemAt marks mi)
+            def at:int (indexOf s mark)
+            if (at >= 0) {
+                s = (substring s (at + (strlen mark)) (strlen s))
+                mi = (array_length marks)
+            }
+            mi = (mi + 1)
+        }
+        ; Trailing "/files", "?diff=…", "#issuecomment-…".
+        def digits:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:int (charAt s i)
+            if ((ch >= 48) && (ch <= 57)) {
+                digits = (digits + (substring s i (i + 1)))
+            } {
+                i = (strlen s)
+            }
+            i = (i + 1)
+        }
+        return digits
+    }
+
+    ; "owner/repo" out of a PR URL, or "" when the spec is only a number.
+    sfn slugOfUrl:string (spec:string) {
+        def host:string ""
+        if ((indexOf spec "github.com/") >= 0) {
+            host = "github.com/"
+        }
+        if ((indexOf spec "gitlab.com/") >= 0) {
+            host = "gitlab.com/"
+        }
+        if ((strlen host) == 0) {
+            return ""
+        }
+        def start:int ((indexOf spec host) + (strlen host))
+        def rest:string (substring spec start (strlen spec))
+        def marks:[string]
+        push marks "/pull/"
+        push marks "/-/merge_requests/"
+        push marks "/merge_requests/"
+        def mi:int 0
+        while (mi < (array_length marks)) {
+            def at:int (indexOf rest (itemAt marks mi))
+            if (at > 0) {
+                return (substring rest 0 at)
+            }
+            mi = (mi + 1)
+        }
+        return ""
+    }
+
+    ; "owner/repo" of the origin remote, from either URL form.
+    fn remoteSlug:string (root:string) {
+        def argv:[string]
+        push argv "-C"
+        push argv root
+        push argv "remote"
+        push argv "get-url"
+        push argv "origin"
+        def url:string (sh.text("git" argv))
+        if ((strlen url) == 0) {
+            return ""
+        }
+        def rest:string url
+        def colon:int (indexOf rest ":")
+        if ((indexOf rest "git@") == 0) {
+            rest = (substring rest (colon + 1) (strlen rest))
+        } {
+            def slashes:int (indexOf rest "://")
+            if (slashes >= 0) {
+                rest = (substring rest (slashes + 3) (strlen rest))
+                def slash:int (indexOf rest "/")
+                if (slash >= 0) {
+                    rest = (substring rest (slash + 1) (strlen rest))
+                }
+            }
+        }
+        def n:int (strlen rest)
+        if (n > 4) {
+            if ((substring rest (n - 4) n) == ".git") {
+                rest = (substring rest 0 (n - 4))
+            }
+        }
+        return rest
+    }
+
+    ; The branch the remote points HEAD at ("main"), else master / main
+    ; whichever the remote has, else "".
+    fn defaultBranch:string (root:string) {
+        def argv:[string]
+        push argv "-C"
+        push argv root
+        push argv "symbolic-ref"
+        push argv "--short"
+        push argv "refs/remotes/origin/HEAD"
+        def head:string (sh.text("git" argv))
+        if ((indexOf head "origin/") == 0) {
+            return (substring head 7 (strlen head))
+        }
+        def tries:[string]
+        push tries "master"
+        push tries "main"
+        def i:int 0
+        while (i < (array_length tries)) {
+            def b:string (itemAt tries i)
+            if ((strlen (this.resolve(root ("origin/" + b)))) > 0) {
+                return b
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn fetchRef:boolean (root:string src:string dst:string) {
+        def argv:[string]
+        push argv "-C"
+        push argv root
+        push argv "fetch"
+        push argv "--quiet"
+        push argv "origin"
+        if ((strlen dst) > 0) {
+            push argv (("+" + src) + ":" + dst)
+        } {
+            push argv src
+        }
+        def res:ShellResult (sh.capture("git" argv))
+        return (res.ok())
+    }
+
+    fn mergeBase:string (root:string a:string b:string) {
+        def argv:[string]
+        push argv "-C"
+        push argv root
+        push argv "merge-base"
+        push argv a
+        push argv b
+        return (sh.text("git" argv))
+    }
+
+    ; `gh pr view` when gh is installed: the target branch and the title.
+    ; Tab-separated through --template, so no JSON is parsed here.
+    fn askGh:[string] (slug:string number:string) {
+        def none:[string]
+        if ((sh.isInstalled("gh")) == false) {
+            return none
+        }
+        def argv:[string]
+        push argv "pr"
+        push argv "view"
+        push argv number
+        if ((strlen slug) > 0) {
+            push argv "--repo"
+            push argv slug
+        }
+        push argv "--json"
+        push argv "baseRefName,headRefOid,title"
+        push argv "--template"
+        push argv "{{.baseRefName}}\t{{.headRefOid}}\t{{.title}}"
+        def res:ShellResult (sh.capture("gh" argv))
+        if (res.failed()) {
+            return none
+        }
+        return (strsplit (res.outFirstLine()) "\t")
+    }
+
+    ; base..head of a pull request as shas, or "" with lastError set.
+    fn resolvePullRequest:string (root:string spec:string) {
+        prLabel = ""
+        prBase = ""
+        prHead = ""
+        def number:string (CodeGraphGit.pullNumberOf(spec))
+        if ((strlen number) == 0) {
+            lastError = ("no pull request number in " + spec)
+            return ""
+        }
+        def slug:string (CodeGraphGit.slugOfUrl(spec))
+        def title:string ""
+        def targetBranch:string ""
+        def ghInfo:[string] (this.askGh(slug number))
+        if ((array_length ghInfo) >= 2) {
+            targetBranch = (itemAt ghInfo 0)
+            if ((array_length ghInfo) >= 3) {
+                title = (itemAt ghInfo 2)
+            }
+        }
+        def localRef:string ("refs/codegraph/pr/" + number)
+        def fetched:boolean (this.fetchRef(root (("refs/pull/" + number) + "/head") localRef))
+        if (fetched == false) {
+            fetched = (this.fetchRef(root (("refs/merge-requests/" + number) + "/head") localRef))
+        }
+        if (fetched == false) {
+            lastError = ((("could not fetch pull request " + number) + " from origin (refs/pull/") + number + "/head)")
+            return ""
+        }
+        def head:string (this.resolve(root localRef))
+        if ((strlen head) == 0) {
+            lastError = ("pull request " + number + " fetched but has no commit")
+            return ""
+        }
+        if ((strlen targetBranch) == 0) {
+            targetBranch = (this.defaultBranch(root))
+        }
+        if ((strlen targetBranch) == 0) {
+            lastError = "could not tell which branch the pull request targets (no origin/HEAD, no master or main, no gh)"
+            return ""
+        }
+        this.fetchRef(root targetBranch "")
+        def base:string (this.mergeBase(root ("origin/" + targetBranch) localRef))
+        if ((strlen base) == 0) {
+            base = (this.resolve(root ("origin/" + targetBranch)))
+        }
+        if ((strlen base) == 0) {
+            lastError = (("no merge base between origin/" + targetBranch) + " and the pull request")
+            return ""
+        }
+        prBase = (this.fullSha(root base))
+        prHead = (this.fullSha(root localRef))
+        prLabel = ("PR #" + number)
+        if ((strlen title) > 0) {
+            prLabel = ((prLabel + " · ") + title)
+        }
+        prLabel = ((((prLabel + " (") + targetBranch) + " ← ") + head + ")")
+        return ((prBase + "..") + prHead)
+    }
+
+    ; The pull request's own diff — merge base of its target branch to
+    ; its head — around `entry`.
+    fn diffPullRequest:CodeGraphSession (entry:string spec:string maxNodes:int) {
+        lastError = ""
+        def root:string (this.repoRootOf(entry))
+        def failed:CodeGraphSession (CodeGraphSession.of((new CodeGraph) maxNodes))
+        if ((strlen root) == 0) {
+            lastError = (entry + " is not inside a git repository")
+            failed.status = lastError
+            return failed
+        }
+        def shas:string (this.resolvePullRequest(root spec))
+        if ((strlen shas) == 0) {
+            failed.status = lastError
+            return failed
+        }
+        def s:CodeGraphSession (this.diffSession(entry shas maxNodes))
+        if ((s.model.classCount()) > 0) {
+            s.diff.label = prLabel
+            s.pages.diff.label = prLabel
+        }
+        return s
     }
 
     ; The last N commits, "sha subject" per line, for a picker or a hint.
@@ -358,6 +734,8 @@ class CodeGraphGit {
             return failed
         }
         changedFiles = (this.listChanged(root baseRev headRev))
+        lastBase = (this.fullSha(root baseRev))
+        lastHead = (this.fullSha(root headRev))
         def head:CodeGraph (this.graphAt(root entry headRev))
         if ((indexOf head.title " FAIL ") >= 0) {
             lastError = head.title

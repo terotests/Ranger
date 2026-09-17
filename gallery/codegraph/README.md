@@ -117,7 +117,9 @@ mostly VirtualCompiler: ~12 s in JS, ~5 s in C++ (`codegraph:bench:cpp:rt`).
 | a **← N more users** hexagon | the rest of those referrers, paged |
 | a **hexagon arrow** on the edge | the next / previous window of the same view |
 | **UML** | the overview as compartment UML boxes |
-| **Diff** | two git revisions of what is open, as a change summary (desktop / CLI) |
+| **COMMITS** in the rail | base / head from the opened repository's log; picking runs the diff (desktop) |
+| **Pull request** in the rail | a PR number or URL, Enter: its merge base → head (desktop) |
+| **Diff** | the same by typing `a..b`, `a`, or a PR (desktop) |
 | **← / →** | history back / forward |
 
 A **rose** box lists the rows that point at the class below it: fields typed
@@ -132,13 +134,24 @@ Every node carries `dataKind` / `dataRef`. The editor copies them onto a
 ```bash
 npm run codegraph:analyze -- gallery/realtrainer --diff=HEAD~1..HEAD   # two commits
 npm run codegraph:analyze -- app/ranger.json --diff=v1.2               # v1.2 vs the working tree
+npm run codegraph:analyze -- app/ranger.json --pr=123                  # a pull request, merge base → head
+npm run codegraph:analyze -- app --pr=https://github.com/o/r/pull/123
 npm run codegraph:diff                                                  # the unit suite
 ```
 
-On the desktop, open a file, a directory or a Git URL, press **Diff**, and
-type the revisions (`a1b2c3d..HEAD`, `HEAD~1`, `v1..v2` — anything
-`git rev-parse` takes). The web page has no git; its EXAMPLE menu has
-**calls.rgr → calls_v2.rgr (diff)** instead, both compiled in the tab.
+On the desktop, open a file, a directory or a Git URL. The rail's
+**COMMITS** section then lists the repository's last forty commits twice:
+pick a **base** (the head stays the working tree unless you pick one) and
+the diff runs. Type a pull request into the field below — `12`, `#12`, or
+its URL — and press Enter: the PR's head is fetched from `origin`
+(`refs/pull/N/head`, or `refs/merge-requests/N/head` on GitLab), the
+target branch is asked from `gh` when it is installed and is the remote's
+default branch otherwise, and the diff is from their merge base to the
+head, the same two commits the PR page shows. **Diff** accepts all of it
+typed (`a1b2c3d..HEAD`, `HEAD~1`, `v1..v2`, a PR). After a diff the two
+selects point at the commits compared. The web page has no git; its
+EXAMPLE menu has **calls.rgr → calls_v2.rgr (diff)** instead, both compiled
+in the tab.
 
 The result opens on a **diff page**: only the classes the change touched,
 as UML boxes — changed amber, added green, removed red. Double-click one and

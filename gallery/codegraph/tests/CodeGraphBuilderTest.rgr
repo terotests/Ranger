@@ -581,6 +581,10 @@ class CodeGraphBuilderTest {
                 n = (n + 1)
             }
         }
+        if (git.lastHead != (git.fullSha(repo "HEAD"))) {
+            print "  FAIL lastHead is not HEAD"
+            n = (n + 1)
+        }
         ; The working tree, edited but not committed, against HEAD.
         write_file repo "app.rgr" (unwrap v1)
         def w:CodeGraphSession (git.diffSession((repo + "/app.rgr") "HEAD" 24))
@@ -590,6 +594,124 @@ class CodeGraphBuilderTest {
         }
         n = (n + (CodeGraphBuilderTest.expectStatus("worktree: CodeGraphFixtureMain back" (w.diff.statusOfClass("CodeGraphFixtureMain")) "added")))
         n = (n + (CodeGraphBuilderTest.expectStatus("worktree: Receipt gone" (w.diff.statusOfClass("Receipt")) "removed")))
+        if ((strlen git.lastHead) != 0) {
+            print "  FAIL lastHead of a working-tree diff is not empty"
+            n = (n + 1)
+        }
+        write_file repo "app.rgr" (unwrap v2)
+
+        ; The log, as a picker sees it.
+        print "== git log as commit choices"
+        def log:[GitCommitInfo] (git.commits(repo 10))
+        if ((array_length log) != 2) {
+            print ("  FAIL commits() listed " + (to_string (array_length log)))
+            n = (n + 1)
+        } {
+            def top:GitCommitInfo (itemAt log 0)
+            if (top.subject != "v2") {
+                print ("  FAIL newest commit first: " + top.subject)
+                n = (n + 1)
+            }
+            if ((strlen top.sha) != 40) {
+                print ("  FAIL full sha: " + top.sha)
+                n = (n + 1)
+            }
+            if ((indexOf (top.label()) top.short) != 0) {
+                print ("  FAIL label starts with the short sha: " + (top.label()))
+                n = (n + 1)
+            }
+        }
+
+        ; A pull request: a bare origin whose master is v1 and whose
+        ; refs/pull/1/head is v2 — what GitHub serves for PR #1.
+        print "== pull request #1 from a bare origin"
+        n = (n + (CodeGraphBuilderTest.checkPullSpecs()))
+        def origin:string "gallery/codegraph/out/gitdiff-origin"
+        def rmO:[string]
+        push rmO "-rf"
+        push rmO origin
+        sh.cwd = ""
+        sh.capture("rm" rmO)
+        def bare (new Shell)
+        def initArgs:[string]
+        push initArgs "init"
+        push initArgs "-q"
+        push initArgs "--bare"
+        push initArgs origin
+        if ((bare.capture("git" initArgs)).failed()) {
+            print "  FAIL git init --bare"
+            return (n + 1)
+        }
+        sh.cwd = repo
+        CodeGraphBuilderTest.git(sh "remote" "add" "origin" "../gitdiff-origin")
+        CodeGraphBuilderTest.git(sh "push" "-q" "origin" "HEAD~1:refs/heads/master")
+        CodeGraphBuilderTest.git(sh "push" "-q" "origin" "HEAD:refs/pull/1/head")
+        CodeGraphBuilderTest.git(sh "fetch" "-q" "origin" "")
+        CodeGraphBuilderTest.git(sh "remote" "set-head" "origin" "master")
+        def pr:CodeGraphSession (git.diffPullRequest((repo + "/app.rgr") "#1" 24))
+        if ((pr.model.classCount()) == 0) {
+            print ("  FAIL " + git.lastError)
+            return (n + 1)
+        }
+        print ("  " + pr.diff.label + ": " + (pr.diff.describe()))
+        if ((indexOf pr.diff.label "PR #1") != 0) {
+            print ("  FAIL PR label: " + pr.diff.label)
+            n = (n + 1)
+        }
+        n = (n + (CodeGraphBuilderTest.expectStatus("PR: Receipt" (pr.diff.statusOfClass("Receipt")) "added")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("PR: CodeGraphFixtureMain" (pr.diff.statusOfClass("CodeGraphFixtureMain")) "removed")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("PR: Order.total" (pr.diff.statusOfMethod("Order.total")) "changed")))
+        if (git.prBase != (git.fullSha(repo "HEAD~1"))) {
+            print "  FAIL PR base is not the merge base (v1)"
+            n = (n + 1)
+        }
+        if (git.prHead != (git.fullSha(repo "HEAD"))) {
+            print "  FAIL PR head is not v2"
+            n = (n + 1)
+        }
+        ; The URL spelling resolves the same PR.
+        def prUrl:CodeGraphSession (git.diffPullRequest((repo + "/app.rgr") "https://github.com/terotests/Ranger/pull/1/files" 24))
+        if ((prUrl.model.classCount()) == 0) {
+            print ("  FAIL PR by URL: " + git.lastError)
+            n = (n + 1)
+        }
+        def missing:CodeGraphSession (git.diffPullRequest((repo + "/app.rgr") "999" 24))
+        if ((missing.model.classCount()) != 0) {
+            print "  FAIL PR 999 should not resolve"
+            n = (n + 1)
+        }
+        if ((indexOf git.lastError "999") < 0) {
+            print ("  FAIL PR 999 error names it: " + git.lastError)
+            n = (n + 1)
+        }
+        return n
+    }
+
+    sfn checkPullSpecs:int () {
+        def n:int 0
+        n = (n + (CodeGraphBuilderTest.expectStatus("number of #12" (CodeGraphGit.pullNumberOf("#12")) "12")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("number of 7" (CodeGraphGit.pullNumberOf("7")) "7")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("number of a PR URL" (CodeGraphGit.pullNumberOf("https://github.com/o/r/pull/123/files?diff=split")) "123")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("number of a GitLab MR URL" (CodeGraphGit.pullNumberOf("https://gitlab.com/g/p/-/merge_requests/5")) "5")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("slug of a PR URL" (CodeGraphGit.slugOfUrl("https://github.com/o/r/pull/123")) "o/r")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("slug of a GitLab MR URL" (CodeGraphGit.slugOfUrl("https://gitlab.com/g/p/-/merge_requests/5")) "g/p")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("slug of a number" (CodeGraphGit.slugOfUrl("12")) "")))
+        if (CodeGraphGit.isPullRequestSpec("HEAD~1..HEAD")) {
+            print "  FAIL a..b is not a PR"
+            n = (n + 1)
+        }
+        if (CodeGraphGit.isPullRequestSpec("HEAD~1")) {
+            print "  FAIL HEAD~1 is not a PR"
+            n = (n + 1)
+        }
+        if ((CodeGraphGit.isPullRequestSpec("42")) == false) {
+            print "  FAIL 42 is a PR"
+            n = (n + 1)
+        }
+        if ((CodeGraphGit.isPullRequestSpec("https://github.com/o/r/pull/42")) == false) {
+            print "  FAIL a PR URL is a PR"
+            n = (n + 1)
+        }
         return n
     }
 

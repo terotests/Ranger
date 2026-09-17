@@ -25,7 +25,7 @@ Import "../../rangerflow/export/FlowExport.rgr"
 class CodeGraphCli {
     sfn main:void () {
         if ((shell_arg_cnt) < 1) {
-            print "usage: codegraph_cli <file.rgr|dir|ranger.json|file.hpp> [--max=N] [--filter=substr] [--page=id] [--diff=base..head]"
+            print "usage: codegraph_cli <file.rgr|dir|ranger.json|file.hpp> [--max=N] [--filter=substr] [--page=id] [--diff=base..head] [--pr=N|url]"
             return
         }
         def file:string (shell_arg 0)
@@ -48,6 +48,9 @@ class CodeGraphCli {
             }
             if ((indexOf a "--diff=") == 0) {
                 diffSpec = (substring a 7 (strlen a))
+            }
+            if ((indexOf a "--pr=") == 0) {
+                diffSpec = (substring a 5 (strlen a))
             }
             i = (i + 1)
         }
@@ -96,7 +99,12 @@ class CodeGraphCli {
     sfn runDiff:void (file:string spec:string maxNodes:int pageId:string) {
         print ((("comparing " + spec) + " around ") + file)
         def git (new CodeGraphGit)
-        def session:CodeGraphSession (git.diffSession(file spec maxNodes))
+        def session:CodeGraphSession (new CodeGraphSession)
+        if (CodeGraphGit.isPullRequestSpec(spec)) {
+            session = (git.diffPullRequest(file spec maxNodes))
+        } {
+            session = (git.diffSession(file spec maxNodes))
+        }
         if ((session.model.classCount()) == 0) {
             print ("diff failed: " + git.lastError)
             exit 1

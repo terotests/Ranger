@@ -731,7 +731,107 @@ class CodeGraphAppTest {
             print "  FAIL analyzeGitDiff with nothing open"
             n = (n + 1)
         }
+        if ((indexOf (fresh.statusText()) "desktop") < 0) {
+            print ("  FAIL a host without git is told so: " + (fresh.statusText()))
+            n = (n + 1)
+        }
         print ("  " + (app.statusText()))
+        n = (n + (CodeGraphAppTest.checkCommitPickers(css)))
+        return n
+    }
+
+    ; The COMMITS rail: empty until a checkout is open, then the log as
+    ; two selects (base, head) and a pull request field. Picking runs the
+    ; diff; here, with git off, that is the status line saying so.
+    sfn checkCommitPickers:int (css:string) {
+        print "== commit pickers"
+        def n:int 0
+        def app (new CodeGraphApp)
+        app.start(1200.0 800.0 css)
+        if ((array_length app.baseSel.items) != 1) {
+            print ("  FAIL base select before any checkout has " + (to_string (array_length app.baseSel.items)) + " items")
+            n = (n + 1)
+        }
+        def first:UiItem (itemAt app.baseSel.items 0)
+        if (first.disabled == false) {
+            print "  FAIL the placeholder item is not disabled"
+            n = (n + 1)
+        }
+        def log:[GitCommitInfo]
+        def c1 (new GitCommitInfo)
+        c1.sha = "1111111111111111111111111111111111111111"
+        c1.short = "1111111"
+        c1.subject = "second"
+        push log c1
+        def c2 (new GitCommitInfo)
+        c2.sha = "2222222222222222222222222222222222222222"
+        c2.short = "2222222"
+        c2.subject = "first"
+        push log c2
+        app.setCommitList(log)
+        if ((array_length app.baseSel.items) != 3) {
+            print ("  FAIL base select has " + (to_string (array_length app.baseSel.items)) + " items, want placeholder + 2")
+            n = (n + 1)
+        }
+        if ((array_length app.headSel.items) != 3) {
+            print ("  FAIL head select has " + (to_string (array_length app.headSel.items)) + " items, want working tree + 2")
+            n = (n + 1)
+        }
+        if ((strlen (app.selectedSpec())) != 0) {
+            print "  FAIL nothing picked, yet a spec"
+            n = (n + 1)
+        }
+        app.baseSel.value = c2.sha
+        if ((app.selectedSpec()) != c2.sha) {
+            print ("  FAIL base only → working tree spec: " + (app.selectedSpec()))
+            n = (n + 1)
+        }
+        app.headSel.value = c1.sha
+        if ((app.selectedSpec()) != ((c2.sha + "..") + c1.sha)) {
+            print ("  FAIL base..head spec: " + (app.selectedSpec()))
+            n = (n + 1)
+        }
+        ; Picking through the UI: open the base list, click a commit.
+        app.baseSel.value = ""
+        app.headSel.value = ""
+        app.press((app.baseSel.triggerTid()))
+        app.press((app.baseSel.itemTid(c2.sha)))
+        if (app.baseSel.value != c2.sha) {
+            print ("  FAIL clicking a commit did not pick it: '" + app.baseSel.value + "'")
+            n = (n + 1)
+        }
+        if ((indexOf (app.statusText()) "desktop") < 0) {
+            print ("  FAIL the pick ran the diff (git off → told so): " + (app.statusText()))
+            n = (n + 1)
+        }
+        ; The pull request field takes a number and Enter.
+        app.ui.focus(app.prField.tid)
+        app.typeText("#")
+        app.typeText("1")
+        app.typeText("2")
+        if (app.prField.value != "#12") {
+            print ("  FAIL typed into the PR field: '" + app.prField.value + "'")
+            n = (n + 1)
+        }
+        app.keyWith("Enter" false false)
+        if ((indexOf (app.statusText()) "desktop") < 0) {
+            print ("  FAIL Enter in the PR field ran the diff: " + (app.statusText()))
+            n = (n + 1)
+        }
+        if ((app.hasField("cg-pr")) == false) {
+            print "  FAIL cg-pr is a typing field"
+            n = (n + 1)
+        }
+        app.showComparedCommits(c2.sha c1.sha)
+        if ((app.baseSel.value != c2.sha) || (app.headSel.value != c1.sha)) {
+            print "  FAIL showComparedCommits did not point the selects"
+            n = (n + 1)
+        }
+        app.showComparedCommits(c2.sha "")
+        if ((strlen app.headSel.value) != 0) {
+            print "  FAIL working-tree head should clear the head select"
+            n = (n + 1)
+        }
         return n
     }
 }

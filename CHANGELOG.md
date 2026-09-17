@@ -97,8 +97,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The explorer opens on a diff page of only the touched classes (amber /
   green / red), class pages keep the colours on their rows, and the source
   pane shows touched files merged, removed lines in place on red bands.
-  `CodeGraphDiff` needs neither git nor the compiler; the web page's
-  EXAMPLE menu diffs `calls.rgr` against `calls_v2.rgr` in the tab.
+  The desktop rail lists the opened repository's log as base / head
+  pickers, and a pull request field (`12`, `#12`, a URL) fetches
+  `refs/pull/N/head` from origin and diffs from the merge base with the
+  target branch (`gh` when installed, else the remote's default branch);
+  the CLI takes `--pr=`. `CodeGraphDiff` needs neither git nor the
+  compiler; the web page's EXAMPLE menu diffs `calls.rgr` against
+  `calls_v2.rgr` in the tab.
   RangerFlow rows gained `tint` / `tintText` and ScriptEditor `lineMarks`
   for this. `npm run codegraph:diff` is the unit suite.
 

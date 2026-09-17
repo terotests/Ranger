@@ -114,6 +114,18 @@ class CodeGraphApp extends EvgApp {
     def capClasses:LabelCtl (new LabelCtl)
     def bar:ToolbarCtl (new ToolbarCtl)
     def sampleSel:SelectCtl (new SelectCtl)
+    ; COMMITS: two picks from the opened repository's own log, and a
+    ; field for a pull request. Filled by loadCommits once a checkout is
+    ; open; empty (one disabled item) until then.
+    def capCommits:LabelCtl (new LabelCtl)
+    def baseSel:SelectCtl (new SelectCtl)
+    def headSel:SelectCtl (new SelectCtl)
+    def prField:InputCtl (new InputCtl)
+    def commitList:[GitCommitInfo]
+    def gitRoot:string ""
+    ; Only a host with git on PATH (desktop, CLI) turns this on; the tab
+    ; has no processes, and says so instead of trying.
+    def gitEnabled:boolean false
     def classSearch:InputCtl (new InputCtl)
     def classTree:TreeCtl (new TreeCtl)
     def classScrollEl:EVGElement (EVGElement.createDiv())
@@ -344,6 +356,31 @@ class CodeGraphApp extends EvgApp {
         sampleSel.value = "shop"
         sampleSel.build()
         this.mount(railEl sampleSel)
+
+        capCommits.tid = "cg-cap-commits"
+        capCommits.name = "COMMITS"
+        capCommits.build()
+        def capCoEl:EVGElement (unwrap capCommits.rootEl)
+        capCoEl.className = "cg-cap"
+        this.mount(railEl capCommits)
+
+        baseSel.tid = "cg-base"
+        baseSel.name = "base commit"
+        headSel.tid = "cg-head"
+        headSel.name = "head commit"
+        this.fillCommitSelects()
+        this.mount(railEl baseSel)
+        this.mount(railEl headSel)
+
+        prField.tid = "cg-pr"
+        prField.name = "Pull request"
+        prField.kind = "text"
+        prField.placeholder = "Pull request # or URL, Enter"
+        prField.fontSize = 13.0
+        prField.build()
+        this.mount(railEl prField)
+        def prEl:EVGElement (unwrap prField.rootEl)
+        UiTree.addClass(prEl "cg-class-search")
 
         capClasses.tid = "cg-cap-classes"
         capClasses.name = "CLASSES"
@@ -1145,7 +1182,9 @@ class CodeGraphApp extends EvgApp {
         if ((strlen name) == 0) {
             name = path
         }
-        return (this.applyGraph(g name))
+        def shown:boolean (this.applyGraph(g name))
+        this.loadCommits()
+        return shown
     }
 
     fn hasCompiler:boolean () {
@@ -1462,20 +1501,30 @@ class CodeGraphApp extends EvgApp {
     ; for that commit against the working tree. The entry is whatever
     ; Open or Git URL opened last.
     fn analyzeGitDiff:boolean (spec:string) {
+        if (gitEnabled == false) {
+            status = "git diff runs in the desktop app or the CLI: npm run codegraph:analyze -- <path> --diff=base..head, or --pr=N"
+            this.refreshChrome()
+            return false
+        }
         if ((strlen lastOpenPath) == 0) {
-            status = "open a file, a directory or a Git URL first, then Diff"
+            status = "open a file, a directory or a Git URL first, then pick commits or a pull request"
             this.refreshChrome()
             return false
         }
         if ((strlen spec) == 0) {
-            status = "diff needs two revisions: base..head, or base for the working tree"
+            status = "diff needs two revisions: base..head, base for the working tree, or a pull request # / URL"
             this.refreshChrome()
             return false
         }
         status = (("comparing " + spec) + "…")
         this.refreshChrome()
         def git (new CodeGraphGit)
-        def s:CodeGraphSession (git.diffSession(lastOpenPath spec 24))
+        def s:CodeGraphSession (new CodeGraphSession)
+        if (CodeGraphGit.isPullRequestSpec(spec)) {
+            s = (git.diffPullRequest(lastOpenPath spec 24))
+        } {
+            s = (git.diffSession(lastOpenPath spec 24))
+        }
         if ((s.model.classCount()) == 0) {
             status = git.lastError
             if ((strlen status) == 0) {
@@ -1487,6 +1536,10 @@ class CodeGraphApp extends EvgApp {
         def ok:boolean (this.applyDiffSession(s sampleName))
         if ok {
             status = ((status + " · ") + (to_string (array_length git.changedFiles)) + " files in git diff")
+            if ((array_length commitList) == 0) {
+                this.loadCommits()
+            }
+            this.showComparedCommits(git.lastBase git.lastHead)
             this.refreshChrome()
         }
         return ok
@@ -1675,6 +1728,7 @@ class CodeGraphApp extends EvgApp {
         def searchEl:EVGElement (unwrap classSearch.rootEl)
         UiTree.addClass(searchEl "cg-class-search")
         this.placeSearchCaret()
+        this.placeFieldCaret(prField)
     }
 
     ; `InputCtl.build()` makes the caret element but cannot place it: where a
@@ -1683,8 +1737,12 @@ class CodeGraphApp extends EvgApp {
     ; same — and without it the bar stayed pinned to the left edge of the
     ; field however far into the word you had typed or arrowed.
     fn placeSearchCaret:void () {
-        def car:EVGElement (unwrap classSearch.caretEl)
-        if (ui.focusId != classSearch.tid) {
+        this.placeFieldCaret(classSearch)
+    }
+
+    fn placeFieldCaret:void (field:InputCtl) {
+        def car:EVGElement (unwrap field.caretEl)
+        if (ui.focusId != field.tid) {
             ; Two carets on a page is two claims about where typing goes.
             car.width = (EVGUnit.px(0.0))
             car.markInline("width")
@@ -1693,8 +1751,8 @@ class CodeGraphApp extends EvgApp {
         car.width = (EVGUnit.px(1.0))
         car.markInline("width")
         def eng:EVGTextEngine (caretMeasurer.getTextEngine())
-        def cx:double (classSearch.caretXAt(eng classSearch.caret))
-        car.left = (EVGUnit.px((cx - classSearch.scrollX)))
+        def cx:double (field.caretXAt(eng field.caret))
+        car.left = (EVGUnit.px((cx - field.scrollX)))
         car.markInline("left")
     }
 
@@ -2618,7 +2676,12 @@ class CodeGraphApp extends EvgApp {
         }
         def oldSample:string sampleSel.value
         def oldClass:string classTree.activeValue
+        def oldBase:string baseSel.value
+        def oldHead:string headSel.value
         ui.click(id)
+        if ((baseSel.value != oldBase) || (headSel.value != oldHead)) {
+            this.compareSelected()
+        }
         if ((indexOf id "cg-bar-") == 0) {
             this.runToolbar(bar.rovingValue)
         }
@@ -2735,6 +2798,109 @@ class CodeGraphApp extends EvgApp {
         return false
     }
 
+    ; --- commits from the opened repository --------------------------------
+
+    fn enableGit:void () {
+        gitEnabled = true
+    }
+
+    fn setCommitList:void (list:[GitCommitInfo]) {
+        commitList = list
+        this.fillCommitSelects()
+    }
+
+    fn commitCount:int () {
+        return (array_length commitList)
+    }
+
+    ; Read the log of the repository around what was opened last. Nothing
+    ; happens in a host without git, or before anything is open.
+    fn loadCommits:void () {
+        if (gitEnabled == false) {
+            return
+        }
+        if ((strlen lastOpenPath) == 0) {
+            return
+        }
+        def git (new CodeGraphGit)
+        gitRoot = (git.repoRootOf(lastOpenPath))
+        def fresh:[GitCommitInfo]
+        if ((strlen gitRoot) > 0) {
+            fresh = (git.commits(gitRoot 40))
+        }
+        this.setCommitList(fresh)
+    }
+
+    fn fillCommitSelects:void () {
+        def keepBase:string baseSel.value
+        def keepHead:string headSel.value
+        def noneB:[UiItem]
+        baseSel.items = noneB
+        def noneH:[UiItem]
+        headSel.items = noneH
+        if ((array_length commitList) == 0) {
+            baseSel.addItem("" "(open a git checkout)" true)
+            headSel.addItem("" "working tree" true)
+        } {
+            baseSel.addItem("" "pick a base commit…" false)
+            headSel.addItem("" "working tree" false)
+            def i:int 0
+            while (i < (array_length commitList)) {
+                def c:GitCommitInfo (itemAt commitList i)
+                baseSel.addItem(c.sha (c.label()) false)
+                headSel.addItem(c.sha (c.label()) false)
+                i = (i + 1)
+            }
+        }
+        baseSel.value = ""
+        if ((baseSel.indexOfValue(keepBase)) >= 0) {
+            baseSel.value = keepBase
+        }
+        headSel.value = ""
+        if ((headSel.indexOfValue(keepHead)) >= 0) {
+            headSel.value = keepHead
+        }
+        baseSel.build()
+        headSel.build()
+    }
+
+    ; The two picks as a git spec — "base" alone is the working tree.
+    fn selectedSpec:string () {
+        def base:string baseSel.value
+        if ((strlen base) == 0) {
+            return ""
+        }
+        def head:string headSel.value
+        if ((strlen head) == 0) {
+            return base
+        }
+        return ((base + "..") + head)
+    }
+
+    fn compareSelected:boolean () {
+        def spec:string (this.selectedSpec())
+        if ((strlen spec) == 0) {
+            status = "pick a base commit; the head is the working tree unless you pick one"
+            this.refreshChrome()
+            return false
+        }
+        return (this.analyzeGitDiff(spec))
+    }
+
+    ; After a diff, point the two selects at the commits it compared.
+    fn showComparedCommits:void (baseSha:string headSha:string) {
+        if ((baseSel.indexOfValue(baseSha)) >= 0) {
+            baseSel.value = baseSha
+        }
+        if ((headSel.indexOfValue(headSha)) >= 0) {
+            headSel.value = headSha
+        } {
+            headSel.value = ""
+        }
+        baseSel.build()
+        headSel.build()
+    }
+
     fn consumeOpenDiff:boolean () {
         if wantOpenDiff {
             wantOpenDiff = false
@@ -2780,6 +2946,12 @@ class CodeGraphApp extends EvgApp {
             }
             if (k == "Backspace") {
                 codeView.findBackspace()
+                return true
+            }
+        }
+        if (ui.focusId == prField.tid) {
+            if (k == "Enter") {
+                this.analyzeGitDiff(prField.value)
                 return true
             }
         }
@@ -2833,7 +3005,10 @@ class CodeGraphApp extends EvgApp {
     }
 
     fn hasField:boolean (tid:string) {
-        return (tid == "cg-class-filter")
+        if (tid == "cg-class-filter") {
+            return true
+        }
+        return (tid == "cg-pr")
     }
 
     fn display:EVGDisplayList () {

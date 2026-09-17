@@ -201,7 +201,7 @@ class CodeGraphSdl {
     ; Diff: two git revisions around whatever is open. "HEAD~1..HEAD" is
     ; the last commit; "HEAD~1" alone compares it with the working tree.
     fn pickDiff:void () {
-        def spec:string (dgfx_prompt_text "Diff" "git revisions to compare: base..head (or base for the working tree)")
+        def spec:string (dgfx_prompt_text "Diff" "base..head, base (vs working tree), or a pull request # / URL — or pick commits in the rail")
         if ((strlen spec) == 0) {
             return
         }
@@ -218,6 +218,7 @@ class CodeGraphSdl {
         }
         app.start((to_double pw) (to_double ph) css)
         app.codeTr = tr
+        app.enableGit()
         this.loadVfs()
         if ((strlen openPathArg) > 0) {
             this.openRangerPath(openPathArg)

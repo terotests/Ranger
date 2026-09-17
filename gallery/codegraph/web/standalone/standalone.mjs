@@ -186,14 +186,14 @@ window.addEventListener("keydown", (ev) => {
     }
     return;
   }
-  if (app.focusedField() !== "cg-class-filter") return;
+  if (!app.hasField(app.focusedField())) return;
   if (ev.key.length === 1 && !ctrl) {
     app.typeText(ev.key);
     ev.preventDefault();
     sceneStale = true;
     return;
   }
-  if (ev.key === "Backspace" || ev.key === "Delete" || ev.key === "ArrowLeft" || ev.key === "ArrowRight" || ev.key === "Home" || ev.key === "End") {
+  if (ev.key === "Enter" || ev.key === "Backspace" || ev.key === "Delete" || ev.key === "ArrowLeft" || ev.key === "ArrowRight" || ev.key === "Home" || ev.key === "End") {
     app.keyWith(ev.key, ev.shiftKey, ctrl);
     ev.preventDefault();
     sceneStale = true;
