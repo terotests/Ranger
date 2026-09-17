@@ -20,7 +20,7 @@
     "ranger"
   ],
   "devDependencies": {
-    "vitest": "^3.2.7"
+    "vitest": "^4.1.11"
   },
   "dependencies": {
     "typescript": "^5.7.2",
