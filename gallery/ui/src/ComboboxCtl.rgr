@@ -78,8 +78,8 @@
 Import "UiCtl.rgr"
 Import "UiTree.rgr"
 Import "InputCtl.rgr"
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
 
 class ComboboxCtl extends UiCtl {
     ; One value in the box, or many as chips.

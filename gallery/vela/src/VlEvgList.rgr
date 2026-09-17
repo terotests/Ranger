@@ -30,10 +30,10 @@
 
 Import "VlCommand.rgr"
 Import "VlShape.rgr"
-Import "../../evg/PathBuilder.rgr"
-Import "../../evg/SVGPathParser.rgr"
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGColor.rgr"
+Import "pkg:evg/PathBuilder.rgr"
+Import "pkg:evg/SVGPathParser.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
 
 class VlEvgList {

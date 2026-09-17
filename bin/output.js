@@ -9711,6 +9711,7 @@ class RangerLispParser  {
     this.had_error = false;
     this.disableOperators = false;
     this.recv_tmp_count = 0;
+    this.pending_comments = [];
     this.source_text = RangerLispParser.normalizeLineEndings(code_module.code);
     this.buff = this.source_text;
     this.code = code_module;
@@ -10199,6 +10200,9 @@ class RangerLispParser  {
         return true;
       }
     }
+    if ( push_target.is_block_node ) {
+      this.attachPendingComments(p_node);
+    }
     if ( cnt == 1 ) {
       const onlyCh = push_target.children[0];
       if ( this.isPlainDotCallee(onlyCh, this.i) ) {
@@ -10239,7 +10243,19 @@ class RangerLispParser  {
         p_node.parent = push_target;
       }
     }
+    if ( push_target.is_block_node ) {
+      this.attachPendingComments(p_node);
+    }
     push_target.children.push(p_node);
+  };
+  attachPendingComments (node) {
+    if ( this.pending_comments.length == 0 ) {
+      return;
+    }
+    while (this.pending_comments.length > 0) {
+      const c = this.pending_comments.splice(0, 1).pop();
+      node.comments.push(c);
+    };
   };
   parse_attributes (s) {
     let last_i = 0;
@@ -10559,7 +10575,11 @@ class RangerLispParser  {
           new_node.parsed_type = 12;
           new_node.value_type = 12;
           new_node.string_value = s.substring(sp, this.i );
-          this.curr_node.comments.push(new_node);
+          if ( this.curr_node.is_block_node ) {
+            this.pending_comments.push(new_node);
+          } else {
+            this.curr_node.comments.push(new_node);
+          }
           continue;
         }
         if ( this.i < this.__len - 1 ) {
@@ -10880,6 +10900,7 @@ class RangerLispParser  {
           }
           if ( this.curr_node.is_block_node == true ) {
             const new_expr_node = new CodeNode(this.code, sp, ep);
+            this.attachPendingComments(new_expr_node);
             new_expr_node.parent = this.curr_node;
             new_expr_node.expression = true;
             this.curr_node.children.push(new_expr_node);
@@ -11280,6 +11301,9 @@ class RangerLispParser  {
           }
         }
         if ( c == 41 || c == (125) ) {
+          if ( this.curr_node.is_block_node ) {
+            this.attachPendingComments(this.curr_node);
+          }
           if ( (c == (125) && is_block_parent) && this.curr_node.children.length > 0 ) {
             this.end_expression(false);
           }
@@ -14307,6 +14331,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     };
     return 0 - 1;
   };
+  PkgImport.manifestChain = function(env, startDir, libraryPaths) {
+    let dirs = [];
+    const first = PkgImport.walkUp(env, startDir);
+    if ( first.length > 0 ) {
+      dirs.push(first);
+    }
+    let i = libraryPaths.length - 1;
+    while (i >= 0) {
+      const cand = PkgImport.walkUp(env, libraryPaths[i]);
+      if ( cand.length > 0 ) {
+        if ( dirs.indexOf(cand) < 0 ) {
+          dirs.push(cand);
+        }
+      }
+      i = i - 1;
+    };
+    return dirs;
+  };
   PkgImport.resolve = async function(env, startDir, spec, libraryPaths) {
     const hit = new PkgHit();
     if ( PkgImport.isPkg(spec) == false ) {
@@ -14314,6 +14356,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       hit.name = PkgImport.stripDot(spec);
       return hit;
     }
+    const dirs = PkgImport.manifestChain(env, startDir, libraryPaths);
+    if ( dirs.length == 0 ) {
+      hit.err = "no ranger.json for " + spec;
+      return hit;
+    }
+    let firstErr = "";
+    let di = 0;
+    while (di < dirs.length) {
+      const got = await PkgImport.resolveIn(env, dirs[di], spec);
+      if ( got.ok ) {
+        return got;
+      }
+      if ( firstErr.length == 0 ) {
+        firstErr = got.err;
+      }
+      di = di + 1;
+    };
+    hit.err = firstErr;
+    return hit;
+  };
+  PkgImport.resolveIn = async function(env, manDir, spec) {
+    const hit = new PkgHit();
     const rest = spec.substring(4, spec.length );
     let pkgName = rest;
     let sub = "";
@@ -14321,11 +14385,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     if ( slash >= 0 ) {
       pkgName = rest.substring(0, slash );
       sub = rest.substring((slash + 1), rest.length );
-    }
-    const manDir = PkgImport.findManifestDir(env, startDir, libraryPaths);
-    if ( manDir.length == 0 ) {
-      hit.err = "no ranger.json for " + spec;
-      return hit;
     }
     const manText = await PkgImport.readText(env, manDir, "ranger.json");
     const reader = new PkgJRead();
@@ -14341,22 +14400,37 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       pkgRoot = manDir;
       entry = PkgJRead.strOf(man, "entry");
     } else {
+      let dep = new PkgJVal();
+      let declared = false;
       const deps = PkgJRead.child(man, "dependencies");
-      if ( typeof(deps) === "undefined" ) {
-        hit.err = ("package " + pkgName) + " is not in ranger.json";
-        return hit;
+      if ( (typeof(deps) !== "undefined" && deps != null )  ) {
+        const depMap = deps;
+        const specObj = PkgJRead.child(depMap, pkgName);
+        if ( (typeof(specObj) !== "undefined" && specObj != null )  ) {
+          dep = specObj;
+          declared = true;
+        }
       }
-      const depMap = deps;
-      const specObj = PkgJRead.child(depMap, pkgName);
-      if ( typeof(specObj) === "undefined" ) {
-        hit.err = ("package " + pkgName) + " is not a dependency";
-        return hit;
+      if ( declared == false ) {
+        const lockOnly = await PkgImport.readText(env, manDir, "ranger.lock");
+        const lockHit = PkgImport.lockRoot(env, lockOnly, pkgName, manDir);
+        if ( lockHit.length == 0 ) {
+          hit.err = ("package " + pkgName) + " is not a dependency";
+          return hit;
+        }
+        pkgRoot = lockHit;
       }
-      const dep = specObj;
-      const pathDep = PkgJRead.strOf(dep, "path");
-      if ( pathDep.length > 0 ) {
-        pkgRoot = PkgImport.foldPath(PkgImport.joinPath(manDir, pathDep));
-      } else {
+      let pathDep = "";
+      if ( declared ) {
+        pathDep = PkgJRead.strOf(dep, "path");
+      }
+      if ( pathDep.length > 0 && pkgRoot.length == 0 ) {
+        const cand = PkgImport.foldPath(PkgImport.joinPath(manDir, pathDep));
+        if ( operatorsOf_8.filec95exists_9(env, cand, "ranger.json") ) {
+          pkgRoot = cand;
+        }
+      }
+      if ( pkgRoot.length == 0 ) {
         const vendorDir = PkgImport.joinPath(manDir, ("vendor/ranger/" + pkgName));
         if ( operatorsOf_8.filec95exists_9(env, vendorDir, "ranger.json") ) {
           pkgRoot = vendorDir;
@@ -18395,6 +18469,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( ctx.hasCompilerFlag("verbose") ) {
             console.log((("importing " + import_file) + " from ") + filePathIs);
           }
+          const seenKey = "@" + PkgImport.foldPath(((filePathIs + "/") + searchName));
+          if ( ( typeof(ctx.already_imported[seenKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, seenKey) ) ) {
+            return;
+          }
+          ctx.already_imported[seenKey] = true;
           const c = await operatorsOf_8.readc95file_9(
             env,
             filePathIs,
@@ -21706,6 +21785,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           ctx.addError(node, "Could not import file " + import_file);
           return;
         }
+        const seenKey2 = "@" + PkgImport.foldPath(((filePathIs + "/") + searchName));
+        if ( ( typeof(ctx.already_imported[seenKey2] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, seenKey2) ) ) {
+          for ( let i2 = 0; i2 < node.children.length; i2++) {
+            var item2 = node.children[i2];
+            await this.WalkCollectMethods(item2, ctx, wr);
+          };
+          return;
+        }
+        ctx.already_imported[seenKey2] = true;
         const c = await operatorsOf_8.readc95file_9(
           env,
           filePathIs,
@@ -69330,7 +69418,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             this.inputFile = "";
                             this.outputFile = "";
                             this.targetLanguage = "";
-                            this.compilerVersion = "3.3.1";
+                            this.compilerVersion = "3.5.0";
                             this.useColors = ((typeof process !== "undefined" && process.stdout && process.stdout.isTTY) || false);
                             this.startTime = Date.now();
                           }
@@ -69621,6 +69709,3359 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             console.log(this.bold(title));
                           };
                         }
+                        class GitSha1  {
+                          constructor() {
+                          }
+                        }
+                        GitSha1.mask32 = function() {
+                          return (65535 | (65535 << 16));
+                        };
+                        GitSha1.add32 = function(a, b) {
+                          return ((a + b) & GitSha1.mask32());
+                        };
+                        GitSha1.not32 = function(x) {
+                          return ((~x) & GitSha1.mask32());
+                        };
+                        GitSha1.rotl = function(x, n) {
+                          const u = (x & GitSha1.mask32());
+                          return (((u << n) | (u >>> (32 - n))) & GitSha1.mask32());
+                        };
+                        GitSha1.copyRange = function(data, start, count) {
+                          let n = count;
+                          const __len = data.byteLength;
+                          if ( start < 0 ) {
+                            return (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+                          }
+                          if ( start >= __len ) {
+                            return (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+                          }
+                          if ( start + n > __len ) {
+                            n = __len - start;
+                          }
+                          if ( n < 0 ) {
+                            n = 0;
+                          }
+                          let out = (function(){ var b = new ArrayBuffer(n); b._view = new DataView(b); return b; })();
+                          (function(
+                            d,
+                            dOff,
+                            s,
+                            sOff,
+                            len
+                          ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(out,0,data,start,n);
+                          return out;
+                        };
+                        GitSha1.ascii = function(data, start, count) {
+                          let n = count;
+                          const __len = data.byteLength;
+                          if ( start + n > __len ) {
+                            n = __len - start;
+                          }
+                          if ( n < 0 ) {
+                            n = 0;
+                          }
+                          let s = "";
+                          let i = 0;
+                          while (i < n) {
+                            s = s + String.fromCharCode(data._view.getUint8((start + i)));
+                            i = i + 1;
+                          };
+                          return s;
+                        };
+                        GitSha1.u32be = function(data, i) {
+                          const b0 = data._view.getUint8(i);
+                          const b1 = data._view.getUint8((i + 1));
+                          const b2 = data._view.getUint8((i + 2));
+                          const b3 = data._view.getUint8((i + 3));
+                          return ((b0 << 24) | ((b1 << 16) | ((b2 << 8) | b3)));
+                        };
+                        GitSha1.hexDigit = function(d) {
+                          const h = "0123456789abcdef";
+                          return h.substring(d, (d + 1) );
+                        };
+                        GitSha1.toHex = function(data) {
+                          const n = data.byteLength;
+                          let s = "";
+                          let i = 0;
+                          while (i < n) {
+                            const b = data._view.getUint8(i);
+                            const hi = (b >>> 4);
+                            const lo = (b & 15);
+                            s = s + GitSha1.hexDigit(hi);
+                            s = s + GitSha1.hexDigit(lo);
+                            i = i + 1;
+                          };
+                          return s;
+                        };
+                        GitSha1.fromHex = function(hex) {
+                          const n = hex.length;
+                          const outLen = ((n / 2) | 0);
+                          let out = (function(){ var b = new ArrayBuffer(outLen); b._view = new DataView(b); return b; })();
+                          const digits = "0123456789abcdef";
+                          let i = 0;
+                          while (i < outLen) {
+                            const c0 = hex.substring((i * 2), (i * 2 + 1) );
+                            const c1 = hex.substring((i * 2 + 1), (i * 2 + 2) );
+                            let v = 0;
+                            let d = 0;
+                            while (d < 16) {
+                              const ch = digits.substring(d, (d + 1) );
+                              if ( ch == c0 ) {
+                                v = d * 16;
+                              }
+                              d = d + 1;
+                            };
+                            d = 0;
+                            while (d < 16) {
+                              const ch2 = digits.substring(d, (d + 1) );
+                              if ( ch2 == c1 ) {
+                                v = v + d;
+                              }
+                              d = d + 1;
+                            };
+                            out._view.setUint8(i, v);
+                            i = i + 1;
+                          };
+                          return out;
+                        };
+                        GitSha1.hash = function(data) {
+                          const L = data.byteLength;
+                          const cap = L + 128;
+                          let msg = (function(){ var b = new ArrayBuffer(cap); b._view = new DataView(b); return b; })();
+                          if ( L > 0 ) {
+                            (function(
+                              d,
+                              dOff,
+                              s,
+                              sOff,
+                              len
+                            ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(msg,0,data,0,L);
+                          }
+                          msg._view.setUint8(L, 128);
+                          let pos = L + 1;
+                          while ((pos & 63) != 56) {
+                            msg._view.setUint8(pos, 0);
+                            pos = pos + 1;
+                          };
+                          const bitLen = L * 8;
+                          msg._view.setUint8(pos, 0);
+                          msg._view.setUint8(pos + 1, 0);
+                          msg._view.setUint8(pos + 2, 0);
+                          msg._view.setUint8(pos + 3, 0);
+                          msg._view.setUint8(pos + 4, ((bitLen >>> 24) & 255));
+                          msg._view.setUint8(pos + 5, ((bitLen >>> 16) & 255));
+                          msg._view.setUint8(pos + 6, ((bitLen >>> 8) & 255));
+                          msg._view.setUint8(pos + 7, (bitLen & 255));
+                          const msgLen = pos + 8;
+                          let h0 = 1732584193;
+                          let h1 = 0 - 271733879;
+                          let h2 = 0 - 1732584194;
+                          let h3 = 271733878;
+                          let h4 = 0 - 1009589776;
+                          let w = [];
+                          let wi = 0;
+                          while (wi < 80) {
+                            w.push(0);
+                            wi = wi + 1;
+                          };
+                          let off = 0;
+                          while (off < msgLen) {
+                            let t = 0;
+                            while (t < 16) {
+                              w[t] = GitSha1.u32be(msg, (off + t * 4));
+                              t = t + 1;
+                            };
+                            while (t < 80) {
+                              const x = ((w[(t - 3)] ^ w[(t - 8)]) ^ (w[(t - 14)] ^ w[(t - 16)]));
+                              w[t] = GitSha1.rotl(x, 1);
+                              t = t + 1;
+                            };
+                            let a = h0;
+                            let b = h1;
+                            let c = h2;
+                            let d = h3;
+                            let e = h4;
+                            t = 0;
+                            while (t < 80) {
+                              let f = 0;
+                              let k = 0;
+                              if ( t < 20 ) {
+                                f = ((b & c) | (GitSha1.not32(b) & d));
+                                k = 1518500249;
+                              }
+                              if ( t >= 20 && t < 40 ) {
+                                f = ((b ^ c) ^ d);
+                                k = 1859775393;
+                              }
+                              if ( t >= 40 && t < 60 ) {
+                                f = (((b & c) | (b & d)) | (c & d));
+                                k = 0 - 1894007588;
+                              }
+                              if ( t >= 60 ) {
+                                f = ((b ^ c) ^ d);
+                                k = 0 - 899497514;
+                              }
+                              const temp = GitSha1.add32(GitSha1.add32(GitSha1.add32(GitSha1.add32(GitSha1.rotl(a, 5), f), e), k), w[t]);
+                              e = d;
+                              d = c;
+                              c = GitSha1.rotl(b, 30);
+                              b = a;
+                              a = temp;
+                              t = t + 1;
+                            };
+                            h0 = GitSha1.add32(h0, a);
+                            h1 = GitSha1.add32(h1, b);
+                            h2 = GitSha1.add32(h2, c);
+                            h3 = GitSha1.add32(h3, d);
+                            h4 = GitSha1.add32(h4, e);
+                            off = off + 64;
+                          };
+                          const out = (function(){ var b = new ArrayBuffer(20); b._view = new DataView(b); return b; })();
+                          GitSha1.writeU32be(out, 0, h0);
+                          GitSha1.writeU32be(out, 4, h1);
+                          GitSha1.writeU32be(out, 8, h2);
+                          GitSha1.writeU32be(out, 12, h3);
+                          GitSha1.writeU32be(out, 16, h4);
+                          return out;
+                        };
+                        GitSha1.writeU32be = function(out, i, v) {
+                          out._view.setUint8(i, ((v >>> 24) & 255));
+                          out._view.setUint8(i + 1, ((v >>> 16) & 255));
+                          out._view.setUint8(i + 2, ((v >>> 8) & 255));
+                          out._view.setUint8(i + 3, (v & 255));
+                        };
+                        GitSha1.hashHex = function(data) {
+                          return GitSha1.toHex(GitSha1.hash(data));
+                        };
+                        GitSha1.objectId = function(kind, payload) {
+                          const sizeText = (payload.byteLength.toString());
+                          const prefix = (kind + " ") + sizeText;
+                          const pLen = prefix.length;
+                          const n = payload.byteLength;
+                          let raw = (function(){ var b = new ArrayBuffer(((pLen + 1) + n)); b._view = new DataView(b); return b; })();
+                          let i = 0;
+                          while (i < pLen) {
+                            raw._view.setUint8(i, prefix.charCodeAt(i ));
+                            i = i + 1;
+                          };
+                          raw._view.setUint8(pLen, 0);
+                          if ( n > 0 ) {
+                            (function(
+                              d,
+                              dOff,
+                              s,
+                              sOff,
+                              len
+                            ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(raw,pLen + 1,payload,0,n);
+                          }
+                          return GitSha1.hashHex(raw);
+                        };
+                        GitSha1.hexEq = function(a, b) {
+                          if ( a.length != b.length ) {
+                            return false;
+                          }
+                          return a == b;
+                        };
+                        class GitPkt  {
+                          constructor() {
+                            this.ok = true;
+                            this.err = "";
+                            this.lines = [];
+                            this.raw = [];
+                            this.isFlush = [];
+                          }
+                        }
+                        class GitRef  {
+                          constructor() {
+                            this.name = "";
+                            this.sha = "";
+                            this.peeled = "";
+                          }
+                        }
+                        class GitAdvertisement  {
+                          constructor() {
+                            this.ok = true;
+                            this.err = "";
+                            this.service = "";
+                            this.caps = "";
+                            this.head = "";
+                            this.refs = [];
+                          }
+                        }
+                        class GitWant  {
+                          constructor() {
+                            this.ok = true;
+                            this.err = "";
+                            this.sha = "";
+                            this.body = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+                          }
+                        }
+                        class GitSideband  {
+                          constructor() {
+                            this.ok = true;
+                            this.err = "";
+                            this.pack = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+                            this.progress = "";
+                          }
+                        }
+                        class GitPktIO  {
+                          constructor() {
+                          }
+                        }
+                        GitPktIO.hexVal = function(ch) {
+                          const c = ch.charCodeAt(0 );
+                          if ( c >= 48 && c <= 57 ) {
+                            return c - 48;
+                          }
+                          if ( c >= 97 && c <= 102 ) {
+                            return c - 87;
+                          }
+                          if ( c >= 65 && c <= 70 ) {
+                            return c - 55;
+                          }
+                          return 0 - 1;
+                        };
+                        GitPktIO.parseHex4 = function(data, at) {
+                          const s = GitSha1.ascii(data, at, 4);
+                          let v = 0;
+                          let i = 0;
+                          while (i < 4) {
+                            const d = GitPktIO.hexVal(s.substring(i, (i + 1) ));
+                            if ( d < 0 ) {
+                              return 0 - 1;
+                            }
+                            v = v * 16 + d;
+                            i = i + 1;
+                          };
+                          return v;
+                        };
+                        GitPktIO.hex4 = function(n) {
+                          const digits = "0123456789abcdef";
+                          const d0 = ((n >>> 12) & 15);
+                          const d1 = ((n >>> 8) & 15);
+                          const d2 = ((n >>> 4) & 15);
+                          const d3 = (n & 15);
+                          return ((digits.substring(d0, (d0 + 1) ) + digits.substring(d1, (d1 + 1) )) + digits.substring(d2, (d2 + 1) )) + digits.substring(d3, (d3 + 1) );
+                        };
+                        GitPktIO.encodeLine = function(text) {
+                          const n = text.length + 4;
+                          const h = GitPktIO.hex4(n);
+                          let raw = (function(){ var b = new ArrayBuffer(n); b._view = new DataView(b); return b; })();
+                          let i = 0;
+                          while (i < 4) {
+                            raw._view.setUint8(i, h.charCodeAt(i ));
+                            i = i + 1;
+                          };
+                          while (i < n) {
+                            raw._view.setUint8(i, text.charCodeAt((i - 4) ));
+                            i = i + 1;
+                          };
+                          return raw;
+                        };
+                        GitPktIO.encodeFlush = function() {
+                          let raw = (function(){ var b = new ArrayBuffer(4); b._view = new DataView(b); return b; })();
+                          raw._view.setUint8(0, 48);
+                          raw._view.setUint8(1, 48);
+                          raw._view.setUint8(2, 48);
+                          raw._view.setUint8(3, 48);
+                          return raw;
+                        };
+                        GitPktIO.parse = function(data) {
+                          const pkt = new GitPkt();
+                          const n = data.byteLength;
+                          let at = 0;
+                          while (at < n) {
+                            if ( at + 4 > n ) {
+                              pkt.ok = false;
+                              pkt.err = "truncated pkt-line length";
+                              return pkt;
+                            }
+                            const __len = GitPktIO.parseHex4(data, at);
+                            if ( __len < 0 ) {
+                              pkt.ok = false;
+                              pkt.err = "bad pkt-line hex";
+                              return pkt;
+                            }
+                            if ( __len == 0 ) {
+                              pkt.isFlush.push(true);
+                              pkt.lines.push("");
+                              pkt.raw.push(GitSha1.copyRange(data, at, 4));
+                              at = at + 4;
+                            } else {
+                              if ( __len == 1 || __len == 2 ) {
+                                pkt.isFlush.push(true);
+                                pkt.lines.push("");
+                                pkt.raw.push(GitSha1.copyRange(data, at, 4));
+                                at = at + 4;
+                              } else {
+                                if ( __len < 4 ) {
+                                  pkt.ok = false;
+                                  pkt.err = "pkt-line length < 4";
+                                  return pkt;
+                                }
+                                if ( at + __len > n ) {
+                                  pkt.ok = false;
+                                  pkt.err = "truncated pkt-line body";
+                                  return pkt;
+                                }
+                                const body = GitSha1.copyRange(
+                                  data,
+                                  (at + 4),
+                                  (__len - 4)
+                                );
+                                pkt.raw.push(body);
+                                pkt.lines.push(GitSha1.ascii(
+                                  body,
+                                  0,
+                                  body.byteLength
+                                ));
+                                pkt.isFlush.push(false);
+                                at = at + __len;
+                              }
+                            }
+                          };
+                          return pkt;
+                        };
+                        GitPktIO.parseAdvertisement = function(data) {
+                          const adv = new GitAdvertisement();
+                          const pkt = GitPktIO.parse(data);
+                          if ( pkt.ok == false ) {
+                            adv.ok = false;
+                            adv.err = pkt.err;
+                            return adv;
+                          }
+                          let i = 0;
+                          const n = pkt.lines.length;
+                          while (i < n) {
+                            const line = pkt.lines[i];
+                            const flush = pkt.isFlush[i];
+                            if ( flush ) {
+                              i = i + 1;
+                            } else {
+                              if ( line.length > 10 ) {
+                                if ( line.substring(0, 10 ) == "# service=" ) {
+                                  adv.service = GitPktIO.trimNl(line.substring(10, line.length ));
+                                }
+                              }
+                              if ( line.length >= 41 ) {
+                                const sha = line.substring(0, 40 );
+                                const rest = line.substring(41, line.length );
+                                const nulAt = GitPktIO.indexOfChar(rest, 0);
+                                let namePart = rest;
+                                if ( nulAt >= 0 ) {
+                                  namePart = rest.substring(0, nulAt );
+                                  adv.caps = rest.substring((nulAt + 1), rest.length );
+                                }
+                                let name = GitPktIO.trimNl(namePart);
+                                if ( name == "HEAD" ) {
+                                  adv.head = sha;
+                                }
+                                let peeled = false;
+                                if ( name.length > 3 ) {
+                                  const tail = name.substring((name.length - 3), name.length );
+                                  if ( tail == "^{}" ) {
+                                    peeled = true;
+                                    name = name.substring(0, (name.length - 3) );
+                                  }
+                                }
+                                if ( peeled ) {
+                                  let r = 0;
+                                  while (r < adv.refs.length) {
+                                    const existing = adv.refs[r];
+                                    if ( existing.name == name ) {
+                                      existing.peeled = sha;
+                                    }
+                                    r = r + 1;
+                                  };
+                                } else {
+                                  const ref = new GitRef();
+                                  ref.name = name;
+                                  ref.sha = sha;
+                                  adv.refs.push(ref);
+                                }
+                                if ( adv.head.length == 0 ) {
+                                  if ( name == "refs/heads/master" ) {
+                                    adv.head = sha;
+                                  }
+                                  if ( name == "refs/heads/main" ) {
+                                    if ( adv.head.length == 0 ) {
+                                      adv.head = sha;
+                                    }
+                                  }
+                                }
+                              }
+                              i = i + 1;
+                            }
+                          };
+                          return adv;
+                        };
+                        GitPktIO.findRef = function(adv, spec) {
+                          if ( spec.length == 40 ) {
+                            return spec;
+                          }
+                          if ( spec.length == 0 ) {
+                            return adv.head;
+                          }
+                          if ( spec == "HEAD" ) {
+                            return adv.head;
+                          }
+                          let i = 0;
+                          while (i < adv.refs.length) {
+                            const r = adv.refs[i];
+                            if ( r.name == spec ) {
+                              if ( r.peeled.length == 40 ) {
+                                return r.peeled;
+                              }
+                              return r.sha;
+                            }
+                            if ( r.name == "refs/heads/" + spec ) {
+                              return r.sha;
+                            }
+                            if ( r.name == "refs/tags/" + spec ) {
+                              if ( r.peeled.length == 40 ) {
+                                return r.peeled;
+                              }
+                              return r.sha;
+                            }
+                            i = i + 1;
+                          };
+                          return "";
+                        };
+                        GitPktIO.hasToken = function(caps, name) {
+                          const n = caps.length;
+                          const m = name.length;
+                          if ( m == 0 ) {
+                            return false;
+                          }
+                          let i = 0;
+                          while (i <= n - m) {
+                            if ( caps.substring(i, (i + m) ) == name ) {
+                              let left = false;
+                              if ( i == 0 ) {
+                                left = true;
+                              } else {
+                                const lc = caps.charCodeAt((i - 1) );
+                                if ( (lc == 32 || lc == 10) || lc == 0 ) {
+                                  left = true;
+                                }
+                              }
+                              let right = false;
+                              if ( i + m == n ) {
+                                right = true;
+                              } else {
+                                const rc = caps.charCodeAt((i + m) );
+                                if ( ((rc == 32 || rc == 10) || rc == 0) || rc == 61 ) {
+                                  right = true;
+                                }
+                              }
+                              if ( left && right ) {
+                                return true;
+                              }
+                            }
+                            i = i + 1;
+                          };
+                          return false;
+                        };
+                        GitPktIO.joinBuf = function(parts) {
+                          let total = 0;
+                          let i = 0;
+                          while (i < parts.length) {
+                            total = total + parts[i].byteLength;
+                            i = i + 1;
+                          };
+                          let out = (function(){ var b = new ArrayBuffer(total); b._view = new DataView(b); return b; })();
+                          let at = 0;
+                          i = 0;
+                          while (i < parts.length) {
+                            const p = parts[i];
+                            const pn = p.byteLength;
+                            (function(
+                              d,
+                              dOff,
+                              s,
+                              sOff,
+                              len
+                            ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(out,at,p,0,pn);
+                            at = at + pn;
+                            i = i + 1;
+                          };
+                          return out;
+                        };
+                        GitPktIO.encodeDelim = function() {
+                          let raw = (function(){ var b = new ArrayBuffer(4); b._view = new DataView(b); return b; })();
+                          raw._view.setUint8(0, 48);
+                          raw._view.setUint8(1, 48);
+                          raw._view.setUint8(2, 48);
+                          raw._view.setUint8(3, 49);
+                          return raw;
+                        };
+                        GitPktIO.buildWant = function(adv, spec) {
+                          const w = new GitWant();
+                          const sha = GitPktIO.findRef(adv, spec);
+                          if ( sha.length != 40 ) {
+                            w.ok = false;
+                            w.err = "unknown rev: " + spec;
+                            return w;
+                          }
+                          let extras = [];
+                          return GitPktIO.buildWantFetch(sha, 0, "", extras);
+                        };
+                        GitPktIO.buildWantFetch = function(sha, deepen, filter, extras) {
+                          const w = new GitWant();
+                          if ( sha.length != 40 ) {
+                            w.ok = false;
+                            w.err = "want needs a 40-char sha";
+                            return w;
+                          }
+                          w.sha = sha;
+                          let caps = "multi_ack_detailed no-done side-band-64k ofs-delta agent=ranger-pkg/0.1";
+                          if ( deepen > 0 ) {
+                            caps = caps + " shallow";
+                          }
+                          if ( filter.length > 0 ) {
+                            caps = caps + " filter";
+                          }
+                          let parts = [];
+                          parts.push(GitPktIO.encodeLine((((("want " + sha) + " ") + caps) + "\n")));
+                          let i = 0;
+                          while (i < extras.length) {
+                            parts.push(GitPktIO.encodeLine((("want " + extras[i]) + "\n")));
+                            i = i + 1;
+                          };
+                          if ( deepen > 0 ) {
+                            parts.push(GitPktIO.encodeLine((("deepen " + (deepen.toString())) + "\n")));
+                          }
+                          if ( filter.length > 0 ) {
+                            parts.push(GitPktIO.encodeLine((("filter " + filter) + "\n")));
+                          }
+                          parts.push(GitPktIO.encodeFlush());
+                          parts.push(GitPktIO.encodeLine("done\n"));
+                          w.body = GitPktIO.joinBuf(parts);
+                          return w;
+                        };
+                        GitPktIO.buildWantTrees = function(adv, spec) {
+                          const w = new GitWant();
+                          const sha = GitPktIO.findRef(adv, spec);
+                          if ( sha.length != 40 ) {
+                            w.ok = false;
+                            w.err = "unknown rev: " + spec;
+                            return w;
+                          }
+                          let extras = [];
+                          let filter = "";
+                          if ( GitPktIO.hasToken(adv.caps, "filter") ) {
+                            filter = "blob:none";
+                          }
+                          return GitPktIO.buildWantFetch(
+                            sha,
+                            1,
+                            filter,
+                            extras
+                          );
+                        };
+                        GitPktIO.buildWantSha = function(sha) {
+                          let extras = [];
+                          return GitPktIO.buildWantFetch(sha, 0, "", extras);
+                        };
+                        GitPktIO.buildFetchV2 = function(sha, deepen, filter) {
+                          const w = new GitWant();
+                          if ( sha.length != 40 ) {
+                            w.ok = false;
+                            w.err = "want needs a 40-char sha";
+                            return w;
+                          }
+                          w.sha = sha;
+                          let parts = [];
+                          parts.push(GitPktIO.encodeLine("command=fetch"));
+                          parts.push(GitPktIO.encodeDelim());
+                          parts.push(GitPktIO.encodeLine(("want " + sha)));
+                          if ( deepen > 0 ) {
+                            parts.push(GitPktIO.encodeLine(("deepen " + (deepen.toString()))));
+                          }
+                          if ( filter.length > 0 ) {
+                            parts.push(GitPktIO.encodeLine(("filter " + filter)));
+                          }
+                          parts.push(GitPktIO.encodeLine("done"));
+                          parts.push(GitPktIO.encodeFlush());
+                          w.body = GitPktIO.joinBuf(parts);
+                          return w;
+                        };
+                        GitPktIO.demux = function(data) {
+                          const sb = new GitSideband();
+                          const n = data.byteLength;
+                          const mag = GitPktIO.indexOfPack(data);
+                          const pkt = GitPktIO.parse(data);
+                          if ( pkt.ok == false ) {
+                            if ( mag >= 0 ) {
+                              sb.pack = GitSha1.copyRange(data, mag, (n - mag));
+                              return sb;
+                            }
+                            sb.ok = false;
+                            sb.err = pkt.err;
+                            return sb;
+                          }
+                          let chunks = [];
+                          let total = 0;
+                          let i = 0;
+                          while (i < pkt.raw.length) {
+                            if ( pkt.isFlush[i] == false ) {
+                              const body = pkt.raw[i];
+                              if ( body.byteLength > 0 ) {
+                                const ch = body._view.getUint8(0);
+                                if ( ch == 1 ) {
+                                  const piece = GitSha1.copyRange(
+                                    body,
+                                    1,
+                                    (body.byteLength - 1)
+                                  );
+                                  chunks.push(piece);
+                                  total = total + piece.byteLength;
+                                }
+                                if ( ch == 2 ) {
+                                  sb.progress = sb.progress + GitSha1.ascii(
+                                    body,
+                                    1,
+                                    (body.byteLength - 1)
+                                  );
+                                }
+                                if ( ch == 3 ) {
+                                  sb.ok = false;
+                                  sb.err = GitSha1.ascii(
+                                    body,
+                                    1,
+                                    (body.byteLength - 1)
+                                  );
+                                }
+                              }
+                            }
+                            i = i + 1;
+                          };
+                          if ( chunks.length == 0 ) {
+                            if ( mag >= 0 ) {
+                              sb.pack = GitSha1.copyRange(data, mag, (n - mag));
+                              return sb;
+                            }
+                            sb.ok = false;
+                            sb.err = "no pack data in response";
+                            return sb;
+                          }
+                          let pack = (function(){ var b = new ArrayBuffer(total); b._view = new DataView(b); return b; })();
+                          let at = 0;
+                          i = 0;
+                          while (i < chunks.length) {
+                            const piece2 = chunks[i];
+                            const pn = piece2.byteLength;
+                            (function(
+                              d,
+                              dOff,
+                              s,
+                              sOff,
+                              len
+                            ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(pack,at,piece2,0,pn);
+                            at = at + pn;
+                            i = i + 1;
+                          };
+                          sb.pack = pack;
+                          return sb;
+                        };
+                        GitPktIO.indexOfPack = function(data) {
+                          const n = data.byteLength;
+                          let i = 0;
+                          while (i < n - 3) {
+                            if ( data._view.getUint8(i) == 80 ) {
+                              if ( data._view.getUint8((i + 1)) == 65 ) {
+                                if ( data._view.getUint8((i + 2)) == 67 ) {
+                                  if ( data._view.getUint8((i + 3)) == 75 ) {
+                                    return i;
+                                  }
+                                }
+                              }
+                            }
+                            i = i + 1;
+                          };
+                          return 0 - 1;
+                        };
+                        GitPktIO.indexOfChar = function(s, code) {
+                          const n = s.length;
+                          let i = 0;
+                          while (i < n) {
+                            if ( s.charCodeAt(i ) == code ) {
+                              return i;
+                            }
+                            i = i + 1;
+                          };
+                          return 0 - 1;
+                        };
+                        GitPktIO.trimNl = function(s) {
+                          let n = s.length;
+                          while (n > 0) {
+                            const c = s.charCodeAt((n - 1) );
+                            if ( c == 10 ) {
+                              n = n - 1;
+                            } else {
+                              if ( c == 13 ) {
+                                n = n - 1;
+                              } else {
+                                if ( c == 0 ) {
+                                  n = n - 1;
+                                } else {
+                                  return s.substring(0, n );
+                                }
+                              }
+                            }
+                          };
+                          return "";
+                        };
+                        class ZipBuffer  {
+                          constructor() {
+                            this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+                            this.pos = 0;
+                            this.length = 0;
+                          }
+                          initWithBuffer (buf) {
+                            this.data = buf;
+                            this.length = buf.byteLength;
+                            this.pos = 0;
+                          };
+                          initWithSize (size) {
+                            this.data = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+                            this.length = size;
+                            this.pos = 0;
+                          };
+                          getPosition () {
+                            return this.pos;
+                          };
+                          setPosition (newPos) {
+                            this.pos = newPos;
+                          };
+                          seek (offset) {
+                            this.pos = offset;
+                          };
+                          skip (count) {
+                            this.pos = this.pos + count;
+                          };
+                          remaining () {
+                            return this.length - this.pos;
+                          };
+                          isEOF () {
+                            return this.pos >= this.length;
+                          };
+                          readUint8 () {
+                            if ( this.pos >= this.length ) {
+                              return 0;
+                            }
+                            const value = this.data._view.getUint8(this.pos);
+                            this.pos = this.pos + 1;
+                            return value;
+                          };
+                          readUint16LE () {
+                            const b0 = this.readUint8();
+                            const b1 = this.readUint8();
+                            return b0 + b1 * 256;
+                          };
+                          readUint32LE () {
+                            const b0 = this.readUint8();
+                            const b1 = this.readUint8();
+                            const b2 = this.readUint8();
+                            const b3 = this.readUint8();
+                            return ((b0 + b1 * 256) + b2 * 65536) + b3 * 16777216;
+                          };
+                          readBytes (count) {
+                            let result = (function(){ var b = new ArrayBuffer(count); b._view = new DataView(b); return b; })();
+                            let i = 0;
+                            while (i < count) {
+                              if ( this.pos < this.length ) {
+                                const b = this.data._view.getUint8(this.pos);
+                                result._view.setUint8(i, b);
+                                this.pos = this.pos + 1;
+                              }
+                              i = i + 1;
+                            };
+                            return result;
+                          };
+                          readString (count) {
+                            let result = "";
+                            let i = 0;
+                            while (i < count) {
+                              if ( this.pos < this.length ) {
+                                const ch = this.data._view.getUint8(this.pos);
+                                result = result + String.fromCharCode(ch);
+                                this.pos = this.pos + 1;
+                              }
+                              i = i + 1;
+                            };
+                            return result;
+                          };
+                          peekUint8 () {
+                            if ( this.pos >= this.length ) {
+                              return 0;
+                            }
+                            return this.data._view.getUint8(this.pos);
+                          };
+                          peekUint32LE () {
+                            const savedPos = this.pos;
+                            const value = this.readUint32LE();
+                            this.pos = savedPos;
+                            return value;
+                          };
+                          writeUint8 (value) {
+                            if ( this.pos < this.length ) {
+                              this.data._view.setUint8(this.pos, value);
+                              this.pos = this.pos + 1;
+                            }
+                          };
+                          writeUint16LE (value) {
+                            const b0 = (value & 255);
+                            const b1 = ((value >>> 8) & 255);
+                            this.writeUint8(b0);
+                            this.writeUint8(b1);
+                          };
+                          writeUint32LE (value) {
+                            const b0 = (value & 255);
+                            const b1 = ((value >>> 8) & 255);
+                            const b2 = ((value >>> 16) & 255);
+                            const b3 = ((value >>> 24) & 255);
+                            this.writeUint8(b0);
+                            this.writeUint8(b1);
+                            this.writeUint8(b2);
+                            this.writeUint8(b3);
+                          };
+                          writeBytes (src, srcOffset, count) {
+                            let i = 0;
+                            while (i < count) {
+                              const b = src._view.getUint8((srcOffset + i));
+                              this.writeUint8(b);
+                              i = i + 1;
+                            };
+                          };
+                          writeBuffer (src) {
+                            const __len = src.byteLength;
+                            this.writeBytes(src, 0, __len);
+                          };
+                          writeString (s) {
+                            const __len = s.length;
+                            let i = 0;
+                            while (i < __len) {
+                              const ch = s.charCodeAt(i );
+                              this.writeUint8(ch);
+                              i = i + 1;
+                            };
+                          };
+                          getBuffer () {
+                            return this.data;
+                          };
+                          getLength () {
+                            return this.length;
+                          };
+                          findSignatureBackward (sig, startPos) {
+                            let searchPos = startPos;
+                            while (searchPos >= 0) {
+                              const savedPos = this.pos;
+                              this.pos = searchPos;
+                              const value = this.readUint32LE();
+                              this.pos = savedPos;
+                              if ( value == sig ) {
+                                return searchPos;
+                              }
+                              searchPos = searchPos - 1;
+                            };
+                            return -1;
+                          };
+                        }
+                        class GrowableZipBuffer  {
+                          constructor() {
+                            this.chunks = [];
+                            this.chunkLens = [];
+                            this.chunkSize = 65536;
+                            this.currentChunk = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+                            this.currentPos = 0;
+                            this.totalSize = 0;
+                            this.currentPos = 0;
+                            this.totalSize = 0;
+                            const initSize = this.chunkSize;
+                            this.currentChunk = (function(){ var b = new ArrayBuffer(initSize); b._view = new DataView(b); return b; })();
+                          }
+                          setChunkSize (size) {
+                            if ( size < 1 ) {
+                              return;
+                            }
+                            if ( this.totalSize > 0 ) {
+                              return;
+                            }
+                            this.chunkSize = size;
+                            this.currentChunk = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+                            this.currentPos = 0;
+                          };
+                          allocateNewChunk () {
+                            this.chunks.push(this.currentChunk);
+                            this.chunkLens.push(this.currentPos);
+                            const size = this.chunkSize;
+                            this.currentChunk = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+                            this.currentPos = 0;
+                          };
+                          writeUint8 (value) {
+                            if ( this.currentPos >= this.chunkSize ) {
+                              this.allocateNewChunk();
+                            }
+                            this.currentChunk._view.setUint8(this.currentPos, value);
+                            this.currentPos = this.currentPos + 1;
+                            this.totalSize = this.totalSize + 1;
+                          };
+                          writeUint16LE (value) {
+                            const b0 = value % 256;
+                            const b1D = value / 256.0;
+                            const b1 = Math.floor( b1D) % 256;
+                            this.writeUint8(b0);
+                            this.writeUint8(b1);
+                          };
+                          writeUint32LE (value) {
+                            const b0 = value % 256;
+                            const rem1D = value / 256.0;
+                            const rem1 = Math.floor( rem1D);
+                            const b1 = rem1 % 256;
+                            const rem2D = rem1 / 256.0;
+                            const rem2 = Math.floor( rem2D);
+                            const b2 = rem2 % 256;
+                            const rem3D = rem2 / 256.0;
+                            const b3 = Math.floor( rem3D);
+                            this.writeUint8(b0);
+                            this.writeUint8(b1);
+                            this.writeUint8(b2);
+                            this.writeUint8(b3);
+                          };
+                          writeBytes (src, srcOffset, count) {
+                            let left = count;
+                            let at = srcOffset;
+                            while (left > 0) {
+                              if ( this.currentPos >= this.chunkSize ) {
+                                this.allocateNewChunk();
+                              }
+                              const room = this.chunkSize - this.currentPos;
+                              let take = left;
+                              if ( take > room ) {
+                                take = room;
+                              }
+                              (function(
+                                d,
+                                dOff,
+                                s,
+                                sOff,
+                                len
+                              ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(this.currentChunk,this.currentPos,src,at,take);
+                              this.currentPos = this.currentPos + take;
+                              this.totalSize = this.totalSize + take;
+                              at = at + take;
+                              left = left - take;
+                            };
+                          };
+                          writeBuffer (src) {
+                            const __len = src.byteLength;
+                            this.writeBytes(src, 0, __len);
+                          };
+                          writeString (s) {
+                            const __len = s.length;
+                            let i = 0;
+                            while (i < __len) {
+                              const ch = s.charCodeAt(i );
+                              this.writeUint8(ch);
+                              i = i + 1;
+                            };
+                          };
+                          getSize () {
+                            return this.totalSize;
+                          };
+                          toBuffer () {
+                            const size = this.totalSize;
+                            let result = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+                            let destPos = 0;
+                            const numChunks = this.chunks.length;
+                            let i = 0;
+                            while (i < numChunks) {
+                              const chunk = this.chunks[i];
+                              const used = this.chunkLens[i];
+                              if ( used > 0 ) {
+                                (function(
+                                  d,
+                                  dOff,
+                                  s,
+                                  sOff,
+                                  len
+                                ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(result,destPos,chunk,0,used);
+                                destPos = destPos + used;
+                              }
+                              i = i + 1;
+                            };
+                            const curPos = this.currentPos;
+                            if ( curPos > 0 ) {
+                              const curChunk = this.currentChunk;
+                              (function(
+                                d,
+                                dOff,
+                                s,
+                                sOff,
+                                len
+                              ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(result,destPos,curChunk,0,curPos);
+                              destPos = destPos + curPos;
+                            }
+                            return result;
+                          };
+                        }
+                        class InflateHuffmanTable  {
+                          constructor() {
+                            this.counts = [];
+                            this.symbols = [];
+                            this.maxBits = 0;
+                            let i_28 = 0;
+                            while (i_28 < 16) {
+                              this.counts.push(0);
+                              i_28 = i_28 + 1;
+                            };
+                          }
+                          build (lengths, numSymbols) {
+                            let i = 0;
+                            while (i < 16) {
+                              this.counts[i] = 0;
+                              i = i + 1;
+                            };
+                            i = 0;
+                            while (i < numSymbols) {
+                              const __len = lengths[i];
+                              if ( __len > 0 ) {
+                                const cnt = this.counts[__len];
+                                this.counts[__len] = cnt + 1;
+                                if ( __len > this.maxBits ) {
+                                  this.maxBits = __len;
+                                }
+                              }
+                              i = i + 1;
+                            };
+                            let offsets = [];
+                            let offset = 0;
+                            i = 0;
+                            while (i < 16) {
+                              offsets.push(offset);
+                              const cnt_1 = this.counts[i];
+                              offset = offset + cnt_1;
+                              i = i + 1;
+                            };
+                            i = 0;
+                            while (i < numSymbols) {
+                              this.symbols.push(0);
+                              i = i + 1;
+                            };
+                            i = 0;
+                            while (i < numSymbols) {
+                              const len_1 = lengths[i];
+                              if ( len_1 > 0 ) {
+                                const off = offsets[len_1];
+                                this.symbols[off] = i;
+                                offsets[len_1] = off + 1;
+                              }
+                              i = i + 1;
+                            };
+                          };
+                          decode (reader) {
+                            let code = 0;
+                            let first = 0;
+                            let index = 0;
+                            let __len = 1;
+                            while (__len <= this.maxBits) {
+                              const bit = reader.readBit();
+                              code = code * 2 + bit;
+                              const count = this.counts[__len];
+                              if ( code - first < count ) {
+                                return this.symbols[((index + code) - first)];
+                              }
+                              index = index + count;
+                              first = (first + count) * 2;
+                              __len = __len + 1;
+                            };
+                            return -1;
+                          };
+                        }
+                        class InflateBitReader  {
+                          constructor() {
+                            this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+                            this.bytePos = 0;
+                            this.bitPos = 0;
+                            this.currentByte = 0;
+                            this.dataLength = 0;
+                          }
+                          init (buf, offset, length) {
+                            this.data = buf;
+                            this.bytePos = offset;
+                            this.dataLength = offset + length;
+                            this.bitPos = 0;
+                            this.currentByte = 0;
+                          };
+                          readBit () {
+                            if ( this.bitPos == 0 ) {
+                              if ( this.bytePos >= this.dataLength ) {
+                                return 0;
+                              }
+                              this.currentByte = this.data._view.getUint8(this.bytePos);
+                              this.bytePos = this.bytePos + 1;
+                              this.bitPos = 8;
+                            }
+                            const bit = (this.currentByte & 1);
+                            this.currentByte = (this.currentByte >> 1);
+                            this.bitPos = this.bitPos - 1;
+                            return bit;
+                          };
+                          readBits (count) {
+                            let result = 0;
+                            let multiplier = 1;
+                            let i = 0;
+                            while (i < count) {
+                              const bit = this.readBit();
+                              result = result + bit * multiplier;
+                              multiplier = multiplier * 2;
+                              i = i + 1;
+                            };
+                            return result;
+                          };
+                          alignToByte () {
+                            this.bitPos = 0;
+                          };
+                          readByte () {
+                            this.alignToByte();
+                            if ( this.bytePos >= this.dataLength ) {
+                              return 0;
+                            }
+                            const b = this.data._view.getUint8(this.bytePos);
+                            this.bytePos = this.bytePos + 1;
+                            return b;
+                          };
+                          readUint16LE () {
+                            const b0 = this.readByte();
+                            const b1 = this.readByte();
+                            return b0 + b1 * 256;
+                          };
+                          getBytePosition () {
+                            return this.bytePos;
+                          };
+                          isEOF () {
+                            return this.bytePos >= this.dataLength && this.bitPos == 0;
+                          };
+                        }
+                        class Inflate  {
+                          constructor() {
+                            this.input = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+                            this.reader = new InflateBitReader();
+                            this.outBuf = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+                            this.outLen = 0;
+                            this.outCap = 0;
+                            this.fixedLitLen = new InflateHuffmanTable();
+                            this.fixedDist = new InflateHuffmanTable();
+                            this.fixedTablesBuilt = false;
+                            this.lengthBase = [];
+                            this.lengthExtra = [];
+                            this.distBase = [];
+                            this.distExtra = [];
+                            this.buildLengthDistTables();
+                          }
+                          resetOutput (hint) {
+                            let cap = hint;
+                            if ( cap < 4096 ) {
+                              cap = 4096;
+                            }
+                            this.outBuf = (function(){ var b = new ArrayBuffer(cap); b._view = new DataView(b); return b; })();
+                            this.outCap = cap;
+                            this.outLen = 0;
+                          };
+                          ensureCapacity (extra) {
+                            const need = this.outLen + extra;
+                            if ( need <= this.outCap ) {
+                              return;
+                            }
+                            let newCap = this.outCap * 2;
+                            if ( newCap < need ) {
+                              newCap = need;
+                            }
+                            let grown = (function(){ var b = new ArrayBuffer(newCap); b._view = new DataView(b); return b; })();
+                            (function(
+                              d,
+                              dOff,
+                              s,
+                              sOff,
+                              len
+                            ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(grown,0,this.outBuf,0,this.outLen);
+                            this.outBuf = grown;
+                            this.outCap = newCap;
+                          };
+                          pushByte (b) {
+                            this.ensureCapacity(1);
+                            this.outBuf._view.setUint8(this.outLen, b);
+                            this.outLen = this.outLen + 1;
+                          };
+                          finalOutput () {
+                            const size = this.outLen;
+                            let result = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+                            (function(
+                              d,
+                              dOff,
+                              s,
+                              sOff,
+                              len
+                            ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(result,0,this.outBuf,0,size);
+                            return result;
+                          };
+                          buildLengthDistTables () {
+                            let bases = [];
+                            bases.push(3);
+                            bases.push(4);
+                            bases.push(5);
+                            bases.push(6);
+                            bases.push(7);
+                            bases.push(8);
+                            bases.push(9);
+                            bases.push(10);
+                            bases.push(11);
+                            bases.push(13);
+                            bases.push(15);
+                            bases.push(17);
+                            bases.push(19);
+                            bases.push(23);
+                            bases.push(27);
+                            bases.push(31);
+                            bases.push(35);
+                            bases.push(43);
+                            bases.push(51);
+                            bases.push(59);
+                            bases.push(67);
+                            bases.push(83);
+                            bases.push(99);
+                            bases.push(115);
+                            bases.push(131);
+                            bases.push(163);
+                            bases.push(195);
+                            bases.push(227);
+                            bases.push(258);
+                            this.lengthBase = bases;
+                            let extras = [];
+                            extras.push(0);
+                            extras.push(0);
+                            extras.push(0);
+                            extras.push(0);
+                            extras.push(0);
+                            extras.push(0);
+                            extras.push(0);
+                            extras.push(0);
+                            extras.push(1);
+                            extras.push(1);
+                            extras.push(1);
+                            extras.push(1);
+                            extras.push(2);
+                            extras.push(2);
+                            extras.push(2);
+                            extras.push(2);
+                            extras.push(3);
+                            extras.push(3);
+                            extras.push(3);
+                            extras.push(3);
+                            extras.push(4);
+                            extras.push(4);
+                            extras.push(4);
+                            extras.push(4);
+                            extras.push(5);
+                            extras.push(5);
+                            extras.push(5);
+                            extras.push(5);
+                            extras.push(0);
+                            this.lengthExtra = extras;
+                            let dBases = [];
+                            dBases.push(1);
+                            dBases.push(2);
+                            dBases.push(3);
+                            dBases.push(4);
+                            dBases.push(5);
+                            dBases.push(7);
+                            dBases.push(9);
+                            dBases.push(13);
+                            dBases.push(17);
+                            dBases.push(25);
+                            dBases.push(33);
+                            dBases.push(49);
+                            dBases.push(65);
+                            dBases.push(97);
+                            dBases.push(129);
+                            dBases.push(193);
+                            dBases.push(257);
+                            dBases.push(385);
+                            dBases.push(513);
+                            dBases.push(769);
+                            dBases.push(1025);
+                            dBases.push(1537);
+                            dBases.push(2049);
+                            dBases.push(3073);
+                            dBases.push(4097);
+                            dBases.push(6145);
+                            dBases.push(8193);
+                            dBases.push(12289);
+                            dBases.push(16385);
+                            dBases.push(24577);
+                            this.distBase = dBases;
+                            let dExtras = [];
+                            dExtras.push(0);
+                            dExtras.push(0);
+                            dExtras.push(0);
+                            dExtras.push(0);
+                            dExtras.push(1);
+                            dExtras.push(1);
+                            dExtras.push(2);
+                            dExtras.push(2);
+                            dExtras.push(3);
+                            dExtras.push(3);
+                            dExtras.push(4);
+                            dExtras.push(4);
+                            dExtras.push(5);
+                            dExtras.push(5);
+                            dExtras.push(6);
+                            dExtras.push(6);
+                            dExtras.push(7);
+                            dExtras.push(7);
+                            dExtras.push(8);
+                            dExtras.push(8);
+                            dExtras.push(9);
+                            dExtras.push(9);
+                            dExtras.push(10);
+                            dExtras.push(10);
+                            dExtras.push(11);
+                            dExtras.push(11);
+                            dExtras.push(12);
+                            dExtras.push(12);
+                            dExtras.push(13);
+                            dExtras.push(13);
+                            this.distExtra = dExtras;
+                          };
+                          buildFixedTables () {
+                            if ( this.fixedTablesBuilt ) {
+                              return;
+                            }
+                            let lengths = [];
+                            let i = 0;
+                            while (i < 144) {
+                              lengths.push(8);
+                              i = i + 1;
+                            };
+                            while (i < 256) {
+                              lengths.push(9);
+                              i = i + 1;
+                            };
+                            while (i < 280) {
+                              lengths.push(7);
+                              i = i + 1;
+                            };
+                            while (i < 288) {
+                              lengths.push(8);
+                              i = i + 1;
+                            };
+                            this.fixedLitLen.build(lengths, 288);
+                            let distLengths = [];
+                            i = 0;
+                            while (i < 32) {
+                              distLengths.push(5);
+                              i = i + 1;
+                            };
+                            this.fixedDist.build(distLengths, 32);
+                            this.fixedTablesBuilt = true;
+                          };
+                          decompress (data) {
+                            return this.decompressFrom(data, 0);
+                          };
+                          decompressFrom (data, offset) {
+                            this.input = data;
+                            const dataLen = data.byteLength;
+                            let from = offset;
+                            if ( from < 0 ) {
+                              from = 0;
+                            }
+                            if ( from > dataLen ) {
+                              from = dataLen;
+                            }
+                            const rest = dataLen - from;
+                            this.resetOutput(rest * 4);
+                            this.reader.init(data, from, rest);
+                            this.buildFixedTables();
+                            let finalBlock = false;
+                            while (false == finalBlock) {
+                              const bfinal = this.reader.readBit();
+                              const btype = this.reader.readBits(2);
+                              finalBlock = bfinal == 1;
+                              if ( btype == 0 ) {
+                                this.decompressStored();
+                              }
+                              if ( btype == 1 ) {
+                                this.decompressHuffman(this.fixedLitLen, this.fixedDist);
+                              }
+                              if ( btype == 2 ) {
+                                this.decompressDynamic();
+                              }
+                            };
+                            return this.finalOutput();
+                          };
+                          inputPos () {
+                            return this.reader.getBytePosition();
+                          };
+                          decompressStored () {
+                            this.reader.alignToByte();
+                            const __len = this.reader.readUint16LE();
+                            const nlen = this.reader.readUint16LE();
+                            if ( __len + nlen != 65535 ) {
+                            }
+                            this.ensureCapacity(__len);
+                            let i = 0;
+                            while (i < __len) {
+                              const b = this.reader.readByte();
+                              this.pushByte(b);
+                              i = i + 1;
+                            };
+                          };
+                          decompressHuffman (litLenTable, distTable) {
+                            let done = false;
+                            while (false == done) {
+                              const sym = litLenTable.decode(this.reader);
+                              if ( sym < 256 ) {
+                                this.pushByte(sym);
+                              }
+                              if ( sym == 256 ) {
+                                done = true;
+                              }
+                              if ( sym > 256 ) {
+                                const lengthCode = sym - 257;
+                                let length = this.lengthBase[lengthCode];
+                                const extraBits = this.lengthExtra[lengthCode];
+                                if ( extraBits > 0 ) {
+                                  length = length + this.reader.readBits(extraBits);
+                                }
+                                const distCode = distTable.decode(this.reader);
+                                let dist = this.distBase[distCode];
+                                const distExtraBits = this.distExtra[distCode];
+                                if ( distExtraBits > 0 ) {
+                                  dist = dist + this.reader.readBits(distExtraBits);
+                                }
+                                this.copyFromOutput(dist, length);
+                              }
+                            };
+                          };
+                          decompressDynamic () {
+                            const hlit = this.reader.readBits(5) + 257;
+                            const hdist = this.reader.readBits(5) + 1;
+                            const hclen = this.reader.readBits(4) + 4;
+                            let clOrder = [];
+                            clOrder.push(16);
+                            clOrder.push(17);
+                            clOrder.push(18);
+                            clOrder.push(0);
+                            clOrder.push(8);
+                            clOrder.push(7);
+                            clOrder.push(9);
+                            clOrder.push(6);
+                            clOrder.push(10);
+                            clOrder.push(5);
+                            clOrder.push(11);
+                            clOrder.push(4);
+                            clOrder.push(12);
+                            clOrder.push(3);
+                            clOrder.push(13);
+                            clOrder.push(2);
+                            clOrder.push(14);
+                            clOrder.push(1);
+                            clOrder.push(15);
+                            let clLengths = [];
+                            let i = 0;
+                            while (i < 19) {
+                              clLengths.push(0);
+                              i = i + 1;
+                            };
+                            i = 0;
+                            while (i < hclen) {
+                              const idx = clOrder[i];
+                              const __len = this.reader.readBits(3);
+                              clLengths[idx] = __len;
+                              i = i + 1;
+                            };
+                            const clTable = new InflateHuffmanTable();
+                            clTable.build(clLengths, 19);
+                            let allLengths = [];
+                            const totalCodes = hlit + hdist;
+                            i = 0;
+                            while (i < totalCodes) {
+                              const sym = clTable.decode(this.reader);
+                              if ( sym < 16 ) {
+                                allLengths.push(sym);
+                                i = i + 1;
+                              }
+                              if ( sym == 16 ) {
+                                const repeat = this.reader.readBits(2) + 3;
+                                let prevLen = 0;
+                                const arrLen = allLengths.length;
+                                if ( arrLen > 0 ) {
+                                  prevLen = allLengths[(arrLen - 1)];
+                                }
+                                let j = 0;
+                                while (j < repeat) {
+                                  allLengths.push(prevLen);
+                                  j = j + 1;
+                                };
+                                i = i + repeat;
+                              }
+                              if ( sym == 17 ) {
+                                const repeat_1 = this.reader.readBits(3) + 3;
+                                let j_1 = 0;
+                                while (j_1 < repeat_1) {
+                                  allLengths.push(0);
+                                  j_1 = j_1 + 1;
+                                };
+                                i = i + repeat_1;
+                              }
+                              if ( sym == 18 ) {
+                                const repeat_2 = this.reader.readBits(7) + 11;
+                                let j_2 = 0;
+                                while (j_2 < repeat_2) {
+                                  allLengths.push(0);
+                                  j_2 = j_2 + 1;
+                                };
+                                i = i + repeat_2;
+                              }
+                            };
+                            let litLenLengths = [];
+                            let distLengths = [];
+                            i = 0;
+                            while (i < hlit) {
+                              litLenLengths.push(allLengths[i]);
+                              i = i + 1;
+                            };
+                            while (i < totalCodes) {
+                              distLengths.push(allLengths[i]);
+                              i = i + 1;
+                            };
+                            const dynLitLen = new InflateHuffmanTable();
+                            dynLitLen.build(litLenLengths, hlit);
+                            const dynDist = new InflateHuffmanTable();
+                            dynDist.build(distLengths, hdist);
+                            this.decompressHuffman(dynLitLen, dynDist);
+                          };
+                          copyFromOutput (distance, length) {
+                            const srcPos = this.outLen - distance;
+                            this.ensureCapacity(length);
+                            let i = 0;
+                            while (i < length) {
+                              let b = 0;
+                              const readPos = srcPos + i;
+                              if ( readPos >= 0 ) {
+                                if ( readPos < this.outLen ) {
+                                  b = this.outBuf._view.getUint8(readPos);
+                                }
+                              }
+                              this.outBuf._view.setUint8(this.outLen, b);
+                              this.outLen = this.outLen + 1;
+                              i = i + 1;
+                            };
+                          };
+                        }
+                        class GitZlib  {
+                          constructor() {
+                            this.ok = true;
+                            this.err = "";
+                            this.nextPos = 0;
+                            this.ok = true;
+                            this.err = "";
+                            this.nextPos = 0;
+                          }
+                          inflateAt (data, offset) {
+                            this.ok = true;
+                            this.err = "";
+                            this.nextPos = offset;
+                            const n = data.byteLength;
+                            if ( offset + 6 > n ) {
+                              this.ok = false;
+                              this.err = "zlib stream truncated";
+                              return (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+                            }
+                            const cmf = data._view.getUint8(offset);
+                            const flg = data._view.getUint8((offset + 1));
+                            const method = (cmf & 15);
+                            if ( method != 8 ) {
+                              this.ok = false;
+                              this.err = "zlib method is not deflate";
+                              return (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+                            }
+                            if ( (flg & 32) != 0 ) {
+                              this.ok = false;
+                              this.err = "zlib preset dictionary is not used by Git";
+                              return (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+                            }
+                            const inf = new Inflate();
+                            const out = inf.decompressFrom(data, (offset + 2));
+                            const end = inf.inputPos();
+                            if ( end + 4 > n ) {
+                              this.ok = false;
+                              this.err = "zlib Adler-32 truncated";
+                              this.nextPos = n;
+                              return out;
+                            }
+                            this.nextPos = end + 4;
+                            return out;
+                          };
+                          inflate (data) {
+                            return this.inflateAt(data, 0);
+                          };
+                        }
+                        class GitObj  {
+                          constructor() {
+                            this.kind = 0;
+                            this.sha = "";
+                            this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+                            this.packOff = 0;
+                            this.resolved = false;
+                            this.delta = false;
+                            this.baseOff = 0;
+                            this.baseSha = "";
+                          }
+                        }
+                        class GitPack  {
+                          constructor() {
+                            this.ok = true;
+                            this.err = "";
+                            this.version = 0;
+                            this.count = 0;
+                            this.objects = [];
+                            this.bySha = {};
+                            this.byOff = {};
+                          }
+                        }
+                        class GitDelta  {
+                          constructor() {
+                          }
+                        }
+                        GitDelta.varInt = function(data, pos) {
+                          let at = pos[0];
+                          const n = data.byteLength;
+                          if ( at >= n ) {
+                            return 0;
+                          }
+                          let c = data._view.getUint8(at);
+                          at = at + 1;
+                          let v = (c & 127);
+                          let shift = 7;
+                          while ((c & 128) != 0) {
+                            if ( at >= n ) {
+                              pos[0] = at;
+                              return v;
+                            }
+                            c = data._view.getUint8(at);
+                            at = at + 1;
+                            v = (v | ((c & 127) << shift));
+                            shift = shift + 7;
+                          };
+                          pos[0] = at;
+                          return v;
+                        };
+                        GitDelta.apply = function(src, delta) {
+                          let pos = [];
+                          pos.push(0);
+                          const srcSize = GitDelta.varInt(delta, pos);
+                          const dstSize = GitDelta.varInt(delta, pos);
+                          const srcLen = src.byteLength;
+                          if ( srcSize != srcLen ) {
+                          }
+                          let out = (function(){ var b = new ArrayBuffer(dstSize); b._view = new DataView(b); return b; })();
+                          let o = 0;
+                          const n = delta.byteLength;
+                          let at = pos[0];
+                          while (at < n) {
+                            const cmd = delta._view.getUint8(at);
+                            at = at + 1;
+                            if ( (cmd & 128) != 0 ) {
+                              let cpOff = 0;
+                              let cpSize = 0;
+                              if ( (cmd & 1) != 0 ) {
+                                cpOff = delta._view.getUint8(at);
+                                at = at + 1;
+                              }
+                              if ( (cmd & 2) != 0 ) {
+                                cpOff = (cpOff | (delta._view.getUint8(at) << 8));
+                                at = at + 1;
+                              }
+                              if ( (cmd & 4) != 0 ) {
+                                cpOff = (cpOff | (delta._view.getUint8(at) << 16));
+                                at = at + 1;
+                              }
+                              if ( (cmd & 8) != 0 ) {
+                                cpOff = (cpOff | (delta._view.getUint8(at) << 24));
+                                at = at + 1;
+                              }
+                              if ( (cmd & 16) != 0 ) {
+                                cpSize = delta._view.getUint8(at);
+                                at = at + 1;
+                              }
+                              if ( (cmd & 32) != 0 ) {
+                                cpSize = (cpSize | (delta._view.getUint8(at) << 8));
+                                at = at + 1;
+                              }
+                              if ( (cmd & 64) != 0 ) {
+                                cpSize = (cpSize | (delta._view.getUint8(at) << 16));
+                                at = at + 1;
+                              }
+                              if ( cpSize == 0 ) {
+                                cpSize = 65536;
+                              }
+                              (function(
+                                d,
+                                dOff,
+                                s,
+                                sOff,
+                                len
+                              ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(out,o,src,cpOff,cpSize);
+                              o = o + cpSize;
+                            } else {
+                              if ( cmd == 0 ) {
+                                return out;
+                              }
+                              (function(
+                                d,
+                                dOff,
+                                s,
+                                sOff,
+                                len
+                              ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(out,o,delta,at,cmd);
+                              o = o + cmd;
+                              at = at + cmd;
+                            }
+                          };
+                          return out;
+                        };
+                        class GitPackIO  {
+                          constructor() {
+                          }
+                        }
+                        GitPackIO.kindName = function(kind) {
+                          if ( kind == 1 ) {
+                            return "commit";
+                          }
+                          if ( kind == 2 ) {
+                            return "tree";
+                          }
+                          if ( kind == 3 ) {
+                            return "blob";
+                          }
+                          if ( kind == 4 ) {
+                            return "tag";
+                          }
+                          return "unknown";
+                        };
+                        GitPackIO.parse = function(data) {
+                          const pack = new GitPack();
+                          const n = data.byteLength;
+                          if ( n < 32 ) {
+                            pack.ok = false;
+                            pack.err = "pack too small";
+                            return pack;
+                          }
+                          const mag = GitSha1.ascii(data, 0, 4);
+                          if ( mag != "PACK" ) {
+                            pack.ok = false;
+                            pack.err = "not a pack (missing PACK magic)";
+                            return pack;
+                          }
+                          pack.version = GitSha1.u32be(data, 4);
+                          pack.count = GitSha1.u32be(data, 8);
+                          if ( pack.version != 2 ) {
+                            pack.ok = false;
+                            pack.err = "unsupported pack version " + (pack.version.toString());
+                            return pack;
+                          }
+                          const z = new GitZlib();
+                          let at = 12;
+                          let i = 0;
+                          while (i < pack.count) {
+                            if ( at >= n - 20 ) {
+                              pack.ok = false;
+                              pack.err = "truncated pack at object " + (i.toString());
+                              return pack;
+                            }
+                            const obj = new GitObj();
+                            obj.packOff = at;
+                            let c = data._view.getUint8(at);
+                            at = at + 1;
+                            obj.kind = ((c >>> 4) & 7);
+                            let size = (c & 15);
+                            let shift = 4;
+                            while ((c & 128) != 0) {
+                              if ( at >= n ) {
+                                pack.ok = false;
+                                pack.err = "truncated size encoding";
+                                return pack;
+                              }
+                              c = data._view.getUint8(at);
+                              at = at + 1;
+                              size = (size | ((c & 127) << shift));
+                              shift = shift + 7;
+                            };
+                            if ( obj.kind == 6 ) {
+                              let oc = data._view.getUint8(at);
+                              at = at + 1;
+                              let offv = (oc & 127);
+                              while ((oc & 128) != 0) {
+                                oc = data._view.getUint8(at);
+                                at = at + 1;
+                                offv = offv + 1;
+                                offv = offv * 128 + (oc & 127);
+                              };
+                              obj.delta = true;
+                              obj.baseOff = obj.packOff - offv;
+                            }
+                            if ( obj.kind == 7 ) {
+                              obj.delta = true;
+                              obj.baseSha = GitSha1.toHex(GitSha1.copyRange(
+                                data,
+                                at,
+                                20
+                              ));
+                              at = at + 20;
+                            }
+                            const inflated = z.inflateAt(data, at);
+                            if ( z.ok == false ) {
+                              pack.ok = false;
+                              pack.err = (("inflate object " + (i.toString())) + ": ") + z.err;
+                              return pack;
+                            }
+                            at = z.nextPos;
+                            obj.data = inflated;
+                            if ( obj.delta ) {
+                              obj.resolved = false;
+                            } else {
+                              obj.resolved = true;
+                              obj.sha = GitSha1.objectId(GitPackIO.kindName(obj.kind), inflated);
+                              pack.bySha[obj.sha] = obj;
+                            }
+                            pack.byOff[obj.packOff] = obj;
+                            pack.objects.push(obj);
+                            i = i + 1;
+                          };
+                          GitPackIO.resolveDeltas(pack);
+                          return pack;
+                        };
+                        GitPackIO.resolveDeltas = function(pack) {
+                          let guard = 0;
+                          let progress = true;
+                          while (progress) {
+                            if ( guard > 64 ) {
+                              pack.ok = false;
+                              pack.err = "delta chain too deep";
+                              return;
+                            }
+                            progress = false;
+                            let i = 0;
+                            while (i < pack.objects.length) {
+                              const obj = pack.objects[i];
+                              if ( obj.resolved == false ) {
+                                let base;
+                                if ( obj.kind == 6 ) {
+                                  if ( ( typeof(pack.byOff[obj.baseOff] ) != "undefined" && Object.prototype.hasOwnProperty.call(pack.byOff, obj.baseOff) ) ) {
+                                    base = ( Object.prototype.hasOwnProperty.call(pack.byOff, obj.baseOff) ? pack.byOff[obj.baseOff] : undefined );
+                                  }
+                                }
+                                if ( obj.kind == 7 ) {
+                                  if ( ( typeof(pack.bySha[obj.baseSha] ) != "undefined" && Object.prototype.hasOwnProperty.call(pack.bySha, obj.baseSha) ) ) {
+                                    base = ( Object.prototype.hasOwnProperty.call(pack.bySha, obj.baseSha) ? pack.bySha[obj.baseSha] : undefined );
+                                  }
+                                }
+                                if ( typeof(base) === "undefined" ) {
+                                } else {
+                                  const b = base;
+                                  if ( b.resolved ) {
+                                    const out = GitDelta.apply(b.data, obj.data);
+                                    obj.data = out;
+                                    obj.kind = b.kind;
+                                    obj.delta = false;
+                                    obj.resolved = true;
+                                    obj.sha = GitSha1.objectId(GitPackIO.kindName(obj.kind), out);
+                                    pack.bySha[obj.sha] = obj;
+                                    progress = true;
+                                  }
+                                }
+                              }
+                              i = i + 1;
+                            };
+                            guard = guard + 1;
+                          };
+                          let j = 0;
+                          while (j < pack.objects.length) {
+                            const o2 = pack.objects[j];
+                            if ( o2.resolved == false ) {
+                              pack.ok = false;
+                              pack.err = "unresolved delta in pack";
+                              return;
+                            }
+                            j = j + 1;
+                          };
+                        };
+                        GitPackIO.lookup = function(pack, sha) {
+                          let res;
+                          if ( ( typeof(pack.bySha[sha] ) != "undefined" && Object.prototype.hasOwnProperty.call(pack.bySha, sha) ) ) {
+                            res = ( Object.prototype.hasOwnProperty.call(pack.bySha, sha) ? pack.bySha[sha] : undefined );
+                          }
+                          return res;
+                        };
+                        GitPackIO.merge = function(a, b) {
+                          const out = new GitPack();
+                          if ( a.ok == false ) {
+                            out.ok = false;
+                            out.err = a.err;
+                            return out;
+                          }
+                          if ( b.ok == false ) {
+                            out.ok = false;
+                            out.err = b.err;
+                            return out;
+                          }
+                          let i = 0;
+                          while (i < a.objects.length) {
+                            const o = a.objects[i];
+                            out.objects.push(o);
+                            out.bySha[o.sha] = o;
+                            i = i + 1;
+                          };
+                          i = 0;
+                          while (i < b.objects.length) {
+                            const o2 = b.objects[i];
+                            if ( ( typeof(out.bySha[o2.sha] ) != "undefined" && Object.prototype.hasOwnProperty.call(out.bySha, o2.sha) ) ) {
+                            } else {
+                              out.objects.push(o2);
+                              out.bySha[o2.sha] = o2;
+                            }
+                            i = i + 1;
+                          };
+                          out.count = out.objects.length;
+                          out.ok = true;
+                          return out;
+                        };
+                        class GitEntry  {
+                          constructor() {
+                            this.name = "";
+                            this.sha = "";
+                            this.isTree = false;
+                            this.mode = "";
+                          }
+                        }
+                        class GitFile  {
+                          constructor() {
+                            this.path = "";
+                            this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+                          }
+                        }
+                        class GitTree  {
+                          constructor() {
+                            this.sha = "";     /* note: unused */
+                            this.entries = [];
+                          }
+                        }
+                        class GitMem  {
+                          constructor() {
+                            this.files = [];
+                            this.paths = [];
+                            this.byPath = {};
+                          }
+                        }
+                        class GitStore  {
+                          constructor(p) {
+                            this.pack = new GitPack();
+                            this.ok = true;
+                            this.err = "";
+                            this.pack = p;
+                            this.ok = p.ok;
+                            this.err = p.err;
+                          }
+                          takeObj (sha) {
+                            return GitPackIO.lookup(this.pack, sha);
+                          };
+                          parseTree (payload) {
+                            const t = new GitTree();
+                            const n = payload.byteLength;
+                            let at = 0;
+                            while (at < n) {
+                              const modeStart = at;
+                              while (at < n) {
+                                if ( payload._view.getUint8(at) == 32 ) {
+                                  break;
+                                }
+                                at = at + 1;
+                              };
+                              const mode = GitSha1.ascii(
+                                payload,
+                                modeStart,
+                                (at - modeStart)
+                              );
+                              at = at + 1;
+                              const nameStart = at;
+                              while (at < n) {
+                                if ( payload._view.getUint8(at) == 0 ) {
+                                  break;
+                                }
+                                at = at + 1;
+                              };
+                              const name = GitSha1.ascii(
+                                payload,
+                                nameStart,
+                                (at - nameStart)
+                              );
+                              at = at + 1;
+                              if ( at + 20 > n ) {
+                                break;
+                              }
+                              const sha = GitSha1.toHex(GitSha1.copyRange(
+                                payload,
+                                at,
+                                20
+                              ));
+                              at = at + 20;
+                              const e = new GitEntry();
+                              e.name = name;
+                              e.sha = sha;
+                              e.mode = mode;
+                              if ( mode.length > 0 ) {
+                                if ( mode.substring(0, 1 ) == "4" ) {
+                                  e.isTree = true;
+                                }
+                              }
+                              t.entries.push(e);
+                            };
+                            return t;
+                          };
+                          commitTree (payload) {
+                            const text = (function(b){ var v = (b instanceof Uint8Array) ? b : new Uint8Array(b); var s = ""; var i = 0; var n = v.length; var c = 32768; while (i < n) { var e = i + c; if (e > n) { e = n; } s += String.fromCharCode.apply(null, v.subarray(i, e)); i = e; } return s; })(payload);
+                            if ( text.length < 46 ) {
+                              return "";
+                            }
+                            if ( text.substring(0, 5 ) != "tree " ) {
+                              return "";
+                            }
+                            return text.substring(5, 45 );
+                          };
+                          checkout (sha, subdir) {
+                            const mem = new GitMem();
+                            const obj = this.takeObj(sha);
+                            if ( typeof(obj) === "undefined" ) {
+                              this.ok = false;
+                              this.err = "object not in pack: " + sha;
+                              return mem;
+                            }
+                            const o = obj;
+                            let treeSha = sha;
+                            if ( o.kind == 1 ) {
+                              treeSha = this.commitTree(o.data);
+                            }
+                            if ( o.kind == 4 ) {
+                              const tagText = (function(b){ var v = (b instanceof Uint8Array) ? b : new Uint8Array(b); var s = ""; var i = 0; var n = v.length; var c = 32768; while (i < n) { var e = i + c; if (e > n) { e = n; } s += String.fromCharCode.apply(null, v.subarray(i, e)); i = e; } return s; })(o.data);
+                              if ( tagText.length >= 48 ) {
+                                if ( tagText.substring(0, 7 ) == "object " ) {
+                                  treeSha = tagText.substring(7, 47 );
+                                  const inner = this.takeObj(treeSha);
+                                  if ( typeof(inner) === "undefined" ) {
+                                    this.ok = false;
+                                    this.err = "tag target missing: " + treeSha;
+                                    return mem;
+                                  }
+                                  const inn = inner;
+                                  if ( inn.kind == 1 ) {
+                                    treeSha = this.commitTree(inn.data);
+                                  }
+                                }
+                              }
+                            }
+                            this.walk(mem, treeSha, "", subdir);
+                            return mem;
+                          };
+                          walk (mem, treeSha, prefix, want) {
+                            const obj = this.takeObj(treeSha);
+                            if ( typeof(obj) === "undefined" ) {
+                              this.ok = false;
+                              this.err = "tree missing: " + treeSha;
+                              return;
+                            }
+                            const o = obj;
+                            const tree = this.parseTree(o.data);
+                            let i = 0;
+                            while (i < tree.entries.length) {
+                              const e = tree.entries[i];
+                              let path = e.name;
+                              if ( prefix.length > 0 ) {
+                                path = (prefix + "/") + e.name;
+                              }
+                              if ( e.isTree ) {
+                                if ( this.mayEnter(path, want) ) {
+                                  this.walk(mem, e.sha, path, want);
+                                }
+                              } else {
+                                if ( this.underSubdir(path, want) ) {
+                                  const blob = this.takeObj(e.sha);
+                                  if ( typeof(blob) === "undefined" ) {
+                                    this.ok = false;
+                                    this.err = "blob missing: " + e.sha;
+                                  } else {
+                                    const b = blob;
+                                    const rel = this.stripSubdir(path, want);
+                                    const f = new GitFile();
+                                    f.path = rel;
+                                    f.data = b.data;
+                                    mem.files.push(f);
+                                    mem.paths.push(rel);
+                                    mem.byPath[rel] = f;
+                                  }
+                                }
+                              }
+                              i = i + 1;
+                            };
+                          };
+                          mayEnter (path, want) {
+                            if ( want.length == 0 ) {
+                              return true;
+                            }
+                            if ( this.underSubdir(path, want) ) {
+                              return true;
+                            }
+                            const pn = path.length;
+                            const wn = want.length;
+                            if ( wn > pn ) {
+                              if ( want.substring(0, pn ) == path ) {
+                                if ( want.charCodeAt(pn ) == 47 ) {
+                                  return true;
+                                }
+                              }
+                            }
+                            return path == want;
+                          };
+                          splitSegs (path) {
+                            let parts = [];
+                            const n = path.length;
+                            let start = 0;
+                            let i = 0;
+                            while (i <= n) {
+                              if ( i == n || path.charCodeAt(i ) == 47 ) {
+                                const piece = path.substring(start, i );
+                                if ( piece.length > 0 ) {
+                                  parts.push(piece);
+                                }
+                                start = i + 1;
+                              }
+                              i = i + 1;
+                            };
+                            return parts;
+                          };
+                          asTreeSha (sha) {
+                            const obj = this.takeObj(sha);
+                            if ( typeof(obj) === "undefined" ) {
+                              this.ok = false;
+                              this.err = "object not in pack: " + sha;
+                              return "";
+                            }
+                            const o = obj;
+                            if ( o.kind == 2 ) {
+                              return sha;
+                            }
+                            if ( o.kind == 1 ) {
+                              return this.commitTree(o.data);
+                            }
+                            if ( o.kind == 4 ) {
+                              const tagText = (function(b){ var v = (b instanceof Uint8Array) ? b : new Uint8Array(b); var s = ""; var i = 0; var n = v.length; var c = 32768; while (i < n) { var e = i + c; if (e > n) { e = n; } s += String.fromCharCode.apply(null, v.subarray(i, e)); i = e; } return s; })(o.data);
+                              if ( tagText.length >= 48 ) {
+                                if ( tagText.substring(0, 7 ) == "object " ) {
+                                  const inner = tagText.substring(7, 47 );
+                                  const inn = this.takeObj(inner);
+                                  if ( typeof(inn) === "undefined" ) {
+                                    return inner;
+                                  }
+                                  const io = inn;
+                                  if ( io.kind == 1 ) {
+                                    return this.commitTree(io.data);
+                                  }
+                                  if ( io.kind == 2 ) {
+                                    return inner;
+                                  }
+                                }
+                              }
+                            }
+                            return sha;
+                          };
+                          treeAt (sha, subdir) {
+                            let cur = this.asTreeSha(sha);
+                            if ( cur.length == 0 ) {
+                              return "";
+                            }
+                            if ( subdir.length == 0 ) {
+                              return cur;
+                            }
+                            const segs = this.splitSegs(subdir);
+                            let s = 0;
+                            while (s < segs.length) {
+                              const part = segs[s];
+                              const obj = this.takeObj(cur);
+                              if ( typeof(obj) === "undefined" ) {
+                                this.ok = false;
+                                this.err = "tree missing: " + cur;
+                                return "";
+                              }
+                              const o = obj;
+                              const tree = this.parseTree(o.data);
+                              let found = "";
+                              let i = 0;
+                              while (i < tree.entries.length) {
+                                const e = tree.entries[i];
+                                if ( e.name == part ) {
+                                  if ( e.isTree ) {
+                                    found = e.sha;
+                                  }
+                                }
+                                i = i + 1;
+                              };
+                              if ( found.length == 0 ) {
+                                this.ok = false;
+                                this.err = (("no subtree " + part) + " in ") + subdir;
+                                return "";
+                              }
+                              cur = found;
+                              s = s + 1;
+                            };
+                            return cur;
+                          };
+                          underSubdir (path, want) {
+                            if ( want.length == 0 ) {
+                              return true;
+                            }
+                            if ( path == want ) {
+                              return true;
+                            }
+                            const prefix = want + "/";
+                            const n = prefix.length;
+                            if ( path.length < n ) {
+                              return false;
+                            }
+                            return path.substring(0, n ) == prefix;
+                          };
+                          stripSubdir (path, want) {
+                            if ( want.length == 0 ) {
+                              return path;
+                            }
+                            if ( path == want ) {
+                              return this.baseName(path);
+                            }
+                            const prefix = want + "/";
+                            const n = prefix.length;
+                            if ( path.length >= n ) {
+                              if ( path.substring(0, n ) == prefix ) {
+                                return path.substring(n, path.length );
+                              }
+                            }
+                            return path;
+                          };
+                          baseName (path) {
+                            const n = path.length;
+                            let i = n - 1;
+                            while (i >= 0) {
+                              if ( path.charCodeAt(i ) == 47 ) {
+                                return path.substring((i + 1), n );
+                              }
+                              i = i - 1;
+                            };
+                            return path;
+                          };
+                          writeDisk (mem, root) {
+                            let i = 0;
+                            while (i < mem.files.length) {
+                              const f = mem.files[i];
+                              const dir = this.dirOf(((root + "/") + f.path));
+                              require("fs").mkdirSync( dir, { recursive: true });
+                              const parts = this.splitPath(((root + "/") + f.path));
+                              require('fs').writeFileSync(parts[0] + '/' + parts[1], Buffer.from(f.data));
+                              i = i + 1;
+                            };
+                          };
+                          dirOf (path) {
+                            const n = path.length;
+                            let i = n - 1;
+                            while (i >= 0) {
+                              if ( path.charCodeAt(i ) == 47 ) {
+                                return path.substring(0, i );
+                              }
+                              i = i - 1;
+                            };
+                            return ".";
+                          };
+                          splitPath (path) {
+                            let dir = ".";
+                            let name = path;
+                            const n = path.length;
+                            let i = n - 1;
+                            while (i >= 0) {
+                              if ( path.charCodeAt(i ) == 47 ) {
+                                dir = path.substring(0, i );
+                                name = path.substring((i + 1), n );
+                                i = 0 - 1;
+                              } else {
+                                i = i - 1;
+                              }
+                            };
+                            let parts = [];
+                            parts.push(dir);
+                            parts.push(name);
+                            return parts;
+                          };
+                          fileText (mem, path) {
+                            if ( ( typeof(mem.byPath[path] ) != "undefined" && Object.prototype.hasOwnProperty.call(mem.byPath, path) ) ) {
+                              const f = ( Object.prototype.hasOwnProperty.call(mem.byPath, path) ? mem.byPath[path] : undefined );
+                              return (function(b){ var v = (b instanceof Uint8Array) ? b : new Uint8Array(b); var s = ""; var i = 0; var n = v.length; var c = 32768; while (i < n) { var e = i + c; if (e > n) { e = n; } s += String.fromCharCode.apply(null, v.subarray(i, e)); i = e; } return s; })(f.data);
+                            }
+                            return "";
+                          };
+                        }
+                        class PkgVal  {
+                          constructor() {
+                            this.kind = "null";
+                            this.str = "";
+                            this.num = 0;
+                            this.flag = false;
+                            this.keys = [];
+                            this.vals = [];
+                          }
+                        }
+                        class PkgJson  {
+                          constructor() {
+                            this.text = "";
+                            this.i = 0;
+                            this.n = 0;
+                            this.ok = true;
+                            this.err = "";
+                          }
+                          parse (src) {
+                            this.text = src;
+                            this.i = 0;
+                            this.n = src.length;
+                            this.ok = true;
+                            this.err = "";
+                            this.skip();
+                            const v = this.value();
+                            return v;
+                          };
+                          skip () {
+                            while (this.i < this.n) {
+                              const c = this.text.charCodeAt(this.i );
+                              if ( c <= 32 ) {
+                                this.i = this.i + 1;
+                              } else {
+                                return;
+                              }
+                            };
+                          };
+                          value () {
+                            this.skip();
+                            const v = new PkgVal();
+                            if ( this.i >= this.n ) {
+                              this.ok = false;
+                              this.err = "unexpected end of JSON";
+                              return v;
+                            }
+                            const c = this.text.charCodeAt(this.i );
+                            if ( c == 123 ) {
+                              return this.object();
+                            }
+                            if ( c == 34 ) {
+                              v.kind = "str";
+                              v.str = this.str();
+                              return v;
+                            }
+                            if ( c == 116 ) {
+                              v.kind = "bool";
+                              v.flag = true;
+                              this.i = this.i + 4;
+                              return v;
+                            }
+                            if ( c == 102 ) {
+                              v.kind = "bool";
+                              v.flag = false;
+                              this.i = this.i + 5;
+                              return v;
+                            }
+                            if ( c == 110 ) {
+                              v.kind = "null";
+                              this.i = this.i + 4;
+                              return v;
+                            }
+                            v.kind = "int";
+                            v.num = this.num();
+                            return v;
+                          };
+                          object () {
+                            const v = new PkgVal();
+                            v.kind = "obj";
+                            this.i = this.i + 1;
+                            this.skip();
+                            while (this.i < this.n) {
+                              const c = this.text.charCodeAt(this.i );
+                              if ( c == 125 ) {
+                                this.i = this.i + 1;
+                                return v;
+                              }
+                              if ( c == 44 ) {
+                                this.i = this.i + 1;
+                                this.skip();
+                              } else {
+                                const key = this.str();
+                                this.skip();
+                                if ( this.i < this.n ) {
+                                  if ( this.text.charCodeAt(this.i ) == 58 ) {
+                                    this.i = this.i + 1;
+                                  }
+                                }
+                                const child = this.value();
+                                v.keys.push(key);
+                                v.vals.push(child);
+                                this.skip();
+                              }
+                            };
+                            this.ok = false;
+                            this.err = "unterminated object";
+                            return v;
+                          };
+                          str () {
+                            this.skip();
+                            if ( this.i >= this.n ) {
+                              return "";
+                            }
+                            if ( this.text.charCodeAt(this.i ) != 34 ) {
+                              this.ok = false;
+                              this.err = "expected string";
+                              return "";
+                            }
+                            this.i = this.i + 1;
+                            let s = "";
+                            while (this.i < this.n) {
+                              const c = this.text.charCodeAt(this.i );
+                              if ( c == 34 ) {
+                                this.i = this.i + 1;
+                                return s;
+                              }
+                              if ( c == 92 ) {
+                                this.i = this.i + 1;
+                                if ( this.i < this.n ) {
+                                  const e = this.text.charCodeAt(this.i );
+                                  if ( e == 110 ) {
+                                    s = s + String.fromCharCode(10);
+                                  } else {
+                                    if ( e == 116 ) {
+                                      s = s + String.fromCharCode(9);
+                                    } else {
+                                      if ( e == 114 ) {
+                                        s = s + String.fromCharCode(13);
+                                      } else {
+                                        s = s + String.fromCharCode(e);
+                                      }
+                                    }
+                                  }
+                                  this.i = this.i + 1;
+                                }
+                              } else {
+                                s = s + String.fromCharCode(c);
+                                this.i = this.i + 1;
+                              }
+                            };
+                            this.ok = false;
+                            this.err = "unterminated string";
+                            return s;
+                          };
+                          num () {
+                            let sign = 1;
+                            if ( this.i < this.n ) {
+                              if ( this.text.charCodeAt(this.i ) == 45 ) {
+                                sign = 0 - 1;
+                                this.i = this.i + 1;
+                              }
+                            }
+                            let v = 0;
+                            while (this.i < this.n) {
+                              const c = this.text.charCodeAt(this.i );
+                              if ( c >= 48 && c <= 57 ) {
+                                v = v * 10 + (c - 48);
+                                this.i = this.i + 1;
+                              } else {
+                                return v * sign;
+                              }
+                            };
+                            return v * sign;
+                          };
+                        }
+                        PkgJson.child = function(obj, key) {
+                          let res;
+                          let i = 0;
+                          while (i < obj.keys.length) {
+                            if ( obj.keys[i] == key ) {
+                              res = obj.vals[i];
+                              return res;
+                            }
+                            i = i + 1;
+                          };
+                          return res;
+                        };
+                        PkgJson.strOf = function(obj, key) {
+                          const hit = PkgJson.child(obj, key);
+                          if ( typeof(hit) === "undefined" ) {
+                            return "";
+                          }
+                          const v = hit;
+                          if ( v.kind == "str" ) {
+                            return v.str;
+                          }
+                          if ( v.kind == "int" ) {
+                            return (v.num.toString());
+                          }
+                          return "";
+                        };
+                        PkgJson.intOf = function(obj, key) {
+                          const hit = PkgJson.child(obj, key);
+                          if ( typeof(hit) === "undefined" ) {
+                            return 0;
+                          }
+                          const v = hit;
+                          if ( v.kind == "int" ) {
+                            return v.num;
+                          }
+                          return 0;
+                        };
+                        class PkgDep  {
+                          constructor() {
+                            this.name = "";
+                            this.path = "";
+                            this.git = "";
+                            this.rev = "";
+                            this.tag = "";
+                            this.subdir = "";
+                          }
+                        }
+                        class PkgManifest  {
+                          constructor() {
+                            this.name = "";
+                            this.version = "";
+                            this.entry = "";
+                            this.license = "";
+                            this.deps = [];
+                            this.ok = true;
+                            this.err = "";
+                          }
+                        }
+                        class PkgLockEnt  {
+                          constructor() {
+                            this.name = "";
+                            this.path = "";
+                            this.git = "";
+                            this.rev = "";
+                            this.subdir = "";
+                            this.sha256 = "";
+                          }
+                        }
+                        class PkgLock  {
+                          constructor() {
+                            this.lockVersion = 1;
+                            this.packages = [];
+                            this.ok = true;
+                            this.err = "";
+                          }
+                        }
+                        class PkgManifestIO  {
+                          constructor() {
+                          }
+                        }
+                        PkgManifestIO.load = function(src) {
+                          const m = new PkgManifest();
+                          const p = new PkgJson();
+                          const root = p.parse(src);
+                          if ( p.ok == false ) {
+                            m.ok = false;
+                            m.err = p.err;
+                            return m;
+                          }
+                          m.name = PkgJson.strOf(root, "name");
+                          m.version = PkgJson.strOf(root, "version");
+                          m.entry = PkgJson.strOf(root, "entry");
+                          m.license = PkgJson.strOf(root, "license");
+                          const deps = PkgJson.child(root, "dependencies");
+                          if ( typeof(deps) === "undefined" ) {
+                            return m;
+                          }
+                          const d = deps;
+                          let i = 0;
+                          while (i < d.keys.length) {
+                            const dep = new PkgDep();
+                            dep.name = d.keys[i];
+                            const spec = d.vals[i];
+                            dep.path = PkgJson.strOf(spec, "path");
+                            dep.git = PkgJson.strOf(spec, "git");
+                            dep.rev = PkgJson.strOf(spec, "rev");
+                            dep.tag = PkgJson.strOf(spec, "tag");
+                            dep.subdir = PkgJson.strOf(spec, "subdir");
+                            m.deps.push(dep);
+                            i = i + 1;
+                          };
+                          return m;
+                        };
+                        PkgManifestIO.loadLock = function(src) {
+                          const lock = new PkgLock();
+                          const p = new PkgJson();
+                          const root = p.parse(src);
+                          if ( p.ok == false ) {
+                            lock.ok = false;
+                            lock.err = p.err;
+                            return lock;
+                          }
+                          lock.lockVersion = PkgJson.intOf(root, "lockVersion");
+                          if ( lock.lockVersion == 0 ) {
+                            lock.lockVersion = 1;
+                          }
+                          const pkgs = PkgJson.child(root, "packages");
+                          if ( typeof(pkgs) === "undefined" ) {
+                            return lock;
+                          }
+                          const o = pkgs;
+                          let i = 0;
+                          while (i < o.keys.length) {
+                            const e = new PkgLockEnt();
+                            e.name = o.keys[i];
+                            const spec = o.vals[i];
+                            e.path = PkgJson.strOf(spec, "path");
+                            e.git = PkgJson.strOf(spec, "git");
+                            e.rev = PkgJson.strOf(spec, "rev");
+                            e.subdir = PkgJson.strOf(spec, "subdir");
+                            e.sha256 = PkgJson.strOf(spec, "sha256");
+                            lock.packages.push(e);
+                            i = i + 1;
+                          };
+                          return lock;
+                        };
+                        PkgManifestIO.escape = function(s) {
+                          let out = "";
+                          const n = s.length;
+                          let i = 0;
+                          while (i < n) {
+                            const c = s.charCodeAt(i );
+                            if ( c == 34 ) {
+                              out = out + "\\\"";
+                            } else {
+                              if ( c == 92 ) {
+                                out = out + "\\\\";
+                              } else {
+                                if ( c == 10 ) {
+                                  out = out + "\\n";
+                                } else {
+                                  out = out + String.fromCharCode(c);
+                                }
+                              }
+                            }
+                            i = i + 1;
+                          };
+                          return out;
+                        };
+                        PkgManifestIO.dumpLock = function(lock) {
+                          let s = ("{\n  \"lockVersion\": " + (lock.lockVersion.toString())) + ",\n  \"packages\": {\n";
+                          let i = 0;
+                          const n = lock.packages.length;
+                          while (i < n) {
+                            const e = lock.packages[i];
+                            s = ((s + "    \"") + PkgManifestIO.escape(e.name)) + "\": {\n";
+                            if ( e.path.length > 0 ) {
+                              s = ((s + "      \"path\": \"") + PkgManifestIO.escape(e.path)) + "\"";
+                            }
+                            if ( e.git.length > 0 ) {
+                              if ( e.path.length > 0 ) {
+                                s = s + ",\n";
+                              }
+                              s = ((s + "      \"git\": \"") + PkgManifestIO.escape(e.git)) + "\"";
+                            }
+                            if ( e.rev.length > 0 ) {
+                              s = ((s + ",\n      \"rev\": \"") + PkgManifestIO.escape(e.rev)) + "\"";
+                            }
+                            if ( e.subdir.length > 0 ) {
+                              s = ((s + ",\n      \"subdir\": \"") + PkgManifestIO.escape(e.subdir)) + "\"";
+                            }
+                            if ( e.sha256.length > 0 ) {
+                              s = ((s + ",\n      \"sha256\": \"") + PkgManifestIO.escape(e.sha256)) + "\"";
+                            }
+                            s = s + "\n    }";
+                            if ( i < n - 1 ) {
+                              s = s + ",";
+                            }
+                            s = s + "\n";
+                            i = i + 1;
+                          };
+                          s = s + "  }\n}\n";
+                          return s;
+                        };
+                        PkgManifestIO.dumpManifest = function(m) {
+                          let s = ("{\n  \"name\": \"" + PkgManifestIO.escape(m.name)) + "\",\n";
+                          s = ((s + "  \"version\": \"") + PkgManifestIO.escape(m.version)) + "\",\n";
+                          s = ((s + "  \"entry\": \"") + PkgManifestIO.escape(m.entry)) + "\"";
+                          if ( m.license.length > 0 ) {
+                            s = ((s + ",\n  \"license\": \"") + PkgManifestIO.escape(m.license)) + "\"";
+                          }
+                          if ( m.deps.length > 0 ) {
+                            s = s + ",\n  \"dependencies\": {\n";
+                            let i = 0;
+                            const n = m.deps.length;
+                            while (i < n) {
+                              const d = m.deps[i];
+                              s = ((s + "    \"") + PkgManifestIO.escape(d.name)) + "\": {";
+                              let first = true;
+                              if ( d.path.length > 0 ) {
+                                s = ((s + " \"path\": \"") + PkgManifestIO.escape(d.path)) + "\"";
+                                first = false;
+                              }
+                              if ( d.git.length > 0 ) {
+                                if ( first ) {
+                                } else {
+                                  s = s + ",";
+                                }
+                                s = ((s + " \"git\": \"") + PkgManifestIO.escape(d.git)) + "\"";
+                                first = false;
+                              }
+                              if ( d.rev.length > 0 ) {
+                                s = ((s + ", \"rev\": \"") + PkgManifestIO.escape(d.rev)) + "\"";
+                              }
+                              if ( d.tag.length > 0 ) {
+                                s = ((s + ", \"tag\": \"") + PkgManifestIO.escape(d.tag)) + "\"";
+                              }
+                              if ( d.subdir.length > 0 ) {
+                                s = ((s + ", \"subdir\": \"") + PkgManifestIO.escape(d.subdir)) + "\"";
+                              }
+                              s = s + " }";
+                              if ( i < n - 1 ) {
+                                s = s + ",";
+                              }
+                              s = s + "\n";
+                              i = i + 1;
+                            };
+                            s = s + "  }";
+                          }
+                          s = s + "\n}\n";
+                          return s;
+                        };
+                        class PkgCache  {
+                          constructor() {
+                          }
+                        }
+                        PkgCache.lessStr = function(a, b) {
+                          const na = a.length;
+                          const nb = b.length;
+                          let n = na;
+                          if ( nb < na ) {
+                            n = nb;
+                          }
+                          let i = 0;
+                          while (i < n) {
+                            const ca = a.charCodeAt(i );
+                            const cb = b.charCodeAt(i );
+                            if ( ca < cb ) {
+                              return true;
+                            }
+                            if ( cb < ca ) {
+                              return false;
+                            }
+                            i = i + 1;
+                          };
+                          return na < nb;
+                        };
+                        PkgCache.hashMem = function(mem) {
+                          let names = [];
+                          let i = 0;
+                          while (i < mem.paths.length) {
+                            names.push(mem.paths[i]);
+                            i = i + 1;
+                          };
+                          const n = names.length;
+                          let a = 0;
+                          while (a < n) {
+                            let b = a + 1;
+                            while (b < n) {
+                              const sa = names[a];
+                              const sb = names[b];
+                              if ( PkgCache.lessStr(sb, sa) ) {
+                                names[a] = sb;
+                                names[b] = sa;
+                              }
+                              b = b + 1;
+                            };
+                            a = a + 1;
+                          };
+                          let acc = "";
+                          i = 0;
+                          while (i < n) {
+                            const p = names[i];
+                            acc = (acc + p) + "\n";
+                            if ( ( typeof(mem.byPath[p] ) != "undefined" && Object.prototype.hasOwnProperty.call(mem.byPath, p) ) ) {
+                              const f = ( Object.prototype.hasOwnProperty.call(mem.byPath, p) ? mem.byPath[p] : undefined );
+                              acc = (acc + ((function(b){ var v = (b instanceof Uint8Array) ? b : new Uint8Array(b); var s = ""; var i = 0; var n = v.length; var c = 32768; while (i < n) { var e = i + c; if (e > n) { e = n; } s += String.fromCharCode.apply(null, v.subarray(i, e)); i = e; } return s; })(f.data))) + "\n";
+                            }
+                            i = i + 1;
+                          };
+                          if ( acc.length == 0 ) {
+                            return "";
+                          }
+                          return require('crypto')
+                            .createHash('sha256')
+                            .update(acc)
+                            .digest('hex');
+                        };
+                        PkgCache.put = function(mem, cacheRoot) {
+                          const hash = PkgCache.hashMem(mem);
+                          if ( hash.length == 0 ) {
+                            return "";
+                          }
+                          const dest = (cacheRoot + "/") + hash;
+                          require("fs").mkdirSync( dest, { recursive: true });
+                          const store = new GitStore(new GitPack());
+                          store.writeDisk(mem, dest);
+                          return hash;
+                        };
+                        PkgCache.lockFor = function(name, git, rev, subdir, hash) {
+                          const e = new PkgLockEnt();
+                          e.name = name;
+                          e.git = git;
+                          e.rev = rev;
+                          e.subdir = subdir;
+                          e.sha256 = hash;
+                          return e;
+                        };
+                        class PkgFetchWork  {
+                          constructor() {
+                            this.dir = "";
+                            this.man = new PkgManifest();
+                            this.git = "";
+                            this.rev = "";
+                            this.subdir = "";
+                            this.fromGit = false;
+                          }
+                        }
+                        class PkgFetch  {
+                          constructor() {
+                            this.ok = true;
+                            this.err = "";
+                            this.cacheRoot = "";
+                            this.cacheOverride = "";
+                            this.rootDir = "";
+                            this.tmpRoot = "";
+                            this.httpTool = "";
+                            this.vendor = false;
+                            this.frozen = false;
+                            this.force = false;
+                            this.lock = new PkgLock();
+                            this.previous = new PkgLock();
+                            this.seen = {};
+                            this.lastRev = "";
+                            this.lastMem = new GitMem();
+                          }
+                          runHttp (args) {
+                            let argv = [];
+                            argv.push(this.httpTool);
+                            let i = 0;
+                            while (i < args.length) {
+                              argv.push(args[i]);
+                              i = i + 1;
+                            };
+                            let noEnv = [];
+                            const out = r_process_result(
+                              "node",
+                              argv,
+                              "",
+                              true,
+                              noEnv
+                            );
+                            if ( out.length < 3 ) {
+                              this.err = "could not run node";
+                              return false;
+                            }
+                            if ( out[0] == "0" ) {
+                              return true;
+                            }
+                            this.err = out[2];
+                            return false;
+                          };
+                          advertise (url, dest) {
+                            let args = [];
+                            args.push("advertise");
+                            args.push(url);
+                            args.push(dest);
+                            return this.runHttp(args);
+                          };
+                          post (url, body, dest) {
+                            let args = [];
+                            args.push("post");
+                            args.push(url);
+                            args.push(body);
+                            args.push(dest);
+                            return this.runHttp(args);
+                          };
+                          fetchInto (name, url, wantRev, subdir) {
+                            this.lastRev = "";
+                            require("fs").mkdirSync( this.tmpRoot, { recursive: true });
+                            const adv = ((this.tmpRoot + "/") + name) + ".advertise.bin";
+                            if ( this.advertise(url, adv) == false ) {
+                              return "";
+                            }
+                            const advert = GitPktIO.parseAdvertisement(PkgFetch.readBytes(adv));
+                            if ( advert.ok == false ) {
+                              this.err = (("could not read the advertisement of " + url) + ": ") + advert.err;
+                              return "";
+                            }
+                            if ( subdir.length == 0 ) {
+                              const commitSha = GitPktIO.findRef(advert, wantRev);
+                              if ( commitSha.length == 0 ) {
+                                this.err = (url + " has no ") + wantRev;
+                                return "";
+                              }
+                              let extras = [];
+                              const wholeWant = GitPktIO.buildWantFetch(
+                                commitSha,
+                                1,
+                                "",
+                                extras
+                              );
+                              if ( wholeWant.ok == false ) {
+                                this.err = wholeWant.err;
+                                return "";
+                              }
+                              const wantPath = ((this.tmpRoot + "/") + name) + ".want.bin";
+                              const packPath = ((this.tmpRoot + "/") + name) + ".pack.bin";
+                              PkgFetch.writeBytes(wantPath, wholeWant.body);
+                              if ( this.post(url, wantPath, packPath) == false ) {
+                                return "";
+                              }
+                              const whole = PkgFetch.loadPack(packPath);
+                              if ( whole.ok == false ) {
+                                this.err = whole.err;
+                                return "";
+                              }
+                              const wholeStore = new GitStore(whole);
+                              const wholeMem = wholeStore.checkout(commitSha, "");
+                              if ( wholeStore.ok == false ) {
+                                this.err = wholeStore.err;
+                                return "";
+                              }
+                              this.lastRev = commitSha;
+                              return this.storeMem(wholeMem);
+                            }
+                            const treeWant = GitPktIO.buildWantTrees(advert, wantRev);
+                            if ( treeWant.ok == false ) {
+                              this.err = treeWant.err;
+                              return "";
+                            }
+                            const commit = treeWant.sha;
+                            const twPath = ((this.tmpRoot + "/") + name) + ".want-trees.bin";
+                            const treesPath = ((this.tmpRoot + "/") + name) + ".trees.bin";
+                            PkgFetch.writeBytes(twPath, treeWant.body);
+                            if ( this.post(url, twPath, treesPath) == false ) {
+                              return "";
+                            }
+                            const trees = PkgFetch.loadPack(treesPath);
+                            if ( trees.ok == false ) {
+                              this.err = trees.err;
+                              return "";
+                            }
+                            const treeStore = new GitStore(trees);
+                            const treeSha = treeStore.treeAt(commit, subdir);
+                            if ( treeStore.ok == false ) {
+                              this.err = (((((url + " has no ") + subdir) + " at ") + commit) + ": ") + treeStore.err;
+                              return "";
+                            }
+                            const blobWant = GitPktIO.buildWantSha(treeSha);
+                            if ( blobWant.ok == false ) {
+                              this.err = blobWant.err;
+                              return "";
+                            }
+                            const bwPath = ((this.tmpRoot + "/") + name) + ".want-blobs.bin";
+                            const blobsPath = ((this.tmpRoot + "/") + name) + ".blobs.bin";
+                            PkgFetch.writeBytes(bwPath, blobWant.body);
+                            if ( this.post(url, bwPath, blobsPath) == false ) {
+                              return "";
+                            }
+                            const blobs = PkgFetch.loadPack(blobsPath);
+                            if ( blobs.ok == false ) {
+                              this.err = blobs.err;
+                              return "";
+                            }
+                            const merged = GitPackIO.merge(trees, blobs);
+                            if ( merged.ok == false ) {
+                              this.err = merged.err;
+                              return "";
+                            }
+                            const store = new GitStore(merged);
+                            const mem = store.checkout(commit, subdir);
+                            if ( store.ok == false ) {
+                              this.err = store.err;
+                              return "";
+                            }
+                            this.lastRev = commit;
+                            return this.storeMem(mem);
+                          };
+                          storeMem (mem) {
+                            this.lastMem = mem;
+                            require("fs").mkdirSync( this.cacheRoot, { recursive: true });
+                            const hash = PkgCache.put(mem, this.cacheRoot);
+                            if ( hash.length == 0 ) {
+                              this.err = "the checkout was empty";
+                              return "";
+                            }
+                            return hash;
+                          };
+                          cachedFor (env, name, git, rev, subdir) {
+                            if ( this.force ) {
+                              return "";
+                            }
+                            let i = 0;
+                            while (i < this.previous.packages.length) {
+                              const e = this.previous.packages[i];
+                              i = i + 1;
+                              if ( e.name == name ) {
+                                if ( e.sha256.length == 0 ) {
+                                  return "";
+                                }
+                                if ( e.git != git ) {
+                                  return "";
+                                }
+                                if ( rev.length > 0 ) {
+                                  if ( e.rev != rev ) {
+                                    return "";
+                                  }
+                                }
+                                if ( e.subdir != subdir ) {
+                                  return "";
+                                }
+                                const dir = PkgImport.joinPath(this.cacheRoot, e.sha256);
+                                if ( operatorsOf_8.filec95exists_9(env, dir, "ranger.json") ) {
+                                  this.lastRev = e.rev;
+                                  return e.sha256;
+                                }
+                                return "";
+                              }
+                            };
+                            return "";
+                          };
+                          async install (env, manDir) {
+                            this.ok = true;
+                            this.err = "";
+                            this.cacheRoot = PkgImport.cacheRoot();
+                            if ( this.cacheOverride.length > 0 ) {
+                              this.cacheRoot = this.cacheOverride;
+                            }
+                            this.tmpRoot = PkgImport.joinPath(this.cacheRoot, ".fetch");
+                            this.httpTool = PkgFetch.findHttpTool(env);
+                            if ( this.httpTool.length == 0 ) {
+                              this.err = "git-http.mjs is not beside rgrc";
+                              return false;
+                            }
+                            this.rootDir = manDir;
+                            const rootText = await PkgImport.readText(
+                              env,
+                              manDir,
+                              "ranger.json"
+                            );
+                            if ( rootText.length == 0 ) {
+                              this.err = manDir + "/ranger.json is empty or unreadable";
+                              return false;
+                            }
+                            const rootMan = PkgManifestIO.load(rootText);
+                            if ( rootMan.ok == false ) {
+                              this.err = (manDir + "/ranger.json: ") + rootMan.err;
+                              return false;
+                            }
+                            const lockText = await PkgImport.readText(
+                              env,
+                              manDir,
+                              "ranger.lock"
+                            );
+                            if ( lockText.length > 0 ) {
+                              this.previous = PkgManifestIO.loadLock(lockText);
+                            }
+                            let pending = [];
+                            const first = new PkgFetchWork();
+                            first.dir = manDir;
+                            first.man = rootMan;
+                            pending.push(first);
+                            let qi = 0;
+                            while (qi < pending.length) {
+                              const w = pending[qi];
+                              qi = qi + 1;
+                              let di = 0;
+                              while (di < w.man.deps.length) {
+                                const d = w.man.deps[di];
+                                di = di + 1;
+                                if ( ( typeof(this.seen[d.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.seen, d.name) ) ) {
+                                } else {
+                                  this.seen[d.name] = true;
+                                  if ( await this.oneDep(env, pending, w, d) == false ) {
+                                    return false;
+                                  }
+                                }
+                              };
+                            };
+                            const out = PkgManifestIO.dumpLock(this.lock);
+                            require('fs').writeFileSync(manDir + '/' + "ranger.lock", Buffer.from((function(s){ var b = new ArrayBuffer(s.length); var v = new Uint8Array(b); for(var i=0;i<s.length;i++)v[i]=s.charCodeAt(i); b._view = new DataView(b); return b; })(out)));
+                            console.log(("wrote " + manDir) + "/ranger.lock");
+                            return true;
+                          };
+                          async oneDep (env, pending, w, d) {
+                            let git = d.git;
+                            let rev = d.rev;
+                            let subdir = d.subdir;
+                            if ( rev.length == 0 ) {
+                              rev = d.tag;
+                            }
+                            let localPath = d.path;
+                            if ( localPath.length > 0 ) {
+                              if ( w.fromGit ) {
+                                git = w.git;
+                                rev = w.rev;
+                                subdir = PkgImport.foldPath(PkgImport.joinPath(w.subdir, localPath));
+                                localPath = "";
+                                if ( subdir.length == 0 ) {
+                                  this.err = (((d.name + ": ") + d.path) + " climbs out of ") + w.git;
+                                  return false;
+                                }
+                              }
+                            }
+                            const entry = new PkgLockEnt();
+                            entry.name = d.name;
+                            let pkgDir = "";
+                            let childFromGit = false;
+                            if ( localPath.length > 0 ) {
+                              pkgDir = PkgImport.foldPath(PkgImport.joinPath(w.dir, localPath));
+                              if ( operatorsOf_8.filec95exists_9(env, pkgDir, "ranger.json") == false ) {
+                                this.err = (d.name + ": no ranger.json under ") + localPath;
+                                return false;
+                              }
+                              entry.path = localPath;
+                              console.log((d.name + "  path ") + localPath);
+                            } else {
+                              if ( git.length == 0 ) {
+                                this.err = d.name + ": the dependency has neither \"path\" nor \"git\"";
+                                return false;
+                              }
+                              if ( rev.length == 0 ) {
+                                rev = "HEAD";
+                              }
+                              let hash = this.cachedFor(
+                                env,
+                                d.name,
+                                git,
+                                rev,
+                                subdir
+                              );
+                              let reused = hash.length > 0;
+                              if ( reused ) {
+                                if ( this.vendor ) {
+                                  const already = PkgImport.joinPath(this.rootDir, ("vendor/ranger/" + d.name));
+                                  if ( operatorsOf_8.filec95exists_9(env, already, "ranger.json") == false ) {
+                                    reused = false;
+                                    hash = "";
+                                  }
+                                }
+                              }
+                              if ( reused == false ) {
+                                if ( this.frozen ) {
+                                  this.err = d.name + ": ranger.lock does not cover it at this revision, and -frozen was asked for";
+                                  return false;
+                                }
+                                hash = this.fetchInto(d.name, git, rev, subdir);
+                                if ( hash.length == 0 ) {
+                                  if ( this.err.length == 0 ) {
+                                    this.err = (d.name + ": could not fetch ") + git;
+                                  }
+                                  return false;
+                                }
+                              }
+                              pkgDir = PkgImport.joinPath(this.cacheRoot, hash);
+                              entry.git = git;
+                              entry.rev = this.lastRev;
+                              entry.subdir = subdir;
+                              entry.sha256 = hash;
+                              childFromGit = true;
+                              let note = "";
+                              if ( reused ) {
+                                note = "  (cached)";
+                              }
+                              console.log(((((d.name + "  ") + this.lastRev) + " -> ") + pkgDir) + note);
+                              if ( this.vendor ) {
+                                if ( reused == false ) {
+                                  const vdir = PkgImport.joinPath(this.rootDir, ("vendor/ranger/" + d.name));
+                                  require("fs").mkdirSync( vdir, { recursive: true });
+                                  const writer = new GitStore(new GitPack());
+                                  writer.writeDisk(this.lastMem, vdir);
+                                  console.log((d.name + "  vendored -> vendor/ranger/") + d.name);
+                                }
+                              }
+                            }
+                            this.lock.packages.push(entry);
+                            const childText = await PkgImport.readText(
+                              env,
+                              pkgDir,
+                              "ranger.json"
+                            );
+                            if ( childText.length > 0 ) {
+                              const childMan = PkgManifestIO.load(childText);
+                              if ( childMan.ok ) {
+                                const next = new PkgFetchWork();
+                                next.dir = pkgDir;
+                                next.man = childMan;
+                                next.git = entry.git;
+                                next.rev = entry.rev;
+                                next.subdir = entry.subdir;
+                                next.fromGit = childFromGit;
+                                pending.push(next);
+                              }
+                            }
+                            return true;
+                          };
+                        }
+                        PkgFetch.findHttpTool = function(env) {
+                          const idir = __dirname;
+                          if ( operatorsOf_8.filec95exists_9(env, idir, "git-http.mjs") ) {
+                            return idir + "/git-http.mjs";
+                          }
+                          const up = PkgImport.joinPath(PkgImport.parentDir(idir), "bin");
+                          if ( operatorsOf_8.filec95exists_9(env, up, "git-http.mjs") ) {
+                            return up + "/git-http.mjs";
+                          }
+                          return "";
+                        };
+                        PkgFetch.splitPath = function(path) {
+                          let parts = [];
+                          parts.push(PkgImport.parentDir(path));
+                          const d = parts[0];
+                          const n = path.length;
+                          let cut = d.length + 1;
+                          if ( d.length == 0 ) {
+                            parts[0] = ".";
+                            cut = 0;
+                          }
+                          parts.push(path.substring(cut, n ));
+                          return parts;
+                        };
+                        PkgFetch.readBytes = function(path) {
+                          const parts = PkgFetch.splitPath(path);
+                          return (function(){ var b = require('fs').readFileSync(parts[0] + '/' + parts[1]); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
+                        };
+                        PkgFetch.writeBytes = function(path, data) {
+                          const parts = PkgFetch.splitPath(path);
+                          require('fs').writeFileSync(parts[0] + '/' + parts[1], Buffer.from(data));
+                        };
+                        PkgFetch.loadPack = function(path) {
+                          const data = PkgFetch.readBytes(path);
+                          const sb = GitPktIO.demux(data);
+                          let raw = data;
+                          if ( sb.ok ) {
+                            if ( sb.pack.byteLength > 0 ) {
+                              raw = sb.pack;
+                            }
+                          }
+                          return GitPackIO.parse(raw);
+                        };
                         class RangerDocGenerator  {
                           constructor() {
                           }
@@ -73353,6 +76794,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               const ext = filename.substring((lastDot + 1), filename.length );
                                                               return ext == "ts";
                                                             };
+                                                            async runInstall (env, params, cli) {
+                                                              const start = operatorsOf_8.currentc95directory_51(env);
+                                                              const manDir = PkgImport.walkUp(env, start);
+                                                              if ( manDir.length == 0 ) {
+                                                                console.log(cli.error((("no ranger.json in " + start) + " or above it")));
+                                                                return false;
+                                                              }
+                                                              const fetch = new PkgFetch();
+                                                              fetch.vendor = ( typeof(params.flags["vendor"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "vendor") );
+                                                              fetch.frozen = ( typeof(params.flags["frozen"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "frozen") ) || ( typeof(params.flags["frozen-lockfile"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "frozen-lockfile") );
+                                                              fetch.force = ( typeof(params.flags["force"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "force") );
+                                                              const cacheOpt = params.getParam("cache");
+                                                              if ( (typeof(cacheOpt) !== "undefined" && cacheOpt != null )  ) {
+                                                                fetch.cacheOverride = cacheOpt;
+                                                              }
+                                                              const done = await fetch.install(env, manDir);
+                                                              if ( done ) {
+                                                                return true;
+                                                              }
+                                                              console.log(cli.error(fetch.err));
+                                                              return false;
+                                                            };
                                                             async run (env) {
                                                               const res = new CompilerResults();
                                                               this.envObj = env;
@@ -73361,6 +76824,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               const cli = new CLIProgress();
                                                               if ( ( typeof(params.flags["no-color"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "no-color") ) ) {
                                                                 cli.setUseColors(false);
+                                                              }
+                                                              if ( params.values.length > 0 ) {
+                                                                if ( params.values[0] == "install" ) {
+                                                                  if ( await this.runInstall(env, params, cli) ) {
+                                                                    return res;
+                                                                  }
+                                                                  res.hasErrors = true;
+                                                                  return res;
+                                                                }
                                                               }
                                                               let the_file = "";
                                                               let plugins_only = false;
@@ -73375,6 +76847,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               } else {
                                                                 if ( params.values.length < 1 ) {
                                                                   cli.printHelpHeader();
+                                                                  cli.printSection("Commands:");
+                                                                  console.log(("  " + cli.bold("install")) + "              fetch the packages the nearest ranger.json names into the");
+                                                                  console.log("                       package cache and write ranger.lock.");
+                                                                  console.log(cli.gray("                       -vendor       also write vendor/ranger/<name>"));
+                                                                  console.log(cli.gray("                       -frozen       fail rather than fetch what the lock does not cover"));
+                                                                  console.log(cli.gray("                       -force        refetch even when the locked checkout is cached"));
+                                                                  console.log(cli.gray("                       -cache=<dir>  instead of RANGER_PKG_CACHE"));
                                                                   cli.printSection("Options:");
                                                                   let optCnt = 0;
                                                                   while (optCnt < valid_options.length) {
@@ -73550,7 +77029,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               comp_attrs["o"] = the_target;
                                                               const dirParam = params.getParam("d");
                                                               if ( (typeof(dirParam) !== "undefined" && dirParam != null )  ) {
-                                                                the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + dirParam;
+                                                                const dirGiven = dirParam;
+                                                                if ( dirGiven.length > 0 && dirGiven.charCodeAt(0 ) == 47 ) {
+                                                                  the_target_dir = dirGiven;
+                                                                } else {
+                                                                  the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + dirGiven;
+                                                                }
                                                               }
                                                               the_target_dir = require("path").normalize(the_target_dir);
                                                               comp_attrs["d"] = the_target_dir;
@@ -74506,9 +77990,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                           };
                                                           operatorsOf.filter_52 = function(__self, cb) {
                                                             let res_13 = [];
-                                                            for ( let i_28 = 0; i_28 < __self.length; i_28++) {
-                                                              var it_19 = __self[i_28];
-                                                              if ( cb(it_19, i_28) ) {
+                                                            for ( let i_29 = 0; i_29 < __self.length; i_29++) {
+                                                              var it_19 = __self[i_29];
+                                                              if ( cb(it_19, i_29) ) {
                                                                 res_13.push(it_19);
                                                               }
                                                             };
@@ -74517,8 +78001,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                           operatorsOf.groupBy_53 = function(__self, cb) {
                                                             let res_14 = [];
                                                             let mapper = {};
-                                                            for ( let i_29 = 0; i_29 < __self.length; i_29++) {
-                                                              var it_20 = __self[i_29];
+                                                            for ( let i_30 = 0; i_30 < __self.length; i_30++) {
+                                                              var it_20 = __self[i_30];
                                                               const key = cb(it_20);
                                                               if ( false == ( typeof(mapper[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(mapper, key) ) ) {
                                                                 res_14.push(it_20);
@@ -74529,8 +78013,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                           };
                                                           operatorsOf.clone_56 = function(__self) {
                                                             let res_15 = [];
-                                                            for ( let i_31 = 0; i_31 < __self.length; i_31++) {
-                                                              var it_21 = __self[i_31];
+                                                            for ( let i_32 = 0; i_32 < __self.length; i_32++) {
+                                                              var it_21 = __self[i_32];
                                                               res_15.push(it_21);
                                                             };
                                                             return res_15;
@@ -74796,8 +78280,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                           };
                                                           operatorsOf_13.forEach_55 = function(__self, cb) {
                                                             const list_7 = Object.keys(__self);
-                                                            for ( let i_30 = 0; i_30 < list_7.length; i_30++) {
-                                                              var kk_7 = list_7[i_30];
+                                                            for ( let i_31 = 0; i_31 < list_7.length; i_31++) {
+                                                              var kk_7 = list_7[i_31];
                                                               const value_7 = ( Object.prototype.hasOwnProperty.call(__self, kk_7) ? __self[kk_7] : undefined );
                                                               cb(value_7, kk_7);
                                                             };
@@ -75491,6 +78975,32 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               wr
                                                             );
                                                           };
+
+// Running another command line program.  spawnSync resolves a bare name on
+// PATH and passes the arguments as a vector, so nothing inside an argument is
+// re-read as a redirection or a glob.
+function r_process_env(pairs) {
+  var e = {};
+  for (var k in process.env) { e[k] = process.env[k]; }
+  for (var i = 0; i < pairs.length; i++) {
+    var at = pairs[i].indexOf("=");
+    if (at > 0) { e[pairs[i].substring(0, at)] = pairs[i].substring(at + 1); }
+  }
+  return e;
+}
+function r_process_result(program, args, cwd, capture, env) {
+  var opt = { maxBuffer: 268435456 };
+  opt.stdio = capture ? "pipe" : "inherit";
+  if (capture) { opt.encoding = "utf8"; }
+  if (cwd && cwd.length > 0) { opt.cwd = cwd; }
+  if (env && env.length > 0) { opt.env = r_process_env(env); }
+  var res = require("child_process").spawnSync(program, args, opt);
+  if (res.error) { return ["-1", "", String(res.error.message)]; }
+  var code = (typeof res.status === "number") ? res.status : -1;
+  if (!capture) { return [String(code), "", ""]; }
+  return [String(code), res.stdout || "", res.stderr || ""];
+}
+
 /* static JavaSript main routine at the end of the JS file */
 async function __js_main() {
   const env = CompilerInterface.create_env();

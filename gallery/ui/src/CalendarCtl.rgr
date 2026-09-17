@@ -48,8 +48,8 @@
 Import "UiCtl.rgr"
 Import "UiTree.rgr"
 Import "UiDate.rgr"
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
 
 class CalendarCtl extends UiCtl {
     ; The displayed month. Day-of-month is not part of it: a month is a month.

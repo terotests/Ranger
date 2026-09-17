@@ -230,3 +230,9 @@ gallery/realtrainer/out/
 # is only the assembled copy and what the generators work in.
 landing/dist/
 .landing_tmp/
+
+pkg/bin/
+
+# Intermediate of build:dist:module; dist/api.js and dist/api.d.ts are the
+# artifacts that ship.
+compiler/bin/api.ts

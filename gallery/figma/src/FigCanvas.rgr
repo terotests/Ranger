@@ -3,7 +3,7 @@
 ; canvas.fig: 8-byte prelude + uint32 version + length-prefixed chunks.
 ; Chunk 0 is always raw deflate (kiwi schema). Chunk 1 is zstd or raw deflate.
 
-Import "../../zip/Inflate.rgr"
+Import "../../../lib/zip/Inflate.rgr"
 Import "../../zstd/src/ZstdDecoder.rgr"
 Import "FigDeflate.rgr"
 

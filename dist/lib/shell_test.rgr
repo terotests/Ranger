@@ -1,0 +1,193 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; shell_test.rgr -- `lib/Shell.rgr` and the `run_process_result` operator.
+; =============================================================================
+;
+; These tests really do start child processes: the point of this library is that
+; a Ranger program can call another program, and a test that mocked that away
+; would be testing nothing. Everything it runs is `sh`, `printenv` and `ls`,
+; which every POSIX machine has.
+;
+;   npm run shell:test
+;
+; The same file compiled to another target and run there is how the operator's
+; other backends are checked -- the assertions do not know which language they
+; are in.
+; =============================================================================
+
+Import "Shell.rgr"
+
+class ShellTest {
+
+    def passed:int 0
+    def failed:int 0
+
+    ; Argument vectors, built rather than written inline.
+    ;
+    ; A one-element typed array literal handed straight to a call is flattened
+    ; to the bare string on the Rust target (ISSUES.md #84), and ANY array
+    ; literal is lost when the call taking it is immediately dereferenced on
+    ; every target (#85). Every vector in this file goes through one of these
+    ; instead. They also read better than the literal does.
+    sfn one:[string] (a:string) {
+        def v:[string]
+        push v a
+        return v
+    }
+
+    sfn two:[string] (a:string b:string) {
+        def v:[string]
+        push v a
+        push v b
+        return v
+    }
+
+    sfn four:[string] (a:string b:string c:string d:string) {
+        def v:[string]
+        push v a
+        push v b
+        push v c
+        push v d
+        return v
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = passed + 1
+        } {
+            failed = failed + 1
+            print "  FAIL " + name
+        }
+    }
+
+    fn run:void () {
+        def sh:Shell (new Shell)
+
+        ; --- capturing --------------------------------------------------------
+        def hello:ShellResult (sh.capture("sh" (ShellTest.two("-c" "echo hello-shell"))))
+        this.check("a captured command succeeds" (hello.ok()))
+        this.check("and its output comes back trimmed" ((hello.outText()) == "hello-shell"))
+        this.check("and nothing is on stderr" ((hello.errText()) == ""))
+        this.check("and it was not skipped" (hello.skipped == false))
+
+        ; An exit code and a stderr are two different answers and both are
+        ; needed: a tool that failed usually says why on stderr and says
+        ; nothing at all through its status.
+        def bad:ShellResult (sh.capture("sh" (ShellTest.two("-c" "echo to-err 1>&2; exit 7"))))
+        this.check("a failing command reports its code" (bad.code == 7))
+        this.check("and it failed" (bad.failed()))
+        this.check("and stderr came back separately" ((bad.errText()) == "to-err"))
+        this.check("the failure describes itself" ((indexOf (bad.describeFailure()) "exit 7") > 0))
+        this.check("and names the command" ((indexOf (bad.describeFailure()) "to-err") > 0))
+
+        ; --- streaming --------------------------------------------------------
+        ; Nothing to assert about what reached the terminal, but the exit code
+        ; still has to arrive, and that is the half a build driver acts on.
+        def streamed:ShellResult (sh.run("sh" (ShellTest.two("-c" "exit 5"))))
+        this.check("a streamed command reports its code" (streamed.code == 5))
+        this.check("and captures nothing" ((streamed.out == "") && (streamed.err == "")))
+
+        ; --- the conveniences -------------------------------------------------
+        this.check("text answers the trimmed stdout" ((sh.text("sh" (ShellTest.two("-c" "printf one")))) == "one"))
+        this.check("text answers nothing for a failure" ((sh.text("sh" (ShellTest.two("-c" "printf one; exit 1")))) == ""))
+        this.check("succeeds is true for a zero exit" (sh.succeeds("sh" (ShellTest.two("-c" "true")))))
+        this.check("and false otherwise" ((sh.succeeds("sh" (ShellTest.two("-c" "false")))) == false))
+
+        def lines:ShellResult (sh.capture("sh" (ShellTest.two("-c" "printf 'a\nb\nc\n'"))))
+        this.check("output splits into lines" ((array_length (lines.outLines())) == 3))
+        this.check("and the first one is readable on its own" ((lines.outFirstLine()) == "a"))
+        def empty:ShellResult (sh.capture("sh" (ShellTest.two("-c" "true"))))
+        this.check("no output is no lines" ((array_length (empty.outLines())) == 0))
+        this.check("and no first line" ((empty.outFirstLine()) == ""))
+
+        ; --- finding a program ------------------------------------------------
+        this.check("a program on PATH is found" (sh.isInstalled("sh")))
+        this.check("and one that is not is not" ((sh.isInstalled("no-such-program-xyz")) == false))
+        def where@(optional):string (sh.which("sh"))
+        this.check("which answers a path" (!null? where))
+        if (!null? where) {
+            this.check("and it looks like one" ((indexOf (unwrap where) "/") == 0))
+        }
+        def nowhere@(optional):string (sh.which("no-such-program-xyz"))
+        this.check("which answers absent for a program that is not there" (null? nowhere))
+
+        ; --- the working directory --------------------------------------------
+        def inLib:Shell (new Shell)
+        inLib.cwd = "lib"
+        ; Bound rather than chained: a call result that is immediately
+        ; dereferenced loses the array literal in its arguments (ISSUES.md
+        ; #85), and on JavaScript the failure is a runtime type error rather
+        ; than a compile one.
+        def hereArgs:[string] (ShellTest.one("Shell.rgr"))
+        def here:ShellResult (inLib.capture("ls" hereArgs))
+        this.check("cwd is where the command runs" (here.ok()))
+        def elsewhereArgs:[string] (ShellTest.one("package.json"))
+        def elsewhere:ShellResult (inLib.capture("ls" elsewhereArgs))
+        this.check("and a file that is elsewhere is not there" (elsewhere.failed()))
+
+        ; --- the environment --------------------------------------------------
+        def env:Shell (new Shell)
+        env.setEnv("RANGER_SHELL_PROBE" "set-by-ranger")
+        this.check("an environment entry reaches the child" ((env.text("printenv" (ShellTest.one("RANGER_SHELL_PROBE")))) == "set-by-ranger"))
+        ; MERGED, not replaced: a child that lost PATH could not find anything,
+        ; and the failure would look like the program being missing.
+        this.check("and PATH survives it" ((strlen (env.text("printenv" (ShellTest.one("PATH"))))) > 0))
+        env.setEnv("RANGER_SHELL_PROBE" "replaced")
+        this.check("setting one again replaces it" ((env.text("printenv" (ShellTest.one("RANGER_SHELL_PROBE")))) == "replaced"))
+        this.check("rather than adding a second" ((array_length env.env) == 1))
+        this.check("and the logged line shows it" ((indexOf (env.commandLine("cc" (ShellTest.one("-c")))) "RANGER_SHELL_PROBE=replaced") == 0))
+
+        ; --- a program that is not there --------------------------------------
+        ; Every backend answers a non-zero code; which one differs, because the
+        ; targets that go through a shell get the shell's 127.
+        def missing:ShellResult (sh.capture("no-such-program-xyz" (ShellTest.one("x"))))
+        this.check("a missing program is a failure, not a crash" (missing.failed()))
+
+        ; --- quoting ----------------------------------------------------------
+        ; The arguments are passed as a vector, so nothing here is ever re-read
+        ; by a shell. The quoting is for the LOG line -- and a build driver
+        ; whose log cannot be pasted back into a terminal is a build driver
+        ; whose log is decorative.
+        def line:string (sh.commandLine("xcrun" (ShellTest.four("-sdk" "iphonesimulator" "swiftc" "/Users/me/My Projects/a.swift"))))
+        this.check("a plain argument is left alone" ((indexOf line "-sdk iphonesimulator") > 0))
+        this.check("a path with a space is quoted" ((indexOf line "'/Users/me/My Projects/a.swift'") > 0))
+        this.check("an empty argument is visible" ((sh.commandLine("x" (ShellTest.one("")))) == "x ''"))
+
+        ; ...and the vector really is a vector: this argument would be three
+        ; words and a redirection if anything in the chain went through a shell.
+        def literal:ShellResult (sh.capture("printf" (ShellTest.two("%s" "a b > c"))))
+        this.check("an argument is never re-parsed as syntax" ((literal.out) == "a b > c"))
+
+        ; --- the dry run ------------------------------------------------------
+        ; The reason a driver written on this can be tested at all.
+        def dry:Shell (new Shell)
+        dry.dryRun = true
+        def d:ShellResult (dry.run("rm" (ShellTest.two("-rf" "/"))))
+        this.check("a dry run does not run" (d.skipped))
+        this.check("and answers success" (d.ok()))
+        this.check("and records what it would have run" ((array_length dry.commands) == 1))
+        this.check("as a readable line" ((itemAt dry.commands 0) == "rm -rf /"))
+        def d2:ShellResult (dry.capture("ls" (ShellTest.one("-la"))))
+        this.check("captures are recorded too" ((array_length dry.commands) == 2))
+        this.check("and answer no output" ((d2.out == "") && (d2.err == "")))
+
+        ; Every command is logged whether it ran or not, which is what makes a
+        ; log a record rather than a highlight reel.
+        def logged:Shell (new Shell)
+        logged.capture("sh" (ShellTest.two("-c" "true")))
+        logged.capture("sh" (ShellTest.two("-c" "false")))
+        this.check("a real shell logs everything it ran" ((array_length logged.commands) == 2))
+        this.check("and remembers the last exit code" (logged.lastCode == 1))
+    }
+
+    sfn m@(main):void () {
+        def t:ShellTest (new ShellTest)
+        print "Shell and run_process_result"
+        t.run()
+        print "  " + t.passed + " passed, " + t.failed + " failed"
+        if (t.failed > 0) {
+            exit 1
+        }
+    }
+}

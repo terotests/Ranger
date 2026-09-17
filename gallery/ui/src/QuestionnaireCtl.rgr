@@ -48,8 +48,8 @@
 
 Import "UiCtl.rgr"
 Import "UiTree.rgr"
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
 
 class QChoice {
     def value:string ""

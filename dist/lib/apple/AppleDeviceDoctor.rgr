@@ -1,0 +1,453 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; AppleDeviceDoctor.rgr -- why the phone will not take the app, in order.
+; =============================================================================
+;
+; A device build has a long chain in front of it, and every link answers a
+; different question with the same silence: nothing installs. The chain, from
+; the end a person can do nothing about to the end they can:
+;
+;   xcrun -> a selected Xcode -> devicectl -> the iphoneos SDK ->
+;   a cable -> a pairing -> Developer Mode -> a mounted developer disk image ->
+;   a signing identity -> a provisioning profile that lists THIS device
+;
+; This walks it and stops at the first link that is not there, because every
+; check after a broken one answers about a machine that does not exist. What it
+; prints is the check, what it found, and what to do -- the last of which is the
+; only part a person actually needs.
+;
+; Two of the links repair themselves and are therefore repaired rather than
+; reported:
+;
+;   * A device listed as "available (paired)" has no tunnel open AT THAT
+;     MOMENT. Asking it anything opens one. So this asks.
+;   * A device with no developer disk image mounted gets one the first time
+;     anything wants a developer service. So this wants one.
+;
+; Those two are the reason this file exists: both look exactly like a broken
+; cable in `devicectl list devices`, and neither is.
+;
+; Everything here goes through `Shell`, so a dry run records the questions
+; instead of asking them, and the parsing underneath is in AppleDevice.rgr,
+; where it is a pure function over text and is tested on a machine with nothing
+; plugged in.
+; =============================================================================
+
+Import "AppleToolchain.rgr"
+Import "AppleSigning.rgr"
+
+; One link in the chain: what was asked, what came back, and what to do when
+; the answer was no.
+class AppleCheckResult {
+
+    def name:string ""
+    def ok:boolean false
+    ; What was found, for the line this prints. Short.
+    def detail:string ""
+    ; What to do about it. Empty on a check that passed.
+    def remedy:[string]
+    ; A failure that makes every later check meaningless. A warning does not.
+    def fatal:boolean true
+
+    Constructor () {
+    }
+}
+
+class AppleDeviceDoctor {
+
+    def sh:Shell
+    def tools:AppleToolchain
+    def signing:AppleSigning
+    def checks:[AppleCheckResult]
+
+    ; What to check FOR. The bundle id decides which provisioning profile
+    ; counts; "" skips the signing half, which is what a plain "can this
+    ; machine see my phone" run wants.
+    def bundleId:string ""
+    ; A name substring or an identifier, as --device takes.
+    def deviceWanted:string ""
+    ; Where a profile is unpacked while it is read.
+    def workDir:string "tmp"
+
+    ; Lines the caller can add to the "no device" advice -- the simulator
+    ; commands of whichever port this is. Generic advice cannot know them.
+    def simulatorHint:[string]
+
+    ; The identifier that came out of it. "" when no device is usable.
+    def deviceId:string ""
+    ; The same device as one line, for a caller that wants to say which one it
+    ; picked without printing the whole report.
+    def deviceDescription:string ""
+    ; The device details, once they have been read.
+    def details@(optional):AppleDeviceDetails
+
+    Constructor (shell:Shell) {
+        sh = shell
+        tools = (new AppleToolchain (shell))
+        signing = (new AppleSigning (shell))
+    }
+
+    ; ---------------------------------------------------------------- results
+
+    fn add:AppleCheckResult (name:string ok:boolean detail:string) {
+        def c:AppleCheckResult (new AppleCheckResult)
+        c.name = name
+        c.ok = ok
+        c.detail = detail
+        push checks c
+        return c
+    }
+
+    fn failed:boolean () {
+        def bad:boolean false
+        for checks c:AppleCheckResult i {
+            if (c.ok == false) {
+                if c.fatal {
+                    bad = true
+                }
+            }
+        }
+        return bad
+    }
+
+    ; ----------------------------------------------------------------- checks
+
+    ; The toolchain. `xcode-select -p` pointing at CommandLineTools is the one
+    ; that is worth naming: every tool a device build needs is present there
+    ; EXCEPT the ones a device build needs, so the failures it produces read
+    ; like a broken Xcode rather than a wrong path.
+    fn checkToolchain:boolean () {
+        if ((tools.isAvailable()) == false) {
+            def c:AppleCheckResult (this.add("xcrun" false "not on this machine"))
+            push c.remedy "Install Xcode. The Command Line Tools alone cannot build for a device:"
+            push c.remedy "they carry no iphoneos SDK and no devicectl."
+            return false
+        }
+        def dir:string (tools.developerDir())
+        def onTools:boolean ((indexOf dir "CommandLineTools") >= 0)
+        if onTools {
+            def c:AppleCheckResult (this.add("xcode-select" false dir))
+            push c.remedy "The selected developer directory is the Command Line Tools, which have"
+            push c.remedy "neither the iphoneos SDK nor devicectl. Point it at Xcode:"
+            push c.remedy ""
+            push c.remedy "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+            return false
+        }
+        this.add("xcode-select" true dir)
+
+        if ((tools.hasDeviceCtl()) == false) {
+            def c:AppleCheckResult (this.add("devicectl" false "not in this Xcode"))
+            push c.remedy "devicectl lives inside Xcode.app and needs Xcode 15 or later. An older"
+            push c.remedy "Xcode cannot install onto a device from the command line at all."
+            return false
+        }
+        this.add("devicectl" true "present")
+
+        def sdk:ShellResult (tools.probeSdk("iphoneos"))
+        if (sdk.failed()) {
+            def c:AppleCheckResult (this.add("iphoneos SDK" false "not found"))
+            push c.remedy "xcrun cannot find the iphoneos SDK:"
+            push c.remedy ""
+            push c.remedy (sdk.describeFailure())
+            push c.remedy ""
+            push c.remedy "An Xcode that has never been opened has not accepted its licence yet:"
+            push c.remedy ""
+            push c.remedy "  sudo xcodebuild -license accept"
+            return false
+        }
+        this.add("iphoneos SDK" true (sdk.outFirstLine()))
+        return true
+    }
+
+    ; A device to talk to. Both failures here -- nothing listed, and nothing
+    ; listed that can be used -- get different advice, because a cable that is
+    ; not plugged in and a phone that is asleep are not the same problem.
+    fn checkDevice:boolean () {
+        def all:[AppleDeviceInfo] (tools.listConnectedDevices())
+        if ((array_length all) == 0) {
+            def c:AppleCheckResult (this.add("device" false "devicectl lists none"))
+            def usb:string (tools.usbDeviceText())
+            def seesPhone:boolean false
+            if ((indexOf usb "iPhone") >= 0) {
+                seesPhone = true
+            }
+            if ((indexOf usb "iPad") >= 0) {
+                seesPhone = true
+            }
+            if seesPhone {
+                c.detail = "on USB, not paired"
+                push c.remedy "The Mac sees the device on USB but devicectl does not know it, so the"
+                push c.remedy "pairing is what is missing. Unlock the device, then:"
+                push c.remedy ""
+                push c.remedy "  xcrun devicectl list devices"
+                push c.remedy ""
+                push c.remedy "and answer \"Trust\" on the device. If no prompt appears, the old pairing"
+                push c.remedy "is in the way: Settings > General > Transfer or Reset > Reset >"
+                push c.remedy "Reset Location & Privacy, then unplug and plug it back in."
+            } {
+                c.detail = "nothing on USB either"
+                push c.remedy "Nothing that looks like an iPhone or an iPad is on the USB bus, so this"
+                push c.remedy "is the cable or the port rather than anything on the Mac. A charge-only"
+                push c.remedy "cable is the usual answer -- it has no data lines and looks identical."
+                push c.remedy "Try another cable, and a port on the Mac itself rather than a hub."
+            }
+            this.addSimulatorHint(c)
+            return false
+        }
+
+        def pickedOpt@(optional):AppleDeviceInfo (AppleDeviceList.pick(all deviceWanted))
+        if (null? pickedOpt) {
+            def what:string "no usable device"
+            if ((strlen deviceWanted) > 0) {
+                what = ("nothing matches \"" + deviceWanted + "\"")
+            }
+            def c:AppleCheckResult (this.add("device" false what))
+            push c.remedy "devicectl lists these:"
+            push c.remedy ""
+            for all d:AppleDeviceInfo i {
+                push c.remedy ("  " + (d.describe()))
+            }
+            push c.remedy ""
+            if ((strlen deviceWanted) > 0) {
+                push c.remedy "--device takes a substring of the name or the identifier itself."
+            } {
+                push c.remedy "A device listed as \"unavailable\" is one devicectl cannot reach: it is"
+                push c.remedy "asleep, in recovery, or the pairing has gone stale. Unlock it and plug"
+                push c.remedy "it in again; if it stays unavailable, pair it once more:"
+                push c.remedy ""
+                push c.remedy "  xcrun devicectl manage unpair --device IDENTIFIER"
+                push c.remedy "  xcrun devicectl manage pair --device IDENTIFIER"
+            }
+            this.addSimulatorHint(c)
+            return false
+        }
+        def picked:AppleDeviceInfo (unwrap pickedOpt)
+        deviceId = picked.identifier
+        deviceDescription = (picked.describe())
+        this.add("device" true deviceDescription)
+        return true
+    }
+
+    fn addSimulatorHint:void (c:AppleCheckResult) {
+        if ((array_length simulatorHint) == 0) {
+            return
+        }
+        push c.remedy ""
+        for simulatorHint line:string i {
+            push c.remedy line
+        }
+    }
+
+    ; Can it be TALKED to, and is it in a state that accepts an install? This
+    ; is where a device listed as "available (paired)" stops being a question:
+    ; asking for its details raises the tunnel, so an answer here IS the proof.
+    fn checkReachable:boolean () {
+        def res:ShellResult (tools.deviceDetails(deviceId))
+        if (res.failed()) {
+            def c:AppleCheckResult (this.add("connection" false "no tunnel"))
+            push c.remedy "devicectl could not open a connection to the device:"
+            push c.remedy ""
+            push c.remedy (res.describeFailure())
+            push c.remedy ""
+            push c.remedy "The tunnel is a real network connection even over a cable, so the three"
+            push c.remedy "things that break it are a firewall, a VPN, and a stuck daemon:"
+            push c.remedy ""
+            push c.remedy "  1. System Settings > Network > Firewall: turn off \"Block all incoming\""
+            push c.remedy "     connections\" while you install."
+            push c.remedy "  2. Disconnect any VPN or network filter (Little Snitch, LuLu, a"
+            push c.remedy "     corporate client) and try again."
+            push c.remedy "  3. Reset the daemons, then unplug and plug the cable back in:"
+            push c.remedy ""
+            push c.remedy "     sudo pkill -9 remoted; sudo pkill -9 remotepairingd; sudo pkill -9 usbmuxd"
+            push c.remedy ""
+            push c.remedy "Keep the device unlocked while it reconnects."
+            return false
+        }
+        def d:AppleDeviceDetails (AppleDeviceDetails.parse(res.out))
+        details = d
+        def says:string (d.marketingName + " iOS " + d.osVersion)
+        this.add("connection" true (trim says))
+
+        if ((d.developerModeEnabled()) == false) {
+            def c:AppleCheckResult (this.add("developer mode" false d.developerMode))
+            push c.remedy "Developer Mode is off on the device. Nothing can be installed onto it"
+            push c.remedy "until it is on, and it can only be turned on ON THE DEVICE -- Apple made"
+            push c.remedy "it a physical confirmation on purpose, so no command here can do it."
+            push c.remedy ""
+            push c.remedy "  Settings > Privacy & Security > Developer Mode > on,"
+            push c.remedy "  then restart the device and confirm after unlocking."
+            push c.remedy ""
+            push c.remedy "The menu entry only appears once a developer tool has tried to connect."
+            push c.remedy "If it is not there, leave the cable in, run this check once more, and"
+            push c.remedy "look again."
+            return false
+        }
+        this.add("developer mode" true "enabled")
+        return true
+    }
+
+    ; The developer disk image. A device without one answers `ddiServicesAvailable:
+    ; false` and refuses every install, and the repair is to ask it for something
+    ; that needs the image -- so this asks, and only reports when the asking
+    ; failed.
+    fn checkDeveloperImage:boolean () {
+        def mounted:boolean false
+        if (!null? details) {
+            def d:AppleDeviceDetails (unwrap details)
+            mounted = d.ddiAvailable
+        }
+        if mounted {
+            this.add("developer image" true "mounted")
+            return true
+        }
+        def res:ShellResult (tools.listInstalledApps(deviceId))
+        if (res.ok()) {
+            this.add("developer image" true "mounted on demand")
+            return true
+        }
+        def c:AppleCheckResult (this.add("developer image" false "cannot be mounted"))
+        push c.remedy "The device has no developer disk image and one could not be mounted:"
+        push c.remedy ""
+        push c.remedy (res.describeFailure())
+        push c.remedy ""
+        push c.remedy "Since iOS 17 that image is personalised per device, which makes mounting"
+        push c.remedy "it a network call to Apple. A VPN, a proxy or a firewall blocking that"
+        push c.remedy "call produces exactly this. Disconnect them and try again."
+        push c.remedy ""
+        push c.remedy "If the image itself is missing, Xcode has not finished downloading its"
+        push c.remedy "components -- check that this directory is not empty:"
+        push c.remedy ""
+        push c.remedy "  /Applications/Xcode.app/Contents/Resources/CoreDeviceDDIs"
+        push c.remedy ""
+        push c.remedy "Either way the mount can also be done without Xcode:"
+        push c.remedy ""
+        push c.remedy "  pip3 install -U pymobiledevice3"
+        push c.remedy "  sudo python3 -m pymobiledevice3 mounter auto-mount"
+        return false
+    }
+
+    ; Signing. Checked last because it is the only link that is about the app
+    ; rather than about the machine, and because a profile is matched against
+    ; the device the checks above found.
+    fn checkSigning:boolean () {
+        def ids:[AppleSigningIdentity] (signing.findIdentities())
+        if ((array_length ids) == 0) {
+            def c:AppleCheckResult (this.add("identity" false "none in the keychain"))
+            push c.remedy "There is no codesigning identity to sign a device build with."
+            push c.remedy ""
+            push c.remedy "A free Apple ID can only be turned into one by Xcode: open it once,"
+            push c.remedy "Settings > Accounts, add the Apple ID, and build any project to this"
+            push c.remedy "device. Everything after that is command line again."
+            push c.remedy ""
+            push c.remedy "With a paid account the whole thing can stay on the command line --"
+            push c.remedy "fastlane cert and fastlane sigh write the certificate and the profile"
+            push c.remedy "where this looks for them."
+            return false
+        }
+        def idOpt@(optional):AppleSigningIdentity (AppleSigning.pickIdentity(ids ""))
+        if (null? idOpt) {
+            def c:AppleCheckResult (this.add("identity" false "none usable"))
+            push c.remedy "The keychain has certificates but none that can sign a device build."
+            push c.remedy "`security find-identity -v -p codesigning` lists what is there."
+            return false
+        }
+        def id:AppleSigningIdentity (unwrap idOpt)
+        this.add("identity" true (id.describe()))
+
+        if ((strlen bundleId) == 0) {
+            return true
+        }
+        def profOpt@(optional):AppleProvisioningProfile (signing.pickProfile(bundleId deviceId workDir))
+        if (null? profOpt) {
+            def c:AppleCheckResult (this.add("profile" false ("none covers " + bundleId)))
+            push c.remedy ("No provisioning profile on this machine covers " + bundleId)
+            push c.remedy "for this device. A profile has to name the device, so one made for a"
+            push c.remedy "different phone does not count."
+            push c.remedy ""
+            push c.remedy "Open Xcode once, make an empty iOS app with this bundle id, pick your"
+            push c.remedy "team, and build it to this device. That writes the profile, and this"
+            push c.remedy "build finds it from then on. A free account's profile expires after"
+            push c.remedy "seven days and the same visit renews it."
+            push c.remedy ""
+            push c.remedy "--profile=PATH takes one directly if you have it from elsewhere."
+            return false
+        }
+        def prof:AppleProvisioningProfile (unwrap profOpt)
+        this.add("profile" true (prof.describe()))
+        return true
+    }
+
+    ; --------------------------------------------------------------- the walk
+
+    ; Every link, in order, stopping at the first that is missing. True when a
+    ; device build can go ahead.
+    fn run:boolean () {
+        if ((this.checkToolchain()) == false) {
+            return false
+        }
+        if ((this.checkDevice()) == false) {
+            return false
+        }
+        if ((this.checkReachable()) == false) {
+            return false
+        }
+        if ((this.checkDeveloperImage()) == false) {
+            return false
+        }
+        return (this.checkSigning())
+    }
+
+    ; The part that runs before a build rather than instead of one: the device
+    ; links only, without the signing checks the build itself is about to do.
+    ; Cheap enough to run every time -- one listing and one question to the
+    ; device -- and it is what mounts the developer image, so a build that
+    ; calls this does not fail on a missing one.
+    fn preflight:boolean () {
+        if ((this.checkDevice()) == false) {
+            return false
+        }
+        if ((this.checkReachable()) == false) {
+            return false
+        }
+        return (this.checkDeveloperImage())
+    }
+
+    ; ---------------------------------------------------------------- report
+
+    sfn pad:string (s:string width:int) {
+        def out:string s
+        def i:int (strlen s)
+        while (i < width) {
+            out = (out + " ")
+            i = i + 1
+        }
+        return out
+    }
+
+    ; One line per check, then the advice for the one that failed. Only the
+    ; first failure gets advice: the checks after it were never run, and a
+    ; wall of remedies for problems nobody has is how a diagnostic stops being
+    ; read.
+    fn report:void () {
+        for checks c:AppleCheckResult i {
+            def mark:string "  ok  "
+            if (c.ok == false) {
+                mark = "  FAIL"
+            }
+            print (mark + " " + (AppleDeviceDoctor.pad(c.name 18)) + c.detail)
+        }
+        def shown:boolean false
+        for checks c:AppleCheckResult i {
+            if (shown == false) {
+                if (c.ok == false) {
+                    shown = true
+                    print ""
+                    for c.remedy line:string li {
+                        print line
+                    }
+                }
+            }
+        }
+    }
+}

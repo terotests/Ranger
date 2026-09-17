@@ -1,0 +1,393 @@
+; SPDX-License-Identifier: MIT
+
+; Object store on top of a parsed pack: walk a tree, materialise blobs
+; into an in-memory filesystem, optionally write them to disk. This is
+; the "clone into memory" step — one pack, then a tree walk, no
+; per-file git subprocess.
+
+Import "GitSha1.rgr"
+Import "GitPack.rgr"
+
+class GitEntry {
+    def name:string ""
+    def sha:string ""
+    def isTree:boolean false
+    def mode:string ""
+}
+
+class GitFile {
+    def path:string ""
+    def data:buffer (buffer_alloc 0)
+}
+
+class GitTree {
+    def sha:string ""
+    def entries:[GitEntry]
+}
+
+class GitMem {
+    def files:[GitFile]
+    def paths:[string]
+    def byPath:[string:GitFile]
+}
+
+class GitStore {
+    def pack:GitPack (new GitPack)
+    def ok:boolean true
+    def err:string ""
+
+    Constructor (p:GitPack) {
+        pack = p
+        ok = p.ok
+        err = p.err
+    }
+
+    fn takeObj@(optional):GitObj (sha:string) {
+        return (GitPackIO.lookup(pack sha))
+    }
+
+    fn parseTree:GitTree (payload:buffer) {
+        def t (new GitTree)
+        def n:int (buffer_length payload)
+        def at:int 0
+        while (at < n) {
+            def modeStart:int at
+            while (at < n) {
+                if ((buffer_get payload at) == 32) {
+                    break
+                }
+                at = (at + 1)
+            }
+            def mode:string (GitSha1.ascii(payload modeStart (at - modeStart)))
+            at = (at + 1)
+            def nameStart:int at
+            while (at < n) {
+                if ((buffer_get payload at) == 0) {
+                    break
+                }
+                at = (at + 1)
+            }
+            def name:string (GitSha1.ascii(payload nameStart (at - nameStart)))
+            at = (at + 1)
+            if ((at + 20) > n) {
+                break
+            }
+            def sha:string (GitSha1.toHex((GitSha1.copyRange(payload at 20))))
+            at = (at + 20)
+            def e (new GitEntry)
+            e.name = name
+            e.sha = sha
+            e.mode = mode
+            if ((strlen mode) > 0) {
+                if ((substring mode 0 1) == "4") {
+                    e.isTree = true
+                }
+            }
+            push t.entries e
+        }
+        return t
+    }
+
+    fn commitTree:string (payload:buffer) {
+        def text:string (buffer_to_string payload)
+        if ((strlen text) < 46) {
+            return ""
+        }
+        if ((substring text 0 5) != "tree ") {
+            return ""
+        }
+        return (substring text 5 45)
+    }
+
+    fn checkout:GitMem (sha:string subdir:string) {
+        def mem (new GitMem)
+        def obj@(optional):GitObj (this.takeObj(sha))
+        if (null? obj) {
+            ok = false
+            err = ("object not in pack: " + sha)
+            return mem
+        }
+        def o:GitObj (unwrap obj)
+        def treeSha:string sha
+        if (o.kind == 1) {
+            treeSha = (this.commitTree(o.data))
+        }
+        if (o.kind == 4) {
+            ; annotated tag: "object <sha>\n"
+            def tagText:string (buffer_to_string o.data)
+            if ((strlen tagText) >= 48) {
+                if ((substring tagText 0 7) == "object ") {
+                    treeSha = (substring tagText 7 47)
+                    def inner@(optional):GitObj (this.takeObj(treeSha))
+                    if (null? inner) {
+                        ok = false
+                        err = ("tag target missing: " + treeSha)
+                        return mem
+                    }
+                    def inn:GitObj (unwrap inner)
+                    if (inn.kind == 1) {
+                        treeSha = (this.commitTree(inn.data))
+                    }
+                }
+            }
+        }
+        this.walk(mem treeSha "" subdir)
+        return mem
+    }
+
+    fn walk:void (mem:GitMem treeSha:string prefix:string want:string) {
+        def obj@(optional):GitObj (this.takeObj(treeSha))
+        if (null? obj) {
+            ok = false
+            err = ("tree missing: " + treeSha)
+            return
+        }
+        def o:GitObj (unwrap obj)
+        def tree:GitTree (this.parseTree(o.data))
+        def i:int 0
+        while (i < (array_length tree.entries)) {
+            def e:GitEntry (itemAt tree.entries i)
+            def path:string e.name
+            if ((strlen prefix) > 0) {
+                path = (prefix + "/" + e.name)
+            }
+            if e.isTree {
+                if (this.mayEnter(path want)) {
+                    this.walk(mem e.sha path want)
+                }
+            } {
+                if (this.underSubdir(path want)) {
+                    def blob@(optional):GitObj (this.takeObj(e.sha))
+                    if (null? blob) {
+                        ok = false
+                        err = ("blob missing: " + e.sha)
+                    } {
+                        def b:GitObj (unwrap blob)
+                        def rel:string (this.stripSubdir(path want))
+                        def f (new GitFile)
+                        f.path = rel
+                        f.data = b.data
+                        push mem.files f
+                        push mem.paths rel
+                        set mem.byPath rel f
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn mayEnter:boolean (path:string want:string) {
+        if ((strlen want) == 0) {
+            return true
+        }
+        if (this.underSubdir(path want)) {
+            return true
+        }
+        def pn:int (strlen path)
+        def wn:int (strlen want)
+        if (wn > pn) {
+            if ((substring want 0 pn) == path) {
+                if ((charAt want pn) == 47) {
+                    return true
+                }
+            }
+        }
+        return (path == want)
+    }
+
+    fn splitSegs:[string] (path:string) {
+        def parts:[string]
+        def n:int (strlen path)
+        def start:int 0
+        def i:int 0
+        while (i <= n) {
+            if ((i == n) || ((charAt path i) == 47)) {
+                def piece:string (substring path start i)
+                if ((strlen piece) > 0) {
+                    push parts piece
+                }
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return parts
+    }
+
+    fn asTreeSha:string (sha:string) {
+        def obj@(optional):GitObj (this.takeObj(sha))
+        if (null? obj) {
+            ok = false
+            err = ("object not in pack: " + sha)
+            return ""
+        }
+        def o:GitObj (unwrap obj)
+        if (o.kind == 2) {
+            return sha
+        }
+        if (o.kind == 1) {
+            return (this.commitTree(o.data))
+        }
+        if (o.kind == 4) {
+            def tagText:string (buffer_to_string o.data)
+            if ((strlen tagText) >= 48) {
+                if ((substring tagText 0 7) == "object ") {
+                    def inner:string (substring tagText 7 47)
+                    def inn@(optional):GitObj (this.takeObj(inner))
+                    if (null? inn) {
+                        return inner
+                    }
+                    def io:GitObj (unwrap inn)
+                    if (io.kind == 1) {
+                        return (this.commitTree(io.data))
+                    }
+                    if (io.kind == 2) {
+                        return inner
+                    }
+                }
+            }
+        }
+        return sha
+    }
+
+    ; Tree SHA of `subdir` under a commit/tree already in the pack.
+    ; Round 1 of a sparse fetch is `filter blob:none`; this finds the
+    ; directory to `want` in round 2 (reachable tree SHA, blobs included).
+    fn treeAt:string (sha:string subdir:string) {
+        def cur:string (this.asTreeSha(sha))
+        if ((strlen cur) == 0) {
+            return ""
+        }
+        if ((strlen subdir) == 0) {
+            return cur
+        }
+        def segs:[string] (this.splitSegs(subdir))
+        def s:int 0
+        while (s < (array_length segs)) {
+            def part:string (itemAt segs s)
+            def obj@(optional):GitObj (this.takeObj(cur))
+            if (null? obj) {
+                ok = false
+                err = ("tree missing: " + cur)
+                return ""
+            }
+            def o:GitObj (unwrap obj)
+            def tree:GitTree (this.parseTree(o.data))
+            def found:string ""
+            def i:int 0
+            while (i < (array_length tree.entries)) {
+                def e:GitEntry (itemAt tree.entries i)
+                if (e.name == part) {
+                    if e.isTree {
+                        found = e.sha
+                    }
+                }
+                i = (i + 1)
+            }
+            if ((strlen found) == 0) {
+                ok = false
+                err = ("no subtree " + part + " in " + subdir)
+                return ""
+            }
+            cur = found
+            s = (s + 1)
+        }
+        return cur
+    }
+
+    fn underSubdir:boolean (path:string want:string) {
+        if ((strlen want) == 0) {
+            return true
+        }
+        if (path == want) {
+            return true
+        }
+        def prefix:string (want + "/")
+        def n:int (strlen prefix)
+        if ((strlen path) < n) {
+            return false
+        }
+        return ((substring path 0 n) == prefix)
+    }
+
+    fn stripSubdir:string (path:string want:string) {
+        if ((strlen want) == 0) {
+            return path
+        }
+        if (path == want) {
+            return (this.baseName(path))
+        }
+        def prefix:string (want + "/")
+        def n:int (strlen prefix)
+        if ((strlen path) >= n) {
+            if ((substring path 0 n) == prefix) {
+                return (substring path n (strlen path))
+            }
+        }
+        return path
+    }
+
+    fn baseName:string (path:string) {
+        def n:int (strlen path)
+        def i:int (n - 1)
+        while (i >= 0) {
+            if ((charAt path i) == 47) {
+                return (substring path (i + 1) n)
+            }
+            i = (i - 1)
+        }
+        return path
+    }
+
+    fn writeDisk:void (mem:GitMem root:string) {
+        def i:int 0
+        while (i < (array_length mem.files)) {
+            def f:GitFile (itemAt mem.files i)
+            def dir:string (this.dirOf((root + "/" + f.path)))
+            create_dir dir
+            def parts:[string] (this.splitPath((root + "/" + f.path)))
+            buffer_write_file (itemAt parts 0) (itemAt parts 1) f.data
+            i = (i + 1)
+        }
+    }
+
+    fn dirOf:string (path:string) {
+        def n:int (strlen path)
+        def i:int (n - 1)
+        while (i >= 0) {
+            if ((charAt path i) == 47) {
+                return (substring path 0 i)
+            }
+            i = (i - 1)
+        }
+        return "."
+    }
+
+    fn splitPath:[string] (path:string) {
+        def dir:string "."
+        def name:string path
+        def n:int (strlen path)
+        def i:int (n - 1)
+        while (i >= 0) {
+            if ((charAt path i) == 47) {
+                dir = (substring path 0 i)
+                name = (substring path (i + 1) n)
+                i = (0 - 1)
+            } {
+                i = (i - 1)
+            }
+        }
+        def parts:[string]
+        push parts dir
+        push parts name
+        return parts
+    }
+
+    fn fileText:string (mem:GitMem path:string) {
+        if (has mem.byPath path) {
+            def f:GitFile (unwrap (get mem.byPath path))
+            return (buffer_to_string f.data)
+        }
+        return ""
+    }
+}

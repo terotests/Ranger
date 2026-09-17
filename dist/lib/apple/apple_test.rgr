@@ -1,0 +1,669 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; apple_test.rgr -- the Apple build driver, checked without a Mac.
+; =============================================================================
+;
+; Nothing here runs an Apple tool. What it checks is the part of a build driver
+; that has bugs in it: which program is invoked, with which arguments, in which
+; order, and what the bundle it writes claims about itself. `Shell.dryRun`
+; records instead of executing, so the whole plan is a list of strings, and the
+; simulator parser is a pure function over the text simctl prints.
+;
+;     node bin/output.js -es6 lib/apple/apple_test.rgr -nodecli -d=tmp -o=apple_test.js
+;     node tmp/apple_test.js
+; =============================================================================
+
+Import "../Shell.rgr"
+Import "AppleTarget.rgr"
+Import "AppleAppSpec.rgr"
+Import "AppleToolchain.rgr"
+Import "AppleAppBuilder.rgr"
+Import "AppleSimulator.rgr"
+Import "AppleDevice.rgr"
+Import "AppleSigning.rgr"
+Import "AppleDeviceDoctor.rgr"
+
+class AppleTest {
+
+    def passed:int 0
+    def failed:int 0
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = passed + 1
+        } {
+            failed = failed + 1
+            print "  FAIL " + name
+        }
+    }
+
+    fn checkHas:void (name:string haystack:string needle:string) {
+        this.check(name ((indexOf haystack needle) >= 0))
+    }
+
+    ; ------------------------------------------------------------------ targets
+
+    fn testTargets:void () {
+        def sim:AppleTarget (AppleTarget.iosSimulator("arm64"))
+        this.check("ios simulator triple" ((sim.swiftTriple()) == "arm64-apple-ios15.0-simulator"))
+        this.check("ios simulator sdk" (sim.sdk == "iphonesimulator"))
+        this.check("ios simulator is universal" ((array_length sim.families) == 2))
+        this.check("ios simulator ad hoc" (sim.isAdHocSigned()))
+        this.check("ios simulator is not a watch" ((sim.isWatch()) == false))
+
+        def intel:AppleTarget (AppleTarget.iosSimulator("x86_64"))
+        this.check("intel simulator triple" ((intel.swiftTriple()) == "x86_64-apple-ios15.0-simulator"))
+
+        def dev:AppleTarget (AppleTarget.iosDevice("Apple Development: Someone (ABC123)"))
+        this.check("ios device triple" ((dev.swiftTriple()) == "arm64-apple-ios15.0"))
+        this.check("ios device sdk" (dev.sdk == "iphoneos"))
+        this.check("ios device is not ad hoc" ((dev.isAdHocSigned()) == false))
+
+        def watch:AppleTarget (AppleTarget.watchSimulator("arm64"))
+        this.check("watch simulator triple" ((watch.swiftTriple()) == "arm64-apple-watchos9.0-simulator"))
+        this.check("watch simulator sdk" (watch.sdk == "watchsimulator"))
+        this.check("watch family" ((itemAt watch.families 0) == 4))
+        this.check("watch is a watch" (watch.isWatch()))
+
+        def watchDev:AppleTarget (AppleTarget.watchDevice("Apple Development: Someone (ABC123)"))
+        this.check("watch device triple" ((watchDev.swiftTriple()) == "arm64-apple-watchos9.0"))
+
+        def pad:AppleTarget (AppleTarget.iosSimulator("arm64"))
+        pad.onlyPad()
+        this.check("ipad only family" ((array_length pad.families) == 1))
+        this.check("ipad only is family 2" ((itemAt pad.families 0) == 2))
+        this.checkHas("describe names the triple" (pad.describe()) "arm64-apple-ios15.0-simulator")
+        this.checkHas("describe names the device" (pad.describe()) "iPad")
+    }
+
+    ; -------------------------------------------------------------------- plist
+
+    fn testPlist:void () {
+        def spec:AppleAppSpec (new AppleAppSpec)
+        spec.name = "RangerDashboard"
+        spec.displayName = "Ranger & Co"
+        spec.bundleId = "fi.ranger.dashboard"
+        spec.version = "2.1"
+        spec.build = "77"
+
+        def sim:AppleTarget (AppleTarget.iosSimulator("arm64"))
+        def xml:string (AppleInfoPlist.build(spec sim))
+
+        this.checkHas("plist declares the executable" xml "<key>CFBundleExecutable</key>\n\t<string>RangerDashboard</string>")
+        this.checkHas("plist declares the bundle id" xml "<string>fi.ranger.dashboard</string>")
+        this.checkHas("plist escapes the display name" xml "Ranger &amp; Co")
+        this.checkHas("plist has the launch screen" xml "<key>UILaunchScreen</key>")
+        this.checkHas("plist carries the min version" xml "<key>MinimumOSVersion</key>\n\t<string>15.0</string>")
+        this.checkHas("plist names the simulator platform" xml "iPhoneSimulator")
+        this.checkHas("plist is a universal app" xml "<integer>1</integer>")
+        this.checkHas("plist is an iPad app too" xml "<integer>2</integer>")
+        this.checkHas("plist allows landscape" xml "UIInterfaceOrientationLandscapeLeft")
+        this.check("plist has no watch key" ((indexOf xml "WKApplication") < 0))
+
+        def watch:AppleTarget (AppleTarget.watchSimulator("arm64"))
+        def wxml:string (AppleInfoPlist.build(spec watch))
+        this.checkHas("watch plist is standalone" wxml "<key>WKApplication</key>\n\t<true/>")
+        this.checkHas("watch plist has no companion" wxml "<key>WKWatchOnly</key>\n\t<true/>")
+        this.checkHas("watch plist runs on its own" wxml "<key>WKRunsIndependentlyOfCompanionApp</key>\n\t<true/>")
+        this.checkHas("watch plist names the platform" wxml "WatchSimulator")
+        this.check("watch plist has no device family" ((indexOf wxml "UIDeviceFamily") < 0))
+        this.check("watch plist has no launch screen" ((indexOf wxml "UILaunchScreen") < 0))
+
+        def devWatch:AppleTarget (AppleTarget.watchDevice("Someone"))
+        def dxml:string (AppleInfoPlist.build(spec devWatch))
+        this.checkHas("watch device platform" dxml "<string>WatchOS</string>")
+    }
+
+    ; ---------------------------------------------------------------- simulators
+
+    fn simctlFixture:string () {
+        def rows:[string]
+        push rows "== Devices =="
+        push rows "-- iOS 17.5 --"
+        push rows "    iPhone SE (3rd generation) (11111111-2222-3333-4444-555555555555) (Shutdown) "
+        push rows "    iPhone 15 Pro (AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE) (Booted) "
+        push rows "    iPad Pro 13-inch (M4) (99999999-8888-7777-6666-555555555555) (Shutdown) "
+        push rows "-- watchOS 10.5 --"
+        push rows "    Apple Watch Series 9 (45mm) (12345678-1234-1234-1234-123456789012) (Shutdown) "
+        push rows "-- Unavailable: com.apple.CoreSimulator.SimRuntime.tvOS-17-5 --"
+        push rows "    Apple TV (DEADBEEF-0000-1111-2222-333333333333) (Shutdown) (unavailable, runtime profile not found)"
+        return (join rows "\n")
+    }
+
+    fn testSimulators:void () {
+        def all:[AppleSimulator] (AppleSimulatorList.parse((this.simctlFixture())))
+        this.check("four usable devices" ((array_length all) == 4))
+
+        def se:AppleSimulator (itemAt all 0)
+        this.check("name keeps its brackets" (se.name == "iPhone SE (3rd generation)"))
+        this.check("udid is read" (se.udid == "11111111-2222-3333-4444-555555555555"))
+        this.check("state is read" (se.state == "Shutdown"))
+        this.check("runtime is read" (se.runtime == "iOS 17.5"))
+
+        def pad:AppleSimulator (itemAt all 2)
+        this.check("ipad name with a model bracket" (pad.name == "iPad Pro 13-inch (M4)"))
+
+        def watch:AppleSimulator (itemAt all 3)
+        this.check("watch runtime" (watch.runtime == "watchOS 10.5"))
+
+        def ios:[AppleSimulator] (AppleSimulatorList.onPlatform(all "iOS"))
+        this.check("three iOS devices" ((array_length ios) == 3))
+        def watches:[AppleSimulator] (AppleSimulatorList.onPlatform(all "watchOS"))
+        this.check("one watch" ((array_length watches) == 1))
+
+        ; A booted device wins when nothing was asked for.
+        def anyPick@(optional):AppleSimulator (AppleSimulatorList.pick(ios ""))
+        this.check("picks something" (!null? anyPick))
+        def anyDev:AppleSimulator (unwrap anyPick)
+        this.check("prefers the booted one" (anyDev.name == "iPhone 15 Pro"))
+
+        ; A name that was asked for wins over a booted one that was not.
+        def padPick@(optional):AppleSimulator (AppleSimulatorList.pick(ios "iPad"))
+        this.check("finds the ipad" (!null? padPick))
+        def padDev:AppleSimulator (unwrap padPick)
+        this.check("named beats booted" (padDev.name == "iPad Pro 13-inch (M4)"))
+
+        def byUdid@(optional):AppleSimulator (AppleSimulatorList.pick(ios "11111111-2222-3333-4444-555555555555"))
+        this.check("finds by udid" (!null? byUdid))
+
+        def missing@(optional):AppleSimulator (AppleSimulatorList.pick(ios "Nokia 3310"))
+        this.check("a name that is not there is absent" (null? missing))
+
+        ; An unavailable runtime contributes nothing, however well formed.
+        this.check("unavailable runtimes are skipped" ((array_length all) == 4))
+    }
+
+    ; ------------------------------------------------------------- the whole plan
+
+    fn buildSpec:AppleAppSpec () {
+        def spec:AppleAppSpec (new AppleAppSpec)
+        spec.name = "RangerDashboard"
+        spec.displayName = "Ranger Dashboard"
+        spec.bundleId = "fi.ranger.dashboard"
+        spec.addSource("generated/ui_ios.swift")
+        spec.addSource("ios/DashboardView.swift")
+        spec.addResource("assets/demo.css")
+        spec.addFramework("UIKit")
+        return spec
+    }
+
+    fn testBuildPlan:void () {
+        def sh:Shell (new Shell)
+        sh.dryRun = true
+        def tools:AppleToolchain (new AppleToolchain (sh))
+        def builder:AppleAppBuilder (new AppleAppBuilder (sh tools))
+        builder.verbose = false
+        builder.buildRoot = "build"
+
+        def spec:AppleAppSpec (this.buildSpec())
+        def target:AppleTarget (AppleTarget.iosSimulator("arm64"))
+        def res:AppleBuildResult (builder.build(spec target))
+
+        this.check("dry build succeeds" res.ok)
+        this.check("bundle path" (res.appPath == "build/ios-simulator/RangerDashboard.app"))
+
+        def plan:string (join sh.commands "\n")
+        this.checkHas("compiles with xcrun swiftc" plan "xcrun --sdk iphonesimulator swiftc")
+        this.checkHas("compiles for the simulator triple" plan "-target arm64-apple-ios15.0-simulator")
+        this.checkHas("emits an executable" plan "-emit-executable")
+        this.checkHas("names the binary after the bundle" plan "-o build/ios-simulator/RangerDashboard.app/RangerDashboard")
+        this.checkHas("links UIKit" plan "-framework UIKit")
+        this.checkHas("compiles the generated file" plan "generated/ui_ios.swift")
+        this.checkHas("compiles the host file" plan "ios/DashboardView.swift")
+        this.checkHas("copies the stylesheet" plan "cp -R assets/demo.css build/ios-simulator/RangerDashboard.app")
+        this.checkHas("signs the bundle" plan "codesign --force --sign - ")
+        this.check("no xcodebuild anywhere" ((indexOf plan "xcodebuild") < 0))
+        this.check("no xcodeproj anywhere" ((indexOf plan "xcodeproj") < 0))
+
+        ; The order matters: the plist has to be linted before anything is
+        ; compiled into a bundle that may not install, and signing is last
+        ; because signing anything before the binary is in it signs the wrong
+        ; thing.
+        def lintAt:int (indexOf plan "plutil -lint")
+        def swiftAt:int (indexOf plan "swiftc")
+        def signAt:int (indexOf plan "codesign")
+        this.check("plist is linted before compiling" (lintAt < swiftAt))
+        this.check("signing is last" (signAt > swiftAt))
+
+        ; Every step is recorded whether or not it ran.
+        this.check("steps were recorded" ((array_length res.steps) > 5))
+        ; The ordering check above is only worth anything if both commands are
+        ; really in the plan.
+        this.check("the plist lint is in the plan" (lintAt >= 0))
+        this.check("the compile is in the plan" (swiftAt >= 0))
+        this.check("the signing is in the plan" (signAt >= 0))
+        ; A simulator build has no profile to embed and no entitlements to
+        ; grant: signing it ad hoc is the whole of it.
+        this.check("no profile is embedded for the simulator" ((indexOf plan "embedded.mobileprovision") < 0))
+        this.check("no entitlements for the simulator" ((indexOf plan "--entitlements") < 0))
+    }
+
+    ; A real iPhone. Three things have to happen that the simulator needs none
+    ; of, and they have to happen in the right order relative to signing.
+    fn testDevicePlan:void () {
+        def sh:Shell (new Shell)
+        sh.dryRun = true
+        def tools:AppleToolchain (new AppleToolchain (sh))
+        def builder:AppleAppBuilder (new AppleAppBuilder (sh tools))
+        builder.verbose = false
+
+        def spec:AppleAppSpec (this.buildSpec())
+        spec.provisioningProfile = "signing/Ranger_Dashboard_Dev.mobileprovision"
+        def target:AppleTarget (AppleTarget.iosDevice("Apple Development: Someone (ABC123)"))
+        def res:AppleBuildResult (builder.build(spec target))
+        this.check("device dry build succeeds" res.ok)
+        this.check("device bundle path" (res.appPath == "build/ios-device/RangerDashboard.app"))
+
+        def plan:string (join sh.commands "\n")
+        this.checkHas("device sdk" plan "xcrun --sdk iphoneos swiftc")
+        this.checkHas("device triple has no simulator suffix" plan "-target arm64-apple-ios15.0 ")
+        this.checkHas("the profile goes in the bundle" plan "build/ios-device/RangerDashboard.app/embedded.mobileprovision")
+        this.checkHas("the profile is decoded" plan "security cms -D -i signing/Ranger_Dashboard_Dev.mobileprovision")
+        this.checkHas("entitlements are extracted from it" plan "plutil -extract Entitlements xml1 -o build/ios-device/entitlements.plist")
+        this.checkHas("signed with a real identity" plan "codesign --force --sign 'Apple Development: Someone (ABC123)'")
+        this.checkHas("signed with those entitlements" plan "--entitlements build/ios-device/entitlements.plist")
+
+        def embedAt:int (indexOf plan "embedded.mobileprovision")
+        def signAt:int (indexOf plan "codesign")
+        this.check("the profile is in place before signing" (embedAt < signAt))
+
+        ; Without a profile the build still goes through -- an identity already
+        ; provisioned for the device is a real workflow -- but nothing is
+        ; embedded and no entitlements are invented.
+        def sh2:Shell (new Shell)
+        sh2.dryRun = true
+        def tools2:AppleToolchain (new AppleToolchain (sh2))
+        def b2:AppleAppBuilder (new AppleAppBuilder (sh2 tools2))
+        b2.verbose = false
+        def bare:AppleAppSpec (this.buildSpec())
+        def res2:AppleBuildResult (b2.build(bare target))
+        this.check("device build without a profile still builds" res2.ok)
+        def plan2:string (join sh2.commands "\n")
+        this.check("nothing is embedded without a profile" ((indexOf plan2 "embedded.mobileprovision") < 0))
+        this.check("no entitlements without a profile" ((indexOf plan2 "--entitlements") < 0))
+    }
+
+    fn testWatchPlan:void () {
+        def sh:Shell (new Shell)
+        sh.dryRun = true
+        def tools:AppleToolchain (new AppleToolchain (sh))
+        def builder:AppleAppBuilder (new AppleAppBuilder (sh tools))
+        builder.verbose = false
+
+        def spec:AppleAppSpec (this.buildSpec())
+        def target:AppleTarget (AppleTarget.watchSimulator("arm64"))
+        def res:AppleBuildResult (builder.build(spec target))
+        this.check("watch dry build succeeds" res.ok)
+        this.check("watch bundle path" (res.appPath == "build/watchos-simulator/RangerDashboard.app"))
+
+        def plan:string (join sh.commands "\n")
+        this.checkHas("watch sdk" plan "xcrun --sdk watchsimulator swiftc")
+        this.checkHas("watch triple" plan "-target arm64-apple-watchos9.0-simulator")
+    }
+
+    fn testRunPlan:void () {
+        def sh:Shell (new Shell)
+        sh.dryRun = true
+        def tools:AppleToolchain (new AppleToolchain (sh))
+        def builder:AppleAppBuilder (new AppleAppBuilder (sh tools))
+        builder.verbose = false
+
+        def spec:AppleAppSpec (this.buildSpec())
+        def target:AppleTarget (AppleTarget.iosSimulator("arm64"))
+        def res:AppleBuildResult (builder.runOnSimulator(spec target "iPad Pro"))
+        this.check("dry run reaches launch" res.ok)
+
+        def plan:string (join sh.commands "\n")
+        this.checkHas("boots a device" plan "xcrun simctl boot")
+        this.checkHas("shows the simulator window" plan "open -a Simulator")
+        this.checkHas("waits for the boot" plan "xcrun simctl bootstatus")
+        this.checkHas("installs the bundle" plan "xcrun simctl install")
+        this.checkHas("launches by bundle id" plan "xcrun simctl launch --terminate-running-process")
+        this.checkHas("launches the right app" plan "fi.ranger.dashboard")
+
+        ; A device target has no simulator to run on, and saying so is better
+        ; than booting something unrelated.
+        def sh2:Shell (new Shell)
+        sh2.dryRun = true
+        def tools2:AppleToolchain (new AppleToolchain (sh2))
+        def b2:AppleAppBuilder (new AppleAppBuilder (sh2 tools2))
+        b2.verbose = false
+        def devTarget:AppleTarget (AppleTarget.iosDevice("Someone"))
+        def devRes:AppleBuildResult (b2.runOnSimulator(spec devTarget ""))
+        this.check("a device target is refused" (devRes.ok == false))
+        this.checkHas("and says why" devRes.message "device target")
+    }
+
+    ; The quoting is what makes a logged command line true rather than merely
+    ; suggestive, and a Ranger project path with a space in it is ordinary.
+    fn testQuoting:void () {
+        def sh:Shell (new Shell)
+        sh.dryRun = true
+        def tools:AppleToolchain (new AppleToolchain (sh))
+        def builder:AppleAppBuilder (new AppleAppBuilder (sh tools))
+        builder.verbose = false
+        def spec:AppleAppSpec (new AppleAppSpec)
+        spec.name = "App"
+        spec.bundleId = "fi.ranger.app"
+        spec.addSource("/Users/someone/My Projects/app.swift")
+        def target:AppleTarget (AppleTarget.iosSimulator("arm64"))
+        builder.build(spec target)
+        def plan:string (join sh.commands "\n")
+        this.checkHas("a path with a space is quoted" plan "'/Users/someone/My Projects/app.swift'")
+    }
+
+    ; ------------------------------------------------------- connected devices
+
+    fn devicectlFixture:string () {
+        def rows:[string]
+        push rows "Devices:"
+        push rows "Name             Hostname                     Identifier                             State                Model"
+        push rows "---------------  ---------------------------  -------------------------------------  -------------------  -----"
+        push rows "Tero iPhone      00008101-001A.coredevice     1A2B3C4D-5E6F-7890-ABCD-EF1234567890   connected            iPhone 14 Pro (iPhone15,2)"
+        push rows "Testi iPad Air   00008103-001B.coredevice     99999999-8888-7777-6666-555555555555   available (paired)   iPad Air (iPad13,16)"
+        push rows "Vanha iPhone     00008020-001C.coredevice     11111111-2222-3333-4444-555555555555   connected            iPhone 11 (iPhone12,1)"
+        push rows "Rikki iPhone     00008030-001D.coredevice     22222222-3333-4444-5555-666666666666   unavailable          iPhone SE (iPhone14,6)"
+        return (join rows "\n")
+    }
+
+    fn testDevices:void () {
+        def all:[AppleDeviceInfo] (AppleDeviceList.parse((this.devicectlFixture())))
+        this.check("four devices are listed" ((array_length all) == 4))
+
+        def first:AppleDeviceInfo (itemAt all 0)
+        ; A name with a single space inside it must survive: the fields are
+        ; split on runs of TWO spaces, not on every space.
+        this.check("a name with a space in it" (first.name == "Tero iPhone"))
+        this.check("the identifier is the devicectl one" (first.identifier == "1A2B3C4D-5E6F-7890-ABCD-EF1234567890"))
+        this.check("the state is read" (first.state == "connected"))
+        this.check("and the model, brackets and all" (first.model == "iPhone 14 Pro (iPhone15,2)"))
+        this.check("a connected device is connected" (first.isConnected()))
+
+        def paired:AppleDeviceInfo (itemAt all 1)
+        ; "available (paired)" is a device devicectl has no tunnel to at this
+        ; moment. It is not connected, and it IS usable: the tunnel comes up
+        ; when the first real operation asks for it.
+        this.check("a paired device is not connected" ((paired.isConnected()) == false))
+        this.check("a paired device is paired" (paired.isPaired()))
+        this.check("and it is usable" (paired.isUsable()))
+        this.check("a two-word state survives" (paired.state == "available (paired)"))
+
+        ; "unavailable" contains "available". A substring test that forgot that
+        ; would call this one usable, which is the bug this checks for.
+        def broken:AppleDeviceInfo (itemAt all 3)
+        this.check("an unavailable device says so" (broken.state == "unavailable"))
+        this.check("an unavailable device is not paired" ((broken.isPaired()) == false))
+        this.check("nor usable" ((broken.isUsable()) == false))
+
+        ; The header and the separator hold no identifier and fall out.
+        def headerCols:[string] (AppleDeviceList.columns("Name             Hostname                     Identifier"))
+        this.check("the header splits into columns" ((array_length headerCols) == 3))
+
+        def anyPick@(optional):AppleDeviceInfo (AppleDeviceList.pick(all ""))
+        this.check("something is picked" (!null? anyPick))
+        def any:AppleDeviceInfo (unwrap anyPick)
+        this.check("and it is the first CONNECTED one" (any.name == "Tero iPhone"))
+
+        ; A paired device is a candidate on its own name: devicectl raises the
+        ; tunnel when it installs.
+        def padPick@(optional):AppleDeviceInfo (AppleDeviceList.pick(all "iPad"))
+        this.check("a paired device is picked by name" (!null? padPick))
+        def pad:AppleDeviceInfo (unwrap padPick)
+        this.check("and it is the paired one" (pad.name == "Testi iPad Air"))
+
+        ; ...but an unavailable one is not, by name or by identifier.
+        def brokenPick@(optional):AppleDeviceInfo (AppleDeviceList.pick(all "Rikki"))
+        this.check("an unavailable device is refused" (null? brokenPick))
+
+        ; With nothing connected, the paired device is what "" picks -- the
+        ; case this whole distinction exists for.
+        def onlyPaired:[AppleDeviceInfo]
+        push onlyPaired paired
+        push onlyPaired broken
+        def pairedPick@(optional):AppleDeviceInfo (AppleDeviceList.pick(onlyPaired ""))
+        this.check("a paired device is picked when it is all there is" (!null? pairedPick))
+        def fell:AppleDeviceInfo (unwrap pairedPick)
+        this.check("and the unavailable one is still skipped" (fell.name == "Testi iPad Air"))
+
+        def oldPick@(optional):AppleDeviceInfo (AppleDeviceList.pick(all "Vanha"))
+        this.check("a named connected device is found" (!null? oldPick))
+        def byId@(optional):AppleDeviceInfo (AppleDeviceList.pick(all "11111111-2222-3333-4444-555555555555"))
+        this.check("and so is one named by identifier" (!null? byId))
+        def missing@(optional):AppleDeviceInfo (AppleDeviceList.pick(all "Nokia"))
+        this.check("a name that is not there is absent" (null? missing))
+
+        def none:[AppleDeviceInfo] (AppleDeviceList.parse(""))
+        this.check("nothing plugged in is no devices" ((array_length none) == 0))
+    }
+
+    ; -------------------------------------------------------------- signing
+
+    fn identityFixture:string () {
+        def rows:[string]
+        push rows "  1) A1B2C3D4E5F60718293A4B5C6D7E8F901A2B3C4D \"Apple Development: Tero Tolonen (ABC123DEF4)\""
+        push rows "  2) 0918273645AABBCCDDEEFF001122334455667788 \"Apple Distribution: Tero Tolonen (ABC123DEF4)\""
+        push rows "     2 valid identities found"
+        return (join rows "\n")
+    }
+
+    fn testSigning:void () {
+        def ids:[AppleSigningIdentity] (AppleSigning.parseIdentities((this.identityFixture())))
+        this.check("two identities are read" ((array_length ids) == 2))
+        def dev:AppleSigningIdentity (itemAt ids 0)
+        this.check("the fingerprint" (dev.sha1 == "A1B2C3D4E5F60718293A4B5C6D7E8F901A2B3C4D"))
+        this.check("the quoted name, spaces and all" (dev.name == "Apple Development: Tero Tolonen (ABC123DEF4)"))
+        this.check("the team id is the last bracket" ((dev.teamId()) == "ABC123DEF4"))
+        this.check("a development certificate is one" (dev.isDevelopment()))
+        def dist:AppleSigningIdentity (itemAt ids 1)
+        this.check("a distribution certificate is not" ((dist.isDevelopment()) == false))
+        this.check("the trailing count line is not an identity" ((array_length ids) == 2))
+        ; The fingerprint is 40 hex characters. A line that quotes something and
+        ; carries a word that is not one is not a certificate, and reading it as
+        ; one would put a name in the keychain lookup that finds nothing.
+        def malformed:[AppleSigningIdentity] (AppleSigning.parseIdentities("  1) TOOSHORT \"Apple Development: Someone (X)\""))
+        this.check("a line with no fingerprint is not an identity" ((array_length malformed) == 0))
+
+        ; Testing on a cable wants the DEVELOPMENT one, whatever order the
+        ; keychain lists them in.
+        def autoPick@(optional):AppleSigningIdentity (AppleSigning.pickIdentity(ids ""))
+        this.check("development wins when nothing was asked for" ((unwrap autoPick).isDevelopment()))
+        def named@(optional):AppleSigningIdentity (AppleSigning.pickIdentity(ids "Distribution"))
+        this.check("but a named one wins over that" (((unwrap named).isDevelopment()) == false))
+        def byHash@(optional):AppleSigningIdentity (AppleSigning.pickIdentity(ids "A1B2C3D4E5F60718293A4B5C6D7E8F901A2B3C4D"))
+        this.check("and a fingerprint finds one too" (!null? byHash))
+        def noSuch@(optional):AppleSigningIdentity (AppleSigning.pickIdentity(ids "Nokia"))
+        this.check("a name that is not there is absent" (null? noSuch))
+        def emptyIds:[AppleSigningIdentity]
+        def fromNothing@(optional):AppleSigningIdentity (AppleSigning.pickIdentity(emptyIds ""))
+        this.check("an empty keychain answers absent" (null? fromNothing))
+
+        ; The profile match. An exact application-identifier and a wildcard are
+        ; both usable and the exact one is the one Xcode made for this app.
+        this.check("an exact app id matches" (AppleSigning.appIdMatches("ABC123DEF4.fi.ranger.dashboard" "fi.ranger.dashboard")))
+        this.check("a wildcard matches" (AppleSigning.appIdMatches("ABC123DEF4.*" "fi.ranger.dashboard")))
+        this.check("a prefixed wildcard matches under it" (AppleSigning.appIdMatches("ABC123DEF4.fi.ranger.*" "fi.ranger.dashboard")))
+        this.check("and not outside it" ((AppleSigning.appIdMatches("ABC123DEF4.fi.other.*" "fi.ranger.dashboard")) == false))
+        this.check("a different app id does not match" ((AppleSigning.appIdMatches("ABC123DEF4.com.example.other" "fi.ranger.dashboard")) == false))
+        this.check("a malformed app id does not match" ((AppleSigning.appIdMatches("nodots" "fi.ranger.dashboard")) == false))
+
+        def prof:AppleProvisioningProfile (new AppleProvisioningProfile)
+        prof.appId = "ABC123DEF4.fi.ranger.dashboard"
+        prof.devicesRaw = "[\"1A2B3C4D-5E6F-7890-ABCD-EF1234567890\"]"
+        this.check("the team id comes off the app id" ((prof.teamId()) == "ABC123DEF4"))
+        this.check("and the bundle pattern is the rest" ((prof.bundlePattern()) == "fi.ranger.dashboard"))
+        this.check("a profile with devices is a development one" (prof.isDevelopment()))
+        this.check("and it knows which device" (prof.hasDevice("1A2B3C4D-5E6F-7890-ABCD-EF1234567890")))
+        this.check("and which it does not" ((prof.hasDevice("00000000-0000-0000-0000-000000000000")) == false))
+        def store:AppleProvisioningProfile (new AppleProvisioningProfile)
+        store.appId = "ABC123DEF4.fi.ranger.dashboard"
+        this.check("a profile with no device list is not for a cable" ((store.isDevelopment()) == false))
+    }
+
+    ; ------------------------------------------------- the device run plan
+
+    fn testDeviceRunPlan:void () {
+        def sh:Shell (new Shell)
+        sh.dryRun = true
+        def tools:AppleToolchain (new AppleToolchain (sh))
+        def builder:AppleAppBuilder (new AppleAppBuilder (sh tools))
+        builder.verbose = false
+
+        def spec:AppleAppSpec (this.buildSpec())
+        def target:AppleTarget (AppleTarget.iosDevice("Someone"))
+        def res:AppleBuildResult (builder.runOnDevice(spec target "" false))
+        this.check("a device run reaches launch" res.ok)
+
+        def plan:string (join sh.commands "\n")
+        this.checkHas("it installs with devicectl" plan "xcrun devicectl device install app --device")
+        this.checkHas("and launches by bundle id" plan "xcrun devicectl device process launch --device")
+        this.checkHas("replacing whatever was running" plan "--terminate-existing")
+        this.checkHas("the right app" plan "fi.ranger.dashboard")
+        ; A device has nothing to boot and no window to bring forward, so none
+        ; of the simulator's five commands belong here.
+        this.check("nothing is booted" ((indexOf plan "simctl boot") < 0))
+        this.check("and no Simulator window is opened" ((indexOf plan "open -a Simulator") < 0))
+
+        ; --console attaches instead, which is the whole point of a test build
+        ; on a cable: a device has no console you can otherwise see.
+        def sh2:Shell (new Shell)
+        sh2.dryRun = true
+        def tools2:AppleToolchain (new AppleToolchain (sh2))
+        def b2:AppleAppBuilder (new AppleAppBuilder (sh2 tools2))
+        b2.verbose = false
+        b2.runOnDevice(spec target "" true)
+        def plan2:string (join sh2.commands "\n")
+        this.checkHas("--console attaches" plan2 "--console")
+        this.check("and does not also terminate" ((indexOf plan2 "--terminate-existing") < 0))
+
+        ; A simulator target has no cable, and saying so beats installing
+        ; nowhere.
+        def sh3:Shell (new Shell)
+        sh3.dryRun = true
+        def tools3:AppleToolchain (new AppleToolchain (sh3))
+        def b3:AppleAppBuilder (new AppleAppBuilder (sh3 tools3))
+        b3.verbose = false
+        def simTarget:AppleTarget (AppleTarget.iosSimulator("arm64"))
+        def refused:AppleBuildResult (b3.runOnDevice(spec simTarget "" false))
+        this.check("a simulator target is refused" (refused.ok == false))
+        this.checkHas("and says why" refused.message "simulator target")
+    }
+
+
+    ; ------------------------------------------------------- device details
+
+    ; Real output, trimmed to the fields that decide anything. The bullets and
+    ; the ▿ are Apple's, and are exactly why the parser reads what follows
+    ; "key:" rather than splitting the line up.
+    fn detailsFixture:string () {
+        def rows:[string]
+        push rows "Current device information:"
+        push rows "• identifier: 5FB20F02-191E-5AE6-B2FC-08A9676BCA54"
+        push rows "▿ hardwareProperties:"
+        push rows "    • marketingName: iPhone 16"
+        push rows "    • productType: iPhone17,3"
+        push rows "    • udid: 00008140-00014D340C78801C"
+        push rows "▿ deviceProperties:"
+        push rows "    • ddiServicesAvailable: false"
+        push rows "    • developerModeStatus: enabled"
+        push rows "    • osVersionNumber: 26.3"
+        push rows "▿ connectionProperties:"
+        push rows "    • pairingState: paired"
+        push rows "    • tunnelState: unavailable"
+        return (join rows "\n")
+    }
+
+    fn testDeviceDetails:void () {
+        def d:AppleDeviceDetails (AppleDeviceDetails.parse((this.detailsFixture())))
+        this.check("the developer mode status is read" (d.developerMode == "enabled"))
+        this.check("and answers as a boolean" (d.developerModeEnabled()))
+        this.check("a false ddi is false" (d.ddiAvailable == false))
+        this.check("the tunnel state is read" (d.tunnelState == "unavailable"))
+        this.check("the pairing state is read" (d.pairingState == "paired"))
+        this.check("the os version is read" (d.osVersion == "26.3"))
+        this.check("a value with a space in it survives" (d.marketingName == "iPhone 16"))
+        this.check("the udid is the hardware one" (d.udid == "00008140-00014D340C78801C"))
+
+        ; The two states that matter are read from the same text, so a device
+        ; with the image mounted must not read as one without it.
+        def mounted:AppleDeviceDetails (AppleDeviceDetails.parse("• ddiServicesAvailable: true\n• developerModeStatus: disabled"))
+        this.check("a true ddi is true" (mounted.ddiAvailable))
+        this.check("and developer mode off is off" ((mounted.developerModeEnabled()) == false))
+
+        ; Nothing to read is not a crash, and is not a device that passed.
+        def empty:AppleDeviceDetails (AppleDeviceDetails.parse(""))
+        this.check("no text is no developer mode" ((empty.developerModeEnabled()) == false))
+        this.check("no text is no image" (empty.ddiAvailable == false))
+    }
+
+    ; ---------------------------------------------------------------- doctor
+
+    ; A dry run asks the questions and gets nothing back, which is the same
+    ; shape as a Mac with nothing plugged in -- so the walk can be checked
+    ; without a device, which is the point of the whole file.
+    fn testDoctor:void () {
+        def sh:Shell (new Shell)
+        sh.dryRun = true
+        def doc:AppleDeviceDoctor (new AppleDeviceDoctor (sh))
+        push doc.simulatorHint "  npm run ui:ios:run"
+
+        def ok:boolean (doc.checkDevice())
+        this.check("no device is not a pass" (ok == false))
+        this.check("and it is reported" ((array_length doc.checks) == 1))
+        def c:AppleCheckResult (itemAt doc.checks 0)
+        this.check("as the device check" (c.name == "device"))
+        this.check("which failed" (c.ok == false))
+        this.check("with something to do about it" ((array_length c.remedy) > 0))
+        this.check("the doctor knows it failed" (doc.failed()))
+
+        ; The caller's simulator advice is carried into the remedy, because
+        ; generic code cannot know which npm script runs which port.
+        def hinted:boolean false
+        for c.remedy line:string i {
+            if ((indexOf line "ui:ios:run") >= 0) {
+                hinted = true
+            }
+        }
+        this.check("and the caller's simulator hint is in it" hinted)
+
+        ; The listing was asked for, and the USB bus after it -- the second
+        ; question is what tells a missing cable from a missing pairing.
+        def askedList:boolean false
+        def askedUsb:boolean false
+        for sh.commands cmd:string i {
+            if ((indexOf cmd "devicectl list devices") >= 0) {
+                askedList = true
+            }
+            if ((indexOf cmd "SPUSBDataType") >= 0) {
+                askedUsb = true
+            }
+        }
+        this.check("the device listing was asked for" askedList)
+        this.check("and the USB bus after it" askedUsb)
+
+        this.check("padding fills to the width" ((strlen (AppleDeviceDoctor.pad("ok" 6))) == 6))
+        this.check("and never truncates" ((AppleDeviceDoctor.pad("developer image" 4)) == "developer image"))
+    }
+
+    sfn m@(main):void () {
+        def t:AppleTest (new AppleTest)
+        print "Apple build driver"
+        t.testTargets()
+        t.testPlist()
+        t.testSimulators()
+        t.testBuildPlan()
+        t.testDevicePlan()
+        t.testWatchPlan()
+        t.testRunPlan()
+        t.testDevices()
+        t.testDeviceDetails()
+        t.testDoctor()
+        t.testSigning()
+        t.testDeviceRunPlan()
+        t.testQuoting()
+        print "  " + t.passed + " passed, " + t.failed + " failed"
+        if (t.failed > 0) {
+            exit 1
+        }
+    }
+}

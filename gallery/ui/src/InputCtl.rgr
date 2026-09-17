@@ -69,9 +69,9 @@
 
 Import "UiCtl.rgr"
 Import "UiTree.rgr"
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGA11yTree.rgr"
-Import "../../evg/EVGTextEngine.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGTextEngine.rgr"
 
 class InputCtl extends UiCtl {
     ; What the field holds. For a password this is the TEXT, never the bullets.

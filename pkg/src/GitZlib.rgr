@@ -1,0 +1,60 @@
+; SPDX-License-Identifier: MIT
+
+; RFC 1950 zlib wrapper around gallery/zip's DEFLATE inflater.
+; Git pack objects and loose objects are zlib streams, not raw DEFLATE
+; (ZIP's method 8 is raw). The compressed size is not stored: inflate
+; until BFINAL, then skip the Adler-32 trailer.
+
+Import "../../lib/zip/Inflate.rgr"
+
+class GitZlib {
+    def ok:boolean true
+    def err:string ""
+    def nextPos:int 0
+
+    Constructor () {
+        ok = true
+        err = ""
+        nextPos = 0
+    }
+
+    fn inflateAt:buffer (data:buffer offset:int) {
+        ok = true
+        err = ""
+        nextPos = offset
+        def n:int (buffer_length data)
+        if ((offset + 6) > n) {
+            ok = false
+            err = "zlib stream truncated"
+            return (buffer_alloc 0)
+        }
+        def cmf:int (buffer_get data offset)
+        def flg:int (buffer_get data (offset + 1))
+        def method:int (bit_and cmf 15)
+        if (method != 8) {
+            ok = false
+            err = "zlib method is not deflate"
+            return (buffer_alloc 0)
+        }
+        if ((bit_and flg 32) != 0) {
+            ok = false
+            err = "zlib preset dictionary is not used by Git"
+            return (buffer_alloc 0)
+        }
+        def inf (new Inflate())
+        def out:buffer (inf.decompressFrom(data (offset + 2)))
+        def end:int (inf.inputPos())
+        if ((end + 4) > n) {
+            ok = false
+            err = "zlib Adler-32 truncated"
+            nextPos = n
+            return out
+        }
+        nextPos = (end + 4)
+        return out
+    }
+
+    fn inflate:buffer (data:buffer) {
+        return this.inflateAt(data 0)
+    }
+}

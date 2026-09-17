@@ -1,0 +1,494 @@
+; SPDX-License-Identifier: MIT
+
+; Package-aware import resolver. The compiler currently asks
+; "does this relative path exist?". This asks:
+;
+;   ImportRequest → PackageResolver → ResolvedSource
+;
+;   Import "./Foo.rgr"     same package, relative
+;   Import "pkg:evg"       that package's entry
+;   Import "pkg:evg/text"  a path inside that package
+;
+; Physical files are mounted from path dependencies (and, once fetched,
+; from a Git checkout). The compiler can keep using InputFS; this layer
+; only answers where the bytes are.
+
+Import "PkgManifest.rgr"
+Import "GitStore.rgr"
+
+class ImportRequest {
+    def importer:string ""
+    def importString:string ""
+}
+
+class ResolvedSource {
+    def ok:boolean true
+    def err:string ""
+    def kind:string ""
+    def packageId:string ""
+    def logicalPath:string ""
+    def physicalPath:string ""
+    def source:string ""
+}
+
+class PkgMounted {
+    def name:string ""
+    def version:string ""
+    def root:string ""
+    def entry:string ""
+    def manifest:PkgManifest
+    def files:[string:string]
+    def fileNames:[string]
+}
+
+class PackageResolver {
+    def ok:boolean true
+    def err:string ""
+    def rootManifest:PkgManifest (new PkgManifest)
+    def packages:[PkgMounted]
+    def byName:[string:PkgMounted]
+    def importerPkg:[string:string]
+
+    fn loadRoot:void (manifestSrc:string rootDir:string) {
+        rootManifest = (PkgManifestIO.load(manifestSrc))
+        if (rootManifest.ok == false) {
+            ok = false
+            err = rootManifest.err
+            return
+        }
+        this.mountPath(rootManifest.name rootDir rootManifest)
+    }
+
+    fn mountPath:void (name:string dir:string man:PkgManifest) {
+        def m (new PkgMounted)
+        m.name = name
+        m.version = man.version
+        m.root = dir
+        m.entry = man.entry
+        m.manifest = man
+        this.scanDir(m dir "")
+        push packages m
+        set byName name m
+        def i:int 0
+        while (i < (array_length man.deps)) {
+            def d:PkgDep (itemAt man.deps i)
+            if ((strlen d.path) > 0) {
+                def childDir:string (this.join(dir d.path))
+                def childManSrc:string (this.readText(childDir "ranger.json"))
+                if ((strlen childManSrc) == 0) {
+                    def fallback (new PkgManifest)
+                    fallback.name = d.name
+                    fallback.entry = ""
+                    this.mountPath(d.name childDir fallback)
+                } {
+                    def childMan:PkgManifest (PkgManifestIO.load(childManSrc))
+                    this.mountPath(d.name childDir childMan)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn mountMem:void (name:string man:PkgManifest mem:GitMem) {
+        def m (new PkgMounted)
+        m.name = name
+        m.version = man.version
+        m.root = ("git:" + name)
+        m.entry = man.entry
+        m.manifest = man
+        def i:int 0
+        while (i < (array_length mem.files)) {
+            def f:GitFile (itemAt mem.files i)
+            def text:string (buffer_to_string f.data)
+            set m.files f.path text
+            push m.fileNames f.path
+        }
+        push packages m
+        set byName name m
+    }
+
+    fn resolve:ResolvedSource (req:ImportRequest) {
+        def r (new ResolvedSource)
+        def spec:string req.importString
+        if ((strlen spec) >= 4) {
+            if ((substring spec 0 4) == "pkg:") {
+                return this.resolvePkg(req (substring spec 4 (strlen spec)))
+            }
+        }
+        return this.resolveRelative(req spec)
+    }
+
+    fn resolvePkg:ResolvedSource (req:ImportRequest rest:string) {
+        def r (new ResolvedSource)
+        r.kind = "package"
+        def name:string rest
+        def sub:string ""
+        def slash:int (this.indexOf(rest 47))
+        if (slash >= 0) {
+            name = (substring rest 0 slash)
+            sub = (substring rest (slash + 1) (strlen rest))
+        }
+        if (has byName name) {
+            def pkg:PkgMounted (unwrap (get byName name))
+            def logical:string sub
+            if ((strlen logical) == 0) {
+                logical = pkg.entry
+            }
+            logical = (this.collapse(logical))
+            r.packageId = (pkg.name + "@" + pkg.version)
+            r.logicalPath = logical
+            r.physicalPath = (this.join(pkg.root logical))
+            if (has pkg.files logical) {
+                r.source = (unwrap (get pkg.files logical))
+                r.ok = true
+                return r
+            }
+            def disk:string (this.readText(pkg.root logical))
+            if ((strlen disk) > 0) {
+                r.source = disk
+                r.ok = true
+                return r
+            }
+            r.ok = false
+            r.err = ("package " + name + " has no " + logical)
+            return r
+        }
+        r.ok = false
+        r.err = ("unknown package " + name)
+        return r
+    }
+
+    fn resolveRelative:ResolvedSource (req:ImportRequest spec:string) {
+        def r (new ResolvedSource)
+        r.kind = "relative"
+        def pkgName:string (this.packageOf(req.importer))
+        if ((strlen pkgName) == 0) {
+            pkgName = rootManifest.name
+        }
+        if (has byName pkgName) {
+            def pkg:PkgMounted (unwrap (get byName pkgName))
+            def fromDir:string (this.dirOf(req.importer))
+            def joined:string (this.join(fromDir spec))
+            def logical:string (this.collapse(joined))
+            if (this.escapes(logical)) {
+                r.ok = false
+                r.err = ("relative import left package: " + spec)
+                return r
+            }
+            r.packageId = (pkg.name + "@" + pkg.version)
+            r.logicalPath = logical
+            r.physicalPath = (this.join(pkg.root logical))
+            if (has pkg.files logical) {
+                r.source = (unwrap (get pkg.files logical))
+                return r
+            }
+            def disk:string (this.readText(pkg.root logical))
+            if ((strlen disk) > 0) {
+                r.source = disk
+                return r
+            }
+            r.ok = false
+            r.err = ("file not in package: " + logical)
+            return r
+        }
+        r.ok = false
+        r.err = "no package for importer"
+        return r
+    }
+
+    fn noteImporter:void (logical:string pkgName:string) {
+        set importerPkg logical pkgName
+    }
+
+    fn packageOf:string (importer:string) {
+        if (has importerPkg importer) {
+            return (unwrap (get importerPkg importer))
+        }
+        def i:int 0
+        while (i < (array_length packages)) {
+            def p:PkgMounted (itemAt packages i)
+            if (has p.files importer) {
+                return p.name
+            }
+            i = (i + 1)
+        }
+        return rootManifest.name
+    }
+
+    fn treeText:string () {
+        def s:string (rootManifest.name + "\n")
+        def i:int 0
+        while (i < (array_length rootManifest.deps)) {
+            def d:PkgDep (itemAt rootManifest.deps i)
+            s = (s + "  " + d.name)
+            if ((strlen d.path) > 0) {
+                s = (s + " path " + d.path)
+            }
+            if ((strlen d.git) > 0) {
+                s = (s + " git " + d.git)
+            }
+            if ((strlen d.rev) > 0) {
+                s = (s + " @" + d.rev)
+            }
+            s = (s + "\n")
+            i = (i + 1)
+        }
+        return s
+    }
+
+    fn makeLock:PkgLock () {
+        def lock (new PkgLock)
+        def i:int 0
+        while (i < (array_length rootManifest.deps)) {
+            def d:PkgDep (itemAt rootManifest.deps i)
+            def e (new PkgLockEnt)
+            e.name = d.name
+            e.path = d.path
+            e.git = d.git
+            e.rev = d.rev
+            e.subdir = d.subdir
+            if (has byName d.name) {
+                def pkg:PkgMounted (unwrap (get byName d.name))
+                e.sha256 = (this.hashMounted(pkg))
+            }
+            push lock.packages e
+            i = (i + 1)
+        }
+        return lock
+    }
+
+    fn hashMounted:string (pkg:PkgMounted) {
+        def acc:string ""
+        def names:[string] pkg.fileNames
+        this.sortNames(names)
+        def i:int 0
+        while (i < (array_length names)) {
+            def p:string (itemAt names i)
+            acc = (acc + p + "\n")
+            if (has pkg.files p) {
+                acc = (acc + (unwrap (get pkg.files p)) + "\n")
+            }
+            i = (i + 1)
+        }
+        if ((strlen acc) == 0) {
+            return ""
+        }
+        return (sha256 acc)
+    }
+
+    fn vendorTo:void (dir:string) {
+        def i:int 0
+        while (i < (array_length packages)) {
+            def pkg:PkgMounted (itemAt packages i)
+            if (pkg.name == rootManifest.name) {
+            } {
+                def j:int 0
+                while (j < (array_length pkg.fileNames)) {
+                    def rel:string (itemAt pkg.fileNames j)
+                    def destDir:string (this.dirOf((dir + "/" + pkg.name + "/" + rel)))
+                    create_dir destDir
+                    def parts:[string] (this.splitPath((dir + "/" + pkg.name + "/" + rel)))
+                    def text:string ""
+                    if (has pkg.files rel) {
+                        text = (unwrap (get pkg.files rel))
+                    } {
+                        text = (this.readText(pkg.root rel))
+                    }
+                    def buf:buffer (buffer_from_string text)
+                    buffer_write_file (itemAt parts 0) (itemAt parts 1) buf
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn scanDir:void (m:PkgMounted dir:string rel:string) {
+        ; Host directory listing is not portable across Ranger targets.
+        ; Files are recorded when resolve() reads them, and tests mount
+        ; known files through putFile.
+    }
+
+    fn setEntry:void (pkgName:string entry:string) {
+        if (has byName pkgName) {
+            def pkg:PkgMounted (unwrap (get byName pkgName))
+            pkg.entry = entry
+        }
+    }
+
+    fn putFile:void (pkgName:string rel:string text:string) {
+        if (has byName pkgName) {
+            def pkg:PkgMounted (unwrap (get byName pkgName))
+            set pkg.files rel text
+            push pkg.fileNames rel
+            this.noteImporter(rel pkgName)
+        }
+    }
+
+    fn join:string (a:string b:string) {
+        if ((strlen a) == 0) {
+            return b
+        }
+        if ((strlen b) == 0) {
+            return a
+        }
+        if ((substring b 0 1) == "/") {
+            return b
+        }
+        def left:string a
+        def n:int (strlen a)
+        if ((charAt a (n - 1)) == 47) {
+            left = (substring a 0 (n - 1))
+        }
+        return (left + "/" + b)
+    }
+
+    fn dirOf:string (path:string) {
+        def n:int (strlen path)
+        def i:int (n - 1)
+        while (i >= 0) {
+            if ((charAt path i) == 47) {
+                return (substring path 0 i)
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+
+    fn splitPath:[string] (path:string) {
+        def dir:string "."
+        def name:string path
+        def n:int (strlen path)
+        def i:int (n - 1)
+        while (i >= 0) {
+            if ((charAt path i) == 47) {
+                dir = (substring path 0 i)
+                name = (substring path (i + 1) n)
+                i = (0 - 1)
+            } {
+                i = (i - 1)
+            }
+        }
+        def parts:[string]
+        push parts dir
+        push parts name
+        return parts
+    }
+
+    fn collapse:string (path:string) {
+        def parts:[string]
+        def n:int (strlen path)
+        def start:int 0
+        def i:int 0
+        while (i <= n) {
+            if ((i == n) || ((charAt path i) == 47)) {
+                def piece:string (substring path start i)
+                if ((strlen piece) == 0) {
+                } {
+                    if (piece == ".") {
+                    } {
+                        if (piece == "..") {
+                            if ((array_length parts) > 0) {
+                                removeLast parts
+                            }
+                        } {
+                            push parts piece
+                        }
+                    }
+                }
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        def out:string ""
+        def p:int 0
+        while (p < (array_length parts)) {
+            if (p > 0) {
+                out = (out + "/")
+            }
+            out = (out + (itemAt parts p))
+            p = (p + 1)
+        }
+        return out
+    }
+
+    fn escapes:boolean (path:string) {
+        if ((strlen path) >= 3) {
+            if ((substring path 0 3) == "../") {
+                return true
+            }
+        }
+        return (path == "..")
+    }
+
+    fn indexOf:int (s:string code:int) {
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            if ((charAt s i) == code) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn readText:string (dir:string name:string) {
+        if ((strlen dir) == 0) {
+            return ""
+        }
+        if ((strlen name) == 0) {
+            return ""
+        }
+        if (file_exists dir name) {
+            def buf:buffer (buffer_read_file dir name)
+            return (buffer_to_string buf)
+        }
+        def parts:[string] (this.splitPath((this.join(dir name))))
+        if (file_exists (itemAt parts 0) (itemAt parts 1)) {
+            def buf2:buffer (buffer_read_file (itemAt parts 0) (itemAt parts 1))
+            return (buffer_to_string buf2)
+        }
+        return ""
+    }
+
+    fn lessStr:boolean (a:string b:string) {
+        def na:int (strlen a)
+        def nb:int (strlen b)
+        def n:int na
+        if (nb < na) {
+            n = nb
+        }
+        def i:int 0
+        while (i < n) {
+            def ca:int (charAt a i)
+            def cb:int (charAt b i)
+            if (ca < cb) {
+                return true
+            }
+            if (cb < ca) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return (na < nb)
+    }
+
+    fn sortNames:void (names@(mutates):[string]) {
+        def n:int (array_length names)
+        def i:int 0
+        while (i < n) {
+            def j:int (i + 1)
+            while (j < n) {
+                def a:string (itemAt names i)
+                def b:string (itemAt names j)
+                if (this.lessStr(b a)) {
+                    set names i b
+                    set names j a
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+}

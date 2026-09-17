@@ -22,7 +22,7 @@ Import "../src/FigDeflate.rgr"
 Import "../src/convert/FigToScene.rgr"
 Import "../src/evg/SceneToEVG.rgr"
 Import "../src/scene/SceneNode.rgr"
-Import "../../zip/Inflate.rgr"
+Import "../../../lib/zip/Inflate.rgr"
 
 class FigTest {
     def passed:int 0
