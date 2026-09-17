@@ -4648,10 +4648,6 @@ class RangerFlowParser {
       def fNameNode:CodeNode (at node.children 1)
       def import_file:string fNameNode.string_value
 
-      if (has ctx.already_imported import_file) {
-        return
-      }
-
       def source_code ""
 
       if_javascript {
@@ -4671,7 +4667,19 @@ class RangerFlowParser {
           }
         }
       }
-      set ctx.already_imported import_file true
+      ; The import string is NOT an identity. Two packages each holding a
+      ; relative `Import "Token.rgr"` name two different files, and keyed on
+      ; the string the second one is dropped -- silently, so what fails is a
+      ; type the missing file defined, pages away from the import. The folded
+      ; path below is the identity; only source a plugin produced has no path
+      ; to fold, and there the string is all there is.
+      if ((strlen source_code) > 0) {
+        if (has ctx.already_imported import_file) {
+          source_code = "; already merged elsewhere"
+        } {
+          set ctx.already_imported import_file true
+        }
+      }
       def rootCtx (ctx.getRoot())
       
       ; Calculate the full path and directory of the imported file
@@ -4709,22 +4717,28 @@ class RangerFlowParser {
         }
         ; The same file reached under two spellings -- `../../evg/X.rgr` from
         ; inside the tree and `pkg:evg/X.rgr` from a package -- is one file.
-        ; Keyed on the import string alone it is parsed twice and every class
-        ; in it is defined twice, so a tree cannot move to `pkg:` one file at
-        ; a time. Key the folded path as well.
+        ; Keyed on the import string it is parsed twice and every class in it
+        ; is defined twice, so a tree cannot move to `pkg:` one file at a
+        ; time. The folded path is the key.
         def seenKey:string ("@" + (PkgImport.foldPath((filePathIs + "/" + searchName))))
+        ; A file already merged must not simply `return`: that leaves the node
+        ; still spelled `Import "Token.rgr"`, and WalkCollectMethods resolves
+        ; it a second time against the outer library paths, where a relative
+        ; name inside a package is not findable. Merge an empty source
+        ; instead, which neutralises the node exactly as a real merge does.
         if (has ctx.already_imported seenKey) {
-          return
-        }
-        set ctx.already_imported seenKey true
-        def c:string (read_file env filePathIs searchName)
-        source_code = (unwrap c)
-        
-        ; Extract directory of imported file for recursive imports
-        def fullPath:string (filePathIs + "/" + searchName)
-        importFileDir = (path_dirname fullPath)
-        if(ctx.hasCompilerFlag("verbose")) {
-          print "  -> file read OK, importFileDir=" + importFileDir
+          source_code = "; already merged elsewhere"
+        } {
+          set ctx.already_imported seenKey true
+          def c:string (read_file env filePathIs searchName)
+          source_code = (unwrap c)
+
+          ; Extract directory of imported file for recursive imports
+          def fullPath:string (filePathIs + "/" + searchName)
+          importFileDir = (path_dirname fullPath)
+          if(ctx.hasCompilerFlag("verbose")) {
+            print "  -> file read OK, importFileDir=" + importFileDir
+          }
         }
       }
       def code:SourceCode (new SourceCode ( source_code ))
@@ -8321,15 +8335,9 @@ class RangerFlowParser {
         ctx.addError(node "import expects a file name string")
         return
       }
-      if (has ctx.already_imported import_file) {
-        ; Already imported - walk any merged children
-        for node.children item:CodeNode i {
-          this.WalkCollectMethods(item ctx wr)
-        }
-        return
-      } {
-        set ctx.already_imported import_file true
-      }
+      ; Not keyed on the import string, for the reason mergeImports gives:
+      ; the same string names different files in different packages. The
+      ; folded path (seenKey2, below) is what says "already imported".
       def envOpt (ctx.getEnv())
       if(null? envOpt) {
         ctx.addError( node 'Environment not defined')

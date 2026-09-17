@@ -8,7 +8,7 @@ compiled **in the tab** by VirtualCompiler — the same compiler the playground
 uses — then walked into the IR through UAST. Shop / 40-class fixtures stay as a
 no-compiler fallback. On the desktop, **Open** picks a `.rgr`, a directory with
 `ranger.json`, or that manifest; `Import "pkg:…"` resolves the same way `rgrc`
-does (path / vendor / cache). Desktop **Git URL** clones with `gallery/pkg`
+does (path / vendor / cache). Desktop **Git URL** clones with `pkg/`
 then analyses Ranger or TypeScript. CLI:
 
 ```bash
@@ -143,7 +143,7 @@ and keeps classes whose source path matches the file you named.
 | `src/CodeGraphApp.rgr` | Full EVG explorer (chrome + analyse) | **yes** (VFS analyse) |
 | `web/codegraph_web.rgr` | browser name for `CodeGraphApp` | **yes** |
 | `platform/sdl/codegraph_sdl.rgr` | SDL2 window, native file picker | **yes** |
-| `tools/codegraph_open.mjs` | CLI wrapper; clones a Git URL via gallery/pkg | no |
+| `tools/codegraph_open.mjs` | CLI wrapper; clones a Git URL via pkg/ | no |
 | `fixtures/calls.rgr` | Order / LineItem / Checkout | compiled live |
 | `fixtures/animals.rgr` | Farm.animals:[Animal], Dog / Cat | compiled live |
 | `gallery/css`, `evg`, `zip` | CssCore / EVGElement / ZipReader | compiled live |

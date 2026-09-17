@@ -1,0 +1,6 @@
+{
+  "name": "js_parser",
+  "version": "0.1.0",
+  "entry": "js_parser_core.rgr",
+  "license": "AGPL-3.0-or-later"
+}

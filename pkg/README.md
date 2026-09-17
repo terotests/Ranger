@@ -158,9 +158,14 @@ manifest inside the tree, and through the application's lock outside it,
 with no change to the source.
 
 Two spellings of the same file — `../../evg/EVGElement.rgr` from inside the
-tree and `pkg:evg/EVGElement.rgr` from a package — are one import. The
-compiler keys `already_imported` on the folded path as well as the string,
-so a tree can move to `pkg:` one file at a time instead of all at once.
+tree and `pkg:evg/EVGElement.rgr` from a package — are one import, so a tree
+can move to `pkg:` one file at a time instead of all at once. The compiler
+keys `already_imported` on the **folded path**, which is what makes that
+work, and it keys on nothing else: the import *string* is not an identity.
+`gallery/rangersql` and `gallery/graphql` each hold a `src/core/Token.rgr`
+and each imports it by the bare name, and keyed on `"Token.rgr"` the second
+package's copy was dropped — reported, pages later, as an unknown type. See
+[`../INVENTORY.md`](../INVENTORY.md#what-testing-the-packaging-found).
 
 A Git dependency with `subdir` is **not** a full clone. Deno never clones for
 HTTP imports either: it GETs the files the module graph names. Here the graph
@@ -176,12 +181,21 @@ today. Without `subdir`, one `deepen 1` snapshot of the whole tree.
 Gallery `PackageResolver` is the same idea for tools (`pkg_tool resolve`,
 `install`, `cache-put`, `vendor`).
 
+## Packages in this repository
+
+`pkg/` itself uses it: `src/GitZlib.rgr` reaches `lib/zip` as
+`pkg:zipcore/Inflate.rgr`, and the compiler that bootstraps from these
+sources resolves it while compiling itself. Which of the other trees carry a
+manifest, which still reach each other by `../`, and in what order that is
+worth changing is in [`../INVENTORY.md`](../INVENTORY.md).
+`tests/gallery-pkg-import.test.ts` is the guard.
+
 ## Layout
 
 | File | |
 | --- | --- |
 | `src/GitSha1.rgr` | SHA-1, hex, big-endian helpers |
-| `src/GitZlib.rgr` | RFC 1950 around `gallery/zip` inflate |
+| `src/GitZlib.rgr` | RFC 1950 around `lib/zip` inflate, imported as `pkg:zipcore` |
 | `src/GitPkt.rgr` | pkt-line, advertisement, want, side-band |
 | `src/GitPack.rgr` | pack v2 + deltas |
 | `src/GitStore.rgr` | tree walk, in-memory / disk checkout |

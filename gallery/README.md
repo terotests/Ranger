@@ -60,8 +60,22 @@ compiler — the long-form writeups live here.
 | [`mfiles`](mfiles/README.md) | An **M-Files client and vault, emulated**: a vault with versions, search and views, its gRPC Vault API in the field names of `vault.d.ts`, and the UIX v1 and v2 extension frameworks running each application in Ranger's own JavaScript engine — a window drawn by EVG to write, load and try extensions in, with an API coverage and speed benchmark |
 | [`r5`](r5/README.md) | The markdown page as a **Ranger app**: the same engine under a chrome drawn by EVG — a rail on a desk, a bottom bar on a phone, the choices behind sheets, and the source typed into the code editor from `datagrid`. Full-screen tabs on a phone, panes side by side on a desk; [live at /r5/](https://terotests.github.io/Ranger/r5/) |
 | [`evg`](evg/README.md) | **The layout engine** everything above draws through: the CSS-shaped box model, flex, grid, units, the stylesheet with `@media` and pseudo-classes, text measurement, transitions, hit testing, the accessibility tree, and the display list the painters read |
-| [`pkg`](pkg/README.md) | Source packages (`ranger.json` / `ranger.lock` / `Import "pkg:…"`) and a Git pack client that clones a public repo into memory without spawning git |
-| `evg_video`, `watch_evg`, `zip`, `ts_to_ranger` | Smaller experiments |
+| [`markdown`](markdown/README.md) | A CommonMark + GFM parser and a layout engine that turns what it reads into the box list every EVG painter already draws — the same document out as a PDF with its fonts embedded, as a slide deck, or as a `.docx` |
+| [`rave`](rave/README.md) | From a UI to a running app: the editor after [Rafi](figma/web/rafi/README.md), where a design is a responsive, routed, accessible application rather than a picture of one |
+| [`realtrainer`](realtrainer/README.md) | A five-scene application **on the GPU**: built from `ui`'s components, painted by EVG's WebGL painter, its state machines run by `statechart` |
+| [`statechart`](statechart/README.md) | A machine as data — a statechart runtime checked against XState's own semantics |
+| [`rangerforms`](rangerforms) | A form model with an expression language, a renderer and its own I/O |
+| [`zstd`](zstd/README.md) | A Zstandard decoder (RFC 8878), so a `.zst` stream reads on every target the compiler emits |
+| [`zip`](zip/README.md) | The PKZIP container the document formats open: reader, writer, CRC-32, over `lib/zip`'s DEFLATE |
+| [`vfs`](vfs/README.md) | One place a document engine gets its bytes |
+| [`cpp_parser`](cpp_parser/README.md) | A declaration-oriented C++17 parser for `uast`. Not a compiler, and it does not run `clang` |
+| [`css`](css/CssCore.rgr) | The CSS parsing the markdown and office trees share |
+| `evg_video`, `watch_evg`, `ts_to_ranger` | Smaller experiments |
+
+Which of these are **packages** — a directory with a `ranger.json` that names
+its own dependencies — and which are still only adjacent files, is in
+[`../INVENTORY.md`](../INVENTORY.md). The package mechanism itself moved out of
+the gallery: it is [`../pkg`](../pkg/README.md).
 
 ---
 

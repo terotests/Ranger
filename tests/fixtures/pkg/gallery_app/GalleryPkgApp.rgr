@@ -1,0 +1,11 @@
+; SPDX-License-Identifier: MIT
+
+Import "pkg:zstd"
+
+class GalleryPkgApp {
+    sfn main:void () {
+        def sink:ZstdSink (new ZstdSink())
+        sink.reset(16)
+        print "gallery-pkg-import-ok"
+    }
+}

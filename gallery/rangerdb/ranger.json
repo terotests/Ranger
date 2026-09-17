@@ -1,0 +1,9 @@
+{
+  "name": "rangerdb",
+  "version": "0.1.0",
+  "entry": "src/RangerDB.rgr",
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "rangersql": { "path": "../rangersql" }
+  }
+}

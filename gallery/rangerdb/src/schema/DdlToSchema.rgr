@@ -37,7 +37,7 @@
 ; ============================================================================
 
 Import "DatabaseSchema.rgr"
-Import "../../../rangersql/src/core/Sql.rgr"
+Import "pkg:rangersql/src/core/Sql.rgr"
 
 class DdlToSchema {
     def schema:DatabaseSchema (new DatabaseSchema)

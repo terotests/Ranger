@@ -18413,9 +18413,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( node.isFirstVref("Import") ) {
         const fNameNode = node.children[1];
         const import_file = fNameNode.string_value;
-        if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, import_file) ) ) {
-          return;
-        }
         let source_code = "";
         const ppList = ctx.findPluginsFor("import_loader");
         if ( ppList.length > 0 ) {
@@ -18436,7 +18433,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           } catch(e) {
           }
         }
-        ctx.already_imported[import_file] = true;
+        if ( source_code.length > 0 ) {
+          if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, import_file) ) ) {
+            source_code = "; already merged elsewhere";
+          } else {
+            ctx.already_imported[import_file] = true;
+          }
+        }
         const rootCtx = ctx.getRoot();
         let importFileDir = "";
         if ( source_code.length == 0 ) {
@@ -18471,19 +18474,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           const seenKey = "@" + PkgImport.foldPath(((filePathIs + "/") + searchName));
           if ( ( typeof(ctx.already_imported[seenKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, seenKey) ) ) {
-            return;
-          }
-          ctx.already_imported[seenKey] = true;
-          const c = await operatorsOf_8.readc95file_9(
-            env,
-            filePathIs,
-            searchName
-          );
-          source_code = c;
-          const fullPath = (filePathIs + "/") + searchName;
-          importFileDir = require("path").dirname(fullPath);
-          if ( ctx.hasCompilerFlag("verbose") ) {
-            console.log("  -> file read OK, importFileDir=" + importFileDir);
+            source_code = "; already merged elsewhere";
+          } else {
+            ctx.already_imported[seenKey] = true;
+            const c = await operatorsOf_8.readc95file_9(
+              env,
+              filePathIs,
+              searchName
+            );
+            source_code = c;
+            const fullPath = (filePathIs + "/") + searchName;
+            importFileDir = require("path").dirname(fullPath);
+            if ( ctx.hasCompilerFlag("verbose") ) {
+              console.log("  -> file read OK, importFileDir=" + importFileDir);
+            }
           }
         }
         const code = new SourceCode(source_code);
@@ -21746,15 +21750,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           ctx.addError(node, "import expects a file name string");
           return;
         }
-        if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, import_file) ) ) {
-          for ( let i_9 = 0; i_9 < node.children.length; i_9++) {
-            var item_4 = node.children[i_9];
-            await this.WalkCollectMethods(item_4, ctx, wr);
-          };
-          return;
-        } else {
-          ctx.already_imported[import_file] = true;
-        }
         const envOpt = ctx.getEnv();
         if ( typeof(envOpt) === "undefined" ) {
           ctx.addError(node, "Environment not defined");
@@ -21833,9 +21828,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const staticCmd = node.getVRefAt(1);
           if ( staticCmd == "def" || staticCmd == "let" ) {
             const staticDecl = node.newExpressionNode();
-            for ( let i_10 = 0; i_10 < node.children.length; i_10++) {
-              var ch_2 = node.children[i_10];
-              if ( i_10 == 0 ) {
+            for ( let i_9 = 0; i_9 < node.children.length; i_9++) {
+              var ch_2 = node.children[i_9];
+              if ( i_9 == 0 ) {
                 continue;
               }
               staticDecl.children.push(ch_2);
@@ -21948,9 +21943,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         return;
       }
       if ( find_more ) {
-        for ( let i_11 = 0; i_11 < node.children.length; i_11++) {
-          var item_5 = node.children[i_11];
-          await this.WalkCollectMethods(item_5, ctx, wr);
+        for ( let i_10 = 0; i_10 < node.children.length; i_10++) {
+          var item_4 = node.children[i_10];
+          await this.WalkCollectMethods(item_4, ctx, wr);
         };
       }
       if ( node.hasBooleanProperty("serialize") ) {

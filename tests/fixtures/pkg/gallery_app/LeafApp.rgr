@@ -1,0 +1,28 @@
+; SPDX-License-Identifier: MIT
+;
+; Three gallery packages by name, in one program. `zip` is the interesting
+; one: it reaches lib/zip as `pkg:zipcore` through its own manifest, which
+; this project does not name.
+
+Import "pkg:zip"
+Import "pkg:zip/ZipWriter.rgr"
+Import "pkg:rangersql"
+Import "pkg:graphql"
+
+class LeafApp {
+    sfn main:void () {
+        def w:ZipWriter (new ZipWriter())
+        def payload:buffer (buffer_alloc 4)
+        w.addFile("a.txt" payload)
+        def bytes:buffer (w.toBuffer())
+        def r:ZipReader (new ZipReader())
+        def opened:boolean (r.openBytes(bytes))
+        print (("zip-ok " + (to_string (array_length r.entries))))
+
+        def sql:SqlParseResult (Sql.parse("SELECT a FROM t"))
+        print (("sql-ok " + (to_string (sql.okResult()))))
+
+        def gql:GqlParseResult (Gql.parse("{ hero { name } }"))
+        print (("gql-ok " + (to_string (gql.okResult()))))
+    }
+}

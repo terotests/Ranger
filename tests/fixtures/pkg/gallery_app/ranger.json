@@ -1,0 +1,14 @@
+{
+  "name": "gallery_app",
+  "version": "0.1.0",
+  "entry": "GalleryPkgApp.rgr",
+  "license": "MIT",
+  "dependencies": {
+    "zstd": { "path": "../../../../gallery/zstd" },
+    "statechart": { "path": "../../../../gallery/statechart" },
+    "vela": { "path": "../../../../gallery/vela" },
+    "zip": { "path": "../../../../gallery/zip" },
+    "rangersql": { "path": "../../../../gallery/rangersql" },
+    "graphql": { "path": "../../../../gallery/graphql" }
+  }
+}

@@ -25,7 +25,7 @@
 ; ============================================================================
 
 Import "DatabaseSchema.rgr"
-Import "../../../rangersql/src/dialects/Dialect.rgr"
+Import "pkg:rangersql/src/dialects/Dialect.rgr"
 
 class SchemaToDdl {
     def dialect:SqlDialect (SqlDialects.byName(""))

@@ -2,8 +2,8 @@
   "name": "pkg",
   "version": "0.1.0",
   "entry": "src/pkg_tool.rgr",
-  "license": "AGPL-3.0-or-later",
+  "license": "MIT",
   "dependencies": {
-    "zip": { "path": "../zip" }
+    "zipcore": { "path": "../lib/zip" }
   }
 }

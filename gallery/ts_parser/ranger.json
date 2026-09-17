@@ -1,0 +1,6 @@
+{
+  "name": "ts_parser",
+  "version": "0.1.0",
+  "entry": "ts_parser_simple.rgr",
+  "license": "AGPL-3.0-or-later"
+}

@@ -1,0 +1,15 @@
+; SPDX-License-Identifier: MIT
+;
+; statechart depends on vela through its own ranger.json, and vela on evg
+; through vela's. Nothing here names vela or evg: the chain of manifests
+; the resolver walks is what has to find them.
+
+Import "pkg:statechart/src/StatechartJson.rgr"
+
+class ChainApp {
+    sfn main:void () {
+        def text:string "{\"id\":\"probe\",\"initial\":\"a\",\"states\":{\"a\":{}}}"
+        def sc:Statechart (StatechartJson.load(text))
+        print (("chain-ok " + sc.id) + ("/" + sc.initial))
+    }
+}

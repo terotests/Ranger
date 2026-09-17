@@ -28,7 +28,7 @@
 
 Import "DBQuery.rgr"
 Import "DBValue.rgr"
-Import "../../rangersql/src/core/Sql.rgr"
+Import "pkg:rangersql/src/core/Sql.rgr"
 
 class SqlPlanKind {
     sfn nothing:int () {

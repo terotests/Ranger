@@ -684,6 +684,8 @@
     "zstd:bench": "node gallery/zstd/bench/compare.mjs",
     "plugin:sync": "bash scripts/plugin-sync.sh",
     "plugin:check": "bash scripts/plugin-sync.sh --check && claude plugin validate ./plugins/ranger && claude plugin validate .",
+    "inventory": "node scripts/inventory.mjs",
+    "inventory:dups": "node scripts/inventory.mjs --dups",
     "pkg:fixtures": "node pkg/tools/make-fixtures.mjs",
     "pkg:test": "bash scripts/rgr-suite.sh ./pkg/tests/PkgTest.rgr ./pkg/bin PkgTest.js",
     "pkg:test:go": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=go ./pkg/tests/PkgTest.rgr -d=./tmp/pkg-targets -o=PkgTest.go -nodecli && go run ./tmp/pkg-targets/PkgTest.go",

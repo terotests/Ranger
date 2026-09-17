@@ -37,7 +37,7 @@
 ; permissions and no network.
 ; ============================================================================
 
-Import "../../zip/CRC32.rgr"
+Import "pkg:zip/CRC32.rgr"
 
 ; What a blob IS: bytes, what they are, and — for a picture — how big, so a
 ; layout can size it without decoding it in the middle of a keystroke. The

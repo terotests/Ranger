@@ -1,0 +1,6 @@
+{
+  "name": "cpp_parser",
+  "version": "0.1.0",
+  "entry": "cpp_parser.rgr",
+  "license": "AGPL-3.0-or-later"
+}

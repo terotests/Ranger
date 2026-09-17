@@ -1,0 +1,16 @@
+; SPDX-License-Identifier: MIT
+;
+; vela is the only declared dependency here. The vela file imported below
+; reaches evg through vela's own ranger.json, so evg has to arrive without
+; this project naming it.
+
+Import "pkg:vela/src/VlEvgList.rgr"
+
+class TransitiveApp {
+    sfn main:void () {
+        def pb:PathBuilder (new PathBuilder())
+        pb.moveTo(0.0 0.0)
+        pb.lineTo(10.0 10.0)
+        print (("transitive-ok " + (to_string (array_length pb.commands))))
+    }
+}
