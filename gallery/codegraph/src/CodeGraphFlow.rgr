@@ -25,6 +25,13 @@ class CodeGraphFlow {
     }
 
     sfn build:FlowGraph (model:CodeGraph page:CodePage) {
+        return (CodeGraphFlow.buildWithDiff(model page (new CodeGraphDiff)))
+    }
+
+    ; The same drawing, with each member row tinted by what the change did
+    ; to it — green added, red removed, amber changed — when `diff` is
+    ; active. An inactive diff answers "" for everything and paints nothing.
+    sfn buildWithDiff:FlowGraph (model:CodeGraph page:CodePage diff:CodeGraphDiff) {
         def g (new FlowGraph)
         def uml (new UMLToGraph)
         def i:int 0
@@ -33,7 +40,7 @@ class CodeGraphFlow {
             ; A UML catalogue of twenty fat classes is unreadably small after
             ; fitView. Compact compartments there; a class page keeps more.
             def compact:boolean (page.kind == "uml")
-            def n:FlowNode (CodeGraphFlow.itemNode(model uml it compact))
+            def n:FlowNode (CodeGraphFlow.itemNode(model uml it compact diff))
             g.addNode(n)
             i = (i + 1)
         }
@@ -57,6 +64,11 @@ class CodeGraphFlow {
                             e.sourcePort = (((link.fromId + ".") + link.fieldName) + ":r")
                         }
                     }
+                    if (link.kind == "uses") {
+                        if ((strlen link.fieldName) > 0) {
+                            e.sourcePort = (((link.fromId + ".") + link.fieldName) + ":r")
+                        }
+                    }
                     if link.dashed {
                         e.dash = 6.0
                     }
@@ -69,11 +81,11 @@ class CodeGraphFlow {
         return g
     }
 
-    sfn itemNode:FlowNode (model:CodeGraph uml:UMLToGraph it:CodePageItem compact:boolean) {
+    sfn itemNode:FlowNode (model:CodeGraph uml:UMLToGraph it:CodePageItem compact:boolean diff:CodeGraphDiff) {
         if (it.itemKind == "umlclass") {
             if (model.hasClass(it.id)) {
                 def c:CodeClass (model.classByName(it.id))
-                def u:UMLClass (CodeGraphFlow.asUml(c model compact))
+                def u:UMLClass (CodeGraphFlow.asUml(c model compact diff))
                 def n:FlowNode (uml.classNode(u))
                 n.dataKind = it.dataKind
                 n.dataRef = it.dataRef
@@ -91,7 +103,8 @@ class CodeGraphFlow {
         if (it.itemKind == "backref") {
             if (model.hasClass(it.id)) {
                 def bc:CodeClass (model.classByName(it.id))
-                def bu:UMLClass (CodeGraphFlow.asBackref(bc it.extra))
+                def bu:UMLClass (CodeGraphFlow.asBackref(bc model it.extra))
+                CodeGraphFlow.tintMembers(bu bc model diff)
                 def bn:FlowNode (uml.classNode(bu))
                 bn.dataKind = it.dataKind
                 bn.dataRef = it.dataRef
@@ -152,7 +165,9 @@ class CodeGraphFlow {
     }
 
     ; Compact box: only the fields whose type is the class on screen.
-    sfn asBackref:UMLClass (c:CodeClass target:string) {
+    ; The rose box above a class: only the rows that point at `target` —
+    ; the fields typed as it and the methods that mention or call it.
+    sfn asBackref:UMLClass (c:CodeClass model:CodeGraph target:string) {
         def u:UMLClass (UMLClass.create(c.name))
         def fi:int 0
         while (fi < (array_length c.fields)) {
@@ -164,10 +179,87 @@ class CodeGraphFlow {
             }
             fi = (fi + 1)
         }
+        def mi:int 0
+        while (mi < (array_length c.methodIds)) {
+            def m:CodeMethod (model.methodById((itemAt c.methodIds mi)))
+            if (CodeGraphFlow.methodReaches(m model target)) {
+                def op:UMLMember (u.operation("+" m.name m.params m.returns))
+                op.wantPort = true
+            }
+            mi = (mi + 1)
+        }
         return u
     }
 
-    sfn asUml:UMLClass (c:CodeClass model:CodeGraph compact:boolean) {
+    sfn methodReaches:boolean (m:CodeMethod model:CodeGraph target:string) {
+        def ui:int 0
+        while (ui < (array_length m.uses)) {
+            if ((itemAt m.uses ui) == target) {
+                return true
+            }
+            ui = (ui + 1)
+        }
+        def ci:int 0
+        while (ci < (array_length m.calls)) {
+            def callee:CodeMethod (model.methodById((itemAt m.calls ci)))
+            if (callee.className == target) {
+                return true
+            }
+            ci = (ci + 1)
+        }
+        return false
+    }
+
+    ; Colour the rows of `u` by the diff status of the member each one
+    ; stands for. A removed member gets the minus badge in place of its
+    ; visibility, so it reads as struck even in a monochrome export.
+    sfn tintMembers:void (u:UMLClass c:CodeClass model:CodeGraph diff:CodeGraphDiff) {
+        if (diff.active == false) {
+            return
+        }
+        def ai:int 0
+        while (ai < (array_length u.attributes)) {
+            def a:UMLMember (itemAt u.attributes ai)
+            CodeGraphFlow.tintMember(a (diff.statusOfField(c.name a.name)))
+            ai = (ai + 1)
+        }
+        def oi:int 0
+        while (oi < (array_length u.operations)) {
+            def o:UMLMember (itemAt u.operations oi)
+            def mid:string (CodeGraphFlow.methodIdNamed(c model o.name))
+            if ((strlen mid) > 0) {
+                CodeGraphFlow.tintMember(o (diff.statusOfMethod(mid)))
+            }
+            oi = (oi + 1)
+        }
+    }
+
+    sfn tintMember:void (m:UMLMember status:string) {
+        def fill:string (CodeGraphPages.diffFill(status))
+        if ((strlen fill) == 0) {
+            return
+        }
+        m.tint = fill
+        m.tintText = (CodeGraphPages.diffStroke(status))
+        if (status == "removed") {
+            m.visibility = "−"
+        }
+    }
+
+    sfn methodIdNamed:string (c:CodeClass model:CodeGraph name:string) {
+        def i:int 0
+        while (i < (array_length c.methodIds)) {
+            def id:string (itemAt c.methodIds i)
+            def m:CodeMethod (model.methodById(id))
+            if (m.name == name) {
+                return id
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn asUml:UMLClass (c:CodeClass model:CodeGraph compact:boolean diff:CodeGraphDiff) {
         def u:UMLClass (UMLClass.create(c.name))
         u.stereotype = c.stereotype
         def attrCap:int (CodeGraphPages.umlAttrCap())
@@ -224,6 +316,7 @@ class CodeGraphFlow {
                 mi = (mi + 1)
             }
         }
+        CodeGraphFlow.tintMembers(u c model diff)
         return u
     }
 
@@ -267,7 +360,8 @@ class CodeGraphFlow {
         }
         def lay:LayeredLayout (LayeredLayout.of(g))
         ; UML class diagrams read left-to-right (a field points at its type).
-        if (kind == "uml") {
+        ; The diff summary is the same kind of catalogue.
+        if ((kind == "uml") || (kind == "diff")) {
             lay.direction = "LR"
             lay.layerGap = 120.0
         } {
@@ -391,6 +485,7 @@ class CodeGraphFlow {
 ; stack so a click that drilled in can be undone.
 class CodeGraphSession {
     def model:CodeGraph (new CodeGraph)
+    def diff:CodeGraphDiff (new CodeGraphDiff)
     def pages:CodeGraphPages (new CodeGraphPages)
     def pageId:string "overview:0"
     def history:[string]
@@ -428,7 +523,20 @@ class CodeGraphSession {
     }
 
     fn graph:FlowGraph () {
-        return (CodeGraphFlow.build(model (this.currentPage())))
+        return (CodeGraphFlow.buildWithDiff(model (this.currentPage()) diff))
+    }
+
+    ; Compare `base` against `head` and show the result: the session's
+    ; model becomes the merged graph (both sides), the pager colours by
+    ; status, and the first page is the diff summary.
+    sfn ofDiff:CodeGraphSession (base:CodeGraph head:CodeGraph label:string maxNodes:int) {
+        def d:CodeGraphDiff (CodeGraphDiff.compare(base head))
+        d.label = label
+        def s:CodeGraphSession (CodeGraphSession.of((d.merged()) maxNodes))
+        s.diff = d
+        s.pages.diff = d
+        s.openInitial(s.pages.diffPageId(0))
+        return s
     }
 
     fn describe:string () {
@@ -439,6 +547,9 @@ class CodeGraphSession {
         }
         if (p.kind == "uml") {
             return (head + ") — click a UML class to select it, Zoom to selected to read it, double-click to open")
+        }
+        if (p.kind == "diff") {
+            return (head + ") — green added, red removed, amber changed; double-click a class to see which members")
         }
         return (head + ") — click a box to open it")
     }
@@ -490,6 +601,19 @@ class CodeGraphSession {
         return (historyAt < ((array_length history) - 1))
     }
 
+    ; A catalogue page — the UML overview and the diff summary — selects a
+    ; class on click and opens it on double-click, so Zoom to selected has
+    ; something to zoom to.
+    fn selectsOnly:boolean () {
+        if ((indexOf pageId "uml:") == 0) {
+            return true
+        }
+        if ((indexOf pageId "diff:") == 0) {
+            return true
+        }
+        return false
+    }
+
     ; True when the click changed the page — the host should rebuild the
     ; FlowGraph. Background clicks and unknown kinds leave the drawing.
     fn handleClick:boolean (ev:FlowHitEvent) {
@@ -509,7 +633,7 @@ class CodeGraphSession {
         if (ev.dataKind == "class") { classBox = true }
         if (ev.dataKind == "umlclass") { classBox = true }
         if classBox {
-            if ((indexOf pageId "uml:") == 0) {
+            if (this.selectsOnly()) {
                 return false
             }
             def ref:string ev.dataRef
@@ -521,7 +645,7 @@ class CodeGraphSession {
         ; A node whose domain forgot to set dataKind still has an id that
         ; might be a class or a method.
         if (model.hasClass(ev.id)) {
-            if ((indexOf pageId "uml:") == 0) {
+            if (this.selectsOnly()) {
                 return false
             }
             return (this.goTo(pages.classPageId(ev.id)))

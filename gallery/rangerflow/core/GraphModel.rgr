@@ -201,6 +201,10 @@ class FlowRow {
     ; 0 normal, 1 emphasised (a key), 2 muted (a derived or nullable field).
     def emphasis:int 0
     def selected:boolean false
+    ; A fill behind this one row ("" = none) and the ink to use on it. A
+    ; diff paints an added member green and a removed one red this way.
+    def tint:string ""
+    def tintText:string ""
 
     Constructor () {
     }

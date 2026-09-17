@@ -86,6 +86,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Environment.ExitCode` on C#, the same immediate exit as `exit` where
   stdout is unbuffered or flushed at exit).
 
+### Added
+
+- **CodeGraph diffs two git revisions.** `codegraph_cli … --diff=base..head`
+  (or `--diff=base` against the working tree) and the desktop **Diff**
+  button check each side out as a detached worktree, analyse it the way
+  Open does, and compare classes by name and members by name: fields whose
+  type changed, methods whose signature changed, and methods whose lines
+  the file's line diff touched are `changed`; the rest `added` / `removed`.
+  The explorer opens on a diff page of only the touched classes (amber /
+  green / red), class pages keep the colours on their rows, and the source
+  pane shows touched files merged, removed lines in place on red bands.
+  `CodeGraphDiff` needs neither git nor the compiler; the web page's
+  EXAMPLE menu diffs `calls.rgr` against `calls_v2.rgr` in the tab.
+  RangerFlow rows gained `tint` / `tintText` and ScriptEditor `lineMarks`
+  for this. `npm run codegraph:diff` is the unit suite.
+
+### Fixed
+
+- **CodeGraph web page: css / evg / zip / cpp did not open from the EXAMPLE
+  menu.** The app could only compile what its VFS held, and the gallery
+  pack (and the C++ fixture) were fetched only for `?example=`. A pick the
+  app cannot serve is now handed back to the page (`consumePendingSample`),
+  which fetches the sources and picks again. The page also awaits the
+  app's methods — the ES6 bundle makes any path that may read a file
+  `async`, and `selfTest()` came back as a Promise, which is why
+  `codegraph:web:test` failed with `nav.startsWith is not a function`.
+- **CodeGraph: a class did not list who uses it through a method.** Rose
+  boxes above a class came from field types only, so `Checkout` showed no
+  `CodeGraphFixtureMain` although `main()` creates one. Classes whose
+  methods mention or call the class are now backrefs too, with the method
+  rows and a dashed `uses` edge from each row.
 
 ## [3.5.1] - 2026-09-17
 

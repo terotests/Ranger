@@ -71,6 +71,13 @@ class ScriptEditorTheme {
     ; Diagnostics.
     def errorInk:EVGColor (EVGColor.rgb(247 118 142))
     def warningInk:EVGColor (EVGColor.rgb(224 175 104))
+
+    ; Diff marks: a band across an added or a removed line and a strip in
+    ; the gutter, so a change below the fold still shows in the margin.
+    def addedLine:EVGColor (EVGColor.rgba(34 197 94 0.18))
+    def removedLine:EVGColor (EVGColor.rgba(239 68 68 0.18))
+    def addedMark:EVGColor (EVGColor.rgb(34 197 94))
+    def removedMark:EVGColor (EVGColor.rgb(239 68 68))
     ; The minimap on the right: a darker strip, a slider over the visible
     ; range, and a hairline where the text ends.
     def minimapBg:EVGColor (EVGColor.rgb(22 23 32))
@@ -134,6 +141,10 @@ class ScriptEditor {
     ; lang/EditorLanguage.rgr.
     def language:EditorLanguage (new EditorLanguage)
     def diagnostics:[EditorDiagnostic]
+    ; Per line: 0 plain, 1 added, 2 removed. Shorter than the buffer means
+    ; the rest is plain. Set by a host showing a merged diff view; cleared
+    ; by `init`, because the marks belong to one text.
+    def lineMarks:[int]
     ; Two clocks, because there are two passes. The cheap one runs on every
     ; change; the expensive one waits for a pause once it has proved expensive.
     def quickVersion:int -1
@@ -257,7 +268,35 @@ class ScriptEditor {
         return out
     }
 
+    fn setLineMarks:void (marks:[int]) {
+        lineMarks = marks
+    }
+
+    fn lineMark:int (line:int) {
+        if (line < 0) {
+            return 0
+        }
+        if (line >= (array_length lineMarks)) {
+            return 0
+        }
+        return (itemAt lineMarks line)
+    }
+
+    fn markCount:int (kind:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length lineMarks)) {
+            if ((itemAt lineMarks i) == kind) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
     fn init:void (source:string) {
+        def none:[int]
+        lineMarks = none
         buf.setText((ScriptEditor.expandTabs((ScriptEditor.withoutCarriageReturns(source)))))
         sel.setCaret(0 0)
         sel.collapseToCaret()
@@ -978,6 +1017,29 @@ class ScriptEditor {
             }
         } {
             this.paintSelection(dl tr first last)
+        }
+
+        ; Diff bands under the text, over the current-line band: the change
+        ; is what this view is for.
+        if ((array_length lineMarks) > 0) {
+            def bandX2:double (to_double (layout.x + layout.gutterW))
+            def bandW2:double ((to_double (layout.w - layout.gutterW)) - (to_double mapW))
+            def mi:int first
+            while (mi <= last) {
+                def mark:int (this.lineMark(mi))
+                if (mark > 0) {
+                    def my:double (to_double (layout.caretPixelY(mi)))
+                    def band:EVGColor theme.addedLine
+                    def strip:EVGColor theme.addedMark
+                    if (mark == 2) {
+                        band = theme.removedLine
+                        strip = theme.removedMark
+                    }
+                    this.pushRect(dl bandX2 my bandW2 (to_double layout.lineHeight) band)
+                    this.pushRect(dl x0 my 3.0 (to_double layout.lineHeight) strip)
+                }
+                mi = (mi + 1)
+            }
         }
 
         def li:int first

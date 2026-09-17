@@ -629,10 +629,109 @@ class CodeGraphAppTest {
             print ("  ingest DataGrid → " + (to_string (dg.userFileCount())) + " user files")
         }
 
+        failed = (failed + (CodeGraphAppTest.checkDiffMode((unwrap css))))
+
         if (failed > 0) {
             print ("CodeGraphAppTest FAILED " + (to_string failed))
             exit 1
         }
         print "CodeGraphAppTest ok"
+    }
+
+    ; Two hand-built graphs with a source file, opened as a diff: the
+    ; explorer lands on the summary, the source pane shows the merged
+    ; text with its marks, and Diff / overview go where a diff wants.
+    sfn checkDiffMode:int (css:string) {
+        print "== diff mode in the explorer"
+        def n:int 0
+        def before:CodeGraph (new CodeGraph)
+        before.title = "v1"
+        def b:CodeClass (before.addClass("Cart"))
+        b.fileName = "cart.rgr"
+        def bm:CodeMethod (before.addMethod("Cart" "total"))
+        bm.fileName = "cart.rgr"
+        bm.startLine = 1
+        def bo:CodeMethod (before.addMethod("Cart" "old"))
+        bo.fileName = "cart.rgr"
+        bo.startLine = 4
+        before.addSource("cart.rgr" "class Cart {\n    fn total:int () {\n        return 1\n    }\n    fn old:void () {\n    }\n}")
+        def after:CodeGraph (new CodeGraph)
+        after.title = "v2"
+        def a:CodeClass (after.addClass("Cart"))
+        a.fileName = "cart.rgr"
+        def am:CodeMethod (after.addMethod("Cart" "total"))
+        am.fileName = "cart.rgr"
+        am.startLine = 1
+        after.addSource("cart.rgr" "class Cart {\n    fn total:int () {\n        return 2\n    }\n}")
+        def app (new CodeGraphApp)
+        app.start(1200.0 800.0 css)
+        if ((app.applyDiffSession((CodeGraphSession.ofDiff(before after "v1 → v2" 24)) "cart")) == false) {
+            print "  FAIL applyDiffSession"
+            return 1
+        }
+        if ((app.pageId()) != "diff:0") {
+            print ("  FAIL diff opened on " + (app.pageId()))
+            n = (n + 1)
+        }
+        if ((app.diffActive()) == false) {
+            print "  FAIL diffActive"
+            n = (n + 1)
+        }
+        if ((indexOf (app.diffSummary()) "1 changed") < 0) {
+            print ("  FAIL diff summary: " + (app.diffSummary()))
+            n = (n + 1)
+        }
+        if ((indexOf (app.statusText()) "v1 → v2") < 0) {
+            print ("  FAIL status names the sides: " + (app.statusText()))
+            n = (n + 1)
+        }
+        ; The removed method's row sits in the merged text, on a red row.
+        app.revealMethod("Cart.old")
+        def marks:int (app.codeView.markCount(2))
+        if (marks < 2) {
+            print ("  FAIL merged source has " + (to_string marks) + " removed lines, want 2")
+            n = (n + 1)
+        }
+        if ((app.codeView.markCount(1)) != 1) {
+            print ("  FAIL merged source added lines " + (to_string (app.codeView.markCount(1))))
+            n = (n + 1)
+        }
+        if ((app.codeView.lineMark(app.codeView.sel.caret.line)) != 2) {
+            print ("  FAIL caret is not on the removed method (line " + (to_string app.codeView.sel.caret.line) + ")")
+            n = (n + 1)
+        }
+        app.revealMethod("Cart.total")
+        if (app.codeView.sel.caret.line != 1) {
+            print ("  FAIL caret on total(): line " + (to_string app.codeView.sel.caret.line))
+            n = (n + 1)
+        }
+        app.openClass("Cart")
+        if ((app.pageId()) != "class:Cart") {
+            print ("  FAIL openClass " + (app.pageId()))
+            n = (n + 1)
+        }
+        app.goOverview()
+        if ((app.pageId()) != "diff:0") {
+            print ("  FAIL overview with a diff open went to " + (app.pageId()))
+            n = (n + 1)
+        }
+        app.runToolbar("diff")
+        if ((app.consumeOpenDiff()) == false) {
+            print "  FAIL Diff button did not ask the host"
+            n = (n + 1)
+        }
+        if (app.consumeOpenDiff()) {
+            print "  FAIL Diff request not consumed"
+            n = (n + 1)
+        }
+        ; Without an opened path there is nothing to run git around.
+        def fresh (new CodeGraphApp)
+        fresh.start(800.0 600.0 css)
+        if (fresh.analyzeGitDiff("HEAD~1..HEAD")) {
+            print "  FAIL analyzeGitDiff with nothing open"
+            n = (n + 1)
+        }
+        print ("  " + (app.statusText()))
+        return n
     }
 }

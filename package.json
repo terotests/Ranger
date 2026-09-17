@@ -318,6 +318,7 @@
     "codegraph": "bash scripts/rgr-suite.sh ./gallery/codegraph/demo/codegraph_demo.rgr ./gallery/codegraph/bin codegraph_demo.js",
     "codegraph:test": "bash scripts/rgr-suite.sh ./gallery/codegraph/tests/CodeGraphTest.rgr ./gallery/codegraph/bin CodeGraphTest.js",
     "codegraph:builder": "bash scripts/rgr-suite.sh ./gallery/codegraph/tests/CodeGraphBuilderTest.rgr ./gallery/codegraph/bin CodeGraphBuilderTest.js",
+    "codegraph:diff": "bash scripts/rgr-suite.sh ./gallery/codegraph/tests/CodeGraphDiffTest.rgr ./gallery/codegraph/bin CodeGraphDiffTest.js",
     "codegraph:analyze": "node gallery/codegraph/tools/codegraph_open.mjs",
     "codegraph:bench": "bash gallery/codegraph/bench/run.sh js",
     "codegraph:bench:rt": "bash gallery/codegraph/bench/run.sh js gallery/realtrainer/src/RealTrainerDemo.rgr",

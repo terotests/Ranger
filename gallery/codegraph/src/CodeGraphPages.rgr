@@ -13,6 +13,7 @@
 ; ============================================================================
 
 Import "CodeGraphModel.rgr"
+Import "CodeGraphDiff.rgr"
 
 class CodePageItem {
     def id:string ""
@@ -107,6 +108,34 @@ class CodePage {
         push links e
     }
 
+    ; A dashed "uses" edge that leaves from a method row (`Main.main`),
+    ; the way an association leaves from a field row. One per method.
+    fn addUses:void (fromId:string toId:string methodName:string) {
+        if (fromId == toId) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length links)) {
+            def e:CodePageLink (itemAt links i)
+            if (e.fromId == fromId) {
+                if (e.toId == toId) {
+                    if (e.kind == "uses") {
+                        if (e.fieldName == methodName) {
+                            return
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def n:CodePageLink (CodePageLink.create(fromId toId))
+        n.kind = "uses"
+        n.dashed = true
+        n.label = "uses"
+        n.fieldName = methodName
+        push links n
+    }
+
     fn addAssoc:void (fromId:string toId:string fieldName:string) {
         if (fromId == toId) {
             return
@@ -135,6 +164,10 @@ class CodeGraphPages {
     ; 20–30 is the band that still lays out quickly and still reads. 24
     ; leaves room for a couple of pager arrows on a typical overview.
     def maxNodes:int 24
+    ; When active, boxes and rows take the colour of what the change did
+    ; to them, and there is a `diff:N` page listing only the classes it
+    ; touched. Inactive, every status is "" and nothing here changes.
+    def diff:CodeGraphDiff (new CodeGraphDiff)
 
     Constructor () {
     }
@@ -174,6 +207,68 @@ class CodeGraphPages {
         return (("usedby:" + name) + ":" + (to_string index))
     }
 
+    fn diffPageId:string (index:int) {
+        return ("diff:" + (to_string index))
+    }
+
+    ; Where "← back" on a class page goes: the diff summary while one is
+    ; open, the UML catalogue otherwise.
+    fn homePageId:string () {
+        if diff.active {
+            return (this.diffPageId(0))
+        }
+        return (this.umlPageId(0))
+    }
+
+    fn homeLabel:string () {
+        if diff.active {
+            return "← diff"
+        }
+        return "← UML"
+    }
+
+    ; The colours a status paints with: a box border, a box or row fill.
+    sfn diffStroke:string (status:string) {
+        if (status == "added") {
+            return "#15803d"
+        }
+        if (status == "removed") {
+            return "#b91c1c"
+        }
+        if (status == "changed") {
+            return "#b45309"
+        }
+        return ""
+    }
+
+    sfn diffFill:string (status:string) {
+        if (status == "added") {
+            return "#dcfce7"
+        }
+        if (status == "removed") {
+            return "#fee2e2"
+        }
+        if (status == "changed") {
+            return "#fef3c7"
+        }
+        return ""
+    }
+
+    ; Paint a class box by its status; an untouched class keeps what the
+    ; page gave it. Removed classes are drawn muted so the eye lands on
+    ; what is still in the program.
+    fn colourByDiff:void (it:CodePageItem name:string) {
+        if (diff.active == false) {
+            return
+        }
+        def st:string (diff.statusOfClass(name))
+        def stroke:string (CodeGraphPages.diffStroke(st))
+        if ((strlen stroke) > 0) {
+            it.stroke = stroke
+            it.fill = (CodeGraphPages.diffFill(st))
+        }
+    }
+
     fn pageOf:CodePage (pageId:string) {
         if ((strlen pageId) == 0) {
             return (this.pageOf(this.overviewId(0)))
@@ -188,6 +283,10 @@ class CodeGraphPages {
         }
         if ((indexOf pageId "usedby:") == 0) {
             return (this.buildUsedBy((this.usedByName(pageId)) (this.usedByIndex(pageId))))
+        }
+        if ((indexOf pageId "diff:") == 0) {
+            def didx:int (this.intAfter(pageId "diff:"))
+            return (this.buildDiff(didx))
         }
         if ((indexOf pageId "class:") == 0) {
             def cname:string (substring pageId 6 (strlen pageId))
@@ -334,6 +433,7 @@ class CodeGraphPages {
             it.extra = c.stereotype
             it.fill = "#eff6ff"
             it.stroke = "#1e3a8a"
+            this.colourByDiff(it name)
             page.addItem(it)
             if ((strlen c.extendsName) > 0) {
                 def parent:string c.extendsName
@@ -357,6 +457,77 @@ class CodeGraphPages {
         return page
     }
 
+    ; The classes a change touched, as UML boxes: changed ones amber,
+    ; added ones green, removed ones red, with the field links and
+    ; inheritance between them. Paged like the catalogue when a commit
+    ; touched more classes than fit.
+    fn buildDiff:CodePage (index:int) {
+        def names:[string] diff.summary
+        def page (new CodePage)
+        page.kind = "diff"
+        page.id = (this.diffPageId(index))
+        def budget:int (maxNodes - 2)
+        if (budget < 4) {
+            budget = 4
+        }
+        def total:int (array_length names)
+        def start:int (index * budget)
+        if (start >= total) {
+            start = 0
+            index = 0
+            page.id = (this.diffPageId(0))
+        }
+        def last:int (start + budget)
+        if (last > total) {
+            last = total
+        }
+        def head:string (model.title + " · diff")
+        if ((strlen diff.label) > 0) {
+            head = (model.title + " · " + diff.label)
+        }
+        if (total == 0) {
+            page.title = (head + " · " + (diff.describe()))
+            page.addItem((this.backItem("pager-back" "← UML" (this.umlPageId(0)))))
+            return page
+        }
+        page.title = (head + " · " + (diff.describe()))
+        def i:int start
+        while (i < last) {
+            def name:string (itemAt names i)
+            if (model.hasClass(name)) {
+                def c:CodeClass (model.classByName(name))
+                def it:CodePageItem (CodePageItem.create(name name "umlclass"))
+                it.dataKind = "class"
+                it.dataRef = name
+                it.extra = c.stereotype
+                it.fill = "#eff6ff"
+                it.stroke = "#1e3a8a"
+                this.colourByDiff(it name)
+                page.addItem(it)
+                if ((strlen c.extendsName) > 0) {
+                    def parent:string c.extendsName
+                    if (this.nameInRange(names parent start last)) {
+                        page.addInherit(name parent)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        this.addFieldLinks(page names start last)
+        if (last < total) {
+            page.addItem((this.pagerItem("pager-next" ("→ more changes (" + (to_string (total - last)) + ")") (this.diffPageId((index + 1))))))
+        }
+        if (start > 0) {
+            def prev:int (index - 1)
+            if (prev < 0) {
+                prev = 0
+            }
+            page.addItem((this.pagerItem("pager-prev" "← previous changes" (this.diffPageId(prev)))))
+        }
+        page.addItem((this.backItem("pager-uml" "UML →" (this.umlPageId(0)))))
+        return page
+    }
+
     fn buildClass:CodePage (name:string) {
         def page (new CodePage)
         page.kind = "class"
@@ -368,7 +539,13 @@ class CodeGraphPages {
         }
         def c:CodeClass (model.classByName(name))
         page.title = (name + " · " + (to_string (c.methodCount())) + " methods")
-        page.addItem((this.backItem("pager-back" "← UML" (this.umlPageId(0)))))
+        if diff.active {
+            def st:string (diff.statusOfClass(name))
+            if ((strlen st) > 0) {
+                page.title = (page.title + " · " + st)
+            }
+        }
+        page.addItem((this.backItem("pager-back" (this.homeLabel()) (this.homePageId()))))
         ; Classes whose fields are typed as this one sit above it, so the
         ; arrows run down into the box the reader already has on screen.
         this.addIncomingUsers(page name)
@@ -377,6 +554,7 @@ class CodeGraphPages {
         self.dataRef = name
         self.fill = "#dbeafe"
         self.stroke = "#1d4ed8"
+        this.colourByDiff(self name)
         page.addItem(self)
         if ((strlen c.extendsName) > 0) {
             def pName:string c.extendsName
@@ -407,6 +585,7 @@ class CodeGraphPages {
                             tItem.dataRef = tName
                             tItem.fill = "#eff6ff"
                             tItem.stroke = "#1e3a8a"
+                            this.colourByDiff(tItem tName)
                             page.addItem(tItem)
                         }
                     }
@@ -460,6 +639,7 @@ class CodeGraphPages {
                     tItem.dataRef = tn2
                     tItem.fill = "#fef3c7"
                     tItem.stroke = "#b45309"
+                    this.colourByDiff(tItem tn2)
                     page.addItem(tItem)
                     page.addDashed(name tn2 "uses")
                 }
@@ -508,6 +688,80 @@ class CodeGraphPages {
         return names
     }
 
+    ; Classes with a method that mentions `target` (`new Checkout`, a
+    ; parameter, a call into it), source order. A class page lists the
+    ; types its methods use; this is that arrow read backwards, so
+    ; Checkout knows that CodeGraphFixtureMain.main is what reaches it.
+    fn methodUsersOf:[string] (target:string) {
+        def names:[string]
+        def i:int 0
+        while (i < (model.classCount())) {
+            def c:CodeClass (model.classAt(i))
+            if (c.name != target) {
+                if ((array_length (this.usingMethodsOf(c target))) > 0) {
+                    push names c.name
+                }
+            }
+            i = (i + 1)
+        }
+        return names
+    }
+
+    ; The methods of `c` that use `target` or call one of its methods.
+    fn usingMethodsOf:[string] (c:CodeClass target:string) {
+        def ids:[string]
+        def mi:int 0
+        while (mi < (array_length c.methodIds)) {
+            def mid:string (itemAt c.methodIds mi)
+            def m:CodeMethod (model.methodById(mid))
+            def hit:boolean false
+            def ui:int 0
+            while (ui < (array_length m.uses)) {
+                if ((itemAt m.uses ui) == target) {
+                    hit = true
+                }
+                ui = (ui + 1)
+            }
+            def ci:int 0
+            while (ci < (array_length m.calls)) {
+                def callee:CodeMethod (model.methodById((itemAt m.calls ci)))
+                if (callee.className == target) {
+                    hit = true
+                }
+                ci = (ci + 1)
+            }
+            if hit {
+                push ids mid
+            }
+            mi = (mi + 1)
+        }
+        return ids
+    }
+
+    ; Everything that points at `target`: field users first (an association
+    ; is the stronger claim), then classes whose methods reach it.
+    fn usersOf:[string] (target:string) {
+        def names:[string] (this.fieldUsersOf(target))
+        def more:[string] (this.methodUsersOf(target))
+        def i:int 0
+        while (i < (array_length more)) {
+            def n:string (itemAt more i)
+            def seen:boolean false
+            def k:int 0
+            while (k < (array_length names)) {
+                if ((itemAt names k) == n) {
+                    seen = true
+                }
+                k = (k + 1)
+            }
+            if (seen == false) {
+                push names n
+            }
+            i = (i + 1)
+        }
+        return names
+    }
+
     fn addBackref:void (page:CodePage userName:string target:string) {
         if ((this.pageHasId(page userName)) == false) {
             def it:CodePageItem (CodePageItem.create(userName userName "backref"))
@@ -516,6 +770,7 @@ class CodeGraphPages {
             it.extra = target
             it.fill = "#fdf2f8"
             it.stroke = "#9d174d"
+            this.colourByDiff(it userName)
             page.addItem(it)
         }
         if (model.hasClass(userName)) {
@@ -529,11 +784,18 @@ class CodeGraphPages {
                 }
                 fi = (fi + 1)
             }
+            def using:[string] (this.usingMethodsOf(c target))
+            def ui:int 0
+            while (ui < (array_length using)) {
+                def um:CodeMethod (model.methodById((itemAt using ui)))
+                page.addUses(userName target um.name)
+                ui = (ui + 1)
+            }
         }
     }
 
     fn addIncomingUsers:void (page:CodePage name:string) {
-        def users:[string] (this.fieldUsersOf(name))
+        def users:[string] (this.usersOf(name))
         def userCap:int (this.incomingCap())
         def shown:int 0
         def i:int 0
@@ -565,7 +827,7 @@ class CodeGraphPages {
             page.addItem((this.backItem("pager-back" "← overview" (this.overviewId(0)))))
             return page
         }
-        def users:[string] (this.fieldUsersOf(name))
+        def users:[string] (this.usersOf(name))
         def total:int (array_length users)
         def reserved:int 3
         if (index > 0) {

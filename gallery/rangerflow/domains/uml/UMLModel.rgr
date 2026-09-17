@@ -36,6 +36,9 @@ class UMLMember {
     ; False for a row that should not grow handles — primitives on a
     ; CodeGraph class, operations that are not associations.
     def wantPort:boolean true
+    ; A fill behind the row and its ink, for a member a diff coloured.
+    def tint:string ""
+    def tintText:string ""
 
     Constructor () {
     }
@@ -280,6 +283,8 @@ class UMLToGraph {
         if m.wantPort {
             row.portId = (c.name + "." + m.name)
         }
+        row.tint = m.tint
+        row.tintText = m.tintText
         if m.isStatic {
             row.emphasis = 1
         }

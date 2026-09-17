@@ -12,6 +12,8 @@
 
 Import "../src/CodeGraphBuilder.rgr"
 Import "../src/CodeGraphPages.rgr"
+Import "../src/CodeGraphGit.rgr"
+Import "../src/CodeGraphFlow.rgr"
 
 class CodeGraphBuilderTest {
     sfn main:void () {
@@ -127,6 +129,8 @@ class CodeGraphBuilderTest {
         failed = (failed + (CodeGraphBuilderTest.checkOpenCpp()))
         failed = (failed + (CodeGraphBuilderTest.checkOpenCppWalk()))
         failed = (failed + (CodeGraphBuilderTest.checkOpenCppLib()))
+        failed = (failed + (CodeGraphBuilderTest.checkFixtureDiff()))
+        failed = (failed + (CodeGraphBuilderTest.checkGitDiff()))
         if (failed > 0) {
             print (("failed " + (to_string failed)))
             exit 1
@@ -450,6 +454,159 @@ class CodeGraphBuilderTest {
             i = (i + 1)
         }
         return false
+    }
+
+    ; calls.rgr against calls_v2.rgr, both through VirtualCompiler: the
+    ; statuses the fixture's comment promises, and the merged graph that
+    ; still knows the class the change removed.
+    sfn checkFixtureDiff:int () {
+        print "== diff fixtures/calls.rgr → fixtures/calls_v2.rgr"
+        def n:int 0
+        def base:CodeGraph (CodeGraphBuilder.fromFile("gallery/codegraph/fixtures/calls.rgr"))
+        def head:CodeGraph (CodeGraphBuilder.fromFile("gallery/codegraph/fixtures/calls_v2.rgr"))
+        if ((indexOf base.title " FAIL ") >= 0) {
+            print ("  FAIL " + base.title)
+            return 1
+        }
+        if ((indexOf head.title " FAIL ") >= 0) {
+            print ("  FAIL " + head.title)
+            return 1
+        }
+        CodeGraphGit.renameFile(base "gallery/codegraph/fixtures/calls.rgr" "gallery/codegraph/fixtures/calls_v2.rgr")
+        def d:CodeGraphDiff (CodeGraphDiff.compare(base head))
+        print ("  " + (d.describe()))
+        n = (n + (CodeGraphBuilderTest.expectStatus("Receipt" (d.statusOfClass("Receipt")) "added")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("CodeGraphFixtureMain" (d.statusOfClass("CodeGraphFixtureMain")) "removed")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("LineItem" (d.statusOfClass("LineItem")) "changed")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("Order" (d.statusOfClass("Order")) "changed")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("Checkout" (d.statusOfClass("Checkout")) "changed")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("LineItem.price" (d.statusOfField("LineItem" "price")) "added")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("LineItem.qty" (d.statusOfField("LineItem" "qty")) "")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("LineItem.lineTotal (body)" (d.statusOfMethod("LineItem.lineTotal")) "changed")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("Order.discount" (d.statusOfField("Order" "discount")) "added")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("Order.count" (d.statusOfMethod("Order.count")) "added")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("Order.total (body)" (d.statusOfMethod("Order.total")) "changed")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("Order.addItem untouched" (d.statusOfMethod("Order.addItem")) "")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("Checkout.pay (returns Receipt)" (d.statusOfMethod("Checkout.pay")) "changed")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("CodeGraphFixtureMain.main" (d.statusOfMethod("CodeGraphFixtureMain.main")) "removed")))
+        def m:CodeGraph (d.merged())
+        if ((m.hasClass("CodeGraphFixtureMain")) == false) {
+            print "  FAIL merged graph dropped CodeGraphFixtureMain"
+            n = (n + 1)
+        }
+        ; The removed main() still points at Checkout, so Checkout's page
+        ; shows it as a (red) rose box: the reverse "uses" link.
+        def session:CodeGraphSession (CodeGraphSession.ofDiff(base head "fixture" 24))
+        session.goTo("class:Checkout")
+        def g:FlowGraph (session.graph())
+        if ((g.hasNode("CodeGraphFixtureMain")) == false) {
+            print "  FAIL Checkout page has no CodeGraphFixtureMain backref"
+            n = (n + 1)
+        }
+        def ld:LineDiffResult (d.fileDiffOf("gallery/codegraph/fixtures/calls_v2.rgr"))
+        if ((ld.changed()) == false) {
+            print "  FAIL no line diff for the fixture"
+            n = (n + 1)
+        }
+        print (("  lines   +" + (to_string ld.added)) + " −" + (to_string ld.removed))
+        return n
+    }
+
+    sfn expectStatus:int (what:string got:string want:string) {
+        if (got == want) {
+            return 0
+        }
+        print ((((("  FAIL " + what) + ": got '") + got) + "' want '") + want + "'")
+        return 1
+    }
+
+    ; A throwaway repository with the two fixtures as two commits, diffed
+    ; through git worktrees: HEAD~1..HEAD and HEAD~1 against the working
+    ; tree. Skipped without git on PATH.
+    sfn checkGitDiff:int () {
+        print "== git diff HEAD~1..HEAD in a temp repository"
+        if ((CodeGraphGit.isInstalled()) == false) {
+            print "  skip: no git on PATH"
+            return 0
+        }
+        def sh (new Shell)
+        def repo:string "gallery/codegraph/out/gitdiff-repo"
+        def rmArgs:[string]
+        push rmArgs "-rf"
+        push rmArgs repo
+        sh.capture("rm" rmArgs)
+        create_dir repo
+        def v1@(optional):string (read_file "gallery/codegraph/fixtures" "calls.rgr")
+        def v2@(optional):string (read_file "gallery/codegraph/fixtures" "calls_v2.rgr")
+        if ((null? v1) || (null? v2)) {
+            print "  FAIL fixtures unreadable"
+            return 1
+        }
+        sh.cwd = repo
+        if ((CodeGraphBuilderTest.git(sh "init" "-q" "" "")) == false) {
+            print "  FAIL git init"
+            return 1
+        }
+        CodeGraphBuilderTest.git(sh "config" "user.email" "codegraph@test" "")
+        CodeGraphBuilderTest.git(sh "config" "user.name" "codegraph" "")
+        write_file repo "app.rgr" (unwrap v1)
+        CodeGraphBuilderTest.git(sh "add" "app.rgr" "" "")
+        CodeGraphBuilderTest.git(sh "commit" "-q" "-m" "v1")
+        write_file repo "app.rgr" (unwrap v2)
+        CodeGraphBuilderTest.git(sh "add" "app.rgr" "" "")
+        CodeGraphBuilderTest.git(sh "commit" "-q" "-m" "v2")
+        def n:int 0
+        def git (new CodeGraphGit)
+        def s:CodeGraphSession (git.diffSession((repo + "/app.rgr") "HEAD~1..HEAD" 24))
+        if ((s.model.classCount()) == 0) {
+            print ("  FAIL " + git.lastError)
+            return 1
+        }
+        print ("  " + s.diff.label + ": " + (s.diff.describe()))
+        n = (n + (CodeGraphBuilderTest.expectStatus("git: Receipt" (s.diff.statusOfClass("Receipt")) "added")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("git: CodeGraphFixtureMain" (s.diff.statusOfClass("CodeGraphFixtureMain")) "removed")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("git: Order.total" (s.diff.statusOfMethod("Order.total")) "changed")))
+        if ((array_length git.changedFiles) != 1) {
+            print ("  FAIL git diff --name-only listed " + (to_string (array_length git.changedFiles)) + " files")
+            n = (n + 1)
+        }
+        if (s.pageId != "diff:0") {
+            print ("  FAIL git diff session opened on " + s.pageId)
+            n = (n + 1)
+        }
+        if (dir_exists (repo + "/.git/codegraph-diff")) {
+            def leftovers:[string] (list_dir_files (repo + "/.git/codegraph-diff"))
+            if ((array_length leftovers) > 0) {
+                print "  FAIL a worktree was left behind under .git/codegraph-diff"
+                n = (n + 1)
+            }
+        }
+        ; The working tree, edited but not committed, against HEAD.
+        write_file repo "app.rgr" (unwrap v1)
+        def w:CodeGraphSession (git.diffSession((repo + "/app.rgr") "HEAD" 24))
+        if ((w.model.classCount()) == 0) {
+            print ("  FAIL working tree: " + git.lastError)
+            return (n + 1)
+        }
+        n = (n + (CodeGraphBuilderTest.expectStatus("worktree: CodeGraphFixtureMain back" (w.diff.statusOfClass("CodeGraphFixtureMain")) "added")))
+        n = (n + (CodeGraphBuilderTest.expectStatus("worktree: Receipt gone" (w.diff.statusOfClass("Receipt")) "removed")))
+        return n
+    }
+
+    sfn git:boolean (sh:Shell a:string b:string c:string d:string) {
+        def argv:[string]
+        push argv a
+        if ((strlen b) > 0) {
+            push argv b
+        }
+        if ((strlen c) > 0) {
+            push argv c
+        }
+        if ((strlen d) > 0) {
+            push argv d
+        }
+        def res:ShellResult (sh.capture("git" argv))
+        return (res.ok())
     }
 
     ; Autotools INSTALL next to include/ used to make list_dir_files throw.

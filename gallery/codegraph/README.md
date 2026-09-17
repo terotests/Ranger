@@ -52,7 +52,8 @@ by the Pages workflow.
 
 ```bash
 npm run codegraph:test         # paging, clicks, history
-npm run codegraph:builder      # VirtualCompiler walk of fixtures/calls.rgr
+npm run codegraph:builder      # VirtualCompiler walk of fixtures/calls.rgr, fixture + git diff
+npm run codegraph:diff         # line diff, class diff, merged graph, diff pages
 npm run codegraph:app          # Full EVG chrome + shop navigation
 npm run codegraph              # SVG of the shop overview + Order zoom
 npm run codegraph:analyze -- gallery/codegraph/fixtures/calls.rgr
@@ -69,7 +70,9 @@ npm run codegraph:sdl:smoke    # headless dummy video driver
 ```
 
 Open `/codegraph/` and pick **calls.rgr**, **animals.rgr**, **css**, **evg**,
-**zip**, or **cpp**.
+**zip**, **cpp**, or the **diff** of calls.rgr against calls_v2.rgr. A pick
+the tab has not fetched yet (the gallery pack behind css / evg / zip, the
+C++ fixture) is handed back to the page, which loads it and picks again.
 The source is in the left rail; **Analyze with VirtualCompiler** rebuilds the
 graph from it. `css` / `evg` / `zip` walk those gallery libraries and open on
 CssSheet / EVGElement / ZipReader so the first drawing is a class page rather
@@ -114,10 +117,68 @@ mostly VirtualCompiler: ~12 s in JS, ~5 s in C++ (`codegraph:bench:cpp:rt`).
 | a **← N more users** hexagon | the rest of those referrers, paged |
 | a **hexagon arrow** on the edge | the next / previous window of the same view |
 | **UML** | the overview as compartment UML boxes |
+| **Diff** | two git revisions of what is open, as a change summary (desktop / CLI) |
 | **← / →** | history back / forward |
+
+A **rose** box lists the rows that point at the class below it: fields typed
+as it, and methods that mention it or call into it — `CodeGraphFixtureMain.main`
+sits above `Checkout` because `main` creates one, even though no field does.
 
 Every node carries `dataKind` / `dataRef`. The editor copies them onto a
 `FlowHitEvent` after a click (press + release, no drag).
+
+## Diff: what a commit did to the classes
+
+```bash
+npm run codegraph:analyze -- gallery/realtrainer --diff=HEAD~1..HEAD   # two commits
+npm run codegraph:analyze -- app/ranger.json --diff=v1.2               # v1.2 vs the working tree
+npm run codegraph:diff                                                  # the unit suite
+```
+
+On the desktop, open a file, a directory or a Git URL, press **Diff**, and
+type the revisions (`a1b2c3d..HEAD`, `HEAD~1`, `v1..v2` — anything
+`git rev-parse` takes). The web page has no git; its EXAMPLE menu has
+**calls.rgr → calls_v2.rgr (diff)** instead, both compiled in the tab.
+
+The result opens on a **diff page**: only the classes the change touched,
+as UML boxes — changed amber, added green, removed red. Double-click one and
+the class page keeps the colours: an added field or method is a green row,
+a removed one a red row with a `−` badge (it is still drawn, from the old
+side), a changed one amber. Rose boxes and related classes are coloured
+too, so a removed caller still shows above the class it used to call.
+**← diff** and **overview** go back to the summary.
+
+The source pane shows a file the change touched **merged**: the new text
+with the removed lines still in place — added lines on a green band,
+removed on red, with a strip in the gutter for what is below the fold.
+Clicking a removed method lands on its red rows.
+
+How it is computed (`src/CodeGraphDiff.rgr`, `src/CodeGraphGit.rgr`):
+
+1. `git diff --name-only base head` names the files the change touched.
+2. Each revision that is not the working tree is checked out as a detached
+   worktree under `.git/codegraph-diff/` and analysed by the same
+   `CodeGraphBuilder.fromAny` path Open uses, then removed. The whole
+   program is compiled per side — VirtualCompiler types a method against
+   the classes it names, so a method cannot be typed on its own — but the
+   comparison is scoped to the changed files.
+3. Classes are matched by name, members by name: a field whose type changed,
+   a method whose signature changed, and a method whose lines the file's
+   line diff touched are `changed`; the rest is `added` / `removed` /
+   untouched. No member is parsed a second time: the line diff of the file
+   (`LineDiff`, common prefix and suffix stripped, LCS on the middle) says
+   which member spans it hit.
+4. `merged()` is the new graph plus what the old one lost, so every
+   removed class and member has a row to be painted on. Calls and uses from
+   both sides are kept, which is how a removed `main()` still reaches
+   `Checkout`.
+
+`CodeGraphDiff` needs neither git nor the compiler: any two `CodeGraph`s
+can be compared, which is what the browser example and the unit suite do.
+
+![calls.rgr → calls_v2.rgr: the diff page, changed classes amber, Receipt added, CodeGraphFixtureMain removed](artifacts/codegraph_diff.png)
+
+![Order's class page in the diff: the removed main() still above it as a rose box, the source pane merged with green and red bands](artifacts/codegraph_diff_order.png)
 
 ## Compiler fragments
 
@@ -139,6 +200,8 @@ and keeps classes whose source path matches the file you named.
 | `src/CodeGraphPages.rgr` | windows of ≤ N nodes, pager arrows | no |
 | `src/CodeGraphFlow.rgr` | page → FlowGraph, click session | no |
 | `src/CodeGraphSample.rgr` | shop + 40-class fixtures | no |
+| `src/CodeGraphDiff.rgr` | line diff, class / member statuses, merged graph | no |
+| `src/CodeGraphGit.rgr` | two revisions via git worktrees → two graphs | **yes** (through the builder) |
 | `src/CodeGraphBuilder.rgr` | compile → UAST → IR; `fromPath` opens ranger.json / `pkg:` | **yes** |
 | `src/CodeGraphApp.rgr` | Full EVG explorer (chrome + analyse) | **yes** (VFS analyse) |
 | `web/codegraph_web.rgr` | browser name for `CodeGraphApp` | **yes** |
@@ -146,6 +209,7 @@ and keeps classes whose source path matches the file you named.
 | `tools/codegraph_open.mjs` | CLI wrapper; clones a Git URL via gallery/pkg | no |
 | `fixtures/calls.rgr` | Order / LineItem / Checkout | compiled live |
 | `fixtures/animals.rgr` | Farm.animals:[Animal], Dog / Cat | compiled live |
+| `fixtures/calls_v2.rgr` | calls.rgr one commit later, for the diff example | compiled live |
 | `gallery/css`, `evg`, `zip` | CssCore / EVGElement / ZipReader | compiled live |
 
 RangerFlow is imported as a **library** (`gallery/rangerflow/core`, layout,

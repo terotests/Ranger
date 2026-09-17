@@ -1,0 +1,306 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CodeGraphDiffTest.rgr — two graphs in, statuses out. No compiler.
+; ============================================================================
+;
+;   npm run codegraph:diff
+; ============================================================================
+
+Import "../src/CodeGraphDiff.rgr"
+Import "../src/CodeGraphFlow.rgr"
+
+class CGDChecker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn section:void (title:string) {
+        print ("== " + title)
+    }
+}
+
+class CodeGraphDiffTest {
+    sfn baseSource:string () {
+        def lines:[string]
+        push lines "class Order {"
+        push lines "    def id:string \"\""
+        push lines "    def qty:int 0"
+        push lines ""
+        push lines "    fn total:int () {"
+        push lines "        return qty"
+        push lines "    }"
+        push lines ""
+        push lines "    fn dump:void () {"
+        push lines "        print id"
+        push lines "    }"
+        push lines "}"
+        push lines ""
+        push lines "class Legacy {"
+        push lines "    fn old:void () {"
+        push lines "    }"
+        push lines "}"
+        return (join lines "\n")
+    }
+
+    sfn headSource:string () {
+        def lines:[string]
+        push lines "class Order {"
+        push lines "    def id:string \"\""
+        push lines "    def qty:double 0.0"
+        push lines "    def tax:int 0"
+        push lines ""
+        push lines "    fn total:int () {"
+        push lines "        return (qty + tax)"
+        push lines "    }"
+        push lines ""
+        push lines "    fn pay:void (c:Checkout) {"
+        push lines "    }"
+        push lines "}"
+        push lines ""
+        push lines "class Checkout {"
+        push lines "    fn run:void (o:Order) {"
+        push lines "    }"
+        push lines "}"
+        return (join lines "\n")
+    }
+
+    sfn baseGraph:CodeGraph () {
+        def g (new CodeGraph)
+        g.title = "before"
+        def order:CodeClass (g.addClass("Order"))
+        order.fileName = "shop.rgr"
+        order.startLine = 0
+        order.addField("id" "string")
+        order.addField("qty" "int")
+        def f0:CodeField (itemAt order.fields 0)
+        f0.fileName = "shop.rgr"
+        f0.startLine = 1
+        def f1:CodeField (itemAt order.fields 1)
+        f1.fileName = "shop.rgr"
+        f1.startLine = 2
+        def total:CodeMethod (g.addMethod("Order" "total"))
+        total.returns = "int"
+        total.fileName = "shop.rgr"
+        total.startLine = 4
+        def dump:CodeMethod (g.addMethod("Order" "dump"))
+        dump.fileName = "shop.rgr"
+        dump.startLine = 8
+        def legacy:CodeClass (g.addClass("Legacy"))
+        legacy.fileName = "shop.rgr"
+        legacy.startLine = 13
+        def old:CodeMethod (g.addMethod("Legacy" "old"))
+        old.fileName = "shop.rgr"
+        old.startLine = 14
+        g.addSource("shop.rgr" (CodeGraphDiffTest.baseSource()))
+        return g
+    }
+
+    sfn headGraph:CodeGraph () {
+        def g (new CodeGraph)
+        g.title = "after"
+        def order:CodeClass (g.addClass("Order"))
+        order.fileName = "shop.rgr"
+        order.startLine = 0
+        order.addField("id" "string")
+        order.addField("qty" "double")
+        order.addField("tax" "int")
+        def f0:CodeField (itemAt order.fields 0)
+        f0.fileName = "shop.rgr"
+        f0.startLine = 1
+        def f1:CodeField (itemAt order.fields 1)
+        f1.fileName = "shop.rgr"
+        f1.startLine = 2
+        def f2:CodeField (itemAt order.fields 2)
+        f2.fileName = "shop.rgr"
+        f2.startLine = 3
+        def total:CodeMethod (g.addMethod("Order" "total"))
+        total.returns = "int"
+        total.fileName = "shop.rgr"
+        total.startLine = 5
+        def pay:CodeMethod (g.addMethod("Order" "pay"))
+        pay.params = "c:Checkout"
+        pay.fileName = "shop.rgr"
+        pay.startLine = 9
+        def co:CodeClass (g.addClass("Checkout"))
+        co.fileName = "shop.rgr"
+        co.startLine = 13
+        def run:CodeMethod (g.addMethod("Checkout" "run"))
+        run.params = "o:Order"
+        run.fileName = "shop.rgr"
+        run.startLine = 14
+        g.linkUse(pay.id "Checkout")
+        g.linkUse(run.id "Order")
+        g.addSource("shop.rgr" (CodeGraphDiffTest.headSource()))
+        return g
+    }
+
+    sfn main:void () {
+        def c (new CGDChecker)
+
+        c.section("line diff")
+        def same:LineDiffResult (LineDiff.compare("a\nb\nc" "a\nb\nc"))
+        c.eqInt("identical: rows" (same.rowCount()) 3)
+        c.eqInt("identical: added" same.added 0)
+        c.eqInt("identical: removed" same.removed 0)
+        c.ok("identical: unchanged" ((same.changed()) == false))
+
+        def ins:LineDiffResult (LineDiff.compare("a\nb\nc\n" "a\nb\nx\nc\n"))
+        c.eqInt("insert: rows" (ins.rowCount()) 4)
+        c.eqInt("insert: added" ins.added 1)
+        c.eqInt("insert: removed" ins.removed 0)
+        def insRow:LineDiffRow (itemAt ins.rows 2)
+        c.eqInt("insert: row 2 is added" insRow.kind 1)
+        c.eqStr("insert: row 2 text" insRow.text "x")
+        c.eqInt("insert: new line 3 → row 3" (ins.rowOfNewLine(3)) 3)
+        c.ok("insert: touches new 2..2" (ins.touchesNew(2 2)))
+        c.ok("insert: does not touch new 0..1" ((ins.touchesNew(0 1)) == false))
+        c.eqStr("insert: merged text" (ins.mergedText()) "a\nb\nx\nc")
+
+        def del:LineDiffResult (LineDiff.compare("a\nb\nc\nd" "a\nd"))
+        c.eqInt("delete: rows" (del.rowCount()) 4)
+        c.eqInt("delete: removed" del.removed 2)
+        def delRow:LineDiffRow (itemAt del.rows 1)
+        c.eqInt("delete: row 1 removed" delRow.kind 2)
+        c.eqInt("delete: row 1 old line" delRow.oldLine 1)
+        c.eqInt("delete: new line 1 (d) → row 3" (del.rowOfNewLine(1)) 3)
+        c.ok("delete: touches old 1..2" (del.touchesOld(1 2)))
+        def marks:[int] (del.marks())
+        c.eqInt("delete: marks length" (array_length marks) 4)
+        c.eqInt("delete: mark 2" (itemAt marks 2) 2)
+
+        def repl:LineDiffResult (LineDiff.compare("h\nx\ny\nt" "h\np\nq\nr\nt"))
+        c.eqInt("replace: added" repl.added 3)
+        c.eqInt("replace: removed" repl.removed 2)
+        c.eqInt("replace: rows" (repl.rowCount()) 7)
+        def first:LineDiffRow (itemAt repl.rows 0)
+        def lastRow:LineDiffRow (itemAt repl.rows 6)
+        c.eqInt("replace: first same" first.kind 0)
+        c.eqInt("replace: last same" lastRow.kind 0)
+        c.eqInt("replace: last new line" lastRow.newLine 4)
+
+        def empty:LineDiffResult (LineDiff.compare("" "a\nb"))
+        c.eqInt("from empty: added" empty.added 2)
+        def gone:LineDiffResult (LineDiff.compare("a\nb" ""))
+        c.eqInt("to empty: removed" gone.removed 2)
+
+        c.section("class diff")
+        def base:CodeGraph (CodeGraphDiffTest.baseGraph())
+        def head:CodeGraph (CodeGraphDiffTest.headGraph())
+        def d:CodeGraphDiff (CodeGraphDiff.compare(base head))
+        c.ok("active" d.active)
+        c.eqInt("one changed file" (array_length d.changedFiles) 1)
+        c.ok("shop.rgr differs" (d.hasFileDiff("shop.rgr")))
+        c.eqStr("Order changed" (d.statusOfClass("Order")) "changed")
+        c.eqStr("Checkout added" (d.statusOfClass("Checkout")) "added")
+        c.eqStr("Legacy removed" (d.statusOfClass("Legacy")) "removed")
+        c.eqStr("Order.id same" (d.statusOfField("Order" "id")) "")
+        c.eqStr("Order.qty type changed" (d.statusOfField("Order" "qty")) "changed")
+        c.eqStr("Order.tax added" (d.statusOfField("Order" "tax")) "added")
+        c.eqStr("Order.total body changed" (d.statusOfMethod("Order.total")) "changed")
+        c.eqStr("Order.pay added" (d.statusOfMethod("Order.pay")) "added")
+        c.eqStr("Order.dump removed" (d.statusOfMethod("Order.dump")) "removed")
+        c.eqStr("Checkout.run added" (d.statusOfMethod("Checkout.run")) "added")
+        c.eqStr("Legacy.old removed" (d.statusOfMethod("Legacy.old")) "removed")
+        c.eqInt("summary has three" (array_length d.summary) 3)
+        c.eqStr("summary 0 changed first" (itemAt d.summary 0) "Order")
+        c.eqStr("summary 1 added" (itemAt d.summary 1) "Checkout")
+        c.eqStr("summary 2 removed" (itemAt d.summary 2) "Legacy")
+        c.eqStr("describe" (d.describe()) "1 changed, 1 added, 1 removed classes")
+
+        ; A method whose lines did not move and did not change stays same:
+        ; the same graph on both sides.
+        def none:CodeGraphDiff (CodeGraphDiff.compare(head head))
+        c.eqInt("self diff: nothing" (array_length none.summary) 0)
+        c.eqStr("self diff: total same" (none.statusOfMethod("Order.total")) "")
+        c.eqStr("self diff: describe" (none.describe()) "no class changed")
+
+        c.section("merged graph")
+        def m:CodeGraph (d.merged())
+        c.ok("merged has Order" (m.hasClass("Order")))
+        c.ok("merged has Checkout" (m.hasClass("Checkout")))
+        c.ok("merged has Legacy" (m.hasClass("Legacy")))
+        def mo:CodeClass (m.classByName("Order"))
+        c.eqInt("Order fields: id qty tax" (mo.fieldCount()) 3)
+        c.eqInt("Order methods: total pay dump" (mo.methodCount()) 3)
+        c.ok("merged keeps Order.dump" (m.hasMethod("Order.dump")))
+        c.ok("merged keeps Legacy.old" (m.hasMethod("Legacy.old")))
+        c.eqStr("merged source is head" (m.sourceOf("shop.rgr")) (CodeGraphDiffTest.headSource()))
+        def mp:CodeMethod (m.methodById("Order.pay"))
+        c.eqInt("uses copied" (array_length mp.uses) 1)
+
+        c.section("pages with a diff")
+        def pages:CodeGraphPages (CodeGraphPages.of(m 24))
+        pages.diff = d
+        def dp:CodePage (pages.pageOf("diff:0"))
+        c.eqStr("diff page kind" dp.kind "diff")
+        c.eqInt("diff page boxes: three classes and the UML door" (dp.itemCount()) 4)
+        def door:CodePageItem (itemAt dp.items 3)
+        c.eqStr("UML door goes to the catalogue" door.dataRef "uml:0")
+        def it0:CodePageItem (itemAt dp.items 0)
+        c.eqStr("first box Order" it0.id "Order")
+        c.eqStr("changed box amber" it0.stroke (CodeGraphPages.diffStroke("changed")))
+        def it1:CodePageItem (itemAt dp.items 1)
+        c.eqStr("added box green" it1.stroke (CodeGraphPages.diffStroke("added")))
+        def it2:CodePageItem (itemAt dp.items 2)
+        c.eqStr("removed box red" it2.stroke (CodeGraphPages.diffStroke("removed")))
+        def cp:CodePage (pages.pageOf("class:Order"))
+        def cpSelf:CodePageItem (new CodePageItem)
+        def cpUser:CodePageItem (new CodePageItem)
+        def ci:int 0
+        while (ci < (cp.itemCount())) {
+            def cit:CodePageItem (itemAt cp.items ci)
+            if (cit.id == "Order") {
+                cpSelf = cit
+            }
+            if (cit.id == "Checkout") {
+                cpUser = cit
+            }
+            ci = (ci + 1)
+        }
+        c.eqStr("class page keeps the diff colour" cpSelf.stroke (CodeGraphPages.diffStroke("changed")))
+        c.eqStr("Checkout is a rose box above Order (its run() uses Order)" cpUser.itemKind "backref")
+        c.eqStr("and it is green: added" cpUser.stroke (CodeGraphPages.diffStroke("added")))
+        def cpBack:CodePageItem (itemAt cp.items 0)
+        c.eqStr("class page goes back to the diff" cpBack.dataRef "diff:0")
+
+        def session:CodeGraphSession (CodeGraphSession.ofDiff(base head "before → after" 24))
+        c.eqStr("session opens on the diff" session.pageId "diff:0")
+        c.ok("session diff is active" session.diff.active)
+        def g:FlowGraph (session.graph())
+        c.ok("drawn Order" (g.hasNode("Order")))
+        def on:FlowNode (g.nodeById("Order"))
+        def sec0:FlowSection (on.sectionAt(0))
+        def qtyRow:FlowRow (itemAt sec0.rows 1)
+        c.eqStr("qty row tinted" qtyRow.tint (CodeGraphPages.diffFill("changed")))
+        def taxRow:FlowRow (itemAt sec0.rows 2)
+        c.eqStr("tax row green" taxRow.tint (CodeGraphPages.diffFill("added")))
+        def sec1:FlowSection (on.sectionAt(1))
+        def dumpRow:FlowRow (itemAt sec1.rows 2)
+        c.eqStr("dump row red" dumpRow.tint (CodeGraphPages.diffFill("removed")))
+        c.eqStr("dump row struck" dumpRow.badge "−")
+        def idRow:FlowRow (itemAt sec0.rows 0)
+        c.eqStr("id row plain" idRow.tint "")
+
+        print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))
+        if (c.failed > 0) {
+            exit 1
+        }
+    }
+}
