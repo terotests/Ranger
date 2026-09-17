@@ -1767,6 +1767,13 @@ class CodeGraphApp extends EvgApp {
         }
         def p:string (this.slashPath(path))
         def base:string (this.fileBaseName(p))
+        ; What the analyser read is the truth. A class from an import names
+        ; its file the way the import wrote it (`../../vela/src/VlJson.rgr`);
+        ; no amount of re-rooting finds that on disk from here.
+        def carried:string (session.model.sourceOf(p))
+        if ((strlen carried) > 0) {
+            return carried
+        }
         if (has userFiles p) {
             return (unwrap (get userFiles p))
         }

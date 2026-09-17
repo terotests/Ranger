@@ -501,6 +501,7 @@ class UastTs {
         r.language = "typescript"
         def file:UastSourceFile (r.addFile(path "typescript"))
         file.version = 1
+        file.text = src
         def lexer:TSLexer (new TSLexer(src))
         tokens = (lexer.tokenize())
         def parser:TSParserSimple (new TSParserSimple())

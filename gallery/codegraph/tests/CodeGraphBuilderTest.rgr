@@ -95,6 +95,13 @@ class CodeGraphBuilderTest {
                 print ("  FAIL Order.startLine " + (to_string oc.startLine))
                 failed = (failed + 1)
             }
+            ; The compiler read calls.rgr; the graph carries what it read, so
+            ; the viewer never has to find that path on disk a second time.
+            def src:string (g.sourceOf(oc.fileName))
+            if ((indexOf src "class Order") < 0) {
+                print ("  FAIL calls.rgr source not carried (" + (to_string (strlen src)) + " chars)")
+                failed = (failed + 1)
+            }
         }
         if (g.hasMethod("Order.total")) {
             def tot:CodeMethod (g.methodById("Order.total"))
@@ -375,6 +382,11 @@ class CodeGraphBuilderTest {
         }
         if (g.hasClass("LibDocument")) {
             def doc:CodeClass (g.classByName("LibDocument"))
+            def text:string (g.sourceOf(doc.fileName))
+            if ((indexOf text "class LIB_API LibDocument") < 0) {
+                print ("  FAIL lib.h source not carried (" + (to_string (strlen text)) + " chars)")
+                n = (n + 1)
+            }
             if ((indexOf doc.fileName "lib.h") < 0) {
                 print ("  FAIL LibDocument.fileName " + doc.fileName)
                 n = (n + 1)

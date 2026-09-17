@@ -372,6 +372,7 @@ class UastCpp {
         r.language = "cpp"
         def file:UastSourceFile (r.addFile(path "cpp"))
         file.version = 1
+        file.text = src
         def lexer:CppLexer (new CppLexer(src))
         tokens = (lexer.tokenize())
         def parser (new CppParser)

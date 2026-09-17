@@ -69,6 +69,27 @@ class UastFrontendResult {
         return f
     }
 
+    ; Register a file once, with the text its spans index. Called per
+    ; declaration by frontends that walk a whole compiler context.
+    fn noteSource:void (path:string language:string text:string) {
+        if ((strlen path) == 0) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length files)) {
+            def had:UastSourceFile (itemAt files i)
+            if (had.path == path) {
+                if ((strlen had.text) == 0) {
+                    had.text = text
+                }
+                return
+            }
+            i = (i + 1)
+        }
+        def f:UastSourceFile (this.addFile(path language))
+        f.text = text
+    }
+
     fn addNode:UNode (node:UNode) {
         if ((strlen node.id) == 0) {
             return node

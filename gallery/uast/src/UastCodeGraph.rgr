@@ -25,6 +25,12 @@ class UastToCodeGraph {
     sfn project:CodeGraph (model:UastCodeModel) {
         def g (new CodeGraph)
         g.title = model.title
+        def sf:int 0
+        while (sf < (array_length model.files)) {
+            def file:UastSourceFile (itemAt model.files sf)
+            g.addSource(file.path file.text)
+            sf = (sf + 1)
+        }
         def skipLib:boolean (UastToCodeGraph.hasAppTypes(model))
         ; A PascalCase top-level function is a React component — in
         ; TypeScript. In C++ it is a free function, or the out-of-line
