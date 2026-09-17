@@ -20,6 +20,7 @@ export default defineConfig({
     exclude: ["**/node_modules/**", "**/ranger-vscode-extension/**"],
     sequence: { concurrent: false },
     pool: "forks",
-    poolOptions: { forks: { singleFork: true } },
+    fileParallelism: false,
+    maxWorkers: 1,
   },
 });

@@ -34,10 +34,8 @@ export default defineConfig({
       concurrent: false, // Run tests sequentially
     },
     pool: "forks",
-    poolOptions: {
-      forks: {
-        singleFork: true, // Single process to avoid race conditions
-      },
-    },
+    // Vitest 4 moved former poolOptions.forks.* to the top level.
+    fileParallelism: false,
+    maxWorkers: 1,
   },
 });
