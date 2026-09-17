@@ -216,3 +216,7 @@ gallery/pkg/bin/
 gallery/pkg/npm/dist/
 gallery/pkg/npm/README.md
 gallery/pkg/npm/LICENSE
+
+# Intermediate of build:dist:module; dist/api.js and dist/api.d.ts are the
+# artifacts that ship.
+compiler/bin/api.ts
