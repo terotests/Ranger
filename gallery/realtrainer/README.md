@@ -42,6 +42,54 @@ npm run rt:shell    # what the DOCUMENT shows before the app exists — the bund
                     # then taken away, and the stage does not move when the app arrives
 ```
 
+## The build is cached, and it fails loudly
+
+Every `rt:*` check above starts by building the app, and the app is 157 files
+and 108 000 lines of Ranger. The compiler parses and walks all of it every
+time, because compiling costs what the whole import closure costs:
+
+| entry point | closure | compile |
+| --- | --- | --- |
+| `src/AddWorkoutChart.rgr` | 2 files, 1 069 lines | 0.5 s |
+| `src/CompactRows.rgr` | 47 files, 11 989 lines | 1.8 s |
+| `src/RtHost.rgr` | 157 files, 108 102 lines | 12.4 s |
+
+So the build scripts go through `scripts/rgrc-cached.mjs`, which compiles only
+when something the last compile *read* has changed. Running four checks after
+one edit compiles once instead of four times:
+
+| | |
+| --- | --- |
+| four checks, compiling each time | 75 s |
+| four checks after one edit | 29 s |
+| four checks with nothing edited | 16 s |
+
+It does not resolve imports itself. `Import` goes through `RANGER_LIB` search
+paths, `ranger.json`, `ranger.lock`, `vendor/` and the package cache, and a
+second implementation of those rules that drifted by one case would serve a
+stale build and say nothing. Instead the compiler is asked what it read: every
+`.rgr` and `ranger.json` it opened, and every path it looked for and did not
+find. A recorded file whose contents changed invalidates the build; so does a
+file that has since appeared where the resolver once found nothing, because
+that changes what the same `Import` resolves to.
+
+`RGRC_CACHE_LOG=1` names the file that caused a recompile. `RGRC_NO_CACHE=1`
+compiles unconditionally.
+
+**It also fails.** `rgrc` prints `Compilation FAILED` and exits 0, so
+`npm run rt:build && node web/trace-check.mjs` used to run the check against
+the *previous* build — a broken edit looked applied and the check looked green.
+The wrapper deletes the output first, reads the log for the failure the exit
+status omits, and exits non-zero.
+
+**If a check is slow, look at its entry point.** A test that pulls `RtHost.rgr`
+pays twelve seconds for the whole app whatever it is testing; the COMPACT
+checks below run against `CompactRows.rgr` and pay under two. The closure is
+the cost.
+
+`scripts/rgrc-cached.mjs` is a drop-in for `node bin/output.js` anywhere in
+`package.json` — same arguments, same output.
+
 Live, from the same sources: [the WebGL page](https://terotests.github.io/Ranger/realtrainer/)
 — which runs the app in a Worker and paints its frames on the main thread —
 [as DOM nodes](https://terotests.github.io/Ranger/realtrainer/?painter=dom),

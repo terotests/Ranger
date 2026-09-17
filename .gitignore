@@ -240,3 +240,7 @@ pkg/bin/
 # Intermediate of build:dist:module; dist/api.js and dist/api.d.ts are the
 # artifacts that ship.
 compiler/bin/api.ts
+
+# rgrc-cached dependency manifests, written beside each compiled output
+# (scripts/rgrc-cached.mjs). Derived from the sources; never committed.
+*.deps.json
