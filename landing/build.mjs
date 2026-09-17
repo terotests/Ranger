@@ -16,6 +16,7 @@
  * Their generators, when you do want to re-run them:
  *
  *   node landing/tools/logo.mjs       the mark and the favicon (the bitmap tracer)
+ *   node landing/tools/logos.mjs      the language and platform marks, same way
  *   node landing/tools/hero.mjs       the hero display list (EVG layout)
  *   node landing/tools/capture.mjs    screenshots of the demos that have no
  *   node landing/tools/shots.mjs      committed artifact, then the scale-down
@@ -37,7 +38,7 @@ const withExamples = !argv.includes("--no-examples");
 const PAGE = ["index.html", "styles.css", "main.js"];
 
 /** Directories copied whole out of landing/assets. */
-const ASSET_DIRS = ["shots", "hero"];
+const ASSET_DIRS = ["shots", "hero", "logos"];
 
 /** Single files out of landing/assets. */
 const ASSET_FILES = ["ranger-mark.svg", "favicon.svg", "targets.js"];
@@ -100,10 +101,14 @@ for (const leftover of ["hero.tsx", "hero.css"]) {
   if (fs.existsSync(at)) fs.rmSync(at);
 }
 
+// Nor are the marks the strip was traced FROM — the page draws the traces.
+fs.rmSync(path.join(OUT, "assets", "logos", "src"), { recursive: true, force: true });
+
 // A page that ships without its backdrop or its letter is a broken page, so
 // say which piece is missing here rather than in somebody's browser.
 for (const need of ["assets/hero/hero.json", "assets/ranger-mark.svg", "assets/gl/evg-webgl.js",
-                    "assets/shots/figma.jpg", "assets/shots/r5.jpg", "assets/targets.js"]) {
+                    "assets/shots/figma.jpg", "assets/shots/r5.jpg", "assets/targets.js",
+                    "assets/logos/swift.svg", "assets/logos/raspberrypi.svg"]) {
   const at = path.join(OUT, need);
   if (!fs.existsSync(at) || fs.statSync(at).size === 0) throw new Error(`the build wrote no ${need}`);
 }

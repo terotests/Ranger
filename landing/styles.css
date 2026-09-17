@@ -246,26 +246,88 @@ code:not(pre code) {
   white-space: nowrap; overflow-x: auto; max-width: 100%;
 }
 
-/* The figure strip that closes the first screen. */
-.figures {
+/* ------------------------------------------------------------- marks ---- */
+/*
+ * The strip that closes the first screen: the languages and the platforms
+ * Ranger compiles for, scrolling past. Each mark is landing/assets/logos/*.svg
+ * — a path this repository traced out of a bitmap, see landing/tools/logos.mjs
+ * — used as a MASK rather than as an image, so one colour rule tints the whole
+ * strip and a mark can light up on its own when the pointer is over it.
+ */
+.marks {
   position: relative;
-  list-style: none; margin: clamp(48px, 6vw, 84px) 0 0; padding: 0;
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
+  max-width: var(--wrap);
+  margin: clamp(48px, 6vw, 84px) auto 0;
+  padding-inline: var(--pad);
+}
+
+/* The track is `width: max-content` — wider than the window by design — so
+   the strip has to clip it, or the whole page ends up that wide. The mask
+   fades the marks out at both ends instead of cutting them. */
+.marks__clip {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+}
+
+.marks__track {
+  display: flex;
+  width: max-content;
   border-top: 1px solid var(--line-2);
-  max-width: var(--wrap); margin-inline: auto;
+  border-bottom: 1px solid var(--line);
+  animation: marks-slide 64s linear infinite;
 }
-.figures li {
-  padding: 22px var(--pad) 26px;
-  border-right: 1px solid var(--line);
+/* Two identical runs, so the second is already in place when the first has
+   travelled its own width and the translation resets. */
+.marks__run { display: flex; align-items: center; gap: clamp(38px, 4.5vw, 62px); padding: 26px clamp(19px, 2.3vw, 31px); }
+
+.marks i {
+  display: block;
+  width: 32px; height: 32px; flex: none;
+  background: #adb1ba;
+  -webkit-mask: var(--mark) center / contain no-repeat;
+  mask: var(--mark) center / contain no-repeat;
+  transition: background .2s, transform .2s;
 }
-.figures li:last-child { border-right: 0; }
-.figures b {
-  display: block; font-weight: 700; letter-spacing: -.04em;
-  font-size: clamp(30px, 3.6vw, 44px); line-height: 1; color: var(--gold);
-  margin-bottom: 10px;
+.marks i:hover { background: var(--gold); transform: translateY(-2px); }
+
+@keyframes marks-slide { to { transform: translateX(-50%); } }
+
+/* The strip is decoration in motion; still it must not be. Reduced motion
+   gets the same marks standing still, wrapped onto as many lines as they
+   need, and the second run goes away so nothing repeats. */
+@media (prefers-reduced-motion: reduce) {
+  .marks__track { animation: none; width: auto; }
+  .marks__run:last-child { display: none; }
+  .marks__run { flex-wrap: wrap; row-gap: 22px; }
 }
-.figures b i { font-style: normal; color: var(--dimmer); font-size: .5em; letter-spacing: 0; }
-.figures span { display: block; font-size: 13px; line-height: 1.45; color: var(--dim); }
+
+.marks__note {
+  margin: 20px 0 0;
+  font-size: 14.5px;
+  color: var(--paper);
+  max-width: 88ch;
+}
+
+.m-swift { --mark: url("assets/logos/swift.svg"); }
+.m-apple { --mark: url("assets/logos/apple.svg"); }
+.m-kotlin { --mark: url("assets/logos/kotlin.svg"); }
+.m-android { --mark: url("assets/logos/android.svg"); }
+.m-javascript { --mark: url("assets/logos/javascript.svg"); }
+.m-typescript { --mark: url("assets/logos/typescript.svg"); }
+.m-nodedotjs { --mark: url("assets/logos/nodedotjs.svg"); }
+.m-dotnet { --mark: url("assets/logos/dotnet.svg"); }
+.m-cplusplus { --mark: url("assets/logos/cplusplus.svg"); }
+.m-rust { --mark: url("assets/logos/rust.svg"); }
+.m-go { --mark: url("assets/logos/go.svg"); }
+.m-python { --mark: url("assets/logos/python.svg"); }
+.m-dart { --mark: url("assets/logos/dart.svg"); }
+.m-flutter { --mark: url("assets/logos/flutter.svg"); }
+.m-php { --mark: url("assets/logos/php.svg"); }
+.m-openjdk { --mark: url("assets/logos/openjdk.svg"); }
+.m-webassembly { --mark: url("assets/logos/webassembly.svg"); }
+.m-llvm { --mark: url("assets/logos/llvm.svg"); }
+.m-raspberrypi { --mark: url("assets/logos/raspberrypi.svg"); }
 
 /* ----------------------------------------------------------- sections --- */
 
