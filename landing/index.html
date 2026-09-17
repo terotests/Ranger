@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ranger — save tokens, write it once</title>
-<meta name="description" content="Ranger is a self-hosting cross-language compiler: one small typed language, real source out in Swift, Kotlin, JavaScript, C#, C++, Rust, Go, Python, Dart and PHP — with no bridge and no runtime shipped underneath.">
+<title>Ranger — save tokens, keep one source</title>
+<meta name="description" content="Ranger is a small, typed language with a self-hosting source-to-source compiler. One source emits ordinary Swift, Kotlin, JavaScript, C#, C++, Rust, Go, Python, Dart and PHP that you check in, build and review with each platform's own toolchain.">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="styles.css">
-<meta property="og:title" content="Ranger — save tokens, write it once">
-<meta property="og:description" content="One small typed language. Fourteen target languages. The compiler is written in Ranger and compiles itself.">
+<meta property="og:title" content="Ranger — save tokens, keep one source">
+<meta property="og:description" content="One small, typed language, fourteen code-generating back ends, and a compiler written in Ranger that compiles itself.">
 <meta property="og:type" content="website">
 <meta name="theme-color" content="#07070a">
 </head>
@@ -51,27 +51,28 @@
   <div class="hero__in">
     <h1 class="display display--xl">
       Save tokens.<br>
-      <span class="gold">Write it once.</span>
+      <span class="gold">Keep one source.</span>
     </h1>
 
     <div class="hero__cols">
       <div class="col">
         <p class="label">What?</p>
         <p>
-          Ranger is a small typed language — classes, traits, generics, lambdas,
-          custom operators — that does not run on a virtual machine and does not
-          ship a runtime with your program. It <strong>writes source</strong>:
-          Swift for the iPhone, Kotlin for Android, JavaScript for the browser,
-          and eleven other targets from the same file.
+          Ranger is a small, typed language — classes, traits, generics, lambdas,
+          custom operators — with a <strong>source-to-source compiler</strong>. It
+          emits ordinary source in the language you already ship: Swift for Apple
+          platforms, Kotlin for Android, JavaScript for the browser, and eleven more
+          back ends — fourteen in all — from the same file. The generated program
+          depends on its own platform toolchain, and on no runtime of Ranger's.
         </p>
       </div>
       <div class="col">
         <p class="label">Consistency is the point</p>
         <p>
-          One codebase for the logic that must not diverge, and native code at
-          both ends of it. No bridge, no serialisation boundary, nothing of
-          Ranger's left in the binary — just classes and methods a reviewer
-          reads like any others.
+          One source for the logic that must not diverge, compiled into ordinary
+          target-language code on every platform. Each side calls the shared
+          classes and methods directly, in its own language, and what you review
+          is ordinary platform source.
         </p>
       </div>
     </div>
@@ -102,8 +103,8 @@
     </div>
     <p class="marks__note">
       Swift, Kotlin, JavaScript, TypeScript, C#, C++, Rust, Go, Python, Dart, PHP, Java,
-      LLVM and WebAssembly — on the iPhone, on Android, in a browser tab, on a desktop and
-      on a Raspberry Pi. <span class="dim">Every mark in this strip is a path computed from a
+      Scala, LLVM and WebAssembly — on iPhone, iPad and Apple Watch, on Android, in a
+      browser tab, on a desktop and on a Raspberry Pi. <span class="dim">Every mark in this strip is a path computed from a
       bitmap by <a class="u" href="evg/">Ranger's own vectoriser</a>: EVG rasterised it, the
       bitmap tracer read it back.</span>
     </p>
@@ -116,7 +117,7 @@
 <section class="section section--gold" id="native">
   <div class="wrap">
     <p class="label reveal">The mobile question, again</p>
-    <h2 class="display display--lg reveal">Back to native,<br>without going back to two codebases.</h2>
+    <h2 class="display display--lg reveal">Back to native,<br>without duplicating the logic that has to stay in sync.</h2>
 
     <div class="cols cols--3 rules">
       <div class="col reveal">
@@ -130,39 +131,44 @@
       <div class="col reveal">
         <p class="label">What actually changed</p>
         <p>
-          The cross-platform trade was always the same one: write the app once and
-          accept a bridge, a runtime and a layer between you and the platform. When
-          writing the app <em>twice</em> got cheap, the trade stopped paying — so the
-          second app gets written. What an agent does not do is keep the two saying
-          the same thing six months later.
+          A common cross-platform trade-off is to write the app once and accept a
+          bridge, an extra runtime and a layer between you and the platform. Coding
+          agents have lowered the cost of producing platform-specific code, so that
+          trade pays off less often than it did — and the second implementation gets
+          written. Two independently maintained implementations can still drift
+          apart over time.
         </p>
       </div>
       <div class="col reveal">
         <p class="label">What Ranger offers</p>
         <p>
-          The half a coding agent leaves open. Compile the logic that must not
-          diverge — the domain model, the pricing, the parser, the sync rules, the
-          state machine — into <strong>Swift you check in and Kotlin you check
-          in</strong>, and write SwiftUI and Compose by hand, the way the platform
-          wants them written.
+          Ranger handles the part code generation does not solve: keeping shared
+          logic identical across targets. Compile the logic that must not diverge —
+          the domain model, the pricing, the parser, the sync rules, the state
+          machine — into <strong>checked-in Swift and Kotlin source</strong>, and
+          write SwiftUI and Compose by hand, the way each platform wants them
+          written.
         </p>
       </div>
     </div>
 
     <div class="cols cols--3 rules">
       <div class="col reveal">
-        <p class="label">No bridge</p>
+        <p class="label">Ordinary calls</p>
         <p>
-          Nothing is marshalled, nothing is serialised across a boundary, and there is
-          no second runtime in the app. The output is the language you already ship.
+          The shared code arrives as Swift and Kotlin source, so each app calls it
+          the way it calls its own: no cross-language bridge, no serialisation
+          boundary and no additional Ranger runtime. The output is the language you
+          already ship.
         </p>
       </div>
       <div class="col reveal">
         <p class="label">One source of truth</p>
         <p>
-          A rule can only be changed in one place, because the Swift and the Kotlin
-          <em>are</em> one place. Two apps stay in step by construction rather than by
-          discipline.
+          A shared rule can only be changed in one place, because the Swift and the
+          Kotlin are generated from one file. Shared rules stay in step by
+          construction rather than by convention — the user interfaces on each side
+          stay hand-written.
         </p>
       </div>
       <div class="col reveal">
@@ -170,8 +176,8 @@
         <p>
           <code>@JvmField</code> and <code>MutableList</code> on Kotlin,
           <code>final class</code> on Swift, <code>Rc&lt;RefCell&lt;T&gt;&gt;</code> on
-          Rust only where the sharing analysis says a class is shared. Review it like
-          code, because it is.
+          Rust only where the sharing analysis says a class is shared. The generated
+          code is checked in and reviewed like any other platform source.
         </p>
       </div>
     </div>
@@ -193,11 +199,12 @@
 <section class="section" id="source">
   <div class="wrap">
     <p class="label reveal">One source</p>
-    <h2 class="display display--lg reveal">The same forty lines,<br>in every language you ship to.</h2>
+    <h2 class="display display--lg reveal">The same source,<br>across the targets you ship to.</h2>
     <p class="lead lead--wide reveal">
-      Nothing below was typed by hand. <code>landing/examples/Cart.rgr</code> is compiled
-      by this commit's compiler when the site is built, and each tab holds the file it
-      wrote. The tabs are the shipping targets; the compiler accepts fourteen.
+      None of the target-language code below was written by hand.
+      <code>landing/examples/Cart.rgr</code> is forty lines of Ranger, compiled by this
+      commit's compiler when the site is built, and each tab holds the file it wrote.
+      These eight tabs are a selection; <code>-l=</code> accepts fourteen back ends in all.
     </p>
 
     <div class="codeswap reveal" id="codeswap">
@@ -234,9 +241,17 @@
     <h2 class="display display--lg reveal">Fourteen back ends,<br>and a table of how far each one goes.</h2>
     <p class="lead lead--wide reveal">
       Target quality varies by language and by feature area. These are the tiers from
-      <a class="u" href="https://github.com/terotests/Ranger/blob/master/TARGET_NOTES.md">TARGET_NOTES.md</a>,
-      kept by a test that fails when a target gets <em>better</em> as well as when it gets
-      worse, so the record cannot drift away from the measurement.
+      <a class="u" href="https://github.com/terotests/Ranger/blob/master/TARGET_NOTES.md">TARGET_NOTES.md</a>.
+      CI compares the capability matrix against a checked-in baseline, so any change —
+      a regression or an improvement — fails the build until the record is updated.
+    </p>
+    <p class="lead lead--wide reveal">
+      <strong>How the count works.</strong> <code>-l=</code> takes fourteen values, and
+      that is the number of code-generating back ends. Two of them have a flag that
+      changes the output language: <code>-typescript</code> on the JavaScript back end
+      writes TypeScript, and <code>-wat</code> on the LLVM back end writes WebAssembly
+      text. That is the sixteen rows below, and the fifteen columns of the syntax-app
+      matrix, which covers every back end plus TypeScript.
     </p>
 
     <div class="tiers">
@@ -255,7 +270,7 @@
       </div>
       <div class="tier reveal">
         <p class="label">Experimental</p>
-        <p class="tier__note">Lowers to LLVM IR, with optional WAT export for freestanding WASM. Native builds work for demos; browser WASM is still rough.</p>
+        <p class="tier__note">One back end: <code>-l=llvm</code> lowers to LLVM IR, and <code>-wat</code> exports the same IR as WebAssembly text for freestanding modules. Native builds work for demos; browser WASM is still rough.</p>
         <ul class="chips chips--dim"><li>LLVM</li><li>WASM</li></ul>
       </div>
     </div>
@@ -264,9 +279,9 @@
       <div class="col reveal">
         <p class="label">Write for the strictest target</p>
         <p>
-          A target with a garbage collector — JavaScript, Go, Python, Kotlin, Dart, Java,
-          C# — takes almost any Ranger source as written. C++, Rust and Swift's reference
-          counting do not. Wherever the object graph has a cycle or a non-owning edge, the
+          Garbage-collected targets — JavaScript, Go, Python, Kotlin, Dart, Java, C# —
+          generally need fewer ownership annotations than C++, Rust and Swift's reference
+          counting do. Wherever the object graph has a cycle or a non-owning edge, the
           ownership annotations (<code>@(weak)</code>, <code>@(strong)</code>,
           <code>@(lives)</code>, <code>@(temp)</code>) have to say so. Code that runs
           happily on ES6 can still leak on C++ until they are added, and the compiler will
@@ -276,8 +291,8 @@
       <div class="col reveal">
         <p class="label">Extending it is not a rebuild</p>
         <p>
-          <code>compiler/Lang.rgr</code> — the operator table, all 838 of them — is read at
-          compile time, not baked into the binary. Add or change an operator template there
+          <code>compiler/Lang.rgr</code> — the core operator table, 336 definitions under
+          207 names — is read at compile time, not baked into the binary. Add or change an operator template there
           and the very next compile uses it. The compiler looks in the working directory
           first, so a copy beside your sources overrides the installed one, which makes an
           experiment cheap to try and cheap to throw away. That is also how support for an
@@ -307,10 +322,10 @@
         <h3>iOS, iPadOS, watchOS</h3>
         <p>
           Swift out, and the build itself is a Ranger program. <code>lib/apple/</code>
-          drives <code>xcrun</code>, <code>swiftc</code>, <code>plutil</code>,
-          <code>codesign</code> and <code>simctl</code> straight to an installed, running
-          app — <strong>no <code>.xcodeproj</code>, no <code>xcodebuild</code>, nothing
-          that opens Xcode.</strong> 151 checks assert the plan it produces, which program
+          invokes <code>xcrun</code>, <code>swiftc</code>, <code>plutil</code>,
+          <code>codesign</code> and <code>simctl</code> directly, straight to an installed,
+          running app — <strong>without generating an <code>.xcodeproj</code> or invoking
+          <code>xcodebuild</code></strong>. 151 checks assert the plan it produces, which program
           with which arguments in which order, and they run on JavaScript, Python, Go,
           Rust, C++, Java and PHP, on any machine, with no Mac in sight. On a Mac, one
           command puts the app on the simulator; another puts it on the phone on the
@@ -324,7 +339,7 @@
         <h3>Kotlin and android.graphics</h3>
         <p>
           Kotlin with <code>@JvmField</code>, <code>MutableList</code> and the collection
-          types the JVM expects — not a wrapper around a JavaScript object. The PowerPoint
+          types the JVM expects, using the platform's own types directly. The PowerPoint
           stack is the demonstration: the same Ranger source drawn with
           <code>android.graphics</code> on the device and with Java2D on any JVM, so the
           port can be checked on a build server without a phone. The port itself is a
@@ -353,8 +368,8 @@
           gamepad input through SDL GameController, and the engine's own audio synth. The
           same catalogue of games runs unchanged in a browser tab over a virtual
           filesystem. Headless builds take a frame count and
-          <code>SDL_VIDEODRIVER=dummy</code>, so the window is optional and CI can play
-          the game.
+          <code>SDL_VIDEODRIVER=dummy</code>, so the window is optional and the same build
+          runs headlessly in CI.
         </p>
       </article>
 
@@ -375,8 +390,8 @@
         <p class="label">06 — Servers and tools</p>
         <h3>Go, Rust, C++, LLVM</h3>
         <p>
-          Go and Rust for services, C++ for the fast path, LLVM when you want a binary with
-          no toolchain in between. One compiler primitive runs other programs —
+          Go and Rust for services, C++ for the fast path, LLVM for a lower-level native
+          compilation path that skips the C++ source step. One compiler primitive runs other programs —
           <code>run_process_result</code>, which answers exit code, stdout and stderr,
           takes a working directory and extra environment entries, and passes its arguments
           as a <em>vector</em> so nothing inside one is ever re-read by a shell. It has a
@@ -397,38 +412,40 @@
     <h2 class="display display--lg reveal">What the four gates<br>on every push measure.</h2>
     <p class="lead lead--wide reveal">
       Equivalent output across a dozen languages is easy to assert and hard to keep. These
-      four run on every push and break the build when they stop agreeing, which is the only
-      reason the numbers on this page are worth reading.
+      four run on every push and break the build when they stop agreeing, which is what
+      keeps the claims on this page tied to the current compiler.
     </p>
 
     <div class="proofs">
       <article class="proof reveal">
         <p class="label">01</p>
-        <h3>The syntax app, on fifteen targets</h3>
+        <h3>The syntax app, on fifteen outputs</h3>
         <p>
           One program that uses <strong>203 of the 207 core operator names</strong>
           together with classes, inheritance, traits, records, enums, extensions, lambdas,
-          optionals, buffers and custom operators. It is compiled to every target the CLI
-          accepts, built and run with <code>node</code>, <code>tsc</code>, <code>go</code>,
+          optionals, buffers and custom operators. It is compiled to all fourteen back ends
+          the CLI accepts, plus TypeScript, then built and run with <code>node</code>, <code>tsc</code>, <code>go</code>,
           <code>python3</code>, <code>rustc</code>, <code>g++</code>, <code>javac</code>,
           <code>php</code> and <code>lli</code> — whichever the machine has — and what each
           one printed is compared with the reference target. The result is a matrix
-          asserted against a checked-in baseline, so a target getting <em>better</em> fails
-          the build too, until the record is updated.
+          asserted against a checked-in baseline, so an improvement requires an explicit
+          update to the baseline just as a regression does.
         </p>
       </article>
 
       <article class="proof reveal">
         <p class="label">02</p>
-        <h3>The compiler, compiled by itself, seven ways</h3>
+        <h3>Self-hosted across seven source targets, with LLVM verified separately</h3>
         <p>
-          JavaScript is the reference build. The compiler also compiles <em>itself</em> for
-          C++, Dart, Python, C# , Go and Kotlin, and each of those builds then accepts the
-          compiler's source and compiles it again — all but C++ producing a
-          <strong>byte-for-byte identical</strong> result. On LLVM, the 22 MB of IR it
-          emits for itself passes <code>opt -passes=verify</code>, links into a native
-          <code>rangerc</code>, and that binary reproduces the Node build's JavaScript byte
-          for byte.
+          The compiler running on Node is the reference build. It also compiles
+          <em>itself</em> to C++, Dart, Python, C#, Go and Kotlin — seven builds counting
+          the reference. Each of those six is then handed the compiler's own source and
+          asked for JavaScript, and the JavaScript that comes out is compared
+          <strong>byte for byte</strong> with what the Node build writes for the same
+          input: identical on all six, save for a single line on C++ (32-bit
+          <code>int</code>). On LLVM, the 22 MB of IR the compiler emits for itself passes
+          <code>opt -passes=verify</code> and links into a native <code>rangerc</code>,
+          which reproduces the Node build's JavaScript byte for byte as well.
         </p>
       </article>
 
@@ -440,9 +457,14 @@
           Ranger, which makes it the largest thing the cross-target gate has to carry: Go,
           Kotlin, Python, C#, Dart and Swift 6 each compile it, and where the toolchain is
           installed they build it and answer the benchmark cases.
-          <strong>1303 conformance probes</strong>, every answer checked against Node — a
-          fast wrong answer fails the run — and roughly 3–5× QuickJS on the bench, with the
-          methodology and the row not to quote written down beside the numbers.
+          <strong>1303 conformance cases</strong> are checked against Node's answers — a
+          fast wrong answer fails the run. The C++ and Rust builds score 1297 of them with
+          zero crashes, and the six failures are named and tracked rather than new. Performance is reported
+          separately: on the C++ build, the geometric mean over the benchmark cases is
+          about <strong>4.4× QuickJS 2021-03-27</strong> once the <code>strcat</code> case
+          is excluded, and
+          <a class="u" href="https://github.com/terotests/Ranger/blob/master/QUICKJS_COMPARISON.md">QUICKJS_COMPARISON.md</a>
+          gives the methodology and says why that row does not belong in the average.
         </p>
       </article>
 
@@ -478,7 +500,7 @@
     <p class="label reveal">EVG</p>
     <h2 class="display display--lg reveal">A layout and rendering engine,<br>written in the language.</h2>
     <p class="lead lead--wide reveal">
-      EVG lays out a tree with a real CSS palette — flex, grid, the cascade,
+      EVG lays out a tree with a substantial CSS feature set — flex, grid, the cascade,
       <code>@media</code>, TrueType metrics and GPOS kerning — then walks it <em>once</em>
       and emits flat draw commands: filled rect, border, image quad, text run, push and pop
       clip. Absolute pixels, colours resolved, no tree and no units left. Everything below
@@ -499,7 +521,7 @@
 
     <div class="cols cols--3 rules">
       <div class="col reveal">
-        <p class="label">CSS, properly</p>
+        <p class="label">CSS layout and cascade</p>
         <p>
           Flex and grid, specificity and the cascade, border radius, shadows, transforms,
           <code>overflow: hidden</code> as a real clip, and <code>@media</code> blocks that
@@ -638,13 +660,13 @@
     </div>
     <div class="colophon__text">
       <p class="label reveal">Colophon</p>
-      <h2 class="display display--md reveal">The logo on this page<br>was vectorised by the compiler it belongs to.</h2>
+      <h2 class="display display--md reveal">The logo on this page<br>was vectorised by a tool written in Ranger.</h2>
       <p class="reveal">
         Ranger's mark existed as a 304-pixel bitmap and nothing else. It went into
         <code>gallery/evg/tools/evg_trace_cli.rgr</code> — the bitmap tracer — which
         posterised it into flat colour regions, walked the edges of each one, found the
         corners, fitted cubics between them and wrote back
-        <strong>three paths, about 7 KB</strong>. That one file is the shield in the
+        <strong>three layers, about 3 KB</strong>. That one file is the shield in the
         navigation bar, the tab icon, the drawing beside this paragraph and the mark in
         the backdrop at the top of the page, and it is sharp at every one of those sizes
         because none of them is the bitmap any more.
@@ -671,12 +693,13 @@ npm run evg:trace:cli:smoke       <span class="c"># four targets, one file, comp
 <section class="section section--start" id="start">
   <div class="wrap">
     <p class="label reveal">Getting started</p>
-    <h2 class="display display--lg reveal">From zero to a Ranger program,<br>with an agent beside you.</h2>
+    <h2 class="display display--lg reveal">From zero to a Ranger program,<br>using what is already in the repository.</h2>
     <p class="lead lead--wide reveal">
-      Ranger is small, it is a Lisp wearing braces, and it has 838 operators. That used to
-      mean a climb before you wrote anything useful. It does not now — the repository
-      carries the context a coding agent needs, on purpose, so the shortest way in is to
-      clone it and let the agent read it with you.
+      The language itself is small: <code>compiler/Lang.rgr</code> declares 336 core
+      operator definitions under 207 names, and the generated reference documents 838
+      operators once the standard library is counted in. The way in is not to read all of
+      that first — the repository carries its own notes, examples and agent instructions,
+      so the shortest route is to clone it and start from something that already works.
     </p>
 
     <div class="steps">
@@ -695,7 +718,7 @@ npx rgrc -l=swift6 hello.rgr</code></pre>
 
       <article class="step reveal">
         <p class="label">02</p>
-        <h3>Point the agent at what is already there</h3>
+        <h3>Use what the repository already carries</h3>
         <p>
           <code>AGENTS.md</code> is instructions for an agent working here: the git
           rules, the licence boundary between <code>lib/</code> and <code>gallery/</code>,
@@ -703,7 +726,7 @@ npx rgrc -l=swift6 hello.rgr</code></pre>
           <code>ai/</code> holds the offline notes — a syntax card, the grammar, how to ask
           the compiler about itself. And <code>.claude/skills/</code> ships skills the
           repository loads by itself: <strong>ranger-lang</strong> for writing
-          <code>.rgr</code> without the parenthesis traps, <strong>evg-edit</strong> for
+          <code>.rgr</code> past the common syntax mistakes, <strong>evg-edit</strong> for
           changing a laid-out document without guessing at it, <strong>rave</strong> for
           the app format.
         </p>
@@ -716,10 +739,10 @@ npx rgrc -l=swift6 hello.rgr</code></pre>
           Opening an empty file is the slow way in. <code>gallery/</code> is the corpus:
           parsers for TypeScript, C++ and JavaScript, a
           spreadsheet, a PowerPoint stack, a game engine, a chart runtime, a node-graph
-          editor, a Figma reader. Ask the agent to find the one nearest what you want and
-          to change that. Each project has its own README and a command that runs it, so
-          the loop from “change this” to “look at the output” is short — which is exactly
-          what an agent needs to work well.
+          editor, a Figma reader. Find the one nearest what you want and change that. Each
+          project has its own README and a command that runs it, so the loop from “change
+          this” to “look at the output” is short — for you, and for an agent working
+          alongside you.
         </p>
       </article>
 
@@ -744,7 +767,8 @@ npx rgrc -l=cpp    Cart.rgr</code></pre>
       optionals, traits, generics and the operator reference generated from the sources of
       the commit that published it, and the
       <a class="u" href="https://github.com/terotests/Ranger/blob/master/AGENTS.md">FAQ it links</a>
-      is the shortest path past the errors that cost a cycle. Trying before cloning: the
+      is the shortest path past the errors that otherwise cost an extra edit–compile
+      cycle. Trying before cloning: the
       <a class="u" href="playground/">playground</a> compiles Ranger in your browser with
       nothing installed.
     </p>
