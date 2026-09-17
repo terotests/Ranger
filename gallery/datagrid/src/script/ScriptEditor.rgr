@@ -63,6 +63,11 @@ class ScriptEditorTheme {
     def popupEdge:EVGColor (EVGColor.rgb(65 72 104))
     def popupPick:EVGColor (EVGColor.rgb(52 63 102))
     def popupDetail:EVGColor (EVGColor.rgb(118 128 154))
+    ; The find bar.
+    def findBg:EVGColor (EVGColor.rgb(36 40 59))
+    def findEdge:EVGColor (EVGColor.rgb(65 72 104))
+    def findInk:EVGColor (EVGColor.rgb(192 202 245))
+    def findDim:EVGColor (EVGColor.rgb(118 128 154))
     ; Diagnostics.
     def errorInk:EVGColor (EVGColor.rgb(247 118 142))
     def warningInk:EVGColor (EVGColor.rgb(224 175 104))
@@ -156,6 +161,16 @@ class ScriptEditor {
     ; True while what is shown came from the cheap pass alone — the status bar
     ; can say so rather than implying the document has been fully checked.
     def quickOnly:boolean false
+    ; --- find -----------------------------------------------------------------
+    ; Ctrl+F. A one-line bar over the top of the text area: the query, and how
+    ; many matches there are. Enter goes to the next one, Shift+Enter to the
+    ; one before, Escape puts the keys back. The match is the selection, so it
+    ; is highlighted and scrolled to by the code that already does both.
+    def findOpen:boolean false
+    def findQuery:string ""
+    def findOrdinal:int 0
+    def findTotal:int 0
+
     ; --- minimap --------------------------------------------------------------
     ; A scaled picture of the whole file on the right, the same idea as
     ; VS Code's and Monaco's: each token is a coloured speck, the slider is
@@ -198,8 +213,52 @@ class ScriptEditor {
         return out
     }
 
+    ; Tabs, likewise: the atlas has no picture for one, so a file indented
+    ; with tabs — most C and C++ — drew a row of empty boxes down the left
+    ; margin. Expand to the next four-column stop, which is what a tab means
+    ; on screen anyway. Tab the key still inserts spaces (indentSelection).
+    sfn expandTabs:string (src:string) {
+        def n:int (strlen src)
+        def hasTab:boolean false
+        def i:int 0
+        while (i < n) {
+            if ((charAt src i) == 9) {
+                hasTab = true
+                break
+            }
+            i = (i + 1)
+        }
+        if (hasTab == false) {
+            return src
+        }
+        def out:string ""
+        def col:int 0
+        def j:int 0
+        while (j < n) {
+            def ch:int (charAt src j)
+            if (ch == 9) {
+                def pad:int (4 - (col % 4))
+                def k:int 0
+                while (k < pad) {
+                    str_append out " "
+                    k = (k + 1)
+                }
+                col = (col + pad)
+            } {
+                str_append out (strfromcode ch)
+                if (ch == 10) {
+                    col = 0
+                } {
+                    col = (col + 1)
+                }
+            }
+            j = (j + 1)
+        }
+        return out
+    }
+
     fn init:void (source:string) {
-        buf.setText((ScriptEditor.withoutCarriageReturns(source)))
+        buf.setText((ScriptEditor.expandTabs((ScriptEditor.withoutCarriageReturns(source)))))
         sel.setCaret(0 0)
         sel.collapseToCaret()
         layout.scrollLine = 0
@@ -450,6 +509,238 @@ class ScriptEditor {
     ; How wide the strip is this frame: the configured width, or nothing when
     ; the panel cannot spare it. Every other measurement reads this, so a
     ; hidden map takes no space and eats no clicks.
+    ; --- find ------------------------------------------------------------------
+
+    ; Ctrl+F. Opening with a selection on one line takes that text as the
+    ; query, which saves retyping the word you just pointed at.
+    fn openFind:boolean () {
+        findOpen = true
+        this.closeCompletions()
+        if ((sel.isCollapsed()) == false) {
+            def a:EditorPos (new EditorPos)
+            def b:EditorPos (new EditorPos)
+            sel.normalized(a b)
+            if (a.line == b.line) {
+                findQuery = (substring (buf.lineAt(a.line)) a.col b.col)
+            }
+        }
+        this.refreshFindCount()
+        return true
+    }
+
+    fn closeFind:void () {
+        findOpen = false
+    }
+
+    fn findActive:boolean () {
+        return findOpen
+    }
+
+    ; The bar's own text entry. While it is up every keystroke arrives here
+    ; first, so a search never edits the document.
+    fn findType:void (text:string) {
+        findQuery = (findQuery + text)
+        this.findFrom(sel.caret.line sel.caret.col false true)
+        this.refreshFindCount()
+    }
+
+    fn findBackspace:void () {
+        def n:int (strlen findQuery)
+        if (n > 0) {
+            findQuery = (substring findQuery 0 (n - 1))
+        }
+        this.findFrom(sel.caret.line sel.caret.col false true)
+        this.refreshFindCount()
+    }
+
+    fn findNext:boolean (back:boolean) {
+        if ((strlen findQuery) == 0) {
+            return false
+        }
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        sel.normalized(a b)
+        def col:int (a.col + 1)
+        if back {
+            col = a.col
+        }
+        def hit:boolean (this.findFrom(a.line col back false))
+        this.refreshFindCount()
+        return hit
+    }
+
+    ; Search from (line, col), wrapping once around the buffer. `atCaret`
+    ; restarts at the current match, so typing one more letter keeps the
+    ; match under the caret instead of skipping to the next one.
+    fn findFrom:boolean (line:int col:int back:boolean atCaret:boolean) {
+        def q:string (to_lowercase findQuery)
+        if ((strlen q) == 0) {
+            return false
+        }
+        def n:int (buf.lineCount())
+        if (n == 0) {
+            return false
+        }
+        def startLine:int line
+        def startCol:int col
+        if atCaret {
+            def a:EditorPos (new EditorPos)
+            def b:EditorPos (new EditorPos)
+            sel.normalized(a b)
+            startLine = a.line
+            startCol = a.col
+        }
+        def i:int 0
+        while (i <= n) {
+            def li:int startLine
+            if back {
+                li = (startLine - i)
+                while (li < 0) {
+                    li = (li + n)
+                }
+            } {
+                li = ((startLine + i) % n)
+            }
+            def text:string (to_lowercase (buf.lineAt(li)))
+            def at:int -1
+            if back {
+                def limit:int (strlen text)
+                if (i == 0) {
+                    limit = startCol
+                }
+                at = (ScriptEditor.lastIndexOfIn(text q limit))
+            } {
+                def from:int 0
+                if (i == 0) {
+                    from = startCol
+                }
+                at = (ScriptEditor.indexOfIn(text q from))
+            }
+            if (at >= 0) {
+                sel.setAnchor(li at)
+                sel.setCaret(li (at + (strlen findQuery)))
+                layout.preferCol = sel.caret.col
+                layout.ensureCaretVisible(buf sel)
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; "3 of 17" needs both numbers, and the ordinal is which of the matches
+    ; the selection is sitting on.
+    fn refreshFindCount:void () {
+        findTotal = 0
+        findOrdinal = 0
+        def q:string (to_lowercase findQuery)
+        if ((strlen q) == 0) {
+            return
+        }
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        sel.normalized(a b)
+        def n:int (buf.lineCount())
+        def li:int 0
+        while (li < n) {
+            def text:string (to_lowercase (buf.lineAt(li)))
+            def from:int 0
+            def at:int (ScriptEditor.indexOfIn(text q from))
+            while (at >= 0) {
+                findTotal = (findTotal + 1)
+                if (li == a.line) {
+                    if (at == a.col) {
+                        findOrdinal = findTotal
+                    }
+                }
+                from = (at + 1)
+                at = (ScriptEditor.indexOfIn(text q from))
+            }
+            li = (li + 1)
+        }
+    }
+
+    sfn indexOfIn:int (hay:string needle:string from:int) {
+        def n:int (strlen hay)
+        def start:int from
+        if (start < 0) {
+            start = 0
+        }
+        if (start >= n) {
+            return -1
+        }
+        def at:int (indexOf (substring hay start n) needle)
+        if (at < 0) {
+            return -1
+        }
+        return (start + at)
+    }
+
+    ; The last match that starts before `limit`.
+    sfn lastIndexOfIn:int (hay:string needle:string limit:int) {
+        def best:int -1
+        def at:int (ScriptEditor.indexOfIn(hay needle 0))
+        while (at >= 0) {
+            if (at >= limit) {
+                return best
+            }
+            best = at
+            at = (ScriptEditor.indexOfIn(hay needle (at + 1)))
+        }
+        return best
+    }
+
+    fn findStatus:string () {
+        if ((strlen findQuery) == 0) {
+            return "find:  (type to search, Esc to close)"
+        }
+        if (findTotal == 0) {
+            return (("find: " + findQuery) + "   no matches")
+        }
+        return ((((("find: " + findQuery) + "   ") + (to_string findOrdinal)) + " of ") + (to_string findTotal))
+    }
+
+    fn paintFind:void (dl:EVGDisplayList tr:UITextRenderer) {
+        if (findOpen == false) {
+            return
+        }
+        def barH:double ((to_double layout.lineHeight) + 10.0)
+        def right:double ((to_double (layout.x + layout.w)) - (to_double (this.minimapWidth())))
+        def w:double 320.0
+        def maxW:double ((right - (to_double (layout.x + layout.gutterW))) - 8.0)
+        if (w > maxW) {
+            w = maxW
+        }
+        if (w < 80.0) {
+            return
+        }
+        def x:double ((right - w) - 8.0)
+        def y:double ((to_double layout.y) + 6.0)
+        this.pushRect(dl x y w barH theme.findBg)
+        def edge:EVGDrawCmd (new EVGDrawCmd)
+        edge.kind = 1
+        edge.x = x
+        edge.y = y
+        edge.w = w
+        edge.h = barH
+        edge.thickness = 1.0
+        edge.r = (theme.findEdge.red())
+        edge.g = (theme.findEdge.green())
+        edge.b = (theme.findEdge.blue())
+        edge.a = (theme.findEdge.alpha())
+        push dl.cmds edge
+        def ink:EVGColor theme.findInk
+        if ((strlen findQuery) == 0) {
+            ink = theme.findDim
+        }
+        if ((strlen findQuery) > 0) {
+            if (findTotal == 0) {
+                ink = theme.errorInk
+            }
+        }
+        this.pushText(dl tr (this.findStatus()) (x + 8.0) (y + 5.0) (layout.fontSize * 0.9) ink)
+    }
+
     fn minimapWidth:int () {
         if (showMinimap == false) {
             return 0
@@ -714,6 +1005,7 @@ class ScriptEditor {
         ; popup that could be drawn outside the editor would be drawn over the
         ; status bar the first time someone typed on the last line.
         this.paintCompletions(dl tr)
+        this.paintFind(dl tr)
         this.popClip(dl)
         this.paintMinimap(dl)
         def edge:EVGDrawCmd (new EVGDrawCmd)
@@ -1696,6 +1988,23 @@ class ScriptEditor {
 
     ; --- input ----------------------------------------------------------------
     fn handleKey:boolean (key:int shift:boolean ctrl:boolean) {
+        ; The find bar owns Escape, Enter and Backspace while it is up; the
+        ; arrows and the wheel keep working, so you can look around without
+        ; losing the query.
+        if findOpen {
+            if (key == (UIKey.escape())) {
+                this.closeFind()
+                return true
+            }
+            if (key == (UIKey.enter())) {
+                this.findNext(shift)
+                return true
+            }
+            if (key == (UIKey.backspace())) {
+                this.findBackspace()
+                return true
+            }
+        }
         ; While the list is up it owns the keys that mean "which one" — and
         ; only those. Everything else keeps its meaning, which is what makes a
         ; completion list something you can ignore.
@@ -1817,6 +2126,14 @@ class ScriptEditor {
     ; Ctrl-chords the editor answers itself. Run and Save belong to the window
     ; around it, which is why they are not here.
     fn handleCtrlChar:boolean (ch:int) {
+        if ((ch == 102) || (ch == 70)) {
+            return (this.openFind())
+        }
+        if ((ch == 103) || (ch == 71)) {
+            if findOpen {
+                return (this.findNext(false))
+            }
+        }
         if ((ch == 97) || (ch == 65)) {
             this.selectAll()
             return true
@@ -1835,6 +2152,10 @@ class ScriptEditor {
     fn handleText:boolean (s:string) {
         if ((strlen s) == 0) {
             return false
+        }
+        if findOpen {
+            this.findType(s)
+            return true
         }
         this.insert(s)
         ; Two word characters is the point where a guess is worth making. Under

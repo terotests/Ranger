@@ -28,9 +28,13 @@
   font-weight: bold;
 }
 
+/* The path of what is open, along the footer. Grey and quiet: it says where
+ * you are, and it is never in the way of a button. */
 .cg-crumb {
-  color: rgb(203, 213, 225);
+  color: rgb(100, 116, 139);
   font-size: 12px;
+  flex-grow: 1;
+  min-width: 0;
 }
 
 .cg-body {
@@ -74,9 +78,11 @@
   overflow: hidden;
 }
 
+/* A drag target, not a hairline. Six pixels is something you aim at with a
+ * mouse; ten is something you hit. */
 .cg-body .ui-resizable-sep {
-  width: 6px;
-  min-width: 6px;
+  width: 10px;
+  min-width: 10px;
   height: 100%;
   cursor: col-resize;
   background-color: rgb(203, 213, 225);
@@ -189,14 +195,18 @@
 .cg-footer {
   display: flex;
   flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
+  gap: 12px;
   padding: 0px 14px;
   background-color: rgb(255, 255, 255);
+  border-top: 1px solid rgb(226, 232, 240);
 }
 
 .cg-status {
   color: rgb(100, 116, 139);
   font-size: 12px;
+  flex-shrink: 0;
 }
 
 .ui-toolbar {
