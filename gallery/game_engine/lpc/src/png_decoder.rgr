@@ -7,7 +7,7 @@
 
 Import "../../../pdf_writer/src/core/Buffer.rgr"
 Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
-Import "../../../zip/Inflate.rgr"
+Import "../../../../lib/zip/Inflate.rgr"
 
 class PNGDecoder {
     def pos:int 0

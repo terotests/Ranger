@@ -3,10 +3,10 @@
 ; ZipReader.rgr - ZIP archive reader
 ; Opens, parses, and extracts files from ZIP archives
 
-Import "ZipBuffer.rgr"
+Import "../../lib/zip/ZipBuffer.rgr"
 Import "ZipEntry.rgr"
 Import "CRC32.rgr"
-Import "Inflate.rgr"
+Import "../../lib/zip/Inflate.rgr"
 
 class ZipReader {
     def entries:[ZipEntry]

@@ -1,4 +1,4 @@
-; SPDX-License-Identifier: AGPL-3.0-or-later
+; SPDX-License-Identifier: MIT
 
 ; The Git pack client and the package resolver against fixtures another
 ; implementation produced (git pack-objects, Node crypto SHA-1).
@@ -77,7 +77,7 @@ class PkgTest {
         this.eqStr("empty" (GitSha1.hashHex((buffer_alloc 0))) "da39a3ee5e6b4b0d3255bfef95601890afd80709")
         this.eqStr("abc" (GitSha1.hashHex((this.bytesOf("abc")))) "a9993e364706816aba3e25717850c26c9cd0d89d")
         def hello:buffer (this.bytesOf("hello ranger\n"))
-        def fx:buffer (buffer_read_file "gallery/pkg/fixtures" "sha1.txt")
+        def fx:buffer (buffer_read_file "pkg/fixtures" "sha1.txt")
         if ((buffer_length fx) > 10) {
             def text:string (buffer_to_string fx)
             def lines:[string] (strsplit text "\n")
@@ -276,7 +276,7 @@ class PkgTest {
     }
 
     fn testPack:void () {
-        def packed:buffer (buffer_read_file "gallery/pkg/fixtures" "tiny.pack")
+        def packed:buffer (buffer_read_file "pkg/fixtures" "tiny.pack")
         if ((buffer_length packed) < 32) {
             print "  SKIP  tiny.pack (run npm run pkg:fixtures)"
             return
@@ -288,12 +288,12 @@ class PkgTest {
             return
         }
         this.check("pack has objects" ((array_length pack.objects) > 0))
-        def meta:buffer (buffer_read_file "gallery/pkg/fixtures" "tiny.meta.txt")
+        def meta:buffer (buffer_read_file "pkg/fixtures" "tiny.meta.txt")
         def text:string (buffer_to_string meta)
         def lines:[string] (strsplit text "\n")
         def head:string ""
         def helloSha:string ""
-        def helloBuf:buffer (buffer_read_file "gallery/pkg/fixtures" "hello.txt")
+        def helloBuf:buffer (buffer_read_file "pkg/fixtures" "hello.txt")
         def helloText:string (buffer_to_string helloBuf)
         def i:int 0
         while (i < (array_length lines)) {
@@ -351,7 +351,7 @@ class PkgTest {
             this.check("merge self count" (merged.count == pack.count))
             this.check("merge ok" merged.ok)
         }
-        def deltaPacked:buffer (buffer_read_file "gallery/pkg/fixtures" "tiny-delta.pack")
+        def deltaPacked:buffer (buffer_read_file "pkg/fixtures" "tiny-delta.pack")
         if ((buffer_length deltaPacked) > 32) {
             def dpack:GitPack (GitPackIO.parse(deltaPacked))
             this.check("delta pack ok" dpack.ok)
@@ -368,8 +368,8 @@ class PkgTest {
     }
 
     fn testCache:void () {
-        def packed:buffer (buffer_read_file "gallery/pkg/fixtures" "tiny.pack")
-        def meta:buffer (buffer_read_file "gallery/pkg/fixtures" "tiny.meta.txt")
+        def packed:buffer (buffer_read_file "pkg/fixtures" "tiny.pack")
+        def meta:buffer (buffer_read_file "pkg/fixtures" "tiny.meta.txt")
         if ((buffer_length packed) < 32) {
             print "  SKIP  cache (no tiny.pack)"
             return

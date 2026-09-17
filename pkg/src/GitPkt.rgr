@@ -1,4 +1,4 @@
-; SPDX-License-Identifier: AGPL-3.0-or-later
+; SPDX-License-Identifier: MIT
 
 ; pkt-line framing (gitprotocol-common) and the smart-HTTP pieces that
 ; sit on top of it: info/refs advertisement, a want/done request, and

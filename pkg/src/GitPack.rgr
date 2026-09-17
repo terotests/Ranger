@@ -1,4 +1,4 @@
-; SPDX-License-Identifier: AGPL-3.0-or-later
+; SPDX-License-Identifier: MIT
 
 ; Git packfile v2 (gitformat-pack) and the two delta encodings Git uses
 ; inside it. Object bytes come out zlib-inflated; a second pass applies

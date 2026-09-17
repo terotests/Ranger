@@ -1,4 +1,4 @@
-# `gallery/pkg` — Git pack client and a source-package resolver
+# `pkg` — Git pack client and a source-package resolver
 
 Ranger does not need a binary package manager. It needs to know, when a
 source file says it needs `evg`, **where those `.rgr` files come from and
@@ -34,12 +34,29 @@ published layout — is implementing the **documented formats**:
 | RFC 1950 / 1951 | zlib around the existing DEFLATE inflater |
 
 No Git source is vendored. SHA-1 here is a public algorithm; DEFLATE is
-`gallery/zip/Inflate.rgr`. The Node files under `tools/` are an HTTPS
-pipe (`GET` / `POST` of bytes). They do not parse Git.
+`lib/zip/Inflate.rgr`. `bin/git-http.mjs` is an HTTPS pipe (`GET` / `POST`
+of bytes) and the Node files under `tools/` are dev tooling. None of them
+parses Git.
+
+**License: MIT**, like the rest of the platform. This tree is compiled into
+`rgrc`, so `rgrc install` needs nothing else installed. See
+[LICENSING.md](../LICENSING.md).
 
 Public clones only: no credentials, no SSH, no `git://`.
 
 ## Quick start
+
+Fetching a project's dependencies is a compiler subcommand:
+
+```bash
+rgrc install                 # nearest ranger.json, up from the working directory
+rgrc install -vendor         # also write vendor/ranger/<name>, so no cache is needed
+rgrc install -frozen         # CI: fail rather than fetch what the lock does not cover
+rgrc install -force          # refetch even when the locked checkout is cached
+rgrc install -cache=<dir>    # instead of RANGER_PKG_CACHE / ~/.cache/ranger/packages
+```
+
+Developing this tree:
 
 ```bash
 npm run pkg:fixtures    # git pack-objects + Node crypto SHA-1
@@ -50,18 +67,18 @@ npm run pkg:tool
 Unpack a pack without spawning git:
 
 ```bash
-node gallery/pkg/bin/pkg_tool.js unpack gallery/pkg/fixtures/tiny.pack
-node gallery/pkg/bin/pkg_tool.js checkout gallery/pkg/fixtures/tiny.pack \
-  $(awk '/^head /{print $2}' gallery/pkg/fixtures/tiny.meta.txt) /tmp/tiny
+node pkg/bin/pkg_tool.js unpack pkg/fixtures/tiny.pack
+node pkg/bin/pkg_tool.js checkout pkg/fixtures/tiny.pack \
+  $(awk '/^head /{print $2}' pkg/fixtures/tiny.meta.txt) /tmp/tiny
 ```
 
 Clone a **public** HTTPS repo. Node fetches bytes; Ranger parses the
 advertisement, builds the want, demuxes side-band, and checks out the
-tree. `clone.mjs` builds `pkg_tool.js` on first use if `gallery/pkg/bin`
+tree. `clone.mjs` builds `pkg_tool.js` on first use if `pkg/bin`
 is empty (that directory is gitignored).
 
 ```bash
-node gallery/pkg/tools/clone.mjs https://github.com/terotests/Ranger.git \
+node pkg/tools/clone.mjs https://github.com/terotests/Ranger.git \
   HEAD /tmp/ranger-evg gallery/evg
 ```
 
@@ -172,12 +189,11 @@ Gallery `PackageResolver` is the same idea for tools (`pkg_tool resolve`,
 | `src/PkgManifest.rgr` | `ranger.json` / `ranger.lock` |
 | `src/PkgResolver.rgr` | `pkg:` and relative imports, lock, vendor |
 | `src/PkgCache.rgr` | content-addressed checkout cache |
-| `src/pkg_tool.rgr` | CLI |
-| `tools/git-http.mjs` | HTTPS GET/POST only |
-| `tools/clone.mjs` | advertise → want → pack → checkout |
-| `tools/install.mjs` | `ranger.json` → fetch every dep → cache → `ranger.lock` |
+| `src/pkg_tool.rgr` | dev CLI over the library |
+| `../compiler/PkgFetch.rgr` | `ranger.json` → fetch every dep → cache → `ranger.lock`; this is `rgrc install` |
+| `../bin/git-http.mjs` | HTTPS GET/POST only; ships beside `rgrc` |
+| `tools/clone.mjs` | advertise → want → pack → checkout, by hand |
 | `tools/make-fixtures.mjs` | corpus from git / Node crypto |
-| `npm/` | the publishable `ranger-pkg` package |
 
 ## Commands
 
@@ -204,16 +220,8 @@ pkg_tool install <ranger.json>
 ```
 
 `pkg_tool install` dumps a lock of what is **already mounted**; it does not
-fetch. The command that walks the graph is `tools/install.mjs`:
-
-```bash
-npm run pkg:install -- path/to/ranger.json
-#   --vendor        also copy each package into vendor/ranger/<name>
-#   --cache=<dir>   instead of RANGER_PKG_CACHE / ~/.cache/ranger/packages
-#   --frozen        fail instead of fetching when ranger.lock does not already
-#                   cover a dependency at this revision — for CI
-#   --force         refetch even when the locked checkout is in the cache
-```
+fetch. `rgrc install` (above) is what walks the graph — `compiler/PkgFetch.rgr`
+drives this library directly.
 
 A dependency the lock already pins, whose checkout is still in the cache, is
 not fetched again: the sha256 names content, and the content at a commit does
@@ -229,48 +237,24 @@ compiles `pkg:` imports with no Ranger tree in sight.
 There is no daemon, no login, no `publish`, no registry. A later registry
 can be a JSON index of git URLs; the protocol here would not change.
 
-## Shipping it
+## Where it runs
 
-The compiler on npm (`ranger-compiler`, MIT) **resolves** `pkg:` and `./` — it
-does not fetch, because the Git client is here, under the gallery's AGPL. A
-project that only has `rgrc` therefore cannot get its dependencies onto disk.
-That gap closes by publishing this directory as its own package:
+This library is MIT and compiled into the compiler, so the whole flow is one
+program: `compiler/PkgFetch.rgr` parses the advertisement, builds the want,
+demuxes side-band, reads the pack, walks the tree and writes the cache, and
+`compiler/PkgImport.rgr` resolves `pkg:` against the lock it wrote. A project
+needs `ranger-compiler` and nothing else.
 
-```bash
-npm run pkg:npm:build     # gallery/pkg/npm/dist: pkg_tool.js + the .mjs pipes
-npm run pkg:npm:pack      # a tarball in ./tmp to try before publishing
-```
-
-```bash
-npx ranger-pkg install            # fetch + lock, from a project's ranger.json
-npx ranger-pkg clone <url> HEAD <dir> <subdir>
-npx ranger-pkg resolve ranger.json pkg:evg/EVGElement.rgr
-```
-
-With `ranger-pkg` in `node_modules`, `rgrc install` is the same thing under
-the name people will reach for. The compiler runs that program, it does not
-contain it, and it says so when the program is missing:
-
-```bash
-rgrc install                 # nearest ranger.json, up from the working directory
-rgrc install -vendor         # also copy into vendor/ranger/<name>
-rgrc install -cache=<dir>    # instead of RANGER_PKG_CACHE / ~/.cache/ranger/packages
-```
-
-`ranger-pkg` is AGPL-3.0-or-later, like the rest of `gallery/`. Using it to
-fetch sources does not touch the licence of what you compile, the same way
-`rgrc` does not.
+Node is used for exactly one thing: `bin/git-http.mjs` GETs and POSTs bytes,
+because Node has no synchronous HTTPS and the compiler is synchronous. It
+parses nothing and is shipped in `dist/` beside `rgrc.js`.
 
 ## What this does not do
 
 - Semver ranges (`^1.2`, `>=3 <4`)
 - Package namespaces / colliding `class Button`
 - Auth, SSH, incremental `have` against a stored pack
-- `rgrc pkg add <git-url>` — editing `ranger.json` from the command line.
-  `rgrc install` exists, but it runs `ranger-pkg`: `rgrc` is MIT and this
-  client is AGPL, so the fetch cannot live inside the compiler binary
-  without relicensing it (it is a clean-room read of published formats, and
-  `GitZlib` is the only thing tying it to `gallery/zip`).
+- `rgrc pkg add <git-url>` — editing `ranger.json` from the command line
 - Copying `node_modules`-style trees by default — cache + optional `vendor`
 
 ## Tests
@@ -284,4 +268,5 @@ npm run pkg:test
 npm run pkg:test:targets   # every Ranger language; run where the toolchain is installed
 ```
 
-**License: AGPL-3.0-or-later** (this directory is under `gallery/`).
+**License: MIT.** The Git client is platform, not application IP — see
+[LICENSING.md](../LICENSING.md).

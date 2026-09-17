@@ -1,4 +1,4 @@
-; SPDX-License-Identifier: AGPL-3.0-or-later
+; SPDX-License-Identifier: MIT
 
 ; Object store on top of a parsed pack: walk a tree, materialise blobs
 ; into an in-memory filesystem, optionally write them to disk. This is

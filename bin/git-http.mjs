@@ -1,8 +1,11 @@
 #!/usr/bin/env node
-// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 //
-// Dumb HTTPS pipe for Git smart HTTP. All Git framing lives in Ranger;
-// this file only GETs and POSTs bytes. Public repos, no credentials.
+// Dumb HTTPS pipe for Git smart HTTP, shipped beside rgrc. All Git framing
+// lives in Ranger -- the pack parser, pkt-line, SHA-1 and the tree walk are
+// compiled into the compiler itself. This file only GETs and POSTs bytes,
+// because Node has no synchronous HTTPS and the compiler is synchronous.
+// Public repos, no credentials.
 
 import { request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";

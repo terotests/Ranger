@@ -5,6 +5,7 @@ Import "InputFileSystem.rgr"
 Import "ng_LiveCompiler.rgr"
 Import "ColorConsole.rgr"
 Import "CLIProgress.rgr"
+Import "PkgFetch.rgr"
 Import "ng_DictNode.rgr"
 Import "ng_RangerSerializeClass.rgr"
 Import "CmdParams.rgr"
@@ -551,30 +552,12 @@ class tester {
     return (ext == "ts")
   }
 
-  ; Walk up from `dir` looking for node_modules/ranger-pkg. npm puts a
-  ; dependency's own folder there, and a workspace puts it at the root, so
-  ; "beside the manifest" is not enough.
-  fn findPkgTool:string (env:InputEnv dir:string) {
-    def at:string dir
-    def guard:int 0
-    while ((strlen at) > 0) {
-      def cand:string (at + "/node_modules/ranger-pkg/dist")
-      if (file_exists env cand "ranger-pkg.mjs") {
-        return (cand + "/ranger-pkg.mjs")
-      }
-      def parent:string (PkgImport.parentDir(at))
-      if (parent == at) {
-        return ""
-      }
-      at = parent
-      guard = (guard + 1)
-      if (guard > 48) {
-        return ""
-      }
-    }
-    return ""
-  }
-
+  ; `rgrc install` -- put the packages ranger.json names on disk.
+  ;
+  ; The Git client is MIT and lives in pkg/src, so it is compiled in: this
+  ; is a call, not a subprocess, and `ranger-compiler` is the only thing a
+  ; project needs installed. `bin/git-http.mjs` beside rgrc moves the bytes,
+  ; because Node has no synchronous HTTPS.
   fn runInstall:boolean (env:InputEnv params:CmdParams cli:CLIProgress) {
     def start:string (current_directory env)
     def manDir:string (PkgImport.walkUp(env start))
@@ -582,37 +565,20 @@ class tester {
       print (cli.error(("no ranger.json in " + start + " or above it")))
       return false
     }
-    def tool:string (this.findPkgTool(env manDir))
-    if ((strlen tool) == 0) {
-      tool = (this.findPkgTool(env start))
-    }
-    if ((strlen tool) == 0) {
-      print (cli.error("the package client is not installed"))
-      print ""
-      print ("  " + (cli.bold("npm install --save-dev ranger-pkg")))
-      print ""
-      print (cli.gray("  rgrc resolves pkg: imports; ranger-pkg fetches them from Git."))
-      print (cli.gray("  They are separate packages because the Git client is AGPL."))
-      return false
-    }
-    def argv:[string]
-    push argv tool
-    push argv "install"
-    push argv (manDir + "/ranger.json")
-    if (has params.flags "vendor") {
-      push argv "--vendor"
-    }
+    def fetch (new PkgFetch)
+    fetch.vendor = (has params.flags "vendor")
+    fetch.frozen = ((has params.flags "frozen") || (has params.flags "frozen-lockfile"))
+    fetch.force = (has params.flags "force")
     def cacheOpt (params.getParam("cache"))
     if (!null? cacheOpt) {
-      push argv ("--cache=" + (unwrap cacheOpt))
+      fetch.cacheOverride = (unwrap cacheOpt)
     }
-    def noEnv:[string]
-    def out:[string] (run_process_result "node" argv manDir false noEnv)
-    if ((array_length out) == 0) {
-      print (cli.error("could not run node"))
-      return false
+    def done:boolean (fetch.install(env manDir))
+    if done {
+      return true
     }
-    return ((itemAt out 0) == "0")
+    print (cli.error(fetch.err))
+    return false
   }
 
   fn run@(weak):CompilerResults ( env:InputEnv) {
@@ -713,10 +679,12 @@ class tester {
         cli.printHelpHeader()
 
         cli.printSection("Commands:")
-        print ("  " + (cli.bold("install")) + "              fetch the packages ranger.json names into the package cache")
-        print ("                       and write ranger.lock. Options: -vendor, -cache=<dir>.")
-        print (cli.gray("                       Needs `ranger-pkg`; rgrc resolves pkg: imports, it does"))
-        print (cli.gray("                       not fetch them."))
+        print ("  " + (cli.bold("install")) + "              fetch the packages the nearest ranger.json names into the")
+        print ("                       package cache and write ranger.lock.")
+        print (cli.gray("                       -vendor       also write vendor/ranger/<name>"))
+        print (cli.gray("                       -frozen       fail rather than fetch what the lock does not cover"))
+        print (cli.gray("                       -force        refetch even when the locked checkout is cached"))
+        print (cli.gray("                       -cache=<dir>  instead of RANGER_PKG_CACHE"))
 
         cli.printSection("Options:")
         def optCnt 0

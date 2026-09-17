@@ -1,11 +1,11 @@
-; SPDX-License-Identifier: AGPL-3.0-or-later
+; SPDX-License-Identifier: MIT
 
 ; RFC 1950 zlib wrapper around gallery/zip's DEFLATE inflater.
 ; Git pack objects and loose objects are zlib streams, not raw DEFLATE
 ; (ZIP's method 8 is raw). The compressed size is not stored: inflate
 ; until BFINAL, then skip the Adler-32 trailer.
 
-Import "../../zip/Inflate.rgr"
+Import "../../lib/zip/Inflate.rgr"
 
 class GitZlib {
     def ok:boolean true

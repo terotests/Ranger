@@ -16,7 +16,7 @@
 ; ==============================================================================
 
 Import "../api/PptxRenderApi.rgr"
-Import "../../zip/Inflate.rgr"
+Import "../../../lib/zip/Inflate.rgr"
 Import "../../pdf_writer/src/core/Buffer.rgr"
 Import "../../pdf_writer/src/fonts/FontManager.rgr"
 

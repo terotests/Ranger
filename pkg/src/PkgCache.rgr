@@ -1,4 +1,4 @@
-; SPDX-License-Identifier: AGPL-3.0-or-later
+; SPDX-License-Identifier: MIT
 
 ; Content-addressed source cache. A Git checkout (or any GitMem) is written
 ; once under cacheRoot/<sha256>/ and ranger.lock points at that hash.

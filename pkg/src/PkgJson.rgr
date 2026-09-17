@@ -1,8 +1,8 @@
-; SPDX-License-Identifier: AGPL-3.0-or-later
+; SPDX-License-Identifier: MIT
 
 ; Tiny JSON reader for ranger.json / ranger.lock. Objects, strings,
 ; ints, booleans, null. No arrays in v1 manifests; lockfile packages
-; are an object map. Written here so gallery/pkg does not import the
+; are an object map. Written here so pkg does not import the
 ; compiler's JSONParser.
 
 class PkgVal {

@@ -2,7 +2,7 @@
 
 ; Resolve `Import "pkg:name"` against ranger.json / ranger.lock / vendor /
 ; the content-addressed cache. The compiler must not import gallery/ (AGPL).
-; Fetching a Git pack stays in gallery/pkg; this only looks up files that
+; Fetching a Git pack is compiler/PkgFetch.rgr; this only looks up files that
 ; are already on disk.
 ;
 ; JSON is a tiny object/string/int reader so this file does not pull

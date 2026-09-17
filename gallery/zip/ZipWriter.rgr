@@ -3,7 +3,7 @@
 ; ZipWriter.rgr - ZIP archive writer
 ; Creates ZIP archives with stored (uncompressed) files
 
-Import "ZipBuffer.rgr"
+Import "../../lib/zip/ZipBuffer.rgr"
 Import "ZipEntry.rgr"
 Import "CRC32.rgr"
 

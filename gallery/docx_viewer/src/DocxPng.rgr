@@ -8,7 +8,7 @@
 ; ==============================================================================
 
 Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
-Import "../../zip/Inflate.rgr"
+Import "../../../lib/zip/Inflate.rgr"
 
 class DocxPng {
     sfn decode:ImageBuffer (data:buffer) {

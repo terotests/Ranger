@@ -1,4 +1,4 @@
-; SPDX-License-Identifier: AGPL-3.0-or-later
+; SPDX-License-Identifier: MIT
 
 ; ranger.json and ranger.lock. A Ranger package is a source tree:
 ; name, version, origin, entry, dependencies, licence. v1 dependencies

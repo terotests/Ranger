@@ -31,8 +31,18 @@ text. GitHub may not show a single license badge; that is intentional.
   std primitives                DataGrid
   parser basics                 PDF / layout
   generic utilities             advanced editors
+  package client                 Rave / Vela charts
   examples/
 ```
+
+`pkg/` is on the MIT side on purpose. Fetching a dependency is how you
+*use* the language, not an application built with it, and a project that
+cannot get its sources is not compilable at all — so the Git pack client,
+the `ranger.json` / `ranger.lock` resolver and the content cache are MIT
+and compiled into `rgrc`. `lib/zip/Inflate.rgr` and `lib/zip/ZipBuffer.rgr`
+moved out of `gallery/zip` for the same reason: RFC 1951 DEFLATE is a
+published format and a generic utility, and the pack format needs it.
+`gallery/zip` — the ZIP container, the writer, CRC32 — stays AGPL.
 
 ## Why the split exists
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 //
 // Build the pack / SHA-1 corpus from git and Node crypto. The Ranger
 // decoder is checked against these, not against itself.

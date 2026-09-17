@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 //
 // Clone a public Git repo using Ranger for pack/pkt-line and Node only
 // as an HTTPS pipe:
 //
-//   node gallery/pkg/tools/clone.mjs <git-url> [rev] [outdir] [subdir]
+//   node pkg/tools/clone.mjs <git-url> [rev] [outdir] [subdir]
 //
 // Deno does not git-clone HTTP imports — it GETs the files the graph
 // actually names. This is the same idea on Git objects: with a subdir,
@@ -19,11 +19,11 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const root = resolve(here, "../../..");
+const root = resolve(here, "../..");
 const packaged = join(here, "pkg_tool.cjs");
-const inTree = join(root, "gallery/pkg/bin/pkg_tool.js");
+const inTree = join(root, "pkg/bin/pkg_tool.js");
 const tool = existsSync(packaged) ? packaged : inTree;
-const http = join(here, "git-http.mjs");
+const http = join(root, "bin/git-http.mjs");
 
 const gitUrl = process.argv[2];
 const rev = process.argv[3] || "HEAD";
@@ -39,7 +39,7 @@ function ensureTool() {
   if (existsSync(tool)) {
     return;
   }
-  console.error("building gallery/pkg/bin/pkg_tool.js");
+  console.error("building pkg/bin/pkg_tool.js");
   mkdirSync(dirname(tool), { recursive: true });
   const env = {
     ...process.env,
@@ -52,8 +52,8 @@ function ensureTool() {
       [
         "bin/output.js",
         "-es6",
-        "./gallery/pkg/src/pkg_tool.rgr",
-        "-d=./gallery/pkg/bin",
+        "./pkg/src/pkg_tool.rgr",
+        "-d=./pkg/bin",
         "-o=pkg_tool.js",
         "-nodecli",
       ],
@@ -69,7 +69,7 @@ function ensureTool() {
     if (log) {
       console.error(log);
     }
-    console.error("failed to build gallery/pkg/bin/pkg_tool.js");
+    console.error("failed to build pkg/bin/pkg_tool.js");
     process.exit(1);
   }
 }

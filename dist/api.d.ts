@@ -3706,6 +3706,396 @@ export declare class CLIProgress {
     printFlag(flag: string, description: string): void;
     printSection(title: string): void;
 }
+export declare class GitSha1 {
+    constructor();
+    static mask32(): number;
+    static add32(a: number, b: number): number;
+    static not32(x: number): number;
+    static rotl(x: number, n: number): number;
+    static copyRange(data: Uint8Array, start: number, count: number): Uint8Array;
+    static ascii(data: Uint8Array, start: number, count: number): string;
+    static u32be(data: Uint8Array, i: number): number;
+    static hexDigit(d: number): string;
+    static toHex(data: Uint8Array): string;
+    static fromHex(hex: string): Uint8Array;
+    static hash(data: Uint8Array): Uint8Array;
+    static writeU32be(out: Uint8Array, i: number, v: number): void;
+    static hashHex(data: Uint8Array): string;
+    static objectId(kind: string, payload: Uint8Array): string;
+    static hexEq(a: string, b: string): boolean;
+}
+export declare class GitPkt {
+    ok: boolean;
+    err: string;
+    lines: Array<string>;
+    raw: Array<Uint8Array>;
+    isFlush: Array<boolean>;
+    constructor();
+}
+export declare class GitRef {
+    name: string;
+    sha: string;
+    peeled: string;
+    constructor();
+}
+export declare class GitAdvertisement {
+    ok: boolean;
+    err: string;
+    service: string;
+    caps: string;
+    head: string;
+    refs: Array<GitRef>;
+    constructor();
+}
+export declare class GitWant {
+    ok: boolean;
+    err: string;
+    sha: string;
+    body: Uint8Array;
+    constructor();
+}
+export declare class GitSideband {
+    ok: boolean;
+    err: string;
+    pack: Uint8Array;
+    progress: string;
+    constructor();
+}
+export declare class GitPktIO {
+    constructor();
+    static hexVal(ch: string): number;
+    static parseHex4(data: Uint8Array, at: number): number;
+    static hex4(n: number): string;
+    static encodeLine(text: string): Uint8Array;
+    static encodeFlush(): Uint8Array;
+    static parse(data: Uint8Array): GitPkt;
+    static parseAdvertisement(data: Uint8Array): GitAdvertisement;
+    static findRef(adv: GitAdvertisement, spec: string): string;
+    static hasToken(caps: string, name: string): boolean;
+    static joinBuf(parts: Array<Uint8Array>): Uint8Array;
+    static encodeDelim(): Uint8Array;
+    static buildWant(adv: GitAdvertisement, spec: string): GitWant;
+    static buildWantFetch(sha: string, deepen: number, filter: string, extras: Array<string>): GitWant;
+    static buildWantTrees(adv: GitAdvertisement, spec: string): GitWant;
+    static buildWantSha(sha: string): GitWant;
+    static buildFetchV2(sha: string, deepen: number, filter: string): GitWant;
+    static demux(data: Uint8Array): GitSideband;
+    static indexOfPack(data: Uint8Array): number;
+    static indexOfChar(s: string, code: number): number;
+    static trimNl(s: string): string;
+}
+export declare class ZipBuffer {
+    data: Uint8Array;
+    pos: number;
+    length: number;
+    constructor();
+    initWithBuffer(buf: Uint8Array): void;
+    initWithSize(size: number): void;
+    getPosition(): number;
+    setPosition(newPos: number): void;
+    seek(offset: number): void;
+    skip(count: number): void;
+    remaining(): number;
+    isEOF(): boolean;
+    readUint8(): number;
+    readUint16LE(): number;
+    readUint32LE(): number;
+    readBytes(count: number): Uint8Array;
+    readString(count: number): string;
+    peekUint8(): number;
+    peekUint32LE(): number;
+    writeUint8(value: number): void;
+    writeUint16LE(value: number): void;
+    writeUint32LE(value: number): void;
+    writeBytes(src: Uint8Array, srcOffset: number, count: number): void;
+    writeBuffer(src: Uint8Array): void;
+    writeString(s: string): void;
+    getBuffer(): Uint8Array;
+    getLength(): number;
+    findSignatureBackward(sig: number, startPos: number): number;
+}
+export declare class GrowableZipBuffer {
+    chunks: Array<Uint8Array>;
+    chunkLens: Array<number>;
+    chunkSize: number;
+    currentChunk: Uint8Array;
+    currentPos: number;
+    totalSize: number;
+    constructor();
+    setChunkSize(size: number): void;
+    allocateNewChunk(): void;
+    writeUint8(value: number): void;
+    writeUint16LE(value: number): void;
+    writeUint32LE(value: number): void;
+    writeBytes(src: Uint8Array, srcOffset: number, count: number): void;
+    writeBuffer(src: Uint8Array): void;
+    writeString(s: string): void;
+    getSize(): number;
+    toBuffer(): Uint8Array;
+}
+export declare class InflateHuffmanTable {
+    counts: Array<number>;
+    symbols: Array<number>;
+    maxBits: number;
+    constructor();
+    build(lengths: Array<number>, numSymbols: number): void;
+    decode(reader: InflateBitReader): number;
+}
+export declare class InflateBitReader {
+    data: Uint8Array;
+    bytePos: number;
+    bitPos: number;
+    currentByte: number;
+    dataLength: number;
+    constructor();
+    init(buf: Uint8Array, offset: number, length: number): void;
+    readBit(): number;
+    readBits(count: number): number;
+    alignToByte(): void;
+    readByte(): number;
+    readUint16LE(): number;
+    getBytePosition(): number;
+    isEOF(): boolean;
+}
+export declare class Inflate {
+    input: Uint8Array;
+    reader: InflateBitReader;
+    outBuf: Uint8Array;
+    outLen: number;
+    outCap: number;
+    fixedLitLen: InflateHuffmanTable;
+    fixedDist: InflateHuffmanTable;
+    fixedTablesBuilt: boolean;
+    lengthBase: Array<number>;
+    lengthExtra: Array<number>;
+    distBase: Array<number>;
+    distExtra: Array<number>;
+    constructor();
+    resetOutput(hint: number): void;
+    ensureCapacity(extra: number): void;
+    pushByte(b: number): void;
+    finalOutput(): Uint8Array;
+    buildLengthDistTables(): void;
+    buildFixedTables(): void;
+    decompress(data: Uint8Array): Uint8Array;
+    decompressFrom(data: Uint8Array, offset: number): Uint8Array;
+    inputPos(): number;
+    decompressStored(): void;
+    decompressHuffman(litLenTable: InflateHuffmanTable, distTable: InflateHuffmanTable): void;
+    decompressDynamic(): void;
+    copyFromOutput(distance: number, length: number): void;
+}
+export declare class GitZlib {
+    ok: boolean;
+    err: string;
+    nextPos: number;
+    constructor();
+    inflateAt(data: Uint8Array, offset: number): Uint8Array;
+    inflate(data: Uint8Array): Uint8Array;
+}
+export declare class GitObj {
+    kind: number;
+    sha: string;
+    data: Uint8Array;
+    packOff: number;
+    resolved: boolean;
+    delta: boolean;
+    baseOff: number;
+    baseSha: string;
+    constructor();
+}
+export declare class GitPack {
+    ok: boolean;
+    err: string;
+    version: number;
+    count: number;
+    objects: Array<GitObj>;
+    bySha: {
+        [key: string]: GitObj;
+    };
+    byOff: {
+        [key: number]: GitObj;
+    };
+    constructor();
+}
+export declare class GitDelta {
+    constructor();
+    static varInt(data: Uint8Array, pos: Array<number>): number;
+    static apply(src: Uint8Array, delta: Uint8Array): Uint8Array;
+}
+export declare class GitPackIO {
+    constructor();
+    static kindName(kind: number): string;
+    static parse(data: Uint8Array): GitPack;
+    static resolveDeltas(pack: GitPack): void;
+    static lookup(pack: GitPack, sha: string): GitObj | undefined;
+    static merge(a: GitPack, b: GitPack): GitPack;
+}
+export declare class GitEntry {
+    name: string;
+    sha: string;
+    isTree: boolean;
+    mode: string;
+    constructor();
+}
+export declare class GitFile {
+    path: string;
+    data: Uint8Array;
+    constructor();
+}
+export declare class GitTree {
+    sha: string;
+    entries: Array<GitEntry>;
+    constructor();
+}
+export declare class GitMem {
+    files: Array<GitFile>;
+    paths: Array<string>;
+    byPath: {
+        [key: string]: GitFile;
+    };
+    constructor();
+}
+export declare class GitStore {
+    pack: GitPack;
+    ok: boolean;
+    err: string;
+    constructor(p: GitPack);
+    takeObj(sha: string): GitObj | undefined;
+    parseTree(payload: Uint8Array): GitTree;
+    commitTree(payload: Uint8Array): string;
+    checkout(sha: string, subdir: string): GitMem;
+    walk(mem: GitMem, treeSha: string, prefix: string, want: string): void;
+    mayEnter(path: string, want: string): boolean;
+    splitSegs(path: string): Array<string>;
+    asTreeSha(sha: string): string;
+    treeAt(sha: string, subdir: string): string;
+    underSubdir(path: string, want: string): boolean;
+    stripSubdir(path: string, want: string): string;
+    baseName(path: string): string;
+    writeDisk(mem: GitMem, root: string): void;
+    dirOf(path: string): string;
+    splitPath(path: string): Array<string>;
+    fileText(mem: GitMem, path: string): string;
+}
+export declare class PkgVal {
+    kind: string;
+    str: string;
+    num: number;
+    flag: boolean;
+    keys: Array<string>;
+    vals: Array<PkgVal>;
+    constructor();
+}
+export declare class PkgJson {
+    text: string;
+    i: number;
+    n: number;
+    ok: boolean;
+    err: string;
+    constructor();
+    parse(src: string): PkgVal;
+    skip(): void;
+    value(): PkgVal;
+    object(): PkgVal;
+    str(): string;
+    num(): number;
+    static child(obj: PkgVal, key: string): PkgVal | undefined;
+    static strOf(obj: PkgVal, key: string): string;
+    static intOf(obj: PkgVal, key: string): number;
+}
+export declare class PkgDep {
+    name: string;
+    path: string;
+    git: string;
+    rev: string;
+    tag: string;
+    subdir: string;
+    constructor();
+}
+export declare class PkgManifest {
+    name: string;
+    version: string;
+    entry: string;
+    license: string;
+    deps: Array<PkgDep>;
+    ok: boolean;
+    err: string;
+    constructor();
+}
+export declare class PkgLockEnt {
+    name: string;
+    path: string;
+    git: string;
+    rev: string;
+    subdir: string;
+    sha256: string;
+    constructor();
+}
+export declare class PkgLock {
+    lockVersion: number;
+    packages: Array<PkgLockEnt>;
+    ok: boolean;
+    err: string;
+    constructor();
+}
+export declare class PkgManifestIO {
+    constructor();
+    static load(src: string): PkgManifest;
+    static loadLock(src: string): PkgLock;
+    static escape(s: string): string;
+    static dumpLock(lock: PkgLock): string;
+    static dumpManifest(m: PkgManifest): string;
+}
+export declare class PkgCache {
+    constructor();
+    static lessStr(a: string, b: string): boolean;
+    static hashMem(mem: GitMem): string;
+    static put(mem: GitMem, cacheRoot: string): string;
+    static lockFor(name: string, git: string, rev: string, subdir: string, hash: string): PkgLockEnt;
+}
+export declare class PkgFetchWork {
+    dir: string;
+    man: PkgManifest;
+    git: string;
+    rev: string;
+    subdir: string;
+    fromGit: boolean;
+    constructor();
+}
+export declare class PkgFetch {
+    ok: boolean;
+    err: string;
+    cacheRoot: string;
+    cacheOverride: string;
+    rootDir: string;
+    tmpRoot: string;
+    httpTool: string;
+    vendor: boolean;
+    frozen: boolean;
+    force: boolean;
+    lock: PkgLock;
+    previous: PkgLock;
+    seen: {
+        [key: string]: boolean;
+    };
+    lastRev: string;
+    lastMem: GitMem;
+    constructor();
+    runHttp(args: Array<string>): boolean;
+    advertise(url: string, dest: string): boolean;
+    post(url: string, body: string, dest: string): boolean;
+    fetchInto(name: string, url: string, wantRev: string, subdir: string): string;
+    storeMem(mem: GitMem): string;
+    cachedFor(env: InputEnv, name: string, git: string, rev: string, subdir: string): string;
+    install(env: InputEnv, manDir: string): Promise<boolean>;
+    oneDep(env: InputEnv, pending: Array<PkgFetchWork>, w: PkgFetchWork, d: PkgDep): Promise<boolean>;
+    static findHttpTool(env: InputEnv): string;
+    static splitPath(path: string): Array<string>;
+    static readBytes(path: string): Uint8Array;
+    static writeBytes(path: string, data: Uint8Array): void;
+    static loadPack(path: string): GitPack;
+}
 export declare class RangerDocGenerator {
     constructor();
     writeTypeDef(item: CodeNode, ctx: RangerAppWriterContext, wr: CodeWriter): Promise<void>;
@@ -3865,8 +4255,7 @@ export declare class VirtualCompiler {
     fillStr(cnt: number): string;
     detectLanguageFromExtension(filename: string): string;
     isTypeScriptExtension(filename: string): boolean;
-    findPkgTool(env: InputEnv, dir: string): string;
-    runInstall(env: InputEnv, params: CmdParams, cli: CLIProgress): boolean;
+    runInstall(env: InputEnv, params: CmdParams, cli: CLIProgress): Promise<boolean>;
     run(env: InputEnv): Promise<CompilerResults>;
     static create_env(): Promise<void>;
     static displayCompilerErrorsWithCLI(appCtx: RangerAppWriterContext, cli: CLIProgress): void;

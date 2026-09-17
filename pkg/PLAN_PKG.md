@@ -52,7 +52,7 @@ That is the same stance as ZIP and Zstandard in this gallery.
   `command=fetch` is `pkg_tool want-v2`).
 - **S4 — manifest / lock / resolver.** `pkg:name`, `pkg:name/path`,
   `./relative`. Path deps. Lock dump. Vendor copy.
-- **S5 — compiler hook.** `cmdImport` resolves `pkg:` and `./` through `compiler/PkgImport.rgr` (MIT): walk up to `ranger.json`, path deps, `vendor/ranger/<name>`, lockfile sha256 cache. Fetching still lives in `gallery/pkg`.
+- **S5 — compiler hook.** `cmdImport` resolves `pkg:` and `./` through `compiler/PkgImport.rgr` (MIT): walk up to `ranger.json`, path deps, `vendor/ranger/<name>`, lockfile sha256 cache. Fetching still lives in `pkg`.
 - **S6 — cache keyed by lock sha256.** `PkgCache.put` writes a Git checkout under `<cacheRoot>/<sha256>/`. `pkg_tool cache-put` / `cache-merge`.
 - **S7 — an install that fetches.** `tools/install.mjs` walks the dependency
   graph, sparse-fetches every `git` dep at its pinned revision into the cache,
@@ -65,9 +65,10 @@ That is the same stance as ZIP and Zstandard in this gallery.
   a path dependency that is not on disk, and dedups imports by folded path so
   `../../evg/X.rgr` and `pkg:evg/X.rgr` are one file. `gallery/ui`,
   `gallery/statechart` and `gallery/vela` now import their siblings as `pkg:`.
-- **S9 — ship the fetcher.** `gallery/pkg/npm` publishes this directory as
-  `ranger-pkg` (AGPL), because `ranger-compiler` (MIT) can resolve `pkg:` but
-  not fetch it.
+- **S9 — ship the fetcher.** The Git client moved out of `gallery/` to MIT
+  (`pkg/`, plus `lib/zip/Inflate.rgr`) and is compiled into the compiler.
+  `rgrc install` is `compiler/PkgFetch.rgr` driving it; `bin/git-http.mjs`
+  is the only Node in the path. No second package to install.
 
 ## Non-goals (still)
 
