@@ -25,12 +25,12 @@
 - Issue #78 (fixed): on Python a method whose name is a builtin was DECLARED under its renamed form and CALLED under its original one. `fn str` came out as `def _str`, and a chained `r.str(...)` called a method that does not exist — `AttributeError: 'LcRow' object has no attribute 'str'`. Every other writer reads `compiledName` at the call site; the Python writer wrote `method.vref`. Found by the phase-3 chain fixture, which is the first Ranger program to chain a call to such a method on Python (September 2026)
 
 - Issue #80 (fixed): a property read through `(expr).field` emitted the SOURCE spelling of the name, not the renamed one. `GetProperty` resolves the member and attaches the descriptor to the expression node but never to the property node itself, so a name that is a keyword of the target came out unrenamed. The TS engine writes `(fnV.functionNodeOf()).async` and `async` is a Python keyword, so **the engine had never once built for Python** — a `SyntaxError` the compiler reported as a successful build. The same property is renamed correctly at its declaration (`self._async`) and at ordinary reads (`member._async`). Fixed by attaching the descriptor to the property node and by making the Python and PHP writers read it, as every other writer already did. The engine now builds, runs, and answers 2,061 of its 2,066 conformance probes identically to JavaScript (September 2026)
+- Issue #85 (fixed): an array literal passed to a call whose RESULT IS IMMEDIATELY DEREFERENCED was lost — the elements were emitted bare where the array should be. `(box.take(([] _:string ( "a" "b" )))).count()` came out as `box.take("a""b").count()`, which does not parse on JavaScript or PHP; the one-element form came out as `box.take("a")`, which parses and answers the STRING's length. Every target, and the compiler reported success either way. The `recv.method()` rewrite walked the receiver and THEN copied it: walking an array literal replaces the node's children with its elements and marks the node `is_array_literal`, and a copy carries the new children without the mark — which is no longer an array literal but a bare list of its elements. The receiver is copied before it is walked now, and the copy is re-analysed whole. Gated by the program's output on es6, Go, Python and Rust (`tests/compiler-issue-85.test.ts`), and by the compiler rebuilding itself byte-identically (September 2026)
 - Issue #63 (fixed): `return this.helper()` — a method call in return position written the way every C-family language writes it — failed type analysis, and said so twice in the wrong place (`Could not match argument types for return`, then `Function does not return any values!`, and often a phantom missing method in an unrelated function). The same shape is why arithmetic on a call result needed a temporary local. The parser now folds a `(` that TOUCHES a dotted name back onto that name and builds the call node itself, so the bare spelling and the parenthesised one are one program. Gated by output on es6, Go, Python and Rust (`tests/compiler-issue-63.test.ts`), and by the compiler rebuilding itself byte-identically — 50,000 lines of Ranger whose parse is unchanged (September 2026)
 - Issue #82 (fixed): the `es6` keyword table added in #76 renamed METHOD and PROPERTY names as well as bindings, so `EvHandle.null()` -- the constructor three suites and every JavaScript consumer of the engine module call -- became `EvHandle._null()`. JavaScript reserves its keywords only where a name may stand: `const null = 1` is a syntax error, `obj.null` and `static null() {}` are not. `transformWord` now splits into a binding transform and a member transform. Found by CI, not locally: `runtime-conformance.test.ts` rebuilt the engine module only when a `.rgr` under `migrate/src/` was newer, so after a COMPILER change it measured the engine built by the previous compiler and reported green. The compiler is in that dependency list now (September 2026)
 
 ### Still Open
 - Issue #86: on Rust a method named `self` is DECLARED as `self_` and CALLED as `_self`, so the generated crate does not compile (`no method named _self`). The two spellings come from two places: the language-wide `reserved_words` table in `Lang.rgr` maps `self -> _self` for every target, and the Rust writer's own word transform maps it to `self_` because `r#self` is not a legal raw identifier. Every other Rust keyword is consistent (`match` and `loop` are `r#match` / `r#loop` at both ends). Same family as #78 and #80; found while writing the #63 fixture, which had a method called `self` (September 2026)
-- Issue #85: an array literal passed to a call whose RESULT IS IMMEDIATELY DEREFERENCED is lost — the elements are emitted bare where the array should be. `(box.take(([] _:string ( "a" "b" )))).count()` becomes `box.take("a""b").count()`, which does not parse on JavaScript or PHP; the one-element form becomes `box.take("a")`, which parses and is silently wrong. Every target. The same array literal one line up, bound to a variable first, is correct (September 2026)
 - Issue #84: Rust drops a ONE-element inline array literal in argument position: `Take.f(([] _:string ( "a" )))` emits `Take::f("a")` where every other target emits the vector. Two elements are correct, so it is the arity, not the literal (September 2026)
 - Issue #83: the PHP writer turns a `$` inside a string literal into `\"`. `def s:string "literal $HOME stays"` comes out as `$s = "literal \"HOME stays";` — a parse error, and the escape that was intended (PHP interpolates `$` inside double quotes) is not what was written either (September 2026)
 - Issue #81: `(expr).field` does not resolve when it appears as a CALL ARGUMENT. `def ok:int ((h.nodeOf()).plain)` compiles; `ArgMain.id((h.nodeOf()).plain)` on the very next line gives "Undefined variable .plain". Nothing to do with keywords — any property name fails. The dot-tail branch in `WalkNode` is never reached for an argument, so the tail is left as an unresolved `.field` vref. Found while fixing #80 (September 2026)
@@ -2931,8 +2931,11 @@ misattributed to that suite's 2,138-probe corpus — which in fact parses at dep
 
 ## Issue #85: an array literal is lost when the call taking it is immediately dereferenced
 
-**Status:** open. Found while writing `lib/Shell.rgr`, where every command is a
-program name and an argument vector, so the shape is unavoidable.
+**Status:** fixed (September 2026). Found while writing `lib/Shell.rgr`, where
+every command is a program name and an argument vector, so the shape is
+unavoidable. The reproduction below is what it did before the fix;
+`tests/fixtures/issue_85_chained_array_literal.rgr` is the same program as a
+gate.
 
 ### Reproduction
 
@@ -2986,13 +2989,27 @@ def res:ShellResult (sh.capture("ls" argv))
 this.check("it ran" (res.ok()))
 ```
 
-### Workaround
+### The fix
 
-Bind the array — or the call result — to a variable first. Related to the
-family in AGENTS.md ("never start a statement with a parenthesised receiver",
-"arithmetic on a call result needs a variable"): a call result that is
-immediately dereferenced is not re-walked, and its arguments are re-emitted
-from a node shape the argument writer does not read.
+`transformDotMethodCallExpr` (`compiler/ng_RangerFlowParser.rgr`) rewrites
+`(recv).method(args)` into a `call` node. It walked the receiver first — to
+learn its type, which is how it decides whether this is a method call at all —
+and then put a COPY of the walked receiver into the new node.
+
+Walking an array literal is destructive: `EnterArrayLiteral` replaces the
+node's children with its elements and sets `is_array_literal` on the node. The
+two together are what an array literal IS after analysis. `copy()` rebuilds a
+node for re-analysis and carries no analysis result, so the copy had the
+elements as its children and no mark — a plain expression with two strings in
+it, which is exactly what the writer emitted.
+
+The receiver is now copied BEFORE it is walked, and that untouched copy is what
+the rewritten call gets. The walk below it re-analyses the copy from the
+original source shape, so the literal comes out whole. The walked original is
+still used for its type, and nothing is walked more times than before.
+
+Note that the one-element inline literal still goes missing on **Rust**, in a
+dereferenced call or a plain one: that is Issue #84, a defect in that writer.
 
 ---
 

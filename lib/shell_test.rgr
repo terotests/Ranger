@@ -26,10 +26,10 @@ class ShellTest {
     ; Argument vectors, built rather than written inline.
     ;
     ; A one-element typed array literal handed straight to a call is flattened
-    ; to the bare string on the Rust target (ISSUES.md #84), and ANY array
-    ; literal is lost when the call taking it is immediately dereferenced on
-    ; every target (#85). Every vector in this file goes through one of these
-    ; instead. They also read better than the literal does.
+    ; to the bare string on the Rust target (ISSUES.md #84). ANY array literal
+    ; used to be lost when the call taking it was immediately dereferenced, on
+    ; every target (#85, fixed). Every vector in this file goes through one of
+    ; these instead. They also read better than the literal does.
     sfn one:[string] (a:string) {
         def v:[string]
         push v a
@@ -116,9 +116,9 @@ class ShellTest {
         def inLib:Shell (new Shell)
         inLib.cwd = "lib"
         ; Bound rather than chained: a call result that is immediately
-        ; dereferenced loses the array literal in its arguments (ISSUES.md
-        ; #85), and on JavaScript the failure is a runtime type error rather
-        ; than a compile one.
+        ; dereferenced used to lose the array literal in its arguments
+        ; (ISSUES.md #85, fixed), and on JavaScript the failure was a runtime
+        ; type error rather than a compile one.
         def hereArgs:[string] (ShellTest.one("Shell.rgr"))
         def here:ShellResult (inLib.capture("ls" hereArgs))
         this.check("cwd is where the command runs" (here.ok()))

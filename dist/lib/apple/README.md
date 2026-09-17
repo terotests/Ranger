@@ -287,10 +287,11 @@ if ((!null? idOpt) && (!null? profOpt)) {
 }
 ```
 
-Every intermediate is bound rather than chained, and that is not style: a call
-result that is immediately dereferenced loses an argument (ISSUES.md #85) and a
-`(expr).field` read as a call argument does not resolve (#81). Both examples
-above compile and run — they are checked, not written from memory.
+Every intermediate is bound rather than chained, and that is not style: a
+`(expr).field` read as a call argument does not resolve (ISSUES.md #81), and a
+call result that was immediately dereferenced used to lose an array literal in
+its arguments (#85, fixed). Both examples above compile and run — they are
+checked, not written from memory.
 
 A worked example, end to end, is
 [`gallery/ui/ios`](../../gallery/ui/ios/README.md): the dashboard demo as an

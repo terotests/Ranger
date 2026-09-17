@@ -51,5 +51,14 @@ class CompilerInterface {
     if( has res.target_dir) {
       res.fileSystem.saveTo(res.target_dir false)
     }
+    ; A compile that printed [FAIL] used to end with a status of 0, so
+    ; `rgrc x.rgr && node build/x.js` ran the PREVIOUS build and looked green.
+    ; The status is the only part of that a shell reads, so say it here.
+    ;
+    ; set_exit_code, not exit: node writes a piped stdout asynchronously, and
+    ; exiting on the spot drops the error report this status is about.
+    if( res.hasErrors ) {
+      set_exit_code 1
+    }
   }
 }

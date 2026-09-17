@@ -10357,6 +10357,35 @@ fun r_read_key(): String {
             }
         }
 
+        ; Set the status this program ends with, WITHOUT ending it here.
+        ;
+        ; `exit` stops the process at once, and on node a stdout that is a pipe
+        ; -- `$(rgrc ... 2>&1)`, a log file, CI -- is written asynchronously, so
+        ; whatever was printed last is dropped on the floor. That is exactly the
+        ; error report the non-zero status is about. So set the code and let the
+        ; program end on its own. The targets whose stdout is unbuffered or
+        ; flushed at exit have nothing to defer and exit here.
+        set_exit_code   cmdSetExitCode:void     ( code:int) {
+            templates {
+                 llvm ( nl "exit " (e 1) nl)
+                 ranger ( nl "set_exit_code " (e 1) nl)
+                 cpp ( nl "exit(" (e 1) ");" nl (imp "<cstdlib>"))
+                 kotlin ( nl "System.exit(" (e 1) ")" nl )
+                 scala ( nl "System.exit(" (e 1) ")" nl )
+                 ; Narrowed for the same reason as in `exit` below.
+                 go ( nl "os.Exit(int(" (e 1) "))" nl (imp "os"))
+                 rust ( nl "std::process::exit((" (e 1) ") as i32);" nl )
+                 java7 ( nl "System.exit(" (e 1) ");" nl )
+                 php ( nl "exit(" (e 1) ");" nl )
+                 python ( nl "sys.exit(" (e 1) ")" nl (imp "sys"))
+                 csharp ( nl "Environment.ExitCode = " (e 1) ";" nl (imp "System"))
+                 dart ( nl "exitCode = " (e 1) ";" nl (imp "dart:io"))
+                 swift3 ( nl "exit(Int32(" (e 1) "))" nl (imp "Foundation"))
+                 swift6 ( nl "exit(Int32(" (e 1) "))" nl (imp "Foundation"))
+                 * ( nl "process.exitCode = " (e 1) ";" nl)
+            }
+        }
+
         exit            cmdExit:void            ( code:int) {
             templates {
                  llvm ( nl "exit " (e 1) nl)

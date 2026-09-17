@@ -1,0 +1,10 @@
+; set_exit_code says what the program's status is without ending it here --
+; node writes a piped stdout asynchronously, so exiting on the spot drops
+; whatever was printed last.
+
+class ExitCodeDemo {
+    sfn m@(main):void () {
+        print "before"
+        set_exit_code 3
+    }
+}
