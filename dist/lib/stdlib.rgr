@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 ; union type operators
 
@@ -14,6 +16,29 @@ operators {
 
     case             _@(newcontext):void           ( arg@(union):T item2@(define):boolean code:block )  {
         templates {
+            llvm ( nl "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl I (block 3) nl i "}" nl )
+            ; A union that holds a primitive is not sealable, so its Go type is
+            ; interface{} and there is no tag struct: the generic overload below
+            ; wrote `x.tag == interface{}_tag_string`, which is not even Go
+            ; syntax. A type assertion is the narrowing here.
+            go (
+                (forkctx _ ) (def 2) "if " (e 2) ", __rg_ok := " (e 1) ".(" (typeof 2) "); __rg_ok { /* union case */" nl I
+                        "_ = " (e 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            )
+            dart (
+                (forkctx _ ) (def 2) "if( " (e 1) " is bool ) /* union case for boolean */ {" nl I
+                        "bool " (e 2) " = " (e 1) " as bool;" nl
+                        (block 3)
+                        nl i "}"
+            )
+            cpp (
+                (forkctx _ ) (def 2) "if( std::holds_alternative<bool>(" (e 1) ") ) /* union case for boolean */ {" nl I
+                        "bool " (e 2) " = std::get<bool>(" (e 1) ");" nl
+                        (block 3)
+                        nl i "}"
+            )
             es6 (
                 (forkctx _ ) (def 2) "if( typeof(" (e 1) ") === 'boolean' ) /* union case for boolean */ {" nl I
                         "var " (e 2) " = " (e 1) ";" nl
@@ -42,6 +67,29 @@ operators {
     }
     case             _@(newcontext):void           ( arg@(union):T item2@(define):int code:block )  {
         templates {
+            llvm ( nl "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl I (block 3) nl i "}" nl )
+            ; A union that holds a primitive is not sealable, so its Go type is
+            ; interface{} and there is no tag struct: the generic overload below
+            ; wrote `x.tag == interface{}_tag_string`, which is not even Go
+            ; syntax. A type assertion is the narrowing here.
+            go (
+                (forkctx _ ) (def 2) "if " (e 2) ", __rg_ok := " (e 1) ".(" (typeof 2) "); __rg_ok { /* union case */" nl I
+                        "_ = " (e 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            )
+            dart (
+                (forkctx _ ) (def 2) "if( " (e 1) " is int ) /* union case for int */ {" nl I
+                        "int " (e 2) " = " (e 1) " as int;" nl
+                        (block 3)
+                        nl i "}"
+            )
+            cpp (
+                (forkctx _ ) (def 2) "if( std::holds_alternative<int>(" (e 1) ") ) /* union case for int */ {" nl I
+                        "int " (e 2) " = std::get<int>(" (e 1) ");" nl
+                        (block 3)
+                        nl i "}"
+            )
             es6 (
                 (forkctx _ ) (def 2) "if( " "Number.isInteger ? Number.isInteger(" (e 1) ") : (function(v) { return typeof v === 'number' &&  isFinite(v) && Math.floor(v) === v; })(" (e 1) ")" " ) /* union case for int */ {" nl I
                         "var " (e 2) " = " (e 1) ";" nl
@@ -76,6 +124,29 @@ operators {
     }
     case             _@(newcontext):void           ( arg@(union):T item2@(define):double code:block )  {
         templates {
+            llvm ( nl "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl I (block 3) nl i "}" nl )
+            ; A union that holds a primitive is not sealable, so its Go type is
+            ; interface{} and there is no tag struct: the generic overload below
+            ; wrote `x.tag == interface{}_tag_string`, which is not even Go
+            ; syntax. A type assertion is the narrowing here.
+            go (
+                (forkctx _ ) (def 2) "if " (e 2) ", __rg_ok := " (e 1) ".(" (typeof 2) "); __rg_ok { /* union case */" nl I
+                        "_ = " (e 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            )
+            dart (
+                (forkctx _ ) (def 2) "if( " (e 1) " is double ) /* union case for double */ {" nl I
+                        "double " (e 2) " = " (e 1) " as double;" nl
+                        (block 3)
+                        nl i "}"
+            )
+            cpp (
+                (forkctx _ ) (def 2) "if( std::holds_alternative<double>(" (e 1) ") ) /* union case for double */ {" nl I
+                        "double " (e 2) " = std::get<double>(" (e 1) ");" nl
+                        (block 3)
+                        nl i "}"
+            )
             es6 (
                 (forkctx _ ) (def 2) "if ( (function(v) { return typeof v === 'number' &&  isFinite(v); })(" (e 1) "))" " /* union case for double */ {" nl I
                         "var " (e 2) " = " (e 1) ";" nl
@@ -111,6 +182,29 @@ operators {
 
     case             _@(newcontext):void           ( arg@(union):T item2@(define):string code:block )  {
         templates {
+            llvm ( nl "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl I (block 3) nl i "}" nl )
+            ; A union that holds a primitive is not sealable, so its Go type is
+            ; interface{} and there is no tag struct: the generic overload below
+            ; wrote `x.tag == interface{}_tag_string`, which is not even Go
+            ; syntax. A type assertion is the narrowing here.
+            go (
+                (forkctx _ ) (def 2) "if " (e 2) ", __rg_ok := " (e 1) ".(" (typeof 2) "); __rg_ok { /* union case */" nl I
+                        "_ = " (e 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            )
+            dart (
+                (forkctx _ ) (def 2) "if( " (e 1) " is String ) /* union case for string */ {" nl I
+                        "String " (e 2) " = " (e 1) " as String;" nl
+                        (block 3)
+                        nl i "}"
+            )
+            cpp (
+                (forkctx _ ) (def 2) "if( std::holds_alternative<std::string>(" (e 1) ") ) /* union case for string */ {" nl I
+                        "std::string " (e 2) " = std::get<std::string>(" (e 1) ");" nl
+                        (block 3)
+                        nl i "}"
+            )
             es6 (
                 (forkctx _ ) (def 2) "if( typeof(" (e 1) ") === 'string' ) /* union case for string */ {" nl I
                         "var " (e 2) " = " (e 1) ";" nl
@@ -146,8 +240,27 @@ operators {
             )
         }
     }
-    case             _@(newcontext):void           ( arg@(union):T item@(define):T code:block )  {
+    ; A member of a system union -- the JSON unions over JSONDataObject and
+    ; JSONArrayObject -- is an ordinary object of the target language. It
+    ; carries no shape tag, so the generic overload below, which narrows on
+    ; __rg_kind / _rg_kind / .tag, can never be true for one. These two
+    ; overloads keep the class test that a system union needs; the generic
+    ; overload keeps the tag test that a shape case needs.
+    ; Every `@serialize` deserializer emits `case item oo:JSONDataObject`,
+    ; so without these the reader of an array of objects reads nothing.
+    case             _@(newcontext):void           ( arg@(union):T item2@(define):JSONDataObject code:block )  {
         templates {
+            llvm ( nl "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl I (block 3) nl i "}" nl )
+            ; A union that holds a primitive is not sealable, so its Go type is
+            ; interface{} and there is no tag struct: the generic overload below
+            ; wrote `x.tag == interface{}_tag_string`, which is not even Go
+            ; syntax. A type assertion is the narrowing here.
+            go (
+                (forkctx _ ) (def 2) "if " (e 2) ", __rg_ok := " (e 1) ".(" (typeof 2) "); __rg_ok { /* union case */" nl I
+                        "_ = " (e 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            )
             ranger ( "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl
                         I (block 3) i nl "}" nl
             )
@@ -169,6 +282,9 @@ operators {
                         "case " (typeof 2) ":" nl
                             I nl
                             "var " (e 2) " " (typeof 2) " = " (e 1) ".(" (typeof 2) ");" nl
+                            ; Go rejects a declared-and-unused local, and an arm
+                            ; that only tests the type never reads the binding.
+                            "_ = " (e 2) ";" nl
                             (block 3)
                             i nl
                         nl i "}"
@@ -213,13 +329,11 @@ operators {
                         nl i
             ) 
             cpp (
-                (forkctx _ ) (def 2) "if( mpark::holds_alternative<" (typeof 2) ">(" (e 1) ") ) {" nl I
-                        (typeof 2) " " (e 2) " = mpark::get<" (typeof 2) ">(" (e 1) ");" nl
+                (forkctx _ ) (def 2) "if( std::holds_alternative<" (typeof 2) ">(" (e 1) ") ) {" nl I
+                        (typeof 2) " " (e 2) " = std::get<" (typeof 2) ">(" (e 1) ");" nl
                         (block 3)
                         
                         nl i "}"
-
-                (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))
             ) 
             scala (
                 (forkctx _ ) (def 2) (e 1) " match {" nl
@@ -229,9 +343,287 @@ operators {
                   "case _ => {} " nl i 
                   "}" nl
             ) 
+            dart (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) /* union case */ {" nl I
+                        (typeof 2) " " (e 2) " = " (e 1) " as " (typeof 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            ) 
+            rust (
+                (forkctx _ ) (def 2) "if let " (typeof 1) "::" (typeof 2) "(" (e 2) ") = " (e 1) ".clone() { /* union case */" nl I
+                        (block 3)
+                        nl i "}"
+            ) 
             
         }
-    }    
+    }
+    case             _@(newcontext):void           ( arg@(union):T item2@(define):JSONArrayObject code:block )  {
+        templates {
+            llvm ( nl "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl I (block 3) nl i "}" nl )
+            ; A union that holds a primitive is not sealable, so its Go type is
+            ; interface{} and there is no tag struct: the generic overload below
+            ; wrote `x.tag == interface{}_tag_string`, which is not even Go
+            ; syntax. A type assertion is the narrowing here.
+            go (
+                (forkctx _ ) (def 2) "if " (e 2) ", __rg_ok := " (e 1) ".(" (typeof 2) "); __rg_ok { /* union case */" nl I
+                        "_ = " (e 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            )
+            ranger ( "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl
+                        I (block 3) i nl "}" nl
+            )
+            php (
+                (forkctx _ ) (def 2) "if( is_object(" (e 1) ") && get_class(" (e 1) ") == \"" (typeof 2) "\" ) /* union case */ {" nl I
+                        (e 2) " = " (e 1) ";" nl
+                        (block 3)                        
+                        nl i "}"
+            )  
+            es6 (
+                (forkctx _ ) (def 2) "if( " (e 1) " instanceof " (typeof 2) " ) /* union case */ {" nl I
+                        "var " (e 2) " = " (e 1) ";" nl
+                        (block 3)
+                        
+                        nl i "}"
+            )  
+            go (
+                (forkctx _ ) (def 2) "switch " (e 1) ".(type) {" nl I
+                        "case " (typeof 2) ":" nl
+                            I nl
+                            "var " (e 2) " " (typeof 2) " = " (e 1) ".(" (typeof 2) ");" nl
+                            ; Go rejects a declared-and-unused local, and an arm
+                            ; that only tests the type never reads the binding.
+                            "_ = " (e 2) ";" nl
+                            (block 3)
+                            i nl
+                        nl i "}"
+            ) 
+            csharp (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) {" nl I
+                        (typeof 2) " " (e 2) " = (" (typeof 2) ")" (e 1) ";" nl
+                        (block 3)
+                        nl i "}"
+            ) 
+            swift3 (
+                (forkctx _ ) (def 2) "if type(of: " (e 1) ") == " (typeof 2) ".self  {" nl I
+                        "let " (e 2) " = " (e 1) " as! " (typeof 2)";" nl
+                        (block 3)
+                        
+                        nl i "}"
+            ) 
+            swift6 (
+                (forkctx _ ) (def 2) "if type(of: " (e 1) ") == " (typeof 2) ".self  {" nl I
+                        "let " (e 2) " = " (e 1) " as! " (typeof 2)";" nl
+                        (block 3)
+                        
+                        nl i "}"
+            ) 
+            java7 (
+                (forkctx _ ) (def 2) "if( " (e 1) " instanceof " (typeof 2) ") {" nl I
+                        (typeof 2) " " (e 2) " = (" (typeof 2) ") " (e 1) ";" nl
+                        (block 3)
+                        
+                        nl i "}"
+            )
+            kotlin (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) /* union case */ {" nl I
+                        "val " (e 2) " : " (typeof 2) " = " (e 1) " as " (typeof 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            ) 
+            python (
+                (forkctx _ ) (def 2) "if isinstance(" (e 1) ", " (typeof 2) "):" nl I
+                        (e 2) " = " (e 1) nl
+                        (block 3)
+                        nl i
+            ) 
+            cpp (
+                (forkctx _ ) (def 2) "if( std::holds_alternative<" (typeof 2) ">(" (e 1) ") ) {" nl I
+                        (typeof 2) " " (e 2) " = std::get<" (typeof 2) ">(" (e 1) ");" nl
+                        (block 3)
+                        
+                        nl i "}"
+            ) 
+            scala (
+                (forkctx _ ) (def 2) (e 1) " match {" nl
+                I "case " (e 2) " : " (typeof 2) " => {" nl I
+                            (block 3)
+                        nl i "}" nl
+                  "case _ => {} " nl i 
+                  "}" nl
+            ) 
+            dart (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) /* union case */ {" nl I
+                        (typeof 2) " " (e 2) " = " (e 1) " as " (typeof 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            ) 
+            rust (
+                (forkctx _ ) (def 2) "if let " (typeof 1) "::" (typeof 2) "(" (e 2) ") = " (e 1) ".clone() { /* union case */" nl I
+                        (block 3)
+                        nl i "}"
+            ) 
+            
+        }
+    }
+    case             _@(newcontext):void           ( arg@(union):T item@(define):T code:block )  {
+        templates {
+            ranger ( "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl
+                        I (block 3) i nl "}" nl
+            )
+            php (
+                (forkctx _ ) (def 2) "if( is_object(" (e 1) ") && get_class(" (e 1) ") == \"" (typeof 2) "\" ) /* union case */ {" nl I
+                        (e 2) " = " (e 1) ";" nl
+                        (block 3)                        
+                        nl i "}"
+            )  
+            es6 (
+                ; S5 FlatTaggedObject: narrow on the stable kind tag. Sealable
+                ; union members declare/set __rg_kind; a dual instanceof OR
+                ; would defeat TypeScript control-flow narrowing.
+                (forkctx _ ) (def 2) "if( " (e 1) " != null && " (e 1) ".__rg_kind === \"" (typeof 2) "\" ) /* union case */ {" nl I
+                        "var " (e 2) " = " (e 1) ";" nl
+                        (block 3)
+                        
+                        nl i "}"
+            )  
+            go (
+                ; S5 tagged struct: narrow on the tag, bind the variant pointer.
+                (forkctx _ ) (def 2) "if " (e 1) ".tag == " (typeof 1) "_tag_" (rawtype 2) " { /* union case */" nl I
+                        "var " (e 2) " " (typeof 2) " = " (e 1) "." (rawtype 2) ";" nl
+                            ; Go rejects a declared-and-unused local, and an arm
+                            ; that only tests the type never reads the binding.
+                            "_ = " (e 2) ";" nl
+                            (block 3)
+                        nl i "}"
+            ) 
+            csharp (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) {" nl I
+                        (typeof 2) " " (e 2) " = (" (typeof 2) ")" (e 1) ";" nl
+                        (block 3)
+                        nl i "}"
+            ) 
+            swift3 (
+                (forkctx _ ) (def 2) "if case let ." (rawtype 2) "(" (e 2) ") = " (e 1) " { /* union case */" nl I
+                        (block 3)
+                        nl i "}"
+            ) 
+            swift6 (
+                (forkctx _ ) (def 2) "if case let ." (rawtype 2) "(" (e 2) ") = " (e 1) " { /* union case */" nl I
+                        (block 3)
+                        nl i "}"
+            ) 
+            java7 (
+                (forkctx _ ) (def 2) "if( " (e 1) " instanceof " (typeof 2) ") {" nl I
+                        (typeof 2) " " (e 2) " = (" (typeof 2) ") " (e 1) ";" nl
+                        (block 3)
+                        
+                        nl i "}"
+            )
+            kotlin (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) /* union case */ {" nl I
+                        "val " (e 2) " : " (typeof 2) " = " (e 1) " as " (typeof 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            ) 
+            python (
+                ; S5 FlatTaggedObject: narrow on _rg_kind (single underscore —
+                ; __rg_kind would be Python-mangled on the instance).
+                (forkctx _ ) (def 2) "if " (e 1) " is not None and getattr(" (e 1) ", \"_rg_kind\", None) == \"" (typeof 2) "\":" nl I
+                        (e 2) " = " (e 1) nl
+                        (block 3)
+                        nl i
+            ) 
+            cpp (
+                (forkctx _ ) (def 2) "if( std::holds_alternative<" (typeof 2) ">(" (e 1) ") ) {" nl I
+                        (typeof 2) " " (e 2) " = std::get<" (typeof 2) ">(" (e 1) ");" nl
+                        (block 3)
+                        
+                        nl i "}"
+            ) 
+            scala (
+                (forkctx _ ) (def 2) (e 1) " match {" nl
+                I "case " (e 2) " : " (typeof 2) " => {" nl I
+                            (block 3)
+                        nl i "}" nl
+                  "case _ => {} " nl i 
+                  "}" nl
+            ) 
+            dart (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) /* union case */ {" nl I
+                        (typeof 2) " " (e 2) " = " (e 1) " as " (typeof 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            ) 
+            rust (
+                (forkctx _ ) (def 2) "if let " (typeof 1) "::" (typeof 2) "(" (e 2) ") = &" (e 1) " { /* union case */" nl I
+                        (block 3)
+                        nl i "}"
+            )
+
+        }
+    }
+    ; `is v Shape.Case` — the kind test of `case` with the binding and the
+    ; block taken away. `case v x:Shape.Case { … }` answers "is it this case?"
+    ; and then hands the arm a narrowed `x`; an arm that only wants the answer
+    ; pays for a binding it never reads. On Rust that binding costs a
+    ; `.clone()` of the scrutinee (a refcount pair for every reference case),
+    ; on Go a declared-and-discarded local, on ES6/Python a dead assignment.
+    ; This is an expression, so it composes: `return (is self EvalValue.Number)`
+    ; replaces the whole `case self n:… { return true } return false` shape.
+    ; Every template below is the same discriminant test the `case` operator
+    ; above already lowers to on that target — nothing new is invented, and no
+    ; target evaluates (e 1) more than once.
+    is _:boolean ( arg@(union):T item@(noeval):T ) {
+        templates {
+            ranger ( "(is " (e 1) " " (typeof 2) ")" )
+            ; S5 FlatTaggedObject: the stable kind tag, no `var x = …` after it
+            es6    ( "(" (e 1) " != null && " (e 1) ".__rg_kind === \"" (typeof 2) "\")" )
+            ; single underscore — __rg_kind would be Python-mangled on the instance
+            python ( "(" (e 1) " is not None and getattr(" (e 1) ", \"_rg_kind\", None) == \"" (typeof 2) "\")" )
+            ; S5 tagged struct: the tag compare alone, no variant pointer bound
+            go     ( "(" (e 1) ".tag == " (typeof 1) "_tag_" (rawtype 2) ")" )
+            ; matches! reads the discriminant in place — no clone of the
+            ; scrutinee, which is the whole point of this operator on Rust
+            rust   ( "matches!(" (e 1) ", " (typeof 1) "::" (typeof 2) "(..))" )
+            ; holds_alternative is already the bare index compare; the `case`
+            ; template only added std::get on top of it
+            cpp    ( "std::holds_alternative<" (typeof 2) ">(" (e 1) ")" )
+            csharp ( "(" (e 1) " is " (typeof 2) ")" )
+            kotlin ( "(" (e 1) " is " (typeof 2) ")" )
+            dart   ( "(" (e 1) " is " (typeof 2) ")" )
+            java7  ( "(" (e 1) " instanceof " (typeof 2) ")" )
+            php    ( "(is_object(" (e 1) ") && get_class(" (e 1) ") == \"" (typeof 2) "\")" )
+            scala  ( "(" (e 1) ".isInstanceOf[" (typeof 2) "])" )
+            ; Swift's enum test is `if case`, a statement — an immediately
+            ; applied closure is the only way to spell it as an expression.
+            ; (e 1) is still named once, so it is still evaluated once.
+            swift3 ( "({ () -> Bool in if case ." (rawtype 2) " = " (e 1) " { return true }; return false })()" )
+            swift6 ( "({ () -> Bool in if case ." (rawtype 2) " = " (e 1) " { return true }; return false })()" )
+        }
+    }
+    ; Reference identity: are these two names the same object? `==` means
+    ; something different on every target — structural on Kotlin, a trait bound
+    ; on Rust, pointer on C++ — so identity gets its own operator rather than a
+    ; per-target reading of equality. Used by the generated equality of a shape's
+    ; `@(reference)` cases (PLAN_SHAPES.md S4), and useful on its own.
+    identical  _:boolean ( a:T b:T ) {
+        templates {
+            es6    ( "(" (e 1) " === " (e 2) ")" )
+            python ( "(" (e 1) " is " (e 2) ")" )
+            kotlin ( "(" (e 1) " === " (e 2) ")" )
+            csharp ( "Object.ReferenceEquals(" (e 1) ", " (e 2) ")" )
+            dart   ( "identical(" (e 1) ", " (e 2) ")" )
+            swift3 ( "(" (e 1) " === " (e 2) ")" )
+            swift6 ( "(" (e 1) " === " (e 2) ")" )
+            scala  ( "(" (e 1) " eq " (e 2) ")" )
+            php    ( "(" (e 1) " === " (e 2) ")" )
+            rust   ( (e 1) ".rg_identical(&" (e 2) ")" )
+            ; java7, go and cpp compare the handle itself: a reference, a
+            ; pointer and a shared_ptr respectively
+            * ( "(" (e 1) " == " (e 2) ")" )
+        }
+    }
     to   _:T ( to@(union noeval):T item:T) {
         templates {
             cpp.disabled ( "(r_create_union<" (typeof 1) ", " (typeof 2)">(" (e 2) "))" 

@@ -1,0 +1,781 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ranger — write it once, compile it native</title>
+<meta name="description" content="Ranger is a self-hosting cross-language compiler: one small typed language, real source out in Swift, Kotlin, JavaScript, C#, C++, Rust, Go, Python, Dart and PHP — with no bridge and no runtime shipped underneath.">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+<meta property="og:title" content="Ranger — write it once, compile it native">
+<meta property="og:description" content="One small typed language. Fourteen target languages. The compiler is written in Ranger and compiles itself.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#07070a">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="nav">
+  <a class="nav__brand" href="./">
+    <span class="nav__mark" aria-hidden="true"></span>
+    <span class="nav__name">Ranger</span>
+  </a>
+  <nav class="nav__links" aria-label="Sections">
+    <a href="#native">Native</a>
+    <a href="#source">One source</a>
+    <a href="#targets">Targets</a>
+    <a href="#platforms">Platforms</a>
+    <a href="#proof">Proof</a>
+    <a href="#gallery">Gallery</a>
+    <a href="playground/">Playground</a>
+  </nav>
+  <div class="nav__cta">
+    <a class="btn btn--ghost" href="docs/">Docs</a>
+    <a class="btn btn--solid" href="#start">Get started</a>
+    <a class="btn btn--icon" href="https://github.com/terotests/Ranger" aria-label="Ranger on GitHub">
+      <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+    </a>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ====================================================================== -->
+<!-- Hero — the backdrop is an EVG display list drawn on the GPU            -->
+<!-- ====================================================================== -->
+<section class="hero" id="hero">
+  <canvas class="hero__bg" id="heroBg" aria-hidden="true"></canvas>
+  <div class="hero__scrim" aria-hidden="true"></div>
+
+  <div class="hero__in">
+    <h1 class="display display--xl">
+      Write it once.<br>
+      <span class="gold">Compile it native.</span>
+    </h1>
+
+    <div class="hero__cols">
+      <div class="col">
+        <p class="label">The compiler</p>
+        <p>
+          Ranger is a small typed language — classes, traits, generics, lambdas,
+          custom operators — that does not run on a virtual machine and does not
+          ship a runtime with your program. It <strong>writes source</strong>:
+          Swift for the iPhone, Kotlin for Android, JavaScript for the browser,
+          and eleven other targets from the same file.
+        </p>
+      </div>
+      <div class="col">
+        <p class="label">The point</p>
+        <p>
+          One codebase for the logic that must not diverge, and native code at
+          both ends of it. No bridge, no serialisation boundary, nothing of
+          Ranger's left in the binary — just classes and methods a reviewer
+          reads like any others.
+        </p>
+      </div>
+    </div>
+
+    <div class="hero__actions">
+      <a class="btn btn--solid btn--lg" href="#start">Get started</a>
+      <a class="btn btn--line btn--lg" href="docs/">Read the docs</a>
+      <code class="hero__cmd">git clone https://github.com/terotests/Ranger</code>
+    </div>
+  </div>
+
+  <ul class="figures" aria-label="At a glance">
+    <li><b>14</b><span>target languages from one source file</span></li>
+    <li><b>7</b><span>targets the compiler compiles itself for</span></li>
+    <li><b>838</b><span>operators, reference generated from the sources</span></li>
+    <li><b>203<i>/207</i></b><span>core operators exercised on every target, every push</span></li>
+  </ul>
+</section>
+
+<!-- ====================================================================== -->
+<!-- Back to native — the gold field                                        -->
+<!-- ====================================================================== -->
+<section class="section section--gold" id="native">
+  <div class="wrap">
+    <p class="label reveal">Not chat — the mobile question, again</p>
+    <h2 class="display display--lg reveal">Back to native,<br>without going back to two codebases.</h2>
+
+    <div class="cols cols--3 rules">
+      <div class="col reveal">
+        <p class="label">The article</p>
+        <p class="lead">
+          “Coding agents changed what it costs to build mobile apps twice. Here's why
+          Shopify is moving from React Native back to Swift and Kotlin.”
+        </p>
+        <p><a class="u" href="https://shopify.engineering/back-to-native" rel="noopener">shopify.engineering — Back to Native →</a></p>
+      </div>
+      <div class="col reveal">
+        <p class="label">What actually changed</p>
+        <p>
+          The cross-platform trade was always the same one: write the app once and
+          accept a bridge, a runtime and a layer between you and the platform. When
+          writing the app <em>twice</em> got cheap, the trade stopped paying — so the
+          second app gets written. What an agent does not do is keep the two saying
+          the same thing six months later.
+        </p>
+      </div>
+      <div class="col reveal">
+        <p class="label">What Ranger offers</p>
+        <p>
+          The half a coding agent leaves open. Compile the logic that must not
+          diverge — the domain model, the pricing, the parser, the sync rules, the
+          state machine — into <strong>Swift you check in and Kotlin you check
+          in</strong>, and write SwiftUI and Compose by hand, the way the platform
+          wants them written.
+        </p>
+      </div>
+    </div>
+
+    <div class="cols cols--3 rules">
+      <div class="col reveal">
+        <p class="label">No bridge</p>
+        <p>
+          Nothing is marshalled, nothing is serialised across a boundary, and there is
+          no second runtime in the app. The output is the language you already ship.
+        </p>
+      </div>
+      <div class="col reveal">
+        <p class="label">One source of truth</p>
+        <p>
+          A rule can only be changed in one place, because the Swift and the Kotlin
+          <em>are</em> one place. Two apps stay in step by construction rather than by
+          discipline.
+        </p>
+      </div>
+      <div class="col reveal">
+        <p class="label">Readable diffs</p>
+        <p>
+          <code>@JvmField</code> and <code>MutableList</code> on Kotlin,
+          <code>final class</code> on Swift, <code>Rc&lt;RefCell&lt;T&gt;&gt;</code> on
+          Rust only where the sharing analysis says a class is shared. Review it like
+          code, because it is.
+        </p>
+      </div>
+    </div>
+
+    <p class="footnote reveal">
+      Worked through at full size in this repository:
+      <a class="u" href="https://github.com/terotests/Ranger/blob/master/gallery/pptx/android/README.md"><code>gallery/pptx</code></a>
+      reads PowerPoint files, and the Android app is that same source compiled to Kotlin
+      and drawn with <code>android.graphics</code>. The ZIP reader, the OOXML parser, the
+      theme resolver, the JPEG and PNG decoders, the TrueType reader and the layout engine
+      are all Ranger, and not one of them was forked for the port.
+    </p>
+  </div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- One source                                                             -->
+<!-- ====================================================================== -->
+<section class="section" id="source">
+  <div class="wrap">
+    <p class="label reveal">One source</p>
+    <h2 class="display display--lg reveal">The same forty lines,<br>in every language you ship to.</h2>
+    <p class="lead lead--wide reveal">
+      Nothing below was typed by hand. <code>landing/examples/Cart.rgr</code> is compiled
+      by this commit's compiler when the site is built, and each tab holds the file it
+      wrote. The tabs are the shipping targets; the compiler accepts fourteen.
+    </p>
+
+    <div class="codeswap reveal" id="codeswap">
+      <div class="codeswap__pane codeswap__pane--src">
+        <div class="codeswap__head">
+          <span class="dot" aria-hidden="true"></span>
+          <span class="filename">Cart.rgr</span>
+          <span class="badge">Ranger</span>
+        </div>
+        <pre class="code"><code id="srcCode">loading…</code></pre>
+      </div>
+
+      <div class="codeswap__arrow" aria-hidden="true">
+        <svg viewBox="0 0 48 24" width="48" height="24"><path d="M0 12h40M32 4l8 8-8 8" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+      </div>
+
+      <div class="codeswap__pane codeswap__pane--out">
+        <div class="codeswap__head">
+          <div class="tabs" role="tablist" aria-label="Target language" id="tabs"></div>
+        </div>
+        <pre class="code code--out"><code id="outCode">loading…</code></pre>
+        <p class="codeswap__foot"><code id="outCmd"></code><span id="outNote" class="dim"></span></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- Targets                                                                -->
+<!-- ====================================================================== -->
+<section class="section section--dark" id="targets">
+  <div class="wrap">
+    <p class="label reveal">Targets</p>
+    <h2 class="display display--lg reveal">Fourteen back ends,<br>and an honest table of how far each one goes.</h2>
+    <p class="lead lead--wide reveal">
+      Target quality is not uniform and the project says so out loud. These are the tiers
+      from <a class="u" href="https://github.com/terotests/Ranger/blob/master/TARGET_NOTES.md">TARGET_NOTES.md</a>,
+      kept by a test that fails when a target gets <em>better</em> as well as when it gets
+      worse — so the record can never quietly drift away from the measurement.
+    </p>
+
+    <div class="tiers">
+      <div class="tier tier--a reveal">
+        <p class="label">Primary</p>
+        <p class="tier__note">Exercised by the test suite and by gallery programs as large as the compiler itself.</p>
+        <ul class="chips">
+          <li>JavaScript / ES2015</li><li>TypeScript</li><li>Kotlin</li><li>Swift 3</li><li>Swift 6</li>
+          <li>C#</li><li>C++14</li><li>Rust</li><li>Go</li><li>Python 3</li><li>Dart</li>
+        </ul>
+      </div>
+      <div class="tier reveal">
+        <p class="label">Thinner</p>
+        <p class="tier__note">Operator templates and syntax-app coverage; fewer end-to-end goldens. Usable, with more gaps.</p>
+        <ul class="chips chips--dim"><li>PHP</li><li>Java 7</li><li>Scala</li></ul>
+      </div>
+      <div class="tier reveal">
+        <p class="label">Experimental</p>
+        <p class="tier__note">Lowers to LLVM IR, with optional WAT export for freestanding WASM. Native builds work for demos; browser WASM is still rough.</p>
+        <ul class="chips chips--dim"><li>LLVM</li><li>WASM</li></ul>
+      </div>
+    </div>
+
+    <div class="cols cols--2 rules">
+      <div class="col reveal">
+        <p class="label">Write for the strictest target</p>
+        <p>
+          A target with a garbage collector — JavaScript, Go, Python, Kotlin, Dart, Java,
+          C# — takes almost any Ranger source as written. C++, Rust and Swift's reference
+          counting do not. Wherever the object graph has a cycle or a non-owning edge, the
+          ownership annotations (<code>@(weak)</code>, <code>@(strong)</code>,
+          <code>@(lives)</code>, <code>@(temp)</code>) have to say so. Code that runs
+          happily on ES6 can still leak on C++ until they are added, and the compiler will
+          print the ownership it inferred for every parameter when you ask it to.
+        </p>
+      </div>
+      <div class="col reveal">
+        <p class="label">Extending it is not a rebuild</p>
+        <p>
+          <code>compiler/Lang.rgr</code> — the operator table, all 838 of them — is read at
+          compile time, not baked into the binary. Add or change an operator template there
+          and the very next compile uses it. The compiler looks in the working directory
+          first, so a copy beside your sources overrides the installed one, which makes an
+          experiment cheap to try and cheap to throw away. That is also how support for an
+          older language version gets added: a custom operator behind a flag.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- Platforms                                                              -->
+<!-- ====================================================================== -->
+<section class="section" id="platforms">
+  <div class="wrap">
+    <p class="label reveal">Platforms</p>
+    <h2 class="display display--lg reveal">From a watch to a Raspberry Pi<br>to a browser tab.</h2>
+    <p class="lead lead--wide reveal">
+      A target language is not a platform. What makes a program actually run somewhere is
+      the plumbing around it — the build, the host, the way it talks to the screen and the
+      filesystem — and that plumbing is in the repository, written in Ranger, for each of
+      these.
+    </p>
+
+    <div class="plats">
+      <article class="plat reveal">
+        <p class="label">01 — Apple</p>
+        <h3>iOS, iPadOS, watchOS</h3>
+        <p>
+          Swift out, and the build itself is a Ranger program. <code>lib/apple/</code>
+          drives <code>xcrun</code>, <code>swiftc</code>, <code>plutil</code>,
+          <code>codesign</code> and <code>simctl</code> straight to an installed, running
+          app — <strong>no <code>.xcodeproj</code>, no <code>xcodebuild</code>, nothing
+          that opens Xcode.</strong> 151 checks assert the plan it produces, which program
+          with which arguments in which order, and they run on JavaScript, Python, Go,
+          Rust, C++, Java and PHP, on any machine, with no Mac in sight. On a Mac, one
+          command puts the app on the simulator; another puts it on the phone on the
+          cable, finding the device, the signing identity and the provisioning profile
+          rather than asking you to type them.
+        </p>
+      </article>
+
+      <article class="plat reveal">
+        <p class="label">02 — Android</p>
+        <h3>Kotlin and android.graphics</h3>
+        <p>
+          Kotlin with <code>@JvmField</code>, <code>MutableList</code> and the collection
+          types the JVM expects — not a wrapper around a JavaScript object. The PowerPoint
+          stack is the demonstration: the same Ranger source drawn with
+          <code>android.graphics</code> on the device and with Java2D on any JVM, so the
+          port can be checked on a build server without a phone. The port itself is a
+          facade, one walk over the display list, and two implementations of an
+          eight-method surface.
+        </p>
+      </article>
+
+      <article class="plat reveal">
+        <p class="label">03 — Web</p>
+        <h3>Node.js and the browser</h3>
+        <p>
+          ES2015 or TypeScript, ESM or CommonJS, with source maps and a
+          <code>package.json</code> when you ask for one. Node is the compiler's own
+          official host — the playground on this site <em>is</em> the compiler, compiled to
+          JavaScript and running in your tab, which is also the shortest description of
+          what self-hosting buys you.
+        </p>
+      </article>
+
+      <article class="plat reveal">
+        <p class="label">04 — Desktop</p>
+        <h3>SDL2, GLES2 and native binaries</h3>
+        <p>
+          The game engine's C++ path opens an SDL2 window with a GLES2 present path,
+          gamepad input through SDL GameController, and the engine's own audio synth. The
+          same catalogue of games runs unchanged in a browser tab over a virtual
+          filesystem. Headless builds take a frame count and
+          <code>SDL_VIDEODRIVER=dummy</code>, so the window is optional and CI can play
+          the game.
+        </p>
+      </article>
+
+      <article class="plat reveal">
+        <p class="label">05 — Single board</p>
+        <h3>Raspberry Pi</h3>
+        <p>
+          A deploy script rsyncs the repository to a Pi 5, compiles the SDL2 + GLES2 host
+          on the device — wasm3 included, so WASM games load from committed modules with no
+          Rust toolchain on the board — and wires an autostart. Or you take the offline
+          aarch64 bundle, which is a terminal build that needs no SDL at all. Develop on
+          the desktop, run the same logic on the hardware: that is the engine's stated
+          purpose rather than a side effect.
+        </p>
+      </article>
+
+      <article class="plat reveal">
+        <p class="label">06 — Servers and tools</p>
+        <h3>Go, Rust, C++, LLVM</h3>
+        <p>
+          Go and Rust for services, C++ for the fast path, LLVM when you want a binary with
+          no toolchain in between. One compiler primitive runs other programs —
+          <code>run_process_result</code>, which answers exit code, stdout and stderr,
+          takes a working directory and extra environment entries, and passes its arguments
+          as a <em>vector</em> so nothing inside one is ever re-read by a shell. It has a
+          back end on thirteen targets, and the library over it records a dry run instead of
+          executing, which is what makes a build driver testable.
+        </p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- Proof — how portability is measured                                    -->
+<!-- ====================================================================== -->
+<section class="section section--dark" id="proof">
+  <div class="wrap">
+    <p class="label reveal">Proof</p>
+    <h2 class="display display--lg reveal">Portability is a claim.<br>Here is how it is checked.</h2>
+    <p class="lead lead--wide reveal">
+      Every cross-language compiler says the output is equivalent. The difference is
+      whether anything fails when it stops being true. Four gates run on every push, and
+      each of them is the kind that fails loudly.
+    </p>
+
+    <div class="proofs">
+      <article class="proof reveal">
+        <p class="label">01</p>
+        <h3>The syntax app, on fifteen targets</h3>
+        <p>
+          One program that uses <strong>203 of the 207 core operator names</strong>
+          together with classes, inheritance, traits, records, enums, extensions, lambdas,
+          optionals, buffers and custom operators. It is compiled to every target the CLI
+          accepts, built and run with <code>node</code>, <code>tsc</code>, <code>go</code>,
+          <code>python3</code>, <code>rustc</code>, <code>g++</code>, <code>javac</code>,
+          <code>php</code> and <code>lli</code> — whichever the machine has — and what each
+          one printed is compared with the reference target. The result is a matrix
+          asserted against a checked-in baseline, so a target getting <em>better</em> fails
+          the build too, until the record is updated.
+        </p>
+      </article>
+
+      <article class="proof reveal">
+        <p class="label">02</p>
+        <h3>The compiler, compiled by itself, seven ways</h3>
+        <p>
+          JavaScript is the reference build. The compiler also compiles <em>itself</em> for
+          C++, Dart, Python, C# , Go and Kotlin, and each of those builds then accepts the
+          compiler's source and compiles it again — all but C++ producing a
+          <strong>byte-for-byte identical</strong> result. On LLVM, the 22 MB of IR it
+          emits for itself passes <code>opt -passes=verify</code>, links into a native
+          <code>rangerc</code>, and that binary reproduces the Node build's JavaScript byte
+          for byte.
+        </p>
+      </article>
+
+      <article class="proof reveal">
+        <p class="label">03</p>
+        <h3>A JavaScript engine as the load test</h3>
+        <p>
+          <code>gallery/game_engine/v2/interp</code> is a JavaScript interpreter written in
+          Ranger, which makes it the largest thing the cross-target gate has to carry: Go,
+          Kotlin, Python, C#, Dart and Swift 6 each compile it, and where the toolchain is
+          installed they build it and answer the benchmark cases.
+          <strong>1303 conformance probes</strong>, every answer checked against Node — a
+          fast wrong answer fails the run — and roughly 3–5× QuickJS on the bench, with the
+          methodology and the row not to quote written down beside the numbers.
+        </p>
+      </article>
+
+      <article class="proof reveal">
+        <p class="label">04</p>
+        <h3>Semantics, pinned as fixtures</h3>
+        <p>
+          The places targets disagree by nature are the places a portable program breaks:
+          integer division promoting to double, array parameters passed by reference,
+          Unicode string indexing by code point, line endings. Each one is a conformance
+          fixture run on ES6, Go, Kotlin and Dart. Where a target has a known gap, the gap
+          is named in the fixture rather than papered over.
+        </p>
+      </article>
+    </div>
+
+    <p class="footnote reveal">
+      Two more, for the rendering stack: EVG's SVG painter and its WebGL painter share no
+      code and are differenced pixel for pixel over the same frames — 0.022% on a sheet
+      built to exercise every draw command, 0.000% on every slide of a real
+      <code>.pptx</code> deck. And the bitmap tracer that drew the letter on this page is
+      compiled to Node, Python, C++ and Rust, with a smoke test asserting all four write
+      the byte-identical SVG for the same input.
+    </p>
+  </div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- EVG                                                                    -->
+<!-- ====================================================================== -->
+<section class="section" id="evg">
+  <div class="wrap">
+    <p class="label reveal">EVG</p>
+    <h2 class="display display--lg reveal">A layout and rendering engine,<br>written in the language.</h2>
+    <p class="lead lead--wide reveal">
+      EVG lays out a tree with a real CSS palette — flex, grid, the cascade,
+      <code>@media</code>, TrueType metrics and GPOS kerning — then walks it <em>once</em>
+      and emits flat draw commands: filled rect, border, image quad, text run, push and pop
+      clip. Absolute pixels, colours resolved, no tree and no units left. Everything below
+      that seam knows only about quads, glyph runs and scissor rectangles, which is why the
+      same page comes out of six painters.
+    </p>
+
+    <div class="seam reveal">
+      <div class="seam__in">
+        <span>JSX + CSS</span><span class="seam__a">→</span>
+        <span>EVG layout</span><span class="seam__a">→</span>
+        <b>display list</b>
+      </div>
+      <ul class="seam__out">
+        <li>WebGL 2</li><li>SVG / DOM</li><li>SDL2 + GL</li><li>PDF</li><li>PNG</li><li>HTML</li><li>framebuffer</li>
+      </ul>
+    </div>
+
+    <div class="cols cols--3 rules">
+      <div class="col reveal">
+        <p class="label">CSS, properly</p>
+        <p>
+          Flex and grid, specificity and the cascade, border radius, shadows, transforms,
+          <code>overflow: hidden</code> as a real clip, and <code>@media</code> blocks that
+          fold a side rail into a bottom bar at 768px — in a PDF as much as on a GPU.
+        </p>
+      </div>
+      <div class="col reveal">
+        <p class="label">Effects on the GPU</p>
+        <p>
+          Blur, rotation, sub-pixel shift and the surface ripple behind the top of this
+          page. Each has an oracle — a reference implementation the GPU path is checked
+          against on every push — so an effect cannot quietly stop matching the layout.
+        </p>
+      </div>
+      <div class="col reveal">
+        <p class="label">And a vectoriser</p>
+        <p>
+          A bitmap tracer: edge walk, corner detection, curve fitting, colour posterising.
+          It reads a PNG or a JPEG and writes paths — and it is what turned
+          Ranger's own logo into the vector on this page.
+          <a class="u" href="evg/">See the showcase →</a>
+        </p>
+      </div>
+    </div>
+
+    <figure class="shot shot--full reveal">
+      <img src="assets/shots/evg-css.jpg" alt="An EVG dashboard beside the CSS that laid it out, with the live inspector open." loading="lazy" width="1280" height="720">
+      <figcaption>The inspector: the live tree, the rules that matched, and the box that resulted — none of it DOM.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- Gallery                                                                -->
+<!-- ====================================================================== -->
+<section class="section section--dark" id="gallery">
+  <div class="wrap">
+    <p class="label reveal">Gallery</p>
+    <h2 class="display display--lg reveal">Built with it,<br>running in your browser.</h2>
+    <p class="lead lead--wide reveal">
+      Every demo below is compiled from this repository's sources on every push, so what is
+      deployed is what the commit produces. No server does any of the work — the parsing,
+      the layout and the drawing all happen in the tab.
+    </p>
+
+    <div class="gal">
+      <a class="gal__item gal__item--wide reveal" href="figma/">
+        <figure>
+          <img src="assets/shots/figma.jpg" alt="A Figma export open in the Ranger Fig reader: three phone screens on a board beside a layer tree." loading="lazy" width="1440" height="900">
+          <figcaption>
+            <p class="label">figma/</p>
+            <h3>The Figma reader</h3>
+            <p>A real <code>.fig</code> export — ZIP → kiwi → node tree — parsed and drawn
+               by EVG, with the layer tree and the design panel beside it. Drop in another
+               file and it reads that one.</p>
+          </figcaption>
+        </figure>
+      </a>
+
+      <a class="gal__item reveal" href="rangerflow/">
+        <figure>
+          <img src="assets/shots/rangerflow.jpg" alt="RangerFlow drawing a database schema as an entity-relationship diagram." loading="lazy" width="1280" height="800">
+          <figcaption>
+            <p class="label">rangerflow/</p>
+            <h3>RangerFlow</h3>
+            <p>A <code>.sql</code> file turned into an ERD, UML, swimlanes — and a box you
+               paste Mermaid into. Its own reader, its own layered layout, drawn on the GPU.</p>
+          </figcaption>
+        </figure>
+      </a>
+
+      <a class="gal__item reveal" href="games/">
+        <figure>
+          <img src="assets/shots/game.jpg" alt="A pixel-art platformer running in the browser." loading="lazy" width="1280" height="640">
+          <figcaption>
+            <p class="label">games/</p>
+            <h3>The game engine</h3>
+            <p>One engine: in a tab over a virtual filesystem, on SDL2 with GLES2, or on a
+               Raspberry Pi. Edit a constant in the page and it hot-reloads.</p>
+          </figcaption>
+        </figure>
+      </a>
+
+      <a class="gal__item reveal" href="vela/">
+        <figure>
+          <img src="assets/shots/vela.jpg" alt="Six chart types rendered from Vega-Lite specifications." loading="lazy" width="900" height="1273">
+          <figcaption>
+            <p class="label">vela/</p>
+            <h3>Vela charts</h3>
+            <p>Paste a Vega or Vega-Lite specification. Compiler and renderer are both
+               Ranger, and the same chart comes out as SVG, WebGL, PNG and PDF — four back
+               ends over one scene.</p>
+          </figcaption>
+        </figure>
+      </a>
+
+      <a class="gal__item reveal" href="pptx/">
+        <figure>
+          <img src="assets/shots/pptx.jpg" alt="A PowerPoint deck open in the browser editor with a shape selected." loading="lazy" width="1280" height="720">
+          <figcaption>
+            <p class="label">pptx/ · pptx-wasm/</p>
+            <h3>PowerPoint, in a tab</h3>
+            <p>OPC/ZIP → PresentationML → display list → WebGL 2, open and ready to edit.
+               At <code>pptx-wasm/</code> the same source is compiled through C++ to
+               WebAssembly instead of to JavaScript — one page, two back ends, comparable.</p>
+          </figcaption>
+        </figure>
+      </a>
+
+      <a class="gal__item reveal" href="codegraph/">
+        <figure>
+          <img src="assets/shots/codegraph.jpg" alt="A call graph and UML view of Ranger source." loading="lazy" width="1280" height="800">
+          <figcaption>
+            <p class="label">codegraph/</p>
+            <h3>CodeGraph</h3>
+            <p>The compiler's own front end, in the tab, walking <code>.rgr</code> files
+               into a call graph and a class diagram.</p>
+          </figcaption>
+        </figure>
+      </a>
+    </div>
+
+    <ul class="more reveal">
+      <li><a href="markdown/">Markdown viewer</a><span>a CommonMark parser in Ranger, its own line breaker, PDF built in the tab</span></li>
+      <li><a href="r5/">r5</a><span>the same engine under a chrome that is itself a Ranger program</span></li>
+      <li><a href="rave/">Rave</a><span>routes, components and layers; design and run over one document</span></li>
+      <li><a href="rafi/">Rafi</a><span>the Fig reader with its chrome in Ranger, on one canvas</span></li>
+      <li><a href="firesim/">Firesim</a><span>Firestore and the Identity Toolkit, simulated, inside a tab</span></li>
+      <li><a href="evg/">EVG showcase</a><span>the layout engine's own pages, two themes, PDF and PNG and HTML from one source</span></li>
+      <li><a href="games/v2/">Game engine v2</a><span>the staged interpreter, 2D and live 3D guests</span></li>
+      <li><a href="https://github.com/terotests/Ranger/tree/master/gallery/datagrid">DataGrid</a><span>formulas, conditional formatting, charts and validation on the same engine</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- Colophon                                                               -->
+<!-- ====================================================================== -->
+<section class="section section--colophon" id="colophon">
+  <div class="wrap colophon">
+    <div class="colophon__art" aria-hidden="true">
+      <span data-inline-svg="assets/ranger-mark.svg"></span>
+    </div>
+    <div class="colophon__text">
+      <p class="label reveal">Colophon</p>
+      <h2 class="display display--md reveal">The logo on this page<br>was vectorised by the compiler it belongs to.</h2>
+      <p class="reveal">
+        Ranger's mark existed as a 304-pixel bitmap and nothing else. It went into
+        <code>gallery/evg/tools/evg_trace_cli.rgr</code> — the bitmap tracer — which
+        posterised it into flat colour regions, walked the edges of each one, found the
+        corners, fitted cubics between them and wrote back
+        <strong>three paths, about 7 KB</strong>. That one file is the shield in the
+        navigation bar, the tab icon, the drawing beside this paragraph and the mark in
+        the backdrop at the top of the page, and it is sharp at every one of those sizes
+        because none of them is the bitmap any more.
+      </p>
+      <p class="reveal">
+        The backdrop at the top of the page is the same story one layer further on. It is
+        an <strong>EVG display list</strong>, laid out at build time from a stylesheet and
+        a tree, drawn on the GPU by the same WebGL painter the PowerPoint editor uses, and
+        put through <code>evg-surface-effect: ripple</code> — a post-process that renders
+        the finished surface into a texture and bends it in rings travelling out from each
+        drop. Move the pointer across it; the rings interfere where they cross, because
+        that is what summing waves does.
+      </p>
+      <pre class="code code--plain reveal"><code>node landing/tools/logo.mjs        <span class="c"># the mark</span>
+node landing/tools/hero.mjs       <span class="c"># the surface behind it</span>
+npm run evg:trace:cli:smoke       <span class="c"># four targets, one file, compared byte for byte</span></code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- Getting started                                                        -->
+<!-- ====================================================================== -->
+<section class="section section--start" id="start">
+  <div class="wrap">
+    <p class="label reveal">Getting started</p>
+    <h2 class="display display--lg reveal">From zero to a Ranger program,<br>with an agent beside you.</h2>
+    <p class="lead lead--wide reveal">
+      Ranger is small, it is a Lisp wearing braces, and it has 838 operators. That used to
+      mean a climb before you wrote anything useful. It does not now — the repository
+      carries the context a coding agent needs, on purpose, so the shortest way in is to
+      clone it and let the agent read it with you.
+    </p>
+
+    <div class="steps">
+      <article class="step reveal">
+        <p class="label">01</p>
+        <h3>Clone it and build</h3>
+        <p>
+          Node is the compiler's official host and the only thing the compiler itself
+          needs. Nothing about the language is installed globally: the compiler in the
+          checkout is the one your program is compiled with.
+        </p>
+        <pre class="code code--plain"><code>git clone https://github.com/terotests/Ranger
+cd Ranger &amp;&amp; npm install
+npx rgrc -l=swift6 hello.rgr</code></pre>
+      </article>
+
+      <article class="step reveal">
+        <p class="label">02</p>
+        <h3>Point the agent at what is already there</h3>
+        <p>
+          <code>AGENTS.md</code> is written for agents rather than about them: the git
+          rules, the licence boundary between <code>lib/</code> and <code>gallery/</code>,
+          and the Ranger mistakes whose error messages point at the wrong line.
+          <code>ai/</code> holds the offline notes — a syntax card, the grammar, how to ask
+          the compiler about itself. And <code>.claude/skills/</code> ships skills the
+          repository loads by itself: <strong>ranger-lang</strong> for writing
+          <code>.rgr</code> without the parenthesis traps, <strong>evg-edit</strong> for
+          changing a laid-out document without guessing at it, <strong>rave</strong> for
+          the app format.
+        </p>
+      </article>
+
+      <article class="step reveal">
+        <p class="label">03</p>
+        <h3>Start from an example, not an empty file</h3>
+        <p>
+          <code>gallery/</code> is the corpus: parsers for TypeScript, C++ and JavaScript, a
+          spreadsheet, a PowerPoint stack, a game engine, a chart runtime, a node-graph
+          editor, a Figma reader. Ask the agent to find the one nearest what you want and
+          to change that. Each project has its own README and a command that runs it, so
+          the loop from “change this” to “look at the output” is short — which is exactly
+          what an agent needs to work well.
+        </p>
+      </article>
+
+      <article class="step reveal">
+        <p class="label">04</p>
+        <h3>Compile it where you are going</h3>
+        <p>
+          One flag decides the target, and the output is ordinary source you read in the
+          diff. Code that runs on ES6 can still fail on C++, Rust or Swift until the
+          ownership annotations say where the object graph has a cycle — that is the usual
+          answer, and the FAQ names the error messages that point somewhere other than the
+          mistake.
+        </p>
+        <pre class="code code--plain"><code>npx rgrc -l=kotlin Cart.rgr
+npx rgrc -l=csharp Cart.rgr
+npx rgrc -l=cpp    Cart.rgr</code></pre>
+      </article>
+    </div>
+
+    <p class="footnote reveal">
+      Reading first: the <a class="u" href="docs/">documentation</a> has install, types,
+      optionals, traits, generics and the operator reference generated from the sources of
+      the commit that published it, and the
+      <a class="u" href="https://github.com/terotests/Ranger/blob/master/AGENTS.md">FAQ it links</a>
+      is the shortest path past the errors that cost a cycle. Trying before cloning: the
+      <a class="u" href="playground/">playground</a> compiles Ranger in your browser with
+      nothing installed.
+    </p>
+
+    <div class="warning reveal">
+      <p class="label">One honest paragraph before you start</p>
+      <p>
+        Ranger is <strong>experimental</strong>. Target quality varies by language and by
+        feature area, several gallery projects need toolchains you may not have, and you
+        should expect to fix a bug or add a capability now and then. It is more convincing
+        today as a portable-algorithm compiler and DSL toolchain than as a drop-in
+        replacement for a mainstream application language — and it is used that way, daily,
+        on programs as large as itself.
+      </p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot__in">
+    <div class="foot__brand">
+      <span class="nav__mark" aria-hidden="true"></span>
+      <p>
+        Ranger — a self-hosting cross-language compiler.<br>
+        <span class="dim">Compiler and language sources MIT. <code>gallery/</code> — EVG, the
+        Office stack and the applications — AGPL-3.0-or-later. The compiler puts no licence
+        on what you compile with it; the licence of the output follows the source.</span>
+      </p>
+    </div>
+    <nav class="foot__links" aria-label="Footer">
+      <a href="docs/">Documentation</a>
+      <a href="playground/">Playground</a>
+      <a href="evg/">EVG showcase</a>
+      <a href="https://github.com/terotests/Ranger">GitHub</a>
+      <a href="https://github.com/terotests/Ranger/blob/master/LICENSING.md">Licensing</a>
+      <a href="https://github.com/terotests/Ranger/blob/master/CHANGELOG.md">Changelog</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="assets/targets.js"></script>
+<script type="module" src="main.js"></script>
+</body>
+</html>

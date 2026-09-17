@@ -1,0 +1,407 @@
+; SPDX-License-Identifier: MIT
+
+; The Git pack client and the package resolver against fixtures another
+; implementation produced (git pack-objects, Node crypto SHA-1).
+
+Import "../src/GitSha1.rgr"
+Import "../src/GitZlib.rgr"
+Import "../src/GitPkt.rgr"
+Import "../src/GitPack.rgr"
+Import "../src/GitStore.rgr"
+Import "../src/PkgJson.rgr"
+Import "../src/PkgManifest.rgr"
+Import "../src/PkgResolver.rgr"
+Import "../src/PkgCache.rgr"
+
+class PkgTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new PkgTest)
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.check((name + " (got " + got + " want " + want + ")") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.check((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn bytesOf:buffer (s:string) {
+        def n:int (strlen s)
+        def b:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set b i (charAt s i)
+            i = (i + 1)
+        }
+        return b
+    }
+
+    fn run:void () {
+        print "pkg SHA-1"
+        this.testSha1()
+        print "pkg pkt-line"
+        this.testPkt()
+        print "pkg JSON / manifest / lock"
+        this.testManifest()
+        print "pkg import resolver"
+        this.testResolver()
+        print "pkg git pack"
+        this.testPack()
+        print "pkg cache"
+        this.testCache()
+        print ""
+        if (failed == 0) {
+            print ("ALL PASS  " + (to_string passed))
+        } {
+            print ((to_string failed) + " FAILED  " + (to_string passed) + " passed")
+        }
+    }
+
+    fn testSha1:void () {
+        ; FIPS 180-1 test vectors, checked against Node crypto in make-fixtures.
+        this.eqStr("empty" (GitSha1.hashHex((buffer_alloc 0))) "da39a3ee5e6b4b0d3255bfef95601890afd80709")
+        this.eqStr("abc" (GitSha1.hashHex((this.bytesOf("abc")))) "a9993e364706816aba3e25717850c26c9cd0d89d")
+        def hello:buffer (this.bytesOf("hello ranger\n"))
+        def fx:buffer (buffer_read_file "pkg/fixtures" "sha1.txt")
+        if ((buffer_length fx) > 10) {
+            def text:string (buffer_to_string fx)
+            def lines:[string] (strsplit text "\n")
+            def i:int 0
+            while (i < (array_length lines)) {
+                def line:string (itemAt lines i)
+                if ((strlen line) > 10) {
+                    def sp:int 0
+                    while (sp < (strlen line)) {
+                        if ((charAt line sp) == 32) {
+                            def name:string (substring line 0 sp)
+                            def want:string (substring line (sp + 1) (strlen line))
+                            if (name == "empty") {
+                                this.eqStr("sha1 empty fixture" (GitSha1.hashHex((buffer_alloc 0))) want)
+                            }
+                            if (name == "abc") {
+                                this.eqStr("sha1 abc fixture" (GitSha1.hashHex((this.bytesOf("abc")))) want)
+                            }
+                            if (name == "hello") {
+                                this.eqStr("sha1 hello fixture" (GitSha1.hashHex(hello)) want)
+                            }
+                            sp = (strlen line)
+                        }
+                        sp = (sp + 1)
+                    }
+                }
+                i = (i + 1)
+            }
+        }
+        def blob:string (GitSha1.objectId("blob" hello))
+        this.check("blob id length" ((strlen blob) == 40))
+    }
+
+    fn testPkt:void () {
+        def line:buffer (GitPktIO.encodeLine("# service=git-upload-pack\n"))
+        this.eqInt("want line len" (buffer_length line) 30)
+        def flush:buffer (GitPktIO.encodeFlush())
+        this.eqStr("flush" (GitSha1.ascii(flush 0 4)) "0000")
+        def body:buffer (buffer_alloc ((buffer_length line) + 4))
+        buffer_copy body 0 line 0 (buffer_length line)
+        buffer_copy body (buffer_length line) flush 0 4
+        def pkt:GitPkt (GitPktIO.parse(body))
+        this.check("pkt ok" pkt.ok)
+        this.eqInt("pkt lines" (array_length pkt.lines) 2)
+        this.eqStr("service line" (GitPktIO.trimNl((itemAt pkt.lines 0))) "# service=git-upload-pack")
+        this.check("second is flush" (itemAt pkt.isFlush 1))
+
+        def sha:string "0123456789abcdef0123456789abcdef01234567"
+        def refLine:string (sha + " refs/heads/master" + (strfromcode 0) + "side-band-64k ofs-delta\n")
+        def enc:buffer (GitPktIO.encodeLine(refLine))
+        def flush2:buffer (GitPktIO.encodeFlush())
+        def advBuf:buffer (buffer_alloc ((buffer_length enc) + 4))
+        buffer_copy advBuf 0 enc 0 (buffer_length enc)
+        buffer_copy advBuf (buffer_length enc) flush2 0 4
+        def adv:GitAdvertisement (GitPktIO.parseAdvertisement(advBuf))
+        this.check("adv ok" adv.ok)
+        this.eqStr("adv head/master" (GitPktIO.findRef(adv "master")) sha)
+        def w:GitWant (GitPktIO.buildWant(adv "master"))
+        this.check("want ok" w.ok)
+        this.eqStr("want sha" w.sha sha)
+        this.check("want body" ((buffer_length w.body) > 20))
+
+        def delim:buffer (GitPktIO.encodeDelim())
+        this.eqStr("delim" (GitSha1.ascii(delim 0 4)) "0001")
+        def delimParts:[buffer]
+        push delimParts delim
+        push delimParts (GitPktIO.encodeFlush())
+        def delimPkt:buffer (GitPktIO.joinBuf(delimParts))
+        def dparse:GitPkt (GitPktIO.parse(delimPkt))
+        this.check("delim parse" dparse.ok)
+
+        def refLineF:string (sha + " refs/heads/master" + (strfromcode 0) + "side-band-64k ofs-delta filter shallow\n")
+        def encF:buffer (GitPktIO.encodeLine(refLineF))
+        def advFParts:[buffer]
+        push advFParts encF
+        push advFParts flush2
+        def advFBuf:buffer (GitPktIO.joinBuf(advFParts))
+        def advF:GitAdvertisement (GitPktIO.parseAdvertisement(advFBuf))
+        this.check("filter cap" (GitPktIO.hasToken(advF.caps "filter")))
+        this.check("no false filter" ((GitPktIO.hasToken("filters" "filter")) == false))
+        def wt:GitWant (GitPktIO.buildWantTrees(advF "master"))
+        this.check("want-trees ok" wt.ok)
+        def wtText:string (GitSha1.ascii(wt.body 0 (buffer_length wt.body)))
+        this.check("want-trees deepen" ((indexOf wtText "deepen 1") >= 0))
+        this.check("want-trees filter" ((indexOf wtText "filter blob:none") >= 0))
+        def wv:GitWant (GitPktIO.buildFetchV2(sha 1 "blob:none"))
+        this.check("want-v2 ok" wv.ok)
+        def v2Text:string (GitSha1.ascii(wv.body 0 (buffer_length wv.body)))
+        this.check("want-v2 command" ((indexOf v2Text "command=fetch") >= 0))
+        this.check("want-v2 delim" ((indexOf v2Text "0001") >= 0))
+        this.check("want-v2 filter" ((indexOf v2Text "filter blob:none") >= 0))
+
+        ; Sideband channel 1 carrying PACK magic.
+        def packBits:buffer (buffer_alloc 5)
+        buffer_set packBits 0 1
+        buffer_set packBits 1 80
+        buffer_set packBits 2 65
+        buffer_set packBits 3 67
+        buffer_set packBits 4 75
+        def sbLine:buffer (GitPktIO.encodeLine((GitSha1.ascii(packBits 0 5))))
+        ; encodeLine from ascii will work: "PACK" with channel prefix as chars.
+        def chText:string ((strfromcode 1) + "PACK")
+        def sbEnc:buffer (GitPktIO.encodeLine(chText))
+        def sb:GitSideband (GitPktIO.demux(sbEnc))
+        this.check("sideband ok" sb.ok)
+        this.eqStr("sideband pack" (GitSha1.ascii(sb.pack 0 4)) "PACK")
+    }
+
+    fn testManifest:void () {
+        def src:string "{\"name\":\"treeni\",\"version\":\"0.1.0\",\"entry\":\"src/App.rgr\",\"dependencies\":{\"evg\":{\"path\":\"../evg\"},\"ui\":{\"git\":\"https://github.com/terotests/Ranger.git\",\"rev\":\"abc123\",\"subdir\":\"gallery/ui\"}}}"
+        def m:PkgManifest (PkgManifestIO.load(src))
+        this.check("manifest ok" m.ok)
+        this.eqStr("name" m.name "treeni")
+        this.eqStr("entry" m.entry "src/App.rgr")
+        this.eqInt("deps" (array_length m.deps) 2)
+        def d0:PkgDep (itemAt m.deps 0)
+        def d1:PkgDep (itemAt m.deps 1)
+        this.check("path dep" (((d0.name == "evg") && (d0.path == "../evg")) || ((d1.name == "evg") && (d1.path == "../evg"))))
+        def gitOk:boolean false
+        def gi:int 0
+        while (gi < 2) {
+            def d:PkgDep (itemAt m.deps gi)
+            if (d.name == "ui") {
+                if (d.rev == "abc123") {
+                    if (d.subdir == "gallery/ui") {
+                        gitOk = true
+                    }
+                }
+            }
+            gi = (gi + 1)
+        }
+        this.check("git dep" gitOk)
+
+        def lockSrc:string "{\"lockVersion\":1,\"packages\":{\"evg\":{\"path\":\"../evg\",\"sha256\":\"dead\"}}}"
+        def lock:PkgLock (PkgManifestIO.loadLock(lockSrc))
+        this.check("lock ok" lock.ok)
+        this.eqInt("lock version" lock.lockVersion 1)
+        this.eqInt("lock pkgs" (array_length lock.packages) 1)
+        def e:PkgLockEnt (itemAt lock.packages 0)
+        this.eqStr("lock name" e.name "evg")
+        this.eqStr("lock sha" e.sha256 "dead")
+    }
+
+    fn testResolver:void () {
+        def src:string "{\"name\":\"app\",\"version\":\"0.1.0\",\"entry\":\"App.rgr\",\"dependencies\":{\"evg\":{\"path\":\"../evg\"}}}"
+        def r (new PackageResolver)
+        r.loadRoot(src "/tmp/app")
+        r.putFile("app" "App.rgr" "Import \"pkg:evg\"\n")
+        r.putFile("app" "Local.rgr" "class Local {}\n")
+        r.putFile("evg" "EVG.rgr" "Import \"./EVGElement.rgr\"\n")
+        r.putFile("evg" "EVGElement.rgr" "class EVGElement {}\n")
+        r.setEntry("app" "App.rgr")
+        r.setEntry("evg" "EVG.rgr")
+        r.noteImporter("App.rgr" "app")
+        r.noteImporter("Local.rgr" "app")
+        r.noteImporter("EVG.rgr" "evg")
+        r.noteImporter("EVGElement.rgr" "evg")
+
+        def req1 (new ImportRequest)
+        req1.importer = "App.rgr"
+        req1.importString = "pkg:evg"
+        def g1:ResolvedSource (r.resolve(req1))
+        this.check("pkg:evg ok" g1.ok)
+        this.eqStr("pkg:evg path" g1.logicalPath "EVG.rgr")
+        this.check("pkg:evg source" ((indexOf g1.source "EVGElement") >= 0))
+
+        def req2 (new ImportRequest)
+        req2.importer = "EVG.rgr"
+        req2.importString = "./EVGElement.rgr"
+        def g2:ResolvedSource (r.resolve(req2))
+        this.check("relative ok" g2.ok)
+        this.eqStr("relative path" g2.logicalPath "EVGElement.rgr")
+        this.check("relative source" ((indexOf g2.source "class EVGElement") >= 0))
+
+        def req3 (new ImportRequest)
+        req3.importer = "App.rgr"
+        req3.importString = "pkg:evg/EVGElement.rgr"
+        def g3:ResolvedSource (r.resolve(req3))
+        this.check("pkg path ok" g3.ok)
+        this.eqStr("pkg path logical" g3.logicalPath "EVGElement.rgr")
+
+        def req4 (new ImportRequest)
+        req4.importer = "App.rgr"
+        req4.importString = "pkg:missing"
+        def g4:ResolvedSource (r.resolve(req4))
+        this.check("unknown package fails" (g4.ok == false))
+
+        def tree:string (r.treeText())
+        this.check("tree names app" ((indexOf tree "app") >= 0))
+        this.check("tree names evg" ((indexOf tree "evg") >= 0))
+
+        def lock:PkgLock (r.makeLock())
+        this.eqInt("lock from resolver" (array_length lock.packages) 1)
+        def dumped:string (PkgManifestIO.dumpLock(lock))
+        this.check("dump lock" ((indexOf dumped "evg") >= 0))
+    }
+
+    fn testPack:void () {
+        def packed:buffer (buffer_read_file "pkg/fixtures" "tiny.pack")
+        if ((buffer_length packed) < 32) {
+            print "  SKIP  tiny.pack (run npm run pkg:fixtures)"
+            return
+        }
+        def pack:GitPack (GitPackIO.parse(packed))
+        this.check("pack ok" pack.ok)
+        if (pack.ok == false) {
+            print ("         " + pack.err)
+            return
+        }
+        this.check("pack has objects" ((array_length pack.objects) > 0))
+        def meta:buffer (buffer_read_file "pkg/fixtures" "tiny.meta.txt")
+        def text:string (buffer_to_string meta)
+        def lines:[string] (strsplit text "\n")
+        def head:string ""
+        def helloSha:string ""
+        def helloBuf:buffer (buffer_read_file "pkg/fixtures" "hello.txt")
+        def helloText:string (buffer_to_string helloBuf)
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            if ((strlen line) > 5) {
+                def sp:int 0
+                while (sp < (strlen line)) {
+                    if ((charAt line sp) == 32) {
+                        def k:string (substring line 0 sp)
+                        def v:string (substring line (sp + 1) (strlen line))
+                        if (k == "head") {
+                            head = v
+                        }
+                        if (k == "hello.sha") {
+                            helloSha = v
+                        }
+                        sp = (strlen line)
+                    }
+                    sp = (sp + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen helloSha) == 40) {
+            def blob@(optional):GitObj (GitPackIO.lookup(pack helloSha))
+            this.check("hello blob in pack" ((null? blob) == false))
+            if (null? blob) {
+            } {
+                def o:GitObj (unwrap blob)
+                this.eqStr("hello blob bytes" (buffer_to_string o.data) helloText)
+            }
+        }
+        if ((strlen head) == 40) {
+            def store (new GitStore(pack))
+            def mem:GitMem (store.checkout(head ""))
+            this.check("checkout ok" store.ok)
+            this.check("checkout files" ((array_length mem.files) >= 2))
+            def gotHello:string (store.fileText(mem "hello.txt"))
+            if ((strlen helloText) > 0) {
+                this.eqStr("checkout hello.txt" gotHello helloText)
+            }
+            def main:string (store.fileText(mem "src/Main.rgr"))
+            this.check("checkout Main.rgr" ((indexOf main "class Main") >= 0))
+            def man:string (store.fileText(mem "ranger.json"))
+            this.check("checkout ranger.json" ((indexOf man "tiny") >= 0))
+
+            def sub:GitMem (store.checkout(head "src"))
+            this.check("subdir checkout" ((array_length sub.files) >= 1))
+            this.check("subdir strips prefix" (has sub.byPath "Main.rgr"))
+            def srcTree:string (store.treeAt(head "src"))
+            this.check("treeAt src" ((strlen srcTree) == 40))
+            def fromTree:GitMem (store.checkout(srcTree ""))
+            this.check("checkout treeAt" (has fromTree.byPath "Main.rgr"))
+            def merged:GitPack (GitPackIO.merge(pack pack))
+            this.check("merge self count" (merged.count == pack.count))
+            this.check("merge ok" merged.ok)
+        }
+        def deltaPacked:buffer (buffer_read_file "pkg/fixtures" "tiny-delta.pack")
+        if ((buffer_length deltaPacked) > 32) {
+            def dpack:GitPack (GitPackIO.parse(deltaPacked))
+            this.check("delta pack ok" dpack.ok)
+            if (dpack.ok == false) {
+                print ("         " + dpack.err)
+            } {
+                this.check("delta pack objects" ((array_length dpack.objects) > 0))
+                if ((strlen helloSha) == 40) {
+                    def dblob@(optional):GitObj (GitPackIO.lookup(dpack helloSha))
+                    this.check("hello in delta pack" ((null? dblob) == false))
+                }
+            }
+        }
+    }
+
+    fn testCache:void () {
+        def packed:buffer (buffer_read_file "pkg/fixtures" "tiny.pack")
+        def meta:buffer (buffer_read_file "pkg/fixtures" "tiny.meta.txt")
+        if ((buffer_length packed) < 32) {
+            print "  SKIP  cache (no tiny.pack)"
+            return
+        }
+        def pack:GitPack (GitPackIO.parse(packed))
+        this.check("cache pack ok" pack.ok)
+        def text:string (buffer_to_string meta)
+        def lines:[string] (strsplit text "\n")
+        def head:string ""
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            if ((strlen line) > 5) {
+                if ((substring line 0 5) == "head ") {
+                    head = (substring line 5 (strlen line))
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen head) != 40) {
+            this.check("cache head" false)
+            return
+        }
+        def store (new GitStore(pack))
+        def mem:GitMem (store.checkout(head "src"))
+        this.check("cache checkout" store.ok)
+        def hash:string (PkgCache.hashMem(mem))
+        this.check("cache hash length" ((strlen hash) == 64))
+        def dest:string "/tmp/ranger-pkg-cache-test"
+        create_dir dest
+        def stored:string (PkgCache.put(mem dest))
+        this.eqStr("cache put hash" stored hash)
+        this.check("cache wrote Main.rgr" (file_exists (dest + "/" + stored) "Main.rgr"))
+    }
+}

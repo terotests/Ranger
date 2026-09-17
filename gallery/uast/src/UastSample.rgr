@@ -30,7 +30,7 @@ class UastSample {
         file.contentHash = "fixture"
         def zip:UNode (UastSample.klass(r "ZipWriter" "gallery/zip/ZipWriter.rgr"))
         def entry:UNode (UastSample.klass(r "ZipEntry" "gallery/zip/ZipEntry.rgr"))
-        def buf:UNode (UastSample.klass(r "GrowableZipBuffer" "gallery/zip/ZipBuffer.rgr"))
+        def buf:UNode (UastSample.klass(r "GrowableZipBuffer" "lib/zip/ZipBuffer.rgr"))
         def crc:UNode (UastSample.klass(r "CRC32" "gallery/zip/CRC32.rgr"))
         UastSample.field(r zip "entries" "[ZipEntry]")
         UastSample.field(r zip "output" "GrowableZipBuffer")

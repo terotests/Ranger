@@ -57,6 +57,20 @@ body {
   background: var(--surface);
 }
 
+/* Back to the language's front page, which is what the site root is now. */
+.home {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+}
+.home a {
+  color: var(--muted);
+  text-decoration: none;
+}
+.home a:hover {
+  color: inherit;
+  text-decoration: underline;
+}
+
 .top h1 {
   margin: 0;
   font-size: 1.35rem;

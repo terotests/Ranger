@@ -56,8 +56,8 @@
 Import "UiCtl.rgr"
 Import "UiTree.rgr"
 Import "UiDate.rgr"
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
 
 ; One event. Times are minutes from midnight of `startDay`, and days are the
 ; day numbers UiDate already speaks — the same representation CalendarCtl's

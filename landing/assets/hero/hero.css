@@ -1,0 +1,74 @@
+/* The Ranger palette: the gold and the near-black of the language's own file
+   icon (ranger-vscode-extension/icons/ranger-file-icon.svg). */
+
+.field {
+  width: 1600px;
+  height: 900px;
+  background: #07070a;
+  position: relative;
+
+  /* A POST-PROCESS over the finished surface. The page is drawn into a
+     texture and put back through a fragment shader that bends the sample
+     position in a ring travelling out from each drop. The drops themselves
+     are pushed in by the page, frame by frame — see landing/main.js. */
+  evg-surface-effect: ripple;
+  evg-ripple-speed: 320px;
+  evg-ripple-width: 30px;
+  evg-ripple-strength: 13px;
+  evg-ripple-decay: 0.85;
+  evg-ripple-highlight: 0.15;
+  evg-ripple-rings: 3;
+  evg-ripple-stagger: 0.11;
+  evg-ripple-ring-falloff: 0.6;
+  evg-ripple-shine: 0.5;
+  evg-ripple-gloss: 42;
+  evg-ripple-bump: 1.1;
+}
+
+.rules {
+  display: flex;
+  flex-direction: column;
+  padding-top: 14px;
+}
+.rule {
+  height: 1px;
+  background: #fbc802;
+  opacity: 0.22;
+  margin-bottom: 29px;
+}
+
+/* Crossing the rules: a ripple is a displacement, so it is only as visible as
+   the edges it has to move. A grid gives it edges in both directions. */
+.cols {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1600px;
+  height: 900px;
+  display: flex;
+  flex-direction: row;
+  padding-left: 26px;
+}
+.col {
+  width: 1px;
+  height: 900px;
+  background: #fbc802;
+  opacity: 0.10;
+  margin-right: 86px;
+}
+
+.marks {
+  position: absolute;
+  left: 1000px;
+  top: 165px;
+  width: 545px;
+  height: 545px;
+}
+/* The traced logo keeps its own palette — the black rim, the gold field and
+   the dark letter are three layers in landing/assets/ranger-mark.svg — so
+   nothing here names a colour. */
+.mark {
+  width: 545px;
+  height: 545px;
+  opacity: 0.92;
+}

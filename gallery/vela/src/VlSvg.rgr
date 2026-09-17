@@ -31,7 +31,7 @@
 Import "VlJson.rgr"
 Import "VlCommand.rgr"
 Import "VlShape.rgr"
-Import "../../evg/PathBuilder.rgr"
+Import "pkg:evg/PathBuilder.rgr"
 
 class VlSvgWriter {
     ; Shapes the geometry layer did not recognise, so a chart that came out

@@ -68,6 +68,7 @@ const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <header class="top">
     <div>
+      <p class="home"><a href="../">← Ranger</a></p>
       <h1>Ranger Playground</h1>
       <p class="tagline">In-browser compiler · Ranger ${"3.0.5"}</p>
     </div>

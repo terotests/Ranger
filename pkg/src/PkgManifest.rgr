@@ -1,0 +1,221 @@
+; SPDX-License-Identifier: MIT
+
+; ranger.json and ranger.lock. A Ranger package is a source tree:
+; name, version, origin, entry, dependencies, licence. v1 dependencies
+; are path, git+rev, or git+tag — no semver solver.
+
+Import "PkgJson.rgr"
+
+class PkgDep {
+    def name:string ""
+    def path:string ""
+    def git:string ""
+    def rev:string ""
+    def tag:string ""
+    def subdir:string ""
+}
+
+class PkgManifest {
+    def name:string ""
+    def version:string ""
+    def entry:string ""
+    def license:string ""
+    def deps:[PkgDep]
+    def ok:boolean true
+    def err:string ""
+}
+
+class PkgLockEnt {
+    def name:string ""
+    def path:string ""
+    def git:string ""
+    def rev:string ""
+    def subdir:string ""
+    def sha256:string ""
+}
+
+class PkgLock {
+    def lockVersion:int 1
+    def packages:[PkgLockEnt]
+    def ok:boolean true
+    def err:string ""
+}
+
+class PkgManifestIO {
+    sfn load:PkgManifest (src:string) {
+        def m (new PkgManifest)
+        def p (new PkgJson)
+        def root:PkgVal (p.parse(src))
+        if (p.ok == false) {
+            m.ok = false
+            m.err = p.err
+            return m
+        }
+        m.name = (PkgJson.strOf(root "name"))
+        m.version = (PkgJson.strOf(root "version"))
+        m.entry = (PkgJson.strOf(root "entry"))
+        m.license = (PkgJson.strOf(root "license"))
+        def deps@(optional):PkgVal (PkgJson.child(root "dependencies"))
+        if (null? deps) {
+            return m
+        }
+        def d:PkgVal (unwrap deps)
+        def i:int 0
+        while (i < (array_length d.keys)) {
+            def dep (new PkgDep)
+            dep.name = (itemAt d.keys i)
+            def spec:PkgVal (itemAt d.vals i)
+            dep.path = (PkgJson.strOf(spec "path"))
+            dep.git = (PkgJson.strOf(spec "git"))
+            dep.rev = (PkgJson.strOf(spec "rev"))
+            dep.tag = (PkgJson.strOf(spec "tag"))
+            dep.subdir = (PkgJson.strOf(spec "subdir"))
+            push m.deps dep
+            i = (i + 1)
+        }
+        return m
+    }
+
+    sfn loadLock:PkgLock (src:string) {
+        def lock (new PkgLock)
+        def p (new PkgJson)
+        def root:PkgVal (p.parse(src))
+        if (p.ok == false) {
+            lock.ok = false
+            lock.err = p.err
+            return lock
+        }
+        lock.lockVersion = (PkgJson.intOf(root "lockVersion"))
+        if (lock.lockVersion == 0) {
+            lock.lockVersion = 1
+        }
+        def pkgs@(optional):PkgVal (PkgJson.child(root "packages"))
+        if (null? pkgs) {
+            return lock
+        }
+        def o:PkgVal (unwrap pkgs)
+        def i:int 0
+        while (i < (array_length o.keys)) {
+            def e (new PkgLockEnt)
+            e.name = (itemAt o.keys i)
+            def spec:PkgVal (itemAt o.vals i)
+            e.path = (PkgJson.strOf(spec "path"))
+            e.git = (PkgJson.strOf(spec "git"))
+            e.rev = (PkgJson.strOf(spec "rev"))
+            e.subdir = (PkgJson.strOf(spec "subdir"))
+            e.sha256 = (PkgJson.strOf(spec "sha256"))
+            push lock.packages e
+            i = (i + 1)
+        }
+        return lock
+    }
+
+    sfn escape:string (s:string) {
+        def out:string ""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 34) {
+                out = (out + "\\\"")
+            } {
+                if (c == 92) {
+                    out = (out + "\\\\")
+                } {
+                    if (c == 10) {
+                        out = (out + "\\n")
+                    } {
+                        out = (out + (strfromcode c))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn dumpLock:string (lock:PkgLock) {
+        def s:string ("{\n  \"lockVersion\": " + (to_string lock.lockVersion) + ",\n  \"packages\": {\n")
+        def i:int 0
+        def n:int (array_length lock.packages)
+        while (i < n) {
+            def e:PkgLockEnt (itemAt lock.packages i)
+            s = (s + "    \"" + (PkgManifestIO.escape(e.name)) + "\": {\n")
+            if ((strlen e.path) > 0) {
+                s = (s + "      \"path\": \"" + (PkgManifestIO.escape(e.path)) + "\"")
+            }
+            if ((strlen e.git) > 0) {
+                if ((strlen e.path) > 0) {
+                    s = (s + ",\n")
+                }
+                s = (s + "      \"git\": \"" + (PkgManifestIO.escape(e.git)) + "\"")
+            }
+            if ((strlen e.rev) > 0) {
+                s = (s + ",\n      \"rev\": \"" + (PkgManifestIO.escape(e.rev)) + "\"")
+            }
+            if ((strlen e.subdir) > 0) {
+                s = (s + ",\n      \"subdir\": \"" + (PkgManifestIO.escape(e.subdir)) + "\"")
+            }
+            if ((strlen e.sha256) > 0) {
+                s = (s + ",\n      \"sha256\": \"" + (PkgManifestIO.escape(e.sha256)) + "\"")
+            }
+            s = (s + "\n    }")
+            if (i < (n - 1)) {
+                s = (s + ",")
+            }
+            s = (s + "\n")
+            i = (i + 1)
+        }
+        s = (s + "  }\n}\n")
+        return s
+    }
+
+    sfn dumpManifest:string (m:PkgManifest) {
+        def s:string ("{\n  \"name\": \"" + (PkgManifestIO.escape(m.name)) + "\",\n")
+        s = (s + "  \"version\": \"" + (PkgManifestIO.escape(m.version)) + "\",\n")
+        s = (s + "  \"entry\": \"" + (PkgManifestIO.escape(m.entry)) + "\"")
+        if ((strlen m.license) > 0) {
+            s = (s + ",\n  \"license\": \"" + (PkgManifestIO.escape(m.license)) + "\"")
+        }
+        if ((array_length m.deps) > 0) {
+            s = (s + ",\n  \"dependencies\": {\n")
+            def i:int 0
+            def n:int (array_length m.deps)
+            while (i < n) {
+                def d:PkgDep (itemAt m.deps i)
+                s = (s + "    \"" + (PkgManifestIO.escape(d.name)) + "\": {")
+                def first:boolean true
+                if ((strlen d.path) > 0) {
+                    s = (s + " \"path\": \"" + (PkgManifestIO.escape(d.path)) + "\"")
+                    first = false
+                }
+                if ((strlen d.git) > 0) {
+                    if first {
+                    } {
+                        s = (s + ",")
+                    }
+                    s = (s + " \"git\": \"" + (PkgManifestIO.escape(d.git)) + "\"")
+                    first = false
+                }
+                if ((strlen d.rev) > 0) {
+                    s = (s + ", \"rev\": \"" + (PkgManifestIO.escape(d.rev)) + "\"")
+                }
+                if ((strlen d.tag) > 0) {
+                    s = (s + ", \"tag\": \"" + (PkgManifestIO.escape(d.tag)) + "\"")
+                }
+                if ((strlen d.subdir) > 0) {
+                    s = (s + ", \"subdir\": \"" + (PkgManifestIO.escape(d.subdir)) + "\"")
+                }
+                s = (s + " }")
+                if (i < (n - 1)) {
+                    s = (s + ",")
+                }
+                s = (s + "\n")
+                i = (i + 1)
+            }
+            s = (s + "  }")
+        }
+        s = (s + "\n}\n")
+        return s
+    }
+}

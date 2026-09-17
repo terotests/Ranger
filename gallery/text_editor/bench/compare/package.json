@@ -10,6 +10,6 @@
   },
   "dependencies": {
     "@hufe921/canvas-editor": "1.0.1",
-    "puppeteer-core": "^24.8.0"
+    "puppeteer-core": "^25.11.0"
   }
 }

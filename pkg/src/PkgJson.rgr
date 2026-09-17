@@ -1,0 +1,225 @@
+; SPDX-License-Identifier: MIT
+
+; Tiny JSON reader for ranger.json / ranger.lock. Objects, strings,
+; ints, booleans, null. No arrays in v1 manifests; lockfile packages
+; are an object map. Written here so pkg does not import the
+; compiler's JSONParser.
+
+class PkgVal {
+    def kind:string "null"
+    def str:string ""
+    def num:int 0
+    def flag:boolean false
+    def keys:[string]
+    def vals:[PkgVal]
+}
+
+class PkgJson {
+    def text:string ""
+    def i:int 0
+    def n:int 0
+    def ok:boolean true
+    def err:string ""
+
+    fn parse:PkgVal (src:string) {
+        text = src
+        i = 0
+        n = (strlen src)
+        ok = true
+        err = ""
+        this.skip()
+        def v:PkgVal (this.value())
+        return v
+    }
+
+    fn skip:void () {
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c <= 32) {
+                i = (i + 1)
+            } {
+                return
+            }
+        }
+    }
+
+    fn value:PkgVal () {
+        this.skip()
+        def v (new PkgVal)
+        if (i >= n) {
+            ok = false
+            err = "unexpected end of JSON"
+            return v
+        }
+        def c:int (charAt text i)
+        if (c == 123) {
+            return this.object()
+        }
+        if (c == 34) {
+            v.kind = "str"
+            v.str = (this.str())
+            return v
+        }
+        if (c == 116) {
+            v.kind = "bool"
+            v.flag = true
+            i = (i + 4)
+            return v
+        }
+        if (c == 102) {
+            v.kind = "bool"
+            v.flag = false
+            i = (i + 5)
+            return v
+        }
+        if (c == 110) {
+            v.kind = "null"
+            i = (i + 4)
+            return v
+        }
+        v.kind = "int"
+        v.num = (this.num())
+        return v
+    }
+
+    fn object:PkgVal () {
+        def v (new PkgVal)
+        v.kind = "obj"
+        i = (i + 1)
+        this.skip()
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == 125) {
+                i = (i + 1)
+                return v
+            }
+            if (c == 44) {
+                i = (i + 1)
+                this.skip()
+            } {
+                def key:string (this.str())
+                this.skip()
+                if (i < n) {
+                    if ((charAt text i) == 58) {
+                        i = (i + 1)
+                    }
+                }
+                def child:PkgVal (this.value())
+                push v.keys key
+                push v.vals child
+                this.skip()
+            }
+        }
+        ok = false
+        err = "unterminated object"
+        return v
+    }
+
+    fn str:string () {
+        this.skip()
+        if (i >= n) {
+            return ""
+        }
+        if ((charAt text i) != 34) {
+            ok = false
+            err = "expected string"
+            return ""
+        }
+        i = (i + 1)
+        def s:string ""
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == 34) {
+                i = (i + 1)
+                return s
+            }
+            if (c == 92) {
+                i = (i + 1)
+                if (i < n) {
+                    def e:int (charAt text i)
+                    if (e == 110) {
+                        s = (s + (strfromcode 10))
+                    } {
+                        if (e == 116) {
+                            s = (s + (strfromcode 9))
+                        } {
+                            if (e == 114) {
+                                s = (s + (strfromcode 13))
+                            } {
+                                s = (s + (strfromcode e))
+                            }
+                        }
+                    }
+                    i = (i + 1)
+                }
+            } {
+                s = (s + (strfromcode c))
+                i = (i + 1)
+            }
+        }
+        ok = false
+        err = "unterminated string"
+        return s
+    }
+
+    fn num:int () {
+        def sign:int 1
+        if (i < n) {
+            if ((charAt text i) == 45) {
+                sign = (0 - 1)
+                i = (i + 1)
+            }
+        }
+        def v:int 0
+        while (i < n) {
+            def c:int (charAt text i)
+            if ((c >= 48) && (c <= 57)) {
+                v = ((v * 10) + (c - 48))
+                i = (i + 1)
+            } {
+                return (v * sign)
+            }
+        }
+        return (v * sign)
+    }
+
+    sfn child@(optional):PkgVal (obj:PkgVal key:string) {
+        def res@(optional):PkgVal
+        def i:int 0
+        while (i < (array_length obj.keys)) {
+            if ((itemAt obj.keys i) == key) {
+                res = (itemAt obj.vals i)
+                return res
+            }
+            i = (i + 1)
+        }
+        return res
+    }
+
+    sfn strOf:string (obj:PkgVal key:string) {
+        def hit@(optional):PkgVal (PkgJson.child(obj key))
+        if (null? hit) {
+            return ""
+        }
+        def v:PkgVal (unwrap hit)
+        if (v.kind == "str") {
+            return v.str
+        }
+        if (v.kind == "int") {
+            return (to_string v.num)
+        }
+        return ""
+    }
+
+    sfn intOf:int (obj:PkgVal key:string) {
+        def hit@(optional):PkgVal (PkgJson.child(obj key))
+        if (null? hit) {
+            return 0
+        }
+        def v:PkgVal (unwrap hit)
+        if (v.kind == "int") {
+            return v.num
+        }
+        return 0
+    }
+}

@@ -3,7 +3,7 @@
 # Compile gallery/pkg tests (and the compiler pkg: fixture) for every Ranger
 # target, then run wherever the toolchain is on PATH.
 #
-# PkgTest reads gallery/pkg/fixtures with a relative path, so binaries are
+# PkgTest reads pkg/fixtures with a relative path, so binaries are
 # always launched from the repository root. The compiler prints [FAIL] and
 # still exits 0 — this script reads the log.
 set -u
@@ -100,16 +100,16 @@ run_app() {
 have() { command -v "$1" >/dev/null 2>&1; }
 
 echo "=== PkgTest ==="
-compile_one es6     gallery/pkg/tests/PkgTest.rgr "$ROOT_OUT/es6/PkgTest.js"     PkgTest.js
+compile_one es6     pkg/tests/PkgTest.rgr "$ROOT_OUT/es6/PkgTest.js"     PkgTest.js
 have node     && [ -f "$ROOT_OUT/es6/PkgTest.js" ]     && run_check es6     node "$ROOT_OUT/es6/PkgTest.js"
 
-compile_one go      gallery/pkg/tests/PkgTest.rgr "$ROOT_OUT/go/PkgTest.go"     PkgTest.go
+compile_one go      pkg/tests/PkgTest.rgr "$ROOT_OUT/go/PkgTest.go"     PkgTest.go
 have go       && [ -f "$ROOT_OUT/go/PkgTest.go" ]     && run_check go       go run "$ROOT_OUT/go/PkgTest.go"
 
-compile_one python  gallery/pkg/tests/PkgTest.rgr "$ROOT_OUT/python/PkgTest.py"     PkgTest.py
+compile_one python  pkg/tests/PkgTest.rgr "$ROOT_OUT/python/PkgTest.py"     PkgTest.py
 have python3  && [ -f "$ROOT_OUT/python/PkgTest.py" ]     && run_check python   python3 "$ROOT_OUT/python/PkgTest.py"
 
-compile_one rust    gallery/pkg/tests/PkgTest.rgr "$ROOT_OUT/rust/PkgTest.rs"     PkgTest.rs
+compile_one rust    pkg/tests/PkgTest.rgr "$ROOT_OUT/rust/PkgTest.rs"     PkgTest.rs
 if have rustc && [ -f "$ROOT_OUT/rust/PkgTest.rs" ]; then
   if rustc "$ROOT_OUT/rust/PkgTest.rs" -o "$ROOT_OUT/rust/PkgTest_rust" 2>"$ROOT_OUT/rust/rustc.log"; then
     run_check rust "$ROOT_OUT/rust/PkgTest_rust"
@@ -120,7 +120,7 @@ if have rustc && [ -f "$ROOT_OUT/rust/PkgTest.rs" ]; then
   fi
 fi
 
-compile_one cpp     gallery/pkg/tests/PkgTest.rgr "$ROOT_OUT/cpp/PkgTest.cpp"    PkgTest.cpp
+compile_one cpp     pkg/tests/PkgTest.rgr "$ROOT_OUT/cpp/PkgTest.cpp"    PkgTest.cpp
 if have g++ && [ -f "$ROOT_OUT/cpp/PkgTest.cpp" ]; then
   if g++ -std=c++17 -O0 -I gallery/invaders "$ROOT_OUT/cpp/PkgTest.cpp" -o "$ROOT_OUT/cpp/PkgTest_cpp" 2>"$ROOT_OUT/cpp/g++.log"; then
     run_check cpp "$ROOT_OUT/cpp/PkgTest_cpp"
@@ -131,7 +131,7 @@ if have g++ && [ -f "$ROOT_OUT/cpp/PkgTest.cpp" ]; then
   fi
 fi
 
-compile_one java7   gallery/pkg/tests/PkgTest.rgr "$ROOT_OUT/java7/PkgTest.java"   PkgTest.java
+compile_one java7   pkg/tests/PkgTest.rgr "$ROOT_OUT/java7/PkgTest.java"   PkgTest.java
 if have javac && have java && [ -f "$ROOT_OUT/java7/PkgTest.java" ]; then
   mkdir -p "$ROOT_OUT/java7/classes"
   if javac -d "$ROOT_OUT/java7/classes" "$ROOT_OUT/java7"/*.java 2>"$ROOT_OUT/java7/javac.log"; then
@@ -146,7 +146,7 @@ fi
 for lang_ext in kotlin:kt dart:dart swift6:swift csharp:cs php:php; do
   lang=${lang_ext%%:*}
   ext=${lang_ext##*:}
-  compile_one "$lang" gallery/pkg/tests/PkgTest.rgr "$ROOT_OUT/$lang/PkgTest.$ext" "PkgTest.$ext" || true
+  compile_one "$lang" pkg/tests/PkgTest.rgr "$ROOT_OUT/$lang/PkgTest.$ext" "PkgTest.$ext" || true
 done
 have php   && [ -f "$ROOT_OUT/php/PkgTest.php" ]  && run_check php   php "$ROOT_OUT/php/PkgTest.php"
 have dart  && [ -f "$ROOT_OUT/dart/PkgTest.dart" ] && run_check dart  dart run "$ROOT_OUT/dart/PkgTest.dart"

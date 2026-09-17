@@ -1,0 +1,478 @@
+; SPDX-License-Identifier: MIT
+
+; `rgrc install` -- fetch the packages ranger.json names.
+;
+; The Git pack protocol is in pkg/src and is MIT, so it compiles into the
+; compiler: pkt-line, the advertisement, the want, side-band demux, pack v2
+; with deltas, SHA-1, zlib, the tree walk and the content-addressed cache all
+; run here. Node only moves bytes, because it has no synchronous HTTPS and
+; this compiler is synchronous; `bin/git-http.mjs` (MIT, shipped beside rgrc)
+; is that pipe and parses nothing.
+;
+; A git dependency is not a clone. Two smart-HTTP rounds:
+;   1. deepen 1 + filter blob:none -- the commit and its trees
+;   2. want the subdirectory's tree SHA -- only the blobs under it
+; gallery/evg is ~2.5 MB that way, against a repository of hundreds.
+
+Import "PkgImport.rgr"
+Import "../pkg/src/GitPkt.rgr"
+Import "../pkg/src/GitPack.rgr"
+Import "../pkg/src/GitStore.rgr"
+Import "../pkg/src/PkgManifest.rgr"
+Import "../pkg/src/PkgCache.rgr"
+
+; One entry of the worklist: a manifest, and -- when it arrived over the wire
+; -- the origin it came from, so its own path dependencies stay resolvable.
+; `gallery/statechart` plus `../vela` is `gallery/vela` in the same repository
+; at the same revision, and nothing else can say so.
+class PkgFetchWork {
+  def dir:string ""
+  def man:PkgManifest (new PkgManifest)
+  def git:string ""
+  def rev:string ""
+  def subdir:string ""
+  def fromGit:boolean false
+}
+
+class PkgFetch {
+  def ok:boolean true
+  def err:string ""
+  def cacheRoot:string ""
+  def cacheOverride:string ""
+  def rootDir:string ""
+  def tmpRoot:string ""
+  def httpTool:string ""
+  def vendor:boolean false
+  def frozen:boolean false
+  def force:boolean false
+  def lock:PkgLock (new PkgLock)
+  def previous:PkgLock (new PkgLock)
+  def seen:[string:boolean]
+
+  Constructor () {
+  }
+
+  ; --- the byte pipe -------------------------------------------------------
+
+  sfn findHttpTool:string (env:InputEnv) {
+    def idir:string (install_directory)
+    if (file_exists env idir "git-http.mjs") {
+      return (idir + "/git-http.mjs")
+    }
+    def up:string (PkgImport.joinPath((PkgImport.parentDir(idir)) "bin"))
+    if (file_exists env up "git-http.mjs") {
+      return (up + "/git-http.mjs")
+    }
+    return ""
+  }
+
+  fn runHttp:boolean (args:[string]) {
+    def argv:[string]
+    push argv httpTool
+    def i:int 0
+    while (i < (array_length args)) {
+      push argv (itemAt args i)
+      i = (i + 1)
+    }
+    def noEnv:[string]
+    def out:[string] (run_process_result "node" argv "" true noEnv)
+    if ((array_length out) < 3) {
+      err = "could not run node"
+      return false
+    }
+    if ((itemAt out 0) == "0") {
+      return true
+    }
+    err = (itemAt out 2)
+    return false
+  }
+
+  fn advertise:boolean (url:string dest:string) {
+    def args:[string]
+    push args "advertise"
+    push args url
+    push args dest
+    return (this.runHttp(args))
+  }
+
+  fn post:boolean (url:string body:string dest:string) {
+    def args:[string]
+    push args "post"
+    push args url
+    push args body
+    push args dest
+    return (this.runHttp(args))
+  }
+
+  ; --- files ---------------------------------------------------------------
+
+  sfn splitPath:[string] (path:string) {
+    def parts:[string]
+    push parts (PkgImport.parentDir(path))
+    def d:string (itemAt parts 0)
+    def n:int (strlen path)
+    def cut:int ((strlen d) + 1)
+    if ((strlen d) == 0) {
+      set parts 0 "."
+      cut = 0
+    }
+    push parts (substring path cut n)
+    return parts
+  }
+
+  sfn readBytes:buffer (path:string) {
+    def parts:[string] (PkgFetch.splitPath(path))
+    return (buffer_read_file (itemAt parts 0) (itemAt parts 1))
+  }
+
+  sfn writeBytes:void (path:string data:buffer) {
+    def parts:[string] (PkgFetch.splitPath(path))
+    buffer_write_file (itemAt parts 0) (itemAt parts 1) data
+  }
+
+  sfn loadPack:GitPack (path:string) {
+    def data:buffer (PkgFetch.readBytes(path))
+    def sb:GitSideband (GitPktIO.demux(data))
+    def raw:buffer data
+    if sb.ok {
+      if ((buffer_length sb.pack) > 0) {
+        raw = sb.pack
+      }
+    }
+    return (GitPackIO.parse(raw))
+  }
+
+  ; --- one dependency ------------------------------------------------------
+
+  ; Answers the cache directory, and leaves the resolved commit in `err` free
+  ; -- `rev` comes back through `lastRev` so a branch or a tag in ranger.json
+  ; is pinned to a commit in ranger.lock.
+  def lastRev:string ""
+  def lastMem:GitMem (new GitMem)
+
+  fn fetchInto:string (name:string url:string wantRev:string subdir:string) {
+    lastRev = ""
+    create_dir tmpRoot
+    def adv:string (tmpRoot + "/" + name + ".advertise.bin")
+    if ((this.advertise(url adv)) == false) {
+      return ""
+    }
+    def advert:GitAdvertisement (GitPktIO.parseAdvertisement((PkgFetch.readBytes(adv))))
+    if (advert.ok == false) {
+      err = ("could not read the advertisement of " + url + ": " + advert.err)
+      return ""
+    }
+
+    if ((strlen subdir) == 0) {
+      def commitSha:string (GitPktIO.findRef(advert wantRev))
+      if ((strlen commitSha) == 0) {
+        err = (url + " has no " + wantRev)
+        return ""
+      }
+      def extras:[string]
+      def wholeWant:GitWant (GitPktIO.buildWantFetch(commitSha 1 "" extras))
+      if (wholeWant.ok == false) {
+        err = wholeWant.err
+        return ""
+      }
+      def wantPath:string (tmpRoot + "/" + name + ".want.bin")
+      def packPath:string (tmpRoot + "/" + name + ".pack.bin")
+      PkgFetch.writeBytes(wantPath wholeWant.body)
+      if ((this.post(url wantPath packPath)) == false) {
+        return ""
+      }
+      def whole:GitPack (PkgFetch.loadPack(packPath))
+      if (whole.ok == false) {
+        err = whole.err
+        return ""
+      }
+      def wholeStore (new GitStore(whole))
+      def wholeMem:GitMem (wholeStore.checkout(commitSha ""))
+      if (wholeStore.ok == false) {
+        err = wholeStore.err
+        return ""
+      }
+      lastRev = commitSha
+      return (this.storeMem(wholeMem))
+    }
+
+    ; (1) the commit and its trees, no blobs
+    def treeWant:GitWant (GitPktIO.buildWantTrees(advert wantRev))
+    if (treeWant.ok == false) {
+      err = treeWant.err
+      return ""
+    }
+    def commit:string treeWant.sha
+    def twPath:string (tmpRoot + "/" + name + ".want-trees.bin")
+    def treesPath:string (tmpRoot + "/" + name + ".trees.bin")
+    PkgFetch.writeBytes(twPath treeWant.body)
+    if ((this.post(url twPath treesPath)) == false) {
+      return ""
+    }
+    def trees:GitPack (PkgFetch.loadPack(treesPath))
+    if (trees.ok == false) {
+      err = trees.err
+      return ""
+    }
+    def treeStore (new GitStore(trees))
+    def treeSha:string (treeStore.treeAt(commit subdir))
+    if (treeStore.ok == false) {
+      err = (url + " has no " + subdir + " at " + commit + ": " + treeStore.err)
+      return ""
+    }
+
+    ; (2) the blobs under that one directory
+    def blobWant:GitWant (GitPktIO.buildWantSha(treeSha))
+    if (blobWant.ok == false) {
+      err = blobWant.err
+      return ""
+    }
+    def bwPath:string (tmpRoot + "/" + name + ".want-blobs.bin")
+    def blobsPath:string (tmpRoot + "/" + name + ".blobs.bin")
+    PkgFetch.writeBytes(bwPath blobWant.body)
+    if ((this.post(url bwPath blobsPath)) == false) {
+      return ""
+    }
+    def blobs:GitPack (PkgFetch.loadPack(blobsPath))
+    if (blobs.ok == false) {
+      err = blobs.err
+      return ""
+    }
+    def merged:GitPack (GitPackIO.merge(trees blobs))
+    if (merged.ok == false) {
+      err = merged.err
+      return ""
+    }
+    def store (new GitStore(merged))
+    def mem:GitMem (store.checkout(commit subdir))
+    if (store.ok == false) {
+      err = store.err
+      return ""
+    }
+    lastRev = commit
+    return (this.storeMem(mem))
+  }
+
+  fn storeMem:string (mem:GitMem) {
+    lastMem = mem
+    create_dir cacheRoot
+    def hash:string (PkgCache.put(mem cacheRoot))
+    if ((strlen hash) == 0) {
+      err = "the checkout was empty"
+      return ""
+    }
+    return hash
+  }
+
+  ; --- the lock ------------------------------------------------------------
+
+  ; What the last install decided. A pinned revision whose checkout is still
+  ; in the cache needs no network: a sha256 names content, and the content at
+  ; a commit does not move.
+  fn cachedFor:string (env:InputEnv name:string git:string rev:string subdir:string) {
+    if force {
+      return ""
+    }
+    def i:int 0
+    while (i < (array_length previous.packages)) {
+      def e:PkgLockEnt (itemAt previous.packages i)
+      i = (i + 1)
+      if (e.name == name) {
+        if ((strlen e.sha256) == 0) {
+          return ""
+        }
+        ; A dependency repointed in ranger.json outranks the lock.
+        if (e.git != git) {
+          return ""
+        }
+        if ((strlen rev) > 0) {
+          if (e.rev != rev) {
+            return ""
+          }
+        }
+        if (e.subdir != subdir) {
+          return ""
+        }
+        def dir:string (PkgImport.joinPath(cacheRoot e.sha256))
+        if (file_exists env dir "ranger.json") {
+          lastRev = e.rev
+          return e.sha256
+        }
+        return ""
+      }
+    }
+    return ""
+  }
+
+  ; --- the graph -----------------------------------------------------------
+
+  fn install:boolean (env:InputEnv manDir:string) {
+    ok = true
+    err = ""
+    cacheRoot = (PkgImport.cacheRoot())
+    if ((strlen cacheOverride) > 0) {
+      cacheRoot = cacheOverride
+    }
+    tmpRoot = (PkgImport.joinPath(cacheRoot ".fetch"))
+    httpTool = (PkgFetch.findHttpTool(env))
+    if ((strlen httpTool) == 0) {
+      err = "git-http.mjs is not beside rgrc"
+      return false
+    }
+    rootDir = manDir
+    def rootText:string (PkgImport.readText(env manDir "ranger.json"))
+    if ((strlen rootText) == 0) {
+      err = (manDir + "/ranger.json is empty or unreadable")
+      return false
+    }
+    def rootMan:PkgManifest (PkgManifestIO.load(rootText))
+    if (rootMan.ok == false) {
+      err = (manDir + "/ranger.json: " + rootMan.err)
+      return false
+    }
+    def lockText:string (PkgImport.readText(env manDir "ranger.lock"))
+    if ((strlen lockText) > 0) {
+      previous = (PkgManifestIO.loadLock(lockText))
+    }
+
+    def pending:[PkgFetchWork]
+    def first (new PkgFetchWork)
+    first.dir = manDir
+    first.man = rootMan
+    push pending first
+
+    def qi:int 0
+    while (qi < (array_length pending)) {
+      def w:PkgFetchWork (itemAt pending qi)
+      qi = (qi + 1)
+      def di:int 0
+      while (di < (array_length w.man.deps)) {
+        def d:PkgDep (itemAt w.man.deps di)
+        di = (di + 1)
+        if (has seen d.name) {
+        } {
+          set seen d.name true
+          if ((this.oneDep(env pending w d)) == false) {
+            return false
+          }
+        }
+      }
+    }
+
+    def out:string (PkgManifestIO.dumpLock(lock))
+    buffer_write_file manDir "ranger.lock" (buffer_from_string out)
+    print ("wrote " + manDir + "/ranger.lock")
+    return true
+  }
+
+  fn oneDep:boolean (env:InputEnv pending:[PkgFetchWork] w:PkgFetchWork d:PkgDep) {
+    def git:string d.git
+    def rev:string d.rev
+    def subdir:string d.subdir
+    if ((strlen rev) == 0) {
+      rev = d.tag
+    }
+    def localPath:string d.path
+
+    ; A path dependency INSIDE a fetched package points at a sibling in the
+    ; repository it came from, which is not beside its cache entry.
+    if ((strlen localPath) > 0) {
+      if w.fromGit {
+        git = w.git
+        rev = w.rev
+        subdir = (PkgImport.foldPath((PkgImport.joinPath(w.subdir localPath))))
+        localPath = ""
+        if ((strlen subdir) == 0) {
+          err = (d.name + ": " + d.path + " climbs out of " + w.git)
+          return false
+        }
+      }
+    }
+
+    def entry (new PkgLockEnt)
+    entry.name = d.name
+    def pkgDir:string ""
+    def childFromGit:boolean false
+
+    if ((strlen localPath) > 0) {
+      pkgDir = (PkgImport.foldPath((PkgImport.joinPath(w.dir localPath))))
+      if ((file_exists env pkgDir "ranger.json") == false) {
+        err = (d.name + ": no ranger.json under " + localPath)
+        return false
+      }
+      entry.path = localPath
+      print (d.name + "  path " + localPath)
+    } {
+      if ((strlen git) == 0) {
+        err = (d.name + ": the dependency has neither \"path\" nor \"git\"")
+        return false
+      }
+      if ((strlen rev) == 0) {
+        rev = "HEAD"
+      }
+      def hash:string (this.cachedFor(env d.name git rev subdir))
+      def reused:boolean ((strlen hash) > 0)
+      ; There is no directory listing to copy from, so a package that must be
+      ; vendored and is not yet is fetched even when the cache has it.
+      if reused {
+        if vendor {
+          def already:string (PkgImport.joinPath(rootDir ("vendor/ranger/" + d.name)))
+          if ((file_exists env already "ranger.json") == false) {
+            reused = false
+            hash = ""
+          }
+        }
+      }
+      if (reused == false) {
+        if frozen {
+          err = (d.name + ": ranger.lock does not cover it at this revision, and -frozen was asked for")
+          return false
+        }
+        hash = (this.fetchInto(d.name git rev subdir))
+        if ((strlen hash) == 0) {
+          if ((strlen err) == 0) {
+            err = (d.name + ": could not fetch " + git)
+          }
+          return false
+        }
+      }
+      pkgDir = (PkgImport.joinPath(cacheRoot hash))
+      entry.git = git
+      entry.rev = lastRev
+      entry.subdir = subdir
+      entry.sha256 = hash
+      childFromGit = true
+      def note:string ""
+      if reused {
+        note = "  (cached)"
+      }
+      print (d.name + "  " + lastRev + " -> " + pkgDir + note)
+      if vendor {
+        if (reused == false) {
+          def vdir:string (PkgImport.joinPath(rootDir ("vendor/ranger/" + d.name)))
+          create_dir vdir
+          def writer (new GitStore((new GitPack)))
+          writer.writeDisk(lastMem vdir)
+          print (d.name + "  vendored -> vendor/ranger/" + d.name)
+        }
+      }
+    }
+    push lock.packages entry
+
+    def childText:string (PkgImport.readText(env pkgDir "ranger.json"))
+    if ((strlen childText) > 0) {
+      def childMan:PkgManifest (PkgManifestIO.load(childText))
+      if childMan.ok {
+        def next (new PkgFetchWork)
+        next.dir = pkgDir
+        next.man = childMan
+        next.git = entry.git
+        next.rev = entry.rev
+        next.subdir = entry.subdir
+        next.fromGit = childFromGit
+        push pending next
+      }
+    }
+    return true
+  }
+}

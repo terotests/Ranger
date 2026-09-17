@@ -33,7 +33,7 @@
 ; =============================================================================
 
 Import "Statechart.rgr"
-Import "../../vela/src/VlJson.rgr"
+Import "pkg:vela/src/VlJson.rgr"
 
 class StatechartJson {
 

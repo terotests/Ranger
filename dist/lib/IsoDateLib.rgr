@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 ; Portable ISO-8601 calendar library (date-only, no timezone).
 ; Convention: IsoDate = string "YYYY-MM-DD"

@@ -10,7 +10,10 @@
       "needs": "compiler",
       "bundled": "hello/Hello.rgr",
       "run": "rgr run Hello.rgr",
-      "teaches": ["a class with a main", "the compile-and-run loop"]
+      "teaches": [
+        "a class with a main",
+        "the compile-and-run loop"
+      ]
     },
     {
       "id": "calc",
@@ -19,7 +22,11 @@
       "needs": "compiler",
       "bundled": "calc/Calc.rgr",
       "run": "rgr run Calc.rgr && rgr run Calc.rgr -l=python && rgr run Calc.rgr -l=go",
-      "teaches": ["recursive descent", "one source, many targets", "why `to_double` needs a trim"]
+      "teaches": [
+        "recursive descent",
+        "one source, many targets",
+        "why `to_double` needs a trim"
+      ]
     },
     {
       "id": "pdf",
@@ -29,7 +36,11 @@
       "run": "npm run pdf",
       "where": "gallery/pdf_writer",
       "skill": "evg-edit",
-      "teaches": ["EVG layout", "PDF output", "no headless browser"]
+      "teaches": [
+        "EVG layout",
+        "PDF output",
+        "no headless browser"
+      ]
     },
     {
       "id": "markdown",
@@ -38,7 +49,11 @@
       "needs": "repo",
       "run": "npm run markdown:demo",
       "where": "gallery/markdown",
-      "teaches": ["document pipeline", "diagrams as vectors", "charts from a spec"]
+      "teaches": [
+        "document pipeline",
+        "diagrams as vectors",
+        "charts from a spec"
+      ]
     },
     {
       "id": "deck",
@@ -47,7 +62,10 @@
       "needs": "repo",
       "run": "npm run deck -- <in.md> <out.pptx>",
       "where": "gallery/markdown/src/md_deck_tool.rgr",
-      "teaches": ["OOXML writing", "a deck from a document"]
+      "teaches": [
+        "OOXML writing",
+        "a deck from a document"
+      ]
     },
     {
       "id": "figma",
@@ -56,7 +74,10 @@
       "needs": "repo",
       "run": "npm run figma:inspect",
       "where": "gallery/figma",
-      "teaches": ["binary format work", "EVG to a design tool"]
+      "teaches": [
+        "binary format work",
+        "EVG to a design tool"
+      ]
     },
     {
       "id": "evg-agent",
@@ -66,7 +87,11 @@
       "run": "npm run agent:smoke",
       "where": "gallery/evg/agent",
       "skill": "evg-edit",
-      "teaches": ["addressable documents", "invertible edits", "measure before and after"]
+      "teaches": [
+        "addressable documents",
+        "invertible edits",
+        "measure before and after"
+      ]
     },
     {
       "id": "flow",
@@ -75,7 +100,10 @@
       "needs": "repo",
       "run": "npm run rangerflow:demo",
       "where": "gallery/rangerflow",
-      "teaches": ["graph layout", "four notations, one scene"]
+      "teaches": [
+        "graph layout",
+        "four notations, one scene"
+      ]
     },
     {
       "id": "rave",
@@ -85,7 +113,10 @@
       "run": "npm run rave:web",
       "where": "gallery/rave",
       "skill": "rave",
-      "teaches": ["app structure", "checking accessibility without a browser"]
+      "teaches": [
+        "app structure",
+        "checking accessibility without a browser"
+      ]
     },
     {
       "id": "codegraph",
@@ -94,7 +125,10 @@
       "needs": "repo",
       "run": "npm run codegraph:web",
       "where": "gallery/codegraph",
-      "teaches": ["parsers over real code", "a tool that reads a tree"]
+      "teaches": [
+        "parsers over real code",
+        "a tool that reads a tree"
+      ]
     },
     {
       "id": "mobile",
@@ -103,16 +137,22 @@
       "needs": "repo",
       "where": "gallery/process_counter_ios, gallery/process_counter_android",
       "run": "see each directory's README",
-      "teaches": ["one source, two platforms", "a native host around shared logic"]
+      "teaches": [
+        "one source, two platforms",
+        "a native host around shared logic"
+      ]
     },
     {
       "id": "packages",
       "title": "More than one module",
-      "does": "`ranger.json`, dependencies by path, and a build that resolves them — for when files and `Import` stop being enough.",
+      "does": "`ranger.json`, dependencies by path, and a build that resolves them — for when files and `Import` stop being enough. It sits beside the compiler rather than in the gallery: packaging is the language's, not an application's.",
       "needs": "repo",
       "run": "npm run pkg:test",
-      "where": "gallery/pkg",
-      "teaches": ["the package file", "dependency resolution"]
+      "where": "pkg",
+      "teaches": [
+        "the package file",
+        "dependency resolution"
+      ]
     }
   ]
 }
