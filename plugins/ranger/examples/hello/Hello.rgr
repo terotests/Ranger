@@ -1,0 +1,12 @@
+; SPDX-License-Identifier: MIT
+;
+; The whole of a Ranger program: a class, a static function marked as the
+; entry point, and something to say. `rgr run Hello.rgr` compiles it and runs
+; it; `rgr run Hello.rgr -l=python` does the same through Python.
+
+class Hello {
+    sfn m@(main):void () {
+        def who:string "maailma"
+        print ("hei " + who)
+    }
+}

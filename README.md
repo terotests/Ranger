@@ -75,6 +75,37 @@ host.notifyPath = (path) => { /* sync view model + re-render */ };
 
 **Docs:** [PROCESS_MVP.md](PROCESS_MVP.md) (scope), [PROCESS_STATUS.md](PROCESS_STATUS.md) (compiler checklist), [PROCESS_RUNTIME_INVARIANTS.md](PROCESS_RUNTIME_INVARIANTS.md) (dispatch turn / one notify), [PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md) (notify batching), [PROCESS_UI_VIEW_MODELS.md](PROCESS_UI_VIEW_MODELS.md) (view DTO assignment). **Gallery:** [process_counter_board](gallery/process_counter_board/README.md) (Vite + React host for `@process`).
 
+## Getting started with Claude Code
+
+Two commands give a Claude Code session everything it needs to write Ranger —
+in any directory, including an empty one:
+
+```
+/plugin marketplace add terotests/Ranger
+/plugin install ranger@ranger
+```
+
+Then, in a folder with nothing in it:
+
+```bash
+npm init -y && npm i -D ranger-compiler
+```
+
+…and ask for a program. The plugin carries the language's traps, a build
+command that **fails when the compile fails** (the compiler prints `[FAIL]` and
+exits 0, which makes `&&` run the previous build), the EVG and Rave skills, and
+`/ranger:example` — worked examples indexed by what they do, with the command
+for each.
+
+```bash
+cp "$CLAUDE_PLUGIN_ROOT/examples/calc/Calc.rgr" .
+rgr run Calc.rgr              # a parser and evaluator
+rgr run Calc.rgr -l=python    # …the same source, through Python
+rgr run Calc.rgr -l=go        # …and Go
+```
+
+[`plugins/ranger/README.md`](plugins/ranger/README.md) lists what is in it.
+
 ## Where To Start
 
 - [Documentation site](https://terotests.github.io/Ranger/docs/) — install, first program, types, optionals, and the **generated operator reference** (838 operators, compiled from the sources of the commit that publishes the site, so it cannot drift)

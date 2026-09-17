@@ -1,0 +1,173 @@
+; SPDX-License-Identifier: MIT
+;
+; Calc.rgr — a tokenizer and a recursive-descent parser, in one file.
+;
+; This is what Ranger is for: an algorithm with no host in it. The same source
+; runs as JavaScript, Python, Go or C++ — `rgr run Calc.rgr -l=python` — and
+; the answer is the same because the language, not the runtime, decides it.
+
+class Calc {
+    def src:string ""
+    def at:int 0
+
+    Constructor () {
+    }
+
+    ; --- the answer ----------------------------------------------------------
+
+    fn eval:double (text:string) {
+        src = text
+        at = 0
+        def v:double (this.sum())
+        return v
+    }
+
+    ; --- the grammar ---------------------------------------------------------
+    ;
+    ;   sum     = product (('+' | '-') product)*
+    ;   product = atom (('*' | '/') atom)*
+    ;   atom    = number | '(' sum ')' | '-' atom
+
+    fn sum:double () {
+        def left:double (this.product())
+        while (this.more()) {
+            def c:int (this.peek())
+            if (c == 43) {
+                this.step()
+                def r:double (this.product())
+                left = (left + r)
+            } {
+                if (c == 45) {
+                    this.step()
+                    def r2:double (this.product())
+                    left = (left - r2)
+                } {
+                    return left
+                }
+            }
+        }
+        return left
+    }
+
+    fn product:double () {
+        def left:double (this.atom())
+        while (this.more()) {
+            def c:int (this.peek())
+            if (c == 42) {
+                this.step()
+                def r:double (this.atom())
+                left = (left * r)
+            } {
+                if (c == 47) {
+                    this.step()
+                    def r2:double (this.atom())
+                    left = (left / r2)
+                } {
+                    return left
+                }
+            }
+        }
+        return left
+    }
+
+    fn atom:double () {
+        this.spaces()
+        if (! (this.more())) {
+            return 0.0
+        }
+        def c:int (this.peek())
+        ; A parenthesised group.
+        if (c == 40) {
+            this.step()
+            def inner:double (this.sum())
+            this.spaces()
+            if (this.more()) {
+                if ((this.peek()) == 41) {
+                    this.step()
+                }
+            }
+            return inner
+        }
+        ; A negative number is a minus in front of an atom, not a digit.
+        if (c == 45) {
+            this.step()
+            def neg:double (this.atom())
+            return (0.0 - neg)
+        }
+        return (this.number())
+    }
+
+    fn number:double () {
+        def start:int at
+        while (this.more()) {
+            def c:int (this.peek())
+            def digit:boolean ((c >= 48) && (c <= 57))
+            if (digit || (c == 46)) {
+                this.step()
+            } {
+                return (Calc.toNumber((substring src start at)))
+            }
+        }
+        return (Calc.toNumber((substring src start at)))
+    }
+
+    ; --- the characters ------------------------------------------------------
+
+    fn more:boolean () {
+        this.spaces()
+        return (at < (strlen src))
+    }
+
+    fn peek:int () {
+        if (at < (strlen src)) {
+            return (charAt src at)
+        }
+        return 0
+    }
+
+    fn step:void () {
+        at = (at + 1)
+    }
+
+    fn spaces:void () {
+        while (at < (strlen src)) {
+            if ((charAt src at) == 32) {
+                at = (at + 1)
+            } {
+                return
+            }
+        }
+    }
+
+    ; TRIMMED FIRST, and that is not cosmetic: `to_double` takes "10 " in
+    ; JavaScript and Python and refuses it in Go, where the parse is strict.
+    ; A number scanned up to the next operator often carries a trailing space,
+    ; so the untrimmed version of this returned 10 on two targets and 0 on the
+    ; third — from the same source, which is the one thing Ranger promises not
+    ; to do to you.
+    sfn toNumber:double (text:string) {
+        def v@(optional):double (to_double (trim text))
+        if v {
+            return (unwrap v)
+        }
+        return 0.0
+    }
+
+    ; --- run it --------------------------------------------------------------
+
+    sfn m@(main):void () {
+        def lines:[string]
+        push lines "1 + 2 * 3"
+        push lines "(1 + 2) * 3"
+        push lines "10 / 4"
+        push lines "2 * (3 + 4) - -5"
+        def c (new Calc())
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            def v:double (c.eval(line))
+            print ((line + " = ") + (to_string v))
+            i = (i + 1)
+        }
+    }
+}

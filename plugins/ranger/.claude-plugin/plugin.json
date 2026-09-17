@@ -1,0 +1,12 @@
+{
+  "name": "ranger",
+  "description": "Write Ranger and build with it: the language's traps, a compile loop that fails loudly, EVG documents, Rave applications, and an index of worked examples.",
+  "version": "0.1.0",
+  "author": {
+    "name": "terotests",
+    "url": "https://github.com/terotests"
+  },
+  "homepage": "https://github.com/terotests/Ranger",
+  "repository": "https://github.com/terotests/Ranger",
+  "license": "MIT"
+}

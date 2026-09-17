@@ -819,3 +819,17 @@ nothing.
 `EVGLayout` clamps a calculated width or height to zero now. The clamp is on
 the SIZE and not on `EVGUnit.resolve`, because a negative offset is perfectly
 ordinary — `left: -10px` moves a box left — and clamping there would break it.
+
+## #14 `to_double` disagrees with itself across targets — OPEN
+
+`(to_double "10 ")` is 10 in JavaScript and Python and NOTHING in Go, whose
+parse is strict about surrounding whitespace. A number scanned up to the next
+operator carries a trailing space more often than not, so a recursive-descent
+parser written the obvious way returns the right answer on two targets and zero
+on the third — from one source, which is the one thing the compiler promises
+not to do.
+
+The portable form is `(to_double (trim text))`, and the plugin's `calc` example
+says so in a comment because it was found by running the example on all three.
+Whether the fix belongs in the Go writer (trim before parsing) or in the
+documented contract (callers trim) is open; the disagreement is not.
