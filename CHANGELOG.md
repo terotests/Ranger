@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The JavaScript compiler compiles about twice as fast.** RtHost.rgr
+  (157 files, 108 102 lines) went from 17.9 s to 8.5 s, and the compiler
+  compiling itself from 19.9 s to 6.6 s, with byte-identical output apart
+  from the constructor lines below. Four causes, none of them in the
+  algorithms:
+  - A field with no initial value was left out of the constructor and
+    appeared on the object at first assignment, so one class had as many
+    V8 hidden classes as there were assignment orders (CodeNode: 27). Every
+    property access on such objects went megamorphic and the optimiser
+    deoptimised in a loop. The ES6 writer now initialises every field, to
+    `undefined` where there is no value; `typeof`, `== null` and
+    `JSON.stringify` read the same as before.
+  - V8 gives a field the representation of the first value stored in it.
+    `CodeNode.double_value` and `int_value` began as small integers, and
+    the first fractional literal in a program changed the representation
+    on every node already made, each of which was then rewritten on its
+    next access -- 2.4 s of the RtHost compile, paid by whichever pass
+    first walked the tree. The parser now stores such values once, when one
+    node exists.
+  - `read_file` awaits `fs.readFile`, so every function that reads a file,
+    and every function that can reach one, was emitted `async`: in the
+    compiler that was the whole import, analysis and writer chain, and each
+    call paid for a promise and a heap frame -- 6.3 GB allocated and three
+    seconds of garbage collection per compile. New `read_file_sync`
+    operator, synchronous on JavaScript, used by the compiler's own file
+    reads; the compiler now has no async method.
+  - Flags and classes live on the root context, but `hasCompilerFlag` and
+    `isDefinedClass` walked up the context chain to find them, nine million
+    and seven million times per compile. The root is now cached at fork.
+    `getOpFns`, asked for every call expression and empty nearly every
+    time, no longer builds and copies a list per level of the chain, and
+    `TTypeRegistry.isScalarPrimitive` no longer rebuilds its name list
+    for every element it compares against.
+
+
 ## [3.5.1] - 2026-09-17
 
 - **The npm README still said 3.3.0.** The package was 3.5.0; the first line

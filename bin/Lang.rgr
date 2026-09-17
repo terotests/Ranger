@@ -3918,6 +3918,160 @@ static class RgFiles {
             }
         }
 
+        ; read_file, but not async on JavaScript. read_file awaits fs.readFile,
+        ; so on JavaScript every function that reads a file, and every function
+        ; that can reach one, is emitted async: in the compiler that was the
+        ; whole import, analysis and writer chain, and each call then paid for
+        ; a promise and a heap frame -- three seconds of a twelve second
+        ; compile, all of it garbage. This one reads with readFileSync and
+        ; answers absent on failure, as read_file does. The other targets read
+        ; synchronously either way and share read_file's polyfills, which the
+        ; writer emits once per text. Use it where blocking the event loop is
+        ; fine: a command line tool, not a server.
+        read_file_sync   cmdReadFileSync@(optional):string (path:string filename:string) {
+
+            templates {
+                llvm ( "(read_file " (e 1) " " (e 2) ")")
+                ts ( "(() => { try { return require('fs').readFileSync( " (e 1) " + '/' + " (e 2) " , 'utf8'); } catch (e) { return undefined; } })()" )
+                es6 ( "(() => { try { return require('fs').readFileSync( " (e 1) " + '/' + " (e 2) " , 'utf8'); } catch (e) { return undefined; } })()" )
+                ranger (  "(read_file " (e 1) " " (e 2) ")" )
+                ; returns the optional: None is how Python spells absent, which
+                ; is what a missing or unreadable file has to answer
+                python ( "rg_read_file(" (e 1) ", " (e 2) ")" (imp "os")
+(create_polyfill "
+def rg_read_file(path, filename):
+    try:
+        with open(os.path.join(path, filename), \"r\", encoding=\"utf-8\") as f:
+            return f.read()
+    except Exception:
+        return None
+")
+                )
+                cpp ( "r_cpp_readFile( " (e 1) " , " (e 2) ")" (imp "<fstream>")
+(create_polyfill "
+std::string  r_cpp_readFile(const std::string& path, const std::string& filename) 
+{
+  std::ifstream ifs(path + \"/\" + filename);
+  std::string content( (std::istreambuf_iterator<char>(ifs) ),
+                       (std::istreambuf_iterator<char>()    ) );
+  return content;
+}    
+    ")                        
+            
+                )
+                php ("file_get_contents(" (e 1) " . \"/\" . " (e 2) ") " )
+                swift3 ("r_read_file(dirName: " (e 1) " + \"/\" + " (e 2) ") " 
+(create_polyfill "
+func r_read_file ( dirName:String ) -> String? {
+    let res: String?
+    do {
+        res = try String(contentsOfFile:dirName)
+    } catch {
+        res = nil
+    }
+    return res
+}
+    ")                                  
+                )
+                swift6 ("r_read_file(dirName: " (e 1) " + \"/\" + " (e 2) ") " 
+                    (imp "Foundation")
+(create_polyfill "
+func r_read_file ( dirName:String ) -> String? {
+    let res: String?
+    do {
+        res = try String(contentsOfFile:dirName, encoding: .utf8)
+    } catch let error {
+        print(\"Error reading file: \\(dirName)\")
+        print(\"Error: \\(error.localizedDescription)\")
+        res = nil
+    }
+    return res
+}
+    ")                                  
+                )
+                java7 ( "readFile(" (e 1) " + \"/\" + " (e 2) " , StandardCharsets.UTF_8 )"  
+                    (imp "java.nio.file.Paths") 
+                    (imp "java.io.File")
+                    (imp "java.nio.file.Files") 
+                    (imp 'java.io.IOException')
+                    (imp "java.nio.charset.Charset")
+                    (imp "java.nio.charset.StandardCharsets")
+(create_polyfill "
+static String readFile(String path, Charset encoding) 
+{
+  try {
+    byte[] encoded = Files.readAllBytes(Paths.get(path));
+    return new String(encoded, encoding);
+  } catch(IOException e) { 
+    return \"\";
+  }
+}    
+    ")                        
+                        
+                        )
+                scala ( "Try(Source.fromFile(" (e 1) " + \"/\" + " (e 2) ").getLines.mkString).toOption" (imp "scala.io.Source") (imp "scala.util.Try"))
+                go (  "r_io_read_file(" (e 1) ", " (e 2) ")" (imp "io/ioutil")
+(create_polyfill "
+
+// polyfill for reading files
+func r_io_read_file( path string , fileName string ) *GoNullable {
+   res := new(GoNullable);
+   if v, err := ioutil.ReadFile(path + \"/\" + fileName); err == nil {
+     res.has_value = true
+     res.value = string(v)
+   } else {
+     res.has_value = false
+   }
+   return res 
+}
+"))
+                rust ( "r_read_file(&" (e 1) ", &" (e 2) ")"
+(create_polyfill "
+fn r_read_file(path: &str, filename: &str) -> Option<String> {
+    let full_path = format!(\"{}/{}\", path, filename);
+    std::fs::read_to_string(full_path).ok()
+}
+"))
+                kotlin ( "try { java.io.File(if (" (e 1) ".isEmpty()) " (e 2) " else " (e 1) " + \"/\" + " (e 2) ").readText() } catch (_: Exception) { null }" (imp "java.io.File") )
+                dart ( (imp "dart:io") "(() { try { final __p = (" (e 1) ").isEmpty ? (" (e 2) ") : ((" (e 1) ") + \"/\" + (" (e 2) ")); return File(__p).readAsStringSync(); } catch (_) { return null; } })()" )
+                csharp ( "RgFiles.ReadFile(" (e 1) ", " (e 2) ")"
+                (polyfill "after_imports" "
+// Files on the C# target. System.IO says all of this, but each operator needs
+// one expression and several need a try/catch, so they are wrapped here.
+static class RgFiles {
+  static string Join(string path, string name) {
+    if (path.Length == 0) { return name; }
+    return path + \"/\" + name;
+  }
+  // The optional this operator returns: null is how C# spells absent, which is
+  // what a missing or unreadable file has to answer.
+  public static string ReadFile(string path, string name) {
+    try {
+      return System.IO.File.ReadAllText(Join(path, name), new System.Text.UTF8Encoding(false));
+    } catch (System.Exception) {
+      return null;
+    }
+  }
+  public static void WriteFile(string path, string name, string data) {
+    string full = Join(path, name);
+    string dir = System.IO.Path.GetDirectoryName(full);
+    if (dir != null && dir.Length > 0) { System.IO.Directory.CreateDirectory(dir); }
+    // No BOM: every other target writes plain UTF-8 and the compiler compares
+    // its own output byte for byte.
+    System.IO.File.WriteAllText(full, data, new System.Text.UTF8Encoding(false));
+  }
+  public static void CreateDir(string path) {
+    try { System.IO.Directory.CreateDirectory(path); } catch (System.Exception) { }
+  }
+  public static bool DirExists(string path) {
+    return System.IO.Directory.Exists(path);
+  }
+}
+")
+                )
+            }
+        }
+
         =               cmdAssign@(moves@( 2 1 ) ):void            ( immutable_left@(immutable):T immutable_right@(immutable):T )  { 
             templates { 
                 ranger ( nl (e 1) " = " (e 2) nl )  

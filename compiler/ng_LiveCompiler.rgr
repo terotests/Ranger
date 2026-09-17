@@ -226,7 +226,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     set installedFile filename true
     def fName ( (install_directory env) + "/" + filename) )
     if( (file_exists env ( (install_directory env ) + "/") filename ) ) {
-      def fileData (read_file  ( (install_directory env ) + "/") filename)
+      def fileData (read_file_sync ( (install_directory env ) + "/") filename)
       if(!null? fileData) {
         def file_wr:CodeWriter ( wr.getFileWriter("." (filename)))
         file_wr.raw( (unwrap fileData) false )

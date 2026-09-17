@@ -140,6 +140,11 @@ class RangerAppWriterContext {
   def intRootCounter:int 1
   def targetLangName:string ""
   def parent:RangerAppWriterContext
+  ; The root, cached by fork. Flags, classes, enums and errors live on the
+  ; root alone, and the walks that ask for them went up the chain one parent
+  ; at a time -- a chain that is as deep as the expression is nested. Nine
+  ; million hasCompilerFlag calls on one compile.
+  def cachedRoot@(optional weak):RangerAppWriterContext
   def defined_imports:[string]
   ; Guards macro expansion against runaway recursion. Macro expansion is the
   ; one path that re-walks its own output, so an expansion that reaches the
@@ -346,20 +351,28 @@ class RangerAppWriterContext {
     push rootNode.children code
   }
 
+  ; Asked for every call expression the analysis walks, and the answer is
+  ; nearly always empty. Walks the parents in a loop rather than recursing:
+  ; the recursion built and copied a list at every level of the context
+  ; chain, for a result that was empty at every level.
   fn getOpFns:[CodeNode] (name:string) {
     def rv:[CodeNode]
-    if (has opFnsList name) {
-      def ol (unwrap (get opFnsList name))
-      forEach ol.children {
+    def cc this
+    if (has cc.opFnsList name) {
+      def ol (unwrap (get cc.opFnsList name))
+      for ol.children item:CodeNode i {
         def tmp@(temp) item
         push rv tmp
       }
     }
-    if(!null? parent ) {
-      def list2 (this.parent.getOpFns(name))
-      forEach list2 {
-        def tmp@(temp) item
-        push rv tmp
+    while (!null? cc.parent) {
+      cc = (unwrap cc.parent)
+      if (has cc.opFnsList name) {
+        def ol2 (unwrap (get cc.opFnsList name))
+        for ol2.children item2:CodeNode i2 {
+          def tmp2@(temp) item2
+          push rv tmp2
+        }
       }
     }
     return rv
@@ -1750,13 +1763,12 @@ class RangerAppWriterContext {
     set root.compilerFlags name value
   }
   fn hasCompilerFlag:boolean (s_name:string) {
-    if (has compilerFlags s_name) {
-      return ( unwrap (get compilerFlags s_name) )
+    ; setCompilerFlag writes to the root only, so the root has the answer.
+    def root (this.getRoot())
+    if (has root.compilerFlags s_name) {
+      return ( unwrap (get root.compilerFlags s_name) )
     }
-    if (null? parent) {
-      return false
-    }
-    return (parent.hasCompilerFlag(s_name))
+    return false
   }
   fn setCompilerSetting:void (name:string value:string) {
     def root (this.getRoot())
@@ -1962,19 +1974,17 @@ class RangerAppWriterContext {
     push localVarNames name
   }
   fn isDefinedClass:boolean (name:string) {
-    if (has definedClasses name) {
-      return true
-    } {
-      if (!null? parent) {
-        return (parent.isDefinedClass(name))
-      }
-    }
-    return false
+    ; addClass writes to the root only, so the root has the answer.
+    def root (this.getRoot())
+    return (has root.definedClasses name)
   }
   fn getRoot:RangerAppWriterContext () {
     if (null? parent) {
       return this
-    } 
+    }
+    if (!null? cachedRoot) {
+      return (unwrap cachedRoot)
+    }
     return (parent.getRoot())    
   }
   fn getClasses:[RangerAppClassDesc] () {
@@ -2152,6 +2162,7 @@ class RangerAppWriterContext {
   fn fork:RangerAppWriterContext () {
     def new_ctx:RangerAppWriterContext (new RangerAppWriterContext ())
     new_ctx.parent = this
+    new_ctx.cachedRoot = (this.getRoot())
     return new_ctx
   }
 
