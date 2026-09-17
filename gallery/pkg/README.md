@@ -207,8 +207,17 @@ pkg_tool install <ranger.json>
 fetch. The command that walks the graph is `tools/install.mjs`:
 
 ```bash
-npm run pkg:install -- path/to/ranger.json          # or --vendor, --cache=<dir>
+npm run pkg:install -- path/to/ranger.json
+#   --vendor        also copy each package into vendor/ranger/<name>
+#   --cache=<dir>   instead of RANGER_PKG_CACHE / ~/.cache/ranger/packages
+#   --frozen        fail instead of fetching when ranger.lock does not already
+#                   cover a dependency at this revision — for CI
+#   --force         refetch even when the locked checkout is in the cache
 ```
+
+A dependency the lock already pins, whose checkout is still in the cache, is
+not fetched again: the sha256 names content, and the content at a commit does
+not change. A repointed `git` or `rev` in `ranger.json` outranks the lock.
 
 For every `git` dependency it sparse-fetches the pinned revision, writes the
 checkout into the cache `compiler/PkgImport.rgr` reads (`RANGER_PKG_CACHE`,

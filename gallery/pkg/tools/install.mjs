@@ -3,7 +3,8 @@
 //
 // Resolve every dependency in a ranger.json onto disk and write ranger.lock.
 //
-//   node gallery/pkg/tools/install.mjs [ranger.json] [--vendor] [--cache=<dir>]
+//   node gallery/pkg/tools/install.mjs [ranger.json]
+//        [--vendor] [--cache=<dir>] [--frozen] [--force]
 //
 // `pkg_tool install` only dumps a lock of what is already mounted: a git
 // dependency stays a URL and the compiler then reports "not on disk". This
@@ -45,6 +46,11 @@ const positional = args.filter((a) => !a.startsWith("--"));
 const manifestPath = resolve(positional[0] || "ranger.json");
 const projectDir = dirname(manifestPath);
 const wantVendor = flags.includes("--vendor");
+// --frozen: the lock is the answer, not a record of what this run did. A
+// dependency the lock does not cover, or one whose cache entry is gone, is an
+// error instead of a fetch. What CI wants.
+const frozen = flags.includes("--frozen") || flags.includes("--frozen-lockfile");
+const force = flags.includes("--force");
 const cacheFlag = flags.find((a) => a.startsWith("--cache="));
 
 const cacheRoot = resolve(
@@ -187,6 +193,35 @@ function sha256Of(toolOutput) {
 
 ensureTool();
 
+// What the last install decided. A pinned revision whose checkout is still in
+// the cache needs no network: the sha256 names content, and content at a
+// commit does not change.
+const lockPath = join(projectDir, "ranger.lock");
+const previous = existsSync(lockPath)
+  ? readManifest(lockPath).packages || {}
+  : {};
+
+function cached(name, dep) {
+  const was = previous[name];
+  if (!was?.sha256 || force) {
+    return null;
+  }
+  // A dependency repointed in ranger.json outranks the lock.
+  if (dep.git && was.git !== dep.git) {
+    return null;
+  }
+  if (dep.rev && was.rev !== dep.rev) {
+    return null;
+  }
+  if ((was.subdir || "") !== (dep.subdir || "")) {
+    return null;
+  }
+  if (!existsSync(join(cacheRoot, was.sha256, "ranger.json"))) {
+    return null;
+  }
+  return { sha256: was.sha256, rev: was.rev };
+}
+
 // A path dependency inside a FETCHED package points at a sibling in the
 // repository it came from, which is not beside its cache entry. Same origin,
 // same revision, subdir moved: `gallery/statechart` + `../vela` is
@@ -250,7 +285,15 @@ while (pending.length > 0) {
       locked[name] = { path: dep.path };
       console.log(`${name}  path ${dep.path}`);
     } else if (dep.git) {
-      const { sha256, rev } = fetchIntoCache(name, dep);
+      const reuse = cached(name, dep);
+      if (!reuse && frozen) {
+        console.error(
+          `${name}: --frozen, but ranger.lock does not cover it at this ` +
+            `revision, or its cache entry is gone.`
+        );
+        process.exit(1);
+      }
+      const { sha256, rev } = reuse || fetchIntoCache(name, dep);
       pkgDir = join(cacheRoot, sha256);
       childOrigin = { git: dep.git, rev, subdir: dep.subdir || "" };
       locked[name] = {
@@ -259,7 +302,9 @@ while (pending.length > 0) {
         ...(dep.subdir ? { subdir: dep.subdir } : {}),
         sha256,
       };
-      console.log(`${name}  ${rev.slice(0, 12)} -> ${pkgDir}`);
+      console.log(
+        `${name}  ${rev.slice(0, 12)} -> ${pkgDir}${reuse ? "  (cached)" : ""}`
+      );
       if (wantVendor) {
         const vendorDir = join(projectDir, "vendor/ranger", name);
         rmSync(vendorDir, { recursive: true, force: true });
@@ -283,7 +328,6 @@ while (pending.length > 0) {
   }
 }
 
-const lockPath = join(projectDir, "ranger.lock");
 writeFileSync(
   lockPath,
   JSON.stringify({ lockVersion: 1, packages: locked }, null, 2) + "\n"
