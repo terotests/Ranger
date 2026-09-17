@@ -1,0 +1,379 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; AppleSigning.rgr -- finding the identity and the profile so nobody types them.
+; =============================================================================
+;
+; A simulator build is signed ad hoc and needs nothing. A DEVICE build needs
+; three things that come as a set, and typing them out is what makes "build it
+; onto my phone" a three-flag command instead of one:
+;
+;   the identity   a certificate in the keychain, named like
+;                  "Apple Development: Someone (ABC123DEF4)". `security
+;                  find-identity` lists them.
+;   the profile    a .mobileprovision that names the app, the team and the
+;                  devices it may run on. Xcode writes them into a directory
+;                  and never mentions it again.
+;   the match      the profile has to be FOR this bundle id and has to list
+;                  THIS device, or the app installs and refuses to launch with
+;                  no message anyone can act on.
+;
+; All three are discoverable, so this file discovers them. `--identity` and
+; `--profile` still win when given; this is what happens when they are not.
+;
+; What it cannot do: CREATE a profile. That is a conversation with Apple's
+; developer portal, and the only command line tool that has it is `xcodebuild
+; -allowProvisioningUpdates`, which is the thing this whole directory exists to
+; avoid. Open the project in Xcode once, or register the device on the portal;
+; after that the profile is on the machine and this finds it.
+; =============================================================================
+
+Import "../Shell.rgr"
+
+class AppleSigningIdentity {
+
+    ; The 40-hex fingerprint. `codesign --sign` takes either this or the name;
+    ; the fingerprint is unambiguous when two certificates share a name, which
+    ; happens every time one is renewed.
+    def sha1:string ""
+    def name:string ""
+
+    Constructor () {
+    }
+
+    ; "Apple Development: Someone (ABC123DEF4)" -> "ABC123DEF4". The team id is
+    ; the last parenthesised group, and it is what a profile's
+    ; application-identifier is prefixed with.
+    fn teamId:string () {
+        def openAt:int (indexOf name "(")
+        if (openAt < 0) {
+            return ""
+        }
+        def closeAt:int (indexOf name ")")
+        if (closeAt <= (openAt + 1)) {
+            return ""
+        }
+        return (substring name (openAt + 1) closeAt)
+    }
+
+    ; A development certificate signs a build for a device you own. A
+    ; distribution one is for the store and cannot be tested on a cable.
+    fn isDevelopment:boolean () {
+        if ((indexOf name "Apple Development") == 0) {
+            return true
+        }
+        if ((indexOf name "iPhone Developer") == 0) {
+            return true
+        }
+        return false
+    }
+
+    fn describe:string () {
+        return (name + "  " + sha1)
+    }
+}
+
+class AppleProvisioningProfile {
+
+    def path:string ""
+    ; The profile's own name, which is what Xcode shows.
+    def name:string ""
+    ; "ABC123DEF4.fi.ranger.dashboard", or "ABC123DEF4.*" for a wildcard.
+    def appId:string ""
+    ; The device identifiers this profile may install onto, as the raw JSON
+    ; array text. Searched as text rather than parsed: the question is only
+    ; "is this udid in there", and a JSON reader for one membership test is a
+    ; dependency for nothing.
+    def devicesRaw:string ""
+    def expires:string ""
+
+    Constructor () {
+    }
+
+    fn teamId:string () {
+        def dot:int (indexOf appId ".")
+        if (dot <= 0) {
+            return ""
+        }
+        return (substring appId 0 dot)
+    }
+
+    ; The bundle id this profile is for, with the team prefix taken off.
+    fn bundlePattern:string () {
+        def dot:int (indexOf appId ".")
+        if (dot < 0) {
+            return ""
+        }
+        return (substring appId (dot + 1) (strlen appId))
+    }
+
+    ; A development profile carries the devices it may run on. One with no such
+    ; list is an App Store or enterprise profile, which cannot be tested on a
+    ; cable.
+    fn isDevelopment:boolean () {
+        return ((strlen devicesRaw) > 0)
+    }
+
+    fn hasDevice:boolean (udid:string) {
+        if ((strlen udid) == 0) {
+            return false
+        }
+        return ((indexOf devicesRaw udid) >= 0)
+    }
+
+    fn describe:string () {
+        return (name + "  [" + appId + "]  " + path)
+    }
+}
+
+class AppleSigning {
+
+    def sh:Shell
+
+    Constructor (shell:Shell) {
+        sh = shell
+    }
+
+    ; --- identities -----------------------------------------------------------
+
+    ; `security find-identity -v -p codesigning` writes one indented line per
+    ; certificate:
+    ;
+    ;     1) A1B2...78 "Apple Development: Someone (ABC123DEF4)"
+    ;        1 valid identities found
+    ;
+    ; The quoted name is the field that matters and the only one with spaces in
+    ; it, so it is read between the first and last quote rather than by
+    ; splitting the line up.
+    sfn parseIdentities:[AppleSigningIdentity] (text:string) {
+        def found:[AppleSigningIdentity]
+        def lines:[string] (strsplit text "\n")
+        for lines rawLine:string i {
+            def line:string (trim rawLine)
+            def firstQuote:int (indexOf line "\"")
+            if (firstQuote > 0) {
+                def rest:string (substring line (firstQuote + 1) (strlen line))
+                def lastQuote:int (indexOf rest "\"")
+                if (lastQuote > 0) {
+                    def name:string (substring rest 0 lastQuote)
+                    ; The fingerprint is the word before the quote, after the
+                    ; "N)" the listing numbers each line with.
+                    def head:string (trim (substring line 0 firstQuote))
+                    def parts:[string] (strsplit head " ")
+                    def sha:string ""
+                    for parts p:string pi {
+                        if ((strlen p) == 40) {
+                            sha = p
+                        }
+                    }
+                    if ((strlen sha) == 40) {
+                        def id:AppleSigningIdentity (new AppleSigningIdentity)
+                        id.sha1 = sha
+                        id.name = name
+                        push found id
+                    }
+                }
+            }
+        }
+        return found
+    }
+
+    ; A DEVELOPMENT identity wins, because this is for testing on a cable. A
+    ; caller who wants a distribution certificate names it.
+    sfn pickIdentity@(optional):AppleSigningIdentity (identities:[AppleSigningIdentity] wanted:string) {
+        def want:string (trim wanted)
+        def found@(optional):AppleSigningIdentity
+        if ((strlen want) > 0) {
+            for identities id:AppleSigningIdentity i {
+                if (null? found) {
+                    if ((indexOf id.name want) >= 0) {
+                        found = id
+                    }
+                    if (id.sha1 == want) {
+                        found = id
+                    }
+                }
+            }
+            return found
+        }
+        for identities id:AppleSigningIdentity i {
+            if (null? found) {
+                if (id.isDevelopment()) {
+                    found = id
+                }
+            }
+        }
+        if (null? found) {
+            for identities id2:AppleSigningIdentity i2 {
+                if (null? found) {
+                    found = id2
+                }
+            }
+        }
+        return found
+    }
+
+    fn findIdentities:[AppleSigningIdentity] () {
+        def argv:[string]
+        push argv "find-identity"
+        push argv "-v"
+        push argv "-p"
+        push argv "codesigning"
+        def res:ShellResult (sh.capture("security" argv))
+        if (res.failed()) {
+            def none:[AppleSigningIdentity]
+            return none
+        }
+        return (AppleSigning.parseIdentities(res.out))
+    }
+
+    ; --- profiles -------------------------------------------------------------
+
+    ; Where Xcode keeps them. It moved in Xcode 16, and an installation that has
+    ; been upgraded has profiles in both, so both are looked in.
+    fn profileDirs:[string] () {
+        def dirs:[string]
+        def home@(optional):string (env_var "HOME")
+        if (null? home) {
+            return dirs
+        }
+        def h:string (unwrap home)
+        push dirs (h + "/Library/Developer/Xcode/UserData/Provisioning Profiles")
+        push dirs (h + "/Library/MobileDevice/Provisioning Profiles")
+        return dirs
+    }
+
+    ; `ls` rather than a directory operator, because this library is already in
+    ; the business of running programs and `ls` is on every machine Xcode is.
+    fn profilePaths:[string] () {
+        def paths:[string]
+        def dirs:[string] (this.profileDirs())
+        for dirs dir:string di {
+            def argv:[string]
+            push argv dir
+            def res:ShellResult (sh.capture("ls" argv))
+            if (res.ok()) {
+                def names:[string] (res.outLines())
+                for names n:string ni {
+                    def name:string (trim n)
+                    if ((strlen name) > 16) {
+                        if ((indexOf name ".mobileprovision") > 0) {
+                            push paths (dir + "/" + name)
+                        }
+                    }
+                }
+            }
+        }
+        return paths
+    }
+
+    ; A .mobileprovision is a CMS envelope around a plist. `security cms -D`
+    ; opens it and `plutil -extract` reads one key back out, which is two tools
+    ; and no plist parser.
+    fn extractKey:string (plistPath:string key:string format:string) {
+        def argv:[string]
+        push argv "-extract"
+        push argv key
+        push argv format
+        push argv "-o"
+        push argv "-"
+        push argv plistPath
+        def res:ShellResult (sh.capture("plutil" argv))
+        if (res.failed()) {
+            return ""
+        }
+        return (trim res.out)
+    }
+
+    ; `workDir` is where the decoded plist is put; it is overwritten per
+    ; profile, because nothing needs two of them at once.
+    fn readProfile@(optional):AppleProvisioningProfile (path:string workDir:string) {
+        def none@(optional):AppleProvisioningProfile
+        def argv:[string]
+        push argv "cms"
+        push argv "-D"
+        push argv "-i"
+        push argv path
+        def decoded:ShellResult (sh.capture("security" argv))
+        if (decoded.failed()) {
+            return none
+        }
+        def plistPath:string (workDir + "/profile.plist")
+        if (sh.dryRun == false) {
+            create_dir workDir
+            write_file workDir "profile.plist" decoded.out
+        }
+        def p:AppleProvisioningProfile (new AppleProvisioningProfile)
+        p.path = path
+        p.name = (this.extractKey(plistPath "Name" "raw"))
+        p.appId = (this.extractKey(plistPath "Entitlements.application-identifier" "raw"))
+        p.devicesRaw = (this.extractKey(plistPath "ProvisionedDevices" "json"))
+        p.expires = (this.extractKey(plistPath "ExpirationDate" "raw"))
+        if ((strlen p.appId) == 0) {
+            return none
+        }
+        def hit@(optional):AppleProvisioningProfile p
+        return hit
+    }
+
+    ; Does this profile's application-identifier cover this bundle id? A
+    ; wildcard profile ends in ".*" and covers everything under its prefix,
+    ; which is what an Xcode "Team Provisioning Profile" is.
+    sfn appIdMatches:boolean (appId:string bundleId:string) {
+        def dot:int (indexOf appId ".")
+        if (dot < 0) {
+            return false
+        }
+        def pattern:string (substring appId (dot + 1) (strlen appId))
+        if (pattern == bundleId) {
+            return true
+        }
+        def starAt:int (indexOf pattern "*")
+        if (starAt < 0) {
+            return false
+        }
+        if (starAt == 0) {
+            return true
+        }
+        def prefix:string (substring pattern 0 starAt)
+        return ((indexOf bundleId prefix) == 0)
+    }
+
+    ; The profile to sign with: for this bundle id, listing this device, and an
+    ; exact bundle id beats a wildcard because that is the one Xcode made for
+    ; this app.
+    fn pickProfile@(optional):AppleProvisioningProfile (bundleId:string deviceUdid:string workDir:string) {
+        def exact@(optional):AppleProvisioningProfile
+        def wildcard@(optional):AppleProvisioningProfile
+        def paths:[string] (this.profilePaths())
+        for paths path:string pi {
+            def readOpt@(optional):AppleProvisioningProfile (this.readProfile(path workDir))
+            if (!null? readOpt) {
+                def p:AppleProvisioningProfile (unwrap readOpt)
+                if (AppleSigning.appIdMatches(p.appId bundleId)) {
+                    if (p.isDevelopment()) {
+                        def usable:boolean true
+                        if ((strlen deviceUdid) > 0) {
+                            usable = (p.hasDevice(deviceUdid))
+                        }
+                        if usable {
+                            if ((p.bundlePattern()) == bundleId) {
+                                if (null? exact) {
+                                    exact = p
+                                }
+                            } {
+                                if (null? wildcard) {
+                                    wildcard = p
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (!null? exact) {
+            return exact
+        }
+        return wildcard
+    }
+}

@@ -238,6 +238,16 @@ npx ranger-pkg clone <url> HEAD <dir> <subdir>
 npx ranger-pkg resolve ranger.json pkg:evg/EVGElement.rgr
 ```
 
+With `ranger-pkg` in `node_modules`, `rgrc install` is the same thing under
+the name people will reach for. The compiler runs that program, it does not
+contain it, and it says so when the program is missing:
+
+```bash
+rgrc install                 # nearest ranger.json, up from the working directory
+rgrc install -vendor         # also copy into vendor/ranger/<name>
+rgrc install -cache=<dir>    # instead of RANGER_PKG_CACHE / ~/.cache/ranger/packages
+```
+
 `ranger-pkg` is AGPL-3.0-or-later, like the rest of `gallery/`. Using it to
 fetch sources does not touch the licence of what you compile, the same way
 `rgrc` does not.
@@ -247,12 +257,11 @@ fetch sources does not touch the licence of what you compile, the same way
 - Semver ranges (`^1.2`, `>=3 <4`)
 - Package namespaces / colliding `class Button`
 - Auth, SSH, incremental `have` against a stored pack
-- `rgrc install` / `rgrc pkg add` as compiler subcommands. `rgrc` is MIT and
-  this client is AGPL, so the fetch cannot move into the compiler binary as
-  things stand — `ranger-pkg` is the separable half. Folding it in means
-  either relicensing the client (it is a clean-room read of published
-  formats, and `GitZlib` is the only thing tying it to `gallery/zip`) or
-  having `rgrc install` shell out to `ranger-pkg` when it is installed.
+- `rgrc pkg add <git-url>` — editing `ranger.json` from the command line.
+  `rgrc install` exists, but it runs `ranger-pkg`: `rgrc` is MIT and this
+  client is AGPL, so the fetch cannot live inside the compiler binary
+  without relicensing it (it is a clean-room read of published formats, and
+  `GitZlib` is the only thing tying it to `gallery/zip`).
 - Copying `node_modules`-style trees by default — cache + optional `vendor`
 
 ## Tests

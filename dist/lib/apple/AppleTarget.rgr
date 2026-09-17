@@ -1,0 +1,185 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; AppleTarget.rgr -- what "build it for an iPhone" actually has to name.
+; =============================================================================
+;
+; Xcode hides four separate decisions behind one scheme pop-up, and a build
+; driven from the command line has to make all four itself:
+;
+;   the SDK        iphoneos, iphonesimulator, watchos, watchsimulator. This is
+;                  what `xcrun --sdk NAME --show-sdk-path` resolves and what
+;                  swiftc compiles against.
+;   the triple     arm64-apple-ios15.0-simulator. The architecture, the
+;                  platform, the DEPLOYMENT TARGET and, for a simulator, the
+;                  `-simulator` environment. Leave the environment off and the
+;                  compiler silently builds for a real device, which links but
+;                  will not run on the simulator.
+;   the families   iPhone, iPad, or both -- one number list in Info.plist, and
+;                  the only difference between "an iPhone app" and "an iPad
+;                  app" once the binary exists. A watch app is its own family
+;                  and its own kind of bundle.
+;   signing        a simulator build is signed ad hoc (identity "-"), which
+;                  needs nothing installed. A device build needs a real
+;                  identity and a provisioning profile, and this file only
+;                  carries the name of them.
+;
+; None of this needs Xcode the application. It needs the toolchain Xcode (or
+; the Command Line Tools) installs, which is what `xcrun` is for.
+; =============================================================================
+
+; The `UIDeviceFamily` numbers, which is the vocabulary Info.plist uses for
+; "which device is this for".
+class AppleDeviceFamily {
+    sfn iphone:int () {
+        return 1
+    }
+    sfn ipad:int () {
+        return 2
+    }
+    sfn tv:int () {
+        return 3
+    }
+    sfn watch:int () {
+        return 4
+    }
+}
+
+; One buildable combination: an SDK, a triple, and what the resulting bundle
+; says it runs on.
+class AppleTarget {
+
+    ; A short name for this combination, used in log lines and build paths:
+    ; "ios-simulator", "ios-device", "watchos-simulator", "watchos-device".
+    def key:string ""
+    ; What `xcrun --sdk` is given.
+    def sdk:string ""
+    ; The platform part of the triple: "ios" or "watchos".
+    def platform:string ""
+    ; The deployment target, which goes INTO the triple, not beside it.
+    def minVersion:string ""
+    ; "arm64" or "x86_64". A simulator target is built for whatever the Mac
+    ; running the build is, because the simulator runs native code.
+    def arch:string "arm64"
+    def isSimulator:boolean true
+    ; UIDeviceFamily. Two entries is a universal iPhone/iPad app.
+    def families:[int]
+    ; The codesigning identity. "-" is ad hoc, which is all a simulator wants.
+    def signIdentity:string "-"
+
+    Constructor () {
+    }
+
+    ; iPhone and iPad, on the simulator. The default, because it is the one
+    ; combination that needs nothing but an installed Xcode -- no developer
+    ; account, no device, no provisioning profile.
+    sfn iosSimulator:AppleTarget (arch:string) {
+        def t:AppleTarget (new AppleTarget)
+        t.key = "ios-simulator"
+        t.sdk = "iphonesimulator"
+        t.platform = "ios"
+        t.minVersion = "15.0"
+        t.arch = arch
+        t.isSimulator = true
+        t.families = ([] _:int ( 1 2 ))
+        t.signIdentity = "-"
+        return t
+    }
+
+    ; A real iPhone or iPad. Needs a signing identity and a provisioning
+    ; profile; everything else about the build is the same.
+    sfn iosDevice:AppleTarget (identity:string) {
+        def t:AppleTarget (new AppleTarget)
+        t.key = "ios-device"
+        t.sdk = "iphoneos"
+        t.platform = "ios"
+        t.minVersion = "15.0"
+        t.arch = "arm64"
+        t.isSimulator = false
+        t.families = ([] _:int ( 1 2 ))
+        t.signIdentity = identity
+        return t
+    }
+
+    ; The watch, on the simulator. A standalone watchOS app -- no paired iPhone
+    ; app, which is what watchOS 6 and later allow and what makes a watch build
+    ; from the command line reasonable at all.
+    sfn watchSimulator:AppleTarget (arch:string) {
+        def t:AppleTarget (new AppleTarget)
+        t.key = "watchos-simulator"
+        t.sdk = "watchsimulator"
+        t.platform = "watchos"
+        t.minVersion = "9.0"
+        t.arch = arch
+        t.isSimulator = true
+        t.families = ([] _:int ( 4 ))
+        t.signIdentity = "-"
+        return t
+    }
+
+    sfn watchDevice:AppleTarget (identity:string) {
+        def t:AppleTarget (new AppleTarget)
+        t.key = "watchos-device"
+        t.sdk = "watchos"
+        t.platform = "watchos"
+        t.minVersion = "9.0"
+        t.arch = "arm64"
+        t.isSimulator = false
+        t.families = ([] _:int ( 4 ))
+        t.signIdentity = identity
+        return t
+    }
+
+    ; Only iPhone, or only iPad. The binary does not change; the bundle's claim
+    ; about itself does, and that is what the home screen and the simulator
+    ; read.
+    fn onlyPhone:void () {
+        families = ([] _:int ( 1 ))
+    }
+
+    fn onlyPad:void () {
+        families = ([] _:int ( 2 ))
+    }
+
+    ; The triple swiftc is given. The deployment target is IN it -- there is no
+    ; separate flag for it on this path -- and the `-simulator` environment is
+    ; what keeps a simulator build from being a device build that happens to
+    ; link.
+    fn swiftTriple:string () {
+        def base:string (arch + "-apple-" + platform + minVersion)
+        if isSimulator {
+            return (base + "-simulator")
+        }
+        return base
+    }
+
+    fn isWatch:boolean () {
+        return (platform == "watchos")
+    }
+
+    ; Signing a simulator bundle ad hoc is not ceremony: an unsigned bundle is
+    ; rejected by the simulator on recent macOS, and "-" needs nothing
+    ; installed to satisfy it.
+    fn isAdHocSigned:boolean () {
+        return (signIdentity == "-")
+    }
+
+    fn describe:string () {
+        def fam:[string]
+        for families f:int i {
+            if (f == 1) {
+                push fam "iPhone"
+            }
+            if (f == 2) {
+                push fam "iPad"
+            }
+            if (f == 3) {
+                push fam "Apple TV"
+            }
+            if (f == 4) {
+                push fam "Apple Watch"
+            }
+        }
+        return (key + " (" + (this.swiftTriple()) + ", sdk " + sdk + ", " + (join fam " + ") + ")")
+    }
+}

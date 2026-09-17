@@ -551,6 +551,70 @@ class tester {
     return (ext == "ts")
   }
 
+  ; Walk up from `dir` looking for node_modules/ranger-pkg. npm puts a
+  ; dependency's own folder there, and a workspace puts it at the root, so
+  ; "beside the manifest" is not enough.
+  fn findPkgTool:string (env:InputEnv dir:string) {
+    def at:string dir
+    def guard:int 0
+    while ((strlen at) > 0) {
+      def cand:string (at + "/node_modules/ranger-pkg/dist")
+      if (file_exists env cand "ranger-pkg.mjs") {
+        return (cand + "/ranger-pkg.mjs")
+      }
+      def parent:string (PkgImport.parentDir(at))
+      if (parent == at) {
+        return ""
+      }
+      at = parent
+      guard = (guard + 1)
+      if (guard > 48) {
+        return ""
+      }
+    }
+    return ""
+  }
+
+  fn runInstall:boolean (env:InputEnv params:CmdParams cli:CLIProgress) {
+    def start:string (current_directory env)
+    def manDir:string (PkgImport.walkUp(env start))
+    if ((strlen manDir) == 0) {
+      print (cli.error(("no ranger.json in " + start + " or above it")))
+      return false
+    }
+    def tool:string (this.findPkgTool(env manDir))
+    if ((strlen tool) == 0) {
+      tool = (this.findPkgTool(env start))
+    }
+    if ((strlen tool) == 0) {
+      print (cli.error("the package client is not installed"))
+      print ""
+      print ("  " + (cli.bold("npm install --save-dev ranger-pkg")))
+      print ""
+      print (cli.gray("  rgrc resolves pkg: imports; ranger-pkg fetches them from Git."))
+      print (cli.gray("  They are separate packages because the Git client is AGPL."))
+      return false
+    }
+    def argv:[string]
+    push argv tool
+    push argv "install"
+    push argv (manDir + "/ranger.json")
+    if (has params.flags "vendor") {
+      push argv "--vendor"
+    }
+    def cacheOpt (params.getParam("cache"))
+    if (!null? cacheOpt) {
+      push argv ("--cache=" + (unwrap cacheOpt))
+    }
+    def noEnv:[string]
+    def out:[string] (run_process_result "node" argv manDir false noEnv)
+    if ((array_length out) == 0) {
+      print (cli.error("could not run node"))
+      return false
+    }
+    return ((itemAt out 0) == "0")
+  }
+
   fn run@(weak):CompilerResults ( env:InputEnv) {
 
     def res (new CompilerResults)
@@ -566,6 +630,21 @@ class tester {
     ; Check for --no-color flag
     if (has params.flags "no-color") {
         cli.setUseColors(false)
+    }
+
+    ; `rgrc install` -- put the packages ranger.json names on disk.
+    ;
+    ; Fetching is a Git client, and that lives in Ranger's AGPL gallery and
+    ; ships as `ranger-pkg`. The compiler is MIT and resolves only what is
+    ; already on disk, so this RUNS that program instead of embedding it.
+    if ((array_length params.values) > 0) {
+      if ((itemAt params.values 0) == "install") {
+        if (this.runInstall(env params cli)) {
+          return res
+        }
+        res.hasErrors = true
+        return res
+      }
     }
 
     def the_file ""
@@ -632,7 +711,13 @@ class tester {
     } {
       if ( (array_length params.values) < 1  ) {
         cli.printHelpHeader()
-        
+
+        cli.printSection("Commands:")
+        print ("  " + (cli.bold("install")) + "              fetch the packages ranger.json names into the package cache")
+        print ("                       and write ranger.lock. Options: -vendor, -cache=<dir>.")
+        print (cli.gray("                       Needs `ranger-pkg`; rgrc resolves pkg: imports, it does"))
+        print (cli.gray("                       not fetch them."))
+
         cli.printSection("Options:")
         def optCnt 0
         while (optCnt < (array_length valid_options) ) {
@@ -832,7 +917,14 @@ class tester {
 
     def dirParam (params.getParam("d"))
     if(!null? dirParam) {
-      the_target_dir = ((current_directory env) + "/"  + (unwrap dirParam))  ; (shell_arg 3)
+      ; -d=/abs/path is already where the caller means; joining it onto the
+      ; working directory wrote the whole tree under cwd + the absolute path.
+      def dirGiven:string (unwrap dirParam)
+      if (((strlen dirGiven) > 0) && ((charAt dirGiven 0) == 47)) {
+        the_target_dir = dirGiven
+      } {
+        the_target_dir = ((current_directory env) + "/"  + dirGiven)  ; (shell_arg 3)
+      }
     } 
     the_target_dir = (normalize the_target_dir)
     set comp_attrs "d" the_target_dir

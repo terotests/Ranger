@@ -187,23 +187,60 @@ function sha256Of(toolOutput) {
 
 ensureTool();
 
+// A path dependency inside a FETCHED package points at a sibling in the
+// repository it came from, which is not beside its cache entry. Same origin,
+// same revision, subdir moved: `gallery/statechart` + `../vela` is
+// `gallery/vela` in that repo. Resolving it any other way would mean asking
+// every application to list the transitive graph by hand.
+function originRelative(origin, relPath) {
+  if (!origin) {
+    return null;
+  }
+  const parts = (origin.subdir || "").split("/").filter((p) => p.length > 0);
+  for (const piece of relPath.split("/")) {
+    if (piece === "" || piece === ".") {
+      continue;
+    }
+    if (piece === "..") {
+      if (parts.length === 0) {
+        return null;
+      }
+      parts.pop();
+    } else {
+      parts.push(piece);
+    }
+  }
+  return { git: origin.git, rev: origin.rev, subdir: parts.join("/") };
+}
+
 const rootManifest = readManifest(manifestPath);
 const locked = {};
-// name -> directory the package was resolved to, so transitive deps of a
-// fetched package are walked from its own ranger.json.
-const pending = [{ dir: projectDir, manifest: rootManifest }];
+// A fetched package is walked from its own ranger.json, carrying the origin
+// it came from so its path dependencies stay resolvable.
+const pending = [{ dir: projectDir, manifest: rootManifest, origin: null }];
 const seen = new Set();
 
 while (pending.length > 0) {
-  const { dir, manifest } = pending.shift();
+  const { dir, manifest, origin } = pending.shift();
   const deps = manifest.dependencies || {};
-  for (const [name, dep] of Object.entries(deps)) {
+  for (const [name, declared] of Object.entries(deps)) {
     if (seen.has(name)) {
       continue;
     }
     seen.add(name);
 
+    let dep = declared;
+    if (dep.path && origin) {
+      const asGit = originRelative(origin, dep.path);
+      if (!asGit) {
+        console.error(`${name}: ${dep.path} climbs out of ${origin.git}`);
+        process.exit(1);
+      }
+      dep = asGit;
+    }
+
     let pkgDir = "";
+    let childOrigin = null;
     if (dep.path) {
       pkgDir = isAbsolute(dep.path) ? dep.path : resolve(dir, dep.path);
       if (!existsSync(join(pkgDir, "ranger.json"))) {
@@ -215,6 +252,7 @@ while (pending.length > 0) {
     } else if (dep.git) {
       const { sha256, rev } = fetchIntoCache(name, dep);
       pkgDir = join(cacheRoot, sha256);
+      childOrigin = { git: dep.git, rev, subdir: dep.subdir || "" };
       locked[name] = {
         git: dep.git,
         rev,
@@ -236,7 +274,11 @@ while (pending.length > 0) {
 
     const childManifest = join(pkgDir, "ranger.json");
     if (existsSync(childManifest)) {
-      pending.push({ dir: pkgDir, manifest: readManifest(childManifest) });
+      pending.push({
+        dir: pkgDir,
+        manifest: readManifest(childManifest),
+        origin: childOrigin,
+      });
     }
   }
 }

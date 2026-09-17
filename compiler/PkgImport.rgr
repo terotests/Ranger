@@ -467,20 +467,34 @@ class PkgImport {
       pkgRoot = manDir
       entry = (PkgJRead.strOf(man "entry"))
     } {
+      def dep (new PkgJVal)
+      def declared:boolean false
       def deps@(optional):PkgJVal (PkgJRead.child(man "dependencies"))
-      if (null? deps) {
-        hit.err = ("package " + pkgName + " is not in ranger.json")
-        return hit
+      if (!null? deps) {
+        def depMap:PkgJVal (unwrap deps)
+        def specObj@(optional):PkgJVal (PkgJRead.child(depMap pkgName))
+        if (!null? specObj) {
+          dep = (unwrap specObj)
+          declared = true
+        }
       }
-      def depMap:PkgJVal (unwrap deps)
-      def specObj@(optional):PkgJVal (PkgJRead.child(depMap pkgName))
-      if (null? specObj) {
-        hit.err = ("package " + pkgName + " is not a dependency")
-        return hit
+      ; ranger.lock is the whole graph, ranger.json only its first row. A
+      ; package pulled in by a dependency of a dependency is in the lock and
+      ; nowhere in the manifest, and is still the package this import means.
+      if (declared == false) {
+        def lockOnly:string (PkgImport.readText(env manDir "ranger.lock"))
+        def lockHit:string (PkgImport.lockRoot(env lockOnly pkgName manDir))
+        if ((strlen lockHit) == 0) {
+          hit.err = ("package " + pkgName + " is not a dependency")
+          return hit
+        }
+        pkgRoot = lockHit
       }
-      def dep:PkgJVal (unwrap specObj)
-      def pathDep:string (PkgJRead.strOf(dep "path"))
-      if ((strlen pathDep) > 0) {
+      def pathDep:string ""
+      if declared {
+        pathDep = (PkgJRead.strOf(dep "path"))
+      }
+      if (((strlen pathDep) > 0) && ((strlen pkgRoot) == 0)) {
         def cand:string (PkgImport.foldPath((PkgImport.joinPath(manDir pathDep))))
         ; A path dependency that is not on disk is not an answer. A package
         ; fetched into the cache keeps its repository's manifest, so its

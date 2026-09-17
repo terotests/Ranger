@@ -1,0 +1,248 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; AppleSimulator.rgr -- reading `xcrun simctl list devices`.
+; =============================================================================
+;
+; simctl can answer in JSON, and this reads the PLAIN TEXT instead, on purpose:
+; the text form is stable, it is what a person sees when they run the command
+; themselves, and parsing it needs no JSON library on any target this compiles
+; to. The parser is a pure function over a string, which means the one part of
+; the simulator story that has edge cases is the one part that can be tested on
+; a machine with no simulator on it.
+;
+; The format:
+;
+;     == Devices ==
+;     -- iOS 17.5 --
+;         iPhone SE (3rd generation) (A1B2...-...) (Shutdown)
+;         iPad Pro 13-inch (M4) (C3D4...-...) (Booted)
+;     -- watchOS 10.5 --
+;         Apple Watch Series 9 (45mm) (E5F6...-...) (Shutdown)
+;
+; The trap is that a device NAME contains parentheses at least as often as not,
+; so the fields cannot be found by counting them from the left. They are found
+; from the RIGHT: the last group is the state, the one before it is the UDID,
+; and whatever is left is the name however many brackets it holds.
+; =============================================================================
+
+class AppleSimulator {
+
+    def name:string ""
+    def udid:string ""
+    ; "Booted", "Shutdown", "Creating"...
+    def state:string ""
+    ; The runtime heading this device was listed under: "iOS 17.5".
+    def runtime:string ""
+
+    Constructor () {
+    }
+
+    fn isBooted:boolean () {
+        return (state == "Booted")
+    }
+
+    fn describe:string () {
+        return (name + " [" + runtime + "] " + udid + " (" + state + ")")
+    }
+}
+
+class AppleSimulatorList {
+
+    ; Peel one trailing "(...)" group off a line. Answers ([head, inner]), or
+    ; ([line, ""]) when there is no group to peel.
+    ; Characters are compared as one-character SUBSTRINGS rather than as code
+    ; points: `charAt` answers a `char`, and what a `char` is differs enough
+    ; between targets that the arithmetic form does not compile everywhere.
+    sfn pair:[string] (a:string b:string) {
+        def v:[string]
+        push v a
+        push v b
+        return v
+    }
+
+    sfn peelTail:[string] (line:string) {
+        def s:string (trim line)
+        def n:int (strlen s)
+        if (n < 2) {
+            return (AppleSimulatorList.pair(s ""))
+        }
+        if ((substring s (n - 1) n) != ")") {
+            return (AppleSimulatorList.pair(s ""))
+        }
+        ; Walk back to the matching "(", counting depth so a nested group in a
+        ; name does not end the search early.
+        def depth:int 0
+        def i:int (n - 1)
+        def openAt:int (0 - 1)
+        while (i >= 0) {
+            def c:string (substring s i (i + 1))
+            if (c == ")") {
+                depth = depth + 1
+            }
+            if (c == "(") {
+                depth = depth - 1
+                if (depth == 0) {
+                    openAt = i
+                    i = 0 - 1
+                }
+            }
+            if (i >= 0) {
+                i = i - 1
+            }
+        }
+        if (openAt < 0) {
+            return (AppleSimulatorList.pair(s ""))
+        }
+        def head:string (trim (substring s 0 openAt))
+        def inner:string (substring s (openAt + 1) (n - 1))
+        return (AppleSimulatorList.pair(head inner))
+    }
+
+    ; A runtime heading looks like "-- iOS 17.5 --". Anything else on a line
+    ; that starts with "--" is a section this parser has no use for.
+    sfn runtimeOf:string (line:string) {
+        def s:string (trim line)
+        def n:int (strlen s)
+        if (n < 5) {
+            return ""
+        }
+        if ((substring s 0 2) != "--") {
+            return ""
+        }
+        if ((substring s (n - 2) n) != "--") {
+            return ""
+        }
+        return (trim (substring s 2 (n - 2)))
+    }
+
+    ; Does this look like a UDID rather than part of a device name? simctl
+    ; writes a UUID, and the length plus the dash positions are enough to tell
+    ; it from "3rd generation" without a regex engine on every target.
+    sfn looksLikeUdid:boolean (s:string) {
+        if ((strlen s) != 36) {
+            return false
+        }
+        if ((substring s 8 9) != "-") {
+            return false
+        }
+        if ((substring s 13 14) != "-") {
+            return false
+        }
+        if ((substring s 18 19) != "-") {
+            return false
+        }
+        if ((substring s 23 24) != "-") {
+            return false
+        }
+        return true
+    }
+
+    sfn parse:[AppleSimulator] (text:string) {
+        def found:[AppleSimulator]
+        def runtime:string ""
+        def lines:[string] (strsplit text "\n")
+        for lines rawLine:string i {
+            def line:string (trim rawLine)
+            if ((strlen line) > 0) {
+                def heading:string (AppleSimulatorList.runtimeOf(line))
+                if ((strlen heading) > 0) {
+                    runtime = heading
+                    ; A runtime simctl cannot use is listed under an
+                    ; "Unavailable: ..." heading. Its devices cannot be booted,
+                    ; so they are not offered.
+                    if ((indexOf heading "Unavailable") == 0) {
+                        runtime = ""
+                    }
+                } {
+                    if ((strlen runtime) > 0) {
+                        def statePeel:[string] (AppleSimulatorList.peelTail(line))
+                        def state:string (itemAt statePeel 1)
+                        if ((strlen state) > 0) {
+                            def udidPeel:[string] (AppleSimulatorList.peelTail((itemAt statePeel 0)))
+                            def udid:string (itemAt udidPeel 1)
+                            if (AppleSimulatorList.looksLikeUdid(udid)) {
+                                def dev:AppleSimulator (new AppleSimulator)
+                                dev.name = (trim (itemAt udidPeel 0))
+                                dev.udid = udid
+                                dev.state = (trim state)
+                                dev.runtime = runtime
+                                push found dev
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return found
+    }
+
+    ; Everything on a given platform. `prefix` is "iOS" or "watchOS", matched
+    ; against the runtime heading, so "iOS 17.5" and "iOS 18.0" both answer to
+    ; "iOS" and neither answers to "watchOS".
+    sfn onPlatform:[AppleSimulator] (devices:[AppleSimulator] prefix:string) {
+        def out:[AppleSimulator]
+        for devices d:AppleSimulator i {
+            if ((indexOf d.runtime prefix) == 0) {
+                push out d
+            }
+        }
+        return out
+    }
+
+    ; The device to use, given what the caller asked for.
+    ;
+    ; A device that is ALREADY BOOTED wins over one that is not, whatever the
+    ; name preference says: booting a second simulator when one is open is slow,
+    ; and it puts the app on a window the person is not looking at.
+    sfn pick@(optional):AppleSimulator (devices:[AppleSimulator] nameWanted:string) {
+        def wanted:string (trim nameWanted)
+        def bootedMatch@(optional):AppleSimulator
+        def anyMatch@(optional):AppleSimulator
+        def bootedAny@(optional):AppleSimulator
+        def firstAny@(optional):AppleSimulator
+        for devices d:AppleSimulator i {
+            def isMatch:boolean false
+            if ((strlen wanted) > 0) {
+                if ((indexOf d.name wanted) >= 0) {
+                    isMatch = true
+                }
+                if (d.udid == wanted) {
+                    isMatch = true
+                }
+            }
+            if (d.isBooted()) {
+                if (null? bootedAny) {
+                    bootedAny = d
+                }
+                if isMatch {
+                    if (null? bootedMatch) {
+                        bootedMatch = d
+                    }
+                }
+            }
+            if (null? firstAny) {
+                firstAny = d
+            }
+            if isMatch {
+                if (null? anyMatch) {
+                    anyMatch = d
+                }
+            }
+        }
+        if ((strlen wanted) > 0) {
+            if (!null? bootedMatch) {
+                return bootedMatch
+            }
+            if (!null? anyMatch) {
+                return anyMatch
+            }
+            def noSuchName@(optional):AppleSimulator
+            return noSuchName
+        }
+        if (!null? bootedAny) {
+            return bootedAny
+        }
+        return firstAny
+    }
+}
