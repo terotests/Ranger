@@ -29,6 +29,13 @@ class UastSymbol {
     ; True when the declaration lives in package `.d.ts` / `node_modules`,
     ; not in the application's own sources. CodeGraph hides these by default.
     def isLibrary:boolean false
+    ; C++ says `class XMLDocument;` (and `friend class XMLElement;`) long
+    ; before the real declaration. Such a symbol carries a name and nothing
+    ; else, so it must never overwrite what the real one said.
+    def isForwardDecl:boolean false
+    ; The declaration has a body. `void XMLDocument::Accept(…) {}` in the
+    ; .cpp is the definition; the `.h` line that names it is not.
+    def isDefinition:boolean false
 
     Constructor () {
     }

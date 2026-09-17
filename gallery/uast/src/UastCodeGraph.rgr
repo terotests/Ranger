@@ -26,6 +26,10 @@ class UastToCodeGraph {
         def g (new CodeGraph)
         g.title = model.title
         def skipLib:boolean (UastToCodeGraph.hasAppTypes(model))
+        ; A PascalCase top-level function is a React component — in
+        ; TypeScript. In C++ it is a free function, or the out-of-line
+        ; definition of a member, and neither is a box on a class diagram.
+        def components:boolean (UastToCodeGraph.componentLanguage(model))
         def methodIds:[string:string]
         def i:int 0
         while (i < (array_length model.symbols)) {
@@ -41,24 +45,46 @@ class UastToCodeGraph {
                 if (s.kind == "type") {
                     isType = true
                 }
+                ; An enum is a box on a class diagram too: without one,
+                ; `XMLError` reached the graph as a nameless ghost the moment
+                ; a method returned it.
+                if (s.kind == "enum") {
+                    isType = true
+                }
                 if isType {
+                    def known:boolean (g.hasClass(s.name))
                     def cc:CodeClass (g.addClass(s.name))
-                    cc.fileName = s.fileName
-                    cc.startLine = s.startLine
-                    cc.extendsName = s.extendsName
-                    if (s.kind == "interface") {
-                        cc.stereotype = "interface"
+                    def keepOld:boolean false
+                    if known {
+                        if (s.isForwardDecl) {
+                            keepOld = true
+                        }
                     }
-                    if (s.kind == "type") {
-                        cc.stereotype = "type"
+                    if (keepOld == false) {
+                        cc.fileName = s.fileName
+                        cc.startLine = s.startLine
+                        if ((strlen s.extendsName) > 0) {
+                            cc.extendsName = s.extendsName
+                        }
+                        if (s.kind == "interface") {
+                            cc.stereotype = "interface"
+                        }
+                        if (s.kind == "type") {
+                            cc.stereotype = "type"
+                        }
+                        if (s.kind == "enum") {
+                            cc.stereotype = "enumeration"
+                        }
                     }
                 }
                 if (s.kind == "function") {
-                    if (UastToCodeGraph.pascalName(s.name)) {
-                        def fc:CodeClass (g.addClass(s.name))
-                        fc.fileName = s.fileName
-                        fc.startLine = s.startLine
-                        fc.stereotype = "component"
+                    if components {
+                        if (UastToCodeGraph.pascalName(s.name)) {
+                            def fc:CodeClass (g.addClass(s.name))
+                            fc.fileName = s.fileName
+                            fc.startLine = s.startLine
+                            fc.stereotype = "component"
+                        }
                     }
                 }
             }
@@ -96,11 +122,17 @@ class UastToCodeGraph {
                         cls = ms.name
                     }
                     if (g.hasClass(cls)) {
-                        def cm:CodeMethod (g.addMethod(cls ms.name))
+                        ; The header declares `bool Accept(XMLVisitor*) const;`
+                        ; and the .cpp defines it again. One method, listed
+                        ; once — but keep real overloads (XMLUtil::ToStr has
+                        ; seven), so the signature is part of the identity.
+                        def cm:CodeMethod (UastToCodeGraph.methodFor(g cls ms))
                         cm.isStatic = ms.isStatic
                         cm.params = ms.params
-                        cm.fileName = ms.fileName
-                        cm.startLine = ms.startLine
+                        if (UastToCodeGraph.betterSite(cm ms)) {
+                            cm.fileName = ms.fileName
+                            cm.startLine = ms.startLine
+                        }
                         if ((strlen ms.returns) > 0) {
                             cm.returns = ms.returns
                         }
@@ -109,7 +141,7 @@ class UastToCodeGraph {
                 }
             }
             if (ms.kind == "function") {
-                if (UastToCodeGraph.pascalName(ms.name)) {
+                if (components && (UastToCodeGraph.pascalName(ms.name))) {
                     if (UastToCodeGraph.keepSymbol(ms skipLib)) {
                         if (g.hasClass(ms.name)) {
                             def fm:CodeMethod (g.addMethod(ms.name "render"))
@@ -125,7 +157,11 @@ class UastToCodeGraph {
             }
             m = (m + 1)
         }
-        UastToCodeGraph.projectImports(g model skipLib)
+        ; An `#include` is not a dependency between two classes the way an
+        ; ES import is; C++ headers would fill every box with a list of paths.
+        if components {
+            UastToCodeGraph.projectImports(g model skipLib)
+        }
         def r:int 0
         while (r < (array_length model.relationships)) {
             def rel:UastRelation (itemAt model.relationships r)
@@ -236,12 +272,49 @@ class UastToCodeGraph {
         cls.addField(name fieldType)
     }
 
+    ; Reuse the method already on the class when this symbol is the other
+    ; half of the same member — same name, same parameter list.
+    sfn methodFor:CodeMethod (g:CodeGraph cls:string s:UastSymbol) {
+        def c:CodeClass (g.classByName(cls))
+        def i:int 0
+        while (i < (array_length c.methodIds)) {
+            def existing:CodeMethod (g.methodById((itemAt c.methodIds i)))
+            if (existing.name == s.name) {
+                if (existing.params == s.params) {
+                    return existing
+                }
+            }
+            i = (i + 1)
+        }
+        return (g.addMethod(cls s.name))
+    }
+
+    ; Where clicking the method should land: the definition, if we have seen
+    ; one; otherwise whatever we have.
+    sfn betterSite:boolean (cm:CodeMethod s:UastSymbol) {
+        if ((strlen cm.fileName) == 0) {
+            return true
+        }
+        return s.isDefinition
+    }
+
+    ; `render()` and `#include`-as-field belong to the TypeScript projection.
+    sfn componentLanguage:boolean (model:UastCodeModel) {
+        if (model.language == "cpp") {
+            return false
+        }
+        return true
+    }
+
     sfn hasAppTypes:boolean (model:UastCodeModel) {
         def i:int 0
         while (i < (array_length model.symbols)) {
             def s:UastSymbol (itemAt model.symbols i)
             if (s.isLibrary == false) {
                 if (s.kind == "class") {
+                    return true
+                }
+                if (s.kind == "enum") {
                     return true
                 }
                 if (s.kind == "interface") {

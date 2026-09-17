@@ -119,6 +119,7 @@ class CodeGraphBuilderTest {
         failed = (failed + (CodeGraphBuilderTest.checkOpenTs()))
         failed = (failed + (CodeGraphBuilderTest.checkOpenCpp()))
         failed = (failed + (CodeGraphBuilderTest.checkOpenCppWalk()))
+        failed = (failed + (CodeGraphBuilderTest.checkOpenCppLib()))
         if (failed > 0) {
             print (("failed " + (to_string failed)))
             exit 1
@@ -347,6 +348,96 @@ class CodeGraphBuilderTest {
         }
         print (("  dir classes " + (to_string (dirG.classCount()))) + ", methods " + (to_string (dirG.methodCount())))
         return n
+    }
+
+    ; What a C++ library looked like on the chart before the frontend knew
+    ; about export macros and out-of-line members: an empty `LibDocument`
+    ; next to boxes called `LibDocument::Accept`, each holding a `render()`.
+    sfn checkOpenCppLib:int () {
+        print "== fromAny gallery/uast/fixtures/cpp_lib (export macro, .cpp members)"
+        def n:int 0
+        def g:CodeGraph (CodeGraphBuilder.fromAny("gallery/uast/fixtures/cpp_lib"))
+        if ((indexOf g.title " FAIL ") >= 0) {
+            print ("  FAIL " + g.title)
+            return 1
+        }
+        if ((g.hasClass("LibDocument")) == false) {
+            print "  FAIL LibDocument missing"
+            n = (n + 1)
+        }
+        if (g.hasClass("LIB_API")) {
+            print "  FAIL the export macro became a class"
+            n = (n + 1)
+        }
+        if (g.hasClass("LibDocument::Accept")) {
+            print "  FAIL the out-of-line definition became a class"
+            n = (n + 1)
+        }
+        if (g.hasClass("LibDocument")) {
+            def doc:CodeClass (g.classByName("LibDocument"))
+            if ((indexOf doc.fileName "lib.h") < 0) {
+                print ("  FAIL LibDocument.fileName " + doc.fileName)
+                n = (n + 1)
+            }
+            if ((doc.extendsName) != "LibNode") {
+                print ("  FAIL LibDocument extends " + doc.extendsName)
+                n = (n + 1)
+            }
+            if ((CodeGraphBuilderTest.hasMethodNamed(g doc "Accept")) == false) {
+                print "  FAIL LibDocument.Accept missing"
+                n = (n + 1)
+            }
+            if ((CodeGraphBuilderTest.hasMethodNamed(g doc "Depth")) == false) {
+                print "  FAIL LibDocument.Depth missing"
+                n = (n + 1)
+            }
+            if (CodeGraphBuilderTest.hasMethodNamed(g doc "render")) {
+                print "  FAIL LibDocument has a React render()"
+                n = (n + 1)
+            }
+            if ((array_length doc.methodIds) != 2) {
+                print ("  FAIL LibDocument methods " + (to_string (array_length doc.methodIds)))
+                n = (n + 1)
+            }
+        }
+        if (g.hasClass("LibNode")) {
+            def node:CodeClass (g.classByName("LibNode"))
+            if ((CodeGraphBuilderTest.hasMethodNamed(g node "Print")) == false) {
+                print "  FAIL LibNode.Print missing"
+                n = (n + 1)
+            }
+            def printer:boolean false
+            def i:int 0
+            while (i < (array_length node.methodIds)) {
+                def m:CodeMethod (g.methodById((itemAt node.methodIds i)))
+                def u:int 0
+                while (u < (array_length m.uses)) {
+                    if ((itemAt m.uses u) == "LibPrinter") {
+                        printer = true
+                    }
+                    u = (u + 1)
+                }
+                i = (i + 1)
+            }
+            if (printer == false) {
+                print "  FAIL LibNode does not use LibPrinter"
+                n = (n + 1)
+            }
+        }
+        print (("  classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
+        return n
+    }
+
+    sfn hasMethodNamed:boolean (g:CodeGraph c:CodeClass name:string) {
+        def i:int 0
+        while (i < (array_length c.methodIds)) {
+            def m:CodeMethod (g.methodById((itemAt c.methodIds i)))
+            if (m.name == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     ; Autotools INSTALL next to include/ used to make list_dir_files throw.

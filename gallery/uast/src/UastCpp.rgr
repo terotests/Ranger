@@ -14,6 +14,7 @@ Import "UastSemantic.rgr"
 Import "UastKind.rgr"
 Import "../../cpp_parser/cpp_parser.rgr"
 Import "../../../lib/ranger-dir.rgr"
+Import "UastDirOps.rgr"
 
 class UastCpp {
     def fileName:string ""
@@ -90,7 +91,7 @@ class UastCpp {
         if (UastCpp.isTsFile(base)) {
             return false
         }
-        if (dir_exists path) {
+        if (UastCpp.isDirPath(path)) {
             if (UastCpp.hasCppFiles(path 0)) {
                 if (UastCpp.hasTsFiles(path 0)) {
                     return false
@@ -125,7 +126,7 @@ class UastCpp {
         if (depth > 6) {
             return false
         }
-        if ((dir_exists dir) == false) {
+        if ((UastCpp.isDirPath(dir)) == false) {
             return false
         }
         def names:[string] (list_dir_files dir)
@@ -140,7 +141,7 @@ class UastCpp {
                 def joined:string ((dir + "/") + name)
                 if (UastCpp.looksLikeFile(name)) {
                 } {
-                    if (dir_exists joined) {
+                    if (UastCpp.isDirPath(joined)) {
                         if (UastCpp.hasTsFiles(joined (depth + 1))) {
                             return true
                         }
@@ -156,7 +157,7 @@ class UastCpp {
         if (depth > 6) {
             return false
         }
-        if ((dir_exists dir) == false) {
+        if ((UastCpp.isDirPath(dir)) == false) {
             return false
         }
         def names:[string] (list_dir_files dir)
@@ -171,7 +172,7 @@ class UastCpp {
                 def joined:string ((dir + "/") + name)
                 if (UastCpp.looksLikeFile(name)) {
                 } {
-                    if (dir_exists joined) {
+                    if (UastCpp.isDirPath(joined)) {
                         if (UastCpp.hasCppFiles(joined (depth + 1))) {
                             return true
                         }
@@ -187,7 +188,7 @@ class UastCpp {
         if (depth > 12) {
             return
         }
-        if ((dir_exists dir) == false) {
+        if ((UastCpp.isDirPath(dir)) == false) {
             return
         }
         def names:[string] (list_dir_files dir)
@@ -202,7 +203,7 @@ class UastCpp {
                 } {
                     if (UastCpp.looksLikeFile(name)) {
                     } {
-                        if (dir_exists joined) {
+                        if (UastCpp.isDirPath(joined)) {
                             UastCpp.collectCppFiles(joined out (depth + 1))
                         }
                     }
@@ -210,6 +211,14 @@ class UastCpp {
             }
             i = (i + 1)
         }
+    }
+
+    ; `dir_exists` is "the path exists" on every target we build (existsSync
+    ; on node, stat() on C++), so a plain file — tinyxml2's `dox`, a Doxygen
+    ; config with no extension — answered true and list_dir_files threw
+    ; ENOTDIR. Ask the filesystem what it really is.
+    sfn isDirPath:boolean (path:string) {
+        return (is_dir_path path)
     }
 
     sfn skipDirName:boolean (name:string) {
@@ -478,6 +487,10 @@ class UastCpp {
         r.addNode(node)
         this.addHeritage(r node ts)
         if (null? ts.body) {
+            ; `class XMLDocument;` up front, `friend class XMLElement;` inside
+            ; another class. A name and nothing more: the real declaration is
+            ; elsewhere and must win the file, the line and the base class.
+            node.addFlag("forward")
             return node
         }
         def body:CppNode (unwrap ts.body)
@@ -576,6 +589,7 @@ class UastCpp {
         r.addNode(ret)
         node.addRole((UastChildRole.returnType()) ret.id)
         this.addParams(r node ts)
+        this.addSignatureUses(r node ts ret.name)
         if (null? ts.body) {
             return node
         }
@@ -601,6 +615,28 @@ class UastCpp {
             node.addRole((UastChildRole.parameter()) pn.id)
             pi = (pi + 1)
         }
+    }
+
+    ; `void XMLDocument::Print( XMLPrinter* streamer )` is how XMLDocument
+    ; uses XMLPrinter — the association never shows up as a field or a `new`.
+    ; Parameter and return types of a member are a use of the named class.
+    fn addSignatureUses:void (r:UastFrontendResult node:UNode ts:CppNode returnName:string) {
+        this.noteUse(r node returnName)
+        def pi:int 0
+        while (pi < (array_length ts.params)) {
+            def p:CppNode (itemAt ts.params pi)
+            this.noteUse(r node (this.typeNameOf(p.typeAnnotation)))
+            pi = (pi + 1)
+        }
+    }
+
+    fn noteUse:void (r:UastFrontendResult node:UNode typeName:string) {
+        def bare:string (this.innerTypeName(typeName))
+        if ((this.mentionsClass(bare)) == false) {
+            return
+        }
+        def src:string (UastHintSource.frontendInferred())
+        r.addHint((UastSemanticHint.create(node.id (UastRelKind.usesType()) bare src (UastResolution.resolved()) (UastConfidence.inferred()))))
     }
 
     fn addField:void (r:UastFrontendResult owner:UNode ts:CppNode) {
@@ -651,6 +687,7 @@ class UastCpp {
         node.addRole((UastChildRole.returnType()) ret.id)
         this.addParams(r node ts)
         owner.addRole((UastChildRole.method()) node.id)
+        this.addSignatureUses(r node ts ret.name)
         if (null? ts.body) {
             return
         }
@@ -806,13 +843,59 @@ class UastCpp {
         return t.value
     }
 
+    ; `const XMLPrinter*`, `DynArray<Block*, 10>` → `XMLPrinter`, `Block`.
+    ; Types reach here spelled the way the source spells them; a name with a
+    ; pointer star still glued to it matched no class, so the association it
+    ; stands for was never drawn.
     fn innerTypeName:string (name:string) {
-        def lt:int (indexOf name "<")
-        def gt:int (indexOf name ">")
+        def s:string name
+        def lt:int (indexOf s "<")
+        def gt:int (indexOf s ">")
         if ((lt >= 0) && (gt > lt)) {
-            return (substring name (lt + 1) gt)
+            s = (substring s (lt + 1) gt)
         }
-        return name
+        def comma:int (indexOf s ",")
+        if (comma > 0) {
+            s = (substring s 0 comma)
+        }
+        return (this.bareTypeName(s))
+    }
+
+    fn bareTypeName:string (raw:string) {
+        def s:string raw
+        def again:boolean true
+        while again {
+            again = false
+            if ((indexOf s "const ") == 0) {
+                s = (substring s 6 (strlen s))
+                again = true
+            }
+            if ((indexOf s "struct ") == 0) {
+                s = (substring s 7 (strlen s))
+                again = true
+            }
+            if ((indexOf s "class ") == 0) {
+                s = (substring s 6 (strlen s))
+                again = true
+            }
+        }
+        while ((strlen s) > 0) {
+            def last:int (charAt s ((strlen s) - 1))
+            if ((last == 42) || ((last == 38) || ((last == 32) || (last == 9)))) {
+                s = (substring s 0 ((strlen s) - 1))
+            } {
+                break
+            }
+        }
+        while ((strlen s) > 0) {
+            def first:int (charAt s 0)
+            if ((first == 32) || (first == 9)) {
+                s = (substring s 1 (strlen s))
+            } {
+                break
+            }
+        }
+        return s
     }
 
     fn mentionsClass:boolean (name:string) {

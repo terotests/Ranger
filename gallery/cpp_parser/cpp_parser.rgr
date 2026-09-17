@@ -682,6 +682,14 @@ class CppParser {
         if (this.matchValue("final")) {
             this.advance()
         }
+        ; `class TINYXML2_LIB XMLDocument : public XMLNode` — libraries put an
+        ; export macro between the keyword and the name, and the macro is an
+        ; ordinary identifier to the lexer. Two identifiers in a row can only
+        ; be macro(s) + name, so keep the last one. `final` and `alignas` are
+        ; keywords, and `A::B` has a punctuator next, so neither is eaten.
+        while (((this.peekType()) == "Identifier") && ((this.peekNthType(1)) == "Identifier")) {
+            this.advance()
+        }
         if ((this.peekType()) == "Identifier") {
             def nameTok:CppToken (this.advance())
             n.name = nameTok.value
@@ -1231,6 +1239,13 @@ class CppParser {
         n.line = tok.line
         n.col = tok.col
         def parts:[string]
+        ; `const` and `volatile` are kept for display but are NOT the type.
+        ; They used to go straight into `parts`, and the "did we read a type
+        ; keyword yet?" test below is `parts` being empty — so in
+        ; `const XMLElement* RootElement()` the type read as plain `const`,
+        ; `XMLElement` was taken for the member name, and the rest of the
+        ; declaration was resynchronised away, taking the next member with it.
+        def quals:[string]
         if ((this.peekValue()) == "decltype") {
             this.advance()
             if (this.matchValue("(")) {
@@ -1240,7 +1255,7 @@ class CppParser {
         }
         while (this.isSpecifier((this.peekValue()))) {
             if (((this.peekValue()) == "const") || ((this.peekValue()) == "volatile")) {
-                push parts (this.peekValue())
+                push quals (this.peekValue())
             }
             this.advance()
         }
@@ -1313,7 +1328,18 @@ class CppParser {
                 }
             }
         }
-        n.name = (join parts " ")
+        def all:[string]
+        def qi:int 0
+        while (qi < (array_length quals)) {
+            push all (itemAt quals qi)
+            qi = (qi + 1)
+        }
+        def ti:int 0
+        while (ti < (array_length parts)) {
+            push all (itemAt parts ti)
+            ti = (ti + 1)
+        }
+        n.name = (join all " ")
         n.value = n.name
         def endTok:CppToken (this.peek())
         n.end = endTok.start
