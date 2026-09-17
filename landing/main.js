@@ -1,11 +1,13 @@
 /**
  * main.js — what the front page does once it is on screen.
  *
- * Four things, and they are all optional: the page reads and works with none
- * of them having run. The backdrop is in assets/hero/hero.js, because it is
- * the one part that is a program rather than a decoration.
+ * All of it is optional: the page reads and works with none of it having run.
+ * Two pieces live in their own files because they are programs rather than
+ * decorations — assets/hero/hero.js draws the backdrop on the GPU, and
+ * assets/marks.js turns the strip of marks into something you can grab.
  */
 import { startHero } from "./assets/hero/hero.js";
+import { startMarks } from "./assets/marks.js";
 
 /* --------------------------------------------------------- inline SVG --- */
 /* Anything with data-inline-svg gets the file's markup put in it, so the path
@@ -150,3 +152,6 @@ if (DATA && srcEl && outEl && tabsEl) {
 
 /* ---------------------------------------------------------- the hero ---- */
 startHero(document.getElementById("heroBg"), { host: document.getElementById("hero") });
+
+/* --------------------------------------------------------- the marks ---- */
+startMarks(document.querySelector(".marks"));

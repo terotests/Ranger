@@ -275,21 +275,28 @@ code:not(pre code) {
   width: max-content;
   border-top: 1px solid var(--line-2);
   border-bottom: 1px solid var(--line);
-  animation: marks-slide 64s linear infinite;
+  animation: marks-slide 110s linear infinite;
 }
 /* Two identical runs, so the second is already in place when the first has
    travelled its own width and the translation resets. */
-.marks__run { display: flex; align-items: center; gap: clamp(38px, 4.5vw, 62px); padding: 26px clamp(19px, 2.3vw, 31px); }
+.marks__run { display: flex; align-items: center; gap: clamp(46px, 5vw, 74px); padding: 30px clamp(23px, 2.5vw, 37px); }
 
 .marks i {
   display: block;
-  width: 32px; height: 32px; flex: none;
+  width: 48px; height: 48px; flex: none;
   background: #adb1ba;
   -webkit-mask: var(--mark) center / contain no-repeat;
   mask: var(--mark) center / contain no-repeat;
   transition: background .2s, transform .2s;
 }
 .marks i:hover { background: var(--gold); transform: translateY(-2px); }
+
+/* The script takes the animation over so that a drag and the drift share one
+   offset. Until then the CSS keyframes run it, which is what a page with no
+   JavaScript keeps. */
+.marks__clip.is-live { cursor: grab; touch-action: pan-y; }
+.marks__clip.is-live.is-dragging { cursor: grabbing; }
+.marks__clip.is-live.is-dragging i { transform: none; }
 
 @keyframes marks-slide { to { transform: translateX(-50%); } }
 
@@ -302,12 +309,17 @@ code:not(pre code) {
   .marks__run { flex-wrap: wrap; row-gap: 22px; }
 }
 
+/* Deliberately quiet: the strip says what it says, and this is the small
+   print under it for whoever leans in. */
 .marks__note {
-  margin: 20px 0 0;
-  font-size: 14.5px;
-  color: var(--paper);
-  max-width: 88ch;
+  margin: 14px 0 0;
+  font: 400 10.5px/1.6 var(--mono);
+  letter-spacing: .01em;
+  color: #4a4d55;
+  max-width: 96ch;
 }
+.marks__note .u { color: #6a5f3c; text-decoration-color: rgba(251,200,2,.2); }
+.marks__note .u:hover { color: var(--gold); text-decoration-color: var(--gold); }
 
 .m-swift { --mark: url("assets/logos/swift.svg"); }
 .m-apple { --mark: url("assets/logos/apple.svg"); }

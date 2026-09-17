@@ -41,7 +41,7 @@ const PAGE = ["index.html", "styles.css", "main.js"];
 const ASSET_DIRS = ["shots", "hero", "logos"];
 
 /** Single files out of landing/assets. */
-const ASSET_FILES = ["ranger-mark.svg", "favicon.svg", "targets.js"];
+const ASSET_FILES = ["ranger-mark.svg", "favicon.svg", "targets.js", "marks.js"];
 
 /**
  * The WebGL painter the backdrop is drawn with, taken from the gallery rather
@@ -108,7 +108,7 @@ fs.rmSync(path.join(OUT, "assets", "logos", "src"), { recursive: true, force: tr
 // say which piece is missing here rather than in somebody's browser.
 for (const need of ["assets/hero/hero.json", "assets/ranger-mark.svg", "assets/gl/evg-webgl.js",
                     "assets/shots/figma.jpg", "assets/shots/r5.jpg", "assets/targets.js",
-                    "assets/logos/swift.svg", "assets/logos/raspberrypi.svg"]) {
+                    "assets/logos/swift.svg", "assets/logos/raspberrypi.svg", "assets/marks.js"]) {
   const at = path.join(OUT, need);
   if (!fs.existsSync(at) || fs.statSync(at).size === 0) throw new Error(`the build wrote no ${need}`);
 }
