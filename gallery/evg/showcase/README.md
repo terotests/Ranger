@@ -6,7 +6,51 @@ published to `/evg/` on the project's GitHub Pages site.
 ```
 npm run showcase          # -> gallery/evg/showcase/dist/index.html
 npm run showcase:gl       # check the WebGL viewer actually drew the pages
+npm run showcase:dev cards -- --watch   # one page, re-rendered as you edit
 ```
+
+## Changing a page or a theme
+
+`npm run showcase` renders fourteen pages under two or three themes to four
+targets — about 125 renders — and compiles the five Ranger tools first. It is
+what the published gallery is built with, and it is the wrong thing to run
+after moving a margin.
+
+`dev.mjs` renders **one page, one theme, the targets you name**, out of a cache
+of compiled tools that survives between runs:
+
+```
+node gallery/evg/showcase/dev.mjs cards                     # -> dist-dev/cards-editorial.png
+node gallery/evg/showcase/dev.mjs cards -t studio -f png,pdf,html
+node gallery/evg/showcase/dev.mjs charts --watch            # re-render on save
+node gallery/evg/showcase/dev.mjs --list                    # the page ids
+```
+
+It shells out to the same tools with the same arguments as `build.mjs`, so the
+files are byte for byte the ones the full build produces.
+
+**Why it is faster.** A page's `.tsx` and a theme's `.css` are data that an
+already-compiled tool reads at run time, so editing either cannot change a
+tool. Measured in a clean container:
+
+| | |
+| --- | --- |
+| compile one EVG tool from `.rgr` | 6.3 s |
+| render one page to PNG with a compiled tool | 0.5 s |
+| node start + parse of the 1.2 MB tool | 0.06 s |
+| `npm run showcase`, cold | 76 s |
+| `dev.mjs <page>`, tools cached | **0.6 s** |
+
+The cache key is each tool's whole transitive `Import` closure plus the
+compiler bundle, so editing `EVGLayout.rgr` still recompiles what includes it,
+and editing `PNGEncoder.rgr` recompiles the PNG tool and not the HTML one. It
+lives in `.devcache/` and `build.mjs` shares it — a full rebuild after a
+stylesheet change no longer recompiles the five tools it is about to delete.
+
+That last row is also the answer to "would a hot-reload server help?". It would
+save the 0.06 s of process startup out of 0.6 s. The cost was never the
+process; it was compiling tools that had not changed, and re-rendering pages
+that had not changed.
 
 The index opens with a list of every page, because fourteen sections is more
 than a reader should have to scroll past to find one. Each entry opens the rendered

@@ -16,6 +16,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { compileCached } from "./toolcache.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "../../..");
@@ -197,20 +198,27 @@ function sh(cmd, args, opts = {}) {
   });
 }
 
-/** Compile a Ranger tool. The compiler prints failures but still exits 0. */
+/**
+ * Compile a Ranger tool into `TOOLS`, or copy the one `.devcache/` already
+ * holds for these exact sources.
+ *
+ * Each of the five tools costs about six seconds, and `TOOLS` lives under the
+ * output directory, which is wiped at the start of every build — so a rebuild
+ * after editing a stylesheet used to pay thirty seconds to produce five files
+ * byte for byte identical to the ones it had just deleted. The cache is keyed
+ * on each tool's whole transitive `Import` closure plus the compiler bundle,
+ * so a change to the engine still recompiles what includes it. See
+ * `toolcache.mjs`; `dev.mjs` renders a single page out of the same cache.
+ *
+ * The compiler prints failures but still exits 0, which `compileCached`
+ * handles by reading the log and treating a missing output file as an error.
+ */
 function compile(src, outFile) {
-  const log = sh("node", [
-    "bin/output.js",
-    "-es6",
-    src,
-    `-d=${path.relative(ROOT, TOOLS)}`,
-    `-o=${outFile}`,
-    "-nodecli",
-  ], { env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr" } });
-  if (log.includes("Compilation FAILED")) {
-    process.stderr.write(log.split("\n").slice(-30).join("\n") + "\n");
-    throw new Error(`compile failed: ${src}`);
-  }
+  const { path: built, cached, ms } = compileCached(src, outFile);
+  fs.copyFileSync(built, path.join(TOOLS, outFile));
+  process.stdout.write(
+    cached ? `  ${outFile} (cached)\n` : `  ${outFile} (${(ms / 1000).toFixed(1)}s)\n`
+  );
 }
 
 function render(tool, page, theme, outFile, extra = []) {
@@ -640,6 +648,7 @@ fs.writeFileSync(path.join(OUT, "gl", "view.html"), viewerHtml(faceCss.join("\n 
 
 const unique = [...new Set(allWarnings)];
 fs.writeFileSync(path.join(OUT, "index.html"), indexHtml(entries, unique), "utf8");
+// The copies under the output directory go; the cache they came from stays.
 fs.rmSync(TOOLS, { recursive: true, force: true });
 
 process.stdout.write(
