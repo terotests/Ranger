@@ -72,24 +72,27 @@ class DumpCodeGraph {
         app.codeTr = tr
         app.start((to_double w) (to_double h) (unwrap css))
         app.codeView.fontFamily = "Open Sans"
-        if ((app.openDiskPath("gallery/evg/EVGElement.rgr")) == false) {
+        ; A file short enough that the minimap stays two pixels a line —
+        ; EVGElement.rgr is 4000+ lines and the specks collapse into a
+        ; solid strip, which is the opposite of the per-letter opacity.
+        if ((app.openDiskPath("gallery/codegraph/src/CodeGraphModel.rgr")) == false) {
             print ("open failed: " + app.statusText())
             return
         }
-        def mid:string "EVGElement.setAttribute"
+        def mid:string "CodeGraph.classNamesByDegree"
         if ((app.session.model.hasMethod(mid)) == false) {
             def mi:int 0
             while (mi < (app.session.model.methodCount())) {
                 def m:CodeMethod (app.session.model.methodAt(mi))
-                if ((m.className == "EVGElement") && ((indexOf m.name "setAttr") >= 0)) {
+                if ((m.className == "CodeGraph") && ((indexOf m.name "classNamesByDegree") >= 0)) {
                     mid = m.id
                     mi = (app.session.model.methodCount())
                 }
                 mi = (mi + 1)
             }
         }
-        if ((app.openClass("EVGElement")) == false) {
-            print "openClass EVGElement failed"
+        if ((app.openClass("CodeGraph")) == false) {
+            print "openClass CodeGraph failed"
             return
         }
         if ((app.openMethod(mid)) == false) {
@@ -103,12 +106,13 @@ class DumpCodeGraph {
         painter.begin(w h tr)
         painter.fontFamily = "Open Sans"
         painter.draw(dl)
-        DumpCodeGraph.writePng(painter "gallery/codegraph/artifacts" "codegraph_source_evgelement_setattr.png" w h)
-        DumpCodeGraph.writePng(painter "/opt/cursor/artifacts/screenshots" "codegraph_source_evgelement_setattr.png" w h)
+        DumpCodeGraph.writePng(painter "gallery/codegraph/artifacts" "codegraph_source_codegraph_degree.png" w h)
+        DumpCodeGraph.writePng(painter "/opt/cursor/artifacts/screenshots" "codegraph_source_codegraph_degree.png" w h)
         def firstVis:int (app.codeView.layout.firstVisible())
         def lastVis:int (app.codeView.layout.lastVisible(app.codeView.buf))
         print (("caretLine=" + (to_string app.codeView.sel.caret.line)) + " path=" + app.sourcePath)
         print (("view=" + (to_string firstVis)) + ".." + (to_string lastVis))
+        print (("minimapScale=" + (to_string (app.codeView.minimapScale()))) + " picH=" + (to_string (app.codeView.minimapPictureH())))
         print (("method=" + mid) + " page=" + (app.pageId()))
         print (app.stats())
     }

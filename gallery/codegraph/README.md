@@ -46,7 +46,7 @@ by the Pages workflow.
 
 ![the shop fixture as UML, field types drawn as associations](artifacts/codegraph_shop.png)
 
-![EVGElement.setAttribute selected: source pane shows the method body](artifacts/codegraph_source_evgelement_setattr.png)
+![CodeGraph.classNamesByDegree selected: method body in view, faint per-letter minimap](artifacts/codegraph_source_codegraph_degree.png)
 
 ## Run
 
