@@ -6,6 +6,12 @@
  *
  * Relative Imports (`../evg/EVGColor.rgr`) are rewritten to the basename so
  * the in-memory filesystem can find them on RANGER_LIB (it does not walk `..`).
+ *
+ * An import may leave gallery/ entirely — gallery/zip reads DEFLATE from
+ * lib/zip/Inflate.rgr, which is MIT platform code rather than gallery IP.
+ * Those files are packed into the sample that needs them: the VFS this feeds
+ * is one flat folder per sample, and every import in it is resolved by
+ * basename anyway.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -24,30 +30,46 @@ const ENTRIES = {
   zip: "zip/zip_tool.rgr",
 };
 
+// The VFS key of a file the pack reaches. Inside gallery/ it keeps its own
+// path so the sample folders stay recognisable; outside it (lib/zip) it joins
+// the sample that pulled it in, because the VFS has no folder for it.
+function keyFor(absPath, sample) {
+  const rel = path.relative(rangerRoot, absPath).split(path.sep).join("/");
+  if (rel.startsWith("gallery/")) {
+    return rel.slice("gallery/".length);
+  }
+  return sample + "/" + path.basename(absPath);
+}
+
 function collect(entryRel) {
   const files = {};
-  const queue = [entryRel];
+  const sample = entryRel.split("/")[0];
+  const queue = [path.join(galleryRoot, entryRel)];
   while (queue.length) {
-    const rel = queue.pop();
-    if (files[rel]) continue;
-    const full = path.join(galleryRoot, rel);
-    if (!fs.existsSync(full)) {
-      console.warn("  missing import " + rel);
+    const abs = queue.pop();
+    const key = keyFor(abs, sample);
+    if (files[key]) continue;
+    if (!fs.existsSync(abs)) {
+      console.warn("  missing import " + key);
       continue;
     }
-    const src = fs.readFileSync(full, "utf8");
-    files[rel] = src;
-    const dir = path.dirname(rel);
+    const src = fs.readFileSync(abs, "utf8");
+    files[key] = src;
+    const dir = path.dirname(abs);
     const re = /^\s*Import\s+"([^"]+)"/gm;
     let m;
     while ((m = re.exec(src))) {
       const spec = m[1];
-      if (spec.indexOf("compiler/") >= 0) continue;
-      if (spec.indexOf("lib/") >= 0) continue;
-      const resolved = path.posix.normalize(path.posix.join(dir, spec));
-      if (resolved.startsWith("..")) continue;
-      if (!resolved.endsWith(".rgr")) continue;
-      queue.push(resolved);
+      if (!spec.endsWith(".rgr")) continue;
+      if (spec.startsWith("pkg:")) continue;
+      const dep = path.resolve(dir, spec);
+      const rel = path.relative(rangerRoot, dep).split(path.sep).join("/");
+      // Outside the repository, the compiler's own sources, or the standard
+      // library the compile env already installs under /lib/.
+      if (rel.startsWith("..")) continue;
+      if (rel.startsWith("compiler/")) continue;
+      if (rel.startsWith("lib/") && rel.indexOf("/", 4) < 0) continue;
+      queue.push(dep);
     }
   }
   return files;

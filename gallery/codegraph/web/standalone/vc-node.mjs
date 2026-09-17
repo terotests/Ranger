@@ -92,6 +92,31 @@ async function main() {
       process.exit(1);
     }
   }
+  // The compiler sample, which is how this file would have caught PkgFetch.rgr
+  // reaching into pkg/src without the packer following it: the gallery libs
+  // all resolve without it, so nothing here failed until the page was opened.
+  const compiler = JSON.parse(mustRead("compilerSources.json"));
+  for (const [name, data] of Object.entries(compiler.files || compiler)) {
+    app.setCompilerFile(name, data);
+  }
+  if (!app.hasCompilerTree()) {
+    console.error("compilerSources.json did not install VirtualCompiler.rgr");
+    process.exit(1);
+  }
+  const cok = await Promise.resolve(app.analyzeCompiler());
+  const cnames = (app.classList() || "").split("\n").filter(Boolean);
+  console.log("  vc-node compiler: " + cnames.length + " classes");
+  if (!cok) {
+    console.error("analyzeCompiler failed: " + app.statusText());
+    process.exit(1);
+  }
+  for (const want of ["VirtualCompiler", "PkgFetch", "GitPackIO"]) {
+    if (!cnames.includes(want)) {
+      console.error("expected " + want + " from the compiler sample");
+      process.exit(1);
+    }
+  }
+
   console.log("  vc-node OK");
 }
 
