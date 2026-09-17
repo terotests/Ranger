@@ -27,6 +27,7 @@ Import "../../ui/src/ResizeCtl.rgr"
 Import "../../rangerflow/core/FlowEditor.rgr"
 Import "../../rangerflow/core/FlowEvents.rgr"
 Import "../../datagrid/src/script/ScriptEditor.rgr"
+Import "../../datagrid/src/GridCursor.rgr"
 Import "../../datagrid/src/script/lang/EditorLanguage.rgr"
 Import "../../datagrid/src/script/lang/RangerLanguage.rgr"
 Import "../../datagrid/src/script/lang/JsLanguage.rgr"
@@ -60,6 +61,11 @@ class CodeGraphApp extends EvgApp {
     def splitW:double 1200.0
     def split:ResizeCtl (new ResizeCtl)
     def splitDrag:boolean false
+    ; Where the separators are on screen, filled during the frame's layout.
+    ; The pointer's shape is asked for on every mouse move, and re-laying the
+    ; page out to answer that would be a second layout per frame.
+    def sepX0:[double]
+    def sepX1:[double]
     def splitDragI:int 0
     def splitAt:double 0.0
     def graphDrag:boolean false
@@ -2005,7 +2011,6 @@ class CodeGraphApp extends EvgApp {
         def moved:boolean false
         while (i < n) {
             def ev:FlowHitEvent (editor.clicks.at(i))
-            this.preferMethodRow(ev)
             if (session.handleClick(ev)) {
                 moved = true
             }
@@ -2206,22 +2211,6 @@ class CodeGraphApp extends EvgApp {
         classScrollEl.scrollTop = top
     }
 
-    fn preferMethodRow:void (ev:FlowHitEvent) {
-        if (ev.kind != "node") {
-            return
-        }
-        if ((indexOf session.pageId "class:") != 0) {
-            return
-        }
-        def mid:string (this.methodAt(ev.id ev.flowY))
-        if ((strlen mid) == 0) {
-            return
-        }
-        ev.dataKind = "method"
-        ev.dataRef = mid
-        ev.id = mid
-    }
-
     fn methodAt:string (nodeId:string flowY:double) {
         if ((graph.hasNode(nodeId)) == false) {
             return ""
@@ -2331,8 +2320,47 @@ class CodeGraphApp extends EvgApp {
                 if (splitW < 1.0) {
                     splitW = pageW
                 }
+                clear sepX0
+                clear sepX1
+                def si:int 0
+                while (si < ((array_length split.panels) - 1)) {
+                    def sepEl@(optional):EVGElement (ui.findEl(gbox (split.sepTid(si))))
+                    if sepEl {
+                        def sb:EVGElement (unwrap sepEl)
+                        push sepX0 sb.calculatedX
+                        push sepX1 (sb.calculatedX + sb.calculatedWidth)
+                    }
+                    si = (si + 1)
+                }
             }
         }
+    }
+
+    ; The pointer's shape, as a GridCursor kind, for a host that has a real
+    ; cursor to set. A separator you can drag has to LOOK like one: the
+    ; element carries `cursor: col-resize`, but a canvas host paints the page
+    ; rather than laying it out in a browser, so nothing acted on that.
+    fn cursorAt:int (px:double py:double) {
+        if splitDrag {
+            return (GridCursor.resizeX())
+        }
+        if (py >= canvasY) {
+            if (py < (canvasY + canvasH)) {
+                def i:int 0
+                while (i < (array_length sepX0)) {
+                    def x0:double ((itemAt sepX0 i) - 2.0)
+                    def x1:double ((itemAt sepX1 i) + 2.0)
+                    if ((px >= x0) && (px <= x1)) {
+                        return (GridCursor.resizeX())
+                    }
+                    i = (i + 1)
+                }
+            }
+        }
+        if (this.inSource(px py)) {
+            return (GridCursor.text())
+        }
+        return (GridCursor.arrow())
     }
 
     fn press:boolean (id:string) {

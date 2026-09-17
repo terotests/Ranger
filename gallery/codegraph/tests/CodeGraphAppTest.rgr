@@ -271,6 +271,50 @@ class CodeGraphAppTest {
             failed = (failed + 1)
         }
 
+        ; A click on a method row reads it in the source pane; it does not
+        ; leave the class for a page about that one method. Double-click does.
+        app.openClass("Order")
+        if (app.graph.hasNode("Order")) {
+            def on:FlowNode (app.graph.nodeById("Order"))
+            def rowY:double 0.0
+            def rowMid:string ""
+            def probe:double (on.y + on.headerHeight)
+            while (probe < (on.y + on.height)) {
+                def r:int (app.editor.rowAtPoint(on probe))
+                if (r >= 0) {
+                    def cand:string (app.session.pages.methodIdAtRow("Order" r))
+                    if ((strlen cand) > 0) {
+                        if ((strlen rowMid) == 0) {
+                            rowMid = cand
+                            rowY = probe
+                        }
+                    }
+                }
+                probe = (probe + 2.0)
+            }
+            if ((strlen rowMid) == 0) {
+                print "  FAIL no method row on the Order box"
+                failed = (failed + 1)
+            } {
+                def sx:double (app.editor.view.viewport.toScreenX((on.centerX())))
+                def sy:double (app.editor.view.viewport.toScreenY(rowY))
+                app.graphDown((app.canvasX + sx) (app.canvasY + sy) false false)
+                app.graphUp((app.canvasX + sx) (app.canvasY + sy) false false)
+                if ((app.pageId()) != "class:Order") {
+                    print ("  FAIL a method row click left the class page: " + (app.pageId()))
+                    failed = (failed + 1)
+                }
+                ; And the second click on the same row still drills in.
+                app.graphDown((app.canvasX + sx) (app.canvasY + sy) false false)
+                app.graphUp((app.canvasX + sx) (app.canvasY + sy) false false)
+                if ((app.pageId()) != ("method:" + rowMid)) {
+                    print ("  FAIL a method row double-click went to " + (app.pageId()))
+                    failed = (failed + 1)
+                }
+                app.openClass("Order")
+            }
+        }
+
         ; A class name double-clicked in the source opens that class.
         app.goOverview()
         if ((app.openWord("LineItem*")) == false) {

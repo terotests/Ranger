@@ -700,7 +700,7 @@ class ScriptEditor {
         return ((((("find: " + findQuery) + "   ") + (to_string findOrdinal)) + " of ") + (to_string findTotal))
     }
 
-    fn paintFind:void (dl:EVGDisplayList tr:UITextRenderer) {
+    fn paintFind:void (dl:EVGDisplayList tr:UITextRenderer blink:int) {
         if (findOpen == false) {
             return
         }
@@ -738,7 +738,18 @@ class ScriptEditor {
                 ink = theme.errorInk
             }
         }
-        this.pushText(dl tr (this.findStatus()) (x + 8.0) (y + 5.0) (layout.fontSize * 0.9) ink)
+        def size:double (layout.fontSize * 0.9)
+        def label:string (this.findStatus())
+        this.pushText(dl tr label (x + 8.0) (y + 5.0) size ink)
+        ; A caret after the query, blinking on the editor's own clock. Without
+        ; it the bar gives no sign that the keys are going into it — which is
+        ; the one thing it has to say while it is up.
+        def on:int (blink - ((idiv blink 2) * 2))
+        if (on == 0) {
+            def head:string (("find: " + findQuery))
+            def cx:double ((x + 8.0) + (tr.measureWidth(head size)))
+            this.pushRect(dl cx (y + 4.0) 1.5 ((to_double layout.lineHeight) - 2.0) theme.caret)
+        }
     }
 
     fn minimapWidth:int () {
@@ -1005,7 +1016,7 @@ class ScriptEditor {
         ; popup that could be drawn outside the editor would be drawn over the
         ; status bar the first time someone typed on the last line.
         this.paintCompletions(dl tr)
-        this.paintFind(dl tr)
+        this.paintFind(dl tr blink)
         this.popClip(dl)
         this.paintMinimap(dl)
         def edge:EVGDrawCmd (new EVGDrawCmd)

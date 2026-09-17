@@ -90,9 +90,14 @@ canvas.addEventListener("pointerdown", (ev) => {
   sceneStale = true;
   syncChrome();
 });
+// GridCursor kinds, as the CSS names for them. The page is painted onto a
+// canvas, so the `cursor` on an EVG element never reaches the browser; the
+// app is asked what the pointer is over instead.
+const CURSORS = ["default", "cell", "col-resize", "row-resize", "text", "grab", "grabbing", "crosshair", "pointer"];
 canvas.addEventListener("pointermove", (ev) => {
   const [x, y] = at(ev);
   app.pointerMove(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
+  canvas.style.cursor = CURSORS[app.cursorAt(x, y)] || "default";
   sceneStale = true;
 });
 canvas.addEventListener("pointerup", (ev) => {

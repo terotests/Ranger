@@ -24,7 +24,7 @@ operators {
             cpp ( "(dgfx_should_close() != 0)"
                   (imp "<SDL2/SDL.h>") (imp "<cstdint>") (imp "<string>")
                   (imp "<cstdio>") (imp "<cstdlib>") (imp "<cstring>")
-                  (imp "<unistd.h>") (imp "<vector>")
+                  (imp "<unistd.h>") (imp "<vector>") (imp "<sys/stat.h>")
 (polyfill "after_imports" "
 #if defined(__APPLE__)
 #include <OpenGL/gl3.h>
@@ -541,6 +541,33 @@ static std::string dgfx_prompt_text(const std::string& title, const std::string&
 #endif
 }
 
+// gallery/pkg's clone script, found from the working directory upwards. A
+// desktop binary is not run from one known place — from Finder the working
+// directory is `/`, and even in a terminal it is wherever the person is — so
+// `node gallery/pkg/tools/clone.mjs` only worked when they happened to be
+// standing in the checkout. Empty when there is no such file above us.
+static std::string dgfx_find_pkg_clone() {
+    char cwd[4096];
+    if (getcwd(cwd, sizeof(cwd)) == nullptr) { return std::string(); }
+    std::string dir(cwd);
+    for (int up = 0; up < 12; up++) {
+        std::string cand = dir + \"/gallery/pkg/tools/clone.mjs\";
+        struct stat st;
+        if (stat(cand.c_str(), &st) == 0) { return cand; }
+        size_t cut = dir.find_last_of('/');
+        if (cut == std::string::npos || cut == 0) { break; }
+        dir = dir.substr(0, cut);
+    }
+    return std::string();
+}
+
+// A shallow checkout of `url` in a fresh temp directory, or empty.
+//
+// `git` first: it is on every machine that has a checkout to build this from,
+// it needs nothing of the repository's own layout, and one depth-1 clone is
+// what the rest of the app wants anyway. gallery/pkg's own Git client is the
+// fallback for a machine without git, and it is looked up rather than assumed
+// to sit under the working directory.
 static std::string dgfx_clone_git(const std::string& url) {
     if (url.empty()) { return std::string(); }
     const char* tmp = getenv(\"TMPDIR\");
@@ -551,7 +578,24 @@ static std::string dgfx_clone_git(const std::string& url) {
     char* dir = mkdtemp(buf.data());
     if (dir == nullptr) { return std::string(); }
     std::string dest(dir);
-    std::string cmd = std::string(\"node gallery/pkg/tools/clone.mjs \")
+    if (dgfx_have(\"git\")) {
+        std::string cmd = std::string(\"git clone --depth 1 --quiet \")
+            + dgfx_shell_quote(url) + \" \" + dgfx_shell_quote(dest);
+        if (system(cmd.c_str()) == 0) { return dest; }
+        fprintf(stderr, \"[codegraph] git clone failed for %s\\n\", url.c_str());
+    }
+    std::string tool = dgfx_find_pkg_clone();
+    if (tool.empty()) {
+        fprintf(stderr,
+            \"[codegraph] no git on PATH and no gallery/pkg/tools/clone.mjs above %s\\n\",
+            dest.c_str());
+        return std::string();
+    }
+    if (!dgfx_have(\"node\")) {
+        fprintf(stderr, \"[codegraph] no git and no node on PATH\\n\");
+        return std::string();
+    }
+    std::string cmd = std::string(\"node \") + dgfx_shell_quote(tool) + \" \"
         + dgfx_shell_quote(url) + \" HEAD \" + dgfx_shell_quote(dest);
     int rc = system(cmd.c_str());
     if (rc != 0) { return std::string(); }
@@ -847,7 +891,7 @@ static void dgfx_close() {
 
     dgfx_clone_git _:string (url:string) {
         templates {
-            cpp ( "dgfx_clone_git(" (e 1) ")" (imp "<SDL2/SDL.h>") (imp "<string>") (imp "<cstdio>") (imp "<cstdlib>") (imp "<unistd.h>") (imp "<vector>") )
+            cpp ( "dgfx_clone_git(" (e 1) ")" (imp "<SDL2/SDL.h>") (imp "<string>") (imp "<cstdio>") (imp "<cstdlib>") (imp "<unistd.h>") (imp "<vector>") (imp "<sys/stat.h>") )
             es6 ( "\"\"" )
         }
     }
