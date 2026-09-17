@@ -1,0 +1,47 @@
+; ISSUES.md #85. An array literal handed to a call whose RESULT IS IMMEDIATELY
+; DEREFERENCED was lost: the elements were emitted where the array should be,
+; so `(box.take(([] _:string ( "a" "b" )))).count()` came out as
+; `box.take("a""b").count()`. Two elements did not parse; one element parsed
+; and answered the string's length. Every target, and the compiler said [OK].
+;
+; Every line here is the inline literal beside the bound one, asserting the
+; same number, so a fix that changes what the call MEANS shows up as a wrong
+; answer rather than as a pass.
+
+class Sink {
+    def n:int 0
+
+    fn take:Sink (v:[string]) {
+        n = (array_length v)
+        return this
+    }
+
+    fn again:Sink () {
+        return this
+    }
+
+    fn count:int () {
+        return n
+    }
+}
+
+class Issue85 {
+    sfn m@(main):void () {
+        def s:Sink (new Sink)
+
+        def bound:[string] ([] _:string ( "a" "b" ))
+        print "bound=" + ((s.take(bound)).count())
+
+        print "typed=" + ((s.take(([] _:string ( "a" "b" )))).count())
+
+        print "untyped=" + ((s.take(([] "a" "b" "c"))).count())
+
+        ; Two dereferences deep: the receiver of the second call is itself a
+        ; call result, so the rewrite runs over its own output.
+        print "twice=" + (((s.take(([] _:string ( "a" "b" "c" "d" )))).again()).count())
+
+        ; The literal is not the only argument, and not the first.
+        def other:Sink (new Sink)
+        print "afterArg=" + ((other.take(([] _:string ( "x" "y" "z" )))).count())
+    }
+}

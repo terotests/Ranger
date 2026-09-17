@@ -16633,11 +16633,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
         }
         const method_name = dotNode.vref.substring(1, dotNode.vref.length );
+        const preWalkFc = fc.copy();
         await this.WalkNode(fc, ctx, wr);
         if ( ctx.isDefinedClass(fc.eval_type_name) ) {
           const callNode = node.newExpressionNode();
           callNode.add(node.newVRefNode("call"));
-          callNode.add(fc.copy());
+          callNode.add(preWalkFc);
           callNode.add(node.newVRefNode(method_name));
           callNode.add(mArgs.copy());
           node.getChildrenFrom(callNode);
@@ -16659,6 +16660,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( sec_1.vref[0] != "." ) {
         return false;
       }
+      const preWalkChainFc = fc_1.copy();
       await this.WalkNode(fc_1, ctx, wr);
       if ( ctx.isDefinedClass(fc_1.eval_type_name) == false ) {
         return false;
@@ -16666,7 +16668,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const parts = sec_1.vref.substring(1, sec_1.vref.length ).split(".");
       const method_name_1 = parts[(parts.length - 1)];
       let classDesc = ctx.findClass(fc_1.eval_type_name);
-      let calledItem = fc_1.copy();
+      let calledItem = preWalkChainFc;
       await operatorsOf.forEach_12(parts, ((item, index) => { 
         if ( index < parts.length - 1 ) {
           try {

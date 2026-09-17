@@ -2556,11 +2556,20 @@ class RangerFlowParser {
         }
       }
       def method_name (substring dotNode.vref 1 (strlen dotNode.vref))
+      ; The receiver is copied BEFORE it is walked, and the copy is what the
+      ; rewritten call gets. Walking an array literal REPLACES the node's
+      ; children with its elements and marks the node with is_array_literal;
+      ; a copy carries the new children but not the mark, which is not an array
+      ; literal any more but a bare list of its elements -- `b.take("a""b")`,
+      ; which does not parse, and `b.take("a")` for one element, which does and
+      ; is silently wrong (ISSUES.md #85). The unwalked copy is re-analysed by
+      ; the walk below and comes out whole.
+      def preWalkFc (fc.copy())
       this.WalkNode( fc ctx wr )
       if( ctx.isDefinedClass(fc.eval_type_name) ) {
         def callNode (node.newExpressionNode())
         callNode.add( (node.newVRefNode("call")) )
-        callNode.add( (fc.copy()) )
+        callNode.add( preWalkFc )
         callNode.add( (node.newVRefNode(method_name)) )
         callNode.add( (mArgs.copy()) )
         node.getChildrenFrom( callNode )
@@ -2582,6 +2591,8 @@ class RangerFlowParser {
     if ( (first sec.vref) != '.' ) {
       return false
     }
+    ; Copied before the walk, for the reason given in the branch above.
+    def preWalkChainFc (fc.copy())
     this.WalkNode( fc ctx wr )
     if( (ctx.isDefinedClass(fc.eval_type_name)) == false) {
       return false
@@ -2589,7 +2600,7 @@ class RangerFlowParser {
     def parts (strsplit (substring sec.vref 1) ".")
     def method_name (last parts)
     def classDesc (ctx.findClass(fc.eval_type_name))
-    def calledItem (fc.copy())
+    def calledItem preWalkChainFc
 
     parts.forEach({
       if(index < ((size parts) - 1) ) {
