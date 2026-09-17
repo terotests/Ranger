@@ -1,0 +1,142 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>EVG — WebGL against WebGPU, pixel for pixel</title>
+<style>
+  body { margin:0; padding:16px; font:13px/1.5 system-ui, sans-serif; background:#777 }
+  img { border:1px solid #333; max-width:100%; background:#fff }
+  figure { margin:0 0 12px } figcaption { color:#fff; font:12px ui-monospace, monospace }
+  #out { color:#fff; font:12px ui-monospace, monospace; white-space:pre-wrap }
+</style>
+<div id="out">working…</div>
+<div id="shots"></div>
+
+<script type="module">
+// Two painters, one display list, both read back and differenced.
+//
+// A spike that only reports milliseconds is worth nothing: the fastest painter
+// in the world is the one that draws the wrong picture quickly. This is the
+// other half — is it the same drawing — and it is deliberately honest about
+// the two places it cannot be.
+//
+//   * ANTIALIASING. The WebGL context is created with `antialias: true`, so a
+//     canvas gets MSAA; a texture attached to a framebuffer object does not,
+//     and neither does the WebGPU target here. Both sides therefore rely on
+//     the shader's own fwidth() smoothstep, which is the same expression in
+//     both, and the edges agree to within rounding.
+//   * TEXT. The atlas in this spike is its own, smaller implementation of the
+//     one in ../evg-webgl.js — it does not do colour emoji, and it packs
+//     differently — so a glyph lands on a different sub-pixel. Text scenes are
+//     compared for where the ink is, not byte for byte.
+
+import { prepareDisplayList as prepareGL } from "../evg-webgl.js";
+import { prepareDisplayList as prepareGPU, requestDevice } from "./evg-webgpu.js";
+import { SCENES } from "./scenes.js";
+
+const qs = new URLSearchParams(location.search);
+const NAME = qs.get("scene") || "grid-1k-1run";
+const W = Number(qs.get("w") || 640);
+const H = Number(qs.get("h") || 450);
+const DPR = 1;
+const finish = (v) => { if (!window.__parity) window.__parity = v; };
+setTimeout(() => finish({ error: "timed out" }), 120000);
+
+try {
+  const doc = SCENES[NAME]();
+  if (!doc) throw new Error("no such scene: " + NAME);
+  const FBW = Math.min(W, doc.width), FBH = Math.min(H, doc.height);
+  const shifts = doc.list.shifts;
+
+  // ── WebGL, into a framebuffer object ──
+  const glc = document.createElement("canvas");
+  glc.width = FBW; glc.height = FBH;
+  const gl = glc.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true });
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, FBW, FBH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  const ds = gl.createRenderbuffer();
+  gl.bindRenderbuffer(gl.RENDERBUFFER, ds);
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, FBW, FBH);
+  const fbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, ds);
+  const glFrame = prepareGL(gl, { ...doc, width: FBW, height: FBH }, { dpr: DPR });
+  glFrame.draw(shifts);
+  const raw = new Uint8Array(FBW * FBH * 4);
+  gl.readPixels(0, 0, FBW, FBH, gl.RGBA, gl.UNSIGNED_BYTE, raw);
+  const A = new Uint8Array(raw.length);
+  for (let y = 0; y < FBH; y += 1) A.set(raw.subarray((FBH - 1 - y) * FBW * 4, (FBH - y) * FBW * 4), y * FBW * 4);
+
+  // ── WebGPU, into a texture ──
+  const { device, why, describe } = await requestDevice();
+  if (!device) throw new Error("no WebGPU device: " + why);
+  const gpuc = document.createElement("canvas");
+  gpuc.width = FBW; gpuc.height = FBH;
+  const context = gpuc.getContext("webgpu");
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  context.configure({ device, format, alphaMode: "premultiplied", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+  const target = device.createTexture({
+    size: [FBW, FBH], format,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+  });
+  const gpuFrame = prepareGPU({ device, context, format, canvas: gpuc }, { ...doc, width: FBW, height: FBH }, { dpr: DPR });
+  gpuFrame.draw(shifts, null, { target });
+  const bpr = Math.ceil(FBW * 4 / 256) * 256;
+  const buf = device.createBuffer({ size: bpr * FBH, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+  const enc = device.createCommandEncoder();
+  enc.copyTextureToBuffer({ texture: target }, { buffer: buf, bytesPerRow: bpr }, [FBW, FBH]);
+  device.queue.submit([enc.finish()]);
+  await buf.mapAsync(GPUMapMode.READ);
+  const src = new Uint8Array(buf.getMappedRange());
+  const B = new Uint8Array(FBW * FBH * 4);
+  const bgra = format.startsWith("bgra");
+  for (let y = 0; y < FBH; y += 1) {
+    for (let x = 0; x < FBW; x += 1) {
+      const s = y * bpr + x * 4, d = (y * FBW + x) * 4;
+      if (bgra) { B[d] = src[s + 2]; B[d + 1] = src[s + 1]; B[d + 2] = src[s]; B[d + 3] = src[s + 3]; }
+      else { B[d] = src[s]; B[d + 1] = src[s + 1]; B[d + 2] = src[s + 2]; B[d + 3] = src[s + 3]; }
+    }
+  }
+  buf.unmap();
+
+  // ── the difference ──
+  const D = new Uint8Array(FBW * FBH * 4);
+  let sum = 0, off = 0, worst = 0;
+  const n = FBW * FBH;
+  for (let i = 0; i < n; i += 1) {
+    let d = 0;
+    for (let k = 0; k < 3; k += 1) d = Math.max(d, Math.abs(A[i * 4 + k] - B[i * 4 + k]));
+    sum += d; worst = Math.max(worst, d);
+    if (d > 8) off += 1;
+    // Amplified, because a two-level difference is invisible and it is the
+    // SHAPE of the difference that says what went wrong: an edge everywhere is
+    // antialiasing, a solid block is a missing command, a shifted copy is a
+    // coordinate.
+    const v = Math.min(255, d * 8);
+    D[i * 4] = v; D[i * 4 + 1] = 255 - v; D[i * 4 + 2] = 0; D[i * 4 + 3] = 255;
+  }
+
+  const png = (bytes) => {
+    const c = document.createElement("canvas");
+    c.width = FBW; c.height = FBH;
+    const g = c.getContext("2d");
+    g.putImageData(new ImageData(new Uint8ClampedArray(bytes), FBW, FBH), 0, 0);
+    return c.toDataURL("image/png");
+  };
+  const shots = { gl: png(A), gpu: png(B), diff: png(D) };
+  document.getElementById("shots").innerHTML = Object.entries(shots)
+    .map(([k, v]) => `<figure><img src="${v}"><figcaption>${k}</figcaption></figure>`).join("");
+
+  const res = {
+    scene: NAME, adapter: describe, w: FBW, h: FBH,
+    quads: gpuFrame.quads, runs: gpuFrame.runs, skipped: gpuFrame.skipped,
+    meanDiff: sum / n, pctOff: (off / n) * 100, worst, shots,
+  };
+  document.getElementById("out").textContent =
+    `${NAME}: mean ${res.meanDiff.toFixed(2)}, ${res.pctOff.toFixed(2)}% of pixels off by more than 8, worst ${worst}`;
+  finish(res);
+} catch (e) {
+  document.getElementById("out").textContent = String(e && e.stack || e);
+  finish({ error: String(e && e.stack || e) });
+}
+</script>
