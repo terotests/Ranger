@@ -1,3 +1,153 @@
+/* ==========================================================================
+   The Ranger theme
+   --------------------------------------------------------------------------
+   Starlight draws its whole chrome from a handful of custom properties, so
+   the documentation can wear the same palette and the same typography as the
+   front page in landing/ without a fork of a single component: the gold and
+   the near-black of the language's own mark, a flat surface with hairline
+   rules, and small monospaced labels over the navigation.
+
+   This file is loaded as `customCss`, which puts it outside Starlight's
+   @layer, so these win over the defaults without !important.
+   ========================================================================== */
+
+:root,
+::backdrop {
+  --ranger-gold: #fbc802;
+  --ranger-ink: #07070a;
+
+  --sl-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --sl-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Dark, which is the page the front page is. */
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #eeece6;
+  --sl-color-gray-2: #c5c4bf;
+  --sl-color-gray-3: #8d919c;
+  --sl-color-gray-4: #5a5c64;
+  --sl-color-gray-5: #2b2c33;
+  --sl-color-gray-6: #14151b;
+  --sl-color-black: #07070a;
+
+  --sl-color-accent-low: #3c2f02;
+  --sl-color-accent: #c9a002;
+  --sl-color-accent-high: var(--ranger-gold);
+
+  --sl-color-text: var(--sl-color-gray-2);
+  --sl-color-text-accent: var(--ranger-gold);
+  --sl-color-text-invert: var(--ranger-ink);
+  --sl-color-bg: var(--ranger-ink);
+  --sl-color-bg-nav: rgba(7, 7, 10, .94);
+  --sl-color-bg-sidebar: #0c0d11;
+  --sl-color-bg-inline-code: rgba(255, 255, 255, .06);
+  --sl-color-bg-accent: var(--ranger-gold);
+  --sl-color-hairline-light: rgba(255, 255, 255, .18);
+  --sl-color-hairline: rgba(255, 255, 255, .10);
+  --sl-color-hairline-shade: rgba(255, 255, 255, .07);
+  --sl-color-backdrop-overlay: rgba(7, 7, 10, .72);
+}
+
+/*
+ * Light. The gold that carries the brand on black is too pale to read as text
+ * on paper, so links and headings take a darkened version of it and the pure
+ * gold is kept for the marks — the current page, a rule, the mark itself.
+ */
+:root[data-theme="light"],
+[data-theme="light"] ::backdrop {
+  --sl-color-white: #14151a;
+  --sl-color-gray-1: #23242a;
+  --sl-color-gray-2: #3d3f47;
+  --sl-color-gray-3: #676a73;
+  --sl-color-gray-4: #8e9099;
+  --sl-color-gray-5: #d9d7d0;
+  --sl-color-gray-6: #f0eee8;
+  --sl-color-gray-7: #f7f5f0;
+  --sl-color-black: #ffffff;
+
+  --sl-color-accent-low: #fdf1c9;
+  --sl-color-accent: #8a6a02;
+  --sl-color-accent-high: #5a4501;
+
+  --sl-color-text: #3d3f47;
+  --sl-color-text-accent: #8a6a02;
+  --sl-color-text-invert: var(--ranger-ink);
+  --sl-color-bg: #fbfaf7;
+  --sl-color-bg-nav: rgba(251, 250, 247, .94);
+  --sl-color-bg-sidebar: #f4f2ec;
+  --sl-color-bg-inline-code: rgba(7, 7, 10, .055);
+  --sl-color-bg-accent: var(--ranger-gold);
+  --sl-color-hairline-light: rgba(7, 7, 10, .18);
+  --sl-color-hairline: rgba(7, 7, 10, .10);
+  --sl-color-hairline-shade: rgba(7, 7, 10, .06);
+  --sl-color-backdrop-overlay: rgba(251, 250, 247, .72);
+}
+
+/* --- type ---------------------------------------------------------------- */
+
+.sl-markdown-content :is(h1, h2, h3, h4),
+.content-panel h1,
+.site-title {
+  letter-spacing: -.025em;
+  font-weight: 700;
+}
+.sl-markdown-content h1,
+.content-panel h1 { letter-spacing: -.03em; }
+
+.site-title { font-weight: 650; }
+
+/* The small monospaced label the front page puts over every block: here it is
+   the sidebar's group names and the table of contents' heading. */
+.sidebar-content .group-label .large,
+starlight-toc h2,
+mobile-starlight-toc h2 {
+  font-family: var(--sl-font-mono);
+  font-size: 11.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--sl-color-text-accent);
+  font-weight: 400;
+}
+
+/* --- chrome -------------------------------------------------------------- */
+
+/* Square, like the buttons and cards on the front page. */
+.sidebar-content a,
+site-search button,
+.right-sidebar a {
+  border-radius: 0;
+}
+
+/* The page you are on, in the language's own gold. */
+.sidebar-content a[aria-current="page"],
+.sidebar-content a[aria-current="page"]:hover,
+.sidebar-content a[aria-current="page"]:focus {
+  background-color: var(--ranger-gold);
+  color: var(--ranger-ink);
+  font-weight: 600;
+}
+
+/* A hairline between the rails and the page, as the column grid has. */
+.sidebar-pane { border-inline-end: 1px solid var(--sl-color-hairline); }
+header.header { border-bottom: 1px solid var(--sl-color-hairline); }
+
+/* Code frames square too, so the page has one corner radius and it is zero.
+   Expressive Code reads its radius from a property of its own. */
+:root {
+  --ec-brdRad: 0px;
+  --ec-brdCol: var(--sl-color-hairline);
+}
+.expressive-code .frame pre,
+.expressive-code .frame .header,
+.expressive-code figure { border-radius: 0; }
+
+/* The table of contents marks the current heading with the gold rather than
+   with a colour the palette does not otherwise have. */
+starlight-toc a[aria-current="true"],
+starlight-toc a[aria-current="true"]:hover {
+  color: var(--sl-color-text-accent);
+  font-weight: 600;
+}
+
 /* Styles that the generated reference needs. */
 
 .ranger-support {
