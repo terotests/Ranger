@@ -52,6 +52,24 @@ code, pre { font-family: var(--mono); }
 img { max-width: 100%; display: block; }
 
 .wrap { max-width: var(--wrap); margin-inline: auto; padding-inline: var(--pad); }
+
+/*
+ * Every grid on this page is `repeat(auto-fit, minmax(N, 1fr))`, and that
+ * track does not shrink below N — on a narrow phone it pushes the page wider
+ * than the window instead, which reads as a broken layout rather than as a
+ * scrollbar. `min(N, 100%)` keeps the intent (wrap at N) and lets the single
+ * remaining column be as wide as the window and no wider.
+ *
+ * The other half of the same problem: a grid or flex child is `min-width:
+ * auto`, which is its content's minimum — so one <pre> of shell commands
+ * widens its whole column past the window however narrow the track is allowed
+ * to get. Zero lets the column be the window's width and the <pre> scroll
+ * inside it.
+ */
+.cols > *, .tiers > *, .plats > *, .proofs > *, .steps > *,
+.gal > *, .starts > *, .figures > *, .shots > *, .colophon > *,
+.hero__cols > * { min-width: 0; }
+
 .dim { color: var(--dim); }
 .mono { font-family: var(--mono); }
 .small { font-size: 13px; line-height: 1.85; }
@@ -100,6 +118,9 @@ em { font-style: italic; }
 
 code:not(pre code) {
   font-size: .87em;
+  /* A chip like `evg-surface-effect: ripple` is one unbreakable run wider than
+     a narrow phone, and an inline box cannot scroll. Break it when it has to. */
+  overflow-wrap: anywhere;
   color: #d9d5cc;
   background: rgba(255,255,255,.055);
   border: 1px solid var(--line);
@@ -148,6 +169,13 @@ code:not(pre code) {
 
 @media (max-width: 1000px) { .nav__links { display: none; } }
 @media (max-width: 600px) { .nav__cta .btn--ghost { display: none; } }
+/* On the narrowest phones the brand and the two remaining controls are wider
+   than the window between them; the gaps and the padding give it back. */
+@media (max-width: 380px) {
+  .nav { gap: 10px; padding-inline: 14px; }
+  .btn { padding: 0 13px; font-size: 13.5px; }
+  .btn--icon { width: 34px; }
+}
 
 /* ------------------------------------------------------------ buttons --- */
 
@@ -218,26 +246,100 @@ code:not(pre code) {
   white-space: nowrap; overflow-x: auto; max-width: 100%;
 }
 
-/* The figure strip that closes the first screen. */
-.figures {
+/* ------------------------------------------------------------- marks ---- */
+/*
+ * The strip that closes the first screen: the languages and the platforms
+ * Ranger compiles for, scrolling past. Each mark is landing/assets/logos/*.svg
+ * — a path this repository traced out of a bitmap, see landing/tools/logos.mjs
+ * — used as a MASK rather than as an image, so one colour rule tints the whole
+ * strip and a mark can light up on its own when the pointer is over it.
+ */
+.marks {
   position: relative;
-  list-style: none; margin: clamp(48px, 6vw, 84px) 0 0; padding: 0;
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  max-width: var(--wrap);
+  margin: clamp(48px, 6vw, 84px) auto 0;
+  padding-inline: var(--pad);
+}
+
+/* The track is `width: max-content` — wider than the window by design — so
+   the strip has to clip it, or the whole page ends up that wide. The mask
+   fades the marks out at both ends instead of cutting them. */
+.marks__clip {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+}
+
+.marks__track {
+  display: flex;
+  width: max-content;
   border-top: 1px solid var(--line-2);
-  max-width: var(--wrap); margin-inline: auto;
+  border-bottom: 1px solid var(--line);
+  animation: marks-slide 110s linear infinite;
 }
-.figures li {
-  padding: 22px var(--pad) 26px;
-  border-right: 1px solid var(--line);
+/* Two identical runs, so the second is already in place when the first has
+   travelled its own width and the translation resets. */
+.marks__run { display: flex; align-items: center; gap: clamp(46px, 5vw, 74px); padding: 30px clamp(23px, 2.5vw, 37px); }
+
+.marks i {
+  display: block;
+  width: 48px; height: 48px; flex: none;
+  background: #adb1ba;
+  -webkit-mask: var(--mark) center / contain no-repeat;
+  mask: var(--mark) center / contain no-repeat;
+  transition: background .2s, transform .2s;
 }
-.figures li:last-child { border-right: 0; }
-.figures b {
-  display: block; font-weight: 700; letter-spacing: -.04em;
-  font-size: clamp(30px, 3.6vw, 44px); line-height: 1; color: var(--gold);
-  margin-bottom: 10px;
+.marks i:hover { background: var(--gold); transform: translateY(-2px); }
+
+/* The script takes the animation over so that a drag and the drift share one
+   offset. Until then the CSS keyframes run it, which is what a page with no
+   JavaScript keeps. */
+.marks__clip.is-live { cursor: grab; touch-action: pan-y; }
+.marks__clip.is-live.is-dragging { cursor: grabbing; }
+.marks__clip.is-live.is-dragging i { transform: none; }
+
+@keyframes marks-slide { to { transform: translateX(-50%); } }
+
+/* The strip is decoration in motion; still it must not be. Reduced motion
+   gets the same marks standing still, wrapped onto as many lines as they
+   need, and the second run goes away so nothing repeats. */
+@media (prefers-reduced-motion: reduce) {
+  .marks__track { animation: none; width: auto; }
+  .marks__run:last-child { display: none; }
+  .marks__run { flex-wrap: wrap; row-gap: 22px; }
 }
-.figures b i { font-style: normal; color: var(--dimmer); font-size: .5em; letter-spacing: 0; }
-.figures span { display: block; font-size: 13px; line-height: 1.45; color: var(--dim); }
+
+/* Deliberately quiet: the strip says what it says, and this is the small
+   print under it for whoever leans in. */
+.marks__note {
+  margin: 14px 0 0;
+  font: 400 10.5px/1.6 var(--mono);
+  letter-spacing: .01em;
+  color: #4a4d55;
+  max-width: 96ch;
+}
+.marks__note .u { color: #6a5f3c; text-decoration-color: rgba(251,200,2,.2); }
+.marks__note .u:hover { color: var(--gold); text-decoration-color: var(--gold); }
+
+.m-swift { --mark: url("assets/logos/swift.svg"); }
+.m-apple { --mark: url("assets/logos/apple.svg"); }
+.m-kotlin { --mark: url("assets/logos/kotlin.svg"); }
+.m-android { --mark: url("assets/logos/android.svg"); }
+.m-javascript { --mark: url("assets/logos/javascript.svg"); }
+.m-typescript { --mark: url("assets/logos/typescript.svg"); }
+.m-nodedotjs { --mark: url("assets/logos/nodedotjs.svg"); }
+.m-dotnet { --mark: url("assets/logos/dotnet.svg"); }
+.m-cplusplus { --mark: url("assets/logos/cplusplus.svg"); }
+.m-rust { --mark: url("assets/logos/rust.svg"); }
+.m-go { --mark: url("assets/logos/go.svg"); }
+.m-python { --mark: url("assets/logos/python.svg"); }
+.m-dart { --mark: url("assets/logos/dart.svg"); }
+.m-flutter { --mark: url("assets/logos/flutter.svg"); }
+.m-php { --mark: url("assets/logos/php.svg"); }
+.m-openjdk { --mark: url("assets/logos/openjdk.svg"); }
+.m-webassembly { --mark: url("assets/logos/webassembly.svg"); }
+.m-llvm { --mark: url("assets/logos/llvm.svg"); }
+.m-raspberrypi { --mark: url("assets/logos/raspberrypi.svg"); }
 
 /* ----------------------------------------------------------- sections --- */
 
@@ -268,8 +370,8 @@ code:not(pre code) {
 /* ------------------------------------------------------------ columns --- */
 
 .cols { display: grid; gap: 0; margin-top: 44px; }
-.cols--2 { grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
-.cols--3 { grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); }
+.cols--2 { grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr)); }
+.cols--3 { grid-template-columns: repeat(auto-fit, minmax(min(270px, 100%), 1fr)); }
 .cols + .cols { margin-top: 40px; }
 
 .rules .col { padding: 0 28px; border-left: 1px solid var(--line-2); }
@@ -348,7 +450,7 @@ code:not(pre code) {
 
 /* -------------------------------------------------------------- tiers --- */
 
-.tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 24px; margin-top: 44px; }
+.tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(270px, 100%), 1fr)); gap: 24px; margin-top: 44px; }
 .tier { border-top: 2px solid var(--line-2); padding-top: 18px; }
 .tier--a { border-top-color: var(--gold); }
 .tier__note { color: var(--dim); font-size: 14.5px; margin: 0 0 16px; }
@@ -360,7 +462,7 @@ code:not(pre code) {
 /* ---------------------------------------------------------- platforms --- */
 
 .plats {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr));
   gap: 0; margin-top: 44px;
   border-top: 1px solid var(--line-2);
 }
@@ -376,7 +478,7 @@ code:not(pre code) {
 
 /* ------------------------------------------------------------- proofs --- */
 
-.proofs { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 0; margin-top: 44px; }
+.proofs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr)); gap: 0; margin-top: 44px; }
 .proof { padding: 28px 30px; border-top: 1px solid var(--line-2); border-right: 1px solid var(--line); }
 .proof:first-child { padding-left: 0; }
 .proof .label { color: var(--gold); }
@@ -402,7 +504,7 @@ code:not(pre code) {
 
 /* ------------------------------------------------------------ gallery --- */
 
-.gal { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 44px; }
+.gal { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 16px; margin-top: 44px; }
 .gal__item--wide { grid-column: span 2; }
 @media (max-width: 720px) { .gal__item--wide { grid-column: span 1; } }
 
@@ -423,20 +525,23 @@ code:not(pre code) {
 
 .more {
   list-style: none; margin: 30px 0 0; padding: 0;
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 0 30px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr)); gap: 0 30px;
 }
 .more li {
   border-top: 1px solid var(--line); padding: 11px 0;
-  display: flex; gap: 12px; align-items: baseline; font-size: 14px;
+  /* Two columns rather than a flex row: a long name used to squeeze its own
+     description into a ribbon four words wide. */
+  display: grid; grid-template-columns: 10.5em 1fr; gap: 14px;
+  align-items: baseline; font-size: 14px;
 }
-.more a { color: var(--paper); text-decoration: none; white-space: nowrap; font-weight: 500; }
+.more a { color: var(--paper); text-decoration: none; font-weight: 500; }
 .more a:hover { color: var(--gold); }
 .more span { color: var(--dimmer); }
 
 /* ---------------------------------------------------------- colophon ---- */
 
 .section--colophon { background: var(--ink-2); border-block: 1px solid var(--line); }
-.colophon { display: grid; grid-template-columns: minmax(180px, 300px) 1fr; gap: clamp(28px, 6vw, 70px); align-items: center; }
+.colophon { display: grid; grid-template-columns: minmax(min(180px, 100%), 300px) 1fr; gap: clamp(28px, 6vw, 70px); align-items: center; }
 @media (max-width: 860px) { .colophon { grid-template-columns: 1fr; } .colophon__art { max-width: 170px; } }
 .colophon__art { color: var(--gold); }
 .colophon__art svg { width: 100%; height: auto; }
@@ -446,7 +551,7 @@ code:not(pre code) {
 
 /* The numbered path in, laid out like the proof blocks: a rule over each
    step, the number in the label slot, and room for a command block. */
-.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 0; margin-top: 44px; }
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr)); gap: 0; margin-top: 44px; }
 .step { padding: 28px 30px 32px; border-top: 1px solid var(--line-2); border-right: 1px solid var(--line); }
 .step:first-child { padding-left: 0; }
 .step h3 { font: 650 20px/1.25 var(--sans); letter-spacing: -.015em; margin: 0 0 12px; }

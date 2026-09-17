@@ -5,9 +5,10 @@ import { defaultKeymap, history as cmHistory, historyKeymap } from "@codemirror/
 import { javascript } from "@codemirror/lang-javascript";
 import {
   syntaxHighlighting,
-  defaultHighlightStyle,
+  HighlightStyle,
   StreamLanguage,
 } from "@codemirror/language";
+import { tags as t } from "@lezer/highlight";
 import { cpp, csharp, dart, java, kotlin, scala } from "@codemirror/legacy-modes/mode/clike";
 import { php } from "@codemirror/lang-php";
 import { go } from "@codemirror/legacy-modes/mode/go";
@@ -158,6 +159,49 @@ const outputLang = new Compartment();
 let debounceTimer = 0;
 let compiling = false;
 
+/*
+ * The Ranger palette, the same one the front page and the documentation are
+ * set in: the gold and the near-black of the language's own mark. The editor
+ * is the largest surface on this page, so it carries the theme rather than
+ * sitting in a default one on top of it.
+ */
+const rangerHighlight = HighlightStyle.define([
+  { tag: [t.comment, t.lineComment, t.blockComment], color: "#5d6270", fontStyle: "italic" },
+  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.definitionKeyword, t.operatorKeyword], color: "#fbc802" },
+  { tag: [t.typeName, t.className, t.namespace, t.standard(t.name)], color: "#7fd8c6" },
+  { tag: [t.string, t.special(t.string), t.character], color: "#b9d47f" },
+  { tag: [t.number, t.bool, t.null, t.atom], color: "#d7a9ff" },
+  { tag: [t.function(t.variableName), t.function(t.propertyName), t.labelName], color: "#8ec5ff" },
+  { tag: [t.propertyName, t.attributeName], color: "#c7cad2" },
+  { tag: [t.operator, t.punctuation, t.separator, t.bracket], color: "#8d919c" },
+  { tag: [t.meta, t.processingInstruction], color: "#8d919c" },
+  { tag: t.invalid, color: "#ff6b6b" },
+]);
+
+/* Everything around the text: the surface, the gutter, the caret, the line
+   the cursor is on. `dark: true` is what tells CodeMirror its own defaults
+   (the selection layer, the panels) to go with them. */
+const rangerEditorTheme = EditorView.theme(
+  {
+    "&": { height: "100%", fontSize: "13px", color: "#c7cad2", backgroundColor: "#0c0d11" },
+    ".cm-scroller": { fontFamily: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, monospace" },
+    ".cm-content": { caretColor: "#fbc802" },
+    "&.cm-focused .cm-cursor": { borderLeftColor: "#fbc802" },
+    ".cm-gutters": {
+      backgroundColor: "#0c0d11",
+      color: "#4a4d55",
+      borderRight: "1px solid rgba(255, 255, 255, .08)",
+    },
+    ".cm-activeLine": { backgroundColor: "rgba(251, 200, 2, .05)" },
+    ".cm-activeLineGutter": { backgroundColor: "rgba(251, 200, 2, .06)", color: "#8d919c" },
+    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
+      backgroundColor: "rgba(251, 200, 2, .22)",
+    },
+    ".cm-selectionMatch": { backgroundColor: "rgba(251, 200, 2, .14)" },
+  },
+  { dark: true },
+);
+
 function scheduleCompile() {
   clearTimeout(debounceTimer);
   debounceTimer = window.setTimeout(() => {
@@ -177,14 +221,11 @@ function makeEditor(
     highlightActiveLine(),
     cmHistory(),
     keymap.of([...defaultKeymap, ...historyKeymap]),
-    syntaxHighlighting(defaultHighlightStyle),
+    syntaxHighlighting(rangerHighlight),
     langPack,
     EditorView.lineWrapping,
     EditorState.readOnly.of(readOnly),
-    EditorView.theme({
-      "&": { height: "100%", fontSize: "13px" },
-      ".cm-scroller": { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" },
-    }),
+    rangerEditorTheme,
   ];
   if (opts?.onDocChange) {
     extensions.push(

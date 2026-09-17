@@ -1,27 +1,27 @@
+/*
+ * The Ranger palette — the gold and the near-black of the language's own mark,
+ * the same one the front page in landing/ and the documentation are set in.
+ * Dark only and `color-scheme: dark`, so the browser's own widgets (the
+ * dropdowns, the scrollbars, the checkbox) come out on this side too rather
+ * than as three white boxes in the middle of it.
+ */
 :root {
-  color-scheme: light dark;
-  --bg: #0f1419;
-  --surface: #1a2332;
-  --border: #2d3a4d;
-  --text: #e7ecf3;
-  --muted: #8b9cb3;
-  --accent: #3d9a6a;
-  --accent-hover: #4db87e;
-  --err: #e06c75;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f4f6f9;
-    --surface: #fff;
-    --border: #d8dee9;
-    --text: #1e2430;
-    --muted: #5c6b82;
-    --accent: #2a7a52;
-    --accent-hover: #236644;
-    --err: #c53030;
-  }
+  color-scheme: dark;
+  --bg: #07070a;
+  --surface: #0c0d11;
+  --surface-2: #12131a;
+  --border: rgba(255, 255, 255, 0.1);
+  --border-2: rgba(255, 255, 255, 0.2);
+  --text: #eeece6;
+  --muted: #8d919c;
+  --dim: #666a75;
+  --accent: #fbc802;
+  --accent-hover: #ffd83c;
+  --ink: #07070a;
+  --err: #ff7a70;
+  --ok: #7fd8c6;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
 * {
@@ -63,7 +63,7 @@ body {
   font-size: 0.8rem;
 }
 .home a {
-  color: var(--muted);
+  color: var(--dim);
   text-decoration: none;
 }
 .home a:hover {
@@ -74,13 +74,15 @@ body {
 .top h1 {
   margin: 0;
   font-size: 1.35rem;
-  font-weight: 650;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .tagline {
-  margin: 0.2rem 0 0;
+  margin: 0.25rem 0 0;
   color: var(--muted);
-  font-size: 0.85rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
 }
 
 .toolbar {
@@ -93,24 +95,41 @@ body {
 .field {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
-  font-size: 0.75rem;
-  color: var(--muted);
+  gap: 0.3rem;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
 }
 
 .field select {
   min-width: 10rem;
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border-2);
+  border-radius: 0;
+  background: var(--surface-2);
   color: var(--text);
+  font-family: inherit;
+  font-size: 0.82rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.field select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .field.checkbox {
   flex-direction: row;
   align-items: center;
-  padding-bottom: 0.35rem;
+  gap: 0.4rem;
+  padding-bottom: 0.4rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+.field.checkbox input {
+  accent-color: var(--accent);
 }
 
 .field.checkbox[hidden],
@@ -119,23 +138,33 @@ button[hidden] {
 }
 
 button {
-  padding: 0.45rem 0.85rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--border-2);
+  border-radius: 0;
+  background: transparent;
   color: var(--text);
   cursor: pointer;
+  font-family: inherit;
   font-size: 0.85rem;
+  transition: border-color 0.18s, color 0.18s, background 0.18s;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--ink);
+  font-weight: 650;
 }
 
 button.primary:hover:not(:disabled) {
   background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--ink);
 }
 
 button:disabled {
@@ -145,9 +174,10 @@ button:disabled {
 
 .example-desc {
   margin: 0;
-  padding: 0.35rem 1.25rem;
-  font-size: 0.85rem;
+  padding: 0.4rem 1.25rem;
+  font-size: 0.82rem;
   color: var(--muted);
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
 
@@ -179,12 +209,13 @@ button:disabled {
 
 .pane h2 {
   margin: 0;
-  padding: 0.5rem 1rem;
-  font-size: 0.8rem;
-  font-weight: 600;
+  padding: 0.6rem 1rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 400;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
+  letter-spacing: 0.1em;
+  color: var(--accent);
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
@@ -197,13 +228,14 @@ button:disabled {
 }
 
 .status {
-  font-weight: 500;
+  font-weight: 400;
   text-transform: none;
-  letter-spacing: 0;
+  letter-spacing: 0.02em;
+  color: var(--muted);
 }
 
 .status[data-kind="ok"] {
-  color: var(--accent);
+  color: var(--ok);
 }
 
 .status[data-kind="err"] {
@@ -215,15 +247,25 @@ button:disabled {
 }
 
 .foot {
-  padding: 0.5rem 1.25rem;
-  font-size: 0.8rem;
+  padding: 0.6rem 1.25rem;
+  font-size: 0.78rem;
+  color: var(--dim);
+  background: var(--surface);
   border-top: 1px solid var(--border);
 }
 
 .foot a {
   color: var(--accent);
+  text-underline-offset: 3px;
 }
 
 .cm-editor.cm-focused {
   outline: none;
+}
+
+/* The two panes are the page. Their surface is set on the editor itself in
+   main.ts, so the gap around them has to agree with it. */
+#source-editor,
+#output-editor {
+  background: var(--surface);
 }

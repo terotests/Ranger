@@ -17,13 +17,14 @@ python3 -m http.server -d landing/dist 8080
 
 ## What on the page is generated, and by what
 
-Three things on the page are produced by this repository's own compiler and
+Four things on the page are produced by this repository's own compiler and
 libraries rather than drawn or written by hand. Each has a script, each output
 is committed, and only a change to the thing itself needs the script re-run.
 
 | On the page | Output | Script |
 | --- | --- | --- |
 | The logo, and the tab icon | `assets/ranger-mark.svg`, `assets/favicon.svg` | `node landing/tools/logo.mjs` |
+| The language and platform marks | `assets/logos/*.svg` | `node landing/tools/logos.mjs` |
 | The rippling backdrop | `assets/hero/hero.json` | `node landing/tools/hero.mjs` |
 | The compiled example tabs | `assets/targets.js` | `node landing/tools/examples.mjs` |
 | The screenshots | `assets/shots/*.jpg` | `node landing/tools/capture.mjs` then `shots.mjs` |
@@ -56,6 +57,23 @@ the shield inside the rippling backdrop, so those four cannot drift apart.
 
 The same tracer compiles to Node, Python, C++ and Rust, and
 `npm run evg:trace:cli:smoke` asserts all four write the byte-identical SVG.
+
+### The strip of language and platform marks
+
+The same pipeline, nineteen more times. `assets/logos/src` holds the marks as
+they arrived — [simple-icons](https://simpleicons.org), CC0-1.0, the licence is
+in that directory — and `tools/logos.mjs` rasterises each one to a 320 × 320
+bitmap with EVG's scanline rasteriser and traces it back with the bitmap
+tracer. After the first step the logo is pixels and nothing else; what the page
+draws is a path this repository computed from an image.
+
+The output takes `currentColor` and the page uses it as a CSS mask, so one
+colour rule tints the whole strip and a mark can light up on its own under the
+pointer. `build.mjs` publishes the traces and leaves `src/` behind.
+
+The marks are the trademarks of the projects they belong to, and they say which
+languages and platforms Ranger compiles for. None of it is an endorsement by
+any of them.
 
 ### The backdrop
 
@@ -114,11 +132,13 @@ landing/
   examples/Cart.rgr                   the program the target tabs show
   assets/
     logo/ranger-mark.png              the bitmap the logo is traced from
+    logos/src/*.svg                   the language marks as they arrived (CC0)
+    logos/*.svg                       generated — tools/logos.mjs
     hero/hero.tsx  hero/hero.css      what the backdrop is laid out from
     hero/hero.js                      what draws it, per frame, on the GPU
     ranger-mark.svg  favicon.svg      generated — tools/logo.mjs
     hero/hero.json                    generated — tools/hero.mjs
     targets.js                        generated — tools/examples.mjs
     shots/*.jpg                       generated — tools/capture.mjs + shots.mjs
-  tools/                              the four generators
+  tools/                              the generators
 ```
