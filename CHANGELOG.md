@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **An array literal survives a call whose result is dereferenced.**
+  `(box.take(([] _:string ( "a" "b" )))).count()` emitted
+  `box.take("a""b").count()` — the elements where the array should be. Two
+  elements did not parse on JavaScript or PHP; one element parsed and answered
+  the STRING's length, so `take(([] _:string ( "abc" )))` counted 3. Every
+  target, and the compiler reported success either way, which is why
+  `lib/Shell.rgr` and `lib/apple/` build every argument vector with `push`
+  rather than writing it inline.
+
+  `transformDotMethodCallExpr` walked the receiver — that is how it learns the
+  receiver's type and decides this is a method call at all — and then put a
+  COPY of the walked node into the rewritten `call`. Walking an array literal
+  is destructive: the node's children become its elements and the node is
+  marked `is_array_literal`, and the two together are what an array literal is
+  after analysis. A copy is built for re-analysis and carries no analysis
+  result, so it had the elements and no mark: a bare list. The receiver is
+  copied before it is walked now, and that untouched copy is what the rewrite
+  gets. ISSUES.md #85.
+
+  The one-element literal still goes missing on Rust, chained or not — that is
+  #84, in the Rust writer.
+
+- **A failed compile exits non-zero.** `rgrc` printed `[FAIL]` and
+  `Compilation FAILED` and then returned success, so
+  `rgrc x.rgr && node bin/x.js` was satisfied by that zero, ran the
+  *previous* build, and printed what it printed before the change — the edit
+  looked applied and the test looked green when neither was true. Every
+  `&&` in every build script believed the zero, which is why a dozen scripts
+  in this repository read the compiler's log instead of its status. The
+  status now says what the report says: 1 when the run had errors (a parse
+  error, a missing file, any compiler error, a failed `rgrc install`),
+  0 otherwise.
+
+  The code is set rather than the process ended on the spot: node writes a
+  piped stdout asynchronously, and `process.exit()` there drops the error
+  report the status is about — `log=$(rgrc … 2>&1)` would get the status and
+  lose the reason. The new `set_exit_code` operator in `Lang.rgr` spells
+  that on each target (`process.exitCode` on JavaScript,
+  `Environment.ExitCode` on C#, the same immediate exit as `exit` where
+  stdout is unbuffered or flushed at exit).
+
+
 ## [3.5.1] - 2026-09-17
 
 - **The npm README still said 3.3.0.** The package was 3.5.0; the first line

@@ -92,8 +92,9 @@ npm init -y && npm i -D ranger-compiler
 ```
 
 …and ask for a program. The plugin carries the language's traps, a build
-command that **fails when the compile fails** (the compiler prints `[FAIL]` and
-exits 0, which makes `&&` run the previous build), the EVG and Rave skills, and
+command that **fails when the compile fails** (compilers through 3.5.1 printed
+`[FAIL]` and exited 0, which made `&&` run the previous build), the EVG and
+Rave skills, and
 `/ranger:example` — worked examples indexed by what they do, with the command
 for each.
 

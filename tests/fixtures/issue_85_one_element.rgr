@@ -1,0 +1,31 @@
+; ISSUES.md #85, the one-element case. This one PARSED before the fix and
+; answered the STRING's length instead: `box.take("abc").count()` answered 3.
+; That is the silent half of the defect. The element is longer than one
+; character for that reason -- with a one-character string the wrong answer
+; and the right one are both 1.
+;
+; Rust is left out of the gate on this file: it drops a one-element inline
+; array literal in any argument position, chained or not (ISSUES.md #84),
+; which is a defect in that writer rather than in this shape.
+
+class OneSink {
+    def n:int 0
+
+    fn take:OneSink (v:[string]) {
+        n = (array_length v)
+        return this
+    }
+
+    fn count:int () {
+        return n
+    }
+}
+
+class Issue85One {
+    sfn m@(main):void () {
+        def s:OneSink (new OneSink)
+        def bound:[string] ([] _:string ( "abc" ))
+        print "bound=" + ((s.take(bound)).count())
+        print "inline=" + ((s.take(([] _:string ( "abc" )))).count())
+    }
+}

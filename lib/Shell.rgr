@@ -35,10 +35,10 @@
 ;         print (r.outText())
 ;     }
 ;
-; Build the argument vector rather than writing it as an inline literal: an
-; array literal handed straight to a call is lost when the call result is
-; immediately dereferenced, and a one-element one is flattened on Rust
-; (ISSUES.md #84, #85).
+; Build the argument vector rather than writing it as an inline literal: a
+; one-element literal is flattened to its element on Rust (ISSUES.md #84). The
+; same shape used to lose the whole array whenever the call result was
+; immediately dereferenced, on every target (#85, fixed).
 ;
 ; =============================================================================
 

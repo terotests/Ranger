@@ -47,10 +47,10 @@ class AppleToolchain {
     fn developerDir:string () {
         ; Every argument vector in this file is BUILT rather than written as
         ; an inline literal: a one-element literal is flattened to its element
-        ; on Rust (ISSUES.md #84), and any literal is lost when the call
-        ; taking it is immediately dereferenced (#85). A build driver that only
-        ; compiled on Node would be a poor advertisement for a cross-language
-        ; compiler; this one is checked on seven targets.
+        ; on Rust (ISSUES.md #84). Any literal used to be lost when the call
+        ; taking it was immediately dereferenced (#85, fixed). A build driver
+        ; that only compiled on Node would be a poor advertisement for a
+        ; cross-language compiler; this one is checked on seven targets.
         def argv:[string]
         push argv "-p"
         return (sh.text("xcode-select" argv))

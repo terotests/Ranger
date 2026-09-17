@@ -742,12 +742,14 @@ npx rgrc -l=kotlin src/Main.rgr</code></pre>
         <p class="label">03</p>
         <h3>The part that saves you an afternoon</h3>
         <p>
-          <strong>The compiler prints <code>[FAIL]</code> and then exits 0.</strong> So
-          <code>rgrc x.rgr &amp;&amp; node build/x.js</code> is satisfied by that zero,
-          runs the <em>previous</em> build, and prints what it printed before your
-          change — the edit looks applied and the test looks green when neither is true.
-          The starter's <code>scripts/rgr</code> deletes the output first and reads the
-          log, and every one of its commands goes through it. It ships
+          <strong>Through 3.5.1 the compiler printed <code>[FAIL]</code> and then exited
+          0.</strong> So <code>rgrc x.rgr &amp;&amp; node build/x.js</code> was satisfied
+          by that zero, ran the <em>previous</em> build, and printed what it printed
+          before your change — the edit looked applied and the test looked green when
+          neither was true. A failed compile now ends with a non-zero status. The
+          starter's <code>scripts/rgr</code> keeps the belt and braces anyway — it deletes
+          the output first and reads the log, so an older compiler on the machine cannot
+          bring the trap back — and every one of its commands goes through it. It ships
           <code>AGENTS.md</code> and <code>.claude/skills/</code> for the same reason:
           <strong>ranger-lang</strong> is the list of syntax rules whose error messages
           point at the wrong line, and they cost about an hour each when met by surprise.

@@ -27,7 +27,7 @@ packaging, CI, and an opt-in script for the AGPL gallery. MIT.
 
 | | |
 | --- | --- |
-| **`rgr`** | on the PATH while the plugin is enabled: compile and run, and **fail when the compile fails**. The compiler prints `[FAIL]` and exits 0, so `rgrc … && node bin/Main.js` runs the PREVIOUS build and the edit looks applied when it is not. This is the single most expensive trap in the toolchain and `rgr` is the whole of the fix. |
+| **`rgr`** | on the PATH while the plugin is enabled: compile and run, and **fail when the compile fails**. Compilers through 3.5.1 print `[FAIL]` and exit 0, so `rgrc … && node bin/Main.js` runs the PREVIOUS build and the edit looks applied when it is not. A failed compile now exits non-zero; `rgr` reads the log as well, so it is right on either compiler. |
 | **`ranger-start`** | from an empty folder to a running program: the install, the first two programs, the loop, and what to read next. |
 | **`ranger-lang`** | the syntax traps whose error messages point at the wrong line — a returned call that needs its own parentheses, two statements on a line, the reserved method names that fail at every CALL SITE, arithmetic on a call result. Hours each, once. |
 | **`evg-edit`** | reading, changing and CHECKING an EVG document — a page, a chart, a diagram, a PDF — by address, with a measure that says whether the text overflowed rather than a guess. |

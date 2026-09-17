@@ -8282,6 +8282,12 @@ class LowIRBuilderPass {
         this.lowerExit(node lctx)
         return
       }
+      ; set_exit_code defers the status on the targets that buffer stdout;
+      ; a libc program flushes at exit, so it is the same call here.
+      if (opName == "set_exit_code") {
+        this.lowerExit(node lctx)
+        return
+      }
       if (opName == "sleep_ms") {
         this.lowerSleepMs(node lctx)
         return
