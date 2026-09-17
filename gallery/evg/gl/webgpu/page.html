@@ -1,0 +1,366 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EVG — WebGL 2 against WebGPU</title>
+<style>
+  :root { color-scheme: light dark }
+  body { margin:0; padding:16px; font:14px/1.5 system-ui, sans-serif }
+  h1 { font-size:17px; margin:0 0 4px }
+  p.note { margin:0 0 12px; opacity:.75; max-width:78ch }
+  table { border-collapse:collapse; font:12px/1.4 ui-monospace, monospace; margin-bottom:18px; width:100%; }
+  th, td { padding:3px 8px; border-bottom:1px solid rgba(128,128,128,.35); text-align:right; white-space:nowrap }
+  th:first-child, td:first-child { text-align:left }
+  td.win { color:#1a7f37; font-weight:600 }
+  td.loss { color:#a40e26; font-weight:600 }
+  canvas { width:300px; height:211px; border:1px solid rgba(128,128,128,.4) }
+  #canvases { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px }
+  figure { margin:0 } figcaption { font:11px ui-monospace, monospace; opacity:.7 }
+  #status { font:12px ui-monospace, monospace; opacity:.8; margin-bottom:8px }
+  #err { color:#a40e26; font:12px ui-monospace, monospace; white-space:pre-wrap }
+  .scroller { overflow-x:auto }
+</style>
+
+<h1>EVG — WebGL 2 against WebGPU</h1>
+<p class="note">
+  The same display lists through both painters, in one page. Milliseconds,
+  median of the repeats. <b>build</b> is list → GPU-ready buffers, uploaded and
+  drawn once; <b>redraw</b> is the frame kept and only the layer shift moved,
+  which is what a scroll costs; <b>bundle</b> is the WebGPU-only replay of a
+  recorded frame. A ratio above 1 means WebGPU is that many times faster.
+</p>
+<p class="note">
+  Add <code>?target=canvas</code> to draw into the two canvases below instead
+  of into offscreen textures — which is what you want on real hardware, and
+  what crashes the GPU process under SwiftShader.
+  Other knobs: <code>?scene=grid-10k-1run&amp;draws=120&amp;dpr=2&amp;parity=1</code>.
+</p>
+<div id="canvases">
+  <figure><canvas id="glc"></canvas><figcaption>WebGL 2</figcaption></figure>
+  <figure><canvas id="gpuc"></canvas><figcaption>WebGPU</figcaption></figure>
+</div>
+<div id="status">starting…</div>
+<div class="scroller"><div id="results"></div></div>
+<pre id="err"></pre>
+
+<script type="module">
+import { prepareDisplayList as prepareGL } from "../evg-webgl.js";
+import { prepareDisplayList as prepareGPU, requestDevice } from "./evg-webgpu.js";
+import { SCENES, DEFAULT_SCENES } from "./scenes.js";
+
+const qs = new URLSearchParams(location.search);
+const only = qs.get("scene");
+const REPEAT_BUILD = Number(qs.get("builds") || 5);
+// Draws per timed batch, and how many batches to take the median of. See the
+// note in timeGL: the clock cannot resolve one redraw.
+const BATCH = Number(qs.get("draws") || 60);
+const BATCHES = Number(qs.get("batches") || 3);
+const W = Number(qs.get("w") || 1280);
+const H = Number(qs.get("h") || 900);
+const DPR = Number(qs.get("dpr") || 1);
+// WHERE THE PICTURE GOES. On a machine with a GPU, "canvas" — the path a real
+// page takes, presentation included. Under SwiftShader the WebGPU swapchain
+// takes the GPU process down with it on the first submit, and nothing else
+// does, so the default is a texture this page owns. Every driver call, upload
+// and shader invocation is the same either way; only the present is missing.
+const TARGET = qs.get("target") || "offscreen";
+// THE FLUSHED MEASUREMENT IS OFF BY DEFAULT. Waiting for the work to finish
+// means a software rasteriser actually draws every one of the batched frames —
+// 200 full-surface passes over 50 000 quads — and the suite stopped finishing.
+// It is also the one number that means nothing without a real GPU. Turn it on
+// with ?flushed=1 on hardware.
+const FLUSHED = qs.get("flushed") === "1";
+
+const status = (t) => { document.getElementById("status").textContent = t; };
+const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
+
+const glCanvas = document.getElementById("glc");
+const gpuCanvas = document.getElementById("gpuc");
+const FBW = Math.round(W * DPR), FBH = Math.round(H * DPR);
+for (const c of [glCanvas, gpuCanvas]) { c.width = FBW; c.height = FBH; }
+
+const gl = glCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true });
+
+// The GL side's offscreen target, so that both painters are measured drawing
+// into the same kind of thing.
+let glFbo = null;
+if (TARGET !== "canvas") {
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, FBW, FBH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  const ds = gl.createRenderbuffer();
+  gl.bindRenderbuffer(gl.RENDERBUFFER, ds);
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, FBW, FBH);
+  glFbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, glFbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, ds);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+}
+const bindGlTarget = () => gl.bindFramebuffer(gl.FRAMEBUFFER, glFbo);
+
+const { device, why, describe } = await requestDevice();
+let gpu = null, gpuTarget = null;
+if (device) {
+  const context = gpuCanvas.getContext("webgpu");
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  context.configure({
+    device, format,
+    alphaMode: "premultiplied",
+    // COPY_SRC so the parity harness can read the picture back the way
+    // readPixels does on the GL side.
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+  });
+  gpu = { device, context, format, canvas: gpuCanvas };
+  if (TARGET !== "canvas") {
+    gpuTarget = device.createTexture({
+      size: [FBW, FBH], format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+    });
+  }
+}
+const gpuOpts = () => (gpuTarget ? { target: gpuTarget } : {});
+
+// A flush that means the same thing on both: ask for the work to be finished.
+const flushGL = () => { bindGlTarget(); const px = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); };
+const flushGPU = () => device.queue.onSubmittedWorkDone();
+
+// The layer a scroll moves is layer 1 in every scene that has one; a frame
+// redrawn at a new shift is the whole of what a fling costs.
+const shifted = (shifts, i) => (shifts || [[0, 0]]).map((v, k) => (k === 1 ? [v[0], v[1] - i] : v));
+
+function timeGL(doc, shifts) {
+  const out = {};
+  bindGlTarget();
+  // Warm: the first build compiles the program and the first draw validates it.
+  let f = prepareGL(gl, doc, { dpr: DPR });
+  f.draw(shifts); flushGL(); f.dispose();
+
+  const builds = [];
+  for (let i = 0; i < REPEAT_BUILD; i += 1) {
+    bindGlTarget();
+    const t = performance.now();
+    const fr = prepareGL(gl, doc, { dpr: DPR });
+    fr.draw(shifts);
+    builds.push(performance.now() - t);
+    if (i < REPEAT_BUILD - 1) fr.dispose(); else f = fr;
+  }
+  out.build = median(builds);
+  flushGL();
+
+  // TIMED IN BATCHES, and this is not optional. performance.now() is
+  // coarsened to 100 microseconds in a page that is not cross-origin isolated
+  // — a Spectre mitigation — and a redraw costs less than that, so timing one
+  // draw reports 0.100, 0.200 or 0.000 and nothing in between. A batch of
+  // BATCH draws divided by BATCH is the same number measured where the clock
+  // can see it.
+  const perDraw = [];
+  for (let b = 0; b < BATCHES; b += 1) {
+    bindGlTarget();
+    const t = performance.now();
+    for (let i = 0; i < BATCH; i += 1) f.draw(shifted(shifts, i));
+    perDraw.push((performance.now() - t) / BATCH);
+  }
+  out.redraw = median(perDraw);
+  if (FLUSHED) {
+    bindGlTarget();
+    const tf = performance.now();
+    for (let i = 0; i < BATCH; i += 1) f.draw(shifted(shifts, i));
+    flushGL();
+    out.redrawFlushed = (performance.now() - tf) / BATCH;
+  }
+  bindGlTarget();
+  const last = f.draw(shifts);
+  out.runs = last.runs;
+  out.quads = last.drawn;
+  flushGL();
+  f.dispose();
+  return out;
+}
+
+async function timeGPU(doc, shifts) {
+  const out = {};
+  let f = prepareGPU(gpu, doc, { dpr: DPR });
+  f.draw(shifts, null, gpuOpts()); await flushGPU(); f.dispose();
+
+  const builds = [];
+  for (let i = 0; i < REPEAT_BUILD; i += 1) {
+    const t = performance.now();
+    const fr = prepareGPU(gpu, doc, { dpr: DPR });
+    fr.draw(shifts, null, gpuOpts());
+    builds.push(performance.now() - t);
+    if (i < REPEAT_BUILD - 1) fr.dispose(); else f = fr;
+  }
+  out.build = median(builds);
+  await flushGPU();
+
+  const perDraw = [];
+  for (let b = 0; b < BATCHES; b += 1) {
+    const t = performance.now();
+    for (let i = 0; i < BATCH; i += 1) f.draw(shifted(shifts, i), null, gpuOpts());
+    perDraw.push((performance.now() - t) / BATCH);
+    await flushGPU();
+  }
+  out.redraw = median(perDraw);
+  if (FLUSHED) {
+    const tf = performance.now();
+    for (let i = 0; i < BATCH; i += 1) f.draw(shifted(shifts, i), null, gpuOpts());
+    await flushGPU();
+    out.redrawFlushed = (performance.now() - tf) / BATCH;
+  }
+
+  // The bundle, where the list allows one: recorded once, replayed with the
+  // uniforms rewritten — see the note on `canBundle`.
+  if (f.canBundle) {
+    f.bundleDraw(shifts, null, gpuOpts()); await flushGPU();
+    const bd = [];
+    for (let b = 0; b < BATCHES; b += 1) {
+      const t = performance.now();
+      for (let i = 0; i < BATCH; i += 1) f.bundleDraw(shifted(shifts, i), null, gpuOpts());
+      bd.push((performance.now() - t) / BATCH);
+      await flushGPU();
+    }
+    out.bundle = median(bd);
+  }
+  out.runs = f.runs;
+  out.quads = f.quads;
+  out.textRuns = f.textRuns;
+  // Where the build time went. See the note in evg-webgpu.js: only `packMs`
+  // is ours to move, and it is what a WASM producer would write directly.
+  out.timing = f.timing;
+  out.skipped = f.skipped;
+  out.bytes = f.bytes;
+  f.dispose();
+  return out;
+}
+
+// THE PARITY RUNS USE A PAGE THE SIZE OF THE FRAMEBUFFER, which the timed
+// runs do not. A 1280x900 list drawn into a 320x240 target is the same picture
+// at a quarter scale, and at a quarter scale every edge in it is a sub-pixel
+// edge: the two painters' antialiasing then differs on 8% of the pixels while
+// both are drawing correctly. Matching the page to the target compares the
+// commands at 1:1 — a crop of the scene rather than a shrink of it — and gives
+// the same numbers `parity.mjs` reports.
+const atOneToOne = (doc) => ({ ...doc, width: FBW, height: FBH });
+
+/** The finished picture, as RGBA bytes with row 0 at the top. */
+function pixelsGL(doc0, shifts) {
+  const doc = atOneToOne(doc0);
+  bindGlTarget();
+  const f = prepareGL(gl, doc, { dpr: DPR });
+  f.draw(shifts);
+  const px = new Uint8Array(FBW * FBH * 4);
+  gl.readPixels(0, 0, FBW, FBH, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  f.dispose();
+  // readPixels is bottom-up; flip so both readers agree on where row 0 is.
+  const row = FBW * 4;
+  const flipped = new Uint8Array(px.length);
+  for (let y = 0; y < FBH; y += 1) flipped.set(px.subarray((FBH - 1 - y) * row, (FBH - y) * row), y * row);
+  return flipped;
+}
+
+async function pixelsGPU(doc0, shifts) {
+  const doc = atOneToOne(doc0);
+  const f = prepareGPU(gpu, doc, { dpr: DPR });
+  f.draw(shifts, null, gpuOpts());
+  const source = gpuTarget || gpu.context.getCurrentTexture();
+  const bpr = Math.ceil(FBW * 4 / 256) * 256;
+  const buf = device.createBuffer({ size: bpr * FBH, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+  const enc = device.createCommandEncoder();
+  enc.copyTextureToBuffer({ texture: source }, { buffer: buf, bytesPerRow: bpr }, [FBW, FBH]);
+  device.queue.submit([enc.finish()]);
+  await buf.mapAsync(GPUMapMode.READ);
+  const src = new Uint8Array(buf.getMappedRange());
+  const out = new Uint8Array(FBW * FBH * 4);
+  const bgra = gpu.format.startsWith("bgra");
+  for (let y = 0; y < FBH; y += 1) {
+    for (let x = 0; x < FBW; x += 1) {
+      const s = y * bpr + x * 4, d = (y * FBW + x) * 4;
+      if (bgra) { out[d] = src[s + 2]; out[d + 1] = src[s + 1]; out[d + 2] = src[s]; out[d + 3] = src[s + 3]; }
+      else { out[d] = src[s]; out[d + 1] = src[s + 1]; out[d + 2] = src[s + 2]; out[d + 3] = src[s + 3]; }
+    }
+  }
+  buf.unmap(); buf.destroy();
+  f.dispose();
+  return out;
+}
+
+/**
+ * How far apart two pictures are.
+ *
+ * Reported two ways on purpose. A mean absolute difference hides one wrong
+ * corner in a page of right ones; the share of pixels off by more than a
+ * rounding step is what says "these are different drawings".
+ */
+function compare(a, b) {
+  let sum = 0, off = 0, worst = 0;
+  const n = Math.min(a.length, b.length) / 4;
+  for (let i = 0; i < n; i += 1) {
+    let d = 0;
+    for (let k = 0; k < 3; k += 1) d = Math.max(d, Math.abs(a[i * 4 + k] - b[i * 4 + k]));
+    sum += d;
+    if (d > 8) off += 1;
+    worst = Math.max(worst, d);
+  }
+  return { meanDiff: sum / n, pctOff: (off / n) * 100, worst };
+}
+
+const results = {
+  adapter: describe || null, why: why || null,
+  dpr: DPR, w: W, h: H, target: TARGET, scenes: {},
+};
+// Published BEFORE the work, so a harness that runs out of patience still has
+// the scenes that finished. `__benchDone` is the flag it waits on.
+window.__bench = results;
+
+try {
+  const names = only ? only.split(",") : DEFAULT_SCENES;
+  for (const name of names) {
+    if (!SCENES[name]) throw new Error("no such scene: " + name);
+    status(`${name}: building the list…`);
+    const doc = SCENES[name]();
+    const shifts = doc.list.shifts;
+    status(`${name}: WebGL…`);
+    const webgl = timeGL(doc, shifts);
+    let webgpu = null, parity = null;
+    if (gpu) {
+      status(`${name}: WebGPU…`);
+      webgpu = await timeGPU(doc, shifts);
+      if (qs.get("parity") === "1") {
+        status(`${name}: comparing pixels…`);
+        parity = compare(pixelsGL(doc, shifts), await pixelsGPU(doc, shifts));
+      }
+    }
+    results.scenes[name] = { webgl, webgpu, parity, cmds: doc.list.cmds.length };
+    console.log(`scene done: ${name}`);
+    render();
+  }
+  results.complete = true;
+  status(`done — ${describe || "no WebGPU: " + why} — target: ${TARGET}`);
+} catch (e) {
+  document.getElementById("err").textContent = String(e && e.stack || e);
+  results.error = String(e && e.stack || e);
+  status("failed");
+}
+window.__benchDone = 1;
+
+function render() {
+  const cell = (a, b) => {
+    if (b === undefined || b === null) return `<td>${a === undefined ? "—" : a.toFixed(3)}</td><td>—</td><td>—</td>`;
+    const ratio = a / b;
+    const cls = ratio >= 1.15 ? "win" : ratio <= 0.87 ? "loss" : "";
+    return `<td>${a.toFixed(3)}</td><td>${b.toFixed(3)}</td><td class="${cls}">${ratio.toFixed(2)}×</td>`;
+  };
+  const rows = Object.entries(results.scenes).map(([name, r]) => `
+    <tr><td>${name}</td><td>${r.webgpu ? r.webgpu.quads : r.webgl.quads}</td><td>${r.webgpu ? r.webgpu.runs : r.webgl.runs}</td>
+    ${cell(r.webgl.build, r.webgpu && r.webgpu.build)}
+    ${cell(r.webgl.redraw, r.webgpu && r.webgpu.redraw)}
+    <td>${r.webgpu && r.webgpu.bundle !== undefined ? r.webgpu.bundle.toFixed(3) : "—"}</td>
+    <td>${r.parity ? r.parity.pctOff.toFixed(2) + "%" : "—"}</td></tr>`).join("");
+  document.getElementById("results").innerHTML = `<table>
+    <tr><th>scene</th><th>quads</th><th>runs</th>
+      <th>build gl</th><th>build gpu</th><th>×</th>
+      <th>redraw gl</th><th>redraw gpu</th><th>×</th>
+      <th>bundle</th><th>px off</th></tr>${rows}</table>`;
+}
+</script>

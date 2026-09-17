@@ -15,6 +15,7 @@ colours resolved to 0–255 + alpha, no tree and no units left.
 
 ```
 JSX + CSS ──► EVG layout ──► display list ──┬─► WebGL 2      (evg-webgl.js)
+                                            ├─► WebGPU       (webgpu/evg-webgpu.js — spike)
                                             ├─► SVG / DOM    (../html/evg-html.js)
                                             ├─► SDL2 + GL    (C++ target)
                                             ├─► PDF, PNG, HTML (existing)
@@ -61,6 +62,24 @@ EVG's — measured from the same TTF the PDF is set in, kerning included. Only
 the glyph *images* come from the platform. Here a 2D canvas rasterizes each run
 into an atlas, one slot per run rather than per glyph, which keeps the run
 intact and therefore keeps EVG's kerning exactly.
+
+## Would WebGPU be faster? — [`webgpu/`](webgpu/README.md)
+
+A spike, not a port: the same display list through a second GPU backend, timed
+and differenced against this one. The short of it — a frame **builds** 1.5–2.5×
+faster, a **run** costs 3.7× less (WebGL 2 has no base instance, so a run means
+re-pointing nine attributes), a simple redraw is cheaper here, render bundles
+buy nothing, and the largest single cost in either painter is JavaScript that
+neither API touches. Fifteen scenes agree pixel for pixel. The recommendation
+is to take the memory win without the API change first; the reasoning, the
+mobile question and the four things that broke are in
+[`webgpu/README.md`](webgpu/README.md).
+
+```sh
+npm run evg:webgpu:bench    # the table
+npm run evg:webgpu:parity   # the pixels
+npm run evg:webgpu:serve    # a URL to open on a phone
+```
 
 ## Images
 
