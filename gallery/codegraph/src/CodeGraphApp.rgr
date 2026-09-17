@@ -6,10 +6,12 @@
 ;
 ; The same IR and pager the HTML page uses. The chrome is EVG, so one
 ; display list is what a browser, an SDL2 window and a native host all
-; paint. Desktop Open uses CodeGraphBuilder.fromPath (real disk, ranger.json,
-; `pkg:`). In-tab examples still compile through the in-memory filesystem.
+; paint. The body is a ResizeCtl group: class rail | UML canvas | source.
+; Clicking a class, field or method opens that file in ScriptEditor and
+; scrolls so the declaration is near the top of the pane — the method
+; body is visible immediately, not one line below the fold.
 ;
-;   host event → CodeGraphApp (UiHost chrome | FlowEditor canvas)
+;   host event → CodeGraphApp (UiHost chrome | FlowEditor | ScriptEditor)
 ;   display()  → EVGDisplayList → WebGL / EvgGlPainter
 ;
 ; Desktop Open uses CodeGraphBuilder.fromPath (real disk, ranger.json, pkg:).
@@ -18,10 +20,17 @@
 
 Import "../../evg/EvgApp.rgr"
 Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 Import "../../ui/src/UiHost.rgr"
+Import "../../ui/src/ResizeCtl.rgr"
 Import "../../rangerflow/core/FlowEditor.rgr"
 Import "../../rangerflow/core/FlowEvents.rgr"
+Import "../../datagrid/src/script/ScriptEditor.rgr"
+Import "../../datagrid/src/script/lang/EditorLanguage.rgr"
+Import "../../datagrid/src/script/lang/RangerLanguage.rgr"
+Import "../../datagrid/src/script/lang/JsLanguage.rgr"
+Import "../../game_engine/ui/UITextRenderer.rgr"
 Import "CodeGraphSample.rgr"
 Import "CodeGraphFlow.rgr"
 Import "CodeGraphBuilder.rgr"
@@ -44,6 +53,23 @@ class CodeGraphApp extends EvgApp {
     def canvasH:double 720.0
     def viewW:double 940.0
     def viewH:double 720.0
+    def sourceX:double 0.0
+    def sourceY:double 52.0
+    def sourceW:double 360.0
+    def sourceH:double 720.0
+    def splitW:double 1200.0
+    def split:ResizeCtl (new ResizeCtl)
+    def splitDrag:boolean false
+    def splitDragI:int 0
+    def splitAt:double 0.0
+    def graphDrag:boolean false
+    def sourceDrag:boolean false
+    def codeView:ScriptEditor (new ScriptEditor)
+    def languages:LanguageRegistry (new LanguageRegistry)
+    def codeTr:UITextRenderer (new UITextRenderer)
+    def sourcePath:string ""
+    def lastOpenPath:string ""
+    def sourceJump:boolean false
 
     def sampleName:string "shop"
     def umlOn:boolean false
@@ -62,6 +88,7 @@ class CodeGraphApp extends EvgApp {
     def bodyEl:EVGElement (EVGElement.createDiv())
     def railEl:EVGElement (EVGElement.createDiv())
     def canvasEl:EVGElement (EVGElement.createDiv())
+    def sourceEl:EVGElement (EVGElement.createDiv())
     def footerEl:EVGElement (EVGElement.createDiv())
     def brand:LabelCtl (new LabelCtl)
     def crumbLbl:LabelCtl (new LabelCtl)
@@ -97,9 +124,19 @@ class CodeGraphApp extends EvgApp {
         ; sheet's `scrollbar-color` is visible, not overlay-hidden-until-scroll.
         ui.showScrollbars = true
         ui.scrollbarState = 1
+        this.installLanguages()
+        codeView.init("; Select a class, field or method to open its source.")
+        codeView.showMinimap = true
         this.buildChrome()
         this.setPageSize(w h)
         this.loadSample("shop")
+    }
+
+    fn installLanguages:void () {
+        def rangerLang (new RangerLanguage)
+        languages.add(rangerLang)
+        def jsLang (new JsLanguage)
+        languages.add(jsLang)
     }
 
     fn init:void (w:double h:double) {
@@ -123,27 +160,49 @@ class CodeGraphApp extends EvgApp {
         }
         pageW = w
         pageH = h
-        railW = 260.0
-        if (w < 720.0) {
-            railW = 200.0
-        }
         headerH = 52.0
         footerH = 28.0
-        canvasW = (w - railW)
-        if (canvasW < 200.0) {
-            canvasW = 200.0
-        }
         canvasH = ((h - headerH) - footerH)
         if (canvasH < 160.0) {
             canvasH = 160.0
         }
-        canvasX = railW
         canvasY = headerH
-        viewW = canvasW
-        viewH = canvasH
+        sourceY = headerH
+        sourceH = canvasH
+        splitW = w
+        this.estimatePaneSizes()
         ui.setPageSize(w h)
         this.applyChromeSizes()
         editor.setSize(viewW viewH)
+        codeView.setBounds((to_int sourceX) (to_int sourceY) (to_int sourceW) (to_int sourceH))
+    }
+
+    fn estimatePaneSizes:void () {
+        def bodyH:double canvasH
+        def railPct:double 22.0
+        def graphPct:double 48.0
+        def srcPct:double 30.0
+        if ((array_length split.panels) >= 3) {
+            def rp:UiPanel (itemAt split.panels 0)
+            def gp:UiPanel (itemAt split.panels 1)
+            def sp:UiPanel (itemAt split.panels 2)
+            railPct = rp.size
+            graphPct = gp.size
+            srcPct = sp.size
+        }
+        railW = ((pageW * railPct) / 100.0)
+        canvasW = ((pageW * graphPct) / 100.0)
+        sourceW = ((pageW * srcPct) / 100.0)
+        if (canvasW < 120.0) {
+            canvasW = 120.0
+        }
+        if (sourceW < 80.0) {
+            sourceW = 80.0
+        }
+        canvasX = railW
+        sourceX = (railW + canvasW)
+        viewW = canvasW
+        viewH = bodyH
     }
 
     fn applyChromeSizes:void () {
@@ -157,13 +216,20 @@ class CodeGraphApp extends EvgApp {
         this.sizeBox((unwrap root) pageW pageH)
         this.sizeBox(headerEl pageW headerH)
         this.sizeBox(bodyEl pageW canvasH)
-        this.sizeBox(railEl railW canvasH)
-        this.sizeBox(canvasEl canvasW canvasH)
         this.sizeBox(footerEl pageW footerH)
+        this.sizeBox((unwrap split.rootEl) pageW canvasH)
+        this.sizeHeight(railEl canvasH)
+        this.sizeHeight(canvasEl canvasH)
+        this.sizeHeight(sourceEl canvasH)
+        this.dressSplit()
     }
 
     fn sizeBox:void (el:EVGElement w:double h:double) {
         el.setAttribute("width" ((to_string (to_int w)) + "px"))
+        el.setAttribute("height" ((to_string (to_int h)) + "px"))
+    }
+
+    fn sizeHeight:void (el:EVGElement h:double) {
         el.setAttribute("height" ((to_string (to_int h)) + "px"))
     }
 
@@ -191,6 +257,8 @@ class CodeGraphApp extends EvgApp {
         railEl.className = "cg-rail"
         canvasEl.id = "cg-canvas"
         canvasEl.className = "cg-canvas"
+        sourceEl.id = "cg-source"
+        sourceEl.className = "cg-source"
         footerEl.id = "cg-footer"
         footerEl.className = "cg-footer"
 
@@ -283,12 +351,112 @@ class CodeGraphApp extends EvgApp {
         this.mount(footerEl statusLbl)
 
         root.addChild(headerEl)
-        bodyEl.addChild(railEl)
-        bodyEl.addChild(canvasEl)
         root.addChild(bodyEl)
         root.addChild(footerEl)
+        this.buildSplit()
         chromeReady = true
         this.applyChromeSizes()
+    }
+
+    fn buildSplit:void () {
+        split.tid = "cg-split"
+        split.orientation = "horizontal"
+        split.rebuildOnResize = false
+        if ((array_length split.panels) == 0) {
+            def railP:UiPanel (split.addPanel("rail" 22.0))
+            railP.minSize = 12.0
+            def graphP:UiPanel (split.addPanel("graph" 48.0))
+            graphP.minSize = 20.0
+            def srcP:UiPanel (split.addPanel("source" 30.0))
+            srcP.minSize = 12.0
+            push ui.ctls split
+        }
+        split.build()
+        def splitRoot:EVGElement (unwrap split.rootEl)
+        splitRoot.className = "ui-resizable cg-split"
+        bodyEl.addChild(splitRoot)
+        this.mountSplitPanes()
+        this.dressSplit()
+    }
+
+    fn mountSplitPanes:void () {
+        def splitRoot:EVGElement (unwrap split.rootEl)
+        def railBody@(optional):EVGElement (ui.findEl(splitRoot ((split.panelTid("rail")) + "-body")))
+        def graphBody@(optional):EVGElement (ui.findEl(splitRoot ((split.panelTid("graph")) + "-body")))
+        def srcBody@(optional):EVGElement (ui.findEl(splitRoot ((split.panelTid("source")) + "-body")))
+        if railBody {
+            def rb:EVGElement (unwrap railBody)
+            rb.className = "ui-resizable-body cg-rail-body"
+            rb.addChild(railEl)
+        }
+        if graphBody {
+            def gb:EVGElement (unwrap graphBody)
+            gb.className = "ui-resizable-body cg-graph-body"
+            gb.addChild(canvasEl)
+        }
+        if srcBody {
+            def sb:EVGElement (unwrap srcBody)
+            sb.className = "ui-resizable-body cg-source-body"
+            sb.addChild(sourceEl)
+        }
+    }
+
+    fn dressSplit:void () {
+        def splitRoot:EVGElement (unwrap split.rootEl)
+        this.sizeBox(splitRoot pageW canvasH)
+        splitRoot.flexDirection = "row"
+        splitRoot.alignItems = "stretch"
+        def i:int 0
+        while (i < (array_length split.panels)) {
+            def p:UiPanel (itemAt split.panels i)
+            def pel@(optional):EVGElement (ui.findEl(splitRoot (split.panelTid(p.value))))
+            if pel {
+                def panel:EVGElement (unwrap pel)
+                this.giveShare(panel i)
+                this.sizeHeight(panel canvasH)
+                panel.alignItems = "stretch"
+                def body@(optional):EVGElement (ui.findEl(panel ((split.panelTid(p.value)) + "-body")))
+                if body {
+                    this.sizeHeight((unwrap body) canvasH)
+                }
+            }
+            if (i > 0) {
+                def sep@(optional):EVGElement (ui.findEl(splitRoot (split.sepTid(i - 1))))
+                if sep {
+                    def s:EVGElement (unwrap sep)
+                    s.flexShrink = 0.0
+                    s.markInline("flex-shrink")
+                    s.cursor = "col-resize"
+                    this.sizeBox(s 6.0 canvasH)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn giveShare:void (el:EVGElement i:int) {
+        def p:UiPanel (itemAt split.panels i)
+        el.flex = p.size
+        el.flexShrink = 1.0
+        el.flexBasis = (EVGUnit.px(0.0))
+        el.markInline("flex-grow")
+        el.markInline("flex-shrink")
+        el.markInline("flex-basis")
+    }
+
+    fn splitCount:int () {
+        return (array_length split.panels)
+    }
+
+    fn splitSizeAt:double (i:int) {
+        if (i < 0) {
+            return 0.0
+        }
+        if (i >= (array_length split.panels)) {
+            return 0.0
+        }
+        def p:UiPanel (itemAt split.panels i)
+        return p.size
     }
 
     fn refreshChrome:void () {
@@ -805,6 +973,7 @@ class CodeGraphApp extends EvgApp {
 
     fn openDiskPath:boolean (path:string) {
         this.clearUserFiles()
+        lastOpenPath = path
         def g:CodeGraph (CodeGraphBuilder.fromAny(path))
         if ((indexOf g.title " FAIL ") >= 0) {
             status = g.title
@@ -862,6 +1031,7 @@ class CodeGraphApp extends EvgApp {
         ; Keep every class the compile collected. Filtering to `filename` dropped
         ; imported types (DataGrid → an empty SheetView box) even when VC had
         ; already resolved the Import. Lang.rgr / stdops / stdlib stay skipped.
+        lastOpenPath = filename
         return (this.runAnalyze(source filename ""))
     }
 
@@ -1172,6 +1342,7 @@ class CodeGraphApp extends EvgApp {
         this.framePageFocus()
         status = session.status
         this.refreshChrome()
+        this.revealPageSource()
         return true
     }
 
@@ -1337,6 +1508,16 @@ class CodeGraphApp extends EvgApp {
         return false
     }
 
+    fn openMethod:boolean (id:string) {
+        if ((session.model.hasMethod(id)) == false) {
+            return false
+        }
+        if (session.goTo(session.pages.methodPageId(id))) {
+            return (this.showPage())
+        }
+        return false
+    }
+
     fn goOverview:boolean () {
         def next:string (session.pages.overviewId(0))
         if umlOn {
@@ -1397,6 +1578,226 @@ class CodeGraphApp extends EvgApp {
 
     fn sceneName:string () {
         return session.pageId
+    }
+
+    ; --- source pane --------------------------------------------------------
+
+    fn inSource:boolean (px:double py:double) {
+        if (px < sourceX) {
+            return false
+        }
+        if (py < sourceY) {
+            return false
+        }
+        if (px >= (sourceX + sourceW)) {
+            return false
+        }
+        if (py >= (sourceY + sourceH)) {
+            return false
+        }
+        return true
+    }
+
+    fn isSplitSep:boolean (id:string) {
+        if ((split.sepIndex(id)) >= 0) {
+            return true
+        }
+        return false
+    }
+
+    fn revealPageSource:void () {
+        def id:string session.pageId
+        if ((indexOf id "class:") == 0) {
+            def name:string (substring id 6 (strlen id))
+            this.revealClass(name)
+            return
+        }
+        if ((indexOf id "method:") == 0) {
+            def mid:string (substring id 7 (strlen id))
+            this.revealMethod(mid)
+            return
+        }
+    }
+
+    fn revealClass:void (name:string) {
+        if ((session.model.hasClass(name)) == false) {
+            this.revealAt("" 0)
+            return
+        }
+        def c:CodeClass (session.model.classByName(name))
+        this.revealAt(c.fileName c.startLine)
+    }
+
+    fn revealMethod:void (mid:string) {
+        if ((session.model.hasMethod(mid)) == false) {
+            this.revealAt("" 0)
+            return
+        }
+        def m:CodeMethod (session.model.methodById(mid))
+        this.revealAt(m.fileName m.startLine)
+    }
+
+    fn revealField:void (className:string fieldName:string) {
+        if ((session.model.hasClass(className)) == false) {
+            return
+        }
+        def c:CodeClass (session.model.classByName(className))
+        def i:int 0
+        while (i < (array_length c.fields)) {
+            def f:CodeField (itemAt c.fields i)
+            if (f.name == fieldName) {
+                def path:string f.fileName
+                if ((strlen path) == 0) {
+                    path = c.fileName
+                }
+                this.revealAt(path f.startLine)
+                return
+            }
+            i = (i + 1)
+        }
+        this.revealClass(className)
+    }
+
+    fn revealHit:void (lx:double ly:double) {
+        def fx:double (editor.flowX(lx))
+        def fy:double (editor.flowY(ly))
+        def ni:int (graph.nodeAtPoint(fx fy))
+        if (ni < 0) {
+            return
+        }
+        def n:FlowNode (graph.nodeAt(ni))
+        def classBox:boolean false
+        if (n.dataKind == "umlclass") {
+            classBox = true
+        }
+        if (n.dataKind == "class") {
+            classBox = true
+        }
+        if classBox {
+            def row:int (editor.rowAtPoint(n fy))
+            def fname:string (session.pages.fieldNameAtRow(n.id row))
+            def mid:string (session.pages.methodIdAtRow(n.id row))
+            if ((strlen mid) > 0) {
+                this.revealMethod(mid)
+                return
+            }
+            if ((strlen fname) > 0) {
+                this.revealField(n.id fname)
+                return
+            }
+            def ref:string n.dataRef
+            if ((strlen ref) == 0) {
+                ref = n.id
+            }
+            this.revealClass(ref)
+            return
+        }
+        if (session.model.hasMethod(n.id)) {
+            this.revealMethod(n.id)
+            return
+        }
+        if (session.model.hasClass(n.id)) {
+            this.revealClass(n.id)
+        }
+    }
+
+    fn revealAt:void (fileName:string startLine:int) {
+        def src:string (this.sourceTextOf(fileName))
+        if ((strlen src) == 0) {
+            src = (this.missingSourceNote(fileName))
+        }
+        if (sourcePath != fileName) {
+            sourcePath = fileName
+            codeView.init(src)
+            def lang:EditorLanguage (languages.forFile(fileName))
+            codeView.setLanguage(lang)
+        }
+        def line:int (this.bufferLine(fileName startLine))
+        codeView.moveCaret(line 0 false)
+        ; `ensureCaretVisible` pins the caret on the last row, so the
+        ; method body would sit one line below the fold. Jump on the next
+        ; paint, after `setBounds` has the real pane height, with a couple
+        ; of lines of context so the declaration is near the top.
+        sourceJump = true
+    }
+
+    fn applySourceJump:void () {
+        if (sourceJump == false) {
+            return
+        }
+        sourceJump = false
+        codeView.layout.syncMetrics(codeTr)
+        def line:int codeView.sel.caret.line
+        def top:int (line - 2)
+        if (top < 0) {
+            top = 0
+        }
+        codeView.layout.jumpToLine(codeView.buf top)
+    }
+
+    fn bufferLine:int (fileName:string startLine:int) {
+        def n:int startLine
+        if (this.isRgr(fileName)) {
+            if (n < 0) {
+                n = 0
+            }
+            return n
+        }
+        if (n > 0) {
+            n = (n - 1)
+        }
+        if (n < 0) {
+            n = 0
+        }
+        return n
+    }
+
+    fn missingSourceNote:string (fileName:string) {
+        def out:string "; No source to show for this class."
+        if ((strlen fileName) > 0) {
+            out = (("; No source found for " + fileName) + ".")
+        }
+        out = (out + "\n; Shop is a fixture — open a .rgr, .ts or .cpp file to see code here.")
+        return out
+    }
+
+    fn sourceTextOf:string (path:string) {
+        if ((strlen path) == 0) {
+            return ""
+        }
+        def p:string (this.slashPath(path))
+        def base:string (this.fileBaseName(p))
+        if (has userFiles p) {
+            return (unwrap (get userFiles p))
+        }
+        if (has userFiles base) {
+            return (unwrap (get userFiles base))
+        }
+        if (has exampleFiles base) {
+            return (unwrap (get exampleFiles base))
+        }
+        if (has galleryFiles p) {
+            return (unwrap (get galleryFiles p))
+        }
+        def dir:string (this.fileDirName(p))
+        def disk:string (this.readDisk(dir base))
+        if ((strlen disk) > 0) {
+            return disk
+        }
+        if ((strlen lastOpenPath) > 0) {
+            def openDir:string (this.fileDirName(lastOpenPath))
+            def beside:string (this.readDisk(openDir base))
+            if ((strlen beside) > 0) {
+                return beside
+            }
+            if ((this.fileBaseName(lastOpenPath)) == base) {
+                def opened:string (this.readDisk(openDir base))
+                if ((strlen opened) > 0) {
+                    return opened
+                }
+            }
+        }
+        return (this.readDisk("." base))
     }
 
     ; --- canvas pointer (page coordinates) ----------------------------------
@@ -1472,6 +1873,7 @@ class CodeGraphApp extends EvgApp {
             this.openAt(lx ly)
             editor.clicks.clear()
             this.refreshChrome()
+            this.revealPageSource()
             return
         }
         def n:int (editor.clicks.count())
@@ -1488,6 +1890,7 @@ class CodeGraphApp extends EvgApp {
         if moved {
             this.showPage()
         } {
+            this.revealHit(lx ly)
             this.refreshChrome()
         }
         editor.clicks.clear()
@@ -1504,20 +1907,78 @@ class CodeGraphApp extends EvgApp {
     }
 
     fn pointerDown:void (x:double y:double shift:boolean ctrl:boolean) {
+        graphDrag = false
+        sourceDrag = false
+        splitDrag = false
+        def id:string (this.hitId(x y))
+        if (this.isSplitSep(id)) {
+            splitDrag = true
+            splitDragI = (split.sepIndex(id))
+            splitAt = x
+            ui.click(id)
+            return
+        }
+        if (this.inSource(x y)) {
+            sourceDrag = true
+            codeView.focused = true
+            codeView.pointerDown(codeTr (to_int x) (to_int y) shift)
+            return
+        }
         if (this.inCanvas(x y)) {
+            graphDrag = true
             this.graphDown(x y shift ctrl)
             return
         }
-        this.press((this.hitId(x y)))
+        this.press(id)
     }
 
     fn pointerMove:void (x:double y:double shift:boolean ctrl:boolean) {
+        if splitDrag {
+            def dx:double (x - splitAt)
+            if (dx == 0.0) {
+                return
+            }
+            splitAt = x
+            def w:double splitW
+            if (w < 1.0) {
+                w = pageW
+            }
+            if (w < 1.0) {
+                w = 1.0
+            }
+            split.resizeBy(splitDragI ((dx * 100.0) / w))
+            this.dressSplit()
+            this.estimatePaneSizes()
+            return
+        }
+        if sourceDrag {
+            codeView.pointerDrag(codeTr (to_int x) (to_int y))
+            return
+        }
+        if graphDrag {
+            this.graphMove(x y shift ctrl)
+            return
+        }
         if (this.inCanvas(x y)) {
             this.graphMove(x y shift ctrl)
         }
     }
 
     fn pointerUp:void (x:double y:double shift:boolean ctrl:boolean) {
+        if splitDrag {
+            splitDrag = false
+            this.dressSplit()
+            return
+        }
+        if sourceDrag {
+            sourceDrag = false
+            return
+        }
+        if graphDrag {
+            graphDrag = false
+            this.graphUp(x y shift ctrl)
+            return
+        }
         if (this.inCanvas(x y)) {
             this.graphUp(x y shift ctrl)
         }
@@ -1526,6 +1987,18 @@ class CodeGraphApp extends EvgApp {
     fn wheel:void (x:double y:double delta:double) {
         if (this.inCanvas(x y)) {
             this.graphWheel(x y delta)
+            return
+        }
+        if (this.inSource(x y)) {
+            def notches:int 1
+            if (delta < 0.0) {
+                notches = -1
+            }
+            def lines:int (to_int (delta / 20.0))
+            if (lines == 0) {
+                lines = notches
+            }
+            codeView.scrollBy((0 - lines))
             return
         }
         this.scrollClassList(delta)
@@ -1613,6 +2086,7 @@ class CodeGraphApp extends EvgApp {
 
     fn hitId:string (px:double py:double) {
         ui.layout()
+        this.syncPaneRects()
         def tid:string (ui.hitTest(px py))
         if ((strlen tid) > 0) {
             return tid
@@ -1620,11 +2094,65 @@ class CodeGraphApp extends EvgApp {
         if (this.inCanvas(px py)) {
             return "cg-canvas"
         }
+        if (this.inSource(px py)) {
+            return "cg-source"
+        }
         return ""
+    }
+
+    fn syncPaneRects:void () {
+        def page@(optional):EVGElement ui.lastPage
+        if page {
+            def hit@(optional):EVGElement (ui.findEl((unwrap page) "cg-canvas"))
+            if hit {
+                def box:EVGElement (unwrap hit)
+                canvasX = box.calculatedX
+                canvasY = box.calculatedY
+                canvasW = box.calculatedWidth
+                canvasH = box.calculatedHeight
+                if (canvasW < 8.0) {
+                    canvasW = viewW
+                }
+                if (canvasH < 8.0) {
+                    canvasH = viewH
+                }
+                viewW = canvasW
+                viewH = canvasH
+                editor.setSize(viewW viewH)
+            }
+            def srcHit@(optional):EVGElement (ui.findEl((unwrap page) "cg-source"))
+            if srcHit {
+                def sbox:EVGElement (unwrap srcHit)
+                sourceX = sbox.calculatedX
+                sourceY = sbox.calculatedY
+                sourceW = sbox.calculatedWidth
+                sourceH = sbox.calculatedHeight
+                if (sourceW < 8.0) {
+                    sourceW = 120.0
+                }
+                if (sourceH < 8.0) {
+                    sourceH = canvasH
+                }
+            }
+            def splitHit@(optional):EVGElement (ui.findEl((unwrap page) "cg-split"))
+            if splitHit {
+                def gbox:EVGElement (unwrap splitHit)
+                splitW = gbox.calculatedWidth
+                if (splitW < 1.0) {
+                    splitW = pageW
+                }
+            }
+        }
     }
 
     fn press:boolean (id:string) {
         if (id == "cg-canvas") {
+            return false
+        }
+        if (id == "cg-source") {
+            return false
+        }
+        if (this.isSplitSep(id)) {
             return false
         }
         if ((strlen id) == 0) {
@@ -1718,6 +2246,7 @@ class CodeGraphApp extends EvgApp {
         }
         def before:string classSearch.value
         ui.keyWith(k shift ctrl)
+        this.dressSplit()
         this.markClassSearch()
         if (classSearch.value != before) {
             this.refreshClasses()
@@ -1746,32 +2275,17 @@ class CodeGraphApp extends EvgApp {
 
     fn display:EVGDisplayList () {
         def dl:EVGDisplayList (ui.displayList())
-        def page@(optional):EVGElement ui.lastPage
-        if page {
-            def hit@(optional):EVGElement (ui.findEl((unwrap page) "cg-canvas"))
-            if hit {
-                def box:EVGElement (unwrap hit)
-                canvasX = box.calculatedX
-                canvasY = box.calculatedY
-                canvasW = box.calculatedWidth
-                canvasH = box.calculatedHeight
-                if (canvasW < 8.0) {
-                    canvasW = viewW
-                }
-                if (canvasH < 8.0) {
-                    canvasH = viewH
-                }
-                viewW = canvasW
-                viewH = canvasH
-                editor.setSize(viewW viewH)
-            }
-        }
+        this.syncPaneRects()
         def sc:FlowScene (editor.view.build())
         def graphDl:EVGDisplayList (sc.toDisplayList())
         graphDl.offsetBy(canvasX canvasY)
         dl.addClip(canvasX canvasY canvasW canvasH)
         dl.appendFrom(graphDl)
         dl.addClipEnd()
+        codeView.setBounds((to_int sourceX) (to_int sourceY) (to_int sourceW) (to_int sourceH))
+        this.applySourceJump()
+        def blink:int (to_int (clockMs / 500.0))
+        codeView.paint(dl codeTr blink)
         return dl
     }
 

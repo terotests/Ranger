@@ -340,7 +340,7 @@ class R5App {
         t.popupPick = (EVGColor.rgb(221 234 251))
         t.popupDetail = (EVGColor.rgb(110 119 129))
         t.minimapBg = (EVGColor.rgb(246 248 250))
-        t.minimapSlider = (EVGColor.rgba(31 35 40 0.10))
+        t.minimapSlider = (EVGColor.rgba(31 35 40 0.07))
         t.minimapEdge = (EVGColor.rgb(216 222 228))
     }
 

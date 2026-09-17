@@ -44,6 +44,7 @@ class UastToCodeGraph {
                 if isType {
                     def cc:CodeClass (g.addClass(s.name))
                     cc.fileName = s.fileName
+                    cc.startLine = s.startLine
                     cc.extendsName = s.extendsName
                     if (s.kind == "interface") {
                         cc.stereotype = "interface"
@@ -56,6 +57,7 @@ class UastToCodeGraph {
                     if (UastToCodeGraph.pascalName(s.name)) {
                         def fc:CodeClass (g.addClass(s.name))
                         fc.fileName = s.fileName
+                        fc.startLine = s.startLine
                         fc.stereotype = "component"
                     }
                 }
@@ -72,6 +74,12 @@ class UastToCodeGraph {
                         if (g.hasClass(ownerName)) {
                             def owner:CodeClass (g.classByName(ownerName))
                             owner.addField(fs.name fs.typeName)
+                            def lastI:int ((array_length owner.fields) - 1)
+                            if (lastI >= 0) {
+                                def ff:CodeField (itemAt owner.fields lastI)
+                                ff.fileName = fs.fileName
+                                ff.startLine = fs.startLine
+                            }
                         }
                     }
                 }
@@ -91,6 +99,8 @@ class UastToCodeGraph {
                         def cm:CodeMethod (g.addMethod(cls ms.name))
                         cm.isStatic = ms.isStatic
                         cm.params = ms.params
+                        cm.fileName = ms.fileName
+                        cm.startLine = ms.startLine
                         if ((strlen ms.returns) > 0) {
                             cm.returns = ms.returns
                         }
@@ -103,6 +113,8 @@ class UastToCodeGraph {
                     if (UastToCodeGraph.keepSymbol(ms skipLib)) {
                         if (g.hasClass(ms.name)) {
                             def fm:CodeMethod (g.addMethod(ms.name "render"))
+                            fm.fileName = ms.fileName
+                            fm.startLine = ms.startLine
                             if ((strlen ms.returns) > 0) {
                                 fm.returns = ms.returns
                             }

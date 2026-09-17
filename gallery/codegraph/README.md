@@ -46,6 +46,8 @@ by the Pages workflow.
 
 ![the shop fixture as UML, field types drawn as associations](artifacts/codegraph_shop.png)
 
+![CodeGraph.classNamesByDegree selected: method body in view, faint per-letter minimap](artifacts/codegraph_source_codegraph_degree.png)
+
 ## Run
 
 ```bash

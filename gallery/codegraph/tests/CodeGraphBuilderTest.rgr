@@ -85,6 +85,24 @@ class CodeGraphBuilderTest {
                 failed = (failed + 1)
             }
         }
+        if (g.hasClass("Order")) {
+            def oc:CodeClass (g.classByName("Order"))
+            if ((indexOf oc.fileName "calls.rgr") < 0) {
+                print ("  FAIL Order.fileName " + oc.fileName)
+                failed = (failed + 1)
+            }
+            if (oc.startLine < 1) {
+                print ("  FAIL Order.startLine " + (to_string oc.startLine))
+                failed = (failed + 1)
+            }
+        }
+        if (g.hasMethod("Order.total")) {
+            def tot:CodeMethod (g.methodById("Order.total"))
+            if (tot.startLine < 1) {
+                print ("  FAIL Order.total.startLine " + (to_string tot.startLine))
+                failed = (failed + 1)
+            }
+        }
         def pages:CodeGraphPages (CodeGraphPages.of(g 24))
         def overview:CodePage (pages.pageOf("overview:0"))
         if ((overview.itemCount()) > 24) {
@@ -294,6 +312,24 @@ class CodeGraphBuilderTest {
         if ((fileG.hasClass("CRC32")) == false) {
             print "  FAIL CRC32 missing from zip_writer.hpp"
             n = (n + 1)
+        }
+        if (fileG.hasClass("ZipWriter")) {
+            def zw:CodeClass (fileG.classByName("ZipWriter"))
+            if (zw.startLine != 16) {
+                print ("  FAIL ZipWriter.startLine " + (to_string zw.startLine))
+                n = (n + 1)
+            }
+            if ((indexOf zw.fileName "zip_writer.hpp") < 0) {
+                print ("  FAIL ZipWriter.fileName " + zw.fileName)
+                n = (n + 1)
+            }
+        }
+        if (fileG.hasMethod("ZipWriter.addFile")) {
+            def add:CodeMethod (fileG.methodById("ZipWriter.addFile"))
+            if (add.startLine != 23) {
+                print ("  FAIL ZipWriter.addFile.startLine " + (to_string add.startLine))
+                n = (n + 1)
+            }
         }
         print (("  file classes " + (to_string (fileG.classCount()))) + ", methods " + (to_string (fileG.methodCount())))
         def dirG:CodeGraph (CodeGraphBuilder.fromAny("gallery/uast/fixtures/cpp"))

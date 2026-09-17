@@ -18,6 +18,8 @@
 class CodeField {
     def name:string ""
     def fieldType:string ""
+    def fileName:string ""
+    def startLine:int 0
 
     Constructor () {
     }
@@ -42,6 +44,8 @@ class CodeMethod {
     def calledBy:[string]
     ; Type / class names the body uses (fields, parameters, `new`).
     def uses:[string]
+    def fileName:string ""
+    def startLine:int 0
 
     Constructor () {
     }
@@ -122,6 +126,7 @@ class CodeClass {
     def fields:[CodeField]
     def methodIds:[string]
     def fileName:string ""
+    def startLine:int 0
 
     Constructor () {
     }

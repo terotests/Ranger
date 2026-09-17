@@ -105,7 +105,9 @@ class CodeGraphTest {
         }
         c.ok("class page does not redraw methods as stadiums" (hasStadium == false))
         c.eqStr("email is a field row" (pageMaker.methodIdAtRow("Customer" 0)) "")
+        c.eqStr("email is the field name" (pageMaker.fieldNameAtRow("Customer" 0)) "email")
         c.eqStr("notify is the first operation" (pageMaker.methodIdAtRow("Customer" 1)) "Customer.notify")
+        c.eqStr("notify is not a field" (pageMaker.fieldNameAtRow("Customer" 1)) "")
         c.eqStr("Order.total follows the three fields" (pageMaker.methodIdAtRow("Order" 3)) "Order.total")
         def methodPage:CodePage (pageMaker.pageOf("method:Order.checkout"))
         c.eqStr("method page id" methodPage.kind "method")

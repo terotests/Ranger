@@ -808,6 +808,27 @@ class CodeGraphPages {
         return (itemAt c.methodIds mi)
     }
 
+    ; Compartment row → field name. Same attribute rows as `methodIdAtRow`.
+    ; A leftover "+ N more" row, a method row, or a miss is empty.
+    fn fieldNameAtRow:string (className:string row:int) {
+        if (row < 0) {
+            return ""
+        }
+        if ((model.hasClass(className)) == false) {
+            return ""
+        }
+        def c:CodeClass (model.classByName(className))
+        def attrRows:int (CodeGraphPages.umlAttrRowCount(c false))
+        if (row >= attrRows) {
+            return ""
+        }
+        if (row >= (array_length c.fields)) {
+            return ""
+        }
+        def f:CodeField (itemAt c.fields row)
+        return f.name
+    }
+
     ; "Customer" or "[LineItem]" → the class name, or empty for a primitive.
     sfn classNameOfType:string (fieldType:string) {
         def t:string fieldType
