@@ -1,5 +1,12 @@
 # Deploy the public site to GitHub Pages:
-#   /         -> the Ranger playground (compile Ranger in the browser)
+#   /         -> the language's front page (landing/): what Ranger is, what it
+#                compiles to, which platforms it reaches, and the gallery. Its
+#                backdrop is an EVG display list drawn on the GPU by the same
+#                WebGL painter the editors below use, and the mark on it is
+#                the project's logo vectorised by gallery/evg's bitmap tracer.
+#   /playground/ -> the Ranger playground (compile Ranger in the browser). It
+#                was the site root until the front page took that spot; the
+#                build that produces it is unchanged apart from its base path.
 #   /games/   -> the Ranger game engine compiled to JavaScript, running games
 #                in the browser via a virtual filesystem (Pong today; the WASM
 #                car game + a GPU 3D demo are the next entries).
@@ -105,12 +112,13 @@
 #
 # Runs automatically on pushes to master that touch the site, and can be run
 # independently at any time from the Actions tab (workflow_dispatch).
-name: Deploy site (playground + games) to GitHub Pages
+name: Deploy site (front page + playground + games) to GitHub Pages
 
 on:
   push:
     branches: [main, master]
     paths:
+      - "landing/**"
       - "playground/**"
       - "gallery/game_engine/web/**"
       - "gallery/game_engine/v2/**"
@@ -715,7 +723,7 @@ jobs:
           test ! -e "$GITHUB_WORKSPACE/_site/pptx-wasm/pptx_web.js"
           grep -q "installPptxWeb" "$GITHUB_WORKSPACE/_site/pptx-wasm/index.html"
 
-      # ---- Playground at the site root -----------------------------------
+      # ---- Playground at /playground/ -------------------------------------
       - name: Install playground dependencies
         working-directory: playground
         run: npm ci
@@ -724,10 +732,39 @@ jobs:
         working-directory: playground
         run: npm run build
 
+      - name: Copy the playground into the site
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/_site/playground"
+          cp -r playground/dist/. "$GITHUB_WORKSPACE/_site/playground/"
+
+      # ---- The front page at the site root --------------------------------
+      # It has no dependencies of its own: plain HTML, one stylesheet and one
+      # module. What the build does do is recompile landing/examples/Cart.rgr
+      # for every target the page shows, with the compiler built in this job,
+      # so the "one source, many targets" section cannot quote an older
+      # release than the one being published.
+      - name: Build the front page
+        run: node landing/build.mjs --out "$GITHUB_WORKSPACE/_site"
+
+      # A front page whose backdrop, letter or example did not make it into the
+      # artifact still renders — and is not the page. Fail here instead.
+      - name: Check the front page is whole
+        run: |
+          test -s "$GITHUB_WORKSPACE/_site/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/styles.css"
+          test -s "$GITHUB_WORKSPACE/_site/main.js"
+          test -s "$GITHUB_WORKSPACE/_site/assets/ranger-mark.svg"
+          test -s "$GITHUB_WORKSPACE/_site/assets/hero/hero.json"
+          test -s "$GITHUB_WORKSPACE/_site/assets/gl/evg-webgl.js"
+          test -s "$GITHUB_WORKSPACE/_site/assets/targets.js"
+          test -s "$GITHUB_WORKSPACE/_site/playground/index.html"
+          # The targets file is generated, so assert it carries what the page
+          # reads rather than merely existing.
+          grep -q "RANGER_TARGETS" "$GITHUB_WORKSPACE/_site/assets/targets.js"
+          grep -q '"swift"' "$GITHUB_WORKSPACE/_site/assets/targets.js"
+
       - name: Assemble site root
         run: |
-          # Copy the playground build to the site root, preserving _site/games.
-          cp -r playground/dist/. "$GITHUB_WORKSPACE/_site/"
           # The docs build emits /docs/_astro/. A Jekyll pass would drop every
           # underscore-prefixed directory, so mark the artifact as not-Jekyll.
           touch "$GITHUB_WORKSPACE/_site/.nojekyll"
