@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "note": "Examples by what they DO. `needs` says what has to be on disk: `compiler` is an npm install away, `repo` means a Ranger checkout because the gallery is there.",
+  "repo": "https://github.com/terotests/Ranger",
+  "examples": [
+    {
+      "id": "hello",
+      "title": "Hello, and the build loop",
+      "does": "One class, one print — and the `rgr` loop that fails loudly when the compile fails.",
+      "needs": "compiler",
+      "bundled": "hello/Hello.rgr",
+      "run": "rgr run Hello.rgr",
+      "teaches": ["a class with a main", "the compile-and-run loop"]
+    },
+    {
+      "id": "calc",
+      "title": "A parser and evaluator, in four languages",
+      "does": "Tokenises and evaluates arithmetic with a recursive-descent parser, then runs the SAME source as JavaScript, Python and Go.",
+      "needs": "compiler",
+      "bundled": "calc/Calc.rgr",
+      "run": "rgr run Calc.rgr && rgr run Calc.rgr -l=python && rgr run Calc.rgr -l=go",
+      "teaches": ["recursive descent", "one source, many targets", "why `to_double` needs a trim"]
+    },
+    {
+      "id": "pdf",
+      "title": "A PDF with no browser in it",
+      "does": "Lays a document out with EVG — a CSS engine written in Ranger — and prints it as a real PDF with embedded fonts and vector graphics.",
+      "needs": "repo",
+      "run": "npm run pdf",
+      "where": "gallery/pdf_writer",
+      "skill": "evg-edit",
+      "teaches": ["EVG layout", "PDF output", "no headless browser"]
+    },
+    {
+      "id": "markdown",
+      "title": "Markdown to PDF, with diagrams",
+      "does": "A Markdown document with ```mermaid, ```plantuml, ```dot, ```d2 and ```vega-lite fences, laid out and printed. The diagrams are geometry, not pictures.",
+      "needs": "repo",
+      "run": "npm run markdown:demo",
+      "where": "gallery/markdown",
+      "teaches": ["document pipeline", "diagrams as vectors", "charts from a spec"]
+    },
+    {
+      "id": "deck",
+      "title": "Markdown to PowerPoint",
+      "does": "The same document as a .pptx whose shapes are real shapes — selectable, movable, not a picture of a slide.",
+      "needs": "repo",
+      "run": "npm run deck -- <in.md> <out.pptx>",
+      "where": "gallery/markdown/src/md_deck_tool.rgr",
+      "teaches": ["OOXML writing", "a deck from a document"]
+    },
+    {
+      "id": "figma",
+      "title": "A Figma file, written and read",
+      "does": "Reads a .fig (Kiwi + zstd) and writes one: frames, text, vector networks, a thumbnail. Round-trips a running app's screens into a design file.",
+      "needs": "repo",
+      "run": "npm run figma:inspect",
+      "where": "gallery/figma",
+      "teaches": ["binary format work", "EVG to a design tool"]
+    },
+    {
+      "id": "evg-agent",
+      "title": "Editing a document the way an agent should",
+      "does": "Reads a document's outline, measures it, patches it with invertible operations and undoes the patch — the surface this plugin's `evg-edit` skill drives.",
+      "needs": "repo",
+      "run": "npm run agent:smoke",
+      "where": "gallery/evg/agent",
+      "skill": "evg-edit",
+      "teaches": ["addressable documents", "invertible edits", "measure before and after"]
+    },
+    {
+      "id": "flow",
+      "title": "Diagrams from text",
+      "does": "Mermaid, PlantUML, Graphviz and D2 parsed and laid out by RangerFlow — a graph engine with its own routing.",
+      "needs": "repo",
+      "run": "npm run rangerflow:demo",
+      "where": "gallery/rangerflow",
+      "teaches": ["graph layout", "four notations, one scene"]
+    },
+    {
+      "id": "rave",
+      "title": "An application, not a picture of one",
+      "does": "A routed, responsive, accessible app written as HTML-shaped markup and checked without a browser.",
+      "needs": "repo",
+      "run": "npm run rave:web",
+      "where": "gallery/rave",
+      "skill": "rave",
+      "teaches": ["app structure", "checking accessibility without a browser"]
+    },
+    {
+      "id": "codegraph",
+      "title": "Reading a codebase",
+      "does": "Analyses a JavaScript or C++ project and draws its classes, dependencies and sources as a navigable graph.",
+      "needs": "repo",
+      "run": "npm run codegraph:web",
+      "where": "gallery/codegraph",
+      "teaches": ["parsers over real code", "a tool that reads a tree"]
+    },
+    {
+      "id": "mobile",
+      "title": "The same screen on iOS and Android",
+      "does": "One Ranger source driving a Swift host and a Kotlin host — the layout, the state machine and the list are shared; only the window is native.",
+      "needs": "repo",
+      "where": "gallery/process_counter_ios, gallery/process_counter_android",
+      "run": "see each directory's README",
+      "teaches": ["one source, two platforms", "a native host around shared logic"]
+    },
+    {
+      "id": "packages",
+      "title": "More than one module",
+      "does": "`ranger.json`, dependencies by path, and a build that resolves them — for when files and `Import` stop being enough.",
+      "needs": "repo",
+      "run": "npm run pkg:test",
+      "where": "gallery/pkg",
+      "teaches": ["the package file", "dependency resolution"]
+    }
+  ]
+}

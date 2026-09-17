@@ -1,0 +1,20 @@
+{
+  "name": "ranger",
+  "owner": {
+    "name": "terotests",
+    "url": "https://github.com/terotests"
+  },
+  "metadata": {
+    "description": "Ranger: a cross-language compiler, and the documents and applications built on it.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "ranger",
+      "source": "./plugins/ranger",
+      "description": "Write Ranger and build with it: the language's traps, a compile loop that fails loudly, EVG documents, Rave applications, and an index of worked examples.",
+      "category": "language",
+      "keywords": ["ranger", "compiler", "evg", "rave", "cross-language"]
+    }
+  ]
+}
