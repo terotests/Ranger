@@ -165,7 +165,10 @@ class CodeGraphSdl {
             app.refreshChrome()
             def dest:string (dgfx_clone_git path)
             if ((strlen dest) == 0) {
-                app.status = ("could not clone " + path)
+                ; The clone needs `git` on PATH; without it gallery/pkg's own
+                ; Git client is looked for above the working directory. Say
+                ; which of the two is missing rather than only that it failed.
+                app.status = (("could not clone " + path) + " — install git, or run from the Ranger checkout")
                 app.refreshChrome()
                 print ("  " + app.status)
                 return false
@@ -283,6 +286,7 @@ class CodeGraphSdl {
                 }
             }
         }
+        dgfx_set_cursor (app.cursorAt(px py))
         prevX = mx
         prevY = my
         prevDown = down
