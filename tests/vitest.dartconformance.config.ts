@@ -24,13 +24,8 @@ export default defineConfig({
       concurrent: false,
     },
     pool: "forks",
-    poolOptions: {
-      forks: {
-        // One file only; avoid singleFork reporter starvation on long suites.
-        singleFork: false,
-        maxForks: 1,
-        minForks: 1,
-      },
-    },
+    // One file only; keep a single worker so the reporter is not starved.
+    fileParallelism: false,
+    maxWorkers: 1,
   },
 });

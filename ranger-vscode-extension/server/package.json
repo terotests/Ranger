@@ -15,7 +15,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
-    "vitest": "^3.2.7"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "vite": "^6.4.3",
