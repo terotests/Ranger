@@ -1,6 +1,6 @@
 # Ranger Playground
 
-In-browser Ranger compiler for [https://terotests.github.io/Ranger/](https://terotests.github.io/Ranger/).
+In-browser Ranger compiler, published at [https://terotests.github.io/Ranger/playground/](https://terotests.github.io/Ranger/playground/). The site root is the language's front page, built from [`landing/`](../landing/README.md).
 
 Targets: **JavaScript** (optional TypeScript annotations), **Python**, **Go**, **Rust**,
 **C++**, **C#**, **Java**, **Kotlin**, **Swift 6**, **Dart**, **PHP** and **Scala** — every

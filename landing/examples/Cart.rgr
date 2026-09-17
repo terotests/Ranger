@@ -1,0 +1,36 @@
+; SPDX-License-Identifier: MIT
+;
+; The example on the front page. It is compiled to every target shown there by
+; landing/tools/build-examples.mjs, so what the page prints is what this commit
+; of the compiler writes — not a transcription of it.
+
+class CartLine {
+    def name:string ""
+    def cents:int 0
+    def qty:int 1
+}
+
+class Cart {
+    def lines:[CartLine]
+
+    fn add:void (name:string cents:int qty:int) {
+        def line (new CartLine)
+        line.name = name
+        line.cents = cents
+        line.qty = qty
+        push lines line
+    }
+
+    fn subtotal:int () {
+        def sum:int 0
+        for this.lines line:CartLine i {
+            sum = (sum + (line.cents * line.qty))
+        }
+        return sum
+    }
+
+    fn total:int (discountPct:int) {
+        def sum:int (this.subtotal())
+        return (sum - (idiv (sum * discountPct) 100))
+    }
+}

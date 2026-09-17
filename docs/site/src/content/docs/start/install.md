@@ -54,4 +54,4 @@ To see the complete list, run `rgrc` with no arguments.
 ## Compile without an installation
 
 The playground compiles Ranger in the browser. It needs no installation. Open
-[the playground](/Ranger/) and write the program in the editor.
+[the playground](/Ranger/playground/) and write the program in the editor.
