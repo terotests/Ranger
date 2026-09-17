@@ -69,7 +69,7 @@ class ScriptEditorTheme {
     ; The minimap on the right: a darker strip, a slider over the visible
     ; range, and a hairline where the text ends.
     def minimapBg:EVGColor (EVGColor.rgb(22 23 32))
-    def minimapSlider:EVGColor (EVGColor.rgba(155 168 210 0.16))
+    def minimapSlider:EVGColor (EVGColor.rgba(155 168 210 0.10))
     def minimapEdge:EVGColor (EVGColor.rgb(41 46 66))
 
     Constructor () {
@@ -963,6 +963,62 @@ class ScriptEditor {
         }
     }
 
+    ; How much of a glyph cell a character fills. A minimap letter is a 1×1
+    ; sprite: a `.` is almost empty (~3 %), an `I` is a thin stem (~10 %),
+    ; an `R` is denser (~20 %). That fraction is the speck's opacity, so the
+    ; picture reads as type rather than as solid bars.
+    sfn minimapInk:double (ch:int) {
+        if ((ch == 32) || (ch == 9)) {
+            return 0.0
+        }
+        if ((ch == 46) || (ch == 44)) {
+            return 0.03
+        }
+        if ((ch == 39) || (ch == 34) || (ch == 96)) {
+            return 0.04
+        }
+        if ((ch == 58) || (ch == 59)) {
+            return 0.05
+        }
+        if ((ch == 45) || (ch == 95) || (ch == 126)) {
+            return 0.07
+        }
+        if ((ch == 124) || (ch == 33) || (ch == 47) || (ch == 92)) {
+            return 0.08
+        }
+        if ((ch == 73) || (ch == 105) || (ch == 108) || (ch == 49)) {
+            return 0.10
+        }
+        if ((ch == 106) || (ch == 116) || (ch == 102) || (ch == 114) || (ch == 74)) {
+            return 0.10
+        }
+        if ((ch == 40) || (ch == 41) || (ch == 91) || (ch == 93)) {
+            return 0.10
+        }
+        if ((ch == 123) || (ch == 125) || (ch == 60) || (ch == 62)) {
+            return 0.10
+        }
+        if ((ch == 35) || (ch == 64) || (ch == 37) || (ch == 38) || (ch == 42)) {
+            return 0.22
+        }
+        if ((ch == 77) || (ch == 87) || (ch == 109) || (ch == 119) || (ch == 56)) {
+            return 0.22
+        }
+        if ((ch >= 65) && (ch <= 90)) {
+            return 0.20
+        }
+        if ((ch >= 97) && (ch <= 122)) {
+            return 0.15
+        }
+        if ((ch >= 48) && (ch <= 57)) {
+            return 0.16
+        }
+        if ((ch > 32) && (ch < 127)) {
+            return 0.12
+        }
+        return 0.15
+    }
+
     ; A token that is only spaces would paint a bar where the file is empty,
     ; which is the opposite of an approximation.
     sfn blankSpan:boolean (s:string from:int len:int) {
@@ -1162,26 +1218,70 @@ class ScriptEditor {
         def toks:CodeTokenLine (this.tokensFor(line))
         def n:int (toks.count())
         if (n == 0) {
-            def a:int (ScriptEditor.firstInk(s))
-            def b:int (ScriptEditor.lastInk(s))
-            if (b <= a) {
-                return
-            }
-            this.paintMinimapBar(dl x0 y h charW limit a (b - a) theme.plain)
+            this.paintMinimapSpan(dl s 0 (strlen s) x0 y h charW limit theme.plain)
             return
         }
         def i:int 0
         while (i < n) {
             def t:CodeToken (toks.at(i))
-            if ((ScriptEditor.blankSpan(s t.start t.len)) == false) {
-                def col:EVGColor (theme.forKind(t.kind))
-                this.paintMinimapBar(dl x0 y h charW limit t.start t.len col)
-            }
+            def col:EVGColor (theme.forKind(t.kind))
+            this.paintMinimapSpan(dl s t.start t.len x0 y h charW limit col)
             i = (i + 1)
         }
     }
 
-    fn paintMinimapBar:void (dl:EVGDisplayList x0:double y:double h:double charW:double limit:double col:int len:int ink:EVGColor) {
+    ; One faint rectangle per run of letters that share a colour and a
+    ; fill. Neighbouring `l`s stay one command; a `.` next to an `R` does
+    ; not, because they do not occupy the cell the same way.
+    fn paintMinimapSpan:void (dl:EVGDisplayList s:string from:int len:int x0:double y:double h:double charW:double limit:double ink:EVGColor) {
+        def n:int (strlen s)
+        def i:int from
+        def stop:int (from + len)
+        if (stop > n) {
+            stop = n
+        }
+        def runAt:int -1
+        def runN:int 0
+        def runFill:double 0.0
+        while (i < stop) {
+            def ch:int (charAt s i)
+            def fill:double (ScriptEditor.minimapInk(ch))
+            if (fill < 0.001) {
+                if (runAt >= 0) {
+                    this.paintMinimapDots(dl x0 y h charW limit runAt runN ink runFill)
+                    runAt = -1
+                    runN = 0
+                }
+            } {
+                if (runAt < 0) {
+                    runAt = i
+                    runN = 1
+                    runFill = fill
+                } {
+                    if (fill == runFill) {
+                        runN = (runN + 1)
+                    } {
+                        this.paintMinimapDots(dl x0 y h charW limit runAt runN ink runFill)
+                        runAt = i
+                        runN = 1
+                        runFill = fill
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (runAt >= 0) {
+            this.paintMinimapDots(dl x0 y h charW limit runAt runN ink runFill)
+        }
+    }
+
+    fn paintMinimapDots:void (dl:EVGDisplayList x0:double y:double h:double charW:double limit:double col:int len:int ink:EVGColor fill:double) {
+        if (len <= 0) {
+            return
+        }
+        if (fill < 0.001) {
+            return
+        }
         def rx:double (x0 + ((to_double col) * charW))
         if (rx >= limit) {
             return
@@ -1190,10 +1290,16 @@ class ScriptEditor {
         if ((rx + rw) > limit) {
             rw = (limit - rx)
         }
-        if (rw < 0.75) {
+        if (rw < 0.5) {
             return
         }
-        this.pushRect(dl rx y rw h ink)
+        def r:int (ink.red())
+        def g:int (ink.green())
+        def b:int (ink.blue())
+        def baseA:double (ink.alpha())
+        def a:double (baseA * fill)
+        def speck:EVGColor (EVGColor.rgba(r g b a))
+        this.pushRect(dl rx y rw h speck)
     }
 
     ; --- editing --------------------------------------------------------------
