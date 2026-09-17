@@ -36,7 +36,8 @@ updated once.
 | Reference generator | `compiler/ng_RangerDocGenerator.rgr` | Writes Markdown tables: name, return type, arguments, description |
 | Language description | `README.md`, 65 kB | Mixed reference, tutorial and release notes |
 | Semantics | `SPEC_SEMANTICS.md`, `ai/INTROSPECTION.md` | |
-| Playground | `playground/`, Vite + TypeScript + CodeMirror | Published at `https://terotests.github.io/Ranger/` |
+| Front page | `landing/`, plain HTML + one stylesheet + one module | Published at `https://terotests.github.io/Ranger/` |
+| Playground | `playground/`, Vite + TypeScript + CodeMirror | Published at `https://terotests.github.io/Ranger/playground/` |
 | Games site | `gallery/game_engine/web` | Published at `https://terotests.github.io/Ranger/games/` |
 | Pages deployment | `.github/workflows/deploy-pages.yml` | One artifact for the full site; GitHub Pages permits one deployment per repository |
 | npm release | `.github/workflows/publish.yml` | Trigger: `release: [published]`; current version 3.2.0 |
@@ -142,7 +143,8 @@ References: [Starlight plugins](https://starlight.astro.build/resources/plugins/
 ## 3. URL and deployment layout
 
 ```
-https://terotests.github.io/Ranger/            playground        (unchanged)
+https://terotests.github.io/Ranger/            front page        (landing/)
+https://terotests.github.io/Ranger/playground/ playground
 https://terotests.github.io/Ranger/games/      games             (unchanged)
 https://terotests.github.io/Ranger/docs/       documentation     (new)
 ```

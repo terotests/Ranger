@@ -212,3 +212,21 @@ gallery/vfs/bin/
 
 # Screens exported for inspection — regenerate with `npm run rt:evg`.
 gallery/realtrainer/out/
+
+# …nor the bitmap the front page's logo is traced from. It is an INPUT:
+# landing/tools/logo.mjs reads it and writes the vector the page actually
+# draws, so without it the logo cannot be regenerated.
+!landing/assets/logo/ranger-mark.png
+
+# …but not the front page's screenshots, which are the page. They are scaled
+# from artifacts the gallery projects commit and from captures of their own
+# build output — landing/tools/shots.mjs — and a page that ships without them
+# is a page with holes in it.
+!landing/assets/shots/*.jpg
+
+# The front page's build output and its scratch directory. Everything the page
+# needs that is generated — the traced letter, the hero's display list, the
+# compiled example, the screenshots — is committed under landing/assets; this
+# is only the assembled copy and what the generators work in.
+landing/dist/
+.landing_tmp/

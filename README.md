@@ -78,7 +78,8 @@ host.notifyPath = (path) => { /* sync view model + re-render */ };
 ## Where To Start
 
 - [Documentation site](https://terotests.github.io/Ranger/docs/) — install, first program, types, optionals, and the **generated operator reference** (838 operators, compiled from the sources of the commit that publishes the site, so it cannot drift)
-- [Online playground](https://terotests.github.io/Ranger/) — try Ranger in the browser (`playground/`, Vite + current compiler)
+- [The front page](https://terotests.github.io/Ranger/) — what Ranger is, the targets, the platforms and the gallery (`landing/`)
+- [Online playground](https://terotests.github.io/Ranger/playground/) — try Ranger in the browser (`playground/`, Vite + current compiler)
 - `README.md` - language overview, installation, and syntax notes
 - [`gallery/README.md`](gallery/README.md) - index of the application stack (AGPL): EVG, Office, DataGrid, parsers, games, and `@process` host apps
 - [`LICENSING.md`](LICENSING.md) - MIT compiler vs AGPL gallery
