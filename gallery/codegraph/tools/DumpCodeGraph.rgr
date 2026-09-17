@@ -107,7 +107,13 @@ class DumpCodeGraph {
         painter.fontFamily = "Open Sans"
         painter.draw(dl)
         DumpCodeGraph.writePng(painter "gallery/codegraph/artifacts" "codegraph_source_codegraph_degree.png" w h)
-        DumpCodeGraph.writePng(painter "/opt/cursor/artifacts/screenshots" "codegraph_source_codegraph_degree.png" w h)
+        ; A second copy where one review environment looks for screenshots.
+        ; Everywhere else that directory does not exist, and the encoder
+        ; throws ENOENT on it — after the artifact above was already written,
+        ; so the run only LOOKED like it failed.
+        if (dir_exists "/opt/cursor/artifacts/screenshots") {
+            DumpCodeGraph.writePng(painter "/opt/cursor/artifacts/screenshots" "codegraph_source_codegraph_degree.png" w h)
+        }
         def firstVis:int (app.codeView.layout.firstVisible())
         def lastVis:int (app.codeView.layout.lastVisible(app.codeView.buf))
         print (("caretLine=" + (to_string app.codeView.sel.caret.line)) + " path=" + app.sourcePath)
