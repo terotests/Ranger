@@ -7,6 +7,103 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1] - 2026-09-17
+
+- **The npm README still said 3.3.0.** The package was 3.5.0; the first line
+  of `README.md` was never bumped with it, so the npm page advertised the
+  old version. npm does not rewrite a published tarball, so this is 3.5.1.
+- **This file now dates 3.4.0 and 3.5.0.** Both shipped on npm with the
+  notes below still under Unreleased, so a reader of the package changelog
+  could not tell what was in the tarball.
+
+## [3.5.0] - 2026-09-17
+
+### Added
+
+- **`rgrc install` fetches what `ranger.json` names.** `Import "pkg:…"`
+  used to resolve only against files already on disk, so a clean checkout
+  of a project that depends on `gallery/evg` had nothing to compile
+  against. The compiler now walks the graph, sparse-fetches each git
+  dependency at its pinned revision, writes it into the cache
+  (`RANGER_PKG_CACHE`, else `~/.cache/ranger/packages/<sha256>`), recurses
+  into each fetched package's own manifest, and records `rev` + `sha256`
+  in `ranger.lock`. A branch or tag is pinned to the commit it resolved
+  to. `-vendor` also writes `vendor/ranger/<name>` so a vendored project
+  needs no cache; `-frozen` fails rather than fetching what the lock does
+  not cover; `-force` refetches; `-cache=<dir>` overrides the default.
+
+- **The Git pack client is MIT, and it runs inside `rgrc`.** It sat under
+  `gallery/` and was therefore AGPL, so the MIT compiler could resolve
+  `pkg:` but not fetch it — that split cost a second npm package
+  (`ranger-pkg`) and a shell-out. The client is a clean-room read of
+  published formats (pack layout, pkt-line, smart HTTP, FIPS 180-1 SHA-1,
+  RFC 1950/1951), which is how you use the language, not an application
+  built with it. `gallery/pkg` moved to `pkg/`. `gallery/zip/Inflate.rgr`
+  and `ZipBuffer.rgr` moved to `lib/zip/` (MIT) because DEFLATE is a
+  published format and the pack needs it; the ZIP container, the writer
+  and CRC32 stay in `gallery/zip`. `compiler/PkgFetch.rgr` drives the
+  client: advertisement, want, side-band demux, pack v2 with deltas, the
+  tree walk and the content cache. `bin/git-http.mjs` is the only Node
+  left — GET and POST of bytes, because Node has no synchronous HTTPS and
+  this compiler is synchronous — and it ships in `dist/` beside `rgrc.js`.
+  `ranger-pkg` and `tools/install.mjs` are gone.
+
+- **The site root is a page about the language.** It was the playground.
+  It now says what Ranger is, what it compiles to, which platforms it
+  reaches, how the portability claims are checked, and what is in the
+  gallery. The playground moved to `/playground/`. `landing/` is plain
+  HTML, one stylesheet and one module: the logo is the bitmap tracer
+  walking the project's mark into three paths, the backdrop is an EVG
+  display list drawn on the GPU by the same painter the editors use, and
+  `landing/examples/Cart.rgr` is recompiled for Swift, Kotlin, JavaScript,
+  TypeScript, C#, C++, PHP and Rust when the site is built, so the code
+  beside each tab is what that commit's compiler writes.
+
+### Changed
+
+- **A lock entry whose checkout is still in the cache is not fetched
+  again.** A sha256 names content and the content at a commit does not
+  move. treeni-week's install went from 10s to 0.12s and needs no
+  network. `--frozen` makes the cache the only answer; `--force` ignores
+  it; a `git` or `rev` repointed in `ranger.json` still outranks the lock.
+
+- **PkgImport falls back to `ranger.lock` for a package the manifest does
+  not declare.** The lock is the whole graph; `ranger.json` is only its
+  first row. A path dependency inside a fetched package is resolved
+  against the origin that package came from (`gallery/statechart` plus
+  `../vela` is `gallery/vela` in the same repo at the same revision).
+  Imports dedup on the folded path as well as the string, so
+  `../../evg/X.rgr` and `pkg:evg/X.rgr` are one file.
+
+- **Getting started leads, not the playground.** The front page's "three
+  ways in" is a numbered path: clone and build, point the agent at
+  `AGENTS.md`, start from a gallery project, compile for the target you
+  are shipping to. The playground keeps a link in the navigation.
+
+### Fixed
+
+- **`-d=/absolute/path` wrote the tree under cwd + that path**, because
+  the working directory was joined onto it unconditionally.
+- **`compiler/bin/api.ts` is not in the tree.** It is the TypeScript
+  `build:dist:module` hands to tsc on the way to `dist/api.js`, 77k
+  generated lines that had never been tracked and went in with the 3.5.0
+  build. `dist/api.js` and `dist/api.d.ts` are what ships.
+
+## [3.4.0] - 2026-09-17
+
+The last package on npm before this one was **3.2.0**. 3.2.1, 3.3.0 and
+3.3.1 were already dated in this file and never published there, so this
+tarball is the first that carries them.
+
+On the compiler: generic classes (`class History @params(Op)`), expanded
+into ordinary classes before any writer runs; a dotted call in return
+position now parses (`return this.helper()`); Swift string operators
+walk UTF-16 in amortised constant time; Kotlin emits `open class` for
+the header form of inheritance; a Python empty constructor writes
+`pass`; the C++ `Any` union only names classes the program actually
+emits. The gallery grew in the same window — EVG, Office, the book
+engine, Mermaid, Figma, CodeGraph, Rave — and is not in the npm tarball.
+
 - **All thirty-eight of Mermaid's header keywords are drawn.** The matrix in
   `docs/MERMAID_PARITY.md` is read off Mermaid's own detector registry — the
   record its parser itself consults. It used to say thirty of thirty, and both
@@ -2379,12 +2476,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Known gaps closed
 
 - **Python has no JSON support at all** (listed under 3.3.1) is closed by the entry above. The lambda gap of the `operator type:[T]` block stays open: `.map()`, `.filter()` and the other callback operators still emit a multi-statement Python lambda. The `@serialize(true)` reader no longer depends on that support
-
-## [3.5.1] - 2026-09-17
-
-- **The npm README still said 3.3.0.** The package was 3.5.0; the first line
-  of `README.md` was never bumped with it, so the npm page advertised the
-  old version. npm does not rewrite a published tarball, so this is 3.5.1.
 
 ## [3.3.1] - 2026-08-01
 
