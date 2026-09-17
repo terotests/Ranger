@@ -28,9 +28,10 @@ rgr run Main.rgr
 calling the compiler directly** — the reason is the next section, and it is not
 a style preference.
 
-## The compiler exits 0 when it fails
+## Compilers through 3.5.1 exit 0 when they fail
 
-`rgrc` prints `[FAIL]` and `Compilation FAILED` and then **exits zero**. So:
+`rgrc` prints `[FAIL]` and `Compilation FAILED`, and up to 3.5.1 **exited
+zero**. So:
 
 ```bash
 rgrc Main.rgr -o=Main.js && node bin/Main.js     # ← DO NOT
@@ -38,10 +39,12 @@ rgrc Main.rgr -o=Main.js && node bin/Main.js     # ← DO NOT
 
 The `&&` is satisfied by that zero, the previous build is still on disk, and
 node runs **that**. The program prints what it printed before the edit: the
-change looks applied, the test looks green, and neither is true.
+change looks applied, the test looks green, and neither is true. A failed
+compile now exits non-zero, but the compiler on the machine may be an older
+one.
 
-`rgr` deletes the output first, reads the log for the failure the exit status
-omits, and treats a missing output file as an error:
+`rgr` deletes the output first, reads the log as well as the exit status, and
+treats a missing output file as an error:
 
 ```bash
 rgr run   Main.rgr              # compile to JS and run

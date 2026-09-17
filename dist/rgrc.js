@@ -61766,6 +61766,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 this.lowerExit(node, lctx);
                                 return;
                               }
+                              if ( opName_1 == "set_exit_code" ) {
+                                this.lowerExit(node, lctx);
+                                return;
+                              }
                               if ( opName_1 == "sleep_ms" ) {
                                 this.lowerSleepMs(node, lctx);
                                 return;
@@ -79008,6 +79012,9 @@ async function __js_main() {
   const res = await o.run(env);
   if ( res.target_dir.length > 0 ) {
     res.fileSystem.saveTo(res.target_dir, false);
+  }
+  if ( res.hasErrors ) {
+    process.exitCode = 1;
   }
 }
 __js_main();

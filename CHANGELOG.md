@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A failed compile exits non-zero.** `rgrc` printed `[FAIL]` and
+  `Compilation FAILED` and then returned success, so
+  `rgrc x.rgr && node bin/x.js` was satisfied by that zero, ran the
+  *previous* build, and printed what it printed before the change — the edit
+  looked applied and the test looked green when neither was true. Every
+  `&&` in every build script believed the zero, which is why a dozen scripts
+  in this repository read the compiler's log instead of its status. The
+  status now says what the report says: 1 when the run had errors (a parse
+  error, a missing file, any compiler error, a failed `rgrc install`),
+  0 otherwise.
+
+  The code is set rather than the process ended on the spot: node writes a
+  piped stdout asynchronously, and `process.exit()` there drops the error
+  report the status is about — `log=$(rgrc … 2>&1)` would get the status and
+  lose the reason. The new `set_exit_code` operator in `Lang.rgr` spells
+  that on each target (`process.exitCode` on JavaScript,
+  `Environment.ExitCode` on C#, the same immediate exit as `exit` where
+  stdout is unbuffered or flushed at exit).
+
+
 ## [3.5.1] - 2026-09-17
 
 - **The npm README still said 3.3.0.** The package was 3.5.0; the first line
