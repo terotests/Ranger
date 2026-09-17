@@ -60,21 +60,29 @@ class TTypeRegistry {
     return names
   }
 
+  ; The names are compared one by one rather than looked up in
+  ; scalarPrimitiveNames(): a `for` over a call re-evaluates the call, so the
+  ; list was built again for every element it was compared against, and this
+  ; predicate is asked for every type the analysis meets.
   static fn isScalarPrimitive:boolean (typeName:string) {
-    for (TTypeRegistry.scalarPrimitiveNames()) n:string i {
-      if (typeName == n) {
-        return true
-      }
-    }
+    if (typeName == "double") { return true }
+    if (typeName == "string") { return true }
+    if (typeName == "int") { return true }
+    if (typeName == "char") { return true }
+    if (typeName == "boolean") { return true }
+    if (typeName == "u8") { return true }
+    if (typeName == "u16") { return true }
+    if (typeName == "u32") { return true }
+    if (typeName == "i32") { return true }
+    if (typeName == "f32") { return true }
     return false
   }
 
   static fn isBufferType:boolean (typeName:string) {
-    for (TTypeRegistry.bufferTypeNames()) n:string i {
-      if (typeName == n) {
-        return true
-      }
-    }
+    if (typeName == "charbuffer") { return true }
+    if (typeName == "buffer") { return true }
+    if (typeName == "int_buffer") { return true }
+    if (typeName == "double_buffer") { return true }
     return false
   }
 

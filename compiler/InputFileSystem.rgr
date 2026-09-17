@@ -133,11 +133,11 @@ class InputFileResolver @serialize(true) {
     def i:int 0
     while (i < (array_length hostDirs)) {
       def dir:string (itemAt hostDirs i)
-      def t@(optional):string (read_file dir name)
+      def t@(optional):string (read_file_sync dir name)
       if (null? t) {
         def base:string (this.baseName(name))
         if (base != name) {
-          t = (read_file dir base)
+          t = (read_file_sync dir base)
         }
       }
       if (null? t) {
@@ -257,7 +257,7 @@ operator type:void all {
   
   fn read_file@(optional):string (env:InputEnv path:string name:string) {
     if env.use_real {
-      return (read_file path name)
+      return (read_file_sync path name)
     } 
     def resStr@(optional):string
     def f (find_file env path name)

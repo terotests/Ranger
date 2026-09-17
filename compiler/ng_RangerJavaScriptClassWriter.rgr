@@ -647,6 +647,20 @@ class RangerJavaScriptClassWriter {
           }          
           was_set = true
         }
+        ; A field with no initial value used to be left out of the constructor
+        ; and appear on the object only when first assigned. Objects of one
+        ; class then had as many hidden classes as there were assignment
+        ; orders (CodeNode had 27), every property access on them in V8 went
+        ; megamorphic and the optimiser deoptimised in a loop. Setting the
+        ; field to undefined here reads the same as before (`typeof x ===
+        ; "undefined"`, `x == null`, JSON.stringify all agree) and gives every
+        ; object of the class the same shape from its first instruction.
+        ; TypeScript declares the field with its own type and would reject the
+        ; assignment when the field is not optional, so it keeps the old form.
+        if ((was_set == false) && (target_typescript == false)) {
+          wr.out(("this." + p.compiledName + " = undefined") , false)
+          was_set = true
+        }
       }
       if was_set {
         wr.out(";" false)

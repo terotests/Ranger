@@ -67,6 +67,21 @@ class RangerLispParser {
     code = code_module
     len = (length (( unwrap buff)))
     rootNode = (new CodeNode(( unwrap code) 0 0))
+    ; V8 gives a field the representation of the first value stored in it, and
+    ; the CodeNode constructor stores the integer 0 in double_value and in
+    ; int_value, so both begin as small integers. The first fractional literal
+    ; in a program, and the first integer past 2^31, then changed the
+    ; representation of that field on every CodeNode already made, and each of
+    ; those nodes was rewritten on its next access: 2.4 s of the RtHost
+    ; compile, paid by whichever pass first walked the tree. Storing such
+    ; values once, here, moves the change to a point where one node exists.
+    ; JavaScript only: the sum is past a 32-bit int on the other targets.
+    if_javascript {
+      rootNode.double_value = 0.5
+      rootNode.int_value = (1073741824 + 1073741824)
+      rootNode.double_value = 0.0
+      rootNode.int_value = 0
+    }
     rootNode.is_block_node = true
     rootNode.expression = true
     curr_node = rootNode
