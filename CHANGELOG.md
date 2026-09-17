@@ -2380,6 +2380,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Python has no JSON support at all** (listed under 3.3.1) is closed by the entry above. The lambda gap of the `operator type:[T]` block stays open: `.map()`, `.filter()` and the other callback operators still emit a multi-statement Python lambda. The `@serialize(true)` reader no longer depends on that support
 
+## [3.5.1] - 2026-09-17
+
+- **The npm README still said 3.3.0.** The package was 3.5.0; the first line
+  of `README.md` was never bumped with it, so the npm page advertised the
+  old version. npm does not rewrite a published tarball, so this is 3.5.1.
+
 ## [3.3.1] - 2026-08-01
 
 ### Fixed
