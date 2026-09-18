@@ -8948,13 +8948,30 @@ class ComponentEngine {
                 if ((obj.isNull()) || (obj.isUndefined())) {
                     return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
                 }
+                ; annexB B.2.2.1 is an ACCESSOR on Object.prototype, so an
+                ; object that does not inherit it -- `Object.create(null)` --
+                ; gets an ordinary own property named `__proto__` instead, and
+                ; its prototype stays null. Treated as [[SetPrototypeOf]]
+                ; regardless, the one object that is supposed to be safe from
+                ; prototype poisoning was not.
+                def inheritsProtoAccessor:boolean ((this.builtinInstanceOf(obj "Object")) == 1)
+                if (false == inheritsProtoAccessor) {
+                    obj.setMember("__proto__" rightValue)
+                    return rightValue
+                }
                 if (this.isDescriptorObject(obj)) {
                     ; §9.1.2 [[SetPrototypeOf]]: a NON-EXTENSIBLE object refuses
                     ; the change. It was applied regardless, so
                     ; `Object.preventExtensions(o).__proto__ = p` mutated a
                     ; prototype the object had been sealed against.
+                    ; An ARRAY, a function, a Map and a Set are objects too,
+                    ; and each is a legal prototype -- `o.__proto__ =
+                    ; Array.prototype` is the annex B way to say
+                    ; setPrototypeOf, and it did nothing because only a plain
+                    ; object was accepted.
                     def protoChanging:boolean false
-                    if (rightValue.isObject()) { protoChanging = true }
+                    if (this.isDescriptorObject(rightValue)) { protoChanging = true }
+                    if (this.isSymbolValue(rightValue)) { protoChanging = false }
                     if (rightValue.isNull()) { protoChanging = true }
                     if protoChanging {
                         if (false == (obj.isExtensible())) {
@@ -19596,6 +19613,12 @@ class ComponentEngine {
                 if (templateChild.nodeType == "TemplateElement") {
                     ; Parse and evaluate any ${...} expressions in the template text
                     def rawText:string templateChild.value
+                    ; ES2018 kept the error for an UNTAGGED template: only a tag
+                    ; may see an element with no cooked value, because only a tag
+                    ; can read the raw text instead.
+                    if (this.hasBadEscapeMark(rawText)) {
+                        return (this.throwSpecError("SyntaxError" "Invalid escape sequence in template"))
+                    }
                     def processedText:string (this.evaluateTemplateExpressions(rawText))
                     templateText = templateText + processedText
                 }
@@ -22494,6 +22517,27 @@ class ComponentEngine {
             return 0
         }
         if (cname == "Object") {
+            ; §19.1.3: `x instanceof Object` is a prototype-chain question, not
+            ; a "is it object-like" one. An object created with a null
+            ; prototype -- `Object.create(null)`, `{__proto__: null}` -- is not
+            ; an instance of Object, and answering 1 for everything said it was.
+            def objProtoO:EvHandle (this.builtinPrototype("Object"))
+            def walkO:EvHandle v
+            def stepsO:int 0
+            while (stepsO < 32) {
+                def nxtO:EvHandle (this.protoOfValue(walkO))
+                if scriptThrew {
+                    return (0 - 1)
+                }
+                if (false == (this.isDescriptorObject(nxtO))) {
+                    return 0
+                }
+                if (nxtO.equals(objProtoO)) {
+                    return 1
+                }
+                walkO = nxtO
+                stepsO = (stepsO + 1)
+            }
             return 1
         }
         if (cname == "Function") {
@@ -32410,6 +32454,15 @@ class ComponentEngine {
                             def q:int 0
                             while (q < alen) {
                                 push items (this.arrayElemAt(recv q))
+                                ; §22.1.3.1 step 5.c.ii reads each element in
+                                ; turn, so a getter that throws ENDS the concat
+                                ; -- and the loop must notice. Carrying on past
+                                ; it kept reading an array-like whose `length`
+                                ; says 2^53-1, which is not slow but unbounded:
+                                ; the host ran out of memory.
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
                                 q = (q + 1)
                             }
                         } {
@@ -32435,6 +32488,17 @@ class ComponentEngine {
                                 }
                                 while (r < avLen) {
                                     push items (this.arrayElemAt(av r))
+                                    if scriptThrew {
+                                        return (EvValueBridge.taggedUndefined())
+                                    }
+                                    ; The result of a concat is an ARRAY, so it
+                                    ; cannot be longer than an array may be. A
+                                    ; spreadable whose `length` is past that is
+                                    ; a TypeError rather than an allocation the
+                                    ; host cannot finish.
+                                    if ((array_length items) > 4294967294) {
+                                        return (this.throwSpecError("TypeError" "Invalid array length"))
+                                    }
                                     r = (r + 1)
                                 }
                             } {
@@ -47448,7 +47512,9 @@ class ComponentEngine {
         ; A `__proto__` key in the literal replaces that link. `null` means no
         ; prototype at all; anything that is not an object is ignored outright.
         if hasProtoLit {
-            if ((protoFromLit.isObject()) && (false == (this.isSymbolValue(protoFromLit)))) {
+            ; Any object-LIKE value is a prototype: `{__proto__: []}` inherits
+            ; from that array, which is what `instanceof Array` then answers.
+            if ((this.isDescriptorObject(protoFromLit)) && (false == (this.isSymbolValue(protoFromLit)))) {
                 built.setProto(protoFromLit)
             } {
                 if (protoFromLit.isNull()) {
@@ -47762,6 +47828,16 @@ class ComponentEngine {
         return out
     }
 
+    ; The lexer's marker for an element whose cooked value does not exist --
+    ; U+0000 U+0001 "BADESC", which no source text can contain.
+    fn badEscapeMarker:string () {
+        return ((strfromcode 0) + ((strfromcode 1) + "BADESC"))
+    }
+
+    fn hasBadEscapeMark:boolean (s:string) {
+        return ((indexOf s (this.badEscapeMarker())) >= 0)
+    }
+
     fn evaluateTaggedTemplate:EvHandle (node:TSNode) {
         if (null? node.left) { return (EvValueBridge.taggedUndefined()) }
         if (null? node.right) { return (EvValueBridge.taggedUndefined()) }
@@ -47827,7 +47903,16 @@ class ComponentEngine {
         def cookedItems:[EvHandle]
         def ci:int 0
         while (ci < (array_length cookedParts)) {
-            push cookedItems (EvValueBridge.taggedString((itemAt cookedParts ci)))
+            ; ES2018 template literal revision: an element whose text held an
+            ; INVALID escape has no cooked value at all -- it is undefined, and
+            ; only `raw` still says what was written. The lexer marks such an
+            ; element rather than refusing the whole template.
+            def cookedPart:string (itemAt cookedParts ci)
+            if (this.hasBadEscapeMark(cookedPart)) {
+                push cookedItems (EvValueBridge.taggedUndefined())
+            } {
+                push cookedItems (EvValueBridge.taggedString(cookedPart))
+            }
             ci = (ci + 1)
         }
         def rawItems:[EvHandle]

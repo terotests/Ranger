@@ -603,6 +603,17 @@ class TSLexer {
         return (this.makeToken("Invalid" value startPos startLine startCol))
     }
 
+    ; ES2018 "template literal revision": an INVALID escape in a template is no
+    ; longer a SyntaxError -- the tagged form still runs, with `undefined` in
+    ; place of that element's cooked value, and only the raw text stands. The
+    ; lexer records the fact in the cooked text with a marker no source can
+    ; contain (U+0000 U+0001 "BADESC"), because the cooked value of a whole
+    ; template arrives here as ONE string and the parser re-splits it: a flag on
+    ; the token could not say WHICH element was bad.
+    fn badEscapeMark:string () {
+        return ((strfromcode 0) + ((strfromcode 1) + "BADESC"))
+    }
+
     fn readTemplateLiteral:Token () {
         def startPos:int pos
         def startLine:int line
@@ -690,27 +701,30 @@ class TSLexer {
                         def th2:string (this.peekAt(1))
                         def thv2:int (this.hexValue(th2))
                         if ((thv1 < 0) || (thv2 < 0)) {
-                            return (this.makeToken("Invalid" value startPos startLine startCol))
-                        }
+                            value = (value + (this.badEscapeMark()))
+                            handled = true
+                        } {
                         this.advance()
                         this.advance()
                         rawText = (rawText + (th1 + th2))
                         value = (value + (this.codeUnitString(((thv1 * 16) + thv2))))
                         handled = true
+                        }
                     }
                 }
                 if (false == handled) {
                     if (esc == "u") {
                         def tuStart:int pos
                         def tuEsc:string (this.readUnicodeEscapeBody())
-                        if ((strlen tuEsc) == 0) {
-                            return (this.makeToken("Invalid" value startPos startLine startCol))
-                        }
                         while (tuStart < pos) {
                             rawText = (rawText + (at source tuStart))
                             tuStart = (tuStart + 1)
                         }
-                        value = (value + tuEsc)
+                        if ((strlen tuEsc) == 0) {
+                            value = (value + (this.badEscapeMark()))
+                        } {
+                            value = (value + tuEsc)
+                        }
                         handled = true
                     }
                 }
@@ -719,13 +733,15 @@ class TSLexer {
                     ; any mode.
                     if (this.isDigit(esc)) {
                         if (esc != "0") {
-                            return (this.makeToken("Invalid" value startPos startLine startCol))
+                            value = (value + (this.badEscapeMark()))
+                        } {
+                            def afterZero:string (this.peek())
+                            if (this.isDigit(afterZero)) {
+                                value = (value + (this.badEscapeMark()))
+                            } {
+                                value = (value + (strfromcode 0))
+                            }
                         }
-                        def afterZero:string (this.peek())
-                        if (this.isDigit(afterZero)) {
-                            return (this.makeToken("Invalid" value startPos startLine startCol))
-                        }
-                        value = (value + (strfromcode 0))
                     } {
                         value = (value + esc)
                     }
