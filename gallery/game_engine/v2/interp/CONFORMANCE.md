@@ -980,10 +980,14 @@ after excluding intl402, Temporal, module and async flags:
 
 | | |
 |---|---|
-| **ES2015 overall** | **84.32% (2414/2863)** |
-| pass | 2414 |
-| fail (ran, wrong answer) | 433 |
-| crash (did not run to completion) | 16 |
+| **ES2015 overall** | **95.56% (2736/2863)** |
+| pass | 2736 |
+| fail (ran, wrong answer) | 125 |
+| crash (did not run to completion) | 2 |
+
+The number above is the C++ `octane_runner` at the end of the sweep
+described under *The sweep to 95%* below; the history that follows was
+written as the earlier steps landed and is kept as it was.
 
 The fail/crash split changed meaning partway through this work. An
 uncaught exception used to be swallowed in silence, so a fixture that ran
@@ -1083,6 +1087,61 @@ Nineteen of the remaining files need `$262` -- the test262 host object.
 Eleven of those want `createRealm`, a second global this engine has no way
 to make; the other seven want `evalScript`. That is a harness capability
 rather than an engine one, and nothing here provides it.
+
+#### The sweep to 95%
+
+One more pass over the same corpus, this time driven from the failure list
+rather than from a feature list: each run's failures were grouped by
+directory, the cheapest cluster was fixed, the whole corpus was re-run and
+diffed against the run before it, so that no file that had passed stopped
+passing. Every run below is the es6-target build (the runtime the vitest
+suite exercises); the C++ `octane_runner` was rebuilt and measured at the
+start and at the end, and the two agree to within the 31 files that fail on
+the byte-model target only (below).
+
+| step | pass (es6 target) | score |
+|---|---:|---:|
+| start of the sweep | 2442 | 85.30% |
+| templates carry escapes and raw text; `yield` in a call argument; symbols as computed keys; `super` in object methods; `with` and `@@unscopables` | 2545 | 88.89% |
+| class heritage evaluated as a value; `super()` bookkeeping across three levels; `yield*` closes its delegate; `IsRegExp` | 2565 | 89.59% |
+| proxy traps on the compiled tier; `arguments` iterates; the RegExp constructor, `@@split` and `@@search` per spec | 2593 | 90.57% |
+| class code is strict; Map entries through Get; an Error subclass owns `message` only when given one; `@@toStringTag` first | 2660 | 92.91% |
+| a class is evaluated at its declaration; an object a base constructor returns replaces the instance; `Reflect.construct` on a class forwards newTarget; `c++` on a const; `{__proto__: null}` | 2688 | 93.89% |
+| `super(...)` evaluates its arguments before the base runs; `super.x = v` as OrdinarySet; a RegExp subclass keeps its pattern state; a class value is rebuilt when a second declaration takes its name | 2710 | 94.66% |
+| `Array.of`/`Array.from` through `.call(C)`; Reflect.construct refuses a non-constructor newTarget; `k in o` through a proxy up the chain; `new Date(date)`; a primitive's `@@toStringTag` | 2728 | 95.28% |
+| RegExp `u`-mode early errors on the constructor and `compile()`; a custom `exec` returning undefined; `lastIndex` read once; `Object.prototype.toLocaleString` invokes `toString` | 2756 | 96.26% |
+| `Reflect.set` through a setter with its receiver; proxy `hasOwnProperty`/`propertyIsEnumerable`; eval-code declarations against a non-extensible or non-configurable global | 2766 | 96.61% |
+| a function stored on a class instance keeps its closure when called as a method | 2767 | 96.65% |
+
+The C++ runner at the same two points: 2412/2863 (84.25%) before, 2736/2863
+(95.56%) after.
+
+The last row is not an ES2015 item at all, and it is the one worth
+reading. `this.cb = () => k` written in a constructor lost the constructor's
+locals when called as `obj.cb()`: the class-instance call path re-ran the
+function's node instead of invoking the stored value, so a callback installed
+by a constructor could not see what it had closed over. A field that holds a
+function is now invoked as the value it is.
+
+Failures by family at the end of the sweep (127 files, C++ runner):
+
+| family | files | why |
+|---|---:|---|
+| `language/global-code` | 19 | need `$262.createRealm` or `$262.evalScript`, a harness object nothing here provides |
+| `built-ins/String` | 19 | 17 of them C++ only: astral code points through `at`, `codePointAt`, `normalize` and the iterator on the byte-model target |
+| `language/statements/class` | 14 | subclassing `Function`, `GeneratorFunction`, `ArrayBuffer` and a typed array; `yield` as a computed key inside a generator; a class expression's inner name leaking |
+| `built-ins/RegExp` + `language/literals/regexp` | 17 | surrogate pairs under `u` in the matcher; `unicode`/`source`/`flags` as own data where the spec has prototype accessors; annex B decimal and control escapes |
+| `annexB` | 13 | `RegExp.prototype.compile` copying a RegExp's own properties; `escape`/`unescape` and `substr` over astral text on the byte-model target |
+| `language/statements/for-of` | 6 | a mapped `arguments` object iterated live; an accessor at an array index; astral string iteration on C++ |
+| `built-ins/Object` | 4 | the descriptor shape of `Object.prototype.__proto__` |
+| `language/expressions/object` | 5 | `yield` as a computed key inside a generator; `super.x = v` in an object-literal setter (no home object for object literals) |
+| the rest | 30 | one or two files each: live array and map iterators, Promise capability executors, a `let` written from a closure before its declaration, `with` resolving a reference before the deletion in its initialiser |
+
+The 31 files that fail on the C++ runner and pass on the es6 target are all
+astral-text cases -- `String.prototype.at`, `codePointAt`, `normalize`,
+`escape`, template literals and identifiers spelled with `\u{...}` --
+where the byte-model target reads a code point as its UTF-8 bytes. They
+were failing before the sweep and are unchanged by it.
 
 #### The four subsystems, done
 
