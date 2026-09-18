@@ -1720,6 +1720,26 @@ class TSLexer {
 
     fn tokenize:[Token] () {
         def tokens:[Token]
+        ; ES2023 Hashbang Grammar: a `#!` at the very start of a source text is
+        ; a comment running to the end of the line -- and ONLY there, so a `#!`
+        ; anywhere else is still an error. Without it every script that opens
+        ; with a shebang failed to parse at its first character.
+        if (len > 1) {
+            if ((substring source 0 2) == "#!") {
+                def hbGo:boolean true
+                while (hbGo && (pos < len)) {
+                    def hbc:string (substring source pos (pos + 1))
+                    if ((hbc == "\n") || (hbc == "\r")) {
+                        ; The line terminator itself is left to the main loop,
+                        ; which is what keeps the line numbers right.
+                        hbGo = false
+                    } {
+                        pos = (pos + 1)
+                        col = (col + 1)
+                    }
+                }
+            }
+        }
         while (true) {
             def tok:Token (this.nextToken())
             push tokens tok

@@ -6739,6 +6739,21 @@ class ComponentEngine {
                     if decl.left {
                         inPattern = (unwrap decl.left)
                     }
+                    ; annexB B.3.5: `for (var i = 0 in o)` assigns the
+                    ; initialiser to the binding BEFORE the loop, and the value
+                    ; survives when the object has no keys at all. The parser
+                    ; keeps it on the declarator; ignoring it left `i`
+                    ; undefined.
+                    if decl.init {
+                        if ((strlen varName) > 0) {
+                            def seedV:EvHandle (this.evaluateExpr((unwrap decl.init)))
+                            if scriptThrew {
+                                return
+                            }
+                            context.define(varName seedV)
+                            this.syncGlobalVar(varName seedV)
+                        }
+                    }
                 }
             } {
                 def leftK:int (this.nodeKindOf(leftNode))
@@ -24346,6 +24361,26 @@ class ComponentEngine {
                     }
                     gdsI = (gdsI + 1)
                 }
+                ; §20.1.2.9 walks OwnPropertyKeys, which includes the symbol
+                ; keys. objectKeys answers strings only, so a symbol-keyed
+                ; property was missing from the result entirely.
+                if (this.isDescriptorObject(gdsSrc)) {
+                    def gdsAll:[string] (gdsSrc.ownDataKeys())
+                    def gdsS:int 0
+                    while (gdsS < (array_length gdsAll)) {
+                        def gdsSK:string (itemAt gdsAll gdsS)
+                        if ((indexOf gdsSK "@@") == 0) {
+                            def gdsSD:EvHandle (this.ownPropertyDescriptorOf(gdsSrc gdsSK))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            if (false == (gdsSD.isUndefined())) {
+                                gdsOut.setMember(gdsSK gdsSD)
+                            }
+                        }
+                        gdsS = (gdsS + 1)
+                    }
+                }
                 return gdsOut
             }
             ; §20.1.2.13 hasOwn: `Object.prototype.hasOwnProperty` without the
@@ -26844,6 +26879,21 @@ class ComponentEngine {
         while (si < (array_length statics)) {
             def sn:string (itemAt statics si)
             def stv:EvHandle (EvValueBridge.taggedNativeStatic(nsName sn))
+            ; §20.1.2.12-13: Number.parseInt and Number.parseFloat ARE the
+            ; global functions of the same name -- the same function object, not
+            ; a second one that behaves alike. Minting a fresh static made the
+            ; identity comparison the suite checks answer false.
+            if (nsName == "Number") {
+                if ((sn == "parseInt") || (sn == "parseFloat")) {
+                    def gNum:EvHandle (this.theGlobalObject())
+                    if (gNum.hasOwnData(sn)) {
+                        g.setMember(sn (gNum.getOwnData(sn)))
+                        g.setAttrs(sn true false true)
+                        si = (si + 1)
+                        continue
+                    }
+                }
+            }
             stv.setMember("length" (EvHandle.fromInt((this.builtinStaticArity(nsName sn)))))
             stv.setAttrs("length" false false true)
             stv.setMember("name" (EvValueBridge.taggedString(sn)))
@@ -27566,6 +27616,12 @@ class ComponentEngine {
             push rgNames "multiline"
             push rgNames "sticky"
             push rgNames "unicode"
+            ; The flags added after ES2015 are accessors on the prototype too,
+            ; and `flags` reads them BY NAME -- absent, the `d`, `s` and `v`
+            ; flags could not show up in it at all.
+            push rgNames "hasIndices"
+            push rgNames "dotAll"
+            push rgNames "unicodeSets"
             push rgNames "flags"
             def rgi:int 0
             while (rgi < (array_length rgNames)) {
@@ -29401,6 +29457,49 @@ class ComponentEngine {
             return (EvValueBridge.taggedUndefined())
         }
         if (kind == "regexpget") {
+            ; §22.2.6.4: `flags` is GENERIC. It reads each flag as a PROPERTY of
+            ; the receiver, in a fixed order, so it answers for a Proxy, a
+            ; subclass instance or any object carrying those properties.
+            ; Composed from the internal flag string instead, it answered for a
+            ; real RegExp alone and threw for everything else -- and the order
+            ; of the reads, which is what the compat suite observes through a
+            ; proxy, was invisible.
+            if (name == "flags") {
+                if (false == (this.isDescriptorObject(recv))) {
+                    return (this.throwSpecError("TypeError" "RegExp.prototype.flags getter called on a non-object"))
+                }
+                def fProps:[string]
+                def fChars:[string]
+                push fProps "hasIndices"
+                push fChars "d"
+                push fProps "global"
+                push fChars "g"
+                push fProps "ignoreCase"
+                push fChars "i"
+                push fProps "multiline"
+                push fChars "m"
+                push fProps "dotAll"
+                push fChars "s"
+                push fProps "unicode"
+                push fChars "u"
+                push fProps "unicodeSets"
+                push fChars "v"
+                push fProps "sticky"
+                push fChars "y"
+                def fOut:string ""
+                def fi:int 0
+                while (fi < (array_length fProps)) {
+                    def fv:EvHandle (this.getPropertyValue(recv (itemAt fProps fi)))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (fv.toBool()) {
+                        fOut = (fOut + (itemAt fChars fi))
+                    }
+                    fi = (fi + 1)
+                }
+                return (EvValueBridge.taggedString(fOut))
+            }
             def isRe:boolean false
             if (recv.isObject()) {
                 if (recv.hasOwnData("__regex__")) { isRe = true }
@@ -29438,6 +29537,15 @@ class ComponentEngine {
             }
             if (name == "unicode") {
                 return (EvValueBridge.taggedBoolean(((indexOf rgFlags "u") >= 0)))
+            }
+            if (name == "hasIndices") {
+                return (EvValueBridge.taggedBoolean(((indexOf rgFlags "d") >= 0)))
+            }
+            if (name == "dotAll") {
+                return (EvValueBridge.taggedBoolean(((indexOf rgFlags "s") >= 0)))
+            }
+            if (name == "unicodeSets") {
+                return (EvValueBridge.taggedBoolean(((indexOf rgFlags "v") >= 0)))
             }
             if (name == "flags") {
                 def fOut:string ""
@@ -34976,6 +35084,22 @@ class ComponentEngine {
         return ""
     }
 
+    ; The flag letters in the order §22.2.6.4 composes them, dropping anything
+    ; that is not a flag. Used wherever a `flags` string is handed to a guest.
+    fn canonicalRegexFlags:string (flags:string) {
+        def order:string "dgimsuvy"
+        def out:string ""
+        def i:int 0
+        while (i < (strlen order)) {
+            def c:string (substring order i (i + 1))
+            if ((indexOf flags c) >= 0) {
+                out = (out + c)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     fn makeRegexValue:EvHandle (pattern:string flags:string) {
         def keysR:[string]
         def valsR:[EvHandle]
@@ -34984,7 +35108,10 @@ class ComponentEngine {
         r.setAttrs("__regex__" false false false)
         r.setMember("source" (EvValueBridge.taggedString(pattern)))
         r.setAttrs("source" false false false)
-        r.setMember("flags" (EvValueBridge.taggedString(flags)))
+        ; §22.2.6.4 orders the flags d g i m s u v y whatever order the literal
+        ; wrote them in, so `/./igm.flags` is "gim". The source text was stored
+        ; verbatim, which is the one place the canonical order was observable.
+        r.setMember("flags" (EvValueBridge.taggedString((this.canonicalRegexFlags(flags)))))
         r.setAttrs("flags" false false false)
         r.setMember("global" (EvValueBridge.taggedBoolean(((indexOf flags "g") >= 0))))
         r.setAttrs("global" false false false)
@@ -41793,6 +41920,12 @@ class ComponentEngine {
         ; The value properties of the global object. `this.NaN` read undefined
         ; because they lived only as names the resolver knew about.
         if (false == (g.hasOwnData("NaN"))) {
+            ; §19.1.1 globalThis is an ordinary DATA property of the global
+            ; object -- writable, non-enumerable, configurable -- that points at
+            ; the object itself. It was answered by the name resolver alone, so
+            ; `'globalThis' in globalThis` was false and it had no descriptor.
+            g.setMember("globalThis" g)
+            g.setAttrs("globalThis" true false true)
             g.setMember("NaN" (EvValueBridge.taggedNumber((0.0 / 0.0))))
             g.setAttrs("NaN" false false false)
             g.setMember("Infinity" (EvValueBridge.taggedNumber((1.0 / 0.0))))
@@ -42991,25 +43124,34 @@ class ComponentEngine {
                     ; It ran here as well, so `static x = 5` left `C.x`
                     ; undefined and gave every instance its own `x` instead.
                     if (m.kind != "static") {
-                        if m.init {
-                            ; A COMPUTED field name is an expression, evaluated
-                            ; here -- `class C { [k] = 7 }`. The parser keeps it
-                            ; on `right` because `init` is the field's value.
-                            def fKey:string m.name
-                            if m.computed {
-                                if m.right {
-                                    def fKeyV:EvHandle (this.evaluateExpr((unwrap m.right)))
-                                    if scriptThrew {
-                                        return
-                                    }
-                                    fKey = (this.toPropertyKey(fKeyV))
-                                    if scriptThrew {
-                                        return
-                                    }
+                        ; A COMPUTED field name is an expression, evaluated
+                        ; here -- `class C { [k] = 7 }`. The parser keeps it
+                        ; on `right` because `init` is the field's value.
+                        def fKey:string m.name
+                        if m.computed {
+                            if m.right {
+                                def fKeyV:EvHandle (this.evaluateExpr((unwrap m.right)))
+                                if scriptThrew {
+                                    return
+                                }
+                                fKey = (this.toPropertyKey(fKeyV))
+                                if scriptThrew {
+                                    return
                                 }
                             }
+                        }
+                        if m.init {
                             def iv:EvHandle (this.evaluateExpr((unwrap m.init)))
                             inst.setMember(fKey iv)
+                        } {
+                            ; §15.7.14: a field with NO initialiser is still
+                            ; DEFINED, as undefined. Skipping it left the key
+                            ; absent, which is observable through the brand
+                            ; check `#x in obj` -- the whole point of which is
+                            ; that a declared private field is present.
+                            if ((strlen fKey) > 0) {
+                                inst.setMember(fKey (EvValueBridge.taggedUndefined()))
+                            }
                         }
                     }
                 }
@@ -43142,7 +43284,15 @@ class ComponentEngine {
                     ; A field with no initialiser is still DEFINED, as
                     ; undefined -- `static x;` then `'x' in C` is true.
                     if (false == scriptThrew) {
+                        ; §15.7.14 defines the field with CreateDataProperty:
+                        ; writable, enumerable and configurable, and it REPLACES
+                        ; whatever the class value already had under that key.
+                        ; `static name = "n"` is the case that shows: the
+                        ; constructor's own non-writable `name` silently
+                        ; swallowed the write, so the field never appeared.
+                        cv.setAttrs(sKey true true true)
                         cv.setMember(sKey sv)
+                        cv.setAttrs(sKey true true true)
                     }
                 }
             }
@@ -43432,6 +43582,12 @@ class ComponentEngine {
             cv.setMember("name" (EvValueBridge.taggedString(declaredName)))
             cv.setAttrs("name" false false true)
         }
+        ; §15.7.14: the static elements run when the class value is created,
+        ; and a class EXPRESSION creates one exactly as a declaration does. Only
+        ; the statement path ran them, so `(class { static x = 1 }).x` was
+        ; undefined -- and a `static name = ...` could not override the name
+        ; stamped just above, which is the order the spec gives.
+        this.runClassStaticInit(nm cv)
         return cv
     }
 
@@ -45590,7 +45746,16 @@ class ComponentEngine {
                 def kEls:[EvHandle] (this.arrayLikeElements(kRes))
                 def ki2:int 0
                 while (ki2 < (array_length kEls)) {
-                    push outK (this.toPropertyKey((itemAt kEls ki2)))
+                    def kKey:string (this.toPropertyKey((itemAt kEls ki2)))
+                    ; §10.5.11 step 8: the trap's list may contain NO DUPLICATE
+                    ; entries. A repeated key was enumerated twice instead,
+                    ; which every reflection built on this list then repeated.
+                    if (this.isInList(kKey outK)) {
+                        def _kd:EvHandle (this.throwSpecError("TypeError" ("proxy ownKeys trap returned a duplicate entry '" + (kKey + "'"))))
+                        def emptyD:[string]
+                        return emptyD
+                    }
+                    push outK kKey
                     ki2 = (ki2 + 1)
                 }
                 ; §10.5.11 steps 17-20: every NON-CONFIGURABLE own key of the
@@ -45899,6 +46064,37 @@ class ComponentEngine {
                         ; the URI encoder want.
                         out = (out + ("\\u" + (this.hexPadLower(cp 4))))
                         handled = true
+                    }
+                }
+                ; ES2019 "well-formed JSON.stringify": a LONE surrogate is
+                ; escaped as \udXXX so the result is well-formed UTF-16 and can
+                ; be parsed back. A surrogate that is half of a valid PAIR is
+                ; left alone -- it stands for a real character. Emitted raw,
+                ; the text could not be parsed back as JSON at all.
+                if (false == handled) {
+                    if ((cp >= 55296) && (cp <= 57343)) {
+                        def lone:boolean true
+                        if (cp < 56320) {
+                            if ((i + 1) < L) {
+                                def nxCh:string (substring s (i + 1) (i + 2))
+                                def nxCp:int (this.charCodePointOf(nxCh))
+                                if ((nxCp >= 56320) && (nxCp <= 57343)) {
+                                    lone = false
+                                }
+                            }
+                        } {
+                            if (i > 0) {
+                                def pvCh:string (substring s (i - 1) i)
+                                def pvCp:int (this.charCodePointOf(pvCh))
+                                if ((pvCp >= 55296) && (pvCp < 56320)) {
+                                    lone = false
+                                }
+                            }
+                        }
+                        if lone {
+                            out = (out + ("\\u" + (this.hexPadLower(cp 4))))
+                            handled = true
+                        }
                     }
                 }
             }

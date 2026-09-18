@@ -3582,12 +3582,45 @@ class TSParserSimple {
         this.advance()
         def initVal (this.parseExpr())
         declarator.init = initVal
+        ; annexB B.3.5: `for (var i = 0 in o)` -- a `var` binding WITH an
+        ; initialiser in a for-in head, legal in sloppy code and nowhere else.
+        ; `in` is a binary operator, so parseExpr has already folded the head
+        ; into `0 in o`; split it back apart, the same way the
+        ; no-declaration branch below does, instead of demanding a `;` that
+        ; the head does not have.
+        if (this.matchValue(")")) {
+          if ((kind == "var") && (hasPattern == false)) {
+            if (initVal.nodeType == "BinaryExpression") {
+              if (initVal.value == "in") {
+                if (this.strictMode) {
+                  this.syntaxError("Parse error: a for-in head may not have an initialiser in strict mode")
+                }
+                node.nodeType = "ForInStatement"
+                declarator.init = (unwrap initVal.left)
+                push initDecl.children declarator
+                node.left = initDecl
+                node.right = (unwrap initVal.right)
+                this.expectValue(")")
+                def savedBodyFlagB:boolean this.inSingleStatementBody
+                this.inSingleStatementBody = true
+                this.atModuleTopLevel = false
+                this.iterationDepth = (this.iterationDepth + 1)
+                def bBody (this.parseStatement())
+                this.iterationDepth = (this.iterationDepth - 1)
+                this.inSingleStatementBody = savedBodyFlagB
+                node.body = bBody
+                this.popScope()
+                return node
+              }
+            }
+          }
+        }
       } {
         if (kind == "const") {
           this.syntaxError("Parse error: a 'const' declaration must have an initializer")
         }
       }
-      
+
       push initDecl.children declarator
 
       ; Further declarators: `for (var a = 1, b = 2; ...)`
