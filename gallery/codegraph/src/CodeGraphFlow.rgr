@@ -218,7 +218,8 @@ class CodeGraphFlow {
         def ai:int 0
         while (ai < (array_length u.attributes)) {
             def a:UMLMember (itemAt u.attributes ai)
-            CodeGraphFlow.tintMember(a (diff.statusOfField(c.name a.name)))
+            def fkey:string ((c.name + ".") + a.name)
+            CodeGraphFlow.tintMember(a (diff.statusOfField(c.name a.name)) (diff.noteOf(fkey)))
             ai = (ai + 1)
         }
         def oi:int 0
@@ -226,22 +227,52 @@ class CodeGraphFlow {
             def o:UMLMember (itemAt u.operations oi)
             def mid:string (CodeGraphFlow.methodIdNamed(c model o.name))
             if ((strlen mid) > 0) {
-                CodeGraphFlow.tintMember(o (diff.statusOfMethod(mid)))
+                CodeGraphFlow.tintMember(o (diff.statusOfMethod(mid)) (diff.noteOf(mid)))
             }
             oi = (oi + 1)
         }
     }
 
-    sfn tintMember:void (m:UMLMember status:string) {
+    ; The row keeps its ink — a coloured name on a coloured band read
+    ; badly — and says what happened with a mark at its right edge and a
+    ; tooltip: + added, − removed, Δ changed, with the reason on hover.
+    sfn tintMember:void (m:UMLMember status:string note:string) {
         def fill:string (CodeGraphPages.diffFill(status))
         if ((strlen fill) == 0) {
             return
         }
         m.tint = fill
-        m.tintText = (CodeGraphPages.diffStroke(status))
-        if (status == "removed") {
-            m.visibility = "−"
+        m.trailing = (CodeGraphFlow.diffMark(status))
+        m.tooltip = (CodeGraphFlow.diffTooltip(status note))
+    }
+
+    sfn diffMark:string (status:string) {
+        if (status == "added") {
+            return "+"
         }
+        if (status == "removed") {
+            return "−"
+        }
+        if (status == "changed") {
+            return "Δ"
+        }
+        return ""
+    }
+
+    sfn diffTooltip:string (status:string note:string) {
+        if (status == "added") {
+            return "Added in this change"
+        }
+        if (status == "removed") {
+            return "Removed in this change — drawn from the old side"
+        }
+        if (status == "changed") {
+            if ((strlen note) > 0) {
+                return ("Changed in this change: " + note)
+            }
+            return "Changed in this change"
+        }
+        return ""
     }
 
     sfn methodIdNamed:string (c:CodeClass model:CodeGraph name:string) {

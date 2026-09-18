@@ -363,6 +363,9 @@ class CodeGraphDiff {
     def fieldStatus:[string:string]
     ; method id in the merged graph
     def methodStatus:[string:string]
+    ; Why a member is "changed", by the same keys: "type int → double",
+    ; "signature total(): int → total(): double", "body edited".
+    def memberNote:[string:string]
     ; path → line diff, for the files that differ. Also by basename.
     def fileDiffs:[string:LineDiffResult]
     def fileDiffBase:[string:LineDiffResult]
@@ -404,6 +407,13 @@ class CodeGraphDiff {
     fn statusOfMethod:string (methodId:string) {
         if (has methodStatus methodId) {
             return (unwrap (get methodStatus methodId))
+        }
+        return ""
+    }
+
+    fn noteOf:string (key:string) {
+        if (has memberNote key) {
+            return (unwrap (get memberNote key))
         }
         return ""
     }
@@ -551,6 +561,7 @@ class CodeGraphDiff {
             } {
                 if (bf.fieldType != hf.fieldType) {
                     set fieldStatus key "changed"
+                    set memberNote key ((("type " + bf.fieldType) + " → ") + hf.fieldType)
                     touched = true
                 }
             }
@@ -589,10 +600,12 @@ class CodeGraphDiff {
                 }
                 if sigChanged {
                     set methodStatus hid "changed"
+                    set memberNote hid ((("signature " + (bm.signature())) + " → ") + (hm.signature()))
                     touched = true
                 } {
                     if (this.bodyChanged(hc hm bc bm)) {
                         set methodStatus hid "changed"
+                        set memberNote hid "body edited"
                         touched = true
                     }
                 }

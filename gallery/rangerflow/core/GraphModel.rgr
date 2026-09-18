@@ -205,6 +205,9 @@ class FlowRow {
     ; diff paints an added member green and a removed one red this way.
     def tint:string ""
     def tintText:string ""
+    ; What this row has to say when the pointer rests on it; "" defers
+    ; to the node's own tooltip.
+    def tooltip:string ""
 
     Constructor () {
     }

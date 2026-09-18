@@ -39,6 +39,9 @@ class UMLMember {
     ; A fill behind the row and its ink, for a member a diff coloured.
     def tint:string ""
     def tintText:string ""
+    ; A mark at the row's right edge, and what it means on hover.
+    def trailing:string ""
+    def tooltip:string ""
 
     Constructor () {
     }
@@ -279,12 +282,13 @@ class UMLToGraph {
         if ((strlen m.memberType) > 0) {
             detail = (": " + m.memberType)
         }
-        def row:FlowRow (FlowRow.create(m.visibility (m.signature()) detail ""))
+        def row:FlowRow (FlowRow.create(m.visibility (m.signature()) detail m.trailing))
         if m.wantPort {
             row.portId = (c.name + "." + m.name)
         }
         row.tint = m.tint
         row.tintText = m.tintText
+        row.tooltip = m.tooltip
         if m.isStatic {
             row.emphasis = 1
         }
@@ -299,6 +303,9 @@ class UMLToGraph {
         w = (w + (this.textWidth(r.text rowFontSize)))
         if ((strlen r.detail) > 0) {
             w = ((w + 12.0) + (this.textWidth(r.detail rowFontSize)))
+        }
+        if ((strlen r.trailing) > 0) {
+            w = ((w + 12.0) + (this.textWidth(r.trailing rowFontSize)))
         }
         return w
     }

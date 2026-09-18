@@ -1362,6 +1362,12 @@ class FlowEditor {
         if (view.showTooltips == false) { return }
         if (view.hoverNode >= 0) {
             def n:FlowNode (graph.nodeAt(view.hoverNode))
+            ; A row with something of its own to say comes before the box.
+            def row:FlowRow (FlowUndo.rowOf(n (this.rowAtPoint(n fy))))
+            if ((strlen row.tooltip) > 0) {
+                view.tooltipText = row.tooltip
+                return
+            }
             if ((strlen n.tooltip) > 0) {
                 view.tooltipText = n.tooltip
                 return

@@ -710,6 +710,37 @@ class CodeGraphAppTest {
             print ("  FAIL openClass " + (app.pageId()))
             n = (n + 1)
         }
+        ; Resting the pointer on the removed row says why it is red.
+        if (app.graph.hasNode("Cart")) {
+            def cartNode:FlowNode (app.graph.nodeById("Cart"))
+            def probe:double (cartNode.y + cartNode.headerHeight)
+            def found:boolean false
+            while ((probe < (cartNode.y + cartNode.height)) && (found == false)) {
+                def rowNo:int (app.editor.rowAtPoint(cartNode probe))
+                def row:FlowRow (FlowUndo.rowOf(cartNode rowNo))
+                if ((indexOf row.text "old") == 0) {
+                    found = true
+                } {
+                    probe = (probe + 2.0)
+                }
+            }
+            if (found == false) {
+                print "  FAIL no row for old() on Cart"
+                n = (n + 1)
+            } {
+                def sx:double (app.editor.view.viewport.toScreenX((cartNode.x + 20.0)))
+                def sy:double (app.editor.view.viewport.toScreenY(probe))
+                app.graphMove((app.canvasX + sx) (app.canvasY + sy) false false)
+                def tip:string app.editor.view.tooltipText
+                if ((indexOf tip "Removed in this change") != 0) {
+                    print ("  FAIL tooltip on the removed row: '" + tip + "'")
+                    n = (n + 1)
+                }
+            }
+        } {
+            print "  FAIL Cart not drawn"
+            n = (n + 1)
+        }
         app.goOverview()
         if ((app.pageId()) != "diff:0") {
             print ("  FAIL overview with a diff open went to " + (app.pageId()))

@@ -253,6 +253,9 @@ class FlowGraphCodec {
                 if ((strlen row.tintText) > 0) {
                     out = (out + ",\"tintText\":" + (FlowGraphCodec.str(row.tintText)))
                 }
+                if ((strlen row.tooltip) > 0) {
+                    out = (out + ",\"tooltip\":" + (FlowGraphCodec.str(row.tooltip)))
+                }
                 out = (out + "}")
                 ri = (ri + 1)
             }
@@ -474,6 +477,7 @@ class FlowGraphCodec {
                 row.emphasis = (jr.intOr("emphasis" 0))
                 row.tint = (jr.stringOr("tint" ""))
                 row.tintText = (jr.stringOr("tintText" ""))
+                row.tooltip = (jr.stringOr("tooltip" ""))
                 sec.addRow(row)
                 ri = (ri + 1)
             }
