@@ -341,6 +341,10 @@ class CodeGraphSdl {
             ; SDL sends Ctrl+letter as text with the modifier still held —
             ; that is the only way Ctrl+F reaches the source pane's find bar.
             app.typeTextWith(text ctrl)
+            def clip:string (app.consumeClipboardText())
+            if ((strlen clip) > 0) {
+                dgfx_set_clipboard_text clip
+            }
         }
         def k:int (dgfx_pop_key)
         while (k != 0) {

@@ -769,6 +769,61 @@ class CodeGraphAppTest {
         print ("  " + (app.statusText()))
         n = (n + (CodeGraphAppTest.checkCommitPickers(css)))
         n = (n + (CodeGraphAppTest.checkMemberPopup(css)))
+        n = (n + (CodeGraphAppTest.checkCopyAndFont(css)))
+        return n
+    }
+
+    ; Ctrl+C hands the pane's selection to the host; a TrueType face given
+    ; as bytes replaces the fixed bitmap step with the face's own advances.
+    sfn checkCopyAndFont:int (css:string) {
+        print "== copy to clipboard, code font"
+        def n:int 0
+        def app (new CodeGraphApp)
+        app.start(1200.0 800.0 css)
+        app.codeView.init("class K {\n    fn a:void () {\n    }\n}")
+        if (app.typeTextWith("c" true)) {
+            print "  FAIL Ctrl+C with nothing selected claimed to copy"
+            n = (n + 1)
+        }
+        app.codeView.selectAll()
+        if ((app.typeTextWith("c" true)) == false) {
+            print "  FAIL Ctrl+C with a selection did not copy"
+            n = (n + 1)
+        }
+        def clip:string (app.consumeClipboardText())
+        if ((indexOf clip "class K {") != 0) {
+            print ("  FAIL clipboard text: '" + clip + "'")
+            n = (n + 1)
+        }
+        if ((strlen (app.consumeClipboardText())) != 0) {
+            print "  FAIL clipboard text not drained"
+            n = (n + 1)
+        }
+        def before:double (app.codeTr.measureWidth("iiiiiiii" 13.0))
+        def beforeWide:double (app.codeTr.measureWidth("MMMMMMMM" 13.0))
+        if (before != beforeWide) {
+            print "  FAIL without a face every character has the same step"
+            n = (n + 1)
+        }
+        def ttf:buffer (buffer_read_file "gallery/pdf_writer/assets/fonts/Noto_Sans" "NotoSans-Regular.ttf")
+        if ((app.loadCodeFont("Noto Sans" ttf)) == false) {
+            print "  FAIL loadCodeFont"
+            return (n + 1)
+        }
+        def narrow:double (app.codeTr.measureWidth("iiiiiiii" 13.0))
+        def wide:double (app.codeTr.measureWidth("MMMMMMMM" 13.0))
+        if (narrow >= wide) {
+            print ("  FAIL the face's own advances: i " + (to_string narrow) + " vs M " + (to_string wide))
+            n = (n + 1)
+        }
+        if (narrow >= before) {
+            print ("  FAIL a run of i is narrower with the face than at the bitmap step: " + (to_string narrow) + " vs " + (to_string before))
+            n = (n + 1)
+        }
+        if (app.codeView.fontFamily != "Noto Sans") {
+            print ("  FAIL the pane draws with the face it measures: " + app.codeView.fontFamily)
+            n = (n + 1)
+        }
         return n
     }
 

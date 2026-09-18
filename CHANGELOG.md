@@ -25,7 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the CLI takes `--pr=`. Rows keep their ink and carry a mark (`+`, `−`,
   `Δ`) with a tooltip saying why; a `+ N more` row is marked when the
   folded members include a change, and clicking it lists every member of
-  the class in a popup. `CodeGraphDiff` needs neither git nor the
+  the class in a popup. The source pane copies its selection with Ctrl+C
+  (the tab through the clipboard API, the desktop through SDL) and, in
+  the tab, measures with the Noto Sans face it draws with rather than a
+  bitmap font's fixed step, which had spread the tokens of a line apart.
+  `CodeGraphDiff` needs neither git nor the
   compiler; the web page's EXAMPLE menu diffs `calls.rgr` against
   `calls_v2.rgr` in the tab.
   RangerFlow rows gained `tint` / `tintText` and ScriptEditor `lineMarks`

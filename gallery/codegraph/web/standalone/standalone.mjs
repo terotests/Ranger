@@ -154,10 +154,15 @@ window.addEventListener("keydown", (ev) => {
     return;
   }
   // Ctrl+F is the source pane's find bar, and the browser's own find would
-  // search the page around the canvas rather than the file in it.
+  // search the page around the canvas rather than the file in it. Ctrl+C
+  // with a selection in the pane copies it: the app hands the text back.
   if (ctrl && ev.key.length === 1) {
     if (app.typeTextWith(ev.key, true)) {
       ev.preventDefault();
+      const clip = app.consumeClipboardText ? app.consumeClipboardText() : "";
+      if (clip && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(clip).catch(() => {});
+      }
       sceneStale = true;
       return;
     }
@@ -374,6 +379,22 @@ async function runSelfTest() {
   sceneStale = true;
 }
 
+// The source pane measures with the face it is drawn in. Without the file
+// the renderer steps every character at a bitmap font's width, which is
+// wider than Noto Sans, and the tokens of a line drifted apart.
+async function loadCodeFont() {
+  try {
+    const res = await fetch("./fonts/NotoSans-Regular.ttf");
+    if (!res.ok) return;
+    const ab = await res.arrayBuffer();
+    ab._view = new DataView(ab);
+    app.loadCodeFont("Noto Sans", ab);
+    sceneStale = true;
+  } catch (_) {
+    // The pane still works at the fallback step.
+  }
+}
+
 async function main() {
   await loadCss();
   resize();
@@ -381,6 +402,7 @@ async function main() {
   sceneStale = true;
   syncChrome();
   requestAnimationFrame(frameLoop);
+  await loadCodeFont();
   await installCompilerEnv();
   const params = new URLSearchParams(location.search);
   if (params.has("selftest")) {

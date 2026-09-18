@@ -124,6 +124,10 @@ class CodeGraphApp extends EvgApp {
     def prField:InputCtl (new InputCtl)
     ; Every member of one class, opened from a "+ N more" row.
     def members:MemberPopupCtl (new MemberPopupCtl)
+    ; Ctrl+C in the source pane leaves the selection here; the host puts it
+    ; on the clipboard (the tab through navigator.clipboard, SDL through
+    ; SDL_SetClipboardText) and drains it.
+    def clipboardText:string ""
     def commitList:[GitCommitInfo]
     def gitRoot:string ""
     ; Only a host with git on PATH (desktop, CLI) turns this on; the tab
@@ -3081,7 +3085,12 @@ class CodeGraphApp extends EvgApp {
             return false
         }
         if ctrl {
-            return (codeView.handleCtrlChar((charAt text 0)))
+            def ch:int (charAt text 0)
+            if ((ch == 99) || (ch == 67)) {
+                clipboardText = (codeView.selectionText())
+                return ((strlen clipboardText) > 0)
+            }
+            return (codeView.handleCtrlChar(ch))
         }
         if (codeView.findActive()) {
             return (codeView.handleText(text))
@@ -3094,6 +3103,26 @@ class CodeGraphApp extends EvgApp {
             return true
         }
         return ((strlen ui.focusId) > 0)
+    }
+
+    fn consumeClipboardText:string () {
+        def t:string clipboardText
+        clipboardText = ""
+        return t
+    }
+
+    ; The face the source pane measures and draws with, from the bytes of
+    ; a TrueType file. Without one the renderer measures every character
+    ; at a bitmap font's fixed step, which is wider than the face the tab
+    ; draws — the gaps between the tokens grew along the line. The SDL host
+    ; opens its faces from disk instead and never calls this.
+    fn loadCodeFont:boolean (family:string data:buffer) {
+        def ok:boolean (codeTr.loadFontBytes(family data))
+        if ok {
+            codeView.fontFamily = family
+            codeView.layout.syncMetrics(codeTr)
+        }
+        return ok
     }
 
     ; What the find bar has selected, so a host can say so.
