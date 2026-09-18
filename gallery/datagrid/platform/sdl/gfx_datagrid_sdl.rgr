@@ -942,6 +942,14 @@ static void dgfx_close() {
 
     ; One frame's tree, as `GridApp.a11yJson()` produced it. Publishing the same
     ; JSON twice costs nothing.
+    ; Ctrl+C in a pane: the selection onto the system clipboard.
+    dgfx_set_clipboard_text _:void (text:string) {
+        templates {
+            cpp ( "SDL_SetClipboardText((" (e 1) ").c_str())" (imp "<SDL2/SDL.h>") (imp "<string>") )
+            es6 ( "undefined" )
+        }
+    }
+
     dgfx_a11y_publish _:void (json:string) {
         templates {
             cpp ( "dgfx_a11y_publish_str(" (e 1) ")" (imp "<string>") )

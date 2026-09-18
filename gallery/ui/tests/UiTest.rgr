@@ -221,6 +221,69 @@ class UiTest {
         t.eqStr("escape closes it" h.focusId "dlg-trigger")
     }
 
+    ; A drawer slides in over `durationMs`, stays open across a pick, and
+    ; slides out on Close, Escape or close(). Nothing else on the page is
+    ; blocked: there is no backdrop and no other id is owned.
+    sfn testDrawer:void (t:Check) {
+        print "-- drawer"
+        def h (new UiHost())
+        h.setPageSize(800.0 600.0)
+        h.addStyleSheet((UiTest.themeCss()))
+        def d:DrawerCtl (h.addDrawer("dr" "members" "Members" "left"))
+        d.width = 300.0
+        d.top = 40.0
+        d.panelHeight = 500.0
+        d.durationMs = 100.0
+        t.ok("closed at first" (d.open == false))
+        t.eqInt("closed: only its root id" (array_length (d.tids())) 5)
+        def row:EVGElement (EVGElement.createDiv())
+        row.id = "dr-row-a"
+        UiTree.leafText(row "a")
+        d.body().addChild(row)
+        d.addContentTid("dr-row-a")
+        d.show()
+        t.ok("show opens" d.open)
+        t.ok("starts hidden off the edge" ((d.panelX()) < 0.0))
+        t.ok("animating" (d.animating()))
+        h.tick(50.0)
+        t.ok("half way" (((d.panelX()) > -300.0) && ((d.panelX()) < 0.0)))
+        h.tick(100.0)
+        t.ok("flush with the edge" ((d.panelX()) == 0.0))
+        t.ok("settled" ((d.animating()) == false))
+        h.layout()
+        t.ok("the panel is where the slide put it" (d.panelEl.overlayX == 0.0))
+        t.ok("the panel top is the given top" (d.panelEl.overlayY == 40.0))
+        t.ok("a content id is owned" (d.owns("dr-row-a")))
+        h.click("dr-row-a")
+        t.eqStr("a click on content is picked" (d.consumePicked()) "dr-row-a")
+        t.eqStr("and drained" (d.consumePicked()) "")
+        t.ok("still open after a pick" d.open)
+        h.click((d.closeTid()))
+        t.ok("Close starts the slide out" (d.open && d.closing))
+        h.tick(200.0)
+        t.ok("gone after the slide" (d.open == false))
+        def rootNode:EVGElement (unwrap d.rootEl)
+        t.eqInt("hidden: no panel in the tree" (rootNode.getChildCount()) 0)
+        d.show()
+        h.tick(200.0)
+        h.focus((d.closeTid()))
+        h.key("Escape")
+        h.tick(200.0)
+        t.ok("Escape closes" (d.open == false))
+        d.durationMs = 0.0
+        d.show()
+        t.ok("no duration: open at once" d.open)
+        d.close()
+        t.ok("no duration: closed at once" (d.open == false))
+        def r:DrawerCtl (h.addDrawer("dr2" "right one" "Right" "right"))
+        r.width = 200.0
+        r.show()
+        r.progress = 1.0
+        t.ok("a right drawer ends flush with the right edge" ((r.panelX()) == 600.0))
+        def rows:[UiRow] (d.rows())
+        t.eqInt("closed drawer has no rows" (array_length rows) 0)
+    }
+
     sfn main:void () {
         def t (new Check())
         print "=== gallery/ui controller + cascade tests ==="
@@ -248,6 +311,7 @@ class UiTest {
         UiTest.testComboboxChips(t)
         UiTest.testText(t)
         UiTest.testA11yTree(t)
+        UiTest.testDrawer(t)
         print ""
         print ("passed=" + (to_string t.passed) + " failed=" + (to_string t.failed))
         if (t.failed > 0) {

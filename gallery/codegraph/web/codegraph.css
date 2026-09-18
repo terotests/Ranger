@@ -316,3 +316,84 @@
   border-color: rgb(37, 99, 235);
   color: rgb(255, 255, 255);
 }
+
+/* Every member of one class, from a "+ N more" row: gallery/ui's drawer,
+ * slid in from the left over the rail, no backdrop — the chart and the
+ * source pane keep working beside it. Rows carry the diff colour of the
+ * member they stand for, the same three as the UML box. */
+.ui-drawer {
+  display: flex;
+}
+
+.ui-drawer-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background-color: rgb(255, 255, 255);
+  border: 1px solid rgb(203, 213, 225);
+  border-left: 0px;
+  border-radius: 0px 8px 8px 0px;
+}
+
+.ui-drawer-title {
+  font-size: 14px;
+  font-weight: bold;
+  color: rgb(15, 23, 42);
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.ui-drawer-close {
+  height: 28px;
+  padding: 5px 12px;
+  font-size: 13px;
+  color: rgb(255, 255, 255);
+  background-color: rgb(37, 99, 235);
+  border-radius: 6px;
+  align-self: flex-end;
+  flex-shrink: 0;
+}
+
+.ui-drawer-body {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-height: 0px;
+  border: 1px solid rgb(226, 232, 240);
+  border-radius: 4px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(148, 163, 184) rgb(241, 245, 249);
+}
+
+.cg-members-hint {
+  width: 100%;
+  font-size: 12px;
+  color: rgb(100, 116, 139);
+  height: 22px;
+  padding: 4px 10px;
+  flex-shrink: 0;
+}
+
+.cg-member {
+  width: 100%;
+  padding: 4px 10px;
+  height: 24px;
+  font-size: 13px;
+  font-family: "Noto Sans";
+  color: rgb(26, 31, 43);
+  flex-shrink: 0;
+}
+
+.cg-member-added {
+  background-color: rgb(220, 252, 231);
+}
+
+.cg-member-removed {
+  background-color: rgb(254, 226, 226);
+}
+
+.cg-member-changed {
+  background-color: rgb(254, 243, 199);
+}

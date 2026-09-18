@@ -1,0 +1,144 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CodeGraphMembers.rgr — every member of one class, in a drawer.
+; ============================================================================
+;
+; A UML box lists eight fields and eight methods and folds the rest into a
+; "+ N more" row. Clicking that row slides this in from the left: every
+; member of the class, each with its diff mark and reason when a diff is
+; open. The drawer is not modal — the chart and the source pane keep
+; working beside it — and a click on a member opens it in the source pane
+; while the list stays up, so the reader can walk down it.
+;
+; The panel itself is gallery/ui's DrawerCtl; this fills its body.
+; ============================================================================
+
+Import "../../ui/src/UiHost.rgr"
+Import "CodeGraphDiff.rgr"
+
+class MemberEntry {
+    ; "Class.field" or the method id
+    def key:string ""
+    ; "field" / "method"
+    def kind:string ""
+    def name:string ""
+    def detail:string ""
+    def status:string ""
+    def note:string ""
+
+    Constructor () {
+    }
+
+    fn mark:string () {
+        if (status == "added") {
+            return "+"
+        }
+        if (status == "removed") {
+            return "−"
+        }
+        if (status == "changed") {
+            return "Δ"
+        }
+        return ""
+    }
+}
+
+class MemberDrawer {
+    def drawer:DrawerCtl (new DrawerCtl)
+    def className:string ""
+    def entries:[MemberEntry]
+    ; "3 changed, 1 added" when a diff is open, else "".
+    def summary:string ""
+    def hintEl:EVGElement (EVGElement.createDiv())
+
+    Constructor () {
+        drawer.tid = "cg-members"
+        drawer.name = "class members"
+        drawer.width = 380.0
+    }
+
+    fn entryTid:string (key:string) {
+        return ("cg-members-entry-" + key)
+    }
+
+    fn entryCount:int () {
+        return (array_length entries)
+    }
+
+    fn entryAt:MemberEntry (i:int) {
+        return (itemAt entries i)
+    }
+
+    fn isOpen:boolean () {
+        return drawer.open
+    }
+
+    fn close:void () {
+        drawer.close()
+    }
+
+    ; The key of the entry clicked last, or "".
+    fn consumePicked:string () {
+        def tidOf:string (drawer.consumePicked())
+        def prefix:string "cg-members-entry-"
+        if ((indexOf tidOf prefix) != 0) {
+            return ""
+        }
+        return (substring tidOf (strlen prefix) (strlen tidOf))
+    }
+
+    fn showFor:void (name:string list:[MemberEntry] summaryText:string) {
+        className = name
+        entries = list
+        summary = summaryText
+        def head:string ((className + " · ") + (to_string (array_length entries)) + " members")
+        if ((strlen summary) > 0) {
+            head = ((head + " · ") + summary)
+        }
+        drawer.title = head
+        this.fillBody()
+        drawer.show()
+    }
+
+    fn fillBody:void () {
+        def body:EVGElement (drawer.body())
+        UiTree.clearChildren(body)
+        drawer.clearContentTids()
+        hintEl.className = "cg-members-hint"
+        UiTree.leafText(hintEl "Click a member to open it in the source pane. Esc closes.")
+        body.addChild(hintEl)
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:MemberEntry (itemAt entries i)
+            def row:EVGElement (EVGElement.createDiv())
+            row.id = (this.entryTid(e.key))
+            row.className = "cg-member"
+            if ((strlen e.status) > 0) {
+                UiTree.addClass(row ("cg-member-" + e.status))
+            }
+            def text:string ""
+            def m:string (e.mark())
+            if ((strlen m) > 0) {
+                text = (m + "  ")
+            } {
+                text = "    "
+            }
+            def vis:string "+"
+            if (e.kind == "field") {
+                vis = "-"
+            }
+            text = (((text + vis) + " ") + e.name)
+            if ((strlen e.detail) > 0) {
+                text = ((text + " : ") + e.detail)
+            }
+            if ((strlen e.note) > 0) {
+                text = ((text + "   — ") + e.note)
+            }
+            UiTree.leafText(row text)
+            body.addChild(row)
+            drawer.addContentTid(row.id)
+            i = (i + 1)
+        }
+    }
+}

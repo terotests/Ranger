@@ -36,6 +36,9 @@ data_folder/
 !gallery/firesim/demo/shots/*.png
 # CodeGraph explorer screenshots — the README shows them.
 !gallery/codegraph/artifacts/*.png
+# Erazer demo screenshots — the README shows them, and
+# `npm run erazer:shots` regenerates them from HTML widgets + the live page.
+!gallery/erazer/shots/*.png
 
 # MacOS
 .DS_Store

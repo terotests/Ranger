@@ -24,7 +24,12 @@ const FIXTURES = new Set(["shop", "many"]);
 const EXAMPLES = {
   "calls.rgr": "./examples/calls.rgr",
   "animals.rgr": "./examples/animals.rgr",
+  "calls_v2.rgr": "./examples/calls_v2.rgr",
+  "zip_writer.hpp": "./examples/zip_writer.hpp",
 };
+// Menu items whose files are not named after them. The diff example
+// compiles both fixtures in the tab and opens on what changed between them.
+const EXAMPLE_FILES = { cpp: ["zip_writer.hpp"], "diff-calls": ["calls.rgr", "calls_v2.rgr"] };
 const GALLERY_LIBS = new Set(["css", "evg", "zip"]);
 
 const gl = canvas.getContext("webgl2", {
@@ -79,14 +84,37 @@ function at(ev) {
   return [ev.clientX - r.left, ev.clientY - r.top];
 }
 
-canvas.addEventListener("pointerdown", (ev) => {
-  canvas.setPointerCapture(ev.pointerId);
-  const [x, y] = at(ev);
-  app.pointerDown(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
+// The EXAMPLE menu asks the app; the app can only compile what is in its
+// VFS. A pick it could not serve (css before the gallery pack is fetched,
+// the C++ fixture, animals.rgr) is left in `pendingSample` — fetch the
+// sources here, then pick the same item again.
+function serveHostRequests() {
   if (app.consumeOpenFile()) openEl.click();
   if (app.consumeOpenGitUrl()) {
     window.alert("Git URL clone is the desktop SDL / CLI host (codegraph_sdl / npm run codegraph:analyze).");
   }
+  const want = app.consumePendingSample();
+  if (want && !analyzing) {
+    analyzing = true;
+    loadExample(want)
+      .catch((err) => { statusEl.textContent = String(err && err.message ? err.message : err); })
+      .finally(() => {
+        analyzing = false;
+        sceneStale = true;
+        syncChrome();
+      });
+  }
+}
+
+// The bundle is the compiler's ES6 output, where reading a file is a
+// Promise — so every app method on a path that could read one (a click that
+// opens a class, a menu pick) is `async`. Await them, or the status line and
+// the host requests are read before the click has happened.
+canvas.addEventListener("pointerdown", async (ev) => {
+  canvas.setPointerCapture(ev.pointerId);
+  const [x, y] = at(ev);
+  await app.pointerDown(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
+  serveHostRequests();
   sceneStale = true;
   syncChrome();
 });
@@ -100,13 +128,10 @@ canvas.addEventListener("pointermove", (ev) => {
   canvas.style.cursor = CURSORS[app.cursorAt(x, y)] || "default";
   sceneStale = true;
 });
-canvas.addEventListener("pointerup", (ev) => {
+canvas.addEventListener("pointerup", async (ev) => {
   const [x, y] = at(ev);
-  app.pointerUp(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
-  if (app.consumeOpenFile()) openEl.click();
-  if (app.consumeOpenGitUrl()) {
-    window.alert("Git URL clone is the desktop SDL / CLI host (codegraph_sdl / npm run codegraph:analyze).");
-  }
+  await app.pointerUp(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
+  serveHostRequests();
   sceneStale = true;
   syncChrome();
 });
@@ -129,10 +154,15 @@ window.addEventListener("keydown", (ev) => {
     return;
   }
   // Ctrl+F is the source pane's find bar, and the browser's own find would
-  // search the page around the canvas rather than the file in it.
+  // search the page around the canvas rather than the file in it. Ctrl+C
+  // with a selection in the pane copies it: the app hands the text back.
   if (ctrl && ev.key.length === 1) {
     if (app.typeTextWith(ev.key, true)) {
       ev.preventDefault();
+      const clip = app.consumeClipboardText ? app.consumeClipboardText() : "";
+      if (clip && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(clip).catch(() => {});
+      }
       sceneStale = true;
       return;
     }
@@ -161,14 +191,14 @@ window.addEventListener("keydown", (ev) => {
     }
     return;
   }
-  if (app.focusedField() !== "cg-class-filter") return;
+  if (!app.hasField(app.focusedField())) return;
   if (ev.key.length === 1 && !ctrl) {
     app.typeText(ev.key);
     ev.preventDefault();
     sceneStale = true;
     return;
   }
-  if (ev.key === "Backspace" || ev.key === "Delete" || ev.key === "ArrowLeft" || ev.key === "ArrowRight" || ev.key === "Home" || ev.key === "End") {
+  if (ev.key === "Enter" || ev.key === "Backspace" || ev.key === "Delete" || ev.key === "ArrowLeft" || ev.key === "ArrowRight" || ev.key === "Home" || ev.key === "End") {
     app.keyWith(ev.key, ev.shiftKey, ctrl);
     ev.preventDefault();
     sceneStale = true;
@@ -184,14 +214,14 @@ openEl.addEventListener("change", async () => {
   for (const f of files) {
     const text = await f.text();
     app.setUserFile(f.name, text);
-    if (/\.rgr$/i.test(f.name) && files.length === 1) entry = f;
+    if (/\.(rgr|hpp|h|cpp|cc|ts)$/i.test(f.name) && files.length === 1) entry = f;
   }
   await installGalleryTree();
   app.fillMissingUserImports();
   const text = app.userFileText(entry.name) || (await entry.text());
   analyzing = true;
   try {
-    app.analyzeSource(text, entry.name);
+    await app.analyzeText(text, entry.name);
   } finally {
     analyzing = false;
     sceneStale = true;
@@ -218,7 +248,14 @@ function paintOnce() {
   return { cmds: (frame && frame.cmdCount) || 0 };
 }
 
-function frameLoop() {
+// The app's own clock: transitions and the member drawer's slide advance
+// per frame, and a frame that moved something is repainted.
+let lastFrameMs = 0;
+function frameLoop(nowMs) {
+  const now = typeof nowMs === "number" ? nowMs : performance.now();
+  const dt = lastFrameMs ? Math.min(now - lastFrameMs, 100) : 16;
+  lastFrameMs = now;
+  if (app.tick && app.tick(dt)) sceneStale = true;
   resize();
   paintOnce();
   requestAnimationFrame(frameLoop);
@@ -273,33 +310,38 @@ async function installGalleryTree() {
   await galleryTreePromise;
 }
 
+// Put the sources an item needs into the app, then let the app pick it —
+// the same path the EXAMPLE menu takes, so the select and the status line
+// agree with what is drawn.
 async function loadExample(name) {
   if (name === "compiler") {
     await installCompilerTree();
-    app.analyzeCompiler();
-    return;
-  }
-  if (GALLERY_LIBS.has(name)) {
+  } else if (GALLERY_LIBS.has(name)) {
     await installGalleryTree();
-    app.analyzeGallery(name);
-    return;
+  } else if (!FIXTURES.has(name)) {
+    const files = EXAMPLE_FILES[name] || [name];
+    for (const file of files) {
+      if (!EXAMPLES[file]) throw new Error("unknown example " + name);
+      if (!app.hasExampleFile(file)) {
+        const src = await fetchExample(file);
+        app.setExampleFile(file, src);
+      }
+    }
   }
-  if (FIXTURES.has(name)) {
-    app.loadSample(name);
-    return;
+  const ok = await app.pickSample(name);
+  if (!ok && app.consumePendingSample()) {
+    throw new Error("could not load " + name + ": " + (app.statusText() || ""));
   }
-  const src = await fetchExample(name);
-  app.setExampleFile(name, src);
-  app.analyzeSource(src, name);
+  return ok;
 }
 
 async function runSelfTest() {
-  const nav = app.selfTest();
+  const nav = await app.selfTest();
   let line = nav;
   try {
     const src = await fetchExample("calls.rgr");
     app.setExampleFile("calls.rgr", src);
-    const ok = app.analyzeSource(src, "calls.rgr");
+    const ok = await app.analyzeSource(src, "calls.rgr");
     const classes = app.classList() || "";
     if (!ok) {
       line = "FAIL vc " + (app.statusText() || "analyze returned false");
@@ -307,6 +349,33 @@ async function runSelfTest() {
       line = "FAIL vc classes: " + classes.replace(/\n/g, ", ");
     } else if (nav.startsWith("PASS")) {
       line = nav + "; vc ok";
+    }
+    // The EXAMPLE menu: a pick the app cannot serve is handed back here.
+    // css needs the gallery pack, cpp the fixture; both used to stop at
+    // "gallery sources not loaded" in the tab.
+    if (line.startsWith("PASS")) {
+      for (const [item, want] of [["css", "CssSheet"], ["cpp", "ZipWriter"], ["diff-calls", "Receipt"]]) {
+        await app.pickSample(item);
+        const pending = app.consumePendingSample();
+        if (pending !== item) {
+          line = "FAIL menu " + item + " did not ask the host (got '" + pending + "')";
+          break;
+        }
+        await loadExample(item);
+        const got = app.classList() || "";
+        if (got.indexOf(want) < 0) {
+          line = "FAIL menu " + item + ": " + (app.statusText() || "no " + want);
+          break;
+        }
+      }
+      if (line.startsWith("PASS")) {
+        // The diff example opens on the summary page with the change counted.
+        const page = app.pageId ? app.pageId() : "";
+        const summary = app.diffSummary ? app.diffSummary() : "";
+        if (page !== "diff:0") line = "FAIL diff example opened on " + page;
+        else if (!/added/.test(summary) || !/removed/.test(summary)) line = "FAIL diff summary: " + summary;
+        else line += "; menu ok; diff ok";
+      }
     }
   } catch (err) {
     line = "FAIL vc " + (err && err.message ? err.message : err);
@@ -317,6 +386,22 @@ async function runSelfTest() {
   sceneStale = true;
 }
 
+// The source pane measures with the face it is drawn in. Without the file
+// the renderer steps every character at a bitmap font's width, which is
+// wider than Noto Sans, and the tokens of a line drifted apart.
+async function loadCodeFont() {
+  try {
+    const res = await fetch("./fonts/NotoSans-Regular.ttf");
+    if (!res.ok) return;
+    const ab = await res.arrayBuffer();
+    ab._view = new DataView(ab);
+    app.loadCodeFont("Noto Sans", ab);
+    sceneStale = true;
+  } catch (_) {
+    // The pane still works at the fallback step.
+  }
+}
+
 async function main() {
   await loadCss();
   resize();
@@ -324,6 +409,7 @@ async function main() {
   sceneStale = true;
   syncChrome();
   requestAnimationFrame(frameLoop);
+  await loadCodeFont();
   await installCompilerEnv();
   const params = new URLSearchParams(location.search);
   if (params.has("selftest")) {
@@ -332,19 +418,23 @@ async function main() {
   }
   const sample = params.get("sample");
   if (sample && FIXTURES.has(sample)) {
-    app.loadSample(sample);
+    await app.loadSample(sample);
     const open = params.get("open") || "";
-    if (open) app.openClass(open);
+    if (open) await app.openClass(open);
     sceneStale = true;
     syncChrome();
     return;
   }
   const example = params.get("example") || "calls.rgr";
-  if (example === "compiler" || GALLERY_LIBS.has(example) || EXAMPLES[example]) {
+  if (example === "compiler" || GALLERY_LIBS.has(example) || EXAMPLES[example] || EXAMPLE_FILES[example]) {
     await loadExample(example);
   }
   const openClass = params.get("open") || "";
-  if (openClass) app.openClass(openClass);
+  if (openClass) await app.openClass(openClass);
+  // ?members=Order opens the popup that lists every member of a class —
+  // what a click on a "+ N more" row does.
+  const membersOf = params.get("members") || "";
+  if (membersOf) await app.showMembersSettled(membersOf);
   sceneStale = true;
   syncChrome();
 }

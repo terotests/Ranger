@@ -371,6 +371,7 @@ utility-class theme needs compound and attribute selectors; `gallery/css`'s
 | `src/AccordionCtl.rgr` | Single-open sections — `@radix-ui/react-accordion` |
 | `src/ToolbarCtl.rgr` | Roving focus over a row of buttons, no selection |
 | `src/DialogCtl.rgr` | Modal: opens, takes focus, Escape closes and gives it back |
+| `src/DrawerCtl.rgr` | Non-modal panel that slides in from an edge; the host fills its body and the page stays usable |
 | `src/PresentationCtl.rgr` | Label, separator, progress, aspect ratio, icon button, avatar |
 | `src/DateFieldCtl.rgr` | The `mm/dd/yyyy` segmented editor — Chromium's own `<input type="date">` |
 | `src/OtpCtl.rgr` | One-time code: one value, N slots, the selection normalised — `input-otp` |

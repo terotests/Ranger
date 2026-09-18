@@ -2034,9 +2034,14 @@ class FlowView {
             def sel:SceneItem (sc.rect(x y w rowH theme.selectedFill))
             sel.tag = tag
         } {
-            if ((idx % 2) == 1) {
-                def alt:SceneItem (sc.rect(x y w rowH theme.rowAltFill))
-                alt.tag = tag
+            if ((strlen row.tint) > 0) {
+                def tinted:SceneItem (sc.rect(x y w rowH row.tint))
+                tinted.tag = tag
+            } {
+                if ((idx % 2) == 1) {
+                    def alt:SceneItem (sc.rect(x y w rowH theme.rowAltFill))
+                    alt.tag = tag
+                }
             }
         }
         if ((this.drawn(size)) < labelFloorPx) {
@@ -2097,6 +2102,7 @@ class FlowView {
         }
         def nameCol:string theme.nodeText
         if (row.emphasis == 2) { nameCol = theme.nodeMutedText }
+        if ((strlen row.tintText) > 0) { nameCol = row.tintText }
         def bold:boolean (row.emphasis == 1)
         def raw:string (this.textFor(rowTag row.text))
         def lay:FlowTextLayout (this.layoutTextBold(raw size avail 0.0 1 bold))

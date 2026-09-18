@@ -1,0 +1,338 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; ErazerFont.rgr — 5×7 bitmap face used both to paint fixtures and to read them
+; ==============================================================================
+;
+; A screenshot of a real UI is antialiased system type; this face is the
+; round-trip oracle. Tests (and the live page's sample) paint with it, and the
+; recogniser samples a glyph back onto the same 5×7 grid. On a photograph the
+; same sampler still reports where the run is, how tall it is and what colour
+; the ink is, even when the character itself is not in the atlas.
+; ==============================================================================
+
+Import "pkg:image/ImageBuffer.rgr"
+
+class ErazerFont {
+
+    Constructor () {
+    }
+
+    sfn alphabet:string () {
+        return " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789?.,:+-="
+    }
+
+    ; 35 bits per glyph, rows of 5, top to bottom. Bit 0 of each row is the
+    ; LEFT column so a drawn 'T' really is a bar with a stem.
+    sfn atlas:string () {
+        def s:string ""
+        ; space
+        s = (s + "00000000000000000000000000000000000")
+        ; A-Z
+        s = (s + "01110100011000111111100011000110001")
+        s = (s + "11110100011000111110100011000111110")
+        s = (s + "01111100001000010000100001000001111")
+        s = (s + "11110100011000110001100011000111110")
+        s = (s + "11111100001000011110100001000011111")
+        s = (s + "11111100001000011110100001000010000")
+        s = (s + "01111100001000010011100011000101111")
+        s = (s + "10001100011000111111100011000110001")
+        s = (s + "01110001000010000100001000010001110")
+        s = (s + "00111000100001000010000101001001100")
+        s = (s + "10001100101010011100101001001010001")
+        s = (s + "10000100001000010000100001000011111")
+        s = (s + "10001110111010110101100011000110001")
+        s = (s + "10001110011010110011100011000110001")
+        s = (s + "01110100011000110001100011000101110")
+        s = (s + "11110100011000111110100001000010000")
+        s = (s + "01110100011000110001101011001001101")
+        s = (s + "11110100011000111110101001001010001")
+        s = (s + "01111100000111000001000011111011110")
+        s = (s + "11111001000010000100001000010000100")
+        s = (s + "10001100011000110001100011000101110")
+        s = (s + "10001100011000110001010100101000100")
+        s = (s + "10001100011000110101101011101110001")
+        s = (s + "10001100010101000100010101000110001")
+        s = (s + "10001100010101000100001000010000100")
+        s = (s + "11111000010001000100010001000011111")
+        ; a-z
+        s = (s + "00000000000111000001011111000101111")
+        s = (s + "10000100001011011001100011100101110")
+        s = (s + "00000000000111110000100001000001111")
+        s = (s + "00001000010110110011100011001101111")
+        s = (s + "00000011101000111111100000111001111")
+        s = (s + "00110010000111001000010000100001000")
+        s = (s + "00000011111000101111000010111101110")
+        s = (s + "10000100001011011001100011000110001")
+        s = (s + "00100000000010000100001000010000100")
+        s = (s + "00010000000001000010000101001001100")
+        s = (s + "10000100001001010100110001010010010")
+        s = (s + "01000010000100001000010000100000110")
+        s = (s + "00000000001101010101101011010110101")
+        s = (s + "00000000001011011001100011000110001")
+        s = (s + "00000000000111010001100010111001110")
+        s = (s + "00000000001111010001111101000010000")
+        s = (s + "00000000000111110001011110000100001")
+        s = (s + "00000000001011011001100001000010000")
+        s = (s + "00000011111000001110000011111011110")
+        s = (s + "01000010000111001000010000100000110")
+        s = (s + "00000000001000110001100011001101111")
+        s = (s + "00000000001000110001010100010000100")
+        s = (s + "00000000001000110101101011010101010")
+        s = (s + "00000000001000101010001000101010001")
+        s = (s + "00000000001000110001011110000101110")
+        s = (s + "00000111110001000100010001111101111")
+        ; 0-9
+        s = (s + "01110100011000110001100011000101110")
+        s = (s + "00100011000010000100001000010001110")
+        s = (s + "01110100010000100010001000100011111")
+        s = (s + "11111000010001001110000010000111110")
+        s = (s + "00010001100101011111000100001000010")
+        s = (s + "11111100001111000001000011111011110")
+        s = (s + "01110100001000011110100011000101110")
+        s = (s + "11111000010001000100010000100001000")
+        s = (s + "01110100010111010001100010111001110")
+        s = (s + "01110100011000101111000011000101110")
+        ; ? . , : + - =
+        s = (s + "01110100010000100010001000000000100")
+        s = (s + "00000000000000000000000000010000100")
+        s = (s + "00000000000000000000000000010001000")
+        s = (s + "00000001000010000000001000010000000")
+        s = (s + "00000001000010011111001000010000000")
+        s = (s + "00000000000000011111000000000000000")
+        s = (s + "00000000000111100000011110000000000")
+        return s
+    }
+
+    sfn bitsFor:string (ch:string) {
+        def abc:string (ErazerFont.alphabet())
+        def i:int (indexOf abc ch)
+        if (i < 0) {
+            def q:int (indexOf abc "?")
+            i = q
+        }
+        def data:string (ErazerFont.atlas())
+        def a:int (i * 35)
+        return (substring data a (a + 35))
+    }
+
+    sfn cellOn:boolean (bits:string col:int row:int) {
+        def idx:int ((row * 5) + col)
+        def ch:string (substring bits idx (idx + 1))
+        return (ch == "1")
+    }
+
+    sfn absI:int (v:int) {
+        if (v < 0) {
+            return (0 - v)
+        }
+        return v
+    }
+
+    sfn colorNear:boolean (r0:int g0:int b0:int r1:int g1:int b1:int tol:int) {
+        if ((ErazerFont.absI((r0 - r1))) > tol) {
+            return false
+        }
+        if ((ErazerFont.absI((g0 - g1))) > tol) {
+            return false
+        }
+        if ((ErazerFont.absI((b0 - b1))) > tol) {
+            return false
+        }
+        return true
+    }
+
+    sfn setRGB:void (img:ImageBuffer x:int y:int r:int g:int b:int) {
+        img.setPixelRGB(x y r g b)
+    }
+
+    sfn fillRect:void (img:ImageBuffer x:int y:int w:int h:int r:int g:int b:int) {
+        def c (new Color())
+        c.setRGB(r g b)
+        img.fillRect(x y w h c)
+    }
+
+    sfn roundInside:boolean (px:int py:int x:int y:int w:int h:int rad:int) {
+        if (rad <= 0) {
+            return true
+        }
+        def lx:int (px - x)
+        def ly:int (py - y)
+        def rr:int (rad * rad)
+        if ((lx < rad) && (ly < rad)) {
+            def dx:int ((rad - 1) - lx)
+            def dy:int ((rad - 1) - ly)
+            return (((dx * dx) + (dy * dy)) <= rr)
+        }
+        if ((lx >= (w - rad)) && (ly < rad)) {
+            def dx2:int (lx - (w - rad))
+            def dy2:int ((rad - 1) - ly)
+            return (((dx2 * dx2) + (dy2 * dy2)) <= rr)
+        }
+        if ((lx < rad) && (ly >= (h - rad))) {
+            def dx3:int ((rad - 1) - lx)
+            def dy3:int (ly - (h - rad))
+            return (((dx3 * dx3) + (dy3 * dy3)) <= rr)
+        }
+        if ((lx >= (w - rad)) && (ly >= (h - rad))) {
+            def dx4:int (lx - (w - rad))
+            def dy4:int (ly - (h - rad))
+            return (((dx4 * dx4) + (dy4 * dy4)) <= rr)
+        }
+        return true
+    }
+
+    sfn fillRoundRect:void (img:ImageBuffer x:int y:int w:int h:int rad:int r:int g:int b:int) {
+        def py:int y
+        def y2:int (y + h)
+        def x2:int (x + w)
+        while (py < y2) {
+            def px:int x
+            while (px < x2) {
+                if (ErazerFont.roundInside(px py x y w h rad)) {
+                    img.setPixelRGB(px py r g b)
+                }
+                px = (px + 1)
+            }
+            py = (py + 1)
+        }
+    }
+
+    sfn strokeRect:void (img:ImageBuffer x:int y:int w:int h:int t:int r:int g:int b:int) {
+        ErazerFont.fillRect(img x y w t r g b)
+        ErazerFont.fillRect(img x ((y + h) - t) w t r g b)
+        ErazerFont.fillRect(img x y t h r g b)
+        ErazerFont.fillRect(img ((x + w) - t) y t h r g b)
+    }
+
+    sfn paintGlyph:int (img:ImageBuffer x:int y:int scale:int r:int g:int b:int ch:string) {
+        if (ch == " ") {
+            return (6 * scale)
+        }
+        def bits:string (ErazerFont.bitsFor(ch))
+        def row:int 0
+        while (row < 7) {
+            def col:int 0
+            while (col < 5) {
+                if (ErazerFont.cellOn(bits col row)) {
+                    def px:int (x + (col * scale))
+                    def py:int (y + (row * scale))
+                    ErazerFont.fillRect(img px py scale scale r g b)
+                }
+                col = (col + 1)
+            }
+            row = (row + 1)
+        }
+        return (6 * scale)
+    }
+
+    ; Paints `text` with the 5×7 face and returns the advance width.
+    sfn paintText:int (img:ImageBuffer x:int y:int scale:int r:int g:int b:int text:string) {
+        def i:int 0
+        def cx:int x
+        def n:int (strlen text)
+        while (i < n) {
+            def ch:string (substring text i (i + 1))
+            def adv:int (ErazerFont.paintGlyph(img cx y scale r g b ch))
+            cx = (cx + adv)
+            i = (i + 1)
+        }
+        if (cx > x) {
+            return ((cx - x) - scale)
+        }
+        return 0
+    }
+
+    sfn textWidth:int (text:string scale:int) {
+        def n:int (strlen text)
+        if (n <= 0) {
+            return 0
+        }
+        return (((n * 6) * scale) - scale)
+    }
+
+    sfn textHeight:int (scale:int) {
+        return (7 * scale)
+    }
+
+    ; Sample a glyph bbox back onto 5×7, aligned to the line's top and padded
+    ; to the face's 5-column cell so a tight 'I' still matches the atlas.
+    sfn sampleBits:string (img:ImageBuffer gx:int gy:int gw:int gh:int lineY:int lineH:int inkR:int inkG:int inkB:int) {
+        def cell:int (idiv lineH 7)
+        if (cell < 1) {
+            cell = 1
+        }
+        def targetW:int (cell * 5)
+        def padX:int (idiv (targetW - gw) 2)
+        def originX:int (gx - padX)
+        def originY:int lineY
+        def out:string ""
+        def row:int 0
+        while (row < 7) {
+            def col:int 0
+            while (col < 5) {
+                def sx:int (originX + (col * cell) + (idiv cell 2))
+                def sy:int (originY + (row * cell) + (idiv cell 2))
+                def on:string "0"
+                if (img.isValidCoord(sx sy)) {
+                    def c:Color (img.getPixel(sx sy))
+                    if (ErazerFont.colorNear(c.r c.g c.b inkR inkG inkB 48)) {
+                        on = "1"
+                    }
+                }
+                out = (out + on)
+                col = (col + 1)
+            }
+            row = (row + 1)
+        }
+        return out
+    }
+
+    sfn hamming:int (a:string b:string) {
+        def n:int (strlen a)
+        def m:int (strlen b)
+        if (m < n) {
+            n = m
+        }
+        def d:int 0
+        def i:int 0
+        while (i < n) {
+            def ca:string (substring a i (i + 1))
+            def cb:string (substring b i (i + 1))
+            if (ca != cb) {
+                d = (d + 1)
+            }
+            i = (i + 1)
+        }
+        return d
+    }
+
+    sfn matchBits:string (bits:string) {
+        def abc:string (ErazerFont.alphabet())
+        def data:string (ErazerFont.atlas())
+        def n:int (strlen abc)
+        def bestI:int 0
+        def bestD:int 36
+        def i:int 0
+        while (i < n) {
+            def pat:string (substring data (i * 35) ((i * 35) + 35))
+            def d:int (ErazerFont.hamming(bits pat))
+            if (d < bestD) {
+                bestD = d
+                bestI = i
+            }
+            i = (i + 1)
+        }
+        ; 12 mismatches out of 35 is still a letter; worse than that is ink
+        ; we should not pretend to have read.
+        if (bestD > 12) {
+            return ""
+        }
+        return (substring abc bestI (bestI + 1))
+    }
+
+    sfn readGlyph:string (img:ImageBuffer gx:int gy:int gw:int gh:int lineY:int lineH:int inkR:int inkG:int inkB:int) {
+        def bits:string (ErazerFont.sampleBits(img gx gy gw gh lineY lineH inkR inkG inkB))
+        return (ErazerFont.matchBits(bits))
+    }
+}

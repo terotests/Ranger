@@ -1,0 +1,955 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CodeGraphDiff.rgr — what a change did to the classes, as data.
+; ============================================================================
+;
+; Two CodeGraphs — the program before a commit and after it — compared by
+; name: a class that only the new graph has was added, one that only the
+; old graph has was removed, and a class both have is changed when a field
+; or method of it was. A method whose signature is the same on both sides
+; is compared by text: the lines of its file the change touched, against
+; the lines the method spans. That needs no second parse of the method —
+; the line diff of the file says which members it hit.
+;
+;   LineDiff        two texts → same / added / removed lines
+;   CodeGraphDiff   two graphs → per class / field / method status
+;   merged()        one graph carrying both sides, so removed members
+;                   still have a row to be drawn red on
+;
+; No compiler, no git here: whoever has two graphs can diff them. The git
+; side (which two commits, which files) is CodeGraphGit.
+; ============================================================================
+
+Import "CodeGraphModel.rgr"
+
+; One line of a merged view: from the old text, the new one, or both.
+class LineDiffRow {
+    ; 0 same, 1 added, 2 removed
+    def kind:int 0
+    ; 0-based line in the old text, or -1
+    def oldLine:int -1
+    ; 0-based line in the new text, or -1
+    def newLine:int -1
+    def text:string ""
+
+    Constructor () {
+    }
+}
+
+class LineDiffResult {
+    def rows:[LineDiffRow]
+    def added:int 0
+    def removed:int 0
+    ; For each new line, the row it sits on in the merged view.
+    def newToRow:[int]
+    ; For each old line, the row it sits on in the merged view.
+    def oldToRow:[int]
+
+    Constructor () {
+    }
+
+    fn rowCount:int () {
+        return (array_length rows)
+    }
+
+    fn changed:boolean () {
+        return ((added + removed) > 0)
+    }
+
+    ; The merged view as text: every line from both sides, in order.
+    fn mergedText:string () {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length rows)) {
+            def r:LineDiffRow (itemAt rows i)
+            push out r.text
+            i = (i + 1)
+        }
+        return (join out "\n")
+    }
+
+    ; Per merged row: 0 same, 1 added, 2 removed. What an editor paints.
+    fn marks:[int] () {
+        def out:[int]
+        def i:int 0
+        while (i < (array_length rows)) {
+            def r:LineDiffRow (itemAt rows i)
+            push out r.kind
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn rowOfNewLine:int (line:int) {
+        if (line < 0) {
+            return 0
+        }
+        if (line >= (array_length newToRow)) {
+            return ((array_length rows) - 1)
+        }
+        return (itemAt newToRow line)
+    }
+
+    fn rowOfOldLine:int (line:int) {
+        if (line < 0) {
+            return 0
+        }
+        if (line >= (array_length oldToRow)) {
+            return ((array_length rows) - 1)
+        }
+        return (itemAt oldToRow line)
+    }
+
+    ; Did the change touch new lines [first, last]? An added line inside
+    ; the span counts; so does a removed line whose neighbours are inside
+    ; it, because a deletion has no new line of its own.
+    fn touchesNew:boolean (first:int last:int) {
+        def i:int 0
+        def lastNew:int -1
+        while (i < (array_length rows)) {
+            def r:LineDiffRow (itemAt rows i)
+            if (r.kind == 1) {
+                if ((r.newLine >= first) && (r.newLine <= last)) {
+                    return true
+                }
+            }
+            if (r.kind == 2) {
+                ; Removed between new line `lastNew` and the next new one.
+                def after:int (lastNew + 1)
+                if ((after >= first) && (after <= last)) {
+                    if (lastNew >= first) {
+                        return true
+                    }
+                    if ((lastNew < first) && (after > first)) {
+                        return true
+                    }
+                    if (first == 0) {
+                        return true
+                    }
+                    if (lastNew >= (first - 1)) {
+                        if (after <= last) {
+                            if (lastNew >= first) {
+                                return true
+                            }
+                        }
+                    }
+                }
+            }
+            if (r.newLine >= 0) {
+                lastNew = r.newLine
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn touchesOld:boolean (first:int last:int) {
+        def i:int 0
+        while (i < (array_length rows)) {
+            def r:LineDiffRow (itemAt rows i)
+            if (r.kind == 2) {
+                if ((r.oldLine >= first) && (r.oldLine <= last)) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}
+
+; A line diff: common prefix and suffix stripped, the middle by the
+; longest common subsequence over line hashes. A source file that is
+; edited in a few places has a short middle; a rewrite is the whole file,
+; and even then a few thousand lines square is well within a tab.
+class LineDiff {
+    Constructor () {
+    }
+
+    sfn splitLines:[string] (text:string) {
+        def out:[string]
+        if ((strlen text) == 0) {
+            return out
+        }
+        def parts:[string] (strsplit text "\n")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def line:string (itemAt parts i)
+            def n:int (strlen line)
+            if (n > 0) {
+                if ((charAt line (n - 1)) == 13) {
+                    line = (substring line 0 (n - 1))
+                }
+            }
+            push out line
+            i = (i + 1)
+        }
+        ; "a\nb\n" is two lines, not two and an empty one.
+        def cnt:int (array_length out)
+        if (cnt > 0) {
+            if ((strlen (itemAt out (cnt - 1))) == 0) {
+                if ((charAt text ((strlen text) - 1)) == 10) {
+                    removeLast out
+                }
+            }
+        }
+        return out
+    }
+
+    sfn compare:LineDiffResult (oldText:string newText:string) {
+        def a:[string] (LineDiff.splitLines(oldText))
+        def b:[string] (LineDiff.splitLines(newText))
+        return (LineDiff.compareLines(a b))
+    }
+
+    sfn compareLines:LineDiffResult (a:[string] b:[string]) {
+        def res (new LineDiffResult)
+        def na:int (array_length a)
+        def nb:int (array_length b)
+        def pre:int 0
+        while ((pre < na) && (pre < nb)) {
+            if ((itemAt a pre) == (itemAt b pre)) {
+                pre = (pre + 1)
+            } {
+                pre = (na + nb + 1)
+            }
+        }
+        if (pre > na) {
+            pre = (pre - (na + nb + 1))
+        }
+        def suf:int 0
+        while (((pre + suf) < na) && ((pre + suf) < nb)) {
+            if ((itemAt a ((na - 1) - suf)) == (itemAt b ((nb - 1) - suf))) {
+                suf = (suf + 1)
+            } {
+                suf = (na + nb + 1)
+            }
+        }
+        if (suf > na) {
+            suf = (suf - (na + nb + 1))
+        }
+        def i:int 0
+        while (i < pre) {
+            LineDiff.emit(res 0 i i (itemAt a i))
+            i = (i + 1)
+        }
+        def ma:int ((na - pre) - suf)
+        def mb:int ((nb - pre) - suf)
+        if ((ma > 0) && (mb > 0)) {
+            LineDiff.lcsMiddle(res a b pre ma mb)
+        } {
+            def ri:int 0
+            while (ri < ma) {
+                LineDiff.emit(res 2 (pre + ri) -1 (itemAt a (pre + ri)))
+                ri = (ri + 1)
+            }
+            def ai:int 0
+            while (ai < mb) {
+                LineDiff.emit(res 1 -1 (pre + ai) (itemAt b (pre + ai)))
+                ai = (ai + 1)
+            }
+        }
+        def si:int 0
+        while (si < suf) {
+            def oa:int ((na - suf) + si)
+            def ob:int ((nb - suf) + si)
+            LineDiff.emit(res 0 oa ob (itemAt a oa))
+            si = (si + 1)
+        }
+        return res
+    }
+
+    ; Classic O(ma·mb) LCS table over the middle, walked back into rows.
+    sfn lcsMiddle:void (res:LineDiffResult a:[string] b:[string] at:int ma:int mb:int) {
+        def w:int (mb + 1)
+        def table:[int]
+        def total:int ((ma + 1) * w)
+        def t:int 0
+        while (t < total) {
+            push table 0
+            t = (t + 1)
+        }
+        def i:int (ma - 1)
+        while (i >= 0) {
+            def j:int (mb - 1)
+            while (j >= 0) {
+                def here:int ((i * w) + j)
+                if ((itemAt a (at + i)) == (itemAt b (at + j))) {
+                    set table here ((itemAt table (((i + 1) * w) + (j + 1))) + 1)
+                } {
+                    def down:int (itemAt table (((i + 1) * w) + j))
+                    def right:int (itemAt table ((i * w) + (j + 1)))
+                    if (down >= right) {
+                        set table here down
+                    } {
+                        set table here right
+                    }
+                }
+                j = (j - 1)
+            }
+            i = (i - 1)
+        }
+        def x:int 0
+        def y:int 0
+        while ((x < ma) || (y < mb)) {
+            if ((x < ma) && (y < mb)) {
+                if ((itemAt a (at + x)) == (itemAt b (at + y))) {
+                    LineDiff.emit(res 0 (at + x) (at + y) (itemAt a (at + x)))
+                    x = (x + 1)
+                    y = (y + 1)
+                } {
+                    def down:int (itemAt table (((x + 1) * w) + y))
+                    def right:int (itemAt table ((x * w) + (y + 1)))
+                    if (down >= right) {
+                        LineDiff.emit(res 2 (at + x) -1 (itemAt a (at + x)))
+                        x = (x + 1)
+                    } {
+                        LineDiff.emit(res 1 -1 (at + y) (itemAt b (at + y)))
+                        y = (y + 1)
+                    }
+                }
+            } {
+                if (x < ma) {
+                    LineDiff.emit(res 2 (at + x) -1 (itemAt a (at + x)))
+                    x = (x + 1)
+                } {
+                    LineDiff.emit(res 1 -1 (at + y) (itemAt b (at + y)))
+                    y = (y + 1)
+                }
+            }
+        }
+    }
+
+    sfn emit:void (res:LineDiffResult kind:int oldLine:int newLine:int text:string) {
+        def r (new LineDiffRow)
+        r.kind = kind
+        r.oldLine = oldLine
+        r.newLine = newLine
+        r.text = text
+        def rowNo:int (array_length res.rows)
+        push res.rows r
+        if (kind == 1) {
+            res.added = (res.added + 1)
+        }
+        if (kind == 2) {
+            res.removed = (res.removed + 1)
+        }
+        if (newLine >= 0) {
+            while ((array_length res.newToRow) <= newLine) {
+                push res.newToRow rowNo
+            }
+            set res.newToRow newLine rowNo
+        }
+        if (oldLine >= 0) {
+            while ((array_length res.oldToRow) <= oldLine) {
+                push res.oldToRow rowNo
+            }
+            set res.oldToRow oldLine rowNo
+        }
+    }
+}
+
+; The statuses a diff hands the pager and the drawing: "" (or "same")
+; for untouched, "added", "removed", "changed".
+class CodeGraphDiff {
+    def base:CodeGraph (new CodeGraph)
+    def head:CodeGraph (new CodeGraph)
+    ; What the two sides are called — "a1b2c3d..HEAD", "v1 → v2".
+    def label:string ""
+    def active:boolean false
+    def classStatus:[string:string]
+    ; "Class.field"
+    def fieldStatus:[string:string]
+    ; method id in the merged graph
+    def methodStatus:[string:string]
+    ; Why a member is "changed", by the same keys: "type int → double",
+    ; "signature total(): int → total(): double", "body edited".
+    def memberNote:[string:string]
+    ; path → line diff, for the files that differ. Also by basename.
+    def fileDiffs:[string:LineDiffResult]
+    def fileDiffBase:[string:LineDiffResult]
+    def changedFiles:[string]
+    ; Class names with a status, changed first, then added, then removed.
+    def summary:[string]
+
+    Constructor () {
+    }
+
+    sfn compare:CodeGraphDiff (base:CodeGraph head:CodeGraph) {
+        def d (new CodeGraphDiff)
+        d.base = base
+        d.head = head
+        d.active = true
+        d.diffFiles()
+        d.diffClasses()
+        d.collectSummary()
+        return d
+    }
+
+    ; --- lookups -------------------------------------------------------------
+
+    fn statusOfClass:string (name:string) {
+        if (has classStatus name) {
+            return (unwrap (get classStatus name))
+        }
+        return ""
+    }
+
+    fn statusOfField:string (className:string fieldName:string) {
+        def key:string ((className + ".") + fieldName)
+        if (has fieldStatus key) {
+            return (unwrap (get fieldStatus key))
+        }
+        return ""
+    }
+
+    fn statusOfMethod:string (methodId:string) {
+        if (has methodStatus methodId) {
+            return (unwrap (get methodStatus methodId))
+        }
+        return ""
+    }
+
+    fn noteOf:string (key:string) {
+        if (has memberNote key) {
+            return (unwrap (get memberNote key))
+        }
+        return ""
+    }
+
+    fn hasFileDiff:boolean (path:string) {
+        if (has fileDiffs path) {
+            return true
+        }
+        return (has fileDiffBase (CodeGraph.baseNameOf(path)))
+    }
+
+    fn fileDiffOf:LineDiffResult (path:string) {
+        if (has fileDiffs path) {
+            return (unwrap (get fileDiffs path))
+        }
+        def base:string (CodeGraph.baseNameOf(path))
+        if (has fileDiffBase base) {
+            return (unwrap (get fileDiffBase base))
+        }
+        return (new LineDiffResult)
+    }
+
+    fn countOf:int (status:string) {
+        def n:int 0
+        def names:[string] (keys classStatus)
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((unwrap (get classStatus (itemAt names i))) == status) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn describe:string () {
+        def parts:[string]
+        def ch:int (this.countOf("changed"))
+        def ad:int (this.countOf("added"))
+        def rm:int (this.countOf("removed"))
+        if (ch > 0) {
+            push parts ((to_string ch) + " changed")
+        }
+        if (ad > 0) {
+            push parts ((to_string ad) + " added")
+        }
+        if (rm > 0) {
+            push parts ((to_string rm) + " removed")
+        }
+        if ((array_length parts) == 0) {
+            return "no class changed"
+        }
+        return ((join parts ", ") + " classes")
+    }
+
+    ; --- files ---------------------------------------------------------------
+
+    fn diffFiles:void () {
+        def headPaths:[string] (keys head.sources)
+        def i:int 0
+        while (i < (array_length headPaths)) {
+            def p:string (itemAt headPaths i)
+            def after:string (head.sourceOf(p))
+            def before:string (base.sourceOf(p))
+            if (before != after) {
+                this.noteFileDiff(p (LineDiff.compare(before after)))
+            }
+            i = (i + 1)
+        }
+        def basePaths:[string] (keys base.sources)
+        def k:int 0
+        while (k < (array_length basePaths)) {
+            def bp:string (itemAt basePaths k)
+            if ((this.hasFileDiff(bp)) == false) {
+                if ((strlen (head.sourceOf(bp))) == 0) {
+                    this.noteFileDiff(bp (LineDiff.compare((base.sourceOf(bp)) "")))
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    fn noteFileDiff:void (path:string res:LineDiffResult) {
+        set fileDiffs path res
+        def b:string (CodeGraph.baseNameOf(path))
+        if ((has fileDiffBase b) == false) {
+            set fileDiffBase b res
+        }
+        push changedFiles path
+    }
+
+    ; --- classes -------------------------------------------------------------
+
+    fn diffClasses:void () {
+        def i:int 0
+        while (i < (head.classCount())) {
+            def hc:CodeClass (head.classAt(i))
+            if (base.hasClass(hc.name)) {
+                this.diffClass((base.classByName(hc.name)) hc)
+            } {
+                set classStatus hc.name "added"
+                this.markMembers(hc "added" head)
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (base.classCount())) {
+            def bc:CodeClass (base.classAt(k))
+            if ((head.hasClass(bc.name)) == false) {
+                set classStatus bc.name "removed"
+                this.markMembers(bc "removed" base)
+            }
+            k = (k + 1)
+        }
+    }
+
+    fn markMembers:void (c:CodeClass status:string g:CodeGraph) {
+        def fi:int 0
+        while (fi < (array_length c.fields)) {
+            def f:CodeField (itemAt c.fields fi)
+            set fieldStatus ((c.name + ".") + f.name) status
+            fi = (fi + 1)
+        }
+        def mi:int 0
+        while (mi < (array_length c.methodIds)) {
+            set methodStatus (itemAt c.methodIds mi) status
+            mi = (mi + 1)
+        }
+    }
+
+    fn diffClass:void (bc:CodeClass hc:CodeClass) {
+        def touched:boolean false
+        if (bc.extendsName != hc.extendsName) {
+            touched = true
+        }
+        ; Fields by name; a type change is a change.
+        def fi:int 0
+        while (fi < (array_length hc.fields)) {
+            def hf:CodeField (itemAt hc.fields fi)
+            def key:string ((hc.name + ".") + hf.name)
+            def bf:CodeField (CodeGraphDiff.fieldNamed(bc hf.name))
+            if ((strlen bf.name) == 0) {
+                set fieldStatus key "added"
+                touched = true
+            } {
+                if (bf.fieldType != hf.fieldType) {
+                    set fieldStatus key "changed"
+                    set memberNote key ((("type " + bf.fieldType) + " → ") + hf.fieldType)
+                    touched = true
+                }
+            }
+            fi = (fi + 1)
+        }
+        def bfi:int 0
+        while (bfi < (array_length bc.fields)) {
+            def bf2:CodeField (itemAt bc.fields bfi)
+            def stillThere:CodeField (CodeGraphDiff.fieldNamed(hc bf2.name))
+            if ((strlen stillThere.name) == 0) {
+                set fieldStatus ((bc.name + ".") + bf2.name) "removed"
+                touched = true
+            }
+            bfi = (bfi + 1)
+        }
+        ; Methods by name. Same signature: the file diff decides.
+        def mi:int 0
+        while (mi < (array_length hc.methodIds)) {
+            def hid:string (itemAt hc.methodIds mi)
+            def hm:CodeMethod (head.methodById(hid))
+            def bid:string (CodeGraphDiff.methodNamed(base bc hm.name))
+            if ((strlen bid) == 0) {
+                set methodStatus hid "added"
+                touched = true
+            } {
+                def bm:CodeMethod (base.methodById(bid))
+                def sigChanged:boolean false
+                if (bm.params != hm.params) {
+                    sigChanged = true
+                }
+                if (bm.returns != hm.returns) {
+                    sigChanged = true
+                }
+                if (bm.isStatic != hm.isStatic) {
+                    sigChanged = true
+                }
+                if sigChanged {
+                    set methodStatus hid "changed"
+                    set memberNote hid ((("signature " + (bm.signature())) + " → ") + (hm.signature()))
+                    touched = true
+                } {
+                    if (this.bodyChanged(hc hm bc bm)) {
+                        set methodStatus hid "changed"
+                        set memberNote hid "body edited"
+                        touched = true
+                    }
+                }
+            }
+            mi = (mi + 1)
+        }
+        def bmi:int 0
+        while (bmi < (array_length bc.methodIds)) {
+            def bid2:string (itemAt bc.methodIds bmi)
+            def bm2:CodeMethod (base.methodById(bid2))
+            if ((strlen (CodeGraphDiff.methodNamed(head hc bm2.name))) == 0) {
+                set methodStatus bid2 "removed"
+                touched = true
+            }
+            bmi = (bmi + 1)
+        }
+        if touched {
+            set classStatus hc.name "changed"
+        }
+    }
+
+    ; The new lines a method spans: from its own start to the line before
+    ; the next member of the class in the same file, or the end of the
+    ; file. Nothing here parses the method again — the frontend gave each
+    ; member a start line, and members are laid out in order.
+    fn bodyChanged:boolean (hc:CodeClass hm:CodeMethod bc:CodeClass bm:CodeMethod) {
+        def hd:LineDiffResult (this.fileDiffOf(hm.fileName))
+        if ((hd.changed()) == false) {
+            return false
+        }
+        def first:int (CodeGraphDiff.lineIndex(hm.fileName hm.startLine))
+        def last:int (CodeGraphDiff.memberEnd(head hc hm.fileName first))
+        if (hd.touchesNew(first last)) {
+            return true
+        }
+        def bfirst:int (CodeGraphDiff.lineIndex(bm.fileName bm.startLine))
+        def blast:int (CodeGraphDiff.memberEnd(base bc bm.fileName bfirst))
+        return (hd.touchesOld(bfirst blast))
+    }
+
+    ; Ranger positions are 0-based, the UAST frontends for C++ and
+    ; TypeScript count from 1 — the same rule CodeGraphApp.bufferLine uses.
+    sfn lineIndex:int (fileName:string startLine:int) {
+        def n:int startLine
+        def len:int (strlen fileName)
+        def rgr:boolean false
+        if (len >= 4) {
+            if ((substring fileName (len - 4) len) == ".rgr") {
+                rgr = true
+            }
+        }
+        if (rgr == false) {
+            n = (n - 1)
+        }
+        if (n < 0) {
+            n = 0
+        }
+        return n
+    }
+
+    sfn memberEnd:int (g:CodeGraph c:CodeClass fileName:string first:int) {
+        def best:int 2000000000
+        def fi:int 0
+        while (fi < (array_length c.fields)) {
+            def f:CodeField (itemAt c.fields fi)
+            def fn2:string f.fileName
+            if ((strlen fn2) == 0) {
+                fn2 = c.fileName
+            }
+            if (fn2 == fileName) {
+                def at:int (CodeGraphDiff.lineIndex(fn2 f.startLine))
+                if ((at > first) && (at < best)) {
+                    best = at
+                }
+            }
+            fi = (fi + 1)
+        }
+        def mi:int 0
+        while (mi < (array_length c.methodIds)) {
+            def m:CodeMethod (g.methodById((itemAt c.methodIds mi)))
+            if (m.fileName == fileName) {
+                def mat:int (CodeGraphDiff.lineIndex(m.fileName m.startLine))
+                if ((mat > first) && (mat < best)) {
+                    best = mat
+                }
+            }
+            mi = (mi + 1)
+        }
+        ; The next class in the file bounds the last member.
+        def ci:int 0
+        while (ci < (g.classCount())) {
+            def oc:CodeClass (g.classAt(ci))
+            if (oc.fileName == fileName) {
+                def cat:int (CodeGraphDiff.lineIndex(oc.fileName oc.startLine))
+                if ((cat > first) && (cat < best)) {
+                    best = cat
+                }
+            }
+            ci = (ci + 1)
+        }
+        def lines:[string] (LineDiff.splitLines((g.sourceOf(fileName))))
+        if (best == 2000000000) {
+            best = (array_length lines)
+            if (best <= first) {
+                best = (first + 1)
+            }
+        }
+        ; The span ends at the member's last line of code, not at the line
+        ; before the next member: a method inserted after this one lands in
+        ; the blank lines between, with its own comment above it, and both
+        ; would otherwise count as a change to this one.
+        def last:int (best - 1)
+        while (last > first) {
+            if (last < (array_length lines)) {
+                if ((CodeGraphDiff.isBlankOrComment((itemAt lines last))) == false) {
+                    return last
+                }
+            }
+            last = (last - 1)
+        }
+        return last
+    }
+
+    ; Ranger `;`, C++ / TypeScript `//` and the lines of a `/* */` block.
+    sfn isBlankOrComment:boolean (line:string) {
+        def t:string (CodeGraphDiff.trimBlank(line))
+        if ((strlen t) == 0) {
+            return true
+        }
+        if ((indexOf t ";") == 0) {
+            return true
+        }
+        if ((indexOf t "//") == 0) {
+            return true
+        }
+        if ((indexOf t "/*") == 0) {
+            return true
+        }
+        if ((indexOf t "*") == 0) {
+            return true
+        }
+        return false
+    }
+
+    sfn trimBlank:string (s:string) {
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:int (charAt s i)
+            if ((ch != 32) && (ch != 9) && (ch != 13)) {
+                return (substring s i (strlen s))
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn fieldNamed:CodeField (c:CodeClass name:string) {
+        def i:int 0
+        while (i < (array_length c.fields)) {
+            def f:CodeField (itemAt c.fields i)
+            if (f.name == name) {
+                return f
+            }
+            i = (i + 1)
+        }
+        return (new CodeField)
+    }
+
+    sfn methodNamed:string (g:CodeGraph c:CodeClass name:string) {
+        def i:int 0
+        while (i < (array_length c.methodIds)) {
+            def id:string (itemAt c.methodIds i)
+            def m:CodeMethod (g.methodById(id))
+            if (m.name == name) {
+                return id
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn collectSummary:void () {
+        def fresh:[string]
+        summary = fresh
+        this.collectStatus("changed")
+        this.collectStatus("added")
+        this.collectStatus("removed")
+    }
+
+    fn collectStatus:void (status:string) {
+        ; Head order first, then the classes only the base has.
+        def i:int 0
+        while (i < (head.classCount())) {
+            def c:CodeClass (head.classAt(i))
+            if ((this.statusOfClass(c.name)) == status) {
+                push summary c.name
+            }
+            i = (i + 1)
+        }
+        if (status == "removed") {
+            def k:int 0
+            while (k < (base.classCount())) {
+                def bc:CodeClass (base.classAt(k))
+                if ((head.hasClass(bc.name)) == false) {
+                    push summary bc.name
+                }
+                k = (k + 1)
+            }
+        }
+    }
+
+    ; --- the graph both sides fit on ----------------------------------------
+
+    ; The new graph, plus what the old one lost: removed classes, and the
+    ; removed fields and methods of classes that survived, appended so the
+    ; UML box has a row to paint red. Removed method ids keep their name
+    ; (`Order.total`) unless the new side reused it. The sources of removed
+    ; files ride along so the editor can still open them.
+    fn merged:CodeGraph () {
+        def g (new CodeGraph)
+        g.title = head.title
+        def i:int 0
+        while (i < (head.classCount())) {
+            def hc:CodeClass (head.classAt(i))
+            CodeGraphDiff.copyClass(g hc head)
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (base.classCount())) {
+            def bc:CodeClass (base.classAt(k))
+            if ((head.hasClass(bc.name)) == false) {
+                CodeGraphDiff.copyClass(g bc base)
+            } {
+                this.appendRemovedMembers(g bc)
+            }
+            k = (k + 1)
+        }
+        CodeGraphDiff.copyLinks(g head)
+        CodeGraphDiff.copyLinks(g base)
+        def hp:[string] (keys head.sources)
+        def si:int 0
+        while (si < (array_length hp)) {
+            def p:string (itemAt hp si)
+            g.addSource(p (head.sourceOf(p)))
+            si = (si + 1)
+        }
+        def bp:[string] (keys base.sources)
+        def bi:int 0
+        while (bi < (array_length bp)) {
+            def p2:string (itemAt bp bi)
+            if ((strlen (g.sourceOf(p2))) == 0) {
+                g.addSource(p2 (base.sourceOf(p2)))
+            }
+            bi = (bi + 1)
+        }
+        return g
+    }
+
+    sfn copyClass:void (g:CodeGraph c:CodeClass from:CodeGraph) {
+        def nc:CodeClass (g.addClass(c.name))
+        nc.stereotype = c.stereotype
+        nc.extendsName = c.extendsName
+        nc.fileName = c.fileName
+        nc.startLine = c.startLine
+        def fi:int 0
+        while (fi < (array_length c.fields)) {
+            def f:CodeField (itemAt c.fields fi)
+            def nf:CodeField (CodeField.create(f.name f.fieldType))
+            nf.fileName = f.fileName
+            nf.startLine = f.startLine
+            push nc.fields nf
+            fi = (fi + 1)
+        }
+        def mi:int 0
+        while (mi < (array_length c.methodIds)) {
+            def m:CodeMethod (from.methodById((itemAt c.methodIds mi)))
+            CodeGraphDiff.copyMethod(g m)
+            mi = (mi + 1)
+        }
+    }
+
+    sfn copyMethod:CodeMethod (g:CodeGraph m:CodeMethod) {
+        def nm:CodeMethod (g.addMethod(m.className m.name))
+        nm.params = m.params
+        nm.returns = m.returns
+        nm.isStatic = m.isStatic
+        nm.fileName = m.fileName
+        nm.startLine = m.startLine
+        return nm
+    }
+
+    fn appendRemovedMembers:void (g:CodeGraph bc:CodeClass) {
+        def nc:CodeClass (g.classByName(bc.name))
+        def hc:CodeClass (head.classByName(bc.name))
+        def fi:int 0
+        while (fi < (array_length bc.fields)) {
+            def f:CodeField (itemAt bc.fields fi)
+            def kept:CodeField (CodeGraphDiff.fieldNamed(hc f.name))
+            if ((strlen kept.name) == 0) {
+                def nf:CodeField (CodeField.create(f.name f.fieldType))
+                nf.fileName = f.fileName
+                nf.startLine = f.startLine
+                push nc.fields nf
+            }
+            fi = (fi + 1)
+        }
+        def mi:int 0
+        while (mi < (array_length bc.methodIds)) {
+            def bid:string (itemAt bc.methodIds mi)
+            def bm:CodeMethod (base.methodById(bid))
+            if ((strlen (CodeGraphDiff.methodNamed(head hc bm.name))) == 0) {
+                def nm:CodeMethod (CodeGraphDiff.copyMethod(g bm))
+                if (nm.id != bid) {
+                    ; The merged graph gave it another id; the status
+                    ; follows it there.
+                    set methodStatus nm.id "removed"
+                }
+            }
+            mi = (mi + 1)
+        }
+    }
+
+    ; Calls and uses by method id. Both sides are copied: an edge that
+    ; only the old side had still lands on rows the merged graph has.
+    sfn copyLinks:void (g:CodeGraph from:CodeGraph) {
+        def i:int 0
+        while (i < (from.methodCount())) {
+            def m:CodeMethod (from.methodAt(i))
+            if (g.hasMethod(m.id)) {
+                def ci:int 0
+                while (ci < (array_length m.calls)) {
+                    g.linkCall(m.id (itemAt m.calls ci))
+                    ci = (ci + 1)
+                }
+                def ui:int 0
+                while (ui < (array_length m.uses)) {
+                    def tn:string (itemAt m.uses ui)
+                    if (g.hasClass(tn)) {
+                        g.linkUse(m.id tn)
+                    }
+                    ui = (ui + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+}

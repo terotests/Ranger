@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Erazer shadcn/ui fixtures</title>
+<style>
+  :root {
+    --bg: #09090b;
+    --card: #27272a;
+    --elev: #3f3f46;
+    --elev2: #585861;
+    --ink: #fafafa;
+    --muted: #a1a1aa;
+    --line: #3f3f46;
+    --primary: #fafafa;
+    --primary-fg: #18181b;
+    --amber: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #000;
+    color: var(--ink);
+    font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .page { padding: 24px; display: flex; flex-direction: column; gap: 28px; align-items: flex-start; }
+  .shot { background: var(--bg); padding: 16px; }
+  h2 { margin: 0 0 12px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #71717a; font-weight: 600; }
+  .card {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .btn {
+    height: 36px; padding: 0 14px; border-radius: 999px; font: inherit; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 6px; cursor: default; border: 1px solid transparent;
+  }
+  .btn-primary { background: var(--primary); color: var(--primary-fg); }
+  .btn-secondary { background: var(--elev); color: var(--ink); }
+  .btn-outline { background: transparent; color: var(--ink); border-color: var(--elev2); }
+  .btn-ghost { background: var(--elev); color: var(--ink); border-radius: 999px; }
+  .field {
+    width: 100%; height: 40px; padding: 0 12px;
+    background: var(--elev); border: 1px solid var(--line); border-radius: 8px;
+    color: var(--muted); display: flex; align-items: center; justify-content: space-between;
+    font-weight: 500;
+  }
+  .area {
+    width: 100%; height: 56px; padding: 10px 12px;
+    background: var(--elev); border: 1px solid var(--line); border-radius: 8px;
+    color: var(--muted); font-weight: 500;
+  }
+  .badge {
+    height: 24px; padding: 0 10px; border-radius: 999px; font-size: 11px; font-weight: 650;
+    display: inline-flex; align-items: center; background: var(--elev); color: var(--ink);
+  }
+  .badge-soft { background: var(--elev2); }
+  .dot { width: 16px; height: 16px; border-radius: 999px; border: 2px solid var(--muted); background: transparent; flex: 0 0 16px; }
+  .dot.on { border-color: var(--ink); background: var(--ink); }
+  .check {
+    width: 16px; height: 16px; border-radius: 4px; background: var(--elev2); color: var(--ink);
+    display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;
+    flex: 0 0 16px;
+  }
+  .switch {
+    width: 36px; height: 20px; border-radius: 999px; background: var(--ink); position: relative; flex: 0 0 36px;
+  }
+  .switch i {
+    position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; border-radius: 999px; background: var(--primary-fg);
+    display: block;
+  }
+  .ico { width: 16px; height: 16px; flex: 0 0 16px; color: var(--muted); }
+  .navgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 520px; }
+  .navcard { padding: 12px; }
+  .navcard h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .item {
+    height: 36px; border-radius: 8px; display: flex; align-items: center; gap: 10px;
+    padding: 0 10px; font-weight: 600; color: var(--ink);
+  }
+  .item.on { background: var(--elev2); }
+  .chart { width: 360px; }
+  .chart h3 { margin: 0 0 2px; font-size: 16px; font-weight: 650; }
+  .chart .sub { margin: 0 0 14px; color: var(--muted); font-size: 12px; }
+  .bars { display: flex; align-items: flex-end; gap: 12px; height: 140px; padding: 0 8px 8px; }
+  .bar { flex: 1; background: var(--elev2); border-radius: 4px 4px 0 0; }
+  .months { display: flex; gap: 12px; padding: 0 8px; color: var(--muted); font-size: 11px; }
+  .months span { flex: 1; text-align: center; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0; }
+  .mini { background: var(--elev); border-radius: 10px; padding: 12px; }
+  .mini .k { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
+  .mini .v { font-size: 16px; font-weight: 650; margin-top: 4px; }
+  .mini .s { font-size: 12px; color: var(--muted); }
+  .cta {
+    height: 40px; width: 100%; border-radius: 999px; background: var(--primary); color: var(--primary-fg);
+    display: flex; align-items: center; justify-content: center; font-weight: 650; border: 0;
+  }
+  .balance { width: 360px; }
+  .balance h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+  .money { margin: 0 0 10px; font-size: 32px; font-weight: 700; letter-spacing: -0.03em; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px;
+    border-radius: 999px; background: var(--elev); font-size: 11px; font-weight: 650;
+  }
+  .amber { width: 8px; height: 8px; border-radius: 999px; background: var(--amber); }
+  .lines { margin-top: 14px; background: var(--elev); border-radius: 10px; padding: 12px; }
+  .line { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
+  .line.total { border-top: 1px solid var(--elev2); margin-top: 4px; padding-top: 10px; font-weight: 650; }
+  .note { margin: 14px 0 0; color: var(--muted); font-size: 12px; }
+  .dash {
+    display: grid; grid-template-columns: 540px 376px; gap: 16px; align-items: start;
+  }
+  .stack { display: flex; flex-direction: column; gap: 12px; }
+  .dlg { width: 360px; }
+  .dlg .top { display: flex; justify-content: space-between; align-items: flex-start; }
+  .dlg h3 { margin: 0; font-size: 16px; }
+  .x {
+    width: 28px; height: 28px; border-radius: 8px; background: var(--elev); color: var(--ink);
+    display: flex; align-items: center; justify-content: center; font-size: 16px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div>
+    <h2>shadcn kit</h2>
+    <div class="shot" id="shadcn-kit" data-shot="shadcn-kit">
+      <div class="card" style="width:360px">
+        <div class="row" style="margin-bottom:12px">
+          <div class="btn btn-primary">Button →</div>
+          <div class="btn btn-secondary">Secondary</div>
+          <div class="btn btn-outline">Outline</div>
+        </div>
+        <div class="field" style="margin-bottom:10px">Name<span class="ico">⌕</span></div>
+        <div class="area" style="margin-bottom:12px">Message</div>
+        <div class="row" style="margin-bottom:12px; justify-content:space-between">
+          <div class="row">
+            <span class="badge">Badge</span>
+            <span class="badge badge-soft">Secondary</span>
+          </div>
+          <div class="row">
+            <span class="dot"></span>
+            <span class="dot on"></span>
+            <span class="check">✓</span>
+            <span class="switch"><i></i></span>
+          </div>
+        </div>
+        <div class="row" style="justify-content:space-between">
+          <div class="btn btn-outline">Alert Dialog</div>
+          <div class="btn btn-outline">Button Group ⌃</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <h2>shadcn nav</h2>
+    <div class="shot" id="shadcn-nav" data-shot="shadcn-nav">
+      <div class="navgrid">
+        <div class="card navcard">
+          <h3>Planning</h3>
+          <div class="item"><span class="ico">▢</span>Documents</div>
+          <div class="item"><span class="ico">▢</span>Budget</div>
+          <div class="item"><span class="ico">⌂</span>Reports</div>
+          <div class="item"><span class="ico">◎</span>Goals</div>
+          <div class="item"><span class="ico">▦</span>Calendar</div>
+        </div>
+        <div class="card navcard">
+          <h3>Support</h3>
+          <div class="item"><span class="ico">?</span>Help Center</div>
+          <div class="item"><span class="ico">▤</span>Docs</div>
+          <div class="item"><span class="ico">✉</span>Contact Us</div>
+          <div class="item"><span class="ico">▣</span>Status</div>
+          <div class="item"><span class="ico">🌐</span>Community</div>
+        </div>
+        <div class="card navcard">
+          <h3>Overview</h3>
+          <div class="item on"><span class="ico">☰</span>Analytics</div>
+          <div class="item"><span class="ico">⇄</span>Transactions</div>
+          <div class="item"><span class="ico">▣</span>Investments</div>
+          <div class="item"><span class="ico">⌂</span>Accounts</div>
+          <div class="item"><span class="ico">↺</span>Spending</div>
+        </div>
+        <div class="card navcard">
+          <h3>Account</h3>
+          <div class="item"><span class="ico">☺</span>Profile</div>
+          <div class="item on"><span class="ico">▤</span>Billing</div>
+          <div class="item"><span class="ico">⚑</span>Notifications</div>
+          <div class="item"><span class="ico">◉</span>Security</div>
+          <div class="item"><span class="ico">◇</span>Appearance</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <h2>shadcn chart</h2>
+    <div class="shot" id="shadcn-chart" data-shot="shadcn-chart">
+      <div class="card chart">
+        <h3>Contribution History</h3>
+        <p class="sub">Last 6 months of activity</p>
+        <div class="bars">
+          <div class="bar" style="height:58%"></div>
+          <div class="bar" style="height:86%"></div>
+          <div class="bar" style="height:70%"></div>
+          <div class="bar" style="height:100%"></div>
+          <div class="bar" style="height:54%"></div>
+          <div class="bar" style="height:92%"></div>
+        </div>
+        <div class="months">
+          <span>Dec</span><span>Jan</span><span>Feb</span>
+          <span>Mar</span><span>Apr</span><span>May</span>
+        </div>
+        <div class="split">
+          <div class="mini">
+            <div class="k">Upcoming</div>
+            <div class="v">May 2024</div>
+            <div class="s">Scheduled</div>
+          </div>
+          <div class="mini">
+            <div class="k">Savings Plan</div>
+            <div class="v">Accelerated</div>
+            <div class="s">Recurring</div>
+          </div>
+        </div>
+        <button class="cta" type="button">View Full Report</button>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <h2>shadcn balance</h2>
+    <div class="shot" id="shadcn-balance" data-shot="shadcn-balance">
+      <div class="card balance">
+        <h3>Claimable Balance</h3>
+        <p class="money">$1,211.29</p>
+        <span class="pill"><span class="amber"></span>Pending Setup</span>
+        <div class="lines">
+          <div class="line"><span>Net Royalties</span><span>$1,248.75</span></div>
+          <div class="line"><span>Processing Fee</span><span>-$37.46</span></div>
+          <div class="line total"><span>Total Ready to Claim</span><span>$1,211.29 USD</span></div>
+        </div>
+        <p class="note">Once your bank is connected, balances over $10.00 are automatically eligible for monthly distribution on the 15th of each month.</p>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <h2>shadcn dashboard</h2>
+    <div class="shot" id="shadcn-dash" data-shot="shadcn-dash">
+      <div class="dash">
+        <div class="stack">
+          <div class="card">
+            <div class="row" style="margin-bottom:12px">
+              <div class="btn btn-primary">Button →</div>
+              <div class="btn btn-secondary">Secondary</div>
+              <div class="btn btn-outline">Outline</div>
+            </div>
+            <div class="field" style="margin-bottom:10px">Name<span class="ico">⌕</span></div>
+            <div class="area" style="margin-bottom:12px">Message</div>
+            <div class="row" style="margin-bottom:12px; justify-content:space-between">
+              <div class="row">
+                <span class="badge">Badge</span>
+                <span class="badge badge-soft">Secondary</span>
+              </div>
+              <div class="row">
+                <span class="dot"></span>
+                <span class="dot on"></span>
+                <span class="check">✓</span>
+                <span class="switch"><i></i></span>
+              </div>
+            </div>
+            <div class="row" style="justify-content:space-between">
+              <div class="btn btn-outline">Alert Dialog</div>
+              <div class="btn btn-outline">Button Group ⌃</div>
+            </div>
+          </div>
+          <div class="navgrid" style="width:100%">
+            <div class="card navcard">
+              <h3>Planning</h3>
+              <div class="item"><span class="ico">▢</span>Documents</div>
+              <div class="item"><span class="ico">▢</span>Budget</div>
+              <div class="item"><span class="ico">⌂</span>Reports</div>
+              <div class="item"><span class="ico">◎</span>Goals</div>
+              <div class="item"><span class="ico">▦</span>Calendar</div>
+            </div>
+            <div class="card navcard">
+              <h3>Support</h3>
+              <div class="item"><span class="ico">?</span>Help Center</div>
+              <div class="item"><span class="ico">▤</span>Docs</div>
+              <div class="item"><span class="ico">✉</span>Contact Us</div>
+              <div class="item"><span class="ico">▣</span>Status</div>
+              <div class="item"><span class="ico">🌐</span>Community</div>
+            </div>
+            <div class="card navcard">
+              <h3>Overview</h3>
+              <div class="item on"><span class="ico">☰</span>Analytics</div>
+              <div class="item"><span class="ico">⇄</span>Transactions</div>
+              <div class="item"><span class="ico">▣</span>Investments</div>
+              <div class="item"><span class="ico">⌂</span>Accounts</div>
+              <div class="item"><span class="ico">↺</span>Spending</div>
+            </div>
+            <div class="card navcard">
+              <h3>Account</h3>
+              <div class="item"><span class="ico">☺</span>Profile</div>
+              <div class="item on"><span class="ico">▤</span>Billing</div>
+              <div class="item"><span class="ico">⚑</span>Notifications</div>
+              <div class="item"><span class="ico">◉</span>Security</div>
+              <div class="item"><span class="ico">◇</span>Appearance</div>
+            </div>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card chart" style="width:auto">
+            <h3>Contribution History</h3>
+            <p class="sub">Last 6 months of activity</p>
+            <div class="bars">
+              <div class="bar" style="height:58%"></div>
+              <div class="bar" style="height:86%"></div>
+              <div class="bar" style="height:70%"></div>
+              <div class="bar" style="height:100%"></div>
+              <div class="bar" style="height:54%"></div>
+              <div class="bar" style="height:92%"></div>
+            </div>
+            <div class="months">
+              <span>Dec</span><span>Jan</span><span>Feb</span>
+              <span>Mar</span><span>Apr</span><span>May</span>
+            </div>
+            <div class="split">
+              <div class="mini">
+                <div class="k">Upcoming</div>
+                <div class="v">May 2024</div>
+                <div class="s">Scheduled</div>
+              </div>
+              <div class="mini">
+                <div class="k">Savings Plan</div>
+                <div class="v">Accelerated</div>
+                <div class="s">Recurring</div>
+              </div>
+            </div>
+            <button class="cta" type="button">View Full Report</button>
+          </div>
+          <div class="card balance" style="width:auto">
+            <h3>Claimable Balance</h3>
+            <p class="money">$1,211.29</p>
+            <span class="pill"><span class="amber"></span>Pending Setup</span>
+            <div class="lines">
+              <div class="line"><span>Net Royalties</span><span>$1,248.75</span></div>
+              <div class="line"><span>Processing Fee</span><span>-$37.46</span></div>
+              <div class="line total"><span>Total Ready to Claim</span><span>$1,211.29 USD</span></div>
+            </div>
+          </div>
+          <div class="card dlg">
+            <div class="top">
+              <div>
+                <h3>Q2 Dividend Income</h3>
+                <p class="note" style="margin-top:6px">Quarterly dividend payouts across your portfolio holdings.</p>
+              </div>
+              <div class="x">×</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script>
+(function () {
+  var shot = new URLSearchParams(location.search).get("shot");
+  if (!shot) return;
+  var el = document.querySelector('[data-shot="' + shot + '"]');
+  if (!el) {
+    document.body.textContent = "unknown shot: " + shot;
+    return;
+  }
+  document.body.innerHTML = "";
+  document.body.style.margin = "0";
+  document.body.style.background = "#09090b";
+  document.body.appendChild(el);
+  el.style.margin = "0";
+  document.documentElement.setAttribute("data-size", el.offsetWidth + "x" + el.offsetHeight);
+  document.documentElement.setAttribute("data-shot-ready", shot);
+  document.title = el.offsetWidth + "x" + el.offsetHeight;
+})();
+</script>
+</body>
+</html>

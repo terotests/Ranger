@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Erazer turns a UI screenshot into an EVG layout.** `gallery/erazer`
+  grows colour regions, nests them, and guesses widget classes (button,
+  text field, tab, menu, checkbox, label, icon) instead of tracing the
+  picture as ink the way `EvgBitmapTracer` does. Icons that remain are
+  handed to that tracer as SVG. `npm run erazer:test` paints synthetic
+  UI-library fixtures with a 5×7 face and checks the tree; `npm run
+  erazer -- in.png out.evg.json` is the CLI; `npm run erazer:web:serve`
+  is the live page (paste or pick a screenshot in the tab; also at
+  https://terotests.github.io/Ranger/evg/erazer/ once Pages deploys). `npm run erazer:shots` captures HTML/CSS widgets
+  (login, tabs, menu, toolbar, dialog, buttons, sidebar) and a
+  shadcn/ui-shaped dark zinc dashboard, plus the live page itself.
+- **CodeGraph diffs two git revisions.** `codegraph_cli … --diff=base..head`
+  (or `--diff=base` against the working tree) and the desktop **Diff**
+  button check each side out as a detached worktree, analyse it the way
+  Open does, and compare classes by name and members by name: fields whose
+  type changed, methods whose signature changed, and methods whose lines
+  the file's line diff touched are `changed`; the rest `added` / `removed`.
+  The explorer opens on a diff page of only the touched classes (amber /
+  green / red), class pages keep the colours on their rows, and the source
+  pane shows touched files merged, removed lines in place on red bands.
+  The desktop rail lists the opened repository's log as base / head
+  pickers, and a pull request field (`12`, `#12`, a URL) fetches
+  `refs/pull/N/head` from origin and diffs from the merge base with the
+  target branch (`gh` when installed, else the remote's default branch);
+  the CLI takes `--pr=`. Rows keep their ink and carry a mark (`+`, `−`,
+  `Δ`) with a tooltip saying why; a `+ N more` row is marked when the
+  folded members include a change, and clicking it lists every member of
+  the class in a drawer that slides in from the left and leaves the chart
+  and the source pane usable — `gallery/ui` gained `DrawerCtl`, a
+  non-modal panel any host can fill, for it. The source pane copies its selection with Ctrl+C
+  (the tab through the clipboard API, the desktop through SDL) and, in
+  the tab, measures with the Noto Sans face it draws with rather than a
+  bitmap font's fixed step, which had spread the tokens of a line apart.
+  `CodeGraphDiff` needs neither git nor the
+  compiler; the web page's EXAMPLE menu diffs `calls.rgr` against
+  `calls_v2.rgr` in the tab.
+  RangerFlow rows gained `tint` / `tintText` and ScriptEditor `lineMarks`
+  for this. `npm run codegraph:diff` is the unit suite.
+
 ### Changed
 
 - **EVG is MIT and lives in `lib/evg`.** The layout engine moved out of
@@ -100,6 +141,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Environment.ExitCode` on C#, the same immediate exit as `exit` where
   stdout is unbuffered or flushed at exit).
 
+- **CodeGraph web page: css / evg / zip / cpp did not open from the EXAMPLE
+  menu.** The app could only compile what its VFS held, and the gallery
+  pack (and the C++ fixture) were fetched only for `?example=`. A pick the
+  app cannot serve is now handed back to the page (`consumePendingSample`),
+  which fetches the sources and picks again. The page also awaits the
+  app's methods — the ES6 bundle makes any path that may read a file
+  `async`, and `selfTest()` came back as a Promise, which is why
+  `codegraph:web:test` failed with `nav.startsWith is not a function`.
+- **CodeGraph: a class did not list who uses it through a method.** Rose
+  boxes above a class came from field types only, so `Checkout` showed no
+  `CodeGraphFixtureMain` although `main()` creates one. Classes whose
+  methods mention or call the class are now backrefs too, with the method
+  rows and a dashed `uses` edge from each row.
 
 ## [3.5.1] - 2026-09-17
 

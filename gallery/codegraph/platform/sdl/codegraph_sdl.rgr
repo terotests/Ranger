@@ -198,6 +198,18 @@ class CodeGraphSdl {
         this.openRangerPath(url)
     }
 
+    ; Diff: two git revisions around whatever is open. "HEAD~1..HEAD" is
+    ; the last commit; "HEAD~1" alone compares it with the working tree.
+    fn pickDiff:void () {
+        def spec:string (dgfx_prompt_text "Diff" "base..head, base (vs working tree), or a pull request # / URL — or pick commits in the rail")
+        if ((strlen spec) == 0) {
+            return
+        }
+        print ("  diff " + spec)
+        app.analyzeGitDiff(spec)
+        print ("  " + (app.statusText()))
+    }
+
     fn startApp:boolean () {
         def css:string (this.loadText(cssPath cssName))
         if ((strlen css) == 0) {
@@ -206,6 +218,7 @@ class CodeGraphSdl {
         }
         app.start((to_double pw) (to_double ph) css)
         app.codeTr = tr
+        app.enableGit()
         this.loadVfs()
         if ((strlen openPathArg) > 0) {
             this.openRangerPath(openPathArg)
@@ -272,6 +285,9 @@ class CodeGraphSdl {
                 if (app.consumeOpenGitUrl()) {
                     this.pickGitUrl()
                 }
+                if (app.consumeOpenDiff()) {
+                    this.pickDiff()
+                }
             } {
                 app.pointerMove(px py shift ctrl)
             }
@@ -283,6 +299,9 @@ class CodeGraphSdl {
                 }
                 if (app.consumeOpenGitUrl()) {
                     this.pickGitUrl()
+                }
+                if (app.consumeOpenDiff()) {
+                    this.pickDiff()
                 }
             }
         }
@@ -322,6 +341,10 @@ class CodeGraphSdl {
             ; SDL sends Ctrl+letter as text with the modifier still held —
             ; that is the only way Ctrl+F reaches the source pane's find bar.
             app.typeTextWith(text ctrl)
+            def clip:string (app.consumeClipboardText())
+            if ((strlen clip) > 0) {
+                dgfx_set_clipboard_text clip
+            }
         }
         def k:int (dgfx_pop_key)
         while (k != 0) {

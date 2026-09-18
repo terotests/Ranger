@@ -35,6 +35,7 @@ Import "StepperCtl.rgr"
 Import "PresentationCtl.rgr"
 Import "ToolbarCtl.rgr"
 Import "DialogCtl.rgr"
+Import "DrawerCtl.rgr"
 Import "WindowCtl.rgr"
 Import "AlertDialogCtl.rgr"
 Import "PopoverCtl.rgr"
@@ -239,6 +240,20 @@ class UiHost {
         c.tid = tid
         c.name = name
         c.title = title
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    ; A non-modal panel that slides in from `side` ("left" / "right"). The
+    ; host fills `body()` and registers the ids it wants clicks on.
+    fn addDrawer:DrawerCtl (tid:string name:string title:string side:string) {
+        def c (new DrawerCtl())
+        c.tid = tid
+        c.name = name
+        c.title = title
+        c.side = side
+        c.pageWidth = pageWidth
         c.build()
         this.add(c)
         return c

@@ -14,7 +14,10 @@
 #                RgRegistryBridge / RgGameHost — ylos2 2D + live 3D guests).
 #   /evg/     -> the EVG showcase: the layout engine's own example pages, each
 #                rendered under two themes and to PDF, PNG and HTML from one
-#                source tree and one stylesheet.
+#                source tree and one stylesheet. Live pages in the same tree:
+#                /evg/tracer/ (bitmap → paths), /evg/erazer/ (bitmap UI →
+#                nested widgets; paste or pick a screenshot in the tab),
+#                /evg/responsive/, /evg/chart-api/.
 #   /pptx/    -> the PowerPoint viewer and editor, running with no server: the
 #                deck is parsed and drawn in the page (OPC/ZIP →
 #                PresentationML → EVGDisplayList → WebGL 2), and it opens
@@ -128,6 +131,7 @@ on:
       - "lib/**"
       - "docs/**"
       - "lib/evg/**"
+      - "gallery/erazer/**"
       - "gallery/vela/**"
       # The RealTrainer page at /realtrainer/ is built from these, and from
       # the controls in gallery/ui it is drawn with.
@@ -280,6 +284,14 @@ jobs:
       # this commit actually does.
       - name: Build the EVG showcase
         run: node lib/evg/showcase/build.mjs --out "$GITHUB_WORKSPACE/_site/evg"
+
+      - name: Check the Erazer live page
+        run: |
+          test -s "$GITHUB_WORKSPACE/_site/evg/erazer/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/evg/erazer/erazer.js"
+          grep -q 'id="file"' "$GITHUB_WORKSPACE/_site/evg/erazer/index.html"
+          grep -Fq 'accept="image/*"' "$GITHUB_WORKSPACE/_site/evg/erazer/index.html"
+          node gallery/erazer/web/smoke.mjs "$GITHUB_WORKSPACE/_site/evg/erazer"
 
       # ---- RealTrainer at /realtrainer/ -----------------------------------
       # The app compiled to JavaScript and bundled with the painter; the page

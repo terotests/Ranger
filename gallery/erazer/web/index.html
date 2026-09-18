@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Erazer — bittikartta → EVG-layout</title>
+<meta name="description" content="Tunnista UI-elementit kuvakaappauksesta ja rakenna niistä sisäkkäinen EVG-puu. Ei palvelinta — käännetty Ranger Erazer.">
+<style>
+  :root {
+    --bg: #12151b; --panel: #171b23; --line: #2a3040; --ink: #e8ecf4;
+    --muted: #97a1b4; --accent: #7db3ff; --ok: #8fd39a;
+    --stage: #f4f1ea; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header { padding: 28px 24px 12px; max-width: 1280px; margin: 0 auto; }
+  h1 { margin: 0 0 6px; font-size: 26px; font-weight: 650; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); max-width: 72ch; }
+  header a { color: var(--accent); }
+  .crumb { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
+  .crumb a { color: var(--muted); text-decoration: none; }
+  .crumb a:hover { color: var(--accent); }
+  main {
+    max-width: 1280px; margin: 0 auto; padding: 8px 24px 64px;
+    display: grid; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); gap: 18px;
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: minmax(0, 1fr); padding: 8px 14px 48px; }
+  }
+  section {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  }
+  .head {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
+  }
+  .body { padding: 14px; }
+  button, .filebtn {
+    font: inherit; font-size: 13px; color: var(--ink); background: #202634;
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; cursor: pointer;
+  }
+  button:hover, .filebtn:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary, .filebtn.primary { background: var(--accent); border-color: var(--accent); color: #10131a; font-weight: 600; }
+  .filebtn { display: inline-flex; align-items: center; min-height: 44px; }
+  /* display:none on file inputs breaks the picker on some iOS versions. */
+  .sr-file {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .drop {
+    position: relative; margin-top: 10px; padding: 16px;
+    border: 1px dashed var(--line); border-radius: 10px; background: #12151b;
+    min-height: 96px;
+  }
+  .drop.over { border-color: var(--accent); }
+  .drop p { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+  .stage {
+    background: var(--stage); min-height: 200px; display: flex; align-items: center; justify-content: center;
+    padding: 16px; overflow: auto; position: relative;
+  }
+  .stage.empty { color: #6b7280; font-size: 14px; text-align: center; }
+  @media (max-width: 900px) {
+    button, .filebtn { min-height: 44px; padding: 10px 16px; }
+  }
+  .stage img, .stage svg, .stage canvas { max-width: 100%; height: auto; display: block; }
+  .stage.overlay svg { position: absolute; inset: 16px; max-width: calc(100% - 32px); pointer-events: none; }
+  pre {
+    margin: 0; padding: 14px; font: 12px/1.45 var(--mono); color: var(--ok);
+    white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow: auto;
+  }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
+  .counts { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <p class="crumb"><a href="../">EVG showcase</a> · <a href="../tracer/">Bitmap tracer</a> · erazer</p>
+  <h1>Erazer</h1>
+  <p>
+    Bitmap-tracer seuraa valokuvan mustetta. Erazer etsii <strong>UI-elementtejä</strong>:
+    sisäkkäisiä laatikoita, tekstiä, nappeja, kenttiä, tabbeja, valikoita, checkboxeja
+    ja ikoneita, ja kirjoittaa niistä EVG-puun. Kuva ei poistu koneelta.
+  </p>
+</header>
+<main>
+  <div>
+    <section>
+      <div class="head">Lähde</div>
+      <div class="body">
+        <p class="hint">Puhelimessa: <strong>Valitse kuva</strong> avaa Kuvat / kameran. Voit myös liittää kuvakaappauksen. Kuva ei poistu koneelta.</p>
+        <div class="drop" id="drop" tabindex="0">
+          <p>Pudota, liitä (Ctrl/⌘+V) tai valitse PNG/JPEG/WebP.</p>
+          <div class="actions">
+            <label class="filebtn primary" for="file">Valitse kuva</label>
+            <input id="file" class="sr-file" type="file" accept="image/*">
+            <label class="filebtn" for="camera">Kamera</label>
+            <input id="camera" class="sr-file" type="file" accept="image/*" capture="environment">
+            <button type="button" id="pasteBtn">Liitä</button>
+          </div>
+        </div>
+        <p class="hint" style="margin-top:14px">Synteettinen 5×7-fixtuuri</p>
+        <div class="actions">
+          <button type="button" id="formBtn">Lomake</button>
+          <button type="button" id="tabsBtn">Tabit</button>
+          <button type="button" id="menuBtn">Valikko</button>
+          <button type="button" id="iconBtn">Ikoni</button>
+        </div>
+        <p class="hint" style="margin-top:14px">HTML-komponentit (system-ui, kuvakaappaus)</p>
+        <div class="actions">
+          <button type="button" data-png="login.png">Web-lomake</button>
+          <button type="button" data-png="settings.png">Asetukset</button>
+          <button type="button" data-png="tabs.png">HTML-tabit</button>
+          <button type="button" data-png="menu.png">HTML-valikko</button>
+          <button type="button" data-png="toolbar.png">Työkalupalkki</button>
+          <button type="button" data-png="dialog.png">Dialogi</button>
+          <button type="button" data-png="buttons.png">Napit</button>
+          <button type="button" data-png="nav.png">Sivupalkki</button>
+        </div>
+        <p class="hint" style="margin-top:14px">shadcn/ui (dark zinc, kuvakaappaus)</p>
+        <div class="actions">
+          <button type="button" data-png="shadcn-dash.png">Dashboard</button>
+          <button type="button" data-png="shadcn-kit.png">Kit</button>
+          <button type="button" data-png="shadcn-nav.png">Nav</button>
+          <button type="button" data-png="shadcn-chart.png">Chart</button>
+          <button type="button" data-png="shadcn-balance.png">Saldo</button>
+        </div>
+      </div>
+    </section>
+    <section style="margin-top:18px">
+      <div class="head">Tulos <span class="counts" id="counts"></span></div>
+      <pre id="outline">Ei vielä ajettu.</pre>
+    </section>
+  </div>
+  <div>
+    <section>
+      <div class="head">Kuva + tunnistetut laatikot</div>
+      <div class="stage overlay empty" id="stage">Pudota tai liitä kuva tähän.</div>
+    </section>
+    <section style="margin-top:18px">
+      <div class="head">EVG JSON</div>
+      <pre id="json"></pre>
+    </section>
+  </div>
+</main>
+<script src="erazer.js"></script>
+<script>
+(function () {
+  var stage = document.getElementById("stage");
+  var outline = document.getElementById("outline");
+  var jsonEl = document.getElementById("json");
+  var counts = document.getElementById("counts");
+
+  function bufferToCanvas(img) {
+    var c = document.createElement("canvas");
+    c.width = img.width;
+    c.height = img.height;
+    var ctx = c.getContext("2d");
+    var data = ctx.createImageData(img.width, img.height);
+    var p = 0;
+    for (var y = 0; y < img.height; y++) {
+      for (var x = 0; x < img.width; x++) {
+        var col = img.getPixel(x, y);
+        data.data[p] = col.r;
+        data.data[p + 1] = col.g;
+        data.data[p + 2] = col.b;
+        data.data[p + 3] = col.a;
+        p += 4;
+      }
+    }
+    ctx.putImageData(data, 0, 0);
+    return c;
+  }
+
+  function show(img, doc) {
+    stage.classList.remove("empty");
+    stage.innerHTML = "";
+    stage.appendChild(bufferToCanvas(img));
+    stage.insertAdjacentHTML("beforeend", doc.overlaySvg);
+    outline.textContent = doc.outline || "(tyhjä)";
+    jsonEl.textContent = doc.json || "";
+    var r = doc.root;
+    counts.textContent =
+      "button " + r.roleCount("button") +
+      " · field " + r.roleCount("textfield") +
+      " · tab " + r.roleCount("tab") +
+      " · icon " + r.roleCount("icon");
+  }
+
+  function run(img) {
+    outline.textContent = "Ajetaan…";
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        var t0 = performance.now();
+        var doc = Erazer.analyze(img);
+        var ms = Math.round(performance.now() - t0);
+        show(img, doc);
+        counts.textContent += " · " + ms + " ms · " + img.width + "×" + img.height;
+        document.documentElement.setAttribute("data-erazer-ready", "1");
+      });
+    });
+  }
+
+  document.getElementById("formBtn").onclick = function () { run(ErazerPaint.form()); };
+  document.getElementById("tabsBtn").onclick = function () { run(ErazerPaint.tabs()); };
+  document.getElementById("menuBtn").onclick = function () { run(ErazerPaint.menu()); };
+  document.getElementById("iconBtn").onclick = function () { run(ErazerPaint.iconRow()); };
+
+  var MAX_SIDE = 1280;
+
+  function imageToBuffer(im) {
+    var w = im.naturalWidth || im.width;
+    var h = im.naturalHeight || im.height;
+    if (w < 1 || h < 1) return null;
+    var scale = 1;
+    var longSide = w > h ? w : h;
+    if (longSide > MAX_SIDE) scale = MAX_SIDE / longSide;
+    var cw = Math.max(1, Math.round(w * scale));
+    var ch = Math.max(1, Math.round(h * scale));
+    var c = document.createElement("canvas");
+    c.width = cw;
+    c.height = ch;
+    var ctx = c.getContext("2d");
+    ctx.drawImage(im, 0, 0, cw, ch);
+    var data = ctx.getImageData(0, 0, cw, ch);
+    var img = new ImageBuffer();
+    img.init(cw, ch);
+    var n = cw * ch;
+    for (var i = 0; i < n; i++) {
+      var o = i * 4;
+      var x = i % cw;
+      var y = (i / cw) | 0;
+      img.setPixelRGBA(x, y, data.data[o], data.data[o + 1], data.data[o + 2], data.data[o + 3]);
+    }
+    return img;
+  }
+
+  function loadBlob(blob, name) {
+    if (!blob) return;
+    outline.textContent = "Luetaan " + (name || "kuva") + "…";
+    var url = URL.createObjectURL(blob);
+    var im = new Image();
+    im.onload = function () {
+      var img = imageToBuffer(im);
+      URL.revokeObjectURL(url);
+      if (!img) {
+        outline.textContent = "kuva oli tyhjä";
+        return;
+      }
+      run(img);
+    };
+    im.onerror = function () {
+      URL.revokeObjectURL(url);
+      outline.textContent = "kuvan lukeminen epäonnistui (" + (name || "") + "). Kokeile PNG tai JPEG.";
+    };
+    im.src = url;
+  }
+
+  function loadPng(src) {
+    outline.textContent = "Ladataan " + src + "…";
+    var im = new Image();
+    im.onload = function () {
+      var img = imageToBuffer(im);
+      if (!img) {
+        outline.textContent = "ei kuvaa: " + src;
+        return;
+      }
+      run(img);
+    };
+    im.onerror = function () { outline.textContent = "ei kuvaa: " + src + " — aja npm run erazer:shots"; };
+    im.src = src;
+  }
+
+  function onFileInput(ev) {
+    var f = ev.target.files && ev.target.files[0];
+    if (f) loadBlob(f, f.name);
+    ev.target.value = "";
+  }
+  document.getElementById("file").addEventListener("change", onFileInput);
+  document.getElementById("camera").addEventListener("change", onFileInput);
+
+  function imageFromClipboard(data) {
+    if (!data) return null;
+    var items = data.items || [];
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].kind === "file" && /^image\//.test(items[i].type)) {
+        var f = items[i].getAsFile();
+        if (f) return { blob: f, name: f.name || "leikepoyta.png" };
+      }
+    }
+    var files = data.files || [];
+    for (var j = 0; j < files.length; j++) {
+      if (/^image\//.test(files[j].type)) {
+        return { blob: files[j], name: files[j].name || "leikepoyta.png" };
+      }
+    }
+    return null;
+  }
+
+  function takePaste(e) {
+    var el = document.activeElement;
+    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA") &&
+        el.type !== "file" && el.type !== "button") {
+      return false;
+    }
+    var found = imageFromClipboard(e.clipboardData);
+    if (found) {
+      e.preventDefault();
+      loadBlob(found.blob, found.name);
+      return true;
+    }
+    var items = e.clipboardData ? e.clipboardData.items || [] : [];
+    for (var k = 0; k < items.length; k++) {
+      if (items[k].kind === "string" && /^image\//.test(items[k].type)) {
+        e.preventDefault();
+        items[k].getAsString(function (str) {
+          fetch(str).then(function (r) { return r.blob(); })
+            .then(function (b) { loadBlob(b, "leikepoyta.png"); })
+            .catch(function () { outline.textContent = "leikepöydän kuvaa ei saatu luettua"; });
+        });
+        return true;
+      }
+    }
+    return false;
+  }
+  document.addEventListener("paste", takePaste);
+
+  document.getElementById("pasteBtn").addEventListener("click", function () {
+    if (navigator.clipboard && navigator.clipboard.read) {
+      navigator.clipboard.read().then(function (items) {
+        for (var i = 0; i < items.length; i++) {
+          var types = items[i].types || [];
+          for (var t = 0; t < types.length; t++) {
+            if (types[t].indexOf("image/") === 0) {
+              items[i].getType(types[t]).then(function (blob) {
+                loadBlob(blob, "leikepoyta.png");
+              });
+              return;
+            }
+          }
+        }
+        outline.textContent = "Leikepöydällä ei ole kuvaa. Liitä kuvakaappaus tai valitse tiedosto.";
+      }).catch(function () {
+        outline.textContent = "Liitä kuva pitkään painamalla (Paste) tai käytä Valitse kuva.";
+      });
+      return;
+    }
+    outline.textContent = "Liitä kuva (Ctrl/⌘+V) tai valitse tiedosto.";
+  });
+
+  var drop = document.getElementById("drop");
+  function swallow(e) { e.preventDefault(); e.stopPropagation(); }
+  ["dragenter", "dragover"].forEach(function (ev) {
+    document.addEventListener(ev, function (e) {
+      swallow(e);
+      drop.classList.add("over");
+    });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    document.addEventListener(ev, function (e) {
+      if (ev === "dragleave") drop.classList.remove("over");
+    });
+  });
+  document.addEventListener("drop", function (e) {
+    swallow(e);
+    drop.classList.remove("over");
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) loadBlob(f, f.name);
+  });
+  document.querySelectorAll("button[data-png]").forEach(function (btn) {
+    btn.addEventListener("click", function () { loadPng(btn.getAttribute("data-png")); });
+  });
+
+  var params = new URLSearchParams(location.search);
+  var sample = params.get("sample");
+  var png = params.get("png");
+  if (sample === "form") run(ErazerPaint.form());
+  else if (sample === "tabs") run(ErazerPaint.tabs());
+  else if (sample === "menu") run(ErazerPaint.menu());
+  else if (sample === "icon") run(ErazerPaint.iconRow());
+  else if (png) loadPng(png);
+})();
+</script>
+</body>
+</html>

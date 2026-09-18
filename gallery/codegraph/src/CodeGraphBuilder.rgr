@@ -107,6 +107,36 @@ class CodeGraphBuilder {
         return (CodeGraphBuilder.fromTs(p))
     }
 
+    ; A file the host already read — a browser upload, a fixture fetched
+    ; into the tab — parsed by the frontend its extension names. Ranger is
+    ; not here: it needs the compiler VFS the app owns (`analyzeSource`).
+    sfn fromSource:CodeGraph (source:string fileName:string) {
+        def base:string (CodeGraphBuilder.fileBaseName(fileName))
+        def empty (new CodeGraph)
+        if (UastCpp.isCppFile(base)) {
+            def cm:UastCodeModel (UastCpp.fromSource(source fileName))
+            def cg:CodeGraph (UastToCodeGraph.project(cm))
+            cg.title = fileName
+            if ((cg.classCount()) == 0) {
+                empty.title = (fileName + " FAIL no classes")
+                return empty
+            }
+            return cg
+        }
+        if (UastTs.isTsSource(base)) {
+            def tm:UastCodeModel (UastTs.fromSource(source fileName))
+            def tg:CodeGraph (UastToCodeGraph.project(tm))
+            tg.title = fileName
+            if ((tg.classCount()) == 0) {
+                empty.title = (fileName + " FAIL no classes")
+                return empty
+            }
+            return tg
+        }
+        empty.title = (fileName + " FAIL not a C++ or TypeScript file")
+        return empty
+    }
+
     sfn fromTs:CodeGraph (path:string) {
         def model:UastCodeModel (UastTs.fromPath(path))
         def g:CodeGraph (UastToCodeGraph.project(model))

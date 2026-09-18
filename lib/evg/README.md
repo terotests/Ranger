@@ -843,6 +843,11 @@ and the difference is what these are for.
 `html/`, `gl/`, `android/`, `apple/`, `showcase/`, `web/tracer/`,
 `web/responsive/`, `tools/`.
 
+The UI counterpart of the bitmap tracer lives one directory up as
+[`gallery/erazer`](../../gallery/erazer/README.md): a screenshot in, a nested EVG layout
+out, with widget guesses (button, field, tab, menu, checkbox, icon) instead
+of photographic paths. `npm run erazer:web:serve` is the live page.
+
 ---
 
 ## Running things
@@ -879,6 +884,7 @@ npm run evg:blur:oracle
 npm run showcase                # the gallery -> showcase/dist/index.html
 npm run evg:responsive:web:serve   # the live responsive page
 npm run evg:trace:web:serve        # the live bitmap tracer
+npm run erazer:web:serve           # bitmap UI screenshot → EVG layout
 
 # one document, three targets
 npm run evgpdf:test             # -> PDF
