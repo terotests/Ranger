@@ -48,6 +48,7 @@ Without a browser:
 npm run livebuild -- run dashboard     # NDJSON on stdout
 npm run livebuild:test                 # the three recipes apply, frames grow
 node gallery/evg/livebuild/stream-check.mjs
+npm run livebuild:web                  # Chromium: paint, click chips, type a prompt
 ```
 
 ## The wire
@@ -80,5 +81,6 @@ one, so the UI can say "+12" without walking the list.
 | `EvgLiveBuildMain.rgr` | `run` / `kinds` CLI |
 | `EvgLiveBuildTest.rgr` | the three recipes, in process |
 | `serve.mjs` | HTTP + SSE |
+| `browser-smoke.mjs` | Chromium: three recipes and a typed prompt |
 | `web/index.html` | the page |
 | `stream-check.mjs` | parse the CLI stream as JSON |

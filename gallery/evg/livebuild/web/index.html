@@ -215,7 +215,10 @@ function start(kindOrPrompt) {
   $("screen").replaceChildren();
   const q = encodeURIComponent(kindOrPrompt);
   es = new EventSource(`/stream?kind=${q}&pace=24`);
-  const on = (type, fn) => es.addEventListener(type, (ev) => fn(JSON.parse(ev.data)));
+  const on = (type, fn) => es.addEventListener(type, (ev) => {
+    if (!ev.data) return;
+    fn(JSON.parse(ev.data));
+  });
   on("session", (d) => {
     $("kindLabel").textContent = d.kind;
     current = d.kind;
@@ -270,8 +273,15 @@ function start(kindOrPrompt) {
     $("added").textContent = d.ok ? "done" : "failed";
     const cur = $("think").querySelector(".cursor");
     if (cur) cur.remove();
+    if (es) es.close();
   });
-  es.onerror = () => { $("go").disabled = false; };
+  es.onerror = () => {
+    $("go").disabled = false;
+    if (es && es.readyState === EventSource.CONNECTING) {
+      // The stream ended. Do not let the browser open a second build.
+      es.close();
+    }
+  };
 }
 
 function cursor() {

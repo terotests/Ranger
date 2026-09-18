@@ -203,6 +203,10 @@ function main() {
       res.end();
       return;
     }
+    if (url.pathname === "/favicon.ico") {
+      send(res, 204, "image/x-icon", "");
+      return;
+    }
     if (url.pathname === "/kinds") {
       send(
         res,
