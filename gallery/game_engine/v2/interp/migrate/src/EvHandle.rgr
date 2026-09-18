@@ -2588,9 +2588,6 @@ class EvHandle {
         }
         return (EvHandle.hole())
     }
-    ; The WRITE-side gate: true when the receiver is an object whose
-    ; whole chain is accessor-free, so an assignment is a plain own-data
-    ; store and the setter probe can be skipped.
     ; Is there NO setter for this key anywhere up the chain? Same walk as
     ; chainAccessorFreeAt, except the accessor-free answer is decided per KEY
     ; rather than per bag -- which is what the compiled store actually needs,
@@ -2634,6 +2631,9 @@ class EvHandle {
         return false
     }
 
+    ; The WRITE-side gate: true when the receiver is an object whose
+    ; whole chain is accessor-free, so an assignment is a plain own-data
+    ; store and the setter probe can be skipped.
     fn chainAccessorFreeAt:boolean () {
         case body o:EvalValue.Object {
             def bag:EvPropertyBag o.properties
