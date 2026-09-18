@@ -23,8 +23,11 @@ const DIST = path.join(HERE, "dist");
 const SHOTS = path.join(HERE, "../shots");
 const ART = "/opt/cursor/artifacts/screenshots";
 const COMPONENTS = path.join(HERE, "components.html");
+const SHADCN = path.join(HERE, "shadcn.html");
 const CLI = path.join(HERE, "../bin/erazer_cli.js");
+const ONLY_SHADCN = process.argv.includes("--shadcn");
 const NAMES = ["login", "settings", "tabs", "menu", "toolbar", "dialog", "buttons", "nav"];
+const SHADCN_NAMES = ["shadcn-kit", "shadcn-nav", "shadcn-chart", "shadcn-balance", "shadcn-dash"];
 
 // Headless Chrome's --window-size is the outer window; a slice of that is
 // chrome UI even in headless=new. Short viewports clipped 36px tabs/buttons
@@ -38,6 +41,11 @@ const SIZES = {
   dialog: [520, 480],
   buttons: [560, 320],
   nav: [420, 460],
+  "shadcn-kit": [480, 420],
+  "shadcn-nav": [640, 560],
+  "shadcn-chart": [480, 620],
+  "shadcn-balance": [480, 520],
+  "shadcn-dash": [1200, 1200],
 };
 
 function findChrome() {
@@ -72,6 +80,10 @@ if (!fs.existsSync(CLI)) {
 }
 if (!fs.existsSync(COMPONENTS)) {
   console.error("missing " + COMPONENTS);
+  process.exit(1);
+}
+if (!fs.existsSync(SHADCN)) {
+  console.error("missing " + SHADCN);
   process.exit(1);
 }
 
@@ -166,22 +178,32 @@ async function screenshot(url, dest, w, h, budgetMs) {
 const fixtureRoot = path.join(HERE, ".fixtures");
 fs.mkdirSync(fixtureRoot, { recursive: true });
 fs.copyFileSync(COMPONENTS, path.join(fixtureRoot, "index.html"));
+fs.copyFileSync(SHADCN, path.join(fixtureRoot, "shadcn.html"));
+
+const jobs = ONLY_SHADCN
+  ? [{ page: "shadcn.html", names: SHADCN_NAMES }]
+  : [
+      { page: "index.html", names: NAMES },
+      { page: "shadcn.html", names: SHADCN_NAMES },
+    ];
 
 const fx = await serve(fixtureRoot);
 const results = [];
 try {
-  for (const name of NAMES) {
-    const [w, h] = SIZES[name] || [400, 300];
-    const srcPng = path.join(SHOTS, `${name}.png`);
-    await screenshot(`http://127.0.0.1:${fx.port}/?shot=${name}`, srcPng, w, h, 2000);
-    const jsonPath = path.join(SHOTS, `${name}.evg.json`);
-    const overlayPath = path.join(SHOTS, `${name}.overlay.svg`);
-    const outline = execFileSync(process.execPath, [
-      CLI, srcPng, jsonPath, "--overlay", overlayPath, "--outline",
-    ], { cwd: ROOT, encoding: "utf8" });
-    fs.writeFileSync(path.join(SHOTS, `${name}.outline.txt`), outline);
-    results.push({ name, srcPng, overlayPath, outline });
-    process.stdout.write(`  ${name}  ${pngSize(srcPng).w}x${pngSize(srcPng).h}\n${outline.split("\n").slice(0, 10).join("\n")}\n`);
+  for (const job of jobs) {
+    for (const name of job.names) {
+      const [w, h] = SIZES[name] || [400, 300];
+      const srcPng = path.join(SHOTS, `${name}.png`);
+      await screenshot(`http://127.0.0.1:${fx.port}/${job.page}?shot=${name}`, srcPng, w, h, 2000);
+      const jsonPath = path.join(SHOTS, `${name}.evg.json`);
+      const overlayPath = path.join(SHOTS, `${name}.overlay.svg`);
+      const outline = execFileSync(process.execPath, [
+        CLI, srcPng, jsonPath, "--overlay", overlayPath, "--outline",
+      ], { cwd: ROOT, encoding: "utf8" });
+      fs.writeFileSync(path.join(SHOTS, `${name}.outline.txt`), outline);
+      results.push({ name, srcPng, overlayPath, outline });
+      process.stdout.write(`  ${name}  ${pngSize(srcPng).w}x${pngSize(srcPng).h}\n${outline.split("\n").slice(0, 10).join("\n")}\n`);
+    }
   }
 } finally {
   fx.server.close();
@@ -202,7 +224,8 @@ for (const r of results) {
   fs.writeFileSync(path.join(SHOTS, `${r.name}.overlay.html`), html);
 }
 
-const gallery = `<!doctype html><html><head><meta charset="utf-8">
+function writeGallery(file, title, lead, items, stageBg) {
+  const gallery = `<!doctype html><html><head><meta charset="utf-8">
 <style>
   body { margin: 0; background: #12151b; color: #e8ecf4; font: 14px/1.4 system-ui, sans-serif; }
   h1 { font-size: 22px; margin: 0 0 6px; }
@@ -211,21 +234,43 @@ const gallery = `<!doctype html><html><head><meta charset="utf-8">
   .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
   .card { background: #171b23; border: 1px solid #2a3040; border-radius: 10px; overflow: hidden; }
   .head { padding: 7px 10px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #97a1b4; border-bottom: 1px solid #2a3040; }
-  .stage { background: #e8ecf0; position: relative; }
+  .stage { background: ${stageBg}; position: relative; }
   .stage img { display: block; width: 100%; height: auto; }
   .stage svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
 </style></head><body><div class="wrap">
-<h1>Erazer on HTML UI components</h1>
-<p class="lead">Real HTML/CSS widgets (form, tabs, menu, dialog, toolbar, buttons, nav). Coloured boxes are what Erazer guessed.</p>
+<h1>${title}</h1>
+<p class="lead">${lead}</p>
 <div class="grid">
-${results.map((r) => {
+${items.map((r) => {
   const svg = fs.readFileSync(r.overlayPath, "utf8");
   const png = path.basename(r.srcPng);
   return `<div class="card"><div class="head">${r.name}</div>
     <div class="stage"><img src="${png}" alt="${r.name}">${svg}</div></div>`;
 }).join("\n")}
 </div></div></body></html>`;
-fs.writeFileSync(path.join(SHOTS, "gallery.html"), gallery);
+  fs.writeFileSync(file, gallery);
+}
+
+const lightResults = results.filter((r) => NAMES.includes(r.name));
+const shadcnResults = results.filter((r) => SHADCN_NAMES.includes(r.name));
+if (lightResults.length) {
+  writeGallery(
+    path.join(SHOTS, "gallery.html"),
+    "Erazer on HTML UI components",
+    "Real HTML/CSS widgets (form, tabs, menu, dialog, toolbar, buttons, nav). Coloured boxes are what Erazer guessed.",
+    lightResults,
+    "#e8ecf0",
+  );
+}
+if (shadcnResults.length) {
+  writeGallery(
+    path.join(SHOTS, "shadcn-gallery.html"),
+    "Erazer on shadcn/ui",
+    "Dark zinc cards in the shadcn/ui register: buttons, fields, badges, nav, a bar chart, a balance card, and a dashboard.",
+    shadcnResults,
+    "#09090b",
+  );
+}
 
 const review = `<!doctype html><html><head><meta charset="utf-8">
 <style>
@@ -270,42 +315,67 @@ try {
       1500,
     );
   }
-  await screenshot(
-    `http://127.0.0.1:${rev.port}/gallery.html`,
-    path.join(SHOTS, "html-components.png"),
-    1280,
-    860,
-    3000,
-  );
+  if (lightResults.length) {
+    await screenshot(
+      `http://127.0.0.1:${rev.port}/gallery.html`,
+      path.join(SHOTS, "html-components.png"),
+      1280,
+      860,
+      3000,
+    );
+  }
+  if (shadcnResults.length) {
+    await screenshot(
+      `http://127.0.0.1:${rev.port}/shadcn-gallery.html`,
+      path.join(SHOTS, "shadcn-ui.png"),
+      1280,
+      900,
+      3000,
+    );
+  }
 } finally {
   rev.server.close();
 }
 
-for (const name of NAMES) {
+for (const name of [...NAMES, ...SHADCN_NAMES]) {
   const src = path.join(SHOTS, `${name}.png`);
   if (fs.existsSync(src)) fs.copyFileSync(src, path.join(DIST, `${name}.png`));
 }
 
 const demo = await serve(DIST);
 try {
-  await screenshot(`http://127.0.0.1:${demo.port}/`, path.join(SHOTS, "demo.png"), 1280, 860, 3000);
-  for (const [q, name] of [
-    ["sample=form", "demo-form"],
-    ["sample=tabs", "demo-tabs"],
-    ["sample=menu", "demo-menu"],
-    ["sample=icon", "demo-icon"],
-    ["png=login.png", "demo-html-login"],
-    ["png=tabs.png", "demo-html-tabs"],
-    ["png=dialog.png", "demo-html-dialog"],
-    ["png=toolbar.png", "demo-html-toolbar"],
-    ["png=nav.png", "demo-html-nav"],
-  ]) {
+  const demoShots = ONLY_SHADCN
+    ? [
+        ["png=shadcn-dash.png", "demo-shadcn-dash"],
+        ["png=shadcn-kit.png", "demo-shadcn-kit"],
+        ["png=shadcn-chart.png", "demo-shadcn-chart"],
+        ["png=shadcn-nav.png", "demo-shadcn-nav"],
+        ["png=shadcn-balance.png", "demo-shadcn-balance"],
+      ]
+    : [
+        ["sample=form", "demo-form"],
+        ["sample=tabs", "demo-tabs"],
+        ["sample=menu", "demo-menu"],
+        ["sample=icon", "demo-icon"],
+        ["png=login.png", "demo-html-login"],
+        ["png=tabs.png", "demo-html-tabs"],
+        ["png=dialog.png", "demo-html-dialog"],
+        ["png=toolbar.png", "demo-html-toolbar"],
+        ["png=nav.png", "demo-html-nav"],
+        ["png=shadcn-dash.png", "demo-shadcn-dash"],
+        ["png=shadcn-kit.png", "demo-shadcn-kit"],
+        ["png=shadcn-chart.png", "demo-shadcn-chart"],
+      ];
+  if (!ONLY_SHADCN) {
+    await screenshot(`http://127.0.0.1:${demo.port}/`, path.join(SHOTS, "demo.png"), 1280, 860, 3000);
+  }
+  for (const [q, name] of demoShots) {
     await screenshot(
       `http://127.0.0.1:${demo.port}/?${q}`,
       path.join(SHOTS, name + ".png"),
       1280,
       860,
-      8000,
+      12000,
     );
     process.stdout.write("  shot " + name + "\n");
   }
