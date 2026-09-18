@@ -1409,6 +1409,10 @@ class ComponentEngine {
     ; Names the function being compiled declares `const`: a write to one is
     ; a TypeError the walker raises, so the compiler declines the function.
     def bcConstNames:[string]
+    ; Array.from over an ITERABLE constructs the receiver with no arguments
+    ; (§22.1.2.1 step 6.b); an array-like source and Array.of pass the
+    ; length. Set by arrayFromValues for the one call it makes.
+    def fromCtorNoLen:boolean false
     ; D-SPECIES: the RECEIVER a builtin static was reached through. `L.from(xs)`
     ; for `class L extends Array` has to build an L, and the static's own
     ; implementation is the only place that can know -- but invokeBuiltinStatic
@@ -2619,6 +2623,13 @@ class ComponentEngine {
     }
 
     fn writeRefusalError:string (obj:EvHandle key:string) {
+        ; An own accessor with no setter refuses the write (§9.1.9 step 4):
+        ; storing a data property over it hid the getter.
+        if (obj.hasOwnGetter(key)) {
+            if (false == (obj.hasOwnSetter(key))) {
+                return ("Cannot set property " + key + " which has only a getter")
+            }
+        }
         ; A FUNCTION holds properties with attributes too -- `Function.length`
         ; is non-writable, and only objects were being checked.
         if (obj.isFunction()) {
@@ -17070,6 +17081,11 @@ class ComponentEngine {
     ; Object.getPrototypeOf(L) is Array. One implementation, both doors.
     fn arrayFromValues:EvHandle (srcV:EvHandle mapFn:EvHandle) {
         def frItems:[EvHandle]
+        def srcIterable:boolean false
+        if (srcV.isArrayValue()) { srcIterable = true }
+        if (srcV.isString()) { srcIterable = true }
+        if (srcV.isSet()) { srcIterable = true }
+        if (srcV.isMap()) { srcIterable = true }
         if (srcV.isArrayValue()) {
             def fi:int 0
             while (fi < (srcV.denseLen())) {
@@ -17115,6 +17131,7 @@ class ComponentEngine {
                             def itF:EvHandle (this.getPropertyValue(srcV "@@iterator"))
                             def frSrc:[EvHandle] (this.arrayLikeElements(srcV))
                             if (itF.isFunction()) {
+                                srcIterable = true
                                 frSrc = (this.iteratorProtocolItems(srcV))
                             }
                             if scriptThrew {
@@ -17145,8 +17162,10 @@ class ComponentEngine {
                 }
                 mi3 = (mi3 + 1)
             }
+            fromCtorNoLen = srcIterable
             return (this.arrayResultThroughReceiver(mapped))
         }
+        fromCtorNoLen = srcIterable
         return (this.arrayResultThroughReceiver(frItems))
     }
 
@@ -17157,7 +17176,13 @@ class ComponentEngine {
     ; an L as well. Reached through Array itself -- or through anything that is
     ; not a constructor -- it is an ordinary array.
     fn arrayResultThroughReceiver:EvHandle (items:[EvHandle]) {
+        def noLenArg:boolean fromCtorNoLen
+        fromCtorNoLen = false
         def recvV:EvHandle staticCallReceiver
+        ; `Array.of.call(C, ...)`: the receiver `.call` bound.
+        if hasStaticThis {
+            recvV = staticThisValue
+        }
         if (false == (recvV.isFunction())) {
             return (EvValueBridge.taggedArray(items))
         }
@@ -17166,9 +17191,19 @@ class ComponentEngine {
             ; §22.1.2.3 step 6: a plain constructor function is called as
             ; `new C(len)`, the items are defined on what it built, and its
             ; `length` is set -- `Array.of.call(function (n) { this.n = n })`.
-            if (recvV.hasFunctionNode()) {
+            ; A BUILT-IN constructor other than Array -- `Array.from.call(Object,
+            ; xs)` -- builds its own kind of object and the items are defined
+            ; on it.
+            def recvCtorName:string (this.builtinCtorNameOf(recvV))
+            def viaBuiltinCtor:boolean false
+            if ((strlen recvCtorName) > 0) {
+                if (recvCtorName != "Array") { viaBuiltinCtor = true }
+            }
+            if ((recvV.hasFunctionNode()) || viaBuiltinCtor) {
                 def plainArgs:[EvHandle]
-                push plainArgs (EvHandle.fromInt((array_length items)))
+                if (false == noLenArg) {
+                    push plainArgs (EvHandle.fromInt((array_length items)))
+                }
                 def plainBuilt:EvHandle (this.constructWithValues(recvV plainArgs recvV))
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
@@ -17176,7 +17211,11 @@ class ComponentEngine {
                 if (this.isDescriptorObject(plainBuilt)) {
                     def pbi:int 0
                     while (pbi < (array_length items)) {
-                        this.bcPutField(plainBuilt (to_string pbi) (itemAt items pbi))
+                        ; CreateDataPropertyOrThrow: an own definition, never a
+                        ; setter inherited from the constructor's prototype.
+                        def pbKey:string (to_string pbi)
+                        plainBuilt.putOwnData(pbKey (itemAt items pbi))
+                        plainBuilt.setAttrs(pbKey true true true)
                         pbi = (pbi + 1)
                     }
                     this.bcPutField(plainBuilt "length" (EvHandle.fromInt((array_length items))))
@@ -21196,10 +21235,18 @@ class ComponentEngine {
                             }
                             def steps:int 0
                             while (steps < 32) {
-                                if (false == (walkV.hasProto())) {
+                                ; protoOfValue, not the raw link: a function
+                                ; value's chain starts at its intrinsic
+                                ; (Function.prototype, %GeneratorFunction.prototype%)
+                                ; which the raw link does not carry.
+                                def nxtW:EvHandle (this.protoOfValue(walkV))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                                if (false == (this.isDescriptorObject(nxtW))) {
                                     steps = 32
                                 } {
-                                    walkV = (walkV.protoOf())
+                                    walkV = nxtW
                                     if (walkV.equals(protoF)) {
                                         return (EvValueBridge.taggedBoolean(true))
                                     }
@@ -21295,20 +21342,13 @@ class ComponentEngine {
             if (this.objHasKey(right inKey)) {
                 return (EvValueBridge.taggedBoolean(true))
             }
-            ; `in` walks the PROTOTYPE CHAIN -- it is not hasOwnProperty.
-            def inWalk:EvHandle right
-            def inDepth:int 0
-            while (inDepth < 16) {
-                if (false == (inWalk.hasProto())) {
-                    return (EvValueBridge.taggedBoolean(false))
-                }
-                inWalk = (inWalk.protoOf())
-                if (this.objHasKey(inWalk inKey)) {
-                    return (EvValueBridge.taggedBoolean(true))
-                }
-                inDepth = (inDepth + 1)
+            ; `in` walks the PROTOTYPE CHAIN -- it is not hasOwnProperty --
+            ; and a proxy up that chain answers through its `has` trap.
+            def inHas:boolean (this.objHasKeyUpChain(right inKey))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
             }
-            return (EvValueBridge.taggedBoolean(false))
+            return (EvValueBridge.taggedBoolean(inHas))
         }
         
         return (this.applyBinaryOp(opK left right))
@@ -21881,6 +21921,11 @@ class ComponentEngine {
         if (cname == "Function") {
             if (v.isFunction()) { return 1 }
             return 0
+        }
+        ; The function-kind intrinsics are told apart by prototype identity,
+        ; which the ordinary chain walk answers.
+        if ((cname == "GeneratorFunction") || (cname == "AsyncFunction") || (cname == "AsyncGeneratorFunction")) {
+            return (0 - 1)
         }
         if (cname == "Array") {
             if (v.isArrayValue()) { return 1 }
@@ -23617,6 +23662,10 @@ class ComponentEngine {
                 def iaV:EvHandle (itemAt args 0)
                 def iaSteps:int 0
                 while ((this.isProxyValue(iaV)) && (iaSteps < 16)) {
+                    ; §7.2.2 step 3.a: a revoked proxy is a TypeError.
+                    if (false == (this.isDescriptorObject((iaV.getOwnData("__proxyhandler__"))))) {
+                        return (this.throwSpecError("TypeError" "Cannot perform 'IsArray' on a proxy that has been revoked"))
+                    }
                     iaV = (this.proxyTargetOf(iaV))
                     iaSteps = (iaSteps + 1)
                 }
@@ -24262,7 +24311,7 @@ class ComponentEngine {
                     def oWalk:EvHandle npV
                     def oGuard:int 0
                     while (oGuard < 1024) {
-                        if (false == (oWalk.isObject())) { oGuard = 1024 } {
+                        if (false == (this.isDescriptorObject(oWalk))) { oGuard = 1024 } {
                             if (oWalk.equals(a0)) {
                                 return (this.throwSpecError("TypeError" "cyclic prototype chain"))
                             }
@@ -24988,6 +25037,9 @@ class ComponentEngine {
                     if (false == (nt.isFunction())) {
                         return (this.throwSpecError("TypeError" "Reflect.construct newTarget is not a constructor"))
                     }
+                    if (false == (this.isConstructorValue(nt))) {
+                        return (this.throwSpecError("TypeError" "Reflect.construct newTarget is not a constructor"))
+                    }
                     cNewT = nt
                 }
                 return (this.constructWithValues(rTgt cArgs cNewT))
@@ -25189,7 +25241,7 @@ class ComponentEngine {
                 def walk:EvHandle rProto
                 def walkGuard:int 0
                 while (walkGuard < 1024) {
-                    if (false == (walk.isObject())) { walkGuard = 1024 } {
+                    if (false == (this.isDescriptorObject(walk))) { walkGuard = 1024 } {
                         if (walk.equals(rTgt)) {
                             return (EvValueBridge.taggedBoolean(false))
                         }
@@ -25321,6 +25373,32 @@ class ComponentEngine {
         return out
     }
 
+    ; IsConstructor for a function value: a class, a built-in constructor,
+    ; a proxy over one, or an ordinary function -- not an arrow, method,
+    ; generator, async function or built-in method such as Date.now.
+    fn isConstructorValue:boolean (v:EvHandle) {
+        if (false == (v.isFunction())) {
+            if (this.isProxyValue(v)) {
+                return (this.isConstructorValue((this.proxyTargetOf(v))))
+            }
+            return false
+        }
+        if (v.hasOwnData("__classname__")) { return true }
+        if (v.hasFunctionNode()) {
+            def cn:TSNode (v.functionNodeOf())
+            if cn.generator { return false }
+            if cn.async { return false }
+            if ((this.nodeKindOf(cn)) == 17) { return false }
+            if (false == (v.boundExplicitOf())) {
+                if (v.hasSuppressed("prototype")) { return false }
+            }
+            return true
+        }
+        if ((strlen (this.builtinCtorNameOf(v))) > 0) { return true }
+        if (this.isProxyBackedValue(v)) { return true }
+        return false
+    }
+
     fn constructWithValues:EvHandle (fnV:EvHandle argVals:[EvHandle] newTarget:EvHandle) {
         ; D-PROXY: `new p(...)` is the `construct` trap, or the target when the
         ; handler supplies none.
@@ -25423,10 +25501,16 @@ class ComponentEngine {
             if (name == "assign") { return 2 }
             if (name == "hasOwn") { return 2 }
             if (name == "groupBy") { return 2 }
+            if (name == "is") { return 2 }
+            return 1
+        }
+        if (nsName == "Proxy") {
+            if (name == "revocable") { return 2 }
             return 1
         }
         if (nsName == "Math") {
             if (name == "random") { return 0 }
+            if (name == "imul") { return 2 }
             if (name == "atan2") { return 2 }
             if (name == "pow") { return 2 }
             if (name == "hypot") { return 2 }
@@ -26183,8 +26267,13 @@ class ComponentEngine {
         }
         if (nsName == "performance") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("performance"))) }
         if (this.isBuiltinCtorName(nsName)) {
-            g.setMember("prototype" (this.builtinPrototype(nsName)))
-            g.setAttrs("prototype" false false false)
+            ; §26.2.2: %Proxy% has no `prototype` property at all.
+            if (nsName == "Proxy") {
+                g.addSuppressed("prototype")
+            } {
+                g.setMember("prototype" (this.builtinPrototype(nsName)))
+                g.setAttrs("prototype" false false false)
+            }
             ; Every built-in constructor inherits from Function.prototype, and
             ; declares its own arity. Both are properties the suite reads.
             if (nsName != "Function") {
@@ -27277,6 +27366,8 @@ class ComponentEngine {
         ; kind. That is the whole point of keying on the receiver: the old single
         ; branch answered "[1, 2]" for an array and "{}" for an object, both of
         ; which are the engine's debug format rather than the language's.
+        ; Number.prototype.toString takes a radix (§20.1.3.6: length 1).
+        if ((name == "toString") && (kind == "number")) { return 1 }
         if (name == "toString") { return 0 }
         if (name == "valueOf") { return 0 }
         if (name == "hasOwnProperty") { return 1 }
@@ -27573,6 +27664,7 @@ class ComponentEngine {
             if (name == "@@split") { return 2 }
         }
         if (kind == "number") {
+            if (name == "toString") { return 1 }
             if (name == "toExponential") { return 1 }
             if (name == "toFixed") { return 1 }
             if (name == "toLocaleString") { return 0 }
@@ -28050,6 +28142,17 @@ class ComponentEngine {
         def dt:EvHandle (EvValueBridge.taggedObject(keysDt valsDt))
         def n:int (array_length args)
         def ms:double (this.realmNowMs())
+        if (n == 1) {
+            def dArg:EvHandle (itemAt args 0)
+            ; §20.3.2.2 step 4.a: a Date argument hands over its time value
+            ; without ToPrimitive.
+            if (dArg.isObject()) {
+                if (dArg.hasOwnData("__date__")) {
+                    ms = (dtm.timeClip(((dArg.getOwnData("__date__")).toNumber())))
+                    n = 0 - 1
+                }
+            }
+        }
         if (n == 1) {
             def only:EvHandle (this.toPrimitive((itemAt args 0) false))
             if scriptThrew {
@@ -29441,7 +29544,10 @@ class ComponentEngine {
                         if ((array_length args) > 1) {
                             def lenArg:EvHandle (itemAt args 1)
                             if (false == (lenArg.isUndefined())) {
-                                sbLen = (to_int (lenArg.toNumber()))
+                                sbLen = (this.toIntegerOf(lenArg))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
                             }
                         }
                         if (sbLen < 0) { sbLen = 0 }
@@ -33213,6 +33319,18 @@ class ComponentEngine {
                 if fnN.generator { return "GeneratorFunction" }
             }
             return "Function"
+        }
+        ; §19.1.3.6 step 15: a primitive is boxed, so a @@toStringTag put on
+        ; Boolean.prototype (or Number/String) names it.
+        if ((v.isString()) || (v.isNumber()) || (v.isBoolean())) {
+            def primBoxed:EvHandle (this.toObjectValue(v))
+            def primTag:EvHandle (this.getPropertyValue(primBoxed "@@toStringTag"))
+            if scriptThrew {
+                return "Object"
+            }
+            if (primTag.isString()) {
+                return (primTag.stringOf())
+            }
         }
         if (v.isString()) { return "String" }
         if (v.isNumber()) { return "Number" }
