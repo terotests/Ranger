@@ -1,0 +1,123 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; EvgLiveBuildTest — the stream is a claim: ops apply, frames grow, tokens exist.
+
+Import "EvgLiveBuild.rgr"
+
+class EvgLiveBuildTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn m@(main):void () {
+        def t (new EvgLiveBuildTest())
+        t.run()
+    }
+
+    fn ok:void (what:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + what)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + what)
+        }
+    }
+
+    sfn hasNeedle:boolean (hay:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen hay)
+        if (n > m) {
+            return false
+        }
+        def i:int 0
+        while (i <= (m - n)) {
+            if ((substring hay i (i + n)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn countKind:int (b:EvgLiveBuild want:string) {
+        def needle:string ((("\"t\":\"" + want) + "\""))
+        def n:int 0
+        def i:int 0
+        while (i < (array_length b.lines)) {
+            if (EvgLiveBuildTest.hasNeedle((itemAt b.lines i) needle)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn checkKind:void (k:string) {
+        print ""
+        print ("-- " + k)
+        def b (new EvgLiveBuild())
+        b.printing = false
+        b.runKind(k)
+        this.ok((k + ": no patch rejection") (b.failed == false))
+        this.ok((k + ": several steps") (b.steps >= 6))
+        this.ok((k + ": the display list grew") (b.lastCmds >= 12))
+        this.ok((k + ": the page stays on the canvas") (b.findings == 0))
+        this.ok((k + ": thinking tokens") ((this.countKind(b "token")) >= 20))
+        this.ok((k + ": a frame per step") ((this.countKind(b "frame")) == b.steps))
+        this.ok((k + ": ops batches") ((this.countKind(b "ops")) == b.steps))
+        this.ok((k + ": a done event") ((this.countKind(b "done")) == 1))
+        this.ok((k + ": Ranger source was streamed") ((this.countKind(b "code")) >= b.steps))
+        def hasErr:boolean ((this.countKind(b "error")) > 0)
+        this.ok((k + ": no error event") (hasErr == false))
+    }
+
+    fn run:void () {
+        print "EvgLiveBuild"
+        this.checkKind("dashboard")
+        this.checkKind("settings")
+        this.checkKind("invoices")
+        print ""
+        print "-- restyle follow-up"
+        def r (new EvgLiveBuild())
+        r.printing = false
+        r.runAsked("dashboard" "Make the title larger, use a gold accent, and round the metric cards more.")
+        this.ok("restyle: no patch rejection" (r.failed == false))
+        this.ok("restyle: three visible steps" (r.steps >= 3))
+        this.ok("restyle: the page stays on the canvas" (r.findings == 0))
+        def goldHit:boolean false
+        def i:int 0
+        while (i < (array_length r.lines)) {
+            if (EvgLiveBuildTest.hasNeedle((itemAt r.lines i) "251,191,36")) {
+                goldHit = true
+            }
+            i = (i + 1)
+        }
+        this.ok("restyle: gold accent in the stream" goldHit)
+        def sizeHit:boolean false
+        def j:int 0
+        while (j < (array_length r.lines)) {
+            if (EvgLiveBuildTest.hasNeedle((itemAt r.lines j) "28px")) {
+                sizeHit = true
+            }
+            j = (j + 1)
+        }
+        this.ok("restyle: larger title in the stream" sizeHit)
+        this.ok("restyle: a done event" ((this.countKind(r "done")) == 1))
+        this.ok("restyle: frames for the visible steps" ((this.countKind(r "frame")) == r.steps))
+        print ""
+        print "-- frame a fixture"
+        def b (new EvgLiveBuild())
+        b.printing = false
+        b.runFrameFile("lib/evg/agent/fixtures/card.evg.json")
+        this.ok("frame: loaded the card" (b.failed == false))
+        this.ok("frame: one display list" ((this.countKind(b "frame")) == 1))
+        this.ok("frame: the card stays on its own page" (b.findings == 0))
+        this.ok("frame: the tree was streamed" ((this.countKind(b "code")) == 1))
+        print ""
+        if (failed == 0) {
+            print (("ALL PASS  " + (to_string passed)) + " assertions")
+        } {
+            print (((("FAILED  " + (to_string failed)) + " / ") + (to_string (passed + failed))) + " assertions")
+        }
+    }
+}

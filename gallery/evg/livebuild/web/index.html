@@ -1,0 +1,325 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ranger · EVG live build</title>
+<style>
+  @font-face {
+    font-family: "Noto Sans";
+    src: url("/fonts/NotoSans-Regular.ttf") format("truetype");
+    font-weight: 400;
+  }
+  @font-face {
+    font-family: "Noto Sans";
+    src: url("/fonts/NotoSans-Bold.ttf") format("truetype");
+    font-weight: 700;
+  }
+  :root {
+    --bg: #070b14;
+    --panel: #101826;
+    --ink: #e8eef7;
+    --muted: #8b9bb4;
+    --line: rgba(255,255,255,.08);
+    --accent: #5eead4;
+    --warn: #fbbf24;
+    --phone: #020617;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 ui-sans-serif, system-ui, "Noto Sans", sans-serif; }
+  body {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    min-height: 100%;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 20px; border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #121a28, #0c1320);
+  }
+  .mark {
+    font-weight: 700; letter-spacing: .04em; font-size: 13px;
+    color: var(--accent);
+  }
+  .mark span { color: var(--ink); font-weight: 600; letter-spacing: 0; }
+  .ask {
+    flex: 1; min-width: 240px; display: flex; gap: 8px;
+  }
+  .ask input {
+    flex: 1; background: #0b1220; color: var(--ink); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px; font: inherit; outline: none;
+  }
+  .ask input:focus { border-color: #2dd4bf55; }
+  button, .chip {
+    background: #152033; color: var(--ink); border: 1px solid var(--line);
+    border-radius: 999px; padding: 8px 14px; font: inherit; cursor: pointer;
+  }
+  button.primary { background: #134e4a; border-color: #2dd4bf66; color: #ccfbf1; font-weight: 650; }
+  button:disabled { opacity: .5; cursor: wait; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip.active { border-color: #2dd4bf88; color: var(--accent); }
+  .chip.off { opacity: .45; cursor: not-allowed; }
+  .agents { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .agents .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  main {
+    display: grid;
+    grid-template-columns: minmax(280px, 420px) 1fr;
+    gap: 0;
+    min-height: 0;
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; }
+  }
+  .stage {
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+    padding: 28px 16px 40px; border-right: 1px solid var(--line);
+    background:
+      radial-gradient(600px 280px at 50% 0%, rgba(45,212,191,.08), transparent 70%),
+      var(--bg);
+    overflow: auto;
+  }
+  .phone {
+    width: 390px; height: 844px; background: var(--phone);
+    border-radius: 36px; padding: 12px; box-shadow:
+      0 0 0 1px rgba(255,255,255,.08),
+      0 30px 80px rgba(0,0,0,.55);
+    position: relative;
+  }
+  .phone .notch {
+    position: absolute; top: 18px; left: 50%; width: 110px; height: 18px;
+    margin-left: -55px; background: #020617; border-radius: 20px; z-index: 2;
+  }
+  .screen {
+    width: 390px; height: 844px; border-radius: 28px; overflow: hidden;
+    background: #0b1220; transform-origin: top left;
+  }
+  .screen svg { display: block; }
+  .meta {
+    margin-top: 16px; color: var(--muted); font-size: 12px; display: flex; gap: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+  .meta b { color: var(--accent); font-weight: 650; }
+  .side {
+    display: grid; grid-template-rows: 1.1fr 1fr 1.1fr; min-height: 0;
+  }
+  section {
+    min-height: 0; display: flex; flex-direction: column;
+    border-bottom: 1px solid var(--line);
+  }
+  section h2 {
+    margin: 0; padding: 10px 16px; font-size: 11px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--muted); font-weight: 650;
+    border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .think, .ops, .code {
+    flex: 1; overflow: auto; padding: 12px 16px; margin: 0;
+    font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .think { color: #d1fae5; background: #07140f; }
+  .think .cursor {
+    display: inline-block; width: 7px; height: 13px; background: var(--accent);
+    margin-left: 2px; vertical-align: -1px; animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .ops { color: #e2e8f0; background: #0c1220; }
+  .op {
+    display: inline-block; margin: 0 6px 6px 0; padding: 3px 8px;
+    border-radius: 6px; background: #1e293b; color: #cbd5e1; font-size: 11px;
+  }
+  .op.insert { color: #99f6e4; }
+  .op.set-text { color: #fde68a; }
+  .op.set-prop { color: #bfdbfe; }
+  .code { color: #c4b5fd; background: #0b1020; }
+  .empty { color: var(--muted); }
+</style>
+<header>
+  <div class="mark">RANGER · <span>EVG live build</span></div>
+  <form class="ask" id="ask">
+    <input id="prompt" name="prompt" autocomplete="off"
+      placeholder="Ask for a dashboard, or change the look: larger title, gold accent…">
+    <button class="primary" id="go" type="submit">Build</button>
+  </form>
+  <div class="chips" id="chips"></div>
+  <div class="agents" id="agents"></div>
+</header>
+<main>
+  <div class="stage">
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="screen" id="screen"></div>
+    </div>
+    <div class="meta">
+      <span>draw <b id="ncmds">0</b></span>
+      <span>delta <b id="added">0</b></span>
+      <span>nodes <b id="nodes">0</b></span>
+      <span>tokens <b id="ntok">0</b></span>
+    </div>
+  </div>
+  <div class="side">
+    <section>
+      <h2>Thinking <span id="kindLabel"></span></h2>
+      <pre class="think" id="think"><span class="empty">The agent has not started.</span></pre>
+    </section>
+    <section>
+      <h2>EVGPatch ops</h2>
+      <div class="ops" id="ops"><span class="empty">Deltas land here as they apply.</span></div>
+    </section>
+    <section>
+      <h2>Ranger · App.rgr</h2>
+      <pre class="code" id="code"><span class="empty">Source is streamed with the tree.</span></pre>
+    </section>
+  </div>
+</main>
+<script type="module">
+import { renderDisplayList } from "/evg-html.js";
+
+const $ = (id) => document.getElementById(id);
+const kinds = await (await fetch("/kinds")).json();
+const agentList = await (await fetch("/agents")).json();
+const chips = $("chips");
+const agentBox = $("agents");
+let current = "dashboard";
+const params = new URLSearchParams(location.search);
+const preferred = params.get("agent") || agentList.preferred || "recipe";
+const preferredInfo = (agentList.agents || []).find((a) => a.id === preferred);
+let currentAgent = preferredInfo && preferredInfo.available ? preferred : "recipe";
+let es = null;
+let tokens = 0;
+let thinkStarted = false;
+
+const al = document.createElement("span");
+al.className = "lbl";
+al.textContent = "Agent";
+agentBox.appendChild(al);
+for (const a of agentList.agents) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "chip" + (a.id === currentAgent ? " active" : "") + (a.available ? "" : " off");
+  b.textContent = a.label;
+  b.title = a.where + " — " + a.hint;
+  b.disabled = !a.available;
+  b.addEventListener("click", () => {
+    if (!a.available) return;
+    currentAgent = a.id;
+    agentBox.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", c === b));
+  });
+  agentBox.appendChild(b);
+}
+
+for (const k of kinds.kinds) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "chip" + (k.id === current ? " active" : "");
+  b.textContent = k.label;
+  b.addEventListener("click", () => {
+    current = k.id;
+    $("prompt").value = k.prompt;
+    chips.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", c === b));
+    start(k.id);
+  });
+  chips.appendChild(b);
+}
+$("prompt").value = kinds.kinds[0].prompt;
+
+$("ask").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const prompt = $("prompt").value.trim();
+  start(prompt || current, true);
+});
+
+function start(kindOrPrompt, keepPicture) {
+  if (es) { es.close(); es = null; }
+  thinkStarted = false;
+  tokens = 0;
+  $("think").textContent = "";
+  $("ops").innerHTML = "";
+  $("code").textContent = "";
+  $("ncmds").textContent = "0";
+  $("added").textContent = "0";
+  $("nodes").textContent = "0";
+  $("ntok").textContent = "0";
+  $("kindLabel").textContent = "";
+  $("go").disabled = true;
+  if (!keepPicture) $("screen").replaceChildren();
+  const q = encodeURIComponent(kindOrPrompt);
+  es = new EventSource(`/stream?agent=${encodeURIComponent(currentAgent)}&kind=${q}&prompt=${q}&pace=24`);
+  const on = (type, fn) => es.addEventListener(type, (ev) => {
+    if (!ev.data) return;
+    fn(JSON.parse(ev.data));
+  });
+  on("session", (d) => {
+    $("kindLabel").textContent = (d.agent ? d.agent + " · " : "") + d.kind;
+    current = d.kind;
+    chips.querySelectorAll(".chip").forEach((c, i) => {
+      c.classList.toggle("active", kinds.kinds[i] && kinds.kinds[i].id === d.kind);
+    });
+  });
+  on("think", (d) => {
+    if (thinkStarted) $("think").append("\n\n");
+    thinkStarted = true;
+  });
+  on("token", (d) => {
+    if (!thinkStarted) {
+      $("think").textContent = "";
+      thinkStarted = true;
+    }
+    $("think").append((tokens ? " " : "") + d.text);
+    $("think").append(cursor());
+    tokens += 1;
+    $("ntok").textContent = String(tokens);
+    $("think").scrollTop = $("think").scrollHeight;
+  });
+  on("ops", (d) => {
+    for (const op of d.ops || []) {
+      const el = document.createElement("span");
+      el.className = "op " + op.op;
+      el.textContent = op.op === "insert"
+        ? `${op.op} ${op.tag} @ ${op.at}`
+        : op.op === "set-text"
+          ? `${op.op} @ ${op.at}`
+          : `${op.op} ${op.prop || ""} @ ${op.at}`;
+      $("ops").appendChild(el);
+    }
+    $("ops").scrollTop = $("ops").scrollHeight;
+  });
+  on("code", (d) => {
+    $("code").textContent = d.text || "";
+    $("code").scrollTop = $("code").scrollHeight;
+  });
+  on("frame", (d) => {
+    $("ncmds").textContent = String(d.ncmds || 0);
+    $("added").textContent = "+" + String(d.added || 0);
+    $("nodes").textContent = String(d.nodes || 0);
+    const doc = { width: d.width, height: d.height, list: d.list };
+    renderDisplayList($("screen"), doc, {});
+  });
+  on("error", (d) => {
+    $("think").append("\n\nerror: " + (d.text || "failed"));
+  });
+  on("done", (d) => {
+    $("go").disabled = false;
+    $("added").textContent = d.ok ? "done" : "failed";
+    const cur = $("think").querySelector(".cursor");
+    if (cur) cur.remove();
+    if (es) es.close();
+  });
+  es.onerror = () => {
+    $("go").disabled = false;
+    if (es && es.readyState === EventSource.CONNECTING) {
+      // The stream ended. Do not let the browser open a second build.
+      es.close();
+    }
+  };
+}
+
+function cursor() {
+  const old = $("think").querySelector(".cursor");
+  if (old) old.remove();
+  const c = document.createElement("span");
+  c.className = "cursor";
+  return c;
+}
+
+start(current);
+</script>
