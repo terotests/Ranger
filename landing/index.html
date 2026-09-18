@@ -740,19 +740,19 @@ npx rgrc -l=kotlin src/Main.rgr</code></pre>
 
       <article class="step reveal">
         <p class="label">03</p>
-        <h3>The part that saves you an afternoon</h3>
+        <h3>Change one thing</h3>
         <p>
-          <strong>Through 3.5.1 the compiler printed <code>[FAIL]</code> and then exited
-          0.</strong> So <code>rgrc x.rgr &amp;&amp; node build/x.js</code> was satisfied
-          by that zero, ran the <em>previous</em> build, and printed what it printed
-          before your change — the edit looked applied and the test looked green when
-          neither was true. A failed compile now ends with a non-zero status. The
-          starter's <code>scripts/rgr</code> keeps the belt and braces anyway — it deletes
-          the output first and reads the log, so an older compiler on the machine cannot
-          bring the trap back — and every one of its commands goes through it. It ships
-          <code>AGENTS.md</code> and <code>.claude/skills/</code> for the same reason:
-          <strong>ranger-lang</strong> is the list of syntax rules whose error messages
-          point at the wrong line, and they cost about an hour each when met by surprise.
+          Open <code>src/Main.rgr</code>, change the program, and run it again. The
+          <code>.rgr</code> file stays the source of truth; generated target files are
+          disposable and can always be recreated.
+        </p>
+        <pre class="code code--plain"><code>$EDITOR src/Main.rgr
+npm start
+npm run targets:run</code></pre>
+        <p>
+          The output is still ordinary source code, not an opaque artifact. Open it when
+          you are curious, diff two targets when something behaves differently, and run
+          it with the target's normal tools. <strong>Edit Ranger; inspect everything.</strong>
         </p>
       </article>
 
