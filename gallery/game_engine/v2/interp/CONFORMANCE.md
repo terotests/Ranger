@@ -122,8 +122,8 @@ what gets measured:
 | Column | Result |
 |---|---|
 | ES1–ES5 (compat-table `es5`) | 95.6% |
-| ES6 | 90.3% |
-| ES2016+ | 93.4% |
+| ES6 | 90.6% |
+| ES2016+ | 93.7% |
 | ESIntl | 100% |
 | ESNext (stage 2/3 proposals) | 0% — none of them are implemented |
 

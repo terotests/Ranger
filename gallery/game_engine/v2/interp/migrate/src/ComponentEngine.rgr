@@ -11297,6 +11297,29 @@ class ComponentEngine {
         ; §27.1.2.1: %Iterator% is abstract -- it exists to hang the helpers and
         ; `from` on, and constructing it directly is a TypeError.
         if (name == "Iterator") {
+            ; §27.1.3.1: %Iterator% refuses only when new.target IS %Iterator%
+            ; itself -- a SUBCLASS constructs, which is the whole point of
+            ; publishing the class. `class C extends Iterator {}` could not be
+            ; instantiated at all.
+            if (asNew) {
+                if hasPendingNewTarget {
+                    if (false == (pendingNewTarget.equals((this.builtinGlobalObject("Iterator"))))) {
+                        def keysIt:[string]
+                        def valsIt:[EvHandle]
+                        def itInst:EvHandle (EvValueBridge.taggedObject(keysIt valsIt))
+                        def ntProtoIt:EvHandle (this.getPropertyValue(pendingNewTarget "prototype"))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if (this.isDescriptorObject(ntProtoIt)) {
+                            itInst.setProto(ntProtoIt)
+                        } {
+                            itInst.setProto((this.builtinPrototype("Iterator")))
+                        }
+                        return itInst
+                    }
+                }
+            }
             return (this.throwSpecError("TypeError" "Abstract class Iterator not directly constructable"))
         }
         if (name == "Object") {
@@ -25757,6 +25780,50 @@ class ComponentEngine {
                 if ((fromArg.isUndefined()) || (fromArg.isNull())) {
                     return (this.throwSpecError("TypeError" "Iterator.from called on null or undefined"))
                 }
+                ; §27.1.2.1.1 GetIteratorFlattenable: an object with no
+                ; @@iterator IS the iterator, as long as it answers `next` --
+                ; which is the whole point of `Iterator.from`, and the case
+                ; that reported "object is not iterable" instead.
+                def fromIterFn:EvHandle (this.getPropertyValue(fromArg "@@iterator"))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (false == (fromIterFn.isFunction())) {
+                    if (this.isDescriptorObject(fromArg)) {
+                        def fromNext:EvHandle (this.getPropertyValue(fromArg "next"))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if (fromNext.isFunction()) {
+                            def wrapItems:[EvHandle]
+                            def wGuard:int 0
+                            while (wGuard < maxLoopIterations) {
+                                def wStepArgs:[EvHandle]
+                                def wStep:EvHandle (this.callMethodOnValue(fromArg "next" wStepArgs))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                                if (false == (this.isDescriptorObject(wStep))) {
+                                    return (this.throwSpecError("TypeError" "Iterator result is not an object"))
+                                }
+                                def wDone:EvHandle (this.getPropertyValue(wStep "done"))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                                if (wDone.toBool()) {
+                                    wGuard = maxLoopIterations
+                                } {
+                                    push wrapItems (this.getPropertyValue(wStep "value"))
+                                    if scriptThrew {
+                                        return (EvValueBridge.taggedUndefined())
+                                    }
+                                    wGuard = (wGuard + 1)
+                                }
+                            }
+                            return (this.makeListIterator(wrapItems))
+                        }
+                    }
+                }
                 def fromItems:[EvHandle] (this.forOfItemList(fromArg))
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
@@ -36017,6 +36084,10 @@ class ComponentEngine {
         p.setAttrs("next" true false true)
         p.setMember("@@iterator" (this.sharedNativeMethod("listiterator" "@@iterator")))
         p.setAttrs("@@iterator" true false true)
+        ; §27.1.2.1: %IteratorPrototype%[@@toStringTag] is "Iterator". The
+        ; concrete iterator prototypes below override it with their own tag.
+        p.setMember("@@toStringTag" (EvValueBridge.taggedString("Iterator")))
+        p.setAttrs("@@toStringTag" true false true)
         this.installIteratorHelpers(p)
         return p
     }
@@ -43508,6 +43579,13 @@ class ComponentEngine {
     }
 
     fn initFromBuiltinBase:void (baseName:string inst:EvHandle args:[EvHandle]) {
+        ; §27.1.3.1: %Iterator% gives a subclass instance NO internal state --
+        ; it exists to put %IteratorPrototype% on the chain. Calling it here
+        ; reached the "not directly constructable" refusal, so
+        ; `class C extends Iterator {}` could not be instantiated at all.
+        if (baseName == "Iterator") {
+            return
+        }
         def built:EvHandle (this.callBuiltinCtorValues(baseName args true))
         if scriptThrew {
             return
