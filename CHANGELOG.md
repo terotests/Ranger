@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **CodeGraph diffs two git revisions.** `codegraph_cli … --diff=base..head`
+  (or `--diff=base` against the working tree) and the desktop **Diff**
+  button check each side out as a detached worktree, analyse it the way
+  Open does, and compare classes by name and members by name: fields whose
+  type changed, methods whose signature changed, and methods whose lines
+  the file's line diff touched are `changed`; the rest `added` / `removed`.
+  The explorer opens on a diff page of only the touched classes (amber /
+  green / red), class pages keep the colours on their rows, and the source
+  pane shows touched files merged, removed lines in place on red bands.
+  The desktop rail lists the opened repository's log as base / head
+  pickers, and a pull request field (`12`, `#12`, a URL) fetches
+  `refs/pull/N/head` from origin and diffs from the merge base with the
+  target branch (`gh` when installed, else the remote's default branch);
+  the CLI takes `--pr=`. `CodeGraphDiff` needs neither git nor the
+  compiler; the web page's EXAMPLE menu diffs `calls.rgr` against
+  `calls_v2.rgr` in the tab.
+  RangerFlow rows gained `tint` / `tintText` and ScriptEditor `lineMarks`
+  for this. `npm run codegraph:diff` is the unit suite.
+
 ### Changed
 
 - **The JavaScript compiler compiles about twice as fast.** RtHost.rgr
@@ -85,29 +106,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that on each target (`process.exitCode` on JavaScript,
   `Environment.ExitCode` on C#, the same immediate exit as `exit` where
   stdout is unbuffered or flushed at exit).
-
-### Added
-
-- **CodeGraph diffs two git revisions.** `codegraph_cli … --diff=base..head`
-  (or `--diff=base` against the working tree) and the desktop **Diff**
-  button check each side out as a detached worktree, analyse it the way
-  Open does, and compare classes by name and members by name: fields whose
-  type changed, methods whose signature changed, and methods whose lines
-  the file's line diff touched are `changed`; the rest `added` / `removed`.
-  The explorer opens on a diff page of only the touched classes (amber /
-  green / red), class pages keep the colours on their rows, and the source
-  pane shows touched files merged, removed lines in place on red bands.
-  The desktop rail lists the opened repository's log as base / head
-  pickers, and a pull request field (`12`, `#12`, a URL) fetches
-  `refs/pull/N/head` from origin and diffs from the merge base with the
-  target branch (`gh` when installed, else the remote's default branch);
-  the CLI takes `--pr=`. `CodeGraphDiff` needs neither git nor the
-  compiler; the web page's EXAMPLE menu diffs `calls.rgr` against
-  `calls_v2.rgr` in the tab.
-  RangerFlow rows gained `tint` / `tintText` and ScriptEditor `lineMarks`
-  for this. `npm run codegraph:diff` is the unit suite.
-
-### Fixed
 
 - **CodeGraph web page: css / evg / zip / cpp did not open from the EXAMPLE
   menu.** The app could only compile what its VFS held, and the gallery
