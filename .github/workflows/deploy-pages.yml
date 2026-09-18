@@ -293,6 +293,18 @@ jobs:
           grep -Fq 'accept="image/*"' "$GITHUB_WORKSPACE/_site/evg/erazer/index.html"
           node gallery/erazer/web/smoke.mjs "$GITHUB_WORKSPACE/_site/evg/erazer"
 
+      # The published page, driven: the layout lab's capture and training run
+      # only exist in a browser, so the deployed copy is checked the way a
+      # person uses it. Chromium comes from playwright-core, the same pin the
+      # other browser-driven checks launch.
+      - name: Drive the Erazer layout lab on the built page
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.* \
+                     /etc/apt/sources.list.d/microsoft-prod.*
+          npx playwright-core install --with-deps chromium ||
+            npx playwright-core install chromium
+          node gallery/erazer/web/lab-check.mjs "$GITHUB_WORKSPACE/_site/evg/erazer"
+
       # ---- RealTrainer at /realtrainer/ -----------------------------------
       # The app compiled to JavaScript and bundled with the painter; the page
       # loads one script. `rt:build` needs the compiler built above, and the

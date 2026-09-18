@@ -93,69 +93,69 @@
 
   <div>
     <h2>login form</h2>
-    <div class="shot" id="login" data-shot="login">
-      <div class="card" style="width:320px">
-        <label class="field"><span>Name</span><input type="text" value=""></label>
-        <label class="field"><span>Email</span><input type="text" value=""></label>
-        <div class="row"><div class="check"></div><span>On</span></div>
-        <div class="actions"><button class="primary" type="button">OK</button></div>
+    <div class="shot" id="login" data-shot="login" data-concept="form">
+      <div class="card" style="width:320px" data-role="panel">
+        <label class="field"><span data-role="label">Name</span><input type="text" value="" data-role="textfield"></label>
+        <label class="field"><span data-role="label">Email</span><input type="text" value="" data-role="textfield"></label>
+        <div class="row"><div class="check" data-role="checkbox"></div><span data-role="label">On</span></div>
+        <div class="actions"><button class="primary" type="button" data-role="button">OK</button></div>
       </div>
     </div>
   </div>
 
   <div>
     <h2>settings checkboxes</h2>
-    <div class="shot" id="settings" data-shot="settings">
+    <div class="shot" id="settings" data-shot="settings" data-concept="property_row">
       <div class="card" style="width:320px">
-        <div class="row"><div class="check on"></div><span>Mail</span></div>
-        <div class="row"><div class="check"></div><span>Push</span></div>
-        <div class="row"><div class="check on"></div><span>SMS</span></div>
+        <div class="row"><div class="check on" data-role="checkbox"></div><span data-role="label">Mail</span></div>
+        <div class="row"><div class="check" data-role="checkbox"></div><span data-role="label">Push</span></div>
+        <div class="row"><div class="check on" data-role="checkbox"></div><span data-role="label">SMS</span></div>
       </div>
     </div>
   </div>
 
   <div>
     <h2>tabs</h2>
-    <div class="shot" id="tabs" data-shot="tabs">
+    <div class="shot" id="tabs" data-shot="tabs" data-concept="toolbar">
       <div class="tabs" style="width:320px">
-        <div class="tab on">File</div>
-        <div class="tab off">Edit</div>
-        <div class="tab off">View</div>
+        <div class="tab on" data-role="button">File</div>
+        <div class="tab off" data-role="button">Edit</div>
+        <div class="tab off" data-role="button">View</div>
       </div>
     </div>
   </div>
 
   <div>
     <h2>menu</h2>
-    <div class="shot" id="menu" data-shot="menu">
+    <div class="shot" id="menu" data-shot="menu" data-concept="list">
       <div class="menu">
-        <div class="item" style="background:#dbeafe">File</div>
-        <div class="item" style="background:#e0e7ff">Edit</div>
-        <div class="item" style="background:#c7d2fe">View</div>
+        <div class="item" style="background:#dbeafe" data-role="label">File</div>
+        <div class="item" style="background:#e0e7ff" data-role="label">Edit</div>
+        <div class="item" style="background:#c7d2fe" data-role="label">View</div>
       </div>
     </div>
   </div>
 
   <div>
     <h2>toolbar</h2>
-    <div class="shot" id="toolbar" data-shot="toolbar">
+    <div class="shot" id="toolbar" data-shot="toolbar" data-concept="toolbar">
       <div class="toolbar">
-        <input type="search" placeholder="">
-        <button class="primary" type="button">Go</button>
-        <div class="iconbtn">+</div>
+        <input type="search" placeholder="" data-role="textfield">
+        <button class="primary" type="button" data-role="button">Go</button>
+        <div class="iconbtn" data-role="icon">+</div>
       </div>
     </div>
   </div>
 
   <div>
     <h2>dialog</h2>
-    <div class="shot" id="dialog" data-shot="dialog">
-      <div class="card dialog">
-        <h3>Save</h3>
-        <p>Write the file now?</p>
+    <div class="shot" id="dialog" data-shot="dialog" data-concept="card">
+      <div class="card dialog" data-role="panel">
+        <h3 data-role="label">Save</h3>
+        <p data-role="label">Write the file now?</p>
         <div class="actions">
-          <button class="ghost" type="button">No</button>
-          <button class="primary" type="button">OK</button>
+          <button class="ghost" type="button" data-role="button">No</button>
+          <button class="primary" type="button" data-role="button">OK</button>
         </div>
       </div>
     </div>
@@ -163,23 +163,23 @@
 
   <div>
     <h2>buttons</h2>
-    <div class="shot" id="buttons" data-shot="buttons">
+    <div class="shot" id="buttons" data-shot="buttons" data-concept="toolbar">
       <div class="btns">
-        <button class="primary" type="button">Save</button>
-        <button class="secondary" type="button">Edit</button>
-        <button class="danger" type="button">Quit</button>
+        <button class="primary" type="button" data-role="button">Save</button>
+        <button class="secondary" type="button" data-role="button">Edit</button>
+        <button class="danger" type="button" data-role="button">Quit</button>
       </div>
     </div>
   </div>
 
   <div>
     <h2>sidebar nav</h2>
-    <div class="shot" id="nav" data-shot="nav">
+    <div class="shot" id="nav" data-shot="nav" data-concept="nav">
       <div class="nav">
-        <div class="item">Home</div>
-        <div class="item">Mail</div>
-        <div class="item">Files</div>
-        <div class="item">Quit</div>
+        <div class="item" data-role="label">Home</div>
+        <div class="item" data-role="label">Mail</div>
+        <div class="item" data-role="label">Files</div>
+        <div class="item" data-role="label">Quit</div>
       </div>
     </div>
   </div>

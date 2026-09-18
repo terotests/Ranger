@@ -58,10 +58,10 @@ let bundle = fs.readFileSync(rawPath, "utf8").replace(/^#![^\n]*\n/, "");
   const previous = globalThis.require;
   globalThis.require = undefined;
   const found = (0, eval)(
-    bundle + "; typeof Erazer + '|' + typeof ErazerPaint + '|' + typeof ImageBuffer"
+    bundle + "; typeof Erazer + '|' + typeof ErazerPaint + '|' + typeof ImageBuffer + '|' + typeof ErazerLayoutNet + '|' + typeof ErazerLayoutBox"
   );
   globalThis.require = previous;
-  if (found !== "function|function|function") {
+  if (found !== "function|function|function|function|function") {
     throw new Error("erazer.js missing browser exports (got " + found + ")");
   }
 }
@@ -74,11 +74,15 @@ const scoped =
   "\n;globalThis.ErazerPaint = ErazerPaint;" +
   "\n;globalThis.ErazerFont = ErazerFont;" +
   "\n;globalThis.ErazerOptions = ErazerOptions;" +
+  "\n;globalThis.ErazerLayoutNet = ErazerLayoutNet;" +
+  "\n;globalThis.ErazerLayoutBox = ErazerLayoutBox;" +
+  "\n;globalThis.ErazerLayoutFeat = ErazerLayoutFeat;" +
   "\n;globalThis.ImageBuffer = ImageBuffer;" +
   "\n})();\n";
 
 fs.writeFileSync(path.join(OUT, "erazer.js"), scoped);
 fs.copyFileSync(path.join(HERE, "index.html"), path.join(OUT, "index.html"));
+fs.copyFileSync(path.join(HERE, "layout-lab.js"), path.join(OUT, "layout-lab.js"));
 fs.copyFileSync(path.join(HERE, "components.html"), path.join(OUT, "components.html"));
 fs.copyFileSync(path.join(HERE, "shadcn.html"), path.join(OUT, "shadcn.html"));
 const shots = path.join(HERE, "../shots");

@@ -15,6 +15,7 @@
 Import "Erazer.rgr"
 Import "ErazerPaint.rgr"
 Import "ErazerFont.rgr"
+Import "ErazerLayout.rgr"
 Import "../game_engine/v2/tests/harness/RgTest.rgr"
 
 class ErazerTest {
@@ -35,6 +36,10 @@ class ErazerTest {
         test.testSlider(t)
         test.testSliders(t)
         test.testJson(t)
+        test.testLayoutFeatures(t)
+        test.testLayoutLearn(t)
+        test.testLayoutStructure(t)
+        test.testLayoutWeights(t)
         t.summary()
     }
 
@@ -211,5 +216,128 @@ class ErazerTest {
         t.ok("json names the button class" ((indexOf doc.json "erazer-button") >= 0))
         t.ok("overlay is an SVG" ((indexOf doc.overlaySvg "<svg") == 0))
         t.ok("outline names the button" ((indexOf doc.outline "button") >= 0))
+        t.ok("layout json has boxes" ((indexOf doc.layoutJson "\"boxes\"") >= 0))
+    }
+
+    fn testLayoutFeatures:void (t:RgTest) {
+        def net (new ErazerLayoutNet())
+        def list:[ErazerLayoutBox] (net.synthList(4 16.0))
+        def feat:[double] (ErazerLayoutFeat.features(list))
+        t.eqInt("feature vector is 40" (array_length feat) 40)
+        t.ok("list is all labels" ((itemAt feat 18) > 0.99))
+        t.ok("list is same column" ((itemAt feat 14) > 0.99))
+        t.ok("list vertical regularity is high" ((itemAt feat 12) > 0.95))
+        t.ok("list pair-pattern is off" ((itemAt feat 25) < 0.05))
+        def rows:[ErazerLayoutBox] (net.synthRows(16.0))
+        def rf:[double] (ErazerLayoutFeat.features(rows))
+        t.ok("property rows have checkboxes" ((itemAt rf 19) > 0.3))
+        t.ok("property rows repeat a pair" ((itemAt rf 25) > 0.9))
+        def scaled:[ErazerLayoutBox] (ErazerLayoutFeat.scaleAll(list 1.25))
+        def sf:[double] (ErazerLayoutFeat.features(scaled))
+        def dLab:double (ErazerLayoutFeat.absD(((itemAt feat 18) - (itemAt sf 18))))
+        def dReg:double (ErazerLayoutFeat.absD(((itemAt feat 12) - (itemAt sf 12))))
+        t.ok("em+scale leaves label fraction" (dLab < 0.0001))
+        t.ok("em+scale leaves vertical regularity" (dReg < 0.0001))
+        def augs:[ErazerLayoutSet] (ErazerLayoutFeat.augment(list))
+        t.ok("one label becomes many samples" ((array_length augs) >= 10))
+        def gapBoxes:[ErazerLayoutBox]
+        def a:ErazerLayoutBox (ErazerLayoutBox.of("label" 0.0 0.0 80.0 16.0 16.0))
+        def b:ErazerLayoutBox (ErazerLayoutBox.of("label" 0.0 40.0 80.0 16.0 16.0))
+        a.index = 0
+        b.index = 1
+        push gapBoxes a
+        push gapBoxes b
+        def g:ErazerLayoutGuess (ErazerLayoutFeat.describe(gapBoxes "list" 1.0))
+        t.ok("24px gap at 16px font is 1.5em" ((g.spacingMean > 1.4) && (g.spacingMean < 1.6)))
+    }
+
+    fn testLayoutLearn:void (t:RgTest) {
+        def net (new ErazerLayoutNet())
+        def list:[ErazerLayoutBox] (net.synthList(4 16.0))
+        def rows:[ErazerLayoutBox] (net.synthRows(16.0))
+        def grid:[ErazerLayoutBox] (net.synthGrid(16.0))
+        def groups:[ErazerLayoutSet]
+        def labels:[string]
+        push groups (ErazerLayoutSet.of(list))
+        push labels "list"
+        push groups (ErazerLayoutSet.of(rows))
+        push labels "property_row"
+        push groups (ErazerLayoutSet.of(grid))
+        push labels "grid"
+        def aList:[ErazerLayoutSet] (ErazerLayoutFeat.augment(list))
+        def aRows:[ErazerLayoutSet] (ErazerLayoutFeat.augment(rows))
+        def aGrid:[ErazerLayoutSet] (ErazerLayoutFeat.augment(grid))
+        def i:int 0
+        while (i < (array_length aList)) {
+            push groups (itemAt aList i)
+            push labels "list"
+            i = (i + 1)
+        }
+        def r:int 0
+        while (r < (array_length aRows)) {
+            push groups (itemAt aRows r)
+            push labels "property_row"
+            r = (r + 1)
+        }
+        def g:int 0
+        while (g < (array_length aGrid)) {
+            push groups (itemAt aGrid g)
+            push labels "grid"
+            g = (g + 1)
+        }
+        net.fitAll(groups labels 8)
+        def gl:ErazerLayoutGuess (net.predict(list))
+        def gr:ErazerLayoutGuess (net.predict(rows))
+        def gg:ErazerLayoutGuess (net.predict(grid))
+        t.eqStr("stacked labels train as list" gl.type "list")
+        t.ok("list confidence is high" (gl.confidence > 0.55))
+        t.eqStr("label+checkbox rows train as property_row" gr.type "property_row")
+        t.ok("property_row confidence is high" (gr.confidence > 0.45))
+        t.eqStr("panel row trains as grid" gg.type "grid")
+        t.ok("grid confidence is high" (gg.confidence > 0.45))
+        def cands:[ErazerLayoutSet] (ErazerLayoutFeat.candidates(list))
+        t.ok("heuristics propose a list candidate" ((array_length cands) >= 1))
+        net.ensureClass("inspector-group")
+        net.teach(list "inspector-group" 4)
+        def custom:ErazerLayoutGuess (net.predict(list))
+        t.eqStr("new concept can be taught" custom.type "inspector-group")
+    }
+
+    fn testLayoutStructure:void (t:RgTest) {
+        def net (new ErazerLayoutNet())
+        def list:[ErazerLayoutBox] (net.synthList(5 16.0))
+        def g:ErazerLayoutGuess (ErazerLayoutFeat.describe(list "list" 0.9))
+        t.eqStr("list axis is vertical" g.axis "vertical")
+        t.eqInt("list item count" g.items 5)
+        t.eqStr("list alignment is start" g.alignment "start")
+        t.eqStr("list pattern is label" g.pattern "label")
+        t.ok("list spacing is in em" ((g.spacingMean > 0.2) && (g.spacingMean < 1.0)))
+        def tb:[ErazerLayoutBox] (net.synthToolbar(4 16.0))
+        def tg:ErazerLayoutGuess (ErazerLayoutFeat.describe(tb "toolbar" 0.9))
+        t.eqStr("toolbar axis is horizontal" tg.axis "horizontal")
+        def img:ImageBuffer (ErazerPaint.menu())
+        def doc:ErazerDoc (Erazer.analyze(img))
+        t.ok("menu analyze writes layout json" ((strlen doc.layoutJson) > 20))
+        t.ok("overlay can mark a primitive" ((indexOf doc.overlaySvg "data-box=") >= 0))
+    }
+
+    ; A saved model has to come back as the model that was saved. A host that
+    ; prints small doubles in exponent form — JavaScript does, below 1e-6 —
+    ; used to have the exponent dropped on the way back in, so a weight of
+    ; 8.4e-7 loaded as 8.4 and the page quietly predicted with a different net.
+    fn testLayoutWeights:void (t:RgTest) {
+        def net (new ErazerLayoutNet())
+        def list:[ErazerLayoutBox] (net.synthList(4 16.0))
+        net.teach(list "list" 4)
+        def dump:string (net.dumpWeights())
+        def copy (new ErazerLayoutNet())
+        t.ok("a dump loads back" (copy.loadWeights(dump)))
+        def a:ErazerLayoutGuess (net.predict(list))
+        def b:ErazerLayoutGuess (copy.predict(list))
+        t.eqStr("the reloaded net names the same class" b.type a.type)
+        t.ok("exponent notation survives" ((ErazerLayoutFeat.absD((copy.parseNum("8.4e-7") - 0.00000084))) < 0.0000000001))
+        t.ok("a positive exponent survives" ((ErazerLayoutFeat.absD((copy.parseNum("-2.5e+3") + 2500.0))) < 0.001))
+        t.ok("a plain decimal is unchanged" ((ErazerLayoutFeat.absD((copy.parseNum("-0.125") + 0.125))) < 0.000001))
+        t.ok("a bad dump is refused" ((copy.loadWeights("v1 40 32 8 a,b 1,2")) == false))
     }
 }

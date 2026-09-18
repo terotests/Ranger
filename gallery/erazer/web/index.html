@@ -72,6 +72,19 @@
     position: absolute; left: 0; top: 0; width: 100%; height: 100%;
     pointer-events: none; overflow: hidden;
   }
+  .frame svg rect[data-box] { pointer-events: auto; cursor: pointer; }
+  .frame svg rect[data-box].picked { fill: rgba(125, 179, 255, 0.32); stroke-width: 2; }
+  .concept {
+    display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0;
+  }
+  .concept label {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
+    color: var(--ink); cursor: pointer;
+  }
+  #newConcept {
+    font: inherit; font-size: 13px; color: var(--ink); background: #12151b;
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; min-width: 140px;
+  }
   .op {
     margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 500;
     display: flex; align-items: center; gap: 8px; color: var(--muted);
@@ -88,6 +101,11 @@
   }
   .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
   .counts { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+  button:disabled, .filebtn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .capture-host {
+    position: absolute; left: -12000px; top: 0; background: #e8ecf0;
+    pointer-events: none; width: 720px; font: 14px/1.4 system-ui, sans-serif;
+  }
 </style>
 </head>
 <body>
@@ -97,7 +115,9 @@
   <p>
     Bitmap-tracer seuraa valokuvan mustetta. Erazer etsii <strong>UI-elementtejä</strong>:
     sisäkkäisiä laatikoita, tekstiä, nappeja, kenttiä, tabbeja, valikoita, checkboxeja
-    ja ikoneita, ja kirjoittaa niistä EVG-puun. Kuva ei poistu koneelta.
+    ja ikoneita, ja kirjoittaa niistä EVG-puun. Päälle tulee pieni
+    <strong>layout-verkko</strong>: se näkee em-normalisoitua geometriaa, ei screenshot-pikseleitä,
+    ja sen voi opettaa valitsemalla laatikoita. Kuva ei poistu koneelta.
   </p>
 </header>
 <main>
@@ -150,6 +170,35 @@
       <div class="head">Tulos <span class="counts" id="counts"></span></div>
       <pre id="outline">Ei vielä ajettu.</pre>
     </section>
+    <section style="margin-top:18px">
+      <div class="head">Layout-verkko <span class="counts" id="layoutPicked">ei valintaa</span></div>
+      <div class="body">
+        <p class="hint">Klikkaa laatikoita kuvassa, anna nimi ja opeta — tai rakenna testsetti tunnetuista HTML-komponenteista: renderöi, nauhoita boksit, PNG, vektoroi Erazerilla. Kun näytteitä on tarpeeksi, kouluta pieni malli WebGPU:lla.</p>
+        <div class="concept" id="concepts">
+          <label><input type="radio" name="concept" value="list" checked> lista</label>
+          <label><input type="radio" name="concept" value="toolbar"> toolbar</label>
+          <label><input type="radio" name="concept" value="form"> lomake</label>
+          <label><input type="radio" name="concept" value="card"> kortti</label>
+          <label><input type="radio" name="concept" value="property_row"> property-rivi</label>
+          <label><input type="radio" name="concept" value="grid"> ruudukko</label>
+          <label><input type="radio" name="concept" value="nav"> nav</label>
+        </div>
+        <div class="actions">
+          <input id="newConcept" type="text" placeholder="uusi konsepti" autocomplete="off">
+          <button type="button" id="teachBtn" class="primary">Opeta valinta</button>
+          <button type="button" id="clearPickBtn">Tyhjennä valinta</button>
+        </div>
+        <p class="hint" style="margin-top:14px">Automaattinen testsetti + WebGPU</p>
+        <div class="actions">
+          <button type="button" id="buildSetBtn">Rakenna HTML-testsetti</button>
+          <button type="button" id="trainGpuBtn" disabled>Kouluta WebGPU:lla</button>
+          <button type="button" id="saveModelBtn">Tallenna malli</button>
+          <label class="filebtn" for="modelFile">Lataa malli</label>
+          <input id="modelFile" class="sr-file" type="file" accept=".txt,text/plain">
+        </div>
+        <pre id="layoutOut">Ei vielä ryhmiä.</pre>
+      </div>
+    </section>
   </div>
   <div>
     <section>
@@ -167,13 +216,140 @@
     </section>
   </div>
 </main>
+<div id="captureHost" class="capture-host" aria-hidden="true"></div>
 <script src="erazer.js"></script>
+<script src="layout-lab.js"></script>
 <script>
 (function () {
   var stage = document.getElementById("stage");
   var outline = document.getElementById("outline");
   var jsonEl = document.getElementById("json");
   var counts = document.getElementById("counts");
+  var layoutOut = document.getElementById("layoutOut");
+  var layoutPicked = document.getElementById("layoutPicked");
+  var lastDoc = null;
+  var picked = {};
+  /* The lab writes its progress into #layoutOut, and it also re-runs the
+     analyser for every fixture. Without this flag the run log was wiped by
+     each show() and the capture looked like it had done nothing. */
+  var labBusy = false;
+
+  var WEIGHTS_KEY = "erazer-layout-weights";
+  try {
+    var saved = localStorage.getItem(WEIGHTS_KEY);
+    if (saved && typeof ErazerLayoutNet === "function" && ErazerLayoutNet.adoptWeights(saved)) {
+      /* user weights beat the synthetic seed */
+    }
+  } catch (err) {}
+
+  function selectedConcept() {
+    var typed = (document.getElementById("newConcept").value || "").trim();
+    if (typed) return typed.replace(/\s+/g, "_");
+    var radios = document.querySelectorAll('input[name="concept"]');
+    for (var r = 0; r < radios.length; r++) {
+      if (radios[r].checked) return radios[r].value;
+    }
+    return "list";
+  }
+
+  function boxesFromJson(json) {
+    var out = [];
+    if (!json) return out;
+    var data = typeof json === "string" ? JSON.parse(json) : json;
+    var list = (data && data.boxes) || [];
+    for (var i = 0; i < list.length; i++) {
+      var b = list[i];
+      var box = ErazerLayoutBox.of(b.type, b.x, b.y, b.w, b.h, b.fontSize || 14);
+      box.index = b.i;
+      out.push(box);
+    }
+    return out;
+  }
+
+  function pickedBoxes() {
+    var all = lastDoc ? boxesFromJson(lastDoc.layoutJson) : [];
+    var out = [];
+    for (var i = 0; i < all.length; i++) {
+      if (picked[String(all[i].index)]) out.push(all[i]);
+    }
+    return out;
+  }
+
+  function paintPicks() {
+    var n = 0;
+    stage.querySelectorAll("rect[data-box]").forEach(function (el) {
+      var id = el.getAttribute("data-box");
+      if (picked[id]) {
+        el.classList.add("picked");
+        n++;
+      } else {
+        el.classList.remove("picked");
+      }
+    });
+    layoutPicked.textContent = n ? ("valittu " + n) : "ei valintaa";
+  }
+
+  function showLayout(doc) {
+    if (labBusy) {
+      paintLayoutOverlay(doc);
+      return;
+    }
+    var text = "Ei vielä ryhmiä.";
+    try {
+      var data = JSON.parse(doc.layoutJson || "{}");
+      var groups = data.groups || [];
+      if (groups.length) {
+        text = groups.map(function (g) {
+          var conf = Math.round((g.confidence || 0) * 100);
+          var pat = (g.pattern || []).join("+");
+          var sp = g.spacing || {};
+          return g.type + " " + conf + "% · " + g.axis + " · n=" + g.items +
+            " · " + (g.alignment || "") +
+            " · " + (sp.mean != null ? Number(sp.mean).toFixed(2) + "em" : "") +
+            (pat ? " · " + pat : "");
+        }).join("\n");
+      }
+    } catch (err) {
+      text = String(doc.layoutJson || "");
+    }
+    layoutOut.textContent = text;
+    paintLayoutOverlay(doc);
+  }
+
+  function paintLayoutOverlay(doc) {
+    var svg = stage.querySelector("svg");
+    if (svg) {
+      svg.querySelectorAll("[data-layout]").forEach(function (el) { el.remove(); });
+      try {
+        var data2 = JSON.parse(doc.layoutJson || "{}");
+        (data2.groups || []).forEach(function (g) {
+          var ns = "http://www.w3.org/2000/svg";
+          var wrap = document.createElementNS(ns, "g");
+          wrap.setAttribute("data-layout", g.type || "");
+          var rect = document.createElementNS(ns, "rect");
+          rect.setAttribute("x", g.x);
+          rect.setAttribute("y", g.y);
+          rect.setAttribute("width", g.w);
+          rect.setAttribute("height", g.h);
+          rect.setAttribute("fill", "none");
+          rect.setAttribute("stroke", "#7c3aed");
+          rect.setAttribute("stroke-width", "2");
+          rect.setAttribute("stroke-dasharray", "5 3");
+          rect.setAttribute("pointer-events", "none");
+          var lab = document.createElementNS(ns, "text");
+          lab.setAttribute("x", (g.x || 0) + 4);
+          lab.setAttribute("y", (g.y || 0) + 12);
+          lab.setAttribute("font-size", "10");
+          lab.setAttribute("fill", "#7c3aed");
+          lab.setAttribute("pointer-events", "none");
+          lab.textContent = (g.type || "") + " " + Math.round((g.confidence || 0) * 100) + "%";
+          wrap.appendChild(rect);
+          wrap.appendChild(lab);
+          svg.appendChild(wrap);
+        });
+      } catch (err2) {}
+    }
+  }
 
   function bufferToCanvas(img) {
     var c = document.createElement("canvas");
@@ -224,10 +400,28 @@
       svg.removeAttribute("width");
       svg.removeAttribute("height");
       svg.setAttribute("preserveAspectRatio", "none");
+      svg.addEventListener("click", function (ev) {
+        var el = ev.target;
+        if (!el || !el.getAttribute) return;
+        var id = el.getAttribute("data-box");
+        if (id == null) {
+          var p = el.closest && el.closest("[data-box]");
+          if (p) id = p.getAttribute("data-box");
+        }
+        if (id == null) return;
+        ev.preventDefault();
+        if (picked[id]) delete picked[id];
+        else picked[id] = true;
+        paintPicks();
+      });
     }
     stage.appendChild(frame);
+    lastDoc = doc;
+    picked = {};
     outline.textContent = doc.outline || "(tyhjä)";
     jsonEl.textContent = doc.json || "";
+    showLayout(doc);
+    paintPicks();
     var r = doc.root;
     counts.textContent =
       "button " + r.roleCount("button") +
@@ -282,6 +476,22 @@
       var o = i * 4;
       var x = i % cw;
       var y = (i / cw) | 0;
+      img.setPixelRGBA(x, y, data.data[o], data.data[o + 1], data.data[o + 2], data.data[o + 3]);
+    }
+    return img;
+  }
+
+  function canvasToBuffer(c) {
+    if (!c || c.width < 1 || c.height < 1) return null;
+    var ctx = c.getContext("2d");
+    var data = ctx.getImageData(0, 0, c.width, c.height);
+    var img = new ImageBuffer();
+    img.init(c.width, c.height);
+    var n = c.width * c.height;
+    for (var i = 0; i < n; i++) {
+      var o = i * 4;
+      var x = i % c.width;
+      var y = (i / c.width) | 0;
       img.setPixelRGBA(x, y, data.data[o], data.data[o + 1], data.data[o + 2], data.data[o + 3]);
     }
     return img;
@@ -423,6 +633,178 @@
     btn.addEventListener("click", function () { loadPng(btn.getAttribute("data-png")); });
   });
 
+  document.getElementById("clearPickBtn").addEventListener("click", function () {
+    picked = {};
+    paintPicks();
+  });
+
+  document.getElementById("teachBtn").addEventListener("click", function () {
+    if (!lastDoc) {
+      layoutOut.textContent = "Aja ensin kuva.";
+      return;
+    }
+    var sel = pickedBoxes();
+    if (sel.length < 2) {
+      layoutOut.textContent = "Valitse vähintään kaksi laatikkoa.";
+      return;
+    }
+    var label = selectedConcept();
+    if (!label) {
+      layoutOut.textContent = "Anna konseptille nimi.";
+      return;
+    }
+    layoutOut.textContent = "Opetetaan " + label + " (" + sel.length + " laatikkoa)…";
+    var t0 = performance.now();
+    var net = ErazerLayoutNet.shared();
+    net.teach(sel, label, 8);
+    try { localStorage.setItem(WEIGHTS_KEY, net.dumpWeights()); } catch (err) {}
+    var all = boxesFromJson(lastDoc.layoutJson);
+    var guesses = net.scan(all);
+    lastDoc.layoutJson = net.toJson(all, guesses);
+    var ms = Math.round(performance.now() - t0);
+    showLayout(lastDoc);
+    layoutOut.textContent += "\n" + ms + " ms · painot tallennettu";
+  });
+
+  var trainGpuBtn = document.getElementById("trainGpuBtn");
+  var buildSetBtn = document.getElementById("buildSetBtn");
+
+  function labLog(msg) {
+    layoutOut.textContent = (layoutOut.textContent && layoutOut.textContent !== "Ei vielä ryhmiä."
+      ? layoutOut.textContent + "\n"
+      : "") + msg;
+    layoutOut.scrollTop = layoutOut.scrollHeight;
+  }
+
+  function refreshTrainBtn() {
+    if (!trainGpuBtn || typeof ErazerLayoutLab === "undefined") return;
+    ErazerLayoutLab.countSamples().then(function (n) {
+      var ok = n >= ErazerLayoutLab.MIN_SAMPLES;
+      trainGpuBtn.disabled = !ok;
+      trainGpuBtn.textContent = ok
+        ? ("Kouluta WebGPU:lla (" + n + ")")
+        : ("Kouluta WebGPU:lla (" + n + "/" + ErazerLayoutLab.MIN_SAMPLES + ")");
+    }).catch(function () {
+      trainGpuBtn.disabled = true;
+    });
+  }
+
+  if (typeof ErazerLayoutLab === "function" || (typeof ErazerLayoutLab === "object" && ErazerLayoutLab)) {
+    ErazerLayoutLab.init({
+      host: document.getElementById("captureHost"),
+      log: labLog,
+      canvasToBuffer: canvasToBuffer,
+      runDoc: function (img, doc) { show(img, doc); },
+      showCanvas: function (canvas) {
+        stage.classList.remove("empty");
+        stage.innerHTML = "";
+        var frame = document.createElement("div");
+        frame.className = "frame";
+        frame.appendChild(canvas);
+        stage.appendChild(frame);
+      },
+      progress: function () { refreshTrainBtn(); }
+    });
+    refreshTrainBtn();
+  }
+
+  if (buildSetBtn) {
+    buildSetBtn.addEventListener("click", function () {
+      if (!ErazerLayoutLab) return;
+      buildSetBtn.disabled = true;
+      labBusy = true;
+      layoutOut.textContent = "";
+      labLog("Rakennetaan testsetti HTML-komponenteista…");
+      ErazerLayoutLab.buildHtmlSet().then(function (n) {
+        labBusy = false;
+        refreshTrainBtn();
+        buildSetBtn.disabled = false;
+        document.documentElement.setAttribute("data-lab-done", "1");
+        document.documentElement.setAttribute("data-lab-n", String(n || 0));
+        document.title = "lab-ok " + n;
+        if (n >= ErazerLayoutLab.MIN_SAMPLES) {
+          document.documentElement.setAttribute("data-lab-ready", "1");
+        }
+      }).catch(function (err) {
+        labBusy = false;
+        labLog("FAIL: " + (err && err.message ? err.message : err));
+        buildSetBtn.disabled = false;
+        refreshTrainBtn();
+        document.documentElement.setAttribute("data-lab-done", "0");
+        document.title = "lab-fail";
+      });
+    });
+  }
+
+  if (trainGpuBtn) {
+    trainGpuBtn.addEventListener("click", function () {
+      if (!ErazerLayoutLab) return;
+      trainGpuBtn.disabled = true;
+      labLog("Käynnistetään koulutus…");
+      ErazerLayoutLab.trainOnDemand({}).then(function (result) {
+        labLog("backend=" + result.backend + " · " + result.ms + " ms · features=" + result.features);
+        document.documentElement.setAttribute("data-lab-adopted", result.adopted ? "1" : "0");
+        document.documentElement.setAttribute("data-lab-score", String(result.score));
+        document.documentElement.setAttribute("data-lab-score-before", String(result.scoreBefore));
+        document.documentElement.setAttribute("data-lab-core", String(result.scoreCore));
+        document.documentElement.setAttribute("data-lab-core-before", String(result.scoreCoreBefore));
+        if (lastDoc) {
+          var all = boxesFromJson(lastDoc.layoutJson);
+          var net = ErazerLayoutNet.shared();
+          var guesses = net.scan(all);
+          lastDoc.layoutJson = net.toJson(all, guesses);
+          showLayout(lastDoc);
+        }
+        document.documentElement.setAttribute("data-lab-trained", result.backend || "1");
+        document.title = "lab-trained " + result.backend;
+        refreshTrainBtn();
+      }).catch(function (err) {
+        labLog("FAIL: " + (err && err.message ? err.message : err));
+        refreshTrainBtn();
+      });
+    });
+  }
+
+  document.getElementById("saveModelBtn").addEventListener("click", function () {
+    var dump = null;
+    try { dump = localStorage.getItem(WEIGHTS_KEY); } catch (err) {}
+    if (!dump && typeof ErazerLayoutNet !== "undefined") {
+      dump = ErazerLayoutNet.shared().dumpWeights();
+    }
+    if (!dump) {
+      labLog("Ei mallia tallennettavaksi.");
+      return;
+    }
+    if (ErazerLayoutLab) ErazerLayoutLab.downloadDump(dump, "erazer-layout-model.txt");
+    labLog("Malli tallennettu tiedostoksi.");
+  });
+
+  document.getElementById("modelFile").addEventListener("change", function (ev) {
+    var f = ev.target.files && ev.target.files[0];
+    ev.target.value = "";
+    if (!f) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var text = String(reader.result || "");
+      if (typeof ErazerLayoutNet === "undefined" || !ErazerLayoutNet.adoptWeights(text)) {
+        labLog("Mallin lataus epäonnistui (väärä muoto).");
+        return;
+      }
+      try { localStorage.setItem(WEIGHTS_KEY, text); } catch (err) {}
+      if (ErazerLayoutLab) {
+        ErazerLayoutLab.saveModel({ dump: text, backend: "file", trainedAt: Date.now() }).catch(function () {});
+      }
+      labLog("Malli ladattu tiedostosta (" + f.name + ").");
+      if (lastDoc) {
+        var all = boxesFromJson(lastDoc.layoutJson);
+        var guesses = ErazerLayoutNet.shared().scan(all);
+        lastDoc.layoutJson = ErazerLayoutNet.shared().toJson(all, guesses);
+        showLayout(lastDoc);
+      }
+    };
+    reader.readAsText(f);
+  });
+
   var params = new URLSearchParams(location.search);
   var sample = params.get("sample");
   var png = params.get("png");
@@ -433,6 +815,10 @@
   else if (sample === "chips") run(ErazerPaint.chipRow());
   else if (sample === "slider") run(ErazerPaint.sliders());
   else if (png) loadPng(png);
+
+  if (params.get("lab") === "build" && buildSetBtn) {
+    buildSetBtn.click();
+  }
 })();
 </script>
 </body>
