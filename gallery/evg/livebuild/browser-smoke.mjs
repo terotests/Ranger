@@ -67,13 +67,34 @@ async function waitDone(label) {
 
 try {
   await page.goto(URL, { waitUntil: "domcontentloaded" });
-  await waitDone("dashboard");
+  await page.waitForFunction(
+    () =>
+      document.getElementById("added")?.textContent === "seed" &&
+      !document.getElementById("go")?.disabled &&
+      Number(document.getElementById("ncmds")?.textContent) >= 8,
+    null,
+    { timeout: 15000 },
+  );
+  const seedCmds = await page.locator("#ncmds").innerText();
+  const seedSvg = await page.locator("#screen svg").count();
+  if (seedSvg < 1) throw new Error("seed: no SVG painted");
+  console.log(`  seed         cmds=${seedCmds} svg=${seedSvg} Build enabled`);
 
   await page.getByRole("button", { name: "Settings" }).click();
-  await waitDone("settings");
+  await page.waitForFunction(
+    () => document.getElementById("kindLabel")?.textContent?.includes("settings") &&
+      !document.getElementById("go")?.disabled,
+    null,
+    { timeout: 10000 },
+  );
 
   await page.getByRole("button", { name: "Invoices" }).click();
-  await waitDone("invoices");
+  await page.waitForFunction(
+    () => document.getElementById("kindLabel")?.textContent?.includes("invoices") &&
+      !document.getElementById("go")?.disabled,
+    null,
+    { timeout: 10000 },
+  );
 
   await page.fill("#prompt", "Build me a settings screen with notifications");
   await page.click("#go");
@@ -82,7 +103,12 @@ try {
   if (!kind.includes("settings")) throw new Error(`prompt mapped to ${kind}, want settings`);
 
   await page.getByRole("button", { name: "Dashboard", exact: true }).click();
-  await waitDone("dashboard-again");
+  await page.waitForFunction(
+    () => document.getElementById("kindLabel")?.textContent?.includes("dashboard") &&
+      !document.getElementById("go")?.disabled,
+    null,
+    { timeout: 10000 },
+  );
   await page.fill("#prompt", "Make the title larger and use a gold accent");
   await page.click("#go");
   await waitDone("restyle");
@@ -95,7 +121,7 @@ try {
     console.error(problems.join("\n"));
     throw new Error(`${problems.length} console/page errors`);
   }
-  console.log("ALL PASS — Chromium painted recipes, a typed prompt, and a restyle");
+  console.log("ALL PASS — seed painted with Build enabled, then recipe prompt and restyle");
 } finally {
   await browser.close();
 }

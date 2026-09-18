@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { listAgents, runTask, root, findCursorAgent, cursorSpawnArgs } from "./agents.mjs";
+import { listAgents, runTask, root, findCursorAgent, cursorSpawnArgs, frameFixture } from "./agents.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bin = path.join(root, "gallery/evg/bin/evg_livebuild.js");
@@ -96,6 +96,19 @@ if (frameEvents.find((e) => e.t === "done")?.ok !== true) {
   throw new Error("frame verb did not finish ok");
 }
 console.log("  frame       card.evg.json → " + frameEvents.find((e) => e.t === "frame").ncmds + " cmds");
+
+const dash = frameFixture("dashboard");
+const dashFrame = dash.events.find((e) => e.t === "frame");
+if (!dashFrame || !(dashFrame.list?.cmds?.length > 8)) {
+  throw new Error("dashboard seed produced no cmds");
+}
+const empty = frameFixture("empty");
+const emptyFrame = empty.events.find((e) => e.t === "frame");
+if (!emptyFrame) throw new Error("empty seed produced no frame");
+if ((emptyFrame.ncmds || 0) >= (dashFrame.ncmds || 0)) {
+  throw new Error("empty seed should be smaller than the dashboard");
+}
+console.log("  seed        dashboard " + dashFrame.ncmds + " cmds, empty " + emptyFrame.ncmds + " cmds");
 
 const mockEvents = await collect("mock", "dashboard");
 const types = new Set(mockEvents.map((e) => e.t));
