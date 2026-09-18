@@ -333,7 +333,7 @@ class CodeGraphSdl {
             if (app.inCanvas(px py)) {
                 app.wheelGesture((app.localX(px)) (app.localY(py)) dx dy ctrl lineMode)
             } {
-                app.wheel(px py dy)
+                app.wheelXY(px py dx dy)
             }
         }
         def text:string (dgfx_take_text)
@@ -407,6 +407,22 @@ class CodeGraphSdl {
         }
         if (k == 11) {
             app.keyWith("End" shift ctrl)
+            return
+        }
+        if (k == 7) {
+            app.keyWith("ArrowUp" shift ctrl)
+            return
+        }
+        if (k == 8) {
+            app.keyWith("ArrowDown" shift ctrl)
+            return
+        }
+        if (k == 12) {
+            app.keyWith("PageUp" shift ctrl)
+            return
+        }
+        if (k == 13) {
+            app.keyWith("PageDown" shift ctrl)
             return
         }
     }

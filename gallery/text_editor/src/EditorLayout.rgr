@@ -25,6 +25,15 @@ class EditorLayout {
     def fontSize:double 14.0
     def lineHeight:int 20
     def scrollLine:int 0
+    ; Pixels of text scrolled off the left. The gutter (and a host's minimap)
+    ; stay put; only the runs move. Zero until a line is wider than the pane.
+    def scrollX:int 0
+    ; Host chrome inside the layout rectangle: a minimap on the right, a
+    ; horizontal scrollbar along the foot. `contentW` / `contentH` subtract
+    ; them so a long line and the last visible row are measured against the
+    ; text, not against the chrome.
+    def rightInset:int 0
+    def bottomInset:int 0
     def preferCol:int 0
     def showLineNumbers:boolean true
 
@@ -60,7 +69,7 @@ class EditorLayout {
     }
 
     fn contentW:int () {
-        def cw:int (w - gutterW - padX - padX)
+        def cw:int ((((w - gutterW) - padX) - padX) - rightInset)
         if (cw < 1) {
             return 1
         }
@@ -108,7 +117,7 @@ class EditorLayout {
     }
 
     fn contentH:int () {
-        def ch:int (h - padY - padY)
+        def ch:int (((h - padY) - padY) - bottomInset)
         if (ch < 1) {
             return 1
         }
@@ -171,7 +180,30 @@ class EditorLayout {
 
     fn jumpToLine:void (buf:EditorBuffer line:int) {
         scrollLine = line
+        scrollX = 0
         this.clampScroll(buf)
+    }
+
+    fn clampScrollX:void (maxX:int) {
+        if (maxX < 0) {
+            maxX = 0
+        }
+        if (scrollX < 0) {
+            scrollX = 0
+        }
+        if (scrollX > maxX) {
+            scrollX = maxX
+        }
+    }
+
+    fn scrollByX:void (delta:int maxX:int) {
+        scrollX = (scrollX + delta)
+        this.clampScrollX(maxX)
+    }
+
+    ; Pixel X of a column as drawn: content X minus the horizontal scroll.
+    fn caretViewX:int (tr:UITextRenderer buf:EditorBuffer line:int col:int) {
+        return ((this.caretPixelX(tr buf line col)) - scrollX)
     }
 
     ; Pixel X of a column on a line (content-absolute).
@@ -207,7 +239,7 @@ class EditorLayout {
         def s:string (buf.lineAt(line))
         def len:int (strlen s)
         def origin:int (this.lineOriginX(tr buf line))
-        def localX:int (px - origin)
+        def localX:int ((px + scrollX) - origin)
         if (localX <= 0) {
             return (EditorPos.create(line 0))
         }

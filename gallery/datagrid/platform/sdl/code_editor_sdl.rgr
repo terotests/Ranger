@@ -147,6 +147,10 @@ class CodeEditorSdl {
         if (wy != 0) {
             input.addScroll((0 - wy))
         }
+        def wx:int (dgfx_wheel_x)
+        if (wx != 0) {
+            input.addScrollX(wx)
+        }
         def shift:boolean (dgfx_shift_down)
         def ctrl:boolean (dgfx_ctrl_down)
         input.setModifiers(shift ctrl)

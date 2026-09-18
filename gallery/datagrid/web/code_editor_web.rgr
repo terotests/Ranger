@@ -64,6 +64,13 @@ class CodeEditorWeb {
         page.update(input)
     }
 
+    fn wheelX:void (x:int y:int delta:int) {
+        input.newFrame()
+        input.setPointerPos(x y)
+        input.addScrollX(delta)
+        page.update(input)
+    }
+
     fn text:void (s:string shift:boolean ctrl:boolean) {
         input.newFrame()
         input.setModifiers(shift ctrl)

@@ -83,6 +83,12 @@ class ScriptEditorTheme {
     def minimapBg:EVGColor (EVGColor.rgb(22 23 32))
     def minimapSlider:EVGColor (EVGColor.rgba(155 168 210 0.10))
     def minimapEdge:EVGColor (EVGColor.rgb(41 46 66))
+    ; Horizontal scrollbar, the same idea as the minimap's vertical slider:
+    ; a track along the foot of the text and a thumb for how far along the
+    ; longest line you have scrolled.
+    def hBarTrack:EVGColor (EVGColor.rgb(22 23 32))
+    def hBarThumb:EVGColor (EVGColor.rgba(155 168 210 0.45))
+    def hBarEdge:EVGColor (EVGColor.rgb(41 46 66))
 
     Constructor () {
     }
@@ -191,6 +197,15 @@ class ScriptEditor {
     def minimapW:int 96
     def minimapCharW:double 2.0
     def minimapDrag:boolean false
+    ; Horizontal scrollbar along the foot of the text. Hidden while every
+    ; line fits; a drag on the thumb, or a sideways wheel, moves `scrollX`.
+    def hBarSize:int 10
+    def hBarDrag:boolean false
+    def contentWPx:int 0
+    def contentWVersion:int -1
+    ; Last renderer that painted or hit-tested, so a key that must keep the
+    ; caret on screen can measure without the host threading one through.
+    def measureTr@(optional):UITextRenderer
 
     Constructor () {
     }
@@ -301,6 +316,9 @@ class ScriptEditor {
         sel.setCaret(0 0)
         sel.collapseToCaret()
         layout.scrollLine = 0
+        layout.scrollX = 0
+        contentWPx = 0
+        contentWVersion = -1
         layout.fontSize = 13.0
         layout.showLineNumbers = true
         tokenVersion = -1
@@ -313,6 +331,7 @@ class ScriptEditor {
 
     fn setBounds:void (bx:int by:int bw:int bh:int) {
         layout.setBounds(bx by bw bh)
+        layout.rightInset = (this.minimapWidth())
     }
 
     fn insideRect:boolean (px:int py:int) {
@@ -660,6 +679,7 @@ class ScriptEditor {
                 sel.setCaret(li (at + (strlen findQuery)))
                 layout.preferCol = sel.caret.col
                 layout.ensureCaretVisible(buf sel)
+                this.ensureCaretX()
                 return true
             }
             i = (i + 1)
@@ -934,6 +954,219 @@ class ScriptEditor {
         return true
     }
 
+    ; --- horizontal scroll ----------------------------------------------------
+    ; The text area's width, excluding gutter, minimap and the padding the
+    ; caret sits in. This is what a long line is compared against.
+    fn textViewW:int () {
+        def vw:int (((layout.w - layout.gutterW) - (this.minimapWidth())) - layout.padX)
+        vw = (vw - layout.padX)
+        if (vw < 1) {
+            return 1
+        }
+        return vw
+    }
+
+    fn linePixelW:int (tr:UITextRenderer s:string) {
+        def w:int (to_int (tr.measureWidth(s layout.fontSize)))
+        if (w < 1) {
+            def n:int (strlen s)
+            if (n <= 0) {
+                return 0
+            }
+            return (n * 8)
+        }
+        return w
+    }
+
+    fn refreshContentWidth:void (tr:UITextRenderer) {
+        if (contentWVersion == buf.version) {
+            if (contentWPx > 0) {
+                return
+            }
+        }
+        def maxW:int 0
+        def i:int 0
+        def n:int (buf.lineCount())
+        while (i < n) {
+            def s:string (buf.lineAt(i))
+            def lw:int (this.linePixelW(tr s))
+            if (lw > maxW) {
+                maxW = lw
+            }
+            i = (i + 1)
+        }
+        contentWPx = maxW
+        contentWVersion = buf.version
+    }
+
+    fn maxScrollX:int () {
+        def extra:int ((contentWPx - (this.textViewW())) + 8)
+        if (extra < 0) {
+            return 0
+        }
+        return extra
+    }
+
+    fn hScrollH:int () {
+        if ((this.maxScrollX()) > 0) {
+            return hBarSize
+        }
+        return 0
+    }
+
+    fn hBarX:int () {
+        return (layout.x + layout.gutterW)
+    }
+
+    fn hBarY:int () {
+        return ((layout.y + layout.h) - hBarSize)
+    }
+
+    fn hBarW:int () {
+        def bw:int ((layout.w - layout.gutterW) - (this.minimapWidth()))
+        if (bw < 1) {
+            return 1
+        }
+        return bw
+    }
+
+    fn insideHBar:boolean (px:int py:int) {
+        if ((this.hScrollH()) <= 0) {
+            return false
+        }
+        if (px < (this.hBarX())) {
+            return false
+        }
+        if (px >= ((this.hBarX()) + (this.hBarW()))) {
+            return false
+        }
+        if (py < (this.hBarY())) {
+            return false
+        }
+        def bottom:int (layout.y + layout.h)
+        return (py < bottom)
+    }
+
+    fn jumpHBar:void (px:int) {
+        def maxX:int (this.maxScrollX())
+        if (maxX <= 0) {
+            layout.scrollX = 0
+            return
+        }
+        def x0:int ((this.hBarX()) + 4)
+        def span:int ((this.hBarW()) - 8)
+        if (span < 1) {
+            return
+        }
+        def t:double (((to_double px) - (to_double x0)) / (to_double span))
+        if (t < 0.0) {
+            t = 0.0
+        }
+        if (t > 1.0) {
+            t = 1.0
+        }
+        layout.scrollX = (to_int ((t * (to_double maxX)) + 0.5))
+        this.clampHScroll()
+    }
+
+    fn tryHBarPointer:boolean (px:int py:int) {
+        if ((this.insideHBar(px py)) == false) {
+            hBarDrag = false
+            return false
+        }
+        hBarDrag = true
+        this.jumpHBar(px)
+        return true
+    }
+
+    fn clampHScroll:void () {
+        layout.clampScrollX((this.maxScrollX()))
+    }
+
+    fn scrollByX:void (pixels:int) {
+        layout.scrollX = (layout.scrollX + pixels)
+        this.clampHScroll()
+    }
+
+    fn rememberTr:void (tr:UITextRenderer) {
+        measureTr = tr
+    }
+
+    fn caretViewX:int (tr:UITextRenderer line:int col:int) {
+        return (layout.caretViewX(tr buf line col))
+    }
+
+    fn ensureCaretX:void () {
+        if (null? measureTr) {
+            return
+        }
+        def tr:UITextRenderer (unwrap measureTr)
+        this.refreshContentWidth(tr)
+        def cx:int (layout.caretPixelX(tr buf sel.caret.line sel.caret.col))
+        def left:int (layout.contentX())
+        def view:int (this.textViewW())
+        def rel:int (cx - left)
+        if (rel < layout.scrollX) {
+            layout.scrollX = rel
+        }
+        def right:int ((layout.scrollX + view) - 2)
+        if (rel > right) {
+            layout.scrollX = ((rel - view) + 2)
+        }
+        this.clampHScroll()
+    }
+
+    fn paintHScroll:void (dl:EVGDisplayList) {
+        if ((this.hScrollH()) <= 0) {
+            return
+        }
+        def x0:double (to_double (this.hBarX()))
+        def y0:double (to_double (this.hBarY()))
+        def w0:double (to_double (this.hBarW()))
+        def h0:double (to_double hBarSize)
+        this.pushRect(dl x0 y0 w0 h0 theme.hBarTrack)
+        def edge:EVGDrawCmd (new EVGDrawCmd)
+        edge.kind = 1
+        edge.x = x0
+        edge.y = y0
+        edge.w = w0
+        edge.h = 1.0
+        edge.thickness = 1.0
+        edge.r = (theme.hBarEdge.red())
+        edge.g = (theme.hBarEdge.green())
+        edge.b = (theme.hBarEdge.blue())
+        edge.a = (theme.hBarEdge.alpha())
+        push dl.cmds edge
+        def maxX:int (this.maxScrollX())
+        def trackW:double (w0 - 8.0)
+        if (trackW < 8.0) {
+            return
+        }
+        def view:double (to_double (this.textViewW()))
+        def content:double (view + (to_double maxX))
+        if (content < 1.0) {
+            return
+        }
+        def thumbW:double ((trackW * view) / content)
+        if (thumbW < 24.0) {
+            thumbW = 24.0
+        }
+        if (thumbW > trackW) {
+            thumbW = trackW
+        }
+        def travel:double (trackW - thumbW)
+        def thumbX:double ((x0 + 4.0) + ((travel * (to_double layout.scrollX)) / (to_double maxX)))
+        if (maxX <= 0) {
+            thumbX = (x0 + 4.0)
+        }
+        def thumbY:double (y0 + 2.0)
+        def thumbH:double (h0 - 4.0)
+        if (thumbH < 4.0) {
+            thumbH = 4.0
+        }
+        this.pushRect(dl thumbX thumbY thumbW thumbH theme.hBarThumb)
+    }
+
     ; --- painting -------------------------------------------------------------
     fn pushRect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
         def c:EVGDrawCmd (new EVGDrawCmd)
@@ -988,8 +1221,17 @@ class ScriptEditor {
     ; `blink` is a phase, not a frame count: the page derives it from the
     ; clock so a page that only repaints when something changed still blinks.
     fn paint:void (dl:EVGDisplayList tr:UITextRenderer blink:int) {
+        this.rememberTr(tr)
         layout.syncMetrics(tr)
+        layout.rightInset = (this.minimapWidth())
+        this.refreshContentWidth(tr)
+        if ((this.maxScrollX()) > 0) {
+            layout.bottomInset = hBarSize
+        } {
+            layout.bottomInset = 0
+        }
         layout.clampScroll(buf)
+        this.clampHScroll()
         this.ensureTokens()
         this.ensureDiagnostics()
         def x0:double (to_double layout.x)
@@ -1005,25 +1247,31 @@ class ScriptEditor {
         def first:int (layout.firstVisible())
         def last:int (layout.lastVisible(buf))
         def caretLine:int sel.caret.line
+        def barH:int (this.hScrollH())
+        def textH:double (h0 - (to_double barH))
+        def textX:double (to_double (layout.x + layout.gutterW))
+        def textW:double (clipW - (to_double layout.gutterW))
 
         ; The line the caret is on, banded across the text area — the one piece
         ; of chrome that makes a wall of code navigable.
         if (sel.isCollapsed()) {
             if ((caretLine >= first) && (caretLine <= last)) {
                 def bandY:double (to_double (layout.caretPixelY(caretLine)))
-                def bandX:double (to_double (layout.x + layout.gutterW))
-                def bandW:double ((to_double (layout.w - layout.gutterW)) - (to_double mapW))
+                def bandX:double textX
+                def bandW:double textW
                 this.pushRect(dl bandX bandY bandW (to_double layout.lineHeight) theme.currentLine)
             }
         } {
+            this.pushClip(dl textX y0 textW textH)
             this.paintSelection(dl tr first last)
+            this.popClip(dl)
         }
 
         ; Diff bands under the text, over the current-line band: the change
         ; is what this view is for.
         if ((array_length lineMarks) > 0) {
-            def bandX2:double (to_double (layout.x + layout.gutterW))
-            def bandW2:double ((to_double (layout.w - layout.gutterW)) - (to_double mapW))
+            def bandX2:double textX
+            def bandW2:double textW
             def mi:int first
             while (mi <= last) {
                 def mark:int (this.lineMark(mi))
@@ -1054,21 +1302,27 @@ class ScriptEditor {
                 numCol = theme.gutterActive
             }
             this.pushText(dl tr num (to_double nx) (to_double (ty + 2)) numSize numCol)
-            this.paintLine(dl tr li ty)
             li = (li + 1)
         }
 
-        ; Diagnostics over the text: a squiggle under the span and a mark in
-        ; the gutter, so a problem below the fold is still visible as a colour
-        ; in the margin.
-        this.paintDiagnostics(dl tr first last)
+        this.pushClip(dl textX y0 textW textH)
+        def lj:int first
+        while (lj <= last) {
+            this.paintLine(dl tr lj (layout.caretPixelY(lj)))
+            lj = (lj + 1)
+        }
+
+        ; Diagnostics over the text: a squiggle under the span. Gutter marks
+        ; are painted after this clip so a problem still shows in the margin
+        ; when the span itself has scrolled off to the left.
+        this.paintDiagnosticSquiggles(dl tr first last)
 
         ; Caret: on for half a second, off for half a second, at 60 fps.
         if focused {
             if ((caretLine >= first) && (caretLine <= last)) {
                 def on:int (blink - ((idiv blink 2) * 2))
                 if (on == 0) {
-                    def cx:int (layout.caretPixelX(tr buf caretLine sel.caret.col))
+                    def cx:int (this.caretViewX(tr caretLine sel.caret.col))
                     def cy:int (layout.caretPixelY(caretLine))
                     this.pushRect(dl (to_double cx) (to_double cy) 2.0 (to_double layout.lineHeight) theme.caret)
                 }
@@ -1078,8 +1332,11 @@ class ScriptEditor {
         ; popup that could be drawn outside the editor would be drawn over the
         ; status bar the first time someone typed on the last line.
         this.paintCompletions(dl tr)
+        this.popClip(dl)
+        this.paintDiagnosticMarks(dl tr first last)
         this.paintFind(dl tr blink)
         this.popClip(dl)
+        this.paintHScroll(dl)
         this.paintMinimap(dl)
         def edge:EVGDrawCmd (new EVGDrawCmd)
         edge.kind = 1
@@ -1125,7 +1382,7 @@ class ScriptEditor {
         }
         def boxW:double (widest + 28.0)
         def boxH:double (to_double (rowH * shown))
-        def x:double (to_double (layout.caretPixelX(tr buf completionLine completionStart)))
+        def x:double (to_double (this.caretViewX(tr completionLine completionStart)))
         def y:double (to_double ((layout.caretPixelY(completionLine)) + layout.lineHeight + 2))
         ; Flip above the caret when there is no room below it.
         def bottom:double (y + boxH)
@@ -1208,7 +1465,20 @@ class ScriptEditor {
         }
     }
 
+    fn paintDiagnosticSquiggles:void (dl:EVGDisplayList tr:UITextRenderer first:int last:int) {
+        this.paintDiagnosticsAt(dl tr first last false)
+    }
+
+    fn paintDiagnosticMarks:void (dl:EVGDisplayList tr:UITextRenderer first:int last:int) {
+        this.paintDiagnosticsAt(dl tr first last true)
+    }
+
     fn paintDiagnostics:void (dl:EVGDisplayList tr:UITextRenderer first:int last:int) {
+        this.paintDiagnosticSquiggles(dl tr first last)
+        this.paintDiagnosticMarks(dl tr first last)
+    }
+
+    fn paintDiagnosticsAt:void (dl:EVGDisplayList tr:UITextRenderer first:int last:int marks:boolean) {
         def i:int 0
         def n:int (array_length diagnostics)
         while (i < n) {
@@ -1219,40 +1489,42 @@ class ScriptEditor {
             def line:int dl0
             while (line <= dl1) {
                 if ((line >= first) && (line <= last)) {
-                    def text:string (buf.lineAt(line))
-                    def len:int (strlen text)
-                    def c0:int 0
-                    def c1:int len
-                    if (line == dl0) {
-                        c0 = d.col
-                    }
-                    if (line == dl1) {
-                        c1 = d.endCol
-                    }
-                    if (c1 > len) {
-                        c1 = len
-                    }
-                    if (c1 <= c0) {
-                        ; A zero-width complaint still has to be visible, so it
-                        ; underlines the character it points at.
-                        c1 = (c0 + 1)
-                        if (c1 > len) {
-                            c0 = len
-                            c1 = (len + 1)
+                    if marks {
+                        def gx:double (to_double (layout.x + 4))
+                        def gy:double (to_double ((layout.caretPixelY(line)) + 5))
+                        this.pushRect(dl gx gy 3.0 (to_double (layout.lineHeight - 10)) col)
+                    } {
+                        def text:string (buf.lineAt(line))
+                        def len:int (strlen text)
+                        def c0:int 0
+                        def c1:int len
+                        if (line == dl0) {
+                            c0 = d.col
                         }
+                        if (line == dl1) {
+                            c1 = d.endCol
+                        }
+                        if (c1 > len) {
+                            c1 = len
+                        }
+                        if (c1 <= c0) {
+                            ; A zero-width complaint still has to be visible, so it
+                            ; underlines the character it points at.
+                            c1 = (c0 + 1)
+                            if (c1 > len) {
+                                c0 = len
+                                c1 = (len + 1)
+                            }
+                        }
+                        def x0:int (this.caretViewX(tr line c0))
+                        def x1:int (this.caretViewX(tr line c1))
+                        def wide:double ((to_double x1) - (to_double x0))
+                        if (wide < 6.0) {
+                            x1 = (x0 + 6)
+                        }
+                        def yBase:double (to_double ((layout.caretPixelY(line)) + layout.lineHeight - 3))
+                        this.paintSquiggle(dl (to_double x0) yBase (to_double x1) col)
                     }
-                    def x0:int (layout.caretPixelX(tr buf line c0))
-                    def x1:int (layout.caretPixelX(tr buf line c1))
-                    def wide:double ((to_double x1) - (to_double x0))
-                    if (wide < 6.0) {
-                        x1 = (x0 + 6)
-                    }
-                    def yBase:double (to_double ((layout.caretPixelY(line)) + layout.lineHeight - 3))
-                    this.paintSquiggle(dl (to_double x0) yBase (to_double x1) col)
-                    ; The gutter mark.
-                    def gx:double (to_double (layout.x + 4))
-                    def gy:double (to_double ((layout.caretPixelY(line)) + 5))
-                    this.pushRect(dl gx gy 3.0 (to_double (layout.lineHeight - 10)) col)
                 }
                 line = (line + 1)
             }
@@ -1286,8 +1558,8 @@ class ScriptEditor {
                 if (c1 < c0) {
                     c1 = c0
                 }
-                def x0:int (layout.caretPixelX(tr buf line c0))
-                def x1:int (layout.caretPixelX(tr buf line c1))
+                def x0:int (this.caretViewX(tr line c0))
+                def x1:int (this.caretViewX(tr line c1))
                 if (line < b.line) {
                     ; A selection that continues onto the next line covers the
                     ; newline too, or a block selection looks like ragged bars.
@@ -1312,7 +1584,7 @@ class ScriptEditor {
         def toks:CodeTokenLine (this.tokensFor(line))
         def n:int (toks.count())
         if (n == 0) {
-            def plainX:int (layout.caretPixelX(tr buf line 0))
+            def plainX:int (this.caretViewX(tr line 0))
             this.pushText(dl tr s (to_double plainX) (to_double ty) layout.fontSize theme.plain)
             return
         }
@@ -1321,7 +1593,7 @@ class ScriptEditor {
             def t:CodeToken (toks.at(i))
             def stop:int (t.start + t.len)
             def part:string (substring s t.start stop)
-            def px:int (layout.caretPixelX(tr buf line t.start))
+            def px:int (this.caretViewX(tr line t.start))
             def col:EVGColor (theme.forKind(t.kind))
             this.pushText(dl tr part (to_double px) (to_double ty) layout.fontSize col)
             i = (i + 1)
@@ -1674,6 +1946,7 @@ class ScriptEditor {
         sel.collapseToCaret()
         layout.preferCol = sel.caret.col
         layout.ensureCaretVisible(buf sel)
+        this.ensureCaretX()
         dirty = true
     }
 
@@ -1685,6 +1958,7 @@ class ScriptEditor {
             sel.collapseToCaret()
         }
         layout.ensureCaretVisible(buf sel)
+        this.ensureCaretX()
     }
 
     fn deleteSelection:boolean () {
@@ -1840,6 +2114,7 @@ class ScriptEditor {
         }
         layout.preferCol = sel.caret.col
         layout.ensureCaretVisible(buf sel)
+        this.ensureCaretX()
         lastEditMs = (wall_clock_ms)
         dirty = true
     }
@@ -1939,6 +2214,7 @@ class ScriptEditor {
     fn selectAll:void () {
         sel.selectAll(buf)
         layout.ensureCaretVisible(buf sel)
+        this.ensureCaretX()
     }
 
     fn undo:void () {
@@ -2261,8 +2537,12 @@ class ScriptEditor {
 
     fn pointerDown:void (tr:UITextRenderer px:int py:int extend:boolean) {
         focused = true
+        this.rememberTr(tr)
         this.closeCompletions()
         if (this.tryMinimapPointer(px py)) {
+            return
+        }
+        if (this.tryHBarPointer(px py)) {
             return
         }
         def hit:EditorPos (layout.hitTest(tr buf px py))
@@ -2307,6 +2587,7 @@ class ScriptEditor {
         sel.setCaret(p.line to)
         layout.preferCol = to
         layout.ensureCaretVisible(buf sel)
+        this.ensureCaretX()
     }
 
     fn selectLineAt:void (tr:UITextRenderer px:int py:int) {
@@ -2321,15 +2602,26 @@ class ScriptEditor {
         sel.setCaret(hit.line len)
         layout.preferCol = len
         layout.ensureCaretVisible(buf sel)
+        this.ensureCaretX()
     }
 
     fn pointerDrag:void (tr:UITextRenderer px:int py:int) {
+        this.rememberTr(tr)
+        if hBarDrag {
+            this.jumpHBar(px)
+            return
+        }
         if minimapDrag {
             this.jumpMinimap(py)
             return
         }
         def hit:EditorPos (layout.hitTest(tr buf px py))
         this.moveCaret(hit.line hit.col true)
+    }
+
+    fn pointerUp:void () {
+        minimapDrag = false
+        hBarDrag = false
     }
 
     fn scrollBy:void (notches:int) {

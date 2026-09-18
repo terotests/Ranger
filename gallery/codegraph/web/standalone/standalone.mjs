@@ -141,7 +141,15 @@ canvas.addEventListener("wheel", (ev) => {
   if (app.inCanvas(x, y)) {
     app.wheelGesture(app.localX(x), app.localY(y), ev.deltaX, ev.deltaY, ev.ctrlKey || ev.metaKey, ev.deltaMode === 1);
   } else {
-    app.wheel(x, y, ev.deltaY);
+    let dx = ev.deltaX;
+    let dy = ev.deltaY;
+    // A mouse wheel has no sideways axis; Shift+wheel is the usual stand-in.
+    if (ev.shiftKey && Math.abs(dx) < Math.abs(dy)) {
+      dx = dy;
+      dy = 0;
+    }
+    if (typeof app.wheelXY === "function") app.wheelXY(x, y, dx, dy);
+    else app.wheel(x, y, dy);
   }
   sceneStale = true;
 }, { passive: false });
@@ -183,6 +191,26 @@ window.addEventListener("keydown", (ev) => {
   }
   const focus = app.focusedField() || "";
   const onSep = String(focus).indexOf("cg-split-sep") === 0;
+  const inSource = typeof app.sourceActive === "function" && app.sourceActive();
+  const editorKeys = {
+    ArrowLeft: 1, ArrowRight: 1, ArrowUp: 1, ArrowDown: 1,
+    Home: 1, End: 1, PageUp: 1, PageDown: 1,
+    Enter: 1, Backspace: 1, Delete: 1,
+  };
+  if (inSource) {
+    if (editorKeys[ev.key]) {
+      app.keyWith(ev.key, ev.shiftKey, ctrl);
+      ev.preventDefault();
+      sceneStale = true;
+      return;
+    }
+    if (ev.key.length === 1 && !ctrl) {
+      app.typeText(ev.key);
+      ev.preventDefault();
+      sceneStale = true;
+    }
+    return;
+  }
   if (onSep) {
     if (ev.key === "ArrowLeft" || ev.key === "ArrowRight" || ev.key === "Home" || ev.key === "End") {
       app.keyWith(ev.key, ev.shiftKey, ctrl);
