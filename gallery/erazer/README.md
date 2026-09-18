@@ -42,8 +42,12 @@ npm run erazer:shots                # HTML widgets + live-page PNGs
 it skips the atlas. `--vectorizeIcons false` leaves icons as labelled boxes.
 
 The live page paints the same fixtures the tests use — a form, tabs, a menu,
-a plus icon — and also accepts a PNG/JPEG drop or an HTML-widget screenshot
-(`?sample=form`, `?png=login.png`). Nothing is uploaded.
+a plus icon — and accepts a PNG/JPEG/WebP from the file picker, the camera,
+a paste (`Ctrl/⌘+V` or the **Liitä** button) or a drop. Nothing is uploaded.
+On a phone **Valitse kuva** opens Kuvat; a screenshot can be pasted after a
+long-press. Live on GitHub Pages:
+
+<https://terotests.github.io/Ranger/evg/erazer/>
 
 ## What it looks like
 

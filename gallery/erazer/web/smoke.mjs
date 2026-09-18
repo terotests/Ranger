@@ -23,6 +23,14 @@ if (!html.includes("erazer.js") || !html.includes("Erazer")) {
   console.error("index.html does not load the Erazer bundle");
   process.exit(1);
 }
+if (!html.includes('id="file"') || !html.includes('accept="image/*"')) {
+  console.error("live page is missing a file input that accepts images");
+  process.exit(1);
+}
+if (!html.includes("paste") || !html.includes("loadBlob")) {
+  console.error("live page is missing paste / blob load");
+  process.exit(1);
+}
 
 const bundle = fs.readFileSync(path.join(DIST, "erazer.js"), "utf8");
 const sandbox = { console, globalThis: {} };
