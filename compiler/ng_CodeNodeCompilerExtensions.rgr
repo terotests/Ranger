@@ -84,6 +84,11 @@ extension CodeNode {
   def flow_ctx:RangerAppWriterContext
 
   def is_part_of_chain false
+  ; A `.name` the reader attached to the parenthesised expression it follows
+  ; -- `(unwrap x).name` -- as that expression's LAST child. The flow parser
+  ; hoists the expression into a temporary and rewrites the pair to
+  ; `<tmp>.name` before anything else reads the node.
+  def is_paren_member false
   def methodChain:[CallChain]
 
   def chainTarget:CodeNode
@@ -311,6 +316,7 @@ extension CodeNode {
     nullify cp.operator_node
     nullify cp.flow_ctx
     cp.is_part_of_chain = false
+    cp.is_paren_member = is_paren_member
     clear cp.methodChain
     nullify cp.chainTarget
     cp.tag = ""
@@ -540,6 +546,7 @@ extension CodeNode {
     newNode.mutable_def = mutable_def
     newNode.expression = expression
     newNode.register_name = register_name
+    newNode.is_paren_member = is_paren_member
     newNode.operator_node = operator_node
     if changeVref {
       newNode.vref = (match.getTypeName(vref))
@@ -671,6 +678,7 @@ extension CodeNode {
     newNode.expression = expression
     newNode.register_name = register_name
     newNode.reg_compiled_name = reg_compiled_name
+    newNode.is_paren_member = is_paren_member
     newNode.operator_node = operator_node
     newNode.matched_type = matched_type
     if changeVref {

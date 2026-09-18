@@ -166,6 +166,105 @@ class RangerLispParser {
     return did_break
   }
   
+  ; `(expr).name` -- a member access on a parenthesised expression. The
+  ; `.name` token written right against the closing paren is attached to the
+  ; expression node as its flagged last child; the flow parser binds the
+  ; expression to a temporary and reads `<tmp>.name` instead, so no writer
+  ; has to put a member access on an expression result.
+  ;
+  ; Only an INFIX context is rewritten -- `(expr).name == x`, `x + (expr).name`
+  ; -- because that is where the infix rewriter took the `.name` token as an
+  ; operand on its own and lost the expression. Every other shape
+  ; (`def n (expr).name`, `((expr).name)`, `(expr).name = v`, a call
+  ; `(expr).m(a)`) already reaches the writers through the existing chain
+  ; machinery and keeps its code generation. A call inside an infix
+  ; expression -- `(expr).m(a) + 1` -- is not rewritten: bind the receiver.
+  fn attachParenMember:void ( closed@(lives):CodeNode  listNode@(lives):CodeNode) {
+    def s:charbuffer ( unwrap buff)
+    if (closed.is_block_node) {
+      return
+    }
+    if ((i + 1) >= len) {
+      return
+    }
+    if (((charAt s i)) != ((ccode "."))) {
+      return
+    }
+    def c1:char (charAt s (i + 1))
+    def isIdStart:boolean false
+    if ((c1 >= 65) && (c1 <= 90)) {
+      isIdStart = true
+    }
+    if ((c1 >= 97) && (c1 <= 122)) {
+      isIdStart = true
+    }
+    if ((c1 == ((ccode "_"))) || (c1 == ((ccode "$")))) {
+      isIdStart = true
+    }
+    if (false == isIdStart) {
+      return
+    }
+    def msp:int i
+    i = i + 1
+    while (i < len) {
+      def mc:char (charAt s i)
+      if ((mc <= 32) || (mc == 40) || (mc == 41) || (mc == ((ccode "}"))) || (mc == ((ccode ","))) || (mc == 58)) {
+        break
+      }
+      if ((mc == ((ccode "="))) || (mc == ((ccode "<"))) || (mc == ((ccode ">"))) || (mc == ((ccode "!"))) || (mc == ((ccode "&"))) || (mc == ((ccode "|"))) || (mc == ((ccode "+"))) || (mc == ((ccode "-"))) || (mc == ((ccode "*"))) || (mc == ((ccode "/")))) {
+        break
+      }
+      i = i + 1
+    }
+    ; A METHOD call -- `(expr).m(args)` -- keeps the shape the method-chain
+    ; machinery already handles: the `.m` stays a sibling of the expression.
+    ; Only a property read is attached here.
+    if ((i < len) && (((charAt s i)) == 40)) {
+      i = msp
+      return
+    }
+    def inInfix:boolean listNode.infix_operator
+    if (false == inInfix) {
+      ; the operand on the LEFT of an operator: peek past the spaces
+      def pk:int i
+      while ((pk < len) && (((charAt s pk)) <= 32) && (((charAt s pk)) != 10) && (((charAt s pk)) != 13)) {
+        pk = pk + 1
+      }
+      if (pk < len) {
+        def oc:char (charAt s pk)
+        def oc2:char 0
+        if ((pk + 1) < len) {
+          oc2 = (charAt s (pk + 1))
+        }
+        if ((oc == ((ccode "+"))) || (oc == ((ccode "-"))) || (oc == ((ccode "*"))) || (oc == ((ccode "/"))) || (oc == ((ccode "<"))) || (oc == ((ccode ">")))) {
+          inInfix = true
+        }
+        if ((oc == ((ccode "&"))) && (oc2 == ((ccode "&")))) {
+          inInfix = true
+        }
+        if ((oc == ((ccode "|"))) && (oc2 == ((ccode "|")))) {
+          inInfix = true
+        }
+        if ((oc == ((ccode "!"))) && (oc2 == ((ccode "=")))) {
+          inInfix = true
+        }
+        if ((oc == ((ccode "="))) && (oc2 == ((ccode "=")))) {
+          inInfix = true
+        }
+      }
+    }
+    if (false == inInfix) {
+      i = msp
+      return
+    }
+    def memberNode:CodeNode (new CodeNode(( unwrap code) msp i))
+    memberNode.vref = (substring s msp i)
+    memberNode.value_type = RangerNodeType.VRef
+    memberNode.is_paren_member = true
+    memberNode.parent = closed
+    push closed.children memberNode
+  }
+
   fn end_expression:boolean (consumeCurrent:boolean) {
     if (consumeCurrent) {
       i = 1 + i
@@ -1131,12 +1230,19 @@ class RangerLispParser {
             if (c == ((ccode "{"))) {
               curr_node.is_block_node = true
             }
+            def closedNode@(optional weak):CodeNode curr_node
+            def closedWasCall:boolean did_fold_call
             i = 1 + i
             this.parseBuf(s disable_ops_set)
             if (did_fold_call) {
               def folded:CodeNode ( unwrap folded_call)
               folded.ep = i
               did_fold_call = false
+            }
+            ; `(expr).name`: a member access on the expression just closed.
+            ; A folded call -- `foo(x).bar` -- keeps the chain shape instead.
+            if ((false == closedWasCall) && (!null? closedNode)) {
+              this.attachParenMember(( unwrap closedNode) ( unwrap curr_node))
             }
             continue 
           }

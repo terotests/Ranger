@@ -4836,6 +4836,7 @@ class CodeNode  {
     this.operator_node = undefined;
     this.flow_ctx = undefined;
     this.is_part_of_chain = false;
+    this.is_paren_member = false;
     this.methodChain = [];
     this.chainTarget = undefined;
     this.register_set = false;
@@ -5489,6 +5490,7 @@ class CodeNode  {
     cp.operator_node = undefined;
     cp.flow_ctx = undefined;
     cp.is_part_of_chain = false;
+    cp.is_paren_member = this.is_paren_member;
     cp.methodChain.length = 0;
     cp.chainTarget = undefined;
     cp.tag = "";
@@ -5658,6 +5660,7 @@ class CodeNode  {
     newNode.mutable_def = this.mutable_def;
     newNode.expression = this.expression;
     newNode.register_name = this.register_name;
+    newNode.is_paren_member = this.is_paren_member;
     newNode.operator_node = this.operator_node;
     if ( changeVref ) {
       newNode.vref = match.getTypeName(this.vref);
@@ -5777,6 +5780,7 @@ class CodeNode  {
     newNode.expression = this.expression;
     newNode.register_name = this.register_name;
     newNode.reg_compiled_name = this.reg_compiled_name;
+    newNode.is_paren_member = this.is_paren_member;
     newNode.operator_node = this.operator_node;
     newNode.matched_type = this.matched_type;
     if ( changeVref ) {
@@ -9937,6 +9941,87 @@ class RangerLispParser  {
     };
     return did_break;
   };
+  attachParenMember (closed, listNode) {
+    const s = this.buff;
+    if ( closed.is_block_node ) {
+      return;
+    }
+    if ( this.i + 1 >= this.__len ) {
+      return;
+    }
+    if ( s.charCodeAt(this.i ) != (46) ) {
+      return;
+    }
+    const c1 = s.charCodeAt((this.i + 1) );
+    let isIdStart = false;
+    if ( c1 >= 65 && c1 <= 90 ) {
+      isIdStart = true;
+    }
+    if ( c1 >= 97 && c1 <= 122 ) {
+      isIdStart = true;
+    }
+    if ( c1 == (95) || c1 == (36) ) {
+      isIdStart = true;
+    }
+    if ( false == isIdStart ) {
+      return;
+    }
+    const msp = this.i;
+    this.i = this.i + 1;
+    while (this.i < this.__len) {
+      const mc = s.charCodeAt(this.i );
+      if ( ((((mc <= 32 || mc == 40) || mc == 41) || mc == (125)) || mc == (44)) || mc == 58 ) {
+        break;
+      }
+      if ( ((((((((mc == (61) || mc == (60)) || mc == (62)) || mc == (33)) || mc == (38)) || mc == (124)) || mc == (43)) || mc == (45)) || mc == (42)) || mc == (47) ) {
+        break;
+      }
+      this.i = this.i + 1;
+    };
+    if ( this.i < this.__len && s.charCodeAt(this.i ) == 40 ) {
+      this.i = msp;
+      return;
+    }
+    let inInfix = listNode.infix_operator;
+    if ( false == inInfix ) {
+      let pk = this.i;
+      while (((pk < this.__len && s.charCodeAt(pk ) <= 32) && s.charCodeAt(pk ) != 10) && s.charCodeAt(pk ) != 13) {
+        pk = pk + 1;
+      };
+      if ( pk < this.__len ) {
+        const oc = s.charCodeAt(pk );
+        let oc2 = 0;
+        if ( pk + 1 < this.__len ) {
+          oc2 = s.charCodeAt((pk + 1) );
+        }
+        if ( ((((oc == (43) || oc == (45)) || oc == (42)) || oc == (47)) || oc == (60)) || oc == (62) ) {
+          inInfix = true;
+        }
+        if ( oc == (38) && oc2 == (38) ) {
+          inInfix = true;
+        }
+        if ( oc == (124) && oc2 == (124) ) {
+          inInfix = true;
+        }
+        if ( oc == (33) && oc2 == (61) ) {
+          inInfix = true;
+        }
+        if ( oc == (61) && oc2 == (61) ) {
+          inInfix = true;
+        }
+      }
+    }
+    if ( false == inInfix ) {
+      this.i = msp;
+      return;
+    }
+    const memberNode = new CodeNode(this.code, msp, this.i);
+    memberNode.vref = s.substring(msp, this.i );
+    memberNode.value_type = 11;
+    memberNode.is_paren_member = true;
+    memberNode.parent = closed;
+    closed.children.push(memberNode);
+  };
   end_expression (consumeCurrent) {
     if ( consumeCurrent ) {
       this.i = 1 + this.i;
@@ -10759,12 +10844,17 @@ class RangerLispParser  {
             if ( c == (123) ) {
               this.curr_node.is_block_node = true;
             }
+            const closedNode = this.curr_node;
+            const closedWasCall = did_fold_call;
             this.i = 1 + this.i;
             this.parseBuf(s, disable_ops_set);
             if ( did_fold_call ) {
               const folded = folded_call;
               folded.ep = this.i;
               did_fold_call = false;
+            }
+            if ( false == closedWasCall && ((typeof(closedNode) !== "undefined" && closedNode != null ) ) ) {
+              this.attachParenMember(closedNode, this.curr_node);
             }
             continue;
           }
@@ -14841,11 +14931,58 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       };
     };
+    hoistParenthesisedReceivers (node, ctx, wr) {
+      let i = 0;
+      while (i < node.children.length) {
+        const item = node.children[i];
+        let advanced = false;
+        if ( item.expression && node.children.length > 0 ) {
+          const icnt = item.children.length;
+          if ( icnt > 1 ) {
+            const lastCh = item.children[(icnt - 1)];
+            if ( lastCh.is_paren_member ) {
+              const dotName = lastCh.vref;
+              const blockOpU = ctx.getLastBlockOp();
+              if ( (typeof(blockOpU) !== "undefined" && blockOpU != null )  ) {
+                const BlockOP = blockOpU;
+                let inLoopHead = false;
+                if ( BlockOP.children.length > 0 ) {
+                  const opHead = BlockOP.getFirst();
+                  if ( opHead.vref == "while" || opHead.vref == "for" ) {
+                    inLoopHead = true;
+                  }
+                }
+                item.children.splice(icnt - 1, 1);
+                if ( inLoopHead ) {
+                  ctx.addError(lastCh, ((("A parenthesised receiver cannot be used in a loop condition: bind it first, as in `def recv " + item.getCode()) + "` and then `recv") + dotName) + "`");
+                } else {
+                  const regName = ctx.createNewRegName();
+                  const regExpr = node.newExpressionNode();
+                  regExpr.add(node.newVRefNode("def"));
+                  regExpr.add(node.newVRefNode(regName));
+                  regExpr.add(item.copy());
+                  this.WalkNode(regExpr, ctx, wr);
+                  BlockOP.register_expressions.push(regExpr);
+                  const joined = node.newVRefNode((regName + dotName));
+                  joined.parent = node;
+                  node.children[i] = joined;
+                  advanced = true;
+                }
+              }
+            }
+          }
+        }
+        if ( false == advanced ) {
+          i = i + 1;
+        }
+      };
+    };
     WalkNodeChildren (node, ctx, wr) {
       if ( node.hasStringProperty("todo") ) {
         ctx.addTodo(node, node.getStringProperty("todo"));
       }
       if ( node.expression ) {
+        this.hoistParenthesisedReceivers(node, ctx, wr);
         this.fixExpressionAssignmentChains(node);
         for ( let i = 0; i < node.children.length; i++) {
           var item = node.children[i];
@@ -14867,6 +15004,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       node.flow_ctx = ctx;
       node.flow_done = true;
+      if ( node.expression ) {
+        this.hoistParenthesisedReceivers(node, ctx, wr);
+      }
       this.lastProcessedNode = node;
       if ( node.hasStringProperty("todo") ) {
         ctx.addTodo(node, node.getStringProperty("todo"));
@@ -15160,6 +15300,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       }
       if ( node.expression ) {
+        this.hoistParenthesisedReceivers(node, ctx, wr);
         this.fixExpressionAssignmentChains(node);
         for ( let i = 0; i < node.children.length; i++) {
           var item = node.children[i];
@@ -75495,6 +75636,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     var child = node.children[i];
                                     this.walkForSharedLocals(child);
                                   };
+                                  if ( node.register_expressions.length > 0 ) {
+                                    for ( let ri = 0; ri < node.register_expressions.length; ri++) {
+                                      var regChild = node.register_expressions[ri];
+                                      this.walkForSharedLocals(regChild);
+                                    };
+                                  }
                                 };
                                 fnUsesThisValue (fn) {
                                   if ( typeof(fn.fnBody) === "undefined" ) {

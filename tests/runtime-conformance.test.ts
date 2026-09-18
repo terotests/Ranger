@@ -177,6 +177,8 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["class-expr", "var C = class { m() { return 3; } }; return new C().m();", "classes"],
   ["class-static", "class A { static s() { return 4; } } return A.s();", "classes"],
   ["class-getter", "class A { get v() { return 5; } } return new A().v;", "classes"],
+  ["class-ctor-closure-field-call", "class A { constructor() { var k = 4; this.cb = function () { return k; }; } } var a = new A(); return a.cb();", "classes"],
+  ["class-ctor-arrow-this-field-call", "class A { constructor() { this.cb = () => this; } } var a = new A(); return a.cb() === a;", "classes"],
   ["class-extends", "class A { m() { return 1; } } class B extends A {} return new B().m();", "classes"],
   ["class-super", "class A { constructor() { this.x = 1; } } class B extends A { constructor() { super(); this.y = 2; } } var b = new B(); return b.x + b.y;", "classes"],
   ["class-instanceof", "class A {} return (new A()) instanceof A;", "classes"],

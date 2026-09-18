@@ -1,0 +1,19 @@
+; A parenthesised receiver in a LOOP CONDITION is refused: the temporary the
+; rewrite binds would be evaluated once for the whole loop.
+class Box {
+  def v:int 1
+}
+class Holder {
+  def b@(optional):Box
+}
+class ParenReceiverLoopHead {
+  sfn m@(main):void () {
+    def h (new Holder())
+    h.b = (new Box())
+    def guard:int 0
+    while (((unwrap h.b).v > 0) && (guard < 1)) {
+      guard = (guard + 1)
+    }
+    print (to_string guard)
+  }
+}

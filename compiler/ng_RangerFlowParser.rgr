@@ -276,11 +276,72 @@ class RangerFlowParser {
     }
   }
 
+  ; A PARENTHESISED RECEIVER -- `(unwrap x).field`, `(f()).m(a)`,
+  ; `(a b).c.d` -- arrives from the reader as the expression with the
+  ; `.name` token attached as its flagged last child. No writer can put a
+  ; member access on an expression result, so the expression is bound to a
+  ; temporary in the enclosing statement's register expressions (the slot
+  ; operator arguments are hoisted into) and the node is replaced by one
+  ; ordinary variable path, `<tmp>.field`, which every target already
+  ; writes. A method call keeps its argument list after the new path, so
+  ; `<tmp>.m (a)` is the normal local-call shape.
+  ;
+  ; The hoisted binding runs once, before the statement. In a loop CONDITION
+  ; that would evaluate the receiver once for the whole loop, so that shape
+  ; is refused with a message rather than compiled wrong.
+  fn hoistParenthesisedReceivers:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def i:int 0
+    while (i < (size node.children)) {
+      def item:CodeNode (at node.children i)
+      def advanced:boolean false
+      if (item.expression && ((size node.children) > 0)) {
+        def icnt:int (size item.children)
+        if (icnt > 1) {
+          def lastCh:CodeNode (at item.children (icnt - 1))
+          if lastCh.is_paren_member {
+            def dotName:string lastCh.vref
+            def blockOpU@(optional weak):CodeNode (ctx.getLastBlockOp())
+            if (!null? blockOpU) {
+              def BlockOP:CodeNode (unwrap blockOpU)
+              def inLoopHead:boolean false
+              if (has BlockOP.children) {
+                def opHead:CodeNode (BlockOP.getFirst())
+                if ((opHead.vref == "while") || (opHead.vref == "for")) {
+                  inLoopHead = true
+                }
+              }
+              remove item.children (icnt - 1)
+              if inLoopHead {
+                ctx.addError(lastCh ("A parenthesised receiver cannot be used in a loop condition: bind it first, as in `def recv " + (item.getCode()) + "` and then `recv" + dotName + "`"))
+              } {
+                def regName:string (ctx.createNewRegName())
+                def regExpr:CodeNode (node.newExpressionNode())
+                regExpr.add( (node.newVRefNode("def")) )
+                regExpr.add( (node.newVRefNode(regName)) )
+                regExpr.add( (item.copy()) )
+                this.WalkNode( regExpr ctx wr )
+                BlockOP.register_expressions.push( regExpr )
+                def joined:CodeNode (node.newVRefNode((regName + dotName)))
+                joined.parent = node
+                set node.children i joined
+                advanced = true
+              }
+            }
+          }
+        }
+      }
+      if (false == advanced) {
+        i = (i + 1)
+      }
+    }
+  }
+
   fn WalkNodeChildren:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.hasStringProperty("todo")) {
       ctx.addTodo(node (node.getStringProperty("todo")))
     }
     if node.expression {
+      this.hoistParenthesisedReceivers(node ctx wr)
       this.fixExpressionAssignmentChains(node)
       for node.children item@(lives):CodeNode i {
 
@@ -307,6 +368,11 @@ class RangerFlowParser {
     node.flow_ctx = ctx
     node.flow_done = true
     
+    ; Before anything reads the first child: `((unwrap x).m (a))` must become
+    ; `(<tmp>.m (a))` so the local-call detection below sees a name.
+    if node.expression {
+      this.hoistParenthesisedReceivers(node ctx wr)
+    }
 
     this.lastProcessedNode = node
     if (node.hasStringProperty("todo")) {
@@ -681,6 +747,7 @@ class RangerFlowParser {
       } 
     }
     if node.expression {
+      this.hoistParenthesisedReceivers(node ctx wr)
       this.fixExpressionAssignmentChains(node)
       for node.children item@(lives):CodeNode i {
 

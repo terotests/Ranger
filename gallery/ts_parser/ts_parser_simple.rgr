@@ -47,6 +47,9 @@ class TSNode {
   ; all, and it never changes for a given node.
   def argScanned:boolean false
   def usesArguments:boolean false
+  ; A function whose body is strict by POSITION -- a class method or
+  ; constructor (§14.5.1) -- whatever the surrounding code says.
+  def strictBody:boolean false
   ; Same memo for `this`: does the body mention `this` in its own lexical
   ; this-scope (arrows included, nested ordinary functions not), or `super`
   ; or `eval`, which reach it another way? Decides whether a call binds a
@@ -1497,7 +1500,15 @@ class TSParserSimple {
     
     ; Check for labeled statement: identifier :
     def tokType (this.peekType())
-    if (tokType == "Identifier") {
+    def labelable:boolean (tokType == "Identifier")
+    ; `yield` outside a generator and `await` outside async code are
+    ; ordinary identifiers, so they can label a statement (sloppy code).
+    if (tokType == "Keyword") {
+      def kwLab:string (this.peekValue())
+      if ((kwLab == "yield") && ((false == this.inGenerator) && (false == this.strictMode))) { labelable = true }
+      if ((kwLab == "await") && ((false == this.inAsync) && (false == this.moduleMode))) { labelable = true }
+    }
+    if labelable {
       def nextVal (this.peekNextValue())
       if (nextVal == ":") {
         return (this.parseLabeledStatement())
@@ -1517,7 +1528,8 @@ class TSParserSimple {
     node.line = startTok.line
     node.col = startTok.col
     
-    def labelTok (this.expect("Identifier"))
+    def labelTok (this.peek())
+    this.advance()
     node.name = labelTok.value
     
     this.expectValue(":")
@@ -3510,7 +3522,9 @@ class TSParserSimple {
       }
       
       if (nextVal == "in") {
-        if ((strlen varNameStr) > 0) {
+        ; B.3.5: `catch (e) { for (var e in o) {} }` is allowed -- only the
+        ; for-of form keeps the early error.
+        if (((strlen varNameStr) > 0) && (kind != "var")) {
           if (this.isParameterInScope(varNameStr)) {
             this.syntaxError("Parse error: '" + varNameStr + "' shadows a parameter in a for-in head")
           }
@@ -8171,7 +8185,38 @@ class TSParserSimple {
         member.col = callee.col
         callee = member
       } {
-        keepMember = false
+        ; §12.3.3: MemberExpression includes a computed member and a tagged
+        ; template, so `new a[k]()` constructs a[k] and `new tag`x`` constructs
+        ; what the tag returned. Stopping at the first `[` or backtick made
+        ; the `new` apply to the bare name and the rest attach to the instance.
+        if (this.matchValue("[")) {
+          this.advance()
+          def keyExpr (this.parseExpr())
+          this.expectValue("]")
+          def cMember (new TSNode())
+          cMember.nodeType = "MemberExpression"
+          cMember.left = callee
+          cMember.right = keyExpr
+          cMember.computed = true
+          cMember.start = callee.start
+          cMember.line = callee.line
+          cMember.col = callee.col
+          callee = cMember
+        } {
+          if ((this.peekType()) == "Template") {
+            def tQuasi (this.parseTemplateLiteral())
+            def tagged (new TSNode())
+            tagged.nodeType = "TaggedTemplateExpression"
+            tagged.left = callee
+            tagged.right = tQuasi
+            tagged.start = callee.start
+            tagged.line = callee.line
+            tagged.col = callee.col
+            callee = tagged
+          } {
+            keepMember = false
+          }
+        }
       }
     }
     node.left = callee
