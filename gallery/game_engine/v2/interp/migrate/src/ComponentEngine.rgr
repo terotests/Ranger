@@ -19436,14 +19436,15 @@ class ComponentEngine {
                     def uField:EvHandle (obj.getMember(methodName))
                     if (uField.isFunction()) {
                         if (uField.hasFunctionNode()) {
-                            def uFn:TSNode (uField.functionNodeOf())
-                            def uHasThis:boolean false
-                            def uThis:EvHandle (EvValueBridge.taggedNull())
-                            if (uField.hasBoundThis()) {
-                                uHasThis = true
-                                uThis = (uField.boundThisOf())
+                            ; The field holds a VALUE with a captured scope --
+                            ; `this.cb = () => k` made in the constructor.
+                            ; Re-running its node lost that scope, so the
+                            ; callback could not see the constructor's locals.
+                            def uArgs:[EvHandle] (this.collectCallArgs(node))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
                             }
-                            return (this.callUserFunctionNode(uFn node.children uThis uHasThis))
+                            return (this.callFnValueWithValues((uField.withThisForCall(obj)) uArgs))
                         }
                     }
                 }
@@ -41890,9 +41891,8 @@ class ComponentEngine {
     ; there rather than from a dedicated field.
     fn superClassNameOf:string (cls:TSNode) {
         if (null? cls.left) { return "" }
-        def recordedSup@(optional):string (get classSuperNames cls.name)
-        if recordedSup {
-            return (unwrap recordedSup)
+        if (has classSuperNames cls.name) {
+            return (unwrap (get classSuperNames cls.name))
         }
         def sup:TSNode (unwrap cls.left)
         if ((strlen sup.name) > 0) {
@@ -42344,6 +42344,18 @@ class ComponentEngine {
                 inst.setAttrs("lastIndex" true false false)
             }
         }
+        ; §21.1.4: a String exotic object owns a non-writable `length`; the
+        ; wrapper the key walk copied from keeps it as internal state, so a
+        ; `class S extends String` instance had none.
+        if (baseName == "String") {
+            if (built.hasOwnData("__primitive__")) {
+                def sPrim:EvHandle (built.getOwnData("__primitive__"))
+                if (sPrim.isString()) {
+                    inst.putOwnData("length" (EvHandle.fromInt((this.cuLen((sPrim.stringOf()))))))
+                    inst.setAttrs("length" false false false)
+                }
+            }
+        }
         ; The internal slots the key walk does not see, because they are hidden.
         def slots:[string]
         push slots "__error__"
@@ -42445,9 +42457,9 @@ class ComponentEngine {
         def stamp:string ((to_string stampNode.start) + (":" + (to_string stampNode.line)))
         def found@(optional):EvHandle (get classValues ckey)
         if (!null? found) {
-            def oldStamp@(optional):string (get classValueStamps ckey)
-            if oldStamp {
-                if ((unwrap oldStamp) == stamp) {
+            if (has classValueStamps ckey) {
+                def oldStamp:string (unwrap (get classValueStamps ckey))
+                if (oldStamp == stamp) {
                     return (unwrap found)
                 }
             } {
