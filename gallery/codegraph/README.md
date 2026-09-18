@@ -162,9 +162,11 @@ keeps its ink; rest the pointer on a row and the tooltip says what happened
 (`type int → double`, `signature … → …`, `body edited`). A box lists eight
 fields and eight methods; the **+ N more** row below them is marked and
 tinted when the members it folds away include a change, and its tooltip
-counts them. Click it (or open `?members=Order` on the web page) for a
-popup that lists every member of the class with its mark and reason; a
-click on one opens it in the source pane. Rose boxes and related classes
+counts them. Click it (or open `?members=Order` on the web page) and a
+drawer slides in from the left with every member of the class, its mark
+and reason; a click on one opens it in the source pane while the drawer
+stays, and the chart keeps working beside it (`gallery/ui`'s
+`DrawerCtl`). Rose boxes and related classes
 are coloured too, so a removed caller still shows above the class it used
 to call. **← diff** and **overview** go back to the summary.
 

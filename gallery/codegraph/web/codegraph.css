@@ -317,29 +317,26 @@
   color: rgb(255, 255, 255);
 }
 
-/* Every member of one class, from a "+ N more" row. The backdrop is the
- * page; the card is centred; the list scrolls. Rows carry the diff colour
- * of the member they stand for, the same three as the UML box. */
-.cg-members-root {
+/* Every member of one class, from a "+ N more" row: gallery/ui's drawer,
+ * slid in from the left over the rail, no backdrop — the chart and the
+ * source pane keep working beside it. Rows carry the diff colour of the
+ * member they stand for, the same three as the UML box. */
+.ui-drawer {
   display: flex;
 }
 
-.cg-members-overlay {
-  background-color: rgba(15, 23, 42, 0.35);
-}
-
-.cg-members {
+.ui-drawer-panel {
   display: flex;
   flex-direction: column;
-  width: 620px;
-  height: 480px;
-  padding: 14px 16px;
+  gap: 6px;
+  padding: 12px 14px;
   background-color: rgb(255, 255, 255);
   border: 1px solid rgb(203, 213, 225);
-  border-radius: 8px;
+  border-left: 0px;
+  border-radius: 0px 8px 8px 0px;
 }
 
-.cg-members-title {
+.ui-drawer-title {
   font-size: 14px;
   font-weight: bold;
   color: rgb(15, 23, 42);
@@ -347,15 +344,18 @@
   flex-shrink: 0;
 }
 
-.cg-members-hint {
-  font-size: 12px;
-  color: rgb(100, 116, 139);
-  height: 20px;
-  margin-bottom: 6px;
+.ui-drawer-close {
+  height: 28px;
+  padding: 5px 12px;
+  font-size: 13px;
+  color: rgb(255, 255, 255);
+  background-color: rgb(37, 99, 235);
+  border-radius: 6px;
+  align-self: flex-end;
   flex-shrink: 0;
 }
 
-.cg-members-scroll {
+.ui-drawer-body {
   display: flex;
   flex-direction: column;
   flex-grow: 1;
@@ -365,6 +365,15 @@
   overflow: auto;
   scrollbar-width: thin;
   scrollbar-color: rgb(148, 163, 184) rgb(241, 245, 249);
+}
+
+.cg-members-hint {
+  width: 100%;
+  font-size: 12px;
+  color: rgb(100, 116, 139);
+  height: 22px;
+  padding: 4px 10px;
+  flex-shrink: 0;
 }
 
 .cg-member {
@@ -387,16 +396,4 @@
 
 .cg-member-changed {
   background-color: rgb(254, 243, 199);
-}
-
-.cg-members-close {
-  margin-top: 10px;
-  height: 28px;
-  padding: 5px 12px;
-  font-size: 13px;
-  color: rgb(255, 255, 255);
-  background-color: rgb(37, 99, 235);
-  border-radius: 6px;
-  align-self: flex-end;
-  flex-shrink: 0;
 }

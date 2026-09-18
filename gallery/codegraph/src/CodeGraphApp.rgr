@@ -122,8 +122,8 @@ class CodeGraphApp extends EvgApp {
     def baseSel:SelectCtl (new SelectCtl)
     def headSel:SelectCtl (new SelectCtl)
     def prField:InputCtl (new InputCtl)
-    ; Every member of one class, opened from a "+ N more" row.
-    def members:MemberPopupCtl (new MemberPopupCtl)
+    ; Every member of one class, in a drawer opened from a "+ N more" row.
+    def members:MemberDrawer (new MemberDrawer)
     ; Ctrl+C in the source pane leaves the selection here; the host puts it
     ; on the clipboard (the tab through navigator.clipboard, SDL through
     ; SDL_SetClipboardText) and drains it.
@@ -439,10 +439,8 @@ class CodeGraphApp extends EvgApp {
         root.addChild(headerEl)
         root.addChild(bodyEl)
         root.addChild(footerEl)
-        members.tid = "cg-members"
-        members.name = "class members"
-        members.build()
-        this.mount(root members)
+        members.drawer.build()
+        this.mount(root members.drawer)
         this.buildSplit()
         chromeReady = true
         this.applyChromeSizes()
@@ -2353,8 +2351,9 @@ class CodeGraphApp extends EvgApp {
         sourceDrag = false
         splitDrag = false
         def id:string (this.hitId(x y))
-        if members.open {
-            ; The popup is over everything; a press lands on it or its backdrop.
+        ; The drawer is out of the flow and in front, but not modal: a press
+        ; on it is its own, anything beside it goes where it always went.
+        if (members.drawer.owns(id)) {
             this.press(id)
             return
         }
@@ -2380,9 +2379,6 @@ class CodeGraphApp extends EvgApp {
     }
 
     fn pointerMove:void (x:double y:double shift:boolean ctrl:boolean) {
-        if members.open {
-            return
-        }
         if splitDrag {
             def dx:double (x - splitAt)
             if (dx == 0.0) {
@@ -2501,9 +2497,11 @@ class CodeGraphApp extends EvgApp {
     }
 
     fn wheel:void (x:double y:double delta:double) {
-        if members.open {
-            members.scrollBy(delta)
-            return
+        if (members.isOpen()) {
+            if (members.drawer.owns((this.hitId(x y)))) {
+                members.drawer.scrollBy(delta)
+                return
+            }
         }
         if (this.inCanvas(x y)) {
             this.graphWheel(x y delta)
@@ -2708,6 +2706,7 @@ class CodeGraphApp extends EvgApp {
         ui.click(id)
         def pickedMember:string (members.consumePicked())
         if ((strlen pickedMember) > 0) {
+            ; The drawer stays: the reader is walking the list.
             this.revealMember(pickedMember)
             return true
         }
@@ -2986,12 +2985,27 @@ class CodeGraphApp extends EvgApp {
         if (changed > 0) { push parts ((to_string changed) + " changed") }
         if (added > 0) { push parts ((to_string added) + " added") }
         if (removed > 0) { push parts ((to_string removed) + " removed") }
+        ; Below the header, the height of the body, in from the left edge.
+        members.drawer.top = canvasY
+        members.drawer.panelHeight = canvasH
+        members.drawer.pageWidth = pageW
         members.showFor(name list (join parts ", "))
-        ui.focus((members.closeTid()))
+        ui.focus((members.drawer.closeTid()))
         return true
     }
 
-    ; A pick from the popup: "Class.field" or a method id.
+    ; The drawer already in place, for a deep link or a host that does
+    ; not tick: nothing to slide in from.
+    fn showMembersSettled:boolean (name:string) {
+        def ok:boolean (this.showMembers(name))
+        if ok {
+            members.drawer.progress = 1.0
+            members.drawer.place()
+        }
+        return ok
+    }
+
+    ; A pick from the drawer: "Class.field" or a method id.
     fn revealMember:void (key:string) {
         if (session.model.hasMethod(key)) {
             this.revealMethod(key)
@@ -3026,12 +3040,16 @@ class CodeGraphApp extends EvgApp {
 
     fn tick:boolean (dtMs:double) {
         clockMs = (clockMs + dtMs)
-        return (ui.tick(dtMs))
+        def busy:boolean (ui.tick(dtMs))
+        if (members.drawer.animating()) {
+            return true
+        }
+        return busy
     }
 
     fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
         if (k == "Escape") {
-            if members.open {
+            if (members.isOpen()) {
                 members.close()
                 return true
             }

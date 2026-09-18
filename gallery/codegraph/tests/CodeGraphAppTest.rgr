@@ -828,10 +828,11 @@ class CodeGraphAppTest {
     }
 
     ; A class with more methods than the box lists: the "+ N more" row
-    ; opens the popup with every member, marked; a pick reveals it and
-    ; closes the popup; Escape closes it too.
+    ; slides in the drawer with every member, marked; a pick reveals it
+    ; and the drawer stays; Escape slides it out; the chart beside it is
+    ; still hit.
     sfn checkMemberPopup:int (css:string) {
-        print "== member popup from + N more"
+        print "== member drawer from + N more"
         def n:int 0
         def before:CodeGraph (new CodeGraph)
         def bc:CodeClass (before.addClass("Big"))
@@ -891,9 +892,22 @@ class CodeGraphAppTest {
         def sy:double (app.canvasY + (app.editor.view.viewport.toScreenY(probe)))
         app.graphDown(sx sy false false)
         app.graphUp(sx sy false false)
-        if (app.members.open == false) {
-            print "  FAIL clicking + N more did not open the popup"
+        if ((app.members.isOpen()) == false) {
+            print "  FAIL clicking + N more did not open the drawer"
             return (n + 1)
+        }
+        if ((app.tick(16.0)) == false) {
+            print "  FAIL the slide does not ask for frames"
+            n = (n + 1)
+        }
+        app.tick(1000.0)
+        if (app.members.drawer.animating()) {
+            print "  FAIL still sliding after a second"
+            n = (n + 1)
+        }
+        if (app.members.drawer.top != app.canvasY) {
+            print "  FAIL the drawer does not start below the header"
+            n = (n + 1)
         }
         if ((app.members.entryCount()) != 11) {
             print ("  FAIL popup lists " + (to_string (app.members.entryCount())) + " members, want 11")
@@ -908,15 +922,21 @@ class CodeGraphAppTest {
             print ("  FAIL m10 entry: status '" + last.status + "'")
             n = (n + 1)
         }
-        ; The popup is on top: a hit on its close id, not on the canvas.
-        def hit:string (app.hitId((app.canvasX + 10.0) (app.canvasY + 10.0)))
-        if ((indexOf hit "cg-members") != 0) {
-            print ("  FAIL with the popup open the canvas is still hit: '" + hit + "'")
+        ; The drawer is in front where it is, and nowhere else: the right
+        ; end of the chart is still the chart.
+        def onDrawer:string (app.hitId(20.0 (app.canvasY + 60.0)))
+        if ((indexOf onDrawer "cg-members") != 0) {
+            print ("  FAIL the drawer is not hit at the left edge: '" + onDrawer + "'")
+            n = (n + 1)
+        }
+        def onCanvas:string (app.hitId(((app.canvasX + app.canvasW) - 10.0) (app.canvasY + 60.0)))
+        if ((indexOf onCanvas "cg-members") == 0) {
+            print "  FAIL the drawer blocks the chart"
             n = (n + 1)
         }
         app.press((app.members.entryTid("Big.m10")))
-        if app.members.open {
-            print "  FAIL picking a member did not close the popup"
+        if ((app.members.isOpen()) == false) {
+            print "  FAIL picking a member closed the drawer"
             n = (n + 1)
         }
         if (app.sourcePath != "big.rgr") {
@@ -927,16 +947,18 @@ class CodeGraphAppTest {
             print ("  FAIL caret on m10: line " + (to_string app.codeView.sel.caret.line))
             n = (n + 1)
         }
-        app.showMembers("Big")
         app.keyWith("Escape" false false)
-        if app.members.open {
-            print "  FAIL Escape did not close the popup"
+        app.tick(1000.0)
+        if (app.members.isOpen()) {
+            print "  FAIL Escape did not close the drawer"
             n = (n + 1)
         }
         app.showMembers("Big")
-        app.press((app.members.overlayTid()))
-        if app.members.open {
-            print "  FAIL the backdrop did not close the popup"
+        app.tick(1000.0)
+        app.press((app.members.drawer.closeTid()))
+        app.tick(1000.0)
+        if (app.members.isOpen()) {
+            print "  FAIL Close did not close the drawer"
             n = (n + 1)
         }
         def dl:EVGDisplayList (app.display())

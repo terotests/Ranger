@@ -254,6 +254,39 @@
   background-color: #ffffff;
 }
 .ui-dialog-title { color: #0f172a; font-size: 16px; }
+
+/* A drawer: a panel out of the flow at an edge, no backdrop. Its x is the
+   slide (a "free" surface the controller moves); width and height come from
+   the controller as attributes so the panel is a panel, not a band. */
+.ui-drawer { display: flex; }
+.ui-drawer-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+}
+.ui-drawer-panel-left { border-left: 0px; border-radius: 0px 8px 8px 0px; }
+.ui-drawer-panel-right { border-right: 0px; border-radius: 8px 0px 0px 8px; }
+.ui-drawer-title { color: #0f172a; font-size: 15px; font-weight: bold; height: 22px; flex-shrink: 0; }
+.ui-drawer-close {
+  border: 1px solid #2563eb;
+  padding: 5px 12px;
+  border-radius: 6px;
+  background-color: #2563eb;
+  color: #ffffff;
+  align-self: flex-end;
+  flex-shrink: 0;
+}
+.ui-drawer-body {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-height: 0px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
 .ui-dialog-close {
   border: 1px solid #2563eb;
   padding: 7px 12px;

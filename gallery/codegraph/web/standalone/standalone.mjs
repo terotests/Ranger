@@ -248,7 +248,14 @@ function paintOnce() {
   return { cmds: (frame && frame.cmdCount) || 0 };
 }
 
-function frameLoop() {
+// The app's own clock: transitions and the member drawer's slide advance
+// per frame, and a frame that moved something is repainted.
+let lastFrameMs = 0;
+function frameLoop(nowMs) {
+  const now = typeof nowMs === "number" ? nowMs : performance.now();
+  const dt = lastFrameMs ? Math.min(now - lastFrameMs, 100) : 16;
+  lastFrameMs = now;
+  if (app.tick && app.tick(dt)) sceneStale = true;
   resize();
   paintOnce();
   requestAnimationFrame(frameLoop);
@@ -427,7 +434,7 @@ async function main() {
   // ?members=Order opens the popup that lists every member of a class —
   // what a click on a "+ N more" row does.
   const membersOf = params.get("members") || "";
-  if (membersOf) await app.showMembers(membersOf);
+  if (membersOf) await app.showMembersSettled(membersOf);
   sceneStale = true;
   syncChrome();
 }

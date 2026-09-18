@@ -1,0 +1,314 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DrawerCtl.rgr — a panel that slides in from an edge and stays out of the way.
+; ============================================================================
+;
+; Not a dialog: there is no backdrop, nothing behind it is blocked, and the
+; page goes on answering clicks and keys while it is open. A drawer holds a
+; list or a form the reader consults WHILE working on the page — every
+; member of a class beside the diagram that shows eight of them, a filter
+; panel beside a table. Close, Escape or the host closes it.
+;
+; The host owns the body: it puts its own elements under `body()`, and
+; registers the ids it wants clicks on with `addContentTid`, so the host's
+; hit test reaches them. A click on one lands in `picked`, which the host
+; drains; the drawer stays open, because picking one thing from a list is
+; not usually the end of looking at the list.
+;
+; The slide is a `tickCtl` animation: `progress` runs 0 → 1 over
+; `durationMs`, and the panel is an out-of-flow "free" surface whose x is
+; derived from it. A host that never ticks sees the panel where it ends up.
+; ============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
+
+class DrawerCtl extends UiCtl {
+    def open:boolean false
+    ; "left" or "right"
+    def side:string "left"
+    def title:string ""
+    def closeLabel:string "Close"
+    def width:double 360.0
+    ; Where the panel's top edge sits (below a header, say), and its height;
+    ; 0 leaves the height to the stylesheet.
+    def top:double 0.0
+    def panelHeight:double 0.0
+    ; How wide the page is, for a drawer on the right. The host tells it.
+    def pageWidth:double 0.0
+    def durationMs:double 180.0
+    ; 0 = fully hidden, 1 = fully shown. Animated by tickCtl.
+    def progress:double 0.0
+    def closing:boolean false
+    def panelEl:EVGElement (EVGElement.createDiv())
+    def titleEl:EVGElement (EVGElement.createDiv())
+    def closeEl:EVGElement (EVGElement.createDiv())
+    def bodyEl:EVGElement (EVGElement.createDiv())
+    def contentTids:[string]
+    ; The content id clicked last; the host drains it.
+    def picked:string ""
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+    }
+
+    fn panelTid:string () {
+        return (tid + "-panel")
+    }
+
+    fn titleTid:string () {
+        return (tid + "-title")
+    }
+
+    fn closeTid:string () {
+        return (tid + "-close")
+    }
+
+    fn bodyTid:string () {
+        return (tid + "-body")
+    }
+
+    ; The element the host fills. Its children are the host's; `build`
+    ; never clears them.
+    fn body:EVGElement () {
+        return bodyEl
+    }
+
+    fn clearContentTids:void () {
+        def none:[string]
+        contentTids = none
+    }
+
+    fn addContentTid:void (id:string) {
+        if ((strlen id) == 0) {
+            return
+        }
+        push contentTids id
+    }
+
+    fn consumePicked:string () {
+        def k:string picked
+        picked = ""
+        return k
+    }
+
+    fn animating:boolean () {
+        if (open == false) {
+            return false
+        }
+        if closing {
+            return true
+        }
+        return (progress < 1.0)
+    }
+
+    ; Slide in. Reopening while closing turns the slide around from where
+    ; it is rather than from the edge.
+    fn show:void () {
+        open = true
+        closing = false
+        picked = ""
+        this.build()
+    }
+
+    ; Slide out, then disappear. `closeNow` skips the slide.
+    fn close:void () {
+        if (open == false) {
+            return
+        }
+        if (durationMs <= 0.0) {
+            this.closeNow()
+            return
+        }
+        closing = true
+    }
+
+    fn closeNow:void () {
+        open = false
+        closing = false
+        progress = 0.0
+        this.build()
+    }
+
+    ; Where the panel's left edge is for the current progress: off the
+    ; page at 0, flush with the edge at 1.
+    fn panelX:double () {
+        def p:double progress
+        if (p < 0.0) { p = 0.0 }
+        if (p > 1.0) { p = 1.0 }
+        if (side == "right") {
+            def pw:double pageWidth
+            if (pw <= 0.0) {
+                pw = width
+            }
+            return (pw - (width * p))
+        }
+        return ((0.0 - width) + (width * p))
+    }
+
+    fn place:void () {
+        panelEl.overlayX = (this.panelX())
+        panelEl.overlayY = top
+    }
+
+    fn tickCtl:string (dtMs:double) {
+        if (open == false) {
+            return ""
+        }
+        def step:double 1.0
+        if (durationMs > 0.0) {
+            step = (dtMs / durationMs)
+        }
+        if closing {
+            progress = (progress - step)
+            if (progress <= 0.0) {
+                this.closeNow()
+                return ""
+            }
+            this.place()
+            return ""
+        }
+        if (progress < 1.0) {
+            progress = (progress + step)
+            if (progress > 1.0) {
+                progress = 1.0
+            }
+            this.place()
+        }
+        return ""
+    }
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-drawer"
+        UiTree.clearChildren(root)
+        if (open == false) {
+            return
+        }
+        panelEl.id = (this.panelTid())
+        panelEl.className = ("ui-drawer-panel ui-drawer-panel-" + side)
+        UiTree.surface(panelEl "free" "start")
+        this.place()
+        panelEl.setAttribute("width" ((to_string (to_int width)) + "px"))
+        if (panelHeight > 0.0) {
+            panelEl.setAttribute("height" ((to_string (to_int panelHeight)) + "px"))
+        }
+        UiTree.clearChildren(panelEl)
+
+        titleEl.id = (this.titleTid())
+        titleEl.className = "ui-drawer-title"
+        UiTree.leafText(titleEl title)
+        panelEl.addChild(titleEl)
+
+        closeEl.id = (this.closeTid())
+        closeEl.className = "ui-drawer-close"
+        UiTree.leafText(closeEl closeLabel)
+        panelEl.addChild(closeEl)
+
+        bodyEl.id = (this.bodyTid())
+        bodyEl.className = "ui-drawer-body"
+        panelEl.addChild(bodyEl)
+        root.addChild(panelEl)
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.panelTid())
+        push a (this.titleTid())
+        push a (this.closeTid())
+        push a (this.bodyTid())
+        def i:int 0
+        while (i < (array_length contentTids)) {
+            push a (itemAt contentTids i)
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn isContent:boolean (target:string) {
+        def i:int 0
+        while (i < (array_length contentTids)) {
+            if ((itemAt contentTids i) == target) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if (open == false) {
+            return false
+        }
+        if disabled {
+            return false
+        }
+        if (target == (this.closeTid())) {
+            return true
+        }
+        return (this.isContent(target))
+    }
+
+    fn activate:string (target:string) {
+        if (open == false) {
+            return ""
+        }
+        if (target == (this.closeTid())) {
+            this.close()
+            return ""
+        }
+        if (this.isContent(target)) {
+            picked = target
+        }
+        return ""
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if (key == "Escape") {
+            this.close()
+            return ""
+        }
+        if ((UiCtl.activatesOn(key)) == false) {
+            return ""
+        }
+        return (this.activate(target))
+    }
+
+    ; The body scrolls; a wheel over the drawer lands here.
+    fn scrollBy:void (delta:double) {
+        def t:double (bodyEl.scrollTop + delta)
+        if (t < 0.0) {
+            t = 0.0
+        }
+        def max:double (bodyEl.maxScrollTop())
+        if (t > max) {
+            t = max
+        }
+        bodyEl.scrollTop = t
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        if (open == false) {
+            return out
+        }
+        ; A dialog that is not modal: what `aria-modal="false"` says.
+        def panelRow:UiRow (UiRow.of((this.panelTid()) (EVGA11yRole.dialog()) title))
+        panelRow.modal = false
+        push out panelRow
+        def titleRow:UiRow (UiRow.of((this.titleTid()) (EVGA11yRole.none()) ""))
+        titleRow.parentTid = (this.panelTid())
+        push out titleRow
+        def closeRow:UiRow (UiRow.of((this.closeTid()) (EVGA11yRole.button()) closeLabel))
+        closeRow.parentTid = (this.panelTid())
+        closeRow.tabStop = true
+        closeRow.focusable = true
+        push out closeRow
+        return out
+    }
+}
