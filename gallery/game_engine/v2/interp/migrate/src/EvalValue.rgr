@@ -517,6 +517,11 @@ class EvPropertyBag {
     ; does, so a property read walks a prototype chain of any depth without
     ; hashing a single string. This is the whole point of interning: the string
     ; work happens once when the bytecode is built, never per access.
+    ; Presence by atom id, for a caller that already holds one. Same answer as
+    ; hasSlot, without minting the id off the key string again.
+    fn hasSlotAtom:boolean (ka:int) {
+        return (has slots ka)
+    }
     fn dataOrHoleAtom:EvalValue (ka:int) {
         if (false == (has slots ka)) {
             return (EvalValue.hole())
@@ -662,7 +667,10 @@ class EvPropertyBag {
         return false
     }
     fn hasSetter:boolean (key:string) {
-        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        return (this.hasSetterAtom(((EvAtomTable.__singleton()).idOf(key))))
+    }
+    ; hasSetter for a caller that already holds the atom id.
+    fn hasSetterAtom:boolean (ka:int) {
         if (false == (has slots ka)) {
             return false
         }

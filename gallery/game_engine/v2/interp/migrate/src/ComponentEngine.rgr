@@ -13462,6 +13462,12 @@ class ComponentEngine {
                 }
             }
         }
+        ; Per-KEY, because Object.prototype has an accessor (`__proto__`) and
+        ; the per-bag test below is therefore false for every ordinary object.
+        if (obj.chainSetterFreeFor(name)) {
+            obj.setMember(name v)
+            return
+        }
         if (obj.chainAccessorFreeAt()) {
             obj.setMember(name v)
             return
@@ -14723,7 +14729,12 @@ class ComponentEngine {
                     ; assignment is an own-data store -- on a marker-free
                     ; object; a proxy's write is its `set` trap
                     def oh31:EvHandle (itemAt bcStack (sp - 2))
-                    if ((oh31.chainAccessorFreeAt()) && (oh31.plainMarkerFreeObject())) {
+                    ; Per KEY: Object.prototype carries the `__proto__`
+                    ; accessor, so the per-bag test was false for every
+                    ; ordinary object and this fused store never ran. A key
+                    ; with a setter up the chain -- `__proto__` included --
+                    ; still takes the generic path below.
+                    if ((oh31.chainSetterFreeForAtom((itemAt prog.atomIds a))) && (oh31.plainMarkerFreeObject())) {
                         def vf31:EvHandle (this.bcSlotBox((sp - 1)))
                         ; the atom is already in the pool -- the load op has
                         ; used it since the fused member ops landed, while the
