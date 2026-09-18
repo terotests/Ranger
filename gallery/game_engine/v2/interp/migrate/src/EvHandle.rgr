@@ -2393,6 +2393,30 @@ class EvHandle {
         return false
     }
 
+    ; Could a write to this value be REFUSED at all? Every reason one can be --
+    ; an own accessor, an own attribute, a frozen or non-extensible bag -- is a
+    ; monotone flag on the bag, so one probe answers for every key at once. A
+    ; `false` here lets the store skip the refusal walk, which is otherwise
+    ; several probes and a key-string mint on every compiled property write.
+    ; A FUNCTION answers true whatever its bag says: `length` and `name` are
+    ; synthesised rather than stored, and both are non-writable.
+    fn writeRefusalPossible:boolean () {
+        if (this.isFunction()) {
+            return true
+        }
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            if props.everHadAccessor { return true }
+            if props.everHadAttrs { return true }
+            if props.frozen { return true }
+            if props.sealed { return true }
+            if (false == props.extensible) { return true }
+            return false
+        }
+        return true
+    }
+
     fn arrayItemAt:EvHandle (i:int) {
         def _k:EvalValue body
         if (EvalValue.isArrayValue(_k)) {
