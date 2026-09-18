@@ -130,6 +130,7 @@
     "jsengine:build": "bash scripts/engine-build.sh",
     "jsengine:bench": "node scripts/engine-bench.cjs",
     "jsengine:conformance": "bash scripts/engine-conformance.sh",
+    "jsengine:kangax": "bash scripts/kangax-conformance.sh",
     "jsengine:test": "cross-env NODE_OPTIONS=--max-old-space-size=8192 vitest run --config tests/vitest.config.ts runtime-conformance.test.ts",
     "jsengine:test:targets": "npm run test:tsengine",
     "jsengine:octane": "node gallery/game_engine/v2/interp/bench/zoo_octane/run.cjs",

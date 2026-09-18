@@ -80,6 +80,56 @@ A single blended percentage hides which era is weak, and hid a 4-point regressio
 `built-ins/String` behind net progress. Test262 tags older tests with `es5id` /
 `es6id`; the scorer buckets on that.
 
+### The kangax compat-table is measured separately, and is a different question
+
+Test262 asks whether a feature behaves correctly where it exists. The kangax
+compat-table — the suite behind the columns on zoo.js.org — asks whether it exists
+at all, and weights every FEATURE ROW equally rather than every test. The two
+disagree by design: an engine can be at 95% of the ES2015-tagged test262 corpus
+while a whole feature row it does not implement costs the same as twenty rows it
+implements perfectly.
+
+```bash
+npm run jsengine:kangax                        # the ES6 column
+ERAS="es2016 es2017 es2018 es2019 es2020 es2021 es2022 es2023 es2024 es2025" \
+  npm run jsengine:kangax                      # the ES2016+ column
+ERAS=intl npm run jsengine:kangax              # the ESIntl column
+```
+
+The test files are not vendored: `scripts/kangax-conformance.sh` fetches
+[ivankra/javascript-zoo](https://github.com/ivankra/javascript-zoo), which extracts
+each compat-table subtest into a standalone script, and caches the checkout under
+`.cache/`. The weighting is the table's own — a row is worth 1, 2, 4 or 8 by its
+declared size, split between the subtests under it — so the number this prints is
+the number the column shows.
+
+Two things the runner does that the suite does not specify, both of which change
+what gets measured:
+
+- **A fresh engine per file, with the file recorded before it runs.** There is no
+  watchdog inside the engine, so a test that makes it loop forever would otherwise
+  end the measurement rather than fail. The supervisor restarts past it and the
+  file is counted as a failure — which is also how `well-known.isConcatSpreadable
+  .poisoned-getter` was found: it ran the host out of memory, because concat read
+  an array-like whose `length` says 2^53-1 without checking the exception its
+  first element raised.
+- **`liveClock` on.** The async feature tests drive their own job queue off
+  `Date.now()`. With a frozen clock they time out and report a feature that works
+  as missing, which is worse than not measuring it.
+
+### What the two suites said at the last measurement
+
+| Column | Result |
+|---|---|
+| ES1–ES5 (compat-table `es5`) | 95.6% |
+| ES6 | 90.3% |
+| ES2016+ | 93.4% |
+| ESIntl | 100% |
+| ESNext (stage 2/3 proposals) | 0% — none of them are implemented |
+
+Against test262 the ES2015-tagged corpus reads 95.56%; the two numbers measure
+different things and are expected to differ.
+
 ---
 
 ## 2. Deliberate gaps
@@ -1848,6 +1898,7 @@ unresolvable specifier rejects, a module has one namespace.
 ```bash
 npm run test:runtime      # runtime conformance probes (fast, ~0.5s)
 npm run engine:v2:test    # engine contract suite (106 suites, ~1900 assertions)
+npm run jsengine:kangax   # the kangax compat-table column (fetches the suite once)
 npm run engine:pong:runner # gallery smoke
 ```
 

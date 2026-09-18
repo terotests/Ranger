@@ -28052,6 +28052,19 @@ class ComponentEngine {
                         publishHere = false
                     }
                 }
+                ; §10.3.3 / §11.3.3: `compare` and `format` are ACCESSORS whose
+                ; getter hands back a function BOUND to the collator or the
+                ; formatter -- which is what makes `arr.sort(c.compare)` and
+                ; `map(nf.format)` work at all. Published as plain methods they
+                ; lost the receiver the moment they were detached, and sorted by
+                ; the wrong locale in silence.
+                if (this.isIntlProtoName(nsName)) {
+                    if ((nm == "compare") || (nm == "format")) {
+                        p.defineGetter(nm (this.sharedNativeMethod("intlbound" nm)))
+                        p.setAttrs(nm false false true)
+                        publishHere = false
+                    }
+                }
                 if publishHere {
                     p.setMember(nm (this.sharedNativeMethod(kind nm)))
                     ; D-ATTRS: every built-in method is writable and
@@ -28597,6 +28610,10 @@ class ComponentEngine {
         }
         if (kind == "symbolproto") {
             if (name == "description") { return 0 }
+        }
+        if (kind == "intlbound") {
+            if (name == "compare") { return 0 }
+            if (name == "format") { return 0 }
         }
         if (kind == "Generator") {
             if (name == "next") { return 1 }
@@ -30188,6 +30205,24 @@ class ComponentEngine {
         ; non-Date is a TypeError, as it is for Number and Boolean.
         if (kind == "date") {
             return (this.invokeDateMethod(name recv args))
+        }
+        ; The bound comparator / formatter an Intl accessor answers. It is the
+        ; SAME function object on every read -- a guest may compare two reads,
+        ; or use one as a memo key -- so it is cached on the instance.
+        if (kind == "intlbound") {
+            def ikindV:EvHandle (recv.getMember("__intlkind__"))
+            if (false == (ikindV.isString())) {
+                return (this.throwSpecError("TypeError" ("Intl.prototype." + (name + " getter called on an incompatible receiver"))))
+            }
+            def slotName:string ("__intlbound_" + (name + "__"))
+            if (recv.hasOwnData(slotName)) {
+                return (recv.getOwnData(slotName))
+            }
+            def realKind:string ("intl" + (ikindV.stringOf()))
+            def boundFn:EvHandle ((this.sharedNativeMethod(realKind name)).withThisForCall(recv))
+            recv.setMember(slotName boundFn)
+            recv.setAttrs(slotName false false false)
+            return boundFn
         }
         ; Symbol.prototype.valueOf and Symbol.prototype[@@toPrimitive] both
         ; answer thisSymbolValue: the symbol, unboxed from a wrapper if need be.
@@ -40684,6 +40719,13 @@ class ComponentEngine {
         while (i < (array_length list)) {
             def s:string (this.toStringOf((itemAt list i)))
             if scriptThrew { return false }
+            ; The engine's own callers -- Number.prototype.toLocaleString and
+            ; the Date ones -- spell "no locale requested" as the EMPTY string
+            ; rather than as undefined, so it cannot be a malformed tag here.
+            if ((strlen s) == 0) {
+                i = (i + 1)
+                continue
+            }
             if (false == (this.intlTagIsWellFormed(s))) {
                 def _bad:EvHandle (this.throwSpecError("RangeError" ("Incorrect locale information provided: " + s)))
                 return false
@@ -46120,6 +46162,13 @@ class ComponentEngine {
             if ((substring k 0 2) == "@@") { return true }
         }
         if (k == "__protokind__") { return true }
+        ; D-INTL: a Collator or a formatter keeps its resolved settings in
+        ; hidden slots, and the bound comparator the accessor hands out in one
+        ; more. They are internal state, and `Object.keys(new Intl.Collator())`
+        ; listed every one of them.
+        if ((strlen k) > 6) {
+            if ((substring k 0 6) == "__intl") { return true }
+        }
         if (k == "__date__") { return true }
         if (k == "__nsbrand__") { return true }
         if (k == "__regex__") { return true }
