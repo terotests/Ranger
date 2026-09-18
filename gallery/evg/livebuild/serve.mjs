@@ -13,8 +13,9 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { listAgents, runTask } from "./agents.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../../..");
@@ -85,7 +86,7 @@ function send(res, status, type, body) {
   res.end(body);
 }
 
-function streamBuild(res, kind, paceMs) {
+function streamBuild(res, { kind, agent, prompt, paceMs }) {
   res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
     "cache-control": "no-store",
@@ -93,28 +94,17 @@ function streamBuild(res, kind, paceMs) {
     "access-control-allow-origin": "*",
     "x-accel-buffering": "no",
   });
-  res.write(`event: hello\ndata: {"t":"hello","kind":${JSON.stringify(kind)}}\n\n`);
+  res.write(`event: hello\ndata: {"t":"hello","kind":${JSON.stringify(kind)},"agent":${JSON.stringify(agent)}}\n\n`);
 
-  const child = spawn("node", [bin, "run", kind], {
-    cwd: root,
-    env: process.env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-
-  let buf = "";
+  const ac = new AbortController();
   let closed = false;
   let chain = Promise.resolve();
 
   const end = () => {
     if (closed) return;
     closed = true;
-    try {
-      child.kill("SIGTERM");
-    } catch {
-      /* already gone */
-    }
+    ac.abort();
   };
-
   res.on("close", end);
 
   const emit = (line) => {
@@ -135,7 +125,7 @@ function streamBuild(res, kind, paceMs) {
     chain = chain.then(async () => {
       if (closed) return;
       emit(line);
-      if (paceMs <= 0) return;
+      if (paceMs <= 0 || agent !== "recipe") return;
       let wait = paceMs;
       if (/"t":"token"/.test(line)) wait = Math.max(12, Math.floor(paceMs * 0.6));
       else if (/"t":"frame"/.test(line)) wait = Math.max(paceMs, 90);
@@ -145,31 +135,25 @@ function streamBuild(res, kind, paceMs) {
     });
   };
 
-  child.stdout.setEncoding("utf8");
-  child.stdout.on("data", (chunk) => {
-    buf += chunk;
-    let nl;
-    while ((nl = buf.indexOf("\n")) >= 0) {
-      const line = buf.slice(0, nl);
-      buf = buf.slice(nl + 1);
-      pace(line);
-    }
-  });
-  child.stderr.setEncoding("utf8");
-  child.stderr.on("data", (chunk) => {
-    const text = String(chunk).trim();
-    if (text) process.stderr.write(`[livebuild] ${text}\n`);
-  });
-  child.on("close", () => {
-    chain = chain.then(() => {
-      if (buf.trim()) emit(buf);
-      if (!closed) {
-        res.write(`event: close\ndata: {"t":"close"}\n\n`);
-        res.end();
-      }
-      closed = true;
+  runTask({
+    agent,
+    kind,
+    prompt,
+    onLine: pace,
+    signal: ac.signal,
+  })
+    .catch((e) => {
+      emit(JSON.stringify({ t: "error", text: String(e.message || e) }));
+    })
+    .finally(() => {
+      chain = chain.then(() => {
+        if (!closed) {
+          res.write(`event: close\ndata: {"t":"close"}\n\n`);
+          res.end();
+        }
+        closed = true;
+      });
     });
-  });
 }
 
 function staticFile(urlPath) {
@@ -234,10 +218,21 @@ function main() {
       );
       return;
     }
+    if (url.pathname === "/agents") {
+      send(res, 200, "application/json; charset=utf-8", JSON.stringify({ agents: listAgents() }));
+      return;
+    }
     if (url.pathname === "/stream") {
-      const kind = kindOf(url.searchParams.get("kind") || url.searchParams.get("prompt") || "dashboard");
+      const prompt = url.searchParams.get("prompt") || "";
+      const kind = kindOf(url.searchParams.get("kind") || prompt || "dashboard");
+      const agent = url.searchParams.get("agent") || "recipe";
       const pace = Number(url.searchParams.get("pace") ?? 28);
-      streamBuild(res, kind, Number.isFinite(pace) ? pace : 28);
+      streamBuild(res, {
+        kind,
+        agent,
+        prompt,
+        paceMs: Number.isFinite(pace) ? pace : 28,
+      });
       return;
     }
     if (req.method === "POST" && url.pathname === "/build") {

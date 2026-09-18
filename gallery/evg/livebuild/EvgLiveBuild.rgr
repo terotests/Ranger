@@ -33,6 +33,7 @@ Import "../EVGTreeJson.rgr"
 Import "../EVGLayout.rgr"
 Import "../EVGDisplayList.rgr"
 Import "../EVGInspect.rgr"
+Import "../EVGUnit.rgr"
 
 class EvgLiveBuild {
     def root:EVGElement (EVGElement.createDiv())
@@ -306,7 +307,8 @@ sfn main:void () {
     }
 
     fn emitDone:void () {
-        this.appendCode("
+        if ((strlen source) > 0) {
+            this.appendCode("
   def lay (new EVGLayout())
   lay.setPageSize(390.0 844.0)
   lay.layout(page)
@@ -315,7 +317,8 @@ sfn main:void () {
   dl.build(page)
 }
 ")
-        this.emitCode()
+            this.emitCode()
+        }
         def ok:boolean true
         if failed {
             ok = false
@@ -472,6 +475,90 @@ sfn main:void () {
 ")
     }
 
+    fn emitDoc:void () {
+        def text:string (EVGTreeJson.toText(root))
+        def out:string "{\"t\":\"code\",\"path\":\"doc.evg.json\",\"text\":"
+        out = ((out + (EVGTreeJson.str(text))) + "}")
+        this.emitLine(out)
+    }
+
+    sfn sizeOf:int (el:EVGElement wide:boolean fallback:int) {
+        def u@(optional):EVGUnit el.height
+        if wide {
+            u = el.width
+        }
+        if (null? u) {
+            return fallback
+        }
+        def uu:EVGUnit (unwrap u)
+        if (uu.isSet == false) {
+            return fallback
+        }
+        if (uu.unitType != 0) {
+            return fallback
+        }
+        def px:int (to_int uu.value)
+        if (px <= 0) {
+            return fallback
+        }
+        return px
+    }
+
+    sfn lastSlash:int (path:string) {
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        return at
+    }
+
+    sfn slurp@(optional):string (path:string) {
+        def cut:int (EvgLiveBuild.lastSlash(path))
+        def dir:string "."
+        def name:string path
+        if (cut >= 0) {
+            dir = (substring path 0 cut)
+            name = (substring path (cut + 1) (strlen path))
+        }
+        def text@(optional):string (read_file dir name)
+        return text
+    }
+
+    fn runFrameFile:void (docPath:string) {
+        def a:[string]
+        lines = a
+        failed = false
+        lastCmds = 0
+        steps = 0
+        findings = 0
+        reject = ""
+        source = ""
+        def text@(optional):string (EvgLiveBuild.slurp(docPath))
+        if (null? text) {
+            this.emitError(("cannot read " + docPath))
+            this.emitDone()
+            return
+        }
+        def loaded@(optional):EVGElement (EVGTreeJson.fromText((unwrap text)))
+        if (null? loaded) {
+            this.emitError(("not an EVG document: " + docPath))
+            this.emitDone()
+            return
+        }
+        root = (unwrap loaded)
+        pageW = (EvgLiveBuild.sizeOf(root true pageW))
+        pageH = (EvgLiveBuild.sizeOf(root false pageH))
+        this.emitFrame()
+        this.emitMeasure()
+        this.emitDoc()
+        steps = 1
+        this.emitDone()
+    }
+
     fn runKind:void (k:string) {
         this.reset()
         if (k == "settings") {
@@ -494,6 +581,7 @@ sfn main:void () {
         def argc:int (shell_arg_cnt)
         if (argc < 1) {
             print "usage: evg_livebuild run <dashboard|settings|invoices>"
+            print "       evg_livebuild frame <doc.evg.json>"
             print "       evg_livebuild kinds"
             return
         }
@@ -510,6 +598,14 @@ sfn main:void () {
                 k = (shell_arg 1)
             }
             this.runKind(k)
+            return
+        }
+        if (verb == "frame") {
+            if (argc < 2) {
+                print "usage: evg_livebuild frame <doc.evg.json>"
+                return
+            }
+            this.runFrameFile((shell_arg 1))
             return
         }
         print ("unknown verb " + verb)

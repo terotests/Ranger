@@ -57,6 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tokens, `EVGPatch` ops, Ranger source and frames on SSE. The recipes are
   scripted (dashboard, settings, invoices) so the pictures always land; a
   live model that wrote the same ops would use the same socket.
+  The page is a local orchestrator (`agents.mjs`): recipe is the default,
+  Codex / Claude Code / Ollama are adapters when those CLIs are present.
   `npm run livebuild:serve`, `npm run livebuild:test`.
 
 ### Changed

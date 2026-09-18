@@ -26,11 +26,29 @@ way an agent is allowed to change a tree. SSE is how the EVG preview server
 already talks to a browser. The new work is the session that ties them
 together, not a second painter or a second edit language.
 
-The agent in this demo is **scripted**. A live model that writes the same
-ops would use the same socket; putting an LLM inside Ranger is not the
-point, and a recipe is what makes the pictures always land. Matching a
-free-text prompt to a recipe is keyword-based (`dashboard`, `settings`,
-`invoices`).
+The agent in this demo is **local**. The page and the EVG engine run on
+this machine. Which *model* they call is a separate question:
+
+```
+  browser  ← SSE ←  this process (task orchestrator)
+                         │
+                         ├── recipe   this process, no network
+                         ├── mock     local CLI, writes doc.evg.json
+                         ├── Codex    local CLI, OpenAI inference
+                         ├── Claude   local CLI, Anthropic inference
+                         └── Ollama   local model, no cloud
+```
+
+`interface Agent { run(task) }` is `gallery/evg/livebuild/agents.mjs`.
+Recipe is the default so a clone without API keys still paints. Pick
+Codex or Claude in the page when those CLIs are on `PATH`; they get a
+temp workspace (`doc.evg.json` + `AGENTS.md`), this process watches the
+file, lays it out, and streams frames. Inference for those two is in
+the cloud — the agent program is local, the weights are not. Ollama is
+the fully-offline slot (`localhost:11434`).
+
+Matching a free-text prompt to a recipe is keyword-based when the
+adapter is `recipe`. The other adapters receive the prompt as the task.
 
 ## Run it
 
@@ -48,6 +66,7 @@ Without a browser:
 npm run livebuild -- run dashboard     # NDJSON on stdout
 npm run livebuild:test                 # the three recipes apply, frames grow
 node gallery/evg/livebuild/stream-check.mjs
+npm run livebuild:agents               # orchestrator: recipe + mock workspace agent
 npm run livebuild:web                  # Chromium: paint, click chips, type a prompt
 ```
 
@@ -81,6 +100,9 @@ one, so the UI can say "+12" without walking the list.
 | `EvgLiveBuildMain.rgr` | `run` / `kinds` CLI |
 | `EvgLiveBuildTest.rgr` | the three recipes, in process |
 | `serve.mjs` | HTTP + SSE |
+| `agents.mjs` | `Agent` interface: recipe, mock, Codex, Claude, Ollama |
+| `mock-agent.mjs` | a local CLI that writes `doc.evg.json` — no model |
+| `agents-check.mjs` | orchestrator: recipe always on, mock writes a workspace |
 | `browser-smoke.mjs` | Chromium: three recipes and a typed prompt |
 | `web/index.html` | the page |
 | `stream-check.mjs` | parse the CLI stream as JSON |

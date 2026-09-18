@@ -79,7 +79,7 @@ try {
   await page.click("#go");
   await waitDone("prompt");
   const kind = (await page.locator("#kindLabel").innerText()).trim().toLowerCase();
-  if (kind !== "settings") throw new Error(`prompt mapped to ${kind}, want settings`);
+  if (!kind.includes("settings")) throw new Error(`prompt mapped to ${kind}, want settings`);
 
   if (problems.length) {
     console.error(problems.join("\n"));
