@@ -20,9 +20,9 @@ import { App as RadixApp } from "../conformance/dom/app.jsx";
 import { snapshotDom } from "../conformance/dom/snapshot.js";
 import { diffNodes, FIELDS } from "../conformance/diff.mjs";
 import { buildHost } from "../conformance/build-host.cjs";
-import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
+import { renderDisplayList } from "../../../lib/evg/gl/evg-webgl.js";
 import * as HostModule from "../bin/ui_host.cjs";
-import { installCanvasMeasurer } from "../../evg/gl/evg-measure.js";
+import { installCanvasMeasurer } from "../../../lib/evg/gl/evg-measure.js";
 // The browser measures the Ranger side's text, in the face the WebGL painter
 // draws with. Behaviour parity does not depend on a width; the picture does.
 installCanvasMeasurer(HostModule);

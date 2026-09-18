@@ -43,7 +43,7 @@ port does not fork a line of any of them.
 
 The painter, the surface interface, the `android.graphics` backend, the Java2D
 twin and the platform stubs are **not** here: they are
-[`lib/evg/android`](../../evg/android/README.md), shared with the
+[`lib/evg/android`](../../../lib/evg/android/README.md), shared with the
 [pptx port](../../pptx/android/README.md).
 
 ## Build and run
@@ -183,7 +183,7 @@ the way down, and below it was the host's own background.
 `height: 100%` could not fix it — a percentage needs a parent with a definite
 height, and the page's own height is exactly the number nobody in the tree has —
 so EVG grew the unit that asks the layout instead:
-[`vw` and `vh`](../../evg/EVGUnit.rgr) resolve against `EVGLayout.pageWidth` /
+[`vw` and `vh`](../../../lib/evg/EVGUnit.rgr) resolve against `EVGLayout.pageWidth` /
 `pageHeight`, which every host already sets and which on paper is the page area,
 the sheet less its margins. The page, the sidebar, the hairline and the scroll
 box all say `100vh` now, and the stylesheet no longer names a number that only
@@ -261,7 +261,7 @@ equivalent stage, which is why this port shipped without it.
 
 `RuntimeShader` (API 33) is that stage. `RenderEffect.createRuntimeShaderEffect`
 renders the view into a texture, binds it to a named `uniform shader`, and lets
-the program decide every pixel — so [`RippleEffect`](../../evg/android/src/android/kotlin/fi/ranger/evg/RippleEffect.kt)
+the program decide every pixel — so [`RippleEffect`](../../../lib/evg/android/src/android/kotlin/fi/ranger/evg/RippleEffect.kt)
 is a translation of `evg-webgl.js`'s `RIPPLE_FRAG` into AGSL rather than a
 second effect to keep in step with the first. Two things are different and both
 are simplifications: a view's coordinates run y-down like the page, so the flips
@@ -368,7 +368,7 @@ Known gaps, in rough order of how much they would be missed:
 * [`gallery/ui`](../README.md) — the controllers, and what they are measured
   against
 * [`gallery/ui/demo`](../demo) — the same page in a browser
-* [`lib/evg/android`](../../evg/android/README.md) — the painter and the two
+* [`lib/evg/android`](../../../lib/evg/android/README.md) — the painter and the two
   surfaces this port draws through
 * [`gallery/pptx/android`](../../pptx/android/README.md) — the first Android
   port, and the one this follows

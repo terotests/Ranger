@@ -15,7 +15,7 @@ Related: [`gl/README.md`](gl/README.md) (the display list as a GPU input),
 [`README.md`](README.md) (the pipeline and the seam),
 [`PLAN_NATIVE_HOSTS.md`](PLAN_NATIVE_HOSTS.md) (the engine off the UI thread —
 this is orthogonal to it and composes with it),
-[`../figma/README.md`](../figma/README.md) (the canvas that found this).
+[`../../gallery/figma/README.md`](../../gallery/figma/README.md) (the canvas that found this).
 
 ---
 

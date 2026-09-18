@@ -22,7 +22,7 @@ Related: [`README.md`](README.md) (the pipeline and the seam),
 identity), [`PLAN_ACCESSIBILITY.md`](PLAN_ACCESSIBILITY.md) (the second list),
 [`inspect/README.md`](inspect/README.md) (the path identity),
 [`apple/README.md`](apple/README.md), [`android/README.md`](android/README.md),
-[`../ui/PLAN_INPUTS.md`](../ui/PLAN_INPUTS.md) (the text-input bridge).
+[`../../gallery/ui/PLAN_INPUTS.md`](../../gallery/ui/PLAN_INPUTS.md) (the text-input bridge).
 
 ---
 

@@ -15,10 +15,10 @@ function render() {
       <View className="rule" />
 
       <View className="spread">
-        <Image className="cell hero" src="../../../pdf_writer/assets/images/Canon_40D_scaled.jpg" />
-        <Image className="cell" src="../../../pdf_writer/assets/images/Example_scaled.jpg" />
-        <Image className="cell" src="../../../pdf_writer/assets/images/Canon_40D_scaled.jpg" />
-        <Image className="cell wide" src="../../../pdf_writer/assets/images/Example_scaled.jpg" />
+        <Image className="cell hero" src="../../../../gallery/pdf_writer/assets/images/Canon_40D_scaled.jpg" />
+        <Image className="cell" src="../../../../gallery/pdf_writer/assets/images/Example_scaled.jpg" />
+        <Image className="cell" src="../../../../gallery/pdf_writer/assets/images/Canon_40D_scaled.jpg" />
+        <Image className="cell wide" src="../../../../gallery/pdf_writer/assets/images/Example_scaled.jpg" />
       </View>
 
       <Label className="caption">

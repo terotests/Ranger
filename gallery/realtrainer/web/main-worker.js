@@ -27,10 +27,10 @@
 // pointer-down to the frame that showed it and published as `__latency` in
 // both hosts.
 
-import { prepareDisplayList } from "../../evg/gl/evg-webgl.js";
-import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
-import { connectEngine } from "../../evg/gl/evg-engine.js";
+import { prepareDisplayList } from "../../../lib/evg/gl/evg-webgl.js";
+import { createA11yMirror, pressAtCentre } from "../../../lib/evg/gl/evg-a11y.js";
+import { createTextInputBridge } from "../../../lib/evg/gl/evg-textinput.js";
+import { connectEngine } from "../../../lib/evg/gl/evg-engine.js";
 
 const stage = document.getElementById("stage");
 const canvas = document.getElementById("c");

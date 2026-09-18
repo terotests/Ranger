@@ -17,17 +17,17 @@ function render() {
 
       <View className="deck">
         <View className="card">
-          <Image className="shot" src="../../../pdf_writer/assets/images/Canon_40D_scaled.jpg" />
+          <Image className="shot" src="../../../../gallery/pdf_writer/assets/images/Canon_40D_scaled.jpg" />
           <Label className="cardcap">Lyhyt.</Label>
         </View>
         <View className="card">
-          <Image className="shot" src="../../../pdf_writer/assets/images/Example_scaled.jpg" />
+          <Image className="shot" src="../../../../gallery/pdf_writer/assets/images/Example_scaled.jpg" />
           <Label className="cardcap">
             Hieman pidempi kuvateksti, joka kiertää usealle riville.
           </Label>
         </View>
         <View className="card">
-          <Image className="shot" src="../../../pdf_writer/assets/images/Canon_40D_scaled.jpg" />
+          <Image className="shot" src="../../../../gallery/pdf_writer/assets/images/Canon_40D_scaled.jpg" />
           <Label className="cardcap">Keskimittainen teksti tähän.</Label>
         </View>
       </View>

@@ -383,7 +383,7 @@ platform speaks.
 | --- | --- |
 | [`EVGA11yTree.rgr`](EVGA11yTree.rgr) | The model: roles, names, states, bounds, virtualization indices, focus, a text dump and the lints. Pure Ranger — no host, no device — so it compiles to ES6, C++, Rust and Go like the display list does. |
 | [`EVGWindow.rgr`](EVGWindow.rgr) · [`EVGToolbar.rgr`](EVGToolbar.rgr) | `a11y()` on both. `EVGControlKind` was already a role enumeration and `focusedId` already a focus model; publishing them was most of the work. |
-| [`GridView.rgr`](../datagrid/src/GridView.rgr) | `a11yTree()` — the sheet as a `grid` with column and row headers, the visible cells, the formula bar, the sheet tabs, the toolbar, the dialogs and a status live region. `GridApp.a11yJson()` / `a11yDump()` are the entry points. |
+| [`GridView.rgr`](../../gallery/datagrid/src/GridView.rgr) | `a11yTree()` — the sheet as a `grid` with column and row headers, the visible cells, the formula bar, the sheet tabs, the toolbar, the dialogs and a status live region. `GridApp.a11yJson()` / `a11yDump()` are the entry points. |
 | [`gl/evg-a11y.js`](gl/evg-a11y.js) | The browser half: real DOM over the canvas, positioned at the rectangles that were painted, reusing elements by node id. |
 
 What a reader gets today, in the standalone DataGrid page:
@@ -467,9 +467,9 @@ Three files, mirroring the existing `dgfx_menu` pattern exactly:
 
 | File | What |
 | --- | --- |
-| [`dgfx_a11y.h`](../datagrid/platform/sdl/dgfx_a11y.h) | Four C functions: is anything listening, publish a tree, take a press, reset |
-| [`dgfx_a11y.mm`](../datagrid/platform/sdl/dgfx_a11y.mm) | macOS: `NSJSONSerialization` → one `NSAccessibilityElement` per node under the window's content view |
-| [`dgfx_a11y_stub.cpp`](../datagrid/platform/sdl/dgfx_a11y_stub.cpp) | Everywhere else: says nobody is listening, so nothing is built |
+| [`dgfx_a11y.h`](../../gallery/datagrid/platform/sdl/dgfx_a11y.h) | Four C functions: is anything listening, publish a tree, take a press, reset |
+| [`dgfx_a11y.mm`](../../gallery/datagrid/platform/sdl/dgfx_a11y.mm) | macOS: `NSJSONSerialization` → one `NSAccessibilityElement` per node under the window's content view |
+| [`dgfx_a11y_stub.cpp`](../../gallery/datagrid/platform/sdl/dgfx_a11y_stub.cpp) | Everywhere else: says nobody is listening, so nothing is built |
 
 Why macOS first, other than the machine being to hand: the build **already
 links AppKit**, for the real `NSMenu` in `dgfx_menu.mm`. NSAccessibility is in
@@ -646,5 +646,5 @@ One Windows-specific trap to write down before it is discovered the hard way:
 per-monitor DPI aware gets its rectangles virtualized by the system, and on a
 scaled display every node would be reported in the wrong place — the same class
 of bug as the Retina pointer offset documented in
-[`platform/sdl/README.md`](../datagrid/platform/sdl/README.md), arriving from
+[`platform/sdl/README.md`](../../gallery/datagrid/platform/sdl/README.md), arriving from
 the other end.

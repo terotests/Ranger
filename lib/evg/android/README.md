@@ -42,13 +42,13 @@ file the compiler wrote.
 
 ## Who uses it
 
-* [`gallery/pptx/android`](../../pptx/android/README.md) — the slide viewer.
+* [`gallery/pptx/android`](../../../gallery/pptx/android/README.md) — the slide viewer.
   Adds `TouchRouter`, a `SlideView` and the four bundled faces a deck was
   measured with.
-* [`gallery/ui/android`](../../ui/android/README.md) — the dashboard demo. Adds
+* [`gallery/ui/android`](../../../gallery/ui/android/README.md) — the dashboard demo. Adds
   a viewport facade and a `DashboardView`, and draws with the platform's own
   sans because that is what the page was laid out against.
-* [`gallery/realtrainer/android`](../../realtrainer/android/README.md) — the
+* [`gallery/realtrainer/android`](../../../gallery/realtrainer/android/README.md) — the
   RealTrainer demo. The page is the view rather than a fitted document, and
   the host adds the soft keyboard through an `InputConnection`; the stubs
   under `androidstubs/InputMethod.kt` are its.

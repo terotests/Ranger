@@ -13,7 +13,7 @@
  */
 
 import { buildHost } from "../build-host.cjs";
-import { createA11yMirror } from "../../../evg/gl/evg-a11y.js";
+import { createA11yMirror } from "../../../../lib/evg/gl/evg-a11y.js";
 import * as HostModule from "../../bin/ui_host.cjs";
 import { FIXTURE, THEME_CSS, PAGE } from "./generated.js";
 

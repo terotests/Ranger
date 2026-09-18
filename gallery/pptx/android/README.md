@@ -41,7 +41,7 @@ this port does not fork a line of any of them.
 
 The painter, the surface interface, the two backends, the recording surface and
 the platform stubs are **not** here. They were, until a second port wanted them:
-they are [`lib/evg/android`](../../evg/android/README.md) now, compiled into
+they are [`lib/evg/android`](../../../lib/evg/android/README.md) now, compiled into
 this app's build from there.
 
 | Path (in `lib/evg/android`) | What it is |
@@ -340,7 +340,7 @@ that does not need a keyboard.
 That claim has since been tested rather than asserted:
 [`gallery/ui/android`](../../ui/android/README.md) puts the `gallery/ui`
 dashboard on a device, and it is a facade and a `View` — the painter and both
-surfaces moved to [`lib/evg/android`](../../evg/android/README.md) unchanged
+surfaces moved to [`lib/evg/android`](../../../lib/evg/android/README.md) unchanged
 and are now shared rather than copied. The one thing that had to be agreed is
 the package the generated Kotlin goes into: `fi.ranger.rgr` for every port, so
 the painter has one import line to name.
@@ -349,7 +349,7 @@ the painter has one import line to name.
 
 * [PPTX viewer](../README.md) — the model, the resolver, the oracles
 * [WebGL host](../web/) — the same app in a browser
-* [`lib/evg/gl/evg-webgl.js`](../../evg/gl/evg-webgl.js) — the other
+* [`lib/evg/gl/evg-webgl.js`](../../../lib/evg/gl/evg-webgl.js) — the other
   display-list backend, and the one this painter's text placement follows
 * [`gallery/datagrid/platform/sdl`](../../datagrid/platform/sdl/README.md) — the
   native desktop backend

@@ -25,7 +25,7 @@ The SVG backend is the second consumer of this seam and the evidence that the
 seam is one: it is 500 lines, it shares no code with this file, and the two are
 differenced pixel for pixel over the same frames — 0.022% on a sheet built to
 exercise every command kind, 0.000% on every slide of the .pptx deck. See
-[`gallery/pptx/web/html/`](../../pptx/web/html/README.md), which is the slide
+[`gallery/pptx/web/html/`](../../../gallery/pptx/web/html/README.md), which is the slide
 editor with this painter swapped out for that one and nothing else changed.
 
 Everything above the seam is the code the PDF is made with. Everything below

@@ -184,7 +184,7 @@ here, and the repository-root names are aliases in the same file.
 | `scripts/smoke.sh` | The driver run for real against a stand-in toolchain, on any machine |
 
 The painter, the surface protocol and the CoreGraphics backend are **not** here:
-they are [`lib/evg/apple`](../../evg/apple/README.md), shared with whatever
+they are [`lib/evg/apple`](../../../lib/evg/apple/README.md), shared with whatever
 comes through them next.
 
 ## The build is a program, not a script
@@ -422,6 +422,6 @@ Known gaps, in rough order of how much they would be missed:
 * [`gallery/ui`](../README.md) — the controllers, and what they are measured against
 * [`gallery/ui/demo`](../demo) — the same page in a browser
 * [`gallery/ui/android`](../android/README.md) — the same page on Android, and the port this follows
-* [`lib/evg/apple`](../../evg/apple/README.md) — the painter and the CoreGraphics surface
+* [`lib/evg/apple`](../../../lib/evg/apple/README.md) — the painter and the CoreGraphics surface
 * [`lib/apple`](../../../lib/apple/README.md) — the Apple toolchain driver, and its 151 checks
 * [`lib/Shell.rgr`](../../../lib/Shell.rgr) — calling command line programs from Ranger

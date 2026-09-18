@@ -18,6 +18,9 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MODULE = path.join(HERE, "..", "..");          // gallery/figma
 const GALLERY = path.join(MODULE, "..");             // gallery
+// EVG's browser helpers live in lib/evg (MIT) since the engine left gallery/;
+// the page keeps importing them as `evg/gl/…`, so resolve that prefix there.
+const helperPath = (rel) => rel.startsWith("evg/") ? path.join(GALLERY, "..", "lib", rel) : path.join(GALLERY, rel);
 
 const argv = process.argv.slice(2);
 const outFlag = argv.indexOf("--out");
@@ -71,9 +74,9 @@ function helperClosure() {
   while (queue.length) {
     const rel = queue.shift();
     if (seen.has(rel)) continue;
-    const from = path.join(GALLERY, rel);
+    const from = helperPath(rel);
     if (!fs.existsSync(from)) {
-      console.error(`the page imports ${rel}, which is not in gallery/`);
+      console.error(`the page imports ${rel}, which is not in gallery/ or lib/`);
       process.exit(4);
     }
     seen.add(rel);
@@ -89,7 +92,7 @@ function copyHelpers(root) {
   for (const rel of HELPERS) {
     const to = path.join(root, rel);
     fs.mkdirSync(path.dirname(to), { recursive: true });
-    fs.copyFileSync(path.join(GALLERY, rel), to);
+    fs.copyFileSync(helperPath(rel), to);
   }
 }
 copyHelpers(HERE);

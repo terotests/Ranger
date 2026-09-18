@@ -245,7 +245,7 @@ bash gallery/vela/tests/run_cpp.sh              # the same, from a native binary
 ## A page that prints the calls that drew it
 
 `tools/vela_chart_page.rgr` writes
-[`lib/evg/showcase/pages/chart_api.tsx`](../evg/showcase/pages/chart_api.tsx),
+[`lib/evg/showcase/pages/chart_api.tsx`](../../lib/evg/showcase/pages/chart_api.tsx),
 which the EVG showcase renders to PDF, PNG, HTML and WebGL under three themes
 like any other page — *Charts, called* on
 [the published gallery](https://terotests.github.io/Ranger/evg/). It is the

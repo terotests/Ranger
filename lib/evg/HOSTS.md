@@ -18,7 +18,7 @@ each contained was the same, and this is what is left once that is shared.
 | `EvgApp` | the conversation every host has with every app: a page size, a hit test, presses, hovers, scrolls, keys, a clock, a display list | `EvgApp.rgr` |
 | `EvgViewport` | a window, a safe area and where the page sits inside them: the fit, the scale, the pan, window point → page point | `EvgViewport.rgr` |
 | `EvgHost` | a host for an app that scrolls a document: the press a drag cancels, the fling timed against the host's clock, the keyboard's text. Used by the UIKit view, the Android View, and the browser page in both its arrangements | `EvgHost.rgr` |
-| `UiWindowHost` | a host for a fixed-width page that is fitted, panned and pinched | `../ui/src/UiWindowHost.rgr` |
+| `UiWindowHost` | a host for a fixed-width page that is fitted, panned and pinched | `../../gallery/ui/src/UiWindowHost.rgr` |
 | the painters | `EVGDisplayList` → CoreGraphics, Android `Canvas`, WebGL 2, DOM | `apple/`, `android/`, `gl/`, `html/` |
 
 `EvgApp`'s defaults are what an app that does not do a thing should answer —

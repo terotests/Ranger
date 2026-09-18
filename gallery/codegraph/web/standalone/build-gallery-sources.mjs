@@ -20,6 +20,23 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rangerRoot = path.resolve(__dirname, "../../../..");
 const galleryRoot = path.join(rangerRoot, "gallery");
+const libRoot = path.join(rangerRoot, "lib");
+
+// Where a package named in `Import "pkg:<name>/…"` lives. EVG and the image
+// codecs are MIT under lib/ now; the rest are gallery siblings.
+const PKG_DIRS = {
+  evg: path.join(libRoot, "evg"),
+  image: path.join(libRoot, "image"),
+  zip: path.join(libRoot, "zip"),
+  evg_window: path.join(galleryRoot, "evg_window"),
+  css: path.join(galleryRoot, "css"),
+};
+
+// An entry is spelled as a VFS key; `evg/…` is lib/evg on disk.
+function entryPath(entryRel) {
+  const [pkg, ...rest] = entryRel.split("/");
+  return pkg === "evg" ? path.join(libRoot, "evg", ...rest) : path.join(galleryRoot, entryRel);
+}
 const outFile = process.argv[2]
   ? path.resolve(process.argv[2])
   : path.join(__dirname, "dist/gallerySources.json");
@@ -38,13 +55,18 @@ function keyFor(absPath, sample) {
   if (rel.startsWith("gallery/")) {
     return rel.slice("gallery/".length);
   }
+  // lib/evg and lib/image keep their package name as the folder, the same
+  // way gallery packages do, so `evg/EVGElement.rgr` stays the entry key.
+  if (rel.startsWith("lib/evg/") || rel.startsWith("lib/image/")) {
+    return rel.slice("lib/".length);
+  }
   return sample + "/" + path.basename(absPath);
 }
 
 function collect(entryRel) {
   const files = {};
   const sample = entryRel.split("/")[0];
-  const queue = [path.join(galleryRoot, entryRel)];
+  const queue = [entryPath(entryRel)];
   while (queue.length) {
     const abs = queue.pop();
     const key = keyFor(abs, sample);
@@ -61,8 +83,19 @@ function collect(entryRel) {
     while ((m = re.exec(src))) {
       const spec = m[1];
       if (!spec.endsWith(".rgr")) continue;
-      if (spec.startsWith("pkg:")) continue;
-      const dep = path.resolve(dir, spec);
+      let dep;
+      if (spec.startsWith("pkg:")) {
+        // `pkg:evg/EVGColor.rgr` — the package's directory, then the path in it.
+        const slash = spec.indexOf("/");
+        const pkgDir = PKG_DIRS[spec.slice(4, slash)];
+        if (!pkgDir) {
+          console.warn("  unknown package in " + spec);
+          continue;
+        }
+        dep = path.join(pkgDir, spec.slice(slash + 1));
+      } else {
+        dep = path.resolve(dir, spec);
+      }
       const rel = path.relative(rangerRoot, dep).split(path.sep).join("/");
       // Outside the repository, the compiler's own sources, or the standard
       // library the compile env already installs under /lib/.
@@ -76,7 +109,7 @@ function collect(entryRel) {
 }
 
 function rewriteRelativeImports(src) {
-  return src.replace(/Import\s+"(\.\.[^"]+)"/g, (_all, spec) => {
+  return src.replace(/Import\s+"((?:\.\.|pkg:)[^"]+)"/g, (_all, spec) => {
     const base = spec.split("/").pop();
     return `Import "${base}"`;
   });

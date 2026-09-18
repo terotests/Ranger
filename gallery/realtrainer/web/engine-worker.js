@@ -11,9 +11,9 @@
 // row on the main thread and is now one post: "what is under this point,
 // and hover it". They read the tree, so they belong beside it.
 
-import { serveEngine } from "../../evg/gl/evg-engine.js";
-import { installCanvasMeasurer } from "../../evg/gl/evg-measure.js";
-import { shiftsOf, effectOf } from "../../evg/gl/evg-list.js";
+import { serveEngine } from "../../../lib/evg/gl/evg-engine.js";
+import { installCanvasMeasurer } from "../../../lib/evg/gl/evg-measure.js";
+import { shiftsOf, effectOf } from "../../../lib/evg/gl/evg-list.js";
 import { RtHost, EVGHostTextMeasurer, EVGDefaultMeasurer, RtCharts } from "./generated-host.js";
 import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE } from "./generated.js";
 

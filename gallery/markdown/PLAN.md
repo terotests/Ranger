@@ -775,5 +775,5 @@ hour until the fifth failing example.
 - [`gallery/rangerflow/README.md`](../rangerflow/README.md) — the Mermaid readers, and the parity harness this design copies
 - [`gallery/docx_viewer/README.md`](../docx_viewer/README.md) — `RichDocument`, pagination, and the WebGL page recipe
 - [`gallery/book/README.md`](../book/README.md) — the flow engine the break rules come from
-- [`lib/evg/README.md`](../evg/README.md) — the layout engine, the text engine, and the display list
+- [`lib/evg/README.md`](../../lib/evg/README.md) — the layout engine, the text engine, and the display list
 - [`gallery/pdf_writer/README.md`](../pdf_writer/README.md) — `<Print>` / `<Page>`, font embedding, and `evg_pdf_tool`

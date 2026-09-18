@@ -92,7 +92,7 @@ against the faces it was authored in.
 Nothing in this directory is compiled by this repository's CI, because Swift for
 Apple platforms needs a Mac. What IS checked, on any machine, is everything the
 painter is handed:
-[`gallery/ui/ios/ranger/check_ios.rgr`](../../ui/ios/ranger/check_ios.rgr)
+[`gallery/ui/ios/ranger/check_ios.rgr`](../../../gallery/ui/ios/ranger/check_ios.rgr)
 asserts that the page reaches text, filled boxes, borders, rounded corners,
 clipping, a filled path and stroked paths — and that every clip pushed is
 popped, which is the invariant this painter exists to keep.
@@ -124,5 +124,5 @@ range; nothing else in the list has to change.
 
 * [`lib/evg/android`](../android/README.md) — the same interface over
   `android.graphics.Canvas` and `java.awt.Graphics2D`
-* [`gallery/ui/ios`](../../ui/ios/README.md) — the dashboard demo through this
+* [`gallery/ui/ios`](../../../gallery/ui/ios/README.md) — the dashboard demo through this
   painter, on iPhone, iPad and Apple Watch

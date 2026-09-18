@@ -96,7 +96,7 @@ npm run ui:android:run      # …or build the APK and put it on an emulator
 [`android/`](android/README.md) is the **dashboard demo as an Android app** —
 the same `DashboardDemo.rgr`, compiled to Kotlin and painted with
 `android.graphics.Canvas` through the backend the pptx port already had
-([`lib/evg/android`](../evg/android/README.md)). The port is a facade that
+([`lib/evg/android`](../../lib/evg/android/README.md)). The port is a facade that
 owns the viewport arithmetic and one `View`; nothing about the page is written
 twice.
 
@@ -115,7 +115,7 @@ npm run ui:ios:watch    # the same page on an Apple Watch
 
 [`ios/`](ios/README.md) is the **dashboard demo as an iPhone, iPad and Apple
 Watch app** — the same `DashboardDemo.rgr`, compiled to Swift and painted with
-CoreGraphics through [`lib/evg/apple`](../evg/apple/README.md).
+CoreGraphics through [`lib/evg/apple`](../../lib/evg/apple/README.md).
 
 Two things make it different from the Android port. The facade owns a **safe
 area** and a **readable fit** as well as the viewport arithmetic, because an
@@ -386,10 +386,10 @@ utility-class theme needs compound and attribute selectors; `gallery/css`'s
 
 ## Related
 
-- [`lib/evg/`](../evg/) — layout, display list, `EVGStyleSheet`, `EVGA11yTree`
-- [`gallery/evg_window/EVGWindow.rgr`](../evg/EVGWindow.rgr) — the controller shape this follows
+- [`lib/evg/`](../../lib/evg/) — layout, display list, `EVGStyleSheet`, `EVGA11yTree`
+- [`gallery/evg_window/EVGWindow.rgr`](../evg_window/EVGWindow.rgr) — the controller shape this follows
 - [`gallery/css/CssCore.rgr`](../css/CssCore.rgr) — selector specificity, for the theme work
 - [`gallery/game_engine/ui/`](../game_engine/ui/) — focus and keyboard, still SoftCanvas-bound
-- [`lib/evg/android/`](../evg/android/README.md) — the Android/JVM display-list backend the dashboard port draws through
+- [`lib/evg/android/`](../../lib/evg/android/README.md) — the Android/JVM display-list backend the dashboard port draws through
 
 Roadmap: [`PLAN.md`](PLAN.md).

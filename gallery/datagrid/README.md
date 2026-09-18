@@ -143,7 +143,7 @@ Nav is on — **← and → together** turns it off.) `?a11y=0` disables the mir
 Tested by `npm run evg:a11y:test`, `npm run datagrid:a11y:test` and the browser
 run in `npm run datagrid:web:test`, which asks the DOM what a reader would be
 handed. Design and the honest gaps — the cell editor is not a real `<input>`
-yet — are in [`lib/evg/PLAN_ACCESSIBILITY.md`](../evg/PLAN_ACCESSIBILITY.md).
+yet — are in [`lib/evg/PLAN_ACCESSIBILITY.md`](../../lib/evg/PLAN_ACCESSIBILITY.md).
 
 **Is it really WebGL?** "backend: webgl2" is a label the page writes about
 itself, so the self test checks the facts under it: that the context really is a
@@ -651,7 +651,7 @@ More: [`artifacts/22_theme_blue.png`](artifacts/22_theme_blue.png),
 
 ## Dialogs
 
-Paste Special is built on **[`EVGWindow`](../evg/EVGWindow.rgr)**, a small
+Paste Special is built on **[`EVGWindow`](../evg_window/EVGWindow.rgr)**, a small
 window layer that paints into an `EVGDisplayList` rather than onto a canvas —
 so the same dialogs work on SoftCanvas, WebGL and anything added later, and the
 DOCX and PPTX hosts can use them as they are. It provides a draggable titled
@@ -1091,7 +1091,7 @@ chart follows on the next frame.
 | cells → Vega-Lite JSON | `GridChart.rgr` (`ChartData.specJson`) |
 | Vega-Lite → Vega → scene → draw commands | [Vela](../vela/README.md), unchanged |
 | draw commands → `EVGDrawCmd` | [`VlEvgList.rgr`](../vela/src/VlEvgList.rgr) |
-| the frame, the drag, the resize, the tool strip | [`EVGWindow`](../evg/EVGWindow.rgr) |
+| the frame, the drag, the resize, the tool strip | [`EVGWindow`](../evg_window/EVGWindow.rgr) |
 
 Only the first arrow is new. Everything below it is Vela's, which is checked
 against the official Vega implementation by its own corpus, so a bar here is

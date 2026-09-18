@@ -29,7 +29,7 @@ npm run rt:android:ranger     # write the generated Kotlin and stop
 | `scripts/` | Ranger→Kotlin, the assets, the APK, the emulator, and the three off-device checks |
 | `package.json` | the same scripts under short names, so `npm run run` works from in here |
 
-The painter is not here. [`lib/evg/android`](../../evg/android/README.md)
+The painter is not here. [`lib/evg/android`](../../../lib/evg/android/README.md)
 draws this, the dashboard and the pptx viewer: `EvgPainter` walks the display
 list, `AndroidEvgSurface` is `android.graphics.Canvas` and `AwtEvgSurface` is
 the Java2D twin the desktop check paints with.

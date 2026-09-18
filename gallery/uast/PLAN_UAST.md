@@ -832,7 +832,7 @@ lib/evg/EVGElement.rgr
 …
 ```
 
-Relative spellings such as `Import "../evg/EVGElement.rgr"` only work when
+Relative spellings such as `Import "../../lib/evg/EVGElement.rgr"` only work when
 the source tree has that sibling layout. Bare names only work when those
 directories are on `RANGER_LIB`. Ranger has **no package manager** — there
 is no `ranger install evg`, no registry, no lockfile. EVG was wired into

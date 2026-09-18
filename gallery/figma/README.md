@@ -787,7 +787,7 @@ What is left is the frame itself: 37 ms to build the list, 9 to decode it,
 18 to build the GPU buffers and 18 to draw. The first three of those are
 work a pan does not need — the scene has not changed, only the camera has —
 and taking the camera out of the coordinates is designed in
-[`../evg/PLAN_VIEW_TRANSFORM.md`](../evg/PLAN_VIEW_TRANSFORM.md), which
+[`../../lib/evg/PLAN_VIEW_TRANSFORM.md`](../../lib/evg/PLAN_VIEW_TRANSFORM.md), which
 would put a pan of this board at the draw alone.
 
 ## Selection debug

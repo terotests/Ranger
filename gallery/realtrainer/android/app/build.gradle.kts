@@ -42,8 +42,8 @@ android {
         // `android.graphics` backend. Not this port's: `lib/evg/android` is
         // EVG's Android/JVM backend, and the ui and pptx ports compile the
         // same files.
-        "../../../evg/android/src/main/kotlin",
-        "../../../evg/android/src/android/kotlin",
+        "../../../../lib/evg/android/src/main/kotlin",
+        "../../../../lib/evg/android/src/android/kotlin",
         // The page itself: Ranger compiled to Kotlin by
         // `scripts/build-ranger.sh`. Generated, not checked in.
         "../generated",

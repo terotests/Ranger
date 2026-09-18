@@ -43,7 +43,7 @@ Perustuu kahteen koodikartoitukseen (render-pino + WASM-ABI, heinäkuu 2026).
 | Alpha-blit | ✅ `RgbaFastBlit` | [`rgba_fast_blit.rgr`](./rgba_fast_blit.rgr) |
 | Retained sprite -lista | ✅ litteä `GameEntity` (`kind` rect/circle/wedge/ghost/bitmap/sheet) | [`game_sprite.rgr`](./scripting/game_sprite.rgr) |
 | EVG-vektorirasteroija (CPU) | ✅ shapes/gradientit/varjot/SVG-path/TTF/flexbox → RGBA | [`../pdf_writer/src/raster/`](../pdf_writer/src/raster/) |
-| EVG scene/element -puu | ✅ `EVGElement` parent/child + flexbox (UI-dokumentti, ei GPU-display-list) | [`../evg/EVGElement.rgr`](../evg/EVGElement.rgr) |
+| EVG scene/element -puu | ✅ `EVGElement` parent/child + flexbox (UI-dokumentti, ei GPU-display-list) | [`../../lib/evg/EVGElement.rgr`](../../lib/evg/EVGElement.rgr) |
 | Natiivi present + GLES2 | ✅ shaderit, VBO, full-frame-teksture, rotatoidut quadit | [`gfx_sdl.rgr`](./gfx_sdl.rgr) |
 | GPU sprite-quad (atlas + rotaatio) | ⚠️ `gfx_gpu_sprites_begin/push/end` — **ei batchattu**, 1 draw call / sprite | `gfx_sdl.rgr` (~630–645, 1012–1100, 1545–1553) |
 | GPU partikkelit | ✅ **batchattu** — yksi `glDrawArrays` per jono, additive | `gfx_sdl.rgr` (~918–960) |

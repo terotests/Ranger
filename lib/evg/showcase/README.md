@@ -22,7 +22,7 @@ source tree and one stylesheet.
 
 Everything else here is drawn ahead of time and published as a file.
 
-[`chart-api/`](../../vela/web/chart_api.html) **runs**: it loads Vela's chart
+[`chart-api/`](../../../gallery/vela/web/chart_api.html) **runs**: it loads Vela's chart
 API — compiled from `gallery/vela/tools/vela_chart_web.rgr` to a browser bundle
 — and calls it with what a reader types, redrawing as they edit. The page
 speaks **JavaScript** first: the bundle publishes the compiled `VlChart`,
@@ -101,7 +101,7 @@ back to the trace.
 `pages/charts.tsx`, `plots.tsx`, `more.tsx`, `views.tsx`, `variants.tsx`,
 `tables.tsx`, `drawing.tsx` and `chart_api.tsx` are written by a tool, not by
 hand: `npm run vela:showcase` runs a set of Vega specifications
-through the [Vela](../../vela/README.md) runtime and emits the paths and labels
+through the [Vela](../../../gallery/vela/README.md) runtime and emits the paths and labels
 they produce, together with a stylesheet each.
 
 **Charts** is the six chart types most people mean by the word. **Chart types**
@@ -117,9 +117,9 @@ the data, plus two plots concatenated.
 
 **Charts, called** is the only page here that no specification was written
 for. Every chart on it is built by CALLING Vela's chart API
-([`VlChart.rgr`](../../vela/src/VlChart.rgr)), and the lines printed above each
+([`VlChart.rgr`](../../../gallery/vela/src/VlChart.rgr)), and the lines printed above each
 chart are the calls that built it — read out of
-[`vela_chart_page.rgr`](../../vela/tools/vela_chart_page.rgr)'s own source at
+[`vela_chart_page.rgr`](../../../gallery/vela/tools/vela_chart_page.rgr)'s own source at
 the markers around each chart's calls, so the code the page shows and the code
 that drew the page cannot drift apart. It is also the page that says what the
 API is for: a view's encoding is inherited by its marks, so an area and the
@@ -181,7 +181,7 @@ unscoped < theme-scoped < attributes authored in the TSX.
 | `flex` | `flex` shorthand, `flex-shrink: 0`, `justify-content`, `flex-wrap` |
 | `emoji` | grapheme clusters, GSUB ligatures, Type0/Identity-H embedding, `emoji-color` |
 | `boxmodel` | padding, per-side padding, borders, nesting, margins |
-| `charts` | **generated** — Vega specs run by [`gallery/vela`](../../vela/README.md) and drawn as path data; series colours come from the theme, in three palettes |
+| `charts` | **generated** — Vega specs run by [`gallery/vela`](../../../gallery/vela/README.md) and drawn as path data; series colours come from the theme, in three palettes |
 
 `units` is the one worth reading twice: five bars declared in five different
 units come out exactly the same length, because CSS defines them all against

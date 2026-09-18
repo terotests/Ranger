@@ -13,16 +13,16 @@
 // headless check can drive the same app with a made-up clock and assert on the
 // same picture.
 
-import { prepareDisplayList } from "../../evg/gl/evg-webgl.js";
-import { createDomPainter } from "../../evg/html/evg-dom.js";
-import { listOf, shiftsOf } from "../../evg/gl/evg-list.js";
-import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
+import { prepareDisplayList } from "../../../lib/evg/gl/evg-webgl.js";
+import { createDomPainter } from "../../../lib/evg/html/evg-dom.js";
+import { listOf, shiftsOf } from "../../../lib/evg/gl/evg-list.js";
+import { createA11yMirror, pressAtCentre } from "../../../lib/evg/gl/evg-a11y.js";
+import { createTextInputBridge } from "../../../lib/evg/gl/evg-textinput.js";
 import { RtHost, EVGHostTextMeasurer, EVGDefaultMeasurer } from "./generated-host.js";
 // The browser measures the text: every layout the app builds asks canvas
 // `measureText` in the face the painter draws with, instead of the advance
 // table. Installed before the app is constructed — the app keeps a layout.
-import { installCanvasMeasurer } from "../../evg/gl/evg-measure.js";
+import { installCanvasMeasurer } from "../../../lib/evg/gl/evg-measure.js";
 import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE } from "./generated.js";
 
 const stage = document.getElementById("stage");

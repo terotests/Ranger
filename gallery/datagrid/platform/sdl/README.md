@@ -229,7 +229,7 @@ stale rectangle from a wrong one.
 compiled or run in this container — this container has no macOS, no AppKit and no GPU. The
 Linux stub (`dgfx_a11y_stub.cpp`) and everything above it — the tree, the
 operators, the host loop — do build and run here. Design, state and the wider
-plan: [`lib/evg/PLAN_ACCESSIBILITY.md`](../../../evg/PLAN_ACCESSIBILITY.md).
+plan: [`lib/evg/PLAN_ACCESSIBILITY.md`](../../../../lib/evg/PLAN_ACCESSIBILITY.md).
 
 ## Layout
 
