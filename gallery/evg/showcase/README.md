@@ -55,6 +55,15 @@ whole. Build alone with `npm run evg:trace:web` (output lands in
 `/evg/tracer/` on Pages. `npm run evg:trace:web:smoke` opens it in Chromium and
 checks it.
 
+[`erazer/`](../../erazer/) is the fourth live page, and the one that treats the
+bitmap as a **UI** rather than a photograph. It grows colour regions, nests
+them, guesses widget classes (button, text field, tab, menu, checkbox, label)
+and vectorizes leftover icons with the same tracer. The showcase build ships
+it to `/evg/erazer/` ([live](https://terotests.github.io/Ranger/evg/erazer/)).
+On a phone, **Valitse kuva** opens the photo library; a screenshot can be
+pasted. `npm run erazer:web:serve` is the local page;
+`npm run erazer:test` is the fixture suite.
+
 The same tracer runs from a command line, with no page and no browser:
 
 ```sh

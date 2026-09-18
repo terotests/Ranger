@@ -1,0 +1,4 @@
+# Compiler output. Every file here is produced from a `.rgr` in gallery/erazer
+# by an npm script that compiles before it runs.
+*
+!.gitignore
