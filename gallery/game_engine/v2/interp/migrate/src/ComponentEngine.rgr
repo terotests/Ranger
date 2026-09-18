@@ -5658,11 +5658,15 @@ class ComponentEngine {
         ; outlive the loop.
         def ofOuter@(optional):EvalContext context
         def ofLexical:boolean false
+        def ofConst:boolean false
         if stmt.left {
             def leftNode:TSNode (unwrap stmt.left)
             if ((this.nodeKindOf(leftNode)) == 31) {
                 if ((leftNode.kind == "let") || (leftNode.kind == "const")) {
                     ofLexical = true
+                }
+                if (leftNode.kind == "const") {
+                    ofConst = true
                 }
                 if ((array_length leftNode.children) > 0) {
                     def decl:TSNode (itemAt leftNode.children 0)
@@ -5677,7 +5681,21 @@ class ComponentEngine {
         }
         if stmt.right {
             def rightNode:TSNode (unwrap stmt.right)
-            def src:EvHandle (this.evaluateExpr(rightNode))
+            ; §13.7.5.12 step 2: the iterable is evaluated in a scope where the
+            ; loop's own let/const names exist UNINITIALISED, so
+            ; `for (let x of [x])` is a ReferenceError rather than the outer x.
+            def src:EvHandle (EvValueBridge.taggedUndefined())
+            if (ofLexical && ((strlen varName) > 0)) {
+                def tdzOf:EvalContext (context.createChild())
+                tdzOf.isBlockScope = true
+                tdzOf.define(varName (EvValueBridge.taggedHole()))
+                def savedTdzOf:EvalContext context
+                context = tdzOf
+                src = (this.evaluateExpr(rightNode))
+                context = savedTdzOf
+            } {
+                src = (this.evaluateExpr(rightNode))
+            }
             ; D-LIVEITER: an ARRAY is iterated by INDEX, re-reading the
             ; element and the length on every turn, because that is what the
             ; array iterator does. A snapshot taken before the first turn
@@ -5740,6 +5758,7 @@ class ComponentEngine {
                             } {
                                 if ((strlen varName) > 0) {
                                     context.define(varName elemL)
+                                    if ofConst { context.markConst(varName) }
                                 } {
                                     if varTarget {
                                         this.assignToTarget((unwrap varTarget) elemL)
@@ -5801,6 +5820,7 @@ class ComponentEngine {
                                 } {
                                     if ((strlen varName) > 0) {
                                         context.define(varName elem)
+                                        if ofConst { context.markConst(varName) }
                                     } {
                                         if varTarget {
                                             this.assignToTarget((unwrap varTarget) elem)
@@ -5922,6 +5942,7 @@ class ComponentEngine {
                                             } {
                                                 if ((strlen varName) > 0) {
                                                     context.define(varName gElem)
+                                                if ofConst { context.markConst(varName) }
                                                 } {
                                                     if varTarget {
                                                         this.assignToTarget((unwrap varTarget) gElem)
@@ -6254,11 +6275,15 @@ class ComponentEngine {
         ; D-LEXSCOPE: `for (let k in o)` binds k fresh on every turn.
         def inOuter@(optional):EvalContext context
         def inLexical:boolean false
+        def inConst:boolean false
         if stmt.left {
             def leftNode:TSNode (unwrap stmt.left)
             if ((this.nodeKindOf(leftNode)) == 31) {
                 if ((leftNode.kind == "let") || (leftNode.kind == "const")) {
                     inLexical = true
+                }
+                if (leftNode.kind == "const") {
+                    inConst = true
                 }
                 if ((array_length leftNode.children) > 0) {
                     def decl:TSNode (itemAt leftNode.children 0)
@@ -6288,7 +6313,20 @@ class ComponentEngine {
         }
         if stmt.right {
             def rightNode:TSNode (unwrap stmt.right)
-            def target:EvHandle (this.evaluateExpr(rightNode))
+            ; §13.7.5.12 step 2: the object expression sees the loop's own
+            ; let/const name uninitialised (TDZ), as for-of does.
+            def target:EvHandle (EvValueBridge.taggedUndefined())
+            if (inLexical && ((strlen varName) > 0)) {
+                def tdzIn:EvalContext (context.createChild())
+                tdzIn.isBlockScope = true
+                tdzIn.define(varName (EvValueBridge.taggedHole()))
+                def savedTdzIn:EvalContext context
+                context = tdzIn
+                target = (this.evaluateExpr(rightNode))
+                context = savedTdzIn
+            } {
+                target = (this.evaluateExpr(rightNode))
+            }
             ; snapshot shared with the bytecode tier (forInKeyList) so the
             ; two paths cannot diverge
             def theKeys:[string] (this.forInKeyList(target))
@@ -6329,6 +6367,7 @@ class ComponentEngine {
                                 if ((strlen varName) > 0) {
                                     if declaresVar {
                                         context.define(varName keyV)
+                                        if inConst { context.markConst(varName) }
                                     } {
                                         ; An existing binding is ASSIGNED, not
                                         ; shadowed -- the name outlives the loop.
@@ -7086,6 +7125,8 @@ class ComponentEngine {
                 context = (context.createChild())
                 anyWithScope = true
                 context.withObject = wObj
+                ; D-COMPLETION: §13.11.7 -- an empty with body is undefined.
+                completionValue = (EvValueBridge.taggedUndefined())
                 if stmt.body {
                     this.runBlockOrStatement((unwrap stmt.body))
                 }
@@ -7120,6 +7161,10 @@ class ComponentEngine {
     ; is caught (scriptThrew cleared, e bound to the thrown value) and the handler
     ; runs; finally always runs and a throw/return inside it takes precedence.
     fn runTryStatementValue:void (stmt:TSNode) {
+        ; D-COMPLETION: §13.15.8 UpdateEmpty(C, undefined) -- a try statement
+        ; whose blocks produce no value evaluates to undefined, not to the
+        ; statement before it: `eval('1; try { } catch (e) { }')` is undefined.
+        completionValue = (EvValueBridge.taggedUndefined())
         if stmt.body {
             this.runBlockOrStatement((unwrap stmt.body))
         }
@@ -7169,6 +7214,10 @@ class ComponentEngine {
             scriptThrowValue = (EvValueBridge.taggedNull())
             loopBreak = false
             loopContinue = false
+            ; §13.15.8: the finally block's VALUE is discarded -- the
+            ; statement completes with what try/catch produced -- unless the
+            ; finally completes abruptly.
+            def pendCompletion:EvHandle completionValue
             this.runBlockOrStatement((unwrap stmt.right))
             def finallyAbrupt:boolean false
             if scriptDidReturn { finallyAbrupt = true }
@@ -7182,6 +7231,7 @@ class ComponentEngine {
                 scriptThrowValue = pendThrowVal
                 loopBreak = pendBreak
                 loopContinue = pendContinue
+                completionValue = pendCompletion
             }
         }
     }
@@ -9869,6 +9919,10 @@ class ComponentEngine {
             }
             argObj.setMember("__arguments__" (EvValueBridge.taggedBoolean(true)))
             argObj.setAttrs("__arguments__" false false false)
+            ; §9.4.4.6/7: an arguments object carries its own @@iterator, which
+            ; is %ArrayProto_values% -- writable, non-enumerable, configurable.
+            argObj.setMember("@@iterator" (this.sharedNativeMethod("array" "values")))
+            argObj.setAttrs("@@iterator" true false true)
             argObj.setProto((this.builtinPrototype("Object")))
             context.define("arguments" argObj)
         }
@@ -10043,6 +10097,25 @@ class ComponentEngine {
             return
         }
         if (false == (argObj2.hasOwnData("__arguments__"))) {
+            return
+        }
+        ; §9.2.12 step 22: a function whose parameter list is not SIMPLE -- a
+        ; default, a rest, a destructuring pattern anywhere in it -- gets an
+        ; unmapped arguments object, whatever its strictness.
+        def simpleList:boolean true
+        def sp0:int 0
+        while (sp0 < (array_length fnNode.params)) {
+            def sPrm:TSNode (itemAt fnNode.params sp0)
+            if (sPrm.nodeType == "RestElement") { simpleList = false }
+            if sPrm.init { simpleList = false }
+            if (sPrm.nodeType == "Parameter") {
+                if sPrm.left { simpleList = false }
+            } {
+                if ((this.nodeKindOf(sPrm)) != 1) { simpleList = false }
+            }
+            sp0 = (sp0 + 1)
+        }
+        if (false == simpleList) {
             return
         }
         def names:[EvHandle]
@@ -10639,6 +10712,10 @@ class ComponentEngine {
             return (this.constructPromise(args))
         }
         if (name == "Proxy") {
+            ; §26.2.1.1: Proxy has no [[Call]] -- `Proxy(t, h)` is a TypeError.
+            if (false == asNew) {
+                return (this.throwSpecError("TypeError" "Constructor Proxy requires 'new'"))
+            }
             return (this.constructProxy(args))
         }
         ; D-REGEX: the constructor reached through a VALUE -- `var F =
@@ -13668,10 +13745,18 @@ class ComponentEngine {
                     ; fused plain read: object receiver, accessor-free chain
                     ; -- no helper call, no bracket, no getter probe
                     ; atom id, not the name: the walk hashes no string (E-ATOM)
-                    def fm30:EvHandle ((itemAt bcStack (sp - 1)).memberFastAtAtom((itemAt prog.atomIds a)))
-                    if (false == (fm30.isHole())) {
-                        this.bcSlotPut((sp - 1) fm30)
-                        continue
+                    ; A PROXY is an object with a marker, and its reads are its
+                    ; `get` trap: the fused read answered undefined for a
+                    ; missing key without ever asking the handler (or noticing
+                    ; the proxy was revoked). plainMarkerFreeObject is the
+                    ; flag that says no marker was ever set, so the plain
+                    ; case pays one boolean.
+                    if ((itemAt bcStack (sp - 1)).plainMarkerFreeObject()) {
+                        def fm30:EvHandle ((itemAt bcStack (sp - 1)).memberFastAtAtom((itemAt prog.atomIds a)))
+                        if (false == (fm30.isHole())) {
+                            this.bcSlotPut((sp - 1) fm30)
+                            continue
+                        }
                     }
                 }
                 def o30:EvHandle (this.bcSlotBox((sp - 1)))
@@ -13698,9 +13783,10 @@ class ComponentEngine {
             if (op == 31) {
                 if ((itemAt bcTags (sp - 2)) == 0) {
                     ; fused plain write: accessor-free object chain means the
-                    ; assignment is an own-data store
+                    ; assignment is an own-data store -- on a marker-free
+                    ; object; a proxy's write is its `set` trap
                     def oh31:EvHandle (itemAt bcStack (sp - 2))
-                    if (oh31.chainAccessorFreeAt()) {
+                    if ((oh31.chainAccessorFreeAt()) && (oh31.plainMarkerFreeObject())) {
                         def vf31:EvHandle (this.bcSlotBox((sp - 1)))
                         ; the atom is already in the pool -- the load op has
                         ; used it since the fused member ops landed, while the
@@ -16074,6 +16160,12 @@ class ComponentEngine {
         if (false == (this.isDescriptorObject(src))) {
             return (EvValueBridge.taggedUndefined())
         }
+        ; An ARGUMENTS object's own @@iterator is %ArrayProto_values%, which
+        ; iterates the receiver's indices; asked here it would come back to
+        ; this lookup. Its elements are read directly.
+        if (src.hasOwnData("__arguments__")) {
+            return (this.makeListIterator((this.arrayLikeElements(src))))
+        }
         def itFn:EvHandle (this.getPropertyValue(src "@@iterator"))
         if scriptThrew { return (EvValueBridge.taggedUndefined()) }
         if (false == (itFn.isFunction())) {
@@ -17012,6 +17104,11 @@ class ComponentEngine {
             ; `for (x of null)` is a TypeError rather than zero iterations.
             def _e1:EvHandle (this.throwSpecError("TypeError" ((this.typeofTag(src)) + " is not iterable")))
             return out
+        }
+        ; An arguments object: its indices, ahead of its own @@iterator
+        ; (%ArrayProto_values%), which would only come back here.
+        if (src.hasOwnData("__arguments__")) {
+            return (this.arrayLikeElements(src))
         }
         def itFn:EvHandle (this.getPropertyValue(src "@@iterator"))
         ; D-ASYNCITER: `for await (x of o)` reaches here too, and an object may
@@ -22502,6 +22599,25 @@ class ComponentEngine {
     ; much as in strict. The engine wrote it straight through, so a regexp
     ; whose lastIndex had been frozen silently kept its old value and every
     ; fixture that freezes one to observe the throw saw nothing.
+    ; Set(r, "lastIndex", v, true): a setter runs, a read-only data property
+    ; is a TypeError.
+    fn setLastIndexValueOrThrow:void (r:EvHandle v:EvHandle) {
+        if (r.hasOwnData("lastIndex")) {
+            if (false == (r.isWritable("lastIndex"))) {
+                def _lv:EvHandle (this.throwSpecError("TypeError" "Cannot assign to read only property 'lastIndex'"))
+                return
+            }
+        }
+        ; an accessor with no setter refuses the write the same way
+        if (r.hasOwnGetter("lastIndex")) {
+            if (false == (r.hasOwnSetter("lastIndex"))) {
+                def _la:EvHandle (this.throwSpecError("TypeError" "Cannot set property lastIndex which has only a getter"))
+                return
+            }
+        }
+        this.bcPutField(r "lastIndex" v)
+    }
+
     fn setLastIndexOrThrow:void (r:EvHandle v:int) {
         if (r.hasOwnData("lastIndex")) {
             if (false == (r.isWritable("lastIndex"))) {
@@ -23895,7 +24011,14 @@ class ComponentEngine {
                 def outV:EvHandle (EvValueBridge.taggedObject(keysV valsV))
                 outV.setProto((this.builtinPrototype("Object")))
                 outV.setMember("proxy" rp)
-                outV.setMember("revoke" ((EvValueBridge.taggedNativeMethod("proxyrevoke" "revoke")).withThisForCall(rp)))
+                def revokeFn:EvHandle ((EvValueBridge.taggedNativeMethod("proxyrevoke" "revoke")).withThisForCall(rp))
+                ; §26.2.2.1.1: the revocation function is anonymous and takes
+                ; no arguments -- both as its own properties.
+                revokeFn.setMember("name" (EvValueBridge.taggedString("")))
+                revokeFn.setAttrs("name" false false true)
+                revokeFn.setMember("length" (EvHandle.fromInt(0)))
+                revokeFn.setAttrs("length" false false true)
+                outV.setMember("revoke" revokeFn)
                 return outV
             }
         }
@@ -25252,6 +25375,13 @@ class ComponentEngine {
                 realName = "toUTCString"
             }
         }
+        ; §22.1.3.31: Array.prototype[@@iterator] is the same function object
+        ; as Array.prototype.values, named "values".
+        if (kind == "array") {
+            if (name == "@@iterator") {
+                realName = "values"
+            }
+        }
         def key:string (kind + ("." + realName))
         def found@(optional):EvHandle (get nativeMethodCache key)
         if (!null? found) {
@@ -25270,8 +25400,8 @@ class ComponentEngine {
         ; the spec gives it and what the suite reads off it.
         def dispName:string realName
         if ((strlen realName) > 2) {
-            if ((substring name 0 2) == "@@") {
-                dispName = ("[Symbol." + ((substring name 2 (strlen name)) + "]"))
+            if ((substring realName 0 2) == "@@") {
+                dispName = ("[Symbol." + ((substring realName 2 (strlen realName)) + "]"))
             }
         }
         ; §9.2.11 SetFunctionName with a prefix: the halves of an accessor are
@@ -28070,6 +28200,12 @@ class ComponentEngine {
         if (m.isBuiltinMethod()) {
             if (((m.builtinKindOf()) == kind) && ((m.builtinNameOf()) == name)) {
                 return (EvValueBridge.taggedNull())
+            }
+            ; Array.prototype[@@iterator] is registered as `values`.
+            if ((kind == "array") && (name == "@@iterator")) {
+                if (((m.builtinKindOf()) == "array") && ((m.builtinNameOf()) == "values")) {
+                    return (EvValueBridge.taggedNull())
+                }
             }
         }
         return m
@@ -31167,7 +31303,10 @@ class ComponentEngine {
             ; of the matcher.
             if ((name == "@@match") || ((name == "@@search") || ((name == "@@split") || (name == "@@replace")))) {
                 ; `this` must be an object; the methods are generic over any
-                ; object, not just a RegExp instance.
+                ; object, not just a RegExp instance. A symbol is not one.
+                if (this.isSymbolValue(recv)) {
+                    return (this.throwSpecError("TypeError" ("RegExp.prototype[" + (name + "] called on a non-object"))))
+                }
                 if (false == (this.isDescriptorObject(recv))) {
                     return (this.throwSpecError("TypeError" (name + " called on a non-object")))
                 }
@@ -31219,14 +31358,34 @@ class ComponentEngine {
                     return (EvValueBridge.taggedArray(mAll))
                 }
                 if (name == "@@search") {
-                    ; lastIndex is saved, zeroed for the search and restored --
-                    ; search does not consume position the way match does.
+                    ; §21.2.5.9: lastIndex is read, set to 0 only when it is
+                    ; not already 0, and put back only when the exec changed
+                    ; it -- each a [[Get]] or a [[Set]] that runs accessors and
+                    ; throws on a read-only property. A throw from the exec is
+                    ; the answer: lastIndex is not restored afterwards.
                     def prevLI:EvHandle (this.getPropertyValue(recv "lastIndex"))
-                    this.setLastIndexOrThrow(recv 0)
-                    def sRes:EvHandle (this.regExpExecAbstract(recv reSubject))
-                    recv.setMember("lastIndex" prevLI)
                     if scriptThrew {
                         return (EvValueBridge.taggedUndefined())
+                    }
+                    if (false == (this.sameValueOf(prevLI (EvHandle.fromInt(0))))) {
+                        this.setLastIndexValueOrThrow(recv (EvHandle.fromInt(0)))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    }
+                    def sRes:EvHandle (this.regExpExecAbstract(recv reSubject))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    def curLI:EvHandle (this.getPropertyValue(recv "lastIndex"))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (false == (this.sameValueOf(curLI prevLI))) {
+                        this.setLastIndexValueOrThrow(recv prevLI)
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
                     }
                     if (sRes.isNull()) {
                         return (EvHandle.fromInt((0 - 1)))
@@ -33564,78 +33723,82 @@ class ComponentEngine {
     ; forms meant a property later put on the original was invisible through the
     ; result.
     fn buildRegexFromArgNodes:EvHandle (argNodes:[TSNode] asNew:boolean) {
-        def pattern:string ""
-        def flags:string ""
-        def sawFlags:boolean false
-        def srcRegex:EvHandle (EvValueBridge.taggedNull())
-        if ((array_length argNodes) > 0) {
-            def pv:EvHandle (this.evaluateExpr((itemAt argNodes 0)))
+        ; One implementation for the call-site and the value paths: the
+        ; arguments are evaluated and handed to buildRegexFromValues, which
+        ; carries the IsRegExp / regexp-like / same-constructor rules.
+        def vals:[EvHandle]
+        def ai:int 0
+        while (ai < (array_length argNodes)) {
+            push vals (this.evaluateExpr((itemAt argNodes ai)))
             if scriptThrew {
                 return (EvValueBridge.taggedUndefined())
             }
-            if (this.isRegexValue(pv)) {
-                srcRegex = pv
-                pattern = (this.regexSourceOf(pv))
-                flags = (this.regexFlagsOf(pv))
-            } {
-                if (false == (pv.isUndefined())) {
-                    pattern = (this.toStringOf(pv))
-                    if scriptThrew {
-                        return (EvValueBridge.taggedUndefined())
-                    }
-                }
-            }
+            ai = (ai + 1)
         }
-        if ((array_length argNodes) > 1) {
-            def fv:EvHandle (this.evaluateExpr((itemAt argNodes 1)))
-            if scriptThrew {
-                return (EvValueBridge.taggedUndefined())
-            }
-            if (false == (fv.isUndefined())) {
-                flags = (this.toStringOf(fv))
-                if scriptThrew {
-                    return (EvValueBridge.taggedUndefined())
-                }
-                sawFlags = true
-            }
-        }
-        ; D-REGEX: the plain call form answers its argument UNCHANGED when it is
-        ; already a RegExp and no flags are given (15.10.3.1). Supplying flags
-        ; re-reads the source with them -- ES5 made that a TypeError, ES2015
-        ; allows it, and the current corpus is written against ES2015.
-        if (srcRegex.isObject()) {
-            if (false == sawFlags) {
-                if (false == asNew) {
-                    return srcRegex
-                }
-            }
-        }
-        def flagErr:string (this.regexFlagError(flags))
-        if ((strlen flagErr) > 0) {
-            return (this.throwSpecError("SyntaxError" flagErr))
-        }
-        ; A malformed pattern is a SyntaxError at construction, not at first use.
-        def probe (new RegexCompiler)
-        def prog:RegexProgram (probe.compile(pattern flags))
-        if (false == prog.valid) {
-            return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + prog.errorMessage)))
-        }
-        return (this.makeRegexValue(pattern flags))
+        return (this.buildRegexFromValues(vals asNew))
     }
-
-    ; D-REGEX: the same construction as buildRegexFromArgNodes, from values that
-    ; have already been evaluated -- which is what a captured constructor has.
     fn buildRegexFromValues:EvHandle (args:[EvHandle] asNew:boolean) {
         def pattern:string ""
         def flags:string ""
         def sawFlags:boolean false
         def srcRegex:EvHandle (EvValueBridge.taggedNull())
+        def pv:EvHandle (EvValueBridge.taggedUndefined())
         if ((array_length args) > 0) {
-            def pv:EvHandle (itemAt args 0)
-            if (this.isRegexValue(pv)) {
-                srcRegex = pv
-                pattern = (this.regexSourceOf(pv))
-                flags = (this.regexFlagsOf(pv))
+            pv = (itemAt args 0)
+        }
+        def fvArg:EvHandle (EvValueBridge.taggedUndefined())
+        if ((array_length args) > 1) {
+            fvArg = (itemAt args 1)
+        }
+        ; §21.2.3.1 steps 1-4: IsRegExp asks the pattern's @@match (a throw
+        ; there is the answer). Called as a FUNCTION with a regexp-like
+        ; pattern and no flags, RegExp answers the pattern itself when its
+        ; `constructor` is RegExp -- so a RegExp with @@match set to false, or
+        ; one whose constructor is not RegExp, is copied instead of returned.
+        def patIsRe:boolean (this.isRegExpValue(pv))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        if ((false == asNew) && patIsRe && (fvArg.isUndefined())) {
+            def patCtor:EvHandle (this.getPropertyValue(pv "constructor"))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (patCtor.equals((this.builtinGlobalObject("RegExp")))) {
+                return pv
+            }
+        }
+        if (this.isRegexValue(pv)) {
+            ; step 5: a real RegExp is read through its internal slots
+            srcRegex = pv
+            pattern = (this.regexSourceOf(pv))
+            flags = (this.regexFlagsOf(pv))
+        } {
+            if patIsRe {
+                ; step 6: a regexp-LIKE object hands over its `source`, and
+                ; its `flags` when none were passed -- both ordinary [[Get]]s.
+                def likeSrc:EvHandle (this.getPropertyValue(pv "source"))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (false == (likeSrc.isUndefined())) {
+                    pattern = (this.toStringOf(likeSrc))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+                if (fvArg.isUndefined()) {
+                    def likeFlags:EvHandle (this.getPropertyValue(pv "flags"))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (false == (likeFlags.isUndefined())) {
+                        flags = (this.toStringOf(likeFlags))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    }
+                }
             } {
                 if (false == (pv.isUndefined())) {
                     pattern = (this.toStringOf(pv))
@@ -33645,22 +33808,12 @@ class ComponentEngine {
                 }
             }
         }
-        if ((array_length args) > 1) {
-            def fv:EvHandle (itemAt args 1)
-            if (false == (fv.isUndefined())) {
-                flags = (this.toStringOf(fv))
-                if scriptThrew {
-                    return (EvValueBridge.taggedUndefined())
-                }
-                sawFlags = true
+        if (false == (fvArg.isUndefined())) {
+            flags = (this.toStringOf(fvArg))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
             }
-        }
-        if (srcRegex.isObject()) {
-            if (false == sawFlags) {
-                if (false == asNew) {
-                    return srcRegex
-                }
-            }
+            sawFlags = true
         }
         def flagErr2:string (this.regexFlagError(flags))
         if ((strlen flagErr2) > 0) {
@@ -35045,7 +35198,13 @@ class ComponentEngine {
         def guard:int 0
         while ((q < size) && (guard < maxLoopIterations)) {
             guard = (guard + 1)
-            this.setLastIndexOrThrow(splitter q)
+            ; §21.2.5.11 step 19a: Set(splitter, "lastIndex", q, true) -- a
+            ; splitter the species constructor made is a guest object whose
+            ; lastIndex may be an accessor, and a throw there is the answer.
+            this.setLastIndexValueOrThrow(splitter (EvHandle.fromInt(q)))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
             def z:EvHandle (this.regExpExecAbstract(splitter S))
             if scriptThrew {
                 return (EvValueBridge.taggedUndefined())
@@ -35056,7 +35215,16 @@ class ComponentEngine {
             if (z.isNull()) {
                 q = (this.advanceStringIndex(S q spUnicode))
             } {
-                def e:int (this.toIntegerOf((this.getPropertyValue(splitter "lastIndex"))))
+                ; step 19d(i): e is min(ToLength(Get(splitter, "lastIndex")), size)
+                def eLI:EvHandle (this.getPropertyValue(splitter "lastIndex"))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                def e:int (this.toIntegerOf(eLI))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (e < 0) { e = 0 }
                 if (e > size) { e = size }
                 if (e == p) {
                     q = (this.advanceStringIndex(S q spUnicode))
