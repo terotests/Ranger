@@ -494,6 +494,13 @@ sfn main:void () {
         this.emitLine(out)
     }
 
+    fn emitSave:void () {
+        def text:string (EVGTreeJson.toText(root))
+        def out:string "{\"t\":\"doc\",\"text\":"
+        out = ((out + (EVGTreeJson.str(text))) + "}")
+        this.emitLine(out)
+    }
+
     sfn sizeOf:int (el:EVGElement wide:boolean fallback:int) {
         def u@(optional):EVGUnit el.height
         if wide {
@@ -540,6 +547,23 @@ sfn main:void () {
         return text
     }
 
+    fn loadRoot:boolean (docPath:string) {
+        def text@(optional):string (EvgLiveBuild.slurp(docPath))
+        if (null? text) {
+            this.emitError(("cannot read " + docPath))
+            return false
+        }
+        def loaded@(optional):EVGElement (EVGTreeJson.fromText((unwrap text)))
+        if (null? loaded) {
+            this.emitError(("not an EVG document: " + docPath))
+            return false
+        }
+        root = (unwrap loaded)
+        pageW = (EvgLiveBuild.sizeOf(root true pageW))
+        pageH = (EvgLiveBuild.sizeOf(root false pageH))
+        return true
+    }
+
     fn runFrameFile:void (docPath:string) {
         def a:[string]
         lines = a
@@ -549,24 +573,49 @@ sfn main:void () {
         findings = 0
         reject = ""
         source = ""
-        def text@(optional):string (EvgLiveBuild.slurp(docPath))
-        if (null? text) {
-            this.emitError(("cannot read " + docPath))
+        if (this.loadRoot(docPath) == false) {
             this.emitDone()
             return
         }
-        def loaded@(optional):EVGElement (EVGTreeJson.fromText((unwrap text)))
-        if (null? loaded) {
-            this.emitError(("not an EVG document: " + docPath))
-            this.emitDone()
-            return
-        }
-        root = (unwrap loaded)
-        pageW = (EvgLiveBuild.sizeOf(root true pageW))
-        pageH = (EvgLiveBuild.sizeOf(root false pageH))
         this.emitFrame()
         this.emitMeasure()
         this.emitDoc()
+        this.emitSave()
+        steps = 1
+        this.emitDone()
+    }
+
+    fn runEditFile:void (docPath:string ask:string) {
+        def a:[string]
+        lines = a
+        failed = false
+        lastCmds = 0
+        steps = 0
+        findings = 0
+        reject = ""
+        hush = false
+        if (this.loadRoot(docPath) == false) {
+            this.emitDone()
+            return
+        }
+        def envK@(optional):string (env_var "EVG_LIVEBUILD_KIND")
+        if (null? envK) {
+        } {
+            kind = (unwrap envK)
+        }
+        if (kind == "") {
+            kind = "dashboard"
+        }
+        this.emitSession(kind ask)
+        def folded:string (EvgLiveBuild.foldAscii(ask))
+        if (this.wantsRestyle(folded)) {
+            this.recipeRestyle(folded)
+        } {
+            this.emitThink("Recipe only restyles colour, type size, and radius. This screen stays as it is. Use Cursor to add widgets, or pick a seed chip to start over.")
+        }
+        this.emitFrame()
+        this.emitMeasure()
+        this.emitSave()
         steps = 1
         this.emitDone()
     }
@@ -814,6 +863,7 @@ sfn main:void () {
             this.recipeRestyle(folded)
         }
         this.emitMeasure()
+        this.emitSave()
         this.emitDone()
     }
 
@@ -826,6 +876,8 @@ sfn main:void () {
         if (argc < 1) {
             print "usage: evg_livebuild run <dashboard|settings|invoices>"
             print "       evg_livebuild frame <doc.evg.json>"
+            print "       evg_livebuild edit <doc.evg.json>"
+            print "       evg_livebuild dump <dashboard|settings|invoices>"
             print "       evg_livebuild kinds"
             return
         }
@@ -860,6 +912,33 @@ sfn main:void () {
                 return
             }
             this.runFrameFile((shell_arg 1))
+            return
+        }
+        if (verb == "edit") {
+            if (argc < 2) {
+                print "usage: evg_livebuild edit <doc.evg.json>"
+                return
+            }
+            def ask:string ""
+            def envP@(optional):string (env_var "EVG_LIVEBUILD_PROMPT")
+            if (null? envP) {
+            } {
+                ask = (unwrap envP)
+            }
+            if (argc >= 3) {
+                ask = (shell_arg 2)
+            }
+            this.runEditFile((shell_arg 1) ask)
+            return
+        }
+        if (verb == "dump") {
+            printing = false
+            def k:string "dashboard"
+            if (argc >= 2) {
+                k = (shell_arg 1)
+            }
+            this.runKind(k)
+            print (EVGTreeJson.toText(root))
             return
         }
         print ("unknown verb " + verb)

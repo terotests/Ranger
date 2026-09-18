@@ -55,11 +55,10 @@
   }
   button.primary { background: #134e4a; border-color: #2dd4bf66; color: #ccfbf1; font-weight: 650; }
   button:disabled { opacity: .5; cursor: wait; }
-  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chips, .agents { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .chip.active { border-color: #2dd4bf88; color: var(--accent); }
   .chip.off { opacity: .45; cursor: not-allowed; }
-  .agents { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-  .agents .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
   main {
     display: grid;
     grid-template-columns: minmax(280px, 420px) 1fr;
@@ -137,8 +136,8 @@
   <div class="mark">RANGER · <span>EVG live build</span></div>
   <form class="ask" id="ask">
     <input id="prompt" name="prompt" autocomplete="off"
-      placeholder="Ask for a dashboard, or change the look: larger title, gold accent…">
-    <button class="primary" id="go" type="submit">Build</button>
+      placeholder="Change this phone, then Follow up. Start-over chips wipe it.">
+    <button class="primary" id="go" type="submit">Follow up</button>
   </form>
   <div class="chips" id="chips"></div>
   <div class="agents" id="agents"></div>
@@ -159,7 +158,7 @@
   <div class="side">
     <section>
       <h2>Thinking <span id="kindLabel"></span></h2>
-      <pre class="think" id="think"><span class="empty">The agent has not started.</span></pre>
+      <pre class="think" id="think"><span class="empty">Loading a phone seed…</span></pre>
     </section>
     <section>
       <h2>EVGPatch ops</h2>
@@ -207,6 +206,11 @@ for (const a of agentList.agents) {
   agentBox.appendChild(b);
 }
 
+const sl = document.createElement("span");
+sl.className = "lbl";
+sl.textContent = "Start over";
+sl.title = "These chips replace the live phone. Follow up does not.";
+chips.appendChild(sl);
 for (const k of kinds.kinds) {
   const b = document.createElement("button");
   b.type = "button";
@@ -216,7 +220,7 @@ for (const k of kinds.kinds) {
     current = k.id;
     $("prompt").value = k.prompt;
     chips.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", c === b));
-    start(k.id);
+    loadSeed(k.id);
   });
   chips.appendChild(b);
 }
@@ -224,36 +228,61 @@ $("prompt").value = kinds.kinds[0].prompt;
 
 $("ask").addEventListener("submit", (e) => {
   e.preventDefault();
-  const prompt = $("prompt").value.trim();
-  start(prompt || current, true);
+  start(true);
 });
 
-function start(kindOrPrompt, keepPicture) {
+async function loadSeed(kind) {
+  if (es) { es.close(); es = null; }
+  $("go").disabled = false;
+  const d = await (await fetch("/seed?kind=" + encodeURIComponent(kind))).json();
+  current = d.kind || kind;
+  paintFrame(d);
+  $("added").textContent = "seed";
+  $("kindLabel").textContent = current;
+  $("think").innerHTML = '<span class="empty">This phone is the live document. Type a change and press Follow up — it edits this screen. Start-over chips (Dashboard / Empty) wipe it.</span>';
+  $("ops").innerHTML = '<span class="empty">Deltas land here as they apply.</span>';
+  $("code").innerHTML = '<span class="empty">Source is streamed with the tree.</span>';
+  $("ntok").textContent = "0";
+  tokens = 0;
+  thinkStarted = false;
+}
+
+function paintFrame(d) {
+  $("ncmds").textContent = String(d.ncmds || 0);
+  $("nodes").textContent = String(d.nodes || 0);
+  if (d.list) {
+    renderDisplayList($("screen"), { width: d.width, height: d.height, list: d.list }, {});
+  }
+}
+
+function start(keepPicture) {
   if (es) { es.close(); es = null; }
   thinkStarted = false;
   tokens = 0;
   $("think").textContent = "";
   $("ops").innerHTML = "";
   $("code").textContent = "";
-  $("ncmds").textContent = "0";
+  $("ncmds").textContent = keepPicture ? $("ncmds").textContent : "0";
   $("added").textContent = "0";
-  $("nodes").textContent = "0";
+  $("nodes").textContent = keepPicture ? $("nodes").textContent : "0";
   $("ntok").textContent = "0";
   $("kindLabel").textContent = "";
   $("go").disabled = true;
   if (!keepPicture) $("screen").replaceChildren();
-  const q = encodeURIComponent(kindOrPrompt);
-  es = new EventSource(`/stream?agent=${encodeURIComponent(currentAgent)}&kind=${q}&prompt=${q}&pace=24`);
+  const prompt = $("prompt").value.trim() || current;
+  es = new EventSource(`/stream?agent=${encodeURIComponent(currentAgent)}&kind=${encodeURIComponent(current)}&prompt=${encodeURIComponent(prompt)}&pace=24`);
   const on = (type, fn) => es.addEventListener(type, (ev) => {
     if (!ev.data) return;
     fn(JSON.parse(ev.data));
   });
   on("session", (d) => {
-    $("kindLabel").textContent = (d.agent ? d.agent + " · " : "") + d.kind;
-    current = d.kind;
-    chips.querySelectorAll(".chip").forEach((c, i) => {
-      c.classList.toggle("active", kinds.kinds[i] && kinds.kinds[i].id === d.kind);
-    });
+    $("kindLabel").textContent = (d.agent ? d.agent + " · " : "") + (d.followUp ? "follow-up" : d.kind);
+    if (!d.followUp && d.kind) {
+      current = d.kind;
+      chips.querySelectorAll(".chip").forEach((c, i) => {
+        c.classList.toggle("active", kinds.kinds[i] && kinds.kinds[i].id === d.kind);
+      });
+    }
   });
   on("think", (d) => {
     if (thinkStarted) $("think").append("\n\n");
@@ -288,11 +317,8 @@ function start(kindOrPrompt, keepPicture) {
     $("code").scrollTop = $("code").scrollHeight;
   });
   on("frame", (d) => {
-    $("ncmds").textContent = String(d.ncmds || 0);
     $("added").textContent = "+" + String(d.added || 0);
-    $("nodes").textContent = String(d.nodes || 0);
-    const doc = { width: d.width, height: d.height, list: d.list };
-    renderDisplayList($("screen"), doc, {});
+    paintFrame(d);
   });
   on("error", (d) => {
     $("think").append("\n\nerror: " + (d.text || "failed"));
@@ -321,5 +347,5 @@ function cursor() {
   return c;
 }
 
-start(current);
+loadSeed(current);
 </script>

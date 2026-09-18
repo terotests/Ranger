@@ -61,7 +61,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Codex / Claude Code / Cursor / Ollama are adapters when those CLIs are
   present. `npm run livebuild:serve` (no keys). `npm run livebuild:withcursor`
   drives the local Cursor Agent CLI (`agent login` or `CURSOR_API_KEY`).
-  `npm run livebuild:test`.
+  The prompt plus **Follow up** edits the live phone; Start-over chips
+  (Dashboard / Empty) are the only wipe. `npm run livebuild:test`.
 
 ### Changed
 

@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { listAgents, runTask, root, findCursorAgent, cursorSpawnArgs } from "./agents.mjs";
+import { listAgents, runTask, root, findCursorAgent, cursorSpawnArgs, frameFixture, resetSession, readSessionDoc, prepareSession, sessionDir } from "./agents.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bin = path.join(root, "gallery/evg/bin/evg_livebuild.js");
@@ -75,6 +75,9 @@ const spawnArgs = cursorSpawnArgs("Build a phone dashboard", "/tmp/evg-live-ws")
 for (const need of ["-p", "--force", "--trust", "--workspace", "/tmp/evg-live-ws"]) {
   if (!spawnArgs.includes(need)) throw new Error(`cursor spawn missing ${need}`);
 }
+const followArgs = cursorSpawnArgs("Make the title gold", "/tmp/evg-live-ws", true);
+if (!followArgs.includes("--continue")) throw new Error("follow-up spawn missing --continue");
+if (spawnArgs.includes("--continue")) throw new Error("first spawn should not --continue");
 console.log(
   "  agents      " +
     agents.map((a) => `${a.id}${a.available ? "" : " (off)"}`).join(", "),
@@ -96,6 +99,47 @@ if (frameEvents.find((e) => e.t === "done")?.ok !== true) {
   throw new Error("frame verb did not finish ok");
 }
 console.log("  frame       card.evg.json → " + frameEvents.find((e) => e.t === "frame").ncmds + " cmds");
+
+const dash = frameFixture("dashboard");
+const dashFrame = dash.events.find((e) => e.t === "frame");
+if (!dashFrame || !(dashFrame.list?.cmds?.length > 8)) {
+  throw new Error("dashboard seed produced no cmds");
+}
+const empty = frameFixture("empty");
+const emptyFrame = empty.events.find((e) => e.t === "frame");
+if (!emptyFrame) throw new Error("empty seed produced no frame");
+if ((emptyFrame.ncmds || 0) >= (dashFrame.ncmds || 0)) {
+  throw new Error("empty seed should be smaller than the dashboard");
+}
+console.log("  seed        dashboard " + dashFrame.ncmds + " cmds, empty " + emptyFrame.ncmds + " cmds");
+
+resetSession("dashboard");
+const kept = readSessionDoc();
+if (!kept) throw new Error("resetSession wrote no dashboard");
+prepareSession("follow-up: make the title gold", { kind: "dashboard" });
+if (readSessionDoc() !== kept) throw new Error("follow-up prepareSession wiped the phone");
+const taskMd = fs.readFileSync(path.join(sessionDir(), "TASK.md"), "utf8");
+if (!/Follow-up/.test(taskMd) || !/nodes/.test(taskMd)) {
+  throw new Error("follow-up TASK.md did not describe the live phone");
+}
+const recipeFollow = [];
+await runTask({
+  agent: "recipe",
+  kind: "dashboard",
+  prompt: "Make the title gold",
+  session: true,
+  onLine: (line) => recipeFollow.push(JSON.parse(line)),
+});
+const afterRecipe = readSessionDoc();
+if (!afterRecipe || afterRecipe.length < kept.length * 0.5) {
+  throw new Error("recipe follow-up wiped the phone");
+}
+if (!recipeFollow.some((e) => e.t === "session" && e.followUp)) {
+  throw new Error("recipe follow-up session missing followUp");
+}
+resetSession("empty");
+if (readSessionDoc() === kept) throw new Error("Empty seed did not replace the phone");
+console.log("  follow-up   same doc until a seed chip resets it");
 
 const mockEvents = await collect("mock", "dashboard");
 const types = new Set(mockEvents.map((e) => e.t));

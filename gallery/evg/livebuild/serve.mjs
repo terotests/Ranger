@@ -15,7 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { listAgents, runTask } from "./agents.mjs";
+import { listAgents, runTask, frameFixture, seedDoc, resetSession, readSessionDoc, writeSessionDoc } from "./agents.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../../..");
@@ -24,7 +24,11 @@ const web = path.join(here, "web");
 const PORT = Number(process.env.EVG_LIVEBUILD_PORT || 8765);
 const DEFAULT_AGENT = process.env.EVG_LIVEBUILD_DEFAULT_AGENT || "recipe";
 
-const KINDS = new Set(["dashboard", "settings", "invoices"]);
+const KINDS = new Set(["dashboard", "settings", "invoices", "empty"]);
+let lastDoc = seedDoc("dashboard");
+let lastKind = "dashboard";
+resetSession("dashboard");
+lastDoc = readSessionDoc() || lastDoc;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -69,13 +73,15 @@ function compile() {
   }
 }
 
-function kindOf(raw) {
-  const p = String(raw || "").toLowerCase();
+function pickKind(chip, prompt) {
+  const p = String(prompt || "").toLowerCase();
+  if (p.trim() === "empty" || /empty canvas|blank phone/.test(p)) return "empty";
   if (/setting|profile|account|pref|sign.?out/.test(p)) return "settings";
   if (/invoice|bill|crud|ledger|receivable/.test(p)) return "invoices";
   if (/dashboard|northwind|metric|orders|revenue/.test(p)) return "dashboard";
-  if (KINDS.has(p.trim())) return p.trim();
-  return "dashboard";
+  const c = String(chip || "").toLowerCase().trim();
+  if (KINDS.has(c)) return c;
+  return lastKind || "dashboard";
 }
 
 function send(res, status, type, body) {
@@ -87,7 +93,7 @@ function send(res, status, type, body) {
   res.end(body);
 }
 
-function streamBuild(res, { kind, agent, prompt, paceMs }) {
+function streamBuild(res, { kind, agent, prompt, paceMs, seed, session }) {
   res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
     "cache-control": "no-store",
@@ -122,7 +128,19 @@ function streamBuild(res, { kind, agent, prompt, paceMs }) {
     res.write(`data: ${trimmed}\n\n`);
   };
 
+  const noteDoc = (line) => {
+    try {
+      const obj = JSON.parse(String(line).trim());
+      if (obj && obj.t === "doc" && typeof obj.text === "string" && writeSessionDoc(obj.text)) {
+        lastDoc = obj.text;
+      }
+    } catch {
+      /* not json */
+    }
+  };
+
   const pace = (line) => {
+    noteDoc(line);
     chain = chain.then(async () => {
       if (closed) return;
       emit(line);
@@ -140,6 +158,8 @@ function streamBuild(res, { kind, agent, prompt, paceMs }) {
     agent,
     kind,
     prompt,
+    seed,
+    session,
     onLine: pace,
     signal: ac.signal,
   })
@@ -202,17 +222,22 @@ function main() {
             {
               id: "dashboard",
               label: "Dashboard",
-              prompt: "A phone dashboard for Northwind: orders, revenue, today's invoices.",
+              prompt: "Add a four-tab bottom nav: Home, Search, Alerts, You.",
             },
             {
               id: "settings",
               label: "Settings",
-              prompt: "A settings screen with a profile, notifications, and a sign-out.",
+              prompt: "Add a dark mode row and make Sign out red.",
             },
             {
               id: "invoices",
               label: "Invoices",
-              prompt: "An invoices list with a New button and the open bills.",
+              prompt: "Add a search field and mark the overdue bills.",
+            },
+            {
+              id: "empty",
+              label: "Empty",
+              prompt: "Build a phone dashboard for Northwind on this empty canvas.",
             },
           ],
         }),
@@ -228,15 +253,46 @@ function main() {
       );
       return;
     }
+    if (url.pathname === "/seed") {
+      const kind = KINDS.has(url.searchParams.get("kind"))
+        ? url.searchParams.get("kind")
+        : "dashboard";
+      const framed = frameFixture(kind);
+      resetSession(kind);
+      lastDoc = readSessionDoc() || framed.doc;
+      lastKind = kind;
+      const frame = framed.events.find((e) => e && e.t === "frame") || {};
+      send(
+        res,
+        200,
+        "application/json; charset=utf-8",
+        JSON.stringify({
+          kind,
+          seed: true,
+          width: frame.width || 390,
+          height: frame.height || 844,
+          ncmds: frame.ncmds || 0,
+          added: 0,
+          nodes: frame.nodes || 0,
+          list: frame.list || { cmds: [] },
+        }),
+      );
+      return;
+    }
     if (url.pathname === "/stream") {
       const prompt = url.searchParams.get("prompt") || "";
-      const kind = kindOf(url.searchParams.get("kind") || prompt || "dashboard");
+      // Follow-up never remaps the seed from the typed ask. Kind chips
+      // (via /seed) are the only start-over; lastKind is that seed.
+      const chip = url.searchParams.get("kind") || lastKind;
+      const kind = KINDS.has(chip) ? chip : (lastKind || "dashboard");
       const agent = url.searchParams.get("agent") || DEFAULT_AGENT;
       const pace = Number(url.searchParams.get("pace") ?? 28);
       streamBuild(res, {
         kind,
         agent,
         prompt,
+        seed: readSessionDoc() || lastDoc,
+        session: true,
         paceMs: Number.isFinite(pace) ? pace : 28,
       });
       return;
@@ -254,7 +310,7 @@ function main() {
         } catch {
           prompt = "";
         }
-        const kind = kindOf(prompt || url.searchParams.get("kind"));
+        const kind = pickKind(url.searchParams.get("kind") || lastKind, prompt);
         send(
           res,
           200,

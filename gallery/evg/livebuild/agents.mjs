@@ -79,7 +79,7 @@ export function cursorLoggedIn(bin) {
   return r.status === 0 && text.trim().length > 0;
 }
 
-export function cursorSpawnArgs(task, workspace) {
+export function cursorSpawnArgs(task, workspace, followUp = false) {
   const args = [
     "-p",
     task,
@@ -91,6 +91,7 @@ export function cursorSpawnArgs(task, workspace) {
     "stream-json",
     "--stream-partial-output",
   ];
+  if (followUp) args.push("--continue");
   if (process.env.EVG_CURSOR_MODEL) {
     args.push("--model", process.env.EVG_CURSOR_MODEL);
   }
@@ -285,6 +286,12 @@ and this task. Change the UI by editing \`doc.evg.json\`.
 
 ${task}
 
+\`doc.evg.json\` is already a 390 × 844 phone UI with real content. Read
+it (or \`./evg-agent outline doc.evg.json\`) before editing. Edit that
+file in place. Do not replace it with a blank page unless the task says
+to start over. If the outline has more than a handful of nodes, the
+phone is not empty.
+
 ## How to change the document
 
 The tree is EVG JSON. Prefer small patches over rewriting the file.
@@ -333,8 +340,33 @@ Do not leave the workspace. Do not require confirmation.
 `;
 }
 
-function seedDoc() {
-  return fs.readFileSync(path.join(here, "fixtures/step1.evg.json"), "utf8");
+export const SEED_KINDS = ["dashboard", "settings", "invoices", "empty"];
+
+export function fixturePath(kind) {
+  const id = SEED_KINDS.includes(kind) ? kind : "dashboard";
+  return path.join(here, "fixtures", id + ".evg.json");
+}
+
+export function seedDoc(kind = "empty") {
+  const file = fixturePath(kind);
+  try {
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    return fs.readFileSync(path.join(here, "fixtures/step1.evg.json"), "utf8");
+  }
+}
+
+export function frameFixture(kind) {
+  const file = fixturePath(kind);
+  const events = [];
+  frameFile(file, (line) => {
+    try {
+      events.push(JSON.parse(line));
+    } catch {
+      /* chatter */
+    }
+  });
+  return { kind: SEED_KINDS.includes(kind) ? kind : "dashboard", events, doc: seedDoc(kind) };
 }
 
 function installEvgAgent(dir) {
@@ -369,9 +401,103 @@ function seedGit(dir) {
   );
 }
 
-function makeWorkspace(task, { git = false } = {}) {
+export function sessionDir() {
+  return path.join(os.tmpdir(), "evg-live-session");
+}
+
+export function resetSession(kind = "dashboard") {
+  const dir = sessionDir();
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "doc.evg.json"), seedDoc(kind));
+  fs.writeFileSync(path.join(dir, "TASK.md"), "Seed: " + kind + "\n");
+  fs.writeFileSync(
+    path.join(dir, "AGENTS.md"),
+    workspaceGuide("The phone already has a UI in doc.evg.json. Wait for the next task."),
+  );
+  try {
+    fs.unlinkSync(path.join(dir, ".cursor-follow"));
+  } catch {
+    /* first */
+  }
+  installEvgAgent(dir);
+  if (!fs.existsSync(path.join(dir, ".git"))) seedGit(dir);
+  return dir;
+}
+
+export function readSessionDoc() {
+  try {
+    const text = fs.readFileSync(path.join(sessionDir(), "doc.evg.json"), "utf8");
+    return looksLikeEvg(text) ? text : "";
+  } catch {
+    return "";
+  }
+}
+
+export function writeSessionDoc(text) {
+  if (!looksLikeEvg(text)) return false;
+  const dir = sessionDir();
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "doc.evg.json"), text);
+  return true;
+}
+
+function countNodes(node) {
+  if (!node || typeof node !== "object") return 0;
+  let n = 1;
+  for (const c of node.children || []) n += countNodes(c);
+  return n;
+}
+
+function walkOutline(node, path, lines, cap) {
+  if (!node || typeof node !== "object" || lines.length >= cap) return;
+  const tag = node.tag || "?";
+  const text = node.text ? JSON.stringify(String(node.text).slice(0, 40)) : "";
+  const cls = node.props && node.props.class ? "." + node.props.class : "";
+  lines.push(`${path} ${tag}${cls} ${text}`.trim());
+  const ch = node.children || [];
+  for (let i = 0; i < ch.length; i++) {
+    walkOutline(ch[i], `${path}/${i}`, lines, cap);
+  }
+}
+
+function followUpTask(task, docText) {
+  const lines = [];
+  let n = 0;
+  try {
+    const j = JSON.parse(docText);
+    n = countNodes(j.root);
+    walkOutline(j.root, "0", lines, 16);
+  } catch {
+    /* invalid json still gets the instruction */
+  }
+  const stats = n
+    ? `doc.evg.json is the live phone (${n} nodes). Edit that file in place. Do not replace it with a blank page.`
+    : "doc.evg.json is the live phone. Edit that file in place. Do not replace it with a blank page.";
+  return ["# Follow-up", "", task, "", stats, "", "Current outline:", ...lines.map((l) => "- " + l), ""].join("\n");
+}
+
+export function prepareSession(task, { git = false, kind = "dashboard" } = {}) {
+  const dir = sessionDir();
+  const docPath = path.join(dir, "doc.evg.json");
+  let existing = "";
+  try {
+    existing = fs.readFileSync(docPath, "utf8");
+  } catch {
+    existing = "";
+  }
+  if (!looksLikeEvg(existing)) resetSession(kind);
+  const doc = fs.readFileSync(path.join(dir, "doc.evg.json"), "utf8");
+  fs.writeFileSync(path.join(dir, "TASK.md"), followUpTask(task, doc));
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task));
+  installEvgAgent(dir);
+  if (git && !fs.existsSync(path.join(dir, ".git"))) seedGit(dir);
+  return dir;
+}
+
+function makeWorkspace(task, { git = false, doc = "", kind = "dashboard" } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evg-live-"));
-  fs.writeFileSync(path.join(dir, "doc.evg.json"), seedDoc());
+  const text = looksLikeEvg(doc) ? doc : seedDoc(kind);
+  fs.writeFileSync(path.join(dir, "doc.evg.json"), text);
   fs.writeFileSync(path.join(dir, "TASK.md"), task + "\n");
   fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task));
   installEvgAgent(dir);
@@ -379,7 +505,7 @@ function makeWorkspace(task, { git = false } = {}) {
   return dir;
 }
 
-function spawnAgentProcess(id, bin, workspace, task) {
+function spawnAgentProcess(id, bin, workspace, task, followUp = false) {
   if (id === "mock") {
     return spawn(process.execPath, [mockBin, workspace], {
       cwd: workspace,
@@ -410,7 +536,7 @@ function spawnAgentProcess(id, bin, workspace, task) {
     );
   }
   if (id === "cursor") {
-    return spawn(bin, cursorSpawnArgs(task, workspace), {
+    return spawn(bin, cursorSpawnArgs(task, workspace, followUp), {
       cwd: workspace,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -470,7 +596,7 @@ function watchDoc(workspace, onChange) {
   return () => clearInterval(iv);
 }
 
-export async function runWorkspaceAgent({ id, kind, prompt, onLine, signal }) {
+export async function runWorkspaceAgent({ id, kind, prompt, seed, session = false, onLine, signal }) {
   const agents = listAgents();
   const info = agents.find((a) => a.id === id);
   if (!info) {
@@ -486,11 +612,13 @@ export async function runWorkspaceAgent({ id, kind, prompt, onLine, signal }) {
 
   const task =
     prompt ||
-    (kind === "settings"
-      ? "Build a phone settings screen with a profile, four rows, and sign out."
-      : kind === "invoices"
-        ? "Build a phone invoices list with a New button and four open bills."
-        : "Build a phone dashboard for Northwind: orders, revenue, today's invoices.");
+    (kind === "empty"
+      ? "Build a phone dashboard for Northwind: orders, revenue, today's invoices."
+      : kind === "settings"
+        ? "Edit this settings screen: add a dark mode row and make sign-out red."
+        : kind === "invoices"
+          ? "Edit this invoices list: add a search field and mark the overdue bills."
+          : "Edit this phone dashboard. Add a four-tab bottom nav: Home, Search, Alerts, You.");
 
   onLine(
     ndjson({
@@ -499,20 +627,39 @@ export async function runWorkspaceAgent({ id, kind, prompt, onLine, signal }) {
       prompt: task,
       agent: id,
       where: info.where,
+      followUp: Boolean(session && looksLikeEvg(seed || readSessionDoc())),
       width: 390,
       height: 844,
     }),
   );
+
+  const live = looksLikeEvg(seed) || looksLikeEvg(readSessionDoc());
+  if (session && live && kind !== "empty") {
+    tokenize(
+      "Follow-up on the phone already in doc.evg.json. Edit that document. Do not replace it with a blank page.",
+      onLine,
+    );
+  }
 
   if (id === "ollama") {
     await runOllama(task, onLine, signal);
     return;
   }
 
-  const ws = makeWorkspace(task, { git: id === "cursor" });
-  const keep = process.env.EVG_LIVEBUILD_KEEP === "1";
+  const marker = path.join(sessionDir(), ".cursor-follow");
+  const followUp = Boolean(session && id === "cursor" && fs.existsSync(marker));
+  const ws = session
+    ? prepareSession(task, { git: id === "cursor", kind })
+    : makeWorkspace(task, { git: id === "cursor", doc: seed, kind });
+  const keep = session || process.env.EVG_LIVEBUILD_KEEP === "1";
   let frames = 0;
   const stopWatch = watchDoc(ws, (file) => {
+    try {
+      const text = fs.readFileSync(file, "utf8");
+      if (looksLikeEvg(text)) onLine(ndjson({ t: "doc", text }));
+    } catch {
+      /* unreadable */
+    }
     frameFile(file, (line) => {
       frames += 1;
       onLine(line);
@@ -526,7 +673,10 @@ export async function runWorkspaceAgent({ id, kind, prompt, onLine, signal }) {
   await new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawnAgentProcess(id, info.bin, ws, task);
+      child = spawnAgentProcess(id, info.bin, ws, task, followUp);
+      if (session && id === "cursor") {
+        fs.writeFileSync(marker, "1\n");
+      }
     } catch (e) {
       onLine(ndjson({ t: "error", text: String(e.message || e) }));
       resolve();
@@ -573,6 +723,12 @@ export async function runWorkspaceAgent({ id, kind, prompt, onLine, signal }) {
         if (!(id === "cursor" && feedCursorLine(buf, onLine))) tokenize(buf, onLine);
       }
       stopWatch();
+      try {
+        const text = fs.readFileSync(path.join(ws, "doc.evg.json"), "utf8");
+        if (looksLikeEvg(text)) onLine(ndjson({ t: "doc", text }));
+      } catch {
+        /* gone */
+      }
       // Final frame, in case the last write landed with the process.
       frameFile(path.join(ws, "doc.evg.json"), onLine);
       onLine(
@@ -676,11 +832,58 @@ function extractOps(text) {
   }
 }
 
-export async function runTask({ agent, kind, prompt, onLine, signal }) {
+export function runRecipeEdit(docPath, onLine, signal, prompt, kind) {
+  return new Promise((resolve, reject) => {
+    const parsed = parseRestyle(prompt || "");
+    const tagged = (line) => {
+      try {
+        const obj = JSON.parse(String(line).trim());
+        if (obj && obj.t === "session") {
+          obj.followUp = true;
+          onLine(JSON.stringify(obj));
+          return;
+        }
+      } catch {
+        /* not json */
+      }
+      onLine(line);
+    };
+    const child = spawn("node", [liveBin, "edit", docPath], {
+      cwd: root,
+      env: {
+        ...process.env,
+        EVG_LIVEBUILD_PROMPT: prompt || "",
+        EVG_LIVEBUILD_KIND: kind || "dashboard",
+        ...restyleEnv(parsed),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const stop = () => {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* gone */
+      }
+    };
+    if (signal) {
+      if (signal.aborted) stop();
+      else signal.addEventListener("abort", stop, { once: true });
+    }
+    pipeChild(child, tagged, () => resolve());
+    child.on("error", reject);
+  });
+}
+
+export async function runTask({ agent, kind, prompt, seed, session = false, onLine, signal }) {
   const id = agent || "recipe";
   if (id === "recipe") {
+    if (session) {
+      const dir = prepareSession(prompt || "", { kind: kind || "dashboard" });
+      await runRecipeEdit(path.join(dir, "doc.evg.json"), onLine, signal, prompt, kind);
+      return;
+    }
     await runRecipe(kind || "dashboard", onLine, signal, prompt);
     return;
   }
-  await runWorkspaceAgent({ id, kind, prompt, onLine, signal });
+  await runWorkspaceAgent({ id, kind, prompt, seed, session, onLine, signal });
 }
