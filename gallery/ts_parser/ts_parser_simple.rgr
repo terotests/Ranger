@@ -8369,11 +8369,39 @@ class TSParserSimple {
     def depth 1
     def offset 1
     def maxLookahead 80
+    ; Braces and parens opened INSIDE the candidate list. A `;` is legal in a
+    ; type argument only within one of them (`useRef<{ x: number; y: string }>`);
+    ; at the top level of the list it ends a statement, and a scan that runs
+    ; past it is reading the next statement as types. That is what made
+    ; `a = (1<<2)<<sh; b = (x>>(D-sh));` -- two ordinary shift statements --
+    ; parse as `a = (1<<2)` with type arguments `<sh; b = (x>` and a call
+    ; `(D-sh)`: the `<<` opened two levels, the `>>` closed them, and a `(`
+    ; happened to follow. Crypto (Octane) is written in exactly that style and
+    ; failed to load at all.
+    def bdepth 0
+    def pdepth 0
     
     while ((depth > 0) && (offset < maxLookahead)) {
       def ahead (this.peekAheadValue(offset))
       if (ahead == "") {
         return false
+      }
+      if (ahead == "{") {
+        bdepth = (bdepth + 1)
+      }
+      if (ahead == "}") {
+        bdepth = (bdepth - 1)
+      }
+      if (ahead == "(") {
+        pdepth = (pdepth + 1)
+      }
+      if (ahead == ")") {
+        pdepth = (pdepth - 1)
+      }
+      if (ahead == ";") {
+        if ((bdepth < 1) && (pdepth < 1)) {
+          return false
+        }
       }
       if (ahead == "<") {
         depth = (depth + 1)
@@ -8381,8 +8409,7 @@ class TSParserSimple {
       if (ahead == ">") {
         depth = (depth - 1)
       }
-      ; If we see things that can't appear in type arguments, bail.
-      ; `{` / `;` / `=>` ARE legal there (`useRef<{ x: number; y: string }>`,
+      ; `{` / `=>` ARE legal in type arguments (`useRef<{ x: number }>`,
       ; `useState<() => void>`), so they must not reject the generic call;
       ; that is how those were read as object literals and failed on `;`.
       offset = (offset + 1)
@@ -8408,10 +8435,30 @@ class TSParserSimple {
     def depth 1
     def offset 1
     def maxLookahead 80
+    ; same statement-boundary guard as looksLikeGenericCall above
+    def abdepth 0
+    def apdepth 0
     while ((depth > 0) && (offset < maxLookahead)) {
       def ahead (this.peekAheadValue(offset))
       if (ahead == "") {
         return false
+      }
+      if (ahead == "{") {
+        abdepth = (abdepth + 1)
+      }
+      if (ahead == "}") {
+        abdepth = (abdepth - 1)
+      }
+      if (ahead == "(") {
+        apdepth = (apdepth + 1)
+      }
+      if (ahead == ")") {
+        apdepth = (apdepth - 1)
+      }
+      if (ahead == ";") {
+        if ((abdepth < 1) && (apdepth < 1)) {
+          return false
+        }
       }
       if (ahead == "<") {
         depth = (depth + 1)

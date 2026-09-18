@@ -800,6 +800,14 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["toobject-boxed-valueof", "return Object(5).valueOf();", "numbers"],
   ["toprim-both-objects", "try { var o = { valueOf: function () { return {}; }, toString: function () { return {}; } }; Number(o); return 'no-throw'; } catch (e) { return e.name; }", "numbers"],
   ["toprim-string-hint-default", "var o = { valueOf: function () { return 7; } }; return String(o);", "numbers"],
+  // A `<<` and a later `>>` are not a generic type-argument list. The
+  // parser's call-site lookahead scanned for a balanced `>` without stopping
+  // at the statement boundary, so `a = (1 << 2) << sh; b = (x >> (D - sh));`
+  // read as `a = (1 << 2)` with type arguments `<sh; b = (x >` and a call
+  // `(D - sh)`. Octane's Crypto is written in that style and did not load.
+  ["shift-pair-across-statements", "var a, b, sh = 1, x = 64, D = 8; a = (1 << 2) << sh; b = (x >> (D - sh)); return a + ',' + b;", "numbers"],
+  ["shift-pair-in-member-store", "var arr = [0, 0], t = 1, x = 5, sh = 2, D = 8; arr[t - 1] |= (x & ((1 << (D - sh)) - 1)) << sh; arr[t] = (x >> (D - sh)); return arr.join(',');", "numbers"],
+  ["shift-pair-then-call", "function g(n) { return n + 1; } var sh = 1, x = 8, D = 4; var a = (1 << 2) << sh; var b = g(x >> (D - sh)); return a + ',' + b;", "numbers"],
 
   // D-ARGUMENTS
   ["args-length", "function f() { return arguments.length; } return f(1, 2, 3);", "latest"],
