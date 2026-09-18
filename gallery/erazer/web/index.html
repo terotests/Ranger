@@ -64,11 +64,24 @@
     padding: 16px; overflow: auto; position: relative;
   }
   .stage.empty { color: #6b7280; font-size: 14px; text-align: center; }
+  /* Overlay must share the image box. The stage flex-centers; pinning the SVG
+     to the stage's padding made the boxes sit on the left of a centred photo. */
+  .frame { position: relative; display: inline-block; max-width: 100%; vertical-align: top; }
+  .frame canvas { display: block; max-width: 100%; height: auto; width: auto; }
+  .frame svg {
+    position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+    pointer-events: none; overflow: hidden;
+  }
+  .op {
+    margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 500;
+    display: flex; align-items: center; gap: 8px; color: var(--muted);
+  }
+  .op input[type="range"] { width: 88px; accent-color: var(--accent); }
   @media (max-width: 900px) {
     button, .filebtn { min-height: 44px; padding: 10px 16px; }
+    .op { width: 100%; margin: 6px 0 0; }
   }
-  .stage img, .stage svg, .stage canvas { max-width: 100%; height: auto; display: block; }
-  .stage.overlay svg { position: absolute; inset: 16px; max-width: calc(100% - 32px); pointer-events: none; }
+  .stage img, .stage canvas { max-width: 100%; height: auto; display: block; }
   pre {
     margin: 0; padding: 14px; font: 12px/1.45 var(--mono); color: var(--ok);
     white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow: auto;
@@ -138,7 +151,12 @@
   </div>
   <div>
     <section>
-      <div class="head">Kuva + tunnistetut laatikot</div>
+      <div class="head">Kuva + tunnistetut laatikot
+        <label class="op">tausta
+          <input id="srcOp" type="range" min="0" max="100" value="55" aria-label="Taustakuvan peittävyys">
+          <span id="srcOpVal">55%</span>
+        </label>
+      </div>
       <div class="stage overlay empty" id="stage">Pudota tai liitä kuva tähän.</div>
     </section>
     <section style="margin-top:18px">
@@ -176,11 +194,36 @@
     return c;
   }
 
+  var srcOp = document.getElementById("srcOp");
+  var srcOpVal = document.getElementById("srcOpVal");
+
+  function sourceOpacity() {
+    return String((+srcOp.value) / 100);
+  }
+
+  function applySourceOpacity() {
+    srcOpVal.textContent = srcOp.value + "%";
+    var c = stage.querySelector("canvas");
+    if (c) c.style.opacity = sourceOpacity();
+  }
+  srcOp.addEventListener("input", applySourceOpacity);
+
   function show(img, doc) {
     stage.classList.remove("empty");
     stage.innerHTML = "";
-    stage.appendChild(bufferToCanvas(img));
-    stage.insertAdjacentHTML("beforeend", doc.overlaySvg);
+    var frame = document.createElement("div");
+    frame.className = "frame";
+    var canvas = bufferToCanvas(img);
+    canvas.style.opacity = sourceOpacity();
+    frame.appendChild(canvas);
+    frame.insertAdjacentHTML("beforeend", doc.overlaySvg);
+    var svg = frame.querySelector("svg");
+    if (svg) {
+      svg.removeAttribute("width");
+      svg.removeAttribute("height");
+      svg.setAttribute("preserveAspectRatio", "none");
+    }
+    stage.appendChild(frame);
     outline.textContent = doc.outline || "(tyhjä)";
     jsonEl.textContent = doc.json || "";
     var r = doc.root;
