@@ -30,6 +30,9 @@ class ErazerTest {
         test.testTabs(t)
         test.testMenu(t)
         test.testIcon(t)
+        test.testChipRow(t)
+        test.testSlider(t)
+        test.testSliders(t)
         test.testJson(t)
         t.summary()
     }
@@ -144,6 +147,47 @@ class ErazerTest {
         }
         def add@(optional):ErazerNode (doc.root.findText("Add"))
         t.ok("icon row reads Add" ((null? add) == false))
+    }
+
+    fn testChipRow:void (t:RgTest) {
+        def img:ImageBuffer (ErazerPaint.chipRow())
+        def doc:ErazerDoc (Erazer.analyze(img))
+        def buttons:int (doc.root.roleCount("button"))
+        t.ok("three sibling chips are buttons" (buttons >= 3))
+        def rest@(optional):ErazerNode (doc.root.findText("Rest"))
+        t.ok("chip Rest" ((null? rest) == false))
+        def sick@(optional):ErazerNode (doc.root.findText("Sick"))
+        t.ok("chip Sick" ((null? sick) == false))
+        def ready@(optional):ErazerNode (doc.root.findText("Ready"))
+        t.ok("wide chip Ready" ((null? ready) == false))
+        if ((buttons < 3) || (null? rest) || (null? sick) || (null? ready)) {
+            print doc.outline
+        }
+    }
+
+    fn testSlider:void (t:RgTest) {
+        def img:ImageBuffer (ErazerPaint.slider())
+        def doc:ErazerDoc (Erazer.analyze(img))
+        def sliders:int (doc.root.roleCount("slider"))
+        t.ok("slider track found" (sliders >= 1))
+        def hit@(optional):ErazerNode (doc.root.findRole("slider"))
+        if (null? hit) {
+            print doc.outline
+        } {
+            def n:ErazerNode (unwrap hit)
+            t.ok("slider is wide" (n.w >= 80))
+            t.ok("slider is thin" (n.h <= 22))
+        }
+    }
+
+    fn testSliders:void (t:RgTest) {
+        def img:ImageBuffer (ErazerPaint.sliders())
+        def doc:ErazerDoc (Erazer.analyze(img))
+        def sliders:int (doc.root.roleCount("slider"))
+        t.ok("three slider tracks" (sliders >= 3))
+        if (sliders < 3) {
+            print doc.outline
+        }
     }
 
     fn testJson:void (t:RgTest) {

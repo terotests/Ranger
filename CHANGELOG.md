@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Erazer turns a UI screenshot into an EVG layout.** `gallery/erazer`
   grows colour regions, nests them, and guesses widget classes (button,
-  text field, tab, menu, checkbox, label, icon) instead of tracing the
+  text field, tab, menu, checkbox, slider, label, icon) instead of tracing the
   picture as ink the way `EvgBitmapTracer` does. Icons that remain are
   handed to that tracer as SVG. `npm run erazer:test` paints synthetic
   UI-library fixtures with a 5×7 face and checks the tree; `npm run
@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   https://terotests.github.io/Ranger/evg/erazer/ once Pages deploys). `npm run erazer:shots` captures HTML/CSS widgets
   (login, tabs, menu, toolbar, dialog, buttons, sidebar) and a
   shadcn/ui-shaped dark zinc dashboard, plus the live page itself.
+  The live overlay is pinned to the image (not the padded stage) with a
+  **tausta** opacity slider. Same-row chips of equal height and fill with
+  one-line labels are promoted to buttons together; a wide thin bar with
+  an optional circular thumb is a **slider**.
 - **CodeGraph diffs two git revisions.** `codegraph_cli … --diff=base..head`
   (or `--diff=base` against the working tree) and the desktop **Diff**
   button check each side out as a detached worktree, analyse it the way

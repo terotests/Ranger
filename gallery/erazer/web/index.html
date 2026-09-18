@@ -122,6 +122,8 @@
           <button type="button" id="tabsBtn">Tabit</button>
           <button type="button" id="menuBtn">Valikko</button>
           <button type="button" id="iconBtn">Ikoni</button>
+          <button type="button" id="chipsBtn">Napit rivissä</button>
+          <button type="button" id="sliderBtn">Slider</button>
         </div>
         <p class="hint" style="margin-top:14px">HTML-komponentit (system-ui, kuvakaappaus)</p>
         <div class="actions">
@@ -230,6 +232,7 @@
     counts.textContent =
       "button " + r.roleCount("button") +
       " · field " + r.roleCount("textfield") +
+      " · slider " + r.roleCount("slider") +
       " · tab " + r.roleCount("tab") +
       " · icon " + r.roleCount("icon");
   }
@@ -252,6 +255,8 @@
   document.getElementById("tabsBtn").onclick = function () { run(ErazerPaint.tabs()); };
   document.getElementById("menuBtn").onclick = function () { run(ErazerPaint.menu()); };
   document.getElementById("iconBtn").onclick = function () { run(ErazerPaint.iconRow()); };
+  document.getElementById("chipsBtn").onclick = function () { run(ErazerPaint.chipRow()); };
+  document.getElementById("sliderBtn").onclick = function () { run(ErazerPaint.sliders()); };
 
   var MAX_SIDE = 1280;
 
@@ -425,6 +430,8 @@
   else if (sample === "tabs") run(ErazerPaint.tabs());
   else if (sample === "menu") run(ErazerPaint.menu());
   else if (sample === "icon") run(ErazerPaint.iconRow());
+  else if (sample === "chips") run(ErazerPaint.chipRow());
+  else if (sample === "slider") run(ErazerPaint.sliders());
   else if (png) loadPng(png);
 })();
 </script>

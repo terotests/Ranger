@@ -6,7 +6,8 @@
 ;
 ; Painted with ErazerFont so the recogniser's 5×7 atlas is a round-trip, not a
 ; guess. The fixtures stand in for the widgets a screenshot of a UI library
-; would contain: a form, tabs, a menu, a checkbox, a labelled icon.
+; would contain: a form, tabs, a menu, a checkbox, a labelled icon,
+; a same-row chip strip, and range sliders.
 ; ==============================================================================
 
 Import "pkg:image/ImageBuffer.rgr"
@@ -92,6 +93,61 @@ class ErazerPaint {
         def img:ImageBuffer (ErazerPaint.blank(160 64 232 236 240))
         ErazerFont.fillRoundRect(img 24 16 112 32 6 37 99 235)
         ErazerPaint.paintCentered(img 24 16 112 32 "Login" 255 255 255)
+        return img
+    }
+
+    ; Three same-row chips: two compact, one much wider. The wide one is
+    ; past the single-widget button width cap, so only a sibling-row
+    ; heuristic labels all three as buttons.
+    sfn chipRow:ImageBuffer () {
+        def img:ImageBuffer (ErazerPaint.blank(560 80 232 236 240))
+        ErazerFont.fillRoundRect(img 12 22 88 36 6 243 244 246)
+        ErazerFont.strokeRect(img 12 22 88 36 1 156 163 175)
+        ErazerPaint.paintCentered(img 12 22 88 36 "Rest" 17 24 39)
+        ErazerFont.fillRoundRect(img 108 22 88 36 6 243 244 246)
+        ErazerFont.strokeRect(img 108 22 88 36 1 156 163 175)
+        ErazerPaint.paintCentered(img 108 22 88 36 "Sick" 17 24 39)
+        ErazerFont.fillRoundRect(img 204 22 340 36 6 243 244 246)
+        ErazerFont.strokeRect(img 204 22 340 36 1 156 163 175)
+        ErazerPaint.paintCentered(img 204 22 340 36 "Ready" 17 24 39)
+        return img
+    }
+
+    sfn paintSliderRow:void (img:ImageBuffer x:int y:int trackW:int fillW:int) {
+        ErazerFont.fillRoundRect(img x (y + 10) trackW 8 4 209 213 219)
+        def fw:int fillW
+        if (fw < 8) {
+            fw = 8
+        }
+        if (fw > trackW) {
+            fw = trackW
+        }
+        ErazerFont.fillRoundRect(img x (y + 10) fw 8 4 30 58 138)
+        def thumbX:int ((x + fw) - 9)
+        if (thumbX < x) {
+            thumbX = x
+        }
+        ErazerFont.fillRoundRect(img thumbX (y + 5) 18 18 9 255 255 255)
+        ErazerFont.strokeRect(img thumbX (y + 5) 18 18 1 30 58 138)
+        def boxX:int ((x + trackW) + 12)
+        ErazerFont.fillRoundRect(img boxX (y + 2) 32 24 4 243 244 246)
+        ErazerFont.strokeRect(img boxX (y + 2) 32 24 1 209 213 219)
+        ErazerPaint.paintCentered(img boxX (y + 2) 32 24 "4" 17 24 39)
+    }
+
+    ; One range control: track, circular thumb, numeric box.
+    sfn slider:ImageBuffer () {
+        def img:ImageBuffer (ErazerPaint.blank(400 56 255 255 255))
+        ErazerPaint.paintSliderRow(img 16 16 280 160)
+        return img
+    }
+
+    ; Three stacked sliders, the shape of a rating row on a form.
+    sfn sliders:ImageBuffer () {
+        def img:ImageBuffer (ErazerPaint.blank(400 160 255 255 255))
+        ErazerPaint.paintSliderRow(img 16 16 280 200)
+        ErazerPaint.paintSliderRow(img 16 64 280 80)
+        ErazerPaint.paintSliderRow(img 16 112 280 220)
         return img
     }
 }

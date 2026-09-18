@@ -15,9 +15,10 @@ the screen.
 | Nested panels | Connected components of similar colour, then bbox containment |
 | Text | Small ink runs clustered onto a baseline; font size from glyph height, colour from the ink |
 | Characters | A 5×7 atlas (the same face the tests paint with). On a real screenshot the run, size and colour still land even when the glyph is not in the atlas |
-| Button | Compact rectangle, centred label, often an accent fill |
+| Button | Compact rectangle, centred label, often an accent fill. Several same-row chips of the same height and fill with one-line labels are promoted together, even when one is too wide or OCR-split to classify alone |
 | Text field | Wide light rectangle, left-aligned text or empty interior, optional border |
 | Checkbox | Small square, solid or a hollow frame |
+| Slider | Wide thin track (optionally two-tone), circular thumb on the bar |
 | Tabs | Three or more sibling labelled bars on one row |
 | Menu | Three or more stacked labelled rows |
 | Form | A panel that holds two or more fields |
@@ -42,7 +43,7 @@ npm run erazer:shots                # HTML widgets + live-page PNGs
 it skips the atlas. `--vectorizeIcons false` leaves icons as labelled boxes.
 
 The live page paints the same fixtures the tests use — a form, tabs, a menu,
-a plus icon — and accepts a PNG/JPEG/WebP from the file picker, the camera,
+a plus icon, a chip row, sliders — and accepts a PNG/JPEG/WebP from the file picker, the camera,
 a paste (`Ctrl/⌘+V` or the **Liitä** button) or a drop. Nothing is uploaded.
 On a phone **Valitse kuva** opens Kuvat; a screenshot can be pasted after a
 long-press. Live on GitHub Pages:
