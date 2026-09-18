@@ -1,0 +1,157 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; ErazerTest.rgr — bitmap UI → EVG layout
+; ==============================================================================
+;
+; Fixtures are painted with the same 5×7 face the recogniser reads, so a
+; missed button or a wrong font size is a real miss, not a font-rasteriser
+; disagreement. The shapes stand in for what a screenshot of a UI library
+; would contain.
+;
+;   npm run erazer:test
+; ==============================================================================
+
+Import "Erazer.rgr"
+Import "ErazerPaint.rgr"
+Import "ErazerFont.rgr"
+Import "../game_engine/v2/tests/harness/RgTest.rgr"
+
+class ErazerTest {
+
+    sfn m@(main):void () {
+        def test (new ErazerTest())
+        def t:RgTest (RgTest.forSuite("gallery/erazer"))
+        test.testAtlas(t)
+        test.testOcr(t)
+        test.testBlank(t)
+        test.testButton(t)
+        test.testForm(t)
+        test.testTabs(t)
+        test.testMenu(t)
+        test.testIcon(t)
+        test.testJson(t)
+        t.summary()
+    }
+
+    fn testAtlas:void (t:RgTest) {
+        def abc:string (ErazerFont.alphabet())
+        def data:string (ErazerFont.atlas())
+        t.eqInt("atlas covers the alphabet" (strlen data) ((strlen abc) * 35))
+        def a:string (ErazerFont.bitsFor("A"))
+        t.eqInt("glyph A is 35 bits" (strlen a) 35)
+        t.eqBool("A has a top bar" (ErazerFont.cellOn(a 1 0)) true)
+    }
+
+    fn testOcr:void (t:RgTest) {
+        def img:ImageBuffer (ErazerPaint.blank(140 40 255 255 255))
+        ErazerFont.paintText(img 10 8 2 17 24 39 "OK")
+        def doc:ErazerDoc (Erazer.analyze(img))
+        def hit@(optional):ErazerNode (doc.root.findText("OK"))
+        t.ok("ocr reads OK" ((null? hit) == false))
+        if (null? hit) {
+            print doc.outline
+        } {
+            def n:ErazerNode (unwrap hit)
+            t.ok("ocr font size ~14" ((n.fontSize >= 10) && (n.fontSize <= 18)))
+            t.ok("ocr ink is dark" ((n.textR < 80) && (n.textG < 80)))
+        }
+    }
+
+    fn testBlank:void (t:RgTest) {
+        def img:ImageBuffer (ErazerPaint.blank(64 48 232 236 240))
+        def doc:ErazerDoc (Erazer.analyze(img))
+        t.eqStr("blank root is page" doc.root.role "page")
+        t.eqInt("blank is 64 wide" doc.width 64)
+        t.eqInt("blank is 48 tall" doc.height 48)
+    }
+
+    fn testButton:void (t:RgTest) {
+        def img:ImageBuffer (ErazerPaint.button())
+        def doc:ErazerDoc (Erazer.analyze(img))
+        t.ok("button found" ((doc.root.roleCount("button")) >= 1))
+        def hit@(optional):ErazerNode (doc.root.findRole("button"))
+        if (null? hit) {
+            print doc.outline
+            t.ok("button labelled Login" false)
+        } {
+            def n:ErazerNode (unwrap hit)
+            t.eqStr("button labelled Login" n.text "Login")
+            t.ok("button fill is blue" ((n.b > n.r) && (n.b > 150)))
+            t.ok("button ink is light" (n.textR > 200))
+            t.ok("button font ~14" ((n.fontSize >= 10) && (n.fontSize <= 18)))
+        }
+    }
+
+    fn testForm:void (t:RgTest) {
+        def img:ImageBuffer (ErazerPaint.form())
+        def doc:ErazerDoc (Erazer.analyze(img))
+        def fields:int (doc.root.roleCount("textfield"))
+        def buttons:int (doc.root.roleCount("button"))
+        def checks:int (doc.root.roleCount("checkbox"))
+        def labels:int (doc.root.roleCount("label"))
+        t.ok("form has two fields" (fields >= 2))
+        t.ok("form has a button" (buttons >= 1))
+        t.ok("form has a checkbox" (checks >= 1))
+        t.ok("form has labels" (labels >= 2))
+        t.ok("form or panel wraps the card" (((doc.root.roleCount("form")) + (doc.root.roleCount("panel"))) >= 1))
+        def name@(optional):ErazerNode (doc.root.findText("Name"))
+        t.ok("form reads Name" ((null? name) == false))
+        def email@(optional):ErazerNode (doc.root.findText("Email"))
+        t.ok("form reads Email" ((null? email) == false))
+        if ((fields < 2) || (null? email) || (null? name)) {
+            print doc.outline
+        }
+    }
+
+    fn testTabs:void (t:RgTest) {
+        def img:ImageBuffer (ErazerPaint.tabs())
+        def doc:ErazerDoc (Erazer.analyze(img))
+        def tabs:int (doc.root.roleCount("tab"))
+        t.ok("three tabs" (tabs >= 3))
+        def file@(optional):ErazerNode (doc.root.findText("File"))
+        t.ok("tab File" ((null? file) == false))
+        def edit@(optional):ErazerNode (doc.root.findText("Edit"))
+        t.ok("tab Edit" ((null? edit) == false))
+        if ((tabs < 3) || (null? file) || (null? edit)) {
+            print doc.outline
+        }
+    }
+
+    fn testMenu:void (t:RgTest) {
+        def img:ImageBuffer (ErazerPaint.menu())
+        def doc:ErazerDoc (Erazer.analyze(img))
+        def items:int (doc.root.roleCount("menuitem"))
+        t.ok("three menu items" (items >= 3))
+        t.ok("menu container" ((doc.root.roleCount("menu")) >= 1))
+        if (items < 3) {
+            print doc.outline
+        }
+    }
+
+    fn testIcon:void (t:RgTest) {
+        def img:ImageBuffer (ErazerPaint.iconRow())
+        def doc:ErazerDoc (Erazer.analyze(img))
+        def icons:int (doc.root.roleCount("icon"))
+        t.ok("plus is an icon" (icons >= 1))
+        def hit@(optional):ErazerNode (doc.root.findRole("icon"))
+        if (null? hit) {
+            print doc.outline
+        } {
+            def n:ErazerNode (unwrap hit)
+            t.ok("icon has an SVG" ((strlen n.iconSvg) > 20))
+            t.ok("icon SVG is a path" ((indexOf n.iconSvg "<path") >= 0))
+        }
+        def add@(optional):ErazerNode (doc.root.findText("Add"))
+        t.ok("icon row reads Add" ((null? add) == false))
+    }
+
+    fn testJson:void (t:RgTest) {
+        def img:ImageBuffer (ErazerPaint.button())
+        def doc:ErazerDoc (Erazer.analyze(img))
+        t.ok("json is an EVG document" ((indexOf doc.json "\"evg\":1") >= 0))
+        t.ok("json names the button class" ((indexOf doc.json "erazer-button") >= 0))
+        t.ok("overlay is an SVG" ((indexOf doc.overlaySvg "<svg") == 0))
+        t.ok("outline names the button" ((indexOf doc.outline "button") >= 0))
+    }
+}

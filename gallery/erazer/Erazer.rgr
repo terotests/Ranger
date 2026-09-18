@@ -1,0 +1,1362 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; Erazer.rgr — bitmap → nested EVG UI layout
+; ==============================================================================
+;
+; Where EvgBitmapTracer follows photographic ink, Erazer looks for the things
+; a screenshot of an application is made of: nested rectangles, text runs,
+; form controls, and small pictorial marks. Heuristics guess a widget class
+; (button, textfield, checkbox, tab, menu, label, icon) and the result is an
+; EVG tree that can be opened like any other document.
+;
+;   npm run erazer:test
+;   npm run erazer -- screenshot.png out.evg.json
+; ==============================================================================
+
+Import "ErazerTypes.rgr"
+Import "ErazerFont.rgr"
+Import "../evg/EvgBitmapTracer.rgr"
+Import "../evg/EVGTreeJson.rgr"
+Import "../pdf_writer/src/jpeg/ImageBuffer.rgr"
+
+class Erazer {
+    def img:ImageBuffer (new ImageBuffer())
+    def opts:ErazerOptions (new ErazerOptions())
+
+    Constructor () {
+        opts = (ErazerOptions.defaults())
+        img = (new ImageBuffer())
+        img.init(1 1)
+    }
+
+    sfn fromImageBuffer:ErazerDoc (img:ImageBuffer options:ErazerOptions) {
+        def z (new Erazer())
+        z.img = img
+        z.opts = options
+        return z.run()
+    }
+
+    sfn analyze:ErazerDoc (img:ImageBuffer) {
+        return (Erazer.fromImageBuffer(img (ErazerOptions.defaults())))
+    }
+
+    fn absI:int (v:int) {
+        if (v < 0) {
+            return (0 - v)
+        }
+        return v
+    }
+
+    fn minI:int (a:int b:int) {
+        if (a < b) {
+            return a
+        }
+        return b
+    }
+
+    fn maxI:int (a:int b:int) {
+        if (a > b) {
+            return a
+        }
+        return b
+    }
+
+    fn lumaOf:int (r:int g:int b:int) {
+        return (idiv (((r * 77) + (g * 150)) + (b * 29)) 256)
+    }
+
+    fn colorNear:boolean (r0:int g0:int b0:int r1:int g1:int b1:int tol:int) {
+        if ((this.absI((r0 - r1))) > tol) {
+            return false
+        }
+        if ((this.absI((g0 - g1))) > tol) {
+            return false
+        }
+        if ((this.absI((b0 - b1))) > tol) {
+            return false
+        }
+        return true
+    }
+
+    fn hexByte:string (v:int) {
+        def h:string "0123456789abcdef"
+        def x:int v
+        if (x < 0) {
+            x = 0
+        }
+        if (x > 255) {
+            x = 255
+        }
+        def hi:int (idiv x 16)
+        def lo:int (x - (hi * 16))
+        return ((substring h hi (hi + 1)) + (substring h lo (lo + 1)))
+    }
+
+    fn hexOf:string (r:int g:int b:int) {
+        return (("#" + (this.hexByte(r))) + (this.hexByte(g)) + (this.hexByte(b)))
+    }
+
+    fn tryPush:void (vis:buffer qx:[int] qy:[int] w:int h:int x:int y:int sr:int sg:int sb:int tol:int) {
+        if (x < 0) {
+            return
+        }
+        if (y < 0) {
+            return
+        }
+        if (x >= w) {
+            return
+        }
+        if (y >= h) {
+            return
+        }
+        def idx:int ((y * w) + x)
+        if ((buffer_get vis idx) != 0) {
+            return
+        }
+        def pixels:buffer img.pixels
+        def off:int (idx * 4)
+        def r:int (buffer_get pixels off)
+        def g:int (buffer_get pixels (off + 1))
+        def b:int (buffer_get pixels (off + 2))
+        def a:int (buffer_get pixels (off + 3))
+        if (a < 8) {
+            buffer_set vis idx 1
+            return
+        }
+        if (this.colorNear(r g b sr sg sb tol)) {
+            buffer_set vis idx 1
+            push qx x
+            push qy y
+        }
+    }
+
+    fn flood:ErazerRaw (vis:buffer w:int h:int sx:int sy:int) {
+        def pixels:buffer img.pixels
+        def seedOff:int ((((sy * w) + sx) * 4))
+        def sr:int (buffer_get pixels seedOff)
+        def sg:int (buffer_get pixels (seedOff + 1))
+        def sb:int (buffer_get pixels (seedOff + 2))
+        def tol:int opts.colorTol
+        def qx:[int]
+        def qy:[int]
+        push qx sx
+        push qy sy
+        buffer_set vis ((sy * w) + sx) 1
+        def head:int 0
+        def minX:int sx
+        def minY:int sy
+        def maxX:int sx
+        def maxY:int sy
+        def area:int 0
+        def sumR:int 0
+        def sumG:int 0
+        def sumB:int 0
+        while (head < (array_length qx)) {
+            def x:int (itemAt qx head)
+            def y:int (itemAt qy head)
+            head = (head + 1)
+            area = (area + 1)
+            def off:int (((y * w) + x) * 4)
+            sumR = (sumR + (buffer_get pixels off))
+            sumG = (sumG + (buffer_get pixels (off + 1)))
+            sumB = (sumB + (buffer_get pixels (off + 2)))
+            if (x < minX) {
+                minX = x
+            }
+            if (y < minY) {
+                minY = y
+            }
+            if (x > maxX) {
+                maxX = x
+            }
+            if (y > maxY) {
+                maxY = y
+            }
+            this.tryPush(vis qx qy w h (x + 1) y sr sg sb tol)
+            this.tryPush(vis qx qy w h (x - 1) y sr sg sb tol)
+            this.tryPush(vis qx qy w h x (y + 1) sr sg sb tol)
+            this.tryPush(vis qx qy w h x (y - 1) sr sg sb tol)
+            this.tryPush(vis qx qy w h (x + 1) (y + 1) sr sg sb tol)
+            this.tryPush(vis qx qy w h (x - 1) (y + 1) sr sg sb tol)
+            this.tryPush(vis qx qy w h (x + 1) (y - 1) sr sg sb tol)
+            this.tryPush(vis qx qy w h (x - 1) (y - 1) sr sg sb tol)
+        }
+        def raw (new ErazerRaw())
+        raw.x = minX
+        raw.y = minY
+        raw.w = ((maxX - minX) + 1)
+        raw.h = ((maxY - minY) + 1)
+        raw.area = area
+        if (area > 0) {
+            raw.r = (idiv sumR area)
+            raw.g = (idiv sumG area)
+            raw.b = (idiv sumB area)
+        }
+        raw.radius = (this.cornerRad(raw))
+        this.tagRaw(raw)
+        return raw
+    }
+
+    fn overlapX:int (a:ErazerRaw b:ErazerRaw) {
+        def left:int (this.maxI(a.x b.x))
+        def right:int (this.minI((a.maxX()) (b.maxX())))
+        return (right - left)
+    }
+
+    fn gapY:int (a:ErazerRaw b:ErazerRaw) {
+        if ((a.maxY()) <= b.y) {
+            return (b.y - (a.maxY()))
+        }
+        if ((b.maxY()) <= a.y) {
+            return (a.y - (b.maxY()))
+        }
+        return 0
+    }
+
+    fn mergeRaw:void (a:ErazerRaw b:ErazerRaw) {
+        def x2:int (this.minI(a.x b.x))
+        def y2:int (this.minI(a.y b.y))
+        def mx:int (this.maxI((a.maxX()) (b.maxX())))
+        def my:int (this.maxI((a.maxY()) (b.maxY())))
+        def area:int (a.area + b.area)
+        def sumR:int ((a.r * a.area) + (b.r * b.area))
+        def sumG:int ((a.g * a.area) + (b.g * b.area))
+        def sumB:int ((a.b * a.area) + (b.b * b.area))
+        a.x = x2
+        a.y = y2
+        a.w = (mx - x2)
+        a.h = (my - y2)
+        a.area = area
+        if (area > 0) {
+            a.r = (idiv sumR area)
+            a.g = (idiv sumG area)
+            a.b = (idiv sumB area)
+        }
+        b.used = true
+        b.w = 0
+    }
+
+    ; Dots on i, umlauts, and a 5×7 cell that only touches on a diagonal
+    ; arrive as two components. Join ones that share a column and sit on
+    ; the same character cell.
+    fn stitchGlyphs:void (raws:[ErazerRaw]) {
+        def n:int (array_length raws)
+        def again:boolean true
+        while again {
+            again = false
+            def i:int 0
+            while (i < n) {
+                def a:ErazerRaw (itemAt raws i)
+                if ((a.used == false) && (a.kind == "glyph")) {
+                    def j:int 0
+                    while (j < n) {
+                        if (j != i) {
+                            def b:ErazerRaw (itemAt raws j)
+                            if ((b.used == false) && (b.w > 0)) {
+                                def speck:boolean false
+                                if (b.kind == "glyph") {
+                                    speck = true
+                                }
+                                if ((b.h <= 8) && (b.w <= 12)) {
+                                    speck = true
+                                }
+                                if (speck && ((this.overlapX(a b)) >= 1) && ((this.gapY(a b)) <= 5)) {
+                                    this.mergeRaw(a b)
+                                    this.tagRaw(a)
+                                    again = true
+                                }
+                            }
+                        }
+                        j = (j + 1)
+                    }
+                }
+                i = (i + 1)
+            }
+        }
+    }
+
+    fn cornerRad:int (raw:ErazerRaw) {
+        def maxR:int (this.minI(raw.w raw.h))
+        maxR = (idiv maxR 2)
+        if (maxR > 20) {
+            maxR = 20
+        }
+        def k:int 0
+        while (k < maxR) {
+            def px:int (raw.x + k)
+            def py:int (raw.y + k)
+            if (img.isValidCoord(px py)) {
+                def c:Color (img.getPixel(px py))
+                if (this.colorNear(c.r c.g c.b raw.r raw.g raw.b 36)) {
+                    return k
+                }
+            }
+            k = (k + 1)
+        }
+        return 0
+    }
+
+    fn hollowAt:boolean (raw:ErazerRaw) {
+        def ix:int (raw.cx())
+        def iy:int (raw.cy())
+        if (img.isValidCoord(ix iy) == false) {
+            return false
+        }
+        def c:Color (img.getPixel(ix iy))
+        if (this.colorNear(c.r c.g c.b raw.r raw.g raw.b 36)) {
+            return false
+        }
+        return true
+    }
+
+    fn tagRaw:void (raw:ErazerRaw) {
+        def fr:double (raw.fillRatio())
+        if ((raw.h <= 3) && (raw.w >= 16)) {
+            raw.kind = "line"
+            return
+        }
+        if ((raw.w <= 3) && (raw.h >= 16)) {
+            raw.kind = "line"
+            return
+        }
+        def glyph:boolean true
+        if (raw.h < opts.minGlyphH) {
+            glyph = false
+        }
+        if (raw.h > opts.maxGlyphH) {
+            glyph = false
+        }
+        if (raw.w > ((raw.h * 2) + 8)) {
+            glyph = false
+        }
+        if ((raw.nearSquare()) && (raw.w >= 12)) {
+            glyph = false
+        }
+        if ((fr > 0.86) && (raw.w >= 10) && ((this.absI((raw.w - raw.h))) <= 4)) {
+            glyph = false
+        }
+        if glyph {
+            raw.kind = "glyph"
+            return
+        }
+        def hole:boolean (this.hollowAt(raw))
+        if ((raw.nearSquare()) && (raw.w >= opts.iconMin) && (raw.w <= opts.iconMax) && (fr < 0.75) && (hole == false)) {
+            raw.kind = "icon"
+            return
+        }
+        if ((fr < 0.55) && (raw.w >= 10) && (raw.h >= 10) && hole) {
+            raw.kind = "frame"
+            return
+        }
+        raw.kind = "box"
+    }
+
+    fn components:[ErazerRaw] () {
+        def w:int img.width
+        def h:int img.height
+        def n:int (w * h)
+        def vis:buffer (buffer_alloc n)
+        buffer_fill vis 0 0 n
+        def out:[ErazerRaw]
+        def i:int 0
+        while (i < n) {
+            if ((buffer_get vis i) == 0) {
+                def y:int (idiv i w)
+                def x:int (i - (y * w))
+                def raw:ErazerRaw (this.flood(vis w h x y))
+                if (raw.area >= opts.minArea) {
+                    push out raw
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn sortRawByYX:void (arr:[ErazerRaw]) {
+        def n:int (array_length arr)
+        def i:int 1
+        while (i < n) {
+            def j:int i
+            def keep:boolean true
+            while ((j > 0) && keep) {
+                def a:ErazerRaw (itemAt arr j)
+                def b:ErazerRaw (itemAt arr (j - 1))
+                def swap:boolean false
+                if (a.y < (b.y - 2)) {
+                    swap = true
+                } {
+                    if ((this.absI((a.y - b.y))) <= 2) {
+                        if (a.x < b.x) {
+                            swap = true
+                        }
+                    }
+                }
+                if swap {
+                    set arr (j - 1) a
+                    set arr j b
+                    j = (j - 1)
+                } {
+                    keep = false
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn sortRawByX:void (arr:[ErazerRaw]) {
+        def n:int (array_length arr)
+        def i:int 1
+        while (i < n) {
+            def j:int i
+            def keep:boolean true
+            while ((j > 0) && keep) {
+                def a:ErazerRaw (itemAt arr j)
+                def b:ErazerRaw (itemAt arr (j - 1))
+                if (a.x < b.x) {
+                    set arr (j - 1) a
+                    set arr j b
+                    j = (j - 1)
+                } {
+                    keep = false
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn sortNodesByAreaAsc:void (arr:[ErazerNode]) {
+        def n:int (array_length arr)
+        def i:int 1
+        while (i < n) {
+            def j:int i
+            def keep:boolean true
+            while ((j > 0) && keep) {
+                def a:ErazerNode (itemAt arr j)
+                def b:ErazerNode (itemAt arr (j - 1))
+                def aa:int (a.w * a.h)
+                def bb:int (b.w * b.h)
+                if (aa < bb) {
+                    set arr (j - 1) a
+                    set arr j b
+                    j = (j - 1)
+                } {
+                    keep = false
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn lineOf:[ErazerRaw] (glyphs:[ErazerRaw] start:int) {
+        def members:[ErazerRaw]
+        def seed:ErazerRaw (itemAt glyphs start)
+        push members seed
+        seed.used = true
+        def base:int (seed.maxY())
+        def hh:int seed.h
+        def right:int (seed.maxX())
+        def j:int (start + 1)
+        def n:int (array_length glyphs)
+        while (j < n) {
+            def g:ErazerRaw (itemAt glyphs j)
+            if (g.used == false) {
+                def dy:int (this.absI(((g.maxY()) - base)))
+                def dh:int (this.absI((g.h - hh)))
+                    def gap:int (g.x - right)
+                    def maxGap:int ((hh * 2) + 12)
+                    def minGap:int (0 - (hh + 4))
+                    if ((dy <= 5) && (dh <= (this.maxI(5 (idiv hh 2)))) && (gap <= maxGap) && (gap >= minGap)) {
+                    push members g
+                    g.used = true
+                    if ((g.maxX()) > right) {
+                        right = (g.maxX())
+                    }
+                    if (g.h > hh) {
+                        hh = g.h
+                    }
+                    def nb:int (g.maxY())
+                    if (nb > base) {
+                        base = nb
+                    }
+                }
+            }
+            j = (j + 1)
+        }
+        return members
+    }
+
+    fn textFromGlyphs:ErazerNode (members:[ErazerRaw]) {
+        this.sortRawByX(members)
+        def n:int (array_length members)
+        def g0:ErazerRaw (itemAt members 0)
+        def minX:int g0.x
+        def minY:int g0.y
+        def maxX:int (g0.maxX())
+        def maxY:int (g0.maxY())
+        def sumH:int 0
+        def sumR:int 0
+        def sumG:int 0
+        def sumB:int 0
+        def i:int 0
+        while (i < n) {
+            def g:ErazerRaw (itemAt members i)
+            if (g.x < minX) {
+                minX = g.x
+            }
+            if (g.y < minY) {
+                minY = g.y
+            }
+            if ((g.maxX()) > maxX) {
+                maxX = (g.maxX())
+            }
+            if ((g.maxY()) > maxY) {
+                maxY = (g.maxY())
+            }
+            sumH = (sumH + g.h)
+            sumR = (sumR + g.r)
+            sumG = (sumG + g.g)
+            sumB = (sumB + g.b)
+            i = (i + 1)
+        }
+        def node:ErazerNode (ErazerNode.of("text" minX minY (maxX - minX) (maxY - minY) 0 0 0))
+        node.fontSize = (idiv sumH n)
+        node.textR = (idiv sumR n)
+        node.textG = (idiv sumG n)
+        node.textB = (idiv sumB n)
+        node.r = node.textR
+        node.g = node.textG
+        node.b = node.textB
+        node.confidence = 0.7
+        def text:string ""
+        if opts.ocr {
+            def lineH:int (maxY - minY)
+            text = (this.ocrLine(minX minY maxX maxY lineH node.textR node.textG node.textB))
+        }
+        node.text = text
+        return node
+    }
+
+    fn ocrLine:string (minX:int minY:int maxX:int maxY:int lineH:int inkR:int inkG:int inkB:int) {
+        def cell:int (idiv lineH 7)
+        if (cell < 1) {
+            cell = 1
+        }
+        def step:int (cell * 6)
+        def win:int (cell * 5)
+        def text:string ""
+        def x:int minX
+        def guard:int 0
+        while ((x + (cell * 3)) <= (maxX + cell)) {
+            def bits:string (ErazerFont.sampleBits(img x minY win lineH minY lineH inkR inkG inkB))
+            def ch:string (ErazerFont.matchBits(bits))
+            if ((strlen ch) == 0) {
+                x = (x + cell)
+            } {
+                if (ch == " ") {
+                    x = (x + cell)
+                } {
+                    text = (text + ch)
+                    x = (x + step)
+                }
+            }
+            guard = (guard + 1)
+            if (guard > 80) {
+                x = (maxX + cell)
+            }
+        }
+        return text
+    }
+
+    fn clusterText:[ErazerNode] (raws:[ErazerRaw]) {
+        def glyphs:[ErazerRaw]
+        def i:int 0
+        while (i < (array_length raws)) {
+            def r:ErazerRaw (itemAt raws i)
+            if ((r.used == false) && (r.kind == "glyph")) {
+                push glyphs r
+            }
+            i = (i + 1)
+        }
+        this.sortRawByYX(glyphs)
+        def out:[ErazerNode]
+        def j:int 0
+        while (j < (array_length glyphs)) {
+            def g:ErazerRaw (itemAt glyphs j)
+            if (g.used == false) {
+                def members:[ErazerRaw] (this.lineOf(glyphs j))
+                def skipTiny:boolean false
+                if ((array_length members) == 1) {
+                    def only:ErazerRaw (itemAt members 0)
+                    if ((only.w <= 5) && (only.h <= 12)) {
+                        skipTiny = true
+                    }
+                }
+                if (skipTiny == false) {
+                    push out (this.textFromGlyphs(members))
+                }
+            }
+            j = (j + 1)
+        }
+        this.mergeTextRuns(out)
+        def live:[ErazerNode]
+        def k:int 0
+        while (k < (array_length out)) {
+            def n:ErazerNode (itemAt out k)
+            if (n.w > 0) {
+                push live n
+            }
+            k = (k + 1)
+        }
+        return live
+    }
+
+    fn mergeTextRuns:void (texts:[ErazerNode]) {
+        def n:int (array_length texts)
+        def again:boolean true
+        while again {
+            again = false
+            def i:int 0
+            while (i < n) {
+                def a:ErazerNode (itemAt texts i)
+                if (a.w > 0) {
+                    def j:int 0
+                    while (j < n) {
+                        if (j != i) {
+                            def b:ErazerNode (itemAt texts j)
+                            if (b.w > 0) {
+                                def dy:int (this.absI(((a.maxY()) - (b.maxY()))))
+                                def gap:int (b.x - (a.maxX()))
+                                def maxGap:int ((this.maxI(a.h b.h) * 2) + 12)
+                                if ((dy <= 5) && (gap >= (0 - 8)) && (gap <= maxGap) && ((this.absI((a.y - b.y))) <= 8)) {
+                                    def left:ErazerNode a
+                                    def right:ErazerNode b
+                                    if (b.x < a.x) {
+                                        left = b
+                                        right = a
+                                    }
+                                    def sp:string ""
+                                    def realGap:int (right.x - (left.maxX()))
+                                    if (realGap > (idiv (left.h * 2) 3)) {
+                                        sp = " "
+                                    }
+                                    left.text = ((left.text + sp) + right.text)
+                                    def x2:int (this.minI(left.x right.x))
+                                    def y2:int (this.minI(left.y right.y))
+                                    def mx:int (this.maxI((left.x + left.w) (right.x + right.w)))
+                                    def my:int (this.maxI((left.y + left.h) (right.y + right.h)))
+                                    left.x = x2
+                                    left.y = y2
+                                    left.w = (mx - x2)
+                                    left.h = (my - y2)
+                                    if (right.fontSize > left.fontSize) {
+                                        left.fontSize = right.fontSize
+                                    }
+                                    right.w = 0
+                                    again = true
+                                }
+                            }
+                        }
+                        j = (j + 1)
+                    }
+                }
+                i = (i + 1)
+            }
+        }
+    }
+
+    fn fullBleed:boolean (raw:ErazerRaw w:int h:int) {
+        if (raw.x > 1) {
+            return false
+        }
+        if (raw.y > 1) {
+            return false
+        }
+        if ((raw.maxX()) < (w - 1)) {
+            return false
+        }
+        if ((raw.maxY()) < (h - 1)) {
+            return false
+        }
+        return true
+    }
+
+    fn nodeFromRaw:ErazerNode (raw:ErazerRaw role:string) {
+        def n:ErazerNode (ErazerNode.of(role raw.x raw.y raw.w raw.h raw.r raw.g raw.b))
+        n.radius = raw.radius
+        if (raw.kind == "frame") {
+            n.borderW = 1
+            n.borderR = raw.r
+            n.borderG = raw.g
+            n.borderB = raw.b
+        }
+        return n
+    }
+
+    fn coversNode:boolean (a:ErazerNode b:ErazerNode) {
+        return (a.coversBox(b.x b.y b.w b.h))
+    }
+
+    fn almostSame:boolean (a:ErazerNode b:ErazerNode) {
+        def dx:int (this.absI((a.x - b.x)))
+        def dy:int (this.absI((a.y - b.y)))
+        def dw:int (this.absI((a.w - b.w)))
+        def dh:int (this.absI((a.h - b.h)))
+        if ((dx <= 3) && (dy <= 3) && (dw <= 6) && (dh <= 6)) {
+            return true
+        }
+        return false
+    }
+
+    fn mergeFrameFill:void (nodes:[ErazerNode]) {
+        def n:int (array_length nodes)
+        def i:int 0
+        while (i < n) {
+            def fr:ErazerNode (itemAt nodes i)
+            if (fr.borderW > 0) {
+                def j:int 0
+                while (j < n) {
+                    if (j != i) {
+                        def box:ErazerNode (itemAt nodes j)
+                        if ((box.borderW == 0) && (this.coversNode(fr box))) {
+                            def insetX:int (box.x - fr.x)
+                            def insetY:int (box.y - fr.y)
+                            if ((insetX >= 0) && (insetX <= 8) && (insetY >= 0) && (insetY <= 8)) {
+                                def dw:int (this.absI((fr.w - box.w)))
+                                def dh:int (this.absI((fr.h - box.h)))
+                                if ((dw <= 16) && (dh <= 16)) {
+                                    box.borderW = (this.maxI(1 insetX))
+                                    box.borderR = fr.r
+                                    box.borderG = fr.g
+                                    box.borderB = fr.b
+                                    box.x = fr.x
+                                    box.y = fr.y
+                                    box.w = fr.w
+                                    box.h = fr.h
+                                    fr.w = 0
+                                }
+                            }
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn nest:[ErazerNode] (nodes:[ErazerNode] page:ErazerNode) {
+        def live:[ErazerNode]
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:ErazerNode (itemAt nodes i)
+            if (n.w > 0) {
+                push live n
+            }
+            i = (i + 1)
+        }
+        this.sortNodesByAreaAsc(live)
+        def attached:[int]
+        def k:int 0
+        while (k < (array_length live)) {
+            push attached 0
+            k = (k + 1)
+        }
+        def a:int 0
+        while (a < (array_length live)) {
+            def child:ErazerNode (itemAt live a)
+            def bestIdx:int (0 - 1)
+            def bestArea:int 0
+            def b:int (a + 1)
+            while (b < (array_length live)) {
+                def par:ErazerNode (itemAt live b)
+                if (this.coversNode(par child)) {
+                    if (this.almostSame(par child) == false) {
+                        def area:int (par.w * par.h)
+                        if ((bestIdx < 0) || (area < bestArea)) {
+                            bestIdx = b
+                            bestArea = area
+                        }
+                    }
+                }
+                b = (b + 1)
+            }
+            if (bestIdx >= 0) {
+                def par2:ErazerNode (itemAt live bestIdx)
+                par2.addKid(child)
+                set attached a 1
+            }
+            a = (a + 1)
+        }
+        def t:int 0
+        while (t < (array_length live)) {
+            if ((itemAt attached t) == 0) {
+                def n2:ErazerNode (itemAt live t)
+                if (this.coversNode(page n2)) {
+                    page.addKid(n2)
+                } {
+                    page.addKid(n2)
+                }
+            }
+            t = (t + 1)
+        }
+        return live
+    }
+
+    fn firstText@(optional):ErazerNode (n:ErazerNode) {
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            def k:ErazerNode (itemAt n.kids i)
+            if ((k.role == "text") || (k.role == "label")) {
+                def hit@(optional):ErazerNode k
+                return hit
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):ErazerNode
+        return miss
+    }
+
+    fn textKidCount:int (n:ErazerNode) {
+        def c:int 0
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            def k:ErazerNode (itemAt n.kids i)
+            if ((k.role == "text") || (k.role == "label")) {
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        return c
+    }
+
+    fn copyTextOnto:void (n:ErazerNode t:ErazerNode) {
+        n.text = t.text
+        n.fontSize = t.fontSize
+        n.textR = t.textR
+        n.textG = t.textG
+        n.textB = t.textB
+    }
+
+    fn guessSelf:void (n:ErazerNode) {
+        if (n.role == "text") {
+            return
+        }
+        if (n.role == "icon") {
+            return
+        }
+        if (n.role == "page") {
+            return
+        }
+        def texts:int (this.textKidCount(n))
+        def sq:boolean false
+        def dwh:int (this.absI((n.w - n.h)))
+        if ((dwh <= 4) && (n.w >= 10) && (n.w <= 32)) {
+            sq = true
+        }
+        if (sq && (texts == 0)) {
+            n.role = "checkbox"
+            n.confidence = 0.82
+            return
+        }
+        def aspect:double 0.0
+        if (n.h > 0) {
+            aspect = ((to_double n.w) / (to_double n.h))
+        }
+        def lum:int (this.lumaOf(n.r n.g n.b))
+        def centered:boolean false
+        def leftish:boolean true
+        def hit@(optional):ErazerNode (this.firstText(n))
+        if hit {
+            def t:ErazerNode (unwrap hit)
+            def dx:int (this.absI(((t.cx()) - (n.cx()))))
+            def dy:int (this.absI(((t.cy()) - (n.cy()))))
+            if ((dx <= (idiv n.w 3)) && (dy <= (idiv n.h 2))) {
+                centered = true
+            }
+            if ((t.x - n.x) > (idiv n.w 5)) {
+                if ((t.x - n.x) > 10) {
+                    leftish = false
+                }
+            }
+            if ((t.x - n.x) > n.h) {
+                leftish = false
+            }
+        }
+        if ((n.h >= 16) && (n.h <= 58) && (n.w >= 28) && (n.w <= 360) && (aspect >= 1.12) && (aspect <= 9.0)) {
+            if ((texts == 1) && centered) {
+                n.role = "button"
+                n.confidence = 0.8
+                if hit {
+                    this.copyTextOnto(n (unwrap hit))
+                }
+                return
+            }
+        }
+        if ((n.h >= 18) && (n.h <= 58) && (n.w >= 72) && (aspect >= 2.4)) {
+            if ((lum >= 200) || (n.borderW > 0)) {
+                if (texts <= 1) {
+                    if ((leftish && (centered == false)) || (texts == 0)) {
+                        n.role = "textfield"
+                        n.confidence = 0.78
+                        if hit {
+                            this.copyTextOnto(n (unwrap hit))
+                        }
+                        return
+                    }
+                }
+            }
+        }
+        if ((n.h >= 16) && (n.h <= 58) && (n.w >= 28) && (n.w <= 360) && (aspect >= 1.12) && (aspect <= 9.0)) {
+            if (texts == 1) {
+                n.role = "button"
+                n.confidence = 0.6
+                if hit {
+                    this.copyTextOnto(n (unwrap hit))
+                }
+                return
+            }
+        }
+        if (((array_length n.kids) >= 2) && (n.w > 48) && (n.h > 40)) {
+            n.role = "panel"
+            n.confidence = 0.55
+            return
+        }
+    }
+
+    fn classifyTree:void (n:ErazerNode) {
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            def k:ErazerNode (itemAt n.kids i)
+            this.classifyTree(k)
+            i = (i + 1)
+        }
+        this.guessSelf(n)
+        if ((n.role == "text") && ((array_length n.kids) == 0)) {
+            ; a lone run sitting in a panel is a label
+        }
+    }
+
+    fn relabelTexts:void (n:ErazerNode) {
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            def k:ErazerNode (itemAt n.kids i)
+            if (k.role == "text") {
+                if ((n.role == "panel") || (n.role == "page") || (n.role == "form") || (n.role == "menu")) {
+                    k.role = "label"
+                }
+            }
+            this.relabelTexts(k)
+            i = (i + 1)
+        }
+    }
+
+    fn promoteGroups:void (n:ErazerNode) {
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            def k:ErazerNode (itemAt n.kids i)
+            this.promoteGroups(k)
+            i = (i + 1)
+        }
+        def fields:int 0
+        def c:int 0
+        while (c < (array_length n.kids)) {
+            def k2:ErazerNode (itemAt n.kids c)
+            if (k2.role == "textfield") {
+                fields = (fields + 1)
+            }
+            c = (c + 1)
+        }
+        if ((fields >= 2) && ((n.role == "panel") || (n.role == "page"))) {
+            n.role = "form"
+            n.confidence = 0.84
+        }
+        this.promoteTabs(n)
+        this.promoteMenu(n)
+    }
+
+    fn promoteTabs:void (n:ErazerNode) {
+        def cand:[ErazerNode]
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            def k:ErazerNode (itemAt n.kids i)
+            if (((strlen k.text) > 0) && (k.h >= 20)) {
+                if ((k.role == "button") || (k.role == "panel") || (k.role == "tab") || (k.role == "textfield")) {
+                    push cand k
+                }
+            }
+            i = (i + 1)
+        }
+        if ((array_length cand) < 3) {
+            return
+        }
+        def a:ErazerNode (itemAt cand 0)
+        def same:int 1
+        def j:int 1
+        while (j < (array_length cand)) {
+            def b:ErazerNode (itemAt cand j)
+            if ((this.absI((a.y - b.y))) <= 6) {
+                if ((this.absI((a.h - b.h))) <= 8) {
+                    same = (same + 1)
+                }
+            }
+            j = (j + 1)
+        }
+        if (same >= 3) {
+            def t:int 0
+            while (t < (array_length cand)) {
+                def k3:ErazerNode (itemAt cand t)
+                k3.role = "tab"
+                k3.confidence = 0.75
+                t = (t + 1)
+            }
+            if ((array_length cand) == (array_length n.kids)) {
+                n.role = "tablist"
+            }
+        }
+    }
+
+    fn promoteMenu:void (n:ErazerNode) {
+        def cand:[ErazerNode]
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            def k:ErazerNode (itemAt n.kids i)
+            if (((strlen k.text) > 0) && (k.h >= 20)) {
+                if ((k.role == "button") || (k.role == "panel") || (k.role == "menuitem") || (k.role == "textfield")) {
+                    push cand k
+                }
+            }
+            i = (i + 1)
+        }
+        if ((array_length cand) < 3) {
+            return
+        }
+        def a:ErazerNode (itemAt cand 0)
+        def same:int 1
+        def j:int 1
+        while (j < (array_length cand)) {
+            def b:ErazerNode (itemAt cand j)
+            if ((this.absI((a.x - b.x))) <= 8) {
+                if ((this.absI((a.w - b.w))) <= 16) {
+                    if ((this.absI((a.h - b.h))) <= 10) {
+                        same = (same + 1)
+                    }
+                }
+            }
+            j = (j + 1)
+        }
+        if (same >= 3) {
+            def t:int 0
+            while (t < (array_length cand)) {
+                def k3:ErazerNode (itemAt cand t)
+                k3.role = "menuitem"
+                k3.confidence = 0.72
+                t = (t + 1)
+            }
+            n.role = "menu"
+            n.confidence = 0.72
+        }
+    }
+
+    fn crop:ImageBuffer (x:int y:int w:int h:int) {
+        def out (new ImageBuffer())
+        def cw:int (this.maxI(1 w))
+        def ch:int (this.maxI(1 h))
+        out.init(cw ch)
+        def py:int 0
+        while (py < ch) {
+            def px:int 0
+            while (px < cw) {
+                def sx:int (x + px)
+                def sy:int (y + py)
+                if (img.isValidCoord(sx sy)) {
+                    def c:Color (img.getPixel(sx sy))
+                    out.setPixelRGBA(px py c.r c.g c.b c.a)
+                }
+                px = (px + 1)
+            }
+            py = (py + 1)
+        }
+        return out
+    }
+
+    fn traceIcons:void (n:ErazerNode) {
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            def k:ErazerNode (itemAt n.kids i)
+            this.traceIcons(k)
+            i = (i + 1)
+        }
+        if (n.role == "icon") {
+            if opts.vectorizeIcons {
+                def pad:int 1
+                def cx:int (this.maxI(0 (n.x - pad)))
+                def cy:int (this.maxI(0 (n.y - pad)))
+                def cw:int (n.w + (pad * 2))
+                def ch:int (n.h + (pad * 2))
+                def slice:ImageBuffer (this.crop(cx cy cw ch))
+                def topts:EvgTraceOptions (EvgTraceOptions.preset("lineart"))
+                topts.turdsize = 1
+                def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer(slice topts))
+                tr.trace()
+                n.iconSvg = (tr.toSVG())
+                def els:[EVGElement] (tr.toEVGElements())
+                def e:int 0
+                while (e < (array_length els)) {
+                    def el:EVGElement (itemAt els e)
+                    push n.iconPaths el.svgPath
+                    push n.iconFills (el.fillColor.toHexString())
+                    e = (e + 1)
+                }
+            }
+        }
+    }
+
+    fn emitNode:EVGElement (n:ErazerNode px:int py:int) {
+        def el:EVGElement (EVGElement.createDiv())
+        if ((n.role == "text") || (n.role == "label")) {
+            el = (EVGElement.createSpan())
+            el.textContent = n.text
+            if (n.fontSize > 0) {
+                el.fontSize = (EVGUnit.px((to_double n.fontSize)))
+            }
+            el.color = (EVGColor.rgb(n.textR n.textG n.textB))
+        } {
+            el.backgroundColor = (EVGColor.rgb(n.r n.g n.b))
+            if ((n.role == "button") || (n.role == "textfield") || (n.role == "tab") || (n.role == "menuitem")) {
+                if ((strlen n.text) > 0) {
+                    ; text also lives on a child span
+                }
+            }
+            if (n.radius > 0) {
+                el.box.borderRadius = (EVGUnit.px((to_double n.radius)))
+            }
+            if (n.borderW > 0) {
+                el.box.borderWidth = (EVGUnit.px((to_double n.borderW)))
+                el.box.borderColor = (EVGColor.rgb(n.borderR n.borderG n.borderB))
+            }
+        }
+        el.className = ("erazer-" + n.role)
+        el.position = "absolute"
+        el.left = (EVGUnit.px((to_double (n.x - px))))
+        el.top = (EVGUnit.px((to_double (n.y - py))))
+        el.width = (EVGUnit.px((to_double n.w)))
+        el.height = (EVGUnit.px((to_double n.h)))
+        def p:int 0
+        while (p < (array_length n.iconPaths)) {
+            def pathEl:EVGElement (EVGElement.createPath())
+            pathEl.svgPath = (itemAt n.iconPaths p)
+            pathEl.fillRule = "evenodd"
+            def fill:string (itemAt n.iconFills p)
+            pathEl.fillColor = (EVGColor.parse(fill))
+            pathEl.viewBox = (("0 0 " + (to_string n.w)) + " " + (to_string n.h))
+            pathEl.width = (EVGUnit.px((to_double n.w)))
+            pathEl.height = (EVGUnit.px((to_double n.h)))
+            pathEl.position = "absolute"
+            pathEl.left = (EVGUnit.px(0.0))
+            pathEl.top = (EVGUnit.px(0.0))
+            el.addChild(pathEl)
+            p = (p + 1)
+        }
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            def k:ErazerNode (itemAt n.kids i)
+            el.addChild(this.emitNode(k n.x n.y))
+            i = (i + 1)
+        }
+        return el
+    }
+
+    fn writeOutline:string (n:ErazerNode pad:string) {
+        def line:string (((((pad + n.role) + " ") + (to_string n.x)) + "," + (to_string n.y)))
+        line = (((((line + " ") + (to_string n.w)) + "x") + (to_string n.h)))
+        line = ((line + " ") + (this.hexOf(n.r n.g n.b)))
+        if ((strlen n.text) > 0) {
+            line = ((((line + " \"") + n.text) + "\""))
+        }
+        if (n.fontSize > 0) {
+            line = ((line + " font=") + (to_string n.fontSize))
+        }
+        if ((n.role == "text") || (n.role == "label") || (n.role == "button") || (n.role == "tab") || (n.role == "menuitem")) {
+            if (n.fontSize > 0) {
+                line = ((line + " ink=") + (this.hexOf(n.textR n.textG n.textB)))
+            }
+        }
+        if ((strlen n.iconSvg) > 0) {
+            line = (line + " icon=svg")
+        }
+        def out:string (line + "\n")
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            def k:ErazerNode (itemAt n.kids i)
+            out = (out + (this.writeOutline(k (pad + "  "))))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn roleStroke:string (role:string) {
+        if (role == "button") {
+            return "#2563eb"
+        }
+        if (role == "textfield") {
+            return "#0f766e"
+        }
+        if (role == "checkbox") {
+            return "#7c3aed"
+        }
+        if (role == "label") {
+            return "#b45309"
+        }
+        if (role == "text") {
+            return "#b45309"
+        }
+        if (role == "tab") {
+            return "#db2777"
+        }
+        if (role == "tablist") {
+            return "#be185d"
+        }
+        if (role == "menu") {
+            return "#0369a1"
+        }
+        if (role == "menuitem") {
+            return "#0284c7"
+        }
+        if (role == "form") {
+            return "#15803d"
+        }
+        if (role == "icon") {
+            return "#ea580c"
+        }
+        return "#64748b"
+    }
+
+    fn writeOverlay:string (n:ErazerNode w:int h:int) {
+        def svg:string "<svg xmlns=\"http://www.w3.org/2000/svg\" "
+        svg = (svg + "width=\"" + (to_string w) + "\" height=\"" + (to_string h) + "\" ")
+        svg = (svg + "viewBox=\"0 0 " + (to_string w) + " " + (to_string h) + "\">")
+        svg = (svg + (this.overlayNode(n)))
+        svg = (svg + "</svg>")
+        return svg
+    }
+
+    fn xmlEsc:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:string (substring s i (i + 1))
+            if (ch == "<") {
+                out = (out + "&lt;")
+            } {
+                if (ch == ">") {
+                    out = (out + "&gt;")
+                } {
+                    if (ch == "\"") {
+                        out = (out + "&quot;")
+                    } {
+                        if (ch == "&") {
+                            out = (out + "&amp;")
+                        } {
+                            out = (out + ch)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn overlayNode:string (n:ErazerNode) {
+        def col:string (this.roleStroke(n.role))
+        def s:string "<g>"
+        s = (s + "<rect x=\"" + (to_string n.x) + "\" y=\"" + (to_string n.y) + "\" ")
+        s = (s + "width=\"" + (to_string n.w) + "\" height=\"" + (to_string n.h) + "\" ")
+        s = (s + "fill=\"none\" stroke=\"" + col + "\" stroke-width=\"1\"/>")
+        def lab:string n.role
+        if ((strlen n.text) > 0) {
+            lab = ((lab + " ") + n.text)
+        }
+        s = (s + "<text x=\"" + (to_string (n.x + 2)) + "\" y=\"" + (to_string (n.y + 10)) + "\" ")
+        s = (s + "font-size=\"9\" fill=\"" + col + "\">" + (this.xmlEsc(lab)) + "</text>")
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            def k:ErazerNode (itemAt n.kids i)
+            s = (s + (this.overlayNode(k)))
+            i = (i + 1)
+        }
+        s = (s + "</g>")
+        return s
+    }
+
+    fn run:ErazerDoc () {
+        def w:int img.width
+        def h:int img.height
+        def raws:[ErazerRaw] (this.components())
+        this.stitchGlyphs(raws)
+        def texts:[ErazerNode] (this.clusterText(raws))
+        def pageColorR:int 255
+        def pageColorG:int 255
+        def pageColorB:int 255
+        def i:int 0
+        while (i < (array_length raws)) {
+            def r:ErazerRaw (itemAt raws i)
+            if (this.fullBleed(r w h)) {
+                pageColorR = r.r
+                pageColorG = r.g
+                pageColorB = r.b
+                r.used = true
+            }
+            i = (i + 1)
+        }
+        def page:ErazerNode (ErazerNode.of("page" 0 0 w h pageColorR pageColorG pageColorB))
+        page.confidence = 1.0
+        def nodes:[ErazerNode]
+        def j:int 0
+        while (j < (array_length raws)) {
+            def raw:ErazerRaw (itemAt raws j)
+            if (raw.used == false) {
+                if (raw.kind != "glyph") {
+                    if (raw.kind != "line") {
+                        def role:string "panel"
+                        if (raw.kind == "icon") {
+                            role = "icon"
+                        }
+                        if (raw.kind == "box") {
+                            role = "panel"
+                        }
+                        if (raw.kind == "frame") {
+                            role = "panel"
+                        }
+                        push nodes (this.nodeFromRaw(raw role))
+                    }
+                }
+            }
+            j = (j + 1)
+        }
+        def t:int 0
+        while (t < (array_length texts)) {
+            push nodes (itemAt texts t)
+            t = (t + 1)
+        }
+        this.mergeFrameFill(nodes)
+        this.nest(nodes page)
+        this.classifyTree(page)
+        this.relabelTexts(page)
+        this.promoteGroups(page)
+        this.traceIcons(page)
+        def doc (new ErazerDoc())
+        doc.width = w
+        doc.height = h
+        doc.root = page
+        def evg:EVGElement (this.emitNode(page 0 0))
+        evg.position = "relative"
+        doc.json = (EVGTreeJson.toText(evg))
+        doc.outline = (this.writeOutline(page ""))
+        doc.overlaySvg = (this.writeOverlay(page w h))
+        return doc
+    }
+}

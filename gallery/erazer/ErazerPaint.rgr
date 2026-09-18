@@ -1,0 +1,97 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; ErazerPaint.rgr — synthetic UI screenshots for Erazer tests and the live page
+; ==============================================================================
+;
+; Painted with ErazerFont so the recogniser's 5×7 atlas is a round-trip, not a
+; guess. The fixtures stand in for the widgets a screenshot of a UI library
+; would contain: a form, tabs, a menu, a checkbox, a labelled icon.
+; ==============================================================================
+
+Import "../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "ErazerFont.rgr"
+Import "Erazer.rgr"
+
+class ErazerPaint {
+
+    Constructor () {
+    }
+
+    sfn blank:ImageBuffer (w:int h:int r:int g:int b:int) {
+        def img (new ImageBuffer())
+        img.init(w h)
+        ErazerFont.fillRect(img 0 0 w h r g b)
+        return img
+    }
+
+    sfn paintLabel:void (img:ImageBuffer x:int y:int text:string) {
+        ErazerFont.paintText(img x y 2 17 24 39 text)
+    }
+
+    sfn paintCentered:void (img:ImageBuffer x:int y:int w:int h:int text:string r:int g:int b:int) {
+        def tw:int (ErazerFont.textWidth(text 2))
+        def th:int (ErazerFont.textHeight(2))
+        def tx:int (x + (idiv (w - tw) 2))
+        def ty:int (y + (idiv (h - th) 2))
+        ErazerFont.paintText(img tx ty 2 r g b text)
+    }
+
+    ; A login-shaped card: two fields, a checkbox, a primary button.
+    sfn form:ImageBuffer () {
+        def img:ImageBuffer (ErazerPaint.blank(320 240 232 236 240))
+        ErazerFont.fillRoundRect(img 16 16 288 208 8 255 255 255)
+        ErazerPaint.paintLabel(img 32 32 "Name")
+        ErazerFont.fillRoundRect(img 32 52 256 32 4 209 213 219)
+        ErazerPaint.paintLabel(img 32 96 "Email")
+        ErazerFont.fillRoundRect(img 32 116 256 32 4 209 213 219)
+        ErazerFont.strokeRect(img 32 160 16 16 2 55 65 81)
+        ErazerPaint.paintLabel(img 54 162 "On")
+        ErazerFont.fillRoundRect(img 200 176 88 32 6 37 99 235)
+        ErazerPaint.paintCentered(img 200 176 88 32 "OK" 255 255 255)
+        return img
+    }
+
+    ; Three tabs on a bar, the first selected.
+    sfn tabs:ImageBuffer () {
+        def img:ImageBuffer (ErazerPaint.blank(320 80 229 231 235))
+        ErazerFont.fillRect(img 12 12 296 48 156 163 175)
+        ErazerFont.fillRoundRect(img 16 16 92 36 4 255 255 255)
+        ErazerPaint.paintCentered(img 16 16 92 36 "File" 17 24 39)
+        ErazerFont.fillRoundRect(img 112 16 92 36 4 229 231 235)
+        ErazerPaint.paintCentered(img 112 16 92 36 "Edit" 17 24 39)
+        ErazerFont.fillRoundRect(img 208 16 92 36 4 243 244 246)
+        ErazerPaint.paintCentered(img 208 16 92 36 "View" 17 24 39)
+        return img
+    }
+
+    ; A vertical menu of three items.
+    sfn menu:ImageBuffer () {
+        def img:ImageBuffer (ErazerPaint.blank(220 160 229 231 235))
+        ErazerFont.fillRoundRect(img 20 16 180 128 6 255 255 255)
+        ErazerFont.fillRect(img 24 20 172 36 219 234 254)
+        ErazerPaint.paintLabel(img 36 28 "File")
+        ErazerFont.fillRect(img 24 60 172 36 224 231 255)
+        ErazerPaint.paintLabel(img 36 68 "Edit")
+        ErazerFont.fillRect(img 24 100 172 36 199 210 254)
+        ErazerPaint.paintLabel(img 36 108 "View")
+        return img
+    }
+
+    ; A plus-shaped icon beside a label, the case the tracer is asked to SVG.
+    sfn iconRow:ImageBuffer () {
+        def img:ImageBuffer (ErazerPaint.blank(200 64 255 255 255))
+        ; plus: 20×20, 4 px bars, connected at the centre
+        ErazerFont.fillRect(img 20 28 20 4 17 24 39)
+        ErazerFont.fillRect(img 28 20 4 20 17 24 39)
+        ErazerPaint.paintLabel(img 52 22 "Add")
+        return img
+    }
+
+    sfn button:ImageBuffer () {
+        def img:ImageBuffer (ErazerPaint.blank(160 64 232 236 240))
+        ErazerFont.fillRoundRect(img 24 16 112 32 6 37 99 235)
+        ErazerPaint.paintCentered(img 24 16 112 32 "Login" 255 255 255)
+        return img
+    }
+}
