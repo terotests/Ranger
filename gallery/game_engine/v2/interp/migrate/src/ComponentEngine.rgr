@@ -44243,6 +44243,32 @@ class ComponentEngine {
             }
             return inst
         }
+        ; D-FNEXPRNAME: the constructor may be a NAMED FUNCTION EXPRESSION,
+        ; whose own name is bound in the closure the VALUE carries and nowhere
+        ; else. Running the NODE roots the body in the caller's scope instead,
+        ; where that name does not exist, so `new function f() { ... f ... }()`
+        ; was a ReferenceError for a name the same function answers on a plain
+        ; call. A COPY of the value takes the receiver, so binding `this` here
+        ; cannot leak into the shared one.
+        if ((fnV.closureIdOf()) >= 0) {
+            def cvArgs:[EvHandle] (this.collectArgNodeValues(argNodes))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            def cvFn:EvHandle (EvValueBridge.taggedFunction(fnNode))
+            this.stampSrcOn(cvFn)
+            cvFn.setStrictFn((this.strictForBody(fnNode)))
+            cvFn.setClosureId((fnV.closureIdOf()))
+            cvFn.setHomeModule((fnV.homeModuleOf()))
+            cvFn.setBoundThis(inst)
+            pendingNewTarget = fnV
+            hasPendingNewTarget = true
+            def cvRet:EvHandle (this.callFnValueWithValues(cvFn cvArgs))
+            if (this.isDescriptorObject(cvRet)) {
+                return cvRet
+            }
+            return inst
+        }
         ; D-NEWTARGET: `new F()` makes F the frame's new.target.
         pendingNewTarget = fnV
         hasPendingNewTarget = true

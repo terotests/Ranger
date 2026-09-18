@@ -384,14 +384,24 @@ shape EvPropertySlot {
 class EvAtomTable @singleton(true) {
     def names:[string]
     def ids:[string:int]
+    ; The lookup key a NAME is stored under. A string-keyed map lowers to a
+    ; plain object on the es6 target, where writing the key `__proto__` sets the
+    ; prototype instead of creating an entry -- so that one name minted a fresh
+    ; id on every call and no property bag could ever find its slot again.
+    ; `Object.prototype.__proto__` was invisible to every reflection because of
+    ; it. One leading marker keeps every name out of that corner.
+    fn atomKey:string (name:string) {
+        return ("k" + name)
+    }
     fn idOf:int (name:string) {
-        def found@(optional):int (get ids name)
+        def k:string (this.atomKey(name))
+        def found@(optional):int (get ids k)
         if found {
             return (unwrap found)
         }
         def next:int (array_length names)
         push names name
-        set ids name next
+        set ids k next
         return next
     }
     fn nameOf:string (a:int) {
