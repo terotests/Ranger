@@ -35,11 +35,11 @@
 Import "SpreadsheetModel.rgr"
 Import "SheetImage.rgr"
 Import "DataGrid.rgr"
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGColor.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
 Import "../../game_engine/framebuffer.rgr"
-Import "../../game_engine/lpc/src/png_decoder.rgr"
-Import "../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
+Import "pkg:image/PNGDecoder.rgr"
+Import "pkg:image/JPEGDecoder.rgr"
 Import "../../office/assets/OfficeAsset.rgr"
 
 class DecodedImage {

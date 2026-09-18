@@ -6,7 +6,7 @@
 ;     -d=gallery/game_engine/scripting -o=game_split_world_demo.js -nodecli \
 ;   && node gallery/game_engine/scripting/game_split_world_demo.js
 
-Import "./game_catalog.rgr"
+Import "game_catalog.rgr"
 
 class SplitWorldCheck {
     def passed:int 0

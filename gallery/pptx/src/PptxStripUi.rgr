@@ -43,12 +43,12 @@
 ;   npm run pptx:web:test   (the strip is hit-tested by the browser selftests)
 ; ==============================================================================
 
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGUnit.rgr"
-Import "../../evg/EVGLayout.rgr"
-Import "../../evg/EVGStyleSheet.rgr"
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGToolbar.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGToolbar.rgr"
 
 ; The tags, each carrying what it looks like and what it MEANS. One
 ; declaration, two readers: the painter walks it for pixels and

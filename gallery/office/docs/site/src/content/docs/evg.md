@@ -92,7 +92,7 @@ absolute placement, wrapping text, and page breaks. Units include `px`, `%`,
 and paint break lines at the same offsets.
 
 The format is specified in
-[`gallery/evg/SPEC.md`](https://github.com/terotests/Ranger/blob/master/gallery/evg/SPEC.md).
+[`lib/evg/SPEC.md`](https://github.com/terotests/Ranger/blob/master/lib/evg/SPEC.md).
 The showcase is the living check: every page is rendered from this checkout,
 so the gallery shows what the engine in that commit actually does.
 
@@ -143,13 +143,13 @@ refusing. That fallback is visibly wrong, which is the intended outcome.
 
 | File | Role |
 | --- | --- |
-| [`gallery/evg/EVGElement.rgr`](https://github.com/terotests/Ranger/blob/master/gallery/evg/EVGElement.rgr) | The layout tree |
-| [`gallery/evg/EVGLayout.rgr`](https://github.com/terotests/Ranger/blob/master/gallery/evg/EVGLayout.rgr) | Flex, grid, wrapping, page breaks |
-| [`gallery/evg/EVGDisplayList.rgr`](https://github.com/terotests/Ranger/blob/master/gallery/evg/EVGDisplayList.rgr) | The command list |
-| [`gallery/evg/EVGWindow.rgr`](https://github.com/terotests/Ranger/blob/master/gallery/evg/EVGWindow.rgr) | Dialogs over a display list |
-| [`gallery/evg/EVGCommands.rgr`](https://github.com/terotests/Ranger/blob/master/gallery/evg/EVGCommands.rgr) | Named commands for a host |
-| [`gallery/evg/SPEC.md`](https://github.com/terotests/Ranger/blob/master/gallery/evg/SPEC.md) | The layout format |
-| [`gallery/evg/showcase`](https://github.com/terotests/Ranger/tree/master/gallery/evg/showcase) | The published gallery |
+| [`lib/evg/EVGElement.rgr`](https://github.com/terotests/Ranger/blob/master/lib/evg/EVGElement.rgr) | The layout tree |
+| [`lib/evg/EVGLayout.rgr`](https://github.com/terotests/Ranger/blob/master/lib/evg/EVGLayout.rgr) | Flex, grid, wrapping, page breaks |
+| [`lib/evg/EVGDisplayList.rgr`](https://github.com/terotests/Ranger/blob/master/lib/evg/EVGDisplayList.rgr) | The command list |
+| [`gallery/evg_window/EVGWindow.rgr`](https://github.com/terotests/Ranger/blob/master/gallery/evg_window/EVGWindow.rgr) | Dialogs over a display list |
+| [`lib/evg/EVGCommands.rgr`](https://github.com/terotests/Ranger/blob/master/lib/evg/EVGCommands.rgr) | Named commands for a host |
+| [`lib/evg/SPEC.md`](https://github.com/terotests/Ranger/blob/master/lib/evg/SPEC.md) | The layout format |
+| [`lib/evg/showcase`](https://github.com/terotests/Ranger/tree/master/lib/evg/showcase) | The published gallery |
 
 ```bash
 npm run showcase          # build the EVG showcase

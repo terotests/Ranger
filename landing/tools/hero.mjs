@@ -8,7 +8,7 @@
  * at build time, and come out as landing/assets/hero/hero.json — flat draw
  * commands in absolute pixels, with the `evg-surface-effect: ripple` block the
  * stylesheet declared. The page then draws that list on the GPU every frame
- * through gallery/evg/gl/evg-webgl.js and pushes drops into `list.effect.drops`
+ * through lib/evg/gl/evg-webgl.js and pushes drops into `list.effect.drops`
  * as it goes, so the surface that ripples is EVG's own output rather than a
  * picture of it.
  *

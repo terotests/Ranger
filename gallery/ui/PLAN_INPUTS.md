@@ -249,7 +249,7 @@ are the ones a Japanese keyboard produces rather than a simulation:
   motion disagree about that cluster. A hand-written grapheme walker would
   have to reproduce an inconsistency, not a standard.
 
-`gallery/evg/gl/evg-textinput.js` puts a transparent, `pointer-events: none`,
+`lib/evg/gl/evg-textinput.js` puts a transparent, `pointer-events: none`,
 `aria-hidden` `<input>` over the focused field. `InputCtl.applyEdit(value,
 selStart, selEnd)` takes the whole state at once. Gated end to end in
 `page-check.mjs`: paste, undo, a ZWJ family, a live IME composition, Tab

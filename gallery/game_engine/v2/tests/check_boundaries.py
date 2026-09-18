@@ -31,17 +31,17 @@ IMPORT_RE = re.compile(r'Import\s+"([^"]+)"')
 
 # Roots outside v2/ that v2 is MEANT to depend on.
 #
-# gallery/evg/ is the single EVG layout engine. v2 used to carry its own copy;
+# lib/evg/ is the single EVG layout engine. v2 used to carry its own copy;
 # it drifted about 200 lines ahead of the other one, and the two disagreeing
 # was a source of real bugs, so the fork was deleted on purpose and everything
-# now compiles against one set of files (see gallery/evg/
+# now compiles against one set of files (see lib/evg/
 # PLAN_CSS_LAYOUT_AND_FONTS.md §11.1 "One engine, one location").
 #
 # That makes these Imports the intended shape rather than staged debt, which is
 # what the allowlist is for — the allowlist says "shrink this", and there is
 # nothing here to shrink. Anything genuinely temporary still belongs there.
 SHARED_ROOTS = (
-    os.path.join(REPO_ROOT, "gallery", "evg"),
+    os.path.join(REPO_ROOT, "lib", "evg"),
 )
 
 # Classic titles that must stay out of core even when not present under games/.

@@ -2,8 +2,8 @@
 ; A contact sheet of every toolbar icon, so they can be judged as a set
 ; rather than one screenshot at a time.  npm run icons:sheet
 Import "GridApp.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
-Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "pkg:image/PNGEncoder.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 
 class DumpIcons {
     sfn main:void () {

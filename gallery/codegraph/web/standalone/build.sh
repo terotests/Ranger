@@ -74,10 +74,10 @@ cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 cp "$WEB/node-shim.js" "$OUT/node-shim.js"
 cp gallery/codegraph/web/codegraph.css "$OUT/codegraph.css"
 mkdir -p "$OUT/gl" "$OUT/fonts" "$OUT/evg" "$OUT/examples"
-cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
-cp gallery/evg/gl/evg-view.js "$OUT/gl/evg-view.js"
-cp gallery/evg/gl/evg-list.js "$OUT/gl/evg-list.js"
-cp gallery/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
+cp lib/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+cp lib/evg/gl/evg-view.js "$OUT/gl/evg-view.js"
+cp lib/evg/gl/evg-list.js "$OUT/gl/evg-list.js"
+cp lib/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
 cp gallery/codegraph/fixtures/*.rgr "$OUT/examples/"
 cp gallery/uast/fixtures/cpp/zip_writer.hpp "$OUT/examples/zip_writer.hpp"
 FONT_SRC=gallery/pdf_writer/assets/fonts/Noto_Sans
@@ -113,12 +113,12 @@ node -e "
 # playground ships its compiler unminified for the same reason.
 BYTES=$(wc -c < "$OUT/codegraph_web.js" | tr -d ' ')
 if [ "$BYTES" -lt 2000000 ]; then
-  node gallery/evg/web/tools/minify.mjs --file "$OUT/codegraph_web.js" --keep CodeGraphWeb || exit 1
+  node lib/evg/web/tools/minify.mjs --file "$OUT/codegraph_web.js" --keep CodeGraphWeb || exit 1
 else
   echo "  skip minify ($BYTES bytes — VirtualCompiler bundle)"
 fi
 
-node gallery/evg/web/tools/inline-assets.mjs \
+node lib/evg/web/tools/inline-assets.mjs \
   --html "$OUT/index.html" \
   --preload-stamped "standalone.mjs,gl/evg-webgl.js,gl/evg-view.js,gl/evg-list.js" \
   --preload "evg/assets-client.mjs,compileEnv.json,examples/calls.rgr" \

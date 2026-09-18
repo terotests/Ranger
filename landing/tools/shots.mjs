@@ -30,7 +30,7 @@ const STAGE = path.join(ROOT, ".landing_tmp/shots");
  */
 const COMMITTED = [
   { src: "gallery/rangerflow/artifacts/01_schema_editor_webgl.png", out: "rangerflow.jpg", w: 1280 },
-  { src: "gallery/evg/inspect/shots/css.png", out: "evg-css.jpg", w: 1280 },
+  { src: "lib/evg/inspect/shots/css.png", out: "evg-css.jpg", w: 1280 },
 ];
 
 /**
@@ -44,7 +44,7 @@ const CAPTURED = [
     how: "node gallery/game_engine/web/build.mjs, then the ylos4 canvas" },
   { src: ".landing_tmp/capture/r5.png", out: "r5.jpg", w: 1440,
     how: "bash gallery/r5/web/build.sh, then the page with the mermaid document open" },
-  { src: "gallery/evg/showcase/dist/charts-studio.png", out: "vela.jpg", w: 900,
+  { src: "lib/evg/showcase/dist/charts-studio.png", out: "vela.jpg", w: 900,
     how: "npm run showcase — the Vela chart page, studio theme" },
 ];
 

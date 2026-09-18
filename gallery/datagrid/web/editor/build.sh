@@ -64,7 +64,7 @@ node --input-type=module -e "
 cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/editor.mjs" "$OUT/editor.mjs"
 mkdir -p "$OUT/gl" "$OUT/fonts"
-cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+cp lib/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 FONT_SRC=gallery/pdf_writer/assets/fonts
 cp "$FONT_SRC/Open_Sans/OpenSans-Regular.ttf" "$OUT/fonts/OpenSans-Regular.ttf"
 cp "$FONT_SRC/Open_Sans/OpenSans-Bold.ttf" "$OUT/fonts/OpenSans-Bold.ttf"

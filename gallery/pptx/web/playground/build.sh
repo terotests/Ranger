@@ -73,7 +73,7 @@ cp "$WEB/playground.mjs" "$OUT/playground.mjs"
 # all, because the import throws before the first line of playground.mjs runs.
 mkdir -p "$OUT/host"
 cp "$WEB/../host/pptx-host.mjs" "$OUT/host/pptx-host.mjs"
-cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+cp lib/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 for face in Open_Sans/OpenSans-Regular Open_Sans/OpenSans-Bold Open_Sans/OpenSans-Italic \
             Open_Sans/OpenSans-BoldItalic Noto_Emoji/NotoEmoji-Regular Noto_Sans/NotoSans-Regular \
             El_Messiri/ElMessiri-Regular El_Messiri/ElMessiri-Bold; do

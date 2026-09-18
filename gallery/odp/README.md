@@ -66,7 +66,7 @@ other. What they share is everything underneath:
         │                                    │
    PptxToEvg                            OdpToEvg
         │                                    │
-        └────────── EVGDisplayList ──────────┘            ← gallery/evg
+        └────────── EVGDisplayList ──────────┘            ← lib/evg
                           │
         ┌─────────────────┼──────────────────┐
       WebGL           SoftCanvas          PDF / PNG / HTML
@@ -79,7 +79,7 @@ second caller in the same change rather than in a promised later one:
 | --- | --- | --- | --- |
 | `XmlCore` | `pptx/src/PptxXml.rgr` | `gallery/xml/XmlCore.rgr` | `PptxParser`, retired onto it first |
 | `OfficeTextMeasure` | `pptx/src/PptxTextMeasure.rgr` | `gallery/office/text/` | it never imported `PptxModel` — it was misfiled, not moved |
-| `EVGDisplayList.addImage` | `PptxToEvg.pushImage` | `gallery/evg` | `PptxToEvg.pushImage` delegates |
+| `EVGDisplayList.addImage` | `PptxToEvg.pushImage` | `lib/evg` | `PptxToEvg.pushImage` delegates |
 | `PptxView.fitScaleFor` | `fitScale(slide)` | takes a size | fitting a page into a window is a question about a size |
 
 ## What `XmlCore` had to learn

@@ -8,7 +8,7 @@ SDL event  → RtHost → RealTrainerDemo              (this process)
 RtHost     → EVGDisplayList → EvgGlPainter → OpenGL
 ```
 
-That is the display-list seam. `gallery/evg/gl/evg-webgl.js` draws the list in
+That is the display-list seam. `lib/evg/gl/evg-webgl.js` draws the list in
 a browser tab, `EvgPainter.kt` draws it on an `android.graphics.Canvas`, and
 `EvgGlPainter` + `evg_gl_native.cpp` draw the same list in a window from the
 same commands — no second copy of the tree walk in between.
@@ -50,7 +50,7 @@ One honest consequence, the same one the schema editor records:
 `EvgGlPainter.draw` takes a `GridImages` because the spreadsheet it was written
 for draws photographs. RealTrainer draws none, so this host passes an empty
 one — and through that one parameter links a good deal of a DataGrid it never
-calls. Where the painter ought to live is `gallery/evg/gl/`, beside
+calls. Where the painter ought to live is `lib/evg/gl/`, beside
 `evg-webgl.js`, with the image lookup behind a small interface. That is a
 refactor of a working host and has not been done.
 

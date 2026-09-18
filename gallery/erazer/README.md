@@ -1,7 +1,7 @@
 # Erazer
 
 A **bitmap UI screenshot → EVG layout** tool. The gallery already has
-[`EvgBitmapTracer`](../evg/EvgBitmapTracer.rgr) for photographs: it follows ink
+[`EvgBitmapTracer`](../../lib/evg/EvgBitmapTracer.rgr) for photographs: it follows ink
 and emits paths. Erazer looks at the same pixels and asks a different question —
 which **widgets** are here, how they nest, and what EVG tree would reconstruct
 the screen.

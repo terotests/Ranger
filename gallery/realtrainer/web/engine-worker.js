@@ -3,7 +3,7 @@
 // The RealTrainer app, served from a Worker.
 //
 // This is the whole of what runs off the main thread: the Ranger app and the
-// generic `serveEngine` around it (gallery/evg/gl/evg-engine.js). The page
+// generic `serveEngine` around it (lib/evg/gl/evg-engine.js). The page
 // — `main-worker.js` — never touches `RealTrainerDemo`; it posts the calls it
 // used to make and paints the frames that come back.
 //
@@ -11,9 +11,9 @@
 // row on the main thread and is now one post: "what is under this point,
 // and hover it". They read the tree, so they belong beside it.
 
-import { serveEngine } from "../../evg/gl/evg-engine.js";
-import { installCanvasMeasurer } from "../../evg/gl/evg-measure.js";
-import { shiftsOf, effectOf } from "../../evg/gl/evg-list.js";
+import { serveEngine } from "../../../lib/evg/gl/evg-engine.js";
+import { installCanvasMeasurer } from "../../../lib/evg/gl/evg-measure.js";
+import { shiftsOf, effectOf } from "../../../lib/evg/gl/evg-list.js";
 import { RtHost, EVGHostTextMeasurer, EVGDefaultMeasurer, RtCharts } from "./generated-host.js";
 import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE } from "./generated.js";
 

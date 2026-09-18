@@ -2,7 +2,7 @@
 
 Desktop host for the EVG spreadsheet under `gallery/datagrid/`. Same portable
 `GridApp` as the WebGL page; this folder owns the window, input, and **EVG →
-OpenGL** present path (same seam as `gallery/evg/gl/evg-webgl.js`).
+OpenGL** present path (same seam as `lib/evg/gl/evg-webgl.js`).
 
 ```text
 .xlsx on disk
@@ -150,7 +150,7 @@ it asks the platform for a tree of roles and names — so it finds one empty
 rectangle where a spreadsheet is.
 
 The app already publishes that tree for the browser page
-(`GridApp.a11yJson()`, from `gallery/evg/EVGA11yTree.rgr`), so this host hands
+(`GridApp.a11yJson()`, from `lib/evg/EVGA11yTree.rgr`), so this host hands
 the same JSON to `dgfx_a11y.mm`, which builds one `NSAccessibilityElement` per
 node under the window's content view. Same tree, two hosts; only the last step
 differs, which is the point of publishing a tree rather than teaching each
@@ -229,7 +229,7 @@ stale rectangle from a wrong one.
 compiled or run in this container — this container has no macOS, no AppKit and no GPU. The
 Linux stub (`dgfx_a11y_stub.cpp`) and everything above it — the tree, the
 operators, the host loop — do build and run here. Design, state and the wider
-plan: [`gallery/evg/PLAN_ACCESSIBILITY.md`](../../../evg/PLAN_ACCESSIBILITY.md).
+plan: [`lib/evg/PLAN_ACCESSIBILITY.md`](../../../../lib/evg/PLAN_ACCESSIBILITY.md).
 
 ## Layout
 

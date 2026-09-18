@@ -29,7 +29,7 @@
 ; ==============================================================================
 
 Import "PptxModel.rgr"
-Import "../../evg/EVGColor.rgr"
+Import "pkg:evg/EVGColor.rgr"
 
 class PptxShapeInk {
     Constructor () {

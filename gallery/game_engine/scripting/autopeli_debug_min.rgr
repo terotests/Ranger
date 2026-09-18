@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; Debug: load minimal autopeli stub
-Import "./game_runtime.rgr"
+Import "game_runtime.rgr"
 
 class AutopeliDebugMin {
     sfn m@(main):void () {

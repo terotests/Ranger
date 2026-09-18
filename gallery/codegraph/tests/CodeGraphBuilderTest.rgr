@@ -121,7 +121,7 @@ class CodeGraphBuilderTest {
         print (("classes " + (to_string (g.classCount()))) + ", methods " + (to_string (g.methodCount())))
         failed = (failed + (CodeGraphBuilderTest.checkLib("gallery/css/CssCore.rgr" "CssSheet" "EVGColor")))
         failed = (failed + (CodeGraphBuilderTest.checkLib("gallery/zip/zip_tool.rgr" "ZipReader" "Inflate")))
-        failed = (failed + (CodeGraphBuilderTest.checkLib("gallery/evg/EVGElement.rgr" "EVGElement" "EVGBox")))
+        failed = (failed + (CodeGraphBuilderTest.checkLib("lib/evg/EVGElement.rgr" "EVGElement" "EVGBox")))
         failed = (failed + (CodeGraphBuilderTest.checkDataGrid()))
         failed = (failed + (CodeGraphBuilderTest.checkPkg()))
         failed = (failed + (CodeGraphBuilderTest.checkOpenRgrFile()))

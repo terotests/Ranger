@@ -17,7 +17,7 @@
 ; ==============================================================================
 
 Import "UILayer.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "pkg:image/PNGEncoder.rgr"
 
 class UiEditorApp {
     def canvas:SoftCanvas (new SoftCanvas)

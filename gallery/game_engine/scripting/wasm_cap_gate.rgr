@@ -21,7 +21,7 @@
 ; ==============================================================================
 
 Import "../wasm_runtime.rgr"
-Import "./game_provider.rgr"
+Import "game_provider.rgr"
 
 class WasmCapGate {
     ; The RGW1 ABI version this host build understands. A guest built against a

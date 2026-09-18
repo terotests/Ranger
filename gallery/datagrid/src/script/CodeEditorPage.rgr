@@ -31,8 +31,8 @@ Import "../GridImages.rgr"
 Import "../../../game_engine/framebuffer.rgr"
 Import "../../../game_engine/ui/UIContext.rgr"
 Import "../../../game_engine/ui/UIInput.rgr"
-Import "../../../evg/EVGDisplayList.rgr"
-Import "../../../evg/EVGColor.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
 
 class CodeEditorPage {
     def editor:ScriptEditor (new ScriptEditor)

@@ -358,7 +358,7 @@ const html = `<!doctype html><meta charset="utf-8">
 <style>html,body{margin:0;background:#fff}#stage{position:relative}</style>
 <div id="stage"></div>
 <script type="module">
-import { createA11yMirror } from "/gallery/evg/gl/evg-a11y.js";
+import { createA11yMirror } from "/lib/evg/gl/evg-a11y.js";
 const stage = document.getElementById("stage");
 const mirror = createA11yMirror(stage, { label: "Ranger tree literal demos" });
 window.__mirror = (tree, w, h) => {

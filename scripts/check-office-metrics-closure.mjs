@@ -31,7 +31,7 @@ const ROOTS = [
 const FORBIDDEN = [
   "gallery/game_engine/",
   "gallery/pdf_writer/src/raster/",
-  "gallery/evg/EVGDisplayList.rgr",
+  "lib/evg/EVGDisplayList.rgr",
 ];
 
 // Repo-relative in, repo-relative out. It resolved absolute paths and then

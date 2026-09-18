@@ -45,16 +45,16 @@
 ; a list of messages behind a controller would be ceremony.
 ; =============================================================================
 
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGUnit.rgr"
-Import "../../evg/EVGLayout.rgr"
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGStyleSheet.rgr"
-Import "../../evg/EVGTransition.rgr"
-Import "../../evg/EVGA11yTree.rgr"
-Import "../../evg/EVGA11yFromTree.rgr"
-Import "../../evg/EVGHitTest.rgr"
-Import "../../evg/EVGTextEngine.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
+Import "pkg:evg/EVGTransition.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGA11yFromTree.rgr"
+Import "pkg:evg/EVGHitTest.rgr"
+Import "pkg:evg/EVGTextEngine.rgr"
 
 treefactory Msg {
     child addChild

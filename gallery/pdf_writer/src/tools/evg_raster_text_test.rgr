@@ -5,7 +5,7 @@
 Import "../raster/EVGRasterRenderer.rgr"
 Import "../raster/RasterText.rgr"
 Import "../raster/RasterBlur.rgr"
-Import "../raster/PNGEncoder.rgr"
+Import "pkg:image/PNGEncoder.rgr"
 Import "../fonts/TrueTypeFont.rgr"
 Import "../fonts/FontManager.rgr"
 

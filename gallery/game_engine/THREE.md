@@ -89,7 +89,7 @@ façade (interpreter), Ranger code directly, or (future) a WASM guest.
   Node `curl` on es6).
 - `three/src/three_gltf_textures.rgr` — **native** texture decode: fetches each
   image and decodes JPEG/PNG with Ranger's own decoders
-  (`pdf_writer/src/jpeg`, `lpc/src/png_decoder`), for the SDL / Pi path. In the
+  (`lib/image`), for the SDL / Pi path. In the
   browser the viewer decodes images with a canvas instead (the host can't decode
   JPEG/PNG in-browser); both feed the same `setImage` seam.
 

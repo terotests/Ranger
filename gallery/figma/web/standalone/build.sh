@@ -69,14 +69,14 @@ cp "$WEB/clipboard.mjs" "$OUT/clipboard.mjs"
 mkdir -p "$OUT/gl" "$OUT/fonts"
 mkdir -p "$OUT/fixtures"
 cp gallery/figma/fixtures/*.fig "$OUT/fixtures/"
-cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
-cp gallery/evg/gl/evg-binary.js "$OUT/gl/evg-binary.js"
-cp gallery/evg/gl/evg-gestures.js "$OUT/gl/evg-gestures.js"
-cp gallery/evg/gl/evg-view.js "$OUT/gl/evg-view.js"
+cp lib/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+cp lib/evg/gl/evg-binary.js "$OUT/gl/evg-binary.js"
+cp lib/evg/gl/evg-gestures.js "$OUT/gl/evg-gestures.js"
+cp lib/evg/gl/evg-view.js "$OUT/gl/evg-view.js"
 # The module half of the head this build writes, shared with every other
 # gallery page: it picks up the responses the head started.
 mkdir -p "$OUT/evg"
-cp gallery/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
+cp lib/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
 for face in OpenSans-Regular OpenSans-Bold OpenSans-Italic OpenSans-BoldItalic; do
   cp "gallery/pdf_writer/assets/fonts/Open_Sans/$face.ttf" "$OUT/fonts/$face.ttf"
 done
@@ -96,8 +96,8 @@ node -e "
 # Minified when there is a minifier, and a head that starts the file the page
 # opens on. `?file=` names another one and is not started here: it is an
 # arbitrary path, and the module fetches it as it always did.
-node gallery/evg/web/tools/minify.mjs --file "$OUT/fig_web.js" --keep FigWeb || exit 1
-node gallery/evg/web/tools/inline-assets.mjs \
+node lib/evg/web/tools/minify.mjs --file "$OUT/fig_web.js" --keep FigWeb || exit 1
+node lib/evg/web/tools/inline-assets.mjs \
   --html "$OUT/index.html" \
   --start "fixtures/health.fig" \
   --preload-stamped "standalone.mjs" \

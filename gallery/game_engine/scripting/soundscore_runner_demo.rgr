@@ -4,8 +4,8 @@
 ; soundscore_runner_demo - multi-voice soundscore playback.
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
-Import "./game_soundscore.rgr"
+Import "game_runtime.rgr"
+Import "game_soundscore.rgr"
 
 class SoundscoreRunnerDemo {
     sfn m@(main):void () {

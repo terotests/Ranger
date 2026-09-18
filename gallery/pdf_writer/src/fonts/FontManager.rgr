@@ -1,6 +1,6 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
-Import "../../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 ; FontManager.rgr - Manage loaded fonts and provide text measurement
 ;
 ; Usage:
@@ -10,8 +10,8 @@ Import "../../../evg/EVGCodepoint.rgr"
 ;   def width:double (fm.measureText("Hello" "Open Sans" 14.0))
 
 Import "TrueTypeFont.rgr"
-Import "../../../evg/EVGTextMeasurer.rgr"
-Import "../../../evg/EVGGrapheme.rgr"
+Import "pkg:evg/EVGTextMeasurer.rgr"
+Import "pkg:evg/EVGGrapheme.rgr"
 
 class FontManager {
     def fonts:[TrueTypeFont]

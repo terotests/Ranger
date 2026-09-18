@@ -3,7 +3,7 @@
 ; RasterBlur - Blur algorithms for shadow and effect rendering
 ; Implements box blur (fast) for shadow effects
 
-Import "RasterBuffer.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 Import "RasterCompositing.rgr"
 
 ; Box blur implementation - fast O(n) blur using sliding window

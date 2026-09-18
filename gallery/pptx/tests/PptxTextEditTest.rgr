@@ -16,7 +16,7 @@ Import "../src/PptxModel.rgr"
 Import "../src/PptxTextEdit.rgr"
 Import "../src/PptxEdit.rgr"
 Import "../src/PptxTextLayout.rgr"
-Import "../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 
 class PptxTextEditTest {
     def passed:int 0

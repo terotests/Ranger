@@ -10,9 +10,9 @@
 ; Dumps a PNG per size for visual inspection.
 ; ==============================================================================
 
-Import "./game_ui_runner.rgr"
-Import "./game_catalog.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "game_ui_runner.rgr"
+Import "game_catalog.rgr"
+Import "pkg:image/PNGEncoder.rgr"
 
 class MenuTsxFitDemo {
     fn shot:void (catalog:GameCatalog uw:int uh:int file:string) {

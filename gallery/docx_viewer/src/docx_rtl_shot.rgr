@@ -9,7 +9,7 @@
 Import "DocxViewer.rgr"
 Import "DocxApp.rgr"
 Import "../../datagrid/src/SoftPainter.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "pkg:image/PNGEncoder.rgr"
 
 class DocxRtlShot {
     sfn main:void () {

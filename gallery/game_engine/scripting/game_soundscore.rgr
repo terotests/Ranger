@@ -24,7 +24,7 @@
 ; Note duration: beats:note — beats may be fractional (e.g. 0.5:G4).
 ; ==============================================================================
 
-Import "./game_audio.rgr"
+Import "game_audio.rgr"
 
 class ScoreNote {
     def beats:double 1.0

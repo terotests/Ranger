@@ -13,14 +13,14 @@
 ; is provided separately to avoid circular dependencies.
 ; ============================================================
 
-Import "RasterBuffer.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 Import "RasterCompositing.rgr"
 Import "RasterPrimitives.rgr"
 Import "RasterGradient.rgr"
 Import "RasterBlur.rgr"
-Import "../jpeg/ImageBuffer.rgr"
+Import "pkg:image/ImageBuffer.rgr"
 Import "../jpeg/JPEGEncoder.rgr"
-Import "../core/Buffer.rgr"
+Import "pkg:image/Buffer.rgr"
 
 class EVGRasterRenderer {
 

@@ -37,10 +37,10 @@ Import "../../office/geom/OfficeEmojiShapes.rgr"
 Import "../../office/ui/OfficeShapePicker.rgr"
 Import "PhotoScan.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
-Import "../../evg/EVGToolbarView.rgr"
-Import "../../evg/EVGWindow.rgr"
-Import "../../evg/EVGCommands.rgr"
-Import "../../evg/EVGSelectChrome.rgr"
+Import "pkg:evg_window/EVGToolbarView.rgr"
+Import "pkg:evg_window/EVGWindow.rgr"
+Import "pkg:evg/EVGCommands.rgr"
+Import "pkg:evg/EVGSelectChrome.rgr"
 
 class BookToolbar extends EVGToolbar {
     ; The strip cannot work out whether the book is being edited, or which
@@ -1810,7 +1810,7 @@ class BookApp {
         return (view.raw())
     }
 
-    ; The shape `gallery/evg/gl/evg-webgl.js` reads: the page size it maps to
+    ; The shape `lib/evg/gl/evg-webgl.js` reads: the page size it maps to
     ; clip space, and the list under `list`.
     fn sceneJson:string () {
         def dl:EVGDisplayList (this.buildFrame())

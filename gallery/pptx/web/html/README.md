@@ -159,7 +159,7 @@ drawn as documents, at a cost that is invisible on a slide and real on a chart.
 
 | File | Role |
 | --- | --- |
-| [`../../../evg/html/evg-html.js`](../../../evg/html/evg-html.js) | The painter. Not this page's — any EVG app can import it |
+| [`../../../../lib/evg/html/evg-html.js`](../../../../lib/evg/html/evg-html.js) | The painter. Not this page's — any EVG app can import it |
 | `index.html` · `html.mjs` | The page: boot, draw, input, SVG export, vector print |
 | `build.sh` | Compiles `pptx_web.rgr` and stages the static output |
 | `smoke.mjs` | The page driven headless; the assertions are about the DOM, because the DOM is the picture |

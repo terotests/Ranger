@@ -29,7 +29,7 @@
 ; Gesture enum (shared with the .as guest): 0 none 1 arms_up 2 lean_left 3 lean_right
 ; ==============================================================================
 
-Import "./as_abi_bridge.rgr"
+Import "as_abi_bridge.rgr"
 
 ; ------------------------------------------------------------------------------
 ; SharedPoseBuffer — the SharedArrayBuffer analog. Single writer (the source),

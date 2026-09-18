@@ -12,9 +12,9 @@ Import "../core/EVGPDFRenderer.rgr"
 Import "../core/EVGStyleLoader.rgr"
 Import "../fonts/FontManager.rgr"
 Import "../fonts/EVGFontSetup.rgr"
-Import "../../../evg/EVGTextEngine.rgr"
-Import "../core/Buffer.rgr"
-Import "../../../evg/EVGElement.rgr"
+Import "pkg:evg/EVGTextEngine.rgr"
+Import "pkg:image/Buffer.rgr"
+Import "pkg:evg/EVGElement.rgr"
 
 class EVGPDFTool {
     def inputFile:string ""

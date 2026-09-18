@@ -31,8 +31,8 @@
 ;   app.runCommand("view.theme.next" "")
 ; ==============================================================================
 
-Import "../../evg/EVGColor.rgr"
-Import "../../evg/EVGWindow.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg_window/EVGWindow.rgr"
 
 class GridTheme {
     ; Which palette these fields currently hold.

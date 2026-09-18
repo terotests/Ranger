@@ -12,7 +12,7 @@
 ; ==============================================================================
 
 Import "../gfx_sdl.rgr"
-Import "./native_game_bridge.rgr"
+Import "native_game_bridge.rgr"
 
 class GameSdlNativeHost {
     def pw:int 480

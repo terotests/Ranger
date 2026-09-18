@@ -17,12 +17,13 @@ Source files use the **`.rgr`** extension (not `.clj`). Entry point: `sfn main:v
 
 ## Licenses
 
-- Ranger-authored code outside `gallery/`: **MIT** unless a file says otherwise (`LICENSE-MIT`).
+- Ranger-authored code outside `gallery/`: **MIT** unless a file says otherwise (`LICENSE-MIT`). That includes `lib/evg` (the EVG layout engine) and `lib/image` (JPEG / PNG codecs); both moved out of `gallery/` and to MIT in September 2026.
 - Ranger-authored code under `gallery/`: **AGPL-3.0-or-later** unless a file says otherwise (`gallery/LICENSE`, `LICENSE-AGPL-3.0`).
 - Third-party files keep their own licenses. Do not treat a path as a relicensing of vendor code.
 - Generated output follows the source license, not the compiler. Compiled gallery programs stay AGPL. Runtime helpers the compiler writes are MIT.
 - Root [`LICENSE`](LICENSE) is the mixed-license overview, not a single license text.
-- Gallery may import `lib/` and `compiler/`. **Never** import `gallery/` from `lib/` or `compiler/`.
+- Gallery may import `lib/` and `compiler/`. **Never** import `gallery/` from `lib/` or `compiler/`. `lib/evg` imports `pkg:image`, nothing from the gallery; the pieces that need the gallery's rasteriser and fonts (`EVGWindow`, `EVGTextFit`, `EVGContextMeasurer`, the ruler and toolbar views) are the AGPL package `gallery/evg_window`.
+- Gallery code imports EVG as a package: `Import "pkg:evg/EVGElement.rgr"` with `"evg": { "path": "../../lib/evg" }` in that package's `ranger.json` (same for `pkg:image/…` and `pkg:evg_window/…`). Do not write `../../lib/evg/…`.
 - Details: [`LICENSING.md`](LICENSING.md).
 
 ## Git & pull-request workflow
@@ -89,7 +90,7 @@ Short form:
   names elsewhere. Rename (`hasSub`, `beginsWith`, `finishesWith`, `trimWs`,
   `lowest`, `highest`, `removeNode`, `insertNode`, `toText`, `fromText`,
   `collapse`, `mentions`, `squareRoot`). They were found one compile at a time
-  while writing `gallery/evg/EVGPatch.rgr` and the Vega chart door; the list is
+  while writing `lib/evg/EVGPatch.rgr` and the Vega chart door; the list is
   what has been hit, not what exists.
 - **Arithmetic on a call result works** when the receiver is dotted:
   `(w - (Foo.bar() + 8))` parses. `(obj.method()).field` still does not — bind

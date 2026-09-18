@@ -19,7 +19,7 @@
 ; ==============================================================================
 
 Import "RtHost.rgr"
-Import "../../evg/EVGTreeJson.rgr"
+Import "pkg:evg/EVGTreeJson.rgr"
 
 class RtEvgDump {
     sfn m@(main):void () {

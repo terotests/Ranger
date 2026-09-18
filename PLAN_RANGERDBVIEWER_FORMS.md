@@ -102,14 +102,14 @@ research project.
 |---|---|---|
 | Evaluate JavaScript expressions | `ComponentEngine` over `ts_parser` — a TS/JS evaluator **written in Ranger**, so it cross-compiles | `gallery/pdf_writer/src/jsx/ComponentEngine.rgr` |
 | A rule seam that is not the engine | `CellRuleHost` / `CellScripts` — landed with the spreadsheet panels | `gallery/datagrid/src/CellRuleHost.rgr` |
-| Lay out a tree of boxes with text | `EVGElement` + `EVGLayout` (2 100 lines, already used for PDF pagination) | `gallery/evg/` |
-| Draw it anywhere | `EVGDisplayList` → WebGL 2 / SVG / PDF / SDL | `gallery/evg/EVGDisplayList.rgr` |
+| Lay out a tree of boxes with text | `EVGElement` + `EVGLayout` (2 100 lines, already used for PDF pagination) | `lib/evg/` |
+| Draw it anywhere | `EVGDisplayList` → WebGL 2 / SVG / PDF / SDL | `lib/evg/EVGDisplayList.rgr` |
 | Tabular sub-forms (a repeat group) | `GridPane` — the spreadsheet as an embeddable component | `gallery/datagrid/src/GridPane.rgr` |
 | Per-field validation from a DB column | `SqlColumnRules` | `gallery/datagrid/src/SqlColumnRules.rgr` |
 | A node graph, editable, with routing | RangerFlow | `gallery/rangerflow/core/` |
 | Structured queries without SQL strings | `QuerySpec` / `DBFilter` / `DBSort` / `DBAggregate` | `gallery/rangerdb/src/DBQuery.rgr` |
 | Read and write SQL | RangerSQL parser + generator | `gallery/rangersql/` |
-| The strip, dialogs, windows | `EVGToolbar`, `EVGWindow` | `gallery/evg/` |
+| The strip, dialogs, windows | `EVGToolbar`, `EVGWindow` | `lib/evg/` |
 | A cross-target conformance harness | the JS interpreter's existing one | `gallery/js_parser/`, `gallery/ts_parser/` |
 
 The genuinely new code is the model, the dependency graph, the evaluator, the

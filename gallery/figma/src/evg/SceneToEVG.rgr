@@ -10,7 +10,7 @@
 ; from them. The layout itself (mode, gap, padding, alignment) stays on the
 ; SceneNode for anything that wants to re-flow.
 
-Import "../../../evg/EVGElement.rgr"
+Import "pkg:evg/EVGElement.rgr"
 Import "../scene/SceneNode.rgr"
 Import "../scene/SceneAssets.rgr"
 

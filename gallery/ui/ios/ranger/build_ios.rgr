@@ -436,16 +436,16 @@ class IosBuild {
     }
 
     ; The painter and the surfaces, shared with nothing else on Apple yet and
-    ; written to be shared: they are `gallery/evg/apple`, not `gallery/ui/ios`,
+    ; written to be shared: they are `lib/evg/apple`, not `gallery/ui/ios`,
     ; because the next port through them is a deck rather than a dashboard.
     fn addSharedSources:void (spec:AppleAppSpec) {
         spec.addSource(app.generatedDir + "/" + app.generatedFile)
-        spec.addSource("gallery/evg/apple/Sources/EvgSurface.swift")
-        spec.addSource("gallery/evg/apple/Sources/EvgPainter.swift")
-        spec.addSource("gallery/evg/apple/Sources/CoreGraphicsEvgSurface.swift")
-        spec.addSource("gallery/evg/apple/Sources/RecordingSurface.swift")
-        spec.addSource("gallery/evg/apple/Sources/CoreTextMeasurer.swift")
-        spec.addSource("gallery/evg/apple/Sources/EvgEngineQueue.swift")
+        spec.addSource("lib/evg/apple/Sources/EvgSurface.swift")
+        spec.addSource("lib/evg/apple/Sources/EvgPainter.swift")
+        spec.addSource("lib/evg/apple/Sources/CoreGraphicsEvgSurface.swift")
+        spec.addSource("lib/evg/apple/Sources/RecordingSurface.swift")
+        spec.addSource("lib/evg/apple/Sources/CoreTextMeasurer.swift")
+        spec.addSource("lib/evg/apple/Sources/EvgEngineQueue.swift")
     }
 
     fn makeSpec:AppleAppSpec (o:IosBuildOptions target:AppleTarget) {

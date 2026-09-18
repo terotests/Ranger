@@ -26,7 +26,7 @@ Import "../src/xlsx/XlsxWriter.rgr"
 Import "../src/xlsx/XmlLite.rgr"
 Import "../src/FormulaFunctions.rgr"
 Import "../src/XlsxNumberFormat.rgr"
-Import "../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 
 class TextCheck {
     def passed:int 0

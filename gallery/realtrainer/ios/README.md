@@ -25,7 +25,7 @@ npm run rt:ios:swift      # write the generated Swift and stop
 | `ios/RealTrainerView.swift` | the only file that needs a device: `UITouch`, `CADisplayLink`, `CGContext` |
 | `ios/AppDelegate.swift`, `ios/main.swift` | a window, in code — there is no Xcode project |
 
-The painter is not here. `gallery/evg/apple` draws this and the dashboard both,
+The painter is not here. `lib/evg/apple` draws this and the dashboard both,
 and the build driver is `gallery/ui/ios/ranger/build_ios.rgr` — one driver for
 every Apple port in the gallery, told `--app=realtrainer`.
 

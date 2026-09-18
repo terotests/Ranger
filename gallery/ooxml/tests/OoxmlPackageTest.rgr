@@ -31,7 +31,7 @@ Import "../../datagrid/src/xlsx/XlsxLoader.rgr"
 Import "../../docx_viewer/src/DocxPackage.rgr"
 Import "../../docx_viewer/src/WordMlParser.rgr"
 Import "../../pptx/src/PptxParser.rgr"
-Import "../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 
 class PkgCheck {
     def passed:int 0

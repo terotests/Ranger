@@ -23,7 +23,7 @@
 ; 1900, a date that never happened — because it exists to read spreadsheets
 ; that contain the bug. A calendar you pick a date in must not have a phantom
 ; day in it, so it is not the same quantity and sharing it would be wrong.
-; Second, `gallery/ui` depends only on `gallery/evg`; reaching into a
+; Second, `gallery/ui` depends only on `lib/evg`; reaching into a
 ; spreadsheet application to borrow a helper would invert that.
 ;
 ; The shared part is the published algorithm, not the other file's code. If a

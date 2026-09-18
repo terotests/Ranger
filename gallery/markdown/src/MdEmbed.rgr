@@ -23,7 +23,7 @@
 ; and re-flowing the same document at the same width must not either.
 ; ============================================================================
 
-Import "../../evg/EVGElement.rgr"
+Import "pkg:evg/EVGElement.rgr"
 
 class MdEmbedEntry {
     def kind:string ""

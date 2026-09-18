@@ -4,7 +4,7 @@
 ; hot_reload_runner_demo - AST diff + in-process patch without SDL restart.
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
+Import "game_runtime.rgr"
 
 class HotReloadRunnerDemo {
     fn buildSrc1:string () {

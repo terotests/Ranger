@@ -1,0 +1,4154 @@
+; SPDX-License-Identifier: MIT
+
+; EVGElement.rgr - Base element class for EVG layout
+
+Import "EVGUnit.rgr"
+Import "EVGReject.rgr"
+Import "EVGColor.rgr"
+Import "EVGEasing.rgr"
+Import "EVGBox.rgr"
+Import "EVGGradient.rgr"
+Import "SvgParser.rgr"
+Import "SVGPathParser.rgr"
+
+; Element type constants
+; 0 = CONTAINER (div)
+; 1 = TEXT (span)
+; 2 = IMAGE (img)
+; 3 = PATH (svg path)
+
+; One property on its way from one value to another.
+;
+; Colours and numbers are both here rather than in two classes: a flight is a
+; start, an end and a clock, and the only difference is how the two ends are
+; read back out. Splitting them would double the bookkeeping to save one field.
+class EVGFlight {
+    def property:string ""
+    ; The duration this flight is actually running for. Not the one the sheet
+    ; declared — a reversal shortens it, and `reversingFactor` is the record of
+    ; by how much.
+    def durationMs:double 0.0
+    def delayMs:double 0.0
+    def elapsedMs:double 0.0
+    def easing:EVGEasing (new EVGEasing())
+    ; Colours, when the property is one.
+    def fromColor:EVGColor
+    def toColor:EVGColor
+    ; A plain number, when it is not.
+    def fromNumber:double 0.0
+    def toNumber:double 0.0
+    def isColor:boolean false
+    ; The EVGUnit type this number is expressed in, for the flights where that
+    ; can differ between the two ends. 25 per cent and 25 pixels are the same
+    ; number and not the same place, so a flight whose unit has changed is not
+    ; a flight at all.
+    def unitCode:int 0
+
+    ; --- what a reversal needs to remember ------------------------------------
+    ;
+    ; CSS calls this the "reversing-adjusted start value": the value that, if
+    ; the property is asked to go back to it, means this is a REVERSAL rather
+    ; than a new journey somewhere else. For a fresh transition it is where the
+    ; flight left from; after a reversal it is the target the flight was
+    ; heading for before it turned round.
+    ;
+    ; The distinction matters. A hover that leaves half way is a reversal and
+    ; must come back in half the time; a hover that leaves and lands on a THIRD
+    ; colour is not, and gets the full duration. Comparing against the start
+    ; value alone gets the second case right and the first case wrong as soon
+    ; as the pointer changes its mind twice.
+    def reversingStartColor:EVGColor
+    def reversingStartNumber:double 0.0
+    def reversingFactor:double 1.0
+
+    ; --- what this flight last put on the element -----------------------------
+    ;
+    ; `reconcile` reads the TARGET off the element and `writeBack` writes the
+    ; SHOWING value to the same field, so the two can be told apart only if the
+    ; flight remembers what it wrote. Without that, a second `reconcile` in the
+    ; same frame reads its own output back, decides the target has moved to
+    ; wherever the animation has got to, and retargets there — which collapses
+    ; the flight to a standstill.
+    ;
+    ; That is not hypothetical. `laidOut()` runs once per question a host asks
+    ; — what to draw, what is under the pointer, what it means — so three
+    ; reconciles a frame is ordinary. It stayed hidden because the stylesheet
+    ; rewrites its own values at the top of every one of them, which re-declares
+    ; the target each time. Anything the stylesheet does NOT write — an inline
+    ; attribute set by the author — had no such protection, and simply refused
+    ; to animate.
+    def wroteNumber:double 0.0
+    def wroteColor:EVGColor
+    def hasWrote:boolean false
+
+    Constructor () {
+    }
+
+    ; Where the clock is, 0 to 1, before the timing function has its say.
+    ; The delay is part of the clock — a flight in its delay has not started
+    ; moving and reads 0 — which is what the browser does and what makes
+    ; `transition: opacity 200ms 100ms` hold still for its first tenth of a
+    ; second instead of easing very slowly through it.
+    fn progress:double () {
+        if (durationMs <= 0.0) {
+            return 1.0
+        }
+        def t:double ((elapsedMs - delayMs) / durationMs)
+        if (t < 0.0) {
+            return 0.0
+        }
+        if (t > 1.0) {
+            return 1.0
+        }
+        return t
+    }
+
+    ; What the value is actually interpolated by. Every reader wants this one;
+    ; `progress()` is only the clock.
+    fn eased:double () {
+        return (easing.ease((this.progress())))
+    }
+
+    fn done:boolean () {
+        return (elapsedMs >= (delayMs + durationMs))
+    }
+}
+
+class EVGElement {
+    def id:string ""
+    ; The RECONCILER's name for this element, and not the application's.
+    ;
+    ; `id` is global and outward-facing: the hit test reports it, the
+    ; accessibility tree carries it, and a page addresses a control by it.
+    ; `key` is sibling-scoped and inward-facing: it says "this new child is the
+    ; same logical child as that old one", so a rebuild can keep the element
+    ; instead of replacing it. Two lists on one page may both use the key
+    ; "video"; two elements may not share an id.
+    ;
+    ; "" means unkeyed, and an unkeyed child is matched by POSITION among its
+    ; unkeyed siblings — the same rule every library that has this uses, and
+    ; the reason a reordered list needs keys to animate.
+    def key:string ""
+    ; Where this box goes when it is followed: a URL, or `#name` for a place
+    ; in this same document.
+    ;
+    ; A destination is not application logic — PDF has `/Annots`, SVG has
+    ; `<a>`, HTML has `<a>` — and a renderer that cannot say it is the one
+    ; missing something. What it deliberately does NOT say is what following
+    ; it means: the PDF writes an annotation and stops, and an interactive
+    ; host asks the display list what is under the pointer and decides for
+    ; itself. Nothing here navigates.
+    ;
+    ; It applies to the subtree, the way `<a>` does, so a link may be a word,
+    ; a row or a card without the thing inside it knowing.
+    def href:string ""
+    def tagName:string "div"
+    def elementType:int 0
+    
+    ; Print/Book format properties
+    def format:string ""           ; Book format: "a4", "trade-5x8", "large-square", etc.
+    def orientation:string ""      ; "portrait" or "landscape"
+    def pageWidth:double 0.0       ; Resolved page width in points
+    def pageHeight:double 0.0      ; Resolved page height in points
+    
+    ; Tree structure
+    def parent@(optional):EVGElement
+    def children:[EVGElement]
+    
+    ; Dimensions
+    def width:EVGUnit
+    def height:EVGUnit
+    def minWidth:EVGUnit
+    def minHeight:EVGUnit
+    def maxWidth:EVGUnit
+    def maxHeight:EVGUnit
+    
+    ; Position (for absolute positioning)
+    def left:EVGUnit
+    def top:EVGUnit
+    def right:EVGUnit
+    def bottom:EVGUnit
+    def x:EVGUnit
+    def y:EVGUnit
+    
+    ; Box model
+    def box:EVGBox
+    
+    ; Visual properties
+    def backgroundColor:EVGColor
+    def opacity:double 1.0
+    ; `backdrop-filter: blur(Npx)` — how far to blur what is BEHIND this
+    ; element, in pixels, before painting the element over it. 0 is no filter.
+    ;
+    ; Behind, not itself: this does nothing to the element's own pixels. A
+    ; modal's scrim wants the page under it softened while the scrim's own
+    ; text stays sharp, and `filter: blur()` would do the opposite.
+    ;
+    ; The number is CSS's radius, which is the Gaussian's SIGMA and not its
+    ; half-width — measured in `oracle/css-blur.json`, along with the more
+    ; surprising half: browsers do not compute a Gaussian at all but the SVG
+    ; spec's three-box approximation of one, and the difference is up to 14
+    ; luminance levels at a hard edge.
+    def backdropBlur:double 0.0
+
+    ; Linear-gradient background (RGU1 GRAD_FROM/GRAD_TO/GRAD_DIR). When gradientSet
+    ; the renderer fills the (rounded) box with a 2-stop linear gradient instead of
+    ; the solid backgroundColor. gradientDir: 0 = vertical (top->bottom), 1 =
+    ; horizontal (left->right).
+    def gradientSet:boolean false
+    def gradientFrom:EVGColor
+    def gradientTo:EVGColor
+    def gradientDir:int 0
+
+    ; Absolute placement (RGU1 ABS_X/ABS_Y): when absPosSet the element is laid out
+    ; at (absX, absY) in page pixels instead of participating in flex flow — used
+    ; for coord-reported overlay effects.
+    def absPosSet:boolean false
+    def absX:double 0.0
+    def absY:double 0.0
+
+    ; Animated glow strength 0..1 (RGU1 GLOW prop). The guest drives this over
+    ; time (a procedural effect animation); the renderer draws a soft halo behind
+    ; the element scaled by it. 0 = no glow.
+    def glowIntensity:double 0.0
+
+    ; Background image clipped to the (rounded) box (RGU1 BG_IMAGE prop). When
+    ; bgImageSet the renderer paints bgImagePath inside the rounded rect instead of
+    ; the solid/gradient fill. The path is host-resolvable (the guest is sandboxed;
+    ; the host loads the pixels), so an .as menu can show real image tiles.
+    def bgImageSet:boolean false
+    def bgImagePath:string ""
+
+    ; Layout properties
+
+    ; CSS `direction`, which is NOT the `direction` below it.
+    ;
+    ; The property under that name here has always meant the flow AXIS —
+    ; "row" or "column" — which predates this and is still what those two
+    ; values mean. CSS's own `direction` takes "ltr" and "rtl" and means
+    ; something else entirely: which end of a container its children start
+    ; from. Two properties cannot share a name, and renaming the older one
+    ; would break every element that sets it, so `setStyle` decides by VALUE:
+    ; "ltr" and "rtl" land here, everything else lands on the axis.
+    ;
+    ; "" means the element said nothing and inherits, which is what `direction`
+    ; does in CSS and what makes one setting on the root turn a whole UI
+    ; around.
+    def textDir:string ""
+    ; What that resolves to after inheritance. This is what the layout reads.
+    def resolvedRtl:boolean false
+
+    def direction:string "row"
+    def align:string "left"
+    def verticalAlign:string "top"
+    def isInline:boolean false
+    def lineBreak:boolean false
+    def overflow:string "visible"
+
+    ; `cursor`, and it INHERITS, like the CSS property it is: a title bar says
+    ; `cursor: move` once and the words on it do not have to say it again.
+    ; Empty means nobody has said anything, which is what makes inheriting
+    ; distinguishable from an author writing `default` on purpose.
+    def cursor:string ""
+    ; The scroll container's bar, as CSS styles it: `scrollbar-width` (auto,
+    ; thin, none), `scrollbar-color` (the thumb's colour, then the track's;
+    ; `auto` for either is ink on whatever the bar is over), and the EVG
+    ; extension `evg-scrollbar-label` (percent, none). Read by
+    ; `EVGDisplayList.addScrollbar`, which draws the bar when an app asks
+    ; the list to.
+    def scrollbarWidth:string ""
+    def scrollbarThumb:EVGColor
+    def scrollbarTrack:EVGColor
+    def scrollbarLabel:string ""
+
+    ; --- A SURFACE EFFECT ------------------------------------------------------
+    ;
+    ; `evg-surface-effect: ripple`, and the family of `evg-ripple-*` numbers
+    ; under it. The `evg-` prefix is not decoration: this is an EVG EXTENSION
+    ; and not a CSS property, so nothing in the gallery should ever measure it
+    ; against a browser and find a divergence — there is nothing to diverge
+    ; from. Every other property in this file is CSS and is measured; these are
+    ; ours, and they say so in their names.
+    ;
+    ; The effect belongs to a SURFACE, not to a box. It names a post-process
+    ; over everything that was drawn: the display list carries it beside the
+    ; commands rather than as one of them, and a backend that has never heard
+    ; of it draws the page and ignores the field.
+    def surfaceEffect:string ""
+    ; How fast the ring travels, in pixels a second.
+    def rippleSpeed:double 220.0
+    ; How wide the ring is — the Gaussian envelope's sigma, in pixels.
+    def rippleWidth:double 28.0
+    ; How far the surface is pushed at the crest, in pixels.
+    def rippleStrength:double 7.0
+    ; How fast the whole thing dies away, per second.
+    def rippleDecay:double 1.8
+    ; How much the crest lightens. Small: this is the difference between water
+    ; and a filter somebody put on a video.
+    def rippleHighlight:double 0.08
+
+    ; --- how many rings ONE touch sends -----------------------------------------
+    ;
+    ; A drop on water does not make one ring. It makes a TRAIN of them, born at
+    ; the same point a moment apart and travelling out together, each fainter
+    ; than the one in front: the shape is a single expanding target rather than
+    ; a single circle.
+    ;
+    ; This costs no state at all. The rings of one touch differ only in when
+    ; they started, and that is the touch's age minus a multiple of the stagger
+    ; — so the shader works them out from the one age it already has, and a
+    ; ring whose start is still in the future simply has not been born yet.
+    def rippleRings:double 3.0
+    ; Seconds between one wavefront and the next.
+    def rippleStagger:double 0.09
+    ; What each ring behind the front is worth. Below about a half the train
+    ; reads as one ring with a smudge behind it.
+    def rippleFalloff:double 0.62
+
+    ; --- and what makes it look WET ---------------------------------------------
+    ;
+    ; A brightness proportional to the wave's height is an AMBIENT term: every
+    ; part of a crest lights up by the same amount however it is tilted, which
+    ; is exactly what a matte surface does. Water is not matte. What makes it
+    ; read as water is a SPECULAR: a highlight that depends on the angle
+    ; between the light, the eye and the surface's own normal, so it lives on
+    ; the FLANK of a wave rather than on its top and slides along as the wave
+    ; moves.
+    ;
+    ; The normal comes from the height field the rings already sum to — its
+    ; screen-space gradient is the slope, and the slope is the normal. Nothing
+    ; new has to be computed or stored.
+    ;
+    ; How strong the glint is. 0 turns it off and leaves the ambient term.
+    def rippleShine:double 0.45
+    ; The Blinn-Phong exponent: how TIGHT the glint is. Low is a broad sheen
+    ; like wet stone, high is a sharp point like a bead of water. Past about
+    ; 200 the glint stops being an arc along the ring and breaks into
+    ; separate specks, because the surviving band gets narrower than a pixel.
+    def rippleGloss:double 120.0
+    ; How much the wave's height tilts the normal. This is the one number with
+    ; no physical meaning — the height field is in arbitrary units, so this is
+    ; what turns it into a slope.
+    def rippleBump:double 70.0
+    ; Where the light is. The default is over the viewer's left shoulder,
+    ; which is where every UI in this gallery already pretends its light is.
+    def rippleLightX:double -0.45
+    def rippleLightY:double -0.65
+    def rippleLightZ:double 0.62
+
+    ; --- and the state it needs, which is not styling ---------------------------
+    ;
+    ; Where the surface was touched and how long ago — for EVERY touch still in
+    ; flight, not just the last one. Set by the APPLICATION, like `scrollTop`:
+    ; a stylesheet has no business owning where somebody clicked.
+    ;
+    ; Three parallel arrays rather than an array of triples, because that is
+    ; what goes into a `vec3` uniform array without a copy at the other end.
+    ; Empty means nothing is in flight.
+    ;
+    ; MANY of them, and that is the whole difference between an effect and a
+    ; surface: two rings that cross ADD, so the crests reinforce where they
+    ; meet and cancel a quarter-wavelength away. Interference is not something
+    ; the shader implements — it is what summing waves does.
+    def rippleXs:[double]
+    def rippleYs:[double]
+    def rippleAges:[double]
+
+    ; --- SCROLLING ------------------------------------------------------------
+    ;
+    ; How far the content inside this element is pushed up and left. Set by the
+    ; APPLICATION, not by a stylesheet — a scroll position is state, and the
+    ; sheet has no business owning it — and clamped by the layout to what there
+    ; actually is to scroll, the way a browser clamps `scrollTop`.
+    def scrollTop:double 0.0
+    def scrollLeft:double 0.0
+    ; How big the content turned out to be, written by the layout. These are
+    ; the numbers a scrollbar is sized from and the reason a scroll container
+    ; is not the same thing as a clipped box: a clipped box throws the overflow
+    ; away, a scroll container remembers how much of it there was.
+    ;
+    ; Measured the way the DOM measures them, PADDING BOX and not content box:
+    ; eight 60-pixel rows in a box with 10 of padding gives 500, not 480. The
+    ; two definitions produce the same `maxScrollTop` — the paddings cancel —
+    ; so this could have been either, and it is the browser's, because a number
+    ; that is only right after you subtract something is a number somebody
+    ; will forget to subtract.
+    def scrollWidth:double 0.0
+    def scrollHeight:double 0.0
+    ; The offset the LAYOUT has actually translated this subtree by, which is
+    ; not the same thing as the offset the application asked for. A wheel event
+    ; moves `scrollTop` and nothing else; these say where the boxes are now, so
+    ; `EVGLayout.scrollOnly` can move them by the difference instead of laying
+    ; the document out again to arrive at the same widths.
+    def appliedScrollTop:double 0.0
+    def appliedScrollLeft:double 0.0
+
+    ; --- WHERE THIS SUBTREE DRAWS ---------------------------------------------
+    ;
+    ; The union of this element's own box and every box under it, written by
+    ; the layout and moved with the subtree. It is what lets the display list
+    ; skip a subtree that is nowhere near the scroll viewport WITHOUT walking
+    ; into it first: an element's own box says nothing about where its
+    ; children are — a zero-height wrapper is at the top of the document and
+    ; its rows are ten thousand pixels down — so the box alone is not a safe
+    ; thing to cull against, and this is.
+    ;
+    ; `paintUnbounded` is the honest answer for a subtree whose drawn output
+    ; is NOT its layout boxes: a transform moves the pixels after the fact and
+    ; a rotation moves them somewhere no rectangle here predicts. Such a
+    ; subtree is never culled, and the flag rises to its ancestors — which
+    ; costs those ancestors their own culling and nothing else, because their
+    ; other children are still tested on their own bounds.
+    def paintLeft:double 0.0
+    def paintTop:double 0.0
+    def paintRight:double 0.0
+    def paintBottom:double 0.0
+    def paintUnbounded:boolean false
+    ; A SCROLL OWED TO THE SUBTREE. This element's own box and paint bounds
+    ; are where they should be; everything beneath it still has to move by
+    ; this much. `EVGLayout.scrollOnly` writes it on the rows a scroll moved
+    ; that are far from the viewport instead of walking their thousands of
+    ; descendants — on a long diary that walk was the largest self-time in a
+    ; profile of a fling, and it moved boxes nobody would look at. It is
+    ; paid by `settleShift` the moment anything descends into the subtree:
+    ; the display list, the hit test and the accessibility walk each settle
+    ; a node before they look at its children, so a consumer reads a stale
+    ; box only if it reaches one without going through those, and the
+    ; whole-tree readers call `settleAll` first. A full layout resets it
+    ; with the rest of the layout state.
+    def shiftDx:double 0.0
+    def shiftDy:double 0.0
+    ; A LAYOUT KEPT. An app that knows a subtree has not changed — a card
+    ; built from an entry and kept across rebuilds — says so with
+    ; `keepLayout`, and the layout then answers for that subtree with what
+    ; it computed last time, moved to where the flow puts it now, when
+    ; three things hold: it was laid out before (`hasLayout`), the sheet's
+    ; last pass wrote no layout property anywhere in it (`layoutClean`,
+    ; which the sheet computes bottom-up for every element), and the flow
+    ; hands it the same inputs — the width and height it is laid out in,
+    ; and the flex width its parent gave it. The flow has already put the
+    ; element's own box where it goes; what is under it follows by the
+    ; difference, read off where the first child sat relative to the box
+    ; when the subtree was last measured (`kidOffX`, `kidOffY`). A subtree
+    ; skipped this way is `layoutSkipped`, so the paint-bounds pass leaves
+    ; its bounds, which moved with it, alone. Anything else lays it out as
+    ; before.
+    def keepLayout:boolean false
+    def hasLayout:boolean false
+    def layoutClean:boolean false
+    def layoutSkipped:boolean false
+    def kidOffX:double 0.0
+    def kidOffY:double 0.0
+    ; Whether `paintTop` and the rest were measured since the subtree was
+    ; last laid out for real: a subtree skipped in a later pass of the same
+    ; layout — a parent's second pass — moved bounds that were never
+    ; measured, and the measuring pass must not take a skipped subtree's
+    ; word for it until they were.
+    def boundsFresh:boolean false
+    ; …and the same question for the overlay pass: does this subtree hold a
+    ; surface that has to be placed against an anchor, and has it been asked?
+    ; A subtree the layout kept moved WHOLE — the surface and the anchor it
+    ; sits against went together — so its placement still holds and the pass
+    ; can take the answer it gave last time instead of walking it. See
+    ; `EVGLayout.placeOverlaysIn`.
+    def hasOverlayBelow:boolean false
+    def overlayScanned:boolean false
+    def lastParentW:double 0.0
+    def lastParentH:double 0.0
+    def lastFlex:boolean false
+    def lastFlexW:double 0.0
+    def hasIntrinsicMin:boolean false
+    def hasIntrinsicMax:boolean false
+    def intrinsicMin:double 0.0
+    def intrinsicMax:double 0.0
+    ; THE COMMANDS KEPT. A kept subtree draws the same commands each time,
+    ; so the display list keeps what it emitted for it and emits it again.
+    ; `paintStamp` says whether they still hold: the sheet bumps it when a
+    ; pass wrote paint anywhere in the subtree (`paintClean` is that pass's
+    ; answer), and the layout bumps it when it lays the subtree out for
+    ; real. `EVGDisplayList.walk` has the rest.
+    def paintClean:boolean false
+    def paintStamp:int 0
+    ; Does anything in this subtree carry a `surfaceEffect`? Written by the
+    ; same pass, and read by `EVGDisplayList.readEffect` — which used to walk
+    ; the WHOLE document on every frame looking for the one element that
+    ; might, and in a page that has none walked all of it and found nothing.
+    ; It was 11% of a scroll frame doing exactly that.
+    def paintHasEffect:boolean false
+
+    ; --- WHERE THE ELEMENT'S OWN TEXT SITS INSIDE IT --------------------------
+    ;
+    ; Normally nowhere: a block's line boxes start at the top of its content
+    ; box and that is the end of it. But an element that is a FLEX CONTAINER
+    ; and carries text of its own does not lay that text out as a block —
+    ; CSS wraps it in an ANONYMOUS FLEX ITEM, and from then on `align-items`
+    ; and `justify-content` place it like any other item.
+    ;
+    ; That is the pill idiom, and it is written that way everywhere:
+    ;
+    ;   .pill { display: flex; align-items: center; height: 34px; padding: 0 12px }
+    ;
+    ; with the label as the element's own text. EVG placed the line at the top
+    ; of the content box and never consulted `align-items`, so the label sat
+    ; against the pill's top edge instead of in the middle of it.
+    ;
+    ; The layout writes the offset here and the display list adds it to every
+    ; line, so the box's height and the painter's baseline agree — as they
+    ; must, because `calculatedBaseline` includes it too.
+    def textShiftY:double 0.0
+
+    ; Typography (inherited)
+    def fontSize:EVGUnit
+    ; fontSize starts UNSET: an element is born without one so that "the author
+    ; asked for this size" stays distinguishable from "nobody said". Layout
+    ; fills it in from the inherited size for every element that does not set
+    ; one, so by the time a renderer reads it, it is always set — and remembers
+    ; that it did so, or a re-layout would mistake its own fill-in for an
+    ; authored size and stop inheriting.
+    def fontSizeInherited:boolean false
+    ; The size inherited from the parent, kept apart from the resolved one so
+    ; that an `em` font-size resolved twice does not compound.
+    def fontSizeBase:double 14.0
+    ; The font-size of the tree's root, which is what `rem` resolves against.
+    ; Inherited unchanged all the way down.
+    def rootFontSize:double 14.0
+    ; What `vw` and `vh` on this element resolve against: the layout's page
+    ; size, published onto the root by `EVGLayout.layout` and inherited from
+    ; there like the root font size. Zero until a layout says otherwise — see
+    ; the note at the top of EVGUnit.
+    def viewportW:double 0.0
+    def viewportH:double 0.0
+    ; A BOX THAT IS A VIEWPORT OF ITS OWN. `fixed` is positioned against the
+    ; viewport, and until now there was exactly one of those per layout — the
+    ; page. A stage that shows the same document at 1440, 768 and 390 in one
+    ; tree has three, and a modal in the phone frame belongs over the phone
+    ; frame and not over the whole stage. An element with this set keeps its
+    ; own `viewportW/H` and `viewportX/Y` instead of inheriting them, and
+    ; every `fixed` box under it resolves against that rectangle. Off, the
+    ; viewport is the page's, as it always was.
+    def viewportRoot:boolean false
+    ; Where that viewport's own (0,0) is, in the coordinates the layout works
+    ; in. Zero for the page, which is where it starts.
+    def viewportX:double 0.0
+    def viewportY:double 0.0
+    def fontFamily:string "Noto Sans"
+    def fontWeight:string "normal"
+    ; Extra advance after every character, in pixels — CSS `letter-spacing`,
+    ; and negative is the tracking a designer tightens a heading with.
+    ; ZERO is the font's own spacing and every measurement and every painter
+    ; takes the same path it always did, so nothing that does not set this
+    ; can be moved by it.
+    def letterSpacing:double 0.0
+    ; Extra leading above every paragraph after the first, in pixels. CSS
+    ; has no such property — it puts paragraphs in elements and gives them
+    ; margins — but a text element here holds the whole block, newlines
+    ; included, so the gap has to be a property of the block. ZERO is the
+    ; single-spaced block every caller had before.
+    def paragraphSpacing:double 0.0
+    ; SVG's `stroke-linecap` and `stroke-linejoin` on a stroked path.
+    ; "butt" and "miter" are what the painter drew before either existed,
+    ; so a caller that says nothing keeps the picture it had.
+    def strokeLineCap:string "butt"
+    def strokeLineJoin:string "miter"
+    ; ZERO means `normal`, which is the FACE's own line box and is asked of
+    ; the text engine. It used to default to 1.2 — a number people type, not
+    ; one a browser computes: measured, the sans fallback's normal is 1.15em
+    ; and monospace's 1.164, so every text box in the gallery was four per
+    ; cent taller than the same declarations give in a browser.
+    def lineHeight:double 0.0
+    ; `line-height` WRITTEN AS A LENGTH, which is a different thing from
+    ; written as a number and CSS keeps them apart on purpose: `1.5` is one
+    ; and a half times whatever font size the element ends up with, `24px` is
+    ; twenty-four pixels whatever the font size is, and `150%` is computed
+    ; once against this element's own size and then inherited as that
+    ; computed value.
+    ;
+    ; It used to be one double, so `line-height: 24px` went through
+    ; `to_double`, came out 24, and was used as a MULTIPLIER: a 14px run got a
+    ; 336-pixel line box. The text then sat at the top of a line box twelve
+    ; times too tall — which reads, on the screen, as a line that has fallen
+    ; to the bottom of everything around it.
+    ;
+    ; Unset means the number above (or `normal`, which is zero there). See
+    ; `lineBoxFor`, which is the only thing that should read either.
+    def lineHeightUnit:EVGUnit
+    def textAlign:string "left"
+    ; `white-space`, of which two values matter here: `normal`, which wraps at
+    ; the box's width, and `nowrap`, which does not wrap at all — the line is
+    ; as long as the text and the box clips it if it clips anything.
+    ;
+    ; A ONE-LINE FIELD IS THE REASON. A text input is one line whatever is in
+    ; it: an `<input>` never wraps, it scrolls. Without this, a placeholder
+    ; longer than its box broke onto a second line and fell out of the bottom
+    ; of a 40-pixel row — which is what the quick entry on Home did with the
+    ; longer of its two placeholders.
+    ;
+    ; INHERITED, as CSS has it, so `white-space: nowrap` on the field reaches
+    ; the run inside it without every child having to say so.
+    def whiteSpace:string "normal"
+    def color:EVGColor
+    ; What to paint glyphs that came from a FALLBACK face — emoji, in
+    ; practice — when they should not be the colour of the text around them.
+    ;
+    ; Unset by default, which means "the same as `color`", so nothing changes
+    ; for a document that does not ask. It exists because a monochrome emoji
+    ; face can be filled with any colour at all, and the one thing the engine
+    ; could not do was fill it with a DIFFERENT one from the sentence it sits
+    ; in — there are no inline spans here to hang a second colour on.
+    def emojiColor:EVGColor
+    def textContent:string ""
+    
+    ; CSS Flexbox properties
+    def display:string "block"
+    def flex:double 0.0
+    ; flex-basis: the main-axis size a flex item starts from, before grow or
+    ; shrink. Unset means "use width". The `flex: N` shorthand sets it to 0,
+    ; which is what makes `flex: 1` share space evenly even when the item also
+    ; carries a width — without it an explicit width made `flex` a no-op.
+    ; flex-shrink: how readily this item gives up space when the line
+    ; overflows, relative to its siblings. CSS default is 1; 0 means "never
+    ; shrink me", which is how a logo or a fixed label keeps its size while the
+    ; rest of the row compresses.
+    def flexShrink:double 1.0
+    def flexBasis:EVGUnit
+    def flexDirection:string "column"
+    def justifyContent:string "flex-start"
+    def alignItems:string "flex-start"
+    ; The item's own answer to its container's `align-items`. Empty means "did
+    ; not say" — CSS spells that `auto`, and both are accepted — so an item
+    ; that never mentions it costs one string comparison and nothing else.
+    def alignSelf:string ""
+    ; align-content: how WRAPPED LINES are distributed along the cross axis,
+    ; as opposed to alignItems which positions children within one line. Only
+    ; meaningful when the content wraps and the container has room to spare.
+    def alignContent:string "flex-start"
+    ; flexWrap: "wrap" (row auto-wraps — historical EVG default) or "nowrap"
+    ; (CSS default; children never wrap, they overflow / shrink instead).
+    def flexWrap:string "wrap"
+    def gap:EVGUnit
+    ; Axis-specific gaps. When unset, `gap` applies to both axes.
+    def rowGap:EVGUnit
+    def columnGap:EVGUnit
+    ; CSS Grid subset (see EVGGrid.rgr). Empty means "not a grid track spec";
+    ; a grid container with no column template gets a single 1fr column.
+    def gridTemplateColumns:string ""
+    def gridTemplateRows:string ""
+    ; Per-item placement, e.g. "span 2" or "2 / 4". Empty means auto-flow.
+    ; grid-template-areas: rows of names, e.g.
+    ;   "hero hero" "left right"
+    ; An item claims a region with grid-area.
+    ; Track sizes handed down by an enclosing grid when this element declares
+    ; `grid-template-columns: subgrid` / `grid-template-rows: subgrid`. Filled
+    ; in by EVGLayout just before the child is laid out, because the parent is
+    ; the only thing that knows its own tracks.
+    def subgridColumnSizes:[double]
+    def subgridRowSizes:[double]
+    ; The row heights this element's own grid worked out, left behind for an
+    ; enclosing grid to read. A row subgrid always spans several of its
+    ; parent's rows, and with subgrid it is the GRANDCHILDREN that have to size
+    ; those rows — so the parent measures the subgrid once and adopts the rows
+    ; it came up with, rather than trying to see through it.
+    def computedRowSizes:[double]
+    ; Set by the enclosing grid as soon as it has claimed this element, which
+    ; is well before it can size its tracks. It is what tells a subgrid child
+    ; laid out during the parent's content-measuring pass — where the sizes do
+    ; not exist yet — apart from one with no enclosing grid at all. Without it
+    ; the first kind reported "no enclosing grid", which was simply untrue.
+    def subgridPending:boolean false
+    def gridTemplateAreas:string ""
+    ; grid-auto-flow: "row" (default) or "row dense" — dense backfills earlier
+    ; holes instead of only moving forward.
+    def gridAutoFlow:string "row"
+    ; Full-bleed: this element should run past the trim edge into the bleed
+    ; area, so the cut falls inside its ink rather than at its edge. Only has
+    ; an effect when the output was asked for a bleed, and only on the edges
+    ; the element already touches.
+    def fullBleed:boolean false
+    def gridArea:string ""
+    def gridColumn:string ""
+    def gridRow:string ""
+    def position:string "relative"
+    
+    ; CSS Margin/Padding (shorthand expansion handled at parse time)
+    def marginTop:EVGUnit
+    def marginRight:EVGUnit
+    def marginBottom:EVGUnit
+    def marginLeft:EVGUnit
+    def paddingTop:EVGUnit
+    def paddingRight:EVGUnit
+    def paddingBottom:EVGUnit
+    def paddingLeft:EVGUnit
+    
+    ; CSS Border
+    def borderWidth:EVGUnit
+    def borderTopWidth:EVGUnit
+    def borderRightWidth:EVGUnit
+    def borderBottomWidth:EVGUnit
+    def borderLeftWidth:EVGUnit
+    def borderColor:EVGColor
+    ; NOTE: border-radius lives on `box`, not here. A duplicate field on the
+    ; element used to shadow it — setAttribute wrote box.borderRadius while the
+    ; raster renderer read the element's, so rounded corners silently came out
+    ; square in PNG and correct in PDF. Do not reintroduce it.
+    
+    ; Image properties
+    def src:string ""
+    def alt:string ""
+    ; The part of the SOURCE the box shows: "x y w h" as fractions of the
+    ; bitmap, or the same four as percentages. It is the window, not the
+    ; destination: "0 0 0.5 1" shows the left half of the picture stretched
+    ; across the whole box. Numbers outside 0..1 are legal and mean the
+    ; window reaches past the bitmap — the picture then does not cover the
+    ; box and the rest of it stays empty, which is what a Figma crop zoomed
+    ; out past the image does.
+    def imageViewBox:string ""
+    ; Parsed image viewBox values, as fractions of the source
+    def imageViewBoxX:double 0.0
+    def imageViewBoxY:double 0.0
+    def imageViewBoxW:double 1.0
+    def imageViewBoxH:double 1.0
+    def imageViewBoxSet:boolean false
+    ; Image offset for positioning within container (can be negative)
+    ; Works with object-position CSS property
+    def imageOffsetX:EVGUnit
+    def imageOffsetY:EVGUnit
+    ; Image sizing: "cover", "contain", "fill", "none"
+    ; Default is "cover" - preserves aspect ratio, fills container, clips overflow
+    def objectFit:string "cover"
+    ; Original image dimensions (set by image loader)
+    def sourceWidth:double 0.0
+    def sourceHeight:double 0.0
+    
+    ; SVG Path properties
+    def svgPath:string ""
+    ; How the outline is fitted into the box, in SVG's own words. `meet`
+    ; keeps the shape and letterboxes it; `none` stretches. Everything here
+    ; is authored at its own size and so fits either way — until a shape is
+    ; RESIZED, and then the two are the difference between a wider shape and
+    ; the same shape in a wider frame.
+    def preserveAspectRatio:string "xMidYMid meet"
+    ; --- the flattened outline, kept ------------------------------------------
+    ;
+    ; `d` is a string, and the display list wants points: parsing it and
+    ; flattening its curves is the walk's largest cost on anything vector —
+    ; a page of text drawn as glyph outlines is thousands of paths, and a
+    ; Figma board panned at 60 Hz re-parsed every one of them for every
+    ; frame, 1.2 seconds a frame on a board of 3,565 nodes.
+    ;
+    ; The result depends on the path and on the box it is drawn in, and
+    ; neither changes while the view moves — a transform moves the pixels
+    ; after the boxes are placed. So it is kept here, and re-flattened when
+    ; either changes. `EVGDisplayList.copyRings` copies out of this into the
+    ; command, so what is cached is never what a painter mutates.
+    def ringsCache:[PathRing]
+    def ringsHave:boolean false
+    def ringsPath:string ""
+    def ringsX:double 0.0
+    def ringsY:double 0.0
+    def ringsW:double 0.0
+    def ringsH:double 0.0
+    def ringsSteps:int 0
+    ; The viewBox scale the outline was flattened at, which is what a stroke
+    ; width is in user units of.
+    def ringsScale:double 1.0
+    def ringsViewBox:string ""
+    def ringsFit:string ""
+    ; An entire imported SVG document, as markup. Where `svgPath` is one `d`
+    ; string with the element's own fill and stroke, this is a drawing with its
+    ; own shapes, groups, transforms and paint, which SvgParser resolves into a
+    ; flat list of drawables (PLAN_VECTOR_IR.md Stage 4). The two are mutually
+    ; exclusive on one element and an import wins, because a document that set
+    ; both meant the document.
+    ;
+    ; It lives on the path element rather than on a new element type: an
+    ; imported drawing is laid out, sized and positioned exactly like a `<Path>`
+    ; is, so a separate type would mean a second copy of that in the layout
+    ; engine and in all three renderers for no behavioural difference.
+    def svgSource:string ""
+    ; `svgSource`, parsed — by the display list, the first time it draws this
+    ; element, and kept for every frame after. The markup is the same string
+    ; on every frame and parsing it again per frame was a sixth of the
+    ; display-list build on a scrolled page with an icon per row. The key is
+    ; what the parse depends on: the source and the fill the element gives it
+    ; (`SvgParser.setInitialFill`), so a changed icon or a recoloured one is
+    ; parsed again and a cached document can never be the wrong drawing. A
+    ; rebuilt tree has fresh elements and parses once more; that is a press,
+    ; not a frame.
+    def svgDoc@(optional):SvgDocument
+    def svgDocKey:string ""
+    def viewBox:string ""
+    def fillColor:EVGColor
+    def strokeColor:EVGColor
+    def strokeWidth:double 0.0
+    ; "nonzero" (the SVG default) or "evenodd". They differ where a shape
+    ; overlaps or nests inside itself, which is exactly what decides whether the
+    ; middle of a ring is a hole or is filled.
+    def fillRule:string "nonzero"
+    ; Dash pattern as SVG writes it: alternating on/off lengths in user
+    ; units, e.g. "4 2". Empty means a solid stroke. Gridlines and target
+    ; lines are the reason this exists.
+    def strokeDashArray:string ""
+    def strokeDashOffset:double 0.0
+    
+    ; Clip path (for any element)
+    def clipPath:string ""
+
+    ; CSS class — selects stylesheet rules (see EVGStyleSheet.rgr). Space
+    ; separated, like HTML: "photo span-2".
+    def className:string ""
+    ; Theme name for stylesheet resolution, read from the document root.
+    def theme:string ""
+    ; Property names the authoring layer set directly on this element, in
+    ; kebab-case. A stylesheet must not overwrite these — inline wins the
+    ; cascade — so front-ends call markInline() for every attribute they apply.
+    def inlineProps:[string]
+
+    ; PDF/Print settings (for Print element)
+    def imageQuality:int 0          ; JPEG quality 1-100 (0 = use default)
+    def maxImageSize:int 0          ; Max image dimension in pixels (0 = use default)
+    
+    ; --- Transform --------------------------------------------------------------
+    ;
+    ; `transform: rotate(15deg) scale(1.05) translate(4px, 0)` is composed at
+    ; parse time into ONE similarity — an angle, a uniform scale and an offset —
+    ; because that is the largest family closed under composition that a display
+    ; list of axis-aligned boxes can still represent exactly. Rotation, uniform
+    ; scale and translation compose to another rotation, uniform scale and
+    ; translation, in any order and to any depth. `scale(2, 1)` and `skew()` do
+    ; not; they are reported rather than approximated.
+    ;
+    ; Composing here rather than in the painter is what makes the four numbers
+    ; INTERPOLABLE: `transition: transform 200ms` is then four ordinary number
+    ; flights, and a rotation that is also being scaled does the right thing
+    ; without a matrix decomposition on every frame.
+    ;
+    def rotate:double 0.0
+    def scale:double 1.0
+    ; A REFLECTION, which a rotation and a factor cannot say between them.
+    ; `scale(1, -1)` and `scale(-1, 1)` have the same magnitude on both axes
+    ; and differ only in sign, so the similarity survives — it is a turn, a
+    ; factor and a flip, not a non-uniform scale. Figma writes a mirrored
+    ; layer exactly this way (its matrix has a negative determinant), and
+    ; read as a plain rotation a mirrored arrow points the wrong way.
+    def flipY:boolean false
+    def translateX:double 0.0
+    def translateY:double 0.0
+    ; Kept verbatim so the transform survives a round trip and so a reader can
+    ; see what was written, not only what it reduced to.
+    def transformSpec:string ""
+
+    ; --- transform-origin ----------------------------------------------------
+    ;
+    ; What the rotation and the scale happen ABOUT, as a length or a percentage
+    ; of the border box on each axis. Unset means CSS's default of 50% 50%,
+    ; which is the element's own centre — measured, not assumed: a 100x40 box
+    ; turned a quarter turn lands at (30, -30, 40, 100), whose centre is where
+    ; it started.
+    ;
+    ; Resolved LATE, in the display list, where the laid-out box is known.
+    ; Resolving at parse time would need a size nobody has yet, and resolving
+    ; when the stylesheet is applied would use the previous frame's box.
+    def transformOriginX:EVGUnit (EVGUnit.unset())
+    def transformOriginY:EVGUnit (EVGUnit.unset())
+    def transformOriginSpec:string ""
+    
+    ; Shadow
+    def shadowRadius:EVGUnit
+    def shadowColor:EVGColor
+    def shadowOffsetX:EVGUnit
+    def shadowOffsetY:EVGUnit
+    
+    ; Gradient (CSS gradient string like "linear-gradient(90deg, #ff0000, #0000ff)")
+    def backgroundGradient:string ""
+    ; Parsed gradient (for renderers to use)
+    def gradient:EVGGradient (new EVGGradient())
+    
+    ; Calculated values (output from layout)
+    def calculatedX:double 0.0
+    def calculatedY:double 0.0
+    def calculatedWidth:double 0.0
+    def calculatedHeight:double 0.0
+    def calculatedInnerWidth:double 0.0
+    def calculatedInnerHeight:double 0.0
+    def calculatedFlexWidth:double 0.0
+    ; Whether the flex pass DECIDED that width, as opposed to it merely being
+    ; zero. Its own flag because the pass used to record the decision by
+    ; clearing `width.isSet` — which destroyed the author's declaration, so the
+    ; second frame laid out from a tree the stylesheet no longer described.
+    ; Layout output is layout state; it does not get to edit the style.
+    def hasFlexWidth:boolean false
+    ; Column-axis flex grow (and row alignItems:stretch) target height, resolved
+    ; by EVGLayout and consumed by layoutElement when height is not explicitly set.
+    def calculatedFlexHeight:double 0.0
+    ; Distance from this element's top border edge down to the baseline of its
+    ; FIRST line of text, and the matching descent. Filled in by EVGLayout for
+    ; text nodes from their real font metrics, and propagated up from the first
+    ; in-flow child for containers, so `align-items: baseline` has something to
+    ; line up. 0 means "no text baseline" — CSS then uses the bottom margin edge.
+    def calculatedBaseline:double 0.0
+    def calculatedDescent:double 0.0
+    def hasBaseline:boolean false
+    ; True when this element's height was definite (explicit, page-sized, or
+    ; already resolved by flex) at the moment its children were laid out, which
+    ; is the only time `calculatedInnerHeight` is meaningful as a constraint.
+    ; Auto-height elements size to their content, so main-axis grow/shrink must
+    ; not run against them — there is nothing to grow into or shrink to.
+    def hasDefiniteHeight:boolean false
+    def calculatedPage:int 0
+    def isAbsolute:boolean false
+
+    ; --- overlays -------------------------------------------------------------
+    ; An overlay surface stays exactly where it is in the tree: still its
+    ; parent's child, still the owner of its subtree, still where an event or an
+    ; accessibility walk finds it. Only LAYOUT and PAINT treat it differently —
+    ; it takes no space in its parent's flow, and it is drawn after the whole
+    ; normal tree, above it.
+    ;
+    ; That is the difference between this and a portal. Moving the element into
+    ; some overlay root would move its ownership with it, and every question
+    ; that follows the tree — who handles this click, what does a reader read
+    ; next, when is this freed — would then have the wrong answer.
+    def isOverlay:boolean false
+    ; What it is positioned against. Left empty by the author: the layout pass
+    ; fills it from the surface's own parent, by finding the sibling that
+    ; declared itself the anchor.
+    def overlayAnchor@(weak optional):EVGElement
+    def isOverlayAnchor:boolean false
+    ; "bottom", "top", "right", "left", or "center" for a modal that has no
+    ; anchor. Words rather than an enum because a tree literal assigns these as
+    ; ordinary typed fields — `(overlaySide "bottom")` type-checks, and a code
+    ; would have been a magic number at every call site.
+    def overlaySide:string "bottom"
+    ; "start", "center" or "end", along the side's cross axis.
+    def overlayAlign:string "start"
+    def overlayGap:double 4.0
+    ; Where the overlay pass PUT it. Deliberately not written back into `left`
+    ; and `top`: those are the author's inputs, and a layout that writes its
+    ; output into its own input reads last frame's answer on the next pass.
+    ; That is not hypothetical — `resolveUnits` had exactly this shape and
+    ; froze every percentage after the first layout.
+    def overlayX:double 0.0
+    def overlayY:double 0.0
+    ; Which side the surface ENDED UP on, which is not always the one it asked
+    ; for: near an edge it flips. Radix publishes the same thing as `data-side`
+    ; and stylesheets use it — an arrow points the other way when a menu opens
+    ; upwards — so it is a placement result, not an internal.
+    def overlayPlacedSide:string ""
+
+    ; --- interaction state -------------------------------------------------------
+    ; What is happening to this element right now, so a STYLESHEET can say what
+    ; that should look like. `.btn:hover` is a rule that asks for the first of
+    ; these; without them the only way to change a look on hover is for the
+    ; controller to write a second class, which makes every controller know
+    ; about presentation.
+    ;
+    ; Set by whoever routes input — the host that hit-tests a pointer already
+    ; knows which element is under it, and the one that owns focus already
+    ; knows which is focused.
+    def isHovered:boolean false
+    def isFocused:boolean false
+    ; The pointer is down on it: CSS's `:active`.
+    def isPressed:boolean false
+
+    ; --- transitions --------------------------------------------------------------
+    ; `transition: background-color 150ms` as the stylesheet declared it, and
+    ; the flights currently in the air. Both live on the element because a
+    ; transition is a fact about THIS box moving, not about the rule that
+    ; started it — the rule may not even match any more by the time it lands.
+    def transitionSpec:string ""
+    def transitions:[EVGFlight]
+
+    ; --- accessibility ---------------------------------------------------------
+    ; What this element MEANS, next to what it looks like. A canvas contributes
+    ; one empty graphic to the browser's accessibility tree no matter what was
+    ; drawn into it, so an EVG app has to publish the meaning separately —
+    ; and the only place that will not drift out of step with the picture is
+    ; the declaration that built the picture.
+    ;
+    ; The role is the ARIA spelling ("menuitem", "toolbar", "separator"),
+    ; because that is the vocabulary the platform mirrors speak and inventing a
+    ; second one buys nothing. Empty means "not in the accessibility tree",
+    ; which is the right default: most elements in a UI are boxes.
+    def role:string ""
+    ; The accessible name, when it is not simply what the element says. Left
+    ; empty, the name is taken from the text of the descendants that have no
+    ; role of their own — the same rule the HTML name calculation uses, and the
+    ; reason a row of Label + Shortcut announces as one thing.
+    def a11yLabel:string ""
+    ; What a text field CONTAINS, as opposed to what it is called.
+    ;
+    ; A reader that is told "Full name, text box" and not the name in it is
+    ; being told half of what is on screen — and this was missing entirely:
+    ; the tree carried the label and the role, the DOM mirror asked for
+    ; `node.value`, and nothing on this side ever set it. The conformance
+    ; trace has had the value all along through `UiRow.text`, which is the
+    ; CONTROLLER's path; a demo that draws its own tree went without.
+    ;
+    ; A password field must leave this EMPTY. `value` is the text and
+    ; `glyphText()` is the bullets, and neither belongs to a reader: a browser
+    ; exposes no value for `type=password` either.
+    def a11yValue:string ""
+    ; `aria-required`, `aria-invalid` and `aria-readonly`, as the DOM spells
+    ; them: "true", "false", or "" for a control that says nothing.
+    ;
+    ; STRINGS AND NOT BOOLEANS, and that is the whole point of them. Absent
+    ; and "false" are different claims — a field that says
+    ; `aria-required="false"` has been asked and answered, and one that says
+    ; nothing has not. The controller path has spelled them this way since the
+    ; `input_required` spec recorded the rule against a real <input>
+    ; ("aria-required is published only when it was asked for"); the element
+    ; path could not say either at all, so a demo-built form drew a red ring
+    ; and a message for a person and told a reader nothing.
+    def a11yRequired:string ""
+    def a11yInvalid:string ""
+    def a11yReadOnly:string ""
+    ; What a reader says INSTEAD of the role — "sortable" on a draggable row.
+    def a11yRoleDescription:string ""
+    ; `aria-describedby`, ALREADY RESOLVED to the sentence it points at — a
+    ; form field's hint, or its error message once there is one.
+    ;
+    ; The text and not an id, for the reason the conformance trace carries the
+    ; text: an id is a fact about a document and the sentence is what a reader
+    ; hears, and this tree has no document to hold ids in. A control with no
+    ; description says nothing, which is what an absent attribute means.
+    def a11yDescription:string ""
+    ; `aria-haspopup`: "menu", "listbox", "dialog". The one thing a reader
+    ; cannot see about a trigger — that pressing it opens something — and a
+    ; select's closed trigger is a box with a word in it without it.
+    def a11yHasPopup:string ""
+    ; `aria-rowcount` and `aria-rowindex`. A virtualised table has a dozen rows
+    ; in the tree and ten thousand in the data, and these two are the only
+    ; thing that says so — 0 for a table that publishes neither, which is what
+    ; a non-virtualised one does.
+    def a11yRowCount:int 0
+    def a11yRowIndex:int 0
+    ; `aria-hidden`: this element and everything under it is DECORATION and
+    ; contributes nothing to the accessible tree — no node, and no words to an
+    ; ancestor's name.
+    ;
+    ; The chevron on a submenu row is the case that asked for it. It is a ">"
+    ; drawn beside the label, and without this the row announces as "Share
+    ; greater-than" — the glyph read aloud as if it were part of the name, when
+    ; `aria-haspopup` has already said the same thing properly.
+    def a11yHidden:boolean false
+    ; `aria-modal`: while this surface is up, the rest of the page is not
+    ; there — a reader does not walk it and the host hides it. A menu that
+    ; takes the wheel and the arrow keys says so here, so the tree the
+    ; hosts read agrees with what the app does with the keys.
+    def a11yModal:boolean false
+    ; `aria-sort` on a column header: 0 none, 1 ascending, 2 descending.
+    def a11ySorted:int 0
+    ; `aria-orientation`. Its own field for the reason `aria-sort` is one: on a
+    ; SPLITTER it decides what a key means — ArrowLeft moves a horizontal one
+    ; and does nothing at all to a vertical one — and every other observation
+    ; about the two is identical. A toolbar, a slider, a menubar and a
+    ; separator all publish it too.
+    def a11yOrientation:string ""
+    ; `aria-current`. "page" on the crumb you are on.
+    def a11yCurrent:string ""
+    ; `aria-valuenow` / `valuemin` / `valuemax`. Absent until a page built out
+    ; of ELEMENTS needed to publish a splitter, and the gap was invisible
+    ; because a page built out of a CONTROLLER publishes them through `UiRow`
+    ; instead — two paths to the same tree and only one of them complete. Axe
+    ; found it: a focusable `separator` without a value is not a splitter, it
+    ; is a decoration that steals a tab stop.
+    ;
+    ; `hasValue` and `hasRange` are separate from the numbers for the reason
+    ; `EVGA11yNode` keeps them separate: a progress bar with a range and NO
+    ; position is how every platform spells "busy, length unknown", and 0 is a
+    ; different claim.
+    def a11yHasValue:boolean false
+    def a11yValueNow:int 0
+    def a11yHasRange:boolean false
+    def a11yValueMin:int 0
+    def a11yValueMax:int 0
+    ; Tri-states, EVGA11yTri: 0 not applicable, 1 no, 2 yes, 3 mixed. Not
+    ; booleans — `aria-checked="false"` on something that is not checkable makes
+    ; a reader announce a checkbox that does not exist.
+    def a11yChecked:int 0
+    ; `aria-pressed`, tri-state. A carried sortable row and a show/hide toggle
+    ; are both buttons that are ON, and neither is CHECKED — a reader says
+    ; "pressed" for one and "checked" for the other, and they are not
+    ; interchangeable.
+    def a11yPressed:int 0
+    def a11yExpanded:int 0
+    def a11ySelected:int 0
+    def a11yDisabled:boolean false
+    def a11yFocusable:boolean false
+    ; Where this row sits in a set the tree does not fully contain. A submenu
+    ; that is closed is not in the tree, so its parent still has to say how many
+    ; rows there are.
+    def a11yPosInSet:int 0
+    def a11ySetSize:int 0
+    ; `aria-level`, for a treeitem in a flat tree. 0 means unset.
+    def a11yLevel:int 0
+
+    ; --- what the stylesheet last wrote here ---------------------------------
+    ;
+    ; The cascade's answer for an element is a function of four things, and
+    ; these remember which four produced what the element is holding now. When
+    ; they all still agree on the next pass, the element already contains
+    ; exactly what the sheet would write, and writing it again is pure cost —
+    ; on a 1600-row table a hover changes ONE row and the other 22,402 elements
+    ; were being re-declared regardless.
+    ;
+    ; `styleGen` is the sheet's own counter, so re-parsing or resizing
+    ; invalidates every element at once without touching any of them.
+    ; `EVGTransition.writeBack` sets it to -1, because after a flight has
+    ; written a showing value the element no longer holds what the sheet
+    ; declared — and the sheet has to re-declare it or the flight stops dead.
+    def styleClass:string ""
+    def styleTheme:string ""
+    def styleBits:int 0
+    def styleGen:int 0
+    ; Which plan produced it, so two passes can be compared for whether
+    ; anything LAYOUT-relevant actually differs. -1 is "no plan yet".
+    def styleSlot:int (0 - 1)
+    ; How many children it had when it was styled.
+    ;
+    ; The stylesheet cannot see a child being added or removed — that is not a
+    ; property and no rule mentions it — so without this an element whose class
+    ; never changed would be skipped, the pass would report itself clean, layout
+    ; would be skipped, and the remaining children would be drawn at the
+    ; positions they held before the removal. Comparing one integer removes a
+    ; whole class of host mistake, and a removal is the case that has no other
+    ; symptom: an ADDED child is caught anyway, because a new element has never
+    ; been styled.
+    def styleKids:int (0 - 1)
+
+    ; Where this element sits in the last inspect walk, or -1 when the
+    ; inspector has never run. `EVGInspect` stamps it, and two things read it:
+    ; the display list, to say which element emitted a command, and the hit
+    ; test, to turn a point into a node path without comparing object
+    ; identity — which Ranger has no operator for. One int, untouched and
+    ; meaningless while nothing inspects anything.
+    def inspectSlot:int (0 - 1)
+
+    def isLayoutComplete:boolean false
+    def unitsResolved:boolean false
+    
+    ; For statement evaluation: indicates if a return was executed
+    def hasReturn:boolean false
+    def hasBreak:boolean false
+    def hasContinue:boolean false
+    
+    ; Inherited font size in pixels
+    def inheritedFontSize:double 14.0
+    
+    Constructor () {
+        tagName = "div"
+        elementType = 0
+        
+        width = (EVGUnit.unset())
+        height = (EVGUnit.unset())
+        minWidth = (EVGUnit.unset())
+        minHeight = (EVGUnit.unset())
+        maxWidth = (EVGUnit.unset())
+        maxHeight = (EVGUnit.unset())
+        
+        left = (EVGUnit.unset())
+        top = (EVGUnit.unset())
+        right = (EVGUnit.unset())
+        bottom = (EVGUnit.unset())
+        x = (EVGUnit.unset())
+        y = (EVGUnit.unset())
+        gap = (EVGUnit.unset())
+        flexBasis = (EVGUnit.unset())
+        rowGap = (EVGUnit.unset())
+        columnGap = (EVGUnit.unset())
+
+        def newBox (new EVGBox())
+        box = newBox
+        
+        backgroundColor = (EVGColor.noColor())
+        color = (EVGColor.black())
+        emojiColor = (EVGColor.noColor())
+        
+        fontSize = (EVGUnit.unset())
+        lineHeightUnit = (EVGUnit.unset())
+        
+        shadowRadius = (EVGUnit.unset())
+        shadowColor = (EVGColor.noColor())
+        shadowOffsetX = (EVGUnit.unset())
+        shadowOffsetY = (EVGUnit.unset())
+        
+        imageOffsetX = (EVGUnit.unset())
+        imageOffsetY = (EVGUnit.unset())
+        
+        fillColor = (EVGColor.noColor())
+        scrollbarThumb = (EVGColor.noColor())
+        scrollbarTrack = (EVGColor.noColor())
+        strokeColor = (EVGColor.noColor())
+
+        ; The per-side box fields the stylesheet writes when it has a value.
+        ; They used to be left undefined until then, which gave an element a
+        ; different hidden class depending on which of them had ever been
+        ; set, and made every layout read of them polymorphic. Every field
+        ; is now present from birth, at no cost: the defaults are shared.
+        marginTop = (EVGUnit.unset())
+        marginRight = (EVGUnit.unset())
+        marginBottom = (EVGUnit.unset())
+        marginLeft = (EVGUnit.unset())
+        paddingTop = (EVGUnit.unset())
+        paddingRight = (EVGUnit.unset())
+        paddingBottom = (EVGUnit.unset())
+        paddingLeft = (EVGUnit.unset())
+        borderWidth = (EVGUnit.unset())
+        borderTopWidth = (EVGUnit.unset())
+        borderRightWidth = (EVGUnit.unset())
+        borderBottomWidth = (EVGUnit.unset())
+        borderLeftWidth = (EVGUnit.unset())
+        borderColor = (EVGColor.noColor())
+        gradientFrom = (EVGColor.noColor())
+        gradientTo = (EVGColor.noColor())
+    }
+    
+    sfn createDiv:EVGElement () {
+        def el (new EVGElement())
+        el.tagName = "div"
+        el.elementType = 0
+        return el
+    }
+    
+    sfn createSpan:EVGElement () {
+        def el (new EVGElement())
+        el.tagName = "span"
+        el.elementType = 1
+        return el
+    }
+    
+    sfn createImg:EVGElement () {
+        def el (new EVGElement())
+        el.tagName = "img"
+        el.elementType = 2
+        return el
+    }
+    
+    sfn createPath:EVGElement () {
+        def el (new EVGElement())
+        el.tagName = "path"
+        el.elementType = 3
+        return el
+    }
+    
+    fn addChild:void (child:EVGElement) {
+        ; NOTE: no `child.parent = this` back-reference — it was write-only (never
+        ; read) and, in the C++ backend, assigning `this` to a shared_ptr field
+        ; forces enable_shared_from_this on EVGElement, which broke the native
+        ; build. Children are tracked by `children[]` (forward edges) only.
+        push children child
+    }
+    
+    ; A subtree whose layout is being kept — see `keepLayout` — is left as
+    ; it is: the layout decides, when the flow reaches it, whether it can
+    ; be answered from what it holds, and resets it itself when not.
+    fn resetLayoutState:void () {
+        if (keepLayout && (hasLayout && layoutClean)) {
+            return
+        }
+        this.resetLayoutNow()
+    }
+
+    fn resetLayoutNow:void () {
+        unitsResolved = false
+        shiftDx = 0.0
+        shiftDy = 0.0
+        hasIntrinsicMin = false
+        hasIntrinsicMax = false
+        layoutSkipped = false
+        boundsFresh = false
+        overlayScanned = false
+        calculatedX = 0.0
+        calculatedY = 0.0
+        calculatedWidth = 0.0
+        calculatedHeight = 0.0
+        ; Cleared with the rest of the layout state, so a pass that no longer
+        ; shrinks a child stops claiming it did.
+        calculatedFlexWidth = 0.0
+        hasFlexWidth = false
+        hasDefiniteHeight = false
+        calculatedBaseline = 0.0
+        calculatedDescent = 0.0
+        hasBaseline = false
+        ; Recursively reset children
+        def i:int 0
+        while (i < (array_length children)) {
+            def child:EVGElement (itemAt children i)
+            child.resetLayoutState()
+            i = i + 1
+        }
+    }
+    
+    fn getChildCount:int () {
+        return (array_length children)
+    }
+
+    ; Move this box and its paint bounds, and nothing beneath it.
+    fn moveSelf:void (dx:double dy:double) {
+        calculatedX = (calculatedX + dx)
+        calculatedY = (calculatedY + dy)
+        paintLeft = (paintLeft + dx)
+        paintRight = (paintRight + dx)
+        paintTop = (paintTop + dy)
+        paintBottom = (paintBottom + dy)
+    }
+
+    ; Move this box and every box beneath it. A descendant that itself owes
+    ; a shift keeps owing it: its own shift is relative to its own box, which
+    ; has just moved with the rest.
+    fn moveSubtree:void (dx:double dy:double) {
+        this.moveSelf(dx dy)
+        def i:int 0
+        def n:int (array_length children)
+        while (i < n) {
+            def kid:EVGElement (itemAt children i)
+            kid.moveSubtree(dx dy)
+            i = (i + 1)
+        }
+    }
+
+    ; Pay the scroll this subtree is owed — see `shiftDx`. Cheap to ask on
+    ; a node that owes nothing, which is every node but the far rows.
+    fn settleShift:void () {
+        if ((shiftDx == 0.0) && (shiftDy == 0.0)) {
+            return
+        }
+        def dx:double shiftDx
+        def dy:double shiftDy
+        shiftDx = 0.0
+        shiftDy = 0.0
+        def i:int 0
+        def n:int (array_length children)
+        while (i < n) {
+            def kid:EVGElement (itemAt children i)
+            kid.moveSubtree(dx dy)
+            i = (i + 1)
+        }
+    }
+
+    ; Every box in the tree where it should be, for a reader that is about
+    ; to look at all of them.
+    fn settleAll:void () {
+        this.settleShift()
+        def i:int 0
+        def n:int (array_length children)
+        while (i < n) {
+            def kid:EVGElement (itemAt children i)
+            kid.settleAll()
+            i = (i + 1)
+        }
+    }
+
+    ; --- scrolling ------------------------------------------------------------
+    ;
+    ; A box that does not let its content out. `visible` is the only CSS value
+    ; that does not clip, and every other one — `hidden` included — makes a
+    ; SCROLL CONTAINER. That `hidden` scrolls is the part worth stating: it is
+    ; a container with no scrollbar, not a box that throws the overflow away,
+    ; and a program can scroll it even though a pointer cannot.
+    fn clipsContent:boolean () {
+        return (overflow != "visible")
+    }
+
+    ; The visible box, the DOM's `clientHeight`/`clientWidth`: everything
+    ; inside the border, padding included.
+    fn clientHeight:double () {
+        return (calculatedHeight - (box.borderWidthPx * 2.0))
+    }
+
+    fn clientWidth:double () {
+        return (calculatedWidth - (box.borderWidthPx * 2.0))
+    }
+
+    ; How far there is to go. Zero when the content fits, which is also the
+    ; answer for every element that is not a scroll container at all, because
+    ; the layout only ever writes an extent for one that is.
+    fn maxScrollTop:double () {
+        def m:double (scrollHeight - (this.clientHeight()))
+        if (m < 0.0) {
+            return 0.0
+        }
+        return m
+    }
+
+    fn maxScrollLeft:double () {
+        def m:double (scrollWidth - (this.clientWidth()))
+        if (m < 0.0) {
+            return 0.0
+        }
+        return m
+    }
+    
+    fn getChild:EVGElement (index:int) {
+        return (itemAt children index)
+    }
+    
+    fn hasParent:boolean () {
+        ; Check if parent is set - use simple boolean check
+        if parent {
+            return true
+        }
+        return false
+    }
+    
+    fn isContainer:boolean () {
+        return (elementType == 0)
+    }
+    
+    fn isText:boolean () {
+        return (elementType == 1)
+    }
+    
+    fn isImage:boolean () {
+        return (elementType == 2)
+    }
+    
+    fn isPath:boolean () {
+        return (elementType == 3)
+    }
+    
+    ; A tag's props arrive as strings from a stylesheet and as whatever the
+    ; author wrote from a tree literal, so "true", "1" and a bare word all mean
+    ; the same thing here.
+    sfn truthy:boolean (value:string) {
+        def v:string (trim value)
+        if (v == "true") {
+            return true
+        }
+        if (v == "1") {
+            return true
+        }
+        if (v == "yes") {
+            return true
+        }
+        return false
+    }
+
+    ; "true"/"false"/"mixed" as EVGA11yTri, which is 0 for anything else —
+    ; including the empty string, i.e. "this element has no such state".
+    sfn triState:int (value:string) {
+        def v:string (trim value)
+        if (v == "true") {
+            return 2
+        }
+        if (v == "false") {
+            return 1
+        }
+        if (v == "mixed") {
+            return 3
+        }
+        return 0
+    }
+
+    ; `display: none` — the element is not there: no box, no paint, no hit,
+    ; not in the accessible tree. It is the way a stylesheet folds a bar or
+    ; a rail away at a breakpoint, and what `@media` is for.
+    fn isHidden:boolean () {
+        return (display == "none")
+    }
+
+    ; THE LINE BOX, in pixels, and the only thing that should read
+    ; `lineHeight` or `lineHeightUnit`. CSS gives three ways to write it and
+    ; they are three different computations:
+    ;
+    ;   `normal`   the FACE's own line box — `normalPx`, which the caller got
+    ;              from the text engine because only it knows about faces
+    ;   a number   that many times this element's font size
+    ;   a length   itself, with `%` and `em` against this element's OWN font
+    ;              size (not its parent's, which is what a percentage means
+    ;              everywhere else and does not mean here) and `rem` against
+    ;              the root's
+    ;
+    ; The layout reserves the height by this and the display list steps the
+    ; lines by it, so there is one answer and both sides read it.
+    fn lineBoxFor:double (fontSize:double normalPx:double) {
+        if lineHeightUnit.isSet {
+            def u:EVGUnit lineHeightUnit
+            u.setContext(rootFontSize viewportW viewportH)
+            ; The parent size a `line-height` percentage resolves against IS
+            ; the font size. CSS 2.1 10.8.1, and it is the one percentage in
+            ; the box model that does not look at the containing block.
+            u.resolve(fontSize fontSize)
+            if (u.pixels > 0.0) {
+                return u.pixels
+            }
+            return 0.0
+        }
+        if (lineHeight > 0.0) {
+            return (fontSize * lineHeight)
+        }
+        return normalPx
+    }
+
+    ; The width a line is broken into, for this element's own text: the box's
+    ; content width, or ZERO — which `EVGTextEngine` reads as "do not wrap" —
+    ; when `white-space` says the text is one line. One answer, so the layout
+    ; that reserves the height and the display list that draws the lines
+    ; cannot disagree about how many there are.
+    fn wrapWidth:double (contentWidth:double) {
+        if (whiteSpace == "nowrap") {
+            return 0.0
+        }
+        if (whiteSpace == "pre") {
+            return 0.0
+        }
+        return contentWidth
+    }
+
+    ; Is this element's drawn output somewhere its layout box does not say?
+    ; A transform moves the pixels after the boxes are placed, so the answer
+    ; decides whether the subtree can be culled at all — see `paintUnbounded`.
+    fn hasTransform:boolean () {
+        if (rotate != 0.0) {
+            return true
+        }
+        if flipY {
+            return true
+        }
+        if ((fabs (scale - 1.0)) > 0.000001) {
+            return true
+        }
+        if (translateX != 0.0) {
+            return true
+        }
+        if (translateY != 0.0) {
+            return true
+        }
+        return false
+    }
+
+    ; Positioned against the VIEWPORT and not moved by a scroll — the one
+    ; thing that separates it from `absolute`, which is positioned against the
+    ; nearest container and travels with it.
+    fn isFixedPosition:boolean () {
+        return (position == "fixed")
+    }
+
+    ; The same walk as `moveSubtree`, except that a FIXED box and everything
+    ; under it stays where it is. A scroll moves the content of a container;
+    ; a fixed box is not content, it is furniture over the viewport, and the
+    ; whole point of the mode is that the page slides under it.
+    fn moveSubtreeUnfixed:void (dx:double dy:double) {
+        this.moveSelf(dx dy)
+        def i:int 0
+        def n:int (array_length children)
+        while (i < n) {
+            def kid:EVGElement (itemAt children i)
+            if (kid.isFixedPosition()) {
+            } {
+                kid.moveSubtreeUnfixed(dx dy)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn hasAbsolutePosition:boolean () {
+        ; Fixed is out of flow by the same rule absolute is; where it differs
+        ; is which box it is positioned against, which is the layout's business
+        ; and not this one's.
+        if (position == "fixed") {
+            return true
+        }
+        ; An overlay surface is out of flow by the same rule an absolutely
+        ; positioned element is, and saying so here rather than adding a second
+        ; condition to every size and space calculation in EVGLayout is the
+        ; whole reason the flow half of this feature is one line. The overlay
+        ; pass then MOVES it; until then it sits where layoutAbsolute put it.
+        if isOverlay {
+            return true
+        }
+        ; A hidden element is out of flow the same way: nothing around it
+        ; moves for it, and the gap between its neighbours is one gap.
+        if (display == "none") {
+            return true
+        }
+        ; Check if element has absolute positioning
+        ; Layer elements are always absolute (overlay parent)
+        if ((tagName == "layer") || (tagName == "Layer")) {
+            return true
+        }
+        if left.isSet {
+            return true
+        }
+        if top.isSet {
+            return true
+        }
+        if right.isSet {
+            return true
+        }
+        if bottom.isSet {
+            return true
+        }
+        if x.isSet {
+            return true
+        }
+        if y.isSet {
+            return true
+        }
+        return false
+    }
+    
+    ; Resolve book format to page dimensions in points (72 DPI)
+    ; Returns [width, height] based on format and orientation
+    fn resolveBookFormat:void () {
+        def w:double 595.0   ; Default A4 width
+        def h:double 842.0   ; Default A4 height
+        
+        ; Blurb book formats (width x height in points @ 72 DPI)
+        if (format == "a4") {
+            w = 595.0
+            h = 842.0
+        }
+        if (format == "letter") {
+            w = 612.0
+            h = 792.0
+        }
+        if (format == "trade-5x8") {
+            w = 360.0
+            h = 576.0
+        }
+        if (format == "trade-6x9") {
+            w = 432.0
+            h = 648.0
+        }
+        if (format == "trade-8x10") {
+            w = 576.0
+            h = 720.0
+        }
+        if (format == "mini-square") {
+            w = 360.0
+            h = 360.0
+        }
+        if (format == "small-square") {
+            w = 504.0
+            h = 504.0
+        }
+        if (format == "standard-portrait") {
+            w = 576.0
+            h = 720.0
+        }
+        if (format == "standard-landscape") {
+            w = 720.0
+            h = 576.0
+        }
+        if (format == "large-landscape") {
+            w = 936.0
+            h = 792.0
+        }
+        if (format == "large-square") {
+            w = 864.0
+            h = 864.0
+        }
+        if (format == "magazine") {
+            w = 612.0
+            h = 792.0
+        }
+        
+        ; Apply orientation (swap dimensions for landscape if not already landscape format)
+        if (orientation == "landscape") {
+            if (w < h) {
+                ; Swap width and height for landscape
+                def temp:double w
+                w = h
+                h = temp
+            }
+        }
+        if (orientation == "portrait") {
+            if (w > h) {
+                ; Swap width and height for portrait
+                def temp:double w
+                w = h
+                h = temp
+            }
+        }
+        
+        ; If custom dimensions provided, use them
+        if (pageWidth > 0.0) {
+            w = pageWidth
+        }
+        if (pageHeight > 0.0) {
+            h = pageHeight
+        }
+        
+        ; Store resolved dimensions
+        pageWidth = w
+        pageHeight = h
+    }
+    
+    ; The face this element is actually set in, weight included.
+    ;
+    ; The renderers pick a bold face by appending "-Bold" to the family at
+    ; PAINT time, while layout measured the plain family — so a bold heading
+    ; was measured in the regular cut and drawn in the wider bold one, and
+    ; wrapped a line later than the box it had been given. Both sides go
+    ; through here now, which is §4.1 rule 1: one face, one measurement.
+    ; The destination in force here: this element's own, or the nearest
+    ; ancestor's. `<a>` wrapping a row is the shape this exists for.
+    fn effectiveHref:string () {
+        if ((strlen href) > 0) {
+            return href
+        }
+        def p@(optional):EVGElement parent
+        def guard:int 0
+        while ((!null? p) && (guard < 4096)) {
+            def up:EVGElement (unwrap p)
+            if ((strlen up.href) > 0) {
+                return up.href
+            }
+            p = up.parent
+            guard = (guard + 1)
+        }
+        return ""
+    }
+
+    fn effectiveFontFamily:string () {
+        if (fontWeight == "bold") {
+            return (fontFamily + "-Bold")
+        }
+        return fontFamily
+    }
+
+    ; The border, from wherever it was actually written.
+    ;
+    ; There are TWO places a border can land. `setAttribute` — which is what a
+    ; stylesheet and every kebab-case JSX attribute go through — writes
+    ; `box.borderWidth` / `box.borderColor`. The camelCase style-object path in
+    ; JSXToEVG writes the element-level `borderWidth` / `borderColor`. Each
+    ; painter then picked one:
+    ;
+    ;   PDF   box.borderWidth + box.borderColor          -> drew it
+    ;   HTML  the browser, from the emitted CSS          -> drew it
+    ;   PNG   el.borderWidth  + el.borderColor           -> drew NOTHING
+    ;   list  box.borderWidthPx + el.borderColor         -> drew NOTHING
+    ;
+    ; So a CSS-declared border printed and previewed correctly and was missing
+    ; from the raster and the GPU backend — the same shape of bug as the
+    ; border-radius that worked in PDF and silently not in PNG. One accessor,
+    ; and every painter reads it.
+    fn effectiveBorderWidthPx:double () {
+        if (box.borderWidthPx > 0.0) {
+            return box.borderWidthPx
+        }
+        if borderWidth {
+            if borderWidth.isSet {
+                return borderWidth.pixels
+            }
+        }
+        return 0.0
+    }
+
+    fn effectiveBorderColor:EVGColor () {
+        if box.borderColor {
+            def bc:EVGColor (unwrap box.borderColor)
+            if bc.isSet {
+                return bc
+            }
+        }
+        if borderColor {
+            def ec:EVGColor (unwrap borderColor)
+            if ec.isSet {
+                return ec
+            }
+        }
+        ; A width with no colour is a black border, which is what CSS says and
+        ; what the PDF path already assumed.
+        return (EVGColor.black())
+    }
+
+    fn hasBorder:boolean () {
+        if ((this.effectiveBorderWidthPx()) <= 0.0) {
+            return false
+        }
+        return true
+    }
+
+    ; The colour fallback glyphs are painted in: the explicit one when set,
+    ; otherwise the text colour, so an undeclared document looks exactly as it
+    ; did.
+    fn effectiveEmojiColor:EVGColor () {
+        if emojiColor.isSet {
+            return (unwrap emojiColor)
+        }
+        return (unwrap color)
+    }
+
+    fn inheritProperties:void (parentEl:EVGElement) {
+        ; Inherit properties from parent
+        if (fontFamily == "Noto Sans") {
+            fontFamily = parentEl.fontFamily
+        }
+        if (color.isSet == false) {
+            color = parentEl.color
+        }
+        ; Inherited like `color`: a deck sets it once and every caption in it
+        ; picks it up.
+        if (emojiColor.isSet == false) {
+            emojiColor = parentEl.emojiColor
+        }
+        ; And so does `cursor`. This is what makes "what is the cursor here" a
+        ; question about ONE element rather than a walk up a tree that has no
+        ; parent links.
+        if ((strlen cursor) == 0) {
+            cursor = parentEl.cursor
+        }
+        ; `white-space` is inherited, which is what lets a one-line field say
+        ; `nowrap` once and have the run inside it obey.
+        if (whiteSpace == "normal") {
+            whiteSpace = parentEl.whiteSpace
+        }
+        fontSizeBase = parentEl.inheritedFontSize
+        rootFontSize = parentEl.rootFontSize
+        ; The viewport travels the same way the root font size does rather
+        ; than being looked up — except across a box that declares one of its
+        ; own, which is where the walk stops.
+        if (viewportRoot == false) {
+            viewportW = parentEl.viewportW
+            viewportH = parentEl.viewportH
+            viewportX = parentEl.viewportX
+            viewportY = parentEl.viewportY
+        }
+        this.applyOwnFontSize()
+        this.applyOwnDirection(parentEl.resolvedRtl)
+    }
+
+    ; Settle this element's direction against the one it inherits. Inherited
+    ; like `color`, and for the same reason: a UI is turned around by saying so
+    ; ONCE, on the root, rather than by marking every panel in it.
+    fn applyOwnDirection:void (inherited:boolean) {
+        resolvedRtl = inherited
+        if (textDir == "rtl") {
+            resolvedRtl = true
+        }
+        if (textDir == "ltr") {
+            resolvedRtl = false
+        }
+    }
+
+    ; Settle this element's font-size against the one it inherits, and publish
+    ; the result as what its own `em` lengths and its descendants resolve
+    ; against.
+    ;
+    ; Two things were broken before this existed. A root has no parent, so
+    ; inheritProperties never ran on it and a font-size on a Page or Print was
+    ; dropped outright. And below the root, every element was constructed with
+    ; a 14px font-size, so an inherited size was immediately overwritten by
+    ; that default — font-size only ever applied to the element that carried it.
+    ; EVGLayout.layout calls this on the root; inheritProperties on the rest.
+    fn applyOwnFontSize:void () {
+        def authored:boolean fontSize.isSet
+        if fontSizeInherited {
+            authored = false
+        }
+        if authored {
+            ; `em` on font-size itself is relative to the *parent's* size,
+            ; which is why the base is kept rather than read back out of
+            ; inheritedFontSize.
+            fontSize.setContext(rootFontSize viewportW viewportH)
+            fontSize.resolve(fontSizeBase fontSizeBase)
+            inheritedFontSize = fontSize.pixels
+        } {
+            inheritedFontSize = fontSizeBase
+            fontSize = (EVGUnit.px(fontSizeBase))
+            fontSizeInherited = true
+        }
+    }
+    
+    fn resolveUnits:void (parentWidth:double parentHeight:double) {
+        ; Skip if already resolved - prevents double-resolution of percentages
+        if unitsResolved {
+            return
+        }
+        unitsResolved = true
+        
+        ; Resolve all unit values to pixels
+        def fs:double inheritedFontSize
+        def rfs:double rootFontSize
+        
+        ; `rem` needs the root's font size and `vw`/`vh` need the viewport,
+        ; neither of which a unit can reach on its own — hand both over before
+        ; anything is resolved.
+        def vpw:double viewportW
+        def vph:double viewportH
+        width.setContext(rfs vpw vph)
+        height.setContext(rfs vpw vph)
+        flexBasis.setContext(rfs vpw vph)
+        minWidth.setContext(rfs vpw vph)
+        minHeight.setContext(rfs vpw vph)
+        maxWidth.setContext(rfs vpw vph)
+        maxHeight.setContext(rfs vpw vph)
+        left.setContext(rfs vpw vph)
+        top.setContext(rfs vpw vph)
+        right.setContext(rfs vpw vph)
+        bottom.setContext(rfs vpw vph)
+        x.setContext(rfs vpw vph)
+        y.setContext(rfs vpw vph)
+        shadowRadius.setContext(rfs vpw vph)
+        shadowOffsetX.setContext(rfs vpw vph)
+        shadowOffsetY.setContext(rfs vpw vph)
+        
+        ; Dimensions - width uses parentWidth, height uses parentHeight
+        width.resolveWithHeight(parentWidth parentHeight fs)
+        height.resolveForHeight(parentWidth parentHeight fs)
+        flexBasis.resolve(parentWidth fs)
+        minWidth.resolve(parentWidth fs)
+        minHeight.resolve(parentHeight fs)
+        maxWidth.resolve(parentWidth fs)
+        maxHeight.resolve(parentHeight fs)
+        
+        ; Position
+        left.resolve(parentWidth fs)
+        top.resolve(parentHeight fs)
+        right.resolve(parentWidth fs)
+        bottom.resolve(parentHeight fs)
+        x.resolve(parentWidth fs)
+        y.resolve(parentHeight fs)
+        
+        ; Box model
+        box.resolveUnits(parentWidth parentHeight fs rfs vpw vph)
+        
+        ; Shadow
+        shadowRadius.resolve(parentWidth fs)
+        shadowOffsetX.resolve(parentWidth fs)
+        shadowOffsetY.resolve(parentHeight fs)
+        
+        ; Determine if absolute positioning
+        isAbsolute = (this.hasAbsolutePosition())
+    }
+    
+    ; Normalize a property spelling so `fontSize` and `font-size` are one key.
+    sfn toKebab:string (name:string) {
+        def out:string ""
+        def len:int (strlen name)
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt name i)
+            if ((c >= 65) && (c <= 90)) {
+                if (i > 0) {
+                    out = out + "-"
+                }
+                out = out + (strfromcode (c + 32))
+            } {
+                out = out + (strfromcode c)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- transform ---------------------------------------------------------------
+
+    ; Compose the function list into one similarity: angle, uniform scale,
+    ; offset. Left to right, the way CSS reads them, and the composition is the
+    ; reason order is honoured for free:
+    ;
+    ;   M = (a, s, t)  means  p -> R(a)·s·p + t
+    ;   M ∘ N          means  angle a+b, scale s·s2, offset t + R(a)·s·u
+    ;
+    ; which is why `rotate(90deg) translate(10px, 0)` moves DOWN the page and
+    ; `translate(10px, 0) rotate(90deg)` moves right. Applying the pieces
+    ; independently gets both of those wrong and looks correct whenever only one
+    ; of them is present, which is most of the time.
+    fn applyTransform:void (value:string) {
+        transformSpec = (trim value)
+        rotate = 0.0
+        scale = 1.0
+        flipY = false
+        translateX = 0.0
+        translateY = 0.0
+        if ((transformSpec == "none") || ((strlen transformSpec) == 0)) {
+            return
+        }
+        def parts:[string] (EVGElement.splitWords(transformSpec))
+        def a:double 0.0
+        def sc:double 1.0
+        def flip:boolean false
+        def tx:double 0.0
+        def ty:double 0.0
+        def i:int 0
+        while (i < (array_length parts)) {
+            def one:string (trim (itemAt parts i))
+            def b:double 0.0
+            def s2:double 1.0
+            def f2:boolean false
+            def ux:double 0.0
+            def uy:double 0.0
+            def args:string (EVGElement.callArgs(one "rotate"))
+            if ((strlen args) > 0) {
+                b = (EVGElement.parseAngleDeg(args))
+            } {
+                def sargs:string (EVGElement.callArgs(one "scale"))
+                if ((strlen sargs) > 0) {
+                    def nums:[double] (EVGElement.numberList(sargs))
+                    if ((array_length nums) > 0) {
+                        s2 = (itemAt nums 0)
+                    }
+                    ; Two arguments of the same magnitude and opposite sign
+                    ; are `s · diag(1, -1)`: the factor is the first of them
+                    ; and the rest is a flip.
+                    if ((array_length nums) > 1) {
+                        if (((itemAt nums 0) * (itemAt nums 1)) < 0.0) {
+                            f2 = true
+                        }
+                    }
+                } {
+                    def targs:string (EVGElement.callArgs(one "translate"))
+                    if ((strlen targs) > 0) {
+                        def tn:[double] (EVGElement.numberList(targs))
+                        if ((array_length tn) > 0) {
+                            ux = (itemAt tn 0)
+                        }
+                        if ((array_length tn) > 1) {
+                            uy = (itemAt tn 1)
+                        }
+                    } {
+                        def xargs:string (EVGElement.callArgs(one "translateX"))
+                        if ((strlen xargs) > 0) {
+                            def xn:[double] (EVGElement.numberList(xargs))
+                            if ((array_length xn) > 0) {
+                                ux = (itemAt xn 0)
+                            }
+                        } {
+                            def yargs:string (EVGElement.callArgs(one "translateY"))
+                            if ((strlen yargs) > 0) {
+                                def yn:[double] (EVGElement.numberList(yargs))
+                                if ((array_length yn) > 0) {
+                                    uy = (itemAt yn 0)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            def rad:double ((a * 3.14159265358979) / 180.0)
+            def cs:double (cos rad)
+            def sn:double (sin rad)
+            ; A flip already in force turns the pieces after it around: the
+            ; offset is mirrored before it is rotated, and the angle of a
+            ; rotation the other side of a mirror is its negative.
+            ;   F·R(b) = R(-b)·F
+            ; which is what keeps `scale(1,-1) rotate(30deg)` different from
+            ; `rotate(30deg) scale(1,-1)`, the way the order already matters
+            ; for a translate.
+            def uyf:double uy
+            def bf:double b
+            if flip {
+                uyf = (0.0 - uy)
+                bf = (0.0 - b)
+            }
+            tx = (tx + (sc * ((ux * cs) - (uyf * sn))))
+            ty = (ty + (sc * ((ux * sn) + (uyf * cs))))
+            a = (a + bf)
+            sc = (sc * s2)
+            if f2 {
+                flip = (flip == false)
+            }
+            i = (i + 1)
+        }
+        rotate = a
+        scale = sc
+        flipY = flip
+        translateX = tx
+        translateY = ty
+    }
+
+    ; --- transform-origin ---------------------------------------------------------
+
+    ; `transform-origin: left top`, `25% 10px`, `bottom`, `10px`.
+    ;
+    ; The grammar is not "first value is x". A lone LENGTH sets x and leaves y
+    ; at 50%, but a lone `top` or `bottom` is a Y keyword and sets the other
+    ; axis — so `transform-origin: 10px` is `10px 50%` while
+    ; `transform-origin: top` is `50% 0%`. And with two keywords the ORDER IS
+    ; FREE: `top left` and `left top` are the same point. Both of those are
+    ; measured, not read off a grammar: a browser was asked for the resolved
+    ; value of seventeen spellings and `oracle/css-timing.json` holds the
+    ; answers.
+    ;
+    ; A third value is the z origin. It is accepted and ignored; this is a 2-D
+    ; engine and rejecting the declaration outright would throw away the x and
+    ; y with it.
+    fn applyTransformOrigin:void (value:string) {
+        transformOriginSpec = (trim value)
+        def words:[string] (EVGElement.splitWords(transformOriginSpec))
+        def n:int (array_length words)
+        if (n == 0) {
+            transformOriginX = (new EVGUnit())
+            transformOriginY = (new EVGUnit())
+            return
+        }
+        def first:string (trim (itemAt words 0))
+        if (n == 1) {
+            if (EVGElement.isYKeyword(first)) {
+                transformOriginX = (EVGUnit.percent(50.0))
+                transformOriginY = (EVGElement.originUnit(first))
+            } {
+                transformOriginX = (EVGElement.originUnit(first))
+                transformOriginY = (EVGUnit.percent(50.0))
+            }
+            return
+        }
+        def second:string (trim (itemAt words 1))
+        ; Swap when the pair was written the other way round. Only a keyword can
+        ; say which axis it belongs to, so only a keyword can trigger this — two
+        ; lengths are always x then y.
+        def swap:boolean false
+        if (EVGElement.isYKeyword(first))  { swap = true }
+        if (EVGElement.isXKeyword(second)) { swap = true }
+        if swap {
+            transformOriginX = (EVGElement.originUnit(second))
+            transformOriginY = (EVGElement.originUnit(first))
+        } {
+            transformOriginX = (EVGElement.originUnit(first))
+            transformOriginY = (EVGElement.originUnit(second))
+        }
+    }
+
+    sfn isXKeyword:boolean (w:string) {
+        return ((w == "left") || (w == "right"))
+    }
+
+    sfn isYKeyword:boolean (w:string) {
+        return ((w == "top") || (w == "bottom"))
+    }
+
+    ; A keyword is a percentage of the box. `center` belongs to neither axis
+    ; and means the same on both, which is why it is not in either list above.
+    sfn originUnit:EVGUnit (w:string) {
+        if ((w == "left") || (w == "top"))     { return (EVGUnit.percent(0.0)) }
+        if ((w == "right") || (w == "bottom")) { return (EVGUnit.percent(100.0)) }
+        if (w == "center")                     { return (EVGUnit.percent(50.0)) }
+        return (EVGUnit.parse(w))
+    }
+
+    ; The origin in pixels, from the box's own top-left corner. `size` is that
+    ; edge of the border box.
+    ;
+    ; Unset is 50%, not 0: an element that never mentions `transform-origin`
+    ; turns about its centre, and reading an unset unit as zero would put every
+    ; untouched rotation on the top-left corner instead.
+    sfn resolveOrigin:double (u:EVGUnit size:double) {
+        if (u.isSet == false) {
+            return (size / 2.0)
+        }
+        ; 1 is PERCENT, 3 is HEIGHT_PERCENT. Both resolve against the edge
+        ; being asked about here, because the caller passes the right one.
+        if ((u.unitType == 1) || (u.unitType == 3)) {
+            return ((u.value / 100.0) * size)
+        }
+        return u.value
+    }
+
+    ; "" when the value is one this engine can represent exactly, otherwise the
+    ; reason. A stylesheet reports it; approximating a skew as a rotation would
+    ; be worse than saying no.
+    sfn transformProblem:string (value:string) {
+        def v:string (trim value)
+        if ((v == "none") || ((strlen v) == 0)) {
+            return ""
+        }
+        def parts:[string] (EVGElement.splitWords(v))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def one:string (trim (itemAt parts i))
+            def known:boolean false
+            if ((strlen (EVGElement.callArgs(one "rotate"))) > 0)     { known = true }
+            if ((strlen (EVGElement.callArgs(one "scale"))) > 0)      { known = true }
+            if ((strlen (EVGElement.callArgs(one "translate"))) > 0)  { known = true }
+            if ((strlen (EVGElement.callArgs(one "translateX"))) > 0) { known = true }
+            if ((strlen (EVGElement.callArgs(one "translateY"))) > 0) { known = true }
+            if (known == false) {
+                return ("Unsupported transform (rotate, scale, translate, translateX, translateY): " + one)
+            }
+            ; A non-uniform scale is not a similarity, so the display list
+            ; cannot carry it as an angle and a factor. Two arguments whose
+            ; MAGNITUDES differ is exactly that case — a difference of sign
+            ; alone is a reflection, which is still a similarity and is
+            ; carried as a flip beside the angle and the factor.
+            def sargs:string (EVGElement.callArgs(one "scale"))
+            if ((strlen sargs) > 0) {
+                def nums:[double] (EVGElement.numberList(sargs))
+                if ((array_length nums) > 1) {
+                    if ((fabs ((fabs (itemAt nums 0)) - (fabs (itemAt nums 1)))) > 0.0001) {
+                        return ("Only a uniform scale is supported: " + one)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; The inside of `name(...)`, or "" if `one` is not that call. The name has
+    ; to match WHOLE: `translateX(4px)` is not a `translate`, and accepting it
+    ; as one silently drops the X.
+    sfn callArgs:string (one:string name:string) {
+        def nl2:int (strlen name)
+        def tl:int (strlen one)
+        if (tl < (nl2 + 3)) {
+            return ""
+        }
+        if ((substring one 0 nl2) != name) {
+            return ""
+        }
+        if ((charAt one nl2) != 40) {
+            return ""
+        }
+        if ((charAt one (tl - 1)) != 41) {
+            return ""
+        }
+        def inner:string (substring one (nl2 + 1) (tl - 1))
+        if ((strlen inner) == 0) {
+            return ""
+        }
+        return inner
+    }
+
+    ; Comma-separated numbers with a unit suffix that is ignored: everything
+    ; here is already in device pixels and a percentage would need the box.
+    sfn numberList:[double] (s:string) {
+        def out:[double]
+        def parts:[string] (EVGElement.splitOnChar(s 44))
+        def i:int 0
+        while (i < (array_length parts)) {
+            push out (EVGElement.leadingNumber((itemAt parts i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn splitOnChar:[string] (s:string ch:int) {
+        def out:[string]
+        def start:int 0
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            if ((charAt s i) == ch) {
+                push out (substring s start i)
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        push out (substring s start n)
+        return out
+    }
+
+    ; The number at the front, unit discarded. `4px` and `4` are the same
+    ; length here; a bare `0` is legal CSS and has to parse.
+    sfn leadingNumber:double (s:string) {
+        def t:string (trim s)
+        def n:int (strlen t)
+        def stop:int 0
+        def scanning:boolean true
+        while (scanning && (stop < n)) {
+            def c:int (charAt t stop)
+            def digit:boolean ((c >= 48) && (c <= 57))
+            def signOrDot:boolean (((c == 45) || (c == 43)) || (c == 46))
+            if (digit || signOrDot) {
+                stop = (stop + 1)
+            } {
+                scanning = false
+            }
+        }
+        if (stop == 0) {
+            return 0.0
+        }
+        def v@(optional):double (to_double (substring t 0 stop))
+        if v {
+            return (unwrap v)
+        }
+        return 0.0
+    }
+
+    ; deg, rad, turn and grad, because a stylesheet that says `0.25turn` means
+    ; a quarter circle and reading it as a quarter of a degree is a bug nobody
+    ; would think to look for. `turn` and `grad` are checked BEFORE `rad`: both
+    ; of them end in those three letters.
+    sfn parseAngleDeg:double (text:string) {
+        def t:string (trim text)
+        def v:double (EVGElement.leadingNumber(t))
+        def n:int (strlen t)
+        if (n > 4) {
+            def four:string (substring t (n - 4) n)
+            if (four == "turn") {
+                return (v * 360.0)
+            }
+            if (four == "grad") {
+                return ((v * 360.0) / 400.0)
+            }
+        }
+        if (n > 3) {
+            def three:string (substring t (n - 3) n)
+            if (three == "rad") {
+                return ((v * 180.0) / 3.14159265358979)
+            }
+            if (three == "deg") {
+                return v
+            }
+        }
+        return v
+    }
+
+    ; Split a CSS value on whitespace, but never inside parentheses —
+    ; `rgb(203, 213, 225)` is ONE token, and splitting it would hand the
+    ; border shorthand three pieces of nonsense.
+    ; CSS box shorthands take one to four values, and EVG used to read the
+    ; whole declaration as ONE unit: `padding: 0 16px` put nothing on the sides
+    ; at all, because the parser saw the leading `0` and applied it four times.
+    ; Every two-, three- and four-value shorthand in the gallery had been wrong
+    ; since the sheets were written, which nobody noticed because a padding
+    ; that is too small looks like a layout someone chose.
+    ;
+    ; The mapping and the failure rules are measured in `oracle/css-box.json`:
+    ; one value is all four sides, two are vertical then horizontal, three are
+    ; top/horizontal/bottom, four are top/right/bottom/left. Anything else —
+    ; five values, a component that is not a length, a negative PADDING — drops
+    ; the whole declaration rather than the offending component, so the element
+    ; keeps whatever it had. An empty result here means exactly that.
+    sfn boxSides:[EVGUnit] (value:string isMargin:boolean) {
+        def out:[EVGUnit]
+        def words:[string] (EVGElement.splitWords(value))
+        def n:int (array_length words)
+        if (n < 1) {
+            return out
+        }
+        if (n > 4) {
+            return out
+        }
+        def parts:[EVGUnit]
+        def i:int 0
+        while (i < n) {
+            def w:string (itemAt words i)
+            def u:EVGUnit (EVGUnit.parse(w))
+            if (u.isSet == false) {
+                ; `auto` is the one word that legally parses to no length, and
+                ; only on a margin. EVG has no auto-margin centring, so it lands
+                ; where an unset margin lands: at zero.
+                if (isMargin == false) {
+                    return out
+                }
+                if (w != "auto") {
+                    return out
+                }
+            } {
+                if (u.value < 0.0) {
+                    if (isMargin == false) {
+                        return out
+                    }
+                }
+            }
+            push parts u
+            i = (i + 1)
+        }
+        def top:EVGUnit (itemAt parts 0)
+        def right:EVGUnit top
+        def bottom:EVGUnit top
+        def left:EVGUnit top
+        if (n > 1) {
+            right = (itemAt parts 1)
+            left = right
+        }
+        if (n > 2) {
+            bottom = (itemAt parts 2)
+        }
+        if (n > 3) {
+            left = (itemAt parts 3)
+        }
+        push out top
+        push out right
+        push out bottom
+        push out left
+        return out
+    }
+
+    ; The radius out of `blur(12px)`, or 0 for `none` and for anything this
+    ; does not understand. Called by `setStyle`, and separately by the style
+    ; sheet's validator so an unsupported filter function is REPORTED — see
+    ; `blurProblem`.
+    ; "x y w h", four numbers or four percentages, into the element's four
+    ; fractions. Anything else leaves them alone and says so, so a typo is a
+    ; picture drawn whole rather than a picture drawn nowhere.
+    sfn parseViewBox:boolean (value:string el:EVGElement) {
+        def v:string (trim value)
+        if ((strlen v) == 0) {
+            return false
+        }
+        def words:[string] (EVGElement.splitWords(v))
+        if ((array_length words) != 4) {
+            return false
+        }
+        def got:[double]
+        def i:int 0
+        while (i < 4) {
+            def w:string (itemAt words i)
+            def u:EVGUnit (EVGUnit.parse(w))
+            if (u.isSet == false) {
+                return false
+            }
+            def n:double u.value
+            if (u.isPercent()) {
+                n = (n / 100.0)
+            }
+            push got n
+            i = (i + 1)
+        }
+        def cw:double (itemAt got 2)
+        def ch:double (itemAt got 3)
+        ; A window with no width shows nothing; that is a typo, not a crop.
+        if ((fabs cw) < 0.000001) {
+            return false
+        }
+        if ((fabs ch) < 0.000001) {
+            return false
+        }
+        el.imageViewBoxX = (itemAt got 0)
+        el.imageViewBoxY = (itemAt got 1)
+        el.imageViewBoxW = cw
+        el.imageViewBoxH = ch
+        return true
+    }
+
+    sfn blurRadiusOf:double (value:string) {
+        def v:string (trim value)
+        if (v == "none") {
+            return 0.0
+        }
+        if ((strlen v) == 0) {
+            return 0.0
+        }
+        def words:[string] (EVGElement.splitWords(v))
+        ; One function, and it has to be blur(). A list of filters is legal CSS
+        ; and is not supported here; saying so is the point of returning 0 and
+        ; letting `blurProblem` name it.
+        if ((array_length words) != 1) {
+            return 0.0
+        }
+        def one:string (itemAt words 0)
+        def inner:string (EVGElement.callArgs(one "blur"))
+        if ((strlen inner) == 0) {
+            return 0.0
+        }
+        def u:EVGUnit (EVGUnit.parse(inner))
+        if (u.isSet == false) {
+            return 0.0
+        }
+        ; A negative radius is not a filter, it is a typo.
+        if (u.value < 0.0) {
+            return 0.0
+        }
+        ; Only absolute lengths: a percentage has nothing to resolve against
+        ; here, since a blur radius is not a fraction of anything.
+        if (u.unitType != 0) {
+            return 0.0
+        }
+        return u.pixels
+    }
+
+    ; Why a `backdrop-filter` did nothing, or "" when it is fine. The sheet
+    ; reports this the way it reports an unknown timing function: a filter that
+    ; is quietly ignored looks exactly like a backend that has not caught up.
+    sfn blurProblem:string (value:string) {
+        def v:string (trim value)
+        if (v == "none") {
+            return ""
+        }
+        if ((strlen v) == 0) {
+            return ""
+        }
+        def words:[string] (EVGElement.splitWords(v))
+        if ((array_length words) != 1) {
+            return ("backdrop-filter: only a single blur() is supported, got '" + v + "'")
+        }
+        def one:string (itemAt words 0)
+        def inner:string (EVGElement.callArgs(one "blur"))
+        if ((strlen inner) == 0) {
+            return ("backdrop-filter: only blur() is supported, got '" + v + "'")
+        }
+        def u:EVGUnit (EVGUnit.parse(inner))
+        if (u.isSet == false) {
+            return ("backdrop-filter: '" + inner + "' is not a length")
+        }
+        if (u.value < 0.0) {
+            return ("backdrop-filter: a blur radius cannot be negative")
+        }
+        if (u.unitType != 0) {
+            return ("backdrop-filter: blur() needs an absolute length, got '" + inner + "'")
+        }
+        return ""
+    }
+
+    sfn splitWords:[string] (s:string) {
+        def out:[string]
+        def cur:string ""
+        def depth:int 0
+        def i:int 0
+        def len:int (strlen s)
+        while (i < len) {
+            def c:int (charAt s i)
+            if (c == 40) {
+                depth = (depth + 1)
+            }
+            if (c == 41) {
+                depth = (depth - 1)
+            }
+            def isSpace:boolean false
+            if (depth == 0) {
+                if (c == 32) {
+                    isSpace = true
+                }
+                if (c == 9) {
+                    isSpace = true
+                }
+            }
+            if isSpace {
+                if ((strlen cur) > 0) {
+                    push out cur
+                    cur = ""
+                }
+            } {
+                cur = cur + (strfromcode c)
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push out cur
+        }
+        return out
+    }
+
+    sfn isBorderStyleWord:boolean (tok:string) {
+        if (tok == "solid") {
+            return true
+        }
+        if (tok == "dashed") {
+            return true
+        }
+        if (tok == "dotted") {
+            return true
+        }
+        if (tok == "double") {
+            return true
+        }
+        if (tok == "none") {
+            return true
+        }
+        if (tok == "hidden") {
+            return true
+        }
+        return false
+    }
+
+    ; A width starts with a digit or a dot; anything else in the shorthand that
+    ; is not a style keyword is the colour — `#abc`, `rgb(...)` or a name.
+    ; A bare number, with a `px` or other unit allowed and ignored: these are
+    ; EVG's own properties and they are all in page pixels or in per-second,
+    ; so there is no unit to resolve — `28` and `28px` mean the same thing and
+    ; both are things somebody will write.
+    sfn numberOr:double (value:string fallback:double) {
+        def digits:string ""
+        def i:int 0
+        while (i < (strlen value)) {
+            ; `charAt` gives a CODEPOINT, not a one-character string, so the
+            ; comparison is against numbers: 48..57 are the digits, 46 is the
+            ; point and 45 the minus.
+            def code:int (charAt value i)
+            def keep:boolean ((code >= 48) && (code <= 57))
+            if (code == 46) { keep = true }
+            if (code == 45) { keep = true }
+            if keep {
+                digits = (digits + (substring value i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        if ((strlen digits) == 0) {
+            return fallback
+        }
+        def v@(optional):double (to_double digits)
+        if v {
+            return (unwrap v)
+        }
+        return fallback
+    }
+
+    sfn looksLikeColor:boolean (tok:string) {
+        if ((strlen tok) == 0) {
+            return false
+        }
+        def c:int (charAt tok 0)
+        if ((c >= 48) && (c <= 57)) {
+            return false
+        }
+        if (c == 46) {
+            return false
+        }
+        return true
+    }
+
+    ; Record that the authoring layer set `name` directly on this element.
+    ; The local is `prop` and not `key`: `key` is a field of this class now,
+    ; and a local shadowing it here would be a rename waiting to go wrong.
+    fn markInline:void (name:string) {
+        def prop:string (EVGElement.toKebab(name))
+        if ((this.hasInline(prop)) == false) {
+            push inlineProps prop
+        }
+    }
+
+    ; Forget that the authoring layer set `name` directly.
+    ;
+    ; `markInline` had no inverse, which was fine while the only writer was a
+    ; parser reading a document once. An edit that is undone needs one: putting
+    ; the value back without clearing this leaves the property outranking every
+    ; stylesheet rule, so the tree would look restored and cascade differently.
+    fn unmarkInline:void (name:string) {
+        def prop:string (EVGElement.toKebab(name))
+        def kept:[string]
+        def i:int 0
+        while (i < (array_length inlineProps)) {
+            def cur:string (itemAt inlineProps i)
+            if (cur != prop) {
+                push kept cur
+            }
+            i = (i + 1)
+        }
+        inlineProps = kept
+    }
+
+    fn hasInline:boolean (name:string) {
+        ; The overwhelmingly common answer, reached without converting the
+        ; name. The stylesheet asks this once per declaration per element per
+        ; frame — about 180,000 times on a 1600-row table — and almost every
+        ; element has nothing inline at all, so paying for a kebab-case
+        ; conversion in order to look in an empty list was most of what it cost.
+        if ((array_length inlineProps) == 0) {
+            return false
+        }
+        def prop:string (EVGElement.toKebab(name))
+        def i:int 0
+        while (i < (array_length inlineProps)) {
+            if ((itemAt inlineProps i) == prop) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; CSS `flex` shorthand: "1", "1 1 auto", "2 0 120px".
+    ;   one number      -> grow, and basis 0 (CSS uses 0%, not auto)
+    ;   number number   -> grow, shrink
+    ;   n n <length>    -> grow, shrink, basis
+    ; A single non-numeric value is treated as a basis, matching `flex: auto`
+    ; and `flex: 120px`.
+    fn setFlexShorthand:void (value:string) {
+        def parts:[string] (EVGElement.splitSpaces(value))
+        def n:int (array_length parts)
+        if (n == 0) {
+            return
+        }
+        def first:string (itemAt parts 0)
+        ; to_double("150px") happily returns 150, so a bare unit value would be
+        ; read as a grow factor. Only a token that is entirely numeric is one.
+        def growVal@(optional):double (to_double first)
+        if (EVGElement.isPlainNumber(first)) {
+            flex = (unwrap growVal)
+            ; A bare `flex: N` starts from zero, so items share the line in
+            ; proportion to N regardless of any width they also carry.
+            flexBasis = (EVGUnit.px(0.0))
+            if (n >= 2) {
+                def shrinkVal@(optional):double (to_double (itemAt parts 1))
+                if shrinkVal {
+                    flexShrink = (unwrap shrinkVal)
+                }
+            }
+            if (n >= 3) {
+                flexBasis = (EVGUnit.parse((itemAt parts 2)))
+            }
+        } {
+            ; `flex: auto` / `flex: 120px` — a basis with default grow/shrink.
+            flexBasis = (EVGUnit.parse(first))
+            flex = 1.0
+        }
+    }
+
+    sfn isPlainNumber:boolean (s:string) {
+        def len:int (strlen s)
+        if (len == 0) {
+            return false
+        }
+        def digits:int 0
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt s i)
+            def isDigit:boolean ((c >= 48) && (c <= 57))
+            if isDigit {
+                digits = (digits + 1)
+            } {
+                ; '.', '-' and '+' may appear; anything else means a unit.
+                if (((c != 46) && (c != 45)) && (c != 43)) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return (digits > 0)
+    }
+
+    sfn splitSpaces:[string] (s:string) {
+        def out:[string]
+        def len:int (strlen s)
+        def start:int 0
+        def inTok:boolean false
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt s i)
+            def isSpace:boolean (((c == 32) || (c == 9)) || ((c == 10) || (c == 13)))
+            if isSpace {
+                if inTok {
+                    push out (substring s start i)
+                    inTok = false
+                }
+            } {
+                if (inTok == false) {
+                    start = i
+                    inTok = true
+                }
+            }
+            i = (i + 1)
+        }
+        if inTok {
+            push out (substring s start len)
+        }
+        return out
+    }
+
+    ; Take on everything `other` describes, keeping this element's IDENTITY.
+    ; (The parameter is `other` and not `src` because `src` is already a field
+    ; of this class — the image source.)
+    ;
+    ; Every field of EVGElement is copied EXCEPT three:
+    ;
+    ;   `parent` and `children` — structure, which `EVGReconcile` owns. Copying
+    ;   them here would splice the discarded tree back in.
+    ;
+    ;   `transitions` — the in-flight animations, which are the whole reason
+    ;   this element is being kept rather than replaced. A flight remembers its
+    ;   own target and what it last wrote (`EVGFlight.hasWrote`), so preserving
+    ;   the list and overwriting everything else is exactly right: the sheet
+    ;   re-declares the destination, and `EVGTransition.reconcile` compares the
+    ;   two and either continues, redirects or lands.
+    ;
+    ; Object-typed fields are shared, not cloned. That is safe because `other`
+    ; is a node of a tree being DISCARDED — it has exactly one live holder after
+    ; this returns — and it is why this must never be used to copy one live
+    ; element onto another.
+    ;
+    ; A field added to this class and not added here would be silently dropped
+    ; on every rebuild, which is a bug that shows up as "it works until you
+    ; interact with it". `scripts/check-evg-adopt.mjs` fails the build when the
+    ; two lists disagree, so this cannot rot quietly.
+    fn adoptFrom:void (other:EVGElement) {
+        id = other.id
+        key = other.key
+        ; The link a subtree sits inside. A reconciled element that loses it
+        ; stops being a link on the next rebuild — and in a PDF, where the
+        ; href is an annotation rather than blue ink, there is nothing left on
+        ; the page to say it ever was one.
+        href = other.href
+        tagName = other.tagName
+        elementType = other.elementType
+        format = other.format
+        orientation = other.orientation
+        pageWidth = other.pageWidth
+        pageHeight = other.pageHeight
+        width = other.width
+        height = other.height
+        minWidth = other.minWidth
+        minHeight = other.minHeight
+        maxWidth = other.maxWidth
+        maxHeight = other.maxHeight
+        left = other.left
+        top = other.top
+        right = other.right
+        bottom = other.bottom
+        x = other.x
+        y = other.y
+        box = other.box
+        backgroundColor = other.backgroundColor
+        opacity = other.opacity
+        backdropBlur = other.backdropBlur
+        gradientSet = other.gradientSet
+        gradientFrom = other.gradientFrom
+        gradientTo = other.gradientTo
+        gradientDir = other.gradientDir
+        absPosSet = other.absPosSet
+        absX = other.absX
+        absY = other.absY
+        glowIntensity = other.glowIntensity
+        bgImageSet = other.bgImageSet
+        bgImagePath = other.bgImagePath
+        textDir = other.textDir
+        resolvedRtl = other.resolvedRtl
+        direction = other.direction
+        align = other.align
+        verticalAlign = other.verticalAlign
+        isInline = other.isInline
+        lineBreak = other.lineBreak
+        overflow = other.overflow
+        cursor = other.cursor
+        surfaceEffect = other.surfaceEffect
+        rippleSpeed = other.rippleSpeed
+        rippleWidth = other.rippleWidth
+        rippleStrength = other.rippleStrength
+        rippleDecay = other.rippleDecay
+        rippleHighlight = other.rippleHighlight
+        rippleRings = other.rippleRings
+        rippleStagger = other.rippleStagger
+        rippleFalloff = other.rippleFalloff
+        rippleShine = other.rippleShine
+        rippleGloss = other.rippleGloss
+        rippleBump = other.rippleBump
+        rippleLightX = other.rippleLightX
+        rippleLightY = other.rippleLightY
+        rippleLightZ = other.rippleLightZ
+        rippleXs = other.rippleXs
+        rippleYs = other.rippleYs
+        rippleAges = other.rippleAges
+        scrollTop = other.scrollTop
+        scrollLeft = other.scrollLeft
+        scrollWidth = other.scrollWidth
+        scrollHeight = other.scrollHeight
+        fontSize = other.fontSize
+        fontSizeInherited = other.fontSizeInherited
+        fontSizeBase = other.fontSizeBase
+        rootFontSize = other.rootFontSize
+        viewportW = other.viewportW
+        viewportH = other.viewportH
+        viewportRoot = other.viewportRoot
+        viewportX = other.viewportX
+        viewportY = other.viewportY
+        fontFamily = other.fontFamily
+        fontWeight = other.fontWeight
+        letterSpacing = other.letterSpacing
+        paragraphSpacing = other.paragraphSpacing
+        strokeLineCap = other.strokeLineCap
+        strokeLineJoin = other.strokeLineJoin
+        lineHeight = other.lineHeight
+        lineHeightUnit = other.lineHeightUnit
+        textAlign = other.textAlign
+        ; Written by the layout, not by the author — but adopted with the
+        ; rest, because a reconciled element that lost it would draw its own
+        ; text against the top of a box it was centred in until something
+        ; forced a fresh layout.
+        textShiftY = other.textShiftY
+        whiteSpace = other.whiteSpace
+        color = other.color
+        emojiColor = other.emojiColor
+        textContent = other.textContent
+        display = other.display
+        flex = other.flex
+        flexShrink = other.flexShrink
+        flexBasis = other.flexBasis
+        flexDirection = other.flexDirection
+        justifyContent = other.justifyContent
+        alignItems = other.alignItems
+        alignSelf = other.alignSelf
+        alignContent = other.alignContent
+        flexWrap = other.flexWrap
+        gap = other.gap
+        rowGap = other.rowGap
+        columnGap = other.columnGap
+        gridTemplateColumns = other.gridTemplateColumns
+        gridTemplateRows = other.gridTemplateRows
+        subgridColumnSizes = other.subgridColumnSizes
+        subgridRowSizes = other.subgridRowSizes
+        computedRowSizes = other.computedRowSizes
+        subgridPending = other.subgridPending
+        gridTemplateAreas = other.gridTemplateAreas
+        gridAutoFlow = other.gridAutoFlow
+        fullBleed = other.fullBleed
+        gridArea = other.gridArea
+        gridColumn = other.gridColumn
+        gridRow = other.gridRow
+        position = other.position
+        marginTop = other.marginTop
+        marginRight = other.marginRight
+        marginBottom = other.marginBottom
+        marginLeft = other.marginLeft
+        paddingTop = other.paddingTop
+        paddingRight = other.paddingRight
+        paddingBottom = other.paddingBottom
+        paddingLeft = other.paddingLeft
+        borderWidth = other.borderWidth
+        borderTopWidth = other.borderTopWidth
+        borderRightWidth = other.borderRightWidth
+        borderBottomWidth = other.borderBottomWidth
+        borderLeftWidth = other.borderLeftWidth
+        borderColor = other.borderColor
+        src = other.src
+        alt = other.alt
+        preserveAspectRatio = other.preserveAspectRatio
+        imageViewBox = other.imageViewBox
+        imageViewBoxX = other.imageViewBoxX
+        imageViewBoxY = other.imageViewBoxY
+        imageViewBoxW = other.imageViewBoxW
+        imageViewBoxH = other.imageViewBoxH
+        imageViewBoxSet = other.imageViewBoxSet
+        imageOffsetX = other.imageOffsetX
+        imageOffsetY = other.imageOffsetY
+        objectFit = other.objectFit
+        sourceWidth = other.sourceWidth
+        sourceHeight = other.sourceHeight
+        svgPath = other.svgPath
+        svgSource = other.svgSource
+        svgDoc = other.svgDoc
+        svgDocKey = other.svgDocKey
+        ; What the layout wrote and what it keeps — see `keepLayout` — come
+        ; from the fresh element, which is to say they are reset: a reconciled
+        ; element is laid out, measured and drawn again. `paintStamp` is this
+        ; element's own count of paint changes, and adopting is one.
+        appliedScrollTop = other.appliedScrollTop
+        appliedScrollLeft = other.appliedScrollLeft
+        paintLeft = other.paintLeft
+        paintTop = other.paintTop
+        paintRight = other.paintRight
+        paintBottom = other.paintBottom
+        paintUnbounded = other.paintUnbounded
+        paintHasEffect = other.paintHasEffect
+        shiftDx = other.shiftDx
+        shiftDy = other.shiftDy
+        keepLayout = other.keepLayout
+        hasOverlayBelow = other.hasOverlayBelow
+        overlayScanned = other.overlayScanned
+        hasLayout = other.hasLayout
+        layoutClean = other.layoutClean
+        layoutSkipped = other.layoutSkipped
+        kidOffX = other.kidOffX
+        kidOffY = other.kidOffY
+        boundsFresh = other.boundsFresh
+        lastParentW = other.lastParentW
+        lastParentH = other.lastParentH
+        lastFlex = other.lastFlex
+        lastFlexW = other.lastFlexW
+        hasIntrinsicMin = other.hasIntrinsicMin
+        hasIntrinsicMax = other.hasIntrinsicMax
+        intrinsicMin = other.intrinsicMin
+        intrinsicMax = other.intrinsicMax
+        paintClean = other.paintClean
+        paintStamp = (paintStamp + 1)
+        scrollbarWidth = other.scrollbarWidth
+        scrollbarThumb = other.scrollbarThumb
+        scrollbarTrack = other.scrollbarTrack
+        scrollbarLabel = other.scrollbarLabel
+        viewBox = other.viewBox
+        fillColor = other.fillColor
+        strokeColor = other.strokeColor
+        strokeWidth = other.strokeWidth
+        fillRule = other.fillRule
+        strokeDashArray = other.strokeDashArray
+        strokeDashOffset = other.strokeDashOffset
+        clipPath = other.clipPath
+        className = other.className
+        theme = other.theme
+        inlineProps = other.inlineProps
+        imageQuality = other.imageQuality
+        maxImageSize = other.maxImageSize
+        rotate = other.rotate
+        scale = other.scale
+        flipY = other.flipY
+        translateX = other.translateX
+        translateY = other.translateY
+        transformSpec = other.transformSpec
+        transformOriginX = other.transformOriginX
+        transformOriginY = other.transformOriginY
+        transformOriginSpec = other.transformOriginSpec
+        shadowRadius = other.shadowRadius
+        shadowColor = other.shadowColor
+        shadowOffsetX = other.shadowOffsetX
+        shadowOffsetY = other.shadowOffsetY
+        backgroundGradient = other.backgroundGradient
+        gradient = other.gradient
+        calculatedX = other.calculatedX
+        calculatedY = other.calculatedY
+        calculatedWidth = other.calculatedWidth
+        calculatedHeight = other.calculatedHeight
+        calculatedInnerWidth = other.calculatedInnerWidth
+        calculatedInnerHeight = other.calculatedInnerHeight
+        calculatedFlexWidth = other.calculatedFlexWidth
+        hasFlexWidth = other.hasFlexWidth
+        calculatedFlexHeight = other.calculatedFlexHeight
+        calculatedBaseline = other.calculatedBaseline
+        calculatedDescent = other.calculatedDescent
+        hasBaseline = other.hasBaseline
+        hasDefiniteHeight = other.hasDefiniteHeight
+        calculatedPage = other.calculatedPage
+        isAbsolute = other.isAbsolute
+        isOverlay = other.isOverlay
+        overlayAnchor = other.overlayAnchor
+        isOverlayAnchor = other.isOverlayAnchor
+        overlaySide = other.overlaySide
+        overlayAlign = other.overlayAlign
+        overlayGap = other.overlayGap
+        overlayX = other.overlayX
+        overlayY = other.overlayY
+        overlayPlacedSide = other.overlayPlacedSide
+        isHovered = other.isHovered
+        isFocused = other.isFocused
+        isPressed = other.isPressed
+        transitionSpec = other.transitionSpec
+        role = other.role
+        a11yLabel = other.a11yLabel
+        a11yValue = other.a11yValue
+        a11yRequired = other.a11yRequired
+        a11yInvalid = other.a11yInvalid
+        a11yReadOnly = other.a11yReadOnly
+        a11yRoleDescription = other.a11yRoleDescription
+        a11yDescription = other.a11yDescription
+        a11yHasPopup = other.a11yHasPopup
+        a11yRowCount = other.a11yRowCount
+        a11yRowIndex = other.a11yRowIndex
+        a11yHidden = other.a11yHidden
+        a11yModal = other.a11yModal
+        a11ySorted = other.a11ySorted
+        a11yOrientation = other.a11yOrientation
+        a11yCurrent = other.a11yCurrent
+        a11yHasValue = other.a11yHasValue
+        a11yValueNow = other.a11yValueNow
+        a11yHasRange = other.a11yHasRange
+        a11yValueMin = other.a11yValueMin
+        a11yValueMax = other.a11yValueMax
+        a11yChecked = other.a11yChecked
+        a11yPressed = other.a11yPressed
+        a11yExpanded = other.a11yExpanded
+        a11ySelected = other.a11ySelected
+        a11yDisabled = other.a11yDisabled
+        a11yFocusable = other.a11yFocusable
+        a11yPosInSet = other.a11yPosInSet
+        a11ySetSize = other.a11ySetSize
+        a11yLevel = other.a11yLevel
+        ; Copied, and the values copied are the FRESH element's — which has
+        ; never been styled. So a reconciled element always reads as
+        ; "the sheet has not written here", and re-styles. That is the honest
+        ; answer: `adoptFrom` has just overwritten every value the sheet had
+        ; put there.
+        styleClass = other.styleClass
+        styleTheme = other.styleTheme
+        styleBits = other.styleBits
+        styleGen = other.styleGen
+        styleSlot = other.styleSlot
+        styleKids = other.styleKids
+        ; Where the inspector last saw this element. Declared with the field
+        ; and not copied here, so `evg:adopt:check` — which reads the field
+        ; list and this function and compares them — named it the moment the
+        ; suite could run again. A reconciled element that loses its slot is
+        ; an element the display list and the hit test can no longer name.
+        inspectSlot = other.inspectSlot
+        isLayoutComplete = other.isLayoutComplete
+        unitsResolved = other.unitsResolved
+        hasReturn = other.hasReturn
+        hasBreak = other.hasBreak
+        hasContinue = other.hasContinue
+        inheritedFontSize = other.inheritedFontSize
+    }
+
+    ; `scrollbar-color: <thumb> <track>` — two colours, split on the space
+    ; between them and not on the spaces inside an `rgba( )`. One colour
+    ; is the thumb alone; `auto` for either is no colour of its own.
+    fn setScrollbarColor:void (value:string) {
+        def parts:[string]
+        def cur@(mutable):string ""
+        def depth@(mutable):int 0
+        def i:int 0
+        def n:int (strlen value)
+        while (i < n) {
+            def ch:string (substring value i (i + 1))
+            if (ch == "(") {
+                depth = (depth + 1)
+            }
+            if (ch == ")") {
+                depth = (depth - 1)
+            }
+            if (((ch == " ") || (ch == "\t")) && (depth == 0)) {
+                if ((strlen cur) > 0) {
+                    push parts cur
+                    cur = ""
+                }
+            } {
+                cur = (cur + ch)
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push parts cur
+        }
+        scrollbarThumb = (EVGColor.noColor())
+        scrollbarTrack = (EVGColor.noColor())
+        if ((array_length parts) > 0) {
+            def t:string (itemAt parts 0)
+            if (t != "auto") {
+                scrollbarThumb = (EVGColor.parse(t))
+            }
+        }
+        if ((array_length parts) > 1) {
+            def tr:string (itemAt parts 1)
+            if (tr != "auto") {
+                scrollbarTrack = (EVGColor.parse(tr))
+            }
+        }
+    }
+
+    ; Parse a length, and SAY SO when it could not be parsed.
+    ;
+    ; `EVGUnit` deliberately leaves an unrecognised value unset, which is what
+    ; a browser does with a declaration it cannot read — but a browser then
+    ; shows you the struck-through line in its inspector, and this engine used
+    ; to show you nothing. An unset width is not neutral here either: in a row
+    ; it fills the parent, so `width: calc(100% - 40px)` did not fail to apply,
+    ; it applied as `width: 100%`.
+    ;
+    ; The cost is one `isSet` test on a path that already parsed a string.
+    ;
+    ; `fit-content` is the one value that is understood AND left unset — the
+    ; layout reads its unit type (6), not `isSet` — so it is not a rejection.
+    ; Rave's strip counted it as one for every button on the page.
+    fn unitOf:EVGUnit (name:string value:string) {
+        def u:EVGUnit (EVGUnit.parse(value))
+        if ((u.isSet == false) && (u.unitType != 6)) {
+            if ((EVGReject.isAbsent(value)) == false) {
+                EVGReject.note("unsupported length" name value)
+            }
+        }
+        return u
+    }
+
+    fn setAttribute:void (name:string value:string) {
+        ; Set attribute by name (for parser)
+
+        if ((name == "className") || (name == "class-name")) {
+            className = value
+            return
+        }
+        if (name == "theme") {
+            theme = value
+            return
+        }
+        if (name == "id") {
+            id = value
+            return
+        }
+        ; `src` and `alt` are set directly by the JSX layer AND forwarded here,
+        ; so they have to mean something here too or every image on the page
+        ; reports an unknown property. They are also the right home for them:
+        ; an element built without a JSX layer should be able to say `src`.
+        if (name == "src") {
+            src = value
+            return
+        }
+        if (name == "alt") {
+            alt = value
+            return
+        }
+        if (name == "href") {
+            href = value
+            return
+        }
+        if (name == "key") {
+            key = value
+            return
+        }
+        
+        ; Book format properties
+        if (name == "format") {
+            format = (to_lowercase value)
+            return
+        }
+        if (name == "orientation") {
+            orientation = (to_lowercase value)
+            return
+        }
+        if (name == "pageWidth") {
+            def pw@(optional):double (to_double value)
+            if pw {
+                pageWidth = (unwrap pw)
+            }
+            return
+        }
+        if (name == "pageHeight") {
+            def ph@(optional):double (to_double value)
+            if ph {
+                pageHeight = (unwrap ph)
+            }
+            return
+        }
+        
+        ; Dimensions
+        if (name == "width") {
+            width = (this.unitOf(name value))
+            return
+        }
+        if (name == "height") {
+            height = (this.unitOf(name value))
+            return
+        }
+        if ((name == "min-width") || (name == "minWidth")) {
+            minWidth = (this.unitOf(name value))
+            return
+        }
+        if ((name == "min-height") || (name == "minHeight")) {
+            minHeight = (this.unitOf(name value))
+            return
+        }
+        if ((name == "max-width") || (name == "maxWidth")) {
+            maxWidth = (this.unitOf(name value))
+            return
+        }
+        if ((name == "max-height") || (name == "maxHeight")) {
+            maxHeight = (this.unitOf(name value))
+            return
+        }
+        
+        ; Overlays
+        if ((name == "overlay") || (name == "isOverlay")) {
+            isOverlay = (EVGElement.truthy(value))
+            return
+        }
+        if ((name == "overlay-anchor-role") || (name == "overlayAnchorRole")) {
+            isOverlayAnchor = (EVGElement.truthy(value))
+            return
+        }
+        if ((name == "overlay-side") || (name == "overlaySide")) {
+            overlaySide = (trim value)
+            return
+        }
+        if ((name == "overlay-align") || (name == "overlayAlign")) {
+            overlayAlign = (trim value)
+            return
+        }
+        if ((name == "overlay-gap") || (name == "overlayGap")) {
+            def g@(optional):double (to_double value)
+            if g {
+                overlayGap = (unwrap g)
+            }
+            return
+        }
+
+        if (name == "transition") {
+            transitionSpec = (trim value)
+            return
+        }
+
+        ; Accessibility. The ARIA spellings, so a tree literal and a stylesheet
+        ; and a hand-written element all say it the same way.
+        if ((name == "role") || (name == "a11yRole")) {
+            role = (trim value)
+            return
+        }
+        ; A BARE `return`, like every other branch here: `setAttribute` is
+        ; declared `:void`. These four said `return true`, which JavaScript
+        ; ignores and C++ refuses — `return-statement with a value, in function
+        ; returning 'void'` — so the whole surface compiled and every JS suite
+        ; passed while the C++ build of the deck editor was broken.
+        if ((name == "a11yRequired") || (name == "aria-required")) {
+            a11yRequired = value
+            return
+        }
+        if ((name == "a11yInvalid") || (name == "aria-invalid")) {
+            a11yInvalid = value
+            return
+        }
+        if ((name == "a11yReadOnly") || (name == "aria-readonly")) {
+            a11yReadOnly = value
+            return
+        }
+        if ((name == "a11yValue") || (name == "aria-valuetext")) {
+            a11yValue = value
+            return
+        }
+        if ((name == "aria-label") || (name == "a11yLabel")) {
+            a11yLabel = value
+            return
+        }
+        if ((name == "aria-current") || (name == "a11yCurrent")) {
+            a11yCurrent = value
+            return
+        }
+        if ((name == "aria-orientation") || (name == "a11yOrientation")) {
+            a11yOrientation = (to_lowercase value)
+            return
+        }
+        if ((name == "aria-sort") || (name == "a11ySorted")) {
+            if (value == "none")       { a11ySorted = 1 }
+            if (value == "ascending")  { a11ySorted = 2 }
+            if (value == "descending") { a11ySorted = 3 }
+            return
+        }
+        if ((name == "aria-hidden") || (name == "a11yHidden")) {
+            a11yHidden = (EVGElement.truthy(value))
+            return
+        }
+        ; `to_int` on a string is OPTIONAL here — a value that is not a number
+        ; has no integer to be — so it is unwrapped through a default rather
+        ; than assigned straight across. Zero is the right default: it is what
+        ; "this node publishes no row count" already means everywhere else.
+        if ((name == "aria-rowcount") || (name == "a11yRowCount")) {
+            def rc@(optional):int (to_int value)
+            a11yRowCount = 0
+            if rc {
+                a11yRowCount = (unwrap rc)
+            }
+            return
+        }
+        if ((name == "aria-rowindex") || (name == "a11yRowIndex")) {
+            def ri@(optional):int (to_int value)
+            a11yRowIndex = 0
+            if ri {
+                a11yRowIndex = (unwrap ri)
+            }
+            return
+        }
+        if ((name == "aria-haspopup") || (name == "a11yHasPopup")) {
+            a11yHasPopup = value
+            return
+        }
+        if ((name == "aria-describedby") || (name == "a11yDescription")) {
+            a11yDescription = value
+            return
+        }
+        if ((name == "aria-roledescription") || (name == "a11yRoleDescription")) {
+            a11yRoleDescription = value
+            return
+        }
+        if ((name == "aria-pressed") || (name == "a11yPressed")) {
+            a11yPressed = (EVGElement.triState(value))
+            return
+        }
+        if ((name == "aria-checked") || (name == "a11yChecked")) {
+            a11yChecked = (EVGElement.triState(value))
+            return
+        }
+        if ((name == "aria-expanded") || (name == "a11yExpanded")) {
+            a11yExpanded = (EVGElement.triState(value))
+            return
+        }
+        if ((name == "aria-selected") || (name == "a11ySelected")) {
+            a11ySelected = (EVGElement.triState(value))
+            return
+        }
+        if ((name == "aria-disabled") || (name == "a11yDisabled")) {
+            a11yDisabled = (EVGElement.truthy(value))
+            return
+        }
+        if ((name == "aria-focusable") || (name == "a11yFocusable")) {
+            a11yFocusable = (EVGElement.truthy(value))
+            return
+        }
+
+        ; Position
+        if (name == "left") {
+            left = (this.unitOf(name value))
+            return
+        }
+        if (name == "top") {
+            top = (this.unitOf(name value))
+            return
+        }
+        if (name == "right") {
+            right = (this.unitOf(name value))
+            return
+        }
+        if (name == "bottom") {
+            bottom = (this.unitOf(name value))
+            return
+        }
+        if (name == "x") {
+            x = (this.unitOf(name value))
+            return
+        }
+        if (name == "y") {
+            y = (this.unitOf(name value))
+            return
+        }
+        
+        ; Margin
+        if (name == "margin") {
+            def ms:[EVGUnit] (EVGElement.boxSides(value true))
+            if ((array_length ms) == 4) {
+                box.setMarginValues((itemAt ms 0) (itemAt ms 1) (itemAt ms 2) (itemAt ms 3))
+            }
+            return
+        }
+        if ((name == "margin-left") || (name == "marginLeft")) {
+            box.marginLeft = (this.unitOf(name value))
+            return
+        }
+        if ((name == "margin-right") || (name == "marginRight")) {
+            box.marginRight = (this.unitOf(name value))
+            return
+        }
+        if ((name == "margin-top") || (name == "marginTop")) {
+            box.marginTop = (this.unitOf(name value))
+            return
+        }
+        if ((name == "margin-bottom") || (name == "marginBottom")) {
+            box.marginBottom = (this.unitOf(name value))
+            return
+        }
+        
+        ; Padding
+        if (name == "padding") {
+            def ps:[EVGUnit] (EVGElement.boxSides(value false))
+            if ((array_length ps) == 4) {
+                box.setPaddingValues((itemAt ps 0) (itemAt ps 1) (itemAt ps 2) (itemAt ps 3))
+            }
+            return
+        }
+        if ((name == "padding-left") || (name == "paddingLeft")) {
+            box.paddingLeft = (this.unitOf(name value))
+            return
+        }
+        if ((name == "padding-right") || (name == "paddingRight")) {
+            box.paddingRight = (this.unitOf(name value))
+            return
+        }
+        if ((name == "padding-top") || (name == "paddingTop")) {
+            box.paddingTop = (this.unitOf(name value))
+            return
+        }
+        if ((name == "padding-bottom") || (name == "paddingBottom")) {
+            box.paddingBottom = (this.unitOf(name value))
+            return
+        }
+        
+        ; Border
+        ;
+        ; The shorthand, because it is what anyone writing CSS reaches for and
+        ; it used to be dropped in silence: no error from the stylesheet, no
+        ; border on the screen. Order-independent, like CSS — a length is the
+        ; width, a colour is the colour, and a style keyword is accepted and
+        ; ignored, since EVG strokes one way.
+        if (name == "border") {
+            def parts:[string] (EVGElement.splitWords(value))
+            def i:int 0
+            while (i < (array_length parts)) {
+                def tok:string (itemAt parts i)
+                if (EVGElement.isBorderStyleWord(tok)) {
+                    ; `none` means no border at all, whatever else was written.
+                    if (tok == "none") {
+                        box.borderWidth = (EVGUnit.px(0.0))
+                    }
+                } {
+                    if (EVGElement.looksLikeColor(tok)) {
+                        box.borderColor = (EVGColor.parse(tok))
+                    } {
+                        box.borderWidth = (EVGUnit.parse(tok))
+                    }
+                }
+                i = (i + 1)
+            }
+            return
+        }
+        if ((name == "border-width") || (name == "borderWidth")) {
+            box.borderWidth = (this.unitOf(name value))
+            return
+        }
+        if ((name == "border-color") || (name == "borderColor")) {
+            box.borderColor = (EVGColor.parse(value))
+            return
+        }
+        ; ONE TO FOUR VALUES, clockwise from the top left. The fill-in rules
+        ; are the shorthand's own and are not the ones `padding` uses: two
+        ; values are (TL+BR, TR+BL) — a DIAGONAL pair — where two paddings are
+        ; vertical and horizontal. Three are (TL, TR+BL, BR). Measured against
+        ; a browser in `oracle/radius.json` rather than recalled.
+        if ((name == "border-radius") || (name == "borderRadius")) {
+            def parts:[string] (EVGElement.splitWords(value))
+            def n:int (array_length parts)
+            if (n < 2) {
+                box.borderRadius = (this.unitOf(name value))
+                box.borderRadiusTL = (EVGUnit.unset())
+                box.borderRadiusTR = (EVGUnit.unset())
+                box.borderRadiusBR = (EVGUnit.unset())
+                box.borderRadiusBL = (EVGUnit.unset())
+                return
+            }
+            def tl:string (itemAt parts 0)
+            def tr:string (itemAt parts 1)
+            def br:string tl
+            def bl:string tr
+            if (n > 2) {
+                br = (itemAt parts 2)
+            }
+            if (n > 3) {
+                bl = (itemAt parts 3)
+            }
+            box.borderRadiusTL = (EVGUnit.parse(tl))
+            box.borderRadiusTR = (EVGUnit.parse(tr))
+            box.borderRadiusBR = (EVGUnit.parse(br))
+            box.borderRadiusBL = (EVGUnit.parse(bl))
+            ; The uniform value stays the FIRST corner, because every backend
+            ; but the WebGL painter still reads one number and the top left is
+            ; the one the shorthand names first.
+            box.borderRadius = (EVGUnit.parse(tl))
+            return
+        }
+
+        ; ---- rich EVG effect props, drawn by WasmUiRenderer from these fields.
+        ; camelCase spellings so the TSX parser (which splits '-') can carry them.
+        ; Animated glow halo strength (0..1).
+        if (name == "glow") {
+            def gv@(optional):double (to_double value)
+            glowIntensity = (unwrap gv)
+            return
+        }
+        ; Background art clipped to the rounded box (the .as menu's tile image).
+        if ((name == "background-image") || (name == "backgroundImage")) {
+            bgImageSet = true
+            bgImagePath = value
+            return
+        }
+        ; 2-stop linear gradient fill (RGU1 GRAD_FROM/GRAD_TO/GRAD_DIR).
+        if ((name == "gradient-from") || (name == "gradientFrom")) {
+            gradientFrom = (EVGColor.parse(value))
+            gradientSet = true
+            return
+        }
+        if ((name == "gradient-to") || (name == "gradientTo")) {
+            gradientTo = (EVGColor.parse(value))
+            gradientSet = true
+            return
+        }
+        if ((name == "gradient-dir") || (name == "gradientDir")) {
+            def dv@(optional):int (to_int value)
+            gradientDir = (unwrap dv)
+            return
+        }
+
+        ; Colors
+        if ((name == "background-color") || (name == "backgroundColor")) {
+            backgroundColor = (EVGColor.parse(value))
+            return
+        }
+        if ((name == "background-gradient") || (name == "backgroundGradient")) {
+            backgroundGradient = value
+            gradient = (EVGGradient.parse(value))
+            return
+        }
+        ; Also support "background" which can be a gradient
+        if (name == "background") {
+            ; Check if it's a gradient
+            if ((contains value "linear-gradient") || (contains value "radial-gradient")) {
+                backgroundGradient = value
+                gradient = (EVGGradient.parse(value))
+            } {
+                ; Treat as color
+                backgroundColor = (EVGColor.parse(value))
+            }
+            return
+        }
+        if (name == "color") {
+            color = (EVGColor.parse(value))
+            return
+        }
+        if (name == "emoji-color") {
+            emojiColor = (EVGColor.parse(value))
+            return
+        }
+        if (name == "opacity") {
+            def val@(optional):double (to_double value)
+            opacity = (unwrap val)
+            return
+        }
+        ; `backdrop-filter: blur(12px)`. Only `blur()` is understood; anything
+        ; else in the property is reported rather than half-applied, because a
+        ; `saturate()` that silently did nothing would look like a backend that
+        ; had not implemented it yet.
+        if ((name == "backdrop-filter") || (name == "backdropFilter")) {
+            backdropBlur = (EVGElement.blurRadiusOf(value))
+            return
+        }
+        
+        ; Image properties
+        if ((name == "object-fit") || (name == "objectFit")) {
+            objectFit = value
+            return
+        }
+        ; The crop window into the source. A picture is not always shown
+        ; whole: Figma keeps a crop rectangle on the paint, and a backend
+        ; that drops it draws the whole frame where a detail belongs — two
+        ; boxes showing two halves of one screenshot come out as the same
+        ; picture twice.
+        if ((name == "preserve-aspect-ratio") || (name == "preserveAspectRatio")) {
+            preserveAspectRatio = value
+            return
+        }
+        if ((name == "image-view-box") || (name == "imageViewBox")) {
+            imageViewBox = value
+            imageViewBoxSet = (EVGElement.parseViewBox(value this))
+            return
+        }
+        if ((name == "image-offset-x") || (name == "imageOffsetX")) {
+            imageOffsetX = (this.unitOf(name value))
+            return
+        }
+        if ((name == "image-offset-y") || (name == "imageOffsetY")) {
+            imageOffsetY = (this.unitOf(name value))
+            return
+        }
+        
+        ; Layout
+        ; `direction` is two properties sharing a name; the value says which.
+        ; See the note on `textDir`.
+        if (name == "direction") {
+            if ((value == "rtl") || (value == "ltr")) {
+                textDir = value
+                return
+            }
+            direction = value
+            return
+        }
+        if (name == "align") {
+            align = value
+            return
+        }
+        if ((name == "vertical-align") || (name == "verticalAlign")) {
+            verticalAlign = value
+            return
+        }
+        if (name == "inline") {
+            isInline = (value == "true")
+            return
+        }
+        if ((name == "line-break") || (name == "lineBreak")) {
+            lineBreak = (value == "true")
+            return
+        }
+        if ((name == "letter-spacing") || (name == "letterSpacing")) {
+            ; `normal` is the font's own, which is zero extra.
+            if (value == "normal") {
+                letterSpacing = 0.0
+                return
+            }
+            def lsu:EVGUnit (this.unitOf(name value))
+            if lsu.isSet {
+                letterSpacing = lsu.pixels
+            }
+            return
+        }
+        if ((name == "paragraph-spacing") || (name == "paragraphSpacing")) {
+            def psu:EVGUnit (this.unitOf(name value))
+            if psu.isSet {
+                paragraphSpacing = psu.pixels
+            }
+            return
+        }
+        if ((name == "stroke-linecap") || (name == "strokeLinecap")) {
+            strokeLineCap = value
+            return
+        }
+        if ((name == "stroke-linejoin") || (name == "strokeLinejoin")) {
+            strokeLineJoin = value
+            return
+        }
+        if (name == "overflow") {
+            overflow = value
+            return
+        }
+        if (name == "cursor") {
+            cursor = value
+            return
+        }
+        if ((name == "scrollbar-width") || (name == "scrollbarWidth")) {
+            scrollbarWidth = value
+            return
+        }
+        if ((name == "scrollbar-color") || (name == "scrollbarColor")) {
+            this.setScrollbarColor(value)
+            return
+        }
+        if (name == "evg-scrollbar-label") {
+            scrollbarLabel = value
+            return
+        }
+        ; The EVG effect family. Prefixed, because these are EXTENSIONS and not
+        ; CSS: a reader who meets `evg-ripple-speed` should not go looking for
+        ; it in a specification.
+        if (name == "evg-surface-effect") {
+            surfaceEffect = value
+            return
+        }
+        if (name == "evg-ripple-speed") {
+            rippleSpeed = (EVGElement.numberOr(value rippleSpeed))
+            return
+        }
+        if (name == "evg-ripple-width") {
+            rippleWidth = (EVGElement.numberOr(value rippleWidth))
+            return
+        }
+        if (name == "evg-ripple-strength") {
+            rippleStrength = (EVGElement.numberOr(value rippleStrength))
+            return
+        }
+        if (name == "evg-ripple-decay") {
+            rippleDecay = (EVGElement.numberOr(value rippleDecay))
+            return
+        }
+        if (name == "evg-ripple-highlight") {
+            rippleHighlight = (EVGElement.numberOr(value rippleHighlight))
+            return
+        }
+        if (name == "evg-ripple-rings") {
+            rippleRings = (EVGElement.numberOr(value rippleRings))
+            return
+        }
+        if (name == "evg-ripple-stagger") {
+            rippleStagger = (EVGElement.numberOr(value rippleStagger))
+            return
+        }
+        if (name == "evg-ripple-ring-falloff") {
+            rippleFalloff = (EVGElement.numberOr(value rippleFalloff))
+            return
+        }
+        if (name == "evg-ripple-shine") {
+            rippleShine = (EVGElement.numberOr(value rippleShine))
+            return
+        }
+        if (name == "evg-ripple-gloss") {
+            rippleGloss = (EVGElement.numberOr(value rippleGloss))
+            return
+        }
+        if (name == "evg-ripple-bump") {
+            rippleBump = (EVGElement.numberOr(value rippleBump))
+            return
+        }
+        ; Three numbers, and they do not have to be normalised — the shader
+        ; does that, because a direction somebody typed is a direction and not
+        ; a unit vector.
+        if (name == "evg-ripple-light") {
+            def lp:[string] (EVGElement.splitWords(value))
+            if ((array_length lp) > 0) {
+                rippleLightX = (EVGElement.numberOr((itemAt lp 0) rippleLightX))
+            }
+            if ((array_length lp) > 1) {
+                rippleLightY = (EVGElement.numberOr((itemAt lp 1) rippleLightY))
+            }
+            if ((array_length lp) > 2) {
+                rippleLightZ = (EVGElement.numberOr((itemAt lp 2) rippleLightZ))
+            }
+            return
+        }
+        ; The scroll POSITION is settable, because a demo restoring where it
+        ; was is setting state and not styling. The extents are not: they are
+        ; the layout's answer, and an author writing one would only be telling
+        ; the layout what it is about to work out for itself.
+        if ((name == "scroll-top") || (name == "scrollTop")) {
+            def st@(optional):double (to_double value)
+            scrollTop = (unwrap st)
+            return
+        }
+        if ((name == "scroll-left") || (name == "scrollLeft")) {
+            def sl@(optional):double (to_double value)
+            scrollLeft = (unwrap sl)
+            return
+        }
+        
+        ; Flexbox
+        ; `display` had no case here, so a stylesheet could set every grid
+        ; property and still lay out as a block — the container is only treated
+        ; as a grid when display == "grid".
+        if (name == "display") {
+            display = value
+            return
+        }
+        if ((name == "flex-direction") || (name == "flexDirection")) {
+            flexDirection = value
+            ; The reversed directions PARSE and then do nothing: the layout
+            ; branches on `== "column"` and lays every other value out as a
+            ; forward row. A value that is accepted and then ignored is the
+            ; same silence as one that is rejected, and worse, because the
+            ; property looks supported.
+            if ((value == "row-reverse") || (value == "column-reverse")) {
+                EVGReject.note("unsupported value" name value)
+            }
+            return
+        }
+        if ((name == "flex-wrap") || (name == "flexWrap")) {
+            flexWrap = value
+            return
+        }
+        ; `flex-grow`, WHICH WAS NOT HERE. `flex-shrink`, `flex-basis` and the
+        ; `flex` shorthand all were, so a stylesheet using the shorthand worked
+        ; and one using the longhand was silently ignored — the property name
+        ; falls through to the end of this function and nothing says so.
+        ;
+        ; What that looked like: `.cx-rail { flex-grow: 1 }` in the stepper.
+        ; With the grow factor dropped the rail has no width of its own, so it
+        ; took the parent's whole 852px, each of the three did, the row
+        ; overflowed by a factor of three and the steps stacked down the page
+        ; on top of one another. Chromium gives each rail 320 — the 640 of free
+        ; space split two ways — which is what the oracle beside this now
+        ; asserts.
+        ; `position`, WHICH WAS ALSO NOT HERE. The field exists, the layout
+        ; branches on it — `if (kid.position == "absolute")` in half a dozen
+        ; places — and until now the ONLY way to set it was from Ranger code.
+        ; Every `position: absolute` written in a stylesheet was read, matched,
+        ; and dropped on the floor.
+        ;
+        ; What that looked like: `.cx-thumb { position: absolute }` on the
+        ; sliders. The thumb stayed in flow, so it took horizontal space beside
+        ; the filled range instead of riding over it, and the two overlapped by
+        ; exactly the thumb's overhang. `.fd-menu` in the filter bar is the same
+        ; fault with a louder symptom — a popup that pushes the rows below it
+        ; instead of covering them.
+        ;
+        ; `fixed` IS ITS OWN MODE NOW. It used to map to `absolute` because
+        ; nothing here modelled a viewport separate from the root; `viewportW`
+        ; and `viewportH` are inherited down the tree, so the containing block
+        ; a fixed box wants is one field away, and the one thing that made the
+        ; difference visible — a scroll — is a single translation this can be
+        ; left out of. See `EVGLayout.layoutChildren` and `applyScroll`.
+        ; `sticky` has no implementation at all and stays in flow, which is what
+        ; it does until it sticks.
+        if (name == "position") {
+            def pv:string (trim value)
+            if (pv == "fixed") {
+                position = "fixed"
+                return
+            }
+            if (pv == "absolute") {
+                position = "absolute"
+                return
+            }
+            if ((pv == "static") || (pv == "relative") || (pv == "sticky")) {
+                position = "relative"
+                return
+            }
+            return
+        }
+        if ((name == "flex-grow") || (name == "flexGrow")) {
+            def gv@(optional):double (to_double value)
+            if gv {
+                flex = (unwrap gv)
+            }
+            return
+        }
+        if ((name == "flex-shrink") || (name == "flexShrink")) {
+            def sv@(optional):double (to_double value)
+            if sv {
+                flexShrink = (unwrap sv)
+            }
+            return
+        }
+        if ((name == "flex-basis") || (name == "flexBasis")) {
+            flexBasis = (this.unitOf(name value))
+            return
+        }
+        if (name == "flex") {
+            this.setFlexShorthand(value)
+            return
+        }
+        if (name == "gap") {
+            gap = (this.unitOf(name value))
+            return
+        }
+        if ((name == "row-gap") || (name == "rowGap")) {
+            rowGap = (this.unitOf(name value))
+            return
+        }
+        if ((name == "column-gap") || (name == "columnGap")) {
+            columnGap = (this.unitOf(name value))
+            return
+        }
+        if ((name == "grid-template-columns") || (name == "gridTemplateColumns")) {
+            gridTemplateColumns = value
+            return
+        }
+        if ((name == "grid-template-rows") || (name == "gridTemplateRows")) {
+            gridTemplateRows = value
+            return
+        }
+        if ((name == "grid-template-areas") || (name == "gridTemplateAreas")) {
+            gridTemplateAreas = value
+            return
+        }
+        if ((name == "grid-auto-flow") || (name == "gridAutoFlow")) {
+            gridAutoFlow = value
+            return
+        }
+        if ((name == "full-bleed") || (name == "fullBleed")) {
+            fullBleed = ((value == "true") || (value == "1"))
+            return
+        }
+        if ((name == "grid-area") || (name == "gridArea")) {
+            gridArea = value
+            return
+        }
+        if ((name == "grid-column") || (name == "gridColumn")) {
+            gridColumn = value
+            return
+        }
+        if ((name == "grid-row") || (name == "gridRow")) {
+            gridRow = value
+            return
+        }
+        if ((name == "justify-content") || (name == "justifyContent")) {
+            justifyContent = value
+            return
+        }
+        if ((name == "align-content") || (name == "alignContent")) {
+            alignContent = value
+            return
+        }
+        if ((name == "align-self") || (name == "alignSelf")) {
+            if (value == "auto") {
+                alignSelf = ""
+            } {
+                alignSelf = value
+            }
+            return
+        }
+        if ((name == "align-items") || (name == "alignItems")) {
+            alignItems = value
+            return
+        }
+        
+        ; Typography
+        if ((name == "font-size") || (name == "fontSize")) {
+            fontSize = (this.unitOf(name value))
+            fontSizeInherited = false
+            return
+        }
+        if ((name == "font-family") || (name == "fontFamily")) {
+            fontFamily = value
+            return
+        }
+        if ((name == "font-weight") || (name == "fontWeight")) {
+            fontWeight = value
+            return
+        }
+        if ((name == "text-align") || (name == "textAlign")) {
+            textAlign = value
+            return
+        }
+        if ((name == "white-space") || (name == "whiteSpace")) {
+            whiteSpace = (trim value)
+            return
+        }
+        if ((name == "line-height") || (name == "lineHeight")) {
+            ; `normal` is the face's own line box, which is what zero means
+            ; here — see `lineHeight`.
+            def t:string (trim value)
+            if (t == "normal") {
+                lineHeight = 0.0
+                lineHeightUnit = (EVGUnit.unset())
+                return
+            }
+            ; A BARE NUMBER is a multiplier and a length is not. `to_double`
+            ; stops at the first character it cannot use, so "24px" would come
+            ; back 24 and be indistinguishable from "24" — which is exactly
+            ; how a 14px run got a 336-pixel line box.
+            if (EVGUnit.isNumeric(t)) {
+                def val@(optional):double (to_double t)
+                if val {
+                    lineHeight = (unwrap val)
+                    lineHeightUnit = (EVGUnit.unset())
+                }
+                return
+            }
+            def u:EVGUnit (EVGUnit.parse(t))
+            if u.isSet {
+                lineHeightUnit = u
+                lineHeight = 0.0
+            }
+            return
+        }
+        
+        ; Transform
+        if (name == "transform") {
+            this.applyTransform(value)
+            return
+        }
+        if ((name == "transform-origin") || (name == "transformOrigin")) {
+            this.applyTransformOrigin(value)
+            return
+        }
+        if ((name == "translate-x") || (name == "translateX")) {
+            def tvx@(optional):double (to_double value)
+            if tvx { translateX = (unwrap tvx) }
+            return
+        }
+        if ((name == "translate-y") || (name == "translateY")) {
+            def tvy@(optional):double (to_double value)
+            if tvy { translateY = (unwrap tvy) }
+            return
+        }
+        if (name == "rotate") {
+            def val@(optional):double (to_double value)
+            rotate = (unwrap val)
+            return
+        }
+        if (name == "scale") {
+            def val@(optional):double (to_double value)
+            scale = (unwrap val)
+            return
+        }
+        
+        ; Shadow
+        if ((name == "shadow-radius") || (name == "shadowRadius")) {
+            shadowRadius = (this.unitOf(name value))
+            return
+        }
+        if ((name == "shadow-color") || (name == "shadowColor")) {
+            shadowColor = (EVGColor.parse(value))
+            return
+        }
+        if ((name == "shadow-offset-x") || (name == "shadowOffsetX")) {
+            shadowOffsetX = (this.unitOf(name value))
+            return
+        }
+        if ((name == "shadow-offset-y") || (name == "shadowOffsetY")) {
+            shadowOffsetY = (this.unitOf(name value))
+            return
+        }
+        
+        ; Clip path (SVG path for clipping)
+        if ((name == "clip-path") || (name == "clipPath")) {
+            clipPath = value
+            return
+        }
+        if (((name == "d") || (name == "svgPath")) || (name == "path")) {
+            svgPath = value
+            return
+        }
+        
+        ; PDF/Print settings
+        if (name == "imageQuality") {
+            def val@(optional):int (to_int value)
+            if val {
+                imageQuality = (unwrap val)
+            }
+            return
+        }
+        if (name == "maxImageSize") {
+            def val@(optional):int (to_int value)
+            if val {
+                maxImageSize = (unwrap val)
+            }
+            return
+        }
+        
+        ; SVG Path attributes
+        if ((name == "d") || (name == "svgPath")) {
+            svgPath = value
+            return
+        }
+        if ((name == "svg") || (name == "svgSource")) {
+            svgSource = value
+            return
+        }
+        if ((name == "viewBox") || (name == "view-box")) {
+            viewBox = value
+            return
+        }
+        if (name == "fill") {
+            fillColor = (EVGColor.parse(value))
+            return
+        }
+        if (name == "stroke") {
+            strokeColor = (EVGColor.parse(value))
+            return
+        }
+        if ((name == "stroke-width") || (name == "strokeWidth")) {
+            def val@(optional):double (to_double value)
+            if val {
+                strokeWidth = (unwrap val)
+            }
+            return
+        }
+        if ((name == "stroke-dasharray") || (name == "strokeDasharray")) {
+            strokeDashArray = value
+            return
+        }
+        if ((name == "stroke-dashoffset") || (name == "strokeDashoffset")) {
+            def dv@(optional):double (to_double value)
+            if dv {
+                strokeDashOffset = (unwrap dv)
+            }
+            return
+        }
+        if ((name == "fill-rule") || (name == "fillRule")) {
+            if (value == "evenodd") {
+                fillRule = "evenodd"
+            } {
+                fillRule = "nonzero"
+            }
+            return
+        }
+        ; Nothing above claimed it. A property this engine does not implement
+        ; is the other half of the silence problem: `align-self` and
+        ; `aspect-ratio` used to fall off the end of this chain and change
+        ; nothing, with no way to tell that from a property that had been
+        ; applied and made no difference.
+        if ((EVGElement.isHostProp(name)) == false) {
+            EVGReject.note("unknown property" name value)
+        }
+    }
+
+    ; Names that reach `setAttribute` from an authoring layer and are NOT
+    ; styling: React-shaped handlers, the tree factory's own bookkeeping, and
+    ; the `data-` namespace an application owns. Rejecting these would bury the
+    ; real complaints in noise from every button on the page.
+    sfn isHostProp:boolean (name:string) {
+        def n:int (strlen name)
+        if (n == 0) {
+            return true
+        }
+        if (n > 2) {
+            def c0:int (charAt name 0)
+            def c1:int (charAt name 1)
+            def c2:int (charAt name 2)
+            ; onClick, onPress, onChange … — "on" then a capital, so `opacity`
+            ; and `order` are not swept up with them.
+            if (((c0 == 111) && (c1 == 110)) && ((c2 >= 65) && (c2 <= 90))) {
+                return true
+            }
+        }
+        if (n > 5) {
+            if ((EVGElement.startsWithStr(name "data-")) ) {
+                return true
+            }
+        }
+        if (name == "children") { return true }
+        if (name == "style") { return true }
+        if (name == "ref") { return true }
+        if (name == "tag") { return true }
+        if (name == "tagName") { return true }
+        if (name == "text") { return true }
+        if (name == "textContent") { return true }
+        if (name == "elementType") { return true }
+        if (name == "test-id") { return true }
+        if (name == "testId") { return true }
+        return false
+    }
+
+    sfn startsWithStr:boolean (s:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen s) < n) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            if ((charAt s i) != (charAt prefix i)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+    
+    fn getCalculatedBounds:string () {
+        return ("(" + (to_string calculatedX) + ", " + (to_string calculatedY) + ") " + (to_string calculatedWidth) + "x" + (to_string calculatedHeight))
+    }
+    
+    fn toString:string () {
+        return ("<" + tagName + " id=\"" + id + "\" " + (this.getCalculatedBounds()) + ">")
+    }
+}

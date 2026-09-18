@@ -13,7 +13,7 @@ Import "WordXml.rgr"
 Import "WordStyleResolver.rgr"
 Import "WordNumbering.rgr"
 Import "DocxPng.rgr"
-Import "../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
+Import "pkg:image/JPEGDecoder.rgr"
 
 class WordMlParser {
     def resolver:WordStyleResolver (new WordStyleResolver)

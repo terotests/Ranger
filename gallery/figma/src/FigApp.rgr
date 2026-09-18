@@ -11,10 +11,10 @@ Import "convert/FigToScene.rgr"
 Import "evg/SceneToEVG.rgr"
 Import "scene/SceneNode.rgr"
 Import "scene/SceneAssets.rgr"
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGLayout.rgr"
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGColor.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
 
 class FigApp {
     def parser:FigParser (new FigParser())
@@ -53,7 +53,7 @@ class FigApp {
     ; SCENE coordinates and carries the camera beside it, so a pan is three
     ; numbers and the painter's uniform, and the walk happens only when the
     ; view leaves the region the list was built for. See
-    ; gallery/evg/PLAN_VIEW_TRANSFORM.md and gl/evg-view.js, which is where
+    ; lib/evg/PLAN_VIEW_TRANSFORM.md and gl/evg-view.js, which is where
     ; the host's keep-or-build arithmetic lives.
     def camera:boolean false
     ; How far past the viewport to build, in viewports. One each way is nine

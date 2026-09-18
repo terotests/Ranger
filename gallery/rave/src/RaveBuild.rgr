@@ -16,7 +16,7 @@
 
 Import "RaveDoc.rgr"
 Import "RaveAuth.rgr"
-Import "../../evg/EVGElement.rgr"
+Import "pkg:evg/EVGElement.rgr"
 
 class RaveBuild {
     def app:RaveApp (new RaveApp(""))

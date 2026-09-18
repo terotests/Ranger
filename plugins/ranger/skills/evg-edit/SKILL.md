@@ -1,6 +1,6 @@
 ---
 name: evg-edit
-description: Read, change and check an EVG document — a `.evg.json` file, or a `.tsx` page under gallery/evg/showcase — without guessing. Use when asked to change what a page, card, chart, diagram or PDF looks like; to move, restyle, retitle or add an element; to find out why a layout is wrong; or to check whether text overflows, boxes overlap or something is off the page. Also use before editing a `.tsx` showcase page by hand, because converting it first gives addresses and a verifier.
+description: Read, change and check an EVG document — a `.evg.json` file, or a `.tsx` page under lib/evg/showcase — without guessing. Use when asked to change what a page, card, chart, diagram or PDF looks like; to move, restyle, retitle or add an element; to find out why a layout is wrong; or to check whether text overflows, boxes overlap or something is off the page. Also use before editing a `.tsx` showcase page by hand, because converting it first gives addresses and a verifier.
 ---
 
 # Editing an EVG document
@@ -8,7 +8,7 @@ description: Read, change and check an EVG document — a `.evg.json` file, or a
 Do not edit an EVG document by rewriting its source and re-rendering to see what
 happened. There is a tool surface that gives you addresses, validated edits,
 an undo, and a numeric verdict on the result. Full reference:
-`gallery/evg/agent/README.md`.
+`lib/evg/agent/README.md`.
 
 ## The loop
 
@@ -95,9 +95,9 @@ A `.tsx` page is not directly editable this way. Convert it first, resolving its
 stylesheet in:
 
 ```bash
-node gallery/pdf_writer/bin/evg_json_tool.js gallery/evg/showcase/pages/cards.tsx \
-  gallery/evg/showcase/pages/cards.evg.json \
-  -css gallery/evg/showcase/themes/showcase.css -theme editorial
+node gallery/pdf_writer/bin/evg_json_tool.js lib/evg/showcase/pages/cards.tsx \
+  lib/evg/showcase/pages/cards.evg.json \
+  -css lib/evg/showcase/themes/showcase.css -theme editorial
 ```
 
 The converter checks itself — it lays out both trees and compares their boxes

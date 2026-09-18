@@ -9,7 +9,7 @@
 ;
 ;   GridView.buildDisplayList  →  EVGDisplayList
 ;        ├─ paintSoftCanvas    →  SoftCanvas (tests / SDL)
-;        └─ sceneJson          →  gallery/evg/gl/evg-webgl.js
+;        └─ sceneJson          →  lib/evg/gl/evg-webgl.js
 ; ==============================================================================
 
 Import "SpreadsheetModel.rgr"
@@ -20,19 +20,19 @@ Import "GridTheme.rgr"
 Import "../../office/text/OfficeFont.rgr"
 Import "../../office/text/OfficeText.rgr"
 Import "ConditionalFormat.rgr"
-Import "../../evg/EVGWindow.rgr"
+Import "pkg:evg_window/EVGWindow.rgr"
 Import "GridChartView.rgr"
 Import "GridImages.rgr"
-Import "../../evg/EVGCommands.rgr"
+Import "pkg:evg/EVGCommands.rgr"
 Import "GridToolbar.rgr"
-Import "../../evg/EVGToolbarView.rgr"
+Import "pkg:evg_window/EVGToolbarView.rgr"
 Import "SoftPainter.rgr"
 Import "script/ScriptPreview.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
-Import "../../evg/EVGColor.rgr"
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
 Import "WorkbookModel.rgr"
 
 class GridView {
@@ -2136,7 +2136,7 @@ class GridView {
     ; sheet would be a second thing to keep in step with the theme, so a button
     ; is a few rectangles and, where a letter says it best, a letter.
     ; The toolbar draws itself. Everything about it that is not "which buttons
-    ; a spreadsheet has" lives in gallery/evg — the wrapping, the hit testing,
+    ; a spreadsheet has" lives in lib/evg — the wrapping, the hit testing,
     ; the hover, and the three hundred lines that draw the icons — so Word and
     ; PowerPoint get the same strip instead of a second one that slowly stops
     ; looking like this one.

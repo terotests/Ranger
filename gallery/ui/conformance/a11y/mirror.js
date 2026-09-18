@@ -1,7 +1,7 @@
 /**
  * The EVG side, as an accessibility tree in real DOM.
  *
- * A screen reader cannot read a canvas. `gallery/evg/gl/evg-a11y.js` exists to
+ * A screen reader cannot read a canvas. `lib/evg/gl/evg-a11y.js` exists to
  * solve that: the app publishes what the frame MEANS as an `EVGA11yTree`, and
  * the mirror turns it into positioned DOM elements carrying the roles, names
  * and states. That is what a reader walks — and therefore the only honest
@@ -13,7 +13,7 @@
  */
 
 import { buildHost } from "../build-host.cjs";
-import { createA11yMirror } from "../../../evg/gl/evg-a11y.js";
+import { createA11yMirror } from "../../../../lib/evg/gl/evg-a11y.js";
 import * as HostModule from "../../bin/ui_host.cjs";
 import { FIXTURE, THEME_CSS, PAGE } from "./generated.js";
 

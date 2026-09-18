@@ -19,8 +19,8 @@
 ;   bash gallery/pdf_writer/test/run_vector.sh
 ; ==============================================================================
 
-Import "../../evg/PathBuilder.rgr"
-Import "../../evg/SVGPathParser.rgr"
+Import "pkg:evg/PathBuilder.rgr"
+Import "pkg:evg/SVGPathParser.rgr"
 Import "../../game_engine/v2/tests/harness/RgTest.rgr"
 
 class PathBuilderTest {

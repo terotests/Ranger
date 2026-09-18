@@ -4,6 +4,6 @@
   "entry": "src/pkg_tool.rgr",
   "license": "AGPL-3.0-or-later",
   "dependencies": {
-    "zip": { "path": "../zip" }
+    "zip": { "path": "../lib/zip" }
   }
 }

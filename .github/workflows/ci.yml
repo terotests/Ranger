@@ -243,9 +243,9 @@ jobs:
   # toolchain the runner has, comparing output.
   # THE SHARED RUNTIME, AND NOTHING THAT NEEDS A DEVICE.
   #
-  # `gallery/evg/EvgApp.rgr`, `EvgViewport.rgr` and `EvgHost.rgr` are what a
+  # `lib/evg/EvgApp.rgr`, `EvgViewport.rgr` and `EvgHost.rgr` are what a
   # UIKit view, an Android View and the browser page all put around an EVG
-  # application (gallery/evg/HOSTS.md). Because the host is Ranger rather than
+  # application (lib/evg/HOSTS.md). Because the host is Ranger rather than
   # Swift or Kotlin, the whole of it — the fit, the safe area, a window point
   # to a page point, the press a drag cancels, the fling, the keys — is
   # drivable on Node, and that is the only reason it could be refactored into

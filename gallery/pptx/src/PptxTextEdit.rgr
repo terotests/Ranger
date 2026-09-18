@@ -21,7 +21,7 @@
 ; ==============================================================================
 
 Import "PptxModel.rgr"
-Import "../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 Import "../../office/text/OfficeCaretMotion.rgr"
 
 class PptxTextPos {

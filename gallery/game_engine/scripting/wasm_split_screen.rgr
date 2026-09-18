@@ -10,8 +10,8 @@
 ; ==============================================================================
 
 Import "../framebuffer.rgr"
-Import "./wasm_physics_runner.rgr"
-Import "./game_input.rgr"
+Import "wasm_physics_runner.rgr"
+Import "game_input.rgr"
 Import "../../ts_to_ranger/game_host.rgr"
 
 class WasmSplitScreenHost {

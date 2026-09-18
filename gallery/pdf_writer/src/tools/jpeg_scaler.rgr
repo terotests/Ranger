@@ -9,9 +9,9 @@
 ; LLVM/native (-l=llvm): EXPERIMENTAL — IR links but decode hangs and may use >1 GB RAM.
 ; See gallery/pdf_writer/docs/JPEG_SCALER_LLVM.md and scripts/compile-jpeg-scaler-llvm.sh
 
-Import "../jpeg/JPEGDecoder.rgr"
+Import "pkg:image/JPEGDecoder.rgr"
 Import "../jpeg/JPEGEncoder.rgr"
-Import "../jpeg/ProgressiveJPEGDecoder.rgr"
+Import "pkg:image/ProgressiveJPEGDecoder.rgr"
 Import "../jpeg/JPEGMetadata.rgr"
 
 class JPEGScaler {

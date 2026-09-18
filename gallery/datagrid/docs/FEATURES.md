@@ -53,7 +53,7 @@
 ; paste by default; value + formula + style land in ONE undo op via
 ; applyEditStyled, and styleIdFor matches the style into the target sheet's
 ; table by value. Ctrl+Shift+V opens Paste Special (all / values / formats /
-; no-formats), built on gallery/evg/EVGWindow — a shared window layer that
+; no-formats), built on gallery/evg_window/EVGWindow — a shared window layer that
 ; paints into an EVGDisplayList so DOCX and PPTX can reuse it.
 ;
 ; Clipboard: Ctrl+C/X fill clipboardTsv + the structured block. The WebGL host

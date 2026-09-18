@@ -38,9 +38,9 @@
 ;   npm run pptx:chrome:test
 ; ==============================================================================
 
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGStyleSheet.rgr"
-Import "../../evg/EVGLayout.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
+Import "pkg:evg/EVGLayout.rgr"
 Import "PptxEdit.rgr"
 
 class PptxChrome {

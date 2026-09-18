@@ -10,9 +10,9 @@
 ; chart, an EVG-laid-out document, a data grid, a flow diagram — can be put on
 ; a slide as shapes without knowing that PresentationML exists.
 ;
-; WHY IT LIVES HERE AND NOT IN gallery/evg. Because the dependency has to run
+; WHY IT LIVES HERE AND NOT IN lib/evg. Because the dependency has to run
 ; this way round. EVG knows nothing about Office and should go on knowing
-; nothing; the .pptx side already imports EVG. A file under gallery/evg that
+; nothing; the .pptx side already imports EVG. A file under lib/evg that
 ; imported PptxModel would make the layout engine depend on a document format,
 ; which is the direction the gallery is built to avoid.
 ;
@@ -40,7 +40,7 @@
 Import "PptxModel.rgr"
 Import "../../vfs/src/Vfs.rgr"
 Import "PptxShapeInk.rgr"
-Import "../../evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 
 class PptxFromEvg {
     ; What "sans-serif" is called on a slide, for a command that named a family

@@ -119,8 +119,8 @@ const MIME = {
 /** Both painters and the built engine, without either page's dist carrying the
  *  other's renderer: the routes are assembled here instead. */
 const ROUTES = {
-  "/gl/evg-webgl.js": path.join(ROOT, "gallery/evg/gl/evg-webgl.js"),
-  "/html/evg-html.js": path.join(ROOT, "gallery/evg/html/evg-html.js"),
+  "/gl/evg-webgl.js": path.join(ROOT, "lib/evg/gl/evg-webgl.js"),
+  "/html/evg-html.js": path.join(ROOT, "lib/evg/html/evg-html.js"),
 };
 
 function findChrome() {

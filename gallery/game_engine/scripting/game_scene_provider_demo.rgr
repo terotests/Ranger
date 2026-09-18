@@ -9,7 +9,7 @@
 ;     -d=gallery/game_engine/scripting -o=game_scene_provider_demo.js -nodecli \
 ;   && node gallery/game_engine/scripting/game_scene_provider_demo.js
 
-Import "./game_scene_provider.rgr"
+Import "game_scene_provider.rgr"
 Import "../games/autopeli_wasm/scene/autopeli_scene_provider.rgr"
 
 ; A hypothetical SECOND physics game — a top-down bumper arena. It lives here only

@@ -7642,7 +7642,7 @@ class RangerFlowTest {
     }
 
     ; ------------------------------------------------------- the camera -----
-    ; The claim of `gallery/evg/PLAN_VIEW_TRANSFORM.md` S2, as arithmetic: the
+    ; The claim of `lib/evg/PLAN_VIEW_TRANSFORM.md` S2, as arithmetic: the
     ; graph built in FLOW coordinates with the camera handed to the painter is
     ; the same picture as the graph built with the camera multiplied in — so a
     ; pan, and a zoom inside the band, can redraw the frame instead of walking

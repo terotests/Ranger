@@ -9,7 +9,7 @@
 ; prints the resulting per-player, multi-colored EVG tree.
 ; ==============================================================================
 
-Import "./wasm_ui_io.rgr"
+Import "wasm_ui_io.rgr"
 
 class WasmUiDemo {
     sfn hexNibble:int (c:int) {

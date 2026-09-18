@@ -24,8 +24,8 @@
 ; ==============================================================================
 
 Import "../../game_engine/ui/UIContext.rgr"
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGColor.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
 Import "DocxTextMetrics.rgr"
 Import "../../office/text/OfficeText.rgr"
 

@@ -30,7 +30,7 @@
 ; go; today it only reports the mismatch.
 ; ==============================================================================
 
-Import "../../../evg/SVGPathParser.rgr"
+Import "pkg:evg/SVGPathParser.rgr"
 Import "../KiwiBuffer.rgr"
 
 class FigPathWrite {

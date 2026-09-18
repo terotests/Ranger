@@ -34,8 +34,8 @@ Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
 Import "../../../pdf_writer/src/core/EVGPDFRenderer.rgr"
 Import "../../../pdf_writer/src/fonts/EVGFontSetup.rgr"
 Import "../../../pdf_writer/src/fonts/FontManager.rgr"
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGLayout.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGLayout.rgr"
 
 ; One page of a report: the element that was laid out, and the sheet it was
 ; laid out for. Margin is kept because the page content starts inside it — the

@@ -181,7 +181,7 @@ async function paintTimes(results) {
 <style>html,body{margin:0;background:#fff}canvas{display:block}</style>
 <canvas id="c"></canvas>
 <script type="module">
-import { renderDisplayList } from "/gallery/evg/gl/evg-webgl.js";
+import { renderDisplayList } from "/lib/evg/gl/evg-webgl.js";
 const DOCS = ${JSON.stringify(docs)};
 const c = document.getElementById("c");
 c.style.width = "1240px"; c.style.height = "900px";

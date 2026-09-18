@@ -44,7 +44,7 @@
 
 Import "OfficeBidi.rgr"
 Import "OfficeArabic.rgr"
-Import "../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 
 ; One stretch of a line that can be drawn with a single command: a maximal
 ; range of the line that is both in one visual direction and in one of the

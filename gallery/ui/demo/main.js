@@ -23,19 +23,19 @@
  * now is.
  */
 
-import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
-import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
-import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
+import { renderDisplayList } from "../../../lib/evg/gl/evg-webgl.js";
+import { createA11yMirror, pressAtCentre } from "../../../lib/evg/gl/evg-a11y.js";
+import { createTextInputBridge } from "../../../lib/evg/gl/evg-textinput.js";
 // Dev tools for a canvas. Loaded always and attached only when the page is
 // asked for it with `?inspect=1`, so a demo that nobody is inspecting pays
 // one import and no work at all.
-import { attach as attachInspector } from "../../evg/inspect/evg-inspect.js";
+import { attach as attachInspector } from "../../../lib/evg/inspect/evg-inspect.js";
 import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo, FilterDemo, EventCalDemo, MessageDemo, ControlsDemo, OtpDemo, MetadataDemo, MODULES } from "./generated-host.js";
 // The browser measures text for every layout the demos build: the same face
 // the painter draws with, through canvas `measureText`, in place of the
 // advance table. Installed before any demo is constructed, because a demo
 // that keeps a layout makes it when it is made.
-import { installCanvasMeasurer } from "../../evg/gl/evg-measure.js";
+import { installCanvasMeasurer } from "../../../lib/evg/gl/evg-measure.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
@@ -156,7 +156,7 @@ function keptTree(mod, css, label, size) {
     // The invalidation decision. `layoutClean()` is true when nothing the
     // sheet wrote this pass can have moved a box — a hover that changes a
     // colour, a transform, an opacity. On a large page that is most of the
-    // frame; see gallery/evg/EVGInvalidateTest.rgr for what it is allowed to
+    // frame; see lib/evg/EVGInvalidateTest.rgr for what it is allowed to
     // mean and the one thing it cannot see (a bare `textContent` edit, which
     // nothing here does: text comes from a rebuild).
     if (!sheet.layoutClean()) lay.layout(root);

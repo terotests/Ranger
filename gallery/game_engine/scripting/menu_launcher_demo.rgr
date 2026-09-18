@@ -11,8 +11,8 @@
 ;    right game entry - which is all the host needs to launch the sub-app.
 ; ==============================================================================
 
-Import "./as_source_runner.rgr"
-Import "./game_catalog.rgr"
+Import "as_source_runner.rgr"
+Import "game_catalog.rgr"
 Import "../ui/WasmUiSelect.rgr"
 
 class MenuLauncherCheck {

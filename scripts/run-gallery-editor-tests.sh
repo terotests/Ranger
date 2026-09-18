@@ -75,7 +75,7 @@ SUITES=(
   docx_viewer:test
   docx_viewer:app:test
   # Markdown, which is about to stop being only a viewer. It appeared NOWHERE
-  # in this file or in ci.yml, so a change in gallery/office or gallery/evg
+  # in this file or in ci.yml, so a change in gallery/office or lib/evg
   # could break it and nothing would say so — and it is about to start
   # importing from both. Wired in BEFORE the first such import rather than
   # after, which is the whole point of gallery/PLAN_EDITOR_KERNEL.md §5.

@@ -4,7 +4,7 @@
 ; physics_sandbox_runner_demo - headless Cannon sandbox integration test.
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
+Import "game_runtime.rgr"
 
 class PhysicsSandboxRunnerDemo {
     sfn m@(main):void () {

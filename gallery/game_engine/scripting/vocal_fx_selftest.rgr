@@ -2,7 +2,7 @@
 
 ; RANGER TEST — standalone compile/render self-test for GameVocalFx.
 ; Not a launcher game (see scripting/AGENTS.md). Demo: vocal_fx_demo.game.tsx.
-Import "./game_vocal_fx.rgr"
+Import "game_vocal_fx.rgr"
 
 class VoiceboxSelfTest {
     sfn m@(main):void () {

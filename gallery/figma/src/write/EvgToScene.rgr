@@ -33,12 +33,12 @@
 ; ==============================================================================
 
 Import "../scene/SceneNode.rgr"
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGLayout.rgr"
-Import "../../../evg/EVGColor.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGColor.rgr"
 Import "FigPathWrite.rgr"
-Import "../../../evg/SvgParser.rgr"
-Import "../../../evg/PathBuilder.rgr"
+Import "pkg:evg/SvgParser.rgr"
+Import "pkg:evg/PathBuilder.rgr"
 
 class EvgToScene {
     def losses:[string]

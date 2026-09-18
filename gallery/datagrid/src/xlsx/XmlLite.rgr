@@ -5,7 +5,7 @@
 ; ==============================================================================
 ;
 ; Enough to walk SpreadsheetML parts: tag names, attributes (incl. r:id), and
-; element text. Modeled after gallery/evg/SvgParser's SvgTag/SvgAttr scan, but
+; element text. Modeled after lib/evg/SvgParser's SvgTag/SvgAttr scan, but
 ; kept independent so DataGrid does not import the SVG IR stack.
 ; ==============================================================================
 

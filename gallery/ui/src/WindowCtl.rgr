@@ -17,7 +17,7 @@
 ;              covers the thing you opened it to look at.
 ;
 ; --- WHY NOT EVGWindow --------------------------------------------------------
-; `gallery/evg/EVGWindow.rgr` is the older layer and it has a fixed vocabulary:
+; `gallery/evg_window/EVGWindow.rgr` is the older layer and it has a fixed vocabulary:
 ; `addLabel`, `addButton`, `addRadio`, `addCheckbox`, `addSwatch`, and one
 ; `content` rectangle whose pixels the OWNER paints by hand. Anything it does
 ; not have a method for cannot go in the window at all — a table, a chart with

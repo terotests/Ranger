@@ -7,10 +7,10 @@
 
 Import "../../../ts_parser/ts_parser_simple.rgr"
 Import "../../../ts_parser/ts_lexer.rgr"
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGUnit.rgr"
-Import "../../../evg/EVGColor.rgr"
-Import "../../../evg/EVGGradient.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGGradient.rgr"
 Import "../core/Utf8.rgr"
 
 class JSXToEVG {

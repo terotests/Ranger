@@ -28,7 +28,7 @@
 ; event handlers possible for a renderer that wants them.
 ; =============================================================================
 
-Import "../../../evg/EVGElement.rgr"
+Import "pkg:evg/EVGElement.rgr"
 Import "../interp/migrate/src/EvalValue.rgr"
 
 class EvElementToEVG {

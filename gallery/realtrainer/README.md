@@ -10,7 +10,7 @@ parsed document behind all of it.
 ```bash
 npm run rt:web      # build, serve, print the URL
 # the bare URL is the window: laid out again on every resize (a
-# ResizeObserver on the stage, as gallery/evg/web/responsive does it), the
+# ResizeObserver on the stage, as lib/evg/web/responsive does it), the
 # rail or the bottom bar folded by the stylesheet's @media blocks at 768px,
 # the targets grown under @media (pointer: coarse) when the browser reports
 # a finger, and the shell opens on Home; ?route=/calendar/cal-plan?week=2026-02-09 opens it on
@@ -381,7 +381,7 @@ through the same text bridge the browser uses. `npm run rt:ios:verify` drives
 it on Node, 42 checks; `npm run rt:ios:run` needs a Mac with Xcode and puts it
 on a simulator, `rt:ios:device` on the iPad on the cable.
 [`android/`](android/README.md) is the same shape over
-`gallery/evg/android`'s painter, as `gallery/ui/android` is for the dashboard:
+`lib/evg/android`'s painter, as `gallery/ui/android` is for the dashboard:
 the page is the view in dp, a `GestureDetector` drag scrolls, the soft
 keyboard commits through an `InputConnection` into the same text bridge.
 `npm run rt:android:verify` drives it on Node, 40 checks;

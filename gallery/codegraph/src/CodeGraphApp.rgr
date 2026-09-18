@@ -18,10 +18,10 @@
 ; In-tab examples still compile through the VFS.
 ; ============================================================================
 
-Import "../../evg/EvgApp.rgr"
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGUnit.rgr"
-Import "../../evg/EVGDisplayList.rgr"
+Import "pkg:evg/EvgApp.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 Import "../../ui/src/UiHost.rgr"
 Import "../../ui/src/ResizeCtl.rgr"
 Import "../../rangerflow/core/FlowEditor.rgr"
@@ -1068,14 +1068,73 @@ class CodeGraphApp extends EvgApp {
         while (i < (array_length specs)) {
             def spec:string (itemAt specs i)
             if ((this.skipEnvImport(spec)) == false) {
-                def full:string (this.joinPath(dir spec))
-                if ((indexOf full "..") != 0) {
-                    this.ingestDiskFile((this.fileDirName(full)) (this.fileBaseName(full)))
+                def full:string ""
+                if ((indexOf spec "pkg:") == 0) {
+                    full = (this.resolvePkgSpec(dir spec))
+                } {
+                    full = (this.joinPath(dir spec))
+                }
+                if ((strlen full) > 0) {
+                    if ((indexOf full "..") != 0) {
+                        this.ingestDiskFile((this.fileDirName(full)) (this.fileBaseName(full)))
+                    }
                 }
             }
             i = (i + 1)
         }
         return true
+    }
+
+    ; `Import "pkg:evg/EVGColor.rgr"` on disk: the nearest ranger.json up from
+    ; the importing file names the package, by path. The same package may be
+    ; the manifest's own (`"name"`) or one of its `"dependencies"`. A bare
+    ; `pkg:name` would need the entry, which the ingest does not follow.
+    fn resolvePkgSpec:string (dir:string spec:string) {
+        def rest:string (substring spec 4 (strlen spec))
+        def slash:int (this.slashIn(rest))
+        if (slash < 0) {
+            return ""
+        }
+        def pkgName:string (substring rest 0 slash)
+        def sub:string (substring rest (slash + 1) (strlen rest))
+        def manDir:string dir
+        def steps:int 0
+        while (steps < 24) {
+            def man:string (this.readDisk(manDir "ranger.json"))
+            if ((strlen man) > 0) {
+                def pkgDir:string (this.pkgDirFromManifest(manDir man pkgName))
+                if ((strlen pkgDir) > 0) {
+                    return (this.joinPath(pkgDir sub))
+                }
+            }
+            if ((manDir == ".") || (manDir == "/") || ((strlen manDir) == 0)) {
+                return ""
+            }
+            manDir = (this.fileDirName(manDir))
+            steps = (steps + 1)
+        }
+        return ""
+    }
+
+    fn pkgDirFromManifest:string (manDir:string man:string pkgName:string) {
+        if ((CodeGraphBuilder.jsonStrField(man "name")) == pkgName) {
+            return manDir
+        }
+        def depsAt:int (indexOf man "\"dependencies\"")
+        if (depsAt < 0) {
+            return ""
+        }
+        def deps:string (substring man depsAt (strlen man))
+        def keyAt:int (indexOf deps (("\"" + pkgName) + "\""))
+        if (keyAt < 0) {
+            return ""
+        }
+        def after:string (substring deps keyAt (strlen deps))
+        def depPath:string (CodeGraphBuilder.jsonStrField(after "path"))
+        if ((strlen depPath) == 0) {
+            return ""
+        }
+        return (this.collapsePath((this.joinPath(manDir depPath))))
     }
 
     fn ingestDiskTree:boolean (path:string) {
@@ -1418,7 +1477,7 @@ class CodeGraphApp extends EvgApp {
         def fs:InputFSFolder (new InputFSFolder)
         fs.name = ""
         env.filesystem = fs
-        env.setEnv("RANGER_LIB" "/;/lib/;/compiler/;/gallery/css/;/gallery/evg/;/gallery/zip/")
+        env.setEnv("RANGER_LIB" "/;/lib/;/compiler/;/gallery/css/;/lib/evg/;/gallery/zip/")
         def params:CmdParams (new CmdParams)
         push params.values fname
         set params.params "l" "es6"

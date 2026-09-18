@@ -2,7 +2,7 @@
 
 ## Implementation Status Summary
 
-This section summarizes what is currently implemented in the PDF renderer vs. what's defined in the EVG SPEC (`gallery/evg/SPEC.md`).
+This section summarizes what is currently implemented in the PDF renderer vs. what's defined in the EVG SPEC (`lib/evg/SPEC.md`).
 
 ### ✅ IMPLEMENTED (Working in PDF Renderer)
 
@@ -148,7 +148,7 @@ This document outlines the plan for enhancing the EVG (Element Visual Graph) ren
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        EVG Element Tree                             │
-│              (gallery/evg/EVGElement.rgr)                           │
+│              (lib/evg/EVGElement.rgr)                           │
 │    - Auto-generated IDs / User-defined IDs                          │
 │    - Image metadata (EXIF, GPS) attached to elements                │
 │    - Gradient definitions, Layer stacking                           │
@@ -568,7 +568,7 @@ class ColorConverter {
 
 **Files to create:**
 ```
-gallery/evg/web/
+lib/evg/web/
 ├── EVGHTMLRenderer.rgr      # Main HTML renderer
 ├── EVGCSSGenerator.rgr      # CSS style generation
 ├── EVGHTMLDocument.rgr      # HTML document wrapper
@@ -755,9 +755,9 @@ evg preview example.tsx --port=8080
 Create a new renderer that outputs the EVG tree as HTML/CSS or Canvas drawings for browser preview.
 
 **Files to create:**
-- `gallery/evg/web/EVGWebRenderer.rgr` - Renders EVG to HTML/CSS
-- `gallery/evg/web/EVGCanvasRenderer.rgr` - Renders EVG to Canvas commands
-- `gallery/evg/web/evg_preview_server.rgr` - Simple HTTP server for preview
+- `lib/evg/web/EVGWebRenderer.rgr` - Renders EVG to HTML/CSS
+- `lib/evg/web/EVGCanvasRenderer.rgr` - Renders EVG to Canvas commands
+- `lib/evg/web/evg_preview_server.rgr` - Simple HTTP server for preview
 
 **Features:**
 - Real-time preview of layout

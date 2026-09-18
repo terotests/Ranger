@@ -31,7 +31,7 @@
 ; count in on every target this compiler emits.
 ; ==============================================================================
 
-Import "../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 
 class OfficeCaretMotion {
     ; --- one character -------------------------------------------------------

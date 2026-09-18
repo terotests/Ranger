@@ -205,7 +205,7 @@ function resize() {
 // moves — a keystroke, a style, a page size. A scroll therefore serialises a
 // caret rather than a forty-page document, and on the GPU side it is one
 // uniform rather than a fresh atlas, fresh buffers and a walk over every
-// command (`gallery/evg/PLAN_VIEW_TRANSFORM.md` S3).
+// command (`lib/evg/PLAN_VIEW_TRANSFORM.md` S3).
 //
 // The caret and the selection are their own small frame, drawn on top with
 // `clear: false`. They move without the document changing, which is exactly

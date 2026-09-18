@@ -1,6 +1,6 @@
 # evg — staged EVG layout / vector primitives
 
-**Copied from:** `gallery/evg/` (`original/`, `bin/` excluded).
+**Copied from:** `lib/evg/` (`original/`, `bin/` excluded).
 
 Modular EVG elements used by UI and soft rendering (`EVGBox`, `EVGText`,
 layout, `evg_test.rgr`). Complements `v2/ui/` and future soft backends.

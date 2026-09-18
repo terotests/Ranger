@@ -10,7 +10,7 @@ import android.widget.Toast
  * There is no RealTrainer code in this file, and none anywhere else in this
  * directory. The shell, the diary, the COMPACT parser, the state machines, the
  * statistics and the Vela runtime that draws them are all `gallery/realtrainer`
- * and `gallery/evg`, compiled to Kotlin — the same source the browser demo
+ * and `lib/evg`, compiled to Kotlin — the same source the browser demo
  * and the gates run.
  *
  * The five assets are the same five texts the browser bundle embeds and the

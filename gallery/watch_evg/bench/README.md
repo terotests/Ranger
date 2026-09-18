@@ -8,7 +8,7 @@ Read the finding in **[WATCH_PERFORMANCE.md](../WATCH_PERFORMANCE.md)**. This
 file is how to reproduce it.
 
 ```bash
-# the Wear OS number — Ranger → Kotlin, painted through gallery/evg/android
+# the Wear OS number — Ranger → Kotlin, painted through lib/evg/android
 bash gallery/watch_evg/bench/scripts/run-jvm.sh --png     # writes tmp/watch-bench/*.png
 bash gallery/watch_evg/bench/scripts/run-jvm.sh --c1      # C1 only: the ART-quality bracket
 
@@ -86,13 +86,13 @@ arithmetic required.
 | --- | --- |
 | `WatchBench.rgr` | The three scenes and the phase entry points |
 | `watch.css` | The stylesheet they lay out against |
-| `desktop/…/WatchBenchMain.kt` | The Kotlin harness — and the paint pass, through `gallery/evg/android` |
+| `desktop/…/WatchBenchMain.kt` | The Kotlin harness — and the paint pass, through `lib/evg/android` |
 | `native/watch_bench_main.cpp` | The C++ harness |
 | `watch-bench.mjs` | The Node harness |
 | `scripts/` | Ranger→JS/Kotlin/C++, and the two runners |
 
 Nothing generated is checked in: `bin/`, `generated/` and `tmp/watch-native/`
-are compiler artefacts of `WatchBench.rgr` and the `gallery/evg` tree, and a
+are compiler artefacts of `WatchBench.rgr` and the `lib/evg` tree, and a
 stale copy is how a benchmark starts measuring last month's layout engine.
 
 **License: AGPL-3.0-or-later** (Gallery).

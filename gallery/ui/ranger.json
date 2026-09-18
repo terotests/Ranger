@@ -4,6 +4,8 @@
   "entry": "src/UiCtl.rgr",
   "license": "AGPL-3.0-or-later",
   "dependencies": {
-    "evg": { "path": "../evg" }
+    "evg": {
+      "path": "../../lib/evg"
+    }
   }
 }

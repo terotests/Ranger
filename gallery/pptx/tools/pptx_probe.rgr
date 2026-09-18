@@ -10,8 +10,8 @@
 ;   node gallery/pptx/bin/pptx_probe.js <file.pptx> <slide-number>
 
 Import "../src/PptxApp.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
-Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "pkg:image/PNGEncoder.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 
 class PptxProbe {
     sfn describe:string (sh:PptxShape) {

@@ -21,10 +21,10 @@
 
 Import "../framebuffer.rgr"
 Import "../../pdf_writer/src/raster/RasterText.rgr"
-Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 Import "../../pdf_writer/src/fonts/FontManager.rgr"
-Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
-Import "../../evg/EVGTextMeasurer.rgr"
+Import "pkg:image/ImageBuffer.rgr"
+Import "pkg:evg/EVGTextMeasurer.rgr"
 Import "../../office/text/OfficeText.rgr"
 Import "../../office/text/OfficeFont.rgr"
 Import "../../office/text/OfficeMeasure.rgr"

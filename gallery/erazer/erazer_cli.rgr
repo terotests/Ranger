@@ -13,8 +13,8 @@
 
 Import "Erazer.rgr"
 Import "../game_engine/v2/imaging/png/PNGDecoder.rgr"
-Import "../pdf_writer/src/jpeg/JPEGDecoder.rgr"
-Import "../pdf_writer/src/jpeg/ProgressiveJPEGDecoder.rgr"
+Import "pkg:image/JPEGDecoder.rgr"
+Import "pkg:image/ProgressiveJPEGDecoder.rgr"
 
 class ErazerCli {
 

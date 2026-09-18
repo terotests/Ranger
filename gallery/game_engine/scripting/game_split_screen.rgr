@@ -21,11 +21,11 @@
 ; first-time TSX parse can still hitch briefly on a single phase.
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
-Import "./game_input.rgr"
+Import "game_runtime.rgr"
+Import "game_input.rgr"
 Import "../framebuffer.rgr"
-Import "./game_host_native.rgr"
-Import "./game_audio_sdl.rgr"
+Import "game_host_native.rgr"
+Import "game_audio_sdl.rgr"
 
 class SplitScreenHost {
     def left:GameRunner (new GameRunner)

@@ -1,0 +1,117 @@
+; SPDX-License-Identifier: MIT
+
+; ==============================================================================
+; EVGImageDecode - PNG/JPEG bytes to a SoftCanvas ImageBuffer
+; ==============================================================================
+;
+; This began as PptxImageDecode, next to the deck viewer, with a note on it
+; saying it was not PPTX-specific and anything with image bytes could reuse it.
+; The book editor is the second thing that needed it, which is the moment a
+; note like that has to become a move: a picture on a page and a picture on a
+; slide are the same JPEG, and two copies of the sniff-the-first-two-bytes
+; decision would drift.
+;
+; Sniffing rather than trusting a file extension is the point of it - an asset
+; named .jpg is regularly a PNG, and SoftCanvas blits the same pdf_writer
+; ImageBuffer either way.
+; ==============================================================================
+
+Import "pkg:image/ImageBuffer.rgr"
+Import "pkg:image/JPEGDecoder.rgr"
+Import "pkg:image/ProgressiveJPEGDecoder.rgr"
+Import "pkg:image/PNGDecoder.rgr"
+
+class EVGImageDecode {
+    Constructor () {
+    }
+
+    sfn decode@(optional):ImageBuffer (bytes:buffer) {
+        def n:int (buffer_length bytes)
+        if (n < 8) {
+            def __missing@(optional):ImageBuffer
+            return __missing
+        }
+        def b0:int (buffer_get bytes 0)
+        def b1:int (buffer_get bytes 1)
+        ; JPEG SOI
+        if ((b0 == 255) && (b1 == 216)) {
+            ; Baseline and progressive are different decoders, and which one a
+            ; file needs is in its SOF marker rather than in its name. Sending
+            ; a progressive JPEG to the baseline decoder is not an error, it is
+            ; a picture that does not arrive — "some of the photos are simply
+            ; missing" is a poor way to find out which kind you have.
+            if (EVGImageDecode.isProgressive(bytes)) {
+                def prog:ProgressiveJPEGDecoder (new ProgressiveJPEGDecoder)
+                prog.quiet = true
+                def pjim:ImageBuffer (prog.decodeBytes(bytes))
+                if ((pjim.width > 0) && (pjim.height > 0)) {
+                    def hitP@(optional):ImageBuffer pjim
+                    return hitP
+                }
+                def __failPJ@(optional):ImageBuffer
+                return __failPJ
+            }
+            def jdec:JPEGDecoder (new JPEGDecoder)
+            ; A picture is decoded here because something is being DRAWN, not
+            ; because anybody asked about the JPEG, so the decoder's own
+            ; narration is noise - and on a native host it is noise on
+            ; somebody's terminal, twenty-five lines per photograph.
+            jdec.quiet = true
+            def jim:ImageBuffer (jdec.decodeBytes(bytes))
+            if ((jim.width > 0) && (jim.height > 0)) {
+                def hit@(optional):ImageBuffer jim
+                return hit
+            }
+            def __failJ@(optional):ImageBuffer
+            return __failJ
+        }
+        ; PNG signature 89 50 4E 47
+        if ((b0 == 137) && (b1 == 80)) {
+            def pdec:PNGDecoder (new PNGDecoder)
+            def pim:ImageBuffer (pdec.decodeBytes(bytes))
+            ; Ask the DECODER what it read, not the buffer it handed back.
+            ; `decodeBytes` returns a 1x1 image when it gives up, so judging by
+            ; the result made a genuine 1x1 PNG — a spacer, a placeholder, the
+            ; thumbnail in a `.fig` — indistinguishable from a failure, and it
+            ; was rejected. The header's own dimensions stay 0 when nothing
+            ; parsed, and say 1x1 when the file really is that.
+            if ((pdec.width > 0) && (pdec.height > 0)) {
+                def hit2@(optional):ImageBuffer pim
+                return hit2
+            }
+            def __failP@(optional):ImageBuffer
+            return __failP
+        }
+        def __missing2@(optional):ImageBuffer
+        return __missing2
+    }
+
+    ; SOF2 says progressive, SOF0 says baseline, and whichever comes first
+    ; decides. The scan stops at that marker rather than walking the file:
+    ; a frame header is in the first few hundred bytes, and past it every
+    ; 0xFF byte is entropy-coded data that means nothing here.
+    sfn isProgressive:boolean (bytes:buffer) {
+        def n:int (buffer_length bytes)
+        def limit:int n
+        if (limit > 65536) {
+            limit = 65536
+        }
+        def i:int 2
+        while (i < (limit - 1)) {
+            if ((buffer_get bytes i) == 255) {
+                def marker:int (buffer_get bytes (i + 1))
+                if (marker == 194) {
+                    return true
+                }
+                if (marker == 192) {
+                    return false
+                }
+                if (marker == 193) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

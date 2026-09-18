@@ -29,7 +29,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { listOf } from "../../evg/gl/evg-list.js";
+import { listOf } from "../../../lib/evg/gl/evg-list.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");

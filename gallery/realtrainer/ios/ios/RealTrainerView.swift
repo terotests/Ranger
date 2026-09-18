@@ -13,7 +13,7 @@
 //
 // THE ENGINE IS NOT ON THIS THREAD. `app` is made here and then never touched
 // from the main thread again: every call goes through `EvgEngineQueue`
-// (gallery/evg/apple), which runs it on the engine's own serial queue, in
+// (lib/evg/apple), which runs it on the engine's own serial queue, in
 // order, and hands back a frame — the display list and the three viewport
 // numbers the painter needs — when a call changed the page. `draw` paints the
 // last frame it was given and reads the app for nothing, so a layout that
@@ -25,7 +25,7 @@
 // this is a fixed 980x760 composition that is centred and letterboxed. Sharing
 // one view between them would mean a protocol wide enough to describe both
 // viewport models, which is a worse thing to maintain than two short views.
-// What IS shared is the part worth sharing: `gallery/evg/apple` paints both.
+// What IS shared is the part worth sharing: `lib/evg/apple` paints both.
 
 import UIKit
 

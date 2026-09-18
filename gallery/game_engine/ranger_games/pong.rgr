@@ -29,7 +29,7 @@
 ; with the native SDL2 backend (pong_sdl.rgr). This file is the terminal backend.
 ; ==============================================================================
 
-Import "./pong_core.rgr"
+Import "pong_core.rgr"
 
 ; ------------------------------------------------------------------------------
 ; Terminal - the platform layer / backend (I/O lives ONLY here).

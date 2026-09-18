@@ -11,7 +11,7 @@
 ; which is exactly what a headless / golden-frame rendering test needs.
 ; ==============================================================================
 
-Import "./pong_core.rgr"
+Import "pong_core.rgr"
 Import "../framebuffer.rgr"
 
 class PongRenderer {

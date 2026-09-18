@@ -3,8 +3,8 @@
 ; Progressive JPEG Decoder Test
 ; Tests both baseline and progressive JPEG decoding
 
-Import "../jpeg/ProgressiveJPEGDecoder.rgr"
-Import "../jpeg/PPMImage.rgr"
+Import "pkg:image/ProgressiveJPEGDecoder.rgr"
+Import "pkg:image/PPMImage.rgr"
 
 class ProgressiveJPEGTest {
     sfn m@(main):void () {

@@ -3,7 +3,7 @@
 ; RasterCompositing - Alpha blending and compositing for raster rendering
 ; Provides Porter-Duff compositing operations
 
-Import "RasterBuffer.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 
 ; Alpha compositing class - provides blending operations
 class RasterCompositor {

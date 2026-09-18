@@ -7,10 +7,10 @@
 Import "FigParser.rgr"
 Import "FigSample.rgr"
 Import "FigModel.rgr"
-Import "../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 Import "convert/FigToScene.rgr"
 Import "evg/SceneToEVG.rgr"
-Import "../../evg/EVGTreeJson.rgr"
+Import "pkg:evg/EVGTreeJson.rgr"
 Import "write/SceneToFig.rgr"
 Import "write/EvgToScene.rgr"
 

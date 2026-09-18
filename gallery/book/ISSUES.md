@@ -107,7 +107,7 @@ way `book:pdf` already did.
 
 ## 8. A dropped picture's `blob:` URL must not be given a base
 
-`loadImages` in `gallery/evg/gl/evg-webgl.js` sets `img.src = base + src`, and
+`loadImages` in `lib/evg/gl/evg-webgl.js` sets `img.src = base + src`, and
 the book page passes `base: "./"` because the sample's photographs are named by
 document-relative paths. An album's photographs are not: they arrive from a
 file input or a drop, so their URL is `blob:http://…`, already absolute, and

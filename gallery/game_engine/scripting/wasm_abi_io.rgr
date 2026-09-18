@@ -5,8 +5,8 @@
 ; ==============================================================================
 
 Import "../wasm_runtime.rgr"
-Import "./as_abi_bridge.rgr"
-Import "./wasm_block_validator.rgr"
+Import "as_abi_bridge.rgr"
+Import "wasm_block_validator.rgr"
 
 class WasmAbiMem {
     def handle:int 0

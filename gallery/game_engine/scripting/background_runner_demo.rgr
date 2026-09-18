@@ -9,7 +9,7 @@
 ; replaced the default clear colour (12,16,32).
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
+Import "game_runtime.rgr"
 
 class BackgroundRunnerDemo {
     sfn m@(main):void () {

@@ -10,16 +10,16 @@
 ; about quads, glyph runs and scissor rectangles.
 ;
 ; Consumers today:
-;   gallery/evg/gl/evg-webgl.js       WebGL 2, in a browser
-;   gallery/evg/gl/evg_gl_host.rgr    SDL2 + OpenGL, via the C++ target
+;   lib/evg/gl/evg-webgl.js       WebGL 2, in a browser
+;   lib/evg/gl/evg_gl_host.rgr    SDL2 + OpenGL, via the C++ target
 
 Import "../core/Utf8.rgr"
 Import "../core/EVGDocSource.rgr"
 Import "../core/EVGStyleLoader.rgr"
 Import "../fonts/EVGFontSetup.rgr"
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGLayout.rgr"
-Import "../../../evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 
 class EVGDisplayListTool {
 

@@ -18,7 +18,7 @@
 ; ==============================================================================
 
 Import "../../pdf_writer/src/jsx/EvalValue.rgr"
-Import "./physics_core.rgr"
+Import "physics_core.rgr"
 
 class GamePhysicsBridge {
 

@@ -828,11 +828,11 @@ The files live here as:
 gallery/statechart/src/Statechart.rgr
 gallery/ui/src/WindowCtl.rgr
 gallery/ui/src/SliderCtl.rgr
-gallery/evg/EVGElement.rgr
+lib/evg/EVGElement.rgr
 …
 ```
 
-Relative spellings such as `Import "../evg/EVGElement.rgr"` only work when
+Relative spellings such as `Import "../../lib/evg/EVGElement.rgr"` only work when
 the source tree has that sibling layout. Bare names only work when those
 directories are on `RANGER_LIB`. Ranger has **no package manager** — there
 is no `ranger install evg`, no registry, no lockfile. EVG was wired into
@@ -857,5 +857,5 @@ When M5 (workspace / imports) is built:
 - a repo that only has `.mjs` cannot be analysed as Ranger; say so, and
   analyse the JavaScript if a JS frontend exists
 
-Until then, analyse apps from **this** tree, where `gallery/evg` and
+Until then, analyse apps from **this** tree, where `lib/evg` and
 `gallery/ui` are the real files.

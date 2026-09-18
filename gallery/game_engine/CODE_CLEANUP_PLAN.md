@@ -113,7 +113,7 @@ Copy mature, unit-tested modules; leave tangled bridge/demo shells in v1.
 | `bridge/wasm/legacy_blocks/` | `wasm/*.h` (+ small workers) | RGW1/RGSP1/RGU1 block ABI reference | — |
 | `sprites/` | `scripting/game_sprite.rgr`, `wasm_sprite_abi.h`, `lib/ranger_game`, runners | **2D sprites** (see below) | Full `scripting/` |
 | `lpc/` | `lpc/` (no `output/`) | LPC sheet compositor + pack | Full Universal LPC art tree |
-| `evg/` | `gallery/evg/` | EVG layout/vector primitives + test | `original/`, `bin/` |
+| `evg/` | `lib/evg/` | EVG layout/vector primitives + test | `original/`, `bin/` |
 | `model3d/` | `model3d/` (no `demo/`) | glTF readers + tests | — |
 | `ui/` | `ui/` | Retained UI / EVG launcher widgets | — |
 | `web/` | `web/` (no `node_modules`/`dist`) | Browser VFS + publish framework | — |
@@ -320,7 +320,7 @@ gallery/game_engine/v2/
 │   ├── runners/
 │   └── deps/
 ├── lpc/                           # COPY LPC compositor + pack
-├── evg/                           # COPY gallery/evg primitives
+├── evg/                           # COPY lib/evg primitives
 ├── model3d/                       # COPY model readers + tests
 ├── ui/                            # COPY retained UI widgets
 ├── web/                           # COPY browser publish / VFS host

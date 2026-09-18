@@ -17,10 +17,10 @@
 Import "../src/fonts/FontManager.rgr"
 Import "../src/fonts/EVGFontSetup.rgr"
 Import "../src/fonts/TTFSubset.rgr"
-Import "../../evg/EVGTextEngine.rgr"
-Import "../../evg/EVGTextMeasurer.rgr"
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGLayout.rgr"
+Import "pkg:evg/EVGTextEngine.rgr"
+Import "pkg:evg/EVGTextMeasurer.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGLayout.rgr"
 Import "../../game_engine/v2/tests/harness/RgTest.rgr"
 
 class FontMetricsTest {

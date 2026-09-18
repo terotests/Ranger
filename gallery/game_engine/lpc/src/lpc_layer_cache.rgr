@@ -6,7 +6,7 @@
 ; Singleton: same process reuses ImageBuffers per (spritesheetsRoot + path).
 ; Demo male walk pack has 5 PNG layers; each is decoded at most once per root.
 
-Import "png_decoder.rgr"
+Import "pkg:image/PNGDecoder.rgr"
 
 class LpcLayerCache @singleton(true) {
     def keys:[string]

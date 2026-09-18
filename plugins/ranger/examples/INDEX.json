@@ -85,7 +85,7 @@
       "does": "Reads a document's outline, measures it, patches it with invertible operations and undoes the patch — the surface this plugin's `evg-edit` skill drives.",
       "needs": "repo",
       "run": "npm run agent:smoke",
-      "where": "gallery/evg/agent",
+      "where": "lib/evg/agent",
       "skill": "evg-edit",
       "teaches": [
         "addressable documents",

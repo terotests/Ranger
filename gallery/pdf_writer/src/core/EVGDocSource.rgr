@@ -23,9 +23,9 @@
 ; ==============================================================================
 
 Import "../jsx/JSXToEVG.rgr"
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGUnit.rgr"
-Import "../../../evg/EVGTreeJson.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGTreeJson.rgr"
 
 class EVGDocSource {
 

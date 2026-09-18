@@ -42,9 +42,9 @@ Import "MdDiagram.rgr"
 Import "MdToPptx.rgr"
 Import "../../pptx/api/PptxApi.rgr"
 Import "../../pptx/src/PptxToEvg.rgr"
-Import "../../evg/EVGTreeJson.rgr"
+Import "pkg:evg/EVGTreeJson.rgr"
 Import "../../pdf_writer/src/fonts/EVGFontSetup.rgr"
-Import "../../evg/EVGTextEngine.rgr"
+Import "pkg:evg/EVGTextEngine.rgr"
 
 class MdDeckTool {
     def styleName:string ""

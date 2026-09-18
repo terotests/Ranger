@@ -6,7 +6,7 @@
 ; referenced in EVG documents. It caches the results to avoid re-parsing.
 
 Import "../jpeg/JPEGMetadata.rgr"
-Import "../../../evg/EVGElement.rgr"
+Import "pkg:evg/EVGElement.rgr"
 
 ; Extended class to cache image info including EXIF data
 class ImageInfo {

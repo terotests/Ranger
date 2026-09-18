@@ -10,7 +10,7 @@
 ; window.
 ;
 ; The spreadsheet in this gallery already publishes an `EVGA11yTree` beside its
-; frame, and `EVGA11yTree` lives in `gallery/evg` precisely so it is not the
+; frame, and `EVGA11yTree` lives in `lib/evg` precisely so it is not the
 ; spreadsheet's. This is the document's half of it. The deck's is next.
 ;
 ; Where the tree comes from, and why.
@@ -46,7 +46,7 @@
 ; ==============================================================================
 
 Import "RichDocument.rgr"
-Import "../../evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
 
 class DocxA11y {
 

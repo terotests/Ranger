@@ -7,7 +7,7 @@
 ; For SDL window: npm run engine:game-sdl-native:run:pong
 ; ==============================================================================
 
-Import "./pong_native_game.rgr"
+Import "pong_native_game.rgr"
 
 class PongNativeRunnerDemo {
     sfn m@(main):void () {

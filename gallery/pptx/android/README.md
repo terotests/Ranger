@@ -7,7 +7,7 @@ host and the oracles run, compiled to **Kotlin** and painted with
 
 ```text
 gallery/pptx/src/*.rgr          the viewer: OPC/ZIP, OOXML, theme resolve,
-gallery/evg/*.rgr               layout, display list — all Ranger
+lib/evg/*.rgr               layout, display list — all Ranger
       │
       │  node bin/output.js -l=kotlin       (scripts/build-ranger.sh)
       ▼
@@ -16,7 +16,7 @@ generated/pptx_android.kt       ~91k lines, one file, package fi.ranger.rgr
       │  PptxAndroid.frame() : EVGDisplayList
       ▼
 EvgPainter                      one walk, eight command kinds
-   (gallery/evg/android)
+   (lib/evg/android)
       │
       ├── AndroidEvgSurface     android.graphics.Canvas      ← the app
       └── AwtEvgSurface         java.awt.Graphics2D          ← the test
@@ -41,10 +41,10 @@ this port does not fork a line of any of them.
 
 The painter, the surface interface, the two backends, the recording surface and
 the platform stubs are **not** here. They were, until a second port wanted them:
-they are [`gallery/evg/android`](../../evg/android/README.md) now, compiled into
+they are [`lib/evg/android`](../../../lib/evg/android/README.md) now, compiled into
 this app's build from there.
 
-| Path (in `gallery/evg/android`) | What it is |
+| Path (in `lib/evg/android`) | What it is |
 | --- | --- |
 | `src/main/…/EvgSurface.kt` | The eight things a backend has to draw |
 | `src/main/…/EvgPainter.kt` | The walk: display list → surface calls |
@@ -131,7 +131,7 @@ the platform delegation: `AndroidEvgSurface` calling `android.graphics.Canvas`,
 and `SlideView` unpacking a `MotionEvent`.
 
 `pptx:android:typecheck` covers most of what is left.
-`gallery/evg/android/androidstubs/` declares the platform members the host
+`lib/evg/android/androidstubs/` declares the platform members the host
 calls, with the signatures the SDK gives them, which is enough for `kotlinc` to
 say whether `AndroidEvgSurface`, `SlideView` and `MainActivity` are well-formed,
 whether their overrides match, and whether they call anything that does not
@@ -283,7 +283,7 @@ Kotlin and the host is four files against the platform SDK. `minSdk` is 21.
 
 Verified, off-device, on this repository's fixtures:
 
-* `ranger/pptx_android.rgr` and the whole `gallery/pptx` + `gallery/evg` tree
+* `ranger/pptx_android.rgr` and the whole `gallery/pptx` + `lib/evg` tree
   compile to Kotlin, and **`kotlinc` accepts the result with zero errors**
   (91k lines, one file).
 * The compiled viewer opens real `.pptx` packages on a JVM — ZIP, OOXML, theme
@@ -340,7 +340,7 @@ that does not need a keyboard.
 That claim has since been tested rather than asserted:
 [`gallery/ui/android`](../../ui/android/README.md) puts the `gallery/ui`
 dashboard on a device, and it is a facade and a `View` — the painter and both
-surfaces moved to [`gallery/evg/android`](../../evg/android/README.md) unchanged
+surfaces moved to [`lib/evg/android`](../../../lib/evg/android/README.md) unchanged
 and are now shared rather than copied. The one thing that had to be agreed is
 the package the generated Kotlin goes into: `fi.ranger.rgr` for every port, so
 the painter has one import line to name.
@@ -349,7 +349,7 @@ the painter has one import line to name.
 
 * [PPTX viewer](../README.md) — the model, the resolver, the oracles
 * [WebGL host](../web/) — the same app in a browser
-* [`gallery/evg/gl/evg-webgl.js`](../../evg/gl/evg-webgl.js) — the other
+* [`lib/evg/gl/evg-webgl.js`](../../../lib/evg/gl/evg-webgl.js) — the other
   display-list backend, and the one this painter's text placement follows
 * [`gallery/datagrid/platform/sdl`](../../datagrid/platform/sdl/README.md) — the
   native desktop backend

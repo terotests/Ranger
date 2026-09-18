@@ -4,7 +4,7 @@
 ; event_drain_runner_demo - sticky state.events must not replay after drain.
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
+Import "game_runtime.rgr"
 
 class EventDrainRunnerDemo {
     sfn m@(main):void () {

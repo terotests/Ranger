@@ -9,7 +9,7 @@
 ; answer and a printed diagram matches the one on screen.
 ; ============================================================================
 
-Import "../../evg/EVGColor.rgr"
+Import "pkg:evg/EVGColor.rgr"
 
 class FlowTheme {
     def name:string "light"

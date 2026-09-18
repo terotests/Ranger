@@ -20,7 +20,7 @@
 ; page shown at a scale that fits, panned and pinched — where RealTrainer's
 ; host lays its page out AT the window's size and has no fit, no letterbox and
 ; no zoom. Both are honest answers and both are wanted; folding them into
-; `gallery/evg/EvgHost.rgr` as one class with a fit mode is the next step, and
+; `lib/evg/EvgHost.rgr` as one class with a fit mode is the next step, and
 ; the reason this file names its own class rather than pretending to be that
 ; one already.
 ;

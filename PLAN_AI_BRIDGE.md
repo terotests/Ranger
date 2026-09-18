@@ -82,7 +82,7 @@ Everything else is transport. This is the only substantial new code.
                                            missing a11y name
 ```
 
-### `gallery/evg/EVGPatch.rgr`
+### `lib/evg/EVGPatch.rgr`
 
 An op list, addressed by structural path or selector, validated against the
 real property set, and **invertible**:
@@ -183,7 +183,7 @@ The interactive canvas. Written **once** and given a thin adapter per host,
 because all three hosts want the same thing: self-contained HTML in a sandbox
 that talks to its container over `postMessage`.
 
-- **What it is:** the EVG document drawn by `gallery/evg/gl/evg-webgl.js`
+- **What it is:** the EVG document drawn by `lib/evg/gl/evg-webgl.js`
   (111 KB) or the SVG painter, in a pan/zoom canvas. Self-contained: no CDN,
   no web fonts, no external fetch — so it passes an MCP App iframe's default
   CSP with no exceptions declared, and needs no `localResourceRoots` gymnastics
@@ -295,11 +295,11 @@ P0 is worth doing whether or not anything after it happens.
 
 ### What P0 shipped, and what it did not
 
-Built: [`EVGPatch`](gallery/evg/EVGPatch.rgr) (the op language, validated by
+Built: [`EVGPatch`](lib/evg/EVGPatch.rgr) (the op language, validated by
 the engine itself and invertible by construction),
-[`EVGTreeJson`](gallery/evg/EVGTreeJson.rgr) (the document format, whose
+[`EVGTreeJson`](lib/evg/EVGTreeJson.rgr) (the document format, whose
 contents are exactly the patchable set), and
-[`evg_agent`](gallery/evg/agent/README.md) with `outline`, `query`, `patch` and
+[`evg_agent`](lib/evg/agent/README.md) with `outline`, `query`, `patch` and
 `measure`. `npm run evg:patch:test` is 81 assertions; `npm run agent:smoke`
 drives the four verbs against fixtures, including that a rejected batch leaves
 the document untouched.

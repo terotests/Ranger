@@ -11,7 +11,7 @@ Import "../src/xlsx/XlsxWorksheet.rgr"
 Import "../src/CellStyle.rgr"
 Import "../../office/drawing/OfficeColor.rgr"
 Import "../../pdf_writer/src/core/Utf8.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "pkg:image/PNGEncoder.rgr"
 
 class Checker {
     def passed:int 0

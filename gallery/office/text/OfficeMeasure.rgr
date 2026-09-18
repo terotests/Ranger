@@ -55,7 +55,7 @@
 
 Import "OfficeFont.rgr"
 Import "OfficeText.rgr"
-Import "../../evg/EVGTextMeasurer.rgr"
+Import "pkg:evg/EVGTextMeasurer.rgr"
 Import "../../pdf_writer/src/fonts/FontManager.rgr"
 
 class OfficeMeasure {

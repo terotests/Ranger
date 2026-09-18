@@ -6,7 +6,7 @@
  *
  *   INPUT   browser events → POST /input → UIInput → EditorApp (Node)
  *   RENDER  EditorApp.sceneJson() → EVGDisplayList → GET /scene.json
- *           → gallery/evg/gl/evg-webgl.js (WebGL 2 in the browser)
+ *           → lib/evg/gl/evg-webgl.js (WebGL 2 in the browser)
  *
  * SoftCanvas remains available as /frame.bin for CPU/SDL-style present.
  *
@@ -46,7 +46,7 @@ if (!fs.existsSync(modPath)) {
 
 const { EditorApp, UIInput, UIKey } = require(modPath);
 const fontDir = path.resolve(ROOT, "gallery/pdf_writer/assets/fonts");
-const evgGlDir = path.resolve(ROOT, "gallery/evg/gl");
+const evgGlDir = path.resolve(ROOT, "lib/evg/gl");
 
 const app = new EditorApp();
 app.init(fontDir);

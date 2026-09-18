@@ -9,7 +9,7 @@
 ; would contain: a form, tabs, a menu, a checkbox, a labelled icon.
 ; ==============================================================================
 
-Import "../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "pkg:image/ImageBuffer.rgr"
 Import "ErazerFont.rgr"
 Import "Erazer.rgr"
 

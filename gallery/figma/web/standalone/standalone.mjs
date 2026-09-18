@@ -130,7 +130,7 @@ function resize() {
 // inside the band its glyphs and curves were built for, is the same frame
 // drawn somewhere else: one uniform, no walk of the board, no upload. Past
 // either, the scene is walked again for a new region. See
-// gallery/evg/PLAN_VIEW_TRANSFORM.md and gl/evg-view.js.
+// lib/evg/PLAN_VIEW_TRANSFORM.md and gl/evg-view.js.
 let frame = null;
 let frameDpr = 0;
 const keeper = createViewKeeper({ overscan: 1 });
@@ -140,7 +140,7 @@ async function draw() {
   let doc;
   try {
     // Typed arrays, not JSON. The list is the same picture either way — to
-    // the hundredth, which `gallery/evg/gl/list-binary-check.mjs` holds the
+    // the hundredth, which `lib/evg/gl/list-binary-check.mjs` holds the
     // two to — but a board is thousands of commands and tens of thousands of
     // coordinates, and writing that as text was most of what a pan cost:
     // `toJson` and the number formatting under it 42% of a profile, and the
@@ -1891,7 +1891,7 @@ function selectAt(clientX, clientY) {
 
 // Drag to pan with any button, two fingers to pinch, wheel or trackpad to
 // zoom, and a press that does not travel is a selection. All of it is
-// `gallery/evg/gl/evg-gestures.js`, which reads the view this page keeps
+// `lib/evg/gl/evg-gestures.js`, which reads the view this page keeps
 // and hands back another — the page still decides when to paint one.
 attachViewGestures(canvas, {
   view: viewNow,
@@ -2057,7 +2057,7 @@ async function openUrl(url, page, frame) {
   } else {
     try {
       // The head started this before the body was parsed — see
-      // gallery/evg/web/tools/inline-assets.mjs.
+      // lib/evg/web/tools/inline-assets.mjs.
       const res = await responseFor(DEFAULT_FILE);
       if (res instanceof Error) throw res;
       if (!res.ok) throw new Error(DEFAULT_FILE + ": " + res.status);

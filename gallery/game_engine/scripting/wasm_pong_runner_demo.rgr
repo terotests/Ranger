@@ -4,7 +4,7 @@
 ; wasm_pong_runner_demo - headless integration test for WasmGameRunner + Rust WASM.
 ; ==============================================================================
 
-Import "./wasm_game_runner.rgr"
+Import "wasm_game_runner.rgr"
 
 class WasmPongRunnerDemo {
     sfn m@(main):void () {

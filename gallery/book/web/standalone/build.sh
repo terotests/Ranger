@@ -75,11 +75,11 @@ cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 
 mkdir -p "$OUT/gl" "$OUT/fonts" "$OUT/assets"
-cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+cp lib/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 # The module half of the head this build writes, shared with every other
 # gallery page: it picks up the responses the head started.
 mkdir -p "$OUT/evg"
-cp gallery/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
+cp lib/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
 # ASSETS is what the head will start, collected as the files are copied so the
 # list cannot disagree with what was shipped.
 ASSETS=""
@@ -144,9 +144,9 @@ node -e "
 # each URL — a page about a book edited while you watch it, where a stale
 # asset IS the bug. A head that started the same files without the mode or the
 # query would be starting different requests, so the tool takes both.
-node gallery/evg/web/tools/minify.mjs --file "$OUT/book_web.js" --keep BookWeb || exit 1
+node lib/evg/web/tools/minify.mjs --file "$OUT/book_web.js" --keep BookWeb || exit 1
 
-node gallery/evg/web/tools/inline-assets.mjs \
+node lib/evg/web/tools/inline-assets.mjs \
   --html "$OUT/index.html" \
   --start "${ASSETS#,}" \
   --preload-stamped "standalone.mjs" \

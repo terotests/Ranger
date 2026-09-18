@@ -201,10 +201,10 @@ S=$VELA/tests/specs/showcase
   "$S/scatter.vg.json"     "Hajontakaavio" \
   "$S/histogram.vg.json"   "Histogrammi" \
   "$S/pie.vg.json"         "Ympyräkaavio" > /dev/null
-if diff -q gallery/evg/showcase/pages/charts.tsx "$OUT/charts.tsx" > /dev/null; then
+if diff -q lib/evg/showcase/pages/charts.tsx "$OUT/charts.tsx" > /dev/null; then
   echo "  ok   pages/charts.tsx, identical to the committed page"
 else
-  echo "  DIFF pages/charts.tsx"; diff gallery/evg/showcase/pages/charts.tsx "$OUT/charts.tsx" | head -10; status=1
+  echo "  DIFF pages/charts.tsx"; diff lib/evg/showcase/pages/charts.tsx "$OUT/charts.tsx" | head -10; status=1
 fi
 
 exit $status

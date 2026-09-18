@@ -3,8 +3,8 @@
 ; FigNode tree → EVGDisplayList. Transforms are 2×3 and accumulate down
 ; the tree. A page/frame is the clip; shapes paint in page space.
 
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGColor.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
 Import "FigModel.rgr"
 Import "FigPath.rgr"
 

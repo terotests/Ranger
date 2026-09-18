@@ -27,7 +27,7 @@ to live in a folder called `office/`.
 
 | layer | modules | consumers |
 |---|---|---|
-| `gallery/evg` | `EVGDisplayList`, `EVGToolbar` + `View`, `EVGSelectChrome`, `EVGWindow`, `EVGCommands`, `EVGTextEngine`, `EVGTextMeasurer`, `EVGImageDecode`, `EVGCodepoint` | all four, plus `rangerflow`, `pdf_writer`, `game_engine` |
+| `lib/evg` | `EVGDisplayList`, `EVGToolbar` + `View`, `EVGSelectChrome`, `EVGWindow`, `EVGCommands`, `EVGTextEngine`, `EVGTextMeasurer`, `EVGImageDecode`, `EVGCodepoint` | all four, plus `rangerflow`, `pdf_writer`, `game_engine` |
 | `gallery/office` | `OfficeText`, `OfficeBidi`, `OfficeArabic`, `OfficeFont`, `OfficeColor`, `OfficeStyle`, `OfficeAsset`, `OfficePresetShapes`, `OfficeHistory`, `OfficeTextMetrics`, `OfficeTextRun`, `OfficeGeomFormula`, `export/EVGListToElements` | uneven — see §3 |
 
 `gallery/office/README.md` already draws the line, and it is the right line:
@@ -36,7 +36,7 @@ to live in a folder called `office/`.
 > infrastructure underneath them.
 
 The book is a fourth editor that sentence did not mention. It imports **11**
-things from `gallery/evg` and, since the shape catalogue (Stage D0), **one**
+things from `lib/evg` and, since the shape catalogue (Stage D0), **one**
 from `gallery/office` — where it had none.
 
 ---
@@ -159,7 +159,7 @@ test is the only thing that turns "shared" into "shared".
 
 The rule this implies is cheap to state and easy to enforce in review:
 
-> A module in `gallery/office` or `gallery/evg` that is behaviour rather than
+> A module in `gallery/office` or `lib/evg` that is behaviour rather than
 > data ships with a wiring test naming every consumer. A consumer added later
 > is added to that test in the same change.
 
@@ -345,7 +345,7 @@ correct and that nobody calls fails. It is also the book's **first import from
 `gallery/office`**, which §1 noted it had none of.
 
 *Open:* the picker is still per-editor chrome. Categories and search are in the
-catalogue; what is missing is one shared window in `gallery/evg` over
+catalogue; what is missing is one shared window in `lib/evg` over
 `EVGToolbar`, which both editors already extend.
 
 ### Stage D — selection and manipulation (the biggest win the user named)

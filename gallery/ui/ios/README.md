@@ -16,7 +16,7 @@ shell script — it is `ranger/build_ios.rgr`, which drives the Ranger compiler,
 ```text
 gallery/ui/demo/DashboardDemo.rgr   the page: controllers, tree literals,
 gallery/ui/src/*.rgr                cascade, layout, table, sortable
-gallery/evg/*.rgr                   EVG: units, flex, clip, display list
+lib/evg/*.rgr                   EVG: units, flex, clip, display list
 gallery/vela/*.rgr                  the chart's runtime — all Ranger
       │
       │  node bin/output.js -l=swift6        (from inside build_ios.rgr)
@@ -25,7 +25,7 @@ generated/ui_ios.swift              ~46k lines, one file
       │
       │  UiIos.frame() : EVGDisplayList
       ▼
-gallery/evg/apple                   the painter and the CoreGraphics surface
+lib/evg/apple                   the painter and the CoreGraphics surface
       │
       ├── DashboardView (UIKit)     iPhone, iPad
       └── DashboardWatchView        Apple Watch, SwiftUI Canvas + the crown
@@ -184,7 +184,7 @@ here, and the repository-root names are aliases in the same file.
 | `scripts/smoke.sh` | The driver run for real against a stand-in toolchain, on any machine |
 
 The painter, the surface protocol and the CoreGraphics backend are **not** here:
-they are [`gallery/evg/apple`](../../evg/apple/README.md), shared with whatever
+they are [`lib/evg/apple`](../../../lib/evg/apple/README.md), shared with whatever
 comes through them next.
 
 ## The build is a program, not a script
@@ -210,7 +210,7 @@ RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node --max-old-space-size=8192 \
 plutil -lint tmp/ui-ios/build/ios-simulator/RangerDashboard.app/Info.plist
 xcrun --sdk iphonesimulator swiftc -sdk <…> -target arm64-apple-ios15.0-simulator \
   -emit-executable -wmo -o …/RangerDashboard.app/RangerDashboard \
-  gallery/ui/ios/generated/ui_ios.swift gallery/evg/apple/Sources/*.swift \
+  gallery/ui/ios/generated/ui_ios.swift lib/evg/apple/Sources/*.swift \
   gallery/ui/ios/ios/*.swift
 cp -R gallery/ui/demo/dashboard.css …/RangerDashboard.app
 codesign --force --sign - --timestamp=none …/RangerDashboard.app
@@ -333,7 +333,7 @@ a page zoomed out by half.
 Of the three Apple hosts the watch is where a layout on the main thread shows
 first: the S9's cores are a third of an iPhone's, and a crown turn is a
 layout per frame. So `WatchPageModel` reaches `UiIos` only through
-`EvgEngineQueue` (`gallery/evg/apple`): the crown, a drag and a tap are posts,
+`EvgEngineQueue` (`lib/evg/apple`): the crown, a drag and a tap are posts,
 a post that changed the page builds a frame on the queue — the list, the
 scale and the pan — and the frame's arrival on the main thread is what bumps
 `generation` and makes the `Canvas` draw. `paint` reads the app for nothing.
@@ -377,7 +377,7 @@ example that sets `cancelsTouchesInView` to its default gets it.
 
 Verified here, without a Mac:
 
-* `ranger/ui_ios.rgr` and the whole `gallery/ui` + `gallery/evg` + `gallery/vela`
+* `ranger/ui_ios.rgr` and the whole `gallery/ui` + `lib/evg` + `gallery/vela`
   tree behind it **compile to Swift 6** — 46 039 lines, one file.
 * The compiled page builds and lays itself out — cascade, flex, scroll
   container, virtualised table, the Vela runtime — and answers with a display
@@ -395,7 +395,7 @@ Verified here, without a Mac:
 generated Swift, the CoreGraphics drawing, the UIKit and SwiftUI hosts, and the
 simulator run. Swift for Apple platforms cannot be installed on the environment
 this was written in, so the Swift host files (about 1 150 lines across
-`gallery/evg/apple` and this directory) have been written but not compiled. Say
+`lib/evg/apple` and this directory) have been written but not compiled. Say
 so plainly rather than discovering it: **the first person to run
 `npm run ui:ios` on a Mac should expect to fix Swift compile errors.** The
 Ranger side, which is everything that has decisions in it, is checked.
@@ -422,6 +422,6 @@ Known gaps, in rough order of how much they would be missed:
 * [`gallery/ui`](../README.md) — the controllers, and what they are measured against
 * [`gallery/ui/demo`](../demo) — the same page in a browser
 * [`gallery/ui/android`](../android/README.md) — the same page on Android, and the port this follows
-* [`gallery/evg/apple`](../../evg/apple/README.md) — the painter and the CoreGraphics surface
+* [`lib/evg/apple`](../../../lib/evg/apple/README.md) — the painter and the CoreGraphics surface
 * [`lib/apple`](../../../lib/apple/README.md) — the Apple toolchain driver, and its 151 checks
 * [`lib/Shell.rgr`](../../../lib/Shell.rgr) — calling command line programs from Ranger

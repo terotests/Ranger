@@ -3,10 +3,10 @@
 ; EXIF Orientation Test
 ; Tests all 8 EXIF orientation values
 
-Import "../jpeg/JPEGDecoder.rgr"
+Import "pkg:image/JPEGDecoder.rgr"
 Import "../jpeg/JPEGMetadata.rgr"
-Import "../jpeg/ImageBuffer.rgr"
-Import "../jpeg/PPMImage.rgr"
+Import "pkg:image/ImageBuffer.rgr"
+Import "pkg:image/PPMImage.rgr"
 
 class ExifOrientationTest {
     sfn m@(main):void () {

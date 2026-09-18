@@ -24,8 +24,8 @@ Import "../src/MdLayout.rgr"
 Import "../src/MdToEvg.rgr"
 Import "../src/MdDiagram.rgr"
 Import "../src/MdEditController.rgr"
-Import "../../evg/EVGLayout.rgr"
-Import "../../evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 Import "../../pdf_writer/src/fonts/FontManager.rgr"
 
 class MdBench {

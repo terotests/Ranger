@@ -44,7 +44,7 @@
 ;   npm run office:geom:test
 ; ==============================================================================
 
-Import "../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 
 ; A resolved set of guides: two parallel arrays rather than a map, because a
 ; guide list is short, is read far more often than it is written, and is

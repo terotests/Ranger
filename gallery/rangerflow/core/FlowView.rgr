@@ -29,7 +29,7 @@ Import "EdgeRouter.rgr"
 Import "FlowScene.rgr"
 Import "FlowTheme.rgr"
 Import "FlowText.rgr"
-Import "../../evg/EVGTextMeasurer.rgr"
+Import "pkg:evg/EVGTextMeasurer.rgr"
 
 ; Where the minimap is on the screen, and what part of the flow it is
 ; showing. A value, because it is worked out from the graph and the viewport
@@ -113,7 +113,7 @@ class FlowView {
     ; the camera to the painter beside it (`EVGDisplayList.setView`), which
     ; multiplies it in the vertex shader — so a pan, and a zoom inside the
     ; band, cost three numbers rather than a walk over the graph
-    ; (`gallery/evg/PLAN_VIEW_TRANSFORM.md` S2).
+    ; (`lib/evg/PLAN_VIEW_TRANSFORM.md` S2).
     ;
     ; Two things then need saying out loud rather than falling out of the
     ; arithmetic, and they are what `drawn` and `hair` below are for:

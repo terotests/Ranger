@@ -35,7 +35,7 @@
 ; =============================================================================
 
 Import "RaveDoc.rgr"
-Import "../../evg/EVGStyleSheet.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
 
 class RaveTextError {
     def line:int 0

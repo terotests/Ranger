@@ -16,9 +16,9 @@
 ;     clears the game-over state.
 ; ==============================================================================
 
-Import "./as_sprite_runner.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
-Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "as_sprite_runner.rgr"
+Import "pkg:image/PNGEncoder.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 
 class AsSpriteCheck {
     def passed:int 0

@@ -19,9 +19,9 @@
 
 Import "../framebuffer.rgr"
 Import "../wasm_runtime.rgr"
-Import "./game_audio.rgr"
+Import "game_audio.rgr"
 Import "../../ts_to_ranger/game_host.rgr"
-Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "pkg:image/ImageBuffer.rgr"
 
 class StreamingWorldRunner {
     def canvas:SoftCanvas (new SoftCanvas)

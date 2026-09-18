@@ -31,9 +31,9 @@ Import "../../vela/src/VlCommand.rgr"
 ; software rasterising that a browser painting on the GPU never runs.
 Import "../../vela/src/VlEvgList.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGLayout.rgr"
-Import "../../evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 
 ; One chart on one card: what the statistics screen collected, and all the
 ; maker is given.

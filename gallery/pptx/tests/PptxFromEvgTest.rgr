@@ -18,7 +18,7 @@
 
 Import "../src/PptxFromEvg.rgr"
 Import "../src/PptxToEvg.rgr"
-Import "../../evg/EVGElement.rgr"
+Import "pkg:evg/EVGElement.rgr"
 Import "../api/PptxApi.rgr"
 
 class PptxFromEvgTest {

@@ -49,7 +49,7 @@ const ASSET_FILES = ["ranger-mark.svg", "favicon.svg", "targets.js", "marks.js"]
  * file the PowerPoint editor and the node-graph editor are drawn with, and a
  * fork of it here would quietly stop being that.
  */
-const PAINTER = "gallery/evg/gl/evg-webgl.js";
+const PAINTER = "lib/evg/gl/evg-webgl.js";
 
 function copy(from, to) {
   fs.mkdirSync(path.dirname(to), { recursive: true });

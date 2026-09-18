@@ -47,8 +47,8 @@ Import "MdDeckSync.rgr"
 Import "../../vfs/src/Vfs.rgr"
 Import "../../pptx/api/PptxApi.rgr"
 Import "../../pptx/src/PptxFromEvg.rgr"
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGLayout.rgr"
 
 ; What came out, and what did not come out the way it went in.
 class MdDeckResult {

@@ -11,7 +11,7 @@
  *      lays out a one-element page and fills the mark into a 320 × 320 bitmap
  *      with EVG's own scanline rasteriser. After this step the logo is pixels
  *      and nothing else.
- *   2. TRACED back by gallery/evg/tools/evg_trace_cli.rgr: threshold, edge
+ *   2. TRACED back by lib/evg/tools/evg_trace_cli.rgr: threshold, edge
  *      walk, corner detection, cubic fitting. What comes out is a path this
  *      repository computed from an image, which is the point of showing them.
  *
@@ -60,7 +60,7 @@ fs.mkdirSync(OUT, { recursive: true });
 
 console.log("compiling the raster tool and the tracer...");
 compile("gallery/pdf_writer/src/tools/evg_png_tool.rgr", "gallery/pdf_writer/bin", "evg_png_tool.js");
-compile("gallery/evg/tools/evg_trace_cli.rgr", "gallery/evg/bin", "evg_trace_cli.js");
+compile("lib/evg/tools/evg_trace_cli.rgr", "lib/evg/bin", "evg_trace_cli.js");
 
 // One stylesheet for all of them: black on white at the full sheet, which is
 // what the tracer's threshold wants to see.
@@ -86,7 +86,7 @@ for (const name of MARKS) {
   if (!fs.existsSync(png)) throw new Error(`${name}: the raster tool wrote no bitmap`);
 
   const traced = path.join(TMP, `${name}.traced.svg`);
-  run("node", ["gallery/evg/bin/evg_trace_cli.js", png, traced,
+  run("node", ["lib/evg/bin/evg_trace_cli.js", png, traced,
     "--threshold", "170", "--turdsize", "6", "--alphamax", "1.0", "--opttolerance", "0.25"]);
 
   const svg = fs.readFileSync(traced, "utf8");

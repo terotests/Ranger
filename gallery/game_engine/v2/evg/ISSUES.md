@@ -243,8 +243,8 @@ if child.width.isSet {
 
 ### Related Code
 
-- `gallery/evg/EVGLayout.rgr` - Lines 200-400 (layoutChildren function)
-- `gallery/evg/EVGTextMeasurer.rgr` - Text measurement utilities
+- `lib/evg/EVGLayout.rgr` - Lines 200-400 (layoutChildren function)
+- `lib/evg/EVGTextMeasurer.rgr` - Text measurement utilities
 - `gallery/pdf_writer/FontManager.rgr` - Font metrics for accurate measurement
 
 ### Test Case

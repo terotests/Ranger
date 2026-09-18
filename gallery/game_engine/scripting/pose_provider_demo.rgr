@@ -16,8 +16,8 @@
 ; MediaPipe source would use — only PoseProvider.writeFrame changes.
 ; ==============================================================================
 
-Import "./as_source_runner.rgr"
-Import "./game_pose_provider.rgr"
+Import "as_source_runner.rgr"
+Import "game_pose_provider.rgr"
 
 class PoseProviderDemo {
     ; Read a UTF-8 string out of an RGU1 text node (same as the autopeli demo).

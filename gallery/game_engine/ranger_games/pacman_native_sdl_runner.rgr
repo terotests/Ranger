@@ -12,7 +12,7 @@
 ; ==============================================================================
 
 Import "../scripting/game_sdl_native_host.rgr"
-Import "./pacman_native_game.rgr"
+Import "pacman_native_game.rgr"
 
 class PacmanNativeSdlRunner {
     sfn m@(main):void () {

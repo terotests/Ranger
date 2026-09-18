@@ -408,7 +408,7 @@ stop sharing.
 
 ### 14. Accessibility — **all three publish a tree now**
 
-`EVGA11yTree` has been in `gallery/evg` for a while, and the spreadsheet has
+`EVGA11yTree` has been in `lib/evg` for a while, and the spreadsheet has
 published one beside every frame. The document viewer and the deck viewer
 published nothing — and a screen reader cannot read a canvas, so that is not a
 degraded experience, it is **a blank window**. Two of the three apps in this

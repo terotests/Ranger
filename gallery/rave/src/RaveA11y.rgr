@@ -10,9 +10,9 @@
 ; draw it. Everything here reads the laid-out tree the runtime already has.
 ; =============================================================================
 
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGColor.rgr"
-Import "../../evg/EVGFocus.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGFocus.rgr"
 
 class RaveA11y {
 

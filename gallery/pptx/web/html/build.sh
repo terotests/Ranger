@@ -83,15 +83,15 @@ cp "$WEB/html.mjs" "$OUT/html.mjs"
 mkdir -p "$OUT/host"
 cp gallery/pptx/web/host/pptx-host.mjs "$OUT/host/pptx-host.mjs"
 
-# The painter. It lives beside the WebGL one in gallery/evg because it is not
+# The painter. It lives beside the WebGL one in lib/evg because it is not
 # this page's — any EVG app can import it.
 mkdir -p "$OUT/html" "$OUT/fonts"
-cp gallery/evg/html/evg-html.js "$OUT/html/evg-html.js"
+cp lib/evg/html/evg-html.js "$OUT/html/evg-html.js"
 
 # The inspector panel, beside the painter and for the same reason: it lives in
-# gallery/evg because it is not this page's — any EVG app can import it.
+# lib/evg because it is not this page's — any EVG app can import it.
 mkdir -p "$OUT/inspect"
-cp gallery/evg/inspect/evg-inspect.js "$OUT/inspect/evg-inspect.js"
+cp lib/evg/inspect/evg-inspect.js "$OUT/inspect/evg-inspect.js"
 
 for face in OpenSans-Regular OpenSans-Bold OpenSans-Italic OpenSans-BoldItalic; do
   cp "gallery/pdf_writer/assets/fonts/Open_Sans/$face.ttf" "$OUT/fonts/$face.ttf"

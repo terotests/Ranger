@@ -10,7 +10,7 @@
 
 Import "WordXml.rgr"
 Import "RichDocument.rgr"
-Import "../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 
 class NumLevel {
     def ilvl:int 0

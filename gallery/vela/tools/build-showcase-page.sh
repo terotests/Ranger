@@ -4,7 +4,7 @@
 #   npm run vela:showcase
 #
 # Runs each specification through the Vela runtime and writes
-# gallery/evg/showcase/pages/charts.tsx and pages/plots.tsx — path data and
+# lib/evg/showcase/pages/charts.tsx and pages/plots.tsx — path data and
 # labels, ready for the showcase build to render to PDF, PNG and HTML like any
 # other page.
 #
@@ -46,14 +46,14 @@ VIEWS=gallery/vela/tests/specs/views
 VARIANTS=gallery/vela/tests/specs/variants
 TABLES=gallery/vela/tests/specs/tables
 DRAWING=gallery/vela/tests/specs
-PAGE=gallery/evg/showcase/pages/charts.tsx
-API_PAGE=gallery/evg/showcase/pages/chart_api.tsx
-PLOTS_PAGE=gallery/evg/showcase/pages/plots.tsx
-MORE_PAGE=gallery/evg/showcase/pages/more.tsx
-VIEWS_PAGE=gallery/evg/showcase/pages/views.tsx
-VARIANTS_PAGE=gallery/evg/showcase/pages/variants.tsx
-TABLES_PAGE=gallery/evg/showcase/pages/tables.tsx
-DRAWING_PAGE=gallery/evg/showcase/pages/drawing.tsx
+PAGE=lib/evg/showcase/pages/charts.tsx
+API_PAGE=lib/evg/showcase/pages/chart_api.tsx
+PLOTS_PAGE=lib/evg/showcase/pages/plots.tsx
+MORE_PAGE=lib/evg/showcase/pages/more.tsx
+VIEWS_PAGE=lib/evg/showcase/pages/views.tsx
+VARIANTS_PAGE=lib/evg/showcase/pages/variants.tsx
+TABLES_PAGE=lib/evg/showcase/pages/tables.tsx
+DRAWING_PAGE=lib/evg/showcase/pages/drawing.tsx
 
 mkdir -p "$BIN"
 log=$(RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 \

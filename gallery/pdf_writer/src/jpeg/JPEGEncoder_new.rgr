@@ -4,8 +4,8 @@
 ; Encodes ImageBuffer to baseline JPEG format
 ; Updated to use int_buffer for efficient cross-language compilation
 
-Import "../core/Buffer.rgr"
-Import "ImageBuffer.rgr"
+Import "pkg:image/Buffer.rgr"
+Import "pkg:image/ImageBuffer.rgr"
 
 ; Forward DCT class for encoding
 class FDCT {

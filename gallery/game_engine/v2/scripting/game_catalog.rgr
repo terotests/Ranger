@@ -16,7 +16,7 @@
 ; Folder name is used as the default title when name is omitted.
 ; ==============================================================================
 
-Import "./ranger-dir.rgr"
+Import "ranger-dir.rgr"
 Import "../interp/migrate/src/EvHandle.rgr"
 
 class GameCatalogEntry {

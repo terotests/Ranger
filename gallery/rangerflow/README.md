@@ -1655,7 +1655,7 @@ what came out.
 
 ## One scene, four backends
 
-The EVG display-list note in [`../evg/gl/README.md`](../evg/gl/README.md) makes
+The EVG display-list note in [`../../lib/evg/gl/README.md`](../../lib/evg/gl/README.md) makes
 the case: when five painters each walk the tree and decide again what a box
 means, border-radius comes to work in PDF and silently not in PNG. A graph
 editor is exactly the shape that goes wrong that way — the interactive renderer

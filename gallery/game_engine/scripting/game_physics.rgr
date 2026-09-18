@@ -5,9 +5,9 @@
 ; Games supply state.physics { controls, impulses }; app maps physicsContacts.
 ; ==============================================================================
 
-Import "./physics_core.rgr"
-Import "./physics_vehicle.rgr"
-Import "./game_physics_bridge.rgr"
+Import "physics_core.rgr"
+Import "physics_vehicle.rgr"
+Import "game_physics_bridge.rgr"
 Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class GamePhysics {

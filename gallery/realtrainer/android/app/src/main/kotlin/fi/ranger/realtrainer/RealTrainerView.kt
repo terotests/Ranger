@@ -40,7 +40,7 @@ class RtFrame(val list: EVGDisplayList, val scale: Double)
  *
  * **The engine is not on this thread.** `app` is made here and then never
  * touched from the UI thread again: every call goes through [EvgEngineThread]
- * (`gallery/evg/android`), which runs it on the engine's own thread, in
+ * (`lib/evg/android`), which runs it on the engine's own thread, in
  * order, and hands back a frame — the display list and the scale the painter
  * needs — when a call changed the page. [onDraw] paints the last frame it was
  * given and reads the app for nothing, so a layout that takes twelve

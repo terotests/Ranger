@@ -54,8 +54,8 @@ mkdir -p "$CLASSES"
 echo "compiling the Kotlin (this takes a couple of minutes — it is 91k generated lines)"
 kotlinc -J-Xmx8g -nowarn \
   "$AND/generated/pptx_android.kt" \
-  gallery/evg/android/src/main/kotlin \
-  gallery/evg/android/src/awt/kotlin \
+  lib/evg/android/src/main/kotlin \
+  lib/evg/android/src/awt/kotlin \
   "$AND/common/src/main/kotlin" \
   "$AND/desktop/src/main/kotlin" \
   -d "$CLASSES"

@@ -145,7 +145,7 @@ affordable.
 
 ## 5. The tree
 
-One walk, two outputs, exactly as [`../evg/PLAN_ACCESSIBILITY.md`](../evg/PLAN_ACCESSIBILITY.md) §3
+One walk, two outputs, exactly as [`../../lib/evg/PLAN_ACCESSIBILITY.md`](../../lib/evg/PLAN_ACCESSIBILITY.md) §3
 argues: `PptxView.a11yTree()` beside `PptxView.buildDisplayList()`, over the
 same resolved model, so the two cannot drift.
 

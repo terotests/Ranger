@@ -19,6 +19,10 @@ output follows the source of the program.
 The compiler can write small helper functions into the output. Those
 helpers use the MIT license.
 
+`lib/` is on the MIT side. Since September 2026 that includes the EVG
+layout engine (`lib/evg`) and the image codecs (`lib/image`). A program
+that lays out a screen or a page through EVG is still your program.
+
 ## The gallery directory
 
 Ranger-authored files under `gallery/` use the GNU Affero General Public
@@ -27,10 +31,10 @@ directory states a different license.
 
 The gallery directory holds the application stack of Ranger:
 
-- EVG
 - the Office readers and editors
 - the DataGrid
 - the PDF and layout tools
+- `evg_window`, the dialog, toolbar and ruler layer that paints EVG through the gallery's rasteriser
 - the other large applications
 
 A program that imports a gallery module uses that module. The AGPL then

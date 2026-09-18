@@ -62,8 +62,8 @@
 ; which is the outcome the whole exercise is meant to avoid.
 ; ==============================================================================
 
-Import "../evg/EVGColor.rgr"
-Import "../evg/EVGUnit.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGUnit.rgr"
 
 ; One `name: value` pair.
 class CssDecl {

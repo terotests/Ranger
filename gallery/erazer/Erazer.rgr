@@ -16,9 +16,9 @@
 
 Import "ErazerTypes.rgr"
 Import "ErazerFont.rgr"
-Import "../evg/EvgBitmapTracer.rgr"
-Import "../evg/EVGTreeJson.rgr"
-Import "../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "pkg:evg/EvgBitmapTracer.rgr"
+Import "pkg:evg/EVGTreeJson.rgr"
+Import "pkg:image/ImageBuffer.rgr"
 
 class Erazer {
     def img:ImageBuffer (new ImageBuffer())

@@ -3,7 +3,7 @@
 #                compiles to, which platforms it reaches, and the gallery. Its
 #                backdrop is an EVG display list drawn on the GPU by the same
 #                WebGL painter the editors below use, and the mark on it is
-#                the project's logo vectorised by gallery/evg's bitmap tracer.
+#                the project's logo vectorised by lib/evg's bitmap tracer.
 #   /playground/ -> the Ranger playground (compile Ranger in the browser). It
 #                was the site root until the front page took that spot; the
 #                build that produces it is unchanged apart from its base path.
@@ -49,7 +49,7 @@
 #                The app runs in a Worker and its frames are painted on the
 #                main thread (evg-engine.js); ?engine=main keeps it on the
 #                main thread, and ?painter=dom — which paints the same app as
-#                DOM nodes kept across frames (gallery/evg/html/evg-dom.js on
+#                DOM nodes kept across frames (lib/evg/html/evg-dom.js on
 #                EVGHostTree) — requires that. The document carries a picture
 #                of the app's chrome, computed in the build from its own
 #                display list (web/snapshot.mjs), so nothing is blank while
@@ -130,7 +130,7 @@ on:
       - "compiler/**"
       - "lib/**"
       - "docs/**"
-      - "gallery/evg/**"
+      - "lib/evg/**"
       - "gallery/erazer/**"
       - "gallery/vela/**"
       # The RealTrainer page at /realtrainer/ is built from these, and from
@@ -159,7 +159,7 @@ on:
       - "gallery/zstd/src/**"
       # Rave at /rave/ — the editor, its chrome sheet and its page. It also
       # builds from gallery/figma (the .fig importer), gallery/ui (InputCtl),
-      # gallery/office (the undo history) and gallery/evg, all listed here
+      # gallery/office (the undo history) and lib/evg, all listed here
       # already; without this line a merge that touches only Rave left the
       # site showing the editor as it was.
       - "gallery/rave/**"
@@ -283,7 +283,7 @@ jobs:
       # from this checkout, so the gallery always shows what the engine in
       # this commit actually does.
       - name: Build the EVG showcase
-        run: node gallery/evg/showcase/build.mjs --out "$GITHUB_WORKSPACE/_site/evg"
+        run: node lib/evg/showcase/build.mjs --out "$GITHUB_WORKSPACE/_site/evg"
 
       - name: Check the Erazer live page
         run: |

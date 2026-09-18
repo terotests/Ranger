@@ -69,7 +69,7 @@ Ranger owns outright.
 | Node-hosted variant, for driving the editor from a script | `web/serve.mjs` | done |
 | 64 editor assertions, 17 in a real browser | `tests/`, `web/standalone/smoke.mjs` | done |
 
-Extracted into `gallery/evg` on the way, because the book editor was the second
+Extracted into `lib/evg` on the way, because the book editor was the second
 caller: `EVGImageDecode` (PNG/JPEG bytes → pixels), `EVGSelectChrome` (handle
 geometry and which edges each handle owns), `EVGContextMeasurer` (EVG text
 measurement backed by a host's own renderer), and

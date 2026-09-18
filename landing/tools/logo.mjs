@@ -6,7 +6,7 @@
  * landing/assets/logo/ranger-mark.png is the project's mark as a 304 × 304
  * bitmap — the avatar, and the same shield as
  * ranger-vscode-extension/icons/ranger-file-icon.svg.
- * gallery/evg/tools/evg_trace_cli.rgr reads it and writes paths: the image is
+ * lib/evg/tools/evg_trace_cli.rgr reads it and writes paths: the image is
  * posterised into flat colour regions, each region's edges are walked, the
  * corners are found, cubics are fitted to what is between them, and every
  * layer comes out as one evenodd path.
@@ -43,8 +43,8 @@ fs.mkdirSync(TMP, { recursive: true });
 
 console.log("compiling the bitmap tracer...");
 // The compiler exits 0 on failure, so read the log rather than the status.
-const log = run("node", ["bin/output.js", "-es6", "./gallery/evg/tools/evg_trace_cli.rgr",
-  "-d=./gallery/evg/bin", "-o=evg_trace_cli.js", "-nodecli"]);
+const log = run("node", ["bin/output.js", "-es6", "./lib/evg/tools/evg_trace_cli.rgr",
+  "-d=./lib/evg/bin", "-o=evg_trace_cli.js", "-nodecli"]);
 if (log.includes("[FAIL]") || log.includes("Compilation FAILED")) {
   console.error(log);
   throw new Error("the tracer did not compile");
@@ -62,7 +62,7 @@ const traced = path.join(TMP, "mark.svg");
 // colours puts every boundary pixel on one of the four that are really there.
 // turdsize 12 then drops the specks that band still leaves — at 3 it kept
 // thirty-three of them, each a few pixels of gold sitting in the black rim.
-run("node", ["gallery/evg/bin/evg_trace_cli.js", SRC, traced,
+run("node", ["lib/evg/bin/evg_trace_cli.js", SRC, traced,
   "--colorCount", "4",
   "--paletteMode", "fixed",
   "--paletteHex", "#070705,#35311E,#FBC802,#FFFFFF",

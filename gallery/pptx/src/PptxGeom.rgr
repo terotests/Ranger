@@ -20,7 +20,7 @@
 ; grows rings.
 ; ==============================================================================
 
-Import "../../evg/SVGPathParser.rgr"
+Import "pkg:evg/SVGPathParser.rgr"
 
 class PptxGeom {
     Constructor () {

@@ -27,8 +27,8 @@
 ; whether it was worth it so a caller can write the raw bytes instead.
 ; ==============================================================================
 
-Import "../raster/Deflate.rgr"
-Import "Buffer.rgr"
+Import "pkg:image/Deflate.rgr"
+Import "pkg:image/Buffer.rgr"
 
 class PdfFlate {
     ; The zlib stream for `src`, ready to be a `/FlateDecode` stream.

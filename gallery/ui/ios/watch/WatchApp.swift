@@ -23,7 +23,7 @@
 // on a phone: the S9's cores are a third of an iPhone's, a crown turn is a
 // layout per frame, and a layout on the main thread is a crown that stutters.
 // So `app` is made once and then only ever reached through `EvgEngineQueue`
-// (gallery/evg/apple): the crown, a drag and a tap are posts; a post that
+// (lib/evg/apple): the crown, a drag and a tap are posts; a post that
 // changed the page produces a frame on the queue — the list, and the scale
 // and pan the painter needs — and the frame's arrival on the main thread is
 // what bumps `generation` and makes the `Canvas` draw. `paint` reads the app

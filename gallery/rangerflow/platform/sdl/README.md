@@ -8,7 +8,7 @@ SDL event  → FlowInput → FlowEditor              (this process)
 FlowView   → EVGDisplayList → EvgGlPainter → OpenGL
 ```
 
-That is the whole point of the display-list seam. `gallery/evg/gl/evg-webgl.js`
+That is the whole point of the display-list seam. `lib/evg/gl/evg-webgl.js`
 draws the list in a browser tab and `EvgGlPainter` + `evg_gl_native.cpp` draw
 the same list in a window, from the same commands, with no second copy of the
 tree walk in between.
@@ -60,7 +60,7 @@ Two honest consequences:
   written for draws photographs. A schema diagram has none, so the host passes
   an empty `GridImages` — and, through that one parameter, links a good deal of
   the DataGrid it never calls.
-* **Where this ought to live** is `gallery/evg/gl/`, beside `evg-webgl.js`,
+* **Where this ought to live** is `lib/evg/gl/`, beside `evg-webgl.js`,
   with the image lookup behind a small interface so neither app has to know
   about the other. That is a refactor of a working host and has not been done;
   it is the first thing to do here.

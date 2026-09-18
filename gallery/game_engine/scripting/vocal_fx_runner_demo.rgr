@@ -19,8 +19,8 @@
 ; mono WAV (vocal_fx_demo.wav) so the result is actually audible. Targets JS.
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
-Import "./game_vocal_fx_bridge.rgr"
+Import "game_runtime.rgr"
+Import "game_vocal_fx_bridge.rgr"
 
 ; Accumulates all synth PCM into one buffer and writes it out as a WAV.
 class WavCaptureSink extends GameAudioSink {

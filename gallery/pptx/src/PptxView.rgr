@@ -6,12 +6,12 @@
 
 Import "PptxModel.rgr"
 Import "PptxToEvg.rgr"
-Import "../../evg/EVGImageDecode.rgr"
+Import "pkg:evg/EVGImageDecode.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
-Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
-Import "../../evg/EVGColor.rgr"
-Import "../../evg/EVGDisplayList.rgr"
+Import "pkg:image/ImageBuffer.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 
 class PptxView {
     def canvas:SoftCanvas (new SoftCanvas)

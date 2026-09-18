@@ -46,7 +46,7 @@ fi
 # internally consistent either way because every reference in it is unqualified.
 #
 # The name says what the code IS rather than which app it is for, and that is
-# what lets `gallery/evg/android` be shared: the painter imports
+# what lets `lib/evg/android` be shared: the painter imports
 # `fi.ranger.rgr.EVGDisplayList`, and every port compiles its own generated file
 # into that package. Two apps, two compilations, one import line.
 if ! head -1 "$OUT/pptx_android.kt" | grep -q "^package "; then

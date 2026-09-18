@@ -30,8 +30,8 @@
 
 Import "PptxApi.rgr"
 Import "../src/PptxView.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
-Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "pkg:image/PNGEncoder.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
 Import "../../office/export/EVGListToElements.rgr"
 

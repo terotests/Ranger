@@ -12,7 +12,7 @@
 ; ==============================================================================
 
 Import "../scripting/game_sdl_native_host.rgr"
-Import "./invaders_native_game.rgr"
+Import "invaders_native_game.rgr"
 
 class InvadersNativeSdlRunner {
     sfn m@(main):void () {

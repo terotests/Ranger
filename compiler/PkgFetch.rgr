@@ -12,7 +12,7 @@
 ; A git dependency is not a clone. Two smart-HTTP rounds:
 ;   1. deepen 1 + filter blob:none -- the commit and its trees
 ;   2. want the subdirectory's tree SHA -- only the blobs under it
-; gallery/evg is ~2.5 MB that way, against a repository of hundreds.
+; lib/evg is ~2.5 MB that way, against a repository of hundreds.
 
 Import "PkgImport.rgr"
 Import "../pkg/src/GitPkt.rgr"

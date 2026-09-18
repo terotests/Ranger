@@ -5,7 +5,7 @@
 ; ABI and read back the shared memory (same layout the WASM host reads).
 ; ==============================================================================
 
-Import "./as_source_runner.rgr"
+Import "as_source_runner.rgr"
 
 class AsSourceDemo {
     sfn readUiStr:string (runner:AsSourceRunner nodeIndex:int) {

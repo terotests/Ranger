@@ -8,7 +8,7 @@
  *
  * Looks for a built page in this order:
  *   1. OFFICE_CHART_API_DIST (Pages copies from _site/evg/chart-api)
- *   2. gallery/evg/showcase/dist/chart-api (a local `npm run showcase`)
+ *   2. lib/evg/showcase/dist/chart-api (a local `npm run showcase`)
  *   3. $GITHUB_WORKSPACE/_site/evg/chart-api
  */
 import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
@@ -19,7 +19,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const dest = join(root, "gallery/office/docs/site/public/chart-api");
 const candidates = [
   process.env.OFFICE_CHART_API_DIST,
-  join(root, "gallery/evg/showcase/dist/chart-api"),
+  join(root, "lib/evg/showcase/dist/chart-api"),
   process.env.GITHUB_WORKSPACE
     ? join(process.env.GITHUB_WORKSPACE, "_site/evg/chart-api")
     : "",

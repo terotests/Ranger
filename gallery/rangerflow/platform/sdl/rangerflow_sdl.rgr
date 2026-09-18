@@ -10,7 +10,7 @@
 ;   FlowView   → EVGDisplayList → EvgGlPainter → OpenGL
 ;
 ; No part of the editor knows which of the two it is running in. That is the
-; whole point of the display-list seam: `gallery/evg/gl/evg-webgl.js` draws it
+; whole point of the display-list seam: `lib/evg/gl/evg-webgl.js` draws it
 ; in a tab and `EvgGlPainter` draws it in a window, from the same commands.
 ;
 ; The window, the input and the GL present path are the DataGrid's — the

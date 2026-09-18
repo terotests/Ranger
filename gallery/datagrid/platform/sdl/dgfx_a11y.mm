@@ -6,7 +6,7 @@
 // what the frame MEANS — `EVGA11yTree`, built in Ranger beside the display list
 // and serialized by `GridApp.a11yJson()` — and this file turns each node into
 // an `NSAccessibilityElement` hung off the window's content view. It is the
-// same tree the browser page mirrors into DOM (`gallery/evg/gl/evg-a11y.js`);
+// same tree the browser page mirrors into DOM (`lib/evg/gl/evg-a11y.js`);
 // only the last step differs, which is the whole point of publishing a tree
 // instead of teaching each host what a spreadsheet is.
 //

@@ -28,7 +28,7 @@
 ; a breathy sigh, a sharp gasp and a cough are all clearly recognisable.
 ; ==============================================================================
 
-Import "./game_audio.rgr"
+Import "game_audio.rgr"
 
 ; One predefined vocal expression.
 class VoiceSpec {

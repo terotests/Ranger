@@ -249,7 +249,7 @@ And in the shared WebGL renderer, one line of a Chrome profile:
 call**. `getShaderParameter(COMPILE_STATUS)` is synchronous — it makes the CPU
 wait for a compile the driver was entitled to defer — so a third of every frame
 was spent recompiling two shaders that had not changed since the page loaded.
-They are cached per GL context now (`gallery/evg/gl/evg-webgl.js`), which the
+They are cached per GL context now (`lib/evg/gl/evg-webgl.js`), which the
 DataGrid's own page gets for free. A full redraw of the editor measures **2.9 ms**
 of GL plus 1.4 ms of scene building, on software rasterization in headless
 Chrome.

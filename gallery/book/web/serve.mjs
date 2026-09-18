@@ -44,7 +44,7 @@ if (!fs.existsSync(modPath)) {
 
 const { BookApp, UIInput, UIKey } = require(modPath);
 const fontDir = path.resolve(ROOT, "gallery/pdf_writer/assets/fonts");
-const evgGlDir = path.resolve(ROOT, "gallery/evg/gl");
+const evgGlDir = path.resolve(ROOT, "lib/evg/gl");
 
 /** A Node Buffer as the ArrayBuffer-with-a-DataView that Ranger's `buffer` is. */
 function asRangerBuffer(nodeBuf) {

@@ -16,7 +16,7 @@
 ; ==============================================================================
 
 Import "../gfx_sdl.rgr"
-Import "./web_teapot_gl_probe.rgr"
+Import "web_teapot_gl_probe.rgr"
 
 class WebTeapotSdlRunner {
     sfn argOr:string (index:int dflt:string) {

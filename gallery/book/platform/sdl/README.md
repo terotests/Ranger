@@ -8,7 +8,7 @@ SDL event  → UIInput → BookApp → BookEditor          (this process)
 BookApp    → EVGDisplayList → EvgGlPainter → OpenGL
 ```
 
-That is the point of the display-list seam. `gallery/evg/gl/evg-webgl.js` draws
+That is the point of the display-list seam. `lib/evg/gl/evg-webgl.js` draws
 the list in a browser tab and `EvgGlPainter` + `evg_gl_native.cpp` draw the same
 list in a window, from the same commands, with no second copy of the tree walk
 in between. The window, the input and the GL present path are the DataGrid's

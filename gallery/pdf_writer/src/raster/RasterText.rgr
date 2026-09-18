@@ -1,8 +1,8 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 Import "VectorRasterizer.rgr"
-Import "../../../evg/EVGCodepoint.rgr"
-Import "../../../evg/EVGGrapheme.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGGrapheme.rgr"
 ; RasterText.rgr - Text rendering for raster buffers
 ; Uses the existing TrueTypeFont class for font loading and metrics,
 ; adds glyph outline parsing for rasterization.
@@ -12,7 +12,7 @@ Import "../../../evg/EVGGrapheme.rgr"
 ; - Simple glyph: contour end points, flags, x/y coordinates
 ; - Points can be on-curve or off-curve (quadratic bezier control points)
 
-Import "RasterBuffer.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 Import "RasterCompositing.rgr"
 Import "RasterBlur.rgr"
 Import "../fonts/TrueTypeFont.rgr"

@@ -28,11 +28,11 @@
 
 Import "MdLayout.rgr"
 Import "MdEmbed.rgr"
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGUnit.rgr"
-Import "../../evg/EVGColor.rgr"
-Import "../../evg/EVGLayout.rgr"
-Import "../../evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 
 class MdToEvg {
     ; Colours, parsed once. A document is a few colours repeated a few

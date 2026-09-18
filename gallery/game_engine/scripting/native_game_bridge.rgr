@@ -4,7 +4,7 @@
 ; native_game_bridge - shared hook surface for headless + SDL native game hosts.
 ; ==============================================================================
 
-Import "./game_native_runtime.rgr"
+Import "game_native_runtime.rgr"
 
 class NativeGameBridge {
     def runner:NativeGameRunner (new NativeGameRunner)

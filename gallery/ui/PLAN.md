@@ -3011,7 +3011,7 @@ findings that hold across all of them.
 **Nothing outside this directory uses a controller except mfiles and
 realtrainer,** and those two use `InputCtl` and `TableCtl` as MODELS while
 drawing the box themselves. Every editor draws its chrome through the older
-layer in `gallery/evg` — `EVGToolbar`, `EVGWindow`, `EVGSelectChrome` — which
+layer in `lib/evg` — `EVGToolbar`, `EVGWindow`, `EVGSelectChrome` — which
 paints straight into a display list at a given rectangle. That composition
 seam (`GridPane.setBounds` + `buildInto(dl)`) is what lets datagrid live inside
 rangerdbviewer, and `UiCtl` owns an element subtree instead. Until a controller

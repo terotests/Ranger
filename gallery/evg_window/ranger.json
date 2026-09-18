@@ -1,0 +1,10 @@
+{
+  "name": "evg_window",
+  "version": "0.1.0",
+  "entry": "EVGWindow.rgr",
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "evg": { "path": "../../lib/evg" },
+    "image": { "path": "../../lib/image" }
+  }
+}

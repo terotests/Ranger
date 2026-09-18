@@ -39,7 +39,7 @@ EVG (Extended Vector Graphics) is a declarative layout engine that calculates el
 ## 2. File Structure
 
 ```
-gallery/evg/
+lib/evg/
 ├── PLAN_EVG.md            # This plan
 ├── README.md              # Usage documentation
 ├── SPEC.md                # Format specification
@@ -437,8 +437,8 @@ Add to package.json:
 
 ```json
 {
-  "evg:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/evg/evg_test.rgr -d=./gallery/evg/bin -o=evg_test.js -nodecli",
-  "evg:run": "node ./gallery/evg/bin/evg_test.js",
+  "evg:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./lib/evg/evg_test.rgr -d=./lib/evg/bin -o=evg_test.js -nodecli",
+  "evg:run": "node ./lib/evg/bin/evg_test.js",
   "evg": "npm run evg:compile && npm run evg:run"
 }
 ```
