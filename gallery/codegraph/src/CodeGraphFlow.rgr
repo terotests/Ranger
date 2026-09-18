@@ -64,11 +64,6 @@ class CodeGraphFlow {
                             e.sourcePort = (((link.fromId + ".") + link.fieldName) + ":r")
                         }
                     }
-                    if (link.kind == "uses") {
-                        if ((strlen link.fieldName) > 0) {
-                            e.sourcePort = (((link.fromId + ".") + link.fieldName) + ":r")
-                        }
-                    }
                     if link.dashed {
                         e.dash = 6.0
                     }
@@ -183,8 +178,11 @@ class CodeGraphFlow {
         while (mi < (array_length c.methodIds)) {
             def m:CodeMethod (model.methodById((itemAt c.methodIds mi)))
             if (CodeGraphFlow.methodReaches(m model target)) {
+                ; No row port: a "uses" edge leaves the box, not the row.
+                ; Two rose boxes above one class each get their own line
+                ; down into it; from side ports they crossed and stacked.
                 def op:UMLMember (u.operation("+" m.name m.params m.returns))
-                op.wantPort = true
+                op.wantPort = false
             }
             mi = (mi + 1)
         }
