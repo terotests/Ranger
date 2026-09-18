@@ -3486,7 +3486,12 @@ class TSParserSimple {
 
       def nextVal (this.peekValue())
       if (nextVal == "of") {
-        if ((strlen varNameStr) > 0) {
+        ; B.3.5 relaxes `catch (e) { for (var e in o) {} }` but NOT the for-of
+        ; form, which keeps the early error. A LEXICAL binding in either head
+        ; declares in a scope of its own, so it may shadow a parameter freely --
+        ; checking it too rejected `function f(e) { for (let e of []) {} }`,
+        ; which is ordinary code.
+        if (((strlen varNameStr) > 0) && (kind == "var")) {
           if (this.isParameterInScope(varNameStr)) {
             this.syntaxError("Parse error: '" + varNameStr + "' shadows a parameter in a for-of head")
           }
@@ -3522,13 +3527,10 @@ class TSParserSimple {
       }
       
       if (nextVal == "in") {
-        ; B.3.5: `catch (e) { for (var e in o) {} }` is allowed -- only the
-        ; for-of form keeps the early error.
-        if (((strlen varNameStr) > 0) && (kind != "var")) {
-          if (this.isParameterInScope(varNameStr)) {
-            this.syntaxError("Parse error: '" + varNameStr + "' shadows a parameter in a for-in head")
-          }
-        }
+        ; B.3.5: `catch (e) { for (var e in o) {} }` is allowed, and a LEXICAL
+        ; binding in the head declares in its own scope, so it may shadow a
+        ; parameter as well: `function f(e) { for (let e in {}) e }` is legal.
+        ; Nothing in a for-IN head is an early error on these grounds.
         ; for...in loop
         node.nodeType = "ForInStatement"
         this.advance() ; consume 'in'
