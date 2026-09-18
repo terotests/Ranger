@@ -384,24 +384,33 @@ shape EvPropertySlot {
 class EvAtomTable @singleton(true) {
     def names:[string]
     def ids:[string:int]
-    ; The lookup key a NAME is stored under. A string-keyed map lowers to a
-    ; plain object on the es6 target, where writing the key `__proto__` sets the
-    ; prototype instead of creating an entry -- so that one name minted a fresh
-    ; id on every call and no property bag could ever find its slot again.
-    ; `Object.prototype.__proto__` was invisible to every reflection because of
-    ; it. One leading marker keeps every name out of that corner.
-    fn atomKey:string (name:string) {
-        return ("k" + name)
-    }
+    ; `__proto__` is the ONE name a string-keyed map cannot hold: that map
+    ; lowers to a plain object on the es6 target, where writing the key sets the
+    ; prototype instead of creating an entry, so the name minted a fresh id on
+    ; every call and no property bag could ever find its slot again --
+    ; `Object.prototype.__proto__` was invisible to every reflection. It gets an
+    ; id in a field of its own instead. Mangling every key the way an earlier
+    ; fix did works, but `idOf` is the hottest function in the engine (28% of
+    ; Richards) and a per-call string concat is not affordable there: the lookup
+    ; below must stay one map probe.
+    def protoAtom:int (0 - 1)
     fn idOf:int (name:string) {
-        def k:string (this.atomKey(name))
-        def found@(optional):int (get ids k)
+        def found@(optional):int (get ids name)
         if found {
             return (unwrap found)
         }
+        if (name == "__proto__") {
+            if (protoAtom >= 0) {
+                return protoAtom
+            }
+            def pnext:int (array_length names)
+            push names name
+            protoAtom = pnext
+            return pnext
+        }
         def next:int (array_length names)
         push names name
-        set ids k next
+        set ids name next
         return next
     }
     fn nameOf:string (a:int) {
