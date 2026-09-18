@@ -101,6 +101,11 @@
   }
   .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
   .counts { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+  button:disabled, .filebtn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .capture-host {
+    position: absolute; left: -12000px; top: 0; background: #e8ecf0;
+    pointer-events: none; width: 720px; font: 14px/1.4 system-ui, sans-serif;
+  }
 </style>
 </head>
 <body>
@@ -168,7 +173,7 @@
     <section style="margin-top:18px">
       <div class="head">Layout-verkko <span class="counts" id="layoutPicked">ei valintaa</span></div>
       <div class="body">
-        <p class="hint">Klikkaa laatikoita kuvassa, anna nimi ja opeta. Yksi valinta laajennetaan automaattisesti kymmeniksi näytteiksi (väli, skaala, em). Painot jäävät tähän selaimeen.</p>
+        <p class="hint">Klikkaa laatikoita kuvassa, anna nimi ja opeta — tai rakenna testsetti tunnetuista HTML-komponenteista: renderöi, nauhoita boksit, PNG, vektoroi Erazerilla. Kun näytteitä on tarpeeksi, kouluta pieni malli WebGPU:lla.</p>
         <div class="concept" id="concepts">
           <label><input type="radio" name="concept" value="list" checked> lista</label>
           <label><input type="radio" name="concept" value="toolbar"> toolbar</label>
@@ -182,6 +187,14 @@
           <input id="newConcept" type="text" placeholder="uusi konsepti" autocomplete="off">
           <button type="button" id="teachBtn" class="primary">Opeta valinta</button>
           <button type="button" id="clearPickBtn">Tyhjennä valinta</button>
+        </div>
+        <p class="hint" style="margin-top:14px">Automaattinen testsetti + WebGPU</p>
+        <div class="actions">
+          <button type="button" id="buildSetBtn">Rakenna HTML-testsetti</button>
+          <button type="button" id="trainGpuBtn" disabled>Kouluta WebGPU:lla</button>
+          <button type="button" id="saveModelBtn">Tallenna malli</button>
+          <label class="filebtn" for="modelFile">Lataa malli</label>
+          <input id="modelFile" class="sr-file" type="file" accept=".txt,text/plain">
         </div>
         <pre id="layoutOut">Ei vielä ryhmiä.</pre>
       </div>
@@ -203,7 +216,9 @@
     </section>
   </div>
 </main>
+<div id="captureHost" class="capture-host" aria-hidden="true"></div>
 <script src="erazer.js"></script>
+<script src="layout-lab.js"></script>
 <script>
 (function () {
   var stage = document.getElementById("stage");
@@ -454,6 +469,22 @@
     return img;
   }
 
+  function canvasToBuffer(c) {
+    if (!c || c.width < 1 || c.height < 1) return null;
+    var ctx = c.getContext("2d");
+    var data = ctx.getImageData(0, 0, c.width, c.height);
+    var img = new ImageBuffer();
+    img.init(c.width, c.height);
+    var n = c.width * c.height;
+    for (var i = 0; i < n; i++) {
+      var o = i * 4;
+      var x = i % c.width;
+      var y = (i / c.width) | 0;
+      img.setPixelRGBA(x, y, data.data[o], data.data[o + 1], data.data[o + 2], data.data[o + 3]);
+    }
+    return img;
+  }
+
   function loadBlob(blob, name) {
     if (!blob) return;
     outline.textContent = "Luetaan " + (name || "kuva") + "…";
@@ -623,6 +654,136 @@
     layoutOut.textContent += "\n" + ms + " ms · painot tallennettu";
   });
 
+  var trainGpuBtn = document.getElementById("trainGpuBtn");
+  var buildSetBtn = document.getElementById("buildSetBtn");
+
+  function labLog(msg) {
+    layoutOut.textContent = (layoutOut.textContent && layoutOut.textContent !== "Ei vielä ryhmiä."
+      ? layoutOut.textContent + "\n"
+      : "") + msg;
+    layoutOut.scrollTop = layoutOut.scrollHeight;
+  }
+
+  function refreshTrainBtn() {
+    if (!trainGpuBtn || typeof ErazerLayoutLab === "undefined") return;
+    ErazerLayoutLab.countSamples().then(function (n) {
+      var ok = n >= ErazerLayoutLab.MIN_SAMPLES;
+      trainGpuBtn.disabled = !ok;
+      trainGpuBtn.textContent = ok
+        ? ("Kouluta WebGPU:lla (" + n + ")")
+        : ("Kouluta WebGPU:lla (" + n + "/" + ErazerLayoutLab.MIN_SAMPLES + ")");
+    }).catch(function () {
+      trainGpuBtn.disabled = true;
+    });
+  }
+
+  if (typeof ErazerLayoutLab === "function" || (typeof ErazerLayoutLab === "object" && ErazerLayoutLab)) {
+    ErazerLayoutLab.init({
+      host: document.getElementById("captureHost"),
+      log: labLog,
+      canvasToBuffer: canvasToBuffer,
+      runDoc: function (img, doc) { show(img, doc); },
+      showCanvas: function (canvas) {
+        stage.classList.remove("empty");
+        stage.innerHTML = "";
+        var frame = document.createElement("div");
+        frame.className = "frame";
+        frame.appendChild(canvas);
+        stage.appendChild(frame);
+      }
+    });
+    refreshTrainBtn();
+  }
+
+  if (buildSetBtn) {
+    buildSetBtn.addEventListener("click", function () {
+      if (!ErazerLayoutLab) return;
+      buildSetBtn.disabled = true;
+      layoutOut.textContent = "";
+      labLog("Rakennetaan testsetti HTML-komponenteista…");
+      ErazerLayoutLab.buildHtmlSet().then(function (n) {
+        refreshTrainBtn();
+        buildSetBtn.disabled = false;
+        document.documentElement.setAttribute("data-lab-done", "1");
+        document.documentElement.setAttribute("data-lab-n", String(n || 0));
+        document.title = "lab-ok " + n;
+        if (n >= ErazerLayoutLab.MIN_SAMPLES) {
+          document.documentElement.setAttribute("data-lab-ready", "1");
+        }
+      }).catch(function (err) {
+        labLog("FAIL: " + (err && err.message ? err.message : err));
+        buildSetBtn.disabled = false;
+        refreshTrainBtn();
+        document.documentElement.setAttribute("data-lab-done", "0");
+        document.title = "lab-fail";
+      });
+    });
+  }
+
+  if (trainGpuBtn) {
+    trainGpuBtn.addEventListener("click", function () {
+      if (!ErazerLayoutLab) return;
+      trainGpuBtn.disabled = true;
+      labLog("Käynnistetään koulutus…");
+      ErazerLayoutLab.trainOnDemand({}).then(function (result) {
+        labLog("backend=" + result.backend + " · " + result.ms + " ms · features=" + result.features);
+        if (lastDoc) {
+          var all = boxesFromJson(lastDoc.layoutJson);
+          var net = ErazerLayoutNet.shared();
+          var guesses = net.scan(all);
+          lastDoc.layoutJson = net.toJson(all, guesses);
+          showLayout(lastDoc);
+        }
+        document.documentElement.setAttribute("data-lab-trained", result.backend || "1");
+        document.title = "lab-trained " + result.backend;
+        refreshTrainBtn();
+      }).catch(function (err) {
+        labLog("FAIL: " + (err && err.message ? err.message : err));
+        refreshTrainBtn();
+      });
+    });
+  }
+
+  document.getElementById("saveModelBtn").addEventListener("click", function () {
+    var dump = null;
+    try { dump = localStorage.getItem(WEIGHTS_KEY); } catch (err) {}
+    if (!dump && typeof ErazerLayoutNet !== "undefined") {
+      dump = ErazerLayoutNet.shared().dumpWeights();
+    }
+    if (!dump) {
+      labLog("Ei mallia tallennettavaksi.");
+      return;
+    }
+    if (ErazerLayoutLab) ErazerLayoutLab.downloadDump(dump, "erazer-layout-model.txt");
+    labLog("Malli tallennettu tiedostoksi.");
+  });
+
+  document.getElementById("modelFile").addEventListener("change", function (ev) {
+    var f = ev.target.files && ev.target.files[0];
+    ev.target.value = "";
+    if (!f) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var text = String(reader.result || "");
+      if (typeof ErazerLayoutNet === "undefined" || !ErazerLayoutNet.adoptWeights(text)) {
+        labLog("Mallin lataus epäonnistui (väärä muoto).");
+        return;
+      }
+      try { localStorage.setItem(WEIGHTS_KEY, text); } catch (err) {}
+      if (ErazerLayoutLab) {
+        ErazerLayoutLab.saveModel({ dump: text, backend: "file", trainedAt: Date.now() }).catch(function () {});
+      }
+      labLog("Malli ladattu tiedostosta (" + f.name + ").");
+      if (lastDoc) {
+        var all = boxesFromJson(lastDoc.layoutJson);
+        var guesses = ErazerLayoutNet.shared().scan(all);
+        lastDoc.layoutJson = ErazerLayoutNet.shared().toJson(all, guesses);
+        showLayout(lastDoc);
+      }
+    };
+    reader.readAsText(f);
+  });
+
   var params = new URLSearchParams(location.search);
   var sample = params.get("sample");
   var png = params.get("png");
@@ -633,6 +794,10 @@
   else if (sample === "chips") run(ErazerPaint.chipRow());
   else if (sample === "slider") run(ErazerPaint.sliders());
   else if (png) loadPng(png);
+
+  if (params.get("lab") === "build" && buildSetBtn) {
+    buildSetBtn.click();
+  }
 })();
 </script>
 </body>

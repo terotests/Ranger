@@ -35,6 +35,19 @@ if (!html.includes("teachBtn") || !html.includes("Opeta valinta")) {
   console.error("live page is missing layout-net training UI");
   process.exit(1);
 }
+if (!html.includes("layout-lab.js") || !html.includes("buildSetBtn") || !html.includes("trainGpuBtn")) {
+  console.error("live page is missing HTML test-set / WebGPU train buttons");
+  process.exit(1);
+}
+if (!fs.existsSync(path.join(DIST, "layout-lab.js"))) {
+  console.error("layout-lab.js was not copied to dist");
+  process.exit(1);
+}
+const components = fs.readFileSync(path.join(DIST, "components.html"), "utf8");
+if (!components.includes('data-concept="form"') || !components.includes('data-role="checkbox"')) {
+  console.error("components.html is missing layout ground-truth annotations");
+  process.exit(1);
+}
 
 const bundle = fs.readFileSync(path.join(DIST, "erazer.js"), "utf8");
 const sandbox = { console, globalThis: {} };
@@ -89,4 +102,40 @@ if (pred.type !== "list" || pred.confidence < 0.5) {
   process.exit(1);
 }
 
-console.log("erazer web smoke ok — button, chip row, sliders, layout-net");
+const labJs = fs.readFileSync(path.join(DIST, "layout-lab.js"), "utf8");
+vm.runInContext(labJs, sandbox);
+const { ErazerLayoutLab } = sandbox;
+if (!ErazerLayoutLab || ErazerLayoutLab.MIN_SAMPLES < 2) {
+  console.error("layout-lab did not publish ErazerLayoutLab");
+  process.exit(1);
+}
+const hits = ErazerLayoutLab.matchBoxes(
+  [{ type: "label", x: 10, y: 10, w: 40, h: 12 }, { type: "label", x: 400, y: 10, w: 40, h: 12 }],
+  { x: 0, y: 0, w: 80, h: 40 },
+  4
+);
+if (hits.length !== 1) {
+  console.error("matchBoxes should keep the in-group primitive, got " + hits.length);
+  process.exit(1);
+}
+const scoped = ErazerLayoutLab.scopeCss(":root { --x: 1 } body { margin: 0 } .card { color: red }", "#captureHost");
+if (!scoped.includes("#captureHost {") || !scoped.includes("#captureHost .card") || scoped.includes(":root")) {
+  console.error("scopeCss did not prefix fixture selectors:\n" + scoped);
+  process.exit(1);
+}
+const dump = ErazerLayoutLab.packDump(
+  ErazerLayoutLab.CLASSES,
+  net.w1, net.b1, net.w2, net.b2
+);
+const fresh = new ErazerLayoutNet();
+if (!fresh.loadWeights(dump)) {
+  console.error("Ranger loadWeights rejected layout-lab packDump");
+  process.exit(1);
+}
+const again = fresh.predict(list);
+if (again.type !== "list") {
+  console.error("reloaded dump did not keep the list class: " + again.type);
+  process.exit(1);
+}
+
+console.log("erazer web smoke ok — button, chip row, sliders, layout-net, html-set");

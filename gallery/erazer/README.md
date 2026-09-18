@@ -46,10 +46,13 @@ scale, font-size and leave-one-out jitter expand it to a dozen
 samples, with axis-flips as hard negatives.
 
 The live page: click boxes, pick `lista` / `toolbar` / a new concept,
-**Opeta valinta**. Weights stay in `localStorage`. This is the small
-MLP (about 1.5k parameters), not a vision model — swap in a set
-transformer later if the 40 hand-crafted features stop separating
-the classes.
+**Opeta valinta**. Or **Rakenna HTML-testsetti**: it renders the known
+widgets from `web/components.html`, records DOM boxes, rasterises HTML →
+PNG, vectorises with Erazer, and stores labelled samples in IndexedDB.
+When at least 8 samples exist, **Kouluta WebGPU:lla** trains the same
+tiny 40→32→8 net (CPU fallback if the adapter is missing). **Tallenna
+malli** / **Lataa malli** keep weights in IndexedDB, `localStorage`, or a
+`.txt` file.
 
 ## Commands
 
@@ -115,6 +118,7 @@ The same dashboard in the live page (`?png=shadcn-dash.png`):
 | `erazer_cli.rgr` | PNG/JPEG in, `.evg.json` out |
 | `ErazerTest.rgr` | the fixtures, asserted |
 | `web/` | the live page |
+| `web/layout-lab.js` | HTML test-set capture + WebGPU trainer |
 | `web/components.html` | HTML/CSS widgets for `erazer:shots` |
 | `web/shadcn.html` | dark zinc shadcn/ui-shaped dashboard |
 | `shots/` | captured PNGs the live page can load |

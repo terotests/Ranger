@@ -82,6 +82,7 @@ const scoped =
 
 fs.writeFileSync(path.join(OUT, "erazer.js"), scoped);
 fs.copyFileSync(path.join(HERE, "index.html"), path.join(OUT, "index.html"));
+fs.copyFileSync(path.join(HERE, "layout-lab.js"), path.join(OUT, "layout-lab.js"));
 fs.copyFileSync(path.join(HERE, "components.html"), path.join(OUT, "components.html"));
 fs.copyFileSync(path.join(HERE, "shadcn.html"), path.join(OUT, "shadcn.html"));
 const shots = path.join(HERE, "../shots");
