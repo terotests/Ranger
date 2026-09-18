@@ -1096,6 +1096,7 @@
         fixture: name,
         expected: concept,
         nBoxes: measured.boxes.length,
+        nErazer: 0,
         dom: null,
         erazer: null,
         scan: null,
@@ -1126,6 +1127,7 @@
           try { layout = JSON.parse(doc.layoutJson || "{}"); } catch (err2) {}
           var matched = lab.matchBoxes(layout.boxes || [], measured.group, 8);
           if (matched.length >= 2) {
+            row.nErazer = matched.length;
             row.erazer = lab.predictBoxes(matched, dump);
             row.scanErazer = lab.scanFinds(matched, concept, dump);
           }
@@ -1156,7 +1158,8 @@
     var scan = row.scan && row.scan.hit
       ? ("scan " + guessLine(row.scan.found))
       : "scan miss";
-    return row.fixture + " (" + row.expected + ", n=" + row.nBoxes + "): DOM " +
+    return row.fixture + " (" + row.expected + ", n=" + row.nBoxes +
+      (row.nErazer ? "/" + row.nErazer : "") + "): DOM " +
       mark(row.dom) + " · Erazer " + mark(row.erazer) + " · " + scan;
   };
 

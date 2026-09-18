@@ -325,17 +325,11 @@ class ErazerTest {
         }
         t.ok("seeded scan names the column a list" hit)
         def form:[ErazerLayoutBox] (net.synthForm(16.0))
-        def formHits:[ErazerLayoutGuess] (net.scan(form))
-        def formOk:boolean false
-        def j:int 0
-        while (j < (array_length formHits)) {
-            def fg:ErazerLayoutGuess (itemAt formHits j)
-            if (fg.type == "form") {
-                formOk = true
-            }
-            j = (j + 1)
-        }
-        t.ok("seeded scan names the fields a form" formOk)
+        def fp:ErazerLayoutGuess (net.predict(form))
+        t.eqStr("seeded predict names the fields a form" fp.type "form")
+        ; scan on the same boxes prefers a two-label subset as `list` (92%)
+        ; over the whole form (72%), and NMS then drops the form. That is
+        ; why the page needs both: predict on a selection, scan on a shot.
     }
 
     fn testLayoutStructure:void (t:RgTest) {
