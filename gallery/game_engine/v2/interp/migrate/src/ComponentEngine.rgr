@@ -3065,6 +3065,47 @@ class ComponentEngine {
             context = (context.createChild())
             scopedEval = true
         }
+        ; §18.2.1.3 EvalDeclarationInstantiation steps 5-8: a var or function
+        ; the eval code would add to a NON-EXTENSIBLE global object is a
+        ; TypeError before anything runs (CanDeclareGlobalVar/Function).
+        if (false == scopedEval) {
+            if ((context.varScope()).isGlobalScope) {
+                def evNames:[string]
+                this.collectScriptVarNames(ast.children evNames 0)
+                def evGObj:EvHandle (this.theGlobalObject())
+                if (false == (evGObj.isExtensible())) {
+                    def evi:int 0
+                    while (evi < (array_length evNames)) {
+                        def evNm:string (itemAt evNames evi)
+                        if (false == (evGObj.hasOwnData(evNm))) {
+                            context = savedEvalScope
+                            return (this.throwSpecError("TypeError" ("Cannot define global variable '" + (evNm + "': the global object is not extensible"))))
+                        }
+                        evi = (evi + 1)
+                    }
+                }
+                ; CanDeclareGlobalFunction: an existing NON-configurable global
+                ; takes a function declaration only when it is writable and
+                ; enumerable -- `eval("function NaN(){}")` is a TypeError.
+                def evfi:int 0
+                while (evfi < (array_length ast.children)) {
+                    def evFn:TSNode (itemAt ast.children evfi)
+                    if (evFn.nodeType == "FunctionDeclaration") {
+                        if ((strlen evFn.name) > 0) {
+                            if (evGObj.hasOwnData(evFn.name)) {
+                                if (false == (evGObj.isConfigurable(evFn.name))) {
+                                    if ((false == (evGObj.isWritable(evFn.name))) || (false == (evGObj.isEnumerable(evFn.name)))) {
+                                        context = savedEvalScope
+                                        return (this.throwSpecError("TypeError" ("Cannot redefine global function '" + (evFn.name + "'"))))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    evfi = (evfi + 1)
+                }
+            }
+        }
         this.hoistFunctionDeclarations(ast.children)
         def i:int 0
         while (i < (array_length ast.children)) {
@@ -23849,10 +23890,14 @@ class ComponentEngine {
                 if ((gdSrc.isNull()) || (gdSrc.isUndefined())) {
                     return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
                 }
-                if ((array_length args) < 2) {
+                ; A missing key is ToPropertyKey(undefined) -- "undefined" --
+                ; and the lookup still runs: a revoked proxy throws on it.
+                def gdKeyV:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 1) { gdKeyV = (itemAt args 1) }
+                def gdKey:string (this.toPropertyKey(gdKeyV))
+                if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
-                def gdKey:string (this.toPropertyKey((itemAt args 1)))
                 return (this.ownPropertyDescriptorOf(gdSrc gdKey))
             }
             ; §20.1.2.9: every own key's descriptor at once. The plural is what
@@ -25121,6 +25166,26 @@ class ComponentEngine {
                         return (EvValueBridge.taggedBoolean(false))
                     }
                 }
+                ; §9.1.9.1 step 3.a-c: an accessor found on the target or up
+                ; its chain takes the value, called with the RECEIVER as this.
+                def rsSetter:EvHandle (this.resolveSetterOn(rTgt rKey))
+                if (rsSetter.isFunction()) {
+                    def rsThis:EvHandle rTgt
+                    if ((array_length args) > 3) { rsThis = (itemAt args 3) }
+                    def rsArgs:[EvHandle]
+                    push rsArgs sVal
+                    if (rsSetter.hasFunctionNode()) {
+                        def _rss:EvHandle (this.callFnValueWithValues((rsSetter.withThisForCall(rsThis)) rsArgs))
+                    } {
+                        if (rsSetter.isBuiltinMethod()) {
+                            def _rsb:EvHandle (this.invokeBuiltin((rsSetter.builtinKindOf()) (rsSetter.builtinNameOf()) rsThis rsArgs))
+                        }
+                    }
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    return (EvValueBridge.taggedBoolean(true))
+                }
                 ; The optional RECEIVER is where the property lands -- the
                 ; target only decides whether the write is allowed. That is what
                 ; makes `Reflect.set(t, k, v, r)` define k on r.
@@ -25134,6 +25199,11 @@ class ComponentEngine {
                         return (EvValueBridge.taggedBoolean(false))
                     }
                     if (this.isSymbolValue(rcv)) {
+                        return (EvValueBridge.taggedBoolean(false))
+                    }
+                    ; §9.1.9.1 step 4.d.ii: an ACCESSOR on the receiver refuses
+                    ; a data write.
+                    if ((rcv.hasOwnGetter(rKey)) || (rcv.hasOwnSetter(rKey))) {
                         return (EvValueBridge.taggedBoolean(false))
                     }
                     ; The receiver's OWN property decides as well: a
@@ -28925,6 +28995,15 @@ class ComponentEngine {
                     return (EvValueBridge.taggedUndefined())
                 }
             }
+            ; D-PROXY: [[GetOwnProperty]] on a proxy is its trap (or the
+            ; target's own property when there is none).
+            if (this.isProxyValue(recv)) {
+                def hkDesc:EvHandle (this.ownPropertyDescriptorOf(recv hk0))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                return (EvValueBridge.taggedBoolean((this.isDescriptorObject(hkDesc))))
+            }
             if (recv.hasOwnData(hk0)) { return (EvValueBridge.taggedBoolean(true)) }
             if (recv.hasOwnGetter(hk0)) { return (EvValueBridge.taggedBoolean(true)) }
             if (recv.hasOwnSetter(hk0)) { return (EvValueBridge.taggedBoolean(true)) }
@@ -29011,6 +29090,17 @@ class ComponentEngine {
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
+            }
+            ; D-PROXY: [[GetOwnProperty]] on a proxy is its trap.
+            if (this.isProxyValue(recv)) {
+                def peDesc:EvHandle (this.ownPropertyDescriptorOf(recv pk0))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (false == (this.isDescriptorObject(peDesc))) {
+                    return (EvValueBridge.taggedBoolean(false))
+                }
+                return (EvValueBridge.taggedBoolean(((this.descGet(peDesc "enumerable")).toBool())))
             }
             def ownPk:boolean false
             if (recv.hasOwnData(pk0)) { ownPk = true }
