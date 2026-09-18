@@ -17383,6 +17383,83 @@ class ComponentEngine {
     ; `new Map(iterable)` / `new Set(iterable)` from an already-evaluated
     ; initialiser. Any iterable is accepted, not only an array literal, because
     ; forOfItemList is what the spec's "iterate it" means here.
+    ; §7.4.6 IteratorClose. A throw already pending is the answer, so one from
+    ; `return` on the way out is swallowed rather than replacing it.
+    fn closeIteratorObject:void (iter:EvHandle) {
+        def hadThrow:boolean scriptThrew
+        def hadVal:EvHandle scriptThrowValue
+        scriptThrew = false
+        def retFn:EvHandle (this.getPropertyValue(iter "return"))
+        if (retFn.isFunction()) {
+            def rArgs:[EvHandle]
+            def _rv:EvHandle (this.callFnValueWithValues((retFn.withThisForCall(iter)) rArgs))
+        }
+        scriptThrew = hadThrow
+        scriptThrowValue = hadVal
+    }
+
+    ; One entry into a Map or a Set being constructed, THROUGH the adder the
+    ; prototype currently holds when a guest has replaced it -- §24.1.1.1 step 7
+    ; reads `add` / `set` off the new object and calls it, which is what makes
+    ; a subclass that overrides one see its own entries.
+    ; §7.2.11 SameValueZero is what a Map and a Set key on, so -0 and +0 are the
+    ; SAME key and the stored one is +0: `new Set([-0]).has(0)` is true and the
+    ; value that comes back out of a forEach is +0, not -0.
+    fn normalizeZeroKey:EvHandle (v:EvHandle) {
+        if (v.isNumber()) {
+            def nz:double (v.toNumber())
+            if (nz == 0.0) {
+                return (EvValueBridge.taggedNumber(0.0))
+            }
+        }
+        return v
+    }
+
+    fn collectionAddEntry:void (coll:EvHandle isMapKind:boolean adder:EvHandle entry:EvHandle) {
+        if (adder.isFunction()) {
+            if (adder.hasFunctionNode()) {
+                def aArgs:[EvHandle]
+                if isMapKind {
+                    if ((false == (this.isDescriptorObject(entry))) || (this.isSymbolValue(entry))) {
+                        def _te:EvHandle (this.throwSpecError("TypeError" "Iterator value is not an entry object"))
+                        return
+                    }
+                    def gk:EvHandle (this.getPropertyValue(entry "0"))
+                    if scriptThrew { return }
+                    def gv:EvHandle (this.getPropertyValue(entry "1"))
+                    if scriptThrew { return }
+                    push aArgs gk
+                    push aArgs gv
+                } {
+                    push aArgs entry
+                }
+                def _ar:EvHandle (this.callFnValueWithValues((adder.withThisForCall(coll)) aArgs))
+                return
+            }
+        }
+        if isMapKind {
+            ; §23.1.1.2 AddEntriesFromIterable: each entry must be an OBJECT (a
+            ; TypeError otherwise), and its key and value are Get(entry, "0")
+            ; and Get(entry, "1") -- so `{}` is an entry with an undefined key,
+            ; not something to skip.
+            if (entry.isArrayValue()) {
+                coll.mapSet((this.normalizeZeroKey((entry.getIndex(0)))) (entry.getIndex(1)))
+                return
+            }
+            if ((false == (this.isDescriptorObject(entry))) || (this.isSymbolValue(entry))) {
+                def _te2:EvHandle (this.throwSpecError("TypeError" "Iterator value is not an entry object"))
+                return
+            }
+            def ek:EvHandle (this.getPropertyValue(entry "0"))
+            if scriptThrew { return }
+            def ev:EvHandle (this.getPropertyValue(entry "1"))
+            if scriptThrew { return }
+            coll.mapSet((this.normalizeZeroKey(ek)) ev)
+            return
+        }
+        coll.setAdd((this.normalizeZeroKey(entry)))
+    }
+
     fn constructCollectionValue:EvHandle (name:string init:EvHandle) {
         def isMapKind:boolean (name == "Map")
         def coll:EvHandle (EvValueBridge.taggedSetEmpty())
@@ -17391,36 +17468,75 @@ class ComponentEngine {
         }
         if (init.isUndefined()) { return coll }
         if (init.isNull()) { return coll }
+        ; The adder is read ONCE, before the walk, and it is the one the
+        ; prototype holds now -- a guest that replaced `Set.prototype.add` sees
+        ; every entry go through it.
+        def addName:string "add"
+        if isMapKind { addName = "set" }
+        def adder:EvHandle (this.getPropertyValue(coll addName))
+        if scriptThrew { return coll }
+        ; A source that iterates through the PROTOCOL is walked lazily, so a
+        ; throw from the adder closes the iterator. Draining it first would
+        ; leave it exhausted, and `return` is then not called at all.
+        def viaProtocol:boolean false
+        if (this.isDescriptorObject(init)) {
+            viaProtocol = true
+            if (init.isArrayValue()) { viaProtocol = false }
+            if (init.isMap()) { viaProtocol = false }
+            if (init.isSet()) { viaProtocol = false }
+            if (this.isGeneratorValue(init)) { viaProtocol = false }
+            if (init.hasOwnData("__arguments__")) { viaProtocol = false }
+        }
+        if viaProtocol {
+            def itFn:EvHandle (this.getPropertyValue(init "@@iterator"))
+            if scriptThrew { return coll }
+            if (false == (itFn.isFunction())) {
+                viaProtocol = false
+            } {
+                def noArgsC:[EvHandle]
+                def iter:EvHandle (this.callFnValueWithValues((itFn.withThisForCall(init)) noArgsC))
+                if scriptThrew { return coll }
+                if (false == (this.isDescriptorObject(iter))) {
+                    def _ci:EvHandle (this.throwSpecError("TypeError" "Result of the Symbol.iterator method is not an object"))
+                    return coll
+                }
+                def going:boolean true
+                def guardC:int 0
+                while (going && (guardC < maxLoopIterations)) {
+                    def stepArgsC:[EvHandle]
+                    def step:EvHandle (this.callMethodOnValue(iter "next" stepArgsC))
+                    if scriptThrew { return coll }
+                    if (false == (this.isDescriptorObject(step))) {
+                        def _cs:EvHandle (this.throwSpecError("TypeError" "Iterator result is not an object"))
+                        return coll
+                    }
+                    def doneC:EvHandle (this.getPropertyValue(step "done"))
+                    if scriptThrew { return coll }
+                    if (doneC.toBool()) {
+                        going = false
+                    } {
+                        def valC:EvHandle (this.getPropertyValue(step "value"))
+                        if scriptThrew { return coll }
+                        this.collectionAddEntry(coll isMapKind adder valC)
+                        if scriptThrew {
+                            this.closeIteratorObject(iter)
+                            return coll
+                        }
+                    }
+                    guardC = (guardC + 1)
+                }
+                return coll
+            }
+        }
         def entries:[EvHandle] (this.forOfItemList(init))
         if scriptThrew {
             return coll
         }
         def ci:int 0
         while (ci < (array_length entries)) {
-            def entry:EvHandle (itemAt entries ci)
-            if isMapKind {
-                ; §23.1.1.2 AddEntriesFromIterable: each entry must be an
-                ; OBJECT (a TypeError otherwise), and its key and value are
-                ; Get(entry, "0") and Get(entry, "1") -- so `{}` is an entry
-                ; with an undefined key, not something to skip.
-                if (entry.isArrayValue()) {
-                    coll.mapSet((entry.getIndex(0)) (entry.getIndex(1)))
-                } {
-                    if ((false == (this.isDescriptorObject(entry))) || (this.isSymbolValue(entry))) {
-                        return (this.throwSpecError("TypeError" "Iterator value is not an entry object"))
-                    }
-                    def ek:EvHandle (this.getPropertyValue(entry "0"))
-                    if scriptThrew {
-                        return (EvValueBridge.taggedUndefined())
-                    }
-                    def ev:EvHandle (this.getPropertyValue(entry "1"))
-                    if scriptThrew {
-                        return (EvValueBridge.taggedUndefined())
-                    }
-                    coll.mapSet(ek ev)
-                }
-            } {
-                coll.setAdd(entry)
+            this.collectionAddEntry(coll isMapKind adder (itemAt entries ci))
+            if scriptThrew {
+                return coll
             }
             ci = (ci + 1)
         }
@@ -23613,37 +23729,134 @@ class ComponentEngine {
         }
         w.setMember("__weakdata__" wStore)
         ; The optional iterable initialiser: entries for a WeakMap, values for
-        ; a WeakSet, and each of them checked exactly as an add would be.
+        ; a WeakSet. §24.3.1.1 step 8 reads `set` / `add` off the NEW OBJECT and
+        ; calls it per entry, so a guest that replaced the prototype method sees
+        ; them -- and a throw from it closes the iterator. The store was filled
+        ; directly instead, past both.
         if ((array_length args) > 0) {
             def wInit:EvHandle (itemAt args 0)
             if (false == ((wInit.isUndefined()) || (wInit.isNull()))) {
-                def wItems:[EvHandle] (this.forOfItemList(wInit))
+                def wAddName:string "add"
+                if (wKind == "weakmap") { wAddName = "set" }
+                def wAdder:EvHandle (this.getPropertyValue(w wAddName))
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
-                def wi:int 0
-                while (wi < (array_length wItems)) {
-                    def wIt:EvHandle (itemAt wItems wi)
-                    if (wKind == "weakmap") {
-                        def wK:EvHandle (this.getPropertyValue(wIt "0"))
-                        if scriptThrew {
-                            return (EvValueBridge.taggedUndefined())
-                        }
-                        def wV:EvHandle (this.getPropertyValue(wIt "1"))
-                        if scriptThrew {
-                            return (EvValueBridge.taggedUndefined())
-                        }
-                        if (false == (this.canBeWeakTarget(wK))) {
-                            return (this.throwSpecError("TypeError" "Invalid value used as weak map key"))
-                        }
-                        wStore.mapSet(wK wV)
-                    } {
-                        if (false == (this.canBeWeakTarget(wIt))) {
-                            return (this.throwSpecError("TypeError" "Invalid value used in weak set"))
-                        }
-                        wStore.setAdd(wIt)
+                def wGuest:boolean false
+                if (wAdder.isFunction()) {
+                    if (wAdder.hasFunctionNode()) { wGuest = true }
+                }
+                def wProto:boolean false
+                if (this.isDescriptorObject(wInit)) {
+                    wProto = true
+                    if (wInit.isArrayValue()) { wProto = false }
+                    if (wInit.isMap()) { wProto = false }
+                    if (wInit.isSet()) { wProto = false }
+                    if (this.isGeneratorValue(wInit)) { wProto = false }
+                    if (wInit.hasOwnData("__arguments__")) { wProto = false }
+                }
+                def wIter:EvHandle (EvValueBridge.taggedUndefined())
+                def wItems:[EvHandle]
+                if wProto {
+                    def wItFn:EvHandle (this.getPropertyValue(wInit "@@iterator"))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
                     }
-                    wi = (wi + 1)
+                    if (wItFn.isFunction()) {
+                        def wNoArgs:[EvHandle]
+                        wIter = (this.callFnValueWithValues((wItFn.withThisForCall(wInit)) wNoArgs))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    } {
+                        wProto = false
+                    }
+                }
+                if (false == wProto) {
+                    wItems = (this.forOfItemList(wInit))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+                def wGoing:boolean true
+                def wi:int 0
+                def wGuard:int 0
+                while (wGoing && (wGuard < maxLoopIterations)) {
+                    def wIt:EvHandle (EvValueBridge.taggedUndefined())
+                    if wProto {
+                        def wStepArgs:[EvHandle]
+                        def wStep:EvHandle (this.callMethodOnValue(wIter "next" wStepArgs))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if (false == (this.isDescriptorObject(wStep))) {
+                            return (this.throwSpecError("TypeError" "Iterator result is not an object"))
+                        }
+                        def wDone:EvHandle (this.getPropertyValue(wStep "done"))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if (wDone.toBool()) {
+                            wGoing = false
+                        } {
+                            wIt = (this.getPropertyValue(wStep "value"))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                        }
+                    } {
+                        if (wi < (array_length wItems)) {
+                            wIt = (itemAt wItems wi)
+                            wi = (wi + 1)
+                        } {
+                            wGoing = false
+                        }
+                    }
+                    if wGoing {
+                        if wGuest {
+                            def wArgsG:[EvHandle]
+                            if (wKind == "weakmap") {
+                                def wgK:EvHandle (this.getPropertyValue(wIt "0"))
+                                if (false == scriptThrew) {
+                                    def wgV:EvHandle (this.getPropertyValue(wIt "1"))
+                                    push wArgsG wgK
+                                    push wArgsG wgV
+                                }
+                            } {
+                                push wArgsG wIt
+                            }
+                            if (false == scriptThrew) {
+                                def _wr:EvHandle (this.callFnValueWithValues((wAdder.withThisForCall(w)) wArgsG))
+                            }
+                        } {
+                            if (wKind == "weakmap") {
+                                def wK:EvHandle (this.getPropertyValue(wIt "0"))
+                                if (false == scriptThrew) {
+                                    def wV:EvHandle (this.getPropertyValue(wIt "1"))
+                                    if (false == scriptThrew) {
+                                        if (false == (this.canBeWeakTarget(wK))) {
+                                            def _wt:EvHandle (this.throwSpecError("TypeError" "Invalid value used as weak map key"))
+                                        } {
+                                            wStore.mapSet(wK wV)
+                                        }
+                                    }
+                                }
+                            } {
+                                if (false == (this.canBeWeakTarget(wIt))) {
+                                    def _wt2:EvHandle (this.throwSpecError("TypeError" "Invalid value used in weak set"))
+                                } {
+                                    wStore.setAdd(wIt)
+                                }
+                            }
+                        }
+                        if scriptThrew {
+                            if wProto {
+                                this.closeIteratorObject(wIter)
+                            }
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    }
+                    wGuard = (wGuard + 1)
                 }
             }
         }
@@ -27334,6 +27547,10 @@ class ComponentEngine {
         if (kind == "set") {
             push out "@@iterator"
             push out "add"
+            ; §24.2.3.5: a Set has `entries` too -- it yields [v, v] pairs, so a
+            ; Set and a Map can be walked by the same code. The implementation
+            ; was there; only the published name was missing.
+            push out "entries"
             push out "clear"
             push out "delete"
             push out "forEach"
@@ -28162,6 +28379,7 @@ class ComponentEngine {
         if (kind == "set") {
             if (name == "add") { return 1 }
             if (name == "clear") { return 0 }
+            if (name == "entries") { return 0 }
             if (name == "delete") { return 1 }
             if (name == "forEach") { return 1 }
             if (name == "has") { return 1 }
@@ -31015,11 +31233,19 @@ class ComponentEngine {
         }
         ; ---- Map / Set -------------------------------------------------------
         if (kind == "map") {
+                    ; §24.1.3: every Map.prototype method requires `this` to
+                    ; have the [[MapData]] slot. Map.prototype itself has none,
+                    ; so `Map.prototype.get(k)` is a TypeError rather than an
+                    ; answer -- which is how a guest tells the prototype from an
+                    ; instance.
+                    if (false == (recv.isMap())) {
+                        return (this.throwSpecError("TypeError" ("Method Map.prototype." + (name + " called on incompatible receiver"))))
+                    }
                     if (name == "set") {
                         def k:EvHandle (EvValueBridge.taggedNull())
                         def v:EvHandle (EvValueBridge.taggedUndefined())
                         if ((array_length args) > 0) {
-                            k = (itemAt args 0)
+                            k = (this.normalizeZeroKey((itemAt args 0)))
                         }
                         if ((array_length args) > 1) {
                             v = (itemAt args 1)
@@ -31098,6 +31324,12 @@ class ComponentEngine {
                     }
         }
         if (kind == "set") {
+                    ; §24.2.3: the [[SetData]] brand check, as for Map. Without
+                    ; it `Set.prototype.has(x)` answered false for the prototype
+                    ; instead of refusing a receiver that is not a Set.
+                    if (false == (recv.isSet())) {
+                        return (this.throwSpecError("TypeError" ("Method Set.prototype." + (name + " called on incompatible receiver"))))
+                    }
                     ; D-SETOPS: the ES2025 set operations. Each takes a
                     ; SET-LIKE -- `size`, `has` and `keys` -- rather than a Set,
                     ; so a Map or a guest object that offers those three is a
@@ -31187,7 +31419,7 @@ class ComponentEngine {
                     }
                     if (name == "add") {
                         if ((array_length args) > 0) {
-                            recv.setAdd((itemAt args 0))
+                            recv.setAdd((this.normalizeZeroKey((itemAt args 0))))
                         }
                         return recv
                     }
@@ -33231,6 +33463,12 @@ class ComponentEngine {
         ; because nothing here collects; the KEY CHECK is the observable part
         ; and is enforced.
         if ((kind == "weakmap") || (kind == "weakset")) {
+            ; §24.3.3 / §24.4.3: the [[WeakMapData]] / [[WeakSetData]] brand
+            ; check. The prototype has no slot, so `WeakMap.prototype.has(o)` is
+            ; a TypeError rather than a quiet false.
+            if (false == (recv.hasOwnData("__weakdata__"))) {
+                return (this.throwSpecError("TypeError" ("Method " + (name + " called on incompatible receiver"))))
+            }
             def wkStore:EvHandle (recv.getMember("__weakdata__"))
             def wkArg:EvHandle (EvValueBridge.taggedUndefined())
             if ((array_length args) > 0) { wkArg = (itemAt args 0) }
@@ -35573,8 +35811,10 @@ class ComponentEngine {
         pk.setMember("__protokind__" (EvValueBridge.taggedString(nextKind)))
         pk.setMember("next" (this.sharedNativeMethod(nextKind "next")))
         pk.setAttrs("next" true false true)
-        pk.setMember("@@iterator" (this.sharedNativeMethod("listiterator" "@@iterator")))
-        pk.setAttrs("@@iterator" true false true)
+        ; @@iterator is INHERITED from %IteratorPrototype% -- an own copy here
+        ; is a property the spec says these prototypes do not have, and
+        ; `%MapIteratorPrototype%.hasOwnProperty(Symbol.iterator)` is how the
+        ; chain is checked.
         pk.setMember("@@toStringTag" (EvValueBridge.taggedString(tag)))
         pk.setAttrs("@@toStringTag" false false true)
         this.installIteratorHelpers(pk)
@@ -44329,36 +44569,19 @@ class ComponentEngine {
             return (this.constructWeak(className wArgs))
         }
         ; Built-in collections: new Map([[k,v]...]) / new Set([v...]).
-        if (className == "Map") {
-            def m:EvHandle (EvValueBridge.taggedMapEmpty())
-            if ((array_length node.children) > 0) {
-                def init:EvHandle (this.evaluateExpr((itemAt node.children 0)))
-                if (init.isArrayValue()) {
-                    def i:int 0
-                    while (i < (init.denseLen())) {
-                        def pair:EvHandle (init.arrayItemAt(i))
-                        if (pair.isArrayValue()) {
-                            m.mapSet((pair.getIndex(0)) (pair.getIndex(1)))
-                        }
-                        i = (i + 1)
-                    }
-                }
+        ; Through the shared constructor, which walks the argument as an
+        ; ITERABLE and adds each entry through the prototype's `add` / `set`.
+        ; Built inline here, only a literal array was ever read: a Set of a
+        ; generator was empty, and a guest that replaced Set.prototype.add
+        ; never saw a single entry.
+        if ((className == "Map") || (className == "Set")) {
+            def collArgs:[EvHandle] (this.collectCallArgs(node))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
             }
-            return m
-        }
-        if (className == "Set") {
-            def st:EvHandle (EvValueBridge.taggedSetEmpty())
-            if ((array_length node.children) > 0) {
-                def init:EvHandle (this.evaluateExpr((itemAt node.children 0)))
-                if (init.isArrayValue()) {
-                    def i:int 0
-                    while (i < (init.denseLen())) {
-                        st.setAdd((init.arrayItemAt(i)))
-                        i = (i + 1)
-                    }
-                }
-            }
-            return st
+            def collInitV:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length collArgs) > 0) { collInitV = (itemAt collArgs 0) }
+            return (this.constructCollectionValue(className collInitV))
         }
         ; D-ERRORS: `new TypeError(msg)` / `new Error(msg)`. The constructor is a
         ; seeded singleton, so the resulting object's `constructor` compares equal
