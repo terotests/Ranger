@@ -1,0 +1,36 @@
+{"evg":1,"root":{"tag":"div","props":{"display":"flex","width":"390px","height":"844px","gap":"8px","font-size":"14px","background-color":"rgb(241,245,249)","padding-top":"16px","padding-right":"16px","padding-bottom":"16px","padding-left":"16px"},"children":[
+    {"tag":"div","props":{"display":"flex","flex-direction":"row","justify-content":"space-between","align-items":"center","height":"40px","font-size":"14px"},"children":[
+      {"tag":"span","text":"Settings","props":{"font-weight":"bold","font-size":"20px","color":"rgb(15,23,42)"}},
+      {"tag":"span","text":"you","props":{"font-size":"11px","color":"rgb(100,116,139)"}}
+    ]},
+    {"tag":"div","props":{"display":"flex","gap":"4px","font-size":"14px"},"children":[
+      {"tag":"span","text":"Account","props":{"font-size":"13px","color":"rgb(100,116,139)"}},
+      {"tag":"span","text":"How the product talks to you","props":{"font-weight":"bold","font-size":"20px","color":"rgb(15,23,42)"}}
+    ]},
+    {"tag":"div","props":{"display":"flex","flex-direction":"row","align-items":"center","height":"80px","gap":"14px","font-size":"14px","background-color":"rgb(255,255,255)","padding-right":"16px","padding-left":"16px","border-radius":"16px"},"children":[
+      {"tag":"div","props":{"width":"56px","height":"56px","font-size":"14px","background-color":"rgb(14,165,233)","border-radius":"28px"}},
+      {"tag":"div","props":{"display":"flex","gap":"4px","font-size":"14px"},"children":[
+        {"tag":"span","text":"Tero Testinen","props":{"font-weight":"bold","font-size":"16px","color":"rgb(15,23,42)"}},
+        {"tag":"span","text":"tero@northwind.fi","props":{"font-size":"13px","color":"rgb(100,116,139)"}}
+      ]}
+    ]},
+    {"tag":"div","props":{"display":"flex","flex-direction":"row","justify-content":"space-between","align-items":"center","height":"48px","font-size":"14px","background-color":"rgb(255,255,255)","padding-right":"16px","padding-left":"16px","border-radius":"12px"},"children":[
+      {"tag":"span","text":"Notifications","props":{"font-size":"15px","color":"rgb(15,23,42)"}},
+      {"tag":"span","text":"On","props":{"font-size":"13px","color":"rgb(100,116,139)"}}
+    ]},
+    {"tag":"div","props":{"display":"flex","flex-direction":"row","justify-content":"space-between","align-items":"center","height":"48px","font-size":"14px","background-color":"rgb(255,255,255)","padding-right":"16px","padding-left":"16px","border-radius":"12px"},"children":[
+      {"tag":"span","text":"Weekly digest","props":{"font-size":"15px","color":"rgb(15,23,42)"}},
+      {"tag":"span","text":"Mondays","props":{"font-size":"13px","color":"rgb(100,116,139)"}}
+    ]},
+    {"tag":"div","props":{"display":"flex","flex-direction":"row","justify-content":"space-between","align-items":"center","height":"48px","font-size":"14px","background-color":"rgb(255,255,255)","padding-right":"16px","padding-left":"16px","border-radius":"12px"},"children":[
+      {"tag":"span","text":"Language","props":{"font-size":"15px","color":"rgb(15,23,42)"}},
+      {"tag":"span","text":"English","props":{"font-size":"13px","color":"rgb(100,116,139)"}}
+    ]},
+    {"tag":"div","props":{"display":"flex","flex-direction":"row","justify-content":"space-between","align-items":"center","height":"48px","font-size":"14px","background-color":"rgb(255,255,255)","padding-right":"16px","padding-left":"16px","border-radius":"12px"},"children":[
+      {"tag":"span","text":"Appearance","props":{"font-size":"15px","color":"rgb(15,23,42)"}},
+      {"tag":"span","text":"System","props":{"font-size":"13px","color":"rgb(100,116,139)"}}
+    ]},
+    {"tag":"div","props":{"display":"flex","position":"absolute","flex-direction":"row","justify-content":"center","align-items":"center","width":"358px","height":"48px","left":"16px","bottom":"16px","font-size":"14px","background-color":"rgb(254,226,226)","border-radius":"12px"},"children":[
+      {"tag":"span","text":"Sign out","props":{"font-weight":"bold","font-size":"15px","color":"rgb(185,28,28)"}}
+    ]}
+  ]}}

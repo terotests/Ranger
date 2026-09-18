@@ -137,7 +137,7 @@
   <div class="mark">RANGER · <span>EVG live build</span></div>
   <form class="ask" id="ask">
     <input id="prompt" name="prompt" autocomplete="off"
-      placeholder="Ask for a dashboard, or change the look: larger title, gold accent…">
+      placeholder="The phone already has a screen — ask for a change, then Build">
     <button class="primary" id="go" type="submit">Build</button>
   </form>
   <div class="chips" id="chips"></div>
@@ -159,7 +159,7 @@
   <div class="side">
     <section>
       <h2>Thinking <span id="kindLabel"></span></h2>
-      <pre class="think" id="think"><span class="empty">The agent has not started.</span></pre>
+      <pre class="think" id="think"><span class="empty">Loading a phone seed…</span></pre>
     </section>
     <section>
       <h2>EVGPatch ops</h2>
@@ -216,7 +216,7 @@ for (const k of kinds.kinds) {
     current = k.id;
     $("prompt").value = k.prompt;
     chips.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", c === b));
-    start(k.id);
+    loadSeed(k.id);
   });
   chips.appendChild(b);
 }
@@ -224,26 +224,49 @@ $("prompt").value = kinds.kinds[0].prompt;
 
 $("ask").addEventListener("submit", (e) => {
   e.preventDefault();
-  const prompt = $("prompt").value.trim();
-  start(prompt || current, true);
+  start(true);
 });
 
-function start(kindOrPrompt, keepPicture) {
+async function loadSeed(kind) {
+  if (es) { es.close(); es = null; }
+  $("go").disabled = false;
+  const d = await (await fetch("/seed?kind=" + encodeURIComponent(kind))).json();
+  current = d.kind || kind;
+  paintFrame(d);
+  $("added").textContent = "seed";
+  $("kindLabel").textContent = current;
+  $("think").innerHTML = '<span class="empty">The phone already has a screen. Type a change and press Build — you do not have to wait for a first draft.</span>';
+  $("ops").innerHTML = '<span class="empty">Deltas land here as they apply.</span>';
+  $("code").innerHTML = '<span class="empty">Source is streamed with the tree.</span>';
+  $("ntok").textContent = "0";
+  tokens = 0;
+  thinkStarted = false;
+}
+
+function paintFrame(d) {
+  $("ncmds").textContent = String(d.ncmds || 0);
+  $("nodes").textContent = String(d.nodes || 0);
+  if (d.list) {
+    renderDisplayList($("screen"), { width: d.width, height: d.height, list: d.list }, {});
+  }
+}
+
+function start(keepPicture) {
   if (es) { es.close(); es = null; }
   thinkStarted = false;
   tokens = 0;
   $("think").textContent = "";
   $("ops").innerHTML = "";
   $("code").textContent = "";
-  $("ncmds").textContent = "0";
+  $("ncmds").textContent = keepPicture ? $("ncmds").textContent : "0";
   $("added").textContent = "0";
-  $("nodes").textContent = "0";
+  $("nodes").textContent = keepPicture ? $("nodes").textContent : "0";
   $("ntok").textContent = "0";
   $("kindLabel").textContent = "";
   $("go").disabled = true;
   if (!keepPicture) $("screen").replaceChildren();
-  const q = encodeURIComponent(kindOrPrompt);
-  es = new EventSource(`/stream?agent=${encodeURIComponent(currentAgent)}&kind=${q}&prompt=${q}&pace=24`);
+  const prompt = $("prompt").value.trim() || current;
+  es = new EventSource(`/stream?agent=${encodeURIComponent(currentAgent)}&kind=${encodeURIComponent(current)}&prompt=${encodeURIComponent(prompt)}&pace=24`);
   const on = (type, fn) => es.addEventListener(type, (ev) => {
     if (!ev.data) return;
     fn(JSON.parse(ev.data));
@@ -288,11 +311,8 @@ function start(kindOrPrompt, keepPicture) {
     $("code").scrollTop = $("code").scrollHeight;
   });
   on("frame", (d) => {
-    $("ncmds").textContent = String(d.ncmds || 0);
     $("added").textContent = "+" + String(d.added || 0);
-    $("nodes").textContent = String(d.nodes || 0);
-    const doc = { width: d.width, height: d.height, list: d.list };
-    renderDisplayList($("screen"), doc, {});
+    paintFrame(d);
   });
   on("error", (d) => {
     $("think").append("\n\nerror: " + (d.text || "failed"));
@@ -321,5 +341,5 @@ function cursor() {
   return c;
 }
 
-start(current);
+loadSeed(current);
 </script>

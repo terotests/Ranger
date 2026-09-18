@@ -62,7 +62,12 @@ npm run livebuild:serve
 ```
 
 The server compiles the Ranger program if needed, then serves the page and
-one SSE stream per build. `?pace=0` on `/stream` turns the token delay off.
+one SSE stream per build. The page **loads a finished phone dashboard
+immediately** — Build stays enabled. Kind chips (Dashboard, Settings,
+Invoices, Empty) swap that seed without starting an agent. Build is what
+runs Cursor / recipe / … against the screen you already see.
+
+`?pace=0` on `/stream` turns the token delay off.
 
 To drive it with **local Cursor** (Agent CLI + your subscription):
 
@@ -74,10 +79,12 @@ npm run livebuild:withcursor
 ```
 
 That checks `agent` / `cursor-agent` is on `PATH` and logged in, compiles
-the live-build program, and starts the page with Cursor selected. Each
-Build spawns `agent -p <task> --force --trust --workspace <tmp>` against a
-throwaway folder (`doc.evg.json`, `AGENTS.md`, `./evg-agent`). It is not
-the Cloud Agents REST API — that clones GitHub; this watches a local file.
+the live-build program, and starts the page with Cursor selected. The phone
+already has a dashboard; type a change and press Build. Each Build spawns
+`agent -p <task> --force --trust --workspace <tmp>` against a throwaway
+folder seeded with that screen (`doc.evg.json`, `AGENTS.md`, `./evg-agent`).
+It is not the Cloud Agents REST API — that clones GitHub; this watches a
+local file.
 
 Without a browser:
 

@@ -494,6 +494,13 @@ sfn main:void () {
         this.emitLine(out)
     }
 
+    fn emitSave:void () {
+        def text:string (EVGTreeJson.toText(root))
+        def out:string "{\"t\":\"doc\",\"text\":"
+        out = ((out + (EVGTreeJson.str(text))) + "}")
+        this.emitLine(out)
+    }
+
     sfn sizeOf:int (el:EVGElement wide:boolean fallback:int) {
         def u@(optional):EVGUnit el.height
         if wide {
@@ -567,6 +574,7 @@ sfn main:void () {
         this.emitFrame()
         this.emitMeasure()
         this.emitDoc()
+        this.emitSave()
         steps = 1
         this.emitDone()
     }
@@ -814,6 +822,7 @@ sfn main:void () {
             this.recipeRestyle(folded)
         }
         this.emitMeasure()
+        this.emitSave()
         this.emitDone()
     }
 
@@ -826,6 +835,7 @@ sfn main:void () {
         if (argc < 1) {
             print "usage: evg_livebuild run <dashboard|settings|invoices>"
             print "       evg_livebuild frame <doc.evg.json>"
+            print "       evg_livebuild dump <dashboard|settings|invoices>"
             print "       evg_livebuild kinds"
             return
         }
@@ -860,6 +870,16 @@ sfn main:void () {
                 return
             }
             this.runFrameFile((shell_arg 1))
+            return
+        }
+        if (verb == "dump") {
+            printing = false
+            def k:string "dashboard"
+            if (argc >= 2) {
+                k = (shell_arg 1)
+            }
+            this.runKind(k)
+            print (EVGTreeJson.toText(root))
             return
         }
         print ("unknown verb " + verb)
