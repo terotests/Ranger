@@ -20710,6 +20710,26 @@ class ComponentEngine {
                 ; matters: it is callable and returns undefined for any
                 ; arguments, and reporting "prototype is not a function" was the
                 ; opposite of what `typeof` had just said about it.
+                ; D-PROXY: a method CALL on a proxy is a `get` of the method --
+                ; through the trap, or the target's own chain when there is none
+                ; -- followed by a call with the PROXY as the receiver. Every
+                ; branch above dispatches on the receiver's KIND, and a proxy
+                ; has none of its own, so `new Proxy([], {}).pop()` reached
+                ; "pop is not a function" for a method its target answers.
+                if (this.isProxyValue(obj)) {
+                    def pxFn:EvHandle (this.getPropertyValue(obj methodName))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    def pxArgs:[EvHandle] (this.collectCallArgs(node))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (pxFn.isFunction()) {
+                        return (this.callFnValueWithValues((pxFn.withThisForCall(obj)) pxArgs))
+                    }
+                    return (this.throwSpecError("TypeError" (methodName + " is not a function")))
+                }
                 def memberVal:EvHandle (obj.getMember(methodName))
                 if (memberVal.isFunction()) {
                     if (memberVal.hasOwnData("__fnprotocall__")) {
@@ -37248,7 +37268,16 @@ class ComponentEngine {
             }
         }
         def direct:EvHandle (obj.getMember(key))
-        if (false == (direct.isUndefined())) {
+        def directPresent:boolean (false == (direct.isUndefined()))
+        ; D-PROTO: an ARRAY or a MAP answers a raw NULL for a key it does not
+        ; hold, which is not the same as holding null. Taken as a value, the
+        ; walk below never ran for either, so `Reflect.get([], "pop")` -- and
+        ; every method read through a proxy over one -- answered null for a
+        ; method the prototype publishes.
+        if (direct.isNull()) {
+            directPresent = (obj.hasOwnData(key))
+        }
+        if directPresent {
             return direct
         }
         ; D-PROTO: an ARRAY carries no prototype link of its own, so the value
